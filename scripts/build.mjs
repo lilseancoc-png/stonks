@@ -90,32 +90,37 @@ async function fetchEarnings(dateStr) {
   }
 }
 
-async function fetchScreener(scrId, count = 15) {
-  const hosts = [
-    "https://query1.finance.yahoo.com",
-    "https://query2.finance.yahoo.com",
-  ];
-  let lastErr;
-  for (const host of hosts) {
-    const url = `${host}/v1/finance/screener/predefined/saved?count=${count}&scrIds=${scrId}`;
-    try {
-      const data = await fetchJson(url);
-      const quotes = data?.finance?.result?.[0]?.quotes ?? [];
-      return quotes.map((q) => ({
-        symbol: q.symbol,
-        name: q.shortName || q.longName || q.symbol,
-        price: q.regularMarketPrice,
-        change: q.regularMarketChange,
-        changePct: q.regularMarketChangePercent,
-        volume: q.regularMarketVolume,
-        marketCap: q.marketCap,
-      }));
-    } catch (err) {
-      lastErr = err;
-    }
+// Parse Nasdaq's stringified numbers like "$190.45", "+5.00", "+2.70%",
+// "75,123,456", "$3,200,000,000" → number. Returns null if unparseable.
+function parseNasdaqNum(s) {
+  if (s == null) return null;
+  const cleaned = String(s).replace(/[$,%+\s]/g, "");
+  if (cleaned === "" || cleaned === "N/A" || cleaned === "--") return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchMovers(direction, count = 15) {
+  // Nasdaq market movers. Direction: "GAINERS" | "LOSERS" | "ACTIVE".
+  const url = `https://api.nasdaq.com/api/marketmovers/STOCKS?direction=${direction}&limit=${count}`;
+  try {
+    const data = await fetchJson(url, {
+      headers: { Accept: "application/json, text/plain, */*" },
+    });
+    const rows = data?.data?.table?.rows ?? [];
+    return rows.slice(0, count).map((r) => ({
+      symbol: r.symbol,
+      name: r.name || r.companyName || r.symbol,
+      price: parseNasdaqNum(r.lastSalePrice ?? r.lastSale),
+      change: parseNasdaqNum(r.netChange),
+      changePct: parseNasdaqNum(r.percentageChange),
+      volume: parseNasdaqNum(r.volume),
+      marketCap: parseNasdaqNum(r.marketCap),
+    }));
+  } catch (err) {
+    console.error(`movers ${direction} failed:`, err.message);
+    return [];
   }
-  console.error(`screener ${scrId} failed:`, lastErr?.message);
-  return [];
 }
 
 const fmtNum = new Intl.NumberFormat("en-US");
@@ -391,9 +396,9 @@ async function main() {
 
   const [earnings, gainers, losers, actives] = await Promise.all([
     fetchEarnings(today),
-    fetchScreener("day_gainers", 15),
-    fetchScreener("day_losers", 15),
-    fetchScreener("most_actives", 15),
+    fetchMovers("GAINERS", 15),
+    fetchMovers("LOSERS", 15),
+    fetchMovers("ACTIVE", 15),
   ]);
 
   const html = renderHtml({
