@@ -251,17 +251,23 @@ function earningsRow(e) {
 }
 
 function volQuoteCard(q) {
-  const pct = q.changePct ?? 0;
-  const cls = pct >= 0 ? "pos" : "neg";
-  const sign = pct >= 0 ? "+" : "";
+  const pct = q.changePct;
   const enc = encodeURIComponent(q.symbol);
   const chain = q.symbol.startsWith("^")
     ? `https://finance.yahoo.com/quote/${enc}`
     : `https://finance.yahoo.com/quote/${enc}/options`;
+  let pctHtml;
+  if (pct == null) {
+    pctHtml = `<div class="vol-pct">—</div>`;
+  } else {
+    const cls = pct >= 0 ? "pos" : "neg";
+    const sign = pct >= 0 ? "+" : "";
+    pctHtml = `<div class="vol-pct ${cls}">${sign}${fmtPct.format(pct)}%</div>`;
+  }
   return `<a class="vol-tile" href="${chain}" target="_blank" rel="noopener">
     <div class="vol-label">${escapeHtml(q.label)}</div>
     <div class="vol-price">${q.price != null ? fmtPrice.format(q.price) : "—"}</div>
-    <div class="vol-pct ${cls}">${sign}${q.changePct != null ? fmtPct.format(q.changePct) : "0.00"}%</div>
+    ${pctHtml}
   </a>`;
 }
 
@@ -332,6 +338,7 @@ const calculatorScript = `
     } else {
       price = K*disc_r*ncdf(-d2) - S*disc_q*ncdf(-d1);
       delta = -disc_q*ncdf(-d1);
+      // Deep-ITM European puts can have positive theta when r is high relative to q — that is the BSM result, not a bug.
       theta = (-S*disc_q*nd1*sigma/(2*sqrtT) + r*K*disc_r*ncdf(-d2) - q*S*disc_q*ncdf(-d1));
       rho   = -K*T*disc_r*ncdf(-d2);
     }

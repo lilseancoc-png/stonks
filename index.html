@@ -236,7 +236,7 @@
 <body>
 <header>
   <h1>Stonks Hub <span class="sub-tag">options edition</span></h1>
-  <div class="sub">Tuesday, April 28, 2026 · Updated Apr 28, 2026, 10:18 PM (NY) · auto-refreshed daily · <a href="#calc">jump to calculator</a></div>
+  <div class="sub">Tuesday, April 28, 2026 · Updated Apr 28, 2026, 10:25 PM (NY) · auto-refreshed daily · <a href="#calc">jump to calculator</a></div>
 </header>
 <main>
   
@@ -305,6 +305,7 @@
     } else {
       price = K*disc_r*ncdf(-d2) - S*disc_q*ncdf(-d1);
       delta = -disc_q*ncdf(-d1);
+      // Deep-ITM European puts can have positive theta when r is high relative to q — that is the BSM result, not a bug.
       theta = (-S*disc_q*nd1*sigma/(2*sqrtT) + r*K*disc_r*ncdf(-d2) - q*S*disc_q*ncdf(-d1));
       rho   = -K*T*disc_r*ncdf(-d2);
     }
