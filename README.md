@@ -1,11 +1,19 @@
 # stonks
 
-A one-stop daily hub for U.S. stock earnings and the day's biggest movers.
+A one-stop daily hub for U.S. options traders: earnings, biggest movers,
+volatility snapshot, and an in-page Black-Scholes calculator.
 
 ## What it shows
 
-- **Earnings Today** — companies reporting before market open or after close (Nasdaq earnings calendar).
-- **Top Gainers / Top Losers / Most Active** — biggest movers of the session (Yahoo Finance predefined screeners).
+- **Volatility & Indexes** — VIX, VVIX, SPY, QQQ, IWM, DIA snapshot. Click any
+  tile to open its option chain on Yahoo.
+- **Earnings Today** — companies reporting before market open or after close
+  (Nasdaq earnings calendar). Each ticker links to its option chain.
+- **Top Gainers / Top Losers / Most Active** — biggest movers of the session.
+  Each row has a `→ calc` button that loads the symbol + spot into the pricer.
+- **Black-Scholes Options Calculator** — client-side pricer for calls and puts
+  with continuous dividend yield. Outputs price, delta, gamma, theta (per day),
+  vega (per 1% IV), rho (per 1% rate), 1σ expected move, and break-even.
 
 The page is a static `index.html` regenerated daily.
 
@@ -33,4 +41,6 @@ workflow will publish the site.
 
 ## Disclaimer
 
-For information only. Not investment advice.
+For information only. Not investment advice. The Black-Scholes calculator is a
+theoretical pricing model — real option prices reflect supply/demand, skew,
+and discrete dividends, and may diverge from model output.
