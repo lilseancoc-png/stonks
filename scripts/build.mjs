@@ -1,6 +1,5 @@
-// Fetches today's earnings calendar, biggest movers, and key volatility/index
-// quotes, then writes index.html. The page also embeds a client-side
-// Black-Scholes options calculator.
+// Fetches today's earnings calendar, biggest movers, key volatility/index
+// quotes, and momentum plays, then writes index.html.
 // Sources:
 //   - Nasdaq earnings calendar & market movers (api.nasdaq.com)
 //   - Yahoo Finance chart endpoint for index/ETF quotes
@@ -230,7 +229,7 @@ function moverRow(q) {
   const cls = pct >= 0 ? "pos" : "neg";
   const sign = pct >= 0 ? "+" : "";
   return `<tr>
-    <td class="sym">${symbolLinks(q.symbol)}<button class="calc-link" data-sym="${escapeHtml(q.symbol)}" data-spot="${q.price ?? ""}" title="Send to options calculator">→ calc</button></td>
+    <td class="sym">${symbolLinks(q.symbol)}</td>
     <td class="name">${escapeHtml(q.name)}</td>
     <td class="num">${q.price != null ? `$${fmtPrice.format(q.price)}` : "—"}</td>
     <td class="num ${cls}">${sign}${fmtPct.format(pct)}%</td>
@@ -241,7 +240,7 @@ function moverRow(q) {
 
 function earningsRow(e) {
   return `<tr>
-    <td class="sym">${symbolLinks(e.symbol)}<button class="calc-link" data-sym="${escapeHtml(e.symbol)}" title="Send to options calculator">→ calc</button></td>
+    <td class="sym">${symbolLinks(e.symbol)}</td>
     <td class="name">${escapeHtml(e.name)}</td>
     <td>${earningsTimeLabel(e.time)}</td>
     <td class="num">${escapeHtml(e.epsForecast || "—")}</td>
@@ -280,129 +279,43 @@ function volatilitySection(quotes) {
   </section>`;
 }
 
-function calculatorSection() {
-  return `<section class="card full" id="calc">
-    <h2>Black-Scholes Options Calculator</h2>
-    <form id="bs-form" class="bs-form" onsubmit="return false">
-      <label>Symbol<input id="bs-sym" type="text" value="SPY" autocomplete="off" /></label>
-      <label>Spot ($)<input id="bs-spot" type="number" step="0.01" value="500" /></label>
-      <label>Strike ($)<input id="bs-strike" type="number" step="0.01" value="500" /></label>
-      <label>Days to expiry<input id="bs-dte" type="number" step="1" min="0" value="30" /></label>
-      <label>IV (%)<input id="bs-iv" type="number" step="0.1" min="0" value="20" /></label>
-      <label>Rate (%)<input id="bs-rate" type="number" step="0.05" value="4.5" /></label>
-      <label>Dividend (%)<input id="bs-div" type="number" step="0.05" value="0" /></label>
-      <label>Type
-        <select id="bs-type">
-          <option value="call">Call</option>
-          <option value="put">Put</option>
-        </select>
-      </label>
-    </form>
-    <div class="bs-out" id="bs-out"></div>
-    <p class="hint">Pure Black-Scholes-Merton with continuous dividend yield. Greeks are per 1-share contract; multiply by 100 for a standard contract. Inputs auto-recalculate.</p>
-  </section>`;
+// Score gainers by momentum: change% × log10(volume).
+// Stocks also appearing in the actives list get a 1.5× volume-conviction boost.
+function computeSpotlight(gainers, actives) {
+  const activeSyms = new Set(actives.map((r) => r.symbol));
+  return gainers
+    .filter((g) => g.changePct != null && g.volume != null && g.price != null && g.changePct > 0)
+    .map((g) => ({
+      ...g,
+      score: g.changePct * Math.log10(g.volume + 1) * (activeSyms.has(g.symbol) ? 1.5 : 1),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
 }
 
-const calculatorScript = `
-<script>
-(function(){
-  // Abramowitz & Stegun 26.2.17 — standard normal CDF.
-  function ncdf(x){
-    var a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
-    var sign = x < 0 ? -1 : 1;
-    x = Math.abs(x)/Math.sqrt(2);
-    var t = 1/(1+p*x);
-    var y = 1 - (((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
-    return 0.5*(1+sign*y);
-  }
-  function npdf(x){ return Math.exp(-x*x/2)/Math.sqrt(2*Math.PI); }
+function spotlightCard(q) {
+  const enc = encodeURIComponent(q.symbol);
+  const chain = `https://finance.yahoo.com/quote/${enc}/options`;
+  const quote = `https://finance.yahoo.com/quote/${enc}`;
+  const sign = q.changePct >= 0 ? "+" : "";
+  return `<a class="spot-card" href="${chain}" target="_blank" rel="noopener" title="Open option chain for ${escapeHtml(q.symbol)}">
+    <div class="spot-sym">${escapeHtml(q.symbol)}</div>
+    <div class="spot-name">${escapeHtml(q.name)}</div>
+    <div class="spot-price">$${fmtPrice.format(q.price)}</div>
+    <div class="spot-pct pos">${sign}${fmtPct.format(q.changePct)}%</div>
+    <div class="spot-vol">${compactVol(q.volume)} vol</div>
+    <div class="spot-chain-hint">tap for options chain</div>
+  </a>`;
+}
 
-  function bs(opts){
-    var S=opts.S,K=opts.K,T=opts.T,sigma=opts.sigma,r=opts.r,q=opts.q,type=opts.type;
-    if(!(S>0 && K>0 && sigma>=0)) return null;
-    if(T<=0){
-      var intrinsic = type==='call' ? Math.max(0,S-K) : Math.max(0,K-S);
-      return {price: intrinsic, delta: type==='call'? (S>K?1:0):(S<K?-1:0), gamma:0, theta:0, vega:0, rho:0};
-    }
-    var sqrtT = Math.sqrt(T);
-    var d1 = (Math.log(S/K) + (r-q+sigma*sigma/2)*T) / (sigma*sqrtT);
-    var d2 = d1 - sigma*sqrtT;
-    var Nd1=ncdf(d1), Nd2=ncdf(d2), nd1=npdf(d1);
-    var disc_q=Math.exp(-q*T), disc_r=Math.exp(-r*T);
-    var price, delta, theta, rho;
-    if(type==='call'){
-      price = S*disc_q*Nd1 - K*disc_r*Nd2;
-      delta = disc_q*Nd1;
-      theta = (-S*disc_q*nd1*sigma/(2*sqrtT) - r*K*disc_r*Nd2 + q*S*disc_q*Nd1);
-      rho   = K*T*disc_r*Nd2;
-    } else {
-      price = K*disc_r*ncdf(-d2) - S*disc_q*ncdf(-d1);
-      delta = -disc_q*ncdf(-d1);
-      // Deep-ITM European puts can have positive theta when r is high relative to q — that is the BSM result, not a bug.
-      theta = (-S*disc_q*nd1*sigma/(2*sqrtT) + r*K*disc_r*ncdf(-d2) - q*S*disc_q*ncdf(-d1));
-      rho   = -K*T*disc_r*ncdf(-d2);
-    }
-    var gamma = disc_q*nd1/(S*sigma*sqrtT);
-    var vega  = S*disc_q*nd1*sqrtT;
-    return {price:price, delta:delta, gamma:gamma, theta:theta/365, vega:vega/100, rho:rho/100};
-  }
-
-  function fmt(n, d){ if(!isFinite(n)) return '—'; return n.toFixed(d==null?4:d); }
-  function fmtMoney(n){ if(!isFinite(n)) return '—'; return '$'+n.toFixed(2); }
-
-  function recalc(){
-    var S=parseFloat(document.getElementById('bs-spot').value);
-    var K=parseFloat(document.getElementById('bs-strike').value);
-    var dte=parseFloat(document.getElementById('bs-dte').value);
-    var iv=parseFloat(document.getElementById('bs-iv').value)/100;
-    var r=parseFloat(document.getElementById('bs-rate').value)/100;
-    var q=parseFloat(document.getElementById('bs-div').value)/100;
-    var type=document.getElementById('bs-type').value;
-    var T=dte/365;
-    var res = bs({S:S,K:K,T:T,sigma:iv,r:r,q:q,type:type});
-    var out = document.getElementById('bs-out');
-    if(!res){ out.innerHTML = '<div class="bs-cell"><span>Enter valid inputs</span></div>'; return; }
-    var oneSDMove = S*iv*Math.sqrt(T);
-    var rows = [
-      ['Price',         fmtMoney(res.price)],
-      ['Delta',         fmt(res.delta,4)],
-      ['Gamma',         fmt(res.gamma,5)],
-      ['Theta / day',   fmtMoney(res.theta)],
-      ['Vega / 1% IV',  fmtMoney(res.vega)],
-      ['Rho / 1% rate', fmtMoney(res.rho)],
-      ['1σ move (T)',   '±'+fmtMoney(oneSDMove)],
-      ['Break-even',    type==='call' ? fmtMoney(K+res.price) : fmtMoney(K-res.price)],
-    ];
-    out.innerHTML = rows.map(function(r){
-      return '<div class="bs-cell"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>';
-    }).join('');
-  }
-
-  function bind(){
-    var ids=['bs-spot','bs-strike','bs-dte','bs-iv','bs-rate','bs-div','bs-type','bs-sym'];
-    ids.forEach(function(id){
-      var el=document.getElementById(id);
-      if(el){ el.addEventListener('input', recalc); el.addEventListener('change', recalc); }
-    });
-    document.querySelectorAll('.calc-link').forEach(function(btn){
-      btn.addEventListener('click', function(e){
-        e.preventDefault();
-        var sym=btn.getAttribute('data-sym');
-        var spot=btn.getAttribute('data-spot');
-        document.getElementById('bs-sym').value=sym;
-        if(spot){
-          document.getElementById('bs-spot').value=spot;
-          document.getElementById('bs-strike').value=spot;
-        }
-        recalc();
-        document.getElementById('calc').scrollIntoView({behavior:'smooth',block:'start'});
-      });
-    });
-    recalc();
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', bind); else bind();
-})();
-</script>`;
+function spotlightSection(picks) {
+  if (!picks.length) return "";
+  return `<section class="card full">
+    <h2>Momentum Plays <span class="count">${picks.length}</span></h2>
+    <p class="hint">Top gainers ranked by move size × volume — highest-conviction moves today. Click any card for its options chain.</p>
+    <div class="spot-grid">${picks.map(spotlightCard).join("")}</div>
+  </section>`;
+}
 
 function moverTable(title, rows) {
   if (!rows.length) {
@@ -448,7 +361,7 @@ function earningsSection(rows) {
   </section>`;
 }
 
-function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, actives, volatility }) {
+function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, actives, volatility, spotlight }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -578,18 +491,6 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
     font-size: 13px;
   }
   td.sym a.chain:hover { opacity: 1; text-decoration: none; }
-  .calc-link {
-    margin-left: 8px;
-    background: transparent;
-    color: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1px 6px;
-    font-size: 11px;
-    cursor: pointer;
-    font-family: inherit;
-  }
-  .calc-link:hover { color: var(--accent); border-color: var(--accent); }
   .vol-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -611,60 +512,67 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
   .vol-price { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .vol-pct { font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .hint { color: var(--muted); font-size: 12px; margin: 6px 0 10px; }
-  .bs-form {
+  .spot-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-  .bs-form label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    color: var(--muted);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .bs-form input, .bs-form select {
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 10px;
-    font: inherit;
-    font-variant-numeric: tabular-nums;
-  }
-  .bs-form input:focus, .bs-form select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-  .bs-out {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
     margin-bottom: 6px;
   }
-  .bs-cell {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 12px;
+  .spot-card {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
+    background: linear-gradient(145deg, var(--panel-2), #1a2540);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 14px 12px;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
   }
-  .bs-cell span {
-    color: var(--muted);
+  .spot-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(110,168,255,0.12);
+  }
+  .spot-sym {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--accent);
+  }
+  .spot-name {
     font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 6px;
   }
-  .bs-cell b {
-    font-weight: 600;
+  .spot-price {
     font-size: 16px;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
+  .spot-pct {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .spot-vol {
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+  .spot-chain-hint {
+    font-size: 10px;
+    color: var(--accent);
+    opacity: 0.6;
+    margin-top: 6px;
+    letter-spacing: 0.04em;
+  }
+  .spot-card:hover .spot-chain-hint { opacity: 1; }
   td.name {
     max-width: 280px;
     overflow: hidden;
@@ -687,22 +595,21 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
 <body>
 <header>
   <h1>Stonks Hub <span class="sub-tag">options edition</span></h1>
-  <div class="sub">${prettyDate} · Updated ${updated} (NY) · auto-refreshed daily · <a href="#calc">jump to calculator</a></div>
+  <div class="sub">${prettyDate} · Updated ${updated} (NY) · auto-refreshed daily</div>
 </header>
 <main>
   ${volatilitySection(volatility)}
+  ${spotlightSection(spotlight)}
   ${earningsSection(earnings)}
   ${moverTable("Top Gainers", gainers)}
   ${moverTable("Top Losers", losers)}
   ${moverTable("Most Active", actives)}
-  ${calculatorSection()}
 </main>
 <footer>
   Data: Nasdaq earnings calendar, Nasdaq market movers, Yahoo Finance chart endpoint.
-  Click ⛓ on any ticker to open its option chain on Yahoo. For information only — not investment advice.
+  Click ⛓ on any ticker or a Momentum card to open its option chain on Yahoo. For information only — not investment advice.
   <br/>Date key: ${today}
 </footer>
-${calculatorScript}
 </body>
 </html>`;
 }
@@ -720,6 +627,8 @@ async function main() {
     fetchVolatilityPanel(),
   ]);
 
+  const spotlight = computeSpotlight(gainers, actives);
+
   const html = renderHtml({
     today,
     prettyDate: nyPretty() + (isWeekend ? " (markets closed)" : ""),
@@ -729,12 +638,13 @@ async function main() {
     losers,
     actives,
     volatility,
+    spotlight,
   });
 
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
   console.log(
-    `wrote ${OUT} — earnings:${earnings.length} gainers:${gainers.length} losers:${losers.length} actives:${actives.length} vol:${volatility.length}`,
+    `wrote ${OUT} — earnings:${earnings.length} gainers:${gainers.length} losers:${losers.length} actives:${actives.length} vol:${volatility.length} spotlight:${spotlight.length}`,
   );
 }
 
