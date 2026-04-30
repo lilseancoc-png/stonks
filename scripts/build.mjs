@@ -381,8 +381,9 @@ const watchlistScript = `
     return['closed','Market Closed'];
   }
   async function yq(syms,fields){
-    var url='https://query1.finance.yahoo.com/v7/finance/quote?symbols='+syms.join(',')+'&fields='+fields.join(',');
-    var r=await fetch(url,{headers:{Accept:'application/json'}});
+    var target='https://query1.finance.yahoo.com/v7/finance/quote?symbols='+syms.join(',')+'&fields='+fields.join(',');
+    var url='https://api.allorigins.win/raw?url='+encodeURIComponent(target);
+    var r=await fetch(url);
     if(!r.ok)throw new Error('HTTP '+r.status);
     return((await r.json()).quoteResponse.result)||[];
   }
