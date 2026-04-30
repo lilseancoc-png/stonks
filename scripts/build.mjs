@@ -476,7 +476,7 @@ function chatScript(data) {
       var res=await fetch('https://text.pollinations.ai/',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({messages:messages,model:'openai',seed:Date.now()%9999,private:true})
+        body:JSON.stringify({messages:messages,model:'openai-large',seed:Date.now()%9999,private:true})
       });
       if(!res.ok)throw new Error('Service returned HTTP '+res.status+'. Please try again.');
       var reply=await res.text();
