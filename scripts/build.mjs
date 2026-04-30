@@ -372,6 +372,202 @@ function watchlistSection() {
   </section>`;
 }
 
+function chatHtml() {
+  return `
+<button class="chat-fab" id="chat-fab" title="Ask AI about stocks">&#x1F4AC;</button>
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-header">
+    <span class="chat-title">AI Stock Assistant</span>
+    <div style="display:flex;gap:6px;">
+      <button class="chat-icon-btn" id="chat-key-btn" title="Set API key">&#x2699;&#xFE0F;</button>
+      <button class="chat-icon-btn" id="chat-close" title="Close">&#x2715;</button>
+    </div>
+  </div>
+  <div class="chat-messages" id="chat-messages">
+    <div class="chat-msg assistant">Hi! I have today's earnings, movers, and volatility data loaded. Ask me about any stock, for suggestions, or to explain a trade idea.</div>
+  </div>
+  <div class="chat-key-setup" id="chat-key-setup" style="display:none;">
+    <p>Enter your <a href="https://console.anthropic.com/keys" target="_blank" rel="noopener" style="color:var(--accent)">Anthropic API key</a> to enable AI chat. It's stored only in your browser.</p>
+    <input class="chat-key-input" id="chat-key-input" type="password" placeholder="sk-ant-..." autocomplete="off" />
+    <button class="chat-key-save" id="chat-key-save">Save &amp; Start Chatting</button>
+  </div>
+  <div class="chat-input-row" id="chat-input-row">
+    <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask about a stock or strategy…"></textarea>
+    <button class="chat-send" id="chat-send">&#x27A4;</button>
+  </div>
+</div>`;
+}
+
+function chatScript(data) {
+  const safeData = JSON.stringify(data).replace(/<\/script>/gi, "<\\/script>");
+  return `
+<script>
+window.STONKS_DATA=${safeData};
+<\/script>
+<script>
+(function(){
+  var KEY='stonks_ak';
+  var hist=[];
+  var busy=false;
+
+  function getKey(){return localStorage.getItem(KEY)||'';}
+  function saveKey(k){localStorage.setItem(KEY,k.trim());}
+
+  function sysPrompt(){
+    var d=window.STONKS_DATA||{};
+    var lines=[
+      'You are an expert stock market and options trading assistant embedded in Stonks Hub, a daily trading dashboard.',
+      'Today is '+d.date+'. Use the live market data below to give specific, actionable insights.',
+      ''
+    ];
+    if(d.earnings&&d.earnings.length){
+      lines.push('EARNINGS TODAY ('+d.earnings.length+' companies — top by market cap):');
+      d.earnings.slice(0,12).forEach(function(e){
+        lines.push('  '+e.symbol+' ('+e.name+') '+e.time+' | EPS forecast: '+(e.epsForecast||'n/a')+' | Last year: '+(e.lastYearEPS||'n/a')+' | Mkt cap: '+(e.marketCap||'n/a'));
+      });
+      if(d.earnings.length>12)lines.push('  ...and '+(d.earnings.length-12)+' more.');
+    }
+    if(d.gainers&&d.gainers.length){
+      lines.push('\\nTOP GAINERS:');
+      d.gainers.forEach(function(g){lines.push('  '+g.symbol+' +'+((g.changePct||0).toFixed(2))+'%  $'+((g.price||0).toFixed(2))+'  vol '+g.volume);});
+    }
+    if(d.losers&&d.losers.length){
+      lines.push('\\nTOP LOSERS:');
+      d.losers.forEach(function(g){lines.push('  '+g.symbol+' '+((g.changePct||0).toFixed(2))+'%  $'+((g.price||0).toFixed(2)));});
+    }
+    if(d.actives&&d.actives.length){
+      lines.push('\\nMOST ACTIVE:');
+      d.actives.slice(0,8).forEach(function(g){lines.push('  '+g.symbol+'  vol '+g.volume);});
+    }
+    if(d.volatility&&d.volatility.length){
+      lines.push('\\nVOLATILITY / INDEXES:');
+      d.volatility.forEach(function(v){
+        var sign=v.changePct>=0?'+':'';
+        lines.push('  '+v.label+' '+v.price+' ('+sign+(v.changePct||0).toFixed(2)+'%)');
+      });
+    }
+    lines.push('\\nHelp users: analyze specific stocks, suggest options plays, explain earnings setups, identify momentum trades. Be concise and practical. Mention this is not financial advice when giving specific recommendations.');
+    return lines.join('\\n');
+  }
+
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function renderMd(s){
+    return esc(s)
+      .replace(/\\*\\*(.+?)\\*\\*/g,'<b>$1</b>')
+      .replace(/\\*(.+?)\\*/g,'<em>$1</em>')
+      .replace(/\`(.+?)\`/g,'<code style="background:var(--border);padding:1px 4px;border-radius:3px;">$1</code>')
+      .replace(/\\n/g,'<br>');
+  }
+
+  function scrollBottom(){var m=document.getElementById('chat-messages');if(m)m.scrollTop=m.scrollHeight;}
+
+  function addMsg(role,html,raw){
+    var m=document.getElementById('chat-messages');
+    if(!m)return null;
+    var d=document.createElement('div');
+    d.className='chat-msg '+role;
+    if(raw)d.innerHTML=html; else d.textContent=html;
+    m.appendChild(d);
+    scrollBottom();
+    return d;
+  }
+
+  function updateSend(){
+    var btn=document.getElementById('chat-send');
+    if(btn)btn.disabled=busy;
+  }
+
+  function showKeySetup(show){
+    var ks=document.getElementById('chat-key-setup');
+    var ir=document.getElementById('chat-input-row');
+    if(ks)ks.style.display=show?'flex':'none';
+    if(ir)ir.style.display=show?'none':'flex';
+  }
+
+  async function send(text){
+    if(busy||!text.trim())return;
+    var key=getKey();
+    if(!key){showKeySetup(true);return;}
+    busy=true;updateSend();
+    addMsg('user',text,false);
+    hist.push({role:'user',content:text});
+    var thinking=addMsg('thinking','Thinking…',false);
+    try{
+      var res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{
+          'x-api-key':key,
+          'anthropic-version':'2023-06-01',
+          'content-type':'application/json',
+          'anthropic-dangerous-direct-browser-access':'true'
+        },
+        body:JSON.stringify({
+          model:'claude-haiku-4-5-20251001',
+          max_tokens:1024,
+          system:sysPrompt(),
+          messages:hist
+        })
+      });
+      if(!res.ok){var e=await res.json().catch(function(){return{};});throw new Error((e.error&&e.error.message)||'HTTP '+res.status);}
+      var data=await res.json();
+      var reply=data.content[0].text;
+      if(thinking&&thinking.parentNode)thinking.parentNode.removeChild(thinking);
+      addMsg('assistant',renderMd(reply),true);
+      hist.push({role:'assistant',content:reply});
+    }catch(e){
+      if(thinking&&thinking.parentNode)thinking.parentNode.removeChild(thinking);
+      addMsg('assistant','Error: '+esc(e.message)+'. Check your API key in settings (&#x2699;).',true);
+    }finally{busy=false;updateSend();}
+  }
+
+  function bind(){
+    var fab=document.getElementById('chat-fab');
+    var panel=document.getElementById('chat-panel');
+    var closeBtn=document.getElementById('chat-close');
+    var keyBtn=document.getElementById('chat-key-btn');
+    var input=document.getElementById('chat-input');
+    var sendBtn=document.getElementById('chat-send');
+    var keyInput=document.getElementById('chat-key-input');
+    var keySave=document.getElementById('chat-key-save');
+
+    if(!getKey())showKeySetup(true);
+
+    fab.addEventListener('click',function(){
+      var open=panel.classList.toggle('open');
+      if(open&&input)input.focus();
+    });
+    closeBtn.addEventListener('click',function(){panel.classList.remove('open');});
+    keyBtn.addEventListener('click',function(){showKeySetup(true);});
+    keySave.addEventListener('click',function(){
+      var v=(keyInput.value||'').trim();
+      if(!v)return;
+      saveKey(v);
+      keyInput.value='';
+      showKeySetup(false);
+    });
+    keyInput.addEventListener('keydown',function(e){if(e.key==='Enter')keySave.click();});
+
+    sendBtn.addEventListener('click',function(){
+      var v=input.value.trim();
+      if(!v)return;
+      input.value='';input.style.height='';
+      send(v);
+    });
+    input.addEventListener('keydown',function(e){
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendBtn.click();}
+    });
+    input.addEventListener('input',function(){
+      this.style.height='auto';
+      this.style.height=Math.min(this.scrollHeight,120)+'px';
+    });
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')panel.classList.remove('open');});
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+<\/script>`;
+}
+
 function moverTable(title, rows) {
   if (!rows.length) {
     return `<section class="card"><h2>${title}</h2><p class="empty">No data available right now.</p></section>`;
@@ -416,7 +612,7 @@ function earningsSection(rows) {
   </section>`;
 }
 
-function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, actives, volatility, spotlight }) {
+function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, actives, volatility, spotlight, chatData }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -664,6 +860,93 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
     font-size: 12px;
   }
   footer a { color: var(--accent); }
+  /* AI Chat */
+  .chat-fab {
+    position: fixed; bottom: 24px; right: 24px; width: 52px; height: 52px;
+    border-radius: 50%; background: var(--accent); color: #0b0d12;
+    border: none; font-size: 22px; cursor: pointer; z-index: 300;
+    box-shadow: 0 4px 20px rgba(110,168,255,0.45);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .chat-fab:hover { transform: scale(1.07); box-shadow: 0 6px 24px rgba(110,168,255,0.55); }
+  .chat-panel {
+    position: fixed; bottom: 88px; right: 24px;
+    width: 380px; max-width: calc(100vw - 32px);
+    height: 540px; max-height: calc(100vh - 120px);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: 0 12px 48px rgba(0,0,0,0.55);
+    z-index: 300; display: none; flex-direction: column; overflow: hidden;
+  }
+  .chat-panel.open { display: flex; }
+  .chat-header {
+    padding: 13px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  .chat-title { font-weight: 700; font-size: 14px; }
+  .chat-icon-btn {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 4px 6px; border-radius: 6px; font-size: 14px; line-height: 1;
+  }
+  .chat-icon-btn:hover { color: var(--text); background: var(--border); }
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .chat-msg {
+    max-width: 88%; padding: 9px 12px; border-radius: 12px;
+    font-size: 14px; line-height: 1.55; word-break: break-word;
+  }
+  .chat-msg.user {
+    background: var(--accent); color: #0b0d12;
+    align-self: flex-end; border-bottom-right-radius: 3px;
+  }
+  .chat-msg.assistant {
+    background: var(--panel-2); border: 1px solid var(--border);
+    align-self: flex-start; border-bottom-left-radius: 3px;
+  }
+  .chat-msg.thinking {
+    background: var(--panel-2); border: 1px solid var(--border);
+    align-self: flex-start; color: var(--muted); border-bottom-left-radius: 3px;
+    animation: chat-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes chat-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+  .chat-key-setup {
+    padding: 14px 14px 10px; background: var(--panel-2);
+    border-top: 1px solid var(--border); flex-shrink: 0;
+    flex-direction: column; gap: 8px;
+  }
+  .chat-key-setup p { color: var(--muted); font-size: 12px; margin: 0; }
+  .chat-key-input {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; color: var(--text);
+    font: inherit; font-size: 13px; width: 100%;
+  }
+  .chat-key-input:focus { outline: none; border-color: var(--accent); }
+  .chat-key-save {
+    background: var(--accent); color: #0b0d12; border: none;
+    border-radius: 8px; padding: 8px 14px; font: inherit;
+    font-size: 13px; font-weight: 700; cursor: pointer; align-self: flex-start;
+  }
+  .chat-key-save:hover { background: #8bbfff; }
+  .chat-input-row {
+    padding: 10px 12px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;
+  }
+  .chat-input {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 12px; color: var(--text);
+    font: inherit; font-size: 14px; resize: none; overflow-y: auto;
+    max-height: 120px; line-height: 1.4;
+  }
+  .chat-input:focus { outline: none; border-color: var(--accent); }
+  .chat-send {
+    background: var(--accent); color: #0b0d12; border: none;
+    border-radius: 10px; padding: 9px 13px; font-size: 16px;
+    cursor: pointer; flex-shrink: 0; transition: background 0.15s;
+  }
+  .chat-send:hover { background: #8bbfff; }
+  .chat-send:disabled { background: var(--border); color: var(--muted); cursor: default; }
 </style>
 </head>
 <body>
@@ -685,6 +968,8 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
   Click ⛓ on any ticker or a Momentum card to open its option chain on Yahoo. For information only — not investment advice.
   <br/>Date key: ${today}
 </footer>
+${chatHtml()}
+${chatScript(chatData)}
 </body>
 </html>`;
 }
@@ -714,6 +999,7 @@ async function main() {
     actives,
     volatility,
     spotlight,
+    chatData: { date: today, earnings, gainers, losers, actives, volatility },
   });
 
   await mkdir(dirname(OUT), { recursive: true });
