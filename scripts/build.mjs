@@ -410,8 +410,8 @@ function chatScript(data) {
       '',
       '=== CRITICAL RULES ===',
       '1. ONLY use the market data below for facts about prices, earnings dates, and movers.',
-      '2. The EARNINGS TODAY list is ONLY companies reporting on '+d.date+'. Do NOT state earnings dates for any company not in this list — say you don\'t have that data and direct them to earningswhispers.com or the company\'s investor relations page.',
-      '3. Do NOT invent or guess specific stock prices, earnings dates, EPS figures, or analyst targets. If it\'s not in the data below, say so clearly.',
+      '2. The EARNINGS TODAY list is ONLY companies reporting on '+d.date+'. Do NOT state earnings dates for any company not in this list — say you do not have that data and direct them to earningswhispers.com or the company investor relations page.',
+      '3. Do NOT invent or guess specific stock prices, earnings dates, EPS figures, or analyst targets. If the information is not in the data below, say so clearly.',
       '4. For general market concepts, options strategies, and educational questions you may use your training knowledge — but label it as general knowledge, not current data.',
       '=== END RULES ===',
       ''
