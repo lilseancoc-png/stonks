@@ -317,6 +317,152 @@ function spotlightSection(picks) {
   </section>`;
 }
 
+const WATCHLIST_SYMS = ["SPY","QQQ","IWM","NVDA","AAPL","MSFT","META","AMZN","GOOGL","TSLA","AMD","COIN"];
+
+function watchlistSection() {
+  const tiles = WATCHLIST_SYMS.map((sym) => `
+    <div class="watch-tile" id="wt-${sym}" data-sym="${sym}">
+      <div class="watch-sym">${sym}</div>
+      <div class="watch-price" id="wp-${sym}">—</div>
+      <div class="watch-chg" id="wc-${sym}">—</div>
+    </div>`).join("");
+  return `<section class="card full">
+    <h2>Live Watchlist</h2>
+    <div class="watch-status-bar">
+      <div class="watch-dot" id="watch-dot"></div>
+      <span id="watch-market-state">Loading…</span>
+      <span id="watch-updated"></span>
+    </div>
+    <div class="watch-grid">${tiles}</div>
+    <p class="hint">Prices refresh every 30 s · Click any tile to see details and open its options chain</p>
+  </section>`;
+}
+
+function watchlistModal() {
+  return `<div class="stock-modal-bg" id="stock-modal-bg">
+  <div class="stock-modal">
+    <button class="modal-close" id="modal-close">✕</button>
+    <div class="modal-sym" id="modal-sym">—</div>
+    <div class="modal-name" id="modal-name"></div>
+    <div class="modal-price" id="modal-price">—</div>
+    <div class="modal-change" id="modal-change"></div>
+    <span class="modal-state" id="modal-state"></span>
+    <div class="modal-stats">
+      <div class="modal-stat"><div class="modal-stat-label">Day Range</div><div class="modal-stat-val" id="modal-range">—</div></div>
+      <div class="modal-stat"><div class="modal-stat-label">Volume</div><div class="modal-stat-val" id="modal-vol">—</div></div>
+      <div class="modal-stat"><div class="modal-stat-label">Prev Close</div><div class="modal-stat-val" id="modal-prev">—</div></div>
+      <div class="modal-stat"><div class="modal-stat-label">52W Range</div><div class="modal-stat-val" id="modal-52w">—</div></div>
+    </div>
+    <div class="modal-actions">
+      <a class="modal-btn" id="modal-quote-btn" href="#" target="_blank" rel="noopener">Quote</a>
+      <a class="modal-btn primary" id="modal-chain-btn" href="#" target="_blank" rel="noopener">Options Chain ↗</a>
+    </div>
+  </div>
+</div>`;
+}
+
+const watchlistScript = `
+<script>
+(function(){
+  var SYMS=['SPY','QQQ','IWM','NVDA','AAPL','MSFT','META','AMZN','GOOGL','TSLA','AMD','COIN'];
+  function fmtP(n){return n!=null&&isFinite(n)?'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';}
+  function fmt2(n){return n!=null&&isFinite(n)?n.toFixed(2):'—';}
+  function fmtV(n){
+    if(n==null||!isFinite(n))return'—';
+    if(n>=1e9)return(n/1e9).toFixed(2)+'B';
+    if(n>=1e6)return(n/1e6).toFixed(2)+'M';
+    if(n>=1e3)return(n/1e3).toFixed(1)+'K';
+    return String(n);
+  }
+  function stateInfo(s){
+    if(s==='REGULAR')return['open','Market Open'];
+    if(s==='PRE')    return['pre','Pre-Market'];
+    if(s==='POST')   return['post','After-Hours'];
+    return['closed','Market Closed'];
+  }
+  async function yq(syms,fields){
+    var url='https://query1.finance.yahoo.com/v7/finance/quote?symbols='+syms.join(',')+'&fields='+fields.join(',');
+    var r=await fetch(url,{headers:{Accept:'application/json'}});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return((await r.json()).quoteResponse.result)||[];
+  }
+  var cache={};
+  async function refresh(){
+    try{
+      var qs=await yq(SYMS,['regularMarketPrice','regularMarketChangePercent','regularMarketChange','marketState']);
+      qs.forEach(function(q){
+        cache[q.symbol]=Object.assign(cache[q.symbol]||{},q);
+        var pe=document.getElementById('wp-'+q.symbol);
+        var ce=document.getElementById('wc-'+q.symbol);
+        if(!pe||!ce)return;
+        pe.textContent=fmtP(q.regularMarketPrice);
+        var pct=q.regularMarketChangePercent;
+        ce.textContent=(pct>=0?'+':'')+fmt2(pct)+'%';
+        ce.className='watch-chg '+(pct>=0?'pos':'neg');
+      });
+      var si=stateInfo((qs[0]||{}).marketState);
+      var dot=document.getElementById('watch-dot');
+      var st=document.getElementById('watch-market-state');
+      if(dot)dot.className='watch-dot '+si[0];
+      if(st)st.textContent=si[1];
+      var up=document.getElementById('watch-updated');
+      if(up)up.textContent='· '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})+' ET';
+    }catch(e){
+      console.warn('watchlist refresh failed:',e.message);
+      var st=document.getElementById('watch-market-state');
+      if(st)st.textContent='Unavailable';
+    }
+  }
+  var activeSym=null;
+  function fillBasic(q){
+    var enc=encodeURIComponent(q.symbol);
+    document.getElementById('modal-sym').textContent=q.symbol;
+    document.getElementById('modal-price').textContent=fmtP(q.regularMarketPrice);
+    var pct=q.regularMarketChangePercent,chg=q.regularMarketChange;
+    var ce=document.getElementById('modal-change');
+    ce.textContent=(chg>=0?'+':'')+fmtP(Math.abs(chg))+' ('+(pct>=0?'+':'')+fmt2(pct)+'%)';
+    ce.className='modal-change '+(pct>=0?'pos':'neg');
+    document.getElementById('modal-quote-btn').href='https://finance.yahoo.com/quote/'+enc;
+    document.getElementById('modal-chain-btn').href='https://finance.yahoo.com/quote/'+enc+'/options';
+    var si=stateInfo(q.marketState);
+    var se=document.getElementById('modal-state');
+    se.textContent=si[1];se.className='modal-state '+si[0];
+  }
+  function fillFull(q){
+    fillBasic(q);
+    document.getElementById('modal-name').textContent=q.longName||q.shortName||'';
+    document.getElementById('modal-range').textContent=fmtP(q.regularMarketDayLow)+' – '+fmtP(q.regularMarketDayHigh);
+    document.getElementById('modal-vol').textContent=fmtV(q.regularMarketVolume);
+    document.getElementById('modal-prev').textContent=fmtP(q.regularMarketPreviousClose);
+    document.getElementById('modal-52w').textContent=fmtP(q.fiftyTwoWeekLow)+' – '+fmtP(q.fiftyTwoWeekHigh);
+  }
+  async function openModal(sym){
+    activeSym=sym;
+    document.getElementById('stock-modal-bg').classList.add('open');
+    if(cache[sym])fillBasic(cache[sym]);
+    document.getElementById('modal-name').textContent='';
+    try{
+      var qs=await yq([sym],['regularMarketPrice','regularMarketChangePercent','regularMarketChange','marketState','shortName','longName','regularMarketDayHigh','regularMarketDayLow','regularMarketVolume','fiftyTwoWeekHigh','fiftyTwoWeekLow','regularMarketPreviousClose']);
+      var q=qs[0];
+      if(q&&activeSym===sym){cache[sym]=Object.assign(cache[sym]||{},q);fillFull(q);}
+    }catch(e){console.warn('modal fetch failed:',e.message);}
+  }
+  function closeModal(){activeSym=null;document.getElementById('stock-modal-bg').classList.remove('open');}
+  function bind(){
+    SYMS.forEach(function(sym){
+      var t=document.getElementById('wt-'+sym);
+      if(t)t.addEventListener('click',function(){openModal(sym);});
+    });
+    document.getElementById('modal-close').addEventListener('click',closeModal);
+    document.getElementById('stock-modal-bg').addEventListener('click',function(e){if(e.target===this)closeModal();});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
+    refresh();
+    setInterval(refresh,30000);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+</script>`;
+
 function moverTable(title, rows) {
   if (!rows.length) {
     return `<section class="card"><h2>${title}</h2><p class="empty">No data available right now.</p></section>`;
@@ -512,6 +658,78 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
   .vol-price { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .vol-pct { font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .hint { color: var(--muted); font-size: 12px; margin: 6px 0 10px; }
+  /* Live Watchlist */
+  .watch-status-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+  .watch-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .watch-dot.open { background: var(--pos); box-shadow: 0 0 6px var(--pos); }
+  .watch-dot.pre, .watch-dot.post { background: #f0a500; box-shadow: 0 0 6px #f0a500; }
+  .watch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .watch-tile {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .watch-tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .watch-sym { color: var(--accent); font-size: 14px; font-weight: 700; letter-spacing: 0.02em; }
+  .watch-price { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .watch-chg { font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  /* Stock detail modal */
+  .stock-modal-bg {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+    z-index: 200; align-items: center; justify-content: center;
+  }
+  .stock-modal-bg.open { display: flex; }
+  .stock-modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    width: min(420px, 92vw);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    position: relative;
+  }
+  .modal-close {
+    position: absolute; top: 14px; right: 14px;
+    background: none; border: none; color: var(--muted);
+    font-size: 18px; cursor: pointer; padding: 4px 8px;
+    border-radius: 6px; line-height: 1;
+  }
+  .modal-close:hover { background: var(--border); color: var(--text); }
+  .modal-sym { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .modal-name { color: var(--muted); font-size: 13px; margin-top: 2px; margin-bottom: 14px; min-height: 1.4em; }
+  .modal-price { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .modal-change { font-size: 16px; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .modal-state {
+    display: inline-block; font-size: 11px; padding: 2px 9px;
+    border-radius: 999px; margin-top: 10px; font-weight: 600; letter-spacing: 0.04em;
+  }
+  .modal-state.open, .modal-state.regular { background: rgba(46,204,113,0.15); color: var(--pos); border: 1px solid rgba(46,204,113,0.3); }
+  .modal-state.pre, .modal-state.post { background: rgba(240,165,0,0.15); color: #f0a500; border: 1px solid rgba(240,165,0,0.3); }
+  .modal-state.closed { background: var(--border); color: var(--muted); border: 1px solid var(--border); }
+  .modal-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 16px 0; }
+  .modal-stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .modal-stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .modal-stat-val { font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; font-size: 14px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .modal-btn {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer; text-decoration: none; text-align: center;
+    transition: border-color 0.15s;
+  }
+  .modal-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .modal-btn.primary { background: var(--accent); color: #0b0d12; border-color: var(--accent); }
+  .modal-btn.primary:hover { background: #8bbfff; border-color: #8bbfff; }
   .spot-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -599,17 +817,20 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
 </header>
 <main>
   ${volatilitySection(volatility)}
+  ${watchlistSection()}
   ${spotlightSection(spotlight)}
   ${earningsSection(earnings)}
   ${moverTable("Top Gainers", gainers)}
   ${moverTable("Top Losers", losers)}
   ${moverTable("Most Active", actives)}
 </main>
+${watchlistModal()}
 <footer>
   Data: Nasdaq earnings calendar, Nasdaq market movers, Yahoo Finance chart endpoint.
   Click ⛓ on any ticker or a Momentum card to open its option chain on Yahoo. For information only — not investment advice.
   <br/>Date key: ${today}
 </footer>
+${watchlistScript}
 </body>
 </html>`;
 }
