@@ -372,6 +372,145 @@ function watchlistSection() {
   </section>`;
 }
 
+function chatHtml() {
+  return `
+<button class="chat-fab" id="chat-fab" title="Ask AI about stocks">&#x1F4AC;</button>
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-header">
+    <div>
+      <span class="chat-title">AI Stock Assistant</span>
+      <span class="chat-badge">Free</span>
+    </div>
+    <button class="chat-icon-btn" id="chat-close" title="Close">&#x2715;</button>
+  </div>
+  <div class="chat-messages" id="chat-messages">
+    <div class="chat-msg assistant">Hi! I have today&apos;s earnings, movers, and volatility loaded. Ask me about any stock, for trade ideas, or what looks interesting today.</div>
+  </div>
+  <div class="chat-input-row">
+    <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask about a stock or strategy…"></textarea>
+    <button class="chat-send" id="chat-send">&#x27A4;</button>
+  </div>
+</div>`;
+}
+
+function chatScript(data) {
+  const safeData = JSON.stringify(data).replace(/<\/script>/gi, "<\\/script>");
+  return `
+<script>window.STONKS_DATA=${safeData};<\/script>
+<script>
+(function(){
+  var hist=[];
+  var busy=false;
+
+  function sysPrompt(){
+    var d=window.STONKS_DATA||{};
+    var L=[
+      'You are an expert stock market and options trading assistant in Stonks Hub.',
+      'Today: '+d.date+'. Use this live market data for specific, actionable insights.',''
+    ];
+    if(d.earnings&&d.earnings.length){
+      L.push('EARNINGS TODAY ('+d.earnings.length+' companies):');
+      d.earnings.slice(0,10).forEach(function(e){
+        L.push('  '+e.symbol+' ('+e.name+') '+e.time+' EPS forecast:'+(e.epsForecast||'n/a')+' last year:'+(e.lastYearEPS||'n/a')+' mktcap:'+(e.marketCap||'n/a'));
+      });
+      if(d.earnings.length>10)L.push('  ...and '+(d.earnings.length-10)+' more.');
+    }
+    if(d.gainers&&d.gainers.length){
+      L.push('TOP GAINERS:');
+      d.gainers.forEach(function(g){L.push('  '+g.symbol+' +'+((g.changePct||0).toFixed(2))+'% $'+((g.price||0).toFixed(2))+' vol '+g.volume);});
+    }
+    if(d.losers&&d.losers.length){
+      L.push('TOP LOSERS:');
+      d.losers.forEach(function(g){L.push('  '+g.symbol+' '+((g.changePct||0).toFixed(2))+'% $'+((g.price||0).toFixed(2)));});
+    }
+    if(d.actives&&d.actives.length){
+      L.push('MOST ACTIVE:');
+      d.actives.slice(0,6).forEach(function(g){L.push('  '+g.symbol+' vol '+g.volume);});
+    }
+    if(d.volatility&&d.volatility.length){
+      L.push('VOLATILITY/INDEXES:');
+      d.volatility.forEach(function(v){L.push('  '+v.label+' '+v.price+' ('+(v.changePct>=0?'+':'')+(v.changePct||0).toFixed(2)+'%)');});
+    }
+    L.push('\\nBe concise and practical. Suggest specific plays, explain setups, flag risks. Note this is not financial advice when relevant.');
+    return L.join('\\n');
+  }
+
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function renderMd(s){
+    return esc(s)
+      .replace(/\\*\\*(.+?)\\*\\*/g,'<b>$1</b>')
+      .replace(/\\*(.+?)\\*/g,'<em>$1</em>')
+      .replace(/\`(.+?)\`/g,'<code style="background:var(--border);padding:1px 4px;border-radius:3px;font-size:13px;">$1</code>')
+      .replace(/\\n/g,'<br>');
+  }
+
+  function scrollBottom(){var m=document.getElementById('chat-messages');if(m)m.scrollTop=m.scrollHeight;}
+
+  function addMsg(role,content,isHtml){
+    var m=document.getElementById('chat-messages');if(!m)return null;
+    var d=document.createElement('div');
+    d.className='chat-msg '+role;
+    if(isHtml)d.innerHTML=content;else d.textContent=content;
+    m.appendChild(d);scrollBottom();return d;
+  }
+
+  function setSend(on){var b=document.getElementById('chat-send');if(b)b.disabled=!on;}
+
+  async function send(text){
+    if(busy||!text.trim())return;
+    busy=true;setSend(false);
+    addMsg('user',text,false);
+    hist.push({role:'user',content:text});
+    var thinking=addMsg('thinking','Thinking…',false);
+    try{
+      var messages=[{role:'system',content:sysPrompt()}].concat(hist);
+      var res=await fetch('https://text.pollinations.ai/',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({messages:messages,model:'openai',seed:Date.now()%9999,private:true})
+      });
+      if(!res.ok)throw new Error('Service returned HTTP '+res.status+'. Please try again.');
+      var reply=await res.text();
+      if(thinking&&thinking.parentNode)thinking.parentNode.removeChild(thinking);
+      addMsg('assistant',renderMd(reply),true);
+      hist.push({role:'assistant',content:reply});
+    }catch(e){
+      if(thinking&&thinking.parentNode)thinking.parentNode.removeChild(thinking);
+      addMsg('assistant','Sorry, couldn\\'t get a response: '+esc(e.message),true);
+    }finally{busy=false;setSend(true);}
+  }
+
+  function bind(){
+    var fab=document.getElementById('chat-fab');
+    var panel=document.getElementById('chat-panel');
+    var input=document.getElementById('chat-input');
+    var sendBtn=document.getElementById('chat-send');
+    var closeBtn=document.getElementById('chat-close');
+
+    fab.addEventListener('click',function(){
+      var open=panel.classList.toggle('open');
+      if(open&&input)input.focus();
+    });
+    closeBtn.addEventListener('click',function(){panel.classList.remove('open');});
+    sendBtn.addEventListener('click',function(){
+      var v=input.value.trim();if(!v)return;
+      input.value='';input.style.height='';send(v);
+    });
+    input.addEventListener('keydown',function(e){
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendBtn.click();}
+    });
+    input.addEventListener('input',function(){
+      this.style.height='auto';
+      this.style.height=Math.min(this.scrollHeight,120)+'px';
+    });
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')panel.classList.remove('open');});
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+<\/script>`;
+}
+
 function moverTable(title, rows) {
   if (!rows.length) {
     return `<section class="card"><h2>${title}</h2><p class="empty">No data available right now.</p></section>`;
@@ -416,7 +555,7 @@ function earningsSection(rows) {
   </section>`;
 }
 
-function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, actives, volatility, spotlight }) {
+function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, actives, volatility, spotlight, chatData }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -664,6 +803,81 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
     font-size: 12px;
   }
   footer a { color: var(--accent); }
+  /* AI Chat */
+  .chat-fab {
+    position: fixed; bottom: 24px; right: 24px; width: 54px; height: 54px;
+    border-radius: 50%; background: var(--accent); color: #0b0d12;
+    border: none; font-size: 22px; cursor: pointer; z-index: 300;
+    box-shadow: 0 4px 20px rgba(110,168,255,0.45);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .chat-fab:hover { transform: scale(1.07); box-shadow: 0 6px 26px rgba(110,168,255,0.55); }
+  .chat-panel {
+    position: fixed; bottom: 92px; right: 24px;
+    width: 390px; max-width: calc(100vw - 32px);
+    height: 550px; max-height: calc(100vh - 120px);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+    z-index: 300; display: none; flex-direction: column; overflow: hidden;
+  }
+  .chat-panel.open { display: flex; }
+  .chat-header {
+    padding: 13px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  .chat-title { font-weight: 700; font-size: 14px; }
+  .chat-badge {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+    background: rgba(46,204,113,0.15); color: var(--pos);
+    border: 1px solid rgba(46,204,113,0.3); border-radius: 999px;
+    padding: 1px 7px; margin-left: 7px; vertical-align: middle;
+  }
+  .chat-icon-btn {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 4px 7px; border-radius: 6px; font-size: 14px; line-height: 1;
+  }
+  .chat-icon-btn:hover { color: var(--text); background: var(--border); }
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .chat-msg {
+    max-width: 88%; padding: 9px 12px; border-radius: 12px;
+    font-size: 14px; line-height: 1.55; word-break: break-word;
+  }
+  .chat-msg.user {
+    background: var(--accent); color: #0b0d12;
+    align-self: flex-end; border-bottom-right-radius: 3px;
+  }
+  .chat-msg.assistant {
+    background: var(--panel-2); border: 1px solid var(--border);
+    align-self: flex-start; border-bottom-left-radius: 3px;
+  }
+  .chat-msg.thinking {
+    background: var(--panel-2); border: 1px solid var(--border);
+    align-self: flex-start; color: var(--muted); border-bottom-left-radius: 3px;
+    animation: chat-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes chat-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+  .chat-input-row {
+    padding: 10px 12px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;
+  }
+  .chat-input {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 12px; color: var(--text);
+    font: inherit; font-size: 14px; resize: none; overflow-y: auto;
+    max-height: 120px; line-height: 1.4;
+  }
+  .chat-input:focus { outline: none; border-color: var(--accent); }
+  .chat-send {
+    background: var(--accent); color: #0b0d12; border: none;
+    border-radius: 10px; padding: 9px 13px; font-size: 16px;
+    cursor: pointer; flex-shrink: 0; transition: background 0.15s;
+  }
+  .chat-send:hover { background: #8bbfff; }
+  .chat-send:disabled { background: var(--border); color: var(--muted); cursor: default; }
 </style>
 </head>
 <body>
@@ -685,6 +899,8 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
   Click ⛓ on any ticker or a Momentum card to open its option chain on Yahoo. For information only — not investment advice.
   <br/>Date key: ${today}
 </footer>
+${chatHtml()}
+${chatScript(chatData)}
 </body>
 </html>`;
 }
@@ -714,6 +930,7 @@ async function main() {
     actives,
     volatility,
     spotlight,
+    chatData: { date: today, earnings, gainers, losers, actives, volatility },
   });
 
   await mkdir(dirname(OUT), { recursive: true });
