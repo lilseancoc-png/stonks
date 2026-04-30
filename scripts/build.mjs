@@ -405,33 +405,42 @@ function chatScript(data) {
   function sysPrompt(){
     var d=window.STONKS_DATA||{};
     var L=[
-      'You are an expert stock market and options trading assistant in Stonks Hub.',
-      'Today: '+d.date+'. Use this live market data for specific, actionable insights.',''
+      'You are a stock market and options trading assistant in Stonks Hub.',
+      'Today is '+d.date+'.',
+      '',
+      '=== CRITICAL RULES ===',
+      '1. ONLY use the market data below for facts about prices, earnings dates, and movers.',
+      '2. The EARNINGS TODAY list is ONLY companies reporting on '+d.date+'. Do NOT state earnings dates for any company not in this list — say you don\'t have that data and direct them to earningswhispers.com or the company\'s investor relations page.',
+      '3. Do NOT invent or guess specific stock prices, earnings dates, EPS figures, or analyst targets. If it\'s not in the data below, say so clearly.',
+      '4. For general market concepts, options strategies, and educational questions you may use your training knowledge — but label it as general knowledge, not current data.',
+      '=== END RULES ===',
+      ''
     ];
     if(d.earnings&&d.earnings.length){
-      L.push('EARNINGS TODAY ('+d.earnings.length+' companies):');
-      d.earnings.slice(0,10).forEach(function(e){
-        L.push('  '+e.symbol+' ('+e.name+') '+e.time+' EPS forecast:'+(e.epsForecast||'n/a')+' last year:'+(e.lastYearEPS||'n/a')+' mktcap:'+(e.marketCap||'n/a'));
+      L.push('EARNINGS REPORTING TODAY ('+d.date+') — '+d.earnings.length+' companies:');
+      d.earnings.forEach(function(e){
+        L.push('  '+e.symbol+' ('+e.name+') | When: '+e.time+' | EPS forecast: '+(e.epsForecast||'n/a')+' | Last year EPS: '+(e.lastYearEPS||'n/a')+' | Mkt cap: '+(e.marketCap||'n/a'));
       });
-      if(d.earnings.length>10)L.push('  ...and '+(d.earnings.length-10)+' more.');
+    } else {
+      L.push('EARNINGS TODAY: No earnings data available for '+d.date+'.');
     }
     if(d.gainers&&d.gainers.length){
-      L.push('TOP GAINERS:');
+      L.push('\\nTOP GAINERS TODAY:');
       d.gainers.forEach(function(g){L.push('  '+g.symbol+' +'+((g.changePct||0).toFixed(2))+'% $'+((g.price||0).toFixed(2))+' vol '+g.volume);});
     }
     if(d.losers&&d.losers.length){
-      L.push('TOP LOSERS:');
+      L.push('\\nTOP LOSERS TODAY:');
       d.losers.forEach(function(g){L.push('  '+g.symbol+' '+((g.changePct||0).toFixed(2))+'% $'+((g.price||0).toFixed(2)));});
     }
     if(d.actives&&d.actives.length){
-      L.push('MOST ACTIVE:');
+      L.push('\\nMOST ACTIVE TODAY:');
       d.actives.slice(0,6).forEach(function(g){L.push('  '+g.symbol+' vol '+g.volume);});
     }
     if(d.volatility&&d.volatility.length){
-      L.push('VOLATILITY/INDEXES:');
+      L.push('\\nVOLATILITY/INDEXES:');
       d.volatility.forEach(function(v){L.push('  '+v.label+' '+v.price+' ('+(v.changePct>=0?'+':'')+(v.changePct||0).toFixed(2)+'%)');});
     }
-    L.push('\\nBe concise and practical. Suggest specific plays, explain setups, flag risks. Note this is not financial advice when relevant.');
+    L.push('\\nBe concise and practical. Flag risks. Add a brief disclaimer when giving specific trade ideas.');
     return L.join('\\n');
   }
 
