@@ -31,6 +31,26 @@ function nyDateParts(d = new Date()) {
   return parts; // { year, month, day, weekday }
 }
 
+// Returns the next `n` NY weekdays as [{ dateStr: "YYYY-MM-DD", prettyStr: "Mon May 4" }]
+function nextNyWeekdays(n) {
+  const results = [];
+  let cursor = new Date();
+  while (results.length < n) {
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+    const { weekday, year, month, day } = nyDateParts(cursor);
+    if (weekday === "Sat" || weekday === "Sun") continue;
+    const dateStr = `${year}-${month}-${day}`;
+    const prettyStr = new Intl.DateTimeFormat("en-US", {
+      timeZone: NY_TZ,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(cursor);
+    results.push({ dateStr, prettyStr });
+  }
+  return results;
+}
+
 function nyToday() {
   const p = nyDateParts();
   return `${p.year}-${p.month}-${p.day}`;
@@ -169,6 +189,34 @@ async function fetchMovers(direction, count = 15) {
   }
 }
 
+async function fetchUpcomingEarnings(nDays = 2) {
+  const weekdays = nextNyWeekdays(nDays);
+  const results = await Promise.all(
+    weekdays.map(async ({ dateStr, prettyStr }) => {
+      const rows = await fetchEarnings(dateStr);
+      return { dateStr, prettyStr, rows };
+    }),
+  );
+  return results.filter((r) => r.rows.length > 0);
+}
+
+async function fetchSectorPanel() {
+  const sectors = [
+    { sym: "XLK", label: "Tech" },
+    { sym: "XLF", label: "Finance" },
+    { sym: "XLE", label: "Energy" },
+    { sym: "XLV", label: "Health" },
+    { sym: "XLY", label: "Cons Disc" },
+    { sym: "XLC", label: "Comm Svc" },
+    { sym: "XLI", label: "Industrl" },
+    { sym: "XLP", label: "Cons Stpl" },
+  ];
+  const quotes = await Promise.all(sectors.map((s) => fetchYahooQuote(s.sym)));
+  return sectors
+    .map((s, i) => (quotes[i] ? { ...quotes[i], label: s.label } : null))
+    .filter(Boolean);
+}
+
 const fmtNum = new Intl.NumberFormat("en-US");
 const fmtPrice = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
@@ -276,6 +324,54 @@ function volatilitySection(quotes) {
     <h2>Volatility &amp; Indexes</h2>
     <div class="vol-grid">${quotes.map(volQuoteCard).join("")}</div>
     <p class="hint">VIX above 20 = elevated S&amp;P implied vol; click a tile to open its chain.</p>
+  </section>`;
+}
+
+function sectorSection(quotes) {
+  if (!quotes.length) return "";
+  return `<section class="card full">
+    <h2>Sector Performance</h2>
+    <div class="vol-grid">${quotes.map(volQuoteCard).join("")}</div>
+    <p class="hint">SPDR sector ETFs — spot rotation and relative strength. Click a tile for its options chain.</p>
+  </section>`;
+}
+
+function earningsTimeChip(t) {
+  switch (t) {
+    case "time-pre-market":
+      return `<span class="chip-time bmo">BMO</span>`;
+    case "time-after-hours":
+      return `<span class="chip-time amc">AMC</span>`;
+    default:
+      return `<span class="chip-time">TBD</span>`;
+  }
+}
+
+function upcomingEarningsSection(upcoming) {
+  if (!upcoming.length) return "";
+  const days = upcoming
+    .map(({ prettyStr, rows }) => {
+      const sorted = [...rows].sort((a, b) => {
+        const order = { "time-pre-market": 0, "time-after-hours": 1 };
+        return (order[a.time] ?? 2) - (order[b.time] ?? 2);
+      });
+      const chips = sorted
+        .map((e) => {
+          const enc = encodeURIComponent(e.symbol);
+          return `<a class="upcoming-chip" href="https://finance.yahoo.com/quote/${enc}/options" target="_blank" rel="noopener">${escapeHtml(e.symbol)}${earningsTimeChip(e.time)}</a>`;
+        })
+        .join("");
+      return `<div class="upcoming-day">
+        <div class="upcoming-day-label">${escapeHtml(prettyStr)}</div>
+        <div class="upcoming-chips">${chips}</div>
+      </div>`;
+    })
+    .join("");
+  const total = upcoming.reduce((s, d) => s + d.rows.length, 0);
+  return `<section class="card full">
+    <h2>Upcoming Earnings <span class="count">${total}</span></h2>
+    <div class="upcoming-grid">${days}</div>
+    <p class="hint">BMO = before market open · AMC = after market close · click any ticker to open its options chain</p>
   </section>`;
 }
 
@@ -424,6 +520,13 @@ function chatScript(data) {
     } else {
       L.push('EARNINGS TODAY: No earnings data available for '+d.date+'.');
     }
+    if(d.upcoming&&d.upcoming.length){
+      L.push('\\nUPCOMING EARNINGS (next 2 trading days):');
+      d.upcoming.forEach(function(day){
+        var tickers=day.rows.map(function(e){return e.symbol+'('+e.time+')'}).join(', ');
+        L.push('  '+day.prettyStr+': '+tickers);
+      });
+    }
     if(d.gainers&&d.gainers.length){
       L.push('\\nTOP GAINERS TODAY:');
       d.gainers.forEach(function(g){L.push('  '+g.symbol+' +'+((g.changePct||0).toFixed(2))+'% $'+((g.price||0).toFixed(2))+' vol '+g.volume);});
@@ -564,7 +667,7 @@ function earningsSection(rows) {
   </section>`;
 }
 
-function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, actives, volatility, spotlight, chatData }) {
+function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, losers, actives, volatility, sectors, spotlight, chatData }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -795,6 +898,27 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
     letter-spacing: 0.04em;
   }
   .spot-card:hover .spot-chain-hint { opacity: 1; }
+  /* Upcoming Earnings */
+  .upcoming-grid { display: flex; flex-direction: column; gap: 18px; }
+  .upcoming-day-label {
+    font-size: 12px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.06em; margin-bottom: 8px; font-weight: 600;
+  }
+  .upcoming-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .upcoming-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 10px;
+    color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 700;
+    transition: border-color 0.15s;
+  }
+  .upcoming-chip:hover { border-color: var(--accent); }
+  .chip-time {
+    font-size: 10px; font-weight: 500; color: var(--muted);
+    padding: 1px 5px; border-radius: 4px; background: var(--border);
+  }
+  .chip-time.bmo { color: #f39c12; background: rgba(243,156,18,0.15); }
+  .chip-time.amc { color: var(--accent); background: rgba(110,168,255,0.12); }
   td.name {
     max-width: 280px;
     overflow: hidden;
@@ -896,9 +1020,11 @@ function renderHtml({ today, prettyDate, updated, earnings, gainers, losers, act
 </header>
 <main>
   ${volatilitySection(volatility)}
+  ${sectorSection(sectors)}
   ${watchlistSection()}
   ${spotlightSection(spotlight)}
   ${earningsSection(earnings)}
+  ${upcomingEarningsSection(upcoming)}
   ${moverTable("Top Gainers", gainers)}
   ${moverTable("Top Losers", losers)}
   ${moverTable("Most Active", actives)}
@@ -919,12 +1045,14 @@ async function main() {
   const { weekday } = nyDateParts();
   const isWeekend = weekday === "Sat" || weekday === "Sun";
 
-  const [earnings, gainers, losers, actives, volatility] = await Promise.all([
+  const [earnings, gainers, losers, actives, volatility, sectors, upcoming] = await Promise.all([
     fetchEarnings(today),
     fetchMovers("GAINERS", 15),
     fetchMovers("LOSERS", 15),
     fetchMovers("ACTIVE", 15),
     fetchVolatilityPanel(),
+    fetchSectorPanel(),
+    fetchUpcomingEarnings(2),
   ]);
 
   const spotlight = computeSpotlight(gainers, actives);
@@ -934,18 +1062,21 @@ async function main() {
     prettyDate: nyPretty() + (isWeekend ? " (markets closed)" : ""),
     updated: nyTimestamp(),
     earnings,
+    upcoming,
     gainers,
     losers,
     actives,
     volatility,
+    sectors,
     spotlight,
-    chatData: { date: today, earnings, gainers, losers, actives, volatility },
+    chatData: { date: today, earnings, upcoming, gainers, losers, actives, volatility },
   });
 
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
+  const upcomingCount = upcoming.reduce((s, d) => s + d.rows.length, 0);
   console.log(
-    `wrote ${OUT} — earnings:${earnings.length} gainers:${gainers.length} losers:${losers.length} actives:${actives.length} vol:${volatility.length} spotlight:${spotlight.length}`,
+    `wrote ${OUT} — earnings:${earnings.length} upcoming:${upcomingCount} gainers:${gainers.length} losers:${losers.length} actives:${actives.length} vol:${volatility.length} sectors:${sectors.length} spotlight:${spotlight.length}`,
   );
 }
 
