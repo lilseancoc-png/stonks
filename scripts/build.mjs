@@ -375,12 +375,39 @@ function upcomingEarningsSection(upcoming) {
   </section>`;
 }
 
+const LIQUIDITY_FLOOR_USD = 500_000_000;
+
+function passesLiquidity(row) {
+  return row.marketCap == null || row.marketCap >= LIQUIDITY_FLOOR_USD;
+}
+
+// Produce up to 3 reasoning chips for a pick card, in priority order.
+function buildTagSet(row, ctx) {
+  const tags = [];
+  const add = (label, cls) => { if (tags.length < 3) tags.push({ label, cls }); };
+  if (ctx.earningsTodaySyms.has(row.symbol)) add("earnings today", "tag-earn-now");
+  else if (ctx.earningsSoonByDay.has(row.symbol)) add("earnings " + ctx.earningsSoonByDay.get(row.symbol), "tag-earn-soon");
+  if (ctx.activeSyms.has(row.symbol)) add("active", "tag-active");
+  if (Math.abs(row.changePct ?? 0) >= 10) add("big move", "tag-bigmove");
+  if ((row.volume ?? 0) >= 20_000_000) add("high vol", "tag-vol");
+  if (row.marketCap != null && row.marketCap >= 200e9) add("mega cap", "tag-mega");
+  if (row.marketCap != null && row.marketCap < 2e9) add("small cap", "tag-small");
+  if (ctx.gainerSyms.has(row.symbol) && ctx.loserSyms.has(row.symbol)) add("↑ both lists", "tag-warn");
+  return tags;
+}
+
+function tagsHtml(tags) {
+  if (!tags.length) return "";
+  return `<div class="spot-tags">${tags.map(t => `<span class="spot-tag ${t.cls}">${escapeHtml(t.label)}</span>`).join("")}</div>`;
+}
+
 // Score gainers by momentum: change% × log10(volume).
 // Stocks also appearing in the actives list get a 1.5× volume-conviction boost.
 function computeSpotlight(gainers, actives) {
   const activeSyms = new Set(actives.map((r) => r.symbol));
   return gainers
     .filter((g) => g.changePct != null && g.volume != null && g.price != null && g.changePct > 0)
+    .filter(passesLiquidity)
     .map((g) => ({
       ...g,
       score: g.changePct * Math.log10(g.volume + 1) * (activeSyms.has(g.symbol) ? 1.5 : 1),
@@ -389,27 +416,89 @@ function computeSpotlight(gainers, actives) {
     .slice(0, 6);
 }
 
-function spotlightCard(q) {
+function computePutPlays(losers, actives) {
+  const activeSyms = new Set(actives.map((r) => r.symbol));
+  return losers
+    .filter((l) => l.changePct != null && l.volume != null && l.price != null && l.changePct < 0)
+    .filter(passesLiquidity)
+    .map((l) => ({
+      ...l,
+      score: Math.abs(l.changePct) * Math.log10(l.volume + 1) * (activeSyms.has(l.symbol) ? 1.5 : 1),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
+}
+
+function computeEarningsVolPlays(earnings, upcoming, gainers, losers, actives) {
+  const earnIndex = new Map();
+  earnings.forEach((e) => earnIndex.set(e.symbol, { whenLabel: "today", isToday: true, time: e.time }));
+  upcoming.forEach((d) =>
+    d.rows.forEach((r) => {
+      if (!earnIndex.has(r.symbol)) earnIndex.set(r.symbol, { whenLabel: d.prettyStr, isToday: false, time: r.time });
+    }),
+  );
+  const moverIndex = new Map();
+  [...gainers, ...losers, ...actives].forEach((m) => {
+    const cur = moverIndex.get(m.symbol);
+    if (!cur || Math.abs(m.changePct ?? 0) > Math.abs(cur.changePct ?? 0)) moverIndex.set(m.symbol, m);
+  });
+  const result = [];
+  for (const [sym, einfo] of earnIndex) {
+    const m = moverIndex.get(sym);
+    if (!m || m.changePct == null || m.volume == null || m.price == null) continue;
+    if (!passesLiquidity(m)) continue;
+    result.push({
+      ...m,
+      whenLabel: einfo.whenLabel,
+      isToday: einfo.isToday,
+      earningsTime: einfo.time,
+      score: Math.abs(m.changePct) * Math.log10(m.volume + 1) * (einfo.isToday ? 1.5 : 1),
+    });
+  }
+  return result.sort((a, b) => b.score - a.score).slice(0, 6);
+}
+
+function spotlightCard(q, ctx) {
   const enc = encodeURIComponent(q.symbol);
   const chain = `https://finance.yahoo.com/quote/${enc}/options`;
-  const quote = `https://finance.yahoo.com/quote/${enc}`;
-  const sign = q.changePct >= 0 ? "+" : "";
+  const pctCls = (q.changePct ?? 0) >= 0 ? "pos" : "neg";
+  const sign = (q.changePct ?? 0) >= 0 ? "+" : "";
+  const chips = ctx ? tagsHtml(buildTagSet(q, ctx)) : "";
   return `<a class="spot-card" href="${chain}" target="_blank" rel="noopener" title="Open option chain for ${escapeHtml(q.symbol)}">
     <div class="spot-sym">${escapeHtml(q.symbol)}</div>
     <div class="spot-name">${escapeHtml(q.name)}</div>
     <div class="spot-price">$${fmtPrice.format(q.price)}</div>
-    <div class="spot-pct pos">${sign}${fmtPct.format(q.changePct)}%</div>
+    <div class="spot-pct ${pctCls}">${sign}${fmtPct.format(q.changePct ?? 0)}%</div>
     <div class="spot-vol">${compactVol(q.volume)} vol</div>
+    ${chips}
     <div class="spot-chain-hint">tap for options chain</div>
   </a>`;
 }
 
-function spotlightSection(picks) {
+function spotlightSection(picks, ctx) {
   if (!picks.length) return "";
   return `<section class="card full">
-    <h2>Momentum Plays <span class="count">${picks.length}</span></h2>
-    <p class="hint">Top gainers ranked by move size × volume — highest-conviction moves today. Click any card for its options chain.</p>
-    <div class="spot-grid">${picks.map(spotlightCard).join("")}</div>
+    <h2>Call Plays <span class="count">${picks.length}</span></h2>
+    <p class="hint">Top gainers ranked by move size × volume — highest-conviction bullish setups. Click any card for its options chain.</p>
+    <div class="spot-grid">${picks.map((q) => spotlightCard(q, ctx)).join("")}</div>
+  </section>`;
+}
+
+function putPlaysSection(picks, ctx) {
+  if (!picks.length) return "";
+  return `<section class="card full">
+    <h2>Put Plays <span class="count">${picks.length}</span></h2>
+    <p class="hint">Top decliners ranked by drop size × volume — highest-conviction bearish setups. Click any card for its options chain.</p>
+    <div class="spot-grid">${picks.map((q) => spotlightCard(q, ctx)).join("")}</div>
+  </section>`;
+}
+
+function earningsVolSection(picks, ctx) {
+  if (!picks.length) return "";
+  return `<section class="card full">
+    <h2>Earnings Vol Plays <span class="count">${picks.length}</span></h2>
+    <p class="hint">Earnings names already moving on volume — high-IV directional or straddle setups. IV typically crushes after the report.</p>
+    <div class="spot-grid">${picks.map((q) => spotlightCard(q, ctx)).join("")}</div>
   </section>`;
 }
 
@@ -509,6 +598,8 @@ function chatScript(data) {
       '2. The EARNINGS TODAY list is ONLY companies reporting on '+d.date+'. Do NOT state earnings dates for any company not in this list — say you do not have that data and direct them to earningswhispers.com or the company investor relations page.',
       '3. Do NOT invent or guess specific stock prices, earnings dates, EPS figures, or analyst targets. If the information is not in the data below, say so clearly.',
       '4. For general market concepts, options strategies, and educational questions you may use your training knowledge — but label it as general knowledge, not current data.',
+      '5. When asked for call ideas, prefer the CALL PLAYS list. For put ideas, prefer PUT PLAYS. For earnings trades, use EARNINGS VOL PLAYS. Always add a brief risk disclaimer.',
+      '6. IV often crushes post-earnings — mention this when discussing earnings vol plays.',
       '=== END RULES ===',
       ''
     ];
@@ -543,6 +634,22 @@ function chatScript(data) {
       L.push('\\nVOLATILITY/INDEXES:');
       d.volatility.forEach(function(v){L.push('  '+v.label+' '+v.price+' ('+(v.changePct>=0?'+':'')+(v.changePct||0).toFixed(2)+'%)');});
     }
+    if(d.sectors&&d.sectors.length){
+      L.push('\\nSECTOR ETFS:');
+      d.sectors.forEach(function(s){L.push('  '+s.label+' ('+(s.changePct>=0?'+':'')+(s.changePct||0).toFixed(2)+'%)');});
+    }
+    if(d.spotlight&&d.spotlight.length){
+      L.push('\\nCALL PLAYS (bullish momentum, ranked by score):');
+      d.spotlight.forEach(function(s){L.push('  '+s.symbol+' +'+(s.changePct||0).toFixed(2)+'% $'+(s.price||0).toFixed(2)+' vol '+s.volume+' score '+(s.score||0).toFixed(1));});
+    }
+    if(d.puts&&d.puts.length){
+      L.push('\\nPUT PLAYS (bearish momentum, ranked by score):');
+      d.puts.forEach(function(s){L.push('  '+s.symbol+' '+(s.changePct||0).toFixed(2)+'% $'+(s.price||0).toFixed(2)+' vol '+s.volume+' score '+(s.score||0).toFixed(1));});
+    }
+    if(d.earningsVol&&d.earningsVol.length){
+      L.push('\\nEARNINGS VOL PLAYS (earnings name already moving — high-IV setups):');
+      d.earningsVol.forEach(function(s){L.push('  '+s.symbol+' earnings '+s.whenLabel+' move '+(s.changePct||0).toFixed(2)+'% $'+(s.price||0).toFixed(2));});
+    }
     L.push('\\nBe concise and practical. Flag risks. Add a brief disclaimer when giving specific trade ideas.');
     return L.join('\\n');
   }
@@ -568,6 +675,58 @@ function chatScript(data) {
 
   function setSend(on){var b=document.getElementById('chat-send');if(b)b.disabled=!on;}
 
+  async function callPollinations(){
+    var messages=[{role:'system',content:sysPrompt()}].concat(hist);
+    var res=await fetch('https://text.pollinations.ai/openai',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({messages:messages,model:'openai-large',seed:Date.now()%9999,private:true,referrer:'stonks-hub'})
+    });
+    if(!res.ok)throw new Error('Pollinations HTTP '+res.status);
+    var json=await res.json();
+    return (json.choices&&json.choices[0]&&json.choices[0].message&&json.choices[0].message.content)
+      ? json.choices[0].message.content
+      : (typeof json==='string'?json:JSON.stringify(json));
+  }
+
+  async function callAnthropic(key){
+    var messages=hist.map(function(m){return {role:m.role==='assistant'?'assistant':'user',content:m.content};});
+    var res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:1024,system:sysPrompt(),messages:messages})
+    });
+    if(!res.ok){var t=await res.text();throw new Error('Anthropic '+res.status+': '+t.slice(0,120));}
+    var json=await res.json();
+    return (json.content&&json.content[0]&&json.content[0].text)?json.content[0].text:'(empty response)';
+  }
+
+  function byokPromptHtml(){
+    return 'Free AI is unavailable right now (upstream rate-limited).<br><br>'
+      +'Enter an <a href="https://console.anthropic.com/keys" target="_blank" style="color:var(--accent);">Anthropic API key</a> to keep using the chat (stored in your browser only):'
+      +'<form id="byok-form" style="margin-top:8px;display:flex;gap:6px;">'
+      +'<input id="byok-key" type="password" placeholder="sk-ant-..." style="flex:1;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font:inherit;font-size:13px;" />'
+      +'<button type="submit" style="background:var(--accent);color:#0b0d12;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;white-space:nowrap;">Save</button>'
+      +'</form>';
+  }
+
+  function bindByokForm(){
+    var f=document.getElementById('byok-form');
+    if(!f)return;
+    f.addEventListener('submit',function(e){
+      e.preventDefault();
+      var k=document.getElementById('byok-key').value.trim();
+      if(!k)return;
+      try{localStorage.setItem('stonks_chat_key',k);}catch(ex){}
+      addMsg('assistant','Key saved — send your question again.',false);
+    });
+  }
+
   async function send(text){
     if(busy||!text.trim())return;
     busy=true;setSend(false);
@@ -575,20 +734,21 @@ function chatScript(data) {
     hist.push({role:'user',content:text});
     var thinking=addMsg('thinking','Thinking…',false);
     try{
-      var messages=[{role:'system',content:sysPrompt()}].concat(hist);
-      var res=await fetch('https://text.pollinations.ai/',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({messages:messages,model:'openai-large',seed:Date.now()%9999,private:true})
-      });
-      if(!res.ok)throw new Error('Service returned HTTP '+res.status+'. Please try again.');
-      var reply=await res.text();
+      var key;try{key=localStorage.getItem('stonks_chat_key');}catch(ex){key=null;}
+      var reply=key?await callAnthropic(key):await callPollinations();
       if(thinking&&thinking.parentNode)thinking.parentNode.removeChild(thinking);
       addMsg('assistant',renderMd(reply),true);
       hist.push({role:'assistant',content:reply});
     }catch(e){
       if(thinking&&thinking.parentNode)thinking.parentNode.removeChild(thinking);
-      addMsg('assistant','Sorry, couldn\\'t get a response: '+esc(e.message),true);
+      var hasKey;try{hasKey=!!localStorage.getItem('stonks_chat_key');}catch(ex){hasKey=false;}
+      if(!hasKey){
+        addMsg('assistant',byokPromptHtml(),true);
+        bindByokForm();
+      }else{
+        addMsg('assistant','AI request failed: '+esc(e.message)
+          +' — <a href="#" style="color:var(--accent);" onclick="try{localStorage.removeItem(\\'stonks_chat_key\\');}catch(ex){}location.reload();return false;">Reset key</a>',true);
+      }
     }finally{busy=false;setSend(true);}
   }
 
@@ -667,7 +827,7 @@ function earningsSection(rows) {
   </section>`;
 }
 
-function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, losers, actives, volatility, sectors, spotlight, chatData }) {
+function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, losers, actives, volatility, sectors, spotlight, puts, earningsVol, ctx, chatData }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -898,6 +1058,17 @@ function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, l
     letter-spacing: 0.04em;
   }
   .spot-card:hover .spot-chain-hint { opacity: 1; }
+  /* Pick reasoning chips */
+  .spot-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .spot-tag {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 4px; background: var(--border); color: var(--muted);
+  }
+  .spot-tag.tag-earn-now { color: #ff5c5c; background: rgba(255,92,92,0.15); }
+  .spot-tag.tag-earn-soon { color: #f39c12; background: rgba(243,156,18,0.15); }
+  .spot-tag.tag-active { color: var(--accent); background: rgba(110,168,255,0.12); }
+  .spot-tag.tag-bigmove { color: #c084fc; background: rgba(192,132,252,0.15); }
+  .spot-tag.tag-warn, .spot-tag.tag-small { color: #f39c12; background: rgba(243,156,18,0.2); }
   /* Upcoming Earnings */
   .upcoming-grid { display: flex; flex-direction: column; gap: 18px; }
   .upcoming-day-label {
@@ -1020,11 +1191,13 @@ function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, l
 </header>
 <main>
   ${volatilitySection(volatility)}
-  ${sectorSection(sectors)}
-  ${watchlistSection()}
-  ${spotlightSection(spotlight)}
+  ${spotlightSection(spotlight, ctx)}
+  ${putPlaysSection(puts, ctx)}
+  ${earningsVolSection(earningsVol, ctx)}
   ${earningsSection(earnings)}
   ${upcomingEarningsSection(upcoming)}
+  ${sectorSection(sectors)}
+  ${watchlistSection()}
   ${moverTable("Top Gainers", gainers)}
   ${moverTable("Top Losers", losers)}
   ${moverTable("Most Active", actives)}
@@ -1055,7 +1228,17 @@ async function main() {
     fetchUpcomingEarnings(2),
   ]);
 
+  const ctx = {
+    earningsTodaySyms: new Set(earnings.map((e) => e.symbol)),
+    earningsSoonByDay: new Map(upcoming.flatMap((d) => d.rows.map((r) => [r.symbol, d.prettyStr]))),
+    activeSyms: new Set(actives.map((a) => a.symbol)),
+    gainerSyms: new Set(gainers.map((g) => g.symbol)),
+    loserSyms: new Set(losers.map((l) => l.symbol)),
+  };
+
   const spotlight = computeSpotlight(gainers, actives);
+  const puts = computePutPlays(losers, actives);
+  const earningsVol = computeEarningsVolPlays(earnings, upcoming, gainers, losers, actives);
 
   const html = renderHtml({
     today,
@@ -1069,14 +1252,17 @@ async function main() {
     volatility,
     sectors,
     spotlight,
-    chatData: { date: today, earnings, upcoming, gainers, losers, actives, volatility },
+    puts,
+    earningsVol,
+    ctx,
+    chatData: { date: today, earnings, upcoming, gainers, losers, actives, volatility, sectors, spotlight, puts, earningsVol },
   });
 
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
   const upcomingCount = upcoming.reduce((s, d) => s + d.rows.length, 0);
   console.log(
-    `wrote ${OUT} — earnings:${earnings.length} upcoming:${upcomingCount} gainers:${gainers.length} losers:${losers.length} actives:${actives.length} vol:${volatility.length} sectors:${sectors.length} spotlight:${spotlight.length}`,
+    `wrote ${OUT} — earnings:${earnings.length} upcoming:${upcomingCount} gainers:${gainers.length} losers:${losers.length} actives:${actives.length} vol:${volatility.length} sectors:${sectors.length} spotlight:${spotlight.length} puts:${puts.length} earningsVol:${earningsVol.length}`,
   );
 }
 
