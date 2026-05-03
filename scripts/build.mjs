@@ -1,7 +1,12 @@
 // Renders index.html — a single-purpose Option Contract Rater.
-// Pure client-side: the page fetches CBOE's delayed option chain directly
-// from the browser (CBOE serves CORS headers) — no proxy, no API key, no
-// build-time data fetching.
+//
+// Build-time: fetches Yahoo's option chain for a curated ticker list
+// (server-side, no CORS issues from a Node runtime) and embeds the
+// compressed chains directly into index.html as window.STONKS_CHAINS.
+//
+// Runtime: the page does ZERO network calls — every lookup hits the
+// embedded data. The daily GitHub Actions workflow refreshes the file
+// each market-day morning and evening.
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,11 +14,147 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, "../index.html");
 
-function optionEvalSection() {
+// Curated list of high-volume optionable US names. Limit ~35 to keep the
+// embedded JSON under a few hundred KB.
+const TICKERS = [
+  // Index & sector ETFs
+  "SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "USO", "XLF", "XLE", "XLK",
+  // Mega-caps
+  "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
+  // Banks / payments
+  "JPM", "BAC", "V", "MA",
+  // Retail / consumer
+  "WMT", "COST", "DIS", "BA",
+  // High-volatility / popular
+  "COIN", "PLTR", "SHOP", "BABA", "NIO",
+  "GME", "AMC",
+];
+
+const FETCH_TIMEOUT_MS = 20000;
+const STRIKE_BAND = 0.30; // keep ±30% strikes around spot
+const MAX_EXPIRATIONS = 6;
+
+async function fetchJson(url, { headers = {} } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "application/json,text/plain,*/*",
+        ...headers,
+      },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchYahooOptions(symbol, dateEpoch) {
+  const base = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
+  const url = dateEpoch ? `${base}?date=${dateEpoch}` : base;
+  const json = await fetchJson(url);
+  if (json?.optionChain?.error) {
+    throw new Error(json.optionChain.error.description || "Yahoo error");
+  }
+  const result = json?.optionChain?.result?.[0];
+  if (!result) throw new Error(`Empty Yahoo response for ${symbol}`);
+  return result;
+}
+
+// Yahoo contract → compact shape. Single-letter keys keep the embedded
+// payload small.
+function compressContract(c) {
+  return {
+    s: c.strike ?? null,
+    b: c.bid ?? null,
+    a: c.ask ?? null,
+    l: c.lastPrice ?? null,
+    iv: c.impliedVolatility ?? null,
+    oi: c.openInterest ?? null,
+    v: c.volume ?? null,
+    n: c.contractSymbol || null,
+  };
+}
+
+async function fetchTickerChain(symbol) {
+  const initial = await fetchYahooOptions(symbol);
+  const spot =
+    initial.quote?.regularMarketPrice ??
+    initial.quote?.postMarketPrice ??
+    initial.quote?.preMarketPrice ??
+    null;
+  const allExp = initial.expirationDates || [];
+  if (!spot) throw new Error(`No spot for ${symbol}`);
+  if (!allExp.length) throw new Error(`No expirations for ${symbol}`);
+
+  const expirations = allExp.slice(0, MAX_EXPIRATIONS);
+  const minK = spot * (1 - STRIKE_BAND);
+  const maxK = spot * (1 + STRIKE_BAND);
+  const filterStrike = (c) => c.strike != null && c.strike >= minK && c.strike <= maxK;
+
+  const chains = {};
+  for (let i = 0; i < expirations.length; i++) {
+    const exp = expirations[i];
+    let chainEntry;
+    if (i === 0 && initial.options?.[0]) {
+      chainEntry = initial.options[0];
+    } else {
+      // Stagger requests slightly to avoid Yahoo throttling.
+      await new Promise((r) => setTimeout(r, 250));
+      const r = await fetchYahooOptions(symbol, exp);
+      chainEntry = r.options?.[0];
+    }
+    if (!chainEntry) continue;
+    chains[exp] = {
+      c: (chainEntry.calls || []).filter(filterStrike).map(compressContract),
+      p: (chainEntry.puts || []).filter(filterStrike).map(compressContract),
+    };
+  }
+
+  return { spot, expirations: Object.keys(chains).map(Number).sort((a, b) => a - b), chains };
+}
+
+async function fetchAllTickerChains() {
+  const out = {};
+  for (const sym of TICKERS) {
+    try {
+      out[sym] = await fetchTickerChain(sym);
+      console.log(`  ✓ ${sym} — spot $${out[sym].spot.toFixed(2)}, ${out[sym].expirations.length} expirations`);
+    } catch (err) {
+      console.error(`  ✗ ${sym} — ${err.message}`);
+    }
+    // Politeness pause between tickers.
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  return out;
+}
+
+function nyTimestamp() {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date());
+}
+
+function optionEvalSection(symbols) {
+  const optionsHtml = symbols.length
+    ? symbols.map((s) => `<option value="${s}">${s}</option>`).join("")
+    : `<option value="">(no chains available)</option>`;
   return `<section class="card" id="opt-eval-section">
-    <p class="hint">Enter a ticker and pick a call or put. We grade the bid-ask spread and Greeks (delta/theta) so you can spot a good contract from a poor one. Underlying direction is up to you.</p>
+    <p class="hint">Pick a ticker, then a call or put. We grade the bid-ask spread and Greeks (delta/theta) so you can spot a good contract from a poor one. Underlying direction is up to you.</p>
     <form id="opt-eval-form" class="opt-form">
-      <input type="text" id="opt-symbol" placeholder="Ticker (e.g. AAPL)" autocomplete="off" maxlength="10" spellcheck="false" />
+      <select id="opt-symbol" aria-label="Ticker">${optionsHtml}</select>
       <select id="opt-type" aria-label="Option type">
         <option value="call">Call</option>
         <option value="put">Put</option>
@@ -34,21 +175,9 @@ function optionEvalScript() {
   return `
 <script>
 (function(){
-  // CBOE delayed-quote endpoint serves CORS headers, so the page can fetch
-  // it directly from the browser — no proxy and no API key required.
-  // Public proxies and Yahoo were tried previously and were unreliable;
-  // anyone migrating localStorage state from those days can clear it manually.
-  var FETCH_TIMEOUT_MS = 10000;
+  var DATA = (window.STONKS_CHAINS && window.STONKS_CHAINS.tickers) || {};
   var RFR = 0.045; // assumed risk-free rate (annual)
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
-
-  function fetchWithTimeout(url, opts){
-    opts = opts || {};
-    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var timer = setTimeout(function(){ if(ctrl) ctrl.abort(); }, FETCH_TIMEOUT_MS);
-    if(ctrl) opts.signal = ctrl.signal;
-    return fetch(url, opts).finally(function(){ clearTimeout(timer); });
-  }
 
   function $(id){return document.getElementById(id);}
   function setStatus(msg, kind){
@@ -83,67 +212,6 @@ function optionEvalScript() {
     return { delta:delta, thetaDay:thetaYr/365, gamma:gamma, vega:vega };
   }
 
-  // CBOE returns all expirations in one response, so the loaded chain
-  // covers every later expiration-dropdown change with no extra fetch.
-  // Tries variants for index symbols (^SPX -> _SPX) and major root suffixes
-  // (some weeklys are listed under TICKERW alongside the standard root).
-  async function fetchChainFromCboe(symbol){
-    var clean = symbol.replace(/^\\^/, ''); // ^SPX -> SPX
-    var candidates = [];
-    if(symbol.charAt(0) === '^') candidates.push('_' + clean); // CBOE indexes use leading underscore
-    candidates.push(clean);
-    candidates.push('_' + clean); // last-ditch underscore form for some ETFs
-
-    var lastErr = null, json = null;
-    for(var i=0;i<candidates.length;i++){
-      var url = 'https://cdn.cboe.com/api/global/delayed_quotes/options/' + encodeURIComponent(candidates[i]) + '.json';
-      try {
-        var res = await fetchWithTimeout(url, { headers: { 'Accept': 'application/json' } });
-        if(!res.ok){ lastErr = new Error('CBOE: HTTP ' + res.status + ' for ' + candidates[i]); continue; }
-        var text = await res.text();
-        try { json = JSON.parse(text); } catch(e){ lastErr = new Error('CBOE: non-JSON for ' + candidates[i]); continue; }
-        break;
-      } catch(e){ lastErr = e; }
-    }
-    if(!json) throw lastErr || new Error('CBOE: no response');
-
-    var data = json.data;
-    if(!data || !Array.isArray(data.options)) throw new Error('No CBOE chain for ' + symbol);
-    var spot = data.current_price || data.last || data.prev_day_close || null;
-
-    // OCC option symbol: <ROOT><YYMMDD><C|P><strike*1000 8 digits>.
-    // ROOT may differ from the underlying ticker (e.g. weeklys, post-split
-    // tickers). We accept any letters/digits up to the YYMMDD anchor.
-    var occRe = /^([A-Z0-9]{1,9}?)(\\d{6})([CP])(\\d{8})$/;
-    var byExp = {};
-    data.options.forEach(function(o){
-      var m = occRe.exec(o.option || '');
-      if(!m) return;
-      var yy = parseInt(m[2].slice(0,2),10), mm = parseInt(m[2].slice(2,4),10), dd = parseInt(m[2].slice(4,6),10);
-      // 21:00 UTC ≈ US market close on expiry day.
-      var epoch = Math.floor(Date.UTC(2000+yy, mm-1, dd, 21, 0, 0) / 1000);
-      var side = m[3] === 'C' ? 'calls' : 'puts';
-      var strike = parseInt(m[4],10) / 1000;
-      if(!byExp[epoch]) byExp[epoch] = { calls: [], puts: [] };
-      byExp[epoch][side].push({
-        contractSymbol: o.option,
-        strike: strike,
-        bid: o.bid, ask: o.ask,
-        lastPrice: o.last_trade_price != null ? o.last_trade_price : o.last,
-        impliedVolatility: o.iv,
-        openInterest: o.open_interest,
-        volume: o.volume
-      });
-    });
-    var expirations = Object.keys(byExp).map(Number).sort(function(a,b){return a-b;});
-    if(!expirations.length) throw new Error('CBOE returned no parseable contracts for ' + symbol);
-    expirations.forEach(function(e){
-      byExp[e].calls.sort(function(a,b){return a.strike-b.strike;});
-      byExp[e].puts.sort(function(a,b){return a.strike-b.strike;});
-    });
-    return { spot: spot, expirations: expirations, chainsByExp: byExp };
-  }
-
   function fmtExpiryLabel(epoch){
     var d=new Date(epoch*1000);
     return d.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric',timeZone:'America/New_York'});
@@ -163,20 +231,19 @@ function optionEvalScript() {
     var chain=state.chains[state.currentExp];
     var sel=$('opt-strike'); sel.innerHTML='';
     if(!chain)return;
-    var rows=(type==='call'?chain.calls:chain.puts)||[];
+    var rows=(type==='call'?chain.c:chain.p)||[];
     if(!rows.length){
       var o=document.createElement('option'); o.textContent='No '+type+'s available'; o.disabled=true; sel.appendChild(o); return;
     }
-    // Pre-select the strike nearest spot.
     var spot=state.spot;
     var bestIdx=0, bestDist=Infinity;
     rows.forEach(function(r,i){
-      var d=Math.abs((r.strike||0)-spot);
+      var d=Math.abs((r.s||0)-spot);
       if(d<bestDist){bestDist=d;bestIdx=i;}
       var o=document.createElement('option');
-      o.value=r.contractSymbol||String(i);
-      var bidAsk = ' (bid '+fmt(r.bid)+' / ask '+fmt(r.ask)+')';
-      o.textContent='$'+fmt(r.strike)+bidAsk;
+      o.value=r.n||String(i);
+      var bidAsk = ' (bid '+fmt(r.b)+' / ask '+fmt(r.a)+')';
+      o.textContent='$'+fmt(r.s)+bidAsk;
       sel.appendChild(o);
     });
     sel.selectedIndex=bestIdx;
@@ -185,9 +252,9 @@ function optionEvalScript() {
   function findContract(){
     var type=$('opt-type').value;
     var chain=state.chains[state.currentExp]; if(!chain)return null;
-    var rows=(type==='call'?chain.calls:chain.puts)||[];
+    var rows=(type==='call'?chain.c:chain.p)||[];
     var sym=$('opt-strike').value;
-    return rows.find(function(r){return (r.contractSymbol||'')===sym;}) || null;
+    return rows.find(function(r){return (r.n||'')===sym;}) || null;
   }
 
   function gradeSpread(spreadPct){
@@ -230,14 +297,14 @@ function optionEvalScript() {
     var c=findContract();
     if(!c){ setStatus('Pick a strike first.','err'); return; }
     var type=$('opt-type').value;
-    var bid=c.bid, ask=c.ask;
-    var mid = (bid!=null&&ask!=null && (bid+ask)>0) ? (bid+ask)/2 : (c.lastPrice||null);
+    var bid=c.b, ask=c.a;
+    var mid = (bid!=null&&ask!=null && (bid+ask)>0) ? (bid+ask)/2 : (c.l||null);
     var spread = (bid!=null&&ask!=null) ? (ask-bid) : null;
     var spreadPct = (spread!=null && mid>0) ? (spread/mid*100) : null;
-    var iv = c.impliedVolatility;
+    var iv = c.iv;
     var expEpoch = state.currentExp;
     var T = (expEpoch*1000 - Date.now()) / (365*24*3600*1000);
-    var g = (T>0 && iv>0) ? greeks(type, state.spot, c.strike, T, iv, RFR) : null;
+    var g = (T>0 && iv>0) ? greeks(type, state.spot, c.s, T, iv, RFR) : null;
 
     var sGrade = spreadPct!=null ? gradeSpread(spreadPct) : {label:'—', cls:'fair', note:'no quote'};
     var dGrade = g ? gradeDelta(g.delta, type) : {label:'—', cls:'fair', note:'delta unavailable'};
@@ -246,7 +313,7 @@ function optionEvalScript() {
 
     var html = '';
     html += '<div class="opt-verdict '+verdict.cls+'">'+verdict.label+'</div>';
-    html += '<div class="opt-contract">'+(c.contractSymbol||'')+' · spot $'+fmt(state.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
+    html += '<div class="opt-contract">'+(c.n||'')+' · spot $'+fmt(state.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$'+fmt(bid)+' / $'+fmt(ask));
     html += row('Mid', mid!=null?'$'+fmt(mid):'—');
@@ -256,45 +323,36 @@ function optionEvalScript() {
     html += row('Theta / day', g?'$'+fmt(g.thetaDay,3):'—', g?gradeChip(tGrade):'');
     html += row('Gamma', g?fmt(g.gamma,4):'—');
     html += row('Vega (per 1 vol pt)', g?'$'+fmt(g.vega,3):'—');
-    html += row('Open interest', c.openInterest!=null?String(c.openInterest):'—');
-    html += row('Volume', c.volume!=null?String(c.volume):'—');
+    html += row('Open interest', c.oi!=null?String(c.oi):'—');
+    html += row('Volume', c.v!=null?String(c.v):'—');
     html += '</div>';
     html += '<ul class="opt-notes">';
     html += '<li><b>Spread:</b> '+sGrade.note+'.</li>';
     html += '<li><b>Delta:</b> '+dGrade.note+'.</li>';
     html += '<li><b>Theta:</b> '+tGrade.note+'.</li>';
     html += '</ul>';
-    html += '<p class="opt-disclaimer">Greeks are computed with Black-Scholes using CBOE&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Liquidity, earnings risk, and IV crush are not graded — for information only.</p>';
+    html += '<p class="opt-disclaimer">Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Quotes are end-of-session as of the build timestamp shown below — for information only, not investment advice.</p>';
     $('opt-eval-result').innerHTML=html;
     setStatus('','');
   }
 
-  async function loadChain(){
-    var symbol=$('opt-symbol').value.trim().toUpperCase();
-    if(!symbol){ setStatus('Enter a ticker first.','err'); return; }
-    setStatus('Loading chain for '+symbol+'…','');
+  function loadChain(){
+    var symbol=$('opt-symbol').value;
+    if(!symbol){ setStatus('Pick a ticker first.','err'); return; }
+    var entry = DATA[symbol];
+    if(!entry){ setStatus('No chain data for '+symbol+' in this build.','err'); return; }
+    state.symbol=symbol;
+    state.spot=entry.spot;
+    state.expirations=(entry.expirations||[]).slice();
+    state.chains=entry.chains||{};
+    if(!state.expirations.length){ setStatus('No expirations for '+symbol+'.','err'); return; }
+    state.currentExp=state.expirations[0];
+    populateExpiry();
+    $('opt-expiry').value=String(state.currentExp);
+    populateStrikes();
+    $('opt-chain-row').hidden=false;
     $('opt-eval-result').innerHTML='';
-    $('opt-chain-row').hidden=true;
-    $('opt-load-btn').disabled=true;
-    try{
-      var r=await fetchChainFromCboe(symbol);
-      state.symbol=symbol;
-      state.spot=r.spot;
-      state.expirations=r.expirations.slice();
-      state.chains=r.chainsByExp;
-      if(!state.spot){ throw new Error('No spot price returned for '+symbol); }
-      if(!state.expirations.length){ throw new Error('No option expirations returned for '+symbol); }
-      state.currentExp=state.expirations[0];
-      populateExpiry();
-      $('opt-expiry').value=String(state.currentExp);
-      populateStrikes();
-      $('opt-chain-row').hidden=false;
-      setStatus(symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
-    }catch(e){
-      setStatus('Could not load chain: '+e.message,'err');
-    }finally{
-      $('opt-load-btn').disabled=false;
-    }
+    setStatus(symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
   }
 
   function onExpiryChange(){
@@ -315,7 +373,12 @@ function optionEvalScript() {
 <\/script>`;
 }
 
-function renderHtml() {
+function renderHtml({ chains, builtAt }) {
+  const symbols = Object.keys(chains).sort();
+  const tickerCount = symbols.length;
+  const dataPayload = JSON.stringify({ builtAt, tickers: chains });
+  // Avoid an early </script> within the JSON breaking the inline script.
+  const safePayload = dataPayload.replace(/<\/script>/gi, "<\\/script>");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -382,13 +445,12 @@ function renderHtml() {
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     margin: 6px 0 10px;
   }
-  .opt-form input, .opt-form select, .opt-chain-row select {
+  .opt-form select, .opt-chain-row select {
     background: var(--panel-2); border: 1px solid var(--border);
     border-radius: 8px; padding: 8px 10px; color: var(--text);
     font: inherit; font-size: 14px; min-width: 120px;
   }
-  .opt-form input { text-transform: uppercase; letter-spacing: 0.04em; min-width: 160px; }
-  .opt-form input:focus, .opt-form select:focus, .opt-chain-row select:focus {
+  .opt-form select:focus, .opt-chain-row select:focus {
     outline: none; border-color: var(--accent);
   }
   .opt-form button, .opt-chain-row button {
@@ -439,24 +501,32 @@ function renderHtml() {
 <body>
 <header>
   <h1>Option Contract Rater</h1>
-  <div class="sub">Grade a single options contract on spread quality, delta, and theta.</div>
+  <div class="sub">Grade a single options contract on spread quality, delta, and theta. Quotes refreshed daily — ${tickerCount} tickers available.</div>
 </header>
 <main>
-  ${optionEvalSection()}
+  ${optionEvalSection(symbols)}
 </main>
 <footer>
-  Data: CBOE delayed option quotes (cdn.cboe.com). Greeks computed locally with Black-Scholes. For information only — not investment advice.
+  Data: Yahoo Finance option chain, fetched server-side at build time. Built ${builtAt} (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
 </footer>
+<script>window.STONKS_CHAINS=${safePayload};<\/script>
 ${optionEvalScript()}
 </body>
 </html>`;
 }
 
 async function main() {
-  const html = renderHtml();
+  console.log("Fetching option chains for", TICKERS.length, "tickers…");
+  const chains = await fetchAllTickerChains();
+  const got = Object.keys(chains).length;
+  if (got === 0) {
+    throw new Error("No tickers fetched successfully — refusing to overwrite index.html");
+  }
+  console.log(`Got ${got} / ${TICKERS.length} tickers.`);
+  const html = renderHtml({ chains, builtAt: nyTimestamp() });
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
-  console.log("wrote " + OUT);
+  console.log("wrote " + OUT, `(${(html.length / 1024).toFixed(1)} KB)`);
 }
 
 main().catch((err) => {
