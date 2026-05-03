@@ -29,6 +29,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
       - name: Build site
         run: node scripts/build.mjs
 
@@ -44,6 +47,9 @@ jobs:
           else
             echo "No changes to commit."
           fi
+
+      - name: Strip build-only files from Pages artifact
+        run: rm -rf node_modules
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
