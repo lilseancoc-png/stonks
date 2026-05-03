@@ -8,5 +8,8 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "yahoo-finance2": "^2.13.3"
   }
 }

@@ -1,8 +1,10 @@
 // Renders index.html — a single-purpose Option Contract Rater.
 //
 // Build-time: fetches Yahoo's option chain for a curated ticker list
-// (server-side, no CORS issues from a Node runtime) and embeds the
-// compressed chains directly into index.html as window.STONKS_CHAINS.
+// using the yahoo-finance2 client (handles consent cookie + crumb so
+// it works from GitHub Actions runners — raw fetches to query1.* return
+// 401 "Host not in allowlist") and embeds the compressed chains
+// directly into index.html as window.STONKS_CHAINS.
 //
 // Runtime: the page does ZERO network calls — every lookup hits the
 // embedded data. The daily GitHub Actions workflow refreshes the file
@@ -10,6 +12,13 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import yahooFinance from "yahoo-finance2";
+
+// Library prints a survey notice on first use and validates response
+// schemas — silence both since Yahoo occasionally omits optional fields
+// we don't read.
+yahooFinance.suppressNotices(["yahooSurvey"]);
+yahooFinance.setGlobalConfig({ validation: { logErrors: false } });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, "../index.html");
@@ -30,41 +39,19 @@ const TICKERS = [
   "GME", "AMC",
 ];
 
-const FETCH_TIMEOUT_MS = 20000;
 const STRIKE_BAND = 0.30; // keep ±30% strikes around spot
 const MAX_EXPIRATIONS = 6;
 
-async function fetchJson(url, { headers = {} } = {}) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-          "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        Accept: "application/json,text/plain,*/*",
-        ...headers,
-      },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
+async function fetchYahooOptions(symbol, expDate) {
+  // yahoo-finance2 returns one expiration per call (the requested date,
+  // or the nearest expiration when omitted) plus the full expirationDates
+  // list as Date[]. Validation is silenced globally above.
+  const opts = expDate ? { date: expDate } : {};
+  return await yahooFinance.options(symbol, opts);
 }
 
-async function fetchYahooOptions(symbol, dateEpoch) {
-  const base = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
-  const url = dateEpoch ? `${base}?date=${dateEpoch}` : base;
-  const json = await fetchJson(url);
-  if (json?.optionChain?.error) {
-    throw new Error(json.optionChain.error.description || "Yahoo error");
-  }
-  const result = json?.optionChain?.result?.[0];
-  if (!result) throw new Error(`Empty Yahoo response for ${symbol}`);
-  return result;
+function toEpochSec(d) {
+  return Math.floor((d instanceof Date ? d.getTime() : d) / 1000);
 }
 
 // Yahoo contract → compact shape. Single-letter keys keep the embedded
@@ -101,17 +88,17 @@ async function fetchTickerChain(symbol) {
   const chains = {};
   for (let i = 0; i < expirations.length; i++) {
     const exp = expirations[i];
+    const expSec = toEpochSec(exp);
     let chainEntry;
     if (i === 0 && initial.options?.[0]) {
       chainEntry = initial.options[0];
     } else {
-      // Stagger requests slightly to avoid Yahoo throttling.
       await new Promise((r) => setTimeout(r, 250));
       const r = await fetchYahooOptions(symbol, exp);
       chainEntry = r.options?.[0];
     }
     if (!chainEntry) continue;
-    chains[exp] = {
+    chains[expSec] = {
       c: (chainEntry.calls || []).filter(filterStrike).map(compressContract),
       p: (chainEntry.puts || []).filter(filterStrike).map(compressContract),
     };
