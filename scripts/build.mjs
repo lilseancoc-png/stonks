@@ -169,37 +169,37 @@ function optionEvalSection(symbols) {
   </section>
   <section class="card" id="opt-manual-section">
     <h2 class="card-title">Or grade your own contract</h2>
-    <p class="hint">Ticker not on the curated list, or want to grade a contract from your broker? Type the numbers in and get the same scoring. IV, OI and volume are optional — without IV we skip the Greeks.</p>
+    <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Copy the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
     <form id="opt-manual-form" class="opt-manual-grid">
-      <label class="opt-manual-field">Type
+      <label class="opt-manual-field opt-manual-field-row1">Type
         <select id="m-type">
           <option value="call">Call</option>
           <option value="put">Put</option>
         </select>
       </label>
-      <label class="opt-manual-field">Spot price ($)
-        <input id="m-spot" type="number" step="0.01" min="0" inputmode="decimal" required>
+      <label class="opt-manual-field opt-manual-field-row1">Share price
+        <input id="m-spot" type="text" inputmode="decimal" placeholder="100.77" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field">Strike ($)
-        <input id="m-strike" type="number" step="0.5" min="0" inputmode="decimal" required>
+      <label class="opt-manual-field opt-manual-field-row1">Strike price
+        <input id="m-strike" type="text" inputmode="decimal" placeholder="103" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field">Expiration
+      <label class="opt-manual-field opt-manual-field-row1">Expiration
         <input id="m-expiry" type="date" required>
       </label>
-      <label class="opt-manual-field">Bid ($)
-        <input id="m-bid" type="number" step="0.01" min="0" inputmode="decimal" required>
+      <label class="opt-manual-field opt-manual-field-row2">Bid
+        <input id="m-bid" type="text" inputmode="decimal" placeholder="3.15 (or 3.15 × 55)" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field">Ask ($)
-        <input id="m-ask" type="number" step="0.01" min="0" inputmode="decimal" required>
+      <label class="opt-manual-field opt-manual-field-row2">Ask
+        <input id="m-ask" type="text" inputmode="decimal" placeholder="3.30 (or 3.30 × 74)" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field">IV (%) <span class="opt-manual-opt">optional</span>
-        <input id="m-iv" type="number" step="0.1" min="0" inputmode="decimal">
+      <label class="opt-manual-field opt-manual-field-row3">Implied volatility <span class="opt-manual-opt">optional</span>
+        <input id="m-iv" type="text" inputmode="decimal" placeholder="100.81%" autocomplete="off">
       </label>
-      <label class="opt-manual-field">Open interest <span class="opt-manual-opt">optional</span>
-        <input id="m-oi" type="number" step="1" min="0" inputmode="numeric">
+      <label class="opt-manual-field opt-manual-field-row3">Open interest <span class="opt-manual-opt">optional</span>
+        <input id="m-oi" type="text" inputmode="numeric" placeholder="996" autocomplete="off">
       </label>
-      <label class="opt-manual-field">Volume <span class="opt-manual-opt">optional</span>
-        <input id="m-vol" type="number" step="1" min="0" inputmode="numeric">
+      <label class="opt-manual-field opt-manual-field-row3">Volume <span class="opt-manual-opt">optional</span>
+        <input id="m-vol" type="text" inputmode="numeric" placeholder="1,251" autocomplete="off">
       </label>
       <button type="submit" class="opt-manual-submit">Grade contract</button>
     </form>
@@ -224,6 +224,18 @@ function optionEvalScript() {
   }
   function fmt(n,d){ if(n==null||!isFinite(n))return '—'; return Number(n).toFixed(d==null?2:d); }
   function fmtPct(n){ if(n==null||!isFinite(n))return '—'; return n.toFixed(2)+'%'; }
+
+  // Tolerant parse: strip currency / percent / commas / thin-spaces and
+  // anything after a "x" / "×" (Robinhood's bid size suffix), then parseFloat.
+  // Handles "$3.15", "3.15 × 55", "100.81%", "1,251", "  3.15  ".
+  function parseLoose(raw){
+    if(raw==null)return NaN;
+    var s=String(raw).trim();
+    if(!s)return NaN;
+    s=s.split(/[x×]/i)[0];           // drop size suffix
+    s=s.replace(/[\\$,%\\s\\u00a0]/g,''); // strip $, %, commas, any whitespace
+    return parseFloat(s);
+  }
 
   // Standard normal PDF + CDF (Abramowitz & Stegun 7.1.26 approximation)
   function npdf(x){return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI);}
@@ -390,36 +402,36 @@ function optionEvalScript() {
   function evaluateManual(ev){
     if(ev) ev.preventDefault();
     var type = $('m-type').value;
-    var spot = parseFloat($('m-spot').value);
-    var strike = parseFloat($('m-strike').value);
+    var spot = parseLoose($('m-spot').value);
+    var strike = parseLoose($('m-strike').value);
     var expDateStr = $('m-expiry').value;
-    var bid = parseFloat($('m-bid').value);
-    var ask = parseFloat($('m-ask').value);
-    var ivPctRaw = $('m-iv').value;
-    var oiRaw = $('m-oi').value;
-    var volRaw = $('m-vol').value;
+    var bid = parseLoose($('m-bid').value);
+    var ask = parseLoose($('m-ask').value);
+    var ivRaw = $('m-iv').value.trim();
+    var oiRaw = $('m-oi').value.trim();
+    var volRaw = $('m-vol').value.trim();
+    var ivPct = parseLoose(ivRaw);
+    var oi = parseLoose(oiRaw);
+    var vol = parseLoose(volRaw);
 
-    if(!(spot>0)){ setStatus('opt-manual-status','Spot price is required.','err'); return; }
-    if(!(strike>0)){ setStatus('opt-manual-status','Strike is required.','err'); return; }
+    if(!(spot>0)){ setStatus('opt-manual-status','Share price is required.','err'); return; }
+    if(!(strike>0)){ setStatus('opt-manual-status','Strike price is required.','err'); return; }
     if(!expDateStr){ setStatus('opt-manual-status','Expiration date is required.','err'); return; }
-    if(!(bid>=0) || !(ask>=0)){ setStatus('opt-manual-status','Bid and ask are required (use 0 if you have no quote).','err'); return; }
+    if(!isFinite(bid) || !isFinite(ask) || bid<0 || ask<0){ setStatus('opt-manual-status','Bid and ask are required (enter 0 if you have no quote).','err'); return; }
     if(ask<bid){ setStatus('opt-manual-status','Ask is below bid — check your numbers.','err'); return; }
 
     // Treat the date as US-market 4pm ET on that day. Constructing from
     // "YYYY-MM-DDT16:00:00-04:00" handles either DST without us caring —
     // close enough for "days to expiry" math.
     var expEpoch = Math.floor(new Date(expDateStr+'T16:00:00-04:00').getTime()/1000);
-    var ivPct = parseFloat(ivPctRaw);
-    var oi = parseInt(oiRaw, 10);
-    var vol = parseInt(volRaw, 10);
 
-    var label = 'Manual · $'+strike+' '+type.toUpperCase()+' · exp '+expDateStr;
+    var label = type.toUpperCase()+' $'+strike+' · exp '+expDateStr;
     $('opt-manual-result').innerHTML = buildResultHtml({
       type: type, spot: spot, strike: strike, expEpoch: expEpoch,
       bid: bid, ask: ask, last: null,
-      iv: (ivPctRaw!=='' && isFinite(ivPct) && ivPct>=0) ? ivPct/100 : null,
-      oi: (oiRaw!=='' && isFinite(oi)) ? oi : null,
-      volume: (volRaw!=='' && isFinite(vol)) ? vol : null,
+      iv: (ivRaw && isFinite(ivPct) && ivPct>=0) ? ivPct/100 : null,
+      oi: (oiRaw && isFinite(oi)) ? Math.round(oi) : null,
+      volume: (volRaw && isFinite(vol)) ? Math.round(vol) : null,
       label: label, source: 'manual'
     });
     setStatus('opt-manual-status','Graded.','ok');
@@ -596,7 +608,7 @@ function renderHtml({ chains, builtAt }) {
   /* Manual contract form */
   .opt-manual-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(12, 1fr);
     gap: 10px 14px;
     margin: 6px 0 10px;
   }
@@ -604,12 +616,24 @@ function renderHtml({ chains, builtAt }) {
     display: flex; flex-direction: column; gap: 4px;
     font-size: 12px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.04em;
+    grid-column: span 12;
+  }
+  /* Row 1: type / share price / strike / expiration — Robinhood header */
+  .opt-manual-field-row1 { grid-column: span 6; }
+  /* Row 2: bid / ask — the quote */
+  .opt-manual-field-row2 { grid-column: span 6; }
+  /* Row 3: IV / OI / volume — the rest */
+  .opt-manual-field-row3 { grid-column: span 4; }
+  @media (min-width: 560px) {
+    .opt-manual-field-row1 { grid-column: span 3; }
   }
   .opt-manual-field input, .opt-manual-field select {
     background: var(--panel-2); border: 1px solid var(--border);
     border-radius: 8px; padding: 8px 10px; color: var(--text);
     font: inherit; font-size: 14px; text-transform: none; letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
   }
+  .opt-manual-field input::placeholder { color: var(--muted); opacity: 0.55; }
   .opt-manual-field input:focus, .opt-manual-field select:focus {
     outline: none; border-color: var(--accent);
   }
@@ -622,6 +646,10 @@ function renderHtml({ chains, builtAt }) {
     justify-self: start; margin-top: 4px;
   }
   .opt-manual-submit:hover { background: #8bbfff; }
+  .hint code {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 5px; font-size: 12px;
+  }
 </style>
 </head>
 <body>
