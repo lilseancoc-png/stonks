@@ -604,7 +604,14 @@ function optionEvalScript() {
   return `
 <script>
 (function(){
-  var CORS_PROXY = 'https://corsproxy.io/?url=';
+  // Free CORS proxies tried in order — first one that returns 2xx wins.
+  // Public proxies come and go; keeping a list lets the page survive one going down.
+  var CORS_PROXIES = [
+    function(u){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+    function(u){ return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); },
+    function(u){ return 'https://corsproxy.io/?' + encodeURIComponent(u); },
+    function(u){ return 'https://thingproxy.freeboard.io/fetch/' + u; }
+  ];
   var RFR = 0.045; // assumed risk-free rate (annual)
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
 
@@ -641,14 +648,32 @@ function optionEvalScript() {
     return { delta:delta, thetaDay:thetaYr/365, gamma:gamma, vega:vega };
   }
 
+  async function fetchViaProxies(url){
+    var lastErr=null;
+    for(var i=0;i<CORS_PROXIES.length;i++){
+      try{
+        var res=await fetch(CORS_PROXIES[i](url),{headers:{'Accept':'application/json'}});
+        if(!res.ok){ lastErr=new Error('HTTP '+res.status+' from proxy '+(i+1)); continue; }
+        var text=await res.text();
+        var json;
+        try{ json=JSON.parse(text); }catch(parseErr){
+          lastErr=new Error('Proxy '+(i+1)+' returned non-JSON'); continue;
+        }
+        return json;
+      }catch(err){ lastErr=err; }
+    }
+    throw lastErr || new Error('All CORS proxies failed');
+  }
+
   async function fetchChain(symbol, expEpoch){
     var base='https://query1.finance.yahoo.com/v7/finance/options/'+encodeURIComponent(symbol);
     var url=expEpoch?base+'?date='+expEpoch:base;
-    var res=await fetch(CORS_PROXY+encodeURIComponent(url));
-    if(!res.ok)throw new Error('Chain fetch failed (HTTP '+res.status+')');
-    var json=await res.json();
+    var json=await fetchViaProxies(url);
+    if(json && json.optionChain && json.optionChain.error){
+      throw new Error(json.optionChain.error.description||'Yahoo returned an error');
+    }
     var result=json && json.optionChain && json.optionChain.result && json.optionChain.result[0];
-    if(!result)throw new Error('No option chain returned');
+    if(!result)throw new Error('No option chain returned for '+symbol);
     return result;
   }
 
