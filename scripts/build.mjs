@@ -12,13 +12,15 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
 // we don't read.
-yahooFinance.suppressNotices(["yahooSurvey"]);
-yahooFinance.setGlobalConfig({ validation: { logErrors: false } });
+const yahooFinance = new YahooFinance({
+  suppressNotices: ["yahooSurvey"],
+  validation: { logErrors: false },
+});
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, "../index.html");
