@@ -557,6 +557,28 @@ function watchlistSection() {
   </section>`;
 }
 
+function optionEvalSection() {
+  return `<section class="card full" id="opt-eval-section">
+    <h2>Option Contract Evaluator</h2>
+    <p class="hint">Enter a ticker and pick a call or put — we grade the bid-ask spread and Greeks (delta/theta) so you can spot a good contract from a poor one. Underlying direction is up to you.</p>
+    <form id="opt-eval-form" class="opt-form">
+      <input type="text" id="opt-symbol" placeholder="Ticker (e.g. AAPL)" autocomplete="off" maxlength="10" spellcheck="false" />
+      <select id="opt-type" aria-label="Option type">
+        <option value="call">Call</option>
+        <option value="put">Put</option>
+      </select>
+      <button type="submit" id="opt-load-btn">Load chain</button>
+    </form>
+    <div id="opt-chain-row" class="opt-chain-row" hidden>
+      <select id="opt-expiry" aria-label="Expiration"></select>
+      <select id="opt-strike" aria-label="Strike"></select>
+      <button type="button" id="opt-eval-btn">Evaluate contract</button>
+    </div>
+    <div id="opt-eval-status" class="opt-status"></div>
+    <div id="opt-eval-result" class="opt-result"></div>
+  </section>`;
+}
+
 function chatHtml() {
   return `
 <button class="chat-fab" id="chat-fab" title="Ask AI about stocks">&#x1F4AC;</button>
@@ -576,6 +598,239 @@ function chatHtml() {
     <button class="chat-send" id="chat-send">&#x27A4;</button>
   </div>
 </div>`;
+}
+
+function optionEvalScript() {
+  return `
+<script>
+(function(){
+  var CORS_PROXY = 'https://corsproxy.io/?url=';
+  var RFR = 0.045; // assumed risk-free rate (annual)
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
+
+  function $(id){return document.getElementById(id);}
+  function setStatus(msg, kind){
+    var el=$('opt-eval-status'); if(!el)return;
+    el.textContent=msg||'';
+    el.className='opt-status'+(kind?' '+kind:'');
+  }
+  function fmt(n,d){ if(n==null||!isFinite(n))return '—'; return Number(n).toFixed(d==null?2:d); }
+  function fmtPct(n){ if(n==null||!isFinite(n))return '—'; return n.toFixed(2)+'%'; }
+
+  // Standard normal PDF + CDF (Abramowitz & Stegun 7.1.26 approximation)
+  function npdf(x){return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI);}
+  function ncdf(x){
+    var b1=0.319381530,b2=-0.356563782,b3=1.781477937,b4=-1.821255978,b5=1.330274429;
+    var a=Math.abs(x), t=1/(1+0.2316419*a);
+    var poly=((((b5*t+b4)*t+b3)*t+b2)*t+b1)*t;
+    var p=1-npdf(a)*poly;
+    return x<0?1-p:p;
+  }
+
+  function greeks(type, S, K, T, sigma, r){
+    if(!(S>0&&K>0&&T>0&&sigma>0))return null;
+    var sqrtT=Math.sqrt(T);
+    var d1=(Math.log(S/K)+(r+0.5*sigma*sigma)*T)/(sigma*sqrtT);
+    var d2=d1-sigma*sqrtT;
+    var delta = type==='call' ? ncdf(d1) : ncdf(d1)-1;
+    var thetaYr = type==='call'
+      ? -S*npdf(d1)*sigma/(2*sqrtT) - r*K*Math.exp(-r*T)*ncdf(d2)
+      : -S*npdf(d1)*sigma/(2*sqrtT) + r*K*Math.exp(-r*T)*ncdf(-d2);
+    var gamma = npdf(d1)/(S*sigma*sqrtT);
+    var vega = S*npdf(d1)*sqrtT/100; // per 1 vol pt
+    return { delta:delta, thetaDay:thetaYr/365, gamma:gamma, vega:vega };
+  }
+
+  async function fetchChain(symbol, expEpoch){
+    var base='https://query1.finance.yahoo.com/v7/finance/options/'+encodeURIComponent(symbol);
+    var url=expEpoch?base+'?date='+expEpoch:base;
+    var res=await fetch(CORS_PROXY+encodeURIComponent(url));
+    if(!res.ok)throw new Error('Chain fetch failed (HTTP '+res.status+')');
+    var json=await res.json();
+    var result=json && json.optionChain && json.optionChain.result && json.optionChain.result[0];
+    if(!result)throw new Error('No option chain returned');
+    return result;
+  }
+
+  function fmtExpiryLabel(epoch){
+    var d=new Date(epoch*1000);
+    return d.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric',timeZone:'America/New_York'});
+  }
+
+  function populateExpiry(){
+    var sel=$('opt-expiry'); sel.innerHTML='';
+    state.expirations.forEach(function(epoch){
+      var o=document.createElement('option');
+      o.value=epoch; o.textContent=fmtExpiryLabel(epoch);
+      sel.appendChild(o);
+    });
+  }
+
+  function populateStrikes(){
+    var type=$('opt-type').value;
+    var chain=state.chains[state.currentExp];
+    var sel=$('opt-strike'); sel.innerHTML='';
+    if(!chain)return;
+    var rows=(type==='call'?chain.calls:chain.puts)||[];
+    if(!rows.length){
+      var o=document.createElement('option'); o.textContent='No '+type+'s available'; o.disabled=true; sel.appendChild(o); return;
+    }
+    // Pre-select the strike nearest spot.
+    var spot=state.spot;
+    var bestIdx=0, bestDist=Infinity;
+    rows.forEach(function(r,i){
+      var d=Math.abs((r.strike||0)-spot);
+      if(d<bestDist){bestDist=d;bestIdx=i;}
+      var o=document.createElement('option');
+      o.value=r.contractSymbol||String(i);
+      var bidAsk = ' (bid '+fmt(r.bid)+' / ask '+fmt(r.ask)+')';
+      o.textContent='$'+fmt(r.strike)+bidAsk;
+      sel.appendChild(o);
+    });
+    sel.selectedIndex=bestIdx;
+  }
+
+  function findContract(){
+    var type=$('opt-type').value;
+    var chain=state.chains[state.currentExp]; if(!chain)return null;
+    var rows=(type==='call'?chain.calls:chain.puts)||[];
+    var sym=$('opt-strike').value;
+    return rows.find(function(r){return (r.contractSymbol||'')===sym;}) || null;
+  }
+
+  function gradeSpread(spreadPct){
+    if(spreadPct<=5)return {label:'Tight', cls:'good', note:'narrow spread — easy fills'};
+    if(spreadPct<=15)return {label:'Moderate', cls:'fair', note:'spread is workable but costs you on entry/exit'};
+    return {label:'Wide', cls:'bad', note:'wide spread — illiquid, expect slippage'};
+  }
+  function gradeDelta(delta, type){
+    var a=Math.abs(delta);
+    if(a>=0.40 && a<=0.70) return {label:'Balanced', cls:'good', note:'good directional sensitivity without paying full intrinsic'};
+    if(a>=0.30 && a<0.40) return {label:'Slightly OTM', cls:'fair', note:'cheaper but needs a real move to pay'};
+    if(a>0.70) return {label:'Deep ITM', cls:'fair', note:'moves nearly 1:1 with the stock — limited leverage'};
+    return {label:'Far OTM', cls:'bad', note:'lottery ticket — most likely expires worthless'};
+  }
+  function gradeTheta(thetaDay, mid){
+    if(mid<=0||thetaDay==null)return {label:'—', cls:'fair', note:'theta unavailable'};
+    var dailyBleed=Math.abs(thetaDay)/mid*100;
+    if(dailyBleed<1) return {label:'Slow decay', cls:'good', note:'~'+dailyBleed.toFixed(2)+'% / day — plenty of runway'};
+    if(dailyBleed<3) return {label:'Normal decay', cls:'fair', note:'~'+dailyBleed.toFixed(2)+'% / day — standard time pressure'};
+    return {label:'Bleeding', cls:'bad', note:'~'+dailyBleed.toFixed(2)+'% / day — heavy time decay'};
+  }
+
+  function overallVerdict(grades){
+    var bad=grades.filter(function(g){return g.cls==='bad';}).length;
+    var good=grades.filter(function(g){return g.cls==='good';}).length;
+    if(bad>=2) return {label:'Poor contract', cls:'bad'};
+    if(bad===1) return {label:'Mixed — proceed with caution', cls:'fair'};
+    if(good>=2) return {label:'Good contract', cls:'good'};
+    return {label:'Acceptable', cls:'fair'};
+  }
+
+  function row(label, value, sub){
+    return '<div class="opt-row"><div class="opt-row-label">'+label+'</div><div class="opt-row-value">'+value+(sub?' <span class="opt-row-sub">'+sub+'</span>':'')+'</div></div>';
+  }
+  function gradeChip(g){
+    return '<span class="opt-grade '+g.cls+'">'+g.label+'</span>';
+  }
+
+  function evaluate(){
+    var c=findContract();
+    if(!c){ setStatus('Pick a strike first.','err'); return; }
+    var type=$('opt-type').value;
+    var bid=c.bid, ask=c.ask;
+    var mid = (bid!=null&&ask!=null && (bid+ask)>0) ? (bid+ask)/2 : (c.lastPrice||null);
+    var spread = (bid!=null&&ask!=null) ? (ask-bid) : null;
+    var spreadPct = (spread!=null && mid>0) ? (spread/mid*100) : null;
+    var iv = c.impliedVolatility;
+    var expEpoch = state.currentExp;
+    var T = (expEpoch*1000 - Date.now()) / (365*24*3600*1000);
+    var g = (T>0 && iv>0) ? greeks(type, state.spot, c.strike, T, iv, RFR) : null;
+
+    var sGrade = spreadPct!=null ? gradeSpread(spreadPct) : {label:'—', cls:'fair', note:'no quote'};
+    var dGrade = g ? gradeDelta(g.delta, type) : {label:'—', cls:'fair', note:'delta unavailable'};
+    var tGrade = g ? gradeTheta(g.thetaDay, mid) : {label:'—', cls:'fair', note:'theta unavailable'};
+    var verdict = overallVerdict([sGrade, dGrade, tGrade]);
+
+    var html = '';
+    html += '<div class="opt-verdict '+verdict.cls+'">'+verdict.label+'</div>';
+    html += '<div class="opt-contract">'+(c.contractSymbol||'')+' · spot $'+fmt(state.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
+    html += '<div class="opt-grid">';
+    html += row('Bid / Ask', '$'+fmt(bid)+' / $'+fmt(ask));
+    html += row('Mid', mid!=null?'$'+fmt(mid):'—');
+    html += row('Spread', spread!=null?('$'+fmt(spread)+' ('+fmtPct(spreadPct)+')'):'—', gradeChip(sGrade));
+    html += row('IV', iv!=null?fmtPct(iv*100):'—');
+    html += row('Delta', g?fmt(g.delta,3):'—', g?gradeChip(dGrade):'');
+    html += row('Theta / day', g?'$'+fmt(g.thetaDay,3):'—', g?gradeChip(tGrade):'');
+    html += row('Gamma', g?fmt(g.gamma,4):'—');
+    html += row('Vega (per 1 vol pt)', g?'$'+fmt(g.vega,3):'—');
+    html += row('Open interest', c.openInterest!=null?String(c.openInterest):'—');
+    html += row('Volume', c.volume!=null?String(c.volume):'—');
+    html += '</div>';
+    html += '<ul class="opt-notes">';
+    html += '<li><b>Spread:</b> '+sGrade.note+'.</li>';
+    html += '<li><b>Delta:</b> '+dGrade.note+'.</li>';
+    html += '<li><b>Theta:</b> '+tGrade.note+'.</li>';
+    html += '</ul>';
+    html += '<p class="opt-disclaimer">Greeks are computed with Black-Scholes using Yahoo&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Liquidity, earnings risk, and IV crush are not graded — for information only.</p>';
+    $('opt-eval-result').innerHTML=html;
+    setStatus('','');
+  }
+
+  async function loadChain(){
+    var symbol=$('opt-symbol').value.trim().toUpperCase();
+    if(!symbol){ setStatus('Enter a ticker first.','err'); return; }
+    setStatus('Loading chain for '+symbol+'…','');
+    $('opt-eval-result').innerHTML='';
+    $('opt-chain-row').hidden=true;
+    $('opt-load-btn').disabled=true;
+    try{
+      var first=await fetchChain(symbol, null);
+      var quote=first.quote||{};
+      state.symbol=symbol;
+      state.spot=quote.regularMarketPrice||quote.postMarketPrice||quote.preMarketPrice||null;
+      state.expirations=first.expirationDates||[];
+      state.chains={};
+      if(!state.spot){ throw new Error('No spot price returned for '+symbol); }
+      if(!state.expirations.length){ throw new Error('No option expirations returned for '+symbol); }
+      var firstExp=(first.options&&first.options[0]&&first.options[0].expirationDate)||state.expirations[0];
+      state.currentExp=firstExp;
+      state.chains[firstExp]=first.options&&first.options[0];
+      populateExpiry();
+      $('opt-expiry').value=String(firstExp);
+      populateStrikes();
+      $('opt-chain-row').hidden=false;
+      setStatus(symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations available','ok');
+    }catch(e){
+      setStatus('Could not load chain: '+e.message,'err');
+    }finally{
+      $('opt-load-btn').disabled=false;
+    }
+  }
+
+  async function onExpiryChange(){
+    var exp=Number($('opt-expiry').value);
+    state.currentExp=exp;
+    if(state.chains[exp]){ populateStrikes(); return; }
+    setStatus('Loading '+fmtExpiryLabel(exp)+' chain…','');
+    try{
+      var r=await fetchChain(state.symbol, exp);
+      state.chains[exp]=r.options&&r.options[0];
+      populateStrikes();
+      setStatus('','');
+    }catch(e){ setStatus('Could not load expiration: '+e.message,'err'); }
+  }
+
+  function bind(){
+    var form=$('opt-eval-form'); if(!form)return;
+    form.addEventListener('submit',function(e){e.preventDefault();loadChain();});
+    $('opt-type').addEventListener('change',function(){ if(state.currentExp)populateStrikes(); });
+    $('opt-expiry').addEventListener('change',onExpiryChange);
+    $('opt-eval-btn').addEventListener('click',evaluate);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+<\/script>`;
 }
 
 function chatScript(data) {
@@ -1182,6 +1437,63 @@ function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, l
   }
   .chat-send:hover { background: #8bbfff; }
   .chat-send:disabled { background: var(--border); color: var(--muted); cursor: default; }
+  /* Option Contract Evaluator */
+  .opt-form, .opt-chain-row {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin: 6px 0 10px;
+  }
+  .opt-form input, .opt-form select, .opt-chain-row select {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; color: var(--text);
+    font: inherit; font-size: 14px; min-width: 120px;
+  }
+  .opt-form input { text-transform: uppercase; letter-spacing: 0.04em; min-width: 160px; }
+  .opt-form input:focus, .opt-form select:focus, .opt-chain-row select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .opt-form button, .opt-chain-row button {
+    background: var(--accent); color: #0b0d12; border: none;
+    border-radius: 8px; padding: 8px 14px; font-weight: 700; cursor: pointer;
+    font-size: 14px; transition: background 0.15s, opacity 0.15s;
+  }
+  .opt-form button:hover, .opt-chain-row button:hover { background: #8bbfff; }
+  .opt-form button:disabled { opacity: 0.5; cursor: default; }
+  .opt-chain-row select { flex: 1 1 200px; }
+  .opt-status { font-size: 13px; min-height: 18px; margin: 4px 0; color: var(--muted); }
+  .opt-status.err { color: var(--neg); }
+  .opt-status.ok { color: var(--pos); }
+  .opt-result:empty { display: none; }
+  .opt-verdict {
+    display: inline-block; padding: 6px 14px; border-radius: 999px;
+    font-weight: 700; font-size: 14px; letter-spacing: 0.04em;
+    text-transform: uppercase; margin: 8px 0;
+  }
+  .opt-verdict.good { background: rgba(46,204,113,0.18); color: var(--pos); border: 1px solid rgba(46,204,113,0.4); }
+  .opt-verdict.fair { background: rgba(243,156,18,0.18); color: #f39c12; border: 1px solid rgba(243,156,18,0.4); }
+  .opt-verdict.bad  { background: rgba(255,92,92,0.18); color: var(--neg); border: 1px solid rgba(255,92,92,0.4); }
+  .opt-contract { font-size: 12px; color: var(--muted); margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+  .opt-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 6px 18px; margin: 10px 0;
+  }
+  .opt-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 14px;
+  }
+  .opt-row-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .opt-row-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .opt-row-sub { font-weight: 400; }
+  .opt-grade {
+    display: inline-block; margin-left: 8px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 4px;
+  }
+  .opt-grade.good { color: var(--pos); background: rgba(46,204,113,0.15); }
+  .opt-grade.fair { color: #f39c12; background: rgba(243,156,18,0.15); }
+  .opt-grade.bad  { color: var(--neg); background: rgba(255,92,92,0.15); }
+  .opt-notes { margin: 10px 0 4px; padding-left: 18px; font-size: 13px; color: var(--text); }
+  .opt-notes li { margin-bottom: 3px; }
+  .opt-disclaimer { font-size: 11px; color: var(--muted); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -1191,6 +1503,7 @@ function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, l
 </header>
 <main>
   ${volatilitySection(volatility)}
+  ${optionEvalSection()}
   ${spotlightSection(spotlight, ctx)}
   ${putPlaysSection(puts, ctx)}
   ${earningsVolSection(earningsVol, ctx)}
@@ -1208,6 +1521,7 @@ function renderHtml({ today, prettyDate, updated, earnings, upcoming, gainers, l
   <br/>Date key: ${today}
 </footer>
 ${chatHtml()}
+${optionEvalScript()}
 ${chatScript(chatData)}
 </body>
 </html>`;
