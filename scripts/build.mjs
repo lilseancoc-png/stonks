@@ -25,17 +25,25 @@ const yahooFinance = new YahooFinance({
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, "../index.html");
 
-// Curated list of high-volume optionable US names. Limit ~35 to keep the
-// embedded JSON under a few hundred KB.
+// Curated list of high-volume optionable US names. Keep under ~60 so the
+// embedded JSON stays well below 1 MB.
 const TICKERS = [
   // Index & sector ETFs
   "SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "USO", "XLF", "XLE", "XLK",
   // Mega-caps
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
+  // Other tech / semis
+  "ORCL", "CRM", "ADBE", "TSM", "MU", "INTC",
   // Banks / payments
   "JPM", "BAC", "V", "MA",
   // Retail / consumer
-  "WMT", "COST", "DIS", "BA",
+  "WMT", "COST", "DIS", "BA", "MCD", "SBUX",
+  // Healthcare / pharma
+  "NVO", "LLY", "UNH", "JNJ", "PFE",
+  // Energy
+  "XOM", "CVX",
+  // Travel / modern consumer
+  "UBER", "ABNB",
   // High-volatility / popular
   "COIN", "PLTR", "SHOP", "BABA", "NIO",
   "GME", "AMC",
@@ -141,6 +149,7 @@ function optionEvalSection(symbols) {
     ? symbols.map((s) => `<option value="${s}">${s}</option>`).join("")
     : `<option value="">(no chains available)</option>`;
   return `<section class="card" id="opt-eval-section">
+    <h2 class="card-title">From a curated ticker</h2>
     <p class="hint">Pick a ticker, then a call or put. We grade the bid-ask spread and Greeks (delta/theta) so you can spot a good contract from a poor one. Underlying direction is up to you.</p>
     <form id="opt-eval-form" class="opt-form">
       <select id="opt-symbol" aria-label="Ticker">${optionsHtml}</select>
@@ -157,6 +166,45 @@ function optionEvalSection(symbols) {
     </div>
     <div id="opt-eval-status" class="opt-status"></div>
     <div id="opt-eval-result" class="opt-result"></div>
+  </section>
+  <section class="card" id="opt-manual-section">
+    <h2 class="card-title">Or grade your own contract</h2>
+    <p class="hint">Ticker not on the curated list, or want to grade a contract from your broker? Type the numbers in and get the same scoring. IV, OI and volume are optional — without IV we skip the Greeks.</p>
+    <form id="opt-manual-form" class="opt-manual-grid">
+      <label class="opt-manual-field">Type
+        <select id="m-type">
+          <option value="call">Call</option>
+          <option value="put">Put</option>
+        </select>
+      </label>
+      <label class="opt-manual-field">Spot price ($)
+        <input id="m-spot" type="number" step="0.01" min="0" inputmode="decimal" required>
+      </label>
+      <label class="opt-manual-field">Strike ($)
+        <input id="m-strike" type="number" step="0.5" min="0" inputmode="decimal" required>
+      </label>
+      <label class="opt-manual-field">Expiration
+        <input id="m-expiry" type="date" required>
+      </label>
+      <label class="opt-manual-field">Bid ($)
+        <input id="m-bid" type="number" step="0.01" min="0" inputmode="decimal" required>
+      </label>
+      <label class="opt-manual-field">Ask ($)
+        <input id="m-ask" type="number" step="0.01" min="0" inputmode="decimal" required>
+      </label>
+      <label class="opt-manual-field">IV (%) <span class="opt-manual-opt">optional</span>
+        <input id="m-iv" type="number" step="0.1" min="0" inputmode="decimal">
+      </label>
+      <label class="opt-manual-field">Open interest <span class="opt-manual-opt">optional</span>
+        <input id="m-oi" type="number" step="1" min="0" inputmode="numeric">
+      </label>
+      <label class="opt-manual-field">Volume <span class="opt-manual-opt">optional</span>
+        <input id="m-vol" type="number" step="1" min="0" inputmode="numeric">
+      </label>
+      <button type="submit" class="opt-manual-submit">Grade contract</button>
+    </form>
+    <div id="opt-manual-status" class="opt-status"></div>
+    <div id="opt-manual-result" class="opt-result"></div>
   </section>`;
 }
 
@@ -169,8 +217,8 @@ function optionEvalScript() {
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
 
   function $(id){return document.getElementById(id);}
-  function setStatus(msg, kind){
-    var el=$('opt-eval-status'); if(!el)return;
+  function setStatus(elemId, msg, kind){
+    var el=$(elemId); if(!el)return;
     el.textContent=msg||'';
     el.className='opt-status'+(kind?' '+kind:'');
   }
@@ -282,27 +330,27 @@ function optionEvalScript() {
     return '<span class="opt-grade '+g.cls+'">'+g.label+'</span>';
   }
 
-  function evaluate(){
-    var c=findContract();
-    if(!c){ setStatus('Pick a strike first.','err'); return; }
-    var type=$('opt-type').value;
-    var bid=c.b, ask=c.a;
-    var mid = (bid!=null&&ask!=null && (bid+ask)>0) ? (bid+ask)/2 : (c.l||null);
+  // Build the result HTML for a contract from any source (curated chain or
+  // manual entry). Input keys: type, spot, strike, expEpoch, bid, ask, last,
+  // iv (decimal e.g. 0.42), oi, volume, label, source ('chain'|'manual').
+  function buildResultHtml(input){
+    var bid=input.bid, ask=input.ask;
+    var mid = (bid!=null&&ask!=null && (bid+ask)>0) ? (bid+ask)/2 : (input.last||null);
     var spread = (bid!=null&&ask!=null) ? (ask-bid) : null;
     var spreadPct = (spread!=null && mid>0) ? (spread/mid*100) : null;
-    var iv = c.iv;
-    var expEpoch = state.currentExp;
-    var T = (expEpoch*1000 - Date.now()) / (365*24*3600*1000);
-    var g = (T>0 && iv>0) ? greeks(type, state.spot, c.s, T, iv, RFR) : null;
+    var iv = input.iv;
+    var T = (input.expEpoch*1000 - Date.now()) / (365*24*3600*1000);
+    var g = (T>0 && iv>0 && input.spot>0 && input.strike>0)
+      ? greeks(input.type, input.spot, input.strike, T, iv, RFR) : null;
 
     var sGrade = spreadPct!=null ? gradeSpread(spreadPct) : {label:'—', cls:'fair', note:'no quote'};
-    var dGrade = g ? gradeDelta(g.delta, type) : {label:'—', cls:'fair', note:'delta unavailable'};
-    var tGrade = g ? gradeTheta(g.thetaDay, mid) : {label:'—', cls:'fair', note:'theta unavailable'};
+    var dGrade = g ? gradeDelta(g.delta, input.type) : {label:'—', cls:'fair', note:'delta unavailable — IV missing'};
+    var tGrade = g ? gradeTheta(g.thetaDay, mid) : {label:'—', cls:'fair', note:'theta unavailable — IV missing'};
     var verdict = overallVerdict([sGrade, dGrade, tGrade]);
 
     var html = '';
     html += '<div class="opt-verdict '+verdict.cls+'">'+verdict.label+'</div>';
-    html += '<div class="opt-contract">'+(c.n||'')+' · spot $'+fmt(state.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
+    html += '<div class="opt-contract">'+(input.label||'')+' · spot $'+fmt(input.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$'+fmt(bid)+' / $'+fmt(ask));
     html += row('Mid', mid!=null?'$'+fmt(mid):'—');
@@ -312,36 +360,88 @@ function optionEvalScript() {
     html += row('Theta / day', g?'$'+fmt(g.thetaDay,3):'—', g?gradeChip(tGrade):'');
     html += row('Gamma', g?fmt(g.gamma,4):'—');
     html += row('Vega (per 1 vol pt)', g?'$'+fmt(g.vega,3):'—');
-    html += row('Open interest', c.oi!=null?String(c.oi):'—');
-    html += row('Volume', c.v!=null?String(c.v):'—');
+    html += row('Open interest', input.oi!=null?String(input.oi):'—');
+    html += row('Volume', input.volume!=null?String(input.volume):'—');
     html += '</div>';
     html += '<ul class="opt-notes">';
     html += '<li><b>Spread:</b> '+sGrade.note+'.</li>';
     html += '<li><b>Delta:</b> '+dGrade.note+'.</li>';
     html += '<li><b>Theta:</b> '+tGrade.note+'.</li>';
     html += '</ul>';
-    html += '<p class="opt-disclaimer">Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Quotes are end-of-session as of the build timestamp shown below — for information only, not investment advice.</p>';
-    $('opt-eval-result').innerHTML=html;
-    setStatus('','');
+    var disc = input.source==='manual'
+      ? 'Greeks computed locally with Black-Scholes from your IV and a '+(RFR*100).toFixed(1)+'% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
+      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Quotes are end-of-session as of the build timestamp shown below — for information only, not investment advice.';
+    html += '<p class="opt-disclaimer">'+disc+'</p>';
+    return html;
+  }
+
+  function evaluate(){
+    var c=findContract();
+    if(!c){ setStatus('opt-eval-status','Pick a strike first.','err'); return; }
+    var type=$('opt-type').value;
+    $('opt-eval-result').innerHTML = buildResultHtml({
+      type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
+      bid: c.b, ask: c.a, last: c.l, iv: c.iv,
+      oi: c.oi, volume: c.v, label: c.n||'', source: 'chain'
+    });
+    setStatus('opt-eval-status','','');
+  }
+
+  function evaluateManual(ev){
+    if(ev) ev.preventDefault();
+    var type = $('m-type').value;
+    var spot = parseFloat($('m-spot').value);
+    var strike = parseFloat($('m-strike').value);
+    var expDateStr = $('m-expiry').value;
+    var bid = parseFloat($('m-bid').value);
+    var ask = parseFloat($('m-ask').value);
+    var ivPctRaw = $('m-iv').value;
+    var oiRaw = $('m-oi').value;
+    var volRaw = $('m-vol').value;
+
+    if(!(spot>0)){ setStatus('opt-manual-status','Spot price is required.','err'); return; }
+    if(!(strike>0)){ setStatus('opt-manual-status','Strike is required.','err'); return; }
+    if(!expDateStr){ setStatus('opt-manual-status','Expiration date is required.','err'); return; }
+    if(!(bid>=0) || !(ask>=0)){ setStatus('opt-manual-status','Bid and ask are required (use 0 if you have no quote).','err'); return; }
+    if(ask<bid){ setStatus('opt-manual-status','Ask is below bid — check your numbers.','err'); return; }
+
+    // Treat the date as US-market 4pm ET on that day. Constructing from
+    // "YYYY-MM-DDT16:00:00-04:00" handles either DST without us caring —
+    // close enough for "days to expiry" math.
+    var expEpoch = Math.floor(new Date(expDateStr+'T16:00:00-04:00').getTime()/1000);
+    var ivPct = parseFloat(ivPctRaw);
+    var oi = parseInt(oiRaw, 10);
+    var vol = parseInt(volRaw, 10);
+
+    var label = 'Manual · $'+strike+' '+type.toUpperCase()+' · exp '+expDateStr;
+    $('opt-manual-result').innerHTML = buildResultHtml({
+      type: type, spot: spot, strike: strike, expEpoch: expEpoch,
+      bid: bid, ask: ask, last: null,
+      iv: (ivPctRaw!=='' && isFinite(ivPct) && ivPct>=0) ? ivPct/100 : null,
+      oi: (oiRaw!=='' && isFinite(oi)) ? oi : null,
+      volume: (volRaw!=='' && isFinite(vol)) ? vol : null,
+      label: label, source: 'manual'
+    });
+    setStatus('opt-manual-status','Graded.','ok');
   }
 
   function loadChain(){
     var symbol=$('opt-symbol').value;
-    if(!symbol){ setStatus('Pick a ticker first.','err'); return; }
+    if(!symbol){ setStatus('opt-eval-status','Pick a ticker first.','err'); return; }
     var entry = DATA[symbol];
-    if(!entry){ setStatus('No chain data for '+symbol+' in this build.','err'); return; }
+    if(!entry){ setStatus('opt-eval-status','No chain data for '+symbol+' in this build.','err'); return; }
     state.symbol=symbol;
     state.spot=entry.spot;
     state.expirations=(entry.expirations||[]).slice();
     state.chains=entry.chains||{};
-    if(!state.expirations.length){ setStatus('No expirations for '+symbol+'.','err'); return; }
+    if(!state.expirations.length){ setStatus('opt-eval-status','No expirations for '+symbol+'.','err'); return; }
     state.currentExp=state.expirations[0];
     populateExpiry();
     $('opt-expiry').value=String(state.currentExp);
     populateStrikes();
     $('opt-chain-row').hidden=false;
     $('opt-eval-result').innerHTML='';
-    setStatus(symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
+    setStatus('opt-eval-status',symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
   }
 
   function onExpiryChange(){
@@ -351,11 +451,17 @@ function optionEvalScript() {
   }
 
   function bind(){
-    var form=$('opt-eval-form'); if(!form)return;
-    form.addEventListener('submit',function(e){e.preventDefault();loadChain();});
-    $('opt-type').addEventListener('change',function(){ if(state.currentExp)populateStrikes(); });
-    $('opt-expiry').addEventListener('change',onExpiryChange);
-    $('opt-eval-btn').addEventListener('click',evaluate);
+    var form=$('opt-eval-form');
+    if(form){
+      form.addEventListener('submit',function(e){e.preventDefault();loadChain();});
+      $('opt-type').addEventListener('change',function(){ if(state.currentExp)populateStrikes(); });
+      $('opt-expiry').addEventListener('change',onExpiryChange);
+      $('opt-eval-btn').addEventListener('click',evaluate);
+    }
+    var manualForm=$('opt-manual-form');
+    if(manualForm){
+      manualForm.addEventListener('submit',evaluateManual);
+    }
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
 })();
@@ -420,7 +526,9 @@ function renderHtml({ chains, builtAt }) {
     border-radius: 14px;
     padding: 22px;
     box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    margin-bottom: 18px;
   }
+  .card-title { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.01em; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   footer {
     max-width: 760px;
@@ -485,12 +593,41 @@ function renderHtml({ chains, builtAt }) {
   .opt-notes { margin: 10px 0 4px; padding-left: 18px; font-size: 13px; color: var(--text); }
   .opt-notes li { margin-bottom: 3px; }
   .opt-disclaimer { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  /* Manual contract form */
+  .opt-manual-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px 14px;
+    margin: 6px 0 10px;
+  }
+  .opt-manual-field {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .opt-manual-field input, .opt-manual-field select {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; color: var(--text);
+    font: inherit; font-size: 14px; text-transform: none; letter-spacing: 0;
+  }
+  .opt-manual-field input:focus, .opt-manual-field select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .opt-manual-opt { font-size: 10px; color: var(--muted); text-transform: lowercase; opacity: 0.7; }
+  .opt-manual-submit {
+    grid-column: 1 / -1;
+    background: var(--accent); color: #0b0d12; border: none;
+    border-radius: 8px; padding: 10px 14px; font-weight: 700; cursor: pointer;
+    font-size: 14px; transition: background 0.15s;
+    justify-self: start; margin-top: 4px;
+  }
+  .opt-manual-submit:hover { background: #8bbfff; }
 </style>
 </head>
 <body>
 <header>
   <h1>Option Contract Rater</h1>
-  <div class="sub">Grade a single options contract on spread quality, delta, and theta. Quotes refreshed daily — ${tickerCount} tickers available.</div>
+  <div class="sub">Grade a single options contract on spread quality, delta, and theta. ${tickerCount} curated tickers refreshed daily, or enter your own contract below.</div>
 </header>
 <main>
   ${optionEvalSection(symbols)}
