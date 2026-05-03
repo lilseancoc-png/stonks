@@ -1,6 +1,7 @@
 // Renders index.html — a single-purpose Option Contract Rater.
-// Pure client-side: the page fetches Yahoo's option chain through public
-// CORS proxies at request time. No build-time data fetching.
+// Pure client-side: the page fetches CBOE's delayed option chain directly
+// from the browser (CBOE serves CORS headers) — no proxy, no API key, no
+// build-time data fetching.
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,17 +19,7 @@ function optionEvalSection() {
         <option value="put">Put</option>
       </select>
       <button type="submit" id="opt-load-btn">Load chain</button>
-      <button type="button" id="opt-settings-btn" class="opt-settings" title="Configure data source">&#x2699;</button>
     </form>
-    <div id="opt-settings-panel" class="opt-settings-panel" hidden>
-      <p class="opt-settings-hint">Public CORS proxies are unreliable. For best results, deploy your own free <a href="https://github.com/lilseancoc-png/stonks/blob/main/worker.js" target="_blank" rel="noopener">Cloudflare Worker</a> (5-min setup) and paste the URL below — it will be tried first.</p>
-      <div class="opt-settings-row">
-        <input type="text" id="opt-proxy-url" placeholder="https://your-worker.workers.dev/?url=" autocomplete="off" spellcheck="false" />
-        <button type="button" id="opt-proxy-save">Save</button>
-        <button type="button" id="opt-proxy-clear">Clear</button>
-      </div>
-      <div id="opt-proxy-saved" class="opt-status"></div>
-    </div>
     <div id="opt-chain-row" class="opt-chain-row" hidden>
       <select id="opt-expiry" aria-label="Expiration"></select>
       <select id="opt-strike" aria-label="Strike"></select>
@@ -43,30 +34,13 @@ function optionEvalScript() {
   return `
 <script>
 (function(){
-  // Public CORS proxies (best-effort, fallback only). Yahoo blocks direct
-  // browser fetches; CBOE is tried first because it serves CORS headers itself.
-  var PUBLIC_PROXIES = [
-    function(u){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
-    function(u){ return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); },
-    function(u){ return 'https://corsproxy.io/?' + encodeURIComponent(u); },
-    function(u){ return 'https://api.cors.lol/?url=' + encodeURIComponent(u); },
-    function(u){ return 'https://proxy.corsfix.com/?' + encodeURIComponent(u); }
-  ];
-  var FETCH_TIMEOUT_MS = 8000;
+  // CBOE delayed-quote endpoint serves CORS headers, so the page can fetch
+  // it directly from the browser — no proxy and no API key required.
+  // Public proxies and Yahoo were tried previously and were unreliable;
+  // anyone migrating localStorage state from those days can clear it manually.
+  var FETCH_TIMEOUT_MS = 10000;
   var RFR = 0.045; // assumed risk-free rate (annual)
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
-
-  function customProxyUrl(){
-    try { return localStorage.getItem('stonks_proxy_url') || null; } catch(e){ return null; }
-  }
-  function saveCustomProxyUrl(v){
-    try { if(v) localStorage.setItem('stonks_proxy_url', v); else localStorage.removeItem('stonks_proxy_url'); } catch(e){}
-  }
-  function buildCustomProxy(u){
-    var base = customProxyUrl(); if(!base) return null;
-    // If the saved URL ends with =, append encoded URL; otherwise concatenate.
-    return /[?&]url=$/.test(base) ? (base + encodeURIComponent(u)) : (base + encodeURIComponent(u));
-  }
 
   function fetchWithTimeout(url, opts){
     opts = opts || {};
@@ -109,33 +83,47 @@ function optionEvalScript() {
     return { delta:delta, thetaDay:thetaYr/365, gamma:gamma, vega:vega };
   }
 
-  async function fetchJsonVia(urlBuilder, target, label){
-    var attemptUrl = typeof urlBuilder === 'function' ? urlBuilder(target) : urlBuilder;
-    var res = await fetchWithTimeout(attemptUrl, { headers: { 'Accept': 'application/json' } });
-    if(!res.ok) throw new Error(label + ': HTTP ' + res.status);
-    var text = await res.text();
-    try { return JSON.parse(text); }
-    catch(e){ throw new Error(label + ': non-JSON response'); }
-  }
-
-  // CBOE delayed-quote endpoint serves CORS headers, so no proxy is needed.
-  // Returns the FULL chain (all expirations) in a single response.
+  // CBOE returns all expirations in one response, so the loaded chain
+  // covers every later expiration-dropdown change with no extra fetch.
+  // Tries variants for index symbols (^SPX -> _SPX) and major root suffixes
+  // (some weeklys are listed under TICKERW alongside the standard root).
   async function fetchChainFromCboe(symbol){
-    var url = 'https://cdn.cboe.com/api/global/delayed_quotes/options/' + encodeURIComponent(symbol) + '.json';
-    var json = await fetchJsonVia(url, url, 'CBOE');
-    var data = json && json.data;
-    if(!data || !Array.isArray(data.options)) throw new Error('CBOE: no chain for ' + symbol);
-    var spot = data.current_price || data.last || null;
-    var byExp = {}; // epoch -> { calls:[], puts:[] }
-    var symRe = new RegExp('^' + symbol.replace(/[-\\/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&') + '(\\\\d{6})([CP])(\\\\d{8})$');
+    var clean = symbol.replace(/^\\^/, ''); // ^SPX -> SPX
+    var candidates = [];
+    if(symbol.charAt(0) === '^') candidates.push('_' + clean); // CBOE indexes use leading underscore
+    candidates.push(clean);
+    candidates.push('_' + clean); // last-ditch underscore form for some ETFs
+
+    var lastErr = null, json = null;
+    for(var i=0;i<candidates.length;i++){
+      var url = 'https://cdn.cboe.com/api/global/delayed_quotes/options/' + encodeURIComponent(candidates[i]) + '.json';
+      try {
+        var res = await fetchWithTimeout(url, { headers: { 'Accept': 'application/json' } });
+        if(!res.ok){ lastErr = new Error('CBOE: HTTP ' + res.status + ' for ' + candidates[i]); continue; }
+        var text = await res.text();
+        try { json = JSON.parse(text); } catch(e){ lastErr = new Error('CBOE: non-JSON for ' + candidates[i]); continue; }
+        break;
+      } catch(e){ lastErr = e; }
+    }
+    if(!json) throw lastErr || new Error('CBOE: no response');
+
+    var data = json.data;
+    if(!data || !Array.isArray(data.options)) throw new Error('No CBOE chain for ' + symbol);
+    var spot = data.current_price || data.last || data.prev_day_close || null;
+
+    // OCC option symbol: <ROOT><YYMMDD><C|P><strike*1000 8 digits>.
+    // ROOT may differ from the underlying ticker (e.g. weeklys, post-split
+    // tickers). We accept any letters/digits up to the YYMMDD anchor.
+    var occRe = /^([A-Z0-9]{1,9}?)(\\d{6})([CP])(\\d{8})$/;
+    var byExp = {};
     data.options.forEach(function(o){
-      var m = symRe.exec(o.option || '');
+      var m = occRe.exec(o.option || '');
       if(!m) return;
-      var yy = parseInt(m[1].slice(0,2),10), mm = parseInt(m[1].slice(2,4),10), dd = parseInt(m[1].slice(4,6),10);
-      // Use 21:00 UTC (≈ market close NY) as the expiry instant.
+      var yy = parseInt(m[2].slice(0,2),10), mm = parseInt(m[2].slice(2,4),10), dd = parseInt(m[2].slice(4,6),10);
+      // 21:00 UTC ≈ US market close on expiry day.
       var epoch = Math.floor(Date.UTC(2000+yy, mm-1, dd, 21, 0, 0) / 1000);
-      var side = m[2] === 'C' ? 'calls' : 'puts';
-      var strike = parseInt(m[3],10) / 1000;
+      var side = m[3] === 'C' ? 'calls' : 'puts';
+      var strike = parseInt(m[4],10) / 1000;
       if(!byExp[epoch]) byExp[epoch] = { calls: [], puts: [] };
       byExp[epoch][side].push({
         contractSymbol: o.option,
@@ -148,53 +136,12 @@ function optionEvalScript() {
       });
     });
     var expirations = Object.keys(byExp).map(Number).sort(function(a,b){return a-b;});
-    if(!expirations.length) throw new Error('CBOE: no parseable contracts for ' + symbol);
+    if(!expirations.length) throw new Error('CBOE returned no parseable contracts for ' + symbol);
     expirations.forEach(function(e){
       byExp[e].calls.sort(function(a,b){return a.strike-b.strike;});
       byExp[e].puts.sort(function(a,b){return a.strike-b.strike;});
     });
-    return { source: 'cboe', spot: spot, expirations: expirations, chainsByExp: byExp };
-  }
-
-  async function fetchYahooViaProxies(symbol, expEpoch){
-    var base = 'https://query1.finance.yahoo.com/v7/finance/options/' + encodeURIComponent(symbol);
-    var url = expEpoch ? base + '?date=' + expEpoch : base;
-    var attempts = [];
-    var custom = customProxyUrl();
-    if(custom) attempts.push({ build: function(){ return buildCustomProxy(url); }, label: 'custom proxy' });
-    PUBLIC_PROXIES.forEach(function(p, i){
-      attempts.push({ build: function(){ return p(url); }, label: 'proxy '+(i+1) });
-    });
-
-    var lastErr = null;
-    for(var i=0;i<attempts.length;i++){
-      try {
-        var json = await fetchJsonVia(attempts[i].build(), url, attempts[i].label);
-        if(json && json.optionChain && json.optionChain.error){
-          throw new Error(json.optionChain.error.description || 'Yahoo error');
-        }
-        var result = json && json.optionChain && json.optionChain.result && json.optionChain.result[0];
-        if(!result) throw new Error(attempts[i].label + ': empty chain');
-        var firstOpt = (result.options && result.options[0]) || null;
-        if(!firstOpt) throw new Error(attempts[i].label + ': no contracts');
-        return {
-          source: 'yahoo:' + attempts[i].label,
-          spot: (result.quote && (result.quote.regularMarketPrice || result.quote.postMarketPrice || result.quote.preMarketPrice)) || null,
-          expirations: result.expirationDates || [firstOpt.expirationDate],
-          chainsByExp: (function(){ var o = {}; o[firstOpt.expirationDate] = { calls: firstOpt.calls || [], puts: firstOpt.puts || [] }; return o; })()
-        };
-      } catch(e) { lastErr = e; }
-    }
-    throw lastErr || new Error('All Yahoo proxy attempts failed');
-  }
-
-  async function fetchChainAny(symbol, expEpoch){
-    // CBOE returns all expirations in one call, so only use it on the initial load.
-    if(!expEpoch){
-      try { return await fetchChainFromCboe(symbol); }
-      catch(cboeErr){ /* fall through to Yahoo */ }
-    }
-    return await fetchYahooViaProxies(symbol, expEpoch);
+    return { spot: spot, expirations: expirations, chainsByExp: byExp };
   }
 
   function fmtExpiryLabel(epoch){
@@ -317,7 +264,7 @@ function optionEvalScript() {
     html += '<li><b>Delta:</b> '+dGrade.note+'.</li>';
     html += '<li><b>Theta:</b> '+tGrade.note+'.</li>';
     html += '</ul>';
-    html += '<p class="opt-disclaimer">Greeks are computed with Black-Scholes using Yahoo&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Liquidity, earnings risk, and IV crush are not graded — for information only.</p>';
+    html += '<p class="opt-disclaimer">Greeks are computed with Black-Scholes using CBOE&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Liquidity, earnings risk, and IV crush are not graded — for information only.</p>';
     $('opt-eval-result').innerHTML=html;
     setStatus('','');
   }
@@ -330,49 +277,30 @@ function optionEvalScript() {
     $('opt-chain-row').hidden=true;
     $('opt-load-btn').disabled=true;
     try{
-      var r=await fetchChainAny(symbol, null);
+      var r=await fetchChainFromCboe(symbol);
       state.symbol=symbol;
       state.spot=r.spot;
       state.expirations=r.expirations.slice();
-      state.chains=r.chainsByExp; // CBOE returns all expirations; Yahoo returns one (others lazy)
+      state.chains=r.chainsByExp;
       if(!state.spot){ throw new Error('No spot price returned for '+symbol); }
       if(!state.expirations.length){ throw new Error('No option expirations returned for '+symbol); }
-      var firstExp = state.chains[state.expirations[0]] ? state.expirations[0] :
-                     Number(Object.keys(state.chains)[0]);
-      state.currentExp=firstExp;
+      state.currentExp=state.expirations[0];
       populateExpiry();
-      $('opt-expiry').value=String(firstExp);
+      $('opt-expiry').value=String(state.currentExp);
       populateStrikes();
       $('opt-chain-row').hidden=false;
-      var via = r.source === 'cboe' ? 'CBOE' : 'Yahoo via ' + r.source.replace(/^yahoo:/,'');
-      setStatus(symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations · source: '+via,'ok');
+      setStatus(symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
     }catch(e){
-      setStatus('Could not load chain: '+e.message+'. Try the ⚙ settings to add a personal proxy.','err');
+      setStatus('Could not load chain: '+e.message,'err');
     }finally{
       $('opt-load-btn').disabled=false;
     }
   }
 
-  async function onExpiryChange(){
+  function onExpiryChange(){
     var exp=Number($('opt-expiry').value);
     state.currentExp=exp;
-    if(state.chains[exp]){ populateStrikes(); return; }
-    setStatus('Loading '+fmtExpiryLabel(exp)+' chain…','');
-    try{
-      var r=await fetchChainAny(state.symbol, exp);
-      // r.chainsByExp keyed by epoch; merge in
-      Object.keys(r.chainsByExp).forEach(function(k){ state.chains[Number(k)] = r.chainsByExp[k]; });
-      if(!state.chains[exp]) throw new Error('No data for that expiration');
-      populateStrikes();
-      setStatus('','');
-    }catch(e){ setStatus('Could not load expiration: '+e.message,'err'); }
-  }
-
-  function refreshProxyStatus(){
-    var el=$('opt-proxy-saved'); if(!el) return;
-    var u=customProxyUrl();
-    if(u){ el.textContent='Custom proxy active: '+u; el.className='opt-status ok'; }
-    else { el.textContent='No custom proxy — using public fallbacks.'; el.className='opt-status'; }
+    populateStrikes();
   }
 
   function bind(){
@@ -381,20 +309,6 @@ function optionEvalScript() {
     $('opt-type').addEventListener('change',function(){ if(state.currentExp)populateStrikes(); });
     $('opt-expiry').addEventListener('change',onExpiryChange);
     $('opt-eval-btn').addEventListener('click',evaluate);
-
-    var settingsBtn=$('opt-settings-btn'), panel=$('opt-settings-panel');
-    var input=$('opt-proxy-url'), saveBtn=$('opt-proxy-save'), clearBtn=$('opt-proxy-clear');
-    if(input) input.value = customProxyUrl() || '';
-    refreshProxyStatus();
-    if(settingsBtn) settingsBtn.addEventListener('click', function(){ panel.hidden = !panel.hidden; });
-    if(saveBtn) saveBtn.addEventListener('click', function(){
-      var v=(input.value||'').trim();
-      if(v && !/^https?:\\/\\//.test(v)){ setStatus('Proxy URL must start with http(s)://','err'); return; }
-      saveCustomProxyUrl(v); refreshProxyStatus();
-    });
-    if(clearBtn) clearBtn.addEventListener('click', function(){
-      input.value=''; saveCustomProxyUrl(''); refreshProxyStatus();
-    });
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
 })();
@@ -484,21 +398,6 @@ function renderHtml() {
   }
   .opt-form button:hover, .opt-chain-row button:hover { background: #8bbfff; }
   .opt-form button:disabled { opacity: 0.5; cursor: default; }
-  .opt-settings {
-    background: transparent !important; color: var(--muted) !important;
-    border: 1px solid var(--border) !important; padding: 8px 11px !important;
-    font-size: 16px !important; font-weight: 400 !important;
-  }
-  .opt-settings:hover { color: var(--text) !important; border-color: var(--accent) !important; background: transparent !important; }
-  .opt-settings-panel {
-    background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 10px; padding: 12px 14px; margin: 8px 0 12px;
-  }
-  .opt-settings-panel[hidden] { display: none; }
-  .opt-settings-hint { color: var(--muted); font-size: 12px; margin: 0 0 10px; line-height: 1.5; }
-  .opt-settings-hint a { color: var(--accent); }
-  .opt-settings-row { display: flex; flex-wrap: wrap; gap: 6px; }
-  .opt-settings-row input { flex: 1 1 240px; min-width: 200px; }
   .opt-chain-row select { flex: 1 1 200px; }
   .opt-status { font-size: 13px; min-height: 18px; margin: 4px 0; color: var(--muted); }
   .opt-status.err { color: var(--neg); }
@@ -546,7 +445,7 @@ function renderHtml() {
   ${optionEvalSection()}
 </main>
 <footer>
-  Data: Yahoo Finance option chain (via public CORS proxies). Greeks computed locally with Black-Scholes. For information only — not investment advice.
+  Data: CBOE delayed option quotes (cdn.cboe.com). Greeks computed locally with Black-Scholes. For information only — not investment advice.
 </footer>
 ${optionEvalScript()}
 </body>
