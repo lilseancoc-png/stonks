@@ -17,9 +17,20 @@ import YahooFinance from "yahoo-finance2";
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
 // we don't read.
+//
+// Yahoo's consent endpoint refuses to set cookies for the default Node fetch
+// User-Agent (the library throws "No set-cookie header present in Yahoo's
+// response"). Sending a real desktop UA makes consent.yahoo.com behave and
+// the crumb flow complete normally.
 const yahooFinance = new YahooFinance({
   suppressNotices: ["yahooSurvey"],
   validation: { logErrors: false },
+  fetchOptions: {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    },
+  },
 });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -51,6 +62,40 @@ const TICKERS = [
 
 const STRIKE_BAND = 0.30; // keep ±30% strikes around spot
 const MAX_EXPIRATIONS = 6;
+// Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
+// or rate-limits after a burst. Retry transient failures, but bail on the
+// existing site if too many tickers fail — better to serve yesterday's data
+// than half a chain.
+const FETCH_RETRIES = 3;
+const FETCH_BACKOFF_MS = [1000, 3000, 8000];
+const MIN_SUCCESS_RATE = 0.75;
+
+function isTransientYahooError(err) {
+  const msg = String(err?.message || err || "");
+  if (/allowlist|401|403|429|5\d\d|ENOTFOUND|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(msg)) return true;
+  // yahoo-finance2 schema validation errors are not transient — don't retry.
+  if (/validation|schema|FailedYahooValidationError/i.test(msg)) return false;
+  // Default: retry. Most non-validation throws here are network-shaped.
+  return true;
+}
+
+async function fetchTickerChainWithRetry(symbol) {
+  let lastErr;
+  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
+    try {
+      const result = await fetchTickerChain(symbol);
+      if (attempt > 1) console.log(`    ↻ ${symbol} succeeded on attempt ${attempt}`);
+      return result;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === FETCH_RETRIES || !isTransientYahooError(err)) break;
+      const wait = FETCH_BACKOFF_MS[attempt - 1] ?? 8000;
+      console.log(`    ↻ ${symbol} attempt ${attempt} failed (${err.message}) — retrying in ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
+}
 
 async function fetchYahooOptions(symbol, expDate) {
   // yahoo-finance2 returns one expiration per call (the requested date,
@@ -121,10 +166,10 @@ async function fetchAllTickerChains() {
   const out = {};
   for (const sym of TICKERS) {
     try {
-      out[sym] = await fetchTickerChain(sym);
+      out[sym] = await fetchTickerChainWithRetry(sym);
       console.log(`  ✓ ${sym} — spot $${out[sym].spot.toFixed(2)}, ${out[sym].expirations.length} expirations`);
     } catch (err) {
-      console.error(`  ✗ ${sym} — ${err.message}`);
+      console.error(`  ✗ ${sym} — ${err.message} (gave up after ${FETCH_RETRIES} attempts)`);
     }
     // Politeness pause between tickers.
     await new Promise((r) => setTimeout(r, 350));
@@ -212,6 +257,34 @@ function optionEvalScript() {
   return `
 <script>
 (function(){
+  // Freshness banner — compute "built X ago" relative to page load and
+  // upgrade the banner colour past 36h (warn) and 7d (bad).
+  var banner = document.getElementById('freshness-banner');
+  var bannerText = document.getElementById('freshness-text');
+  if (banner && bannerText) {
+    var iso = banner.getAttribute('data-built-at');
+    var built = iso ? new Date(iso) : null;
+    if (built && !isNaN(built.getTime())) {
+      var ageMs = Date.now() - built.getTime();
+      var ageH = ageMs / 3600000;
+      function rel(h){
+        if (h < 1) { var m = Math.max(1, Math.round(h*60)); return m+' minute'+(m===1?'':'s')+' ago'; }
+        if (h < 36) { var hh = Math.round(h); return hh+' hour'+(hh===1?'':'s')+' ago'; }
+        var d = Math.round(h/24); return d+' day'+(d===1?'':'s')+' ago';
+      }
+      var dateLabel = built.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/New_York'});
+      if (ageH > 24*7) {
+        banner.classList.add('bad');
+        bannerText.innerHTML = 'Very stale — last refreshed '+dateLabel+'. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      } else if (ageH > 36) {
+        banner.classList.add('warn');
+        bannerText.innerHTML = 'Stale data — last refreshed '+dateLabel+'. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+      } else {
+        bannerText.innerHTML = 'Built '+rel(ageH)+' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
+      }
+    }
+  }
+
   var DATA = (window.STONKS_CHAINS && window.STONKS_CHAINS.tickers) || {};
   var RFR = 0.045; // assumed risk-free rate (annual)
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
@@ -335,11 +408,31 @@ function optionEvalScript() {
     return {label:'Acceptable', cls:'fair'};
   }
 
-  function row(label, value, sub){
-    return '<div class="opt-row"><div class="opt-row-label">'+label+'</div><div class="opt-row-value">'+value+(sub?' <span class="opt-row-sub">'+sub+'</span>':'')+'</div></div>';
+  function tipChip(text){
+    if(!text)return '';
+    // data-tip is HTML-attribute escaped via the limited charset we control here.
+    return ' <span class="tip" tabindex="0" role="button" aria-label="Explain: '+text.replace(/"/g,'&quot;')+'" data-tip="'+text.replace(/"/g,'&quot;')+'">?</span>';
+  }
+  function row(label, value, sub, tip){
+    return '<div class="opt-row"><div class="opt-row-label">'+label+tipChip(tip)+'</div><div class="opt-row-value">'+value+(sub?' <span class="opt-row-sub">'+sub+'</span>':'')+'</div></div>';
   }
   function gradeChip(g){
     return '<span class="opt-grade '+g.cls+'">'+g.label+'</span>';
+  }
+  var TIPS = {
+    spread: "Gap between bid (what buyers pay) and ask (what sellers want). Wider = you lose more on entry/exit.",
+    delta: "How much the option moves per $1 the stock moves. ~0.50 = at-the-money, ~1.00 = deep ITM, near 0 = far OTM lottery.",
+    theta: "Daily $ the contract loses just from time passing. Higher = the clock is running against you faster.",
+    iv: "Implied volatility — the market's guess at how much the stock will move. High IV = expensive premium.",
+    gamma: "How fast delta changes as the stock moves. Higher near ATM and near expiry.",
+    vega: "How much the contract gains/loses per 1 point change in implied volatility."
+  };
+  function verdictExplainer(cls){
+    var msg;
+    if (cls==='good') msg = "Clean contract. Spread is tight, delta is balanced, theta is manageable. Direction and sizing are up to you.";
+    else if (cls==='bad') msg = "Skip or rework. Wide spread or far-OTM delta or heavy theta will eat your edge before the trade plays out. Look for a tighter strike, a more liquid expiry, or a different ticker.";
+    else msg = "Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it.";
+    return '<div class="opt-explain '+cls+'"><b>What this means:</b> '+msg+'</div>';
   }
 
   // Build the result HTML for a contract from any source (curated chain or
@@ -362,16 +455,17 @@ function optionEvalScript() {
 
     var html = '';
     html += '<div class="opt-verdict '+verdict.cls+'">'+verdict.label+'</div>';
+    html += verdictExplainer(verdict.cls);
     html += '<div class="opt-contract">'+(input.label||'')+' · spot $'+fmt(input.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$'+fmt(bid)+' / $'+fmt(ask));
     html += row('Mid', mid!=null?'$'+fmt(mid):'—');
-    html += row('Spread', spread!=null?('$'+fmt(spread)+' ('+fmtPct(spreadPct)+')'):'—', gradeChip(sGrade));
-    html += row('IV', iv!=null?fmtPct(iv*100):'—');
-    html += row('Delta', g?fmt(g.delta,3):'—', g?gradeChip(dGrade):'');
-    html += row('Theta / day', g?'$'+fmt(g.thetaDay,3):'—', g?gradeChip(tGrade):'');
-    html += row('Gamma', g?fmt(g.gamma,4):'—');
-    html += row('Vega (per 1 vol pt)', g?'$'+fmt(g.vega,3):'—');
+    html += row('Spread', spread!=null?('$'+fmt(spread)+' ('+fmtPct(spreadPct)+')'):'—', gradeChip(sGrade), TIPS.spread);
+    html += row('IV', iv!=null?fmtPct(iv*100):'—', '', TIPS.iv);
+    html += row('Delta', g?fmt(g.delta,3):'—', g?gradeChip(dGrade):'', TIPS.delta);
+    html += row('Theta / day', g?'$'+fmt(g.thetaDay,3):'—', g?gradeChip(tGrade):'', TIPS.theta);
+    html += row('Gamma', g?fmt(g.gamma,4):'—', '', TIPS.gamma);
+    html += row('Vega (per 1 vol pt)', g?'$'+fmt(g.vega,3):'—', '', TIPS.vega);
     html += row('Open interest', input.oi!=null?String(input.oi):'—');
     html += row('Volume', input.volume!=null?String(input.volume):'—');
     html += '</div>';
@@ -480,7 +574,7 @@ function optionEvalScript() {
 <\/script>`;
 }
 
-function renderHtml({ chains, builtAt }) {
+function renderHtml({ chains, builtAt, builtAtIso }) {
   const symbols = Object.keys(chains).sort();
   const tickerCount = symbols.length;
   const dataPayload = JSON.stringify({ builtAt, tickers: chains });
@@ -650,6 +744,64 @@ function renderHtml({ chains, builtAt }) {
     background: var(--panel-2); border: 1px solid var(--border);
     border-radius: 4px; padding: 1px 5px; font-size: 12px;
   }
+  /* Freshness banner */
+  .freshness {
+    max-width: 760px; margin: 8px auto 0; padding: 10px 14px;
+    border-radius: 10px; font-size: 13px;
+    background: rgba(110,168,255,0.10); border: 1px solid rgba(110,168,255,0.35);
+    color: var(--text);
+    display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  }
+  .freshness .freshness-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); display: inline-block; flex: 0 0 8px;
+    align-self: center;
+  }
+  .freshness.warn {
+    background: rgba(243,156,18,0.12); border-color: rgba(243,156,18,0.45);
+  }
+  .freshness.warn .freshness-dot { background: #f39c12; }
+  .freshness.bad {
+    background: rgba(255,92,92,0.12); border-color: rgba(255,92,92,0.45);
+  }
+  .freshness.bad .freshness-dot { background: var(--neg); }
+  .freshness-detail { color: var(--muted); }
+  /* Verdict explainer + (?) glossary tooltip */
+  .opt-explain {
+    margin: 6px 0 12px; padding: 10px 12px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.45;
+  }
+  .opt-explain.good { border-color: rgba(46,204,113,0.4); }
+  .opt-explain.fair { border-color: rgba(243,156,18,0.4); }
+  .opt-explain.bad  { border-color: rgba(255,92,92,0.4); }
+  .tip {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: 4px; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--muted); font-size: 10px; font-weight: 700;
+    cursor: help; position: relative; vertical-align: middle;
+    text-transform: none; letter-spacing: 0;
+  }
+  .tip:hover, .tip:focus { color: var(--text); border-color: var(--accent); outline: none; }
+  .tip::after {
+    content: attr(data-tip);
+    position: absolute; bottom: calc(100% + 6px); left: 50%;
+    transform: translateX(-50%);
+    background: #0b0d12; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; font-weight: 400;
+    text-transform: none; letter-spacing: 0; line-height: 1.4;
+    width: max-content; max-width: min(260px, 80vw);
+    white-space: normal; text-align: left;
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 10;
+  }
+  .tip:hover::after, .tip:focus::after { opacity: 1; }
+  @media (max-width: 480px) {
+    .tip::after { left: auto; right: 0; transform: none; }
+  }
 </style>
 </head>
 <body>
@@ -657,6 +809,10 @@ function renderHtml({ chains, builtAt }) {
   <h1>Option Contract Rater</h1>
   <div class="sub">Grade a single options contract on spread quality, delta, and theta. ${tickerCount} curated tickers refreshed daily, or enter your own contract below.</div>
 </header>
+<div id="freshness-banner" class="freshness" data-built-at="${builtAtIso}" role="status" aria-live="polite">
+  <span class="freshness-dot" aria-hidden="true"></span>
+  <span id="freshness-text">Built ${builtAt} (NY) · end-of-session quotes from Yahoo</span>
+</div>
 <main>
   ${optionEvalSection(symbols)}
 </main>
@@ -673,11 +829,16 @@ async function main() {
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
   const got = Object.keys(chains).length;
-  if (got === 0) {
-    throw new Error("No tickers fetched successfully — refusing to overwrite index.html");
+  const rate = got / TICKERS.length;
+  console.log(`Got ${got} / ${TICKERS.length} tickers (${(rate * 100).toFixed(0)}%).`);
+  if (rate < MIN_SUCCESS_RATE) {
+    throw new Error(
+      `Only ${got} / ${TICKERS.length} tickers fetched (need ≥${Math.ceil(MIN_SUCCESS_RATE * TICKERS.length)}). ` +
+      `Leaving last-good index.html in place — GH Pages will keep serving the previous build.`
+    );
   }
-  console.log(`Got ${got} / ${TICKERS.length} tickers.`);
-  const html = renderHtml({ chains, builtAt: nyTimestamp() });
+  const builtAtIso = new Date().toISOString();
+  const html = renderHtml({ chains, builtAt: nyTimestamp(), builtAtIso });
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
   console.log("wrote " + OUT, `(${(html.length / 1024).toFixed(1)} KB)`);

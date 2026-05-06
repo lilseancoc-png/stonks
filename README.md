@@ -1,48 +1,40 @@
 # stonks
 
-A one-stop daily hub for U.S. options traders: earnings, biggest movers,
-volatility snapshot, sector performance, and an AI stock assistant.
+Single-page **Option Contract Rater**: pick a curated ticker (or paste numbers
+from your broker) and get a plain-English grade on whether the contract is
+worth trading.
 
-## What it shows
+## What it does
 
-- **Volatility & Indexes** — VIX, VVIX, SPY, QQQ, IWM, DIA snapshot. Click any
-  tile to open its option chain on Yahoo.
-- **Call Plays** — top gainers ranked by move size × volume conviction. Only
-  liquid names ($500M+ market cap). Each card shows reasoning chips (earnings
-  today, active list, big move, etc.) and links directly to the options chain.
-- **Put Plays** — top decliners ranked by drop size × volume conviction, same
-  scoring and liquidity filter as Call Plays.
-- **Earnings Vol Plays** — earnings names already moving on volume. High-IV
-  directional or straddle setups. IV typically crushes after the report.
-- **Earnings Today** — companies reporting before market open or after close
-  (Nasdaq earnings calendar). Each ticker links to its option chain.
-- **Upcoming Earnings** — earnings calendar for the next two trading days so
-  you can plan trades ahead of time. Chips are colour-coded BMO (before market
-  open) and AMC (after market close).
-- **Sector Performance** — SPDR sector ETFs (XLK, XLF, XLE, XLV, XLY, XLC,
-  XLI, XLP) with daily % change for rotation/strength context.
-- **Live Watchlist** — TradingView market overview widget showing live prices
-  and mini-charts for SPY, QQQ, IWM, NVDA, AAPL, MSFT, META, AMZN, GOOGL,
-  TSLA, AMD, COIN. Quick-link buttons jump straight to each symbol's options
-  chain on Yahoo.
-- **Top Gainers / Top Losers / Most Active** — full mover tables.
-- **AI Stock Assistant** — floating chat button (bottom-right). Powered by
-  Pollinations.ai (free, no API key). If that service is unavailable, enter
-  your own [Anthropic API key](https://console.anthropic.com/keys) — it is
-  stored only in your browser. Today's full market context (call/put plays,
-  earnings vol, sector data, movers) is baked into the system prompt.
+Two ways to grade a contract:
 
-The page is a static `index.html` regenerated twice daily.
+- **From a curated ticker** — choose a name, an expiration, and a strike from
+  ~50 high-volume US options. We pull the chain server-side at build time so
+  the page itself does zero network calls.
+- **Grade your own contract** — paste bid / ask / IV straight off Robinhood,
+  Schwab, etc. Symbols like `$3.15`, `3.15 × 55`, `100.81%`, `1,251` are
+  cleaned automatically before grading.
+
+For each contract you get:
+
+- **Verdict pill** — Good / Mixed / Poor — and a short "what this means" note.
+- **Spread / Delta / Theta chips** with hoverable explainers so the metrics
+  aren't gatekept jargon.
+- **Greeks** computed locally with Black-Scholes from the implied vol.
+- A **freshness banner** at the top shows how old the embedded quotes are and
+  switches to a stale-data warning past 36 h.
 
 ## How it updates
 
 `.github/workflows/daily.yml` runs `node scripts/build.mjs` on a schedule:
 
-- **09:00 ET (13:00 UTC) weekdays** — pre-market snapshot before the open.
-- **17:30 ET (21:30 UTC) daily** — end-of-day refresh after the US market close.
+- **09:00 ET (13:00 UTC) weekdays** — pre-market refresh.
+- **17:30 ET (21:30 UTC) daily** — end-of-day refresh.
 
-The workflow commits the refreshed `index.html` and deploys to GitHub Pages.
-You can also trigger it manually from the Actions tab (`workflow_dispatch`).
+Each run fetches the option chains (with retries on transient Yahoo errors),
+embeds them into `index.html`, commits the refreshed file, and deploys to
+GitHub Pages. If fewer than 75% of tickers come back, the run fails loud and
+the previous good `index.html` keeps serving.
 
 ## Running locally
 
@@ -51,12 +43,12 @@ node scripts/build.mjs
 open index.html
 ```
 
-Requires Node 20+. No API keys, no dependencies.
+Requires Node 20+. No API keys.
 
 ## Enabling GitHub Pages
 
-In the repo settings → Pages → Source: **GitHub Actions**. The first run of the
-workflow will publish the site.
+In the repo settings → Pages → Source: **GitHub Actions**. The first workflow
+run will publish the site.
 
 ## Disclaimer
 
