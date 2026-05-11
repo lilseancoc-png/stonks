@@ -14,6 +14,7 @@
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GoogleGenAI, Type } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 
 // Library prints a survey notice on first use and validates response
@@ -311,7 +312,7 @@ function optionEvalScript() {
   // memoised for the life of the page — flipping back to an already-loaded
   // ticker is instant.
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null };
 
   function $(id){return document.getElementById(id);}
   function setStatus(elemId, msg, kind){
@@ -452,6 +453,18 @@ function optionEvalScript() {
     return {label:'Acceptable', cls:'fair'};
   }
 
+  // News sentiment nudge — only shifts a borderline Fair verdict. Bullish news
+  // bumps Fair → Good ("News tailwind"); bearish news drops it → Bad
+  // ("News headwind"). Good and Bad never move, so the math-driven grade
+  // always wins when it has a clear signal.
+  function applyNewsNudge(verdict, news){
+    if(!news||!news.sentiment) return verdict;
+    if(verdict.cls!=='fair') return verdict;
+    if(news.sentiment==='bullish') return {label:'Good contract · news tailwind', cls:'good', nudged:true};
+    if(news.sentiment==='bearish') return {label:'Poor contract · news headwind', cls:'bad', nudged:true};
+    return verdict;
+  }
+
   function tipChip(text){
     if(!text)return '';
     // data-tip is HTML-attribute escaped via the limited charset we control here.
@@ -478,6 +491,22 @@ function optionEvalScript() {
     else msg = "Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it.";
     return '<div class="opt-explain '+cls+'"><b>What this means:</b> '+msg+'</div>';
   }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[ch];
+    });
+  }
+  function newsTakeHtml(news, ticker, nudged){
+    if(!news||!news.paragraph) return '';
+    var sentimentLabel = ({bullish:'Bullish',neutral:'Neutral',bearish:'Bearish',uncertain:'Uncertain'})[news.sentiment] || 'Neutral';
+    var heading = 'AI news take' + (ticker?(' · '+escapeHtml(ticker)):'') + ' · ' + sentimentLabel;
+    var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict above from <b>Acceptable</b>.</div>' : '';
+    return '<div class="opt-news '+(news.sentiment||'neutral')+'">'+
+      '<div class="opt-news-head">'+heading+'</div>'+
+      '<div class="opt-news-body">'+escapeHtml(news.paragraph)+'</div>'+
+      note+
+    '</div>';
+  }
 
   // Build the result HTML for a contract from any source (curated chain or
   // manual entry). Input keys: type, spot, strike, expEpoch, bid, ask, last,
@@ -495,11 +524,13 @@ function optionEvalScript() {
     var sGrade = spreadPct!=null ? gradeSpread(spreadPct) : {label:'—', cls:'fair', note:'no quote'};
     var dGrade = g ? gradeDelta(g.delta, input.type) : {label:'—', cls:'fair', note:'delta unavailable — IV missing'};
     var tGrade = g ? gradeTheta(g.thetaDay, mid) : {label:'—', cls:'fair', note:'theta unavailable — IV missing'};
-    var verdict = overallVerdict([sGrade, dGrade, tGrade]);
+    var baseVerdict = overallVerdict([sGrade, dGrade, tGrade]);
+    var verdict = applyNewsNudge(baseVerdict, input.news);
 
     var html = '';
     html += '<div class="opt-verdict '+verdict.cls+'">'+verdict.label+'</div>';
     html += verdictExplainer(verdict.cls);
+    html += newsTakeHtml(input.news, input.ticker, verdict.nudged);
     html += '<div class="opt-contract">'+(input.label||'')+' · spot $'+fmt(input.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$'+fmt(bid)+' / $'+fmt(ask));
@@ -545,7 +576,8 @@ function optionEvalScript() {
     $('opt-eval-result').innerHTML = buildResultHtml({
       type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
       bid: c.b, ask: c.a, last: c.l, iv: c.iv,
-      oi: c.oi, volume: c.v, label: label, source: 'chain'
+      oi: c.oi, volume: c.v, label: label, source: 'chain',
+      news: state.news, ticker: state.symbol
     });
     setStatus('opt-eval-status','','');
   }
@@ -686,6 +718,7 @@ function optionEvalScript() {
       state.spot=entry.spot;
       state.expirations=(entry.expirations||[]).slice();
       state.chains=entry.chains||{};
+      state.news=entry.news||null;
       if(!state.expirations.length){ setStatus('opt-eval-status','No expirations for '+symbol+'.','err'); return; }
       state.currentExp=state.expirations[0];
       populateExpiry();
@@ -961,6 +994,18 @@ function renderHtml({ symbols, builtAt, builtAtIso }) {
   .opt-explain.good { border-color: rgba(46,204,113,0.4); }
   .opt-explain.fair { border-color: rgba(243,156,18,0.4); }
   .opt-explain.bad  { border-color: rgba(255,92,92,0.4); }
+  .opt-news {
+    margin: 6px 0 12px; padding: 10px 12px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.5;
+  }
+  .opt-news.bullish   { border-color: rgba(46,204,113,0.4); }
+  .opt-news.bearish   { border-color: rgba(255,92,92,0.4); }
+  .opt-news.neutral   { border-color: rgba(243,156,18,0.4); }
+  .opt-news.uncertain { border-color: var(--border); }
+  .opt-news-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+  .opt-news-body { color: var(--text); }
+  .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
   .tip {
     display: inline-flex; align-items: center; justify-content: center;
     margin-left: 4px; width: 14px; height: 14px; border-radius: 50%;
@@ -1026,6 +1071,126 @@ async function writeChainFiles(chains) {
   return totalBytes;
 }
 
+// News-aware AI take per ticker. Runs after chains are fetched. The model
+// sees recent headlines + spot price and returns a one-paragraph plain-English
+// read plus a sentiment tag the runtime uses to nudge a borderline (Fair)
+// verdict toward Good or Bad. Skipped silently if no GEMINI_API_KEY is set,
+// so forks without a key still build.
+//
+// Uses Google's free-tier Gemini API (gemini-2.0-flash). At the time of
+// writing the free tier comfortably covers ~130 calls/day. If the quota
+// tightens or the model is renamed, the model string is the only knob.
+const AI_MODEL = "gemini-2.0-flash";
+const AI_NEWS_COUNT = 6;
+// Free-tier Gemini caps at ~15 RPM. 4500ms keeps us at ~13 RPM with a
+// safety margin and still finishes ~65 tickers in ~5 minutes.
+const AI_PAUSE_MS = 4500;
+const AI_SYSTEM_PROMPT =
+  "You are an options-savvy financial news summarizer. " +
+  "Given a US-listed ticker, its current share price, and a handful of recent " +
+  "Yahoo Finance headlines, write ONE paragraph (2-4 sentences, plain English, " +
+  "no bullet points, no markdown) describing the current news context an options " +
+  "trader should weigh before opening a contract on this name. Mention any " +
+  "imminent catalyst (earnings, regulatory action, product launch, major " +
+  "guidance change) if the headlines suggest one. Stay factual; do not invent " +
+  "numbers or events that are not in the headlines. Do not give buy/sell " +
+  "advice. Also return a sentiment tag derived from the news: 'bullish' if the " +
+  "balance of recent news is clearly positive for the underlying, 'bearish' if " +
+  "clearly negative, 'neutral' if mixed or routine, and 'uncertain' if there is " +
+  "not enough recent news to judge.";
+
+const AI_OUTPUT_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    paragraph: { type: Type.STRING, description: "2-4 sentence plain-English news context paragraph." },
+    sentiment: {
+      type: Type.STRING,
+      enum: ["bullish", "neutral", "bearish", "uncertain"],
+      description: "Overall directional read of the recent news.",
+    },
+  },
+  required: ["paragraph", "sentiment"],
+};
+
+async function fetchTickerHeadlines(symbol) {
+  try {
+    const res = await yahooFinance.search(symbol, {
+      newsCount: AI_NEWS_COUNT,
+      quotesCount: 0,
+      enableFuzzyQuery: false,
+    });
+    const items = Array.isArray(res?.news) ? res.news : [];
+    return items
+      .map((n) => ({
+        title: (n.title || "").trim(),
+        publisher: (n.publisher || "").trim(),
+        publishedAt: n.providerPublishTime
+          ? new Date(n.providerPublishTime instanceof Date ? n.providerPublishTime : n.providerPublishTime * 1000).toISOString()
+          : null,
+      }))
+      .filter((n) => n.title.length > 0)
+      .slice(0, AI_NEWS_COUNT);
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} headline fetch failed: ${err.message}`);
+    return [];
+  }
+}
+
+async function generateNewsTake(ai, symbol, spot, headlines) {
+  const headlineBlock = headlines.length
+    ? headlines
+        .map((h, i) => `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`)
+        .join("\n")
+    : "(no recent headlines available)";
+  const userMessage =
+    `Ticker: ${symbol}\n` +
+    `Spot price: $${spot.toFixed(2)}\n` +
+    `Recent headlines:\n${headlineBlock}`;
+
+  const response = await ai.models.generateContent({
+    model: AI_MODEL,
+    contents: userMessage,
+    config: {
+      systemInstruction: AI_SYSTEM_PROMPT,
+      responseMimeType: "application/json",
+      responseSchema: AI_OUTPUT_SCHEMA,
+      temperature: 0.3,
+      maxOutputTokens: 600,
+    },
+  });
+
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const parsed = JSON.parse(text);
+  return {
+    paragraph: String(parsed.paragraph || "").trim(),
+    sentiment: parsed.sentiment,
+    headlines: headlines.map((h) => h.title),
+    builtAt: new Date().toISOString(),
+  };
+}
+
+async function attachAiNewsTakes(chains) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — skipping AI news takes. Chain data will still build.");
+    return;
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  console.log(`Generating AI news takes for ${Object.keys(chains).length} tickers…`);
+  for (const [sym, data] of Object.entries(chains)) {
+    try {
+      const headlines = await fetchTickerHeadlines(sym);
+      const take = await generateNewsTake(ai, sym, data.spot, headlines);
+      data.news = take;
+      console.log(`  ✓ ${sym} — ${take.sentiment} (${headlines.length} headlines)`);
+    } catch (err) {
+      console.log(`  ✗ ${sym} — AI take failed: ${err.message}`);
+      data.news = null;
+    }
+    await new Promise((r) => setTimeout(r, AI_PAUSE_MS));
+  }
+}
+
 async function main() {
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
@@ -1038,6 +1203,7 @@ async function main() {
       `Leaving last-good index.html + data/ in place — GH Pages will keep serving the previous build.`
     );
   }
+  await attachAiNewsTakes(chains);
   const symbols = Object.keys(chains).sort();
   const builtAtIso = new Date().toISOString();
   const html = renderHtml({ symbols, builtAt: nyTimestamp(), builtAtIso });
