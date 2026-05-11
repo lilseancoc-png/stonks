@@ -193,6 +193,130 @@ async function fetchAllTickerChains() {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// AI analysis — fetches recent news via Yahoo and calls Claude to generate
+// a plain-English market context summary for options traders.
+// All of this is best-effort: if ANTHROPIC_API_KEY is absent or any call
+// fails, the build completes normally and the frontend just omits the panel.
+// ---------------------------------------------------------------------------
+
+async function fetchTickerNews(symbol) {
+  try {
+    const res = await yahooFinance.search(symbol, {
+      newsCount: 8,
+      quotesCount: 0,
+      enableFuzzyQuery: false,
+    });
+    return (res.news || []).slice(0, 8).map((n) => ({
+      title: n.title || "",
+      published: n.providerPublishTime instanceof Date
+        ? n.providerPublishTime.toISOString().slice(0, 10)
+        : (typeof n.providerPublishTime === "number"
+          ? new Date(n.providerPublishTime * 1000).toISOString().slice(0, 10)
+          : null),
+    }));
+  } catch (err) {
+    console.warn(`  ⚠ news fetch skipped for ${symbol}: ${err.message}`);
+    return [];
+  }
+}
+
+// Compute a compact ATM IV summary from the chain data so Claude has
+// volatility context without reading hundreds of contract rows.
+function computeIvSummary(chainData) {
+  const { spot, chains } = chainData;
+  if (!spot || !chains) return null;
+  const atmIvs = [];
+  for (const chain of Object.values(chains)) {
+    for (const c of [...(chain.c || []), ...(chain.p || [])]) {
+      if (c.iv != null && c.s != null && Math.abs(c.s - spot) / spot < 0.03) {
+        atmIvs.push(c.iv);
+      }
+    }
+  }
+  if (!atmIvs.length) return null;
+  atmIvs.sort((a, b) => a - b);
+  const median = atmIvs[Math.floor(atmIvs.length / 2)];
+  return { atmIvMedian: Math.round(median * 1000) / 1000, sampleCount: atmIvs.length };
+}
+
+async function generateAIAnalysis(anthropic, symbol, spot, ivSummary, news) {
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const newsLines = news.length
+    ? news.map((n, i) => `${i + 1}. [${n.published || "recent"}] ${n.title}`).join("\n")
+    : "(no recent news available)";
+  const atmIvPct = ivSummary ? (ivSummary.atmIvMedian * 100).toFixed(1) : "unknown";
+
+  const userPrompt =
+    `Analyze the options market context for ${symbol} as of ${dateStr}.\n\n` +
+    `Stock context:\n` +
+    `- Current price: $${spot.toFixed(2)}\n` +
+    `- Near-ATM implied volatility (median across expirations): ${atmIvPct}%\n\n` +
+    `Recent news headlines (newest first):\n${newsLines}\n\n` +
+    `Based on the news sentiment and the IV level, assess:\n` +
+    `1. Whether the options market is pricing in elevated or depressed risk relative to the news\n` +
+    `2. The overall sentiment direction suggested by the recent news\n` +
+    `3. Key factors a buyer of calls or puts should consider\n\n` +
+    `Respond with ONLY this JSON object (no markdown, no backticks, no extra text):\n` +
+    `{\n` +
+    `  "sentiment": "bullish" or "neutral" or "bearish",\n` +
+    `  "ivAssessment": "elevated" or "fair" or "depressed",\n` +
+    `  "summary": "<2-3 sentence plain-English analysis, under 300 chars>",\n` +
+    `  "keyFactors": ["<factor 1>", "<factor 2>", "<factor 3>"],\n` +
+    `  "newsCount": <integer — number of headlines provided above>,\n` +
+    `  "generatedAt": "${dateStr}"\n` +
+    `}\n\n` +
+    `Rules: sentiment/ivAssessment must be exactly the values listed. ` +
+    `summary under 300 chars. keyFactors 2-4 items each under 80 chars. ` +
+    `No investment advice or price targets.`;
+
+  try {
+    const msg = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 512,
+      system:
+        "You are a financial analysis assistant that evaluates equity options context. " +
+        "You produce structured JSON only. No commentary outside the JSON object. " +
+        "Your analysis is informational, not investment advice.",
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    const raw = (msg.content[0]?.text ?? "").trim();
+    // Strip any accidental markdown fences before parsing
+    const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/```$/, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const validSentiments = ["bullish", "neutral", "bearish"];
+    const validIvAssessments = ["elevated", "fair", "depressed"];
+    if (!validSentiments.includes(parsed.sentiment)) throw new Error("bad sentiment");
+    if (!validIvAssessments.includes(parsed.ivAssessment)) throw new Error("bad ivAssessment");
+    if (typeof parsed.summary !== "string") throw new Error("missing summary");
+    if (!Array.isArray(parsed.keyFactors)) throw new Error("missing keyFactors");
+    return parsed;
+  } catch (err) {
+    console.warn(`  ⚠ AI analysis failed for ${symbol}: ${err.message}`);
+    return null;
+  }
+}
+
+async function enrichChainsWithAi(chains, anthropic) {
+  for (const [sym, chainData] of Object.entries(chains)) {
+    try {
+      const news = await fetchTickerNews(sym);
+      await new Promise((r) => setTimeout(r, 350));
+      const ivSummary = computeIvSummary(chainData);
+      const ai = await generateAIAnalysis(anthropic, sym, chainData.spot, ivSummary, news);
+      if (ai) {
+        chainData.ai = ai;
+        console.log(`  ✓ AI ${sym} — ${ai.sentiment} / IV ${ai.ivAssessment}`);
+      } else {
+        console.log(`  ✗ AI ${sym} — analysis skipped`);
+      }
+    } catch (err) {
+      console.warn(`  ✗ AI enrichment failed for ${sym}: ${err.message}`);
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+}
+
 function nyTimestamp() {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -311,7 +435,7 @@ function optionEvalScript() {
   // memoised for the life of the page — flipping back to an already-loaded
   // ticker is instant.
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, ai: null };
 
   function $(id){return document.getElementById(id);}
   function setStatus(elemId, msg, kind){
@@ -321,6 +445,35 @@ function optionEvalScript() {
   }
   function fmt(n,d){ if(n==null||!isFinite(n))return '—'; return Number(n).toFixed(d==null?2:d); }
   function fmtPct(n){ if(n==null||!isFinite(n))return '—'; return n.toFixed(2)+'%'; }
+  function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function buildAiPanelHtml(ai) {
+    if (!ai || typeof ai !== 'object' || !ai.sentiment || !ai.summary) return '';
+    var sentClass = ai.sentiment === 'bullish' ? 'bullish' : ai.sentiment === 'bearish' ? 'bearish' : 'neutral';
+    var ivClass = ai.ivAssessment === 'elevated' ? 'elevated' : ai.ivAssessment === 'depressed' ? 'depressed' : 'fair';
+    var sentLabel = ai.sentiment.charAt(0).toUpperCase() + ai.sentiment.slice(1);
+    var ivLabel = 'IV ' + (ai.ivAssessment ? ai.ivAssessment.charAt(0).toUpperCase() + ai.ivAssessment.slice(1) : 'Unknown');
+    var factors = Array.isArray(ai.keyFactors) ? ai.keyFactors : [];
+    var newsCount = typeof ai.newsCount === 'number' ? ai.newsCount : 0;
+    var genDate = ai.generatedAt || '';
+    var footerTxt = (newsCount > 0 ? 'Based on ' + newsCount + ' recent headline' + (newsCount === 1 ? '' : 's') + ' · ' : '') +
+      'AI analysis generated ' + genDate + ' · not investment advice';
+    var html = '<div class="ai-panel">';
+    html += '<div class="ai-panel-header">AI Market Context</div>';
+    html += '<div class="ai-badges">';
+    html += '<span class="ai-badge ' + sentClass + '">' + escHtml(sentLabel) + '</span>';
+    html += '<span class="ai-badge ' + ivClass + '">' + escHtml(ivLabel) + '</span>';
+    html += '</div>';
+    html += '<p class="ai-summary">' + escHtml(ai.summary) + '</p>';
+    if (factors.length) {
+      html += '<ul class="ai-factors">';
+      for (var i = 0; i < factors.length; i++) html += '<li>' + escHtml(factors[i]) + '</li>';
+      html += '</ul>';
+    }
+    html += '<div class="ai-footer">' + escHtml(footerTxt) + '</div>';
+    html += '</div>';
+    return html;
+  }
 
   // Tolerant parse: strip currency / percent / commas / thin-spaces and
   // anything after a "x" / "×" (Robinhood's bid size suffix), then parseFloat.
@@ -542,11 +695,13 @@ function optionEvalScript() {
     if(!c){ setStatus('opt-eval-status','Pick a strike first.','err'); return; }
     var type=$('opt-type').value;
     var label = (state.symbol||'')+' '+type.toUpperCase()+' $'+fmt(c.s)+' · exp '+fmtExpiryLabel(state.currentExp);
-    $('opt-eval-result').innerHTML = buildResultHtml({
+    var html = buildResultHtml({
       type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
       bid: c.b, ask: c.a, last: c.l, iv: c.iv,
       oi: c.oi, volume: c.v, label: label, source: 'chain'
     });
+    html += buildAiPanelHtml(state.ai);
+    $('opt-eval-result').innerHTML = html;
     setStatus('opt-eval-status','','');
   }
 
@@ -686,6 +841,7 @@ function optionEvalScript() {
       state.spot=entry.spot;
       state.expirations=(entry.expirations||[]).slice();
       state.chains=entry.chains||{};
+      state.ai=entry.ai||null;
       if(!state.expirations.length){ setStatus('opt-eval-status','No expirations for '+symbol+'.','err'); return; }
       state.currentExp=state.expirations[0];
       populateExpiry();
@@ -988,6 +1144,29 @@ function renderHtml({ symbols, builtAt, builtAtIso }) {
   @media (max-width: 480px) {
     .tip::after { left: auto; right: 0; transform: none; }
   }
+  /* AI analysis panel */
+  .ai-panel {
+    margin-top: 18px; padding: 14px 16px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .ai-panel-header {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); margin-bottom: 10px;
+  }
+  .ai-badges { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .ai-badge {
+    display: inline-block; padding: 3px 9px; border-radius: 4px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .ai-badge.bullish { color: #2ecc71; background: rgba(46,204,113,0.15); border: 1px solid rgba(46,204,113,0.3); }
+  .ai-badge.neutral { color: #f39c12; background: rgba(243,156,18,0.15); border: 1px solid rgba(243,156,18,0.3); }
+  .ai-badge.bearish { color: #ff5c5c; background: rgba(255,92,92,0.15); border: 1px solid rgba(255,92,92,0.3); }
+  .ai-badge.elevated { color: #ff5c5c; background: rgba(255,92,92,0.10); border: 1px solid rgba(255,92,92,0.25); }
+  .ai-badge.fair     { color: var(--muted); background: rgba(138,147,166,0.15); border: 1px solid rgba(138,147,166,0.3); }
+  .ai-badge.depressed{ color: #2ecc71; background: rgba(46,204,113,0.10); border: 1px solid rgba(46,204,113,0.25); }
+  .ai-summary { font-size: 13px; color: var(--text); line-height: 1.5; margin: 0 0 10px; }
+  .ai-factors { margin: 0 0 10px; padding-left: 18px; font-size: 13px; color: var(--text); line-height: 1.6; }
+  .ai-footer { font-size: 11px; color: var(--muted); opacity: 0.7; }
 </style>
 </head>
 <body>
@@ -1038,6 +1217,16 @@ async function main() {
       `Leaving last-good index.html + data/ in place — GH Pages will keep serving the previous build.`
     );
   }
+  const aiKey = process.env.ANTHROPIC_API_KEY || null;
+  if (aiKey) {
+    console.log("Running AI analysis for", Object.keys(chains).length, "tickers…");
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const anthropic = new Anthropic({ apiKey: aiKey });
+    await enrichChainsWithAi(chains, anthropic);
+  } else {
+    console.log("ANTHROPIC_API_KEY not set — skipping AI analysis.");
+  }
+
   const symbols = Object.keys(chains).sort();
   const builtAtIso = new Date().toISOString();
   const html = renderHtml({ symbols, builtAt: nyTimestamp(), builtAtIso });
