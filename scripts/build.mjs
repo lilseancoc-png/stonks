@@ -658,9 +658,14 @@ function optionEvalScript() {
   function fetchChain(symbol){
     if(CHAIN_CACHE[symbol])return Promise.resolve(CHAIN_CACHE[symbol]);
     // 'data/SYMBOL.json' is a same-origin static asset deployed alongside
-    // index.html. force-cache lets the browser reuse it across reloads
-    // until the daily build bumps the etag.
-    return fetch('data/'+encodeURIComponent(symbol)+'.json',{cache:'force-cache'})
+    // index.html. We cache-bust with the build's ISO timestamp so each
+    // daily refresh produces a new URL and existing browser cache entries
+    // are bypassed — without this, force-cache would let stale chains
+    // linger long after the build refreshed them. The query string itself
+    // is enough to invalidate; force-cache then makes subsequent loads
+    // within the same build instant.
+    var v=(MANIFEST&&MANIFEST.builtAtIso)?'?v='+encodeURIComponent(MANIFEST.builtAtIso):'';
+    return fetch('data/'+encodeURIComponent(symbol)+'.json'+v,{cache:'force-cache'})
       .then(function(resp){
         if(!resp.ok)throw new Error('HTTP '+resp.status);
         return resp.json();
@@ -739,7 +744,7 @@ function renderHtml({ symbols, builtAt, builtAtIso }) {
   const tickerCount = symbols.length;
   // Tiny manifest (~1 KB) — just enough to populate the ticker dropdown.
   // Per-ticker chains are fetched from data/<SYMBOL>.json on demand.
-  const manifestPayload = JSON.stringify({ builtAt, symbols }).replace(
+  const manifestPayload = JSON.stringify({ builtAt, builtAtIso, symbols }).replace(
     /<\/script>/gi,
     "<\\/script>",
   );
