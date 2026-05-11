@@ -1084,10 +1084,11 @@ async function writeChainFiles(chains) {
 // and plenty for a 3-sentence summary task.
 const AI_MODEL = "gemma-4-26b-a4b-it";
 const AI_NEWS_COUNT = 6;
-// Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. 4500ms keeps us at ~13 RPM
-// with safety margin and finishes ~65 tickers in ~5 minutes — well inside the
-// daily quota.
-const AI_PAUSE_MS = 4500;
+// Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. We stagger request *starts*
+// 4200ms apart (~14.3 RPM, safety margin under 15) and run requests
+// concurrently — call latency overlaps the pacing window instead of being
+// added to it, finishing ~65 tickers in ~4.6 minutes.
+const AI_START_INTERVAL_MS = 4200;
 // Google's free tier intermittently returns 500 INTERNAL on otherwise valid
 // requests. Retry transient 5xx (and the generic "internal" wording the SDK
 // sometimes surfaces) a couple of times with backoff before giving up.
@@ -1197,8 +1198,10 @@ async function attachAiNewsTakes(chains) {
     return;
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  console.log(`Generating AI news takes for ${Object.keys(chains).length} tickers…`);
-  for (const [sym, data] of Object.entries(chains)) {
+  const entries = Object.entries(chains);
+  console.log(`Generating AI news takes for ${entries.length} tickers…`);
+  const tasks = entries.map(([sym, data], i) => (async () => {
+    if (i > 0) await new Promise((r) => setTimeout(r, i * AI_START_INTERVAL_MS));
     try {
       const headlines = await fetchTickerHeadlines(sym);
       const take = await generateNewsTake(ai, sym, data.spot, headlines);
@@ -1208,8 +1211,8 @@ async function attachAiNewsTakes(chains) {
       console.log(`  ✗ ${sym} — AI take failed: ${err.message}`);
       data.news = null;
     }
-    await new Promise((r) => setTimeout(r, AI_PAUSE_MS));
-  }
+  })());
+  await Promise.all(tasks);
 }
 
 async function main() {
