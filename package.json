@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.52.0",
+    "groq-sdk": "^0.13.0",
     "yahoo-finance2": "^3.14.0"
   }
 }

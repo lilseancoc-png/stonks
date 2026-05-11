@@ -240,7 +240,7 @@ function computeIvSummary(chainData) {
   return { atmIvMedian: Math.round(median * 1000) / 1000, sampleCount: atmIvs.length };
 }
 
-async function generateAIAnalysis(anthropic, symbol, spot, ivSummary, news) {
+async function generateAIAnalysis(groq, symbol, spot, ivSummary, news) {
   const dateStr = new Date().toISOString().slice(0, 10);
   const newsLines = news.length
     ? news.map((n, i) => `${i + 1}. [${n.published || "recent"}] ${n.title}`).join("\n")
@@ -271,16 +271,22 @@ async function generateAIAnalysis(anthropic, symbol, spot, ivSummary, news) {
     `No investment advice or price targets.`;
 
   try {
-    const msg = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
       max_tokens: 512,
-      system:
-        "You are a financial analysis assistant that evaluates equity options context. " +
-        "You produce structured JSON only. No commentary outside the JSON object. " +
-        "Your analysis is informational, not investment advice.",
-      messages: [{ role: "user", content: userPrompt }],
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a financial analysis assistant that evaluates equity options context. " +
+            "You produce structured JSON only. No commentary outside the JSON object. " +
+            "Your analysis is informational, not investment advice.",
+        },
+        { role: "user", content: userPrompt },
+      ],
     });
-    const raw = (msg.content[0]?.text ?? "").trim();
+    const raw = (completion.choices[0]?.message?.content ?? "").trim();
     // Strip any accidental markdown fences before parsing
     const cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/```$/, "").trim();
     const parsed = JSON.parse(cleaned);
@@ -297,13 +303,13 @@ async function generateAIAnalysis(anthropic, symbol, spot, ivSummary, news) {
   }
 }
 
-async function enrichChainsWithAi(chains, anthropic) {
+async function enrichChainsWithAi(chains, groq) {
   for (const [sym, chainData] of Object.entries(chains)) {
     try {
       const news = await fetchTickerNews(sym);
       await new Promise((r) => setTimeout(r, 350));
       const ivSummary = computeIvSummary(chainData);
-      const ai = await generateAIAnalysis(anthropic, sym, chainData.spot, ivSummary, news);
+      const ai = await generateAIAnalysis(groq, sym, chainData.spot, ivSummary, news);
       if (ai) {
         chainData.ai = ai;
         console.log(`  ✓ AI ${sym} — ${ai.sentiment} / IV ${ai.ivAssessment}`);
@@ -313,7 +319,7 @@ async function enrichChainsWithAi(chains, anthropic) {
     } catch (err) {
       console.warn(`  ✗ AI enrichment failed for ${sym}: ${err.message}`);
     }
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => setTimeout(r, 2000));
   }
 }
 
@@ -1217,14 +1223,14 @@ async function main() {
       `Leaving last-good index.html + data/ in place — GH Pages will keep serving the previous build.`
     );
   }
-  const aiKey = process.env.ANTHROPIC_API_KEY || null;
+  const aiKey = process.env.GROQ_API_KEY || null;
   if (aiKey) {
     console.log("Running AI analysis for", Object.keys(chains).length, "tickers…");
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const anthropic = new Anthropic({ apiKey: aiKey });
-    await enrichChainsWithAi(chains, anthropic);
+    const { default: Groq } = await import("groq-sdk");
+    const groq = new Groq({ apiKey: aiKey });
+    await enrichChainsWithAi(chains, groq);
   } else {
-    console.log("ANTHROPIC_API_KEY not set — skipping AI analysis.");
+    console.log("GROQ_API_KEY not set — skipping AI analysis.");
   }
 
   const symbols = Object.keys(chains).sort();
