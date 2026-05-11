@@ -69,8 +69,15 @@ const TICKERS = [
   "GME", "AMC",
 ];
 
-const STRIKE_BAND = 0.30; // keep ±30% strikes around spot
-const MAX_EXPIRATIONS = 6;
+// ±50% strikes around spot — captures lottery OTM and deep-ITM strikes
+// without any extra Yahoo calls (we already receive the full chain, this
+// just controls how much of it we keep).
+const STRIKE_BAND = 0.50;
+// Up from 6 — pushes coverage to ~late-2027 LEAPS for liquid names. Each
+// added expiration costs one extra Yahoo call per ticker with a 250ms
+// politeness pause, so the build adds ~2 min wall-clock. Less-liquid
+// names asymptote at whatever Yahoo returns (the .slice() handles it).
+const MAX_EXPIRATIONS = 15;
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst. Retry transient failures, but bail on the
 // existing site if too many tickers fail — better to serve yesterday's data
