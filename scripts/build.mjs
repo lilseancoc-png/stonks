@@ -14,7 +14,7 @@
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 
 // Library prints a survey notice on first use and validates response
@@ -1077,14 +1077,16 @@ async function writeChainFiles(chains) {
 // verdict toward Good or Bad. Skipped silently if no GEMINI_API_KEY is set,
 // so forks without a key still build.
 //
-// Uses Google's free-tier Gemini API (gemini-2.0-flash). At the time of
-// writing the free tier comfortably covers ~130 calls/day. If the quota
-// tightens or the model is renamed, the model string is the only knob.
-const AI_MODEL = "gemini-2.0-flash";
+// Uses Google's free-tier API with gemma-3-27b-it — the Gemini family's flash
+// models have shifted in/out of the free tier (gemini-2.0-flash went to 0 RPD
+// as Google promoted 2.5; gemini-2.5-flash free tier is 20 RPD, too tight for
+// a daily build). Gemma 3 27B sits at 30 RPM / 14,400 RPD on free tier, which
+// gives ~50× the headroom we need and is fine for a 3-sentence summary task.
+const AI_MODEL = "gemma-3-27b-it";
 const AI_NEWS_COUNT = 6;
-// Free-tier Gemini caps at ~15 RPM. 4500ms keeps us at ~13 RPM with a
-// safety margin and still finishes ~65 tickers in ~5 minutes.
-const AI_PAUSE_MS = 4500;
+// 30 RPM cap → 2500ms keeps us at 24 RPM with safety margin and finishes
+// ~65 tickers in ~3 minutes.
+const AI_PAUSE_MS = 2500;
 const AI_SYSTEM_PROMPT =
   "You are an options-savvy financial news summarizer. " +
   "Given a US-listed ticker, its current share price, and a handful of recent " +
@@ -1097,20 +1099,10 @@ const AI_SYSTEM_PROMPT =
   "advice. Also return a sentiment tag derived from the news: 'bullish' if the " +
   "balance of recent news is clearly positive for the underlying, 'bearish' if " +
   "clearly negative, 'neutral' if mixed or routine, and 'uncertain' if there is " +
-  "not enough recent news to judge.";
-
-const AI_OUTPUT_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    paragraph: { type: Type.STRING, description: "2-4 sentence plain-English news context paragraph." },
-    sentiment: {
-      type: Type.STRING,
-      enum: ["bullish", "neutral", "bearish", "uncertain"],
-      description: "Overall directional read of the recent news.",
-    },
-  },
-  required: ["paragraph", "sentiment"],
-};
+  "not enough recent news to judge. " +
+  "Respond with ONLY a JSON object of the form " +
+  `{"paragraph": "...", "sentiment": "bullish"|"neutral"|"bearish"|"uncertain"} ` +
+  "— no markdown fences, no prose before or after the JSON.";
 
 async function fetchTickerHeadlines(symbol) {
   try {
@@ -1147,13 +1139,13 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
     `Spot price: $${spot.toFixed(2)}\n` +
     `Recent headlines:\n${headlineBlock}`;
 
+  // Gemma 3 doesn't support Gemini's responseSchema (constrained decoding) and
+  // sometimes ignores responseMimeType. The prompt is explicit about the JSON
+  // shape; the parser below is forgiving about fences/commentary.
   const response = await ai.models.generateContent({
     model: AI_MODEL,
-    contents: userMessage,
+    contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
     config: {
-      systemInstruction: AI_SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-      responseSchema: AI_OUTPUT_SCHEMA,
       temperature: 0.3,
       maxOutputTokens: 600,
     },
@@ -1161,7 +1153,16 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
 
   const text = response.text;
   if (!text) throw new Error("empty Gemini response");
-  const parsed = JSON.parse(text);
+  // Gemma 3 occasionally wraps JSON in ```json fences or trails commentary,
+  // even with responseMimeType=application/json. Strip fences and extract the
+  // outermost {...} block before parsing.
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const jsonText = firstBrace >= 0 && lastBrace > firstBrace
+    ? stripped.slice(firstBrace, lastBrace + 1)
+    : stripped;
+  const parsed = JSON.parse(jsonText);
   return {
     paragraph: String(parsed.paragraph || "").trim(),
     sentiment: parsed.sentiment,
