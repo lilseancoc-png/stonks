@@ -9,8 +9,9 @@ worth trading.
 Two ways to grade a contract:
 
 - **From a curated ticker** — choose a name, an expiration, and a strike from
-  ~50 high-volume US options. We pull the chain server-side at build time so
-  the page itself does zero network calls.
+  ~50 high-volume US options. We pull each chain server-side at build time and
+  ship them as static `data/<SYMBOL>.json` files alongside the page; the
+  browser fetches one only when you pick a ticker (and caches it in memory).
 - **Grade your own contract** — paste bid / ask / IV straight off Robinhood,
   Schwab, etc. Symbols like `$3.15`, `3.15 × 55`, `100.81%`, `1,251` are
   cleaned automatically before grading.
@@ -32,15 +33,19 @@ For each contract you get:
 - **17:30 ET (21:30 UTC) daily** — end-of-day refresh.
 
 Each run fetches the option chains (with retries on transient Yahoo errors),
-embeds them into `index.html`, commits the refreshed file, and deploys to
-GitHub Pages. If fewer than 75% of tickers come back, the run fails loud and
-the previous good `index.html` keeps serving.
+writes them to `data/<SYMBOL>.json`, regenerates `index.html` with the
+ticker manifest, commits both, and deploys to GitHub Pages. If fewer than 75%
+of tickers come back, the run fails loud and the previous good build keeps
+serving.
 
 ## Running locally
 
 ```bash
 node scripts/build.mjs
-open index.html
+# Serve over HTTP so the page can fetch data/<SYMBOL>.json
+# (browsers block fetch() on file:// URLs).
+python3 -m http.server 8000
+# then open http://localhost:8000/
 ```
 
 Requires Node 20+. No API keys.
