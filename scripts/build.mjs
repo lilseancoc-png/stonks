@@ -1084,9 +1084,15 @@ async function writeChainFiles(chains) {
 // and plenty for a 3-sentence summary task.
 const AI_MODEL = "gemma-4-26b-a4b-it";
 const AI_NEWS_COUNT = 6;
-// 30 RPM cap → 2500ms keeps us at 24 RPM with safety margin and finishes
-// ~65 tickers in ~3 minutes.
-const AI_PAUSE_MS = 2500;
+// Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. 4500ms keeps us at ~13 RPM
+// with safety margin and finishes ~65 tickers in ~5 minutes — well inside the
+// daily quota.
+const AI_PAUSE_MS = 4500;
+// Google's free tier intermittently returns 500 INTERNAL on otherwise valid
+// requests. Retry transient 5xx (and the generic "internal" wording the SDK
+// sometimes surfaces) a couple of times with backoff before giving up.
+const AI_MAX_ATTEMPTS = 3;
+const AI_RETRY_BACKOFF_MS = [2000, 5000];
 const AI_SYSTEM_PROMPT =
   "You are an options-savvy financial news summarizer. " +
   "Given a US-listed ticker, its current share price, and a handful of recent " +
@@ -1142,14 +1148,28 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
   // Gemma doesn't support Gemini's responseSchema (constrained decoding) and
   // sometimes ignores responseMimeType. The prompt is explicit about the JSON
   // shape; the parser below is forgiving about fences/commentary.
-  const response = await ai.models.generateContent({
-    model: AI_MODEL,
-    contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
-    config: {
-      temperature: 0.3,
-      maxOutputTokens: 600,
-    },
-  });
+  let response;
+  let lastErr;
+  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+    try {
+      response = await ai.models.generateContent({
+        model: AI_MODEL,
+        contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
+        config: {
+          temperature: 0.3,
+          maxOutputTokens: 600,
+        },
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message || "");
+      const transient = /\b(500|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED)\b/i.test(msg);
+      if (!transient || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, AI_RETRY_BACKOFF_MS[attempt] ?? 5000));
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
 
   const text = response.text;
   if (!text) throw new Error("empty Gemini response");
