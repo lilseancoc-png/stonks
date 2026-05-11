@@ -211,6 +211,18 @@
   .opt-explain.good { border-color: rgba(46,204,113,0.4); }
   .opt-explain.fair { border-color: rgba(243,156,18,0.4); }
   .opt-explain.bad  { border-color: rgba(255,92,92,0.4); }
+  .opt-news {
+    margin: 6px 0 12px; padding: 10px 12px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.5;
+  }
+  .opt-news.bullish   { border-color: rgba(46,204,113,0.4); }
+  .opt-news.bearish   { border-color: rgba(255,92,92,0.4); }
+  .opt-news.neutral   { border-color: rgba(243,156,18,0.4); }
+  .opt-news.uncertain { border-color: var(--border); }
+  .opt-news-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+  .opt-news-body { color: var(--text); }
+  .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
   .tip {
     display: inline-flex; align-items: center; justify-content: center;
     margin-left: 4px; width: 14px; height: 14px; border-radius: 50%;
@@ -245,9 +257,9 @@
   <h1>Option Contract Rater</h1>
   <div class="sub">Grade a single options contract on spread quality, delta, and theta. 65 curated tickers refreshed daily, or enter your own contract below.</div>
 </header>
-<div id="freshness-banner" class="freshness" data-built-at="2026-05-11T21:37:58.542Z" role="status" aria-live="polite">
+<div id="freshness-banner" class="freshness" data-built-at="2026-05-11T22:07:07.592Z" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
-  <span id="freshness-text">Built May 11, 2026, 5:37 PM (NY) · end-of-session quotes from Yahoo</span>
+  <span id="freshness-text">Built May 11, 2026, 6:07 PM (NY) · end-of-session quotes from Yahoo</span>
 </div>
 <main>
   <section class="card" id="opt-eval-section">
@@ -314,9 +326,9 @@
   </section>
 </main>
 <footer>
-  Data: Yahoo Finance option chain, fetched server-side at build time. Built May 11, 2026, 5:37 PM (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
+  Data: Yahoo Finance option chain, fetched server-side at build time. Built May 11, 2026, 6:07 PM (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
 </footer>
-<script>window.STONKS_MANIFEST={"builtAt":"May 11, 2026, 5:37 PM","builtAtIso":"2026-05-11T21:37:58.542Z","symbols":["AAPL","ABNB","ADBE","AMC","AMD","AMZN","AVGO","BA","BABA","BAC","COIN","COST","CRM","CRWD","CVX","DDOG","DIA","DIS","DOCU","DRAM","GLD","GME","GOOGL","INTC","IWM","JNJ","JPM","LLY","MA","MCD","MDB","META","MSFT","MU","NET","NFLX","NIO","NOW","NVDA","NVO","OKTA","ORCL","PANW","PFE","PLTR","QQQ","SBUX","SHOP","SNOW","SPY","TLT","TSLA","TSM","UBER","UNH","USO","V","WDAY","WMT","XLE","XLF","XLK","XOM","ZM","ZS"]};</script>
+<script>window.STONKS_MANIFEST={"builtAt":"May 11, 2026, 6:07 PM","builtAtIso":"2026-05-11T22:07:07.592Z","symbols":["AAPL","ABNB","ADBE","AMC","AMD","AMZN","AVGO","BA","BABA","BAC","COIN","COST","CRM","CRWD","CVX","DDOG","DIA","DIS","DOCU","DRAM","GLD","GME","GOOGL","INTC","IWM","JNJ","JPM","LLY","MA","MCD","MDB","META","MSFT","MU","NET","NFLX","NIO","NOW","NVDA","NVO","OKTA","ORCL","PANW","PFE","PLTR","QQQ","SBUX","SHOP","SNOW","SPY","TLT","TSLA","TSM","UBER","UNH","USO","V","WDAY","WMT","XLE","XLF","XLK","XOM","ZM","ZS"]};</script>
 
 <script>
 (function(){
@@ -354,7 +366,7 @@
   // memoised for the life of the page — flipping back to an already-loaded
   // ticker is instant.
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null };
 
   function $(id){return document.getElementById(id);}
   function setStatus(elemId, msg, kind){
@@ -495,6 +507,18 @@
     return {label:'Acceptable', cls:'fair'};
   }
 
+  // News sentiment nudge — only shifts a borderline Fair verdict. Bullish news
+  // bumps Fair → Good ("News tailwind"); bearish news drops it → Bad
+  // ("News headwind"). Good and Bad never move, so the math-driven grade
+  // always wins when it has a clear signal.
+  function applyNewsNudge(verdict, news){
+    if(!news||!news.sentiment) return verdict;
+    if(verdict.cls!=='fair') return verdict;
+    if(news.sentiment==='bullish') return {label:'Good contract · news tailwind', cls:'good', nudged:true};
+    if(news.sentiment==='bearish') return {label:'Poor contract · news headwind', cls:'bad', nudged:true};
+    return verdict;
+  }
+
   function tipChip(text){
     if(!text)return '';
     // data-tip is HTML-attribute escaped via the limited charset we control here.
@@ -521,6 +545,22 @@
     else msg = "Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it.";
     return '<div class="opt-explain '+cls+'"><b>What this means:</b> '+msg+'</div>';
   }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[ch];
+    });
+  }
+  function newsTakeHtml(news, ticker, nudged){
+    if(!news||!news.paragraph) return '';
+    var sentimentLabel = ({bullish:'Bullish',neutral:'Neutral',bearish:'Bearish',uncertain:'Uncertain'})[news.sentiment] || 'Neutral';
+    var heading = 'AI news take' + (ticker?(' · '+escapeHtml(ticker)):'') + ' · ' + sentimentLabel;
+    var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict above from <b>Acceptable</b>.</div>' : '';
+    return '<div class="opt-news '+(news.sentiment||'neutral')+'">'+
+      '<div class="opt-news-head">'+heading+'</div>'+
+      '<div class="opt-news-body">'+escapeHtml(news.paragraph)+'</div>'+
+      note+
+    '</div>';
+  }
 
   // Build the result HTML for a contract from any source (curated chain or
   // manual entry). Input keys: type, spot, strike, expEpoch, bid, ask, last,
@@ -538,11 +578,13 @@
     var sGrade = spreadPct!=null ? gradeSpread(spreadPct) : {label:'—', cls:'fair', note:'no quote'};
     var dGrade = g ? gradeDelta(g.delta, input.type) : {label:'—', cls:'fair', note:'delta unavailable — IV missing'};
     var tGrade = g ? gradeTheta(g.thetaDay, mid) : {label:'—', cls:'fair', note:'theta unavailable — IV missing'};
-    var verdict = overallVerdict([sGrade, dGrade, tGrade]);
+    var baseVerdict = overallVerdict([sGrade, dGrade, tGrade]);
+    var verdict = applyNewsNudge(baseVerdict, input.news);
 
     var html = '';
     html += '<div class="opt-verdict '+verdict.cls+'">'+verdict.label+'</div>';
     html += verdictExplainer(verdict.cls);
+    html += newsTakeHtml(input.news, input.ticker, verdict.nudged);
     html += '<div class="opt-contract">'+(input.label||'')+' · spot $'+fmt(input.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$'+fmt(bid)+' / $'+fmt(ask));
@@ -588,7 +630,8 @@
     $('opt-eval-result').innerHTML = buildResultHtml({
       type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
       bid: c.b, ask: c.a, last: c.l, iv: c.iv,
-      oi: c.oi, volume: c.v, label: label, source: 'chain'
+      oi: c.oi, volume: c.v, label: label, source: 'chain',
+      news: state.news, ticker: state.symbol
     });
     setStatus('opt-eval-status','','');
   }
@@ -729,6 +772,7 @@
       state.spot=entry.spot;
       state.expirations=(entry.expirations||[]).slice();
       state.chains=entry.chains||{};
+      state.news=entry.news||null;
       if(!state.expirations.length){ setStatus('opt-eval-status','No expirations for '+symbol+'.','err'); return; }
       state.currentExp=state.expirations[0];
       populateExpiry();
