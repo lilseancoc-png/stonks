@@ -51,7 +51,7 @@ const TICKERS = [
   // Mega-caps
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
   // Other tech / semis
-  "ORCL", "CRM", "ADBE", "TSM", "MU", "INTC",
+  "ORCL", "CRM", "ADBE", "TSM", "MU", "INTC", "DRAM",
   // SaaS / cloud
   "NOW", "SNOW", "NET", "DDOG", "CRWD", "ZS", "MDB", "OKTA", "PANW", "WDAY", "ZM", "DOCU",
   // Banks / payments
