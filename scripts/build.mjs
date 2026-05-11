@@ -40,8 +40,11 @@ const ROOT = resolve(__dirname, "..");
 const OUT = resolve(ROOT, "index.html");
 const DATA_DIR = resolve(ROOT, "data");
 
-// Curated list of high-volume optionable US names. Keep under ~60 so the
-// embedded JSON stays well below 1 MB.
+// Curated list of high-volume optionable US names. List size no longer
+// affects page load (each chain is its own lazy-loaded data/<sym>.json),
+// but the build still hits Yahoo serially with ~350ms pauses, so each
+// added ticker adds ~2-3s of wall-clock time and a bit of rate-limit
+// risk against MIN_SUCCESS_RATE.
 const TICKERS = [
   // Index & sector ETFs
   "SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "USO", "XLF", "XLE", "XLK",
@@ -49,6 +52,8 @@ const TICKERS = [
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
   // Other tech / semis
   "ORCL", "CRM", "ADBE", "TSM", "MU", "INTC",
+  // SaaS / cloud
+  "NOW", "SNOW", "NET", "DDOG", "CRWD", "ZS", "MDB", "OKTA", "PANW", "WDAY", "ZM", "DOCU",
   // Banks / payments
   "JPM", "BAC", "V", "MA",
   // Retail / consumer
@@ -220,6 +225,10 @@ function optionEvalSection(symbols) {
     <h2 class="card-title">Or grade your own contract</h2>
     <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Copy the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
     <form id="opt-manual-form" class="opt-manual-grid">
+      <label class="opt-manual-field opt-manual-paste">Paste contract symbol <span class="opt-manual-opt">optional · fills type / strike / expiration</span>
+        <input id="m-paste" type="text" placeholder="AAPL250117C00150000" autocomplete="off" spellcheck="false">
+        <span class="opt-paste-hint" id="m-paste-hint"></span>
+      </label>
       <label class="opt-manual-field opt-manual-field-row1">Type
         <select id="m-type">
           <option value="call">Call</option>
@@ -316,6 +325,24 @@ function optionEvalScript() {
     s=s.split(/[x×]/i)[0];           // drop size suffix
     s=s.replace(/[\\$,%\\s\\u00a0]/g,''); // strip $, %, commas, any whitespace
     return parseFloat(s);
+  }
+
+  // OCC option contract symbol: ROOT(1-6) + YYMMDD + C|P + STRIKE×1000(8 digits zero-padded).
+  // e.g. "AAPL250117C00150000" -> {root:'AAPL', type:'call', strike:150, expiryISO:'2025-01-17'}.
+  // Returns null on anything that doesn't match the exact OCC layout — broker
+  // screens ship these well-formed, so we don't try to clean messy input
+  // beyond trim + uppercase.
+  function parseOCC(raw){
+    if(raw==null)return null;
+    var s=String(raw).trim().toUpperCase();
+    var m=s.match(/^([A-Z][A-Z0-9.]{0,5})(\\d{2})(\\d{2})(\\d{2})([CP])(\\d{8})$/);
+    if(!m)return null;
+    var yy=parseInt(m[2],10), mm=parseInt(m[3],10), dd=parseInt(m[4],10);
+    if(mm<1||mm>12||dd<1||dd>31)return null;
+    var year=2000+yy;
+    var iso=year+'-'+(mm<10?'0':'')+mm+'-'+(dd<10?'0':'')+dd;
+    var strike=parseInt(m[6],10)/1000;
+    return { root:m[1], type:m[5]==='C'?'call':'put', strike:strike, expiryISO:iso };
   }
 
   // Standard normal PDF + CDF (Abramowitz & Stegun 7.1.26 approximation)
@@ -484,6 +511,18 @@ function optionEvalScript() {
     html += '<li><b>Delta:</b> '+dGrade.note+'.</li>';
     html += '<li><b>Theta:</b> '+tGrade.note+'.</li>';
     html += '</ul>';
+    if (input.source==='chain') {
+      // Payload mirrors the input fields tweakInManual() reads. JSON inside
+      // an HTML attribute: quote with apos and escape any apos in the
+      // payload — none of these numeric fields can contain quotes, so a
+      // straight stringify is safe; we still replace ' for defence.
+      var payload = JSON.stringify({
+        type: input.type, spot: input.spot, strike: input.strike, expEpoch: input.expEpoch,
+        bid: input.bid, ask: input.ask, iv: input.iv,
+        oi: input.oi, volume: input.volume,
+      }).replace(/'/g,'&apos;');
+      html += "<button type=\\"button\\" class=\\"opt-tweak-btn\\" data-tweak='"+payload+"'>Tweak in manual form ↓</button>";
+    }
     var disc = input.source==='manual'
       ? 'Greeks computed locally with Black-Scholes from your IV and a '+(RFR*100).toFixed(1)+'% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
       : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Quotes are end-of-session as of the build timestamp shown below — for information only, not investment advice.';
@@ -540,6 +579,73 @@ function optionEvalScript() {
       label: label, source: 'manual'
     });
     setStatus('opt-manual-status','Graded.','ok');
+  }
+
+  // Live-fill type / strike / expiry from a pasted OCC contract symbol.
+  // Spot/bid/ask/IV/OI/volume aren't encoded in the symbol — user still
+  // types those. Hint element shows recognised root or an error.
+  function onPasteContract(){
+    var input=$('m-paste');
+    var hint=$('m-paste-hint');
+    var raw=input.value;
+    if(!raw||!raw.trim()){
+      input.classList.remove('err');
+      if(hint){ hint.textContent=''; hint.classList.remove('err'); }
+      return;
+    }
+    var parsed=parseOCC(raw);
+    if(!parsed){
+      input.classList.add('err');
+      if(hint){ hint.textContent="Doesn't look like an OCC symbol (e.g. AAPL250117C00150000)."; hint.classList.add('err'); }
+      return;
+    }
+    input.classList.remove('err');
+    $('m-type').value=parsed.type;
+    $('m-strike').value=String(parsed.strike);
+    $('m-expiry').value=parsed.expiryISO;
+    if(hint){
+      hint.textContent='Recognised: '+parsed.root+' '+parsed.type.toUpperCase()+' $'+parsed.strike+' · exp '+parsed.expiryISO;
+      hint.classList.remove('err');
+    }
+  }
+
+  // Copy a chain-graded contract into the manual form so the user can
+  // tweak any field (IV, bid, etc.) and re-grade. Payload comes from the
+  // data-tweak attribute on the "Tweak in manual" button.
+  function tweakInManual(payloadJson){
+    if(!payloadJson)return;
+    var p; try { p=JSON.parse(payloadJson); } catch(e){ return; }
+    $('m-type').value=p.type==='put'?'put':'call';
+    if(p.spot!=null) $('m-spot').value=String(p.spot);
+    if(p.strike!=null) $('m-strike').value=String(p.strike);
+    if(p.expEpoch){
+      var d=new Date(p.expEpoch*1000);
+      // Build YYYY-MM-DD in NY local time so a Friday close stays on
+      // that Friday regardless of the user's browser timezone.
+      var nyParts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
+      var y='',mo='',da='';
+      for (var i=0;i<nyParts.length;i++){
+        var part=nyParts[i];
+        if(part.type==='year')y=part.value;
+        else if(part.type==='month')mo=part.value;
+        else if(part.type==='day')da=part.value;
+      }
+      if(y&&mo&&da) $('m-expiry').value=y+'-'+mo+'-'+da;
+    }
+    if(p.bid!=null) $('m-bid').value=String(p.bid);
+    if(p.ask!=null) $('m-ask').value=String(p.ask);
+    $('m-iv').value=(p.iv!=null) ? (p.iv*100).toFixed(2) : '';
+    $('m-oi').value=(p.oi!=null) ? String(p.oi) : '';
+    $('m-vol').value=(p.volume!=null) ? String(p.volume) : '';
+    // Clear any stale paste-symbol hint — the form state no longer matches it.
+    var paste=$('m-paste'); if(paste){ paste.value=''; paste.classList.remove('err'); }
+    var hint=$('m-paste-hint'); if(hint){ hint.textContent=''; hint.classList.remove('err'); }
+    // Re-grade with the copied values, then scroll the section into view
+    // and focus the bid field — the one a user is most likely to tweak.
+    evaluateManual();
+    var section=$('opt-manual-section');
+    if(section&&section.scrollIntoView) section.scrollIntoView({behavior:'smooth',block:'start'});
+    $('m-bid').focus();
   }
 
   function fetchChain(symbol){
@@ -600,6 +706,21 @@ function optionEvalScript() {
     var manualForm=$('opt-manual-form');
     if(manualForm){
       manualForm.addEventListener('submit',evaluateManual);
+      var paste=$('m-paste');
+      if(paste){
+        paste.addEventListener('input',onPasteContract);
+      }
+      // Delegated handler — the "Tweak in manual" button lives inside the
+      // chain section's result HTML, which is rewritten on each evaluation,
+      // so we bind once on the section instead of the button itself.
+      var chainSection=$('opt-eval-section');
+      if(chainSection){
+        chainSection.addEventListener('click',function(ev){
+          var btn=ev.target.closest&&ev.target.closest('.opt-tweak-btn');
+          if(!btn)return;
+          tweakInManual(btn.getAttribute('data-tweak'));
+        });
+      }
     }
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
@@ -767,6 +888,24 @@ function renderHtml({ symbols, builtAt, builtAtIso }) {
     outline: none; border-color: var(--accent);
   }
   .opt-manual-opt { font-size: 10px; color: var(--muted); text-transform: lowercase; opacity: 0.7; }
+  /* Paste-contract-symbol row sits above the rest of the manual form. */
+  .opt-manual-paste { grid-column: 1 / -1; }
+  .opt-manual-paste input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.02em; }
+  .opt-manual-paste input.err { border-color: rgba(255,92,92,0.6); }
+  .opt-paste-hint {
+    font-size: 11px; color: var(--muted); text-transform: none; letter-spacing: 0;
+    margin-top: 2px; min-height: 14px;
+  }
+  .opt-paste-hint.err { color: var(--neg); }
+  /* "Tweak in manual" button at the end of a chain-graded result. */
+  .opt-tweak-btn {
+    margin: 6px 0 4px;
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 8px;
+    padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s, color 0.15s;
+  }
+  .opt-tweak-btn:hover { background: var(--accent); color: #0b0d12; }
   .opt-manual-submit {
     grid-column: 1 / -1;
     background: var(--accent); color: #0b0d12; border: none;
