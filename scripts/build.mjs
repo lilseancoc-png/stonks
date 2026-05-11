@@ -1077,12 +1077,12 @@ async function writeChainFiles(chains) {
 // verdict toward Good or Bad. Skipped silently if no GEMINI_API_KEY is set,
 // so forks without a key still build.
 //
-// Uses Google's free-tier API with gemma-3-27b-it — the Gemini family's flash
-// models have shifted in/out of the free tier (gemini-2.0-flash went to 0 RPD
-// as Google promoted 2.5; gemini-2.5-flash free tier is 20 RPD, too tight for
-// a daily build). Gemma 3 27B sits at 30 RPM / 14,400 RPD on free tier, which
-// gives ~50× the headroom we need and is fine for a 3-sentence summary task.
-const AI_MODEL = "gemma-3-27b-it";
+// Uses Google's free-tier API with gemma-4-26b-a4b-it — Gemma 3 was retired
+// from the v1beta endpoint when the Gemma 4 family launched (Mar 2026), and
+// gemini-*-flash free-tier RPD is too tight for a daily build over ~65
+// tickers. The 26B MoE (4B active params) is fast, generous on free tier,
+// and plenty for a 3-sentence summary task.
+const AI_MODEL = "gemma-4-26b-a4b-it";
 const AI_NEWS_COUNT = 6;
 // 30 RPM cap → 2500ms keeps us at 24 RPM with safety margin and finishes
 // ~65 tickers in ~3 minutes.
@@ -1139,7 +1139,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
     `Spot price: $${spot.toFixed(2)}\n` +
     `Recent headlines:\n${headlineBlock}`;
 
-  // Gemma 3 doesn't support Gemini's responseSchema (constrained decoding) and
+  // Gemma doesn't support Gemini's responseSchema (constrained decoding) and
   // sometimes ignores responseMimeType. The prompt is explicit about the JSON
   // shape; the parser below is forgiving about fences/commentary.
   const response = await ai.models.generateContent({
@@ -1153,7 +1153,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
 
   const text = response.text;
   if (!text) throw new Error("empty Gemini response");
-  // Gemma 3 occasionally wraps JSON in ```json fences or trails commentary,
+  // Gemma occasionally wraps JSON in ```json fences or trails commentary,
   // even with responseMimeType=application/json. Strip fences and extract the
   // outermost {...} block before parsing.
   const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
