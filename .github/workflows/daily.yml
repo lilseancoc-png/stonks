@@ -35,13 +35,14 @@ jobs:
       - name: Build site
         run: node scripts/build.mjs
 
-      - name: Commit refreshed index.html
+      - name: Commit refreshed site
         if: github.event_name != 'pull_request'
         run: |
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
-          if ! git diff --quiet index.html; then
-            git add index.html
+          git add index.html
+          if [ -d data ]; then git add data; fi
+          if ! git diff --cached --quiet; then
             git commit -m "chore: daily refresh $(date -u +%Y-%m-%d)"
             git push
           else

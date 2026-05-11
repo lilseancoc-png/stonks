@@ -3,13 +3,15 @@
 // Build-time: fetches Yahoo's option chain for a curated ticker list
 // using the yahoo-finance2 client (handles consent cookie + crumb so
 // it works from GitHub Actions runners — raw fetches to query1.* return
-// 401 "Host not in allowlist") and embeds the compressed chains
-// directly into index.html as window.STONKS_CHAINS.
+// 401 "Host not in allowlist") and writes per-ticker chains to
+// data/<SYMBOL>.json. index.html embeds only a small manifest listing
+// the available symbols and a build timestamp.
 //
-// Runtime: the page does ZERO network calls — every lookup hits the
-// embedded data. The daily GitHub Actions workflow refreshes the file
-// each market-day morning and evening.
-import { writeFile, mkdir } from "node:fs/promises";
+// Runtime: the page loads instantly (~30 KB) and fetches a ticker's
+// chain (~30-60 KB) from the same origin only when the user selects it.
+// The daily GitHub Actions workflow refreshes everything each market-day
+// morning and evening.
+import { writeFile, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
@@ -34,7 +36,9 @@ const yahooFinance = new YahooFinance({
 });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT = resolve(__dirname, "../index.html");
+const ROOT = resolve(__dirname, "..");
+const OUT = resolve(ROOT, "index.html");
+const DATA_DIR = resolve(ROOT, "data");
 
 // Curated list of high-volume optionable US names. Keep under ~60 so the
 // embedded JSON stays well below 1 MB.
@@ -109,8 +113,9 @@ function toEpochSec(d) {
   return Math.floor((d instanceof Date ? d.getTime() : d) / 1000);
 }
 
-// Yahoo contract → compact shape. Single-letter keys keep the embedded
-// payload small.
+// Yahoo contract → compact shape. Single-letter keys keep each per-ticker
+// payload small. Contract symbol is intentionally omitted — the runtime
+// addresses strikes by array index, not by symbol.
 function compressContract(c) {
   return {
     s: c.strike ?? null,
@@ -120,7 +125,6 @@ function compressContract(c) {
     iv: c.impliedVolatility ?? null,
     oi: c.openInterest ?? null,
     v: c.volume ?? null,
-    n: c.contractSymbol || null,
   };
 }
 
@@ -285,8 +289,12 @@ function optionEvalScript() {
     }
   }
 
-  var DATA = (window.STONKS_CHAINS && window.STONKS_CHAINS.tickers) || {};
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [] };
   var RFR = 0.045; // assumed risk-free rate (annual)
+  // Chains are lazy-loaded from data/<symbol>.json on first selection and
+  // memoised for the life of the page — flipping back to an already-loaded
+  // ticker is instant.
+  var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null };
 
   function $(id){return document.getElementById(id);}
@@ -351,23 +359,24 @@ function optionEvalScript() {
   function populateStrikes(){
     var type=$('opt-type').value;
     var chain=state.chains[state.currentExp];
-    var sel=$('opt-strike'); sel.innerHTML='';
-    if(!chain)return;
+    var sel=$('opt-strike');
+    if(!chain){ sel.innerHTML=''; return; }
     var rows=(type==='call'?chain.c:chain.p)||[];
     if(!rows.length){
-      var o=document.createElement('option'); o.textContent='No '+type+'s available'; o.disabled=true; sel.appendChild(o); return;
+      sel.innerHTML='<option disabled>No '+type+'s available</option>'; return;
     }
+    // Build the whole option list as one string and assign in one DOM
+    // write — avoids forced layout per appendChild on chains with 100+ strikes.
     var spot=state.spot;
     var bestIdx=0, bestDist=Infinity;
-    rows.forEach(function(r,i){
+    var parts=new Array(rows.length);
+    for (var i=0;i<rows.length;i++){
+      var r=rows[i];
       var d=Math.abs((r.s||0)-spot);
       if(d<bestDist){bestDist=d;bestIdx=i;}
-      var o=document.createElement('option');
-      o.value=r.n||String(i);
-      var bidAsk = ' (bid '+fmt(r.b)+' / ask '+fmt(r.a)+')';
-      o.textContent='$'+fmt(r.s)+bidAsk;
-      sel.appendChild(o);
-    });
+      parts[i]='<option value="'+i+'">$'+fmt(r.s)+' (bid '+fmt(r.b)+' / ask '+fmt(r.a)+')</option>';
+    }
+    sel.innerHTML=parts.join('');
     sel.selectedIndex=bestIdx;
   }
 
@@ -375,8 +384,9 @@ function optionEvalScript() {
     var type=$('opt-type').value;
     var chain=state.chains[state.currentExp]; if(!chain)return null;
     var rows=(type==='call'?chain.c:chain.p)||[];
-    var sym=$('opt-strike').value;
-    return rows.find(function(r){return (r.n||'')===sym;}) || null;
+    var idx=Number($('opt-strike').value);
+    if(!isFinite(idx))return null;
+    return rows[idx]||null;
   }
 
   function gradeSpread(spreadPct){
@@ -485,10 +495,11 @@ function optionEvalScript() {
     var c=findContract();
     if(!c){ setStatus('opt-eval-status','Pick a strike first.','err'); return; }
     var type=$('opt-type').value;
+    var label = (state.symbol||'')+' '+type.toUpperCase()+' $'+fmt(c.s)+' · exp '+fmtExpiryLabel(state.currentExp);
     $('opt-eval-result').innerHTML = buildResultHtml({
       type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
       bid: c.b, ask: c.a, last: c.l, iv: c.iv,
-      oi: c.oi, volume: c.v, label: c.n||'', source: 'chain'
+      oi: c.oi, volume: c.v, label: label, source: 'chain'
     });
     setStatus('opt-eval-status','','');
   }
@@ -531,23 +542,45 @@ function optionEvalScript() {
     setStatus('opt-manual-status','Graded.','ok');
   }
 
+  function fetchChain(symbol){
+    if(CHAIN_CACHE[symbol])return Promise.resolve(CHAIN_CACHE[symbol]);
+    // 'data/SYMBOL.json' is a same-origin static asset deployed alongside
+    // index.html. force-cache lets the browser reuse it across reloads
+    // until the daily build bumps the etag.
+    return fetch('data/'+encodeURIComponent(symbol)+'.json',{cache:'force-cache'})
+      .then(function(resp){
+        if(!resp.ok)throw new Error('HTTP '+resp.status);
+        return resp.json();
+      })
+      .then(function(data){ CHAIN_CACHE[symbol]=data; return data; });
+  }
+
   function loadChain(){
     var symbol=$('opt-symbol').value;
     if(!symbol){ setStatus('opt-eval-status','Pick a ticker first.','err'); return; }
-    var entry = DATA[symbol];
-    if(!entry){ setStatus('opt-eval-status','No chain data for '+symbol+' in this build.','err'); return; }
-    state.symbol=symbol;
-    state.spot=entry.spot;
-    state.expirations=(entry.expirations||[]).slice();
-    state.chains=entry.chains||{};
-    if(!state.expirations.length){ setStatus('opt-eval-status','No expirations for '+symbol+'.','err'); return; }
-    state.currentExp=state.expirations[0];
-    populateExpiry();
-    $('opt-expiry').value=String(state.currentExp);
-    populateStrikes();
-    $('opt-chain-row').hidden=false;
-    $('opt-eval-result').innerHTML='';
-    setStatus('opt-eval-status',symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
+    var btn=$('opt-load-btn');
+    var prevLabel=btn.textContent;
+    var cached=!!CHAIN_CACHE[symbol];
+    btn.disabled=true; if(!cached)btn.textContent='Loading…';
+    setStatus('opt-eval-status', cached?'':'Loading '+symbol+'…', '');
+    fetchChain(symbol).then(function(entry){
+      state.symbol=symbol;
+      state.spot=entry.spot;
+      state.expirations=(entry.expirations||[]).slice();
+      state.chains=entry.chains||{};
+      if(!state.expirations.length){ setStatus('opt-eval-status','No expirations for '+symbol+'.','err'); return; }
+      state.currentExp=state.expirations[0];
+      populateExpiry();
+      $('opt-expiry').value=String(state.currentExp);
+      populateStrikes();
+      $('opt-chain-row').hidden=false;
+      $('opt-eval-result').innerHTML='';
+      setStatus('opt-eval-status',symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
+    }).catch(function(err){
+      setStatus('opt-eval-status','Failed to load '+symbol+': '+(err&&err.message||err),'err');
+    }).then(function(){
+      btn.disabled=false; btn.textContent=prevLabel;
+    });
   }
 
   function onExpiryChange(){
@@ -574,12 +607,14 @@ function optionEvalScript() {
 <\/script>`;
 }
 
-function renderHtml({ chains, builtAt, builtAtIso }) {
-  const symbols = Object.keys(chains).sort();
+function renderHtml({ symbols, builtAt, builtAtIso }) {
   const tickerCount = symbols.length;
-  const dataPayload = JSON.stringify({ builtAt, tickers: chains });
-  // Avoid an early </script> within the JSON breaking the inline script.
-  const safePayload = dataPayload.replace(/<\/script>/gi, "<\\/script>");
+  // Tiny manifest (~1 KB) — just enough to populate the ticker dropdown.
+  // Per-ticker chains are fetched from data/<SYMBOL>.json on demand.
+  const manifestPayload = JSON.stringify({ builtAt, symbols }).replace(
+    /<\/script>/gi,
+    "<\\/script>",
+  );
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -819,10 +854,25 @@ function renderHtml({ chains, builtAt, builtAtIso }) {
 <footer>
   Data: Yahoo Finance option chain, fetched server-side at build time. Built ${builtAt} (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
 </footer>
-<script>window.STONKS_CHAINS=${safePayload};<\/script>
+<script>window.STONKS_MANIFEST=${manifestPayload};<\/script>
 ${optionEvalScript()}
 </body>
 </html>`;
+}
+
+async function writeChainFiles(chains) {
+  // Wipe data/ first so tickers that fell out of the curated list (or
+  // failed this run) don't leave stale files behind. The directory is
+  // then recreated fresh.
+  await rm(DATA_DIR, { recursive: true, force: true });
+  await mkdir(DATA_DIR, { recursive: true });
+  let totalBytes = 0;
+  for (const [sym, data] of Object.entries(chains)) {
+    const json = JSON.stringify(data);
+    await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
+    totalBytes += json.length;
+  }
+  return totalBytes;
 }
 
 async function main() {
@@ -834,14 +884,18 @@ async function main() {
   if (rate < MIN_SUCCESS_RATE) {
     throw new Error(
       `Only ${got} / ${TICKERS.length} tickers fetched (need ≥${Math.ceil(MIN_SUCCESS_RATE * TICKERS.length)}). ` +
-      `Leaving last-good index.html in place — GH Pages will keep serving the previous build.`
+      `Leaving last-good index.html + data/ in place — GH Pages will keep serving the previous build.`
     );
   }
+  const symbols = Object.keys(chains).sort();
   const builtAtIso = new Date().toISOString();
-  const html = renderHtml({ chains, builtAt: nyTimestamp(), builtAtIso });
+  const html = renderHtml({ symbols, builtAt: nyTimestamp(), builtAtIso });
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
-  console.log("wrote " + OUT, `(${(html.length / 1024).toFixed(1)} KB)`);
+  const totalChainBytes = await writeChainFiles(chains);
+  console.log(
+    `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total)`,
+  );
 }
 
 main().catch((err) => {
