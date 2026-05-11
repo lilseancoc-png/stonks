@@ -14,7 +14,7 @@
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI, Type } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 
 // Library prints a survey notice on first use and validates response
@@ -1072,13 +1072,19 @@ async function writeChainFiles(chains) {
 }
 
 // News-aware AI take per ticker. Runs after chains are fetched. The model
-// sees recent headlines + spot/expiration count and returns a one-paragraph
-// plain-English read plus a sentiment tag the runtime uses to nudge a
-// borderline (Fair) verdict toward Good or Bad. Skipped silently if no
-// ANTHROPIC_API_KEY is set, so forks without a key still build.
-const AI_MODEL = "claude-sonnet-4-6";
+// sees recent headlines + spot price and returns a one-paragraph plain-English
+// read plus a sentiment tag the runtime uses to nudge a borderline (Fair)
+// verdict toward Good or Bad. Skipped silently if no GEMINI_API_KEY is set,
+// so forks without a key still build.
+//
+// Uses Google's free-tier Gemini API (gemini-2.0-flash). At the time of
+// writing the free tier comfortably covers ~130 calls/day. If the quota
+// tightens or the model is renamed, the model string is the only knob.
+const AI_MODEL = "gemini-2.0-flash";
 const AI_NEWS_COUNT = 6;
-const AI_PAUSE_MS = 200;
+// Free-tier Gemini caps at ~15 RPM. 4500ms keeps us at ~13 RPM with a
+// safety margin and still finishes ~65 tickers in ~5 minutes.
+const AI_PAUSE_MS = 4500;
 const AI_SYSTEM_PROMPT =
   "You are an options-savvy financial news summarizer. " +
   "Given a US-listed ticker, its current share price, and a handful of recent " +
@@ -1088,23 +1094,22 @@ const AI_SYSTEM_PROMPT =
   "imminent catalyst (earnings, regulatory action, product launch, major " +
   "guidance change) if the headlines suggest one. Stay factual; do not invent " +
   "numbers or events that are not in the headlines. Do not give buy/sell " +
-  "advice. End with a sentiment tag derived from the news: bullish if the " +
-  "balance of recent news is clearly positive for the underlying, bearish if " +
-  "clearly negative, neutral if mixed or routine, and uncertain if there is " +
-  "not enough recent news to judge. Return JSON conforming to the provided schema.";
+  "advice. Also return a sentiment tag derived from the news: 'bullish' if the " +
+  "balance of recent news is clearly positive for the underlying, 'bearish' if " +
+  "clearly negative, 'neutral' if mixed or routine, and 'uncertain' if there is " +
+  "not enough recent news to judge.";
 
 const AI_OUTPUT_SCHEMA = {
-  type: "object",
+  type: Type.OBJECT,
   properties: {
-    paragraph: { type: "string", description: "2-4 sentence plain-English news context paragraph." },
+    paragraph: { type: Type.STRING, description: "2-4 sentence plain-English news context paragraph." },
     sentiment: {
-      type: "string",
+      type: Type.STRING,
       enum: ["bullish", "neutral", "bearish", "uncertain"],
       description: "Overall directional read of the recent news.",
     },
   },
   required: ["paragraph", "sentiment"],
-  additionalProperties: false,
 };
 
 async function fetchTickerHeadlines(symbol) {
@@ -1131,7 +1136,7 @@ async function fetchTickerHeadlines(symbol) {
   }
 }
 
-async function generateNewsTake(client, symbol, spot, headlines) {
+async function generateNewsTake(ai, symbol, spot, headlines) {
   const headlineBlock = headlines.length
     ? headlines
         .map((h, i) => `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`)
@@ -1142,17 +1147,21 @@ async function generateNewsTake(client, symbol, spot, headlines) {
     `Spot price: $${spot.toFixed(2)}\n` +
     `Recent headlines:\n${headlineBlock}`;
 
-  const response = await client.messages.create({
+  const response = await ai.models.generateContent({
     model: AI_MODEL,
-    max_tokens: 600,
-    system: AI_SYSTEM_PROMPT,
-    output_config: { format: { type: "json_schema", schema: AI_OUTPUT_SCHEMA } },
-    messages: [{ role: "user", content: userMessage }],
+    contents: userMessage,
+    config: {
+      systemInstruction: AI_SYSTEM_PROMPT,
+      responseMimeType: "application/json",
+      responseSchema: AI_OUTPUT_SCHEMA,
+      temperature: 0.3,
+      maxOutputTokens: 600,
+    },
   });
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock) throw new Error("no text block in response");
-  const parsed = JSON.parse(textBlock.text);
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const parsed = JSON.parse(text);
   return {
     paragraph: String(parsed.paragraph || "").trim(),
     sentiment: parsed.sentiment,
@@ -1162,16 +1171,16 @@ async function generateNewsTake(client, symbol, spot, headlines) {
 }
 
 async function attachAiNewsTakes(chains) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log("No ANTHROPIC_API_KEY set — skipping AI news takes. Chain data will still build.");
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — skipping AI news takes. Chain data will still build.");
     return;
   }
-  const client = new Anthropic();
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   console.log(`Generating AI news takes for ${Object.keys(chains).length} tickers…`);
   for (const [sym, data] of Object.entries(chains)) {
     try {
       const headlines = await fetchTickerHeadlines(sym);
-      const take = await generateNewsTake(client, sym, data.spot, headlines);
+      const take = await generateNewsTake(ai, sym, data.spot, headlines);
       data.news = take;
       console.log(`  ✓ ${sym} — ${take.sentiment} (${headlines.length} headlines)`);
     } catch (err) {
