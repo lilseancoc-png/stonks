@@ -245,9 +245,9 @@
   <h1>Option Contract Rater</h1>
   <div class="sub">Grade a single options contract on spread quality, delta, and theta. 64 curated tickers refreshed daily, or enter your own contract below.</div>
 </header>
-<div id="freshness-banner" class="freshness" data-built-at="2026-05-11T01:50:48.750Z" role="status" aria-live="polite">
+<div id="freshness-banner" class="freshness" data-built-at="2026-05-11T02:01:09.245Z" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
-  <span id="freshness-text">Built May 10, 2026, 9:50 PM (NY) · end-of-session quotes from Yahoo</span>
+  <span id="freshness-text">Built May 10, 2026, 10:01 PM (NY) · end-of-session quotes from Yahoo</span>
 </div>
 <main>
   <section class="card" id="opt-eval-section">
@@ -314,9 +314,9 @@
   </section>
 </main>
 <footer>
-  Data: Yahoo Finance option chain, fetched server-side at build time. Built May 10, 2026, 9:50 PM (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
+  Data: Yahoo Finance option chain, fetched server-side at build time. Built May 10, 2026, 10:01 PM (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
 </footer>
-<script>window.STONKS_MANIFEST={"builtAt":"May 10, 2026, 9:50 PM","symbols":["AAPL","ABNB","ADBE","AMC","AMD","AMZN","AVGO","BA","BABA","BAC","COIN","COST","CRM","CRWD","CVX","DDOG","DIA","DIS","DOCU","GLD","GME","GOOGL","INTC","IWM","JNJ","JPM","LLY","MA","MCD","MDB","META","MSFT","MU","NET","NFLX","NIO","NOW","NVDA","NVO","OKTA","ORCL","PANW","PFE","PLTR","QQQ","SBUX","SHOP","SNOW","SPY","TLT","TSLA","TSM","UBER","UNH","USO","V","WDAY","WMT","XLE","XLF","XLK","XOM","ZM","ZS"]};</script>
+<script>window.STONKS_MANIFEST={"builtAt":"May 10, 2026, 10:01 PM","builtAtIso":"2026-05-11T02:01:09.245Z","symbols":["AAPL","ABNB","ADBE","AMC","AMD","AMZN","AVGO","BA","BABA","BAC","COIN","COST","CRM","CRWD","CVX","DDOG","DIA","DIS","DOCU","GLD","GME","GOOGL","INTC","IWM","JNJ","JPM","LLY","MA","MCD","MDB","META","MSFT","MU","NET","NFLX","NIO","NOW","NVDA","NVO","OKTA","ORCL","PANW","PFE","PLTR","QQQ","SBUX","SHOP","SNOW","SPY","TLT","TSLA","TSM","UBER","UNH","USO","V","WDAY","WMT","XLE","XLF","XLK","XOM","ZM","ZS"]};</script>
 
 <script>
 (function(){
@@ -701,9 +701,14 @@
   function fetchChain(symbol){
     if(CHAIN_CACHE[symbol])return Promise.resolve(CHAIN_CACHE[symbol]);
     // 'data/SYMBOL.json' is a same-origin static asset deployed alongside
-    // index.html. force-cache lets the browser reuse it across reloads
-    // until the daily build bumps the etag.
-    return fetch('data/'+encodeURIComponent(symbol)+'.json',{cache:'force-cache'})
+    // index.html. We cache-bust with the build's ISO timestamp so each
+    // daily refresh produces a new URL and existing browser cache entries
+    // are bypassed — without this, force-cache would let stale chains
+    // linger long after the build refreshed them. The query string itself
+    // is enough to invalidate; force-cache then makes subsequent loads
+    // within the same build instant.
+    var v=(MANIFEST&&MANIFEST.builtAtIso)?'?v='+encodeURIComponent(MANIFEST.builtAtIso):'';
+    return fetch('data/'+encodeURIComponent(symbol)+'.json'+v,{cache:'force-cache'})
       .then(function(resp){
         if(!resp.ok)throw new Error('HTTP '+resp.status);
         return resp.json();
