@@ -11,7 +11,7 @@
 // chain (~30-60 KB) from the same origin only when the user selects it.
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
-import { writeFile, mkdir, rm } from "node:fs/promises";
+import { writeFile, readFile, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GoogleGenAI } from "@google/genai";
@@ -206,6 +206,18 @@ function nyTimestamp() {
   }).format(new Date());
 }
 
+function narrativesSection() {
+  // The card body is populated client-side from the inline manifest so we
+  // don't have to escape narrative text through Node's template literal.
+  return `<section class="card" id="narratives-section">
+    <h2 class="card-title">Active market narratives</h2>
+    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Narratives come and go. These are the themes currently driving flows across the curated tickers, refreshed each build. Pick a ticker below to see which narratives it sits inside.</p>
+    <div id="narratives-list" class="narr-list"></div>
+    <div id="narratives-ended" class="narr-ended"></div>
+    <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
+  </section>`;
+}
+
 function optionEvalSection(symbols) {
   const optionsHtml = symbols.length
     ? symbols.map((s) => `<option value="${s}">${s}</option>`).join("")
@@ -227,6 +239,7 @@ function optionEvalSection(symbols) {
       <button type="button" id="opt-eval-btn">Evaluate contract</button>
     </div>
     <div id="opt-eval-status" class="opt-status"></div>
+    <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
     <div id="opt-eval-result" class="opt-result"></div>
   </section>
   <section class="card" id="opt-manual-section">
@@ -306,7 +319,9 @@ function optionEvalScript() {
     }
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [] };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [] };
+  var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
+  var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
   var RFR = 0.045; // assumed risk-free rate (annual)
   // Chains are lazy-loaded from data/<symbol>.json on first selection and
   // memoised for the life of the page — flipping back to an already-loaded
@@ -726,6 +741,7 @@ function optionEvalScript() {
       populateStrikes();
       $('opt-chain-row').hidden=false;
       $('opt-eval-result').innerHTML='';
+      renderTickerNarrativeChips(symbol);
       setStatus('opt-eval-status',symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
     }).catch(function(err){
       setStatus('opt-eval-status','Failed to load '+symbol+': '+(err&&err.message||err),'err');
@@ -740,7 +756,88 @@ function optionEvalScript() {
     populateStrikes();
   }
 
+  function tickerListHtml(arr, side){
+    if(!arr||!arr.length) return '<span class="narr-ticker">—</span>';
+    return arr.map(function(t){
+      return '<span class="narr-ticker '+side+'">'+escapeHtml(t)+'</span>';
+    }).join(' ');
+  }
+  function narrLifeLabel(n){
+    var d = n.daysRunning|0;
+    if(!d || d<=1) return 'New today';
+    return 'Day '+d+' · since '+escapeHtml(n.firstSeen||'');
+  }
+  function renderNarratives(){
+    var list=$('narratives-list');
+    var empty=$('narratives-empty');
+    var ended=$('narratives-ended');
+    if(!list) return;
+    if(!NARRATIVES.length){
+      list.innerHTML='';
+      if(empty) empty.hidden=false;
+    } else {
+      if(empty) empty.hidden=true;
+      var html = NARRATIVES.map(function(n){
+        var sent = n.sentiment==='bearish' ? 'bearish' : 'bullish';
+        var conf = ({high:'High',medium:'Medium',low:'Low'})[n.confidence] || 'Medium';
+        return '<div class="narr '+sent+'">'+
+          '<div class="narr-head">'+
+            '<span class="narr-name">'+escapeHtml(n.name)+'</span>'+
+            '<span class="narr-tag '+sent+'">'+(sent==='bullish'?'Bullish':'Bearish')+'</span>'+
+            '<span class="narr-tag conf-'+(n.confidence||'medium')+'">Conf · '+conf+'</span>'+
+            '<span class="narr-tag life">'+escapeHtml(narrLifeLabel(n))+'</span>'+
+          '</div>'+
+          '<div class="narr-thesis">'+escapeHtml(n.thesis||'')+'</div>'+
+          '<div class="narr-row longs"><span class="narr-row-label">Long</span>'+tickerListHtml(n.longs,'long')+'</div>'+
+          '<div class="narr-row shorts"><span class="narr-row-label">Short</span>'+tickerListHtml(n.shorts,'short')+'</div>'+
+        '</div>';
+      }).join('');
+      list.innerHTML=html;
+    }
+    if(ended){
+      if(RECENTLY_ENDED.length){
+        ended.innerHTML = '<div class="narr-ended-head">Recently cooled off</div>'+
+          RECENTLY_ENDED.map(function(e){
+            var d = e.daysSince|0;
+            var ran = e.ranDays|0;
+            var ago = d===1 ? 'yesterday' : d+' days ago';
+            var run = ran<=1 ? 'one-day blip' : ran+'-day run';
+            return '<span class="narr-ended-item"><b>'+escapeHtml(e.name)+'</b> · last seen '+ago+' · '+run+'</span>';
+          }).join('');
+      } else {
+        ended.innerHTML='';
+      }
+    }
+  }
+  function narrativesForTicker(sym){
+    if(!sym) return [];
+    var hits=[];
+    for (var i=0;i<NARRATIVES.length;i++){
+      var n=NARRATIVES[i];
+      if((n.longs||[]).indexOf(sym)>=0) hits.push({n:n, side:'long'});
+      else if((n.shorts||[]).indexOf(sym)>=0) hits.push({n:n, side:'short'});
+    }
+    return hits;
+  }
+  function renderTickerNarrativeChips(sym){
+    var box=$('opt-narr-chips');
+    if(!box) return;
+    var hits=narrativesForTicker(sym);
+    if(!hits.length){
+      box.hidden=true; box.innerHTML='';
+      return;
+    }
+    box.hidden=false;
+    box.innerHTML = hits.map(function(h){
+      var sentLabel = h.n.sentiment==='bearish' ? 'Bearish' : 'Bullish';
+      return '<span class="opt-narr-chip '+h.side+'" title="'+escapeHtml(h.n.thesis||'')+'">'+
+        escapeHtml(h.n.name)+' <span class="opt-narr-chip-side">· '+h.side.toUpperCase()+' · '+sentLabel+'</span>'+
+      '</span>';
+    }).join('');
+  }
+
   function bind(){
+    renderNarratives();
     var form=$('opt-eval-form');
     if(form){
       form.addEventListener('submit',function(e){e.preventDefault();loadChain();});
@@ -773,14 +870,19 @@ function optionEvalScript() {
 <\/script>`;
 }
 
-function renderHtml({ symbols, builtAt, builtAtIso }) {
+function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [] }) {
   const tickerCount = symbols.length;
-  // Tiny manifest (~1 KB) — just enough to populate the ticker dropdown.
-  // Per-ticker chains are fetched from data/<SYMBOL>.json on demand.
-  const manifestPayload = JSON.stringify({ builtAt, builtAtIso, symbols }).replace(
-    /<\/script>/gi,
-    "<\\/script>",
-  );
+  // Tiny manifest — ticker list + market narratives. Narratives are small
+  // enough (~3-6 KB for ~10 narratives) to embed inline so the page can
+  // render the trends card immediately without a second round-trip.
+  // Per-ticker chains are still fetched from data/<SYMBOL>.json on demand.
+  const manifestPayload = JSON.stringify({
+    builtAt,
+    builtAtIso,
+    symbols,
+    narratives,
+    recentlyEnded,
+  }).replace(/<\/script>/gi, "<\\/script>");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1006,6 +1108,75 @@ function renderHtml({ symbols, builtAt, builtAtIso }) {
   .opt-news-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
   .opt-news-body { color: var(--text); }
   .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
+  /* Market narratives card */
+  .narr-list { display: flex; flex-direction: column; gap: 10px; }
+  .narr-list:empty { display: none; }
+  .narr {
+    padding: 12px 14px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--border);
+  }
+  .narr.bullish { border-color: rgba(46,204,113,0.4); }
+  .narr.bearish { border-color: rgba(255,92,92,0.4); }
+  .narr-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+    margin-bottom: 4px;
+  }
+  .narr-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .narr-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px;
+  }
+  .narr-tag.bullish { color: var(--pos); background: rgba(46,204,113,0.15); }
+  .narr-tag.bearish { color: var(--neg); background: rgba(255,92,92,0.15); }
+  .narr-tag.conf-high   { color: var(--text); background: rgba(110,168,255,0.18); }
+  .narr-tag.conf-medium { color: var(--muted); background: rgba(138,147,166,0.18); }
+  .narr-tag.conf-low    { color: var(--muted); background: rgba(138,147,166,0.10); }
+  .narr-tag.life { color: var(--muted); background: transparent; border: 1px solid var(--border); }
+  .narr-thesis { font-size: 13px; color: var(--text); margin: 2px 0 8px; line-height: 1.45; }
+  .narr-row { font-size: 12px; color: var(--muted); margin: 2px 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+  .narr-row-label {
+    text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; font-weight: 700;
+  }
+  .narr-row.longs .narr-row-label  { color: var(--pos); }
+  .narr-row.shorts .narr-row-label { color: var(--neg); }
+  .narr-ticker {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 1px 6px; border-radius: 4px; background: var(--bg);
+    border: 1px solid var(--border); color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .narr-ticker.long  { border-color: rgba(46,204,113,0.5); }
+  .narr-ticker.short { border-color: rgba(255,92,92,0.5); }
+  .narr-empty { font-size: 13px; color: var(--muted); padding: 4px 0; }
+  .narr-ended {
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px dashed var(--border);
+    font-size: 12px; color: var(--muted); line-height: 1.5;
+  }
+  .narr-ended:empty { display: none; }
+  .narr-ended-head {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .narr-ended-item { margin-right: 10px; }
+  /* Per-ticker narrative chips inside the option eval status area */
+  .opt-narr-chips {
+    display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px;
+  }
+  .opt-narr-chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); font-weight: 600; letter-spacing: 0.01em;
+  }
+  .opt-narr-chip.long  { border-color: rgba(46,204,113,0.5); color: var(--text); }
+  .opt-narr-chip.short { border-color: rgba(255,92,92,0.5); color: var(--text); }
+  .opt-narr-chip .opt-narr-chip-side {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+    margin-left: 4px; font-weight: 700;
+  }
+  .opt-narr-chip.long  .opt-narr-chip-side  { color: var(--pos); }
+  .opt-narr-chip.short .opt-narr-chip-side { color: var(--neg); }
   .tip {
     display: inline-flex; align-items: center; justify-content: center;
     margin-left: 4px; width: 14px; height: 14px; border-radius: 50%;
@@ -1045,6 +1216,7 @@ function renderHtml({ symbols, builtAt, builtAtIso }) {
   <span id="freshness-text">Built ${builtAt} (NY) · end-of-session quotes from Yahoo</span>
 </div>
 <main>
+  ${narrativesSection()}
   ${optionEvalSection(symbols)}
 </main>
 <footer>
@@ -1215,6 +1387,239 @@ async function attachAiNewsTakes(chains) {
   await Promise.all(tasks);
 }
 
+// Trend tracking — markets run on stories (AI capex, GLP-1 obesity, tariffs,
+// election plays, etc.) and those stories rotate. After per-ticker news takes
+// are generated, this step asks the model to look across every ticker's
+// summary + top headlines, extract the active narratives currently driving
+// capital, and tag each narrative with the LONG and SHORT tickers from our
+// curated list that ride it. Output is persisted in data/trends.json (latest)
+// + data/trends-history.json (rolling 90-day window of compact daily snapshots
+// so the page can show "X days running" / "trend cooled off N days ago").
+const NARRATIVE_HISTORY_DAYS = 90;
+const NARRATIVE_MAX_COUNT = 10;
+const NARRATIVE_SYSTEM_PROMPT =
+  "You are a markets analyst who tracks the narratives currently driving US equity flows. " +
+  "Markets run on stories — AI capex, GLP-1 obesity drugs, tariff fights, the crypto trade, " +
+  "post-election rotations, defense plays around geopolitics, etc. Narratives come and go. " +
+  "Given a snapshot of recent news takes for a curated list of US-listed tickers, identify the " +
+  `4-${NARRATIVE_MAX_COUNT} most active market narratives RIGHT NOW. For each narrative, return: ` +
+  `a short "name" (2-5 words, title case, e.g. "AI infrastructure buildout", "GLP-1 obesity wave"); ` +
+  `a one-sentence "thesis" in plain English explaining the trade and why it is live now; ` +
+  `a "sentiment" of "bullish" or "bearish" describing whether the narrative is a tailwind or headwind for the longs; ` +
+  `a "longs" array of tickers from the provided list that benefit from the narrative; ` +
+  `a "shorts" array of tickers from the provided list that are hurt by it (empty array if none apply); ` +
+  `a "confidence" of "high", "medium", or "low" based on how clearly the headlines support the trade. ` +
+  "Rules: only use tickers from the provided list — do not invent tickers. A narrative MUST have at " +
+  "least one long or one short. Prefer broader narratives over very narrow single-name stories. If a " +
+  "list of PREVIOUS narrative names is provided, reuse a previous name verbatim when today's narrative " +
+  "is the same story so we can track its lifespan; otherwise pick a fresh name. " +
+  "Respond with ONLY a JSON object of the form " +
+  `{"narratives":[{"name":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low"}]} ` +
+  "— no markdown fences, no prose before or after the JSON.";
+
+const TRENDS_FILE = "trends.json";
+const TRENDS_HISTORY_FILE = "trends-history.json";
+
+async function loadTrendHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, TRENDS_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.snapshots) ? parsed.snapshots : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildNarrativeUserMessage(chains, previousNames) {
+  const lines = Object.entries(chains).map(([sym, data]) => {
+    const news = data.news;
+    const sentiment = news?.sentiment || "unknown";
+    const summary = (news?.paragraph || "").replace(/\s+/g, " ").trim();
+    const topHeadline = Array.isArray(news?.headlines) && news.headlines.length
+      ? news.headlines[0].replace(/\s+/g, " ").trim()
+      : "";
+    // Trim each ticker block so the combined prompt stays well under the
+    // model's context — Gemma 4 26B has plenty of room but we send ~65 of these.
+    const summaryClip = summary.length > 260 ? summary.slice(0, 257) + "…" : summary;
+    const headlineClip = topHeadline.length > 140 ? topHeadline.slice(0, 137) + "…" : topHeadline;
+    return `- ${sym} [${sentiment}] ${summaryClip}` + (headlineClip ? ` Headline: "${headlineClip}"` : "");
+  });
+  const previousBlock = previousNames.length
+    ? `Previous narrative names from the last build (reuse verbatim when the same story is still live):\n${previousNames.map((n) => `- ${n}`).join("\n")}`
+    : "No previous narratives recorded.";
+  return (
+    `Tickers in scope: ${Object.keys(chains).join(", ")}\n\n` +
+    `${previousBlock}\n\n` +
+    `Recent news takes:\n${lines.join("\n")}`
+  );
+}
+
+async function generateMarketNarratives(ai, chains, previousNames) {
+  const userMessage = buildNarrativeUserMessage(chains, previousNames);
+  let response;
+  let lastErr;
+  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+    try {
+      response = await ai.models.generateContent({
+        model: AI_MODEL,
+        contents: `${NARRATIVE_SYSTEM_PROMPT}\n\n${userMessage}`,
+        config: {
+          temperature: 0.4,
+          maxOutputTokens: 2400,
+        },
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message || "");
+      const transient = /\b(500|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED)\b/i.test(msg);
+      if (!transient || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, AI_RETRY_BACKOFF_MS[attempt] ?? 5000));
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const jsonText = firstBrace >= 0 && lastBrace > firstBrace
+    ? stripped.slice(firstBrace, lastBrace + 1)
+    : stripped;
+  const parsed = JSON.parse(jsonText);
+  const validSymbols = new Set(Object.keys(chains));
+  const sanitizeTickers = (arr) =>
+    Array.isArray(arr)
+      ? Array.from(new Set(arr
+          .map((s) => String(s || "").toUpperCase().trim())
+          .filter((s) => validSymbols.has(s))))
+      : [];
+  const narratives = Array.isArray(parsed.narratives) ? parsed.narratives : [];
+  return narratives
+    .map((n) => {
+      const name = String(n.name || "").trim();
+      const thesis = String(n.thesis || "").trim();
+      const sentiment = n.sentiment === "bearish" ? "bearish" : "bullish";
+      const confidence = ["high", "medium", "low"].includes(n.confidence) ? n.confidence : "medium";
+      const longs = sanitizeTickers(n.longs);
+      const shorts = sanitizeTickers(n.shorts);
+      return { name, thesis, sentiment, confidence, longs, shorts };
+    })
+    .filter((n) => n.name && n.thesis && (n.longs.length > 0 || n.shorts.length > 0))
+    .slice(0, NARRATIVE_MAX_COUNT);
+}
+
+// Walk back through prior snapshots to discover when each narrative first
+// appeared (matched by case-insensitive name). Gives the UI a "running for N
+// days" badge so the user can see which stories are fresh vs. entrenched.
+function annotateNarrativesWithLifespan(narratives, history, todayIso) {
+  const today = todayIso.slice(0, 10);
+  return narratives.map((n) => {
+    const lcName = n.name.toLowerCase();
+    let firstSeen = today;
+    // History is newest-first below; iterate to find the OLDEST contiguous
+    // run that includes this narrative.
+    for (let i = 0; i < history.length; i++) {
+      const snap = history[i];
+      const hit = snap.narratives.find((h) => h.name.toLowerCase() === lcName);
+      if (hit) {
+        firstSeen = snap.date;
+      } else {
+        // First gap breaks the streak — the lifespan is the contiguous run.
+        break;
+      }
+    }
+    const daysRunning =
+      Math.max(1, Math.floor((new Date(today + "T00:00:00Z").getTime() - new Date(firstSeen + "T00:00:00Z").getTime()) / 86400000) + 1);
+    return { ...n, firstSeen, daysRunning };
+  });
+}
+
+function updateTrendHistory(history, narratives, todayIso) {
+  const date = todayIso.slice(0, 10);
+  // Compact snapshot — name + sentiment + ticker lists are enough to compute
+  // continuity and a "trends that came and went" view. Drop thesis/confidence
+  // to keep the history file small.
+  const snapshot = {
+    date,
+    builtAtIso: todayIso,
+    narratives: narratives.map((n) => ({
+      name: n.name,
+      sentiment: n.sentiment,
+      longs: n.longs,
+      shorts: n.shorts,
+    })),
+  };
+  // Replace any existing snapshot for today (a re-run on the same day overwrites).
+  const withoutToday = history.filter((s) => s.date !== date);
+  const next = [snapshot, ...withoutToday];
+  // Prune anything older than NARRATIVE_HISTORY_DAYS.
+  const cutoff = new Date(date + "T00:00:00Z").getTime() - NARRATIVE_HISTORY_DAYS * 86400000;
+  return next.filter((s) => new Date(s.date + "T00:00:00Z").getTime() >= cutoff);
+}
+
+// Surface narratives that were active in recent history but dropped out today
+// — that's the "trends come and go" view. Returns names with their last-seen
+// date and total days they ran.
+function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
+  const active = new Set(activeNarrativeNames.map((n) => n.toLowerCase()));
+  const today = todayIso.slice(0, 10);
+  // Build {name -> {firstSeen, lastSeen}} from the (newest-first) history,
+  // excluding any that are still active today.
+  const seen = new Map();
+  for (const snap of history) {
+    if (snap.date === today) continue;
+    for (const n of snap.narratives) {
+      const key = n.name.toLowerCase();
+      if (active.has(key)) continue;
+      const cur = seen.get(key);
+      if (!cur) {
+        seen.set(key, { name: n.name, firstSeen: snap.date, lastSeen: snap.date });
+      } else {
+        if (snap.date < cur.firstSeen) cur.firstSeen = snap.date;
+        if (snap.date > cur.lastSeen) cur.lastSeen = snap.date;
+      }
+    }
+  }
+  const todayMs = new Date(today + "T00:00:00Z").getTime();
+  return Array.from(seen.values())
+    .map((e) => ({
+      name: e.name,
+      lastSeen: e.lastSeen,
+      daysSince: Math.max(1, Math.floor((todayMs - new Date(e.lastSeen + "T00:00:00Z").getTime()) / 86400000)),
+      ranDays: Math.max(1, Math.floor((new Date(e.lastSeen + "T00:00:00Z").getTime() - new Date(e.firstSeen + "T00:00:00Z").getTime()) / 86400000) + 1),
+    }))
+    .sort((a, b) => a.daysSince - b.daysSince)
+    .slice(0, 8);
+}
+
+async function attachMarketNarratives(chains, previousHistory) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
+    return { narratives: [], recentlyEnded: [], history: previousHistory };
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const lastSnapshot = previousHistory[0];
+  const previousNames = lastSnapshot ? lastSnapshot.narratives.map((n) => n.name) : [];
+  console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
+  try {
+    const raw = await generateMarketNarratives(ai, chains, previousNames);
+    const builtAtIso = new Date().toISOString();
+    const narratives = annotateNarrativesWithLifespan(raw, previousHistory, builtAtIso);
+    const history = updateTrendHistory(previousHistory, narratives, builtAtIso);
+    const recentlyEnded = computeRecentlyEnded(history, narratives.map((n) => n.name), builtAtIso);
+    console.log(`  ✓ ${narratives.length} narratives extracted`);
+    for (const n of narratives) {
+      console.log(`    · ${n.name} [${n.sentiment}, ${n.confidence}, day ${n.daysRunning}] long=${n.longs.join(",")||"—"} short=${n.shorts.join(",")||"—"}`);
+    }
+    return { narratives, recentlyEnded, history };
+  } catch (err) {
+    console.log(`  ✗ Narrative extraction failed: ${err.message}`);
+    // Don't drop the existing history just because today's extraction failed.
+    return { narratives: [], recentlyEnded: [], history: previousHistory };
+  }
+}
+
 async function main() {
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
@@ -1228,15 +1633,41 @@ async function main() {
     );
   }
   await attachAiNewsTakes(chains);
+  // Read trend history BEFORE writeChainFiles wipes data/. Then narrative
+  // extraction can reference yesterday's names for continuity, and the
+  // history file is rewritten alongside the chains afterward.
+  const previousHistory = await loadTrendHistory();
+  const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
   const builtAtIso = new Date().toISOString();
-  const html = renderHtml({ symbols, builtAt: nyTimestamp(), builtAtIso });
+  const html = renderHtml({
+    symbols,
+    builtAt: nyTimestamp(),
+    builtAtIso,
+    narratives: trends.narratives,
+    recentlyEnded: trends.recentlyEnded,
+  });
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
   const totalChainBytes = await writeChainFiles(chains);
+  await writeTrendFiles({
+    narratives: trends.narratives,
+    recentlyEnded: trends.recentlyEnded,
+    history: trends.history,
+    builtAtIso,
+  });
   console.log(
-    `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total)`,
+    `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );
+}
+
+async function writeTrendFiles({ narratives, recentlyEnded, history, builtAtIso }) {
+  // writeChainFiles wiped data/ a moment ago, so write into the freshly
+  // recreated directory.
+  const current = JSON.stringify({ builtAtIso, narratives, recentlyEnded });
+  await writeFile(resolve(DATA_DIR, TRENDS_FILE), current, "utf8");
+  const archive = JSON.stringify({ builtAtIso, days: NARRATIVE_HISTORY_DAYS, snapshots: history });
+  await writeFile(resolve(DATA_DIR, TRENDS_HISTORY_FILE), archive, "utf8");
 }
 
 main().catch((err) => {
