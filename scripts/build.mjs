@@ -70,6 +70,41 @@ const TICKERS = [
   "GME", "AMC",
 ];
 
+// Sector mapping — surfaced in the searchable combobox so users can filter
+// by sector ("software", "semis", "pharma"). Mirrors the comment blocks above.
+const SECTORS = {
+  // Index & sector ETFs
+  SPY: "ETF", QQQ: "ETF", IWM: "ETF", DIA: "ETF", TLT: "ETF", GLD: "ETF",
+  USO: "ETF", XLF: "ETF", XLE: "ETF", XLK: "ETF",
+  // Mega-caps
+  AAPL: "Mega-cap tech", MSFT: "Mega-cap tech", NVDA: "Mega-cap tech",
+  AMZN: "Mega-cap tech", GOOGL: "Mega-cap tech", META: "Mega-cap tech",
+  TSLA: "Mega-cap tech", AMD: "Semis", NFLX: "Mega-cap tech", AVGO: "Semis",
+  // Other tech / semis
+  ORCL: "Software", CRM: "Software", ADBE: "Software",
+  TSM: "Semis", MU: "Semis", INTC: "Semis", DRAM: "Semis",
+  // SaaS / cloud
+  NOW: "Software", SNOW: "Software", NET: "Software", DDOG: "Software",
+  CRWD: "Software", ZS: "Software", MDB: "Software", OKTA: "Software",
+  PANW: "Software", WDAY: "Software", ZM: "Software", DOCU: "Software",
+  // Banks / payments
+  JPM: "Bank", BAC: "Bank", V: "Payments", MA: "Payments",
+  // Retail / consumer
+  WMT: "Retail", COST: "Retail", DIS: "Media", BA: "Industrial",
+  MCD: "Restaurants", SBUX: "Restaurants",
+  // Healthcare / pharma
+  NVO: "Pharma", LLY: "Pharma", UNH: "Healthcare",
+  JNJ: "Pharma", PFE: "Pharma",
+  // Energy
+  XOM: "Energy", CVX: "Energy",
+  // Travel / modern consumer
+  UBER: "Consumer", ABNB: "Consumer",
+  // High-volatility / popular
+  COIN: "Crypto", PLTR: "Software", SHOP: "Software",
+  BABA: "China tech", NIO: "China tech",
+  GME: "Meme", AMC: "Meme",
+};
+
 // ±50% strikes around spot — captures lottery OTM and deep-ITM strikes
 // without any extra Yahoo calls (we already receive the full chain, this
 // just controls how much of it we keep).
@@ -207,398 +242,571 @@ function nyTimestamp() {
 }
 
 function narrativesSection() {
-  // The card body is populated client-side from the inline manifest so we
-  // don't have to escape narrative text through Node's template literal.
+  // Card chrome only — the list, accent bars and chips are rendered
+  // client-side from the inline manifest in app.js so we don't have to
+  // escape narrative text through Node's template literal.
   return `<section class="card" id="narratives-section">
-    <h2 class="card-title">Active market narratives</h2>
-    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Narratives come and go. These are the themes currently driving flows across the curated tickers, refreshed each build. Pick a ticker below to see which narratives it sits inside.</p>
-    <div id="narratives-list" class="narr-list"></div>
-    <div id="narratives-ended" class="narr-ended"></div>
+    <header class="card-header">
+      <h2 class="card-title">Active market narratives</h2>
+      <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
+    </header>
+    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. These are the themes currently driving flows across the curated tickers, refreshed each build. Pick a ticker below to see which narratives it rides.</p>
+    <div id="narratives-list" class="narr-list" role="list"></div>
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
+    <div id="narratives-ended" class="narr-ended"></div>
   </section>`;
 }
 
-function optionEvalSection(symbols) {
-  const optionsHtml = symbols.length
-    ? symbols.map((s) => `<option value="${s}">${s}</option>`).join("")
-    : `<option value="">(no chains available)</option>`;
+function optionEvalSection() {
+  // The ticker combobox + segmented call/put control + chain selects all
+  // bind live in app.js — picking a ticker auto-loads its chain and any
+  // change to type/expiry/strike re-grades immediately. No Evaluate button.
   return `<section class="card" id="opt-eval-section">
-    <h2 class="card-title">From a curated ticker</h2>
-    <p class="hint">Pick a ticker, then a call or put. We grade the bid-ask spread and Greeks (delta/theta) so you can spot a good contract from a poor one. Underlying direction is up to you.</p>
-    <form id="opt-eval-form" class="opt-form">
-      <select id="opt-symbol" aria-label="Ticker">${optionsHtml}</select>
-      <select id="opt-type" aria-label="Option type">
-        <option value="call">Call</option>
-        <option value="put">Put</option>
-      </select>
-      <button type="submit" id="opt-load-btn">Load chain</button>
-    </form>
-    <div id="opt-chain-row" class="opt-chain-row" hidden>
-      <select id="opt-expiry" aria-label="Expiration"></select>
-      <select id="opt-strike" aria-label="Strike"></select>
-      <button type="button" id="opt-eval-btn">Evaluate contract</button>
+    <header class="card-header">
+      <h2 class="card-title">Grade a contract</h2>
+    </header>
+    <p class="hint">Type to search a curated ticker, pick a call or put, then dial in expiry and strike. The verdict regrades as you go.</p>
+    <div class="opt-controls">
+      <div class="combo" id="symbol-combo">
+        <input type="text" id="symbol-input" role="combobox"
+               aria-expanded="false" aria-controls="symbol-listbox"
+               aria-autocomplete="list"
+               placeholder="Search ticker or sector…"
+               autocomplete="off" spellcheck="false">
+        <button type="button" class="combo-clear" id="symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
+        <ul id="symbol-listbox" role="listbox" hidden></ul>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Option type">
+        <input type="radio" name="opt-type" id="opt-type-call" value="call" checked>
+        <label for="opt-type-call">Call</label>
+        <input type="radio" name="opt-type" id="opt-type-put" value="put">
+        <label for="opt-type-put">Put</label>
+      </div>
     </div>
-    <div id="opt-eval-status" class="opt-status"></div>
+    <div id="opt-chain-row" class="opt-chain-row" hidden>
+      <label class="field">
+        <span class="field-label">Expiration</span>
+        <select id="opt-expiry" aria-label="Expiration"></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Strike</span>
+        <select id="opt-strike" aria-label="Strike"></select>
+      </label>
+    </div>
+    <div id="opt-eval-status" class="opt-status" role="status"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
-    <div id="opt-eval-result" class="opt-result"></div>
+    <div class="opt-result-wrap">
+      <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
+      <div id="opt-eval-result" class="opt-result"></div>
+    </div>
   </section>
   <section class="card" id="opt-manual-section">
-    <h2 class="card-title">Or grade your own contract</h2>
-    <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Copy the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
+    <header class="card-header">
+      <h2 class="card-title">Grade your own contract</h2>
+    </header>
+    <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Paste the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
     <form id="opt-manual-form" class="opt-manual-grid">
-      <label class="opt-manual-field opt-manual-paste">Paste contract symbol <span class="opt-manual-opt">optional · fills type / strike / expiration</span>
+      <label class="opt-manual-field opt-manual-paste">
+        <span class="opt-manual-field-label">Paste contract symbol <span class="opt-manual-opt">optional · fills type / strike / expiry</span></span>
         <input id="m-paste" type="text" placeholder="AAPL250117C00150000" autocomplete="off" spellcheck="false">
         <span class="opt-paste-hint" id="m-paste-hint"></span>
       </label>
-      <label class="opt-manual-field opt-manual-field-row1">Type
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Type</span>
         <select id="m-type">
           <option value="call">Call</option>
           <option value="put">Put</option>
         </select>
       </label>
-      <label class="opt-manual-field opt-manual-field-row1">Share price
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Share price</span>
         <input id="m-spot" type="text" inputmode="decimal" placeholder="100.77" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field opt-manual-field-row1">Strike price
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Strike price</span>
         <input id="m-strike" type="text" inputmode="decimal" placeholder="103" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field opt-manual-field-row1">Expiration
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Expiration</span>
         <input id="m-expiry" type="date" required>
       </label>
-      <label class="opt-manual-field opt-manual-field-row2">Bid
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Bid</span>
         <input id="m-bid" type="text" inputmode="decimal" placeholder="3.15 (or 3.15 × 55)" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field opt-manual-field-row2">Ask
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Ask</span>
         <input id="m-ask" type="text" inputmode="decimal" placeholder="3.30 (or 3.30 × 74)" autocomplete="off" required>
       </label>
-      <label class="opt-manual-field opt-manual-field-row3">Implied volatility <span class="opt-manual-opt">optional</span>
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Implied volatility <span class="opt-manual-opt">optional</span></span>
         <input id="m-iv" type="text" inputmode="decimal" placeholder="100.81%" autocomplete="off">
       </label>
-      <label class="opt-manual-field opt-manual-field-row3">Open interest <span class="opt-manual-opt">optional</span>
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Open interest <span class="opt-manual-opt">optional</span></span>
         <input id="m-oi" type="text" inputmode="numeric" placeholder="996" autocomplete="off">
       </label>
-      <label class="opt-manual-field opt-manual-field-row3">Volume <span class="opt-manual-opt">optional</span>
+      <label class="opt-manual-field">
+        <span class="opt-manual-field-label">Volume <span class="opt-manual-opt">optional</span></span>
         <input id="m-vol" type="text" inputmode="numeric" placeholder="1,251" autocomplete="off">
       </label>
       <button type="submit" class="opt-manual-submit">Grade contract</button>
     </form>
-    <div id="opt-manual-status" class="opt-status"></div>
+    <div id="opt-manual-status" class="opt-status" role="status"></div>
     <div id="opt-manual-result" class="opt-result"></div>
   </section>`;
 }
 
-function optionEvalScript() {
-  return `
-<script>
+// Returns the page runtime as a plain JS string for writing to app.js.
+// Loaded via <script src="app.js" defer> — the inline manifest <script> tag
+// runs first per HTML parsing order so MANIFEST is always defined.
+function renderAppJs() {
+  return `// Generated by scripts/build.mjs — do not edit by hand.
 (function(){
-  // Freshness banner — compute "built X ago" relative to page load and
-  // upgrade the banner colour past 36h (warn) and 7d (bad).
-  var banner = document.getElementById('freshness-banner');
-  var bannerText = document.getElementById('freshness-text');
-  if (banner && bannerText) {
+  // Theme bootstrap. Runs synchronously before the rest of the IIFE binds
+  // so we never flash the wrong theme. Respects an explicit saved
+  // preference, otherwise mirrors prefers-color-scheme.
+  try {
+    var saved = localStorage.getItem('stonks-theme');
+    var sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', saved || sys);
+  } catch (_) {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], sectors: {}, spots: {} };
+  var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
+  var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
+  var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
+  var SECTORS = MANIFEST.sectors || {};
+  var SPOTS = MANIFEST.spots || {};
+  var RFR = 0.045;
+  var CHAIN_CACHE = Object.create(null);
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null };
+  var evalTimer = null;
+  var stickyIO = null;
+
+  function $(id){ return document.getElementById(id); }
+  function setStatus(elemId, msg, kind){
+    var el = $(elemId); if (!el) return;
+    el.textContent = msg || '';
+    el.className = 'opt-status' + (kind ? ' ' + kind : '');
+  }
+  function fmt(n, d){ if (n == null || !isFinite(n)) return '—'; return Number(n).toFixed(d == null ? 2 : d); }
+  function fmtPct(n){ if (n == null || !isFinite(n)) return '—'; return n.toFixed(2) + '%'; }
+  function fmtMoney(n){ if (n == null || !isFinite(n)) return '—'; return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+    });
+  }
+  function debounce(fn, ms){
+    return function(){
+      var args = arguments;
+      clearTimeout(evalTimer);
+      evalTimer = setTimeout(function(){ fn.apply(null, args); }, ms);
+    };
+  }
+
+  // --- Freshness banner ---------------------------------------------------
+  function renderFreshness(){
+    var banner = $('freshness-banner');
+    var bannerText = $('freshness-text');
+    if (!banner || !bannerText) return;
     var iso = banner.getAttribute('data-built-at');
     var built = iso ? new Date(iso) : null;
-    if (built && !isNaN(built.getTime())) {
-      var ageMs = Date.now() - built.getTime();
-      var ageH = ageMs / 3600000;
-      function rel(h){
-        if (h < 1) { var m = Math.max(1, Math.round(h*60)); return m+' minute'+(m===1?'':'s')+' ago'; }
-        if (h < 36) { var hh = Math.round(h); return hh+' hour'+(hh===1?'':'s')+' ago'; }
-        var d = Math.round(h/24); return d+' day'+(d===1?'':'s')+' ago';
-      }
-      var dateLabel = built.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/New_York'});
-      if (ageH > 24*7) {
-        banner.classList.add('bad');
-        bannerText.innerHTML = 'Very stale — last refreshed '+dateLabel+'. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
-      } else if (ageH > 36) {
-        banner.classList.add('warn');
-        bannerText.innerHTML = 'Stale data — last refreshed '+dateLabel+'. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
-      } else {
-        bannerText.innerHTML = 'Built '+rel(ageH)+' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
-      }
+    if (!built || isNaN(built.getTime())) return;
+    var ageH = (Date.now() - built.getTime()) / 3600000;
+    function rel(h){
+      if (h < 1) { var m = Math.max(1, Math.round(h*60)); return m + ' minute' + (m===1?'':'s') + ' ago'; }
+      if (h < 36) { var hh = Math.round(h); return hh + ' hour' + (hh===1?'':'s') + ' ago'; }
+      var d = Math.round(h/24); return d + ' day' + (d===1?'':'s') + ' ago';
+    }
+    var dateLabel = built.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'America/New_York' });
+    banner.classList.remove('warn','bad');
+    if (ageH > 24*7) {
+      banner.classList.add('bad');
+      bannerText.innerHTML = 'Very stale — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+    } else if (ageH > 36) {
+      banner.classList.add('warn');
+      bannerText.innerHTML = 'Stale data — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
+    } else {
+      bannerText.innerHTML = 'Refreshed ' + rel(ageH) + ' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
     }
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [] };
-  var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
-  var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
-  var RFR = 0.045; // assumed risk-free rate (annual)
-  // Chains are lazy-loaded from data/<symbol>.json on first selection and
-  // memoised for the life of the page — flipping back to an already-loaded
-  // ticker is instant.
-  var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null };
-
-  function $(id){return document.getElementById(id);}
-  function setStatus(elemId, msg, kind){
-    var el=$(elemId); if(!el)return;
-    el.textContent=msg||'';
-    el.className='opt-status'+(kind?' '+kind:'');
-  }
-  function fmt(n,d){ if(n==null||!isFinite(n))return '—'; return Number(n).toFixed(d==null?2:d); }
-  function fmtPct(n){ if(n==null||!isFinite(n))return '—'; return n.toFixed(2)+'%'; }
-
-  // Tolerant parse: strip currency / percent / commas / thin-spaces and
-  // anything after a "x" / "×" (Robinhood's bid size suffix), then parseFloat.
-  // Handles "$3.15", "3.15 × 55", "100.81%", "1,251", "  3.15  ".
-  function parseLoose(raw){
-    if(raw==null)return NaN;
-    var s=String(raw).trim();
-    if(!s)return NaN;
-    s=s.split(/[x×]/i)[0];           // drop size suffix
-    s=s.replace(/[\\$,%\\s\\u00a0]/g,''); // strip $, %, commas, any whitespace
-    return parseFloat(s);
-  }
-
-  // OCC option contract symbol: ROOT(1-6) + YYMMDD + C|P + STRIKE×1000(8 digits zero-padded).
-  // e.g. "AAPL250117C00150000" -> {root:'AAPL', type:'call', strike:150, expiryISO:'2025-01-17'}.
-  // Returns null on anything that doesn't match the exact OCC layout — broker
-  // screens ship these well-formed, so we don't try to clean messy input
-  // beyond trim + uppercase.
-  function parseOCC(raw){
-    if(raw==null)return null;
-    var s=String(raw).trim().toUpperCase();
-    var m=s.match(/^([A-Z][A-Z0-9.]{0,5})(\\d{2})(\\d{2})(\\d{2})([CP])(\\d{8})$/);
-    if(!m)return null;
-    var yy=parseInt(m[2],10), mm=parseInt(m[3],10), dd=parseInt(m[4],10);
-    if(mm<1||mm>12||dd<1||dd>31)return null;
-    var year=2000+yy;
-    var iso=year+'-'+(mm<10?'0':'')+mm+'-'+(dd<10?'0':'')+dd;
-    var strike=parseInt(m[6],10)/1000;
-    return { root:m[1], type:m[5]==='C'?'call':'put', strike:strike, expiryISO:iso };
-  }
-
-  // Standard normal PDF + CDF (Abramowitz & Stegun 7.1.26 approximation)
-  function npdf(x){return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI);}
+  // --- Math: Black-Scholes ------------------------------------------------
+  function npdf(x){ return Math.exp(-0.5*x*x) / Math.sqrt(2*Math.PI); }
   function ncdf(x){
-    var b1=0.319381530,b2=-0.356563782,b3=1.781477937,b4=-1.821255978,b5=1.330274429;
-    var a=Math.abs(x), t=1/(1+0.2316419*a);
-    var poly=((((b5*t+b4)*t+b3)*t+b2)*t+b1)*t;
-    var p=1-npdf(a)*poly;
-    return x<0?1-p:p;
+    var b1=0.319381530, b2=-0.356563782, b3=1.781477937, b4=-1.821255978, b5=1.330274429;
+    var a = Math.abs(x), t = 1/(1 + 0.2316419*a);
+    var poly = ((((b5*t + b4)*t + b3)*t + b2)*t + b1) * t;
+    var p = 1 - npdf(a)*poly;
+    return x < 0 ? 1-p : p;
   }
-
   function greeks(type, S, K, T, sigma, r){
-    if(!(S>0&&K>0&&T>0&&sigma>0))return null;
-    var sqrtT=Math.sqrt(T);
-    var d1=(Math.log(S/K)+(r+0.5*sigma*sigma)*T)/(sigma*sqrtT);
-    var d2=d1-sigma*sqrtT;
-    var delta = type==='call' ? ncdf(d1) : ncdf(d1)-1;
-    var thetaYr = type==='call'
+    if (!(S>0 && K>0 && T>0 && sigma>0)) return null;
+    var sqrtT = Math.sqrt(T);
+    var d1 = (Math.log(S/K) + (r + 0.5*sigma*sigma)*T) / (sigma*sqrtT);
+    var d2 = d1 - sigma*sqrtT;
+    var delta = type === 'call' ? ncdf(d1) : ncdf(d1) - 1;
+    var thetaYr = type === 'call'
       ? -S*npdf(d1)*sigma/(2*sqrtT) - r*K*Math.exp(-r*T)*ncdf(d2)
       : -S*npdf(d1)*sigma/(2*sqrtT) + r*K*Math.exp(-r*T)*ncdf(-d2);
-    var gamma = npdf(d1)/(S*sigma*sqrtT);
-    var vega = S*npdf(d1)*sqrtT/100; // per 1 vol pt
-    return { delta:delta, thetaDay:thetaYr/365, gamma:gamma, vega:vega };
+    var gamma = npdf(d1) / (S*sigma*sqrtT);
+    var vega = S*npdf(d1)*sqrtT / 100;
+    return { delta: delta, thetaDay: thetaYr/365, gamma: gamma, vega: vega };
   }
 
+  // --- Input parsing ------------------------------------------------------
+  function parseLoose(raw){
+    if (raw == null) return NaN;
+    var s = String(raw).trim();
+    if (!s) return NaN;
+    s = s.split(/[x×]/i)[0];
+    s = s.replace(/[\\$,%\\s\\u00a0]/g, '');
+    return parseFloat(s);
+  }
+  function parseOCC(raw){
+    if (raw == null) return null;
+    var s = String(raw).trim().toUpperCase();
+    var m = s.match(/^([A-Z][A-Z0-9.]{0,5})(\\d{2})(\\d{2})(\\d{2})([CP])(\\d{8})$/);
+    if (!m) return null;
+    var yy = parseInt(m[2],10), mm = parseInt(m[3],10), dd = parseInt(m[4],10);
+    if (mm<1||mm>12||dd<1||dd>31) return null;
+    var year = 2000 + yy;
+    var iso = year + '-' + (mm<10?'0':'') + mm + '-' + (dd<10?'0':'') + dd;
+    return { root: m[1], type: m[5]==='C' ? 'call' : 'put', strike: parseInt(m[6],10)/1000, expiryISO: iso };
+  }
+
+  // --- Theme toggle -------------------------------------------------------
+  function bindThemeToggle(){
+    var btn = $('theme-toggle'); if (!btn) return;
+    btn.addEventListener('click', function(){
+      var current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('stonks-theme', next); } catch (_) {}
+    });
+  }
+
+  // --- Combobox ----------------------------------------------------------
+  var combo = {
+    input: null, listbox: null, items: [], activeIdx: -1, open: false,
+    init: function(){
+      this.input = $('symbol-input');
+      this.listbox = $('symbol-listbox');
+      if (!this.input || !this.listbox) return;
+      var self = this;
+      this.input.addEventListener('input', function(){ self.filter(); });
+      this.input.addEventListener('focus', function(){ self.filter(); });
+      this.input.addEventListener('keydown', function(e){ self.onKey(e); });
+      this.input.addEventListener('blur', function(){ setTimeout(function(){ self.close(); }, 120); });
+      var clear = $('symbol-clear');
+      if (clear) clear.addEventListener('mousedown', function(e){
+        e.preventDefault(); self.input.value = ''; self.input.focus(); self.filter();
+      });
+      this.listbox.addEventListener('mousedown', function(e){
+        var li = e.target.closest && e.target.closest('li[data-sym]');
+        if (!li) return;
+        e.preventDefault();
+        self.commit(li.getAttribute('data-sym'));
+      });
+    },
+    rank: function(q){
+      q = (q||'').trim().toUpperCase();
+      if (!q) return SYMBOLS.slice(0, 50);
+      var prefix = [], contains = [], sector = [];
+      for (var i=0; i<SYMBOLS.length; i++){
+        var sym = SYMBOLS[i];
+        var sec = (SECTORS[sym] || '').toUpperCase();
+        if (sym.indexOf(q) === 0) prefix.push(sym);
+        else if (sym.indexOf(q) >= 0) contains.push(sym);
+        else if (sec.indexOf(q) >= 0) sector.push(sym);
+      }
+      return prefix.concat(contains, sector).slice(0, 50);
+    },
+    filter: function(){
+      var matches = this.rank(this.input.value);
+      this.items = matches;
+      if (!matches.length){
+        this.listbox.innerHTML = '<li class="combo-empty">No matches</li>';
+      } else {
+        var html = '';
+        for (var i=0; i<matches.length; i++){
+          var sym = matches[i];
+          var sec = SECTORS[sym] || '';
+          var spot = SPOTS[sym];
+          html += '<li role="option" data-sym="' + sym + '" id="combo-opt-' + sym + '">' +
+            '<span class="combo-sym">' + sym + '</span>' +
+            '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>' +
+            '<span class="combo-sector">' + escapeHtml(sec) + '</span>' +
+          '</li>';
+        }
+        this.listbox.innerHTML = html;
+      }
+      this.activeIdx = -1;
+      this.show();
+    },
+    show: function(){
+      this.listbox.hidden = false;
+      this.input.setAttribute('aria-expanded', 'true');
+      this.open = true;
+    },
+    close: function(){
+      this.listbox.hidden = true;
+      this.input.setAttribute('aria-expanded', 'false');
+      this.input.removeAttribute('aria-activedescendant');
+      this.open = false;
+      this.activeIdx = -1;
+    },
+    move: function(delta){
+      if (!this.items.length) return;
+      this.activeIdx = (this.activeIdx + delta + this.items.length) % this.items.length;
+      var nodes = this.listbox.querySelectorAll('li[data-sym]');
+      for (var i=0; i<nodes.length; i++) nodes[i].classList.toggle('is-active', i === this.activeIdx);
+      var sym = this.items[this.activeIdx];
+      this.input.setAttribute('aria-activedescendant', 'combo-opt-' + sym);
+      var active = nodes[this.activeIdx];
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+    },
+    onKey: function(e){
+      if (e.key === 'ArrowDown'){ e.preventDefault(); if (!this.open) this.filter(); else this.move(1); }
+      else if (e.key === 'ArrowUp'){ e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Enter'){
+        if (this.activeIdx >= 0){ e.preventDefault(); this.commit(this.items[this.activeIdx]); }
+        else if (this.items.length === 1){ e.preventDefault(); this.commit(this.items[0]); }
+      }
+      else if (e.key === 'Escape'){ this.close(); }
+    },
+    commit: function(sym){
+      if (!sym) return;
+      this.input.value = sym;
+      this.close();
+      state.symbol = sym;
+      loadChain();
+    }
+  };
+
+  // --- Chain controls -----------------------------------------------------
   function fmtExpiryLabel(epoch){
-    var d=new Date(epoch*1000);
-    return d.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric',timeZone:'America/New_York'});
+    var d = new Date(epoch*1000);
+    return d.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric', timeZone:'America/New_York' });
   }
-
+  function getOptType(){
+    var r = document.querySelector('input[name="opt-type"]:checked');
+    return r ? r.value : 'call';
+  }
   function populateExpiry(){
-    var sel=$('opt-expiry'); sel.innerHTML='';
+    var sel = $('opt-expiry'); sel.innerHTML = '';
     state.expirations.forEach(function(epoch){
-      var o=document.createElement('option');
-      o.value=epoch; o.textContent=fmtExpiryLabel(epoch);
+      var o = document.createElement('option');
+      o.value = epoch; o.textContent = fmtExpiryLabel(epoch);
       sel.appendChild(o);
     });
   }
-
   function populateStrikes(){
-    var type=$('opt-type').value;
-    var chain=state.chains[state.currentExp];
-    var sel=$('opt-strike');
-    if(!chain){ sel.innerHTML=''; return; }
-    var rows=(type==='call'?chain.c:chain.p)||[];
-    if(!rows.length){
-      sel.innerHTML='<option disabled>No '+type+'s available</option>'; return;
+    var type = getOptType();
+    var chain = state.chains[state.currentExp];
+    var sel = $('opt-strike');
+    if (!chain){ sel.innerHTML = ''; return; }
+    var rows = (type === 'call' ? chain.c : chain.p) || [];
+    if (!rows.length){
+      sel.innerHTML = '<option disabled>No ' + type + 's available</option>';
+      return;
     }
-    // Build the whole option list as one string and assign in one DOM
-    // write — avoids forced layout per appendChild on chains with 100+ strikes.
-    var spot=state.spot;
-    var bestIdx=0, bestDist=Infinity;
-    var parts=new Array(rows.length);
-    for (var i=0;i<rows.length;i++){
-      var r=rows[i];
-      var d=Math.abs((r.s||0)-spot);
-      if(d<bestDist){bestDist=d;bestIdx=i;}
-      parts[i]='<option value="'+i+'">$'+fmt(r.s)+' (bid '+fmt(r.b)+' / ask '+fmt(r.a)+')</option>';
+    var spot = state.spot;
+    var bestIdx = 0, bestDist = Infinity;
+    var parts = new Array(rows.length);
+    for (var i=0; i<rows.length; i++){
+      var r = rows[i];
+      var d = Math.abs((r.s||0) - spot);
+      if (d < bestDist){ bestDist = d; bestIdx = i; }
+      parts[i] = '<option value="' + i + '">$' + fmt(r.s) + ' · bid ' + fmt(r.b) + ' / ask ' + fmt(r.a) + '</option>';
     }
-    sel.innerHTML=parts.join('');
-    sel.selectedIndex=bestIdx;
+    sel.innerHTML = parts.join('');
+    sel.selectedIndex = bestIdx;
   }
-
   function findContract(){
-    var type=$('opt-type').value;
-    var chain=state.chains[state.currentExp]; if(!chain)return null;
-    var rows=(type==='call'?chain.c:chain.p)||[];
-    var idx=Number($('opt-strike').value);
-    if(!isFinite(idx))return null;
-    return rows[idx]||null;
+    var type = getOptType();
+    var chain = state.chains[state.currentExp]; if (!chain) return null;
+    var rows = (type === 'call' ? chain.c : chain.p) || [];
+    var idx = Number($('opt-strike').value);
+    if (!isFinite(idx)) return null;
+    return rows[idx] || null;
   }
 
+  // --- Grading ------------------------------------------------------------
   function gradeSpread(spreadPct){
-    if(spreadPct<=5)return {label:'Tight', cls:'good', note:'narrow spread — easy fills'};
-    if(spreadPct<=15)return {label:'Moderate', cls:'fair', note:'spread is workable but costs you on entry/exit'};
-    return {label:'Wide', cls:'bad', note:'wide spread — illiquid, expect slippage'};
+    if (spreadPct <= 5)  return { label:'Tight',    cls:'good', note:'narrow spread — easy fills' };
+    if (spreadPct <= 15) return { label:'Moderate', cls:'fair', note:'spread is workable but costs you on entry/exit' };
+    return { label:'Wide', cls:'bad', note:'wide spread — illiquid, expect slippage' };
   }
-  function gradeDelta(delta, type){
-    var a=Math.abs(delta);
-    if(a>=0.40 && a<=0.70) return {label:'Balanced', cls:'good', note:'good directional sensitivity without paying full intrinsic'};
-    if(a>=0.30 && a<0.40) return {label:'Slightly OTM', cls:'fair', note:'cheaper but needs a real move to pay'};
-    if(a>0.70) return {label:'Deep ITM', cls:'fair', note:'moves nearly 1:1 with the stock — limited leverage'};
-    return {label:'Far OTM', cls:'bad', note:'lottery ticket — most likely expires worthless'};
+  function gradeDelta(delta){
+    var a = Math.abs(delta);
+    if (a >= 0.40 && a <= 0.70) return { label:'Balanced',     cls:'good', note:'good directional sensitivity without paying full intrinsic' };
+    if (a >= 0.30 && a < 0.40)  return { label:'Slightly OTM', cls:'fair', note:'cheaper but needs a real move to pay' };
+    if (a > 0.70)               return { label:'Deep ITM',     cls:'fair', note:'moves nearly 1:1 with the stock — limited leverage' };
+    return { label:'Far OTM', cls:'bad', note:'lottery ticket — most likely expires worthless' };
   }
   function gradeTheta(thetaDay, mid){
-    if(mid<=0||thetaDay==null)return {label:'—', cls:'fair', note:'theta unavailable'};
-    var dailyBleed=Math.abs(thetaDay)/mid*100;
-    if(dailyBleed<1) return {label:'Slow decay', cls:'good', note:'~'+dailyBleed.toFixed(2)+'% / day — plenty of runway'};
-    if(dailyBleed<3) return {label:'Normal decay', cls:'fair', note:'~'+dailyBleed.toFixed(2)+'% / day — standard time pressure'};
-    return {label:'Bleeding', cls:'bad', note:'~'+dailyBleed.toFixed(2)+'% / day — heavy time decay'};
+    if (mid <= 0 || thetaDay == null) return { label:'—', cls:'fair', note:'theta unavailable' };
+    var bleed = Math.abs(thetaDay) / mid * 100;
+    if (bleed < 1) return { label:'Slow decay',   cls:'good', note:'~' + bleed.toFixed(2) + '% / day — plenty of runway' };
+    if (bleed < 3) return { label:'Normal decay', cls:'fair', note:'~' + bleed.toFixed(2) + '% / day — standard time pressure' };
+    return { label:'Bleeding', cls:'bad', note:'~' + bleed.toFixed(2) + '% / day — heavy time decay' };
   }
-
   function overallVerdict(grades){
-    var bad=grades.filter(function(g){return g.cls==='bad';}).length;
-    var good=grades.filter(function(g){return g.cls==='good';}).length;
-    if(bad>=2) return {label:'Poor contract', cls:'bad'};
-    if(bad===1) return {label:'Mixed — proceed with caution', cls:'fair'};
-    if(good>=2) return {label:'Good contract', cls:'good'};
-    return {label:'Acceptable', cls:'fair'};
+    var bad = grades.filter(function(g){ return g.cls === 'bad'; }).length;
+    var good = grades.filter(function(g){ return g.cls === 'good'; }).length;
+    if (bad >= 2) return { label:'Poor contract', cls:'bad' };
+    if (bad === 1) return { label:'Mixed — proceed with caution', cls:'fair' };
+    if (good >= 2) return { label:'Good contract', cls:'good' };
+    return { label:'Acceptable', cls:'fair' };
   }
-
-  // News sentiment nudge — only shifts a borderline Fair verdict. Bullish news
-  // bumps Fair → Good ("News tailwind"); bearish news drops it → Bad
-  // ("News headwind"). Good and Bad never move, so the math-driven grade
-  // always wins when it has a clear signal.
   function applyNewsNudge(verdict, news){
-    if(!news||!news.sentiment) return verdict;
-    if(verdict.cls!=='fair') return verdict;
-    if(news.sentiment==='bullish') return {label:'Good contract · news tailwind', cls:'good', nudged:true};
-    if(news.sentiment==='bearish') return {label:'Poor contract · news headwind', cls:'bad', nudged:true};
+    if (!news || !news.sentiment) return verdict;
+    if (verdict.cls !== 'fair') return verdict;
+    if (news.sentiment === 'bullish') return { label:'Good contract · news tailwind', cls:'good', nudged:true };
+    if (news.sentiment === 'bearish') return { label:'Poor contract · news headwind', cls:'bad', nudged:true };
     return verdict;
   }
 
+  var TIPS = {
+    spread: 'Gap between bid (what buyers pay) and ask (what sellers want). Wider = you lose more on entry/exit.',
+    delta:  'How much the option moves per $1 the stock moves. ~0.50 = at-the-money, ~1.00 = deep ITM, near 0 = far OTM lottery.',
+    theta:  'Daily $ the contract loses just from time passing. Higher = the clock is running against you faster.',
+    iv:     'Implied volatility — the market\\'s guess at how much the stock will move. High IV = expensive premium.',
+    gamma:  'How fast delta changes as the stock moves. Higher near ATM and near expiry.',
+    vega:   'How much the contract gains/loses per 1 point change in implied volatility.'
+  };
   function tipChip(text){
-    if(!text)return '';
-    // data-tip is HTML-attribute escaped via the limited charset we control here.
-    return ' <span class="tip" tabindex="0" role="button" aria-label="Explain: '+text.replace(/"/g,'&quot;')+'" data-tip="'+text.replace(/"/g,'&quot;')+'">?</span>';
+    if (!text) return '';
+    var t = text.replace(/"/g, '&quot;');
+    return ' <span class="tip" tabindex="0" role="button" aria-label="Explain: ' + t + '" data-tip="' + t + '">?</span>';
   }
   function row(label, value, sub, tip){
-    return '<div class="opt-row"><div class="opt-row-label">'+label+tipChip(tip)+'</div><div class="opt-row-value">'+value+(sub?' <span class="opt-row-sub">'+sub+'</span>':'')+'</div></div>';
+    return '<div class="opt-row"><div class="opt-row-label">' + label + tipChip(tip) +
+      '</div><div class="opt-row-value">' + value + (sub ? ' <span class="opt-row-sub">' + sub + '</span>' : '') + '</div></div>';
   }
-  function gradeChip(g){
-    return '<span class="opt-grade '+g.cls+'">'+g.label+'</span>';
-  }
-  var TIPS = {
-    spread: "Gap between bid (what buyers pay) and ask (what sellers want). Wider = you lose more on entry/exit.",
-    delta: "How much the option moves per $1 the stock moves. ~0.50 = at-the-money, ~1.00 = deep ITM, near 0 = far OTM lottery.",
-    theta: "Daily $ the contract loses just from time passing. Higher = the clock is running against you faster.",
-    iv: "Implied volatility — the market's guess at how much the stock will move. High IV = expensive premium.",
-    gamma: "How fast delta changes as the stock moves. Higher near ATM and near expiry.",
-    vega: "How much the contract gains/loses per 1 point change in implied volatility."
-  };
+  function gradeChip(g){ return '<span class="opt-grade ' + g.cls + '">' + g.label + '</span>'; }
   function verdictExplainer(cls){
     var msg;
-    if (cls==='good') msg = "Clean contract. Spread is tight, delta is balanced, theta is manageable. Direction and sizing are up to you.";
-    else if (cls==='bad') msg = "Skip or rework. Wide spread or far-OTM delta or heavy theta will eat your edge before the trade plays out. Look for a tighter strike, a more liquid expiry, or a different ticker.";
-    else msg = "Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it.";
-    return '<div class="opt-explain '+cls+'"><b>What this means:</b> '+msg+'</div>';
-  }
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, function(ch){
-      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[ch];
-    });
+    if (cls === 'good') msg = 'Clean contract. Spread is tight, delta is balanced, theta is manageable. Direction and sizing are up to you.';
+    else if (cls === 'bad') msg = 'Skip or rework. Wide spread or far-OTM delta or heavy theta will eat your edge before the trade plays out. Look for a tighter strike, a more liquid expiry, or a different ticker.';
+    else msg = 'Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it.';
+    return '<div class="opt-explain ' + cls + '"><b>What this means:</b> ' + msg + '</div>';
   }
   function newsTakeHtml(news, ticker, nudged){
-    if(!news||!news.paragraph) return '';
-    var sentimentLabel = ({bullish:'Bullish',neutral:'Neutral',bearish:'Bearish',uncertain:'Uncertain'})[news.sentiment] || 'Neutral';
-    var heading = 'AI news take' + (ticker?(' · '+escapeHtml(ticker)):'') + ' · ' + sentimentLabel;
+    if (!news || !news.paragraph) return '';
+    var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
+    var heading = 'AI news take' + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
     var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict above from <b>Acceptable</b>.</div>' : '';
-    return '<div class="opt-news '+(news.sentiment||'neutral')+'">'+
-      '<div class="opt-news-head">'+heading+'</div>'+
-      '<div class="opt-news-body">'+escapeHtml(news.paragraph)+'</div>'+
-      note+
+    return '<div class="opt-news ' + (news.sentiment || 'neutral') + '">' +
+      '<div class="opt-news-head">' + heading + '</div>' +
+      '<div class="opt-news-body">' + escapeHtml(news.paragraph) + '</div>' +
+      note +
     '</div>';
   }
 
-  // Build the result HTML for a contract from any source (curated chain or
-  // manual entry). Input keys: type, spot, strike, expEpoch, bid, ask, last,
-  // iv (decimal e.g. 0.42), oi, volume, label, source ('chain'|'manual').
   function buildResultHtml(input){
-    var bid=input.bid, ask=input.ask;
-    var mid = (bid!=null&&ask!=null && (bid+ask)>0) ? (bid+ask)/2 : (input.last||null);
-    var spread = (bid!=null&&ask!=null) ? (ask-bid) : null;
-    var spreadPct = (spread!=null && mid>0) ? (spread/mid*100) : null;
+    var bid = input.bid, ask = input.ask;
+    var mid = (bid != null && ask != null && (bid + ask) > 0) ? (bid + ask) / 2 : (input.last || null);
+    var spread = (bid != null && ask != null) ? (ask - bid) : null;
+    var spreadPct = (spread != null && mid > 0) ? (spread/mid * 100) : null;
     var iv = input.iv;
     var T = (input.expEpoch*1000 - Date.now()) / (365*24*3600*1000);
-    var g = (T>0 && iv>0 && input.spot>0 && input.strike>0)
+    var g = (T > 0 && iv > 0 && input.spot > 0 && input.strike > 0)
       ? greeks(input.type, input.spot, input.strike, T, iv, RFR) : null;
 
-    var sGrade = spreadPct!=null ? gradeSpread(spreadPct) : {label:'—', cls:'fair', note:'no quote'};
-    var dGrade = g ? gradeDelta(g.delta, input.type) : {label:'—', cls:'fair', note:'delta unavailable — IV missing'};
-    var tGrade = g ? gradeTheta(g.thetaDay, mid) : {label:'—', cls:'fair', note:'theta unavailable — IV missing'};
+    var sGrade = spreadPct != null ? gradeSpread(spreadPct) : { label:'—', cls:'fair', note:'no quote' };
+    var dGrade = g ? gradeDelta(g.delta) : { label:'—', cls:'fair', note:'delta unavailable — IV missing' };
+    var tGrade = g ? gradeTheta(g.thetaDay, mid) : { label:'—', cls:'fair', note:'theta unavailable — IV missing' };
     var baseVerdict = overallVerdict([sGrade, dGrade, tGrade]);
     var verdict = applyNewsNudge(baseVerdict, input.news);
 
     var html = '';
-    html += '<div class="opt-verdict '+verdict.cls+'">'+verdict.label+'</div>';
+    html += '<div class="opt-verdict ' + verdict.cls + '" id="opt-verdict-main">' + verdict.label + '</div>';
     html += verdictExplainer(verdict.cls);
     html += newsTakeHtml(input.news, input.ticker, verdict.nudged);
-    html += '<div class="opt-contract">'+(input.label||'')+' · spot $'+fmt(input.spot)+' · '+Math.max(0,Math.round(T*365))+' days to expiry</div>';
+    html += '<div class="opt-contract">' + (input.label || '') + ' · spot $' + fmt(input.spot) + ' · ' + Math.max(0, Math.round(T*365)) + ' days to expiry</div>';
     html += '<div class="opt-grid">';
-    html += row('Bid / Ask', '$'+fmt(bid)+' / $'+fmt(ask));
-    html += row('Mid', mid!=null?'$'+fmt(mid):'—');
-    html += row('Spread', spread!=null?('$'+fmt(spread)+' ('+fmtPct(spreadPct)+')'):'—', gradeChip(sGrade), TIPS.spread);
-    html += row('IV', iv!=null?fmtPct(iv*100):'—', '', TIPS.iv);
-    html += row('Delta', g?fmt(g.delta,3):'—', g?gradeChip(dGrade):'', TIPS.delta);
-    html += row('Theta / day', g?'$'+fmt(g.thetaDay,3):'—', g?gradeChip(tGrade):'', TIPS.theta);
-    html += row('Gamma', g?fmt(g.gamma,4):'—', '', TIPS.gamma);
-    html += row('Vega (per 1 vol pt)', g?'$'+fmt(g.vega,3):'—', '', TIPS.vega);
-    html += row('Open interest', input.oi!=null?String(input.oi):'—');
-    html += row('Volume', input.volume!=null?String(input.volume):'—');
+    html += row('Bid / Ask', '$' + fmt(bid) + ' / $' + fmt(ask));
+    html += row('Mid', mid != null ? '$' + fmt(mid) : '—');
+    html += row('Spread', spread != null ? ('$' + fmt(spread) + ' (' + fmtPct(spreadPct) + ')') : '—', gradeChip(sGrade), TIPS.spread);
+    html += row('IV', iv != null ? fmtPct(iv*100) : '—', '', TIPS.iv);
+    html += row('Delta', g ? fmt(g.delta, 3) : '—', g ? gradeChip(dGrade) : '', TIPS.delta);
+    html += row('Theta / day', g ? '$' + fmt(g.thetaDay, 3) : '—', g ? gradeChip(tGrade) : '', TIPS.theta);
+    html += row('Gamma', g ? fmt(g.gamma, 4) : '—', '', TIPS.gamma);
+    html += row('Vega (per 1 vol pt)', g ? '$' + fmt(g.vega, 3) : '—', '', TIPS.vega);
+    html += row('Open interest', input.oi != null ? String(input.oi) : '—');
+    html += row('Volume', input.volume != null ? String(input.volume) : '—');
     html += '</div>';
     html += '<ul class="opt-notes">';
-    html += '<li><b>Spread:</b> '+sGrade.note+'.</li>';
-    html += '<li><b>Delta:</b> '+dGrade.note+'.</li>';
-    html += '<li><b>Theta:</b> '+tGrade.note+'.</li>';
+    html += '<li><b>Spread:</b> ' + sGrade.note + '.</li>';
+    html += '<li><b>Delta:</b> ' + dGrade.note + '.</li>';
+    html += '<li><b>Theta:</b> ' + tGrade.note + '.</li>';
     html += '</ul>';
-    if (input.source==='chain') {
-      // Payload mirrors the input fields tweakInManual() reads. JSON inside
-      // an HTML attribute: quote with apos and escape any apos in the
-      // payload — none of these numeric fields can contain quotes, so a
-      // straight stringify is safe; we still replace ' for defence.
+    if (input.source === 'chain') {
       var payload = JSON.stringify({
         type: input.type, spot: input.spot, strike: input.strike, expEpoch: input.expEpoch,
         bid: input.bid, ask: input.ask, iv: input.iv,
         oi: input.oi, volume: input.volume,
-      }).replace(/'/g,'&apos;');
-      html += "<button type=\\"button\\" class=\\"opt-tweak-btn\\" data-tweak='"+payload+"'>Tweak in manual form ↓</button>";
+      }).replace(/'/g, '&apos;');
+      html += '<button type="button" class="opt-tweak-btn" data-tweak=\\'' + payload + '\\'>Tweak in manual form &darr;</button>';
     }
-    var disc = input.source==='manual'
-      ? 'Greeks computed locally with Black-Scholes from your IV and a '+(RFR*100).toFixed(1)+'% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
-      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a '+(RFR*100).toFixed(1)+'% risk-free rate. Quotes are end-of-session as of the build timestamp shown below — for information only, not investment advice.';
-    html += '<p class="opt-disclaimer">'+disc+'</p>';
-    return html;
+    var disc = input.source === 'manual'
+      ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
+      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
+    html += '<p class="opt-disclaimer">' + disc + '</p>';
+    return { html: html, verdict: verdict, contractLabel: input.label || '' };
+  }
+
+  function renderStickyVerdict(verdict, label){
+    var bar = $('opt-result-sticky');
+    if (!bar) return;
+    bar.innerHTML = '<span class="opt-verdict-mini ' + verdict.cls + '">' + verdict.label + '</span>' +
+      '<span class="opt-contract-mini">' + escapeHtml(label) + '</span>';
+  }
+  function setupStickyObserver(){
+    var verdictEl = $('opt-verdict-main');
+    var bar = $('opt-result-sticky');
+    if (!verdictEl || !bar || typeof IntersectionObserver === 'undefined') return;
+    if (stickyIO) stickyIO.disconnect();
+    stickyIO = new IntersectionObserver(function(entries){
+      var e = entries[0];
+      var stuck = !e.isIntersecting && e.boundingClientRect.top < 0;
+      bar.hidden = !stuck;
+    }, { threshold: 0, rootMargin: '-56px 0px 0px 0px' });
+    stickyIO.observe(verdictEl);
   }
 
   function evaluate(){
-    var c=findContract();
-    if(!c){ setStatus('opt-eval-status','Pick a strike first.','err'); return; }
-    var type=$('opt-type').value;
-    var label = (state.symbol||'')+' '+type.toUpperCase()+' $'+fmt(c.s)+' · exp '+fmtExpiryLabel(state.currentExp);
-    $('opt-eval-result').innerHTML = buildResultHtml({
+    var c = findContract();
+    var resultEl = $('opt-eval-result');
+    var stickyEl = $('opt-result-sticky');
+    if (!c){
+      if (resultEl) resultEl.innerHTML = '';
+      if (stickyEl){ stickyEl.hidden = true; stickyEl.innerHTML = ''; }
+      return;
+    }
+    var type = getOptType();
+    var label = (state.symbol || '') + ' ' + type.toUpperCase() + ' $' + fmt(c.s) + ' · exp ' + fmtExpiryLabel(state.currentExp);
+    var built = buildResultHtml({
       type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
       bid: c.b, ask: c.a, last: c.l, iv: c.iv,
       oi: c.oi, volume: c.v, label: label, source: 'chain',
       news: state.news, ticker: state.symbol
     });
-    setStatus('opt-eval-status','','');
+    resultEl.innerHTML = built.html;
+    renderStickyVerdict(built.verdict, built.contractLabel);
+    setupStickyObserver();
+    setStatus('opt-eval-status', '', '');
   }
+  var scheduleEvaluate = debounce(evaluate, 80);
 
   function evaluateManual(ev){
-    if(ev) ev.preventDefault();
+    if (ev) ev.preventDefault();
     var type = $('m-type').value;
     var spot = parseLoose($('m-spot').value);
     var strike = parseLoose($('m-strike').value);
@@ -612,620 +820,996 @@ function optionEvalScript() {
     var oi = parseLoose(oiRaw);
     var vol = parseLoose(volRaw);
 
-    if(!(spot>0)){ setStatus('opt-manual-status','Share price is required.','err'); return; }
-    if(!(strike>0)){ setStatus('opt-manual-status','Strike price is required.','err'); return; }
-    if(!expDateStr){ setStatus('opt-manual-status','Expiration date is required.','err'); return; }
-    if(!isFinite(bid) || !isFinite(ask) || bid<0 || ask<0){ setStatus('opt-manual-status','Bid and ask are required (enter 0 if you have no quote).','err'); return; }
-    if(ask<bid){ setStatus('opt-manual-status','Ask is below bid — check your numbers.','err'); return; }
+    if (!(spot > 0))   { setStatus('opt-manual-status', 'Share price is required.', 'err'); return; }
+    if (!(strike > 0)) { setStatus('opt-manual-status', 'Strike price is required.', 'err'); return; }
+    if (!expDateStr)   { setStatus('opt-manual-status', 'Expiration date is required.', 'err'); return; }
+    if (!isFinite(bid) || !isFinite(ask) || bid < 0 || ask < 0) { setStatus('opt-manual-status', 'Bid and ask are required (enter 0 if you have no quote).', 'err'); return; }
+    if (ask < bid) { setStatus('opt-manual-status', 'Ask is below bid — check your numbers.', 'err'); return; }
 
-    // Treat the date as US-market 4pm ET on that day. Constructing from
-    // "YYYY-MM-DDT16:00:00-04:00" handles either DST without us caring —
-    // close enough for "days to expiry" math.
-    var expEpoch = Math.floor(new Date(expDateStr+'T16:00:00-04:00').getTime()/1000);
-
-    var label = type.toUpperCase()+' $'+strike+' · exp '+expDateStr;
-    $('opt-manual-result').innerHTML = buildResultHtml({
+    var expEpoch = Math.floor(new Date(expDateStr + 'T16:00:00-04:00').getTime()/1000);
+    var label = type.toUpperCase() + ' $' + strike + ' · exp ' + expDateStr;
+    var built = buildResultHtml({
       type: type, spot: spot, strike: strike, expEpoch: expEpoch,
       bid: bid, ask: ask, last: null,
-      iv: (ivRaw && isFinite(ivPct) && ivPct>=0) ? ivPct/100 : null,
+      iv: (ivRaw && isFinite(ivPct) && ivPct >= 0) ? ivPct/100 : null,
       oi: (oiRaw && isFinite(oi)) ? Math.round(oi) : null,
       volume: (volRaw && isFinite(vol)) ? Math.round(vol) : null,
       label: label, source: 'manual'
     });
-    setStatus('opt-manual-status','Graded.','ok');
+    $('opt-manual-result').innerHTML = built.html;
+    setStatus('opt-manual-status', 'Graded.', 'ok');
   }
 
-  // Live-fill type / strike / expiry from a pasted OCC contract symbol.
-  // Spot/bid/ask/IV/OI/volume aren't encoded in the symbol — user still
-  // types those. Hint element shows recognised root or an error.
   function onPasteContract(){
-    var input=$('m-paste');
-    var hint=$('m-paste-hint');
-    var raw=input.value;
-    if(!raw||!raw.trim()){
+    var input = $('m-paste');
+    var hint = $('m-paste-hint');
+    var raw = input.value;
+    if (!raw || !raw.trim()){
       input.classList.remove('err');
-      if(hint){ hint.textContent=''; hint.classList.remove('err'); }
+      if (hint){ hint.textContent = ''; hint.classList.remove('err'); }
       return;
     }
-    var parsed=parseOCC(raw);
-    if(!parsed){
+    var parsed = parseOCC(raw);
+    if (!parsed){
       input.classList.add('err');
-      if(hint){ hint.textContent="Doesn't look like an OCC symbol (e.g. AAPL250117C00150000)."; hint.classList.add('err'); }
+      if (hint){ hint.textContent = "Doesn't look like an OCC symbol (e.g. AAPL250117C00150000)."; hint.classList.add('err'); }
       return;
     }
     input.classList.remove('err');
-    $('m-type').value=parsed.type;
-    $('m-strike').value=String(parsed.strike);
-    $('m-expiry').value=parsed.expiryISO;
-    if(hint){
-      hint.textContent='Recognised: '+parsed.root+' '+parsed.type.toUpperCase()+' $'+parsed.strike+' · exp '+parsed.expiryISO;
+    $('m-type').value = parsed.type;
+    $('m-strike').value = String(parsed.strike);
+    $('m-expiry').value = parsed.expiryISO;
+    if (hint){
+      hint.textContent = 'Recognised: ' + parsed.root + ' ' + parsed.type.toUpperCase() + ' $' + parsed.strike + ' · exp ' + parsed.expiryISO;
       hint.classList.remove('err');
     }
   }
 
-  // Copy a chain-graded contract into the manual form so the user can
-  // tweak any field (IV, bid, etc.) and re-grade. Payload comes from the
-  // data-tweak attribute on the "Tweak in manual" button.
   function tweakInManual(payloadJson){
-    if(!payloadJson)return;
-    var p; try { p=JSON.parse(payloadJson); } catch(e){ return; }
-    $('m-type').value=p.type==='put'?'put':'call';
-    if(p.spot!=null) $('m-spot').value=String(p.spot);
-    if(p.strike!=null) $('m-strike').value=String(p.strike);
-    if(p.expEpoch){
-      var d=new Date(p.expEpoch*1000);
-      // Build YYYY-MM-DD in NY local time so a Friday close stays on
-      // that Friday regardless of the user's browser timezone.
-      var nyParts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
-      var y='',mo='',da='';
-      for (var i=0;i<nyParts.length;i++){
-        var part=nyParts[i];
-        if(part.type==='year')y=part.value;
-        else if(part.type==='month')mo=part.value;
-        else if(part.type==='day')da=part.value;
+    if (!payloadJson) return;
+    var p; try { p = JSON.parse(payloadJson); } catch (e) { return; }
+    $('m-type').value = p.type === 'put' ? 'put' : 'call';
+    if (p.spot != null)   $('m-spot').value   = String(p.spot);
+    if (p.strike != null) $('m-strike').value = String(p.strike);
+    if (p.expEpoch){
+      var d = new Date(p.expEpoch*1000);
+      var nyParts = new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(d);
+      var y='', mo='', da='';
+      for (var i=0; i<nyParts.length; i++){
+        var part = nyParts[i];
+        if (part.type === 'year') y = part.value;
+        else if (part.type === 'month') mo = part.value;
+        else if (part.type === 'day') da = part.value;
       }
-      if(y&&mo&&da) $('m-expiry').value=y+'-'+mo+'-'+da;
+      if (y && mo && da) $('m-expiry').value = y + '-' + mo + '-' + da;
     }
-    if(p.bid!=null) $('m-bid').value=String(p.bid);
-    if(p.ask!=null) $('m-ask').value=String(p.ask);
-    $('m-iv').value=(p.iv!=null) ? (p.iv*100).toFixed(2) : '';
-    $('m-oi').value=(p.oi!=null) ? String(p.oi) : '';
-    $('m-vol').value=(p.volume!=null) ? String(p.volume) : '';
-    // Clear any stale paste-symbol hint — the form state no longer matches it.
-    var paste=$('m-paste'); if(paste){ paste.value=''; paste.classList.remove('err'); }
-    var hint=$('m-paste-hint'); if(hint){ hint.textContent=''; hint.classList.remove('err'); }
-    // Re-grade with the copied values, then scroll the section into view
-    // and focus the bid field — the one a user is most likely to tweak.
+    if (p.bid != null) $('m-bid').value = String(p.bid);
+    if (p.ask != null) $('m-ask').value = String(p.ask);
+    $('m-iv').value  = (p.iv != null)     ? (p.iv*100).toFixed(2) : '';
+    $('m-oi').value  = (p.oi != null)     ? String(p.oi)          : '';
+    $('m-vol').value = (p.volume != null) ? String(p.volume)      : '';
+    var paste = $('m-paste'); if (paste){ paste.value=''; paste.classList.remove('err'); }
+    var hint = $('m-paste-hint'); if (hint){ hint.textContent=''; hint.classList.remove('err'); }
     evaluateManual();
-    var section=$('opt-manual-section');
-    if(section&&section.scrollIntoView) section.scrollIntoView({behavior:'smooth',block:'start'});
+    var section = $('opt-manual-section');
+    if (section && section.scrollIntoView) section.scrollIntoView({ behavior:'smooth', block:'start' });
     $('m-bid').focus();
   }
 
   function fetchChain(symbol){
-    if(CHAIN_CACHE[symbol])return Promise.resolve(CHAIN_CACHE[symbol]);
-    // 'data/SYMBOL.json' is a same-origin static asset deployed alongside
-    // index.html. We cache-bust with the build's ISO timestamp so each
-    // daily refresh produces a new URL and existing browser cache entries
-    // are bypassed — without this, force-cache would let stale chains
-    // linger long after the build refreshed them. The query string itself
-    // is enough to invalidate; force-cache then makes subsequent loads
-    // within the same build instant.
-    var v=(MANIFEST&&MANIFEST.builtAtIso)?'?v='+encodeURIComponent(MANIFEST.builtAtIso):'';
-    return fetch('data/'+encodeURIComponent(symbol)+'.json'+v,{cache:'force-cache'})
+    if (CHAIN_CACHE[symbol]) return Promise.resolve(CHAIN_CACHE[symbol]);
+    var v = (MANIFEST && MANIFEST.builtAtIso) ? '?v=' + encodeURIComponent(MANIFEST.builtAtIso) : '';
+    return fetch('data/' + encodeURIComponent(symbol) + '.json' + v, { cache: 'force-cache' })
       .then(function(resp){
-        if(!resp.ok)throw new Error('HTTP '+resp.status);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return resp.json();
       })
-      .then(function(data){ CHAIN_CACHE[symbol]=data; return data; });
+      .then(function(data){ CHAIN_CACHE[symbol] = data; return data; });
   }
-
   function loadChain(){
-    var symbol=$('opt-symbol').value;
-    if(!symbol){ setStatus('opt-eval-status','Pick a ticker first.','err'); return; }
-    var btn=$('opt-load-btn');
-    var prevLabel=btn.textContent;
-    var cached=!!CHAIN_CACHE[symbol];
-    btn.disabled=true; if(!cached)btn.textContent='Loading…';
-    setStatus('opt-eval-status', cached?'':'Loading '+symbol+'…', '');
+    var symbol = state.symbol; if (!symbol) return;
+    var cached = !!CHAIN_CACHE[symbol];
+    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + '…', '');
     fetchChain(symbol).then(function(entry){
-      state.symbol=symbol;
-      state.spot=entry.spot;
-      state.expirations=(entry.expirations||[]).slice();
-      state.chains=entry.chains||{};
-      state.news=entry.news||null;
-      if(!state.expirations.length){ setStatus('opt-eval-status','No expirations for '+symbol+'.','err'); return; }
-      state.currentExp=state.expirations[0];
+      state.spot = entry.spot;
+      state.expirations = (entry.expirations || []).slice();
+      state.chains = entry.chains || {};
+      state.news = entry.news || null;
+      if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
+      state.currentExp = state.expirations[0];
       populateExpiry();
-      $('opt-expiry').value=String(state.currentExp);
+      $('opt-expiry').value = String(state.currentExp);
       populateStrikes();
-      $('opt-chain-row').hidden=false;
-      $('opt-eval-result').innerHTML='';
+      $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
-      setStatus('opt-eval-status',symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
+      setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
+      evaluate();
     }).catch(function(err){
-      setStatus('opt-eval-status','Failed to load '+symbol+': '+(err&&err.message||err),'err');
-    }).then(function(){
-      btn.disabled=false; btn.textContent=prevLabel;
+      setStatus('opt-eval-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
     });
   }
-
   function onExpiryChange(){
-    var exp=Number($('opt-expiry').value);
-    state.currentExp=exp;
+    var exp = Number($('opt-expiry').value);
+    state.currentExp = exp;
     populateStrikes();
+    scheduleEvaluate();
   }
 
-  function tickerListHtml(arr, side){
-    if(!arr||!arr.length) return '<span class="narr-ticker">—</span>';
-    return arr.map(function(t){
-      return '<span class="narr-ticker '+side+'">'+escapeHtml(t)+'</span>';
-    }).join(' ');
+  // --- Narratives ---------------------------------------------------------
+  function tickerChipHtml(sym, side){
+    var sec = SECTORS[sym] || '';
+    var titleAttr = sec ? ' title="' + escapeHtml(sec) + '"' : '';
+    return '<span class="narr-chip ' + side + '"' + titleAttr + '>' + escapeHtml(sym) + '</span>';
   }
   function narrLifeLabel(n){
-    var d = n.daysRunning|0;
-    if(!d || d<=1) return 'New today';
-    return 'Day '+d+' · since '+escapeHtml(n.firstSeen||'');
+    var d = n.daysRunning | 0;
+    if (!d || d <= 1) return 'New today';
+    return 'Day ' + d;
   }
   function renderNarratives(){
-    var list=$('narratives-list');
-    var empty=$('narratives-empty');
-    var ended=$('narratives-ended');
-    if(!list) return;
-    if(!NARRATIVES.length){
-      list.innerHTML='';
-      if(empty) empty.hidden=false;
+    var list = $('narratives-list');
+    var empty = $('narratives-empty');
+    var ended = $('narratives-ended');
+    var count = $('narratives-count');
+    if (!list) return;
+    if (count) count.textContent = NARRATIVES.length ? NARRATIVES.length + ' active' : '';
+    if (!NARRATIVES.length){
+      list.innerHTML = '';
+      if (empty) empty.hidden = false;
     } else {
-      if(empty) empty.hidden=true;
-      var html = NARRATIVES.map(function(n){
-        var sent = n.sentiment==='bearish' ? 'bearish' : 'bullish';
-        var conf = ({high:'High',medium:'Medium',low:'Low'})[n.confidence] || 'Medium';
-        return '<div class="narr '+sent+'">'+
-          '<div class="narr-head">'+
-            '<span class="narr-name">'+escapeHtml(n.name)+'</span>'+
-            '<span class="narr-tag '+sent+'">'+(sent==='bullish'?'Bullish':'Bearish')+'</span>'+
-            '<span class="narr-tag conf-'+(n.confidence||'medium')+'">Conf · '+conf+'</span>'+
-            '<span class="narr-tag life">'+escapeHtml(narrLifeLabel(n))+'</span>'+
-          '</div>'+
-          '<div class="narr-thesis">'+escapeHtml(n.thesis||'')+'</div>'+
-          '<div class="narr-row longs"><span class="narr-row-label">Long</span>'+tickerListHtml(n.longs,'long')+'</div>'+
-          '<div class="narr-row shorts"><span class="narr-row-label">Short</span>'+tickerListHtml(n.shorts,'short')+'</div>'+
-        '</div>';
+      if (empty) empty.hidden = true;
+      list.innerHTML = NARRATIVES.map(function(n){
+        var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
+        var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
+        var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
+        var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
+        var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
+        var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
+        return '<article class="narr" data-sent="' + sent + '" role="listitem">' +
+          '<span class="narr-accent" aria-hidden="true"></span>' +
+          '<header class="narr-head">' +
+            '<h3 class="narr-name">' + escapeHtml(n.name) + '</h3>' +
+            '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
+            '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+            '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
+          '</header>' +
+          '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
+          longRow + shortRow +
+        '</article>';
       }).join('');
-      list.innerHTML=html;
     }
-    if(ended){
-      if(RECENTLY_ENDED.length){
-        ended.innerHTML = '<div class="narr-ended-head">Recently cooled off</div>'+
+    if (ended){
+      if (RECENTLY_ENDED.length){
+        ended.innerHTML = '<div class="narr-ended-head">Recently cooled off</div>' +
+          '<div class="narr-ended-strip">' +
           RECENTLY_ENDED.map(function(e){
-            var d = e.daysSince|0;
-            var ran = e.ranDays|0;
-            var ago = d===1 ? 'yesterday' : d+' days ago';
-            var run = ran<=1 ? 'one-day blip' : ran+'-day run';
-            return '<span class="narr-ended-item"><b>'+escapeHtml(e.name)+'</b> · last seen '+ago+' · '+run+'</span>';
-          }).join('');
+            var d = e.daysSince | 0;
+            var ran = e.ranDays | 0;
+            var ago = d === 1 ? 'yesterday' : d + ' days ago';
+            var run = ran <= 1 ? 'one-day blip' : ran + '-day run';
+            return '<div class="narr-ended-card">' +
+              '<div class="narr-ended-name">' + escapeHtml(e.name) + '</div>' +
+              '<div class="narr-ended-meta">' + ago + ' · ' + run + '</div>' +
+            '</div>';
+          }).join('') +
+          '</div>';
       } else {
-        ended.innerHTML='';
+        ended.innerHTML = '';
       }
     }
   }
   function narrativesForTicker(sym){
-    if(!sym) return [];
-    var hits=[];
-    for (var i=0;i<NARRATIVES.length;i++){
-      var n=NARRATIVES[i];
-      if((n.longs||[]).indexOf(sym)>=0) hits.push({n:n, side:'long'});
-      else if((n.shorts||[]).indexOf(sym)>=0) hits.push({n:n, side:'short'});
+    if (!sym) return [];
+    var hits = [];
+    for (var i=0; i<NARRATIVES.length; i++){
+      var n = NARRATIVES[i];
+      if ((n.longs || []).indexOf(sym) >= 0) hits.push({ n: n, side: 'long' });
+      else if ((n.shorts || []).indexOf(sym) >= 0) hits.push({ n: n, side: 'short' });
     }
     return hits;
   }
   function renderTickerNarrativeChips(sym){
-    var box=$('opt-narr-chips');
-    if(!box) return;
-    var hits=narrativesForTicker(sym);
-    if(!hits.length){
-      box.hidden=true; box.innerHTML='';
-      return;
-    }
-    box.hidden=false;
-    box.innerHTML = hits.map(function(h){
-      var sentLabel = h.n.sentiment==='bearish' ? 'Bearish' : 'Bullish';
-      return '<span class="opt-narr-chip '+h.side+'" title="'+escapeHtml(h.n.thesis||'')+'">'+
-        escapeHtml(h.n.name)+' <span class="opt-narr-chip-side">· '+h.side.toUpperCase()+' · '+sentLabel+'</span>'+
+    var box = $('opt-narr-chips');
+    if (!box) return;
+    var hits = narrativesForTicker(sym);
+    if (!hits.length){ box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.innerHTML = '<span class="opt-narr-chips-label">Narratives</span>' + hits.map(function(h){
+      var sentLabel = h.n.sentiment === 'bearish' ? 'Bearish' : 'Bullish';
+      return '<span class="opt-narr-chip ' + h.side + '" title="' + escapeHtml(h.n.thesis || '') + '">' +
+        escapeHtml(h.n.name) +
+        '<span class="opt-narr-chip-side">' + h.side.toUpperCase() + ' · ' + sentLabel + '</span>' +
       '</span>';
     }).join('');
   }
 
+  // --- Bind ---------------------------------------------------------------
   function bind(){
+    renderFreshness();
+    bindThemeToggle();
+    combo.init();
     renderNarratives();
-    var form=$('opt-eval-form');
-    if(form){
-      form.addEventListener('submit',function(e){e.preventDefault();loadChain();});
-      $('opt-type').addEventListener('change',function(){ if(state.currentExp)populateStrikes(); });
-      $('opt-expiry').addEventListener('change',onExpiryChange);
-      $('opt-eval-btn').addEventListener('click',evaluate);
+
+    var radioGroup = document.querySelector('[role="radiogroup"]');
+    if (radioGroup){
+      radioGroup.addEventListener('change', function(ev){
+        if (ev.target && ev.target.name === 'opt-type'){
+          if (state.currentExp) populateStrikes();
+          scheduleEvaluate();
+        }
+      });
     }
-    var manualForm=$('opt-manual-form');
-    if(manualForm){
-      manualForm.addEventListener('submit',evaluateManual);
-      var paste=$('m-paste');
-      if(paste){
-        paste.addEventListener('input',onPasteContract);
-      }
-      // Delegated handler — the "Tweak in manual" button lives inside the
-      // chain section's result HTML, which is rewritten on each evaluation,
-      // so we bind once on the section instead of the button itself.
-      var chainSection=$('opt-eval-section');
-      if(chainSection){
-        chainSection.addEventListener('click',function(ev){
-          var btn=ev.target.closest&&ev.target.closest('.opt-tweak-btn');
-          if(!btn)return;
+    var expSel = $('opt-expiry');
+    if (expSel) expSel.addEventListener('change', onExpiryChange);
+    var strikeSel = $('opt-strike');
+    if (strikeSel) strikeSel.addEventListener('change', scheduleEvaluate);
+
+    var manualForm = $('opt-manual-form');
+    if (manualForm){
+      manualForm.addEventListener('submit', evaluateManual);
+      var paste = $('m-paste');
+      if (paste) paste.addEventListener('input', onPasteContract);
+      var chainSection = $('opt-eval-section');
+      if (chainSection){
+        chainSection.addEventListener('click', function(ev){
+          var btn = ev.target.closest && ev.target.closest('.opt-tweak-btn');
+          if (!btn) return;
           tweakInManual(btn.getAttribute('data-tweak'));
         });
       }
     }
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+  else bind();
 })();
-<\/script>`;
+`;
 }
 
-function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [] }) {
+function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], spots = {} }) {
   const tickerCount = symbols.length;
-  // Tiny manifest — ticker list + market narratives. Narratives are small
-  // enough (~3-6 KB for ~10 narratives) to embed inline so the page can
-  // render the trends card immediately without a second round-trip.
-  // Per-ticker chains are still fetched from data/<SYMBOL>.json on demand.
+  // Manifest is embedded inline so the narratives card + combobox can paint
+  // on first frame. Per-ticker chain JSON is still lazy-fetched from
+  // data/<SYMBOL>.json on demand.
   const manifestPayload = JSON.stringify({
     builtAt,
     builtAtIso,
     symbols,
     narratives,
     recentlyEnded,
+    sectors: SECTORS,
+    spots,
   }).replace(/<\/script>/gi, "<\\/script>");
+  const cacheBust = encodeURIComponent(builtAtIso);
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Option Contract Rater</title>
-<meta name="description" content="Grade an options contract on bid-ask spread, delta, and theta." />
-<style>
-  :root {
-    color-scheme: dark;
-    --bg: #0b0d12;
-    --panel: #141822;
-    --panel-2: #1b2030;
-    --border: #232838;
-    --text: #e7ecf3;
-    --muted: #8a93a6;
-    --accent: #6ea8ff;
-    --pos: #2ecc71;
-    --neg: #ff5c5c;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body {
-    background: radial-gradient(1200px 600px at 10% -10%, #1a2440 0%, transparent 60%),
-                radial-gradient(900px 500px at 110% 0%, #2a1a40 0%, transparent 60%),
-                var(--bg);
-    color: var(--text);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    min-height: 100vh;
-  }
-  header {
-    padding: 48px 24px 8px;
-    max-width: 760px;
-    margin: 0 auto;
-  }
-  header h1 {
-    margin: 0 0 6px;
-    font-size: 28px;
-    letter-spacing: -0.02em;
-  }
-  header .sub { color: var(--muted); font-size: 14px; }
-  main {
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 16px 24px 64px;
-  }
-  .card {
-    background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 22px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
-    margin-bottom: 18px;
-  }
-  .card-title { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.01em; }
-  .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
-  footer {
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 16px 24px 48px;
-    color: var(--muted);
-    font-size: 12px;
-  }
-  /* Option Contract Rater */
-  .opt-form, .opt-chain-row {
-    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-    margin: 6px 0 10px;
-  }
-  .opt-form select, .opt-chain-row select {
-    background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 8px; padding: 8px 10px; color: var(--text);
-    font: inherit; font-size: 14px; min-width: 120px;
-  }
-  .opt-form select:focus, .opt-chain-row select:focus {
-    outline: none; border-color: var(--accent);
-  }
-  .opt-form button, .opt-chain-row button {
-    background: var(--accent); color: #0b0d12; border: none;
-    border-radius: 8px; padding: 8px 14px; font-weight: 700; cursor: pointer;
-    font-size: 14px; transition: background 0.15s, opacity 0.15s;
-  }
-  .opt-form button:hover, .opt-chain-row button:hover { background: #8bbfff; }
-  .opt-form button:disabled { opacity: 0.5; cursor: default; }
-  .opt-chain-row select { flex: 1 1 200px; }
-  .opt-status { font-size: 13px; min-height: 18px; margin: 4px 0; color: var(--muted); }
-  .opt-status.err { color: var(--neg); }
-  .opt-status.ok { color: var(--pos); }
-  .opt-result:empty { display: none; }
-  .opt-verdict {
-    display: inline-block; padding: 6px 14px; border-radius: 999px;
-    font-weight: 700; font-size: 14px; letter-spacing: 0.04em;
-    text-transform: uppercase; margin: 8px 0;
-  }
-  .opt-verdict.good { background: rgba(46,204,113,0.18); color: var(--pos); border: 1px solid rgba(46,204,113,0.4); }
-  .opt-verdict.fair { background: rgba(243,156,18,0.18); color: #f39c12; border: 1px solid rgba(243,156,18,0.4); }
-  .opt-verdict.bad  { background: rgba(255,92,92,0.18); color: var(--neg); border: 1px solid rgba(255,92,92,0.4); }
-  .opt-contract { font-size: 12px; color: var(--muted); margin-bottom: 10px; font-variant-numeric: tabular-nums; }
-  .opt-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 6px 18px; margin: 10px 0;
-  }
-  .opt-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 14px;
-  }
-  .opt-row-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .opt-row-value { font-variant-numeric: tabular-nums; font-weight: 600; }
-  .opt-row-sub { font-weight: 400; }
-  .opt-grade {
-    display: inline-block; margin-left: 8px;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
-    text-transform: uppercase; padding: 2px 7px; border-radius: 4px;
-  }
-  .opt-grade.good { color: var(--pos); background: rgba(46,204,113,0.15); }
-  .opt-grade.fair { color: #f39c12; background: rgba(243,156,18,0.15); }
-  .opt-grade.bad  { color: var(--neg); background: rgba(255,92,92,0.15); }
-  .opt-notes { margin: 10px 0 4px; padding-left: 18px; font-size: 13px; color: var(--text); }
-  .opt-notes li { margin-bottom: 3px; }
-  .opt-disclaimer { font-size: 11px; color: var(--muted); margin-top: 8px; }
-  /* Manual contract form */
-  .opt-manual-grid {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    gap: 10px 14px;
-    margin: 6px 0 10px;
-  }
-  .opt-manual-field {
-    display: flex; flex-direction: column; gap: 4px;
-    font-size: 12px; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.04em;
-    grid-column: span 12;
-  }
-  /* Row 1: type / share price / strike / expiration — Robinhood header */
-  .opt-manual-field-row1 { grid-column: span 6; }
-  /* Row 2: bid / ask — the quote */
-  .opt-manual-field-row2 { grid-column: span 6; }
-  /* Row 3: IV / OI / volume — the rest */
-  .opt-manual-field-row3 { grid-column: span 4; }
-  @media (min-width: 560px) {
-    .opt-manual-field-row1 { grid-column: span 3; }
-  }
-  .opt-manual-field input, .opt-manual-field select {
-    background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 8px; padding: 8px 10px; color: var(--text);
-    font: inherit; font-size: 14px; text-transform: none; letter-spacing: 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .opt-manual-field input::placeholder { color: var(--muted); opacity: 0.55; }
-  .opt-manual-field input:focus, .opt-manual-field select:focus {
-    outline: none; border-color: var(--accent);
-  }
-  .opt-manual-opt { font-size: 10px; color: var(--muted); text-transform: lowercase; opacity: 0.7; }
-  /* Paste-contract-symbol row sits above the rest of the manual form. */
-  .opt-manual-paste { grid-column: 1 / -1; }
-  .opt-manual-paste input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.02em; }
-  .opt-manual-paste input.err { border-color: rgba(255,92,92,0.6); }
-  .opt-paste-hint {
-    font-size: 11px; color: var(--muted); text-transform: none; letter-spacing: 0;
-    margin-top: 2px; min-height: 14px;
-  }
-  .opt-paste-hint.err { color: var(--neg); }
-  /* "Tweak in manual" button at the end of a chain-graded result. */
-  .opt-tweak-btn {
-    margin: 6px 0 4px;
-    background: transparent; color: var(--accent);
-    border: 1px solid var(--accent); border-radius: 8px;
-    padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600;
-    cursor: pointer; transition: background 0.15s, color 0.15s;
-  }
-  .opt-tweak-btn:hover { background: var(--accent); color: #0b0d12; }
-  .opt-manual-submit {
-    grid-column: 1 / -1;
-    background: var(--accent); color: #0b0d12; border: none;
-    border-radius: 8px; padding: 10px 14px; font-weight: 700; cursor: pointer;
-    font-size: 14px; transition: background 0.15s;
-    justify-self: start; margin-top: 4px;
-  }
-  .opt-manual-submit:hover { background: #8bbfff; }
-  .hint code {
-    background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 4px; padding: 1px 5px; font-size: 12px;
-  }
-  /* Freshness banner */
-  .freshness {
-    max-width: 760px; margin: 8px auto 0; padding: 10px 14px;
-    border-radius: 10px; font-size: 13px;
-    background: rgba(110,168,255,0.10); border: 1px solid rgba(110,168,255,0.35);
-    color: var(--text);
-    display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
-  }
-  .freshness .freshness-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--accent); display: inline-block; flex: 0 0 8px;
-    align-self: center;
-  }
-  .freshness.warn {
-    background: rgba(243,156,18,0.12); border-color: rgba(243,156,18,0.45);
-  }
-  .freshness.warn .freshness-dot { background: #f39c12; }
-  .freshness.bad {
-    background: rgba(255,92,92,0.12); border-color: rgba(255,92,92,0.45);
-  }
-  .freshness.bad .freshness-dot { background: var(--neg); }
-  .freshness-detail { color: var(--muted); }
-  /* Verdict explainer + (?) glossary tooltip */
-  .opt-explain {
-    margin: 6px 0 12px; padding: 10px 12px;
-    background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.45;
-  }
-  .opt-explain.good { border-color: rgba(46,204,113,0.4); }
-  .opt-explain.fair { border-color: rgba(243,156,18,0.4); }
-  .opt-explain.bad  { border-color: rgba(255,92,92,0.4); }
-  .opt-news {
-    margin: 6px 0 12px; padding: 10px 12px;
-    background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.5;
-  }
-  .opt-news.bullish   { border-color: rgba(46,204,113,0.4); }
-  .opt-news.bearish   { border-color: rgba(255,92,92,0.4); }
-  .opt-news.neutral   { border-color: rgba(243,156,18,0.4); }
-  .opt-news.uncertain { border-color: var(--border); }
-  .opt-news-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
-  .opt-news-body { color: var(--text); }
-  .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
-  /* Market narratives card */
-  .narr-list { display: flex; flex-direction: column; gap: 10px; }
-  .narr-list:empty { display: none; }
-  .narr {
-    padding: 12px 14px; border-radius: 10px;
-    background: var(--panel-2); border: 1px solid var(--border);
-  }
-  .narr.bullish { border-color: rgba(46,204,113,0.4); }
-  .narr.bearish { border-color: rgba(255,92,92,0.4); }
-  .narr-head {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
-    margin-bottom: 4px;
-  }
-  .narr-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
-  .narr-tag {
-    display: inline-block; font-size: 10px; font-weight: 700;
-    letter-spacing: 0.05em; text-transform: uppercase;
-    padding: 2px 7px; border-radius: 4px;
-  }
-  .narr-tag.bullish { color: var(--pos); background: rgba(46,204,113,0.15); }
-  .narr-tag.bearish { color: var(--neg); background: rgba(255,92,92,0.15); }
-  .narr-tag.conf-high   { color: var(--text); background: rgba(110,168,255,0.18); }
-  .narr-tag.conf-medium { color: var(--muted); background: rgba(138,147,166,0.18); }
-  .narr-tag.conf-low    { color: var(--muted); background: rgba(138,147,166,0.10); }
-  .narr-tag.life { color: var(--muted); background: transparent; border: 1px solid var(--border); }
-  .narr-thesis { font-size: 13px; color: var(--text); margin: 2px 0 8px; line-height: 1.45; }
-  .narr-row { font-size: 12px; color: var(--muted); margin: 2px 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
-  .narr-row-label {
-    text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; font-weight: 700;
-  }
-  .narr-row.longs .narr-row-label  { color: var(--pos); }
-  .narr-row.shorts .narr-row-label { color: var(--neg); }
-  .narr-ticker {
-    display: inline-block; font-size: 11px; font-weight: 600;
-    padding: 1px 6px; border-radius: 4px; background: var(--bg);
-    border: 1px solid var(--border); color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-  .narr-ticker.long  { border-color: rgba(46,204,113,0.5); }
-  .narr-ticker.short { border-color: rgba(255,92,92,0.5); }
-  .narr-empty { font-size: 13px; color: var(--muted); padding: 4px 0; }
-  .narr-ended {
-    margin-top: 14px; padding-top: 12px;
-    border-top: 1px dashed var(--border);
-    font-size: 12px; color: var(--muted); line-height: 1.5;
-  }
-  .narr-ended:empty { display: none; }
-  .narr-ended-head {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
-    color: var(--muted); margin-bottom: 4px;
-  }
-  .narr-ended-item { margin-right: 10px; }
-  /* Per-ticker narrative chips inside the option eval status area */
-  .opt-narr-chips {
-    display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px;
-  }
-  .opt-narr-chip {
-    font-size: 11px; padding: 3px 8px; border-radius: 999px;
-    background: var(--panel-2); border: 1px solid var(--border);
-    color: var(--text); font-weight: 600; letter-spacing: 0.01em;
-  }
-  .opt-narr-chip.long  { border-color: rgba(46,204,113,0.5); color: var(--text); }
-  .opt-narr-chip.short { border-color: rgba(255,92,92,0.5); color: var(--text); }
-  .opt-narr-chip .opt-narr-chip-side {
-    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
-    margin-left: 4px; font-weight: 700;
-  }
-  .opt-narr-chip.long  .opt-narr-chip-side  { color: var(--pos); }
-  .opt-narr-chip.short .opt-narr-chip-side { color: var(--neg); }
-  .tip {
-    display: inline-flex; align-items: center; justify-content: center;
-    margin-left: 4px; width: 14px; height: 14px; border-radius: 50%;
-    background: var(--panel-2); border: 1px solid var(--border);
-    color: var(--muted); font-size: 10px; font-weight: 700;
-    cursor: help; position: relative; vertical-align: middle;
-    text-transform: none; letter-spacing: 0;
-  }
-  .tip:hover, .tip:focus { color: var(--text); border-color: var(--accent); outline: none; }
-  .tip::after {
-    content: attr(data-tip);
-    position: absolute; bottom: calc(100% + 6px); left: 50%;
-    transform: translateX(-50%);
-    background: #0b0d12; color: var(--text);
-    border: 1px solid var(--border); border-radius: 6px;
-    padding: 8px 10px; font-size: 12px; font-weight: 400;
-    text-transform: none; letter-spacing: 0; line-height: 1.4;
-    width: max-content; max-width: min(260px, 80vw);
-    white-space: normal; text-align: left;
-    pointer-events: none; opacity: 0;
-    transition: opacity 0.12s;
-    z-index: 10;
-  }
-  .tip:hover::after, .tip:focus::after { opacity: 1; }
-  @media (max-width: 480px) {
-    .tip::after { left: auto; right: 0; transform: none; }
-  }
-</style>
+<meta name="color-scheme" content="light dark" />
+<title>stonks · Option Contract Rater</title>
+<meta name="description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital." />
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css?v=${cacheBust}">
 </head>
 <body>
-<header>
-  <h1>Option Contract Rater</h1>
-  <div class="sub">Grade a single options contract on spread quality, delta, and theta. ${tickerCount} curated tickers refreshed daily, or enter your own contract below.</div>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="stonks home">
+    <svg class="brand-mark" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+      <path d="M3 16 L8 9 L12 13 L19 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="19" cy="4" r="1.6" fill="currentColor"/>
+    </svg>
+    <span class="brand-word">stonks</span>
+    <span class="brand-tag">Option Rater</span>
+  </a>
+  <nav class="site-nav">
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
+      <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <a class="icon-btn" href="https://github.com/lilseancoc-png/stonks" aria-label="Source on GitHub" target="_blank" rel="noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2.18c-3.2.69-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.77.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.44-2.7 5.41-5.27 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.68.8.56C20.22 21.39 23.5 17.08 23.5 12 23.5 5.73 18.27.5 12 .5z"/></svg>
+    </a>
+  </nav>
 </header>
+<p class="page-sub">Grade a single options contract on spread, delta, and theta — ${tickerCount} curated tickers refreshed daily. Watch the market narratives currently driving them.</p>
 <div id="freshness-banner" class="freshness" data-built-at="${builtAtIso}" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
   <span id="freshness-text">Built ${builtAt} (NY) · end-of-session quotes from Yahoo</span>
 </div>
 <main>
   ${narrativesSection()}
-  ${optionEvalSection(symbols)}
+  ${optionEvalSection()}
 </main>
-<footer>
-  Data: Yahoo Finance option chain, fetched server-side at build time. Built ${builtAt} (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
+<footer class="site-footer">
+  <div>Built <span class="muted">${builtAt} (NY)</span></div>
+  <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
+  <div><a href="https://github.com/lilseancoc-png/stonks" target="_blank" rel="noopener">Source on GitHub</a></div>
 </footer>
 <script>window.STONKS_MANIFEST=${manifestPayload};<\/script>
-${optionEvalScript()}
+<script src="app.js?v=${cacheBust}" defer></script>
 </body>
 </html>`;
+}
+
+// Production-grade stylesheet — light default + dark via data-theme on
+// <html>. Token-driven so the same component rules apply to both themes.
+function renderStylesCss() {
+  return `/* Generated by scripts/build.mjs — do not edit by hand. */
+:root {
+  --bg:#f7f8fa;
+  --surface:#ffffff;
+  --surface-2:#f1f3f7;
+  --surface-3:#e7eaf0;
+  --border:#e2e6ed;
+  --border-strong:#cdd3dd;
+  --text:#0f172a;
+  --text-strong:#0a0f1a;
+  --muted:#5f6877;
+  --accent:#1f6feb;
+  --accent-soft:rgba(31,111,235,0.10);
+  --pos:#15803d;
+  --pos-soft:rgba(21,128,61,0.10);
+  --neg:#b91c1c;
+  --neg-soft:rgba(185,28,28,0.10);
+  --warn:#b45309;
+  --warn-soft:rgba(180,83,9,0.12);
+  --shadow-sm:0 1px 2px rgba(15,23,42,0.06), 0 1px 1px rgba(15,23,42,0.04);
+  --shadow-md:0 6px 16px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04);
+  --shadow-lg:0 18px 40px rgba(15,23,42,0.10), 0 6px 12px rgba(15,23,42,0.05);
+  --r-1:4px; --r-2:8px; --r-3:12px; --r-4:16px; --r-pill:999px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-7:48px; --s-8:64px;
+  --fs-xs:12px; --fs-sm:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:20px; --fs-2xl:28px; --fs-3xl:36px;
+  --focus-ring:0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  color-scheme:light;
+}
+:root[data-theme="dark"] {
+  --bg:#0a0d14;
+  --surface:#11151e;
+  --surface-2:#161b27;
+  --surface-3:#1d2331;
+  --border:#222a3a;
+  --border-strong:#2e384c;
+  --text:#e6ebf5;
+  --text-strong:#ffffff;
+  --muted:#8b96ac;
+  --accent:#6ea8ff;
+  --accent-soft:rgba(110,168,255,0.16);
+  --pos:#34d399;
+  --pos-soft:rgba(52,211,153,0.16);
+  --neg:#f87171;
+  --neg-soft:rgba(248,113,113,0.16);
+  --warn:#fbbf24;
+  --warn-soft:rgba(251,191,36,0.16);
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md:0 6px 18px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
+  --shadow-lg:0 24px 48px rgba(0,0,0,0.6), 0 6px 14px rgba(0,0,0,0.35);
+  --focus-ring:0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  color-scheme:dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-md)/1.55 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font: inherit; }
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-2);
+}
+
+/* === Layout === */
+.site-header {
+  display: flex; align-items: center; justify-content: space-between;
+  max-width: 960px; margin: 0 auto;
+  padding: var(--s-5) var(--s-5) var(--s-3);
+}
+.brand {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  color: var(--text-strong);
+  font-weight: 700; font-size: var(--fs-lg);
+  letter-spacing: -0.02em;
+}
+.brand:hover { text-decoration: none; }
+.brand-mark { color: var(--accent); }
+.brand-tag {
+  font-size: var(--fs-xs); font-weight: 500;
+  color: var(--muted); letter-spacing: 0;
+  padding: 2px 8px; border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  margin-left: var(--s-1);
+}
+.site-nav { display: inline-flex; gap: var(--s-2); align-items: center; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: var(--r-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.icon-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  text-decoration: none;
+}
+:root:not([data-theme="dark"]) .icon-btn .i-moon { display: none; }
+:root[data-theme="dark"] .icon-btn .i-sun { display: none; }
+
+.page-sub {
+  max-width: 760px; margin: 0 auto;
+  padding: 0 var(--s-5) var(--s-3);
+  color: var(--muted); font-size: var(--fs-md);
+}
+
+main {
+  max-width: 760px; margin: 0 auto;
+  padding: var(--s-3) var(--s-5) var(--s-7);
+}
+
+.site-footer {
+  max-width: 960px;
+  margin: var(--s-6) auto 0;
+  padding: var(--s-5) var(--s-5) var(--s-7);
+  color: var(--muted); font-size: var(--fs-xs);
+  display: flex; flex-wrap: wrap; gap: var(--s-3); justify-content: space-between;
+  border-top: 1px solid var(--border);
+}
+.site-footer .muted { color: var(--muted); }
+
+/* === Freshness banner === */
+.freshness {
+  max-width: 760px;
+  margin: 0 var(--s-5) var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-3);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap;
+}
+@media (min-width: 800px){ .freshness { margin-left: auto; margin-right: auto; } }
+.freshness .freshness-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); flex: 0 0 8px;
+}
+.freshness.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.freshness.warn .freshness-dot { background: var(--warn); }
+.freshness.bad  { background: var(--neg-soft);  border-color: color-mix(in srgb, var(--neg) 40%, transparent); }
+.freshness.bad .freshness-dot { background: var(--neg); }
+.freshness-detail { color: var(--muted); }
+
+/* === Cards === */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  padding: var(--s-5);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--s-4);
+}
+.card-header {
+  display: flex; align-items: baseline; gap: var(--s-3);
+  margin-bottom: var(--s-1);
+}
+.card-title {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-strong);
+}
+.card-eyebrow {
+  font-size: var(--fs-xs); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+}
+.hint {
+  margin: 0 0 var(--s-4);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  padding: 1px 6px;
+}
+
+/* === Narratives === */
+.narr-list { display: flex; flex-direction: column; gap: var(--s-3); }
+.narr-list:empty { display: none; }
+.narr {
+  position: relative;
+  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  transition: border-color .15s ease, background .15s ease;
+}
+.narr:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.narr-accent {
+  position: absolute; left: 12px; top: 14px; bottom: 14px;
+  width: 3px; border-radius: 2px;
+  background: var(--pos);
+}
+.narr[data-sent="bearish"] .narr-accent { background: var(--neg); }
+.narr-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2);
+  margin-bottom: var(--s-1);
+}
+.narr-name {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.narr-tag {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.narr-tag.sent.bullish { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); background: var(--pos-soft); }
+.narr-tag.sent.bearish { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 35%, transparent); background: var(--neg-soft); }
+.narr-life {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 500;
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.narr-life-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+}
+.narr-thesis {
+  margin: var(--s-1) 0 var(--s-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.narr-side-row {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+.narr-side-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+.narr-side-row.long  .narr-side-label { color: var(--pos); }
+.narr-side-row.short .narr-side-label { color: var(--neg); }
+.narr-chip {
+  display: inline-flex; align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.narr-chip.long  { border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.narr-chip.short { border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.narr-ended { margin-top: var(--s-4); }
+.narr-ended:empty { display: none; }
+.narr-ended-head {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); font-weight: 700;
+  margin-bottom: var(--s-2);
+}
+.narr-ended-strip {
+  display: flex; gap: var(--s-2);
+  overflow-x: auto;
+  padding-bottom: var(--s-1);
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.narr-ended-card {
+  flex: 0 0 220px;
+  scroll-snap-align: start;
+  padding: var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.narr-ended-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.narr-ended-meta { font-size: 11px; color: var(--muted); }
+.narr-empty { color: var(--muted); font-size: var(--fs-sm); padding: var(--s-1) 0; }
+
+/* === Option eval card === */
+.opt-controls {
+  display: flex; flex-wrap: wrap; gap: var(--s-2);
+  align-items: stretch;
+  margin-bottom: var(--s-3);
+}
+.opt-chain-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-2);
+}
+@media (max-width: 480px){ .opt-chain-row { grid-template-columns: 1fr; } }
+.field {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.field-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.field select, .opt-manual-field input, .opt-manual-field select {
+  height: 40px; padding: 0 var(--s-3);
+  border-radius: var(--r-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.field select:focus-visible, .opt-manual-field input:focus-visible, .opt-manual-field select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* === Combobox === */
+.combo {
+  position: relative;
+  flex: 1 1 260px; min-width: 200px;
+}
+.combo input {
+  width: 100%; height: 40px;
+  padding: 0 36px 0 var(--s-3);
+  border-radius: var(--r-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: var(--fs-md);
+  transition: border-color .15s, box-shadow .15s;
+}
+.combo input::placeholder { color: var(--muted); opacity: 0.8; }
+.combo input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.combo-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px;
+  border: none; background: transparent;
+  color: var(--muted);
+  font-size: 18px; line-height: 1;
+  border-radius: var(--r-1);
+  cursor: pointer;
+}
+.combo-clear:hover { color: var(--text); background: var(--surface-2); }
+.combo ul {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+  z-index: 20;
+  list-style: none; margin: 0; padding: 4px;
+  max-height: min(50vh, 320px); overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  box-shadow: var(--shadow-md);
+}
+.combo ul li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--s-2);
+  align-items: center;
+  padding: 8px var(--s-3);
+  border-radius: var(--r-1);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+.combo ul li.is-active, .combo ul li:hover { background: var(--accent-soft); }
+.combo-sym { font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.combo-spot { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.combo-sector {
+  font-size: 11px; color: var(--muted);
+  padding: 2px 6px; border-radius: var(--r-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.combo-empty { padding: 10px var(--s-3); color: var(--muted); font-size: var(--fs-sm); }
+
+/* === Segmented control === */
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  position: relative;
+}
+.segmented input {
+  position: absolute; opacity: 0; pointer-events: none;
+}
+.segmented label {
+  cursor: pointer;
+  padding: 6px 16px;
+  font-size: var(--fs-sm); font-weight: 600;
+  color: var(--muted);
+  border-radius: var(--r-pill);
+  transition: color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.segmented input:checked + label {
+  color: var(--text-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.segmented input:focus-visible + label { box-shadow: var(--focus-ring); }
+
+/* === Status === */
+.opt-status {
+  font-size: var(--fs-sm);
+  min-height: 18px; margin: var(--s-1) 0;
+  color: var(--muted);
+}
+.opt-status.err { color: var(--neg); }
+.opt-status.ok  { color: var(--pos); }
+
+/* === Per-ticker narrative chips === */
+.opt-narr-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: var(--s-2) 0;
+  align-items: center;
+}
+.opt-narr-chips-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-right: 2px;
+}
+.opt-narr-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text); font-weight: 600;
+}
+.opt-narr-chip.long  { border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-narr-chip.short { border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-narr-chip-side {
+  font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 6px; border-radius: var(--r-pill);
+}
+.opt-narr-chip.long  .opt-narr-chip-side { color: var(--pos); background: var(--pos-soft); }
+.opt-narr-chip.short .opt-narr-chip-side { color: var(--neg); background: var(--neg-soft); }
+
+/* === Result panel === */
+.opt-result-wrap { position: relative; }
+.opt-result-sticky {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center;
+  padding: var(--s-2) var(--s-3);
+  margin: 0 calc(-1 * var(--s-3));
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: saturate(160%) blur(8px);
+  backdrop-filter: saturate(160%) blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.opt-verdict-mini {
+  display: inline-block;
+  padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.opt-verdict-mini.good { color: var(--pos); background: var(--pos-soft); border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-verdict-mini.fair { color: var(--warn); background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-verdict-mini.bad  { color: var(--neg); background: var(--neg-soft); border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-contract-mini { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.opt-result:empty { display: none; }
+.opt-verdict {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  font-weight: 700; font-size: var(--fs-md);
+  letter-spacing: 0.02em;
+  margin: var(--s-3) 0 var(--s-2);
+}
+.opt-verdict.good { background: var(--pos-soft); color: var(--pos); border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-verdict.fair { background: var(--warn-soft); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-verdict.bad  { background: var(--neg-soft); color: var(--neg); border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-contract {
+  font-size: var(--fs-xs); color: var(--muted);
+  margin-bottom: var(--s-3);
+  font-variant-numeric: tabular-nums;
+}
+.opt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px var(--s-4);
+  margin: var(--s-3) 0;
+}
+.opt-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: var(--fs-md);
+}
+.opt-row:last-child { border-bottom: none; }
+.opt-row-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.opt-row-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
+.opt-row-sub { font-weight: 400; margin-left: 6px; }
+.opt-grade {
+  display: inline-block; margin-left: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 7px; border-radius: var(--r-1);
+}
+.opt-grade.good { color: var(--pos); background: var(--pos-soft); }
+.opt-grade.fair { color: var(--warn); background: var(--warn-soft); }
+.opt-grade.bad  { color: var(--neg); background: var(--neg-soft); }
+.opt-notes {
+  margin: var(--s-3) 0 var(--s-1);
+  padding-left: var(--s-4);
+  font-size: var(--fs-sm); color: var(--text);
+}
+.opt-notes li { margin-bottom: 3px; }
+.opt-disclaimer { font-size: 11px; color: var(--muted); margin-top: var(--s-2); }
+.opt-explain {
+  margin: var(--s-2) 0 var(--s-3);
+  padding: var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm); line-height: 1.55;
+}
+.opt-explain.good { border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-explain.fair { border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-explain.bad  { border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-news {
+  margin: var(--s-2) 0 var(--s-3);
+  padding: var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm); line-height: 1.55;
+}
+.opt-news.bullish   { border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-news.bearish   { border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-news.neutral   { border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-news.uncertain { border-color: var(--border); }
+.opt-news-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; font-weight: 700; }
+.opt-news-body { color: var(--text); }
+.opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
+.opt-tweak-btn {
+  margin: var(--s-2) 0 var(--s-1);
+  background: transparent; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--r-2);
+  padding: 8px 14px;
+  font: inherit; font-size: var(--fs-sm); font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.opt-tweak-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* === Manual form === */
+.opt-manual-grid {
+  display: grid;
+  gap: var(--s-3) var(--s-4);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px){
+  .opt-manual-grid { grid-template-columns: 1fr 1fr; }
+  .opt-manual-paste, .opt-manual-submit { grid-column: 1 / -1; }
+}
+.opt-manual-field {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.opt-manual-field-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.opt-manual-opt {
+  font-size: 9px; font-weight: 500;
+  text-transform: lowercase; letter-spacing: 0;
+  color: var(--muted); opacity: 0.8;
+  margin-left: 4px;
+}
+.opt-manual-field input::placeholder { color: var(--muted); opacity: 0.65; }
+.opt-manual-field input.err {
+  border-color: var(--neg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neg) 25%, transparent);
+}
+.opt-manual-paste input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.02em;
+}
+.opt-paste-hint {
+  font-size: 11px; color: var(--muted);
+  text-transform: none; letter-spacing: 0;
+  min-height: 14px; margin-top: 2px;
+}
+.opt-paste-hint.err { color: var(--neg); }
+.opt-manual-submit {
+  background: var(--accent); color: #fff;
+  border: none; border-radius: var(--r-2);
+  padding: 10px 18px;
+  font-size: var(--fs-md); font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, transform .05s ease;
+  justify-self: start;
+}
+.opt-manual-submit:hover { background: color-mix(in srgb, var(--accent) 85%, #000); }
+.opt-manual-submit:active { transform: translateY(1px); }
+
+/* === Tooltip === */
+.tip {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: 6px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px; font-weight: 700;
+  cursor: help;
+  position: relative; vertical-align: middle;
+  text-transform: none; letter-spacing: 0;
+}
+.tip:hover, .tip:focus-visible {
+  color: var(--text); border-color: var(--accent);
+  outline: none;
+}
+.tip::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%);
+  background: var(--text-strong); color: var(--surface);
+  border: none; border-radius: var(--r-2);
+  padding: 8px 10px;
+  font-size: 12px; font-weight: 500;
+  line-height: 1.4;
+  width: max-content; max-width: min(260px, 80vw);
+  white-space: normal; text-align: left;
+  box-shadow: var(--shadow-md);
+  pointer-events: none; opacity: 0;
+  transition: opacity .12s ease;
+  z-index: 30;
+}
+.tip:hover::after, .tip:focus-visible::after { opacity: 1; }
+@media (max-width: 480px){
+  .tip::after { left: auto; right: 0; transform: none; }
+}
+`;
 }
 
 async function writeChainFiles(chains) {
@@ -1666,6 +2250,7 @@ async function main() {
   const previousHistory = await loadTrendHistory();
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
+  const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
   const builtAtIso = new Date().toISOString();
   const html = renderHtml({
     symbols,
@@ -1673,9 +2258,14 @@ async function main() {
     builtAtIso,
     narratives: trends.narratives,
     recentlyEnded: trends.recentlyEnded,
+    spots,
   });
+  const css = renderStylesCss();
+  const js = renderAppJs();
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
+  await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
+  await writeFile(resolve(ROOT, "app.js"), js, "utf8");
   const totalChainBytes = await writeChainFiles(chains);
   await writeTrendFiles({
     narratives: trends.narratives,
@@ -1684,7 +2274,7 @@ async function main() {
     builtAtIso,
   });
   console.log(
-    `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
+    `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );
 }
 
