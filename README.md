@@ -25,6 +25,17 @@ For each contract you get:
 - A **freshness banner** at the top shows how old the embedded quotes are and
   switches to a stale-data warning past 36 h.
 
+Above the grader, an **Active market narratives** card surfaces the themes
+currently driving the curated tickers — AI capex, GLP-1, tariffs, election
+trades, geopolitical defense plays, etc. Each narrative shows a one-sentence
+thesis, the longs and shorts from the curated list that ride it, a confidence
+tag, and a lifespan badge (how many days the story has been live). When you
+load a ticker, chips show which narratives that ticker sits inside. A
+"recently cooled off" line tracks themes that dropped out of the feed so you
+can see trends come and go. The list is rebuilt each daily refresh from the
+per-ticker AI news takes, persisted to `data/trends.json`, with a rolling
+90-day snapshot archive in `data/trends-history.json`.
+
 ## How it updates
 
 `.github/workflows/daily.yml` runs `node scripts/build.mjs` on a schedule:
