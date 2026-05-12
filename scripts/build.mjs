@@ -1257,15 +1257,40 @@ async function writeChainFiles(chains) {
 const AI_MODEL = "gemma-4-26b-a4b-it";
 const AI_NEWS_COUNT = 6;
 // Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. We stagger request *starts*
-// 4200ms apart (~14.3 RPM, safety margin under 15) and run requests
+// 4500ms apart (~13.3 RPM, safety margin under 15) and run requests
 // concurrently — call latency overlaps the pacing window instead of being
-// added to it, finishing ~65 tickers in ~4.6 minutes.
-const AI_START_INTERVAL_MS = 4200;
+// added to it, finishing ~65 tickers in ~4.9 minutes.
+const AI_START_INTERVAL_MS = 4500;
 // Google's free tier intermittently returns 500 INTERNAL on otherwise valid
-// requests. Retry transient 5xx (and the generic "internal" wording the SDK
-// sometimes surfaces) a couple of times with backoff before giving up.
-const AI_MAX_ATTEMPTS = 3;
-const AI_RETRY_BACKOFF_MS = [2000, 5000];
+// requests, and 429 RESOURCE_EXHAUSTED when a per-minute window edges over
+// the quota despite our pacing. Retry transient 5xx and 429, honouring the
+// "Please retry in Xs" hint the API surfaces for rate-limit errors.
+const AI_MAX_ATTEMPTS = 4;
+const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000];
+// Buffer to leave between the per-ticker pass finishing and the narrative
+// extraction call firing — otherwise the narrative call lands inside the
+// same 60s window as the tail of the per-ticker burst and can push us over
+// the 15 RPM quota.
+const AI_NARRATIVE_COOLDOWN_MS = 8000;
+
+// Classify a Gemini/Gemma error as transient and return the backoff (ms) the
+// caller should wait before retrying, or null if the error isn't transient.
+// 429s carry a "Please retry in 14.6985s" hint we should respect — otherwise
+// we'd retry into the same rate-limit window and burn an attempt.
+function classifyAiError(err, attempt) {
+  const msg = String(err?.message || "");
+  const is429 = /\b(429|RESOURCE_EXHAUSTED|quota)\b/i.test(msg);
+  const is5xx = /\b(500|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED)\b/i.test(msg);
+  if (!is429 && !is5xx) return null;
+  if (is429) {
+    const m = msg.match(/retry in ([\d.]+)\s*s/i);
+    const hinted = m ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : null;
+    // Use the hinted retry-after if present, else fall back to our backoff
+    // schedule but floored at 15s — 429 quota windows are 60s wide.
+    return hinted ?? Math.max(15000, AI_RETRY_BACKOFF_MS[attempt] ?? 15000);
+  }
+  return AI_RETRY_BACKOFF_MS[attempt] ?? 5000;
+}
 const AI_SYSTEM_PROMPT =
   "You are an options-savvy financial news summarizer. " +
   "Given a US-listed ticker, its current share price, and a handful of recent " +
@@ -1336,10 +1361,9 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
       break;
     } catch (err) {
       lastErr = err;
-      const msg = String(err?.message || "");
-      const transient = /\b(500|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED)\b/i.test(msg);
-      if (!transient || attempt === AI_MAX_ATTEMPTS - 1) throw err;
-      await new Promise((r) => setTimeout(r, AI_RETRY_BACKOFF_MS[attempt] ?? 5000));
+      const wait = classifyAiError(err, attempt);
+      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, wait));
     }
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
@@ -1471,10 +1495,9 @@ async function generateMarketNarratives(ai, chains, previousNames) {
       break;
     } catch (err) {
       lastErr = err;
-      const msg = String(err?.message || "");
-      const transient = /\b(500|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED)\b/i.test(msg);
-      if (!transient || attempt === AI_MAX_ATTEMPTS - 1) throw err;
-      await new Promise((r) => setTimeout(r, AI_RETRY_BACKOFF_MS[attempt] ?? 5000));
+      const wait = classifyAiError(err, attempt);
+      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, wait));
     }
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
@@ -1601,6 +1624,10 @@ async function attachMarketNarratives(chains, previousHistory) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
   const previousNames = lastSnapshot ? lastSnapshot.narratives.map((n) => n.name) : [];
+  // Let the per-ticker pass's 60s rate-limit window clear before firing the
+  // narrative call — otherwise this one call lands inside the tail of the
+  // previous burst and pushes the project over 15 RPM.
+  await new Promise((r) => setTimeout(r, AI_NARRATIVE_COOLDOWN_MS));
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
     const raw = await generateMarketNarratives(ai, chains, previousNames);
