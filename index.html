@@ -223,6 +223,75 @@
   .opt-news-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
   .opt-news-body { color: var(--text); }
   .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
+  /* Market narratives card */
+  .narr-list { display: flex; flex-direction: column; gap: 10px; }
+  .narr-list:empty { display: none; }
+  .narr {
+    padding: 12px 14px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--border);
+  }
+  .narr.bullish { border-color: rgba(46,204,113,0.4); }
+  .narr.bearish { border-color: rgba(255,92,92,0.4); }
+  .narr-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+    margin-bottom: 4px;
+  }
+  .narr-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .narr-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px;
+  }
+  .narr-tag.bullish { color: var(--pos); background: rgba(46,204,113,0.15); }
+  .narr-tag.bearish { color: var(--neg); background: rgba(255,92,92,0.15); }
+  .narr-tag.conf-high   { color: var(--text); background: rgba(110,168,255,0.18); }
+  .narr-tag.conf-medium { color: var(--muted); background: rgba(138,147,166,0.18); }
+  .narr-tag.conf-low    { color: var(--muted); background: rgba(138,147,166,0.10); }
+  .narr-tag.life { color: var(--muted); background: transparent; border: 1px solid var(--border); }
+  .narr-thesis { font-size: 13px; color: var(--text); margin: 2px 0 8px; line-height: 1.45; }
+  .narr-row { font-size: 12px; color: var(--muted); margin: 2px 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+  .narr-row-label {
+    text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; font-weight: 700;
+  }
+  .narr-row.longs .narr-row-label  { color: var(--pos); }
+  .narr-row.shorts .narr-row-label { color: var(--neg); }
+  .narr-ticker {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 1px 6px; border-radius: 4px; background: var(--bg);
+    border: 1px solid var(--border); color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .narr-ticker.long  { border-color: rgba(46,204,113,0.5); }
+  .narr-ticker.short { border-color: rgba(255,92,92,0.5); }
+  .narr-empty { font-size: 13px; color: var(--muted); padding: 4px 0; }
+  .narr-ended {
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px dashed var(--border);
+    font-size: 12px; color: var(--muted); line-height: 1.5;
+  }
+  .narr-ended:empty { display: none; }
+  .narr-ended-head {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .narr-ended-item { margin-right: 10px; }
+  /* Per-ticker narrative chips inside the option eval status area */
+  .opt-narr-chips {
+    display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px;
+  }
+  .opt-narr-chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); font-weight: 600; letter-spacing: 0.01em;
+  }
+  .opt-narr-chip.long  { border-color: rgba(46,204,113,0.5); color: var(--text); }
+  .opt-narr-chip.short { border-color: rgba(255,92,92,0.5); color: var(--text); }
+  .opt-narr-chip .opt-narr-chip-side {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+    margin-left: 4px; font-weight: 700;
+  }
+  .opt-narr-chip.long  .opt-narr-chip-side  { color: var(--pos); }
+  .opt-narr-chip.short .opt-narr-chip-side { color: var(--neg); }
   .tip {
     display: inline-flex; align-items: center; justify-content: center;
     margin-left: 4px; width: 14px; height: 14px; border-radius: 50%;
@@ -257,11 +326,18 @@
   <h1>Option Contract Rater</h1>
   <div class="sub">Grade a single options contract on spread quality, delta, and theta. 65 curated tickers refreshed daily, or enter your own contract below.</div>
 </header>
-<div id="freshness-banner" class="freshness" data-built-at="2026-05-12T15:47:20.045Z" role="status" aria-live="polite">
+<div id="freshness-banner" class="freshness" data-built-at="2026-05-12T22:34:58.168Z" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
-  <span id="freshness-text">Built May 12, 2026, 11:47 AM (NY) · end-of-session quotes from Yahoo</span>
+  <span id="freshness-text">Built May 12, 2026, 6:34 PM (NY) · end-of-session quotes from Yahoo</span>
 </div>
 <main>
+  <section class="card" id="narratives-section">
+    <h2 class="card-title">Active market narratives</h2>
+    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Narratives come and go. These are the themes currently driving flows across the curated tickers, refreshed each build. Pick a ticker below to see which narratives it sits inside.</p>
+    <div id="narratives-list" class="narr-list"></div>
+    <div id="narratives-ended" class="narr-ended"></div>
+    <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
+  </section>
   <section class="card" id="opt-eval-section">
     <h2 class="card-title">From a curated ticker</h2>
     <p class="hint">Pick a ticker, then a call or put. We grade the bid-ask spread and Greeks (delta/theta) so you can spot a good contract from a poor one. Underlying direction is up to you.</p>
@@ -279,6 +355,7 @@
       <button type="button" id="opt-eval-btn">Evaluate contract</button>
     </div>
     <div id="opt-eval-status" class="opt-status"></div>
+    <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
     <div id="opt-eval-result" class="opt-result"></div>
   </section>
   <section class="card" id="opt-manual-section">
@@ -326,9 +403,9 @@
   </section>
 </main>
 <footer>
-  Data: Yahoo Finance option chain, fetched server-side at build time. Built May 12, 2026, 11:47 AM (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
+  Data: Yahoo Finance option chain, fetched server-side at build time. Built May 12, 2026, 6:34 PM (NY). Greeks computed locally with Black-Scholes. For information only — not investment advice.
 </footer>
-<script>window.STONKS_MANIFEST={"builtAt":"May 12, 2026, 11:47 AM","builtAtIso":"2026-05-12T15:47:20.045Z","symbols":["AAPL","ABNB","ADBE","AMC","AMD","AMZN","AVGO","BA","BABA","BAC","COIN","COST","CRM","CRWD","CVX","DDOG","DIA","DIS","DOCU","DRAM","GLD","GME","GOOGL","INTC","IWM","JNJ","JPM","LLY","MA","MCD","MDB","META","MSFT","MU","NET","NFLX","NIO","NOW","NVDA","NVO","OKTA","ORCL","PANW","PFE","PLTR","QQQ","SBUX","SHOP","SNOW","SPY","TLT","TSLA","TSM","UBER","UNH","USO","V","WDAY","WMT","XLE","XLF","XLK","XOM","ZM","ZS"]};</script>
+<script>window.STONKS_MANIFEST={"builtAt":"May 12, 2026, 6:34 PM","builtAtIso":"2026-05-12T22:34:58.168Z","symbols":["AAPL","ABNB","ADBE","AMC","AMD","AMZN","AVGO","BA","BABA","BAC","COIN","COST","CRM","CRWD","CVX","DDOG","DIA","DIS","DOCU","DRAM","GLD","GME","GOOGL","INTC","IWM","JNJ","JPM","LLY","MA","MCD","MDB","META","MSFT","MU","NET","NFLX","NIO","NOW","NVDA","NVO","OKTA","ORCL","PANW","PFE","PLTR","QQQ","SBUX","SHOP","SNOW","SPY","TLT","TSLA","TSM","UBER","UNH","USO","V","WDAY","WMT","XLE","XLF","XLK","XOM","ZM","ZS"],"narratives":[{"name":"AI Infrastructure Buildout","thesis":"Massive capital expenditure in AI hardware and enterprise software is driving significant momentum in semiconductors and tech.","sentiment":"bullish","confidence":"high","longs":["NVDA","MSFT","AMD","AVGO","ORCL","CRM","ADBE","MU","DRAM","PLTR","PANW","CRWD","SNOW","MDB"],"shorts":["INTC"],"firstSeen":"2026-05-12","daysRunning":1},{"name":"GLP-1 Obesity Wave","thesis":"Strong clinical trial results for weight-loss medications are driving investor interest in the pharmaceutical sector.","sentiment":"bullish","confidence":"medium","longs":["NVO","LLY"],"shorts":[],"firstSeen":"2026-05-12","daysRunning":1},{"name":"Crypto and Meme Volatility","thesis":"Divergent sentiment in speculative assets is driving moves in crypto-related platforms and meme-adjacent stocks.","sentiment":"bullish","confidence":"medium","longs":["COIN","AMC"],"shorts":["GME"],"firstSeen":"2026-05-12","daysRunning":1},{"name":"Financial Sector Resilience","thesis":"Banking and payment stocks are showing strength through buybacks and undervalued services despite macroeconomic headwinds.","sentiment":"bullish","confidence":"medium","longs":["BAC","V","JPM"],"shorts":[],"firstSeen":"2026-05-12","daysRunning":1},{"name":"Energy and Inflationary Pressure","thesis":"Rising inflation and oil prices are creating a divergence between energy producers and broader equity indices.","sentiment":"bullish","confidence":"high","longs":["USO","XLE","XOM","CVX"],"shorts":["SPY","QQQ","IWM","DIA","XLK"],"firstSeen":"2026-05-12","daysRunning":1}],"recentlyEnded":[]};</script>
 
 <script>
 (function(){
@@ -360,7 +437,9 @@
     }
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [] };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [] };
+  var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
+  var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
   var RFR = 0.045; // assumed risk-free rate (annual)
   // Chains are lazy-loaded from data/<symbol>.json on first selection and
   // memoised for the life of the page — flipping back to an already-loaded
@@ -780,6 +859,7 @@
       populateStrikes();
       $('opt-chain-row').hidden=false;
       $('opt-eval-result').innerHTML='';
+      renderTickerNarrativeChips(symbol);
       setStatus('opt-eval-status',symbol+' loaded · spot $'+fmt(state.spot)+' · '+state.expirations.length+' expirations','ok');
     }).catch(function(err){
       setStatus('opt-eval-status','Failed to load '+symbol+': '+(err&&err.message||err),'err');
@@ -794,7 +874,88 @@
     populateStrikes();
   }
 
+  function tickerListHtml(arr, side){
+    if(!arr||!arr.length) return '<span class="narr-ticker">—</span>';
+    return arr.map(function(t){
+      return '<span class="narr-ticker '+side+'">'+escapeHtml(t)+'</span>';
+    }).join(' ');
+  }
+  function narrLifeLabel(n){
+    var d = n.daysRunning|0;
+    if(!d || d<=1) return 'New today';
+    return 'Day '+d+' · since '+escapeHtml(n.firstSeen||'');
+  }
+  function renderNarratives(){
+    var list=$('narratives-list');
+    var empty=$('narratives-empty');
+    var ended=$('narratives-ended');
+    if(!list) return;
+    if(!NARRATIVES.length){
+      list.innerHTML='';
+      if(empty) empty.hidden=false;
+    } else {
+      if(empty) empty.hidden=true;
+      var html = NARRATIVES.map(function(n){
+        var sent = n.sentiment==='bearish' ? 'bearish' : 'bullish';
+        var conf = ({high:'High',medium:'Medium',low:'Low'})[n.confidence] || 'Medium';
+        return '<div class="narr '+sent+'">'+
+          '<div class="narr-head">'+
+            '<span class="narr-name">'+escapeHtml(n.name)+'</span>'+
+            '<span class="narr-tag '+sent+'">'+(sent==='bullish'?'Bullish':'Bearish')+'</span>'+
+            '<span class="narr-tag conf-'+(n.confidence||'medium')+'">Conf · '+conf+'</span>'+
+            '<span class="narr-tag life">'+escapeHtml(narrLifeLabel(n))+'</span>'+
+          '</div>'+
+          '<div class="narr-thesis">'+escapeHtml(n.thesis||'')+'</div>'+
+          '<div class="narr-row longs"><span class="narr-row-label">Long</span>'+tickerListHtml(n.longs,'long')+'</div>'+
+          '<div class="narr-row shorts"><span class="narr-row-label">Short</span>'+tickerListHtml(n.shorts,'short')+'</div>'+
+        '</div>';
+      }).join('');
+      list.innerHTML=html;
+    }
+    if(ended){
+      if(RECENTLY_ENDED.length){
+        ended.innerHTML = '<div class="narr-ended-head">Recently cooled off</div>'+
+          RECENTLY_ENDED.map(function(e){
+            var d = e.daysSince|0;
+            var ran = e.ranDays|0;
+            var ago = d===1 ? 'yesterday' : d+' days ago';
+            var run = ran<=1 ? 'one-day blip' : ran+'-day run';
+            return '<span class="narr-ended-item"><b>'+escapeHtml(e.name)+'</b> · last seen '+ago+' · '+run+'</span>';
+          }).join('');
+      } else {
+        ended.innerHTML='';
+      }
+    }
+  }
+  function narrativesForTicker(sym){
+    if(!sym) return [];
+    var hits=[];
+    for (var i=0;i<NARRATIVES.length;i++){
+      var n=NARRATIVES[i];
+      if((n.longs||[]).indexOf(sym)>=0) hits.push({n:n, side:'long'});
+      else if((n.shorts||[]).indexOf(sym)>=0) hits.push({n:n, side:'short'});
+    }
+    return hits;
+  }
+  function renderTickerNarrativeChips(sym){
+    var box=$('opt-narr-chips');
+    if(!box) return;
+    var hits=narrativesForTicker(sym);
+    if(!hits.length){
+      box.hidden=true; box.innerHTML='';
+      return;
+    }
+    box.hidden=false;
+    box.innerHTML = hits.map(function(h){
+      var sentLabel = h.n.sentiment==='bearish' ? 'Bearish' : 'Bullish';
+      return '<span class="opt-narr-chip '+h.side+'" title="'+escapeHtml(h.n.thesis||'')+'">'+
+        escapeHtml(h.n.name)+' <span class="opt-narr-chip-side">· '+h.side.toUpperCase()+' · '+sentLabel+'</span>'+
+      '</span>';
+    }).join('');
+  }
+
   function bind(){
+    renderNarratives();
     var form=$('opt-eval-form');
     if(form){
       form.addEventListener('submit',function(e){e.preventDefault();loadChain();});
