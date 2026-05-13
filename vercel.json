@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "echo 'No build step — files are committed by the daily-build workflow.'",
+  "outputDirectory": ".",
+  "framework": null,
   "functions": {
     "api/quote.js": {
       "maxDuration": 10
