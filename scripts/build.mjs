@@ -422,6 +422,7 @@ function optionEvalSection() {
       </label>
     </div>
     <div id="opt-eval-status" class="opt-status" role="status"></div>
+    <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
     <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
       <header class="opt-tech-head">
@@ -1123,9 +1124,88 @@ function renderAppJs() {
       renderTechnicals(symbol);
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
+      // Kick off the live spot refresh in parallel — the page is already
+      // usable with baked data; live just updates spot / Greeks / ATM pick
+      // when it arrives. Quietly no-ops if the endpoint or market is closed.
+      refreshLiveQuote(symbol);
     }).catch(function(err){
       setStatus('opt-eval-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
     });
+  }
+
+  // --- Live spot --------------------------------------------------------
+  // Vercel serverless function at /api/quote?symbol=XXX proxies Yahoo's
+  // quote endpoint (consent cookie + crumb auth happen server-side). The
+  // browser only needs spot + day change to make the grader reflect
+  // intraday price; chain quotes and technicals stay on the baked daily
+  // build. Cache successful responses for 30 s so rapid re-selects don't
+  // re-fire the network call.
+  var LIVE_CACHE = Object.create(null);
+  var LIVE_TTL_MS = 30000;
+  function fmtPctSigned(p){ if (p == null || !isFinite(p)) return ''; return (p >= 0 ? '+' : '') + p.toFixed(2) + '%'; }
+  function marketStateLabel(s){
+    if (s === 'REGULAR') return { label: 'Live', cls: 'live' };
+    if (s === 'PRE') return { label: 'Pre-market', cls: 'pre' };
+    if (s === 'POST' || s === 'POSTPOST') return { label: 'After hours', cls: 'post' };
+    return { label: 'Delayed', cls: 'delayed' };
+  }
+  function renderLiveQuote(symbol, q){
+    var box = $('opt-live-quote'); if (!box) return;
+    if (!q || q.spot == null){ box.hidden = true; box.innerHTML = ''; return; }
+    var st = marketStateLabel(q.marketState);
+    var changeCls = q.change == null ? '' : (q.change >= 0 ? 'up' : 'down');
+    var changeTxt = q.change != null && isFinite(q.change)
+      ? ((q.change >= 0 ? '+' : '') + '$' + Math.abs(q.change).toFixed(2) + ' (' + fmtPctSigned(q.changePct) + ')')
+      : '';
+    box.hidden = false;
+    box.innerHTML = '<span class="opt-live-pill ' + st.cls + '">' + st.label + '</span>' +
+      '<span class="opt-live-sym">' + escapeHtml(symbol) + '</span>' +
+      '<span class="opt-live-spot">' + fmtMoney(q.spot) + '</span>' +
+      (changeTxt ? '<span class="opt-live-chg ' + changeCls + '">' + changeTxt + '</span>' : '');
+  }
+  function refreshLiveQuote(symbol){
+    if (!symbol) return;
+    var box = $('opt-live-quote');
+    var cached = LIVE_CACHE[symbol];
+    if (cached && (Date.now() - cached.at) < LIVE_TTL_MS){
+      applyLiveQuote(symbol, cached.q);
+      return;
+    }
+    // Show a subtle "checking…" placeholder so the user knows the page is
+    // still working in the background — replaced as soon as the call
+    // resolves (or fails silently).
+    if (box){
+      box.hidden = false;
+      box.innerHTML = '<span class="opt-live-pill checking">Checking quote…</span>' +
+        '<span class="opt-live-sym">' + escapeHtml(symbol) + '</span>';
+    }
+    fetch('/api/quote?symbol=' + encodeURIComponent(symbol), { cache: 'no-store' })
+      .then(function(resp){
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.json();
+      })
+      .then(function(q){
+        if (!q || q.spot == null) throw new Error('no spot');
+        LIVE_CACHE[symbol] = { q: q, at: Date.now() };
+        // Bail if the user has already moved to a different ticker.
+        if (state.symbol !== symbol) return;
+        applyLiveQuote(symbol, q);
+      })
+      .catch(function(){
+        // Silent failure — keep baked data, hide the placeholder.
+        if (state.symbol !== symbol) return;
+        if (box){ box.hidden = true; box.innerHTML = ''; }
+      });
+  }
+  function applyLiveQuote(symbol, q){
+    renderLiveQuote(symbol, q);
+    if (q.spot != null && isFinite(q.spot) && q.spot > 0 && q.spot !== state.spot){
+      state.spot = q.spot;
+      // Re-snap the ATM strike pick to live spot, then regrade. The user's
+      // current type/expiry selection is preserved by populateStrikes().
+      populateStrikes();
+      evaluate();
+    }
   }
 
   // --- Technicals ---------------------------------------------------------
@@ -1913,6 +1993,45 @@ main {
 }
 .opt-narr-chip.long  .opt-narr-chip-side { color: var(--pos); background: var(--pos-soft); }
 .opt-narr-chip.short .opt-narr-chip-side { color: var(--neg); background: var(--neg-soft); }
+
+/* === Live spot pill === */
+.opt-live {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: var(--s-2) 0;
+  font-variant-numeric: tabular-nums;
+}
+.opt-live-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px; border-radius: var(--r-pill);
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--muted);
+}
+.opt-live-pill::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--muted);
+}
+.opt-live-pill.live     { color: var(--pos);  background: var(--pos-soft);  border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-live-pill.live::before { background: var(--pos); box-shadow: 0 0 0 0 color-mix(in srgb, var(--pos) 60%, transparent); animation: opt-live-pulse 1.6s ease-out infinite; }
+.opt-live-pill.pre,
+.opt-live-pill.post     { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-live-pill.pre::before, .opt-live-pill.post::before { background: var(--warn); }
+.opt-live-pill.delayed  { color: var(--muted); background: var(--surface-3); }
+.opt-live-pill.checking { color: var(--muted); background: var(--surface-3); }
+.opt-live-pill.checking::before {
+  background: var(--muted); animation: opt-live-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes opt-live-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  70%  { box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 0%,  transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%,  transparent); }
+}
+.opt-live-sym   { font-size: 12px; font-weight: 700; color: var(--text-strong); letter-spacing: 0.02em; }
+.opt-live-spot  { font-size: var(--fs-md); font-weight: 700; color: var(--text-strong); }
+.opt-live-chg   { font-size: 12px; font-weight: 600; }
+.opt-live-chg.up   { color: var(--pos); }
+.opt-live-chg.down { color: var(--neg); }
 
 /* === Technical signals card === */
 .opt-tech {

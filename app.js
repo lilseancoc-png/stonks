@@ -624,9 +624,88 @@
       renderTechnicals(symbol);
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
+      // Kick off the live spot refresh in parallel — the page is already
+      // usable with baked data; live just updates spot / Greeks / ATM pick
+      // when it arrives. Quietly no-ops if the endpoint or market is closed.
+      refreshLiveQuote(symbol);
     }).catch(function(err){
       setStatus('opt-eval-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
     });
+  }
+
+  // --- Live spot --------------------------------------------------------
+  // Vercel serverless function at /api/quote?symbol=XXX proxies Yahoo's
+  // quote endpoint (consent cookie + crumb auth happen server-side). The
+  // browser only needs spot + day change to make the grader reflect
+  // intraday price; chain quotes and technicals stay on the baked daily
+  // build. Cache successful responses for 30 s so rapid re-selects don't
+  // re-fire the network call.
+  var LIVE_CACHE = Object.create(null);
+  var LIVE_TTL_MS = 30000;
+  function fmtPctSigned(p){ if (p == null || !isFinite(p)) return ''; return (p >= 0 ? '+' : '') + p.toFixed(2) + '%'; }
+  function marketStateLabel(s){
+    if (s === 'REGULAR') return { label: 'Live', cls: 'live' };
+    if (s === 'PRE') return { label: 'Pre-market', cls: 'pre' };
+    if (s === 'POST' || s === 'POSTPOST') return { label: 'After hours', cls: 'post' };
+    return { label: 'Delayed', cls: 'delayed' };
+  }
+  function renderLiveQuote(symbol, q){
+    var box = $('opt-live-quote'); if (!box) return;
+    if (!q || q.spot == null){ box.hidden = true; box.innerHTML = ''; return; }
+    var st = marketStateLabel(q.marketState);
+    var changeCls = q.change == null ? '' : (q.change >= 0 ? 'up' : 'down');
+    var changeTxt = q.change != null && isFinite(q.change)
+      ? ((q.change >= 0 ? '+' : '') + '$' + Math.abs(q.change).toFixed(2) + ' (' + fmtPctSigned(q.changePct) + ')')
+      : '';
+    box.hidden = false;
+    box.innerHTML = '<span class="opt-live-pill ' + st.cls + '">' + st.label + '</span>' +
+      '<span class="opt-live-sym">' + escapeHtml(symbol) + '</span>' +
+      '<span class="opt-live-spot">' + fmtMoney(q.spot) + '</span>' +
+      (changeTxt ? '<span class="opt-live-chg ' + changeCls + '">' + changeTxt + '</span>' : '');
+  }
+  function refreshLiveQuote(symbol){
+    if (!symbol) return;
+    var box = $('opt-live-quote');
+    var cached = LIVE_CACHE[symbol];
+    if (cached && (Date.now() - cached.at) < LIVE_TTL_MS){
+      applyLiveQuote(symbol, cached.q);
+      return;
+    }
+    // Show a subtle "checking…" placeholder so the user knows the page is
+    // still working in the background — replaced as soon as the call
+    // resolves (or fails silently).
+    if (box){
+      box.hidden = false;
+      box.innerHTML = '<span class="opt-live-pill checking">Checking quote…</span>' +
+        '<span class="opt-live-sym">' + escapeHtml(symbol) + '</span>';
+    }
+    fetch('/api/quote?symbol=' + encodeURIComponent(symbol), { cache: 'no-store' })
+      .then(function(resp){
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.json();
+      })
+      .then(function(q){
+        if (!q || q.spot == null) throw new Error('no spot');
+        LIVE_CACHE[symbol] = { q: q, at: Date.now() };
+        // Bail if the user has already moved to a different ticker.
+        if (state.symbol !== symbol) return;
+        applyLiveQuote(symbol, q);
+      })
+      .catch(function(){
+        // Silent failure — keep baked data, hide the placeholder.
+        if (state.symbol !== symbol) return;
+        if (box){ box.hidden = true; box.innerHTML = ''; }
+      });
+  }
+  function applyLiveQuote(symbol, q){
+    renderLiveQuote(symbol, q);
+    if (q.spot != null && isFinite(q.spot) && q.spot > 0 && q.spot !== state.spot){
+      state.spot = q.spot;
+      // Re-snap the ATM strike pick to live spot, then regrade. The user's
+      // current type/expiry selection is preserved by populateStrikes().
+      populateStrikes();
+      evaluate();
+    }
   }
 
   // --- Technicals ---------------------------------------------------------

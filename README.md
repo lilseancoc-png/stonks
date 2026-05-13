@@ -45,6 +45,23 @@ fetched **only** when the user picks that ticker from the combobox. The fetch
 goes through `force-cache`, so re-selecting the same ticker is free for the
 rest of the session.
 
+### Live intraday spot
+
+While the chain, news, and technicals are baked twice a day, the **spot
+price** is refreshed on the fly. When you pick a ticker, the page also hits
+`/api/quote?symbol=XXX` — a small Vercel serverless function in
+`api/quote.js` that proxies Yahoo's quote endpoint server-side (the
+consent-cookie / crumb handshake can't run from a browser). A "Live" pill
+appears next to the ticker with the current spot + day change, and the
+Greeks / breakeven / moneyness / ATM strike pick all recompute against the
+live number.
+
+The live fetch is non-blocking: the baked snapshot paints first, then the
+live update slides in. If the endpoint or Yahoo is down — or if the market
+is closed — the page silently falls back to baked data. A 30-second
+in-browser cache plus a 30-second Vercel edge cache prevent rapid re-selects
+from re-firing the call.
+
 Above the grader, an **Active market narratives** card surfaces the themes
 currently driving the curated tickers — AI capex, GLP-1, tariffs, election
 trades, geopolitical defense plays, etc. Each narrative shows a one-sentence
@@ -67,27 +84,46 @@ Each run fetches the option chains and ~6 months of daily history per ticker
 (with retries on transient Yahoo errors), computes RSI / MACD / 20- and
 50-day support and resistance from the closes, writes everything to
 `data/<SYMBOL>.json`, regenerates `index.html` with the ticker manifest,
-commits, and deploys to GitHub Pages. If fewer than 75% of tickers come back,
-the run fails loud and the previous good build keeps serving. The technicals
-step is non-fatal — if the chart endpoint hiccups for a single ticker, that
-ticker simply ships without the indicator card.
+and commits. Vercel picks up the commit and ships the new bundle. If fewer
+than 75% of tickers come back, the run fails loud and the previous good
+build keeps serving. The technicals step is non-fatal — if the chart
+endpoint hiccups for a single ticker, that ticker simply ships without the
+indicator card.
+
+The intraday gap between builds is covered by the live-quote endpoint
+described above — chain quotes and Greeks recompute against the live spot
+the moment you pick a ticker.
 
 ## Running locally
 
 ```bash
+# Refresh the baked per-ticker JSON.
 node scripts/build.mjs
-# Serve over HTTP so the page can fetch data/<SYMBOL>.json
-# (browsers block fetch() on file:// URLs).
+
+# (a) Static-only — chain/news/technicals work; live spot does not.
 python3 -m http.server 8000
 # then open http://localhost:8000/
+
+# (b) Full stack — also serves the /api/quote function locally.
+npx vercel dev
+# then open http://localhost:3000/
 ```
 
-Requires Node 20+. No API keys.
+Requires Node 20+. No API keys for the static side; `GEMINI_API_KEY` is
+optional and enables the AI news takes during a build.
 
-## Enabling GitHub Pages
+## Deployment
 
-In the repo settings → Pages → Source: **GitHub Actions**. The first workflow
-run will publish the site.
+The site is hosted on **Vercel** — push to `main` and Vercel auto-deploys
+both the static files and the `api/quote.js` function. The GitHub Actions
+workflow at `.github/workflows/daily.yml` runs the build on a cron, commits
+the refreshed `data/`, `index.html`, `app.js`, and `styles.css`, and that
+commit triggers the next Vercel deploy.
+
+To set it up on a fork: **vercel.com → Add New → Project → Import Git
+Repository → stonks**. Defaults (root directory, no framework preset,
+`npm install` as the install command) are correct. No environment variables
+are needed for the live-quote endpoint to work.
 
 ## Disclaimer
 
