@@ -463,6 +463,45 @@ main {
 .opt-narr-chip.long  .opt-narr-chip-side { color: var(--pos); background: var(--pos-soft); }
 .opt-narr-chip.short .opt-narr-chip-side { color: var(--neg); background: var(--neg-soft); }
 
+/* === Live spot pill === */
+.opt-live {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: var(--s-2) 0;
+  font-variant-numeric: tabular-nums;
+}
+.opt-live-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px; border-radius: var(--r-pill);
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--muted);
+}
+.opt-live-pill::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--muted);
+}
+.opt-live-pill.live     { color: var(--pos);  background: var(--pos-soft);  border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-live-pill.live::before { background: var(--pos); box-shadow: 0 0 0 0 color-mix(in srgb, var(--pos) 60%, transparent); animation: opt-live-pulse 1.6s ease-out infinite; }
+.opt-live-pill.pre,
+.opt-live-pill.post     { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-live-pill.pre::before, .opt-live-pill.post::before { background: var(--warn); }
+.opt-live-pill.delayed  { color: var(--muted); background: var(--surface-3); }
+.opt-live-pill.checking { color: var(--muted); background: var(--surface-3); }
+.opt-live-pill.checking::before {
+  background: var(--muted); animation: opt-live-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes opt-live-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  70%  { box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 0%,  transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%,  transparent); }
+}
+.opt-live-sym   { font-size: 12px; font-weight: 700; color: var(--text-strong); letter-spacing: 0.02em; }
+.opt-live-spot  { font-size: var(--fs-md); font-weight: 700; color: var(--text-strong); }
+.opt-live-chg   { font-size: 12px; font-weight: 600; }
+.opt-live-chg.up   { color: var(--pos); }
+.opt-live-chg.down { color: var(--neg); }
+
 /* === Technical signals card === */
 .opt-tech {
   margin: var(--s-3) 0;

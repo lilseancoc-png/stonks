@@ -1,5 +1,8 @@
 name: Daily build
 
+# Regenerates the baked per-ticker JSON (chains, AI news takes, technicals)
+# twice a day. The commit it pushes triggers Vercel's GitHub integration,
+# which deploys the new static files automatically — no Pages step here.
 on:
   schedule:
     # 13:00 UTC weekdays — ~9:00am ET before the US market open.
@@ -7,16 +10,12 @@ on:
     # 21:30 UTC daily — ~5:30pm ET after the US market close.
     - cron: "30 21 * * *"
   workflow_dispatch:
-  push:
-    branches: [main]
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
-  group: stonks-pages
+  group: stonks-daily
   cancel-in-progress: false
 
 jobs:
@@ -38,7 +37,6 @@ jobs:
         run: node scripts/build.mjs
 
       - name: Commit refreshed site
-        if: github.event_name != 'pull_request'
         run: |
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
@@ -50,21 +48,3 @@ jobs:
           else
             echo "No changes to commit."
           fi
-
-      - name: Strip build-only files from Pages artifact
-        run: rm -rf node_modules
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
