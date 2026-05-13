@@ -22,8 +22,28 @@ For each contract you get:
 - **Spread / Delta / Theta chips** with hoverable explainers so the metrics
   aren't gatekept jargon.
 - **Greeks** computed locally with Black-Scholes from the implied vol.
+- **Premium make-up** — intrinsic value, time (extrinsic) value, breakeven at
+  expiry, moneyness %, and a rough probability-ITM estimate from |delta|.
+- **Technical signals on the underlying** — when you pick a curated ticker, a
+  separate card shows the stock's **RSI(14)**, **MACD(12, 26, 9)** (line,
+  signal, histogram), and **20-/50-day support and resistance** levels with
+  the % distance to spot. Each indicator carries a plain-English state
+  label (Overbought / Bullish cross / etc.) and a one-liner on what it means
+  for an options trader. Computed at build time from ~6 months of Yahoo daily
+  closes.
+- **AI news take** — a 2-4 sentence read on what is driving the stock right
+  now, with a sentiment tag that nudges a borderline verdict.
 - A **freshness banner** at the top shows how old the embedded quotes are and
   switches to a stale-data warning past 36 h.
+
+### Lazy loading
+
+The first paint ships only a small manifest (ticker list, sectors, spots,
+active narratives) — about 30 KB. Per-ticker data — option chain, AI news
+take, and the technical indicators — lives in `data/<SYMBOL>.json` and is
+fetched **only** when the user picks that ticker from the combobox. The fetch
+goes through `force-cache`, so re-selecting the same ticker is free for the
+rest of the session.
 
 Above the grader, an **Active market narratives** card surfaces the themes
 currently driving the curated tickers — AI capex, GLP-1, tariffs, election
@@ -43,11 +63,14 @@ per-ticker AI news takes, persisted to `data/trends.json`, with a rolling
 - **09:00 ET (13:00 UTC) weekdays** — pre-market refresh.
 - **17:30 ET (21:30 UTC) daily** — end-of-day refresh.
 
-Each run fetches the option chains (with retries on transient Yahoo errors),
-writes them to `data/<SYMBOL>.json`, regenerates `index.html` with the
-ticker manifest, commits both, and deploys to GitHub Pages. If fewer than 75%
-of tickers come back, the run fails loud and the previous good build keeps
-serving.
+Each run fetches the option chains and ~6 months of daily history per ticker
+(with retries on transient Yahoo errors), computes RSI / MACD / 20- and
+50-day support and resistance from the closes, writes everything to
+`data/<SYMBOL>.json`, regenerates `index.html` with the ticker manifest,
+commits, and deploys to GitHub Pages. If fewer than 75% of tickers come back,
+the run fails loud and the previous good build keeps serving. The technicals
+step is non-fatal — if the chart endpoint hiccups for a single ticker, that
+ticker simply ships without the indicator card.
 
 ## Running locally
 

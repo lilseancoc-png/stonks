@@ -19,7 +19,7 @@
   var SPOTS = MANIFEST.spots || {};
   var RFR = 0.045;
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -310,12 +310,21 @@
   }
 
   var TIPS = {
-    spread: 'Gap between bid (what buyers pay) and ask (what sellers want). Wider = you lose more on entry/exit.',
-    delta:  'How much the option moves per $1 the stock moves. ~0.50 = at-the-money, ~1.00 = deep ITM, near 0 = far OTM lottery.',
-    theta:  'Daily $ the contract loses just from time passing. Higher = the clock is running against you faster.',
-    iv:     'Implied volatility — the market\'s guess at how much the stock will move. High IV = expensive premium.',
-    gamma:  'How fast delta changes as the stock moves. Higher near ATM and near expiry.',
-    vega:   'How much the contract gains/loses per 1 point change in implied volatility.'
+    spread:     'Gap between bid (what buyers pay) and ask (what sellers want). Wider = you lose more on entry/exit.',
+    delta:      'How much the option moves per $1 the stock moves. ~0.50 = at-the-money, ~1.00 = deep ITM, near 0 = far OTM lottery.',
+    theta:      'Daily $ the contract loses just from time passing. Higher = the clock is running against you faster.',
+    iv:         'Implied volatility — the market\'s guess at how much the stock will move. High IV = expensive premium.',
+    gamma:      'How fast delta changes as the stock moves. Higher near ATM and near expiry.',
+    vega:       'How much the contract gains/loses per 1 point change in implied volatility.',
+    intrinsic:  'Money already baked in: how far in-the-money the contract is. A call $5 ITM has $5 of intrinsic value — that part is yours at expiry no matter what.',
+    extrinsic:  'Time + volatility premium on top of intrinsic. Decays to zero by expiry. The bigger this is relative to mid, the more you are paying for hope.',
+    breakeven:  'Underlying price the stock needs to reach at expiry just to make back what you paid. Above = profit (for calls); below = profit (for puts).',
+    probITM:    'Rough probability the contract finishes in-the-money. Black-Scholes |delta| is the standard proxy — not a guarantee, just the model\'s implied odds.',
+    moneyness:  'How far the strike is from the current stock price, in percent. 0% = at the money, negative = below spot, positive = above spot.',
+    rsi:        'Relative Strength Index (14-day). Above 70 = overbought (stretched, prone to a pullback). Below 30 = oversold (washed out, prone to a bounce).',
+    macd:       'Moving Average Convergence Divergence (12/26/9). MACD line above signal = bullish momentum; below = bearish. The histogram shows the gap.',
+    support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
+    resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -329,9 +338,9 @@
   function gradeChip(g){ return '<span class="opt-grade ' + g.cls + '">' + g.label + '</span>'; }
   function verdictExplainer(cls){
     var msg;
-    if (cls === 'good') msg = 'Clean contract. Spread is tight, delta is balanced, theta is manageable. Direction and sizing are up to you.';
-    else if (cls === 'bad') msg = 'Skip or rework. Wide spread or far-OTM delta or heavy theta will eat your edge before the trade plays out. Look for a tighter strike, a more liquid expiry, or a different ticker.';
-    else msg = 'Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it.';
+    if (cls === 'good') msg = 'Clean contract. Spread is tight, delta is balanced, theta is manageable. The mechanics are working with you — the rest is direction, sizing, and timing. Cross-check it against the technical signals and news take below before you commit.';
+    else if (cls === 'bad') msg = 'Skip or rework. Wide spread or far-OTM delta or heavy theta will eat your edge before the trade plays out. Look for a tighter strike, a more liquid expiry, or a different ticker. If you still like the direction, the manual grader below lets you stress-test alternatives quickly.';
+    else msg = 'Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it. The technicals and news take can help break the tie when the mechanics alone are inconclusive.';
     return '<div class="opt-explain ' + cls + '"><b>What this means:</b> ' + msg + '</div>';
   }
   function newsTakeHtml(news, ticker, nudged){
@@ -362,17 +371,43 @@
     var baseVerdict = overallVerdict([sGrade, dGrade, tGrade]);
     var verdict = applyNewsNudge(baseVerdict, input.news);
 
+    // Derived contract metrics. Intrinsic = how much of the premium is
+    // already in-the-money cash. Time value = whatever is left, i.e. what
+    // decays. Breakeven = the underlying price the stock needs to reach at
+    // expiry just to recover the premium. Probability ITM ≈ |delta| under
+    // Black-Scholes — a rough but standard proxy, not a guarantee.
+    var intrinsic = null;
+    if (input.spot != null && input.strike != null) {
+      intrinsic = input.type === 'call'
+        ? Math.max(0, input.spot - input.strike)
+        : Math.max(0, input.strike - input.spot);
+    }
+    var extrinsic = (mid != null && intrinsic != null) ? Math.max(0, mid - intrinsic) : null;
+    var breakeven = (mid != null && input.strike != null)
+      ? (input.type === 'call' ? input.strike + mid : input.strike - mid)
+      : null;
+    var moneynessPct = (input.spot > 0 && input.strike != null)
+      ? (input.spot - input.strike) / input.spot * 100
+      : null;
+    var probITM = g ? Math.abs(g.delta) * 100 : null;
+    var daysToExpiry = Math.max(0, Math.round(T*365));
+
     var html = '';
     html += '<div class="opt-verdict ' + verdict.cls + '" id="opt-verdict-main">' + verdict.label + '</div>';
     html += verdictExplainer(verdict.cls);
     html += newsTakeHtml(input.news, input.ticker, verdict.nudged);
-    html += '<div class="opt-contract">' + (input.label || '') + ' · spot $' + fmt(input.spot) + ' · ' + Math.max(0, Math.round(T*365)) + ' days to expiry</div>';
+    html += '<div class="opt-contract">' + (input.label || '') + ' · spot $' + fmt(input.spot) + ' · ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$' + fmt(bid) + ' / $' + fmt(ask));
     html += row('Mid', mid != null ? '$' + fmt(mid) : '—');
     html += row('Spread', spread != null ? ('$' + fmt(spread) + ' (' + fmtPct(spreadPct) + ')') : '—', gradeChip(sGrade), TIPS.spread);
+    html += row('Intrinsic value', intrinsic != null ? '$' + fmt(intrinsic) : '—', '', TIPS.intrinsic);
+    html += row('Time value', extrinsic != null ? '$' + fmt(extrinsic) : '—', mid > 0 && extrinsic != null ? '<span class="opt-row-mute">' + fmtPct(extrinsic / mid * 100) + ' of mid</span>' : '', TIPS.extrinsic);
+    html += row('Breakeven at expiry', breakeven != null ? '$' + fmt(breakeven) : '—', input.spot > 0 && breakeven != null ? '<span class="opt-row-mute">' + (((breakeven - input.spot) / input.spot * 100) >= 0 ? '+' : '') + ((breakeven - input.spot) / input.spot * 100).toFixed(2) + '% from spot</span>' : '', TIPS.breakeven);
+    html += row('Moneyness', moneynessPct != null ? ((moneynessPct >= 0 ? '+' : '') + moneynessPct.toFixed(2) + '%') : '—', '', TIPS.moneyness);
     html += row('IV', iv != null ? fmtPct(iv*100) : '—', '', TIPS.iv);
     html += row('Delta', g ? fmt(g.delta, 3) : '—', g ? gradeChip(dGrade) : '', TIPS.delta);
+    html += row('Prob. ITM (≈ |delta|)', probITM != null ? probITM.toFixed(1) + '%' : '—', '', TIPS.probITM);
     html += row('Theta / day', g ? '$' + fmt(g.thetaDay, 3) : '—', g ? gradeChip(tGrade) : '', TIPS.theta);
     html += row('Gamma', g ? fmt(g.gamma, 4) : '—', '', TIPS.gamma);
     html += row('Vega (per 1 vol pt)', g ? '$' + fmt(g.vega, 3) : '—', '', TIPS.vega);
@@ -383,6 +418,28 @@
     html += '<li><b>Spread:</b> ' + sGrade.note + '.</li>';
     html += '<li><b>Delta:</b> ' + dGrade.note + '.</li>';
     html += '<li><b>Theta:</b> ' + tGrade.note + '.</li>';
+    if (extrinsic != null && mid > 0){
+      var extPct = extrinsic / mid * 100;
+      var extNote = extPct < 25
+        ? 'mostly intrinsic — you are paying for the move that has already happened'
+        : extPct < 60
+        ? 'a healthy mix of intrinsic and time value — typical at-the-money premium'
+        : 'almost all time value — pure bet on the move; theta will grind this down fast';
+      html += '<li><b>Premium make-up:</b> ' + extNote + '.</li>';
+    }
+    if (breakeven != null && input.spot > 0){
+      var beMove = (breakeven - input.spot) / input.spot * 100;
+      var beAbs = Math.abs(beMove);
+      var beNote = beAbs < 2
+        ? 'tiny move needed — leverage is modest'
+        : beAbs < 6
+        ? 'a normal session-or-two move gets you whole'
+        : 'a sizable move is required just to break even — the contract is asking for conviction';
+      html += '<li><b>Breakeven:</b> ' + beNote + '.</li>';
+    }
+    if (daysToExpiry > 0 && daysToExpiry <= 3){
+      html += '<li><b>Heads-up:</b> only ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry — gamma is enormous and theta is brutal. Treat this like a same-day trade.</li>';
+    }
     html += '</ul>';
     if (input.source === 'chain') {
       var payload = JSON.stringify({
@@ -546,12 +603,17 @@
   function loadChain(){
     var symbol = state.symbol; if (!symbol) return;
     var cached = !!CHAIN_CACHE[symbol];
-    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + '…', '');
+    // The per-ticker JSON (chain + AI news take + technicals) is fetched here
+    // and only here — nothing about a ticker is preloaded before the user
+    // commits to it. force-cache keeps re-selects free for the rest of the
+    // session.
+    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news + technicals…', '');
     fetchChain(symbol).then(function(entry){
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
       state.chains = entry.chains || {};
       state.news = entry.news || null;
+      state.technicals = entry.technicals || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       state.currentExp = state.expirations[0];
       populateExpiry();
@@ -559,11 +621,126 @@
       populateStrikes();
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
+      renderTechnicals(symbol);
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
     }).catch(function(err){
       setStatus('opt-eval-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
     });
+  }
+
+  // --- Technicals ---------------------------------------------------------
+  function rsiState(rsi){
+    if (rsi == null || !isFinite(rsi)) return { label:'—', cls:'fair', note:'not enough history' };
+    if (rsi >= 70) return { label:'Overbought', cls:'warn',
+      note:'stretched — calls here are buying late, puts may catch a mean-reversion bounce' };
+    if (rsi <= 30) return { label:'Oversold', cls:'pos',
+      note:'washed out — puts here are chasing, calls may catch a bounce' };
+    if (rsi >= 55) return { label:'Bullish bias', cls:'pos',
+      note:'momentum tilted up — trend traders lean long' };
+    if (rsi <= 45) return { label:'Bearish bias', cls:'warn',
+      note:'momentum tilted down — trend traders lean short' };
+    return { label:'Neutral', cls:'fair', note:'no clear momentum edge either way' };
+  }
+  function macdState(macd){
+    if (!macd) return { label:'—', cls:'fair', note:'not enough history' };
+    if (macd.hist > 0 && macd.line > 0) return { label:'Bullish', cls:'pos',
+      note:'MACD above signal and above zero — confirmed uptrend momentum' };
+    if (macd.hist > 0 && macd.line <= 0) return { label:'Bullish cross', cls:'pos',
+      note:'MACD crossed above signal while still under zero — early reversal signal' };
+    if (macd.hist < 0 && macd.line < 0) return { label:'Bearish', cls:'warn',
+      note:'MACD below signal and below zero — confirmed downtrend momentum' };
+    if (macd.hist < 0 && macd.line >= 0) return { label:'Bearish cross', cls:'warn',
+      note:'MACD crossed below signal while still above zero — early weakness signal' };
+    return { label:'Flat', cls:'fair', note:'line and signal hugging — no clear momentum' };
+  }
+  function distancePct(level, spot){
+    if (level == null || !isFinite(level) || !(spot > 0)) return null;
+    return (level - spot) / spot * 100;
+  }
+  function fmtDistance(level, spot){
+    var pct = distancePct(level, spot);
+    if (pct == null) return '';
+    var sign = pct >= 0 ? '+' : '';
+    return sign + pct.toFixed(1) + '% vs spot';
+  }
+  function techCard(label, valueHtml, stateHtml, noteHtml, tip){
+    return '<div class="opt-tech-card">' +
+      '<div class="opt-tech-label">' + label + tipChip(tip) + '</div>' +
+      '<div class="opt-tech-value">' + valueHtml + '</div>' +
+      (stateHtml ? '<div class="opt-tech-state">' + stateHtml + '</div>' : '') +
+      (noteHtml ? '<div class="opt-tech-note">' + noteHtml + '</div>' : '') +
+    '</div>';
+  }
+  function renderTechnicals(sym){
+    var box = $('opt-technicals');
+    var grid = $('opt-tech-grid');
+    if (!box || !grid) return;
+    var t = state.technicals;
+    if (!t){ box.hidden = true; grid.innerHTML = ''; return; }
+    var spot = state.spot;
+    var rsiSt = rsiState(t.rsi);
+    var macdSt = macdState(t.macd);
+    var html = '';
+
+    html += techCard(
+      'RSI (14)',
+      '<span class="opt-tech-num">' + (t.rsi != null ? t.rsi.toFixed(1) : '—') + '</span>',
+      '<span class="opt-tech-pill ' + rsiSt.cls + '">' + rsiSt.label + '</span>',
+      escapeHtml(rsiSt.note),
+      TIPS.rsi
+    );
+
+    if (t.macd){
+      var macdVal = '<span class="opt-tech-num">' + (t.macd.hist >= 0 ? '+' : '') + t.macd.hist.toFixed(3) + '</span>' +
+        '<span class="opt-tech-vsub">line ' + t.macd.line.toFixed(3) + ' · signal ' + t.macd.signal.toFixed(3) + '</span>';
+      html += techCard(
+        'MACD (12,26,9)',
+        macdVal,
+        '<span class="opt-tech-pill ' + macdSt.cls + '">' + macdSt.label + '</span>',
+        escapeHtml(macdSt.note),
+        TIPS.macd
+      );
+    } else {
+      html += techCard('MACD (12,26,9)', '<span class="opt-tech-num">—</span>', '', 'not enough history', TIPS.macd);
+    }
+
+    if (t.sr){
+      var sup = t.sr.s20;
+      var supFar = t.sr.s50;
+      var supVal = '<span class="opt-tech-num">' + (sup != null ? '$' + fmt(sup) : '—') + '</span>' +
+        (supFar != null && supFar !== sup ? '<span class="opt-tech-vsub">50d $' + fmt(supFar) + '</span>' : '');
+      var supDist = sup != null ? fmtDistance(sup, spot) : '';
+      var supBroken = (sup != null && spot < sup);
+      html += techCard(
+        'Support (20d)',
+        supVal,
+        supDist ? '<span class="opt-tech-pill ' + (supBroken ? 'warn' : 'fair') + '">' + supDist + '</span>' : '',
+        supBroken
+          ? 'Spot is below the 20-day low — buyers haven\'t defended this level yet'
+          : 'Recent floor — buyers stepped in here; a break below is a meaningful technical event',
+        TIPS.support
+      );
+
+      var res = t.sr.r20;
+      var resFar = t.sr.r50;
+      var resVal = '<span class="opt-tech-num">' + (res != null ? '$' + fmt(res) : '—') + '</span>' +
+        (resFar != null && resFar !== res ? '<span class="opt-tech-vsub">50d $' + fmt(resFar) + '</span>' : '');
+      var resDist = res != null ? fmtDistance(res, spot) : '';
+      var resBroken = (res != null && spot > res);
+      html += techCard(
+        'Resistance (20d)',
+        resVal,
+        resDist ? '<span class="opt-tech-pill ' + (resBroken ? 'pos' : 'fair') + '">' + resDist + '</span>' : '',
+        resBroken
+          ? 'Spot is above the 20-day high — fresh breakout; watch for follow-through'
+          : 'Recent ceiling — sellers showed up here; a clean break above is a meaningful technical event',
+        TIPS.resistance
+      );
+    }
+
+    grid.innerHTML = html;
+    box.hidden = false;
   }
   function onExpiryChange(){
     var exp = Number($('opt-expiry').value);

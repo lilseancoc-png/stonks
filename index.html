@@ -81,6 +81,14 @@
     </div>
     <div id="opt-eval-status" class="opt-status" role="status"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
+    <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
+      <header class="opt-tech-head">
+        <h3 class="opt-tech-title">Technical signals</h3>
+        <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
+      </header>
+      <div class="opt-tech-grid" id="opt-tech-grid"></div>
+      <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
+    </section>
     <div class="opt-result-wrap">
       <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
       <div id="opt-eval-result" class="opt-result"></div>
