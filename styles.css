@@ -572,6 +572,116 @@ main {
   font-size: 11px; color: var(--muted);
   margin: var(--s-2) 0 0; line-height: 1.4;
 }
+
+/* === Fundamentals + earnings panel === */
+.opt-fund {
+  margin-top: var(--s-4);
+  padding: var(--s-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+}
+.opt-fund-head {
+  display: flex; align-items: center; gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-3);
+}
+.opt-fund-title {
+  font-size: var(--fs-md); font-weight: 700; margin: 0;
+  color: var(--text-strong);
+}
+.opt-fund-verdict {
+  display: inline-flex; align-items: center;
+  padding: 4px 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  border-radius: var(--r-pill);
+  background: var(--surface-3); color: var(--muted);
+  border: 1px solid var(--border);
+}
+.opt-fund-verdict.strong { color: var(--pos); background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-fund-verdict.weak   { color: var(--neg); background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-fund-verdict.mixed  { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-fund-summary {
+  margin: 0 0 var(--s-3);
+  font-size: var(--fs-md); line-height: 1.5; color: var(--text);
+}
+.opt-fund-recap {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm); color: var(--text); line-height: 1.5;
+}
+.opt-fund-recap-label {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.opt-fund-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+@media (max-width: 640px) {
+  .opt-fund-columns { grid-template-columns: 1fr; }
+}
+.opt-fund-col {
+  padding: var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.opt-fund-col.opt-fund-pos { border-left: 3px solid var(--pos); }
+.opt-fund-col.opt-fund-neg { border-left: 3px solid var(--neg); }
+.opt-fund-col-head {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  margin-bottom: var(--s-2);
+}
+.opt-fund-pos .opt-fund-col-head { color: var(--pos); }
+.opt-fund-neg .opt-fund-col-head { color: var(--neg); }
+.opt-fund-list {
+  margin: 0; padding-left: 18px;
+  font-size: var(--fs-sm); line-height: 1.5; color: var(--text);
+}
+.opt-fund-list li { margin-bottom: 6px; }
+.opt-fund-list li:last-child { margin-bottom: 0; }
+.opt-fund-list li.opt-fund-empty { color: var(--muted); font-style: italic; list-style: none; margin-left: -18px; }
+.opt-fund-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--s-2);
+}
+.opt-fund-metric {
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.opt-fund-metric.tone-pos  { border-color: color-mix(in srgb, var(--pos)  35%, var(--border)); }
+.opt-fund-metric.tone-neg  { border-color: color-mix(in srgb, var(--neg)  35%, var(--border)); }
+.opt-fund-metric.tone-warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); }
+.opt-fund-metric-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); margin-bottom: 2px;
+}
+.opt-fund-metric-value {
+  font-size: var(--fs-md); font-weight: 600; color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-metric.tone-pos  .opt-fund-metric-value { color: var(--pos); }
+.opt-fund-metric.tone-neg  .opt-fund-metric-value { color: var(--neg); }
+.opt-fund-metric.tone-warn .opt-fund-metric-value { color: var(--warn); }
+.opt-fund-metric-sub {
+  display: inline-block; margin-left: 4px;
+  font-size: 11px; font-weight: 500; color: var(--muted);
+}
+.opt-fund-foot {
+  font-size: 11px; color: var(--muted);
+  margin: var(--s-3) 0 0; line-height: 1.4;
+}
+
 .opt-row-mute {
   color: var(--muted); font-size: 11px; margin-left: 6px;
   font-weight: 500;

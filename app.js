@@ -19,7 +19,7 @@
   var SPOTS = MANIFEST.spots || {};
   var RFR = 0.045;
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -607,13 +607,14 @@
     // and only here — nothing about a ticker is preloaded before the user
     // commits to it. force-cache keeps re-selects free for the rest of the
     // session.
-    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news + technicals…', '');
+    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', '');
     fetchChain(symbol).then(function(entry){
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
       state.chains = entry.chains || {};
       state.news = entry.news || null;
       state.technicals = entry.technicals || null;
+      state.fundamentals = entry.fundamentals || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       state.currentExp = state.expirations[0];
       populateExpiry();
@@ -622,6 +623,7 @@
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderTechnicals(symbol);
+      renderFundamentals(symbol);
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
       // Kick off the live spot refresh in parallel — the page is already
@@ -821,6 +823,125 @@
     grid.innerHTML = html;
     box.hidden = false;
   }
+
+  // --- Fundamentals + earnings -------------------------------------------
+  function fmtBigDollars(n){
+    if (n == null || !isFinite(n)) return null;
+    var a = Math.abs(n);
+    if (a >= 1e12) return '$' + (n/1e12).toFixed(2) + 'T';
+    if (a >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+    return '$' + Math.round(n).toLocaleString();
+  }
+  function fundMetric(label, value, tone){
+    if (value == null || value === '') return '';
+    var toneCls = tone ? ' tone-' + tone : '';
+    return '<div class="opt-fund-metric' + toneCls + '">' +
+      '<div class="opt-fund-metric-label">' + escapeHtml(label) + '</div>' +
+      '<div class="opt-fund-metric-value">' + value + '</div>' +
+    '</div>';
+  }
+  function fundVerdictLabel(v){
+    if (v === 'strong') return 'Strong fundamentals';
+    if (v === 'weak') return 'Weak fundamentals';
+    return 'Mixed fundamentals';
+  }
+  function renderFundamentals(sym){
+    var box = $('opt-fundamentals');
+    if (!box) return;
+    var f = state.fundamentals;
+    if (!f){ box.hidden = true; return; }
+    var hasJudgment = f.judgment && (f.judgment.positives && f.judgment.positives.length || f.judgment.negatives && f.judgment.negatives.length || f.judgment.summary);
+    var hasMetrics = (f.trailingPE != null || f.forwardPE != null || f.marketCap != null || f.profitMargin != null || f.revenueGrowthYoy != null || f.lastQuarter || f.nextEarningsDate);
+    if (!hasJudgment && !hasMetrics){ box.hidden = true; return; }
+
+    var verdictEl = $('opt-fund-verdict');
+    var summaryEl = $('opt-fund-summary');
+    var recapEl = $('opt-fund-recap');
+    var posList = $('opt-fund-pos-list');
+    var negList = $('opt-fund-neg-list');
+    var metricsEl = $('opt-fund-metrics');
+
+    if (hasJudgment){
+      var j = f.judgment;
+      var v = j.verdict || 'mixed';
+      verdictEl.className = 'opt-fund-verdict ' + v;
+      verdictEl.textContent = fundVerdictLabel(v);
+      summaryEl.textContent = j.summary || '';
+      summaryEl.hidden = !j.summary;
+      if (j.earningsRecap){
+        recapEl.innerHTML = '<span class="opt-fund-recap-label">Last earnings</span> ' + escapeHtml(j.earningsRecap);
+        recapEl.hidden = false;
+      } else {
+        recapEl.hidden = true;
+        recapEl.innerHTML = '';
+      }
+      posList.innerHTML = (j.positives || []).map(function(p){
+        return '<li>' + escapeHtml(p) + '</li>';
+      }).join('') || '<li class="opt-fund-empty">No clear positives surfaced.</li>';
+      negList.innerHTML = (j.negatives || []).map(function(p){
+        return '<li>' + escapeHtml(p) + '</li>';
+      }).join('') || '<li class="opt-fund-empty">No clear negatives surfaced.</li>';
+    } else {
+      verdictEl.className = 'opt-fund-verdict';
+      verdictEl.textContent = '';
+      summaryEl.textContent = 'AI judgment unavailable for this ticker — raw metrics below.';
+      summaryEl.hidden = false;
+      recapEl.hidden = true;
+      recapEl.innerHTML = '';
+      posList.innerHTML = '';
+      negList.innerHTML = '';
+    }
+
+    var metrics = '';
+    metrics += fundMetric('Market cap', fmtBigDollars(f.marketCap));
+    metrics += fundMetric('Trailing P/E', f.trailingPE != null ? f.trailingPE.toFixed(1) : null);
+    metrics += fundMetric('Forward P/E', f.forwardPE != null ? f.forwardPE.toFixed(1) : null);
+    metrics += fundMetric('PEG', f.pegRatio != null ? f.pegRatio.toFixed(2) : null);
+    metrics += fundMetric('Price / Sales', f.priceToSales != null ? f.priceToSales.toFixed(2) : null);
+    metrics += fundMetric('Rev. growth YoY', f.revenueGrowthYoy != null ? f.revenueGrowthYoy.toFixed(1) + '%' : null,
+      f.revenueGrowthYoy != null ? (f.revenueGrowthYoy > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('EPS growth YoY', f.earningsGrowthYoy != null ? f.earningsGrowthYoy.toFixed(1) + '%' : null,
+      f.earningsGrowthYoy != null ? (f.earningsGrowthYoy > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('Profit margin', f.profitMargin != null ? f.profitMargin.toFixed(1) + '%' : null,
+      f.profitMargin != null ? (f.profitMargin > 10 ? 'pos' : f.profitMargin < 0 ? 'neg' : null) : null);
+    metrics += fundMetric('Operating margin', f.operatingMargin != null ? f.operatingMargin.toFixed(1) + '%' : null);
+    metrics += fundMetric('ROE', f.returnOnEquity != null ? f.returnOnEquity.toFixed(1) + '%' : null,
+      f.returnOnEquity != null ? (f.returnOnEquity > 15 ? 'pos' : f.returnOnEquity < 0 ? 'neg' : null) : null);
+    metrics += fundMetric('Debt / Equity', f.debtToEquity != null ? f.debtToEquity.toFixed(0) : null,
+      f.debtToEquity != null ? (f.debtToEquity > 200 ? 'neg' : null) : null);
+    metrics += fundMetric('Free cash flow', fmtBigDollars(f.freeCashFlow),
+      f.freeCashFlow != null ? (f.freeCashFlow > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('Dividend yield', f.dividendYield != null && f.dividendYield > 0 ? f.dividendYield.toFixed(2) + '%' : null);
+    if (f.lastQuarter){
+      var lq = f.lastQuarter;
+      var surprise = lq.surprisePct != null ? ((lq.surprisePct >= 0 ? '+' : '') + lq.surprisePct.toFixed(1) + '%') : null;
+      var beatTone = lq.surprisePct == null ? null : (lq.surprisePct > 2 ? 'pos' : lq.surprisePct < -2 ? 'neg' : null);
+      var lqVal = 'EPS ' + (lq.epsActual != null ? lq.epsActual.toFixed(2) : '—');
+      if (lq.epsEstimate != null) lqVal += ' <span class="opt-fund-metric-sub">est ' + lq.epsEstimate.toFixed(2) + '</span>';
+      if (surprise) lqVal += ' <span class="opt-fund-metric-sub">(' + surprise + ')</span>';
+      var lqLabel = 'Last earnings' + (lq.period ? ' (' + lq.period + ')' : '') + (lq.date ? ' · ' + lq.date : '');
+      metrics += fundMetric(lqLabel, lqVal, beatTone);
+    }
+    if (f.nextEarningsDate){
+      metrics += fundMetric('Next earnings', f.nextEarningsDate, 'warn');
+    }
+    if (f.targetMeanPrice != null && state.spot){
+      var upside = (f.targetMeanPrice - state.spot) / state.spot * 100;
+      var upsideStr = (upside >= 0 ? '+' : '') + upside.toFixed(1) + '%';
+      metrics += fundMetric('Analyst target',
+        '$' + f.targetMeanPrice.toFixed(2) + ' <span class="opt-fund-metric-sub">' + upsideStr + ' vs spot</span>',
+        upside > 5 ? 'pos' : upside < -5 ? 'neg' : null);
+    }
+    if (f.recommendationKey){
+      var recPretty = f.recommendationKey.replace(/_/g, ' ');
+      var recTone = /buy|outperform/i.test(f.recommendationKey) ? 'pos' : /sell|underperform/i.test(f.recommendationKey) ? 'neg' : null;
+      metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
+    }
+    metricsEl.innerHTML = metrics;
+    box.hidden = false;
+  }
+
   function onExpiryChange(){
     var exp = Number($('opt-expiry').value);
     state.currentExp = exp;
