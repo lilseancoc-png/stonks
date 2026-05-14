@@ -3535,25 +3535,57 @@ const MACRO_FEEDS = [
 ];
 const MACRO_PER_FEED = 6;
 const MACRO_TOTAL_CAP = 28;
-// Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. We stagger request *starts*
-// 5000ms apart (12 RPM, ~3 RPM safety margin under 15) and run requests
-// concurrently — call latency overlaps the pacing window instead of being
-// added to it. The 3 RPM margin covers occasional retries firing inside the
-// same window. Finishes ~65 tickers in ~5.4 minutes per pass.
-const AI_START_INTERVAL_MS = 5000;
+// Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. We previously paced just
+// request *starts* (every 5000ms = 12 RPM), but that's only the start rate —
+// retries fired by the per-call retry loop fall outside the cadence and pile
+// into the same rolling 60s window as fresh starts, occasionally pushing the
+// measured rate above 15 and earning 429s on otherwise-healthy tasks.
+//
+// To stop retry storms from breaking the cap, EVERY call to
+// ai.models.generateContent (fresh start AND every retry attempt across all
+// three passes) goes through one shared sliding-window limiter. The limiter
+// keeps a FIFO of timestamps of acquired slots; acquireAiSlot blocks until
+// fewer than AI_RPM timestamps sit inside the last AI_WINDOW_MS, then records
+// its own slot. With AI_RPM = 10 we leave a 5-RPM cushion below the 15 RPM
+// quota — comfortably absorbs a few simultaneous retries.
+const AI_RPM = 10;
+const AI_WINDOW_MS = 60000;
+const AI_SLOT_POLL_BUFFER_MS = 120;
+const _aiSlotTimestamps = [];
+// Serialize acquisition so two callers can't read-then-write the window in
+// parallel and accidentally both grab the last slot.
+let _aiSlotChain = Promise.resolve();
+function acquireAiSlot() {
+  const prev = _aiSlotChain;
+  let release;
+  _aiSlotChain = new Promise((r) => { release = r; });
+  return prev.then(async () => {
+    try {
+      while (true) {
+        const now = Date.now();
+        while (_aiSlotTimestamps.length && now - _aiSlotTimestamps[0] >= AI_WINDOW_MS) {
+          _aiSlotTimestamps.shift();
+        }
+        if (_aiSlotTimestamps.length < AI_RPM) {
+          _aiSlotTimestamps.push(now);
+          return;
+        }
+        // Wait until the oldest timestamp falls out of the window, then re-check.
+        const waitMs = AI_WINDOW_MS - (now - _aiSlotTimestamps[0]) + AI_SLOT_POLL_BUFFER_MS;
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    } finally {
+      release();
+    }
+  });
+}
 // Google's free tier intermittently returns 500 INTERNAL on otherwise valid
-// requests, and 429 RESOURCE_EXHAUSTED when a per-minute window edges over
-// the quota despite our pacing. Retry transient 5xx and 429, honouring the
+// requests, and 429 RESOURCE_EXHAUSTED if a request slips through to the
+// quota window (rare under the limiter, but the API also enforces a separate
+// per-project per-second guard). Retry transient 5xx and 429, honouring the
 // "Please retry in Xs" hint the API surfaces for rate-limit errors.
 const AI_MAX_ATTEMPTS = 4;
 const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000];
-// Between consecutive bulk passes (news takes → fundamentals → narratives)
-// we have to wait a full rate-limit window before the next pass starts,
-// otherwise the tail of pass N and the head of pass N+1 land inside the same
-// rolling 60s window and push us over the 15 RPM cap (the error we observed:
-// fundamentals 429s firing right after news takes finished). 65s = 60s
-// window + 5s safety margin for clock skew + the last in-flight retry.
-const AI_PASS_COOLDOWN_MS = 65000;
 
 // Classify a Gemini/Gemma error as transient and return the backoff (ms) the
 // caller should wait before retrying, or null if the error isn't transient.
@@ -3724,6 +3756,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
+      await acquireAiSlot();
       response = await ai.models.generateContent({
         model: AI_MODEL,
         contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
@@ -3899,6 +3932,7 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
+      await acquireAiSlot();
       response = await ai.models.generateContent({
         model: AI_MODEL,
         contents: `${FUNDAMENTALS_SYSTEM_PROMPT}\n\n${userMessage}`,
@@ -3949,8 +3983,11 @@ async function attachFundamentalsJudgments(chains) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const entries = Object.entries(chains).filter(([, data]) => hasUsefulFundamentals(data.fundamentals));
   console.log(`Generating fundamentals judgments for ${entries.length} tickers…`);
-  const tasks = entries.map(([sym, data], i) => (async () => {
-    if (i > 0) await new Promise((r) => setTimeout(r, i * AI_START_INTERVAL_MS));
+  // Pacing is handled centrally by acquireAiSlot() inside the generate call;
+  // no per-task stagger needed. Tasks queue against the shared rate limiter
+  // in roughly the order they were spawned, so we still get the same FIFO
+  // behaviour the old stagger gave us but with retries also counted.
+  const tasks = entries.map(([sym, data]) => (async () => {
     try {
       const judgment = await generateFundamentalsJudgment(ai, sym, data.spot, data.fundamentals);
       data.fundamentals = { ...data.fundamentals, judgment };
@@ -3970,8 +4007,10 @@ async function attachAiNewsTakes(chains) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const entries = Object.entries(chains);
   console.log(`Generating AI news takes for ${entries.length} tickers…`);
-  const tasks = entries.map(([sym, data], i) => (async () => {
-    if (i > 0) await new Promise((r) => setTimeout(r, i * AI_START_INTERVAL_MS));
+  // Pacing handled by acquireAiSlot() inside generateNewsTake; the headline
+  // fetch is a Yahoo HTTP call so it's safe to issue concurrently for all
+  // tickers — only the model call goes through the shared limiter.
+  const tasks = entries.map(([sym, data]) => (async () => {
     try {
       const headlines = await fetchTickerHeadlines(sym);
       const take = await generateNewsTake(ai, sym, data.spot, headlines);
@@ -4094,6 +4133,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
+      await acquireAiSlot();
       response = await ai.models.generateContent({
         model: AI_MODEL,
         contents: `${NARRATIVE_SYSTEM_PROMPT}\n\n${userMessage}`,
@@ -4279,14 +4319,12 @@ async function attachMarketNarratives(chains, previousHistory) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
   const previousNames = lastSnapshot ? lastSnapshot.narratives.map((n) => n.name) : [];
-  // Pull macro context in parallel with the per-pass cooldown so the extra
-  // fetches don't add to the wall-clock build time. The cooldown lets the
-  // previous pass's 60s rate-limit window clear before the narrative call.
+  // Macro RSS fetch — independent of the AI rate limiter, runs concurrently
+  // with anything the limiter still has queued. The narrative generateContent
+  // call will block on acquireAiSlot() if the previous pass's window hasn't
+  // fully cleared yet, so we no longer need an explicit pass cooldown here.
   console.log(`Fetching macro headlines across ${MACRO_FEEDS.length} feeds…`);
-  const [macroHeadlines] = await Promise.all([
-    fetchMacroHeadlines(),
-    new Promise((r) => setTimeout(r, AI_PASS_COOLDOWN_MS)),
-  ]);
+  const macroHeadlines = await fetchMacroHeadlines();
   console.log(`  · ${macroHeadlines.length} macro headlines retrieved`);
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
@@ -4321,13 +4359,9 @@ async function main() {
     );
   }
   await attachAiNewsTakes(chains);
-  // Both passes share the same 15 RPM Gemma quota. The news-takes pass paces
-  // its starts ~12 RPM, so its last ~13 requests are still inside Google's
-  // rolling 60s window when Promise.all resolves. Letting that window drain
-  // before fundamentals begins is what stops the boundary 429 burst we saw
-  // ("Quota exceeded for metric: generate_content_free_tier_requests").
-  console.log(`Cooling down ${(AI_PASS_COOLDOWN_MS / 1000) | 0}s to clear the rate-limit window before fundamentals…`);
-  await new Promise((r) => setTimeout(r, AI_PASS_COOLDOWN_MS));
+  // No explicit cooldown — acquireAiSlot() is shared across passes, so the
+  // first fundamentals request will naturally wait for the news-takes
+  // window to drain. Same for the narrative pass that runs next.
   await attachFundamentalsJudgments(chains);
   // Read trend history BEFORE writeChainFiles wipes data/. Then narrative
   // extraction can reference yesterday's names for continuity, and the
