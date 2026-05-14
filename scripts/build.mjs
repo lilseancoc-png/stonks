@@ -3536,21 +3536,24 @@ const MACRO_FEEDS = [
 const MACRO_PER_FEED = 6;
 const MACRO_TOTAL_CAP = 28;
 // Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. We stagger request *starts*
-// 4500ms apart (~13.3 RPM, safety margin under 15) and run requests
+// 5000ms apart (12 RPM, ~3 RPM safety margin under 15) and run requests
 // concurrently — call latency overlaps the pacing window instead of being
-// added to it, finishing ~65 tickers in ~4.9 minutes.
-const AI_START_INTERVAL_MS = 4500;
+// added to it. The 3 RPM margin covers occasional retries firing inside the
+// same window. Finishes ~65 tickers in ~5.4 minutes per pass.
+const AI_START_INTERVAL_MS = 5000;
 // Google's free tier intermittently returns 500 INTERNAL on otherwise valid
 // requests, and 429 RESOURCE_EXHAUSTED when a per-minute window edges over
 // the quota despite our pacing. Retry transient 5xx and 429, honouring the
 // "Please retry in Xs" hint the API surfaces for rate-limit errors.
 const AI_MAX_ATTEMPTS = 4;
 const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000];
-// Buffer to leave between the per-ticker pass finishing and the narrative
-// extraction call firing — otherwise the narrative call lands inside the
-// same 60s window as the tail of the per-ticker burst and can push us over
-// the 15 RPM quota.
-const AI_NARRATIVE_COOLDOWN_MS = 8000;
+// Between consecutive bulk passes (news takes → fundamentals → narratives)
+// we have to wait a full rate-limit window before the next pass starts,
+// otherwise the tail of pass N and the head of pass N+1 land inside the same
+// rolling 60s window and push us over the 15 RPM cap (the error we observed:
+// fundamentals 429s firing right after news takes finished). 65s = 60s
+// window + 5s safety margin for clock skew + the last in-flight retry.
+const AI_PASS_COOLDOWN_MS = 65000;
 
 // Classify a Gemini/Gemma error as transient and return the backoff (ms) the
 // caller should wait before retrying, or null if the error isn't transient.
@@ -4276,12 +4279,13 @@ async function attachMarketNarratives(chains, previousHistory) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
   const previousNames = lastSnapshot ? lastSnapshot.narratives.map((n) => n.name) : [];
-  // Pull macro context in parallel with the per-ticker rate-limit cooldown
-  // so the extra fetches don't add to the wall-clock build time.
+  // Pull macro context in parallel with the per-pass cooldown so the extra
+  // fetches don't add to the wall-clock build time. The cooldown lets the
+  // previous pass's 60s rate-limit window clear before the narrative call.
   console.log(`Fetching macro headlines across ${MACRO_FEEDS.length} feeds…`);
   const [macroHeadlines] = await Promise.all([
     fetchMacroHeadlines(),
-    new Promise((r) => setTimeout(r, AI_NARRATIVE_COOLDOWN_MS)),
+    new Promise((r) => setTimeout(r, AI_PASS_COOLDOWN_MS)),
   ]);
   console.log(`  · ${macroHeadlines.length} macro headlines retrieved`);
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
@@ -4317,6 +4321,13 @@ async function main() {
     );
   }
   await attachAiNewsTakes(chains);
+  // Both passes share the same 15 RPM Gemma quota. The news-takes pass paces
+  // its starts ~12 RPM, so its last ~13 requests are still inside Google's
+  // rolling 60s window when Promise.all resolves. Letting that window drain
+  // before fundamentals begins is what stops the boundary 429 burst we saw
+  // ("Quota exceeded for metric: generate_content_free_tier_requests").
+  console.log(`Cooling down ${(AI_PASS_COOLDOWN_MS / 1000) | 0}s to clear the rate-limit window before fundamentals…`);
+  await new Promise((r) => setTimeout(r, AI_PASS_COOLDOWN_MS));
   await attachFundamentalsJudgments(chains);
   // Read trend history BEFORE writeChainFiles wipes data/. Then narrative
   // extraction can reference yesterday's names for continuity, and the
