@@ -512,10 +512,11 @@ function narrativesSection() {
       <h2 class="card-title">Active market narratives</h2>
       <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
     </header>
-    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. These are the themes currently driving flows across the curated tickers, refreshed each build. Pick a ticker below to see which narratives it rides.</p>
+    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Ordered strongest first. Each card shows how dominant the narrative is in today's tape (strength bar), whether it's <em>active</em> in price or still <em>building</em> and waiting on a trigger, its typical playout window, and the catalysts that would unlock it. <em>Clashes with</em> flags narratives that directly oppose each other — when one heats up the other cools. Pick a ticker below to see which narratives it rides.</p>
     <div id="narratives-list" class="narr-list" role="list"></div>
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
     <div id="narratives-ended" class="narr-ended"></div>
+    <div id="narratives-macro" class="narr-macro"></div>
   </section>`;
 }
 
@@ -685,10 +686,11 @@ function renderAppJs() {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], sectors: {}, spots: {} };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, spots: {} };
   var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
   var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
   var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
+  var MACRO_HEADLINES = Array.isArray(MANIFEST.macroHeadlines) ? MANIFEST.macroHeadlines : [];
   var SECTORS = MANIFEST.sectors || {};
   var SPOTS = MANIFEST.spots || {};
   var RFR = 0.045;
@@ -1026,9 +1028,30 @@ function renderAppJs() {
     var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
     var heading = 'AI news take' + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
     var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict from <b>Acceptable</b>.</div>' : '';
+    var sources = Array.isArray(news.sources) ? news.sources : [];
+    var sourcesRow = sources.length
+      ? '<div class="opt-news-sources"><span class="opt-news-sources-label">Sources</span>' +
+          sources.slice(0, 6).map(function(s){ return '<span class="opt-news-source">' + escapeHtml(s) + '</span>'; }).join('') +
+        '</div>'
+      : '';
+    // headlines may be plain strings (old builds) or {title, publisher} objects.
+    var hl = Array.isArray(news.headlines) ? news.headlines : [];
+    var hlRow = hl.length
+      ? '<details class="opt-news-headlines"><summary>' + hl.length + ' headlines used</summary><ul>' +
+          hl.slice(0, 10).map(function(h){
+            var title = typeof h === 'string' ? h : (h.title || '');
+            var pub = (h && typeof h === 'object') ? (h.publisher || '') : '';
+            var rep = (h && typeof h === 'object' && h.reputable) ? ' opt-news-headline-rep' : '';
+            var pubTag = pub ? '<span class="opt-news-headline-pub' + rep + '">' + escapeHtml(pub) + '</span>' : '';
+            return '<li>' + pubTag + '<span class="opt-news-headline-title">' + escapeHtml(title) + '</span></li>';
+          }).join('') +
+        '</ul></details>'
+      : '';
     return '<div class="opt-news ' + (news.sentiment || 'neutral') + '">' +
       '<div class="opt-news-head">' + heading + '</div>' +
       '<div class="opt-news-body">' + escapeHtml(news.paragraph) + '</div>' +
+      sourcesRow +
+      hlRow +
       note +
     '</div>';
   }
@@ -1793,35 +1816,88 @@ function renderAppJs() {
     if (!d || d <= 1) return 'New today';
     return 'Day ' + d;
   }
+  function narrStatusLabel(s){
+    return ({ active:'Active', building:'Building', fading:'Fading' })[s] || 'Active';
+  }
+  function narrTimeframeLabel(tf){
+    return ({ immediate:'This week', 'near-term':'1-4 wks', 'medium-term':'1-3 mo', 'long-term':'3+ mo' })[tf] || 'Near-term';
+  }
+  function strengthBarHtml(strength){
+    var s = Math.max(0, Math.min(100, strength | 0));
+    var tier = s >= 75 ? 'hi' : s >= 45 ? 'mid' : 'lo';
+    return '<div class="narr-strength" title="Strength ' + s + ' / 100">' +
+      '<div class="narr-strength-track"><div class="narr-strength-fill ' + tier + '" style="width:' + s + '%"></div></div>' +
+      '<span class="narr-strength-num">' + s + '</span>' +
+    '</div>';
+  }
+  function triggersHtml(n){
+    if (!n.triggers || !n.triggers.length) return '';
+    var label = n.status === 'building' ? 'Needs trigger' : (n.status === 'fading' ? 'Watch for reset' : 'Triggers to watch');
+    return '<div class="narr-triggers">' +
+      '<span class="narr-triggers-label">' + escapeHtml(label) + '</span>' +
+      '<ul class="narr-triggers-list">' +
+      n.triggers.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') +
+      '</ul>' +
+    '</div>';
+  }
+  function conflictsHtml(n){
+    if (!n.conflictsWith || !n.conflictsWith.length) return '';
+    return '<div class="narr-conflicts">' +
+      '<span class="narr-conflicts-label">Clashes with</span>' +
+      n.conflictsWith.map(function(c){ return '<span class="narr-conflict-chip">' + escapeHtml(c) + '</span>'; }).join('') +
+    '</div>';
+  }
   function renderNarratives(){
     var list = $('narratives-list');
     var empty = $('narratives-empty');
     var ended = $('narratives-ended');
     var count = $('narratives-count');
     if (!list) return;
-    if (count) count.textContent = NARRATIVES.length ? NARRATIVES.length + ' active' : '';
+    if (count){
+      if (NARRATIVES.length){
+        var activeN = 0, buildingN = 0;
+        for (var i=0; i<NARRATIVES.length; i++){
+          if (NARRATIVES[i].status === 'building') buildingN++;
+          else if (NARRATIVES[i].status !== 'fading') activeN++;
+        }
+        var parts = [activeN + ' active'];
+        if (buildingN) parts.push(buildingN + ' building');
+        count.textContent = parts.join(' · ');
+      } else {
+        count.textContent = '';
+      }
+    }
     if (!NARRATIVES.length){
       list.innerHTML = '';
       if (empty) empty.hidden = false;
     } else {
       if (empty) empty.hidden = true;
-      list.innerHTML = NARRATIVES.map(function(n){
+      list.innerHTML = NARRATIVES.map(function(n, idx){
         var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
+        var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
+        var tf = n.timeframe || 'near-term';
         var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
         var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
         var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
         var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
         var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
-        return '<article class="narr" data-sent="' + sent + '" role="listitem">' +
+        var rankLabel = (idx + 1) + ' / ' + NARRATIVES.length;
+        return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
           '<span class="narr-accent" aria-hidden="true"></span>' +
           '<header class="narr-head">' +
+            '<span class="narr-rank" aria-label="Rank">#' + (idx + 1) + '</span>' +
             '<h3 class="narr-name">' + escapeHtml(n.name) + '</h3>' +
             '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
-            '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+            '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
+            '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
+            '<span class="narr-tag conf" title="' + rankLabel + '">Conf · ' + confLabel + '</span>' +
             '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
           '</header>' +
+          strengthBarHtml(n.strength) +
           '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
           longRow + shortRow +
+          triggersHtml(n) +
+          conflictsHtml(n) +
         '</article>';
       }).join('');
     }
@@ -1842,6 +1918,29 @@ function renderAppJs() {
           '</div>';
       } else {
         ended.innerHTML = '';
+      }
+    }
+    var macro = $('narratives-macro');
+    if (macro){
+      if (MACRO_HEADLINES.length){
+        // Show the top 8 freshest macro hits so users can see what the
+        // narrative engine just looked at. Collapsed by default — it's
+        // context, not the headline UI.
+        macro.innerHTML = '<details class="narr-macro-details">' +
+          '<summary><span class="narr-macro-head">Macro signal feed</span>' +
+          '<span class="narr-macro-meta">' + MACRO_HEADLINES.length + ' headlines · Fed · BLS · Treasury · SEC · MarketWatch · CNBC</span></summary>' +
+          '<ul class="narr-macro-list">' +
+          MACRO_HEADLINES.slice(0, 12).map(function(h){
+            var date = h.publishedAt ? h.publishedAt.slice(0, 10) : '';
+            return '<li>' +
+              (date ? '<span class="narr-macro-date">' + escapeHtml(date) + '</span>' : '') +
+              '<span class="narr-macro-pub">' + escapeHtml(h.publisher || 'source') + '</span>' +
+              '<span class="narr-macro-title">' + escapeHtml(h.title || '') + '</span>' +
+            '</li>';
+          }).join('') +
+          '</ul></details>';
+      } else {
+        macro.innerHTML = '';
       }
     }
   }
@@ -1913,7 +2012,7 @@ function renderAppJs() {
 `;
 }
 
-function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], spots = {} }) {
+function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], macroHeadlines = [], spots = {} }) {
   const tickerCount = symbols.length;
   // Manifest is embedded inline so the narratives card + combobox can paint
   // on first frame. Per-ticker chain JSON is still lazy-fetched from
@@ -1924,6 +2023,7 @@ function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnd
     symbols,
     narratives,
     recentlyEnded,
+    macroHeadlines,
     sectors: SECTORS,
     spots,
   }).replace(/<\/script>/gi, "<\\/script>");
@@ -2310,6 +2410,170 @@ main {
 .narr-ended-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .narr-ended-meta { font-size: 11px; color: var(--muted); }
 .narr-empty { color: var(--muted); font-size: var(--fs-sm); padding: var(--s-1) 0; }
+
+/* Narrative rank, strength meter, status / timeframe tags, triggers, conflicts, macro digest */
+.narr-rank {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 22px;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  letter-spacing: -0.02em;
+  margin-right: 2px;
+}
+.narr:first-child .narr-rank {
+  color: var(--accent-strong);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+.narr-tag.status {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.narr-tag.status.active   { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); background: var(--pos-soft); }
+.narr-tag.status.building { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
+.narr-tag.status.fading   { color: var(--muted); border-color: var(--border); background: var(--surface-2); }
+.narr[data-status="fading"]   { opacity: 0.78; }
+.narr[data-status="fading"]:hover { opacity: 1; }
+.narr-tag.tf {
+  color: var(--text);
+  background: var(--surface-3);
+  font-variant-numeric: tabular-nums;
+}
+.narr-strength {
+  display: flex; align-items: center; gap: var(--s-2);
+  margin: 2px 0 var(--s-2);
+}
+.narr-strength-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.narr-strength-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  transition: width .2s ease;
+}
+.narr-strength-fill.hi  { background: linear-gradient(90deg, var(--accent), var(--accent-strong)); }
+.narr-strength-fill.mid { background: var(--accent); opacity: 0.85; }
+.narr-strength-fill.lo  { background: var(--warn); opacity: 0.8; }
+.narr-strength-num {
+  font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 28px; text-align: right;
+}
+.narr-triggers {
+  margin-top: var(--s-2);
+  padding: var(--s-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+.narr[data-status="building"] .narr-triggers {
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn-soft) 50%, transparent);
+}
+.narr-triggers-label {
+  display: inline-block;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.narr[data-status="building"] .narr-triggers-label { color: var(--warn); }
+.narr-triggers-list {
+  margin: 0; padding: 0 0 0 16px;
+  font-size: var(--fs-sm); color: var(--text);
+  line-height: 1.5;
+}
+.narr-triggers-list li + li { margin-top: 2px; }
+.narr-conflicts {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px;
+  margin-top: var(--s-2);
+}
+.narr-conflicts-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--neg);
+  margin-right: 2px;
+}
+.narr-conflict-chip {
+  display: inline-flex; align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11px; font-weight: 600;
+  color: var(--neg);
+  background: var(--neg-soft);
+  border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent);
+  border-radius: var(--r-pill);
+}
+.narr-macro { margin-top: var(--s-4); }
+.narr-macro:empty { display: none; }
+.narr-macro-details {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  padding: var(--s-2) var(--s-3);
+}
+.narr-macro-details > summary {
+  cursor: pointer;
+  display: flex; align-items: center; gap: var(--s-2);
+  list-style: none;
+}
+.narr-macro-details > summary::-webkit-details-marker { display: none; }
+.narr-macro-details > summary::after {
+  content: '+';
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+.narr-macro-details[open] > summary::after { content: '−'; }
+.narr-macro-head {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text); font-weight: 700;
+}
+.narr-macro-meta { font-size: 11px; color: var(--muted); }
+.narr-macro-list {
+  margin: var(--s-2) 0 0; padding: 0;
+  list-style: none;
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: var(--fs-sm);
+}
+.narr-macro-list li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: var(--s-2);
+  align-items: baseline;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+.narr-macro-list li:first-child { border-top: none; }
+.narr-macro-date {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.narr-macro-pub {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--accent-strong);
+  white-space: nowrap;
+}
+.narr-macro-title { color: var(--text); }
 
 /* === Option eval card === */
 .opt-controls {
@@ -3059,6 +3323,70 @@ main {
 .opt-news-pane .opt-news-empty {
   color: var(--muted); font-style: italic; font-size: var(--fs-sm);
 }
+.opt-news-sources {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px;
+  margin-top: var(--s-2);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--border);
+}
+.opt-news-sources-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-right: 2px;
+}
+.opt-news-source {
+  display: inline-flex; align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11px; font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.opt-news-headlines {
+  margin-top: var(--s-2);
+  font-size: var(--fs-sm);
+}
+.opt-news-headlines > summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.opt-news-headlines > summary::-webkit-details-marker { display: none; }
+.opt-news-headlines > summary::after {
+  content: ' +';
+  font-family: var(--font-mono);
+}
+.opt-news-headlines[open] > summary::after { content: ' −'; }
+.opt-news-headlines ul {
+  list-style: none;
+  margin: var(--s-2) 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.opt-news-headlines li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2);
+  align-items: baseline;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+.opt-news-headlines li:first-child { border-top: none; }
+.opt-news-headline-pub {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.opt-news-headline-pub.opt-news-headline-rep { color: var(--accent-strong); }
+.opt-news-headline-title { color: var(--text); line-height: 1.4; }
 
 /* === Manual grader accordion === */
 .opt-manual-details summary {
@@ -3180,7 +3508,33 @@ async function writeChainFiles(chains) {
 // tickers. The 26B MoE (4B active params) is fast, generous on free tier,
 // and plenty for a 3-sentence summary task.
 const AI_MODEL = "gemma-4-26b-a4b-it";
-const AI_NEWS_COUNT = 6;
+const AI_NEWS_COUNT = 10;
+// Publishers we trust as "reputable" for sourcing. When Yahoo returns more
+// headlines than AI_NEWS_COUNT we float matches from this set to the front so
+// the AI take leans on wire/major-business-press reporting rather than blog
+// aggregators. Matching is case-insensitive substring against n.publisher.
+const REPUTABLE_PUBLISHERS = [
+  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "Financial Times", "FT",
+  "Associated Press", "AP", "MarketWatch", "CNBC", "Barron's", "Forbes",
+  "The Economist", "New York Times", "Washington Post", "Business Insider",
+  "Insider", "Investor's Business Daily", "Investopedia", "Morningstar",
+  "Dow Jones", "S&P Global", "Moody's", "Fitch", "Yahoo Finance",
+];
+// Top-tier official + major-press macro feeds. The narrative extractor sees a
+// digest of these alongside the per-ticker news takes so it can spot when the
+// data backing a thesis just printed (CPI surprise, Fed pivot, jobs miss).
+const MACRO_FEEDS = [
+  { name: "Federal Reserve", url: "https://www.federalreserve.gov/feeds/press_all.xml" },
+  { name: "BLS Employment Situation", url: "https://www.bls.gov/feed/empsit.rss" },
+  { name: "BLS CPI", url: "https://www.bls.gov/feed/cpi.rss" },
+  { name: "BLS PPI", url: "https://www.bls.gov/feed/ppi.rss" },
+  { name: "SEC Press", url: "https://www.sec.gov/news/pressreleases.rss" },
+  { name: "U.S. Treasury", url: "https://home.treasury.gov/news/press-releases/feed" },
+  { name: "MarketWatch Top Stories", url: "https://feeds.content.dowjones.io/public/rss/mw_topstories" },
+  { name: "CNBC Top News", url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114" },
+];
+const MACRO_PER_FEED = 6;
+const MACRO_TOTAL_CAP = 28;
 // Free-tier Gemma 4 26B caps at 15 RPM / 1.5K RPD. We stagger request *starts*
 // 4500ms apart (~13.3 RPM, safety margin under 15) and run requests
 // concurrently — call latency overlaps the pacing window instead of being
@@ -3239,15 +3593,91 @@ const AI_SYSTEM_PROMPT =
   `{"paragraph": "...", "sentiment": "bullish"|"neutral"|"bearish"|"uncertain"} ` +
   "— no markdown fences, no prose before or after the JSON.";
 
+function isReputablePublisher(name) {
+  if (!name) return false;
+  const lc = name.toLowerCase();
+  return REPUTABLE_PUBLISHERS.some((p) => lc.includes(p.toLowerCase()));
+}
+
+// Very small RSS/Atom parser — enough to read <title>/<pubDate>/<updated>
+// off the feeds we whitelist in MACRO_FEEDS. No XML dependency on purpose;
+// these feeds are well-formed and we only need two fields per item.
+function parseRssItems(xml, max) {
+  if (!xml) return [];
+  const out = [];
+  const blocks = xml.match(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/g) || [];
+  for (const block of blocks) {
+    const titleMatch = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    if (!titleMatch) continue;
+    let title = titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    // Decode the handful of named/numeric entities RSS feeds commonly use.
+    title = title
+      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+    if (!title) continue;
+    const dateRaw =
+      (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) ||
+        block.match(/<updated>([\s\S]*?)<\/updated>/i) ||
+        block.match(/<published>([\s\S]*?)<\/published>/i) ||
+        [])[1];
+    let publishedAt = null;
+    if (dateRaw) {
+      const d = new Date(dateRaw.trim());
+      if (!isNaN(d.getTime())) publishedAt = d.toISOString();
+    }
+    out.push({ title, publishedAt });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+async function fetchMacroHeadlines() {
+  const tasks = MACRO_FEEDS.map(async (feed) => {
+    try {
+      const res = await fetch(feed.url, {
+        headers: {
+          "user-agent": "stonks-build/1.0 (+https://github.com/lilseancoc-png/stonks)",
+          accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        console.log(`    ⚠ macro feed ${feed.name} HTTP ${res.status}`);
+        return [];
+      }
+      const xml = await res.text();
+      const items = parseRssItems(xml, MACRO_PER_FEED);
+      return items.map((it) => ({ ...it, publisher: feed.name, source: feed.name }));
+    } catch (err) {
+      console.log(`    ⚠ macro feed ${feed.name} failed: ${err.message}`);
+      return [];
+    }
+  });
+  const lists = await Promise.all(tasks);
+  const all = lists.flat();
+  // Sort newest-first across all feeds, then cap. Items without a date sink
+  // to the bottom — the parser is forgiving but undated wire items add noise.
+  all.sort((a, b) => {
+    const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+    const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+    return db - da;
+  });
+  const cutoffMs = Date.now() - 14 * 86400000;
+  const fresh = all.filter((it) => !it.publishedAt || Date.parse(it.publishedAt) >= cutoffMs);
+  return fresh.slice(0, MACRO_TOTAL_CAP);
+}
+
 async function fetchTickerHeadlines(symbol) {
   try {
+    // Pull more than AI_NEWS_COUNT so we can float reputable wires to the front
+    // and still hit the target count when Yahoo returns a mix.
     const res = await yahooFinance.search(symbol, {
-      newsCount: AI_NEWS_COUNT,
+      newsCount: AI_NEWS_COUNT * 2,
       quotesCount: 0,
       enableFuzzyQuery: false,
     });
     const items = Array.isArray(res?.news) ? res.news : [];
-    return items
+    const normalized = items
       .map((n) => ({
         title: (n.title || "").trim(),
         publisher: (n.publisher || "").trim(),
@@ -3255,8 +3685,18 @@ async function fetchTickerHeadlines(symbol) {
           ? new Date(n.providerPublishTime instanceof Date ? n.providerPublishTime : n.providerPublishTime * 1000).toISOString()
           : null,
       }))
-      .filter((n) => n.title.length > 0)
-      .slice(0, AI_NEWS_COUNT);
+      .filter((n) => n.title.length > 0);
+    // Stable sort: reputable publishers first, then most recent first. The
+    // resulting list is what both the AI prompt and the data file see.
+    normalized.sort((a, b) => {
+      const ra = isReputablePublisher(a.publisher) ? 0 : 1;
+      const rb = isReputablePublisher(b.publisher) ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+      const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+      return db - da;
+    });
+    return normalized.slice(0, AI_NEWS_COUNT);
   } catch (err) {
     console.log(`    ⚠ ${symbol} headline fetch failed: ${err.message}`);
     return [];
@@ -3311,10 +3751,29 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
     ? stripped.slice(firstBrace, lastBrace + 1)
     : stripped;
   const parsed = JSON.parse(jsonText);
+  // Keep a compact source list — distinct publisher names ordered by their
+  // appearance in the (already reputable-first) headline list — so the UI can
+  // display "Sources: Reuters · Bloomberg · MarketWatch" under each take.
+  const sources = [];
+  const seenPub = new Set();
+  for (const h of headlines) {
+    const p = (h.publisher || "").trim();
+    if (!p) continue;
+    const key = p.toLowerCase();
+    if (seenPub.has(key)) continue;
+    seenPub.add(key);
+    sources.push(p);
+  }
   return {
     paragraph: String(parsed.paragraph || "").trim(),
     sentiment: parsed.sentiment,
-    headlines: headlines.map((h) => h.title),
+    headlines: headlines.map((h) => ({
+      title: h.title,
+      publisher: h.publisher || null,
+      publishedAt: h.publishedAt || null,
+      reputable: isReputablePublisher(h.publisher),
+    })),
+    sources,
     builtAt: new Date().toISOString(),
   };
 }
@@ -3536,21 +3995,40 @@ const NARRATIVE_MAX_COUNT = 10;
 const NARRATIVE_SYSTEM_PROMPT =
   "You are a markets analyst who tracks the narratives currently driving US equity flows. " +
   "Markets run on stories — AI capex, GLP-1 obesity drugs, tariff fights, the crypto trade, " +
-  "post-election rotations, defense plays around geopolitics, etc. Narratives come and go. " +
-  "Given a snapshot of recent news takes for a curated list of US-listed tickers, identify the " +
-  `4-${NARRATIVE_MAX_COUNT} most active market narratives RIGHT NOW. For each narrative, return: ` +
+  "post-election rotations, defense plays around geopolitics, etc. Narratives come and go, some " +
+  "are dominating price action right now, others are building in the background and need a " +
+  "catalyst to take over. Some narratives directly clash with each other — when one heats up the " +
+  "other has to cool. Your job is to rank them, not just list them. " +
+  "You are given two information sources: (1) a snapshot of recent per-ticker news takes for a " +
+  "curated US ticker list, and (2) a digest of MACRO HEADLINES from official sources (Federal " +
+  "Reserve, BLS, Treasury, SEC) and major business press (Reuters, Bloomberg, WSJ, MarketWatch, " +
+  "CNBC) covering the last ~2 weeks. Use the macro digest to decide whether a narrative's required " +
+  "trigger has fired (e.g. a hot CPI print activates the inflation/short-duration trade) or is " +
+  "still pending (no trigger yet). " +
+  `Identify the 4-${NARRATIVE_MAX_COUNT} most consequential market narratives right now. For each one, return: ` +
   `a short "name" (2-5 words, title case, e.g. "AI infrastructure buildout", "GLP-1 obesity wave"); ` +
-  `a one-sentence "thesis" in plain English explaining the trade and why it is live now; ` +
+  `a one-sentence "thesis" in plain English explaining the trade and why it is in play; ` +
   `a "sentiment" of "bullish" or "bearish" describing whether the narrative is a tailwind or headwind for the longs; ` +
   `a "longs" array of tickers from the provided list that benefit from the narrative; ` +
   `a "shorts" array of tickers from the provided list that are hurt by it (empty array if none apply); ` +
-  `a "confidence" of "high", "medium", or "low" based on how clearly the headlines support the trade. ` +
+  `a "confidence" of "high", "medium", or "low" based on how clearly the evidence supports the trade; ` +
+  `a "strength" integer 0-100 estimating how dominantly this narrative is driving price action TODAY ` +
+  `(95 = clearly the dominant tape driver; 60 = meaningful sector mover; 30 = simmering but not yet expressed in price; 10 = mostly latent); ` +
+  `a "status" of "active" (already playing out in price), "building" (the thesis is intact but the market is not pricing it yet — waiting on a trigger), or "fading" (the move has largely happened and momentum is rolling over); ` +
+  `a "timeframe" of "immediate" (this week), "near-term" (1-4 weeks), "medium-term" (1-3 months), or "long-term" (3+ months) describing how long the trade typically takes to play out; ` +
+  `a "triggers" array of 1-3 short concrete catalysts that would intensify this narrative or unlock it from "building" to "active" (e.g. "Hotter-than-expected CPI print", "Fed pivot to cuts", "Major hyperscaler capex guide-up", "10Y yield breaks 4.8%"); ` +
+  `a "conflictsWith" array listing the NAMES of OTHER narratives in this same response that this one directly opposes (e.g. an "AI Mega-Cap Bid" narrative going bullish on QQQ conflicts with a "Resurgent Inflation Volatility" narrative shorting QQQ). Empty array if none clash. ` +
   "Rules: only use tickers from the provided list — do not invent tickers. A narrative MUST have at " +
-  "least one long or one short. Prefer broader narratives over very narrow single-name stories. If a " +
-  "list of PREVIOUS narrative names is provided, reuse a previous name verbatim when today's narrative " +
-  "is the same story so we can track its lifespan; otherwise pick a fresh name. " +
+  "least one long or one short. Prefer broader narratives over very narrow single-name stories. " +
+  "ORDER the narratives array from STRONGEST to WEAKEST (highest strength first; active narratives " +
+  "above building ones at the same strength; fading ones last). Be honest — if the inflation " +
+  "short-SPY trade is real but the trigger hasn't fired this week, mark it building with a lower " +
+  "strength rather than pretending it dominates today's tape. If a list of PREVIOUS narrative names " +
+  "is provided, reuse a previous name verbatim when today's narrative is the same story so we can " +
+  "track its lifespan; otherwise pick a fresh name. " +
+  "conflictsWith names MUST match other names in your own response exactly — do not reference narratives that aren't in this output. " +
   "Respond with ONLY a JSON object of the form " +
-  `{"narratives":[{"name":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low"}]} ` +
+  `{"narratives":[{"name":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","triggers":["..."],"conflictsWith":["..."]}]} ` +
   "— no markdown fences, no prose before or after the JSON.";
 
 const TRENDS_FILE = "trends.json";
@@ -3566,32 +4044,49 @@ async function loadTrendHistory() {
   }
 }
 
-function buildNarrativeUserMessage(chains, previousNames) {
+function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
   const lines = Object.entries(chains).map(([sym, data]) => {
     const news = data.news;
     const sentiment = news?.sentiment || "unknown";
     const summary = (news?.paragraph || "").replace(/\s+/g, " ").trim();
-    const topHeadline = Array.isArray(news?.headlines) && news.headlines.length
-      ? news.headlines[0].replace(/\s+/g, " ").trim()
-      : "";
+    const firstHl = Array.isArray(news?.headlines) && news.headlines.length ? news.headlines[0] : null;
+    // headlines used to be plain strings; they're now {title, publisher, …}.
+    // Accept either shape so a half-stale data dir doesn't break the build.
+    const topHeadlineRaw = !firstHl
+      ? ""
+      : typeof firstHl === "string"
+        ? firstHl
+        : (firstHl.title || "");
+    const topHeadlinePub = firstHl && typeof firstHl === "object" ? (firstHl.publisher || "") : "";
+    const topHeadline = topHeadlineRaw.replace(/\s+/g, " ").trim();
     // Trim each ticker block so the combined prompt stays well under the
     // model's context — Gemma 4 26B has plenty of room but we send ~65 of these.
     const summaryClip = summary.length > 260 ? summary.slice(0, 257) + "…" : summary;
     const headlineClip = topHeadline.length > 140 ? topHeadline.slice(0, 137) + "…" : topHeadline;
-    return `- ${sym} [${sentiment}] ${summaryClip}` + (headlineClip ? ` Headline: "${headlineClip}"` : "");
+    const pubTag = topHeadlinePub ? ` (${topHeadlinePub})` : "";
+    return `- ${sym} [${sentiment}] ${summaryClip}` + (headlineClip ? ` Headline${pubTag}: "${headlineClip}"` : "");
   });
   const previousBlock = previousNames.length
     ? `Previous narrative names from the last build (reuse verbatim when the same story is still live):\n${previousNames.map((n) => `- ${n}`).join("\n")}`
     : "No previous narratives recorded.";
+  const macroLines = Array.isArray(macroHeadlines) && macroHeadlines.length
+    ? macroHeadlines.slice(0, MACRO_TOTAL_CAP).map((h) => {
+        const date = h.publishedAt ? h.publishedAt.slice(0, 10) : "undated";
+        const t = (h.title || "").replace(/\s+/g, " ").trim();
+        const clipped = t.length > 180 ? t.slice(0, 177) + "…" : t;
+        return `- [${date}] (${h.publisher || "source"}) ${clipped}`;
+      }).join("\n")
+    : "(no macro headlines retrieved)";
   return (
     `Tickers in scope: ${Object.keys(chains).join(", ")}\n\n` +
     `${previousBlock}\n\n` +
-    `Recent news takes:\n${lines.join("\n")}`
+    `Macro headlines digest (official + major business press, newest first — use these to judge whether each narrative's trigger has fired):\n${macroLines}\n\n` +
+    `Recent per-ticker news takes:\n${lines.join("\n")}`
   );
 }
 
-async function generateMarketNarratives(ai, chains, previousNames) {
-  const userMessage = buildNarrativeUserMessage(chains, previousNames);
+async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines) {
+  const userMessage = buildNarrativeUserMessage(chains, previousNames, macroHeadlines);
   let response;
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
@@ -3629,8 +4124,20 @@ async function generateMarketNarratives(ai, chains, previousNames) {
           .map((s) => String(s || "").toUpperCase().trim())
           .filter((s) => validSymbols.has(s))))
       : [];
-  const narratives = Array.isArray(parsed.narratives) ? parsed.narratives : [];
-  return narratives
+  const sanitizeStringList = (arr, max, maxLen) =>
+    Array.isArray(arr)
+      ? Array.from(new Set(arr
+          .map((s) => String(s || "").replace(/\s+/g, " ").trim())
+          .filter((s) => s.length > 0)
+          .map((s) => (s.length > maxLen ? s.slice(0, maxLen - 1) + "…" : s))))
+          .slice(0, max)
+      : [];
+  const VALID_STATUS = ["active", "building", "fading"];
+  const VALID_TIMEFRAME = ["immediate", "near-term", "medium-term", "long-term"];
+  const STATUS_WEIGHT = { active: 2, building: 1, fading: 0 };
+  const TF_WEIGHT = { immediate: 3, "near-term": 2, "medium-term": 1, "long-term": 0 };
+  const narrativesRaw = Array.isArray(parsed.narratives) ? parsed.narratives : [];
+  const cleaned = narrativesRaw
     .map((n) => {
       const name = String(n.name || "").trim();
       const thesis = String(n.thesis || "").trim();
@@ -3638,10 +4145,40 @@ async function generateMarketNarratives(ai, chains, previousNames) {
       const confidence = ["high", "medium", "low"].includes(n.confidence) ? n.confidence : "medium";
       const longs = sanitizeTickers(n.longs);
       const shorts = sanitizeTickers(n.shorts);
-      return { name, thesis, sentiment, confidence, longs, shorts };
+      let strength = Number(n.strength);
+      if (!isFinite(strength)) strength = confidence === "high" ? 70 : confidence === "low" ? 30 : 50;
+      strength = Math.max(0, Math.min(100, Math.round(strength)));
+      const status = VALID_STATUS.includes(n.status) ? n.status : "active";
+      const timeframe = VALID_TIMEFRAME.includes(n.timeframe) ? n.timeframe : "near-term";
+      const triggers = sanitizeStringList(n.triggers, 3, 120);
+      const conflictsWithRaw = sanitizeStringList(n.conflictsWith, 4, 60);
+      return { name, thesis, sentiment, confidence, strength, status, timeframe, triggers, conflictsWith: conflictsWithRaw, longs, shorts };
     })
     .filter((n) => n.name && n.thesis && (n.longs.length > 0 || n.shorts.length > 0))
     .slice(0, NARRATIVE_MAX_COUNT);
+
+  // Drop conflictsWith references to names that aren't in our final cleaned
+  // set — the model occasionally hallucinates a conflict against a narrative
+  // it didn't actually emit.
+  const nameSet = new Map(cleaned.map((n) => [n.name.toLowerCase(), n.name]));
+  for (const n of cleaned) {
+    n.conflictsWith = n.conflictsWith
+      .map((c) => nameSet.get(c.toLowerCase()))
+      .filter((c) => c && c.toLowerCase() !== n.name.toLowerCase());
+  }
+  // Sort strongest-first regardless of the order the model returned them in:
+  // strength desc, then active > building > fading, then immediate > long-term,
+  // then confidence high > medium > low as a stable tiebreaker.
+  const CONF_WEIGHT = { high: 2, medium: 1, low: 0 };
+  cleaned.sort((a, b) => {
+    if (b.strength !== a.strength) return b.strength - a.strength;
+    const sw = (STATUS_WEIGHT[b.status] || 0) - (STATUS_WEIGHT[a.status] || 0);
+    if (sw !== 0) return sw;
+    const tw = (TF_WEIGHT[b.timeframe] || 0) - (TF_WEIGHT[a.timeframe] || 0);
+    if (tw !== 0) return tw;
+    return (CONF_WEIGHT[b.confidence] || 0) - (CONF_WEIGHT[a.confidence] || 0);
+  });
+  return cleaned;
 }
 
 // Walk back through prior snapshots to discover when each narrative first
@@ -3673,14 +4210,17 @@ function annotateNarrativesWithLifespan(narratives, history, todayIso) {
 function updateTrendHistory(history, narratives, todayIso) {
   const date = todayIso.slice(0, 10);
   // Compact snapshot — name + sentiment + ticker lists are enough to compute
-  // continuity and a "trends that came and went" view. Drop thesis/confidence
-  // to keep the history file small.
+  // continuity and a "trends that came and went" view. Include strength /
+  // status so later builds can chart how a narrative built up or faded
+  // without bloating the file with theses/triggers.
   const snapshot = {
     date,
     builtAtIso: todayIso,
     narratives: narratives.map((n) => ({
       name: n.name,
       sentiment: n.sentiment,
+      strength: n.strength,
+      status: n.status,
       longs: n.longs,
       shorts: n.shorts,
     })),
@@ -3731,31 +4271,36 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
 async function attachMarketNarratives(chains, previousHistory) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
-    return { narratives: [], recentlyEnded: [], history: previousHistory };
+    return { narratives: [], recentlyEnded: [], history: previousHistory, macroHeadlines: [] };
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
   const previousNames = lastSnapshot ? lastSnapshot.narratives.map((n) => n.name) : [];
-  // Let the per-ticker pass's 60s rate-limit window clear before firing the
-  // narrative call — otherwise this one call lands inside the tail of the
-  // previous burst and pushes the project over 15 RPM.
-  await new Promise((r) => setTimeout(r, AI_NARRATIVE_COOLDOWN_MS));
+  // Pull macro context in parallel with the per-ticker rate-limit cooldown
+  // so the extra fetches don't add to the wall-clock build time.
+  console.log(`Fetching macro headlines across ${MACRO_FEEDS.length} feeds…`);
+  const [macroHeadlines] = await Promise.all([
+    fetchMacroHeadlines(),
+    new Promise((r) => setTimeout(r, AI_NARRATIVE_COOLDOWN_MS)),
+  ]);
+  console.log(`  · ${macroHeadlines.length} macro headlines retrieved`);
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
-    const raw = await generateMarketNarratives(ai, chains, previousNames);
+    const raw = await generateMarketNarratives(ai, chains, previousNames, macroHeadlines);
     const builtAtIso = new Date().toISOString();
     const narratives = annotateNarrativesWithLifespan(raw, previousHistory, builtAtIso);
     const history = updateTrendHistory(previousHistory, narratives, builtAtIso);
     const recentlyEnded = computeRecentlyEnded(history, narratives.map((n) => n.name), builtAtIso);
-    console.log(`  ✓ ${narratives.length} narratives extracted`);
+    console.log(`  ✓ ${narratives.length} narratives extracted (ordered strongest → weakest)`);
     for (const n of narratives) {
-      console.log(`    · ${n.name} [${n.sentiment}, ${n.confidence}, day ${n.daysRunning}] long=${n.longs.join(",")||"—"} short=${n.shorts.join(",")||"—"}`);
+      console.log(`    · ${n.name} [str ${n.strength}, ${n.status}, ${n.timeframe}, ${n.sentiment}, conf ${n.confidence}, day ${n.daysRunning}] long=${n.longs.join(",")||"—"} short=${n.shorts.join(",")||"—"}` +
+        (n.conflictsWith.length ? ` ⚔ ${n.conflictsWith.join(" | ")}` : ""));
     }
-    return { narratives, recentlyEnded, history };
+    return { narratives, recentlyEnded, history, macroHeadlines };
   } catch (err) {
     console.log(`  ✗ Narrative extraction failed: ${err.message}`);
     // Don't drop the existing history just because today's extraction failed.
-    return { narratives: [], recentlyEnded: [], history: previousHistory };
+    return { narratives: [], recentlyEnded: [], history: previousHistory, macroHeadlines };
   }
 }
 
@@ -3787,6 +4332,7 @@ async function main() {
     builtAtIso,
     narratives: trends.narratives,
     recentlyEnded: trends.recentlyEnded,
+    macroHeadlines: trends.macroHeadlines || [],
     spots,
   });
   const css = renderStylesCss();
@@ -3799,6 +4345,7 @@ async function main() {
   await writeTrendFiles({
     narratives: trends.narratives,
     recentlyEnded: trends.recentlyEnded,
+    macroHeadlines: trends.macroHeadlines || [],
     history: trends.history,
     builtAtIso,
   });
@@ -3807,10 +4354,10 @@ async function main() {
   );
 }
 
-async function writeTrendFiles({ narratives, recentlyEnded, history, builtAtIso }) {
+async function writeTrendFiles({ narratives, recentlyEnded, macroHeadlines, history, builtAtIso }) {
   // writeChainFiles wiped data/ a moment ago, so write into the freshly
   // recreated directory.
-  const current = JSON.stringify({ builtAtIso, narratives, recentlyEnded });
+  const current = JSON.stringify({ builtAtIso, narratives, recentlyEnded, macroHeadlines });
   await writeFile(resolve(DATA_DIR, TRENDS_FILE), current, "utf8");
   const archive = JSON.stringify({ builtAtIso, days: NARRATIVE_HISTORY_DAYS, snapshots: history });
   await writeFile(resolve(DATA_DIR, TRENDS_HISTORY_FILE), archive, "utf8");
