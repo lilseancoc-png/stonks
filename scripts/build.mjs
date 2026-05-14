@@ -287,6 +287,134 @@ function computeTechnicals(bars) {
   };
 }
 
+// Fundamentals + last earnings pull. quoteSummary lets us request multiple
+// modules in a single round trip — we ask for the key valuation / health /
+// growth / margin / cash flow / analyst-target slices plus the earnings
+// schedule. Failure is non-fatal: the page still grades options without it.
+async function fetchFundamentals(symbol) {
+  const modules = [
+    "summaryDetail",
+    "defaultKeyStatistics",
+    "financialData",
+    "earnings",
+    "calendarEvents",
+    "earningsHistory",
+    "earningsTrend",
+    "price",
+  ];
+  let res;
+  try {
+    res = await yahooFinance.quoteSummary(symbol, { modules });
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} fundamentals fetch failed: ${err.message}`);
+    return null;
+  }
+  if (!res) return null;
+  const num = (v) => {
+    if (v == null) return null;
+    if (typeof v === "number" && isFinite(v)) return v;
+    if (typeof v === "object" && v && "raw" in v && typeof v.raw === "number") return v.raw;
+    return null;
+  };
+  const pct = (v) => {
+    const n = num(v);
+    return n == null ? null : n * 100;
+  };
+  const sd = res.summaryDetail || {};
+  const ks = res.defaultKeyStatistics || {};
+  const fd = res.financialData || {};
+  const er = res.earnings || {};
+  const ev = res.calendarEvents || {};
+  const eh = res.earningsHistory || {};
+  const et = res.earningsTrend || {};
+  const pr = res.price || {};
+
+  // Most recent reported quarter from earningsHistory (Yahoo orders -4q..0q;
+  // pick the latest with an actual EPS reported). epsActual / estimate are
+  // already plain numbers in yahoo-finance2.
+  let lastQuarter = null;
+  const history = Array.isArray(eh.history) ? eh.history : [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h = history[i];
+    const actual = num(h?.epsActual);
+    if (actual == null) continue;
+    const estimate = num(h?.epsEstimate);
+    const surprisePct = num(h?.surprisePercent);
+    let date = null;
+    if (h.quarter) {
+      const t = h.quarter instanceof Date ? h.quarter : new Date(h.quarter);
+      if (!isNaN(t.getTime())) date = t.toISOString().slice(0, 10);
+    }
+    lastQuarter = {
+      date,
+      period: h.period || null,
+      epsActual: actual,
+      epsEstimate: estimate,
+      surprisePct: surprisePct != null ? surprisePct * 100 : null,
+    };
+    break;
+  }
+
+  // Next earnings date from calendarEvents.earnings.earningsDate (an array of
+  // Date objects — Yahoo gives a single date once it's confirmed, otherwise a
+  // start/end window).
+  let nextEarnings = null;
+  const ed = ev?.earnings?.earningsDate;
+  if (Array.isArray(ed) && ed.length) {
+    const first = ed[0] instanceof Date ? ed[0] : new Date(ed[0]);
+    if (!isNaN(first.getTime())) nextEarnings = first.toISOString().slice(0, 10);
+  }
+
+  // Current-quarter / current-year growth estimates from earningsTrend. The
+  // trend array is keyed by period: 0q (current Q), +1q, 0y (current FY), +1y.
+  const trend = Array.isArray(et.trend) ? et.trend : [];
+  const findTrend = (p) => trend.find((t) => t?.period === p) || null;
+  const tq = findTrend("0q");
+  const ty = findTrend("0y");
+
+  return {
+    name: pr.shortName || pr.longName || null,
+    marketCap: num(sd.marketCap) ?? num(pr.marketCap),
+    trailingPE: num(sd.trailingPE),
+    forwardPE: num(sd.forwardPE) ?? num(ks.forwardPE),
+    pegRatio: num(ks.pegRatio),
+    priceToBook: num(ks.priceToBook),
+    priceToSales: num(sd.priceToSalesTrailing12Months),
+    profitMargin: pct(fd.profitMargins ?? ks.profitMargins),
+    operatingMargin: pct(fd.operatingMargins),
+    grossMargin: pct(fd.grossMargins),
+    returnOnEquity: pct(fd.returnOnEquity),
+    returnOnAssets: pct(fd.returnOnAssets),
+    revenueGrowthYoy: pct(fd.revenueGrowth),
+    earningsGrowthYoy: pct(fd.earningsGrowth),
+    earningsQuarterlyGrowthYoy: pct(ks.earningsQuarterlyGrowth),
+    debtToEquity: num(fd.debtToEquity),
+    currentRatio: num(fd.currentRatio),
+    quickRatio: num(fd.quickRatio),
+    freeCashFlow: num(fd.freeCashflow),
+    operatingCashFlow: num(fd.operatingCashflow),
+    totalCash: num(fd.totalCash),
+    totalDebt: num(fd.totalDebt),
+    revenue: num(fd.totalRevenue),
+    dividendYield: pct(sd.dividendYield),
+    payoutRatio: pct(sd.payoutRatio),
+    beta: num(sd.beta) ?? num(ks.beta),
+    fiftyTwoWeekHigh: num(sd.fiftyTwoWeekHigh),
+    fiftyTwoWeekLow: num(sd.fiftyTwoWeekLow),
+    targetMeanPrice: num(fd.targetMeanPrice),
+    targetHighPrice: num(fd.targetHighPrice),
+    targetLowPrice: num(fd.targetLowPrice),
+    recommendationKey: fd.recommendationKey || null,
+    numberOfAnalystOpinions: num(fd.numberOfAnalystOpinions),
+    lastQuarter,
+    nextEarningsDate: nextEarnings,
+    growthEstimateCurQ: tq ? pct(tq.growth) : null,
+    growthEstimateCurY: ty ? pct(ty.growth) : null,
+    revenueEstimateCurQ: tq?.revenueEstimate ? num(tq.revenueEstimate.avg) : null,
+    revenueEstimateCurY: ty?.revenueEstimate ? num(ty.revenueEstimate.avg) : null,
+  };
+}
+
 async function fetchTickerChain(symbol) {
   const initial = await fetchYahooOptions(symbol);
   const spot =
@@ -334,11 +462,17 @@ async function fetchTickerChain(symbol) {
     console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
   }
 
+  // Fundamentals + earnings — separate Yahoo call (quoteSummary). ETFs return
+  // mostly empty modules, so the renderer hides the card when there's nothing
+  // useful to show.
+  const fundamentals = await fetchFundamentals(symbol);
+
   return {
     spot,
     expirations: Object.keys(chains).map(Number).sort((a, b) => a - b),
     chains,
     technicals,
+    fundamentals,
   };
 }
 
@@ -432,6 +566,26 @@ function optionEvalSection() {
       <div class="opt-tech-grid" id="opt-tech-grid"></div>
       <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
     </section>
+    <section id="opt-fundamentals" class="opt-fund" hidden aria-label="Fundamentals and earnings for this ticker">
+      <header class="opt-fund-head">
+        <h3 class="opt-fund-title">Fundamentals &amp; earnings</h3>
+        <span id="opt-fund-verdict" class="opt-fund-verdict"></span>
+      </header>
+      <p id="opt-fund-summary" class="opt-fund-summary"></p>
+      <div id="opt-fund-recap" class="opt-fund-recap" hidden></div>
+      <div class="opt-fund-columns">
+        <div class="opt-fund-col opt-fund-pos">
+          <div class="opt-fund-col-head">Positives</div>
+          <ul id="opt-fund-pos-list" class="opt-fund-list"></ul>
+        </div>
+        <div class="opt-fund-col opt-fund-neg">
+          <div class="opt-fund-col-head">Negatives</div>
+          <ul id="opt-fund-neg-list" class="opt-fund-list"></ul>
+        </div>
+      </div>
+      <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
+      <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
+    </section>
     <div class="opt-result-wrap">
       <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
       <div id="opt-eval-result" class="opt-result"></div>
@@ -519,7 +673,7 @@ function renderAppJs() {
   var SPOTS = MANIFEST.spots || {};
   var RFR = 0.045;
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -1107,13 +1261,14 @@ function renderAppJs() {
     // and only here — nothing about a ticker is preloaded before the user
     // commits to it. force-cache keeps re-selects free for the rest of the
     // session.
-    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news + technicals…', '');
+    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', '');
     fetchChain(symbol).then(function(entry){
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
       state.chains = entry.chains || {};
       state.news = entry.news || null;
       state.technicals = entry.technicals || null;
+      state.fundamentals = entry.fundamentals || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       state.currentExp = state.expirations[0];
       populateExpiry();
@@ -1122,6 +1277,7 @@ function renderAppJs() {
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderTechnicals(symbol);
+      renderFundamentals(symbol);
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
       // Kick off the live spot refresh in parallel — the page is already
@@ -1321,6 +1477,125 @@ function renderAppJs() {
     grid.innerHTML = html;
     box.hidden = false;
   }
+
+  // --- Fundamentals + earnings -------------------------------------------
+  function fmtBigDollars(n){
+    if (n == null || !isFinite(n)) return null;
+    var a = Math.abs(n);
+    if (a >= 1e12) return '$' + (n/1e12).toFixed(2) + 'T';
+    if (a >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+    return '$' + Math.round(n).toLocaleString();
+  }
+  function fundMetric(label, value, tone){
+    if (value == null || value === '') return '';
+    var toneCls = tone ? ' tone-' + tone : '';
+    return '<div class="opt-fund-metric' + toneCls + '">' +
+      '<div class="opt-fund-metric-label">' + escapeHtml(label) + '</div>' +
+      '<div class="opt-fund-metric-value">' + value + '</div>' +
+    '</div>';
+  }
+  function fundVerdictLabel(v){
+    if (v === 'strong') return 'Strong fundamentals';
+    if (v === 'weak') return 'Weak fundamentals';
+    return 'Mixed fundamentals';
+  }
+  function renderFundamentals(sym){
+    var box = $('opt-fundamentals');
+    if (!box) return;
+    var f = state.fundamentals;
+    if (!f){ box.hidden = true; return; }
+    var hasJudgment = f.judgment && (f.judgment.positives && f.judgment.positives.length || f.judgment.negatives && f.judgment.negatives.length || f.judgment.summary);
+    var hasMetrics = (f.trailingPE != null || f.forwardPE != null || f.marketCap != null || f.profitMargin != null || f.revenueGrowthYoy != null || f.lastQuarter || f.nextEarningsDate);
+    if (!hasJudgment && !hasMetrics){ box.hidden = true; return; }
+
+    var verdictEl = $('opt-fund-verdict');
+    var summaryEl = $('opt-fund-summary');
+    var recapEl = $('opt-fund-recap');
+    var posList = $('opt-fund-pos-list');
+    var negList = $('opt-fund-neg-list');
+    var metricsEl = $('opt-fund-metrics');
+
+    if (hasJudgment){
+      var j = f.judgment;
+      var v = j.verdict || 'mixed';
+      verdictEl.className = 'opt-fund-verdict ' + v;
+      verdictEl.textContent = fundVerdictLabel(v);
+      summaryEl.textContent = j.summary || '';
+      summaryEl.hidden = !j.summary;
+      if (j.earningsRecap){
+        recapEl.innerHTML = '<span class="opt-fund-recap-label">Last earnings</span> ' + escapeHtml(j.earningsRecap);
+        recapEl.hidden = false;
+      } else {
+        recapEl.hidden = true;
+        recapEl.innerHTML = '';
+      }
+      posList.innerHTML = (j.positives || []).map(function(p){
+        return '<li>' + escapeHtml(p) + '</li>';
+      }).join('') || '<li class="opt-fund-empty">No clear positives surfaced.</li>';
+      negList.innerHTML = (j.negatives || []).map(function(p){
+        return '<li>' + escapeHtml(p) + '</li>';
+      }).join('') || '<li class="opt-fund-empty">No clear negatives surfaced.</li>';
+    } else {
+      verdictEl.className = 'opt-fund-verdict';
+      verdictEl.textContent = '';
+      summaryEl.textContent = 'AI judgment unavailable for this ticker — raw metrics below.';
+      summaryEl.hidden = false;
+      recapEl.hidden = true;
+      recapEl.innerHTML = '';
+      posList.innerHTML = '';
+      negList.innerHTML = '';
+    }
+
+    var metrics = '';
+    metrics += fundMetric('Market cap', fmtBigDollars(f.marketCap));
+    metrics += fundMetric('Trailing P/E', f.trailingPE != null ? f.trailingPE.toFixed(1) : null);
+    metrics += fundMetric('Forward P/E', f.forwardPE != null ? f.forwardPE.toFixed(1) : null);
+    metrics += fundMetric('PEG', f.pegRatio != null ? f.pegRatio.toFixed(2) : null);
+    metrics += fundMetric('Price / Sales', f.priceToSales != null ? f.priceToSales.toFixed(2) : null);
+    metrics += fundMetric('Rev. growth YoY', f.revenueGrowthYoy != null ? f.revenueGrowthYoy.toFixed(1) + '%' : null,
+      f.revenueGrowthYoy != null ? (f.revenueGrowthYoy > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('EPS growth YoY', f.earningsGrowthYoy != null ? f.earningsGrowthYoy.toFixed(1) + '%' : null,
+      f.earningsGrowthYoy != null ? (f.earningsGrowthYoy > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('Profit margin', f.profitMargin != null ? f.profitMargin.toFixed(1) + '%' : null,
+      f.profitMargin != null ? (f.profitMargin > 10 ? 'pos' : f.profitMargin < 0 ? 'neg' : null) : null);
+    metrics += fundMetric('Operating margin', f.operatingMargin != null ? f.operatingMargin.toFixed(1) + '%' : null);
+    metrics += fundMetric('ROE', f.returnOnEquity != null ? f.returnOnEquity.toFixed(1) + '%' : null,
+      f.returnOnEquity != null ? (f.returnOnEquity > 15 ? 'pos' : f.returnOnEquity < 0 ? 'neg' : null) : null);
+    metrics += fundMetric('Debt / Equity', f.debtToEquity != null ? f.debtToEquity.toFixed(0) : null,
+      f.debtToEquity != null ? (f.debtToEquity > 200 ? 'neg' : null) : null);
+    metrics += fundMetric('Free cash flow', fmtBigDollars(f.freeCashFlow),
+      f.freeCashFlow != null ? (f.freeCashFlow > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('Dividend yield', f.dividendYield != null && f.dividendYield > 0 ? f.dividendYield.toFixed(2) + '%' : null);
+    if (f.lastQuarter){
+      var lq = f.lastQuarter;
+      var surprise = lq.surprisePct != null ? ((lq.surprisePct >= 0 ? '+' : '') + lq.surprisePct.toFixed(1) + '%') : null;
+      var beatTone = lq.surprisePct == null ? null : (lq.surprisePct > 2 ? 'pos' : lq.surprisePct < -2 ? 'neg' : null);
+      var lqVal = 'EPS ' + (lq.epsActual != null ? lq.epsActual.toFixed(2) : '—');
+      if (lq.epsEstimate != null) lqVal += ' <span class="opt-fund-metric-sub">est ' + lq.epsEstimate.toFixed(2) + '</span>';
+      if (surprise) lqVal += ' <span class="opt-fund-metric-sub">(' + surprise + ')</span>';
+      var lqLabel = 'Last earnings' + (lq.period ? ' (' + lq.period + ')' : '') + (lq.date ? ' · ' + lq.date : '');
+      metrics += fundMetric(lqLabel, lqVal, beatTone);
+    }
+    if (f.nextEarningsDate){
+      metrics += fundMetric('Next earnings', f.nextEarningsDate, 'warn');
+    }
+    if (f.targetMeanPrice != null && state.spot){
+      var upside = (f.targetMeanPrice - state.spot) / state.spot * 100;
+      var upsideStr = (upside >= 0 ? '+' : '') + upside.toFixed(1) + '%';
+      metrics += fundMetric('Analyst target',
+        '$' + f.targetMeanPrice.toFixed(2) + ' <span class="opt-fund-metric-sub">' + upsideStr + ' vs spot</span>',
+        upside > 5 ? 'pos' : upside < -5 ? 'neg' : null);
+    }
+    if (f.recommendationKey){
+      var recPretty = f.recommendationKey.replace(/_/g, ' ');
+      var recTone = /buy|outperform/i.test(f.recommendationKey) ? 'pos' : /sell|underperform/i.test(f.recommendationKey) ? 'neg' : null;
+      metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
+    }
+    metricsEl.innerHTML = metrics;
+    box.hidden = false;
+  }
+
   function onExpiryChange(){
     var exp = Number($('opt-expiry').value);
     state.currentExp = exp;
@@ -2103,6 +2378,116 @@ main {
   font-size: 11px; color: var(--muted);
   margin: var(--s-2) 0 0; line-height: 1.4;
 }
+
+/* === Fundamentals + earnings panel === */
+.opt-fund {
+  margin-top: var(--s-4);
+  padding: var(--s-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+}
+.opt-fund-head {
+  display: flex; align-items: center; gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-3);
+}
+.opt-fund-title {
+  font-size: var(--fs-md); font-weight: 700; margin: 0;
+  color: var(--text-strong);
+}
+.opt-fund-verdict {
+  display: inline-flex; align-items: center;
+  padding: 4px 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  border-radius: var(--r-pill);
+  background: var(--surface-3); color: var(--muted);
+  border: 1px solid var(--border);
+}
+.opt-fund-verdict.strong { color: var(--pos); background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-fund-verdict.weak   { color: var(--neg); background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-fund-verdict.mixed  { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-fund-summary {
+  margin: 0 0 var(--s-3);
+  font-size: var(--fs-md); line-height: 1.5; color: var(--text);
+}
+.opt-fund-recap {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm); color: var(--text); line-height: 1.5;
+}
+.opt-fund-recap-label {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.opt-fund-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+@media (max-width: 640px) {
+  .opt-fund-columns { grid-template-columns: 1fr; }
+}
+.opt-fund-col {
+  padding: var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.opt-fund-col.opt-fund-pos { border-left: 3px solid var(--pos); }
+.opt-fund-col.opt-fund-neg { border-left: 3px solid var(--neg); }
+.opt-fund-col-head {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  margin-bottom: var(--s-2);
+}
+.opt-fund-pos .opt-fund-col-head { color: var(--pos); }
+.opt-fund-neg .opt-fund-col-head { color: var(--neg); }
+.opt-fund-list {
+  margin: 0; padding-left: 18px;
+  font-size: var(--fs-sm); line-height: 1.5; color: var(--text);
+}
+.opt-fund-list li { margin-bottom: 6px; }
+.opt-fund-list li:last-child { margin-bottom: 0; }
+.opt-fund-list li.opt-fund-empty { color: var(--muted); font-style: italic; list-style: none; margin-left: -18px; }
+.opt-fund-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--s-2);
+}
+.opt-fund-metric {
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.opt-fund-metric.tone-pos  { border-color: color-mix(in srgb, var(--pos)  35%, var(--border)); }
+.opt-fund-metric.tone-neg  { border-color: color-mix(in srgb, var(--neg)  35%, var(--border)); }
+.opt-fund-metric.tone-warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); }
+.opt-fund-metric-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); margin-bottom: 2px;
+}
+.opt-fund-metric-value {
+  font-size: var(--fs-md); font-weight: 600; color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-metric.tone-pos  .opt-fund-metric-value { color: var(--pos); }
+.opt-fund-metric.tone-neg  .opt-fund-metric-value { color: var(--neg); }
+.opt-fund-metric.tone-warn .opt-fund-metric-value { color: var(--warn); }
+.opt-fund-metric-sub {
+  display: inline-block; margin-left: 4px;
+  font-size: 11px; font-weight: 500; color: var(--muted);
+}
+.opt-fund-foot {
+  font-size: 11px; color: var(--muted);
+  margin: var(--s-3) 0 0; line-height: 1.4;
+}
+
 .opt-row-mute {
   color: var(--muted); font-size: 11px; margin-left: 6px;
   font-weight: 500;
@@ -2479,6 +2864,187 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
   };
 }
 
+// Fundamentals judgment — given a ticker's fundamental metrics + last
+// earnings, asks the model to produce a verdict + concise positives/negatives
+// the user sees when selecting that ticker. The numeric snapshot is built
+// deterministically below so we keep the prompt small and never invent
+// numbers in the LLM.
+const FUNDAMENTALS_SYSTEM_PROMPT =
+  "You are an equity analyst writing a short fundamentals + earnings scorecard for an options trader. " +
+  "Given a snapshot of a company's valuation, growth, margin, balance-sheet, cash-flow, and most-recent " +
+  "earnings metrics, return a tight verdict on the underlying business and a list of the most material " +
+  "POSITIVES and NEGATIVES a trader should weigh before opening a contract on the name. " +
+  "Rules: " +
+  "(1) Only use the numbers provided — do not invent figures, ratios, or events. " +
+  "(2) Each positive / negative must be a single sentence, plain English, ideally referencing the " +
+  "metric that drove it (e.g. \"Profit margin 28% — best-in-class for the sector\", \"Forward P/E 45x " +
+  "vs trailing 30x — priced for substantial growth\"). " +
+  "(3) Aim for 3-5 positives and 3-5 negatives. If the snapshot only supports fewer, return fewer; " +
+  "do not pad. " +
+  "(4) The earnings recap should mention the last reported quarter EPS vs estimate (beat / miss / " +
+  "in line) and the next confirmed earnings date if provided. Skip the recap if there is no earnings " +
+  "data. " +
+  "(5) Verdict is one of \"strong\", \"mixed\", or \"weak\" — strong = clearly attractive fundamentals; " +
+  "mixed = real tradeoffs on both sides; weak = the business has notable problems. " +
+  "(6) Summary is one sentence — the elevator pitch on the fundamentals, not the stock. " +
+  "Respond with ONLY a JSON object of the form " +
+  "{\"verdict\":\"strong\"|\"mixed\"|\"weak\",\"summary\":\"...\",\"earningsRecap\":\"...\",\"positives\":[\"...\"],\"negatives\":[\"...\"]} " +
+  "— no markdown fences, no prose before or after the JSON.";
+
+function formatFundamentalsForPrompt(symbol, spot, f) {
+  const fmtNum = (n, d = 2) => (n == null || !isFinite(n) ? "n/a" : Number(n).toFixed(d));
+  const fmtPct = (n) => (n == null || !isFinite(n) ? "n/a" : `${Number(n).toFixed(1)}%`);
+  const fmtBig = (n) => {
+    if (n == null || !isFinite(n)) return "n/a";
+    const a = Math.abs(n);
+    if (a >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+    if (a >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (a >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    return `$${n.toFixed(0)}`;
+  };
+  const lines = [];
+  lines.push(`Ticker: ${symbol}`);
+  if (f.name) lines.push(`Company: ${f.name}`);
+  lines.push(`Spot price: $${spot.toFixed(2)}`);
+  lines.push(`Market cap: ${fmtBig(f.marketCap)}`);
+  lines.push("");
+  lines.push("Valuation:");
+  lines.push(`  Trailing P/E: ${fmtNum(f.trailingPE)}`);
+  lines.push(`  Forward P/E: ${fmtNum(f.forwardPE)}`);
+  lines.push(`  PEG ratio: ${fmtNum(f.pegRatio)}`);
+  lines.push(`  Price/Book: ${fmtNum(f.priceToBook)}`);
+  lines.push(`  Price/Sales (TTM): ${fmtNum(f.priceToSales)}`);
+  lines.push("");
+  lines.push("Growth (YoY):");
+  lines.push(`  Revenue growth: ${fmtPct(f.revenueGrowthYoy)}`);
+  lines.push(`  Earnings growth: ${fmtPct(f.earningsGrowthYoy)}`);
+  lines.push(`  Quarterly earnings growth: ${fmtPct(f.earningsQuarterlyGrowthYoy)}`);
+  if (f.growthEstimateCurQ != null) lines.push(`  Analyst growth est, current Q: ${fmtPct(f.growthEstimateCurQ)}`);
+  if (f.growthEstimateCurY != null) lines.push(`  Analyst growth est, current FY: ${fmtPct(f.growthEstimateCurY)}`);
+  lines.push("");
+  lines.push("Margins / returns:");
+  lines.push(`  Gross margin: ${fmtPct(f.grossMargin)}`);
+  lines.push(`  Operating margin: ${fmtPct(f.operatingMargin)}`);
+  lines.push(`  Profit margin: ${fmtPct(f.profitMargin)}`);
+  lines.push(`  Return on equity: ${fmtPct(f.returnOnEquity)}`);
+  lines.push(`  Return on assets: ${fmtPct(f.returnOnAssets)}`);
+  lines.push("");
+  lines.push("Balance sheet / cash flow:");
+  lines.push(`  Debt/Equity: ${fmtNum(f.debtToEquity)}`);
+  lines.push(`  Current ratio: ${fmtNum(f.currentRatio)}`);
+  lines.push(`  Quick ratio: ${fmtNum(f.quickRatio)}`);
+  lines.push(`  Total cash: ${fmtBig(f.totalCash)}`);
+  lines.push(`  Total debt: ${fmtBig(f.totalDebt)}`);
+  lines.push(`  Free cash flow (TTM): ${fmtBig(f.freeCashFlow)}`);
+  lines.push("");
+  lines.push("Dividend:");
+  lines.push(`  Yield: ${fmtPct(f.dividendYield)}`);
+  lines.push(`  Payout ratio: ${fmtPct(f.payoutRatio)}`);
+  lines.push("");
+  lines.push("Analyst targets:");
+  lines.push(`  Mean target: ${f.targetMeanPrice != null ? `$${f.targetMeanPrice.toFixed(2)}` : "n/a"} ` +
+    `(low ${f.targetLowPrice != null ? `$${f.targetLowPrice.toFixed(2)}` : "n/a"}, ` +
+    `high ${f.targetHighPrice != null ? `$${f.targetHighPrice.toFixed(2)}` : "n/a"})`);
+  lines.push(`  Consensus: ${f.recommendationKey || "n/a"} (${f.numberOfAnalystOpinions ?? "n/a"} analysts)`);
+  lines.push(`  Beta: ${fmtNum(f.beta)}`);
+  lines.push("");
+  lines.push("Earnings:");
+  if (f.lastQuarter) {
+    const lq = f.lastQuarter;
+    lines.push(`  Last reported (${lq.period || "?"} ${lq.date || ""}): EPS actual ${fmtNum(lq.epsActual)} ` +
+      `vs estimate ${fmtNum(lq.epsEstimate)} ` +
+      `(surprise ${lq.surprisePct != null ? fmtPct(lq.surprisePct) : "n/a"})`);
+  } else {
+    lines.push("  Last reported: n/a");
+  }
+  lines.push(`  Next earnings date: ${f.nextEarningsDate || "n/a"}`);
+  return lines.join("\n");
+}
+
+function hasUsefulFundamentals(f) {
+  if (!f) return false;
+  // ETFs return mostly nulls. Require at least one valuation OR earnings metric.
+  const keys = [
+    "trailingPE", "forwardPE", "priceToBook", "priceToSales",
+    "profitMargin", "operatingMargin", "revenueGrowthYoy",
+    "marketCap", "freeCashFlow", "totalRevenue",
+  ];
+  for (const k of keys) {
+    if (f[k] != null && isFinite(f[k])) return true;
+  }
+  if (f.lastQuarter && f.lastQuarter.epsActual != null) return true;
+  return false;
+}
+
+async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
+  const userMessage = formatFundamentalsForPrompt(symbol, spot, fundamentals);
+  let response;
+  let lastErr;
+  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+    try {
+      response = await ai.models.generateContent({
+        model: AI_MODEL,
+        contents: `${FUNDAMENTALS_SYSTEM_PROMPT}\n\n${userMessage}`,
+        config: {
+          temperature: 0.25,
+          maxOutputTokens: 900,
+        },
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const wait = classifyAiError(err, attempt);
+      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const jsonText = firstBrace >= 0 && lastBrace > firstBrace
+    ? stripped.slice(firstBrace, lastBrace + 1)
+    : stripped;
+  const parsed = JSON.parse(jsonText);
+  const cleanList = (arr) =>
+    (Array.isArray(arr) ? arr : [])
+      .map((s) => String(s || "").trim())
+      .filter((s) => s.length > 0)
+      .slice(0, 6);
+  const verdict = ["strong", "mixed", "weak"].includes(parsed.verdict) ? parsed.verdict : "mixed";
+  return {
+    verdict,
+    summary: String(parsed.summary || "").trim(),
+    earningsRecap: String(parsed.earningsRecap || "").trim(),
+    positives: cleanList(parsed.positives),
+    negatives: cleanList(parsed.negatives),
+    builtAt: new Date().toISOString(),
+  };
+}
+
+async function attachFundamentalsJudgments(chains) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — skipping fundamentals judgments. Raw metrics still attached.");
+    return;
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const entries = Object.entries(chains).filter(([, data]) => hasUsefulFundamentals(data.fundamentals));
+  console.log(`Generating fundamentals judgments for ${entries.length} tickers…`);
+  const tasks = entries.map(([sym, data], i) => (async () => {
+    if (i > 0) await new Promise((r) => setTimeout(r, i * AI_START_INTERVAL_MS));
+    try {
+      const judgment = await generateFundamentalsJudgment(ai, sym, data.spot, data.fundamentals);
+      data.fundamentals = { ...data.fundamentals, judgment };
+      console.log(`  ✓ ${sym} fundamentals — ${judgment.verdict} (+${judgment.positives.length}/-${judgment.negatives.length})`);
+    } catch (err) {
+      console.log(`  ✗ ${sym} fundamentals judgment failed: ${err.message}`);
+    }
+  })());
+  await Promise.all(tasks);
+}
+
 async function attachAiNewsTakes(chains) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping AI news takes. Chain data will still build.");
@@ -2751,6 +3317,7 @@ async function main() {
     );
   }
   await attachAiNewsTakes(chains);
+  await attachFundamentalsJudgments(chains);
   // Read trend history BEFORE writeChainFiles wipes data/. Then narrative
   // extraction can reference yesterday's names for continuity, and the
   // history file is rewritten alongside the chains afterward.
