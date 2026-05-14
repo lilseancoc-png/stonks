@@ -557,6 +557,7 @@ function optionEvalSection() {
     </div>
     <div id="opt-eval-status" class="opt-status" role="status"></div>
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
+    <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
     <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
       <header class="opt-tech-head">
@@ -874,6 +875,10 @@ function renderAppJs() {
       if (!sym) return;
       this.input.value = sym;
       this.close();
+      // Tear down any in-flight polling from the previous ticker so we
+      // don't keep stamping its data into state.
+      stopLivePolling();
+      liveLastRefreshAt = null;
       state.symbol = sym;
       loadChain();
     }
@@ -1362,7 +1367,116 @@ function renderAppJs() {
       populateStrikes();
       evaluate();
     }
+    // Once we know the market is open, start polling the chain endpoint
+    // every 30s so bid/ask/IV/volume stay fresh while the user is on the
+    // page. Polling stops automatically on ticker change, market close,
+    // tab hide, or page unload.
+    startLivePolling();
   }
+
+  // --- Live chain polling -------------------------------------------------
+  // The baked per-ticker JSON is a 9am-ET snapshot. During the session,
+  // bid/ask spreads tighten, IV moves around, OI/volume tick up, and the
+  // spot drifts. /api/chain?symbol=X&exp=Y proxies a fresh Yahoo options
+  // pull for the currently-viewed expiration and returns the same compressed
+  // shape data/<SYMBOL>.json uses, so we can drop it straight into
+  // state.chains[exp] and regrade without any other state changes.
+  var CHAIN_POLL_MS = 30000;
+  var livePollTimer = null;
+  var livePollInFlight = false;
+  var liveLastRefreshAt = null;
+  function liveRefreshLabel(state){
+    if (state === 'REGULAR') return 'Live · auto-refresh 30s';
+    if (state === 'PRE') return 'Pre-market · refresh paused';
+    if (state === 'POST' || state === 'POSTPOST') return 'After hours · refresh paused';
+    return 'Market closed · refresh paused';
+  }
+  function renderLiveRefreshIndicator(marketState){
+    var el = $('opt-live-refresh');
+    if (!el) return;
+    if (!state.symbol){ el.hidden = true; el.textContent = ''; return; }
+    var since = liveLastRefreshAt ? Math.round((Date.now() - liveLastRefreshAt) / 1000) : null;
+    var sinceTxt = (since != null && since >= 0 && since < 600)
+      ? ' · last update ' + (since < 5 ? 'just now' : since + 's ago')
+      : '';
+    el.hidden = false;
+    el.className = 'opt-live-refresh ' + (marketState === 'REGULAR' ? 'on' : 'off');
+    el.textContent = liveRefreshLabel(marketState) + sinceTxt;
+  }
+  function refreshLiveChain(symbol, exp){
+    if (!symbol || !exp) return;
+    if (livePollInFlight) return;
+    if (state.symbol !== symbol) return;
+    livePollInFlight = true;
+    fetch('/api/chain?symbol=' + encodeURIComponent(symbol) + '&exp=' + encodeURIComponent(exp), { cache: 'no-store' })
+      .then(function(resp){ if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
+      .then(function(r){
+        livePollInFlight = false;
+        if (!r || !r.chain) return;
+        if (state.symbol !== symbol) return;
+        if (Number(state.currentExp) !== Number(exp)) return;
+        // Preserve the strike the user is currently looking at — picking
+        // ATM every 30s would yank their selection.
+        var prevContract = findContract();
+        var prevStrike = prevContract ? prevContract.s : null;
+        state.chains[exp] = r.chain;
+        if (r.spot != null && isFinite(r.spot) && r.spot > 0) state.spot = r.spot;
+        // Keep the live-quote pill in sync — same shape /api/quote returns
+        // so renderLiveQuote can reuse its existing branch.
+        var pillQ = { spot: r.spot, marketState: r.marketState, change: null, changePct: null };
+        LIVE_CACHE[symbol] = { q: pillQ, at: Date.now() };
+        renderLiveQuote(symbol, pillQ);
+        populateStrikes();
+        if (prevStrike != null){
+          var type = getOptType();
+          var rows = (type === 'call' ? r.chain.c : r.chain.p) || [];
+          for (var i = 0; i < rows.length; i++){
+            if (rows[i] && rows[i].s === prevStrike){
+              $('opt-strike').selectedIndex = i;
+              break;
+            }
+          }
+        }
+        liveLastRefreshAt = Date.now();
+        evaluate();
+        renderLiveRefreshIndicator(r.marketState);
+        // Market just closed — stop polling.
+        if (r.marketState !== 'REGULAR') stopLivePolling();
+      })
+      .catch(function(){
+        livePollInFlight = false;
+        // Silent failure; next interval will try again. Don't tear down
+        // the timer on a single hiccup.
+      });
+  }
+  function currentMarketState(){
+    var c = LIVE_CACHE[state.symbol];
+    return c && c.q ? c.q.marketState : null;
+  }
+  function startLivePolling(){
+    stopLivePolling();
+    if (document.hidden) return;
+    if (!state.symbol || !state.currentExp) return;
+    if (currentMarketState() !== 'REGULAR') {
+      renderLiveRefreshIndicator(currentMarketState());
+      return;
+    }
+    renderLiveRefreshIndicator('REGULAR');
+    livePollTimer = setInterval(function(){
+      if (document.hidden) return;
+      if (!state.symbol || !state.currentExp){ stopLivePolling(); return; }
+      refreshLiveChain(state.symbol, state.currentExp);
+    }, CHAIN_POLL_MS);
+  }
+  function stopLivePolling(){
+    if (livePollTimer){ clearInterval(livePollTimer); livePollTimer = null; }
+  }
+  // Pause when the tab is hidden — no point burning Yahoo calls for a
+  // tab the user can't see. Resume on visibility return.
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) stopLivePolling();
+    else startLivePolling();
+  });
 
   // --- Technicals ---------------------------------------------------------
   function rsiState(rsi){
@@ -1601,6 +1715,11 @@ function renderAppJs() {
     state.currentExp = exp;
     populateStrikes();
     scheduleEvaluate();
+    // The baked chain for the new expiration is already cached, but during
+    // market hours the user wants fresh quotes for the expiration they're
+    // looking at — fire one extra poll immediately and let the interval
+    // pick up from there.
+    if (currentMarketState() === 'REGULAR') refreshLiveChain(state.symbol, exp);
   }
 
   // --- Narratives ---------------------------------------------------------
@@ -2307,6 +2426,23 @@ main {
 .opt-live-chg   { font-size: 12px; font-weight: 600; }
 .opt-live-chg.up   { color: var(--pos); }
 .opt-live-chg.down { color: var(--neg); }
+.opt-live-refresh {
+  display: inline-flex; align-items: center;
+  margin-top: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.opt-live-refresh::before {
+  content: ''; display: inline-block;
+  width: 6px; height: 6px; margin-right: 6px;
+  border-radius: 50%; background: var(--muted);
+}
+.opt-live-refresh.on { color: var(--pos); }
+.opt-live-refresh.on::before {
+  background: var(--pos);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--pos) 60%, transparent);
+  animation: opt-live-pulse 1.6s ease-out infinite;
+}
 
 /* === Technical signals card === */
 .opt-tech {

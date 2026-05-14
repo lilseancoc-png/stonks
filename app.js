@@ -19,7 +19,7 @@
   var SPOTS = MANIFEST.spots || {};
   var RFR = 0.045;
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -220,6 +220,10 @@
       if (!sym) return;
       this.input.value = sym;
       this.close();
+      // Tear down any in-flight polling from the previous ticker so we
+      // don't keep stamping its data into state.
+      stopLivePolling();
+      liveLastRefreshAt = null;
       state.symbol = sym;
       loadChain();
     }
@@ -607,13 +611,14 @@
     // and only here — nothing about a ticker is preloaded before the user
     // commits to it. force-cache keeps re-selects free for the rest of the
     // session.
-    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news + technicals…', '');
+    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', '');
     fetchChain(symbol).then(function(entry){
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
       state.chains = entry.chains || {};
       state.news = entry.news || null;
       state.technicals = entry.technicals || null;
+      state.fundamentals = entry.fundamentals || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       state.currentExp = state.expirations[0];
       populateExpiry();
@@ -622,6 +627,7 @@
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderTechnicals(symbol);
+      renderFundamentals(symbol);
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
       // Kick off the live spot refresh in parallel — the page is already
@@ -706,7 +712,116 @@
       populateStrikes();
       evaluate();
     }
+    // Once we know the market is open, start polling the chain endpoint
+    // every 30s so bid/ask/IV/volume stay fresh while the user is on the
+    // page. Polling stops automatically on ticker change, market close,
+    // tab hide, or page unload.
+    startLivePolling();
   }
+
+  // --- Live chain polling -------------------------------------------------
+  // The baked per-ticker JSON is a 9am-ET snapshot. During the session,
+  // bid/ask spreads tighten, IV moves around, OI/volume tick up, and the
+  // spot drifts. /api/chain?symbol=X&exp=Y proxies a fresh Yahoo options
+  // pull for the currently-viewed expiration and returns the same compressed
+  // shape data/<SYMBOL>.json uses, so we can drop it straight into
+  // state.chains[exp] and regrade without any other state changes.
+  var CHAIN_POLL_MS = 30000;
+  var livePollTimer = null;
+  var livePollInFlight = false;
+  var liveLastRefreshAt = null;
+  function liveRefreshLabel(state){
+    if (state === 'REGULAR') return 'Live · auto-refresh 30s';
+    if (state === 'PRE') return 'Pre-market · refresh paused';
+    if (state === 'POST' || state === 'POSTPOST') return 'After hours · refresh paused';
+    return 'Market closed · refresh paused';
+  }
+  function renderLiveRefreshIndicator(marketState){
+    var el = $('opt-live-refresh');
+    if (!el) return;
+    if (!state.symbol){ el.hidden = true; el.textContent = ''; return; }
+    var since = liveLastRefreshAt ? Math.round((Date.now() - liveLastRefreshAt) / 1000) : null;
+    var sinceTxt = (since != null && since >= 0 && since < 600)
+      ? ' · last update ' + (since < 5 ? 'just now' : since + 's ago')
+      : '';
+    el.hidden = false;
+    el.className = 'opt-live-refresh ' + (marketState === 'REGULAR' ? 'on' : 'off');
+    el.textContent = liveRefreshLabel(marketState) + sinceTxt;
+  }
+  function refreshLiveChain(symbol, exp){
+    if (!symbol || !exp) return;
+    if (livePollInFlight) return;
+    if (state.symbol !== symbol) return;
+    livePollInFlight = true;
+    fetch('/api/chain?symbol=' + encodeURIComponent(symbol) + '&exp=' + encodeURIComponent(exp), { cache: 'no-store' })
+      .then(function(resp){ if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
+      .then(function(r){
+        livePollInFlight = false;
+        if (!r || !r.chain) return;
+        if (state.symbol !== symbol) return;
+        if (Number(state.currentExp) !== Number(exp)) return;
+        // Preserve the strike the user is currently looking at — picking
+        // ATM every 30s would yank their selection.
+        var prevContract = findContract();
+        var prevStrike = prevContract ? prevContract.s : null;
+        state.chains[exp] = r.chain;
+        if (r.spot != null && isFinite(r.spot) && r.spot > 0) state.spot = r.spot;
+        // Keep the live-quote pill in sync — same shape /api/quote returns
+        // so renderLiveQuote can reuse its existing branch.
+        var pillQ = { spot: r.spot, marketState: r.marketState, change: null, changePct: null };
+        LIVE_CACHE[symbol] = { q: pillQ, at: Date.now() };
+        renderLiveQuote(symbol, pillQ);
+        populateStrikes();
+        if (prevStrike != null){
+          var type = getOptType();
+          var rows = (type === 'call' ? r.chain.c : r.chain.p) || [];
+          for (var i = 0; i < rows.length; i++){
+            if (rows[i] && rows[i].s === prevStrike){
+              $('opt-strike').selectedIndex = i;
+              break;
+            }
+          }
+        }
+        liveLastRefreshAt = Date.now();
+        evaluate();
+        renderLiveRefreshIndicator(r.marketState);
+        // Market just closed — stop polling.
+        if (r.marketState !== 'REGULAR') stopLivePolling();
+      })
+      .catch(function(){
+        livePollInFlight = false;
+        // Silent failure; next interval will try again. Don't tear down
+        // the timer on a single hiccup.
+      });
+  }
+  function currentMarketState(){
+    var c = LIVE_CACHE[state.symbol];
+    return c && c.q ? c.q.marketState : null;
+  }
+  function startLivePolling(){
+    stopLivePolling();
+    if (document.hidden) return;
+    if (!state.symbol || !state.currentExp) return;
+    if (currentMarketState() !== 'REGULAR') {
+      renderLiveRefreshIndicator(currentMarketState());
+      return;
+    }
+    renderLiveRefreshIndicator('REGULAR');
+    livePollTimer = setInterval(function(){
+      if (document.hidden) return;
+      if (!state.symbol || !state.currentExp){ stopLivePolling(); return; }
+      refreshLiveChain(state.symbol, state.currentExp);
+    }, CHAIN_POLL_MS);
+  }
+  function stopLivePolling(){
+    if (livePollTimer){ clearInterval(livePollTimer); livePollTimer = null; }
+  }
+  // Pause when the tab is hidden — no point burning Yahoo calls for a
+  // tab the user can't see. Resume on visibility return.
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) stopLivePolling();
+    else startLivePolling();
+  });
 
   // --- Technicals ---------------------------------------------------------
   function rsiState(rsi){
@@ -821,11 +936,135 @@
     grid.innerHTML = html;
     box.hidden = false;
   }
+
+  // --- Fundamentals + earnings -------------------------------------------
+  function fmtBigDollars(n){
+    if (n == null || !isFinite(n)) return null;
+    var a = Math.abs(n);
+    if (a >= 1e12) return '$' + (n/1e12).toFixed(2) + 'T';
+    if (a >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+    return '$' + Math.round(n).toLocaleString();
+  }
+  function fundMetric(label, value, tone){
+    if (value == null || value === '') return '';
+    var toneCls = tone ? ' tone-' + tone : '';
+    return '<div class="opt-fund-metric' + toneCls + '">' +
+      '<div class="opt-fund-metric-label">' + escapeHtml(label) + '</div>' +
+      '<div class="opt-fund-metric-value">' + value + '</div>' +
+    '</div>';
+  }
+  function fundVerdictLabel(v){
+    if (v === 'strong') return 'Strong fundamentals';
+    if (v === 'weak') return 'Weak fundamentals';
+    return 'Mixed fundamentals';
+  }
+  function renderFundamentals(sym){
+    var box = $('opt-fundamentals');
+    if (!box) return;
+    var f = state.fundamentals;
+    if (!f){ box.hidden = true; return; }
+    var hasJudgment = f.judgment && (f.judgment.positives && f.judgment.positives.length || f.judgment.negatives && f.judgment.negatives.length || f.judgment.summary);
+    var hasMetrics = (f.trailingPE != null || f.forwardPE != null || f.marketCap != null || f.profitMargin != null || f.revenueGrowthYoy != null || f.lastQuarter || f.nextEarningsDate);
+    if (!hasJudgment && !hasMetrics){ box.hidden = true; return; }
+
+    var verdictEl = $('opt-fund-verdict');
+    var summaryEl = $('opt-fund-summary');
+    var recapEl = $('opt-fund-recap');
+    var posList = $('opt-fund-pos-list');
+    var negList = $('opt-fund-neg-list');
+    var metricsEl = $('opt-fund-metrics');
+
+    if (hasJudgment){
+      var j = f.judgment;
+      var v = j.verdict || 'mixed';
+      verdictEl.className = 'opt-fund-verdict ' + v;
+      verdictEl.textContent = fundVerdictLabel(v);
+      summaryEl.textContent = j.summary || '';
+      summaryEl.hidden = !j.summary;
+      if (j.earningsRecap){
+        recapEl.innerHTML = '<span class="opt-fund-recap-label">Last earnings</span> ' + escapeHtml(j.earningsRecap);
+        recapEl.hidden = false;
+      } else {
+        recapEl.hidden = true;
+        recapEl.innerHTML = '';
+      }
+      posList.innerHTML = (j.positives || []).map(function(p){
+        return '<li>' + escapeHtml(p) + '</li>';
+      }).join('') || '<li class="opt-fund-empty">No clear positives surfaced.</li>';
+      negList.innerHTML = (j.negatives || []).map(function(p){
+        return '<li>' + escapeHtml(p) + '</li>';
+      }).join('') || '<li class="opt-fund-empty">No clear negatives surfaced.</li>';
+    } else {
+      verdictEl.className = 'opt-fund-verdict';
+      verdictEl.textContent = '';
+      summaryEl.textContent = 'AI judgment unavailable for this ticker — raw metrics below.';
+      summaryEl.hidden = false;
+      recapEl.hidden = true;
+      recapEl.innerHTML = '';
+      posList.innerHTML = '';
+      negList.innerHTML = '';
+    }
+
+    var metrics = '';
+    metrics += fundMetric('Market cap', fmtBigDollars(f.marketCap));
+    metrics += fundMetric('Trailing P/E', f.trailingPE != null ? f.trailingPE.toFixed(1) : null);
+    metrics += fundMetric('Forward P/E', f.forwardPE != null ? f.forwardPE.toFixed(1) : null);
+    metrics += fundMetric('PEG', f.pegRatio != null ? f.pegRatio.toFixed(2) : null);
+    metrics += fundMetric('Price / Sales', f.priceToSales != null ? f.priceToSales.toFixed(2) : null);
+    metrics += fundMetric('Rev. growth YoY', f.revenueGrowthYoy != null ? f.revenueGrowthYoy.toFixed(1) + '%' : null,
+      f.revenueGrowthYoy != null ? (f.revenueGrowthYoy > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('EPS growth YoY', f.earningsGrowthYoy != null ? f.earningsGrowthYoy.toFixed(1) + '%' : null,
+      f.earningsGrowthYoy != null ? (f.earningsGrowthYoy > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('Profit margin', f.profitMargin != null ? f.profitMargin.toFixed(1) + '%' : null,
+      f.profitMargin != null ? (f.profitMargin > 10 ? 'pos' : f.profitMargin < 0 ? 'neg' : null) : null);
+    metrics += fundMetric('Operating margin', f.operatingMargin != null ? f.operatingMargin.toFixed(1) + '%' : null);
+    metrics += fundMetric('ROE', f.returnOnEquity != null ? f.returnOnEquity.toFixed(1) + '%' : null,
+      f.returnOnEquity != null ? (f.returnOnEquity > 15 ? 'pos' : f.returnOnEquity < 0 ? 'neg' : null) : null);
+    metrics += fundMetric('Debt / Equity', f.debtToEquity != null ? f.debtToEquity.toFixed(0) : null,
+      f.debtToEquity != null ? (f.debtToEquity > 200 ? 'neg' : null) : null);
+    metrics += fundMetric('Free cash flow', fmtBigDollars(f.freeCashFlow),
+      f.freeCashFlow != null ? (f.freeCashFlow > 0 ? 'pos' : 'neg') : null);
+    metrics += fundMetric('Dividend yield', f.dividendYield != null && f.dividendYield > 0 ? f.dividendYield.toFixed(2) + '%' : null);
+    if (f.lastQuarter){
+      var lq = f.lastQuarter;
+      var surprise = lq.surprisePct != null ? ((lq.surprisePct >= 0 ? '+' : '') + lq.surprisePct.toFixed(1) + '%') : null;
+      var beatTone = lq.surprisePct == null ? null : (lq.surprisePct > 2 ? 'pos' : lq.surprisePct < -2 ? 'neg' : null);
+      var lqVal = 'EPS ' + (lq.epsActual != null ? lq.epsActual.toFixed(2) : '—');
+      if (lq.epsEstimate != null) lqVal += ' <span class="opt-fund-metric-sub">est ' + lq.epsEstimate.toFixed(2) + '</span>';
+      if (surprise) lqVal += ' <span class="opt-fund-metric-sub">(' + surprise + ')</span>';
+      var lqLabel = 'Last earnings' + (lq.period ? ' (' + lq.period + ')' : '') + (lq.date ? ' · ' + lq.date : '');
+      metrics += fundMetric(lqLabel, lqVal, beatTone);
+    }
+    if (f.nextEarningsDate){
+      metrics += fundMetric('Next earnings', f.nextEarningsDate, 'warn');
+    }
+    if (f.targetMeanPrice != null && state.spot){
+      var upside = (f.targetMeanPrice - state.spot) / state.spot * 100;
+      var upsideStr = (upside >= 0 ? '+' : '') + upside.toFixed(1) + '%';
+      metrics += fundMetric('Analyst target',
+        '$' + f.targetMeanPrice.toFixed(2) + ' <span class="opt-fund-metric-sub">' + upsideStr + ' vs spot</span>',
+        upside > 5 ? 'pos' : upside < -5 ? 'neg' : null);
+    }
+    if (f.recommendationKey){
+      var recPretty = f.recommendationKey.replace(/_/g, ' ');
+      var recTone = /buy|outperform/i.test(f.recommendationKey) ? 'pos' : /sell|underperform/i.test(f.recommendationKey) ? 'neg' : null;
+      metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
+    }
+    metricsEl.innerHTML = metrics;
+    box.hidden = false;
+  }
+
   function onExpiryChange(){
     var exp = Number($('opt-expiry').value);
     state.currentExp = exp;
     populateStrikes();
     scheduleEvaluate();
+    // The baked chain for the new expiration is already cached, but during
+    // market hours the user wants fresh quotes for the expiration they're
+    // looking at — fire one extra poll immediately and let the interval
+    // pick up from there.
+    if (currentMarketState() === 'REGULAR') refreshLiveChain(state.symbol, exp);
   }
 
   // --- Narratives ---------------------------------------------------------
