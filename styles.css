@@ -761,6 +761,123 @@ main {
 .opt-status.err { color: var(--neg); }
 .opt-status.ok  { color: var(--pos); }
 
+/* === Unusual options flow === */
+.flow-list { display: flex; flex-direction: column; gap: var(--s-2); }
+.flow-list:empty { display: none; }
+.flow-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  transition: border-color .15s ease, background .15s ease;
+}
+.flow-row:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.flow-row.tier-hot { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.flow-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.flow-symbol {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.flow-spot {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.flow-count {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.flow-top {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+}
+.flow-contracts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  color: var(--text);
+  transition: border-color .12s ease, background .12s ease;
+}
+.flow-chip.call {
+  border-color: color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.flow-chip.put {
+  border-color: color-mix(in srgb, var(--neg) 35%, transparent);
+}
+.flow-chip.tier-hot {
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.flow-side {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: var(--r-1);
+}
+.flow-chip.call .flow-side { color: var(--pos); background: var(--pos-soft); }
+.flow-chip.put  .flow-side { color: var(--neg); background: var(--neg-soft); }
+.flow-strike { font-weight: 700; color: var(--text-strong); }
+.flow-exp { color: var(--muted); }
+.flow-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  color: var(--text);
+}
+.flow-sep { color: var(--muted); }
+.flow-oi { color: var(--muted); }
+.flow-ratio {
+  font-weight: 700;
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+.flow-chip.tier-warm .flow-ratio { color: var(--warn); }
+.flow-chip.tier-mild .flow-ratio { color: var(--text); }
+.flow-empty {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  padding: var(--s-2) 0;
+}
+
 /* === Per-ticker narrative chips === */
 .opt-narr-chips {
   display: flex; flex-wrap: wrap; gap: 6px;
