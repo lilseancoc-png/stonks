@@ -493,8 +493,16 @@ main {
 .narr-tag.status.active   { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); background: var(--pos-soft); }
 .narr-tag.status.building { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
 .narr-tag.status.fading   { color: var(--muted); border-color: var(--border); background: var(--surface-2); }
+.narr-tag.stale {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: var(--warn-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
 .narr[data-status="fading"]   { opacity: 0.78; }
 .narr[data-status="fading"]:hover { opacity: 1; }
+.narr.is-stale .narr-thesis { color: var(--muted); }
 .narr-tag.tf {
   color: var(--text);
   background: var(--surface-3);

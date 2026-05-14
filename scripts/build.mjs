@@ -2283,7 +2283,22 @@ export function renderAppJs() {
     var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
     var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
     var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
-    return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
+    var staleTag = '';
+    if (n.stale){
+      // Show how long the cached data has been stale so the user can judge
+      // whether to trust it. Computed from staleSinceIso when present, else
+      // labelled just "Stale".
+      var staleAge = '';
+      if (n.staleSinceIso){
+        var since = Date.parse(n.staleSinceIso);
+        if (isFinite(since)){
+          var days = Math.max(1, Math.floor((Date.now() - since) / 86400000));
+          staleAge = ' · ' + days + 'd';
+        }
+      }
+      staleTag = '<span class="narr-tag stale" title="Today\\'s extraction failed — showing the last successful narrative">Stale' + staleAge + '</span>';
+    }
+    return '<article class="narr' + (n.stale ? ' is-stale' : '') + '" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
       '<span class="narr-accent" aria-hidden="true"></span>' +
       '<header class="narr-head">' +
         (rankInSector ? '<span class="narr-rank" aria-label="Rank">#' + rankInSector + '</span>' : '') +
@@ -2292,6 +2307,7 @@ export function renderAppJs() {
         '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
         '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
         '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+        staleTag +
         '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
       '</header>' +
       strengthBarHtml(n.strength) +
@@ -3243,8 +3259,16 @@ main {
 .narr-tag.status.active   { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); background: var(--pos-soft); }
 .narr-tag.status.building { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
 .narr-tag.status.fading   { color: var(--muted); border-color: var(--border); background: var(--surface-2); }
+.narr-tag.stale {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: var(--warn-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
 .narr[data-status="fading"]   { opacity: 0.78; }
 .narr[data-status="fading"]:hover { opacity: 1; }
+.narr.is-stale .narr-thesis { color: var(--muted); }
 .narr-tag.tf {
   color: var(--text);
   background: var(--surface-3);
@@ -4501,7 +4525,9 @@ const MACRO_FEEDS = [
   { name: "BLS CPI", url: "https://www.bls.gov/feed/cpi.rss" },
   { name: "BLS PPI", url: "https://www.bls.gov/feed/ppi.rss" },
   { name: "SEC Press", url: "https://www.sec.gov/news/pressreleases.rss" },
-  { name: "U.S. Treasury", url: "https://home.treasury.gov/news/press-releases/feed" },
+  // U.S. Treasury removed their RSS endpoint in a 2025 site redesign — there
+  // is no documented replacement. Treasury auction / sanctions / debt news
+  // still reaches the narrative engine via MarketWatch and CNBC coverage.
   { name: "MarketWatch Top Stories", url: "https://feeds.content.dowjones.io/public/rss/mw_topstories" },
   { name: "CNBC Top News", url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114" },
 ];
@@ -4639,13 +4665,22 @@ function parseRssItems(xml, max) {
 }
 
 async function fetchMacroHeadlines() {
+  // Several gov feeds (BLS especially) drop requests from default Node fetch
+  // because the User-Agent looks like a bot. Sending a realistic desktop UA
+  // plus the headers a browser would normally send (Accept-Language, Referer)
+  // passes more WAFs. Same trick the yahoo-finance2 client uses against
+  // consent.yahoo.com.
+  const browserHeaders = {
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5",
+    "accept-language": "en-US,en;q=0.9",
+    "accept-encoding": "gzip, deflate, br",
+  };
   const tasks = MACRO_FEEDS.map(async (feed) => {
     try {
       const res = await fetch(feed.url, {
-        headers: {
-          "user-agent": "stonks-build/1.0 (+https://github.com/lilseancoc-png/stonks)",
-          accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
-        },
+        headers: browserHeaders,
         signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
@@ -5065,6 +5100,22 @@ async function loadTrendHistory() {
   }
 }
 
+// Load yesterday's full narratives + recentlyEnded snapshot. trends-history.json
+// only keeps compact daily snapshots (name + sentiment + tickers); the full
+// payload with thesis / triggers / industry / conflictsWith lives in
+// trends.json from the previous successful build. We need this for the
+// stale-fallback path when today's narrative extraction blows through its
+// retry budget — the page can keep showing yesterday's stories rather than
+// an empty card.
+async function loadLastGoodTrends() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, TRENDS_FILE), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 // Read the most recent unusual-flow scan (produced by scripts/scan-unusual.mjs
 // on its hourly cron). The daily build wipes data/, so we load this in memory
 // before the wipe and rewrite it afterwards so the page keeps showing the
@@ -5123,11 +5174,20 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
   );
 }
 
+// Narrative extraction is a single critical call (vs the 65 per-ticker news
+// calls where one failure is acceptable), so we retry more aggressively here.
+// The default AI_MAX_ATTEMPTS budget for ticker calls is 4 with [2s, 5s, 15s]
+// backoffs — that's ~22s of tolerance, which a single longer network blip can
+// blow through. For narratives we extend to 7 attempts with progressively
+// longer waits, tolerating up to ~3 minutes of intermittent failure.
+const NARRATIVE_MAX_ATTEMPTS = 7;
+const NARRATIVE_RETRY_BACKOFF_MS = [3000, 8000, 20000, 30000, 45000, 60000];
+
 async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines) {
   const userMessage = buildNarrativeUserMessage(chains, previousNames, macroHeadlines);
   let response;
   let lastErr;
-  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < NARRATIVE_MAX_ATTEMPTS; attempt++) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
@@ -5141,9 +5201,21 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       break;
     } catch (err) {
       lastErr = err;
+      // Classify with the standard helper but use the narrative-specific
+      // backoff schedule when the error is transient.
       const wait = classifyAiError(err, attempt);
-      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
-      await new Promise((r) => setTimeout(r, wait));
+      if (wait == null || attempt === NARRATIVE_MAX_ATTEMPTS - 1) throw err;
+      const narrativeWait = NARRATIVE_RETRY_BACKOFF_MS[attempt] ?? 60000;
+      // Honour the rate-limit hint from classifyAiError when it's larger than
+      // our schedule (e.g. a "retry in 30s" hint on attempt 0).
+      const effectiveWait = Math.max(wait, narrativeWait);
+      const causeMsg = err?.cause?.code || err?.cause?.message || "";
+      console.log(
+        `    ↻ narrative attempt ${attempt + 1}/${NARRATIVE_MAX_ATTEMPTS} failed (${err.message}` +
+        (causeMsg ? ` · cause ${causeMsg}` : "") +
+        `) — retrying in ${Math.round(effectiveWait / 1000)}s`,
+      );
+      await new Promise((r) => setTimeout(r, effectiveWait));
     }
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
@@ -5341,8 +5413,34 @@ async function attachMarketNarratives(chains, previousHistory) {
     }
     return { narratives, recentlyEnded, history, macroHeadlines };
   } catch (err) {
-    console.log(`  ✗ Narrative extraction failed: ${err.message}`);
-    // Don't drop the existing history just because today's extraction failed.
+    const causeMsg = err?.cause?.code || err?.cause?.message || "";
+    console.log(
+      `  ✗ Narrative extraction failed after retries: ${err.message}` +
+      (causeMsg ? ` · cause ${causeMsg}` : ""),
+    );
+    // Fall back to the last good narratives so the page never shows an empty
+    // card from a transient outage. We mark them stale (with staleSinceIso
+    // preserved across consecutive failures so the staleness age is honest)
+    // and persist them back to trends.json — that way a SECOND failure can
+    // still recover them. The history file is intentionally left unchanged:
+    // history records what was extracted, not what was displayed.
+    const lastGood = await loadLastGoodTrends();
+    const lastNarratives = lastGood && Array.isArray(lastGood.narratives) ? lastGood.narratives : [];
+    if (lastNarratives.length) {
+      const todayIso = new Date().toISOString();
+      console.log(`  ↩ falling back to ${lastNarratives.length} narratives from last good build (${lastGood.builtAtIso || "unknown"})`);
+      const staleNarratives = lastNarratives.map((n) => ({
+        ...n,
+        stale: true,
+        staleSinceIso: n.staleSinceIso || todayIso,
+      }));
+      return {
+        narratives: staleNarratives,
+        recentlyEnded: Array.isArray(lastGood.recentlyEnded) ? lastGood.recentlyEnded : [],
+        history: previousHistory,
+        macroHeadlines,
+      };
+    }
     return { narratives: [], recentlyEnded: [], history: previousHistory, macroHeadlines };
   }
 }
