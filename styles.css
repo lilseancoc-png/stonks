@@ -705,6 +705,52 @@ main {
   animation: opt-live-pulse 1.6s ease-out infinite;
 }
 
+/* === Max pain card === */
+.opt-max-pain {
+  margin: var(--s-2) 0 var(--s-3);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+  font-variant-numeric: tabular-nums;
+}
+.opt-max-pain-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-bottom: 6px;
+}
+.opt-max-pain-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.opt-max-pain-exp {
+  font-size: 11px; font-weight: 600;
+  color: var(--text);
+  padding: 2px 8px; border-radius: var(--r-pill);
+  background: var(--surface-3); border: 1px solid var(--border);
+}
+.opt-max-pain-body {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+}
+.opt-max-pain-strike {
+  font-size: 22px; font-weight: 700; letter-spacing: 0.01em;
+  color: var(--text-strong);
+}
+.opt-max-pain-strike.up   { color: var(--pos); }
+.opt-max-pain-strike.down { color: var(--neg); }
+.opt-max-pain-strike.flat { color: var(--text-strong); }
+.opt-max-pain-delta {
+  font-size: 12px; color: var(--muted);
+}
+.opt-max-pain-delta.up   { color: color-mix(in srgb, var(--pos) 80%, var(--text)); }
+.opt-max-pain-delta.down { color: color-mix(in srgb, var(--neg) 80%, var(--text)); }
+.opt-max-pain-delta b { color: inherit; font-weight: 700; }
+.opt-max-pain-meta {
+  margin-top: 4px;
+  font-size: 11px; color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
 /* === Technical signals card === */
 .opt-tech {
   margin: var(--s-3) 0;

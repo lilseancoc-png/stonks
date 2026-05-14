@@ -278,6 +278,101 @@
     return rows[idx] || null;
   }
 
+  // --- Max pain -----------------------------------------------------------
+  // For each candidate strike K (union of strikes in the chain) sum the
+  // intrinsic value all open calls and puts would have if the underlying
+  // closed at K — calls pay (K - strike) when ITM, puts pay (strike - K).
+  // The strike that minimizes that total is the "max pain" price: the close
+  // where the most aggregate premium expires worthless. Open interest is
+  // the weight; volume and IV are ignored — this is purely a positioning
+  // snapshot of who is on the hook at expiry.
+  function computeMaxPain(chain){
+    if (!chain) return null;
+    var calls = chain.c || [];
+    var puts = chain.p || [];
+    var strikeSet = Object.create(null);
+    var i;
+    for (i = 0; i < calls.length; i++) if (calls[i] && calls[i].s != null) strikeSet[calls[i].s] = true;
+    for (i = 0; i < puts.length; i++)  if (puts[i]  && puts[i].s  != null) strikeSet[puts[i].s]  = true;
+    var strikes = Object.keys(strikeSet).map(Number).sort(function(a,b){ return a - b; });
+    if (!strikes.length) return null;
+
+    var totalCallOI = 0, totalPutOI = 0;
+    for (i = 0; i < calls.length; i++) totalCallOI += (calls[i] && calls[i].oi) || 0;
+    for (i = 0; i < puts.length; i++)  totalPutOI  += (puts[i]  && puts[i].oi)  || 0;
+    if (totalCallOI + totalPutOI <= 0) return null;
+
+    var bestStrike = null, bestPain = Infinity;
+    for (var k = 0; k < strikes.length; k++){
+      var K = strikes[k];
+      var pain = 0;
+      for (i = 0; i < calls.length; i++){
+        var c = calls[i]; if (!c) continue;
+        var coi = c.oi || 0; if (!coi || c.s == null) continue;
+        if (K > c.s) pain += (K - c.s) * coi;
+      }
+      for (i = 0; i < puts.length; i++){
+        var p = puts[i]; if (!p) continue;
+        var poi = p.oi || 0; if (!poi || p.s == null) continue;
+        if (K < p.s) pain += (p.s - K) * poi;
+      }
+      if (pain < bestPain){ bestPain = pain; bestStrike = K; }
+    }
+    if (bestStrike == null) return null;
+    return {
+      strike: bestStrike,
+      pain: bestPain,
+      totalCallOI: totalCallOI,
+      totalPutOI: totalPutOI,
+    };
+  }
+  function renderMaxPain(){
+    var box = $('opt-max-pain');
+    if (!box) return;
+    var chain = state.currentExp ? state.chains[state.currentExp] : null;
+    var mp = computeMaxPain(chain);
+    if (!mp || mp.strike == null){
+      box.hidden = true; box.innerHTML = '';
+      return;
+    }
+    var spot = state.spot;
+    var diff = (spot > 0) ? (mp.strike - spot) : null;
+    var pct = (spot > 0) ? (diff / spot * 100) : null;
+    var dirCls, dirText;
+    if (diff == null){
+      dirCls = 'flat';
+      dirText = '';
+    } else if (Math.abs(pct) < 0.25){
+      dirCls = 'flat';
+      dirText = 'right at spot — sellers want price pinned here';
+    } else if (diff < 0){
+      dirCls = 'down';
+      dirText = '<b>$' + fmt(Math.abs(diff)) + '</b> (' + Math.abs(pct).toFixed(2) + '%) <b>below</b> spot — sellers benefit if price drifts down into expiration';
+    } else {
+      dirCls = 'up';
+      dirText = '<b>$' + fmt(diff) + '</b> (' + pct.toFixed(2) + '%) <b>above</b> spot — sellers benefit if price drifts up into expiration';
+    }
+    var totalOI = mp.totalCallOI + mp.totalPutOI;
+    var callShare = totalOI > 0 ? Math.round(mp.totalCallOI / totalOI * 100) : 0;
+    var putShare = 100 - callShare;
+    var expLabel = state.currentExp ? fmtExpiryLabel(state.currentExp) : '';
+    box.hidden = false;
+    box.innerHTML =
+      '<div class="opt-max-pain-head">' +
+        '<span class="opt-max-pain-label">Max pain</span>' +
+        '<span class="opt-max-pain-exp">' + escapeHtml(expLabel) + '</span>' +
+        tipChip(TIPS.maxPain) +
+      '</div>' +
+      '<div class="opt-max-pain-body">' +
+        '<span class="opt-max-pain-strike ' + dirCls + '">$' + fmt(mp.strike) + '</span>' +
+        (dirText ? '<span class="opt-max-pain-delta ' + dirCls + '">' + dirText + '</span>' : '') +
+      '</div>' +
+      '<div class="opt-max-pain-meta">' +
+        'Based on ' + totalOI.toLocaleString() + ' open contracts · ' +
+        callShare + '% calls / ' + putShare + '% puts' +
+      '</div>';
+  }
+
   // --- Grading ------------------------------------------------------------
   function gradeSpread(spreadPct){
     if (spreadPct <= 5)  return { label:'Tight',    cls:'good', note:'narrow spread — easy fills' };
@@ -326,6 +421,7 @@
     breakeven:  'Underlying price the stock needs to reach at expiry just to make back what you paid. Above = profit (for calls); below = profit (for puts).',
     probITM:    'Rough probability the contract finishes in-the-money. Black-Scholes |delta| is the standard proxy — not a guarantee, just the model\'s implied odds.',
     moneyness:  'How far the strike is from the current stock price, in percent. 0% = at the money, negative = below spot, positive = above spot.',
+    maxPain:    'Strike at which the total dollar value of all in-the-money options at expiration is minimized — i.e. the most calls and puts expire worthless. Option sellers (market makers) profit most if the stock closes here, so it\'s often called the price they would "want" pinned by expiration. Computed from open interest on the selected expiration; it shifts as OI builds and is a soft target, not a guarantee.',
     rsi:        'Relative Strength Index (14-day). Above 70 = overbought (stretched, prone to a pullback). Below 30 = oversold (washed out, prone to a bounce).',
     macd:       'Moving Average Convergence Divergence (12/26/9). MACD line above signal = bullish momentum; below = bearish. The histogram shows the gap.',
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
@@ -685,6 +781,7 @@
       populateExpiry();
       $('opt-expiry').value = String(state.currentExp);
       populateStrikes();
+      renderMaxPain();
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderAnalysisShell();
@@ -846,6 +943,7 @@
           }
         }
         liveLastRefreshAt = Date.now();
+        renderMaxPain();
         evaluate();
         renderLiveRefreshIndicator(r.marketState);
         // Market just closed — stop polling.
@@ -1122,6 +1220,7 @@
     var exp = Number($('opt-expiry').value);
     state.currentExp = exp;
     populateStrikes();
+    renderMaxPain();
     scheduleEvaluate();
     // The baked chain for the new expiration is already cached, but during
     // market hours the user wants fresh quotes for the expiration they're
