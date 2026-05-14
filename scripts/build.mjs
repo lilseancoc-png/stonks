@@ -559,45 +559,62 @@ function optionEvalSection() {
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
-    <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
-      <header class="opt-tech-head">
-        <h3 class="opt-tech-title">Technical signals</h3>
-        <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
-      </header>
-      <div class="opt-tech-grid" id="opt-tech-grid"></div>
-      <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
-    </section>
-    <section id="opt-fundamentals" class="opt-fund" hidden aria-label="Fundamentals and earnings for this ticker">
-      <header class="opt-fund-head">
-        <h3 class="opt-fund-title">Fundamentals &amp; earnings</h3>
-        <span id="opt-fund-verdict" class="opt-fund-verdict"></span>
-      </header>
-      <p id="opt-fund-summary" class="opt-fund-summary"></p>
-      <div id="opt-fund-recap" class="opt-fund-recap" hidden></div>
-      <div class="opt-fund-columns">
-        <div class="opt-fund-col opt-fund-pos">
-          <div class="opt-fund-col-head">Positives</div>
-          <ul id="opt-fund-pos-list" class="opt-fund-list"></ul>
-        </div>
-        <div class="opt-fund-col opt-fund-neg">
-          <div class="opt-fund-col-head">Negatives</div>
-          <ul id="opt-fund-neg-list" class="opt-fund-list"></ul>
-        </div>
+    <div id="opt-analysis" class="opt-analysis" hidden>
+      <div class="opt-tabs" role="tablist" aria-label="Ticker analysis">
+        <button type="button" class="opt-tab" role="tab" aria-selected="true" aria-controls="opt-tab-pane-fund" id="opt-tab-btn-fund" data-tab="fund">Fundamentals</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-tech" id="opt-tab-btn-tech" data-tab="tech">Technicals</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-news" id="opt-tab-btn-news" data-tab="news">News</button>
       </div>
-      <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
-      <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
-    </section>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-fund" aria-labelledby="opt-tab-btn-fund">
+        <section id="opt-fundamentals" class="opt-fund" hidden aria-label="Fundamentals and earnings for this ticker">
+          <header class="opt-fund-head">
+            <h3 class="opt-fund-title">Fundamentals &amp; earnings</h3>
+            <span id="opt-fund-verdict" class="opt-fund-verdict"></span>
+          </header>
+          <p id="opt-fund-summary" class="opt-fund-summary"></p>
+          <div id="opt-fund-recap" class="opt-fund-recap" hidden></div>
+          <div class="opt-fund-columns">
+            <div class="opt-fund-col opt-fund-pos">
+              <div class="opt-fund-col-head">Positives</div>
+              <ul id="opt-fund-pos-list" class="opt-fund-list"></ul>
+            </div>
+            <div class="opt-fund-col opt-fund-neg">
+              <div class="opt-fund-col-head">Negatives</div>
+              <ul id="opt-fund-neg-list" class="opt-fund-list"></ul>
+            </div>
+          </div>
+          <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
+          <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
+        </section>
+      </div>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-tech" aria-labelledby="opt-tab-btn-tech" hidden>
+        <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
+          <header class="opt-tech-head">
+            <h3 class="opt-tech-title">Technical signals</h3>
+            <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
+          </header>
+          <div class="opt-tech-grid" id="opt-tech-grid"></div>
+          <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
+        </section>
+      </div>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-news" aria-labelledby="opt-tab-btn-news" hidden>
+        <div id="opt-news-pane" class="opt-news-pane"></div>
+      </div>
+    </div>
     <div class="opt-result-wrap">
       <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
       <div id="opt-eval-result" class="opt-result"></div>
     </div>
   </section>
   <section class="card" id="opt-manual-section">
-    <header class="card-header">
-      <h2 class="card-title">Grade your own contract</h2>
-    </header>
-    <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Paste the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
-    <form id="opt-manual-form" class="opt-manual-grid">
+    <details class="opt-manual-details">
+      <summary class="card-header">
+        <h2 class="card-title">Grade your own contract</h2>
+        <span class="opt-manual-trigger-sub">paste from your broker</span>
+      </summary>
+      <div class="opt-manual-body">
+        <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Paste the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
+        <form id="opt-manual-form" class="opt-manual-grid">
       <label class="opt-manual-field opt-manual-paste">
         <span class="opt-manual-field-label">Paste contract symbol <span class="opt-manual-opt">optional · fills type / strike / expiry</span></span>
         <input id="m-paste" type="text" placeholder="AAPL250117C00150000" autocomplete="off" spellcheck="false">
@@ -643,9 +660,11 @@ function optionEvalSection() {
         <input id="m-vol" type="text" inputmode="numeric" placeholder="1,251" autocomplete="off">
       </label>
       <button type="submit" class="opt-manual-submit">Grade contract</button>
-    </form>
-    <div id="opt-manual-status" class="opt-status" role="status"></div>
-    <div id="opt-manual-result" class="opt-result"></div>
+        </form>
+        <div id="opt-manual-status" class="opt-status" role="status"></div>
+        <div id="opt-manual-result" class="opt-result"></div>
+      </div>
+    </details>
   </section>`;
 }
 
@@ -656,14 +675,14 @@ function renderAppJs() {
   return `// Generated by scripts/build.mjs — do not edit by hand.
 (function(){
   // Theme bootstrap. Runs synchronously before the rest of the IIFE binds
-  // so we never flash the wrong theme. Respects an explicit saved
-  // preference, otherwise mirrors prefers-color-scheme.
+  // so we never flash the wrong theme. Defaults to dark — the terminal look
+  // is built around the dark palette and is the canonical view — but a
+  // saved 'light' preference still wins so the toggle stays meaningful.
   try {
     var saved = localStorage.getItem('stonks-theme');
-    var sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', saved || sys);
+    document.documentElement.setAttribute('data-theme', saved || 'dark');
   } catch (_) {
-    document.documentElement.setAttribute('data-theme', 'light');
+    document.documentElement.setAttribute('data-theme', 'dark');
   }
 
   var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], sectors: {}, spots: {} };
@@ -1006,12 +1025,48 @@ function renderAppJs() {
     if (!news || !news.paragraph) return '';
     var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
     var heading = 'AI news take' + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
-    var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict above from <b>Acceptable</b>.</div>' : '';
+    var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict from <b>Acceptable</b>.</div>' : '';
     return '<div class="opt-news ' + (news.sentiment || 'neutral') + '">' +
       '<div class="opt-news-head">' + heading + '</div>' +
       '<div class="opt-news-body">' + escapeHtml(news.paragraph) + '</div>' +
       note +
     '</div>';
+  }
+  function renderNewsPane(){
+    var box = $('opt-news-pane');
+    if (!box) return;
+    if (!state.symbol){ box.innerHTML = ''; return; }
+    if (!state.news || !state.news.paragraph){
+      box.innerHTML = '<div class="opt-news-empty">No AI news take available for ' + escapeHtml(state.symbol) + ' in this build.</div>';
+      return;
+    }
+    box.innerHTML = newsTakeHtml(state.news, state.symbol, false);
+  }
+  function renderAnalysisShell(){
+    // Show the tabbed analysis container as soon as a ticker is selected.
+    // Individual panes still hide themselves when their data is missing.
+    var shell = $('opt-analysis');
+    if (shell) shell.hidden = !state.symbol;
+  }
+  function bindTabs(){
+    var tabs = document.querySelectorAll('.opt-tab');
+    if (!tabs.length) return;
+    function selectTab(name){
+      try { localStorage.setItem('stonks-tab', name); } catch (_) {}
+      tabs.forEach(function(btn){
+        var sel = btn.getAttribute('data-tab') === name;
+        btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        var paneId = btn.getAttribute('aria-controls');
+        var pane = paneId ? document.getElementById(paneId) : null;
+        if (pane) pane.hidden = !sel;
+      });
+    }
+    tabs.forEach(function(btn){
+      btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-tab')); });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
+    selectTab(saved && ['fund','tech','news'].indexOf(saved) >= 0 ? saved : 'fund');
   }
 
   function buildResultHtml(input){
@@ -1054,7 +1109,10 @@ function renderAppJs() {
     var html = '';
     html += '<div class="opt-verdict ' + verdict.cls + '" id="opt-verdict-main">' + verdict.label + '</div>';
     html += verdictExplainer(verdict.cls);
-    html += newsTakeHtml(input.news, input.ticker, verdict.nudged);
+    if (verdict.nudged && input.news && input.news.sentiment){
+      var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
+      html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
+    }
     html += '<div class="opt-contract">' + (input.label || '') + ' · spot $' + fmt(input.spot) + ' · ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$' + fmt(bid) + ' / $' + fmt(ask));
@@ -1281,8 +1339,10 @@ function renderAppJs() {
       populateStrikes();
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
+      renderAnalysisShell();
       renderTechnicals(symbol);
       renderFundamentals(symbol);
+      renderNewsPane();
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
       // Kick off the live spot refresh in parallel — the page is already
@@ -1814,6 +1874,7 @@ function renderAppJs() {
   function bind(){
     renderFreshness();
     bindThemeToggle();
+    bindTabs();
     combo.init();
     renderNarratives();
 
@@ -1877,7 +1938,7 @@ function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnd
 <meta name="description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital." />
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css?v=${cacheBust}">
 </head>
 <body>
@@ -1925,67 +1986,76 @@ function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnd
 function renderStylesCss() {
   return `/* Generated by scripts/build.mjs — do not edit by hand. */
 :root {
-  --bg:#f7f8fa;
+  --bg:#0b0d10;
+  --surface:#101317;
+  --surface-2:#171b21;
+  --surface-3:#1f242c;
+  --border:#252b34;
+  --border-strong:#363d49;
+  --text:#d4d8de;
+  --text-strong:#f4f5f7;
+  --muted:#7c8493;
+  --accent:#ff8a00;
+  --accent-soft:rgba(255,138,0,0.14);
+  --accent-strong:#ffa733;
+  --pos:#00d97e;
+  --pos-soft:rgba(0,217,126,0.13);
+  --neg:#ff4d6d;
+  --neg-soft:rgba(255,77,109,0.13);
+  --warn:#fbbf24;
+  --warn-soft:rgba(251,191,36,0.14);
+  --shadow-sm:0 1px 0 rgba(0,0,0,0.5);
+  --shadow-md:0 4px 14px rgba(0,0,0,0.55);
+  --shadow-lg:0 12px 28px rgba(0,0,0,0.6);
+  --r-1:2px; --r-2:3px; --r-3:4px; --r-4:6px; --r-pill:999px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:28px; --s-7:40px; --s-8:56px;
+  --fs-xs:11px; --fs-sm:12px; --fs-md:13px; --fs-lg:15px; --fs-xl:17px; --fs-2xl:22px; --fs-3xl:28px;
+  --font-sans:"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-mono:"JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --focus-ring:0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  color-scheme:dark;
+}
+:root[data-theme="light"] {
+  --bg:#fafaf9;
   --surface:#ffffff;
-  --surface-2:#f1f3f7;
-  --surface-3:#e7eaf0;
-  --border:#e2e6ed;
-  --border-strong:#cdd3dd;
-  --text:#0f172a;
-  --text-strong:#0a0f1a;
-  --muted:#5f6877;
-  --accent:#1f6feb;
-  --accent-soft:rgba(31,111,235,0.10);
+  --surface-2:#f5f5f4;
+  --surface-3:#e7e5e4;
+  --border:#d6d3d1;
+  --border-strong:#a8a29e;
+  --text:#1c1917;
+  --text-strong:#0c0a09;
+  --muted:#57534e;
+  --accent:#c2410c;
+  --accent-soft:rgba(194,65,12,0.10);
+  --accent-strong:#9a3412;
   --pos:#15803d;
   --pos-soft:rgba(21,128,61,0.10);
   --neg:#b91c1c;
   --neg-soft:rgba(185,28,28,0.10);
   --warn:#b45309;
   --warn-soft:rgba(180,83,9,0.12);
-  --shadow-sm:0 1px 2px rgba(15,23,42,0.06), 0 1px 1px rgba(15,23,42,0.04);
-  --shadow-md:0 6px 16px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04);
-  --shadow-lg:0 18px 40px rgba(15,23,42,0.10), 0 6px 12px rgba(15,23,42,0.05);
-  --r-1:4px; --r-2:8px; --r-3:12px; --r-4:16px; --r-pill:999px;
-  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-7:48px; --s-8:64px;
-  --fs-xs:12px; --fs-sm:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:20px; --fs-2xl:28px; --fs-3xl:36px;
-  --focus-ring:0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  --shadow-sm:0 1px 0 rgba(15,23,42,0.04);
+  --shadow-md:0 4px 12px rgba(15,23,42,0.06);
+  --shadow-lg:0 12px 24px rgba(15,23,42,0.08);
+  --focus-ring:0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent);
   color-scheme:light;
-}
-:root[data-theme="dark"] {
-  --bg:#0a0d14;
-  --surface:#11151e;
-  --surface-2:#161b27;
-  --surface-3:#1d2331;
-  --border:#222a3a;
-  --border-strong:#2e384c;
-  --text:#e6ebf5;
-  --text-strong:#ffffff;
-  --muted:#8b96ac;
-  --accent:#6ea8ff;
-  --accent-soft:rgba(110,168,255,0.16);
-  --pos:#34d399;
-  --pos-soft:rgba(52,211,153,0.16);
-  --neg:#f87171;
-  --neg-soft:rgba(248,113,113,0.16);
-  --warn:#fbbf24;
-  --warn-soft:rgba(251,191,36,0.16);
-  --shadow-sm:0 1px 2px rgba(0,0,0,0.5);
-  --shadow-md:0 6px 18px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
-  --shadow-lg:0 24px 48px rgba(0,0,0,0.6), 0 6px 14px rgba(0,0,0,0.35);
-  --focus-ring:0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
-  color-scheme:dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: var(--fs-md)/1.55 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  font: var(--fs-md)/1.55 var(--font-sans);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  font-feature-settings: "cv11", "ss01", "tnum" 1;
+}
+.mono, code, kbd, samp {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "ss01" 1;
 }
 a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover { color: var(--accent-strong); text-decoration: underline; }
 button { font: inherit; }
 :focus-visible {
   outline: none;
@@ -2084,23 +2154,36 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--r-4);
   padding: var(--s-5);
-  box-shadow: var(--shadow-sm);
-  margin-bottom: var(--s-4);
+  box-shadow: none;
+  margin-bottom: var(--s-3);
 }
 .card-header {
-  display: flex; align-items: baseline; gap: var(--s-3);
-  margin-bottom: var(--s-1);
+  display: flex; align-items: center; gap: var(--s-3);
+  padding-bottom: var(--s-3);
+  margin-bottom: var(--s-3);
+  border-bottom: 1px solid var(--border);
 }
 .card-title {
   margin: 0;
-  font-size: var(--fs-xl);
-  font-weight: 700;
-  letter-spacing: -0.015em;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-strong);
+}
+.card-title::before {
+  content: '';
+  display: inline-block;
+  width: 3px; height: 14px;
+  background: var(--accent);
+  margin-right: 10px;
+  vertical-align: -2px;
 }
 .card-eyebrow {
   font-size: var(--fs-xs); color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+  font-family: var(--font-mono);
+  margin-left: auto;
 }
 .hint {
   margin: 0 0 var(--s-4);
@@ -2837,6 +2920,236 @@ main {
 @media (max-width: 480px){
   .tip::after { left: auto; right: 0; transform: none; }
 }
+
+/* === Terminal redesign overrides === */
+/* Apply monospace to all numerics that read like terminal data */
+.opt-live-spot, .opt-live-chg, .opt-tech-num, .opt-tech-vsub,
+.opt-fund-metric-value, .opt-fund-metric-sub, .opt-row-value,
+.opt-row-mute, .opt-row-sub, .opt-contract, .opt-contract-mini,
+.opt-verdict, .opt-verdict-mini, .narr-chip, .opt-narr-chip,
+.combo input, .opt-live-pill, .opt-live-sym, .opt-live-refresh {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "ss01" 1;
+}
+
+/* Brand wordmark feels right in mono too */
+.brand-word { font-family: var(--font-mono); letter-spacing: -0.02em; font-weight: 700; }
+.brand-tag { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+
+/* Restrained verdict — square label, no pill, terminal-flat */
+.opt-verdict {
+  display: inline-flex; align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--r-2);
+  font-weight: 700; font-size: var(--fs-sm);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  border-width: 1px; border-style: solid;
+}
+.opt-verdict.good { background: var(--pos-soft); color: var(--pos); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
+.opt-verdict.fair { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.opt-verdict.bad  { background: var(--neg-soft); color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.opt-verdict-mini {
+  border-radius: var(--r-2);
+  font-size: 11px; letter-spacing: 0.06em;
+}
+
+/* Tighter result rows — Bloomberg-style flat key/value table */
+.opt-grid {
+  gap: 0 var(--s-4);
+  border-top: 1px solid var(--border);
+  margin-top: var(--s-3);
+}
+.opt-row {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  border-bottom-style: solid;
+}
+.opt-row-value { font-weight: 500; color: var(--text-strong); }
+
+/* Inputs / selects — flat panels, sharp corners */
+.combo input,
+.opt-chain-row select,
+.opt-manual-field input,
+.opt-manual-field select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  color: var(--text-strong);
+  padding: 8px 10px;
+  font-size: var(--fs-sm);
+  transition: border-color .12s ease;
+}
+.combo input:focus,
+.opt-chain-row select:focus,
+.opt-manual-field input:focus,
+.opt-manual-field select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Card title is now the only "loud" element — pin a terminal accent bar */
+.opt-eval-section .card-title,
+#opt-eval-section .card-title,
+#narratives-section .card-title,
+#opt-manual-section .card-title {
+  font-family: var(--font-mono);
+}
+
+/* === Tabs (Technicals / Fundamentals / News) === */
+.opt-tabs {
+  display: flex; flex-wrap: wrap; gap: 0;
+  margin: var(--s-4) 0 0;
+  border-bottom: 1px solid var(--border);
+}
+.opt-tabs[hidden] { display: none; }
+.opt-tab {
+  appearance: none; background: transparent;
+  border: none; border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+.opt-tab:hover { color: var(--text); background: var(--surface-2); }
+.opt-tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.opt-tab-pane {
+  padding-top: var(--s-4);
+}
+.opt-tab-pane[hidden] { display: none; }
+
+/* When sub-cards live inside a tab pane, drop their own card chrome — the
+   tab strip already frames them, and double borders look cluttered. */
+.opt-tab-pane .opt-tech,
+.opt-tab-pane .opt-fund {
+  background: transparent;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.opt-tab-pane .opt-tech-head,
+.opt-tab-pane .opt-fund-head {
+  display: none;
+}
+
+/* News pane mirrors the old inline take but at full width inside the tab */
+.opt-news-pane {
+  font-size: var(--fs-sm); line-height: 1.55; color: var(--text);
+}
+.opt-news-pane .opt-news {
+  margin: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.opt-news-pane .opt-news-head {
+  font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.10em; font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: var(--s-2);
+}
+.opt-news-pane .opt-news-body { color: var(--text); }
+.opt-news-pane .opt-news-empty {
+  color: var(--muted); font-style: italic; font-size: var(--fs-sm);
+}
+
+/* === Manual grader accordion === */
+.opt-manual-details summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: 0;
+  /* Pull onto the card header line cleanly */
+  margin: 0;
+}
+.opt-manual-details summary::-webkit-details-marker { display: none; }
+.opt-manual-details summary::after {
+  content: '+';
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 18px; font-weight: 600;
+  color: var(--muted);
+  width: 20px; text-align: center;
+  transition: transform .15s ease, color .12s ease;
+}
+.opt-manual-details[open] summary::after {
+  content: '−';
+  color: var(--accent);
+}
+.opt-manual-details summary:hover::after { color: var(--text); }
+.opt-manual-details summary .card-title {
+  margin: 0;
+}
+.opt-manual-details summary .opt-manual-trigger-sub {
+  font-family: var(--font-mono);
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.opt-manual-details > .opt-manual-body {
+  padding-top: var(--s-4);
+}
+/* Hide the card-header divider when the accordion is closed — otherwise
+   there's a stray bottom line under just the summary row. */
+.opt-manual-details:not([open]) summary.card-header {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+.opt-manual-details[open] summary.card-header {
+  margin-bottom: 0;
+}
+
+/* Nudge fund-verdict chip to read more like a status tag */
+.opt-fund-verdict {
+  font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.10em;
+  padding: 3px 8px;
+  border-radius: var(--r-2);
+}
+
+/* Sub-card heads inside tab panes — render once, smaller */
+.opt-tab-pane .opt-tech-foot,
+.opt-tab-pane .opt-fund-foot {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px dashed var(--border);
+}
+
+/* Slightly tighter freshness banner — it competes with the header otherwise */
+.freshness {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-radius: var(--r-3);
+}
+
+/* Page subtitle reads as muted terminal line under the header */
+.page-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* Tighter narrative cards */
+.narr {
+  border-radius: var(--r-3);
+}
+.narr-chip {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+/* Section spacing — main cards sit closer to read as one continuous panel */
+main { padding-top: var(--s-2); }
+.card { margin-bottom: var(--s-3); }
 `;
 }
 
