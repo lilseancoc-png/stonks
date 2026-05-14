@@ -11,10 +11,11 @@
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], sectors: {}, spots: {} };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, spots: {} };
   var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
   var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
   var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
+  var MACRO_HEADLINES = Array.isArray(MANIFEST.macroHeadlines) ? MANIFEST.macroHeadlines : [];
   var SECTORS = MANIFEST.sectors || {};
   var SPOTS = MANIFEST.spots || {};
   var RFR = 0.045;
@@ -352,9 +353,30 @@
     var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
     var heading = 'AI news take' + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
     var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict from <b>Acceptable</b>.</div>' : '';
+    var sources = Array.isArray(news.sources) ? news.sources : [];
+    var sourcesRow = sources.length
+      ? '<div class="opt-news-sources"><span class="opt-news-sources-label">Sources</span>' +
+          sources.slice(0, 6).map(function(s){ return '<span class="opt-news-source">' + escapeHtml(s) + '</span>'; }).join('') +
+        '</div>'
+      : '';
+    // headlines may be plain strings (old builds) or {title, publisher} objects.
+    var hl = Array.isArray(news.headlines) ? news.headlines : [];
+    var hlRow = hl.length
+      ? '<details class="opt-news-headlines"><summary>' + hl.length + ' headlines used</summary><ul>' +
+          hl.slice(0, 10).map(function(h){
+            var title = typeof h === 'string' ? h : (h.title || '');
+            var pub = (h && typeof h === 'object') ? (h.publisher || '') : '';
+            var rep = (h && typeof h === 'object' && h.reputable) ? ' opt-news-headline-rep' : '';
+            var pubTag = pub ? '<span class="opt-news-headline-pub' + rep + '">' + escapeHtml(pub) + '</span>' : '';
+            return '<li>' + pubTag + '<span class="opt-news-headline-title">' + escapeHtml(title) + '</span></li>';
+          }).join('') +
+        '</ul></details>'
+      : '';
     return '<div class="opt-news ' + (news.sentiment || 'neutral') + '">' +
       '<div class="opt-news-head">' + heading + '</div>' +
       '<div class="opt-news-body">' + escapeHtml(news.paragraph) + '</div>' +
+      sourcesRow +
+      hlRow +
       note +
     '</div>';
   }
@@ -1119,35 +1141,88 @@
     if (!d || d <= 1) return 'New today';
     return 'Day ' + d;
   }
+  function narrStatusLabel(s){
+    return ({ active:'Active', building:'Building', fading:'Fading' })[s] || 'Active';
+  }
+  function narrTimeframeLabel(tf){
+    return ({ immediate:'This week', 'near-term':'1-4 wks', 'medium-term':'1-3 mo', 'long-term':'3+ mo' })[tf] || 'Near-term';
+  }
+  function strengthBarHtml(strength){
+    var s = Math.max(0, Math.min(100, strength | 0));
+    var tier = s >= 75 ? 'hi' : s >= 45 ? 'mid' : 'lo';
+    return '<div class="narr-strength" title="Strength ' + s + ' / 100">' +
+      '<div class="narr-strength-track"><div class="narr-strength-fill ' + tier + '" style="width:' + s + '%"></div></div>' +
+      '<span class="narr-strength-num">' + s + '</span>' +
+    '</div>';
+  }
+  function triggersHtml(n){
+    if (!n.triggers || !n.triggers.length) return '';
+    var label = n.status === 'building' ? 'Needs trigger' : (n.status === 'fading' ? 'Watch for reset' : 'Triggers to watch');
+    return '<div class="narr-triggers">' +
+      '<span class="narr-triggers-label">' + escapeHtml(label) + '</span>' +
+      '<ul class="narr-triggers-list">' +
+      n.triggers.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') +
+      '</ul>' +
+    '</div>';
+  }
+  function conflictsHtml(n){
+    if (!n.conflictsWith || !n.conflictsWith.length) return '';
+    return '<div class="narr-conflicts">' +
+      '<span class="narr-conflicts-label">Clashes with</span>' +
+      n.conflictsWith.map(function(c){ return '<span class="narr-conflict-chip">' + escapeHtml(c) + '</span>'; }).join('') +
+    '</div>';
+  }
   function renderNarratives(){
     var list = $('narratives-list');
     var empty = $('narratives-empty');
     var ended = $('narratives-ended');
     var count = $('narratives-count');
     if (!list) return;
-    if (count) count.textContent = NARRATIVES.length ? NARRATIVES.length + ' active' : '';
+    if (count){
+      if (NARRATIVES.length){
+        var activeN = 0, buildingN = 0;
+        for (var i=0; i<NARRATIVES.length; i++){
+          if (NARRATIVES[i].status === 'building') buildingN++;
+          else if (NARRATIVES[i].status !== 'fading') activeN++;
+        }
+        var parts = [activeN + ' active'];
+        if (buildingN) parts.push(buildingN + ' building');
+        count.textContent = parts.join(' · ');
+      } else {
+        count.textContent = '';
+      }
+    }
     if (!NARRATIVES.length){
       list.innerHTML = '';
       if (empty) empty.hidden = false;
     } else {
       if (empty) empty.hidden = true;
-      list.innerHTML = NARRATIVES.map(function(n){
+      list.innerHTML = NARRATIVES.map(function(n, idx){
         var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
+        var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
+        var tf = n.timeframe || 'near-term';
         var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
         var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
         var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
         var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
         var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
-        return '<article class="narr" data-sent="' + sent + '" role="listitem">' +
+        var rankLabel = (idx + 1) + ' / ' + NARRATIVES.length;
+        return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
           '<span class="narr-accent" aria-hidden="true"></span>' +
           '<header class="narr-head">' +
+            '<span class="narr-rank" aria-label="Rank">#' + (idx + 1) + '</span>' +
             '<h3 class="narr-name">' + escapeHtml(n.name) + '</h3>' +
             '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
-            '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+            '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
+            '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
+            '<span class="narr-tag conf" title="' + rankLabel + '">Conf · ' + confLabel + '</span>' +
             '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
           '</header>' +
+          strengthBarHtml(n.strength) +
           '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
           longRow + shortRow +
+          triggersHtml(n) +
+          conflictsHtml(n) +
         '</article>';
       }).join('');
     }
@@ -1168,6 +1243,29 @@
           '</div>';
       } else {
         ended.innerHTML = '';
+      }
+    }
+    var macro = $('narratives-macro');
+    if (macro){
+      if (MACRO_HEADLINES.length){
+        // Show the top 8 freshest macro hits so users can see what the
+        // narrative engine just looked at. Collapsed by default — it's
+        // context, not the headline UI.
+        macro.innerHTML = '<details class="narr-macro-details">' +
+          '<summary><span class="narr-macro-head">Macro signal feed</span>' +
+          '<span class="narr-macro-meta">' + MACRO_HEADLINES.length + ' headlines · Fed · BLS · Treasury · SEC · MarketWatch · CNBC</span></summary>' +
+          '<ul class="narr-macro-list">' +
+          MACRO_HEADLINES.slice(0, 12).map(function(h){
+            var date = h.publishedAt ? h.publishedAt.slice(0, 10) : '';
+            return '<li>' +
+              (date ? '<span class="narr-macro-date">' + escapeHtml(date) + '</span>' : '') +
+              '<span class="narr-macro-pub">' + escapeHtml(h.publisher || 'source') + '</span>' +
+              '<span class="narr-macro-title">' + escapeHtml(h.title || '') + '</span>' +
+            '</li>';
+          }).join('') +
+          '</ul></details>';
+      } else {
+        macro.innerHTML = '';
       }
     }
   }
