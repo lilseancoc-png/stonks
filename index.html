@@ -8,7 +8,7 @@
 <meta name="description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital." />
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css?v=2026-05-14T02%3A18%3A33.689Z">
 </head>
 <body>
@@ -83,45 +83,62 @@
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
-    <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
-      <header class="opt-tech-head">
-        <h3 class="opt-tech-title">Technical signals</h3>
-        <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
-      </header>
-      <div class="opt-tech-grid" id="opt-tech-grid"></div>
-      <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
-    </section>
-    <section id="opt-fundamentals" class="opt-fund" hidden aria-label="Fundamentals and earnings for this ticker">
-      <header class="opt-fund-head">
-        <h3 class="opt-fund-title">Fundamentals &amp; earnings</h3>
-        <span id="opt-fund-verdict" class="opt-fund-verdict"></span>
-      </header>
-      <p id="opt-fund-summary" class="opt-fund-summary"></p>
-      <div id="opt-fund-recap" class="opt-fund-recap" hidden></div>
-      <div class="opt-fund-columns">
-        <div class="opt-fund-col opt-fund-pos">
-          <div class="opt-fund-col-head">Positives</div>
-          <ul id="opt-fund-pos-list" class="opt-fund-list"></ul>
-        </div>
-        <div class="opt-fund-col opt-fund-neg">
-          <div class="opt-fund-col-head">Negatives</div>
-          <ul id="opt-fund-neg-list" class="opt-fund-list"></ul>
-        </div>
+    <div id="opt-analysis" class="opt-analysis" hidden>
+      <div class="opt-tabs" role="tablist" aria-label="Ticker analysis">
+        <button type="button" class="opt-tab" role="tab" aria-selected="true" aria-controls="opt-tab-pane-fund" id="opt-tab-btn-fund" data-tab="fund">Fundamentals</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-tech" id="opt-tab-btn-tech" data-tab="tech">Technicals</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-news" id="opt-tab-btn-news" data-tab="news">News</button>
       </div>
-      <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
-      <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
-    </section>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-fund" aria-labelledby="opt-tab-btn-fund">
+        <section id="opt-fundamentals" class="opt-fund" hidden aria-label="Fundamentals and earnings for this ticker">
+          <header class="opt-fund-head">
+            <h3 class="opt-fund-title">Fundamentals &amp; earnings</h3>
+            <span id="opt-fund-verdict" class="opt-fund-verdict"></span>
+          </header>
+          <p id="opt-fund-summary" class="opt-fund-summary"></p>
+          <div id="opt-fund-recap" class="opt-fund-recap" hidden></div>
+          <div class="opt-fund-columns">
+            <div class="opt-fund-col opt-fund-pos">
+              <div class="opt-fund-col-head">Positives</div>
+              <ul id="opt-fund-pos-list" class="opt-fund-list"></ul>
+            </div>
+            <div class="opt-fund-col opt-fund-neg">
+              <div class="opt-fund-col-head">Negatives</div>
+              <ul id="opt-fund-neg-list" class="opt-fund-list"></ul>
+            </div>
+          </div>
+          <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
+          <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
+        </section>
+      </div>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-tech" aria-labelledby="opt-tab-btn-tech" hidden>
+        <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
+          <header class="opt-tech-head">
+            <h3 class="opt-tech-title">Technical signals</h3>
+            <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
+          </header>
+          <div class="opt-tech-grid" id="opt-tech-grid"></div>
+          <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
+        </section>
+      </div>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-news" aria-labelledby="opt-tab-btn-news" hidden>
+        <div id="opt-news-pane" class="opt-news-pane"></div>
+      </div>
+    </div>
     <div class="opt-result-wrap">
       <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
       <div id="opt-eval-result" class="opt-result"></div>
     </div>
   </section>
   <section class="card" id="opt-manual-section">
-    <header class="card-header">
-      <h2 class="card-title">Grade your own contract</h2>
-    </header>
-    <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Paste the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
-    <form id="opt-manual-form" class="opt-manual-grid">
+    <details class="opt-manual-details">
+      <summary class="card-header">
+        <h2 class="card-title">Grade your own contract</h2>
+        <span class="opt-manual-trigger-sub">paste from your broker</span>
+      </summary>
+      <div class="opt-manual-body">
+        <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Paste the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
+        <form id="opt-manual-form" class="opt-manual-grid">
       <label class="opt-manual-field opt-manual-paste">
         <span class="opt-manual-field-label">Paste contract symbol <span class="opt-manual-opt">optional · fills type / strike / expiry</span></span>
         <input id="m-paste" type="text" placeholder="AAPL250117C00150000" autocomplete="off" spellcheck="false">
@@ -167,9 +184,11 @@
         <input id="m-vol" type="text" inputmode="numeric" placeholder="1,251" autocomplete="off">
       </label>
       <button type="submit" class="opt-manual-submit">Grade contract</button>
-    </form>
-    <div id="opt-manual-status" class="opt-status" role="status"></div>
-    <div id="opt-manual-result" class="opt-result"></div>
+        </form>
+        <div id="opt-manual-status" class="opt-status" role="status"></div>
+        <div id="opt-manual-result" class="opt-result"></div>
+      </div>
+    </details>
   </section>
 </main>
 <footer class="site-footer">
