@@ -46,7 +46,7 @@ const DATA_DIR = resolve(ROOT, "data");
 // but the build still hits Yahoo serially with ~350ms pauses, so each
 // added ticker adds ~2-3s of wall-clock time and a bit of rate-limit
 // risk against MIN_SUCCESS_RATE.
-const TICKERS = [
+export const TICKERS = [
   // Index & sector ETFs
   "SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "USO", "XLF", "XLE", "XLK",
   // Mega-caps
@@ -817,6 +817,21 @@ function narrativesSection() {
   </section>`;
 }
 
+function unusualFlowSection() {
+  // Card chrome only — the per-ticker rows and contract chips render
+  // client-side from the inline manifest in app.js. Populated by the hourly
+  // GitHub Actions scan (scripts/scan-unusual.mjs).
+  return `<section class="card" id="flow-section">
+    <header class="card-header">
+      <h2 class="card-title">Unusual options flow</h2>
+      <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Contracts where today's volume dwarfs the open interest — fresh positioning that often signals informed flow or large hedges. Scanned hourly during US market hours across the front 3 expirations. Threshold: 500+ contracts traded AND volume/OI ratio ≥ 2x. Sorted by hottest ratio.</p>
+    <div id="flow-list" class="flow-list" role="list"></div>
+    <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
+  </section>`;
+}
+
 function optionEvalSection() {
   // The ticker combobox + segmented call/put control + chain selects all
   // bind live in app.js — picking a ticker auto-loads its chain and any
@@ -993,6 +1008,7 @@ export function renderAppJs() {
   var INDUSTRIES = MANIFEST.industries || {};
   var SECTOR_ORDER = Array.isArray(MANIFEST.sectorOrder) ? MANIFEST.sectorOrder : [];
   var INDUSTRIES_BY_SECTOR = MANIFEST.industriesBySector || {};
+  var UNUSUAL = MANIFEST.unusual || null;
   var SPOTS = MANIFEST.spots || {};
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
@@ -2498,6 +2514,109 @@ export function renderAppJs() {
     }).join('');
   }
 
+  // --- Unusual options flow ------------------------------------------------
+  function fmtVolume(n){
+    if (n == null || !isFinite(n)) return '—';
+    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\\.0$/, '') + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\\.0$/, '') + 'k';
+    return String(n);
+  }
+  function fmtRatio(r){
+    if (r == null || !isFinite(r)) return '—';
+    if (r >= 100) return Math.round(r) + 'x';
+    if (r >= 10) return r.toFixed(0) + 'x';
+    return r.toFixed(1).replace(/\\.0$/, '') + 'x';
+  }
+  function fmtExpiry(epochSec){
+    if (!epochSec) return '—';
+    var d = new Date(epochSec * 1000);
+    return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
+  }
+  function ratioTier(r){
+    if (r >= 10) return 'hot';
+    if (r >= 5) return 'warm';
+    return 'mild';
+  }
+  function fmtScannedAt(iso){
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      // "10:00 AM ET" — we trust the cron lined up to top of hour.
+      var s = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(d);
+      return s + ' ET';
+    } catch (_) { return ''; }
+  }
+  function flowContractHtml(c){
+    var sideLabel = c.side === 'put' ? 'PUT' : 'CALL';
+    var strike = c.strike != null ? '$' + c.strike : '';
+    var ratioStr = fmtRatio(c.ratio);
+    var tier = ratioTier(c.ratio);
+    return '<div class="flow-chip ' + c.side + ' tier-' + tier + '" title="Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + (c.last != null ? ' · last $' + c.last : '') + '">' +
+      '<span class="flow-side">' + sideLabel + '</span>' +
+      '<span class="flow-strike">' + strike + '</span>' +
+      '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
+      '<span class="flow-stats">' +
+        '<span class="flow-vol">' + fmtVolume(c.vol) + '</span>' +
+        '<span class="flow-sep">/</span>' +
+        '<span class="flow-oi">' + fmtVolume(c.oi) + '</span>' +
+      '</span>' +
+      '<span class="flow-ratio">' + ratioStr + '</span>' +
+    '</div>';
+  }
+  function renderUnusualFlow(){
+    var list = $('flow-list');
+    var empty = $('flow-empty');
+    var eyebrow = $('flow-eyebrow');
+    if (!list) return;
+    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+    var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
+    if (eyebrow){
+      if (UNUSUAL && summary && summary.contractCount){
+        var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
+        if (summary.tickerCount) parts.push(summary.tickerCount + ' ticker' + (summary.tickerCount === 1 ? '' : 's'));
+        var when = fmtScannedAt(UNUSUAL.scannedAt);
+        if (when) parts.push('scanned ' + when);
+        eyebrow.textContent = parts.join(' · ');
+      } else if (UNUSUAL && UNUSUAL.scannedAt){
+        var when2 = fmtScannedAt(UNUSUAL.scannedAt);
+        eyebrow.textContent = when2 ? 'scanned ' + when2 : '';
+      } else {
+        eyebrow.textContent = '';
+      }
+    }
+    if (!tickers.length){
+      list.innerHTML = '';
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = UNUSUAL
+          ? 'No unusual flow flagged in the latest scan.'
+          : 'Waiting for the first hourly scan to land.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    list.innerHTML = tickers.map(function(t){
+      var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+      var topTier = ratioTier(t.topRatio || 0);
+      return '<article class="flow-row tier-' + topTier + '" role="listitem">' +
+        '<header class="flow-row-head">' +
+          '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
+          (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
+          '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
+          '<span class="flow-top">Top · ' + fmtRatio(t.topRatio) + '</span>' +
+        '</header>' +
+        '<div class="flow-contracts">' +
+          t.contracts.map(flowContractHtml).join('') +
+        '</div>' +
+      '</article>';
+    }).join('');
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
@@ -2505,6 +2624,7 @@ export function renderAppJs() {
     bindTabs();
     combo.init();
     renderNarratives();
+    renderUnusualFlow();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){
@@ -2541,7 +2661,7 @@ export function renderAppJs() {
 `;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], macroHeadlines = [], spots = {} }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {} }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). resolveNarrativeIndustry votes from
@@ -2567,6 +2687,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], rece
     industries: INDUSTRY_OF_TICKER,
     sectorOrder: SECTOR_ORDER,
     industriesBySector: INDUSTRIES_BY_SECTOR,
+    unusual: unusual || null,
     spots,
   }).replace(/<\/script>/gi, "<\\/script>");
   const cacheBust = encodeURIComponent(builtAtIso);
@@ -2610,6 +2731,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], rece
 </div>
 <main>
   ${narrativesSection()}
+  ${unusualFlowSection()}
   ${optionEvalSection()}
 </main>
 <footer class="site-footer">
@@ -3388,6 +3510,123 @@ main {
 }
 .opt-status.err { color: var(--neg); }
 .opt-status.ok  { color: var(--pos); }
+
+/* === Unusual options flow === */
+.flow-list { display: flex; flex-direction: column; gap: var(--s-2); }
+.flow-list:empty { display: none; }
+.flow-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  transition: border-color .15s ease, background .15s ease;
+}
+.flow-row:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.flow-row.tier-hot { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.flow-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.flow-symbol {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.flow-spot {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.flow-count {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.flow-top {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+}
+.flow-contracts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  color: var(--text);
+  transition: border-color .12s ease, background .12s ease;
+}
+.flow-chip.call {
+  border-color: color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.flow-chip.put {
+  border-color: color-mix(in srgb, var(--neg) 35%, transparent);
+}
+.flow-chip.tier-hot {
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.flow-side {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: var(--r-1);
+}
+.flow-chip.call .flow-side { color: var(--pos); background: var(--pos-soft); }
+.flow-chip.put  .flow-side { color: var(--neg); background: var(--neg-soft); }
+.flow-strike { font-weight: 700; color: var(--text-strong); }
+.flow-exp { color: var(--muted); }
+.flow-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  color: var(--text);
+}
+.flow-sep { color: var(--muted); }
+.flow-oi { color: var(--muted); }
+.flow-ratio {
+  font-weight: 700;
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+.flow-chip.tier-warm .flow-ratio { color: var(--warn); }
+.flow-chip.tier-mild .flow-ratio { color: var(--text); }
+.flow-empty {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  padding: var(--s-2) 0;
+}
 
 /* === Per-ticker narrative chips === */
 .opt-narr-chips {
@@ -4814,6 +5053,7 @@ const NARRATIVE_SYSTEM_PROMPT =
 
 const TRENDS_FILE = "trends.json";
 const TRENDS_HISTORY_FILE = "trends-history.json";
+const UNUSUAL_FILE = "unusual.json";
 
 async function loadTrendHistory() {
   try {
@@ -4822,6 +5062,19 @@ async function loadTrendHistory() {
     return Array.isArray(parsed?.snapshots) ? parsed.snapshots : [];
   } catch {
     return [];
+  }
+}
+
+// Read the most recent unusual-flow scan (produced by scripts/scan-unusual.mjs
+// on its hourly cron). The daily build wipes data/, so we load this in memory
+// before the wipe and rewrite it afterwards so the page keeps showing the
+// last good hourly scan until the next hourly job runs.
+async function loadUnusualFlow() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, UNUSUAL_FILE), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
 }
 
@@ -5111,10 +5364,12 @@ async function main() {
   // first fundamentals request will naturally wait for the news-takes
   // window to drain. Same for the narrative pass that runs next.
   await attachFundamentalsJudgments(chains);
-  // Read trend history BEFORE writeChainFiles wipes data/. Then narrative
-  // extraction can reference yesterday's names for continuity, and the
-  // history file is rewritten alongside the chains afterward.
+  // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
+  // wipes data/. Narrative extraction references yesterday's names for
+  // continuity; the unusual snapshot is rewritten after the wipe so the page
+  // keeps showing it until the next hourly cron runs.
   const previousHistory = await loadTrendHistory();
+  const unusual = await loadUnusualFlow();
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
@@ -5126,6 +5381,7 @@ async function main() {
     narratives: trends.narratives,
     recentlyEnded: trends.recentlyEnded,
     macroHeadlines: trends.macroHeadlines || [],
+    unusual,
     spots,
   });
   const css = renderStylesCss();
@@ -5142,6 +5398,9 @@ async function main() {
     history: trends.history,
     builtAtIso,
   });
+  if (unusual) {
+    await writeFile(resolve(DATA_DIR, UNUSUAL_FILE), JSON.stringify(unusual), "utf8");
+  }
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );

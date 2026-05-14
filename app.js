@@ -20,6 +20,7 @@
   var INDUSTRIES = MANIFEST.industries || {};
   var SECTOR_ORDER = Array.isArray(MANIFEST.sectorOrder) ? MANIFEST.sectorOrder : [];
   var INDUSTRIES_BY_SECTOR = MANIFEST.industriesBySector || {};
+  var UNUSUAL = MANIFEST.unusual || null;
   var SPOTS = MANIFEST.spots || {};
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
@@ -1525,6 +1526,109 @@
     }).join('');
   }
 
+  // --- Unusual options flow ------------------------------------------------
+  function fmtVolume(n){
+    if (n == null || !isFinite(n)) return '—';
+    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+    return String(n);
+  }
+  function fmtRatio(r){
+    if (r == null || !isFinite(r)) return '—';
+    if (r >= 100) return Math.round(r) + 'x';
+    if (r >= 10) return r.toFixed(0) + 'x';
+    return r.toFixed(1).replace(/\.0$/, '') + 'x';
+  }
+  function fmtExpiry(epochSec){
+    if (!epochSec) return '—';
+    var d = new Date(epochSec * 1000);
+    return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
+  }
+  function ratioTier(r){
+    if (r >= 10) return 'hot';
+    if (r >= 5) return 'warm';
+    return 'mild';
+  }
+  function fmtScannedAt(iso){
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      // "10:00 AM ET" — we trust the cron lined up to top of hour.
+      var s = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(d);
+      return s + ' ET';
+    } catch (_) { return ''; }
+  }
+  function flowContractHtml(c){
+    var sideLabel = c.side === 'put' ? 'PUT' : 'CALL';
+    var strike = c.strike != null ? '$' + c.strike : '';
+    var ratioStr = fmtRatio(c.ratio);
+    var tier = ratioTier(c.ratio);
+    return '<div class="flow-chip ' + c.side + ' tier-' + tier + '" title="Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + (c.last != null ? ' · last $' + c.last : '') + '">' +
+      '<span class="flow-side">' + sideLabel + '</span>' +
+      '<span class="flow-strike">' + strike + '</span>' +
+      '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
+      '<span class="flow-stats">' +
+        '<span class="flow-vol">' + fmtVolume(c.vol) + '</span>' +
+        '<span class="flow-sep">/</span>' +
+        '<span class="flow-oi">' + fmtVolume(c.oi) + '</span>' +
+      '</span>' +
+      '<span class="flow-ratio">' + ratioStr + '</span>' +
+    '</div>';
+  }
+  function renderUnusualFlow(){
+    var list = $('flow-list');
+    var empty = $('flow-empty');
+    var eyebrow = $('flow-eyebrow');
+    if (!list) return;
+    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+    var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
+    if (eyebrow){
+      if (UNUSUAL && summary && summary.contractCount){
+        var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
+        if (summary.tickerCount) parts.push(summary.tickerCount + ' ticker' + (summary.tickerCount === 1 ? '' : 's'));
+        var when = fmtScannedAt(UNUSUAL.scannedAt);
+        if (when) parts.push('scanned ' + when);
+        eyebrow.textContent = parts.join(' · ');
+      } else if (UNUSUAL && UNUSUAL.scannedAt){
+        var when2 = fmtScannedAt(UNUSUAL.scannedAt);
+        eyebrow.textContent = when2 ? 'scanned ' + when2 : '';
+      } else {
+        eyebrow.textContent = '';
+      }
+    }
+    if (!tickers.length){
+      list.innerHTML = '';
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = UNUSUAL
+          ? 'No unusual flow flagged in the latest scan.'
+          : 'Waiting for the first hourly scan to land.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    list.innerHTML = tickers.map(function(t){
+      var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+      var topTier = ratioTier(t.topRatio || 0);
+      return '<article class="flow-row tier-' + topTier + '" role="listitem">' +
+        '<header class="flow-row-head">' +
+          '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
+          (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
+          '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
+          '<span class="flow-top">Top · ' + fmtRatio(t.topRatio) + '</span>' +
+        '</header>' +
+        '<div class="flow-contracts">' +
+          t.contracts.map(flowContractHtml).join('') +
+        '</div>' +
+      '</article>';
+    }).join('');
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
@@ -1532,6 +1636,7 @@
     bindTabs();
     combo.init();
     renderNarratives();
+    renderUnusualFlow();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){

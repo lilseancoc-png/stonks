@@ -13,6 +13,12 @@ const DATA_DIR = resolve(ROOT, "data");
 const trendsRaw = await readFile(resolve(DATA_DIR, "trends.json"), "utf8");
 const trends = JSON.parse(trendsRaw);
 
+let unusual = null;
+try {
+  const unusualRaw = await readFile(resolve(DATA_DIR, "unusual.json"), "utf8");
+  unusual = JSON.parse(unusualRaw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 const symbols = files
   .filter((f) => /^[A-Z]+\.json$/.test(f))
@@ -46,6 +52,7 @@ const html = renderHtml({
   narratives: trends.narratives || [],
   recentlyEnded: trends.recentlyEnded || [],
   macroHeadlines: trends.macroHeadlines || [],
+  unusual,
   spots,
 });
 const css = renderStylesCss();
