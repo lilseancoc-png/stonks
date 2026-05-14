@@ -2891,9 +2891,15 @@ const AI_NARRATIVE_COOLDOWN_MS = 8000;
 // we'd retry into the same rate-limit window and burn an attempt.
 function classifyAiError(err, attempt) {
   const msg = String(err?.message || "");
-  const is429 = /\b(429|RESOURCE_EXHAUSTED|quota)\b/i.test(msg);
-  const is5xx = /\b(500|502|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED|BAD_GATEWAY)\b/i.test(msg);
-  if (!is429 && !is5xx) return null;
+  const causeMsg = String(err?.cause?.message || err?.cause?.code || "");
+  const combined = msg + " " + causeMsg;
+  const is429 = /\b(429|RESOURCE_EXHAUSTED|quota)\b/i.test(combined);
+  const is5xx = /\b(500|502|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED|BAD_GATEWAY)\b/i.test(combined);
+  // Network-layer failures (no HTTP response — connection refused, DNS lookup
+  // fails, TLS handshake aborts, socket reset mid-stream). undici surfaces
+  // these as the bare TypeError "fetch failed" with the real cause on .cause.
+  const isNetwork = /\b(fetch failed|ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|network|socket hang up)\b/i.test(combined);
+  if (!is429 && !is5xx && !isNetwork) return null;
   if (is429) {
     const m = msg.match(/retry in ([\d.]+)\s*s/i);
     const hinted = m ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : null;
