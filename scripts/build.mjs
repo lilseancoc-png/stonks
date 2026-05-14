@@ -2892,7 +2892,7 @@ const AI_NARRATIVE_COOLDOWN_MS = 8000;
 function classifyAiError(err, attempt) {
   const msg = String(err?.message || "");
   const is429 = /\b(429|RESOURCE_EXHAUSTED|quota)\b/i.test(msg);
-  const is5xx = /\b(500|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED)\b/i.test(msg);
+  const is5xx = /\b(500|502|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED|BAD_GATEWAY)\b/i.test(msg);
   if (!is429 && !is5xx) return null;
   if (is429) {
     const m = msg.match(/retry in ([\d.]+)\s*s/i);
