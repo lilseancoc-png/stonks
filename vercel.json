@@ -6,6 +6,9 @@
   "functions": {
     "api/quote.js": {
       "maxDuration": 10
+    },
+    "api/chain.js": {
+      "maxDuration": 10
     }
   },
   "headers": [

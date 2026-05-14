@@ -501,6 +501,23 @@ main {
 .opt-live-chg   { font-size: 12px; font-weight: 600; }
 .opt-live-chg.up   { color: var(--pos); }
 .opt-live-chg.down { color: var(--neg); }
+.opt-live-refresh {
+  display: inline-flex; align-items: center;
+  margin-top: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.opt-live-refresh::before {
+  content: ''; display: inline-block;
+  width: 6px; height: 6px; margin-right: 6px;
+  border-radius: 50%; background: var(--muted);
+}
+.opt-live-refresh.on { color: var(--pos); }
+.opt-live-refresh.on::before {
+  background: var(--pos);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--pos) 60%, transparent);
+  animation: opt-live-pulse 1.6s ease-out infinite;
+}
 
 /* === Technical signals card === */
 .opt-tech {
