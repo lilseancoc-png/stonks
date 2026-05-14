@@ -1295,7 +1295,22 @@
     var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
     var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
     var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
-    return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
+    var staleTag = '';
+    if (n.stale){
+      // Show how long the cached data has been stale so the user can judge
+      // whether to trust it. Computed from staleSinceIso when present, else
+      // labelled just "Stale".
+      var staleAge = '';
+      if (n.staleSinceIso){
+        var since = Date.parse(n.staleSinceIso);
+        if (isFinite(since)){
+          var days = Math.max(1, Math.floor((Date.now() - since) / 86400000));
+          staleAge = ' · ' + days + 'd';
+        }
+      }
+      staleTag = '<span class="narr-tag stale" title="Today\'s extraction failed — showing the last successful narrative">Stale' + staleAge + '</span>';
+    }
+    return '<article class="narr' + (n.stale ? ' is-stale' : '') + '" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
       '<span class="narr-accent" aria-hidden="true"></span>' +
       '<header class="narr-head">' +
         (rankInSector ? '<span class="narr-rank" aria-label="Rank">#' + rankInSector + '</span>' : '') +
@@ -1304,6 +1319,7 @@
         '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
         '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
         '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+        staleTag +
         '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
       '</header>' +
       strengthBarHtml(n.strength) +
