@@ -224,6 +224,138 @@ main {
 }
 
 /* === Narratives === */
+/* Sector tab strip across the top of the narratives card. Horizontally
+   scrollable on narrow viewports so all 11 sectors stay reachable. */
+.narr-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  margin: var(--s-2) 0 var(--s-3);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+}
+.narr-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease, border-color .12s ease;
+  white-space: nowrap;
+}
+.narr-tab:hover { color: var(--text); background: var(--surface-2); }
+.narr-tab.is-active {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.narr-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+}
+.narr-tab.is-active .narr-tab-count {
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.narr-panel { display: flex; flex-direction: column; gap: var(--s-3); }
+.narr-industries { display: flex; flex-direction: column; gap: var(--s-4); }
+.narr-industry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.narr-industry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--border);
+}
+.narr-industry-name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.narr-industry-count {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--muted);
+}
+.narr-industry-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.narr-empties {
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-2);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.narr-empties > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.narr-empties > summary::-webkit-details-marker { display: none; }
+.narr-empties-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--muted);
+}
+.narr-empties-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.narr-empties-list {
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+.narr-empties-list li::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--muted);
+}
 .narr-list { display: flex; flex-direction: column; gap: var(--s-3); }
 .narr-list:empty { display: none; }
 .narr {

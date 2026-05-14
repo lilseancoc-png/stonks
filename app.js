@@ -11,13 +11,27 @@
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, spots: {} };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, industries: {}, sectorOrder: [], industriesBySector: {}, spots: {} };
   var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
   var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
   var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
   var MACRO_HEADLINES = Array.isArray(MANIFEST.macroHeadlines) ? MANIFEST.macroHeadlines : [];
   var SECTORS = MANIFEST.sectors || {};
+  var INDUSTRIES = MANIFEST.industries || {};
+  var SECTOR_ORDER = Array.isArray(MANIFEST.sectorOrder) ? MANIFEST.sectorOrder : [];
+  var INDUSTRIES_BY_SECTOR = MANIFEST.industriesBySector || {};
   var SPOTS = MANIFEST.spots || {};
+  // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
+  var SECTOR_OF_INDUSTRY = (function(){
+    var m = {};
+    for (var i=0; i<SECTOR_ORDER.length; i++){
+      var sec = SECTOR_ORDER[i];
+      var inds = INDUSTRIES_BY_SECTOR[sec] || [];
+      for (var j=0; j<inds.length; j++) m[inds[j]] = sec;
+    }
+    return m;
+  })();
+  var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
   var RFR = 0.045;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null };
@@ -1271,12 +1285,138 @@
       n.conflictsWith.map(function(c){ return '<span class="narr-conflict-chip">' + escapeHtml(c) + '</span>'; }).join('') +
     '</div>';
   }
+  function narrativeCardHtml(n, rankInSector){
+    var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
+    var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
+    var tf = n.timeframe || 'near-term';
+    var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
+    var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
+    var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
+    var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
+    var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
+    return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
+      '<span class="narr-accent" aria-hidden="true"></span>' +
+      '<header class="narr-head">' +
+        (rankInSector ? '<span class="narr-rank" aria-label="Rank">#' + rankInSector + '</span>' : '') +
+        '<h3 class="narr-name">' + escapeHtml(n.name) + '</h3>' +
+        '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
+        '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
+        '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
+        '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+        '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
+      '</header>' +
+      strengthBarHtml(n.strength) +
+      '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
+      longRow + shortRow +
+      triggersHtml(n) +
+      conflictsHtml(n) +
+    '</article>';
+  }
+  // Group narratives by sector + industry, keeping the strongest-first order
+  // already applied to NARRATIVES.
+  function groupNarratives(){
+    var bySector = {};
+    for (var s=0; s<SECTOR_ORDER.length; s++) bySector[SECTOR_ORDER[s]] = {};
+    for (var i=0; i<NARRATIVES.length; i++){
+      var n = NARRATIVES[i];
+      var ind = n.industry || 'Uncategorized';
+      var sec = SECTOR_OF_INDUSTRY[ind];
+      if (!sec){
+        // Industry the AI invented isn't in our taxonomy — file it under the
+        // longs' parent sector when we can resolve one, otherwise bucket it
+        // under "Uncategorized" inside Technology so the user still sees it.
+        var firstTicker = (n.longs && n.longs[0]) || (n.shorts && n.shorts[0]);
+        var inferredInd = firstTicker ? INDUSTRIES[firstTicker] : null;
+        sec = (inferredInd && SECTOR_OF_INDUSTRY[inferredInd]) || SECTOR_ORDER[0];
+        ind = inferredInd || ind;
+      }
+      if (!bySector[sec]) bySector[sec] = {};
+      if (!bySector[sec][ind]) bySector[sec][ind] = [];
+      bySector[sec][ind].push(n);
+    }
+    return bySector;
+  }
+  function renderNarrativeTabs(grouped){
+    var tabs = $('narratives-tabs');
+    if (!tabs) return;
+    tabs.innerHTML = SECTOR_ORDER.map(function(sec){
+      var industries = grouped[sec] || {};
+      var total = 0;
+      for (var k in industries) total += industries[k].length;
+      var isActive = sec === ACTIVE_SECTOR;
+      return '<button type="button" class="narr-tab' + (isActive ? ' is-active' : '') + '"' +
+        ' role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '"' +
+        ' data-sector="' + escapeHtml(sec) + '">' +
+        '<span class="narr-tab-name">' + escapeHtml(sec) + '</span>' +
+        '<span class="narr-tab-count">' + total + '</span>' +
+        '</button>';
+    }).join('');
+    tabs.addEventListener('click', function(ev){
+      var btn = ev.target.closest && ev.target.closest('.narr-tab');
+      if (!btn) return;
+      var sec = btn.getAttribute('data-sector');
+      if (!sec || sec === ACTIVE_SECTOR) return;
+      ACTIVE_SECTOR = sec;
+      var all = tabs.querySelectorAll('.narr-tab');
+      for (var i=0; i<all.length; i++){
+        var on = all[i].getAttribute('data-sector') === sec;
+        all[i].classList.toggle('is-active', on);
+        all[i].setAttribute('aria-selected', on ? 'true' : 'false');
+      }
+      renderActiveSectorPanel(grouped);
+    }, { once: false });
+  }
+  function renderActiveSectorPanel(grouped){
+    var panel = $('narratives-panel');
+    if (!panel) return;
+    var industries = INDUSTRIES_BY_SECTOR[ACTIVE_SECTOR] || [];
+    var sectorNarratives = grouped[ACTIVE_SECTOR] || {};
+    // Order industries: those with narratives first (preserve taxonomy order
+    // among them), then empty ones. Lets active stories surface immediately
+    // without losing the "everything we watch" picture below.
+    var withN = [];
+    var empties = [];
+    for (var i=0; i<industries.length; i++){
+      var ind = industries[i];
+      if ((sectorNarratives[ind] || []).length) withN.push(ind);
+      else empties.push(ind);
+    }
+    // Catch any narratives whose industry is in this sector but isn't in the
+    // taxonomy list (defensive — shouldn't happen post-sanitization).
+    for (var key in sectorNarratives){
+      if (industries.indexOf(key) < 0) withN.push(key);
+    }
+    var html = '<div class="narr-industries">';
+    var rank = 0;
+    for (var w=0; w<withN.length; w++){
+      var ind2 = withN[w];
+      var arr = sectorNarratives[ind2] || [];
+      html += '<section class="narr-industry has-narratives" aria-label="' + escapeHtml(ind2) + '">' +
+        '<header class="narr-industry-head">' +
+          '<h3 class="narr-industry-name">' + escapeHtml(ind2) + '</h3>' +
+          '<span class="narr-industry-count">' + arr.length + ' narrative' + (arr.length === 1 ? '' : 's') + '</span>' +
+        '</header>' +
+        '<div class="narr-industry-list" role="list">' +
+        arr.map(function(n){ rank += 1; return narrativeCardHtml(n, rank); }).join('') +
+        '</div>' +
+      '</section>';
+    }
+    if (empties.length){
+      html += '<details class="narr-empties"><summary>' +
+        '<span class="narr-empties-label">No active narrative</span>' +
+        '<span class="narr-empties-count">' + empties.length + ' sub-industr' + (empties.length === 1 ? 'y' : 'ies') + ' watching</span>' +
+        '</summary>' +
+        '<ul class="narr-empties-list">' +
+        empties.map(function(ind){ return '<li>' + escapeHtml(ind) + '</li>'; }).join('') +
+        '</ul></details>';
+    }
+    html += '</div>';
+    panel.innerHTML = html;
+  }
   function renderNarratives(){
-    var list = $('narratives-list');
     var empty = $('narratives-empty');
     var ended = $('narratives-ended');
     var count = $('narratives-count');
-    if (!list) return;
     if (count){
       if (NARRATIVES.length){
         var activeN = 0, buildingN = 0;
@@ -1291,39 +1431,31 @@
         count.textContent = '';
       }
     }
+    var tabs = $('narratives-tabs');
+    var panel = $('narratives-panel');
     if (!NARRATIVES.length){
-      list.innerHTML = '';
+      if (tabs) tabs.innerHTML = '';
+      if (panel) panel.innerHTML = '';
       if (empty) empty.hidden = false;
     } else {
       if (empty) empty.hidden = true;
-      list.innerHTML = NARRATIVES.map(function(n, idx){
-        var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
-        var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
-        var tf = n.timeframe || 'near-term';
-        var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
-        var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
-        var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
-        var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
-        var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
-        var rankLabel = (idx + 1) + ' / ' + NARRATIVES.length;
-        return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
-          '<span class="narr-accent" aria-hidden="true"></span>' +
-          '<header class="narr-head">' +
-            '<span class="narr-rank" aria-label="Rank">#' + (idx + 1) + '</span>' +
-            '<h3 class="narr-name">' + escapeHtml(n.name) + '</h3>' +
-            '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
-            '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
-            '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
-            '<span class="narr-tag conf" title="' + rankLabel + '">Conf · ' + confLabel + '</span>' +
-            '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
-          '</header>' +
-          strengthBarHtml(n.strength) +
-          '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
-          longRow + shortRow +
-          triggersHtml(n) +
-          conflictsHtml(n) +
-        '</article>';
-      }).join('');
+      // Default the active sector to the first one that actually has a
+      // narrative, so the user sees content on first paint instead of an
+      // empty Technology tab (which can happen if AI tags differently).
+      var grouped = groupNarratives();
+      var hasActive = false;
+      var groupedSec = grouped[ACTIVE_SECTOR] || {};
+      for (var ind in groupedSec){ if (groupedSec[ind].length) { hasActive = true; break; } }
+      if (!hasActive){
+        for (var s=0; s<SECTOR_ORDER.length; s++){
+          var sec = SECTOR_ORDER[s];
+          var inds = grouped[sec] || {};
+          for (var k in inds){ if (inds[k].length) { ACTIVE_SECTOR = sec; hasActive = true; break; } }
+          if (hasActive) break;
+        }
+      }
+      renderNarrativeTabs(grouped);
+      renderActiveSectorPanel(grouped);
     }
     if (ended){
       if (RECENTLY_ENDED.length){

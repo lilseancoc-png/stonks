@@ -105,6 +105,302 @@ const SECTORS = {
   GME: "Meme", AMC: "Meme",
 };
 
+// 11 GICS-style top-level sectors, ordered for display in the sector tabs.
+// The narratives card is structured Sector → Industry → Narratives, so this
+// list controls the tab strip across the top of that card.
+const SECTOR_ORDER = [
+  "Technology",
+  "Financials",
+  "Consumer Cyclical",
+  "Consumer Defensive",
+  "Healthcare",
+  "Energy",
+  "Utilities",
+  "Basic Materials",
+  "Communication Services",
+  "Industrials",
+  "Real Estate",
+];
+
+// Sub-industries (Morningstar-style) under each sector. Industries with no
+// matching ticker in our universe still surface — they're just shown with
+// a "watching, no active narrative" placeholder. The AI may not pick a
+// narrative for every industry on every build; that's expected.
+const INDUSTRIES_BY_SECTOR = {
+  "Technology": [
+    "Software Infrastructure",
+    "Semiconductors",
+    "Consumer Electronics",
+    "Software Applications",
+    "Semiconductor Equipment & Materials",
+    "Communication Equipment",
+    "Computer Hardware",
+    "Information Technology Services",
+    "Electronic Components",
+    "Scientific & Technical Instruments",
+    "Electronics & Computer Distribution",
+    "Solar",
+  ],
+  "Financials": [
+    "Banks - Diversified",
+    "Banks - Regional",
+    "Asset Management",
+    "Capital Markets",
+    "Credit Services",
+    "Financial Data & Stock Exchanges",
+    "Insurance - Diversified",
+    "Insurance - Life",
+    "Insurance - Property & Casualty",
+    "Insurance - Reinsurance",
+    "Insurance - Specialty",
+    "Mortgage Finance",
+  ],
+  "Consumer Cyclical": [
+    "Auto Manufacturers",
+    "Auto Parts",
+    "Auto & Truck Dealerships",
+    "Apparel Manufacturing",
+    "Apparel Retail",
+    "Footwear & Accessories",
+    "Department Stores",
+    "Specialty Retail",
+    "Internet Retail",
+    "Home Improvement Retail",
+    "Restaurants",
+    "Lodging",
+    "Resorts & Casinos",
+    "Travel Services",
+    "Leisure",
+    "Gambling",
+    "Luxury Goods",
+    "Furnishings, Fixtures & Appliances",
+    "Packaging & Containers",
+    "Personal Services",
+    "Recreational Vehicles",
+    "Residential Construction",
+    "Textile Manufacturing",
+  ],
+  "Consumer Defensive": [
+    "Discount Stores",
+    "Grocery Stores",
+    "Food Distribution",
+    "Packaged Foods",
+    "Beverages - Brewers",
+    "Beverages - Wineries & Distilleries",
+    "Beverages - Non-Alcoholic",
+    "Confectioners",
+    "Farm Products",
+    "Household & Personal Products",
+    "Tobacco",
+    "Education & Training Services",
+  ],
+  "Healthcare": [
+    "Drug Manufacturers - General",
+    "Drug Manufacturers - Specialty & Generic",
+    "Biotechnology",
+    "Medical Devices",
+    "Medical Instruments & Supplies",
+    "Diagnostics & Research",
+    "Medical Care Facilities",
+    "Pharmaceutical Retailers",
+    "Health Information Services",
+    "Medical Distribution",
+    "Healthcare Plans",
+  ],
+  "Energy": [
+    "Oil & Gas Integrated",
+    "Oil & Gas E&P",
+    "Oil & Gas Midstream",
+    "Oil & Gas Refining & Marketing",
+    "Oil & Gas Equipment & Services",
+    "Oil & Gas Drilling",
+    "Thermal Coal",
+    "Uranium",
+  ],
+  "Utilities": [
+    "Utilities - Regulated Electric",
+    "Utilities - Regulated Gas",
+    "Utilities - Regulated Water",
+    "Utilities - Renewable",
+    "Utilities - Independent Power Producers",
+    "Utilities - Diversified",
+  ],
+  "Basic Materials": [
+    "Steel",
+    "Specialty Chemicals",
+    "Chemicals",
+    "Agricultural Inputs",
+    "Building Materials",
+    "Copper",
+    "Aluminum",
+    "Gold",
+    "Silver",
+    "Other Precious Metals",
+    "Other Industrial Metals & Mining",
+    "Coking Coal",
+    "Paper & Paper Products",
+    "Lumber & Wood Production",
+  ],
+  "Communication Services": [
+    "Internet Content & Information",
+    "Telecom Services",
+    "Entertainment",
+    "Electronic Gaming & Multimedia",
+    "Broadcasting",
+    "Publishing",
+    "Advertising Agencies",
+  ],
+  "Industrials": [
+    "Aerospace & Defense",
+    "Airlines",
+    "Railroads",
+    "Marine Shipping",
+    "Trucking",
+    "Integrated Freight & Logistics",
+    "Airports & Air Services",
+    "Farm & Heavy Construction Machinery",
+    "Industrial Distribution",
+    "Building Products & Equipment",
+    "Business Equipment & Supplies",
+    "Conglomerates",
+    "Consulting Services",
+    "Electrical Equipment & Parts",
+    "Engineering & Construction",
+    "Infrastructure Operations",
+    "Metal Fabrication",
+    "Pollution & Treatment Controls",
+    "Rental & Leasing Services",
+    "Security & Protection Services",
+    "Specialty Business Services",
+    "Specialty Industrial Machinery",
+    "Staffing & Employment Services",
+    "Tools & Accessories",
+    "Waste Management",
+  ],
+  "Real Estate": [
+    "REIT - Diversified",
+    "REIT - Healthcare Facilities",
+    "REIT - Hotel & Motel",
+    "REIT - Industrial",
+    "REIT - Office",
+    "REIT - Mortgage",
+    "REIT - Residential",
+    "REIT - Retail",
+    "REIT - Specialty",
+    "Real Estate Services",
+    "Real Estate - Development",
+    "Real Estate - Diversified",
+  ],
+};
+
+// Each curated ticker → its Morningstar-style industry. ETFs are intentionally
+// omitted; they sit outside the sector tabs and only surface inside narratives'
+// longs/shorts chips.
+const INDUSTRY_OF_TICKER = {
+  AAPL: "Consumer Electronics",
+  MSFT: "Software Infrastructure",
+  NVDA: "Semiconductors",
+  AMZN: "Internet Retail",
+  GOOGL: "Internet Content & Information",
+  META: "Internet Content & Information",
+  TSLA: "Auto Manufacturers",
+  AMD: "Semiconductors",
+  NFLX: "Entertainment",
+  AVGO: "Semiconductors",
+  ORCL: "Software Infrastructure",
+  CRM: "Software Applications",
+  ADBE: "Software Applications",
+  TSM: "Semiconductors",
+  MU: "Semiconductors",
+  INTC: "Semiconductors",
+  DRAM: "Semiconductors",
+  NOW: "Software Applications",
+  SNOW: "Software Infrastructure",
+  NET: "Software Infrastructure",
+  DDOG: "Software Applications",
+  CRWD: "Software Infrastructure",
+  ZS: "Software Infrastructure",
+  MDB: "Software Infrastructure",
+  OKTA: "Software Infrastructure",
+  PANW: "Software Infrastructure",
+  WDAY: "Software Applications",
+  ZM: "Software Applications",
+  DOCU: "Software Applications",
+  JPM: "Banks - Diversified",
+  BAC: "Banks - Diversified",
+  V: "Credit Services",
+  MA: "Credit Services",
+  WMT: "Discount Stores",
+  COST: "Discount Stores",
+  DIS: "Entertainment",
+  BA: "Aerospace & Defense",
+  MCD: "Restaurants",
+  SBUX: "Restaurants",
+  NVO: "Drug Manufacturers - General",
+  LLY: "Drug Manufacturers - General",
+  UNH: "Healthcare Plans",
+  JNJ: "Drug Manufacturers - General",
+  PFE: "Drug Manufacturers - General",
+  XOM: "Oil & Gas Integrated",
+  CVX: "Oil & Gas Integrated",
+  UBER: "Software Applications",
+  ABNB: "Travel Services",
+  COIN: "Capital Markets",
+  PLTR: "Software Infrastructure",
+  SHOP: "Software Applications",
+  BABA: "Internet Retail",
+  NIO: "Auto Manufacturers",
+  GME: "Specialty Retail",
+  AMC: "Entertainment",
+};
+
+// industry → parent sector, built once from INDUSTRIES_BY_SECTOR.
+const SECTOR_OF_INDUSTRY = (function () {
+  const m = {};
+  for (const sector of SECTOR_ORDER) {
+    for (const ind of INDUSTRIES_BY_SECTOR[sector] || []) {
+      m[ind] = sector;
+    }
+  }
+  return m;
+})();
+
+const VALID_INDUSTRY_SET = new Set(Object.keys(SECTOR_OF_INDUSTRY));
+
+// Pick the canonical industry for a narrative. Trusts an exact match from the
+// AI; otherwise votes by counting the per-ticker industries among the longs
+// (then shorts) and returns the most common. Returns "Uncategorized" only
+// when nothing resolves — the caller drops those narratives anyway since they
+// also lack longs/shorts.
+function resolveNarrativeIndustry(rawIndustry, longs, shorts) {
+  if (rawIndustry && typeof rawIndustry === "string") {
+    const trimmed = rawIndustry.trim();
+    if (VALID_INDUSTRY_SET.has(trimmed)) return trimmed;
+    // Light case-insensitive match — useful when the model emits a near-match
+    // like "semiconductors" instead of "Semiconductors".
+    for (const canonical of VALID_INDUSTRY_SET) {
+      if (canonical.toLowerCase() === trimmed.toLowerCase()) return canonical;
+    }
+  }
+  const counts = new Map();
+  const vote = (sym, weight) => {
+    const ind = INDUSTRY_OF_TICKER[sym];
+    if (!ind) return;
+    counts.set(ind, (counts.get(ind) || 0) + weight);
+  };
+  for (const s of longs || []) vote(s, 2);
+  for (const s of shorts || []) vote(s, 1);
+  let best = null;
+  let bestCount = 0;
+  for (const [ind, c] of counts) {
+    if (c > bestCount) {
+      best = ind;
+      bestCount = c;
+    }
+  }
+  return best || "Uncategorized";
+}
+
 // ±50% strikes around spot — captures lottery OTM and deep-ITM strikes
 // without any extra Yahoo calls (we already receive the full chain, this
 // just controls how much of it we keep).
@@ -504,16 +800,17 @@ function nyTimestamp() {
 }
 
 function narrativesSection() {
-  // Card chrome only — the list, accent bars and chips are rendered
-  // client-side from the inline manifest in app.js so we don't have to
-  // escape narrative text through Node's template literal.
+  // Card chrome only — the sector tab strip, industry rows and narrative
+  // cards are rendered client-side from the inline manifest in app.js so we
+  // don't have to escape narrative text through Node's template literal.
   return `<section class="card" id="narratives-section">
     <header class="card-header">
       <h2 class="card-title">Active market narratives</h2>
       <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
     </header>
-    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Ordered strongest first. Each card shows how dominant the narrative is in today's tape (strength bar), whether it's <em>active</em> in price or still <em>building</em> and waiting on a trigger, its typical playout window, and the catalysts that would unlock it. <em>Clashes with</em> flags narratives that directly oppose each other — when one heats up the other cools. Pick a ticker below to see which narratives it rides.</p>
-    <div id="narratives-list" class="narr-list" role="list"></div>
+    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Narratives are filed under their sub-industry inside one of 11 sectors. Each card shows how dominant the narrative is in today's tape (strength bar), whether it's <em>active</em> in price or still <em>building</em>, its typical playout window, the catalysts that would unlock it, and which other narratives it clashes with. Click a sector tab to dig into its sub-industries.</p>
+    <div id="narratives-tabs" class="narr-tabs" role="tablist" aria-label="Market sectors"></div>
+    <div id="narratives-panel" class="narr-panel" role="tabpanel"></div>
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
     <div id="narratives-ended" class="narr-ended"></div>
     <div id="narratives-macro" class="narr-macro"></div>
@@ -687,13 +984,27 @@ export function renderAppJs() {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, spots: {} };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, industries: {}, sectorOrder: [], industriesBySector: {}, spots: {} };
   var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
   var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
   var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
   var MACRO_HEADLINES = Array.isArray(MANIFEST.macroHeadlines) ? MANIFEST.macroHeadlines : [];
   var SECTORS = MANIFEST.sectors || {};
+  var INDUSTRIES = MANIFEST.industries || {};
+  var SECTOR_ORDER = Array.isArray(MANIFEST.sectorOrder) ? MANIFEST.sectorOrder : [];
+  var INDUSTRIES_BY_SECTOR = MANIFEST.industriesBySector || {};
   var SPOTS = MANIFEST.spots || {};
+  // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
+  var SECTOR_OF_INDUSTRY = (function(){
+    var m = {};
+    for (var i=0; i<SECTOR_ORDER.length; i++){
+      var sec = SECTOR_ORDER[i];
+      var inds = INDUSTRIES_BY_SECTOR[sec] || [];
+      for (var j=0; j<inds.length; j++) m[inds[j]] = sec;
+    }
+    return m;
+  })();
+  var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
   var RFR = 0.045;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null };
@@ -1947,12 +2258,138 @@ export function renderAppJs() {
       n.conflictsWith.map(function(c){ return '<span class="narr-conflict-chip">' + escapeHtml(c) + '</span>'; }).join('') +
     '</div>';
   }
+  function narrativeCardHtml(n, rankInSector){
+    var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
+    var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
+    var tf = n.timeframe || 'near-term';
+    var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
+    var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
+    var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
+    var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
+    var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
+    return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
+      '<span class="narr-accent" aria-hidden="true"></span>' +
+      '<header class="narr-head">' +
+        (rankInSector ? '<span class="narr-rank" aria-label="Rank">#' + rankInSector + '</span>' : '') +
+        '<h3 class="narr-name">' + escapeHtml(n.name) + '</h3>' +
+        '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
+        '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
+        '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
+        '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+        '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
+      '</header>' +
+      strengthBarHtml(n.strength) +
+      '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
+      longRow + shortRow +
+      triggersHtml(n) +
+      conflictsHtml(n) +
+    '</article>';
+  }
+  // Group narratives by sector + industry, keeping the strongest-first order
+  // already applied to NARRATIVES.
+  function groupNarratives(){
+    var bySector = {};
+    for (var s=0; s<SECTOR_ORDER.length; s++) bySector[SECTOR_ORDER[s]] = {};
+    for (var i=0; i<NARRATIVES.length; i++){
+      var n = NARRATIVES[i];
+      var ind = n.industry || 'Uncategorized';
+      var sec = SECTOR_OF_INDUSTRY[ind];
+      if (!sec){
+        // Industry the AI invented isn't in our taxonomy — file it under the
+        // longs' parent sector when we can resolve one, otherwise bucket it
+        // under "Uncategorized" inside Technology so the user still sees it.
+        var firstTicker = (n.longs && n.longs[0]) || (n.shorts && n.shorts[0]);
+        var inferredInd = firstTicker ? INDUSTRIES[firstTicker] : null;
+        sec = (inferredInd && SECTOR_OF_INDUSTRY[inferredInd]) || SECTOR_ORDER[0];
+        ind = inferredInd || ind;
+      }
+      if (!bySector[sec]) bySector[sec] = {};
+      if (!bySector[sec][ind]) bySector[sec][ind] = [];
+      bySector[sec][ind].push(n);
+    }
+    return bySector;
+  }
+  function renderNarrativeTabs(grouped){
+    var tabs = $('narratives-tabs');
+    if (!tabs) return;
+    tabs.innerHTML = SECTOR_ORDER.map(function(sec){
+      var industries = grouped[sec] || {};
+      var total = 0;
+      for (var k in industries) total += industries[k].length;
+      var isActive = sec === ACTIVE_SECTOR;
+      return '<button type="button" class="narr-tab' + (isActive ? ' is-active' : '') + '"' +
+        ' role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '"' +
+        ' data-sector="' + escapeHtml(sec) + '">' +
+        '<span class="narr-tab-name">' + escapeHtml(sec) + '</span>' +
+        '<span class="narr-tab-count">' + total + '</span>' +
+        '</button>';
+    }).join('');
+    tabs.addEventListener('click', function(ev){
+      var btn = ev.target.closest && ev.target.closest('.narr-tab');
+      if (!btn) return;
+      var sec = btn.getAttribute('data-sector');
+      if (!sec || sec === ACTIVE_SECTOR) return;
+      ACTIVE_SECTOR = sec;
+      var all = tabs.querySelectorAll('.narr-tab');
+      for (var i=0; i<all.length; i++){
+        var on = all[i].getAttribute('data-sector') === sec;
+        all[i].classList.toggle('is-active', on);
+        all[i].setAttribute('aria-selected', on ? 'true' : 'false');
+      }
+      renderActiveSectorPanel(grouped);
+    }, { once: false });
+  }
+  function renderActiveSectorPanel(grouped){
+    var panel = $('narratives-panel');
+    if (!panel) return;
+    var industries = INDUSTRIES_BY_SECTOR[ACTIVE_SECTOR] || [];
+    var sectorNarratives = grouped[ACTIVE_SECTOR] || {};
+    // Order industries: those with narratives first (preserve taxonomy order
+    // among them), then empty ones. Lets active stories surface immediately
+    // without losing the "everything we watch" picture below.
+    var withN = [];
+    var empties = [];
+    for (var i=0; i<industries.length; i++){
+      var ind = industries[i];
+      if ((sectorNarratives[ind] || []).length) withN.push(ind);
+      else empties.push(ind);
+    }
+    // Catch any narratives whose industry is in this sector but isn't in the
+    // taxonomy list (defensive — shouldn't happen post-sanitization).
+    for (var key in sectorNarratives){
+      if (industries.indexOf(key) < 0) withN.push(key);
+    }
+    var html = '<div class="narr-industries">';
+    var rank = 0;
+    for (var w=0; w<withN.length; w++){
+      var ind2 = withN[w];
+      var arr = sectorNarratives[ind2] || [];
+      html += '<section class="narr-industry has-narratives" aria-label="' + escapeHtml(ind2) + '">' +
+        '<header class="narr-industry-head">' +
+          '<h3 class="narr-industry-name">' + escapeHtml(ind2) + '</h3>' +
+          '<span class="narr-industry-count">' + arr.length + ' narrative' + (arr.length === 1 ? '' : 's') + '</span>' +
+        '</header>' +
+        '<div class="narr-industry-list" role="list">' +
+        arr.map(function(n){ rank += 1; return narrativeCardHtml(n, rank); }).join('') +
+        '</div>' +
+      '</section>';
+    }
+    if (empties.length){
+      html += '<details class="narr-empties"><summary>' +
+        '<span class="narr-empties-label">No active narrative</span>' +
+        '<span class="narr-empties-count">' + empties.length + ' sub-industr' + (empties.length === 1 ? 'y' : 'ies') + ' watching</span>' +
+        '</summary>' +
+        '<ul class="narr-empties-list">' +
+        empties.map(function(ind){ return '<li>' + escapeHtml(ind) + '</li>'; }).join('') +
+        '</ul></details>';
+    }
+    html += '</div>';
+    panel.innerHTML = html;
+  }
   function renderNarratives(){
-    var list = $('narratives-list');
     var empty = $('narratives-empty');
     var ended = $('narratives-ended');
     var count = $('narratives-count');
-    if (!list) return;
     if (count){
       if (NARRATIVES.length){
         var activeN = 0, buildingN = 0;
@@ -1967,39 +2404,31 @@ export function renderAppJs() {
         count.textContent = '';
       }
     }
+    var tabs = $('narratives-tabs');
+    var panel = $('narratives-panel');
     if (!NARRATIVES.length){
-      list.innerHTML = '';
+      if (tabs) tabs.innerHTML = '';
+      if (panel) panel.innerHTML = '';
       if (empty) empty.hidden = false;
     } else {
       if (empty) empty.hidden = true;
-      list.innerHTML = NARRATIVES.map(function(n, idx){
-        var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
-        var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
-        var tf = n.timeframe || 'near-term';
-        var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
-        var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
-        var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
-        var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
-        var shortRow = shortChips ? '<div class="narr-side-row short"><span class="narr-side-label">Short</span>' + shortChips + '</div>' : '';
-        var rankLabel = (idx + 1) + ' / ' + NARRATIVES.length;
-        return '<article class="narr" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
-          '<span class="narr-accent" aria-hidden="true"></span>' +
-          '<header class="narr-head">' +
-            '<span class="narr-rank" aria-label="Rank">#' + (idx + 1) + '</span>' +
-            '<h3 class="narr-name">' + escapeHtml(n.name) + '</h3>' +
-            '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
-            '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
-            '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
-            '<span class="narr-tag conf" title="' + rankLabel + '">Conf · ' + confLabel + '</span>' +
-            '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
-          '</header>' +
-          strengthBarHtml(n.strength) +
-          '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
-          longRow + shortRow +
-          triggersHtml(n) +
-          conflictsHtml(n) +
-        '</article>';
-      }).join('');
+      // Default the active sector to the first one that actually has a
+      // narrative, so the user sees content on first paint instead of an
+      // empty Technology tab (which can happen if AI tags differently).
+      var grouped = groupNarratives();
+      var hasActive = false;
+      var groupedSec = grouped[ACTIVE_SECTOR] || {};
+      for (var ind in groupedSec){ if (groupedSec[ind].length) { hasActive = true; break; } }
+      if (!hasActive){
+        for (var s=0; s<SECTOR_ORDER.length; s++){
+          var sec = SECTOR_ORDER[s];
+          var inds = grouped[sec] || {};
+          for (var k in inds){ if (inds[k].length) { ACTIVE_SECTOR = sec; hasActive = true; break; } }
+          if (hasActive) break;
+        }
+      }
+      renderNarrativeTabs(grouped);
+      renderActiveSectorPanel(grouped);
     }
     if (ended){
       if (RECENTLY_ENDED.length){
@@ -2112,8 +2541,18 @@ export function renderAppJs() {
 `;
 }
 
-function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], macroHeadlines = [], spots = {} }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], macroHeadlines = [], spots = {} }) {
   const tickerCount = symbols.length;
+  // Backfill industry on narratives loaded from older trends.json snapshots
+  // (pre-taxonomy builds didn't tag one). resolveNarrativeIndustry votes from
+  // each narrative's longs/shorts so they slot into the right tab even without
+  // a fresh AI run.
+  const narrativesTagged = narratives.map((n) => ({
+    ...n,
+    industry: n.industry && VALID_INDUSTRY_SET.has(n.industry)
+      ? n.industry
+      : resolveNarrativeIndustry(n.industry, n.longs || [], n.shorts || []),
+  }));
   // Manifest is embedded inline so the narratives card + combobox can paint
   // on first frame. Per-ticker chain JSON is still lazy-fetched from
   // data/<SYMBOL>.json on demand.
@@ -2121,10 +2560,13 @@ function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnd
     builtAt,
     builtAtIso,
     symbols,
-    narratives,
+    narratives: narrativesTagged,
     recentlyEnded,
     macroHeadlines,
     sectors: SECTORS,
+    industries: INDUSTRY_OF_TICKER,
+    sectorOrder: SECTOR_ORDER,
+    industriesBySector: INDUSTRIES_BY_SECTOR,
     spots,
   }).replace(/<\/script>/gi, "<\\/script>");
   const cacheBust = encodeURIComponent(builtAtIso);
@@ -2410,6 +2852,138 @@ main {
 }
 
 /* === Narratives === */
+/* Sector tab strip across the top of the narratives card. Horizontally
+   scrollable on narrow viewports so all 11 sectors stay reachable. */
+.narr-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  margin: var(--s-2) 0 var(--s-3);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+}
+.narr-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease, border-color .12s ease;
+  white-space: nowrap;
+}
+.narr-tab:hover { color: var(--text); background: var(--surface-2); }
+.narr-tab.is-active {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.narr-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+}
+.narr-tab.is-active .narr-tab-count {
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.narr-panel { display: flex; flex-direction: column; gap: var(--s-3); }
+.narr-industries { display: flex; flex-direction: column; gap: var(--s-4); }
+.narr-industry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.narr-industry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--border);
+}
+.narr-industry-name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.narr-industry-count {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--muted);
+}
+.narr-industry-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.narr-empties {
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-2);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.narr-empties > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.narr-empties > summary::-webkit-details-marker { display: none; }
+.narr-empties-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--muted);
+}
+.narr-empties-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.narr-empties-list {
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+.narr-empties-list li::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--muted);
+}
 .narr-list { display: flex; flex-direction: column; gap: var(--s-3); }
 .narr-list:empty { display: none; }
 .narr {
@@ -4192,7 +4766,7 @@ async function attachAiNewsTakes(chains) {
 // + data/trends-history.json (rolling 90-day window of compact daily snapshots
 // so the page can show "X days running" / "trend cooled off N days ago").
 const NARRATIVE_HISTORY_DAYS = 90;
-const NARRATIVE_MAX_COUNT = 10;
+const NARRATIVE_MAX_COUNT = 18;
 const NARRATIVE_SYSTEM_PROMPT =
   "You are a markets analyst who tracks the narratives currently driving US equity flows. " +
   "Markets run on stories — AI capex, GLP-1 obesity drugs, tariff fights, the crypto trade, " +
@@ -4206,8 +4780,14 @@ const NARRATIVE_SYSTEM_PROMPT =
   "CNBC) covering the last ~2 weeks. Use the macro digest to decide whether a narrative's required " +
   "trigger has fired (e.g. a hot CPI print activates the inflation/short-duration trade) or is " +
   "still pending (no trigger yet). " +
-  `Identify the 4-${NARRATIVE_MAX_COUNT} most consequential market narratives right now. For each one, return: ` +
+  `Identify 8-${NARRATIVE_MAX_COUNT} consequential market narratives right now, with an eye to covering ` +
+  "as many different sub-industries as legitimately have a story in play. Each narrative is filed under " +
+  "ONE sub-industry (its primary home). It is fine — and good — to have multiple narratives within the " +
+  "same sub-industry when both stories are real (e.g. Semiconductors might have an AI-demand bull " +
+  "narrative AND a China export-controls bear narrative). Do NOT fabricate a narrative just to fill an " +
+  "industry slot; if nothing is genuinely in motion for an industry, leave it out. For each narrative, return: " +
   `a short "name" (2-5 words, title case, e.g. "AI infrastructure buildout", "GLP-1 obesity wave"); ` +
+  `an "industry" string that EXACTLY matches one of the entries in the INDUSTRY WHITELIST provided in the user message — pick the single sub-industry the narrative most directly drives (e.g. "Semiconductors" for an AI chip story, "Drug Manufacturers - General" for a GLP-1 wave, "Oil & Gas Integrated" for an energy supply shock, "Internet Content & Information" for an ad-market story). The narrative can still long/short tickers from other industries, but its primary home is exactly one industry; ` +
   `a one-sentence "thesis" in plain English explaining the trade and why it is in play; ` +
   `a "sentiment" of "bullish" or "bearish" describing whether the narrative is a tailwind or headwind for the longs; ` +
   `a "longs" array of tickers from the provided list that benefit from the narrative; ` +
@@ -4229,7 +4809,7 @@ const NARRATIVE_SYSTEM_PROMPT =
   "track its lifespan; otherwise pick a fresh name. " +
   "conflictsWith names MUST match other names in your own response exactly — do not reference narratives that aren't in this output. " +
   "Respond with ONLY a JSON object of the form " +
-  `{"narratives":[{"name":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","triggers":["..."],"conflictsWith":["..."]}]} ` +
+  `{"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","triggers":["..."],"conflictsWith":["..."]}]} ` +
   "— no markdown fences, no prose before or after the JSON.";
 
 const TRENDS_FILE = "trends.json";
@@ -4278,8 +4858,12 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
         return `- [${date}] (${h.publisher || "source"}) ${clipped}`;
       }).join("\n")
     : "(no macro headlines retrieved)";
+  const industryWhitelist = SECTOR_ORDER
+    .map((sector) => `  ${sector}:\n` + (INDUSTRIES_BY_SECTOR[sector] || []).map((ind) => `    - ${ind}`).join("\n"))
+    .join("\n");
   return (
     `Tickers in scope: ${Object.keys(chains).join(", ")}\n\n` +
+    `INDUSTRY WHITELIST — the "industry" field on every narrative must match one of these exact strings:\n${industryWhitelist}\n\n` +
     `${previousBlock}\n\n` +
     `Macro headlines digest (official + major business press, newest first — use these to judge whether each narrative's trigger has fired):\n${macroLines}\n\n` +
     `Recent per-ticker news takes:\n${lines.join("\n")}`
@@ -4298,7 +4882,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
         contents: `${NARRATIVE_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.4,
-          maxOutputTokens: 2400,
+          maxOutputTokens: 4200,
         },
       });
       break;
@@ -4354,7 +4938,12 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       const timeframe = VALID_TIMEFRAME.includes(n.timeframe) ? n.timeframe : "near-term";
       const triggers = sanitizeStringList(n.triggers, 3, 120);
       const conflictsWithRaw = sanitizeStringList(n.conflictsWith, 4, 60);
-      return { name, thesis, sentiment, confidence, strength, status, timeframe, triggers, conflictsWith: conflictsWithRaw, longs, shorts };
+      // Industry must match the whitelist. If the model omits it or invents
+      // one, derive it by voting from the longs (then shorts) — each ticker
+      // has a known industry. Falls back to "Uncategorized" only when no
+      // ticker resolves either (which the upstream filter then drops anyway).
+      const industry = resolveNarrativeIndustry(n.industry, longs, shorts);
+      return { name, industry, thesis, sentiment, confidence, strength, status, timeframe, triggers, conflictsWith: conflictsWithRaw, longs, shorts };
     })
     .filter((n) => n.name && n.thesis && (n.longs.length > 0 || n.shorts.length > 0))
     .slice(0, NARRATIVE_MAX_COUNT);
