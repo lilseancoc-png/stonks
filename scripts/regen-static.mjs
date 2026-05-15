@@ -50,6 +50,7 @@ const html = renderHtml({
   builtAt,
   builtAtIso,
   narratives: trends.narratives || [],
+  sectorOverviews: trends.sectorOverviews || {},
   recentlyEnded: trends.recentlyEnded || [],
   macroHeadlines: trends.macroHeadlines || [],
   unusual,

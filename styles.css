@@ -279,6 +279,87 @@ main {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .narr-panel { display: flex; flex-direction: column; gap: var(--s-3); }
+/* Sector-overview banner — the top-down story for the active sector. Sits
+   above the sub-industry blocks. Colour-keyed by stance so the user reads
+   "bullish / bearish / mixed" at a glance, with the watch-for panel nested
+   below the thesis. */
+.narr-sector-overview {
+  position: relative;
+  padding: var(--s-3) var(--s-3) var(--s-3);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: var(--r-3);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--surface-2) 92%, transparent) 0%,
+    var(--surface) 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.narr-sector-overview[data-stance="bullish"] {
+  border-left-color: var(--pos);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--pos-soft) 55%, var(--surface-2)) 0%,
+    var(--surface) 100%);
+}
+.narr-sector-overview[data-stance="bearish"] {
+  border-left-color: var(--neg);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--neg-soft) 55%, var(--surface-2)) 0%,
+    var(--surface) 100%);
+}
+.narr-sector-overview[data-stance="mixed"] {
+  border-left-color: var(--warn);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--warn-soft) 45%, var(--surface-2)) 0%,
+    var(--surface) 100%);
+}
+.narr-sector-overview.is-empty { border-left-color: var(--border-strong); }
+.narr-sector-overview-head {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.narr-sector-overview-eyebrow {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.narr-sector-overview-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-strong);
+}
+.narr-sector-overview-stance {
+  display: inline-flex; align-items: center;
+  height: 22px; padding: 0 10px;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-radius: var(--r-pill);
+}
+.narr-sector-overview-stance.bullish {
+  color: var(--pos);
+  background: var(--pos-soft);
+  border: 1px solid color-mix(in srgb, var(--pos) 40%, transparent);
+}
+.narr-sector-overview-stance.bearish {
+  color: var(--neg);
+  background: var(--neg-soft);
+  border: 1px solid color-mix(in srgb, var(--neg) 40%, transparent);
+}
+.narr-sector-overview-stance.mixed {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.narr-sector-overview-thesis {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  color: var(--text);
+}
+.narr-sector-overview-thesis.muted { color: var(--muted); font-style: italic; }
 .narr-industries { display: flex; flex-direction: column; gap: var(--s-4); }
 .narr-industry {
   display: flex;
@@ -536,31 +617,43 @@ main {
   color: var(--muted);
   min-width: 28px; text-align: right;
 }
-.narr-triggers {
+/* Red-flag / watch-for panel — the catalysts that would FLIP this narrative.
+   Used by both the per-narrative card and the sector overview banner. Styled
+   as a "danger watchlist" with a warm accent border so it visually pops vs.
+   the thesis paragraph above it. */
+.narr-watchfor {
   margin-top: var(--s-2);
-  padding: var(--s-2);
-  border: 1px dashed var(--border);
+  padding: var(--s-2) var(--s-2) calc(var(--s-2) - 2px);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+  border-left-width: 3px;
   border-radius: var(--r-2);
-  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  background: color-mix(in srgb, var(--warn-soft) 55%, transparent);
 }
-.narr[data-status="building"] .narr-triggers {
-  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
-  background: color-mix(in srgb, var(--warn-soft) 50%, transparent);
+.narr[data-status="building"] .narr-watchfor {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn-soft) 70%, transparent);
 }
-.narr-triggers-label {
-  display: inline-block;
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--muted);
+.narr-watchfor-head {
+  display: inline-flex; align-items: center; gap: 6px;
   margin-bottom: 4px;
 }
-.narr[data-status="building"] .narr-triggers-label { color: var(--warn); }
-.narr-triggers-list {
+.narr-watchfor-icon {
+  font-size: 12px;
+  color: var(--warn);
+  line-height: 1;
+}
+.narr-watchfor-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--warn);
+}
+.narr-watchfor-list {
   margin: 0; padding: 0 0 0 16px;
   font-size: var(--fs-sm); color: var(--text);
   line-height: 1.5;
 }
-.narr-triggers-list li + li { margin-top: 2px; }
+.narr-watchfor-list li + li { margin-top: 3px; }
+.narr-watchfor-list li::marker { color: var(--warn); }
 .narr-conflicts {
   display: flex; flex-wrap: wrap; align-items: center;
   gap: 6px;
