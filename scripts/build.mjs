@@ -48,7 +48,7 @@ const DATA_DIR = resolve(ROOT, "data");
 // risk against MIN_SUCCESS_RATE.
 export const TICKERS = [
   // Index & sector ETFs
-  "SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "USO", "XLF", "XLE", "XLK",
+  "SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLF", "XLE", "XLK",
   // Mega-caps
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
   // Other tech / semis
@@ -75,7 +75,7 @@ export const TICKERS = [
 const SECTORS = {
   // Index & sector ETFs
   SPY: "ETF", QQQ: "ETF", IWM: "ETF", DIA: "ETF", TLT: "ETF", GLD: "ETF",
-  USO: "ETF", XLF: "ETF", XLE: "ETF", XLK: "ETF",
+  SLV: "ETF", USO: "ETF", XLF: "ETF", XLE: "ETF", XLK: "ETF",
   // Mega-caps
   AAPL: "Mega-cap tech", MSFT: "Mega-cap tech", NVDA: "Mega-cap tech",
   AMZN: "Mega-cap tech", GOOGL: "Mega-cap tech", META: "Mega-cap tech",
@@ -105,191 +105,68 @@ const SECTORS = {
   GME: "Meme", AMC: "Meme",
 };
 
-// 11 GICS-style top-level sectors, ordered for display in the sector tabs.
-// The narratives card is structured Sector → Industry → Narratives, so this
-// list controls the tab strip across the top of that card.
+// Slimmed taxonomy — only the sectors and sub-industries that have a real
+// story we want to track. The narratives card is structured
+// Sector → Sector overview → Sub-industry narratives, so this list controls
+// the tab strip across the top. "Precious Metals" sits at the end as a
+// macro-signal block (GLD + SLV), distinct from the equity sectors above it.
 const SECTOR_ORDER = [
   "Technology",
-  "Financials",
   "Consumer Cyclical",
-  "Consumer Defensive",
-  "Healthcare",
-  "Energy",
-  "Utilities",
-  "Basic Materials",
   "Communication Services",
   "Industrials",
-  "Real Estate",
+  "Healthcare",
+  "Financials",
+  "Consumer Defensive",
+  "Precious Metals",
 ];
 
-// Sub-industries (Morningstar-style) under each sector. Industries with no
-// matching ticker in our universe still surface — they're just shown with
-// a "watching, no active narrative" placeholder. The AI may not pick a
-// narrative for every industry on every build; that's expected.
+// Sub-industries under each sector. The AI emits a sector-level overview
+// (bullish/bearish/mixed + thesis + watch-for items) PLUS one or more
+// narratives per sub-industry. Sub-industries without an active narrative
+// surface as a "watching, no active narrative" placeholder at the bottom.
 const INDUSTRIES_BY_SECTOR = {
   "Technology": [
     "Software Infrastructure",
     "Semiconductors",
-    "Consumer Electronics",
-    "Software Applications",
-    "Semiconductor Equipment & Materials",
     "Communication Equipment",
     "Computer Hardware",
-    "Information Technology Services",
-    "Electronic Components",
-    "Scientific & Technical Instruments",
-    "Electronics & Computer Distribution",
-    "Solar",
-  ],
-  "Financials": [
-    "Banks - Diversified",
-    "Banks - Regional",
-    "Asset Management",
-    "Capital Markets",
-    "Credit Services",
-    "Financial Data & Stock Exchanges",
-    "Insurance - Diversified",
-    "Insurance - Life",
-    "Insurance - Property & Casualty",
-    "Insurance - Reinsurance",
-    "Insurance - Specialty",
-    "Mortgage Finance",
+    "Semiconductor Equipment & Materials",
+    "Consumer Electronics",
+    "Software Applications",
   ],
   "Consumer Cyclical": [
-    "Auto Manufacturers",
-    "Auto Parts",
-    "Auto & Truck Dealerships",
-    "Apparel Manufacturing",
-    "Apparel Retail",
-    "Footwear & Accessories",
-    "Department Stores",
-    "Specialty Retail",
     "Internet Retail",
-    "Home Improvement Retail",
     "Restaurants",
-    "Lodging",
-    "Resorts & Casinos",
-    "Travel Services",
-    "Leisure",
-    "Gambling",
-    "Luxury Goods",
-    "Furnishings, Fixtures & Appliances",
-    "Packaging & Containers",
-    "Personal Services",
-    "Recreational Vehicles",
+    "Apparel Retail",
     "Residential Construction",
-    "Textile Manufacturing",
-  ],
-  "Consumer Defensive": [
-    "Discount Stores",
-    "Grocery Stores",
-    "Food Distribution",
-    "Packaged Foods",
-    "Beverages - Brewers",
-    "Beverages - Wineries & Distilleries",
-    "Beverages - Non-Alcoholic",
-    "Confectioners",
-    "Farm Products",
-    "Household & Personal Products",
-    "Tobacco",
-    "Education & Training Services",
-  ],
-  "Healthcare": [
-    "Drug Manufacturers - General",
-    "Drug Manufacturers - Specialty & Generic",
-    "Biotechnology",
-    "Medical Devices",
-    "Medical Instruments & Supplies",
-    "Diagnostics & Research",
-    "Medical Care Facilities",
-    "Pharmaceutical Retailers",
-    "Health Information Services",
-    "Medical Distribution",
-    "Healthcare Plans",
-  ],
-  "Energy": [
-    "Oil & Gas Integrated",
-    "Oil & Gas E&P",
-    "Oil & Gas Midstream",
-    "Oil & Gas Refining & Marketing",
-    "Oil & Gas Equipment & Services",
-    "Oil & Gas Drilling",
-    "Thermal Coal",
-    "Uranium",
-  ],
-  "Utilities": [
-    "Utilities - Regulated Electric",
-    "Utilities - Regulated Gas",
-    "Utilities - Regulated Water",
-    "Utilities - Renewable",
-    "Utilities - Independent Power Producers",
-    "Utilities - Diversified",
-  ],
-  "Basic Materials": [
-    "Steel",
-    "Specialty Chemicals",
-    "Chemicals",
-    "Agricultural Inputs",
-    "Building Materials",
-    "Copper",
-    "Aluminum",
-    "Gold",
-    "Silver",
-    "Other Precious Metals",
-    "Other Industrial Metals & Mining",
-    "Coking Coal",
-    "Paper & Paper Products",
-    "Lumber & Wood Production",
   ],
   "Communication Services": [
     "Internet Content & Information",
-    "Telecom Services",
     "Entertainment",
     "Electronic Gaming & Multimedia",
-    "Broadcasting",
-    "Publishing",
     "Advertising Agencies",
   ],
   "Industrials": [
-    "Aerospace & Defense",
-    "Airlines",
-    "Railroads",
-    "Marine Shipping",
-    "Trucking",
-    "Integrated Freight & Logistics",
-    "Airports & Air Services",
-    "Farm & Heavy Construction Machinery",
-    "Industrial Distribution",
-    "Building Products & Equipment",
-    "Business Equipment & Supplies",
-    "Conglomerates",
-    "Consulting Services",
     "Electrical Equipment & Parts",
-    "Engineering & Construction",
-    "Infrastructure Operations",
-    "Metal Fabrication",
-    "Pollution & Treatment Controls",
-    "Rental & Leasing Services",
-    "Security & Protection Services",
-    "Specialty Business Services",
-    "Specialty Industrial Machinery",
-    "Staffing & Employment Services",
-    "Tools & Accessories",
-    "Waste Management",
+    "Integrated Freight & Logistics",
+    "Aerospace & Defense",
+    "Farm & Heavy Construction Machinery",
   ],
-  "Real Estate": [
-    "REIT - Diversified",
-    "REIT - Healthcare Facilities",
-    "REIT - Hotel & Motel",
-    "REIT - Industrial",
-    "REIT - Office",
-    "REIT - Mortgage",
-    "REIT - Residential",
-    "REIT - Retail",
-    "REIT - Specialty",
-    "Real Estate Services",
-    "Real Estate - Development",
-    "Real Estate - Diversified",
+  "Healthcare": [
+    "Drug Manufacturers - General",
+    "Healthcare Plans",
+  ],
+  "Financials": [
+    "Banks - Diversified",
+    "Credit Services",
+  ],
+  "Consumer Defensive": [
+    "Discount Stores",
+  ],
+  "Precious Metals": [
+    "Gold",
+    "Silver",
   ],
 };
 
@@ -303,7 +180,6 @@ const INDUSTRY_OF_TICKER = {
   AMZN: "Internet Retail",
   GOOGL: "Internet Content & Information",
   META: "Internet Content & Information",
-  TSLA: "Auto Manufacturers",
   AMD: "Semiconductors",
   NFLX: "Entertainment",
   AVGO: "Semiconductors",
@@ -341,17 +217,17 @@ const INDUSTRY_OF_TICKER = {
   UNH: "Healthcare Plans",
   JNJ: "Drug Manufacturers - General",
   PFE: "Drug Manufacturers - General",
-  XOM: "Oil & Gas Integrated",
-  CVX: "Oil & Gas Integrated",
   UBER: "Software Applications",
-  ABNB: "Travel Services",
-  COIN: "Capital Markets",
   PLTR: "Software Infrastructure",
   SHOP: "Software Applications",
   BABA: "Internet Retail",
-  NIO: "Auto Manufacturers",
-  GME: "Specialty Retail",
-  AMC: "Entertainment",
+  GLD: "Gold",
+  SLV: "Silver",
+  // Tickers intentionally without an industry mapping (TSLA, NIO, COIN, GME,
+  // AMC, XOM, CVX, ABNB) sit outside the slimmed taxonomy — they still trade
+  // and get option-graded, but the narrative engine won't slot them into a
+  // sub-industry. They can still surface as long/short chips on narratives
+  // that ride them.
 };
 
 // industry → parent sector, built once from INDUSTRIES_BY_SECTOR.
@@ -808,7 +684,7 @@ function narrativesSection() {
       <h2 class="card-title">Active market narratives</h2>
       <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
     </header>
-    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Narratives are filed under their sub-industry inside one of 11 sectors. Each card shows how dominant the narrative is in today's tape (strength bar), whether it's <em>active</em> in price or still <em>building</em>, its typical playout window, the catalysts that would unlock it, and which other narratives it clashes with. Click a sector tab to dig into its sub-industries.</p>
+    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Each sector tab opens to a top-down <em>sector overview</em> (the dominant story for that whole sector) followed by sub-industry narratives. Every block carries a "<em>Watch for narrative shift</em>" panel — the concrete red flags that would flip or break the thesis (e.g. "Mag 7 hyperscaler capex guide DOWN" for the AI / Semis bull). Gold and Silver sit in their own Precious Metals tab as standalone macro plays.</p>
     <div id="narratives-tabs" class="narr-tabs" role="tablist" aria-label="Market sectors"></div>
     <div id="narratives-panel" class="narr-panel" role="tabpanel"></div>
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
@@ -999,9 +875,10 @@ export function renderAppJs() {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, industries: {}, sectorOrder: [], industriesBySector: {}, spots: {} };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], sectorOverviews: {}, recentlyEnded: [], macroHeadlines: [], sectors: {}, industries: {}, sectorOrder: [], industriesBySector: {}, spots: {} };
   var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
   var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
+  var SECTOR_OVERVIEWS = (MANIFEST.sectorOverviews && typeof MANIFEST.sectorOverviews === 'object') ? MANIFEST.sectorOverviews : {};
   var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
   var MACRO_HEADLINES = Array.isArray(MANIFEST.macroHeadlines) ? MANIFEST.macroHeadlines : [];
   var SECTORS = MANIFEST.sectors || {};
@@ -2257,13 +2134,22 @@ export function renderAppJs() {
       '<span class="narr-strength-num">' + s + '</span>' +
     '</div>';
   }
-  function triggersHtml(n){
-    if (!n.triggers || !n.triggers.length) return '';
-    var label = n.status === 'building' ? 'Needs trigger' : (n.status === 'fading' ? 'Watch for reset' : 'Triggers to watch');
-    return '<div class="narr-triggers">' +
-      '<span class="narr-triggers-label">' + escapeHtml(label) + '</span>' +
-      '<ul class="narr-triggers-list">' +
-      n.triggers.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') +
+  function watchForItems(n){
+    // New field is watchFor; legacy snapshots used triggers. Accept both.
+    if (Array.isArray(n.watchFor) && n.watchFor.length) return n.watchFor;
+    if (Array.isArray(n.triggers) && n.triggers.length) return n.triggers;
+    return [];
+  }
+  function watchForHtml(n){
+    var items = watchForItems(n);
+    if (!items.length) return '';
+    return '<div class="narr-watchfor">' +
+      '<div class="narr-watchfor-head">' +
+        '<span class="narr-watchfor-icon" aria-hidden="true">⚠</span>' +
+        '<span class="narr-watchfor-label">Watch for narrative shift</span>' +
+      '</div>' +
+      '<ul class="narr-watchfor-list">' +
+      items.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') +
       '</ul>' +
     '</div>';
   }
@@ -2313,9 +2199,53 @@ export function renderAppJs() {
       strengthBarHtml(n.strength) +
       '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
       longRow + shortRow +
-      triggersHtml(n) +
+      watchForHtml(n) +
       conflictsHtml(n) +
     '</article>';
+  }
+  // Sector-overview banner — the top-down story for the active sector. Sits
+  // above the sub-industry narrative blocks. Shows stance (bullish / bearish /
+  // mixed), a thesis paragraph, a strength bar, and a watch-for panel of
+  // red-flag catalysts that would flip the sector view.
+  function sectorOverviewHtml(sector, overview){
+    if (!overview || !overview.thesis) {
+      return '<section class="narr-sector-overview is-empty" data-stance="neutral">' +
+        '<header class="narr-sector-overview-head">' +
+          '<span class="narr-sector-overview-eyebrow">Sector overview</span>' +
+          '<h3 class="narr-sector-overview-title">' + escapeHtml(sector) + '</h3>' +
+        '</header>' +
+        '<p class="narr-sector-overview-thesis muted">No top-down view recorded for this build.</p>' +
+      '</section>';
+    }
+    var stance = ['bullish','bearish','mixed'].indexOf(overview.stance) >= 0 ? overview.stance : 'mixed';
+    var stanceLabel = ({ bullish:'Bullish', bearish:'Bearish', mixed:'Mixed' })[stance];
+    var strengthHtml = (typeof overview.strength === 'number')
+      ? strengthBarHtml(overview.strength)
+      : '';
+    var watchHtml = watchForHtml({ watchFor: overview.watchFor || [] });
+    var staleTag = '';
+    if (overview.stale) {
+      var staleAge = '';
+      if (overview.staleSinceIso) {
+        var since = Date.parse(overview.staleSinceIso);
+        if (isFinite(since)) {
+          var days = Math.max(1, Math.floor((Date.now() - since) / 86400000));
+          staleAge = ' · ' + days + 'd';
+        }
+      }
+      staleTag = '<span class="narr-tag stale" title="Today\\'s extraction failed — showing the last successful overview">Stale' + staleAge + '</span>';
+    }
+    return '<section class="narr-sector-overview" data-stance="' + stance + '"' + (overview.stale ? ' data-stale="1"' : '') + '>' +
+      '<header class="narr-sector-overview-head">' +
+        '<span class="narr-sector-overview-eyebrow">Sector overview</span>' +
+        '<h3 class="narr-sector-overview-title">' + escapeHtml(sector) + '</h3>' +
+        '<span class="narr-sector-overview-stance ' + stance + '">' + stanceLabel + '</span>' +
+        staleTag +
+      '</header>' +
+      strengthHtml +
+      '<p class="narr-sector-overview-thesis">' + escapeHtml(overview.thesis) + '</p>' +
+      watchHtml +
+    '</section>';
   }
   // Group narratives by sector + industry, keeping the strongest-first order
   // already applied to NARRATIVES.
@@ -2391,7 +2321,9 @@ export function renderAppJs() {
     for (var key in sectorNarratives){
       if (industries.indexOf(key) < 0) withN.push(key);
     }
-    var html = '<div class="narr-industries">';
+    var overview = SECTOR_OVERVIEWS[ACTIVE_SECTOR] || null;
+    var html = sectorOverviewHtml(ACTIVE_SECTOR, overview) +
+      '<div class="narr-industries">';
     var rank = 0;
     for (var w=0; w<withN.length; w++){
       var ind2 = withN[w];
@@ -2677,18 +2609,25 @@ export function renderAppJs() {
 `;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {} }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {} }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
-  // (pre-taxonomy builds didn't tag one). resolveNarrativeIndustry votes from
-  // each narrative's longs/shorts so they slot into the right tab even without
-  // a fresh AI run.
-  const narrativesTagged = narratives.map((n) => ({
-    ...n,
-    industry: n.industry && VALID_INDUSTRY_SET.has(n.industry)
-      ? n.industry
-      : resolveNarrativeIndustry(n.industry, n.longs || [], n.shorts || []),
-  }));
+  // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
+  // `watchFor` so stale-fallback data still renders red flags. resolveNarrativeIndustry
+  // votes from each narrative's longs/shorts so they slot into the right tab
+  // even without a fresh AI run.
+  const narrativesTagged = narratives.map((n) => {
+    const out = {
+      ...n,
+      industry: n.industry && VALID_INDUSTRY_SET.has(n.industry)
+        ? n.industry
+        : resolveNarrativeIndustry(n.industry, n.longs || [], n.shorts || []),
+    };
+    if (!Array.isArray(out.watchFor) || !out.watchFor.length) {
+      if (Array.isArray(n.triggers) && n.triggers.length) out.watchFor = n.triggers;
+    }
+    return out;
+  });
   // Manifest is embedded inline so the narratives card + combobox can paint
   // on first frame. Per-ticker chain JSON is still lazy-fetched from
   // data/<SYMBOL>.json on demand.
@@ -2697,6 +2636,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], rece
     builtAtIso,
     symbols,
     narratives: narrativesTagged,
+    sectorOverviews: sectorOverviews || {},
     recentlyEnded,
     macroHeadlines,
     sectors: SECTORS,
@@ -3045,6 +2985,87 @@ main {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .narr-panel { display: flex; flex-direction: column; gap: var(--s-3); }
+/* Sector-overview banner — the top-down story for the active sector. Sits
+   above the sub-industry blocks. Colour-keyed by stance so the user reads
+   "bullish / bearish / mixed" at a glance, with the watch-for panel nested
+   below the thesis. */
+.narr-sector-overview {
+  position: relative;
+  padding: var(--s-3) var(--s-3) var(--s-3);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: var(--r-3);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--surface-2) 92%, transparent) 0%,
+    var(--surface) 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.narr-sector-overview[data-stance="bullish"] {
+  border-left-color: var(--pos);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--pos-soft) 55%, var(--surface-2)) 0%,
+    var(--surface) 100%);
+}
+.narr-sector-overview[data-stance="bearish"] {
+  border-left-color: var(--neg);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--neg-soft) 55%, var(--surface-2)) 0%,
+    var(--surface) 100%);
+}
+.narr-sector-overview[data-stance="mixed"] {
+  border-left-color: var(--warn);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--warn-soft) 45%, var(--surface-2)) 0%,
+    var(--surface) 100%);
+}
+.narr-sector-overview.is-empty { border-left-color: var(--border-strong); }
+.narr-sector-overview-head {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.narr-sector-overview-eyebrow {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.narr-sector-overview-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-strong);
+}
+.narr-sector-overview-stance {
+  display: inline-flex; align-items: center;
+  height: 22px; padding: 0 10px;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-radius: var(--r-pill);
+}
+.narr-sector-overview-stance.bullish {
+  color: var(--pos);
+  background: var(--pos-soft);
+  border: 1px solid color-mix(in srgb, var(--pos) 40%, transparent);
+}
+.narr-sector-overview-stance.bearish {
+  color: var(--neg);
+  background: var(--neg-soft);
+  border: 1px solid color-mix(in srgb, var(--neg) 40%, transparent);
+}
+.narr-sector-overview-stance.mixed {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.narr-sector-overview-thesis {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  color: var(--text);
+}
+.narr-sector-overview-thesis.muted { color: var(--muted); font-style: italic; }
 .narr-industries { display: flex; flex-direction: column; gap: var(--s-4); }
 .narr-industry {
   display: flex;
@@ -3302,31 +3323,43 @@ main {
   color: var(--muted);
   min-width: 28px; text-align: right;
 }
-.narr-triggers {
+/* Red-flag / watch-for panel — the catalysts that would FLIP this narrative.
+   Used by both the per-narrative card and the sector overview banner. Styled
+   as a "danger watchlist" with a warm accent border so it visually pops vs.
+   the thesis paragraph above it. */
+.narr-watchfor {
   margin-top: var(--s-2);
-  padding: var(--s-2);
-  border: 1px dashed var(--border);
+  padding: var(--s-2) var(--s-2) calc(var(--s-2) - 2px);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+  border-left-width: 3px;
   border-radius: var(--r-2);
-  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  background: color-mix(in srgb, var(--warn-soft) 55%, transparent);
 }
-.narr[data-status="building"] .narr-triggers {
-  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
-  background: color-mix(in srgb, var(--warn-soft) 50%, transparent);
+.narr[data-status="building"] .narr-watchfor {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn-soft) 70%, transparent);
 }
-.narr-triggers-label {
-  display: inline-block;
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--muted);
+.narr-watchfor-head {
+  display: inline-flex; align-items: center; gap: 6px;
   margin-bottom: 4px;
 }
-.narr[data-status="building"] .narr-triggers-label { color: var(--warn); }
-.narr-triggers-list {
+.narr-watchfor-icon {
+  font-size: 12px;
+  color: var(--warn);
+  line-height: 1;
+}
+.narr-watchfor-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--warn);
+}
+.narr-watchfor-list {
   margin: 0; padding: 0 0 0 16px;
   font-size: var(--fs-sm); color: var(--text);
   line-height: 1.5;
 }
-.narr-triggers-list li + li { margin-top: 2px; }
+.narr-watchfor-list li + li { margin-top: 3px; }
+.narr-watchfor-list li::marker { color: var(--warn); }
 .narr-conflicts {
   display: flex; flex-wrap: wrap; align-items: center;
   gap: 6px;
@@ -5040,7 +5073,7 @@ async function attachAiNewsTakes(chains) {
 // + data/trends-history.json (rolling 90-day window of compact daily snapshots
 // so the page can show "X days running" / "trend cooled off N days ago").
 const NARRATIVE_HISTORY_DAYS = 90;
-const NARRATIVE_MAX_COUNT = 18;
+const NARRATIVE_MAX_COUNT = 24;
 const NARRATIVE_SYSTEM_PROMPT =
   "You are a markets analyst who tracks the narratives currently driving US equity flows. " +
   "Markets run on stories — AI capex, GLP-1 obesity drugs, tariff fights, the crypto trade, " +
@@ -5054,37 +5087,37 @@ const NARRATIVE_SYSTEM_PROMPT =
   "CNBC) covering the last ~2 weeks. Use the macro digest to decide whether a narrative's required " +
   "trigger has fired (e.g. a hot CPI print activates the inflation/short-duration trade) or is " +
   "still pending (no trigger yet). " +
-  `Identify 8-${NARRATIVE_MAX_COUNT} consequential market narratives right now, with an eye to covering ` +
-  "as many different sub-industries as legitimately have a story in play. Each narrative is filed under " +
-  "ONE sub-industry (its primary home). It is fine — and good — to have multiple narratives within the " +
-  "same sub-industry when both stories are real (e.g. Semiconductors might have an AI-demand bull " +
-  "narrative AND a China export-controls bear narrative). Do NOT fabricate a narrative just to fill an " +
-  "industry slot; if nothing is genuinely in motion for an industry, leave it out. For each narrative, return: " +
-  `a short "name" (2-5 words, title case, e.g. "AI infrastructure buildout", "GLP-1 obesity wave"); ` +
-  `an "industry" string that EXACTLY matches one of the entries in the INDUSTRY WHITELIST provided in the user message — pick the single sub-industry the narrative most directly drives (e.g. "Semiconductors" for an AI chip story, "Drug Manufacturers - General" for a GLP-1 wave, "Oil & Gas Integrated" for an energy supply shock, "Internet Content & Information" for an ad-market story). The narrative can still long/short tickers from other industries, but its primary home is exactly one industry; ` +
+  "OUTPUT STRUCTURE — you produce TWO layers of analysis, organized by sector. For each sector in " +
+  "the SECTOR/INDUSTRY WHITELIST provided in the user message, return ONE \"sector overview\" object " +
+  "plus an array of sub-industry narratives that live inside that sector. " +
+  "The SECTOR OVERVIEW captures the top-down story for that entire sector — e.g. \"Tech is broadly " +
+  "bullish because the AI capex cycle is still expanding\", or \"Healthcare is mixed: GLP-1 leaders are " +
+  "ripping but generic pharma is under PBM pressure\". The sector overview has: " +
+  `a "stance" of "bullish", "bearish", or "mixed" describing the net sector posture; ` +
+  `a "thesis" of 1-2 sentences explaining the dominant sector-level story right now (why this sector is moving and in which direction); ` +
+  `a "strength" integer 0-100 (how dominantly the sector story is driving capital today); ` +
+  `a "watchFor" array of 2-4 short concrete red flags / catalysts that would FLIP or BREAK this sector narrative — be specific and quantitative where possible (e.g. "Mag 7 hyperscaler capex guide DOWN at next earnings — would crack the AI demand thesis", "10Y yield breaks above 5% — kills the duration bid that powers software multiples", "Hot core CPI print > 0.4% MoM — forces a hawkish Fed repricing"). These are the watchlist items a trader uses to know when the sector story is rolling over. ` +
+  "Then each SUB-INDUSTRY NARRATIVE within that sector is the granular trade — multiple narratives per sub-industry are fine when both bull and bear stories are real (e.g. Semiconductors might have an AI-demand bull narrative AND a China export-controls bear narrative). Do NOT fabricate narratives to fill slots; if nothing is genuinely in motion for a sub-industry, leave it out — the UI shows an empty placeholder. " +
+  "Each sub-industry narrative has: " +
+  `a short "name" (2-5 words, title case, e.g. "AI Infrastructure Buildout", "GLP-1 Obesity Wave"); ` +
+  `an "industry" string that EXACTLY matches one of the sub-industries listed under the current sector in the whitelist; ` +
   `a one-sentence "thesis" in plain English explaining the trade and why it is in play; ` +
   `a "sentiment" of "bullish" or "bearish" describing whether the narrative is a tailwind or headwind for the longs; ` +
   `a "longs" array of tickers from the provided list that benefit from the narrative; ` +
   `a "shorts" array of tickers from the provided list that are hurt by it (empty array if none apply); ` +
-  `a "confidence" of "high", "medium", or "low" based on how clearly the evidence supports the trade; ` +
-  `a "strength" integer 0-100 estimating how dominantly this narrative is driving price action TODAY ` +
-  `(95 = clearly the dominant tape driver; 60 = meaningful sector mover; 30 = simmering but not yet expressed in price; 10 = mostly latent); ` +
-  `a "status" of "active" (already playing out in price), "building" (the thesis is intact but the market is not pricing it yet — waiting on a trigger), or "fading" (the move has largely happened and momentum is rolling over); ` +
-  `a "timeframe" of "immediate" (this week), "near-term" (1-4 weeks), "medium-term" (1-3 months), or "long-term" (3+ months) describing how long the trade typically takes to play out; ` +
-  `a "triggers" array of 1-3 short concrete catalysts that would intensify this narrative or unlock it from "building" to "active" (e.g. "Hotter-than-expected CPI print", "Fed pivot to cuts", "Major hyperscaler capex guide-up", "10Y yield breaks 4.8%"); ` +
-  `a "conflictsWith" array listing the NAMES of OTHER narratives in this same response that this one directly opposes (e.g. an "AI Mega-Cap Bid" narrative going bullish on QQQ conflicts with a "Resurgent Inflation Volatility" narrative shorting QQQ). Empty array if none clash. ` +
-  "Rules: only use tickers from the provided list — do not invent tickers. A narrative MUST have at " +
-  "least one long or one short. Prefer broader narratives over very narrow single-name stories. " +
-  "ORDER the narratives array from STRONGEST to WEAKEST (highest strength first; active narratives " +
-  "above building ones at the same strength; fading ones last). Be honest — if the inflation " +
-  "short-SPY trade is real but the trigger hasn't fired this week, mark it building with a lower " +
-  "strength rather than pretending it dominates today's tape. If a list of PREVIOUS narrative names " +
-  "is provided, reuse a previous name verbatim when today's narrative is the same story so we can " +
-  "track its lifespan; otherwise pick a fresh name. " +
-  "conflictsWith names MUST match other names in your own response exactly — do not reference narratives that aren't in this output. " +
+  `a "confidence" of "high", "medium", or "low"; ` +
+  `a "strength" integer 0-100 (95 = dominant tape driver; 60 = meaningful mover; 30 = simmering; 10 = mostly latent); ` +
+  `a "status" of "active" (playing out in price), "building" (thesis intact but not yet priced — waiting on a trigger), or "fading" (move has largely happened); ` +
+  `a "timeframe" of "immediate" (this week), "near-term" (1-4 weeks), "medium-term" (1-3 months), or "long-term" (3+ months); ` +
+  `a "watchFor" array of 1-3 short concrete red flags / catalysts that would FLIP or BREAK this specific narrative (e.g. for an AI Semis bull narrative: "Hyperscaler capex cuts at next earnings", "MSFT spends $100B but revenue growth slows below 10%", "China export controls expand to HBM"). Frame each item as something a trader could watch and recognize when it happens. ` +
+  `a "conflictsWith" array listing the NAMES of OTHER narratives in this same response that this one directly opposes. Empty array if none clash. ` +
+  "Rules: only use tickers from the provided list — do not invent tickers. Each sub-industry narrative MUST have at least one long or one short. Prefer broader narratives over very narrow single-name stories. " +
+  "Sectors with thin coverage (e.g. \"Consumer Defensive\" with only Discount Stores, or \"Precious Metals\" with Gold/Silver) still get an overview AND any sub-industry narratives that legitimately apply — just shorter. For Precious Metals, treat Gold (GLD) and Silver (SLV) as standalone macro plays (real-yield trade, dollar trade, geopolitical hedge, central-bank buying); the longs/shorts arrays should reference GLD and SLV directly. " +
+  "If a list of PREVIOUS narrative names is provided, reuse a previous name verbatim when today's narrative is the same story so we can track its lifespan; otherwise pick a fresh name. " +
+  "conflictsWith names MUST match other names in your own response exactly. " +
   "Respond with ONLY a JSON object of the form " +
-  `{"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","triggers":["..."],"conflictsWith":["..."]}]} ` +
-  "— no markdown fences, no prose before or after the JSON.";
+  `{"sectors":[{"sector":"Technology","overview":{"stance":"bullish"|"bearish"|"mixed","thesis":"...","strength":0-100,"watchFor":["...","..."]},"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","watchFor":["..."],"conflictsWith":["..."]}]}]} ` +
+  "— include an entry for EVERY sector in the whitelist (even if its narratives array is empty), no markdown fences, no prose before or after the JSON.";
 
 const TRENDS_FILE = "trends.json";
 const TRENDS_HISTORY_FILE = "trends-history.json";
@@ -5245,31 +5278,76 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       : [];
   const VALID_STATUS = ["active", "building", "fading"];
   const VALID_TIMEFRAME = ["immediate", "near-term", "medium-term", "long-term"];
+  const VALID_STANCE = ["bullish", "bearish", "mixed"];
   const STATUS_WEIGHT = { active: 2, building: 1, fading: 0 };
   const TF_WEIGHT = { immediate: 3, "near-term": 2, "medium-term": 1, "long-term": 0 };
-  const narrativesRaw = Array.isArray(parsed.narratives) ? parsed.narratives : [];
-  const cleaned = narrativesRaw
-    .map((n) => {
-      const name = String(n.name || "").trim();
-      const thesis = String(n.thesis || "").trim();
-      const sentiment = n.sentiment === "bearish" ? "bearish" : "bullish";
-      const confidence = ["high", "medium", "low"].includes(n.confidence) ? n.confidence : "medium";
-      const longs = sanitizeTickers(n.longs);
-      const shorts = sanitizeTickers(n.shorts);
-      let strength = Number(n.strength);
-      if (!isFinite(strength)) strength = confidence === "high" ? 70 : confidence === "low" ? 30 : 50;
-      strength = Math.max(0, Math.min(100, Math.round(strength)));
-      const status = VALID_STATUS.includes(n.status) ? n.status : "active";
-      const timeframe = VALID_TIMEFRAME.includes(n.timeframe) ? n.timeframe : "near-term";
-      const triggers = sanitizeStringList(n.triggers, 3, 120);
-      const conflictsWithRaw = sanitizeStringList(n.conflictsWith, 4, 60);
-      // Industry must match the whitelist. If the model omits it or invents
-      // one, derive it by voting from the longs (then shorts) — each ticker
-      // has a known industry. Falls back to "Uncategorized" only when no
-      // ticker resolves either (which the upstream filter then drops anyway).
-      const industry = resolveNarrativeIndustry(n.industry, longs, shorts);
-      return { name, industry, thesis, sentiment, confidence, strength, status, timeframe, triggers, conflictsWith: conflictsWithRaw, longs, shorts };
-    })
+
+  // The new prompt emits a sectors[] array; tolerate the legacy flat
+  // narratives[] shape for stale-fallback safety.
+  const sectorsRaw = Array.isArray(parsed.sectors) ? parsed.sectors : null;
+  const legacyNarrativesRaw = Array.isArray(parsed.narratives) ? parsed.narratives : null;
+
+  const cleanNarrative = (n, sectorHint) => {
+    const name = String(n.name || "").trim();
+    const thesis = String(n.thesis || "").trim();
+    const sentiment = n.sentiment === "bearish" ? "bearish" : "bullish";
+    const confidence = ["high", "medium", "low"].includes(n.confidence) ? n.confidence : "medium";
+    const longs = sanitizeTickers(n.longs);
+    const shorts = sanitizeTickers(n.shorts);
+    let strength = Number(n.strength);
+    if (!isFinite(strength)) strength = confidence === "high" ? 70 : confidence === "low" ? 30 : 50;
+    strength = Math.max(0, Math.min(100, Math.round(strength)));
+    const status = VALID_STATUS.includes(n.status) ? n.status : "active";
+    const timeframe = VALID_TIMEFRAME.includes(n.timeframe) ? n.timeframe : "near-term";
+    // watchFor is the new field; accept legacy `triggers` from older snapshots.
+    const watchFor = sanitizeStringList(
+      Array.isArray(n.watchFor) ? n.watchFor : n.triggers,
+      3,
+      160,
+    );
+    const conflictsWithRaw = sanitizeStringList(n.conflictsWith, 4, 60);
+    // Industry must match the whitelist. If the model omits / invents one,
+    // vote from the longs (then shorts). Falls back to "Uncategorized" only
+    // when no ticker resolves either (which the upstream filter then drops).
+    const industry = resolveNarrativeIndustry(n.industry, longs, shorts);
+    const out = { name, industry, thesis, sentiment, confidence, strength, status, timeframe, watchFor, conflictsWith: conflictsWithRaw, longs, shorts };
+    // Stamp the parent sector when we know it from the wrapper. The UI
+    // groups by SECTOR_OF_INDUSTRY anyway, but having `sector` on the
+    // narrative simplifies the stale-fallback path.
+    if (sectorHint) out.sector = sectorHint;
+    return out;
+  };
+
+  const cleanedNarratives = [];
+  const sectorOverviews = {};
+
+  if (sectorsRaw) {
+    for (const sec of sectorsRaw) {
+      const sectorName = String(sec?.sector || "").trim();
+      if (!SECTOR_ORDER.includes(sectorName)) continue;
+      const ov = sec.overview || {};
+      const stance = VALID_STANCE.includes(ov.stance) ? ov.stance : "mixed";
+      const ovThesis = String(ov.thesis || "").trim();
+      let ovStrength = Number(ov.strength);
+      if (!isFinite(ovStrength)) ovStrength = 50;
+      ovStrength = Math.max(0, Math.min(100, Math.round(ovStrength)));
+      const ovWatchFor = sanitizeStringList(ov.watchFor, 4, 180);
+      if (ovThesis) {
+        sectorOverviews[sectorName] = {
+          stance,
+          thesis: ovThesis,
+          strength: ovStrength,
+          watchFor: ovWatchFor,
+        };
+      }
+      const subs = Array.isArray(sec.narratives) ? sec.narratives : [];
+      for (const n of subs) cleanedNarratives.push(cleanNarrative(n, sectorName));
+    }
+  } else if (legacyNarrativesRaw) {
+    for (const n of legacyNarrativesRaw) cleanedNarratives.push(cleanNarrative(n, null));
+  }
+
+  const cleaned = cleanedNarratives
     .filter((n) => n.name && n.thesis && (n.longs.length > 0 || n.shorts.length > 0))
     .slice(0, NARRATIVE_MAX_COUNT);
 
@@ -5294,7 +5372,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
     if (tw !== 0) return tw;
     return (CONF_WEIGHT[b.confidence] || 0) - (CONF_WEIGHT[a.confidence] || 0);
   });
-  return cleaned;
+  return { narratives: cleaned, sectorOverviews };
 }
 
 // Walk back through prior snapshots to discover when each narrative first
@@ -5387,7 +5465,7 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
 async function attachMarketNarratives(chains, previousHistory) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
-    return { narratives: [], recentlyEnded: [], history: previousHistory, macroHeadlines: [] };
+    return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: [] };
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
@@ -5403,15 +5481,22 @@ async function attachMarketNarratives(chains, previousHistory) {
   try {
     const raw = await generateMarketNarratives(ai, chains, previousNames, macroHeadlines);
     const builtAtIso = new Date().toISOString();
-    const narratives = annotateNarrativesWithLifespan(raw, previousHistory, builtAtIso);
+    const narratives = annotateNarrativesWithLifespan(raw.narratives, previousHistory, builtAtIso);
     const history = updateTrendHistory(previousHistory, narratives, builtAtIso);
     const recentlyEnded = computeRecentlyEnded(history, narratives.map((n) => n.name), builtAtIso);
-    console.log(`  ✓ ${narratives.length} narratives extracted (ordered strongest → weakest)`);
+    const sectorOverviews = raw.sectorOverviews || {};
+    console.log(`  ✓ ${narratives.length} narratives extracted across ${Object.keys(sectorOverviews).length} sectors (ordered strongest → weakest)`);
+    for (const sec of SECTOR_ORDER) {
+      const ov = sectorOverviews[sec];
+      if (ov) {
+        console.log(`    [${sec}] ${ov.stance.toUpperCase()} · str ${ov.strength} · watchFor=${ov.watchFor.length}`);
+      }
+    }
     for (const n of narratives) {
       console.log(`    · ${n.name} [str ${n.strength}, ${n.status}, ${n.timeframe}, ${n.sentiment}, conf ${n.confidence}, day ${n.daysRunning}] long=${n.longs.join(",")||"—"} short=${n.shorts.join(",")||"—"}` +
         (n.conflictsWith.length ? ` ⚔ ${n.conflictsWith.join(" | ")}` : ""));
     }
-    return { narratives, recentlyEnded, history, macroHeadlines };
+    return { narratives, sectorOverviews, recentlyEnded, history, macroHeadlines };
   } catch (err) {
     const causeMsg = err?.cause?.code || err?.cause?.message || "";
     console.log(
@@ -5426,6 +5511,9 @@ async function attachMarketNarratives(chains, previousHistory) {
     // history records what was extracted, not what was displayed.
     const lastGood = await loadLastGoodTrends();
     const lastNarratives = lastGood && Array.isArray(lastGood.narratives) ? lastGood.narratives : [];
+    const lastSectorOverviews = lastGood && lastGood.sectorOverviews && typeof lastGood.sectorOverviews === "object"
+      ? lastGood.sectorOverviews
+      : {};
     if (lastNarratives.length) {
       const todayIso = new Date().toISOString();
       console.log(`  ↩ falling back to ${lastNarratives.length} narratives from last good build (${lastGood.builtAtIso || "unknown"})`);
@@ -5434,14 +5522,25 @@ async function attachMarketNarratives(chains, previousHistory) {
         stale: true,
         staleSinceIso: n.staleSinceIso || todayIso,
       }));
+      // Mark stale on sector overviews too so the banner can signal it.
+      const staleOverviews = {};
+      for (const k of Object.keys(lastSectorOverviews)) {
+        const ov = lastSectorOverviews[k];
+        staleOverviews[k] = {
+          ...ov,
+          stale: true,
+          staleSinceIso: ov.staleSinceIso || todayIso,
+        };
+      }
       return {
         narratives: staleNarratives,
+        sectorOverviews: staleOverviews,
         recentlyEnded: Array.isArray(lastGood.recentlyEnded) ? lastGood.recentlyEnded : [],
         history: previousHistory,
         macroHeadlines,
       };
     }
-    return { narratives: [], recentlyEnded: [], history: previousHistory, macroHeadlines };
+    return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines };
   }
 }
 
@@ -5477,6 +5576,7 @@ async function main() {
     builtAt: nyTimestamp(),
     builtAtIso,
     narratives: trends.narratives,
+    sectorOverviews: trends.sectorOverviews || {},
     recentlyEnded: trends.recentlyEnded,
     macroHeadlines: trends.macroHeadlines || [],
     unusual,
@@ -5491,6 +5591,7 @@ async function main() {
   const totalChainBytes = await writeChainFiles(chains);
   await writeTrendFiles({
     narratives: trends.narratives,
+    sectorOverviews: trends.sectorOverviews || {},
     recentlyEnded: trends.recentlyEnded,
     macroHeadlines: trends.macroHeadlines || [],
     history: trends.history,
@@ -5504,10 +5605,10 @@ async function main() {
   );
 }
 
-async function writeTrendFiles({ narratives, recentlyEnded, macroHeadlines, history, builtAtIso }) {
+async function writeTrendFiles({ narratives, sectorOverviews, recentlyEnded, macroHeadlines, history, builtAtIso }) {
   // writeChainFiles wiped data/ a moment ago, so write into the freshly
   // recreated directory.
-  const current = JSON.stringify({ builtAtIso, narratives, recentlyEnded, macroHeadlines });
+  const current = JSON.stringify({ builtAtIso, narratives, sectorOverviews: sectorOverviews || {}, recentlyEnded, macroHeadlines });
   await writeFile(resolve(DATA_DIR, TRENDS_FILE), current, "utf8");
   const archive = JSON.stringify({ builtAtIso, days: NARRATIVE_HISTORY_DAYS, snapshots: history });
   await writeFile(resolve(DATA_DIR, TRENDS_HISTORY_FILE), archive, "utf8");

@@ -11,9 +11,10 @@
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 
-  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], recentlyEnded: [], macroHeadlines: [], sectors: {}, industries: {}, sectorOrder: [], industriesBySector: {}, spots: {} };
+  var MANIFEST = window.STONKS_MANIFEST || { symbols: [], narratives: [], sectorOverviews: {}, recentlyEnded: [], macroHeadlines: [], sectors: {}, industries: {}, sectorOrder: [], industriesBySector: {}, spots: {} };
   var SYMBOLS = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
   var NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
+  var SECTOR_OVERVIEWS = (MANIFEST.sectorOverviews && typeof MANIFEST.sectorOverviews === 'object') ? MANIFEST.sectorOverviews : {};
   var RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
   var MACRO_HEADLINES = Array.isArray(MANIFEST.macroHeadlines) ? MANIFEST.macroHeadlines : [];
   var SECTORS = MANIFEST.sectors || {};
@@ -1269,13 +1270,22 @@
       '<span class="narr-strength-num">' + s + '</span>' +
     '</div>';
   }
-  function triggersHtml(n){
-    if (!n.triggers || !n.triggers.length) return '';
-    var label = n.status === 'building' ? 'Needs trigger' : (n.status === 'fading' ? 'Watch for reset' : 'Triggers to watch');
-    return '<div class="narr-triggers">' +
-      '<span class="narr-triggers-label">' + escapeHtml(label) + '</span>' +
-      '<ul class="narr-triggers-list">' +
-      n.triggers.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') +
+  function watchForItems(n){
+    // New field is watchFor; legacy snapshots used triggers. Accept both.
+    if (Array.isArray(n.watchFor) && n.watchFor.length) return n.watchFor;
+    if (Array.isArray(n.triggers) && n.triggers.length) return n.triggers;
+    return [];
+  }
+  function watchForHtml(n){
+    var items = watchForItems(n);
+    if (!items.length) return '';
+    return '<div class="narr-watchfor">' +
+      '<div class="narr-watchfor-head">' +
+        '<span class="narr-watchfor-icon" aria-hidden="true">⚠</span>' +
+        '<span class="narr-watchfor-label">Watch for narrative shift</span>' +
+      '</div>' +
+      '<ul class="narr-watchfor-list">' +
+      items.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') +
       '</ul>' +
     '</div>';
   }
@@ -1325,9 +1335,53 @@
       strengthBarHtml(n.strength) +
       '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
       longRow + shortRow +
-      triggersHtml(n) +
+      watchForHtml(n) +
       conflictsHtml(n) +
     '</article>';
+  }
+  // Sector-overview banner — the top-down story for the active sector. Sits
+  // above the sub-industry narrative blocks. Shows stance (bullish / bearish /
+  // mixed), a thesis paragraph, a strength bar, and a watch-for panel of
+  // red-flag catalysts that would flip the sector view.
+  function sectorOverviewHtml(sector, overview){
+    if (!overview || !overview.thesis) {
+      return '<section class="narr-sector-overview is-empty" data-stance="neutral">' +
+        '<header class="narr-sector-overview-head">' +
+          '<span class="narr-sector-overview-eyebrow">Sector overview</span>' +
+          '<h3 class="narr-sector-overview-title">' + escapeHtml(sector) + '</h3>' +
+        '</header>' +
+        '<p class="narr-sector-overview-thesis muted">No top-down view recorded for this build.</p>' +
+      '</section>';
+    }
+    var stance = ['bullish','bearish','mixed'].indexOf(overview.stance) >= 0 ? overview.stance : 'mixed';
+    var stanceLabel = ({ bullish:'Bullish', bearish:'Bearish', mixed:'Mixed' })[stance];
+    var strengthHtml = (typeof overview.strength === 'number')
+      ? strengthBarHtml(overview.strength)
+      : '';
+    var watchHtml = watchForHtml({ watchFor: overview.watchFor || [] });
+    var staleTag = '';
+    if (overview.stale) {
+      var staleAge = '';
+      if (overview.staleSinceIso) {
+        var since = Date.parse(overview.staleSinceIso);
+        if (isFinite(since)) {
+          var days = Math.max(1, Math.floor((Date.now() - since) / 86400000));
+          staleAge = ' · ' + days + 'd';
+        }
+      }
+      staleTag = '<span class="narr-tag stale" title="Today\'s extraction failed — showing the last successful overview">Stale' + staleAge + '</span>';
+    }
+    return '<section class="narr-sector-overview" data-stance="' + stance + '"' + (overview.stale ? ' data-stale="1"' : '') + '>' +
+      '<header class="narr-sector-overview-head">' +
+        '<span class="narr-sector-overview-eyebrow">Sector overview</span>' +
+        '<h3 class="narr-sector-overview-title">' + escapeHtml(sector) + '</h3>' +
+        '<span class="narr-sector-overview-stance ' + stance + '">' + stanceLabel + '</span>' +
+        staleTag +
+      '</header>' +
+      strengthHtml +
+      '<p class="narr-sector-overview-thesis">' + escapeHtml(overview.thesis) + '</p>' +
+      watchHtml +
+    '</section>';
   }
   // Group narratives by sector + industry, keeping the strongest-first order
   // already applied to NARRATIVES.
@@ -1403,7 +1457,9 @@
     for (var key in sectorNarratives){
       if (industries.indexOf(key) < 0) withN.push(key);
     }
-    var html = '<div class="narr-industries">';
+    var overview = SECTOR_OVERVIEWS[ACTIVE_SECTOR] || null;
+    var html = sectorOverviewHtml(ACTIVE_SECTOR, overview) +
+      '<div class="narr-industries">';
     var rank = 0;
     for (var w=0; w<withN.length; w++){
       var ind2 = withN[w];
