@@ -132,6 +132,25 @@
     var iso = year + '-' + (mm<10?'0':'') + mm + '-' + (dd<10?'0':'') + dd;
     return { root: m[1], type: m[5]==='C' ? 'call' : 'put', strike: parseInt(m[6],10)/1000, expiryISO: iso };
   }
+  // 16:00 ET on the given YYYY-MM-DD expressed as a UTC epoch (seconds).
+  // Resolves the EDT/EST offset for that calendar date via Intl, so DST
+  // transitions don't shift theta by an hour for manually-entered contracts.
+  function etCloseEpochSec(yyyymmdd){
+    if (!yyyymmdd) return NaN;
+    var probe = new Date(yyyymmdd + 'T16:00:00Z');
+    if (isNaN(probe.getTime())) return NaN;
+    var parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(probe);
+    var h = parseInt((parts.find(function(p){return p.type==='hour';})||{}).value, 10) || 0;
+    var mi = parseInt((parts.find(function(p){return p.type==='minute';})||{}).value, 10) || 0;
+    if (h === 24) h = 0;
+    var diffMin = (16*60) - (h*60 + mi);
+    return Math.floor((probe.getTime() + diffMin*60*1000) / 1000);
+  }
 
   // --- Theme toggle -------------------------------------------------------
   function bindThemeToggle(){
@@ -807,7 +826,7 @@
     if (!isFinite(bid) || !isFinite(ask) || bid < 0 || ask < 0) { setStatus('opt-manual-status', 'Bid and ask are required (enter 0 if you have no quote).', 'err'); return; }
     if (ask < bid) { setStatus('opt-manual-status', 'Ask is below bid — check your numbers.', 'err'); return; }
 
-    var expEpoch = Math.floor(new Date(expDateStr + 'T16:00:00-04:00').getTime()/1000);
+    var expEpoch = etCloseEpochSec(expDateStr);
     var label = type.toUpperCase() + ' $' + strike + ' · exp ' + expDateStr;
     var built = buildResultHtml({
       type: type, spot: spot, strike: strike, expEpoch: expEpoch,

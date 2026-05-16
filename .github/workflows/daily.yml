@@ -1,16 +1,20 @@
 name: Daily build
 
 # Regenerates the baked per-ticker JSON (chains, AI news takes, technicals)
-# twice a day. The commit it pushes triggers Vercel's GitHub integration,
-# which deploys the new static files automatically — no Pages step here.
+# three times a weekday. The commit it pushes triggers Vercel's GitHub
+# integration, which deploys the new static files automatically.
 on:
   schedule:
-    # 13:00 UTC weekdays — ~9:00am ET before the US market open.
-    - cron: "0 13 * * 1-5"
-    # 16:30 UTC weekdays — ~12:30pm ET, midday during the session.
-    - cron: "30 16 * * 1-5"
-    # 21:30 UTC daily — ~5:30pm ET after the US market close.
-    - cron: "30 21 * * *"
+    # Three runs targeting ~9:00am, 12:30pm, and 5:30pm America/New_York.
+    # GitHub cron is UTC-only, so each slot has two cron entries — one for
+    # EDT (UTC-4) and one for EST (UTC-5). The `check` job gates the build
+    # so exactly one run per slot per day executes regardless of DST regime.
+    - cron: "0 13 * * 1-5"    # 9:00 ET (EDT) / 8:00 ET (EST)
+    - cron: "0 14 * * 1-5"    # 10:00 ET (EDT) / 9:00 ET (EST)
+    - cron: "30 16 * * 1-5"   # 12:30 ET (EDT) / 11:30 ET (EST)
+    - cron: "30 17 * * 1-5"   # 13:30 ET (EDT) / 12:30 ET (EST)
+    - cron: "30 21 * * *"     # 17:30 ET (EDT) / 16:30 ET (EST)
+    - cron: "30 22 * * *"     # 18:30 ET (EDT) / 17:30 ET (EST)
   workflow_dispatch:
 
 permissions:
@@ -21,7 +25,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check:
+    # Drops the cron firing whose current ET hour isn't one of the three
+    # intended slots (9, 12, 17). Manual workflow_dispatch always proceeds.
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.slot.outputs.proceed }}
+    steps:
+      - id: slot
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_dispatch — proceeding."
+            exit 0
+          fi
+          ET_HOUR=$(TZ=America/New_York date +%H)
+          case "$ET_HOUR" in
+            09|12|17)
+              echo "proceed=true" >> "$GITHUB_OUTPUT"
+              echo "ET hour $ET_HOUR matches a scheduled slot — proceeding."
+              ;;
+            *)
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              echo "ET hour $ET_HOUR is not a scheduled slot — skipping this DST-duplicate firing."
+              ;;
+          esac
+
   build:
+    needs: check
+    if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
