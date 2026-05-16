@@ -23,6 +23,10 @@ const FRONT_EXPIRATIONS = 3;
 const MIN_VOLUME = 500;
 const MIN_RATIO = 2;
 const POLITENESS_MS = 250;
+// Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
+// or rate-limits after a burst — match build.mjs's retry pattern.
+const FETCH_RETRIES = 3;
+const FETCH_BACKOFF_MS = [1000, 3000, 8000];
 // ETFs trade enormous volume on small "OI" relative to single names — keep
 // them in scope but they'll mostly self-filter out of the loudest hits.
 const EXCLUDE_FROM_SCAN = new Set([]);
@@ -40,6 +44,31 @@ const yahooFinance = new YahooFinance({
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function isTransientYahooError(err) {
+  const msg = String(err?.message || err || "");
+  if (/allowlist|401|403|429|5\d\d|ENOTFOUND|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(msg)) return true;
+  if (/validation|schema|FailedYahooValidationError/i.test(msg)) return false;
+  return true;
+}
+
+async function fetchOptionsWithRetry(symbol, opts) {
+  let lastErr;
+  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
+    try {
+      const result = await yahooFinance.options(symbol, opts);
+      if (attempt > 1) console.log(`    ↻ ${symbol} succeeded on attempt ${attempt}`);
+      return result;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === FETCH_RETRIES || !isTransientYahooError(err)) break;
+      const wait = FETCH_BACKOFF_MS[attempt - 1] ?? 8000;
+      console.log(`    ↻ ${symbol} attempt ${attempt} failed (${err.message}) — retrying in ${wait}ms`);
+      await sleep(wait);
+    }
+  }
+  throw lastErr;
 }
 
 function compressHit(symbol, side, c, expSec, scannedAt) {
@@ -63,7 +92,7 @@ function compressHit(symbol, side, c, expSec, scannedAt) {
 async function scanTicker(symbol, scannedAt) {
   // First call: nearest expiration + the full expirationDates list. Reuse its
   // chain so we don't repeat the same Yahoo call when iterating expirations.
-  const first = await yahooFinance.options(symbol);
+  const first = await fetchOptionsWithRetry(symbol);
   const spot =
     first.quote?.regularMarketPrice ??
     first.quote?.postMarketPrice ??
@@ -109,7 +138,7 @@ async function scanTicker(symbol, scannedAt) {
     const d = expirations[i];
     await sleep(POLITENESS_MS);
     try {
-      const r = await yahooFinance.options(symbol, { date: d });
+      const r = await fetchOptionsWithRetry(symbol, { date: d });
       const entry = r.options?.[0];
       if (!entry) continue;
       const expSec = entry.expirationDate

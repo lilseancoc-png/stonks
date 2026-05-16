@@ -5,9 +5,10 @@ name: Unusual options flow
 # Vercel's GitHub integration to redeploy the static page with fresh data.
 on:
   schedule:
-    # Top of every hour 14:00-21:00 UTC, Mon-Fri.
-    # Roughly 10:00am-5:00pm ET (EDT) / 9:00am-4:00pm ET (EST).
-    - cron: "0 14-21 * * 1-5"
+    # Target ET market hours (9-16 ET). Each ET hour has two UTC cron entries
+    # — one for EDT (UTC-4) and one for EST (UTC-5). The `check` job below
+    # gates the scan to only the firings whose current ET hour is in [9, 16].
+    - cron: "0 13-21 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -20,7 +21,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.slot.outputs.proceed }}
+    steps:
+      - id: slot
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_dispatch — proceeding."
+            exit 0
+          fi
+          ET_HOUR=$(TZ=America/New_York date +%H)
+          # Market hours target: 09-16 ET inclusive.
+          if [ "$ET_HOUR" -ge 9 ] && [ "$ET_HOUR" -le 16 ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "ET hour $ET_HOUR is within market hours — proceeding."
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "ET hour $ET_HOUR is outside 9-16 ET — skipping this DST-duplicate firing."
+          fi
+
   scan:
+    needs: check
+    if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,10 +64,14 @@ jobs:
         run: |
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
+          # Pull before staging so a concurrent push from daily.yml doesn't
+          # cause the rebase below to drop our newly-staged data/unusual.json.
+          git stash push --include-untracked --quiet data/unusual.json || true
+          git pull --rebase origin "${GITHUB_REF_NAME:-main}"
+          git stash pop --quiet || true
           git add data/unusual.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: unusual flow scan $(date -u +%Y-%m-%dT%H:%MZ)"
-            git pull --rebase origin "${GITHUB_REF_NAME:-main}"
             git push
           else
             echo "No changes to commit."
