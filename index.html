@@ -189,6 +189,36 @@
       <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
       <div id="opt-eval-result" class="opt-result"></div>
     </div>
+    <details class="opt-explainer" id="opt-grade-explainer">
+      <summary>How is the grade computed?</summary>
+      <div class="opt-explainer-body">
+        <p>Each contract picks up a <b>Spread</b>, <b>Delta</b>, and <b>Theta</b> grade, then the overall verdict aggregates them:</p>
+        <ul>
+          <li>2+ bad &rarr; <b>Poor contract</b></li>
+          <li>1 bad &rarr; <b>Mixed &mdash; proceed with caution</b></li>
+          <li>2+ good &rarr; <b>Good contract</b></li>
+          <li>otherwise &rarr; <b>Acceptable</b></li>
+        </ul>
+        <p>A clear <b>news tailwind</b> or <b>headwind</b> can nudge an <em>Acceptable</em> verdict to Good or Poor based on the AI-summarized headline sentiment.</p>
+        <h4>Per-metric thresholds</h4>
+        <ul>
+          <li><b>Spread:</b> Tight (&le;5% of mid), Moderate (5&ndash;15%), Wide (&gt;15%)</li>
+          <li><b>Delta:</b> Balanced (0.40&ndash;0.70), Slightly OTM (0.30&ndash;0.40), Deep ITM (&gt;0.70), Far OTM (&lt;0.30)</li>
+          <li><b>Theta:</b> Slow decay (&lt;1% of mid/day), Normal (1&ndash;3%), Bleeding (&gt;3%)</li>
+          <li><b>Liquidity (open interest):</b> Thin (&lt;10), Light (&lt;100), Liquid (&ge;100)</li>
+          <li><b>30d realized vol:</b> Calm (bottom 30% of this name&rsquo;s own history), Normal, Elevated (top 30%)</li>
+        </ul>
+        <h4>YES / NO buy badge</h4>
+        <p>The binary badge is independent of the Good/Mixed/Poor verdict. It falls to <b>NO</b> immediately for any of these mechanical disqualifiers:</p>
+        <ul>
+          <li>Wide spread, Far-OTM delta, or Bleeding theta</li>
+          <li>&le;3 days to expiry (gamma and theta are extreme)</li>
+          <li>Premium that is &gt;80% time-value with &lt;14 days to expiry</li>
+        </ul>
+        <p>Otherwise it scores <b>news</b> (&plusmn;2), <b>RSI</b> + <b>MACD</b> (&plusmn;1 each), and <b>fundamentals</b> verdict (&plusmn;1). The score is multiplied by the option direction (+1 for calls, &minus;1 for puts). It clears to <b>YES</b> when either: aligned score &ge;+2 with no opposing signals, or two &ldquo;good&rdquo; mechanical grades with nothing opposing the direction.</p>
+        <p class="opt-explainer-foot">All thresholds are simple heuristics, not optimal strategies. For information only &mdash; not investment advice.</p>
+      </div>
+    </details>
   </section>
   <section class="card" id="opt-manual-section">
     <details class="opt-manual-details">

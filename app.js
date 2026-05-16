@@ -500,6 +500,33 @@
     if (pctile <= 70) return { label:'Normal', cls:'fair', note:'realized vol mid-range vs. this name’s recent history' };
     return { label:'Elevated', cls:'bad', note:'realized vol in top 30% — premiums likely rich, expect mean reversion' };
   }
+  // Days-to-earnings context for the verdict card. Expected move is the
+  // volatility-implied ±X by the earnings call assuming the option's IV
+  // embeds that risk: spot * iv * sqrt(daysToEarnings / 365). We only show
+  // the move when earnings happens BEFORE expiry; otherwise the contract's
+  // IV isn't really capturing the print and the proxy is misleading.
+  function computeEarningsContext(fundamentals, spot, iv, expEpoch){
+    if (!fundamentals || !fundamentals.nextEarningsDate) return null;
+    var earnDt = new Date(fundamentals.nextEarningsDate + 'T16:00:00Z');
+    if (isNaN(earnDt.getTime())) return null;
+    var now = Date.now();
+    var daysRaw = (earnDt.getTime() - now) / (24*3600*1000);
+    if (daysRaw < -1) return null;
+    var daysToEarnings = Math.max(0, Math.round(daysRaw));
+    var withinExpiry = !expEpoch || Math.floor(earnDt.getTime() / 1000) <= expEpoch;
+    var emAbs = null, emPct = null;
+    if (iv > 0 && spot > 0 && daysRaw >= 0 && withinExpiry){
+      emAbs = spot * iv * Math.sqrt(daysRaw / 365);
+      emPct = emAbs / spot * 100;
+    }
+    return {
+      dateIso: fundamentals.nextEarningsDate,
+      daysToEarnings: daysToEarnings,
+      withinExpiry: withinExpiry,
+      expectedMoveAbs: emAbs,
+      expectedMovePct: emPct,
+    };
+  }
   function gradeDelta(delta){
     var a = Math.abs(delta);
     if (a >= 0.40 && a <= 0.70) return { label:'Balanced',     cls:'good', note:'good directional sensitivity without paying full intrinsic' };
@@ -792,6 +819,15 @@
     html += row('Time value', extrinsic != null ? '$' + fmt(extrinsic) : '—', mid > 0 && extrinsic != null ? '<span class="opt-row-mute">' + fmtPct(extrinsic / mid * 100) + ' of mid</span>' : '', TIPS.extrinsic);
     html += row('Breakeven at expiry', breakeven != null ? '$' + fmt(breakeven) : '—', input.spot > 0 && breakeven != null ? '<span class="opt-row-mute">' + (((breakeven - input.spot) / input.spot * 100) >= 0 ? '+' : '') + ((breakeven - input.spot) / input.spot * 100).toFixed(2) + '% from spot</span>' : '', TIPS.breakeven);
     html += row('Moneyness', moneynessPct != null ? ((moneynessPct >= 0 ? '+' : '') + moneynessPct.toFixed(2) + '%') : '—', '', TIPS.moneyness);
+    var earn = computeEarningsContext(input.fundamentals, input.spot, iv, input.expEpoch);
+    if (earn){
+      var earnLabel = earn.dateIso + ' · ' + earn.daysToEarnings + ' day' + (earn.daysToEarnings === 1 ? '' : 's');
+      var earnSub = earn.withinExpiry ? '<span class="opt-row-mute">before expiry</span>' : '<span class="opt-row-mute">after expiry</span>';
+      html += row('Next earnings', earnLabel, earnSub, 'Yahoo-reported next earnings release date. If earnings falls before this contract’s expiry, the chain’s IV is likely elevated to embed the move.');
+      if (earn.expectedMoveAbs != null){
+        html += row('Expected move by earnings', '±$' + fmt(earn.expectedMoveAbs), '<span class="opt-row-mute">±' + earn.expectedMovePct.toFixed(2) + '% of spot</span>', 'Spot × IV × √(daysToEarnings/365). A volatility-implied estimate of how far the underlying could move by the print — the actual reaction often surprises in either direction.');
+      }
+    }
     html += row('IV', iv != null ? fmtPct(iv*100) : '—', '', TIPS.iv);
     var volRegime = input.technicals && input.technicals.volRegime;
     var vGrade = volRegime ? gradeVolRegime(volRegime.rv30Pctile) : null;
