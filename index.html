@@ -31,10 +31,10 @@
     </a>
   </nav>
 </header>
-<p class="page-sub">Grade a single options contract on spread, delta, and theta — 66 curated tickers refreshed daily. Watch the market narratives currently driving them.</p>
+<p class="page-sub">Grade an options contract on spread, delta, and theta. 66 curated tickers, refreshed daily.</p>
 <div id="freshness-banner" class="freshness" data-built-at="2026-05-15T22:58:58.141Z" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
-  <span id="freshness-text">Built May 15, 2026, 6:58 PM (NY) · end-of-session quotes from Yahoo</span>
+  <span id="freshness-text">Built May 15, 2026, 6:58 PM (NY)</span>
 </div>
 <main>
   <section class="card" id="narratives-section">
@@ -42,7 +42,7 @@
       <h2 class="card-title">Active market narratives</h2>
       <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
     </header>
-    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Each sector tab opens to a top-down <em>sector overview</em> (the dominant story for that whole sector) followed by sub-industry narratives. Every block carries a "<em>Watch for narrative shift</em>" panel — the concrete red flags that would flip or break the thesis (e.g. "Mag 7 hyperscaler capex guide DOWN" for the AI / Semis bull). Gold and Silver sit in their own Precious Metals tab as standalone macro plays.</p>
+    <p class="hint">The stories currently driving capital — AI capex, GLP-1, tariffs, rotations. Each sector tab opens to its dominant overview, then sub-industry narratives, each with a <em>Watch for narrative shift</em> panel listing the red flags that would break the thesis.</p>
     <div id="narratives-tabs" class="narr-tabs" role="tablist" aria-label="Market sectors"></div>
     <div id="narratives-panel" class="narr-panel" role="tabpanel"></div>
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
@@ -58,7 +58,7 @@
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
     <div id="flow-body" class="flow-body">
-      <p class="hint">Contracts where today's volume dwarfs the open interest — fresh positioning that often signals informed flow or large hedges. Scanned hourly during US market hours across the front 3 expirations. Threshold: 500+ contracts traded AND volume/OI ratio ≥ 2x. Sorted by hottest ratio.</p>
+      <p class="hint">Contracts where today's volume dwarfs open interest — fresh positioning that often flags informed flow. Hourly scan, front 3 expirations, 500+ volume and ratio ≥ 2x.</p>
       <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
         <label class="flow-search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -72,11 +72,10 @@
         </div>
         <label class="flow-toggle">
           <input type="checkbox" id="flow-hot-only" />
-          <span>Hot only <span class="flow-toggle-hint">(≥10x)</span></span>
+          <span>Hot ≥10x</span>
         </label>
         <label class="flow-sort">
-          <span class="flow-sort-label">Sort</span>
-          <select id="flow-sort-select">
+          <select id="flow-sort-select" aria-label="Sort">
             <option value="hottest">Hottest first</option>
             <option value="contracts">Most contracts</option>
             <option value="alpha">A → Z</option>
@@ -180,7 +179,7 @@
         <span class="opt-manual-trigger-sub">paste from your broker</span>
       </summary>
       <div class="opt-manual-body">
-        <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Paste the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
+        <p class="hint">Paste numbers straight off Robinhood, Schwab, etc. — we strip <code>$</code>, <code>%</code>, commas, and size suffixes. IV / OI / volume are optional; without IV the Greeks are skipped.</p>
         <form id="opt-manual-form" class="opt-manual-grid">
       <label class="opt-manual-field opt-manual-paste">
         <span class="opt-manual-field-label">Paste contract symbol <span class="opt-manual-opt">optional · fills type / strike / expiry</span></span>

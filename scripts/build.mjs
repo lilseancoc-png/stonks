@@ -684,7 +684,7 @@ function narrativesSection() {
       <h2 class="card-title">Active market narratives</h2>
       <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
     </header>
-    <p class="hint">Markets run on stories — AI capex, GLP-1, tariffs, post-election rotations. Each sector tab opens to a top-down <em>sector overview</em> (the dominant story for that whole sector) followed by sub-industry narratives. Every block carries a "<em>Watch for narrative shift</em>" panel — the concrete red flags that would flip or break the thesis (e.g. "Mag 7 hyperscaler capex guide DOWN" for the AI / Semis bull). Gold and Silver sit in their own Precious Metals tab as standalone macro plays.</p>
+    <p class="hint">The stories currently driving capital — AI capex, GLP-1, tariffs, rotations. Each sector tab opens to its dominant overview, then sub-industry narratives, each with a <em>Watch for narrative shift</em> panel listing the red flags that would break the thesis.</p>
     <div id="narratives-tabs" class="narr-tabs" role="tablist" aria-label="Market sectors"></div>
     <div id="narratives-panel" class="narr-panel" role="tabpanel"></div>
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
@@ -709,7 +709,7 @@ function unusualFlowSection() {
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
     <div id="flow-body" class="flow-body">
-      <p class="hint">Contracts where today's volume dwarfs the open interest — fresh positioning that often signals informed flow or large hedges. Scanned hourly during US market hours across the front 3 expirations. Threshold: 500+ contracts traded AND volume/OI ratio ≥ 2x. Sorted by hottest ratio.</p>
+      <p class="hint">Contracts where today's volume dwarfs open interest — fresh positioning that often flags informed flow. Hourly scan, front 3 expirations, 500+ volume and ratio ≥ 2x.</p>
       <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
         <label class="flow-search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -723,11 +723,10 @@ function unusualFlowSection() {
         </div>
         <label class="flow-toggle">
           <input type="checkbox" id="flow-hot-only" />
-          <span>Hot only <span class="flow-toggle-hint">(≥10x)</span></span>
+          <span>Hot ≥10x</span>
         </label>
         <label class="flow-sort">
-          <span class="flow-sort-label">Sort</span>
-          <select id="flow-sort-select">
+          <select id="flow-sort-select" aria-label="Sort">
             <option value="hottest">Hottest first</option>
             <option value="contracts">Most contracts</option>
             <option value="alpha">A → Z</option>
@@ -837,7 +836,7 @@ function optionEvalSection() {
         <span class="opt-manual-trigger-sub">paste from your broker</span>
       </summary>
       <div class="opt-manual-body">
-        <p class="hint">Looking at a contract on Robinhood, Schwab, etc.? Paste the numbers straight off the screen — we strip <code>$</code>, <code>%</code>, commas, and the <code>× 55</code> size suffix automatically. IV, OI and volume are optional; without IV we skip the Greeks.</p>
+        <p class="hint">Paste numbers straight off Robinhood, Schwab, etc. — we strip <code>$</code>, <code>%</code>, commas, and size suffixes. IV / OI / volume are optional; without IV the Greeks are skipped.</p>
         <form id="opt-manual-form" class="opt-manual-grid">
       <label class="opt-manual-field opt-manual-paste">
         <span class="opt-manual-field-label">Paste contract symbol <span class="opt-manual-opt">optional · fills type / strike / expiry</span></span>
@@ -2865,10 +2864,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </a>
   </nav>
 </header>
-<p class="page-sub">Grade a single options contract on spread, delta, and theta — ${tickerCount} curated tickers refreshed daily. Watch the market narratives currently driving them.</p>
+<p class="page-sub">Grade an options contract on spread, delta, and theta. ${tickerCount} curated tickers, refreshed daily.</p>
 <div id="freshness-banner" class="freshness" data-built-at="${builtAtIso}" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
-  <span id="freshness-text">Built ${builtAt} (NY) · end-of-session quotes from Yahoo</span>
+  <span id="freshness-text">Built ${builtAt} (NY)</span>
 </div>
 <main>
   ${narrativesSection()}
@@ -3016,7 +3015,7 @@ button { font: inherit; }
 .page-sub {
   max-width: 760px; margin: 0 auto;
   padding: 0 var(--s-5) var(--s-3);
-  color: var(--muted); font-size: var(--fs-md);
+  color: var(--muted); font-size: var(--fs-sm);
 }
 
 main {
@@ -3034,46 +3033,42 @@ main {
 }
 .site-footer .muted { color: var(--muted); }
 
-/* === Freshness banner === */
+/* === Freshness banner ===
+   Subtle one-liner — a small status dot and muted text, no background or
+   border so it doesn't compete with the cards below. The dot picks up the
+   warn/bad colour when the build is stale. */
 .freshness {
   max-width: 760px;
-  margin: 0 var(--s-5) var(--s-4);
-  padding: var(--s-2) var(--s-4);
-  border-radius: var(--r-3);
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  color: var(--text);
-  font-size: var(--fs-sm);
+  margin: 0 var(--s-5) var(--s-3);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--fs-xs);
   display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap;
 }
 @media (min-width: 800px){ .freshness { margin-left: auto; margin-right: auto; } }
 .freshness .freshness-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent); flex: 0 0 8px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--pos); flex: 0 0 6px;
 }
-.freshness.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .freshness.warn .freshness-dot { background: var(--warn); }
-.freshness.bad  { background: var(--neg-soft);  border-color: color-mix(in srgb, var(--neg) 40%, transparent); }
-.freshness.bad .freshness-dot { background: var(--neg); }
+.freshness.bad  .freshness-dot { background: var(--neg); }
 .freshness-detail { color: var(--muted); }
 
 /* === Cards === */
 .card {
   position: relative;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 100%, transparent), color-mix(in srgb, var(--surface) 96%, transparent)),
-    var(--surface);
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   border-radius: var(--r-4);
-  padding: var(--s-5);
+  padding: var(--s-4) var(--s-5);
   box-shadow: var(--shadow-sm);
-  margin-bottom: var(--s-4);
+  margin-bottom: var(--s-3);
 }
 .card-header {
   display: flex; align-items: center; gap: var(--s-3);
-  padding-bottom: var(--s-3);
+  padding-bottom: var(--s-2);
   margin-bottom: var(--s-3);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 .card-title {
   margin: 0;
@@ -3100,10 +3095,10 @@ main {
   margin-left: auto;
 }
 .hint {
-  margin: 0 0 var(--s-4);
+  margin: 0 0 var(--s-3);
   color: var(--muted);
   font-size: var(--fs-sm);
-  line-height: 1.55;
+  line-height: 1.5;
 }
 .hint code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -3783,23 +3778,22 @@ main {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--s-2) var(--s-3);
-  padding: var(--s-2) 0 var(--s-3);
-  margin-bottom: var(--s-2);
-  border-bottom: 1px dashed var(--border);
+  gap: var(--s-2);
+  padding: 0 0 var(--s-3);
+  margin-bottom: var(--s-3);
 }
 .flow-search {
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
-  padding: 6px 10px;
-  min-width: 220px;
-  flex: 1 1 220px;
-  max-width: 320px;
+  padding: 4px 10px;
+  min-width: 180px;
+  flex: 1 1 180px;
+  max-width: 260px;
   transition: border-color .12s ease, box-shadow .12s ease;
 }
 .flow-search:focus-within {
@@ -3878,31 +3872,31 @@ main {
 }
 .flow-sort-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
 .flow-sort select {
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
   color: var(--text);
   font: inherit;
   font-size: var(--fs-sm);
-  padding: 5px 8px;
+  padding: 4px 8px;
   cursor: pointer;
 }
 .flow-sort select:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
 
 .flow-action-btn {
   margin-left: auto;
-  background: var(--surface);
+  background: transparent;
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--muted);
   font: inherit;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: 600;
-  padding: 5px 12px;
+  padding: 4px 10px;
   border-radius: var(--r-2);
   cursor: pointer;
-  transition: background .12s ease, border-color .12s ease;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
-.flow-action-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.flow-action-btn:hover { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
 .flow-action-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 .flow-list { display: flex; flex-direction: column; gap: var(--s-2); }
@@ -3911,13 +3905,13 @@ main {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
-  padding: var(--s-3);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: var(--r-3);
   transition: border-color .15s ease, background .15s ease;
 }
-.flow-row:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.flow-row:hover { background: var(--surface-3); border-color: var(--border-strong); }
 .flow-row.tier-hot { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .flow-row.is-collapsed { padding-bottom: var(--s-2); }
 .flow-row-head {
