@@ -1527,6 +1527,53 @@ main {
 .opt-contract-mini { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .opt-result:empty { display: none; }
+.opt-buy {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-3);
+  border: 1px solid;
+  margin: var(--s-3) 0 var(--s-2);
+}
+.opt-buy.yes { background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
+.opt-buy.no  { background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.opt-buy-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 8px 14px;
+  border-radius: var(--r-2);
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: #fff;
+  flex: 0 0 auto;
+}
+.opt-buy.yes .opt-buy-badge { background: var(--pos); }
+.opt-buy.no  .opt-buy-badge { background: var(--neg); }
+.opt-buy-reason {
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text);
+}
+.opt-buy-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fff;
+}
+.opt-buy-mini.yes { background: var(--pos); }
+.opt-buy-mini.no  { background: var(--neg); }
 .opt-verdict {
   display: inline-block;
   padding: 6px 14px;

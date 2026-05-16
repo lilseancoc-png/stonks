@@ -1321,6 +1321,76 @@ export function renderAppJs() {
     if (news.sentiment === 'bearish') return { label:'Poor contract · news headwind', cls:'bad', nudged:true };
     return verdict;
   }
+  // Binary buy decision aggregating mechanics + news + technicals +
+  // fundamentals. Falls to NO on any hard mechanical disqualifier (wide
+  // spread, far-OTM delta, bleeding theta, ≤3 DTE, premium that's almost
+  // all time value with no runway). Otherwise scores directional alignment
+  // — news (±2), RSI and MACD (±1 each), fundamentals verdict (±1) — and
+  // multiplies by the option direction (+1 for calls, -1 for puts). Needs
+  // at least +2 aligned points and zero opposing edge to clear to YES.
+  function shouldBuy(args){
+    var sGrade = args.sGrade, dGrade = args.dGrade, tGrade = args.tGrade;
+    var dte = args.daysToExpiry;
+    var extrinsicRatio = args.extrinsicRatio;
+    var type = args.type;
+    var news = args.news, tech = args.technicals, fund = args.fundamentals;
+
+    function no(why){ return { decision:'no', reasons:[why] }; }
+    function yes(rs){ return { decision:'yes', reasons: rs }; }
+
+    if (sGrade && sGrade.cls === 'bad') return no('wide spread will eat your edge on entry/exit');
+    if (dGrade && dGrade.cls === 'bad') return no('far OTM — most likely expires worthless');
+    if (tGrade && tGrade.cls === 'bad') return no('heavy theta decay grinds this down fast');
+    if (dte != null && dte <= 3) return no('only ' + dte + ' day' + (dte === 1 ? '' : 's') + ' to expiry — gamma and theta are extreme');
+    if (extrinsicRatio != null && extrinsicRatio > 0.8 && dte != null && dte < 14) {
+      return no('paying almost all time premium with little time for it to pay off');
+    }
+
+    var dir = type === 'call' ? 1 : -1;
+    var score = 0;
+    var bull = [], bear = [];
+    if (news && news.sentiment){
+      if (news.sentiment === 'bullish'){ score += 2; bull.push('news'); }
+      else if (news.sentiment === 'bearish'){ score -= 2; bear.push('news'); }
+    }
+    if (tech){
+      var rsi = rsiState(tech.rsi);
+      var macd = macdState(tech.macd);
+      if (rsi.cls === 'pos'){ score += 1; bull.push('RSI'); }
+      else if (rsi.cls === 'warn'){ score -= 1; bear.push('RSI'); }
+      if (macd.cls === 'pos'){ score += 1; bull.push('MACD'); }
+      else if (macd.cls === 'warn'){ score -= 1; bear.push('MACD'); }
+    }
+    if (fund && fund.verdict){
+      if (fund.verdict === 'bullish'){ score += 1; bull.push('fundamentals'); }
+      else if (fund.verdict === 'bearish'){ score -= 1; bear.push('fundamentals'); }
+    }
+
+    var aligned = score * dir;
+    var alignedNames = dir > 0 ? bull : bear;
+    var opposedNames = dir > 0 ? bear : bull;
+    var goodCount = (sGrade && sGrade.cls === 'good' ? 1 : 0) +
+                    (dGrade && dGrade.cls === 'good' ? 1 : 0) +
+                    (tGrade && tGrade.cls === 'good' ? 1 : 0);
+
+    if (aligned < 0) return no((opposedNames.length ? opposedNames.join(' + ') + ' lean against ' : 'signals lean against ') + (type === 'call' ? 'calls' : 'puts'));
+    // Strong alignment passes regardless of mechanical "good" count.
+    if (aligned >= 2){
+      var rs1 = [];
+      rs1.push(sGrade && sGrade.cls === 'good' ? 'spread tight' : 'spread workable');
+      if (dGrade && dGrade.cls === 'good') rs1.push('delta balanced');
+      rs1.push(alignedNames.join(' + ') + ' back the move');
+      return yes(rs1);
+    }
+    // No positive conviction but mechanics are clean and nothing opposes:
+    // good contract on a neutral / manual-paste backdrop still qualifies.
+    if (goodCount >= 2 && opposedNames.length === 0){
+      var rs2 = ['mechanics clean'];
+      rs2.push(alignedNames.length ? alignedNames.join(' + ') + ' lean ' + (type === 'call' ? 'bullish' : 'bearish') : 'no opposing signals');
+      return yes(rs2);
+    }
+    return no('not enough conviction backing this direction');
+  }
 
   var TIPS = {
     spread:     'Gap between bid (what buyers pay) and ask (what sellers want). Wider = you lose more on entry/exit.',
@@ -1485,8 +1555,20 @@ export function renderAppJs() {
       : null;
     var probITM = g ? Math.abs(g.delta) * 100 : null;
     var daysToExpiry = Math.max(0, Math.round(T*365));
+    var extrinsicRatio = (extrinsic != null && mid > 0) ? (extrinsic / mid) : null;
+
+    var buy = shouldBuy({
+      sGrade: sGrade, dGrade: dGrade, tGrade: tGrade,
+      daysToExpiry: daysToExpiry, extrinsicRatio: extrinsicRatio,
+      type: input.type,
+      news: input.news, technicals: input.technicals, fundamentals: input.fundamentals,
+    });
 
     var html = '';
+    html += '<div class="opt-buy ' + buy.decision + '" id="opt-buy-main" role="status">' +
+      '<span class="opt-buy-badge">' + (buy.decision === 'yes' ? 'YES' : 'NO') + '</span>' +
+      '<span class="opt-buy-reason">' + escapeHtml(buy.reasons.join(' · ')) + '</span>' +
+    '</div>';
     html += '<div class="opt-verdict ' + verdict.cls + '" id="opt-verdict-main">' + verdict.label + '</div>';
     html += verdictExplainer(verdict.cls);
     if (verdict.nudged && input.news && input.news.sentiment){
@@ -1550,13 +1632,17 @@ export function renderAppJs() {
       ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
       : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
     html += '<p class="opt-disclaimer">' + disc + '</p>';
-    return { html: html, verdict: verdict, contractLabel: input.label || '' };
+    return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '' };
   }
 
-  function renderStickyVerdict(verdict, label){
+  function renderStickyVerdict(verdict, label, buy){
     var bar = $('opt-result-sticky');
     if (!bar) return;
-    bar.innerHTML = '<span class="opt-verdict-mini ' + verdict.cls + '">' + verdict.label + '</span>' +
+    var buyHtml = buy
+      ? '<span class="opt-buy-mini ' + buy.decision + '">' + (buy.decision === 'yes' ? 'YES' : 'NO') + '</span>'
+      : '';
+    bar.innerHTML = buyHtml +
+      '<span class="opt-verdict-mini ' + verdict.cls + '">' + verdict.label + '</span>' +
       '<span class="opt-contract-mini">' + escapeHtml(label) + '</span>';
   }
   function setupStickyObserver(){
@@ -1587,10 +1673,11 @@ export function renderAppJs() {
       type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
       bid: c.b, ask: c.a, last: c.l, iv: c.iv,
       oi: c.oi, volume: c.v, label: label, source: 'chain',
-      news: state.news, ticker: state.symbol
+      news: state.news, technicals: state.technicals, fundamentals: state.fundamentals,
+      ticker: state.symbol
     });
     resultEl.innerHTML = built.html;
-    renderStickyVerdict(built.verdict, built.contractLabel);
+    renderStickyVerdict(built.verdict, built.contractLabel, built.buy);
     setupStickyObserver();
     setStatus('opt-eval-status', '', '');
   }
@@ -4455,6 +4542,53 @@ main {
 .opt-contract-mini { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .opt-result:empty { display: none; }
+.opt-buy {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-3);
+  border: 1px solid;
+  margin: var(--s-3) 0 var(--s-2);
+}
+.opt-buy.yes { background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
+.opt-buy.no  { background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.opt-buy-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 8px 14px;
+  border-radius: var(--r-2);
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: #fff;
+  flex: 0 0 auto;
+}
+.opt-buy.yes .opt-buy-badge { background: var(--pos); }
+.opt-buy.no  .opt-buy-badge { background: var(--neg); }
+.opt-buy-reason {
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text);
+}
+.opt-buy-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fff;
+}
+.opt-buy-mini.yes { background: var(--pos); }
+.opt-buy-mini.no  { background: var(--neg); }
 .opt-verdict {
   display: inline-block;
   padding: 6px 14px;
