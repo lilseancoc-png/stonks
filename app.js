@@ -894,7 +894,7 @@
     // and only here — nothing about a ticker is preloaded before the user
     // commits to it. force-cache keeps re-selects free for the rest of the
     // session.
-    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', '');
+    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', cached ? '' : 'loading');
     fetchChain(symbol).then(function(entry){
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
