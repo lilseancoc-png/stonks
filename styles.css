@@ -1093,17 +1093,18 @@ main {
 .flow-contracts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
+.flow-contracts[hidden] { display: none; }
 .flow-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 2px 8px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   color: var(--text);
@@ -1121,9 +1122,9 @@ main {
 }
 .flow-side {
   font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  padding: 1px 6px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
   border-radius: var(--r-1);
 }
 .flow-chip.call .flow-side { color: var(--pos); background: var(--pos-soft); }
@@ -1144,7 +1145,7 @@ main {
 .flow-ratio {
   font-weight: 700;
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: 11px;
 }
 .flow-chip.tier-warm .flow-ratio { color: var(--warn); }
 .flow-chip.tier-mild .flow-ratio { color: var(--text); }
