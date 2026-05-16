@@ -7,6 +7,8 @@ on:
   schedule:
     # 13:00 UTC weekdays — ~9:00am ET before the US market open.
     - cron: "0 13 * * 1-5"
+    # 16:30 UTC weekdays — ~12:30pm ET, midday during the session.
+    - cron: "30 16 * * 1-5"
     # 21:30 UTC daily — ~5:30pm ET after the US market close.
     - cron: "30 21 * * *"
   workflow_dispatch:
