@@ -49,14 +49,45 @@
     <div id="narratives-ended" class="narr-ended"></div>
     <div id="narratives-macro" class="narr-macro"></div>
   </section>
-  <section class="card" id="flow-section">
-    <header class="card-header">
-      <h2 class="card-title">Unusual options flow</h2>
+  <section class="card flow-card" id="flow-section">
+    <header class="card-header flow-card-header">
+      <button type="button" id="flow-collapse" class="flow-collapse-btn" aria-expanded="true" aria-controls="flow-body" title="Collapse section">
+        <svg class="flow-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        <h2 class="card-title">Unusual options flow</h2>
+      </button>
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Contracts where today's volume dwarfs the open interest — fresh positioning that often signals informed flow or large hedges. Scanned hourly during US market hours across the front 3 expirations. Threshold: 500+ contracts traded AND volume/OI ratio ≥ 2x. Sorted by hottest ratio.</p>
-    <div id="flow-list" class="flow-list" role="list"></div>
-    <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
+    <div id="flow-body" class="flow-body">
+      <p class="hint">Contracts where today's volume dwarfs the open interest — fresh positioning that often signals informed flow or large hedges. Scanned hourly during US market hours across the front 3 expirations. Threshold: 500+ contracts traded AND volume/OI ratio ≥ 2x. Sorted by hottest ratio.</p>
+      <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
+        <label class="flow-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="flow-search-input" placeholder="Search ticker (e.g. NVDA, TSLA)" autocomplete="off" spellcheck="false" />
+          <button type="button" id="flow-search-clear" class="flow-search-clear" aria-label="Clear search" hidden>&times;</button>
+        </label>
+        <div class="flow-side-filter" role="radiogroup" aria-label="Filter by side">
+          <button type="button" class="flow-pill is-on" data-side="all" role="radio" aria-checked="true">All</button>
+          <button type="button" class="flow-pill" data-side="call" role="radio" aria-checked="false">Calls</button>
+          <button type="button" class="flow-pill" data-side="put" role="radio" aria-checked="false">Puts</button>
+        </div>
+        <label class="flow-toggle">
+          <input type="checkbox" id="flow-hot-only" />
+          <span>Hot only <span class="flow-toggle-hint">(≥10x)</span></span>
+        </label>
+        <label class="flow-sort">
+          <span class="flow-sort-label">Sort</span>
+          <select id="flow-sort-select">
+            <option value="hottest">Hottest first</option>
+            <option value="contracts">Most contracts</option>
+            <option value="alpha">A → Z</option>
+          </select>
+        </label>
+        <button type="button" id="flow-expand-toggle" class="flow-action-btn" aria-pressed="false">Collapse all</button>
+      </div>
+      <div id="flow-list" class="flow-list" role="list"></div>
+      <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
+      <div id="flow-no-results" class="flow-empty" hidden>No tickers match these filters.</div>
+    </div>
   </section>
   <section class="card" id="opt-eval-section">
     <header class="card-header">
