@@ -1849,7 +1849,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     // and only here — nothing about a ticker is preloaded before the user
     // commits to it. force-cache keeps re-selects free for the rest of the
     // session.
-    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', '');
+    setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', cached ? '' : 'loading');
     fetchChain(symbol).then(function(entry){
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
@@ -3008,6 +3008,14 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <meta name="color-scheme" content="light dark" />
 <title>stonks · Option Contract Rater</title>
 <meta name="description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital." />
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="favicon.svg">
+<meta property="og:type" content="website">
+<meta property="og:title" content="stonks · Option Contract Rater">
+<meta property="og:description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="stonks · Option Contract Rater">
+<meta name="twitter:description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital.">
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
@@ -3108,7 +3116,7 @@ export function renderStylesCss() {
   --border-strong:#bcb6ac;
   --text:#26221d;
   --text-strong:#0f0d0a;
-  --muted:#6b655c;
+  --muted:#5a544c;
   --accent:#b45a2b;
   --accent-soft:rgba(180,90,43,0.09);
   --accent-strong:#8f4520;
@@ -3957,9 +3965,24 @@ main {
   font-size: var(--fs-sm);
   min-height: 18px; margin: var(--s-1) 0;
   color: var(--muted);
+  display: flex; align-items: center; gap: var(--s-2);
 }
+.opt-status:empty { display: none; }
 .opt-status.err { color: var(--neg); }
 .opt-status.ok  { color: var(--pos); }
+.opt-status.loading::before {
+  content: "";
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: opt-status-spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+@keyframes opt-status-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .opt-status.loading::before { animation: none; opacity: 0.7; }
+}
 
 /* === Unusual options flow === */
 .flow-card-header { align-items: center; }
