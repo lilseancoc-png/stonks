@@ -913,6 +913,36 @@ function optionEvalSection() {
       <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
       <div id="opt-eval-result" class="opt-result"></div>
     </div>
+    <details class="opt-explainer" id="opt-grade-explainer">
+      <summary>How is the grade computed?</summary>
+      <div class="opt-explainer-body">
+        <p>Each contract picks up a <b>Spread</b>, <b>Delta</b>, and <b>Theta</b> grade, then the overall verdict aggregates them:</p>
+        <ul>
+          <li>2+ bad &rarr; <b>Poor contract</b></li>
+          <li>1 bad &rarr; <b>Mixed &mdash; proceed with caution</b></li>
+          <li>2+ good &rarr; <b>Good contract</b></li>
+          <li>otherwise &rarr; <b>Acceptable</b></li>
+        </ul>
+        <p>A clear <b>news tailwind</b> or <b>headwind</b> can nudge an <em>Acceptable</em> verdict to Good or Poor based on the AI-summarized headline sentiment.</p>
+        <h4>Per-metric thresholds</h4>
+        <ul>
+          <li><b>Spread:</b> Tight (&le;5% of mid), Moderate (5&ndash;15%), Wide (&gt;15%)</li>
+          <li><b>Delta:</b> Balanced (0.40&ndash;0.70), Slightly OTM (0.30&ndash;0.40), Deep ITM (&gt;0.70), Far OTM (&lt;0.30)</li>
+          <li><b>Theta:</b> Slow decay (&lt;1% of mid/day), Normal (1&ndash;3%), Bleeding (&gt;3%)</li>
+          <li><b>Liquidity (open interest):</b> Thin (&lt;10), Light (&lt;100), Liquid (&ge;100)</li>
+          <li><b>30d realized vol:</b> Calm (bottom 30% of this name&rsquo;s own history), Normal, Elevated (top 30%)</li>
+        </ul>
+        <h4>YES / NO buy badge</h4>
+        <p>The binary badge is independent of the Good/Mixed/Poor verdict. It falls to <b>NO</b> immediately for any of these mechanical disqualifiers:</p>
+        <ul>
+          <li>Wide spread, Far-OTM delta, or Bleeding theta</li>
+          <li>&le;3 days to expiry (gamma and theta are extreme)</li>
+          <li>Premium that is &gt;80% time-value with &lt;14 days to expiry</li>
+        </ul>
+        <p>Otherwise it scores <b>news</b> (&plusmn;2), <b>RSI</b> + <b>MACD</b> (&plusmn;1 each), and <b>fundamentals</b> verdict (&plusmn;1). The score is multiplied by the option direction (+1 for calls, &minus;1 for puts). It clears to <b>YES</b> when either: aligned score &ge;+2 with no opposing signals, or two &ldquo;good&rdquo; mechanical grades with nothing opposing the direction.</p>
+        <p class="opt-explainer-foot">All thresholds are simple heuristics, not optimal strategies. For information only &mdash; not investment advice.</p>
+      </div>
+    </details>
   </section>
   <section class="card" id="opt-manual-section">
     <details class="opt-manual-details">
@@ -1482,6 +1512,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (pctile <= 70) return { label:'Normal', cls:'fair', note:'realized vol mid-range vs. this name’s recent history' };
     return { label:'Elevated', cls:'bad', note:'realized vol in top 30% — premiums likely rich, expect mean reversion' };
   }
+  // Days-to-earnings context for the verdict card. Expected move is the
+  // volatility-implied ±X by the earnings call assuming the option's IV
+  // embeds that risk: spot * iv * sqrt(daysToEarnings / 365). We only show
+  // the move when earnings happens BEFORE expiry; otherwise the contract's
+  // IV isn't really capturing the print and the proxy is misleading.
+  function computeEarningsContext(fundamentals, spot, iv, expEpoch){
+    if (!fundamentals || !fundamentals.nextEarningsDate) return null;
+    var earnDt = new Date(fundamentals.nextEarningsDate + 'T16:00:00Z');
+    if (isNaN(earnDt.getTime())) return null;
+    var now = Date.now();
+    var daysRaw = (earnDt.getTime() - now) / (24*3600*1000);
+    if (daysRaw < -1) return null;
+    var daysToEarnings = Math.max(0, Math.round(daysRaw));
+    var withinExpiry = !expEpoch || Math.floor(earnDt.getTime() / 1000) <= expEpoch;
+    var emAbs = null, emPct = null;
+    if (iv > 0 && spot > 0 && daysRaw >= 0 && withinExpiry){
+      emAbs = spot * iv * Math.sqrt(daysRaw / 365);
+      emPct = emAbs / spot * 100;
+    }
+    return {
+      dateIso: fundamentals.nextEarningsDate,
+      daysToEarnings: daysToEarnings,
+      withinExpiry: withinExpiry,
+      expectedMoveAbs: emAbs,
+      expectedMovePct: emPct,
+    };
+  }
   function gradeDelta(delta){
     var a = Math.abs(delta);
     if (a >= 0.40 && a <= 0.70) return { label:'Balanced',     cls:'good', note:'good directional sensitivity without paying full intrinsic' };
@@ -1774,6 +1831,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     html += row('Time value', extrinsic != null ? '$' + fmt(extrinsic) : '—', mid > 0 && extrinsic != null ? '<span class="opt-row-mute">' + fmtPct(extrinsic / mid * 100) + ' of mid</span>' : '', TIPS.extrinsic);
     html += row('Breakeven at expiry', breakeven != null ? '$' + fmt(breakeven) : '—', input.spot > 0 && breakeven != null ? '<span class="opt-row-mute">' + (((breakeven - input.spot) / input.spot * 100) >= 0 ? '+' : '') + ((breakeven - input.spot) / input.spot * 100).toFixed(2) + '% from spot</span>' : '', TIPS.breakeven);
     html += row('Moneyness', moneynessPct != null ? ((moneynessPct >= 0 ? '+' : '') + moneynessPct.toFixed(2) + '%') : '—', '', TIPS.moneyness);
+    var earn = computeEarningsContext(input.fundamentals, input.spot, iv, input.expEpoch);
+    if (earn){
+      var earnLabel = earn.dateIso + ' · ' + earn.daysToEarnings + ' day' + (earn.daysToEarnings === 1 ? '' : 's');
+      var earnSub = earn.withinExpiry ? '<span class="opt-row-mute">before expiry</span>' : '<span class="opt-row-mute">after expiry</span>';
+      html += row('Next earnings', earnLabel, earnSub, 'Yahoo-reported next earnings release date. If earnings falls before this contract’s expiry, the chain’s IV is likely elevated to embed the move.');
+      if (earn.expectedMoveAbs != null){
+        html += row('Expected move by earnings', '±$' + fmt(earn.expectedMoveAbs), '<span class="opt-row-mute">±' + earn.expectedMovePct.toFixed(2) + '% of spot</span>', 'Spot × IV × √(daysToEarnings/365). A volatility-implied estimate of how far the underlying could move by the print — the actual reaction often surprises in either direction.');
+      }
+    }
     html += row('IV', iv != null ? fmtPct(iv*100) : '—', '', TIPS.iv);
     var volRegime = input.technicals && input.technicals.volRegime;
     var vGrade = volRegime ? gradeVolRegime(volRegime.rv30Pctile) : null;
@@ -4772,6 +4838,53 @@ main {
   color: var(--muted); font-size: 11px; margin-left: 6px;
   font-weight: 500;
 }
+
+/* === Grade explainer === */
+.opt-explainer {
+  margin-top: var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+}
+.opt-explainer summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--s-3) var(--s-4);
+  font-weight: 600;
+  font-size: var(--fs-md);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.opt-explainer summary::-webkit-details-marker { display: none; }
+.opt-explainer summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform .15s ease;
+}
+.opt-explainer[open] summary::before { transform: rotate(90deg); }
+.opt-explainer summary:hover { color: var(--text-strong); }
+.opt-explainer-body {
+  padding: 0 var(--s-4) var(--s-4);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  line-height: 1.55;
+}
+.opt-explainer-body p { margin: 0 0 var(--s-3); }
+.opt-explainer-body ul { margin: 0 0 var(--s-3); padding-left: var(--s-5); }
+.opt-explainer-body li { margin-bottom: 4px; }
+.opt-explainer-body h4 {
+  margin: var(--s-4) 0 var(--s-2);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.opt-explainer-foot { color: var(--muted); font-style: italic; }
 
 /* === Result panel === */
 .opt-result-wrap { position: relative; }
