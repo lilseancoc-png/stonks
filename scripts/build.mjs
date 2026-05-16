@@ -1425,6 +1425,29 @@ export function renderAppJs() {
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
     selectTab(saved && ['fund','tech','news'].indexOf(saved) >= 0 ? saved : 'fund');
   }
+  // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
+  // so a return visit lands the user where they left off.
+  function bindPageTabs(){
+    var tabs = document.querySelectorAll('.page-tab');
+    if (!tabs.length) return;
+    var valid = ['narratives','flow','grade'];
+    function selectTab(name){
+      try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
+      tabs.forEach(function(btn){
+        var sel = btn.getAttribute('data-page-tab') === name;
+        btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        var paneId = btn.getAttribute('aria-controls');
+        var pane = paneId ? document.getElementById(paneId) : null;
+        if (pane) pane.hidden = !sel;
+      });
+    }
+    tabs.forEach(function(btn){
+      btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
+    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'narratives');
+  }
 
   function buildResultHtml(input){
     var bid = input.bid, ask = input.ask;
@@ -2752,6 +2775,7 @@ export function renderAppJs() {
   function bind(){
     renderFreshness();
     bindThemeToggle();
+    bindPageTabs();
     bindTabs();
     combo.init();
     renderNarratives();
@@ -2869,10 +2893,21 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <span class="freshness-dot" aria-hidden="true"></span>
   <span id="freshness-text">Built ${builtAt} (NY)</span>
 </div>
+<nav class="page-tabs" role="tablist" aria-label="Page sections">
+  <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="true" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
+</nav>
 <main>
+  <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives">
   ${narrativesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
   ${unusualFlowSection()}
+  </div>
+  <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
+  </div>
 </main>
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
@@ -3022,6 +3057,39 @@ main {
   max-width: 760px; margin: 0 auto;
   padding: var(--s-3) var(--s-5) var(--s-7);
 }
+
+/* === Page-level section tabs ===
+   Narratives / Unusual flow / Grade — sits between the freshness banner and
+   the main content. Underline-style; selection is persisted to localStorage. */
+.page-tabs {
+  max-width: 760px;
+  margin: 0 auto var(--s-3);
+  padding: 0 var(--s-5);
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.page-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: var(--s-2) var(--s-3);
+  cursor: pointer;
+  transition: color .12s ease, border-color .12s ease;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.page-tab:hover { color: var(--text); }
+.page-tab[aria-selected="true"] {
+  color: var(--text-strong);
+  border-bottom-color: var(--accent);
+}
+.page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-2); }
+.page-pane[hidden] { display: none; }
 
 .site-footer {
   max-width: 960px;

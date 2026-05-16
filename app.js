@@ -528,6 +528,29 @@
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
     selectTab(saved && ['fund','tech','news'].indexOf(saved) >= 0 ? saved : 'fund');
   }
+  // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
+  // so a return visit lands the user where they left off.
+  function bindPageTabs(){
+    var tabs = document.querySelectorAll('.page-tab');
+    if (!tabs.length) return;
+    var valid = ['narratives','flow','grade'];
+    function selectTab(name){
+      try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
+      tabs.forEach(function(btn){
+        var sel = btn.getAttribute('data-page-tab') === name;
+        btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        var paneId = btn.getAttribute('aria-controls');
+        var pane = paneId ? document.getElementById(paneId) : null;
+        if (pane) pane.hidden = !sel;
+      });
+    }
+    tabs.forEach(function(btn){
+      btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
+    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'narratives');
+  }
 
   function buildResultHtml(input){
     var bid = input.bid, ask = input.ask;
@@ -1855,6 +1878,7 @@
   function bind(){
     renderFreshness();
     bindThemeToggle();
+    bindPageTabs();
     bindTabs();
     combo.init();
     renderNarratives();
