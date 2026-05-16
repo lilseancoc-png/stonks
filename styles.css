@@ -133,6 +133,39 @@ main {
   padding: var(--s-3) var(--s-5) var(--s-7);
 }
 
+/* === Page-level section tabs ===
+   Narratives / Unusual flow / Grade — sits between the freshness banner and
+   the main content. Underline-style; selection is persisted to localStorage. */
+.page-tabs {
+  max-width: 760px;
+  margin: 0 auto var(--s-3);
+  padding: 0 var(--s-5);
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.page-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: var(--s-2) var(--s-3);
+  cursor: pointer;
+  transition: color .12s ease, border-color .12s ease;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.page-tab:hover { color: var(--text); }
+.page-tab[aria-selected="true"] {
+  color: var(--text-strong);
+  border-bottom-color: var(--accent);
+}
+.page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-2); }
+.page-pane[hidden] { display: none; }
+
 .site-footer {
   max-width: 960px;
   margin: var(--s-6) auto 0;
