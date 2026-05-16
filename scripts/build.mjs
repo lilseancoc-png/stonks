@@ -440,12 +440,58 @@ function computeSupportResistance(bars) {
   };
 }
 
+// Annualized realized volatility from log returns over `window` recent bars.
+// Returns null if there aren't enough closes. Uses sqrt(252) trading days.
+function annualizedRealizedVol(closes, window) {
+  if (!closes || closes.length < window + 1) return null;
+  const tail = closes.slice(-window - 1);
+  const rets = [];
+  for (let i = 1; i < tail.length; i++) {
+    const prev = tail[i - 1];
+    const curr = tail[i];
+    if (!(prev > 0) || !(curr > 0)) return null;
+    rets.push(Math.log(curr / prev));
+  }
+  const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
+  const variance = rets.reduce((s, r) => s + (r - mean) ** 2, 0) / (rets.length - 1);
+  return Math.sqrt(variance) * Math.sqrt(252);
+}
+
+// Volatility "regime" snapshot: today's 30-day realized vol and its
+// percentile within the rolling 30-day RV series across the available
+// history. Useful as a "is this name running hot vs. its own past?" signal
+// when paired with the current chain's IV.
+function computeVolRegime(bars, window = 30) {
+  if (!bars || bars.length < window + 5) return null;
+  const closes = bars.map((b) => b.c);
+  const today = annualizedRealizedVol(closes, window);
+  if (today == null) return null;
+  // Build the historical distribution: one annualized-vol sample per
+  // trailing-window position across the available bars.
+  const series = [];
+  for (let end = window; end <= closes.length; end++) {
+    const v = annualizedRealizedVol(closes.slice(0, end), window);
+    if (v != null && isFinite(v)) series.push(v);
+  }
+  if (series.length < 10) return null;
+  const sorted = series.slice().sort((a, b) => a - b);
+  const below = sorted.filter((v) => v < today).length;
+  const pctile = Math.round((below / sorted.length) * 100);
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+  return {
+    rv30: round4(today),
+    rv30Pctile: pctile,
+    samples: series.length,
+  };
+}
+
 function computeTechnicals(bars) {
   if (!bars || bars.length < 27) return null;
   const closes = bars.map((b) => b.c);
   const rsi = computeRSI(closes, 14);
   const macd = computeMACD(closes, 12, 26, 9);
   const sr = computeSupportResistance(bars);
+  const volRegime = computeVolRegime(bars, 30);
   const round2 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 100) / 100);
   const round4 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 10000) / 10000);
   return {
@@ -456,6 +502,7 @@ function computeTechnicals(bars) {
     sr: sr
       ? { s20: round2(sr.s20), r20: round2(sr.r20), s50: round2(sr.s50), r50: round2(sr.r50) }
       : null,
+    volRegime,
   };
 }
 
@@ -1201,6 +1248,79 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
   };
 
+  // --- Shareable URL state ------------------------------------------------
+  // Encodes the user's current ticker/expiry/strike/type as query params so
+  // links restore the exact graded contract on load. Held back on the first
+  // render until loadChain reports the requested expiration is available.
+  var pendingUrlState = null;
+  var suppressUrlWrite = false;
+  function parseUrlState(){
+    try {
+      var p = new URLSearchParams(window.location.search);
+      var sym = (p.get('s') || '').toUpperCase().trim();
+      var exp = parseInt(p.get('exp') || '', 10);
+      var k = parseFloat(p.get('k') || '');
+      var t = (p.get('t') || '').toLowerCase();
+      if (t !== 'call' && t !== 'put') t = null;
+      if (!sym) return null;
+      return {
+        sym: sym,
+        exp: isFinite(exp) && exp > 0 ? exp : null,
+        k: isFinite(k) && k > 0 ? k : null,
+        t: t,
+      };
+    } catch (_) { return null; }
+  }
+  function buildShareUrl(){
+    if (!state.symbol) return window.location.origin + window.location.pathname;
+    var p = new URLSearchParams();
+    p.set('s', state.symbol);
+    if (state.currentExp) p.set('exp', String(state.currentExp));
+    var c = findContract();
+    if (c && c.s != null) p.set('k', String(c.s));
+    p.set('t', getOptType());
+    return window.location.origin + window.location.pathname + '?' + p.toString();
+  }
+  function pushUrlState(){
+    if (suppressUrlWrite) return;
+    if (!state.symbol) return;
+    try {
+      var url = buildShareUrl();
+      window.history.replaceState(null, '', url);
+    } catch (_) {}
+  }
+  function applyPendingUrlState(){
+    if (!pendingUrlState) return;
+    if (pendingUrlState.sym !== state.symbol) return;
+    suppressUrlWrite = true;
+    try {
+      if (pendingUrlState.t){
+        var radio = document.querySelector('input[name="opt-type"][value="' + pendingUrlState.t + '"]');
+        if (radio) radio.checked = true;
+      }
+      if (pendingUrlState.exp && state.expirations.indexOf(pendingUrlState.exp) !== -1){
+        state.currentExp = pendingUrlState.exp;
+        var expSel = $('opt-expiry'); if (expSel) expSel.value = String(state.currentExp);
+        populateStrikes();
+      }
+      if (pendingUrlState.k != null){
+        var chain = state.chains[state.currentExp];
+        var rows = chain ? ((getOptType() === 'call' ? chain.c : chain.p) || []) : [];
+        var bestIdx = -1, bestDist = Infinity;
+        for (var i = 0; i < rows.length; i++){
+          var d = Math.abs((rows[i].s || 0) - pendingUrlState.k);
+          if (d < bestDist){ bestDist = d; bestIdx = i; }
+        }
+        if (bestIdx !== -1){
+          var sel = $('opt-strike'); if (sel) sel.selectedIndex = bestIdx;
+        }
+      }
+    } finally {
+      suppressUrlWrite = false;
+      pendingUrlState = null;
+    }
+  }
+
   // --- Chain controls -----------------------------------------------------
   function fmtExpiryLabel(epoch){
     var d = new Date(epoch*1000);
@@ -1349,6 +1469,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (spreadPct <= 5)  return { label:'Tight',    cls:'good', note:'narrow spread — easy fills' };
     if (spreadPct <= 15) return { label:'Moderate', cls:'fair', note:'spread is workable but costs you on entry/exit' };
     return { label:'Wide', cls:'bad', note:'wide spread — illiquid, expect slippage' };
+  }
+  function gradeLiquidity(oi){
+    if (oi == null || !isFinite(oi)) return null;
+    if (oi < 10) return { label:'Thin', cls:'bad', note:'almost no open interest — fills uncertain, slippage likely' };
+    if (oi < 100) return { label:'Light', cls:'fair', note:'modest interest — fills possible but expect some slippage' };
+    return { label:'Liquid', cls:'good', note:'plenty of open interest — normal fills expected' };
+  }
+  function gradeVolRegime(pctile){
+    if (pctile == null || !isFinite(pctile)) return null;
+    if (pctile <= 30) return { label:'Calm', cls:'good', note:'realized vol in bottom 30% — premiums may be relatively cheap' };
+    if (pctile <= 70) return { label:'Normal', cls:'fair', note:'realized vol mid-range vs. this name’s recent history' };
+    return { label:'Elevated', cls:'bad', note:'realized vol in top 30% — premiums likely rich, expect mean reversion' };
   }
   function gradeDelta(delta){
     var a = Math.abs(delta);
@@ -1643,18 +1775,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     html += row('Breakeven at expiry', breakeven != null ? '$' + fmt(breakeven) : '—', input.spot > 0 && breakeven != null ? '<span class="opt-row-mute">' + (((breakeven - input.spot) / input.spot * 100) >= 0 ? '+' : '') + ((breakeven - input.spot) / input.spot * 100).toFixed(2) + '% from spot</span>' : '', TIPS.breakeven);
     html += row('Moneyness', moneynessPct != null ? ((moneynessPct >= 0 ? '+' : '') + moneynessPct.toFixed(2) + '%') : '—', '', TIPS.moneyness);
     html += row('IV', iv != null ? fmtPct(iv*100) : '—', '', TIPS.iv);
+    var volRegime = input.technicals && input.technicals.volRegime;
+    var vGrade = volRegime ? gradeVolRegime(volRegime.rv30Pctile) : null;
+    if (volRegime && vGrade){
+      var rvLabel = (volRegime.rv30*100).toFixed(0) + '% · P' + volRegime.rv30Pctile;
+      html += row('30d realized vol', rvLabel, gradeChip(vGrade), 'Annualized 30-day realized volatility for this ticker, with its percentile against the rolling 30-day RV across the available daily history. A proxy for whether this name is running hotter or quieter than usual.');
+    }
     html += row('Delta', g ? fmt(g.delta, 3) : '—', g ? gradeChip(dGrade) : '', TIPS.delta);
     html += row('Prob. ITM (≈ |delta|)', probITM != null ? probITM.toFixed(1) + '%' : '—', '', TIPS.probITM);
     html += row('Theta / day', g ? '$' + fmt(g.thetaDay, 3) : '—', g ? gradeChip(tGrade) : '', TIPS.theta);
     html += row('Gamma', g ? fmt(g.gamma, 4) : '—', '', TIPS.gamma);
     html += row('Vega (per 1 vol pt)', g ? '$' + fmt(g.vega, 3) : '—', '', TIPS.vega);
-    html += row('Open interest', input.oi != null ? String(input.oi) : '—');
+    var lGrade = gradeLiquidity(input.oi);
+    html += row('Open interest', input.oi != null ? String(input.oi) : '—', lGrade ? gradeChip(lGrade) : '');
     html += row('Volume', input.volume != null ? String(input.volume) : '—');
     html += '</div>';
     html += '<ul class="opt-notes">';
     html += '<li><b>Spread:</b> ' + sGrade.note + '.</li>';
     html += '<li><b>Delta:</b> ' + dGrade.note + '.</li>';
     html += '<li><b>Theta:</b> ' + tGrade.note + '.</li>';
+    if (lGrade && lGrade.cls !== 'good'){
+      html += '<li><b>Liquidity:</b> ' + lGrade.note + '.</li>';
+    }
+    if (vGrade && vGrade.cls !== 'fair'){
+      html += '<li><b>Vol regime:</b> ' + vGrade.note + '.</li>';
+    }
     if (extrinsic != null && mid > 0){
       var extPct = extrinsic / mid * 100;
       var extNote = extPct < 25
@@ -1684,7 +1829,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         bid: input.bid, ask: input.ask, iv: input.iv,
         oi: input.oi, volume: input.volume,
       }).replace(/'/g, '&apos;');
+      html += '<div class="opt-actions">';
       html += '<button type="button" class="opt-tweak-btn" data-tweak=\\'' + payload + '\\'>Tweak in manual form &darr;</button>';
+      html += '<button type="button" class="opt-copylink-btn" id="opt-copy-link" title="Copy a link that restores this exact contract">🔗 Copy link</button>';
+      html += '</div>';
     }
     var disc = input.source === 'manual'
       ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
@@ -1862,6 +2010,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       populateExpiry();
       $('opt-expiry').value = String(state.currentExp);
       populateStrikes();
+      applyPendingUrlState();
       renderMaxPain();
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
@@ -1871,6 +2020,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       renderNewsPane();
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
+      pushUrlState();
       // Kick off the live spot refresh in parallel — the page is already
       // usable with baked data; live just updates spot / Greeks / ATM pick
       // when it arrives. Quietly no-ops if the endpoint or market is closed.
@@ -2303,6 +2453,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     populateStrikes();
     renderMaxPain();
     scheduleEvaluate();
+    pushUrlState();
     // The baked chain for the new expiration is already cached, but during
     // market hours the user wants fresh quotes for the expiration they're
     // looking at — fire one extra poll immediately and let the interval
@@ -2933,13 +3084,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         if (ev.target && ev.target.name === 'opt-type'){
           if (state.currentExp) populateStrikes();
           scheduleEvaluate();
+          pushUrlState();
         }
       });
     }
     var expSel = $('opt-expiry');
     if (expSel) expSel.addEventListener('change', onExpiryChange);
     var strikeSel = $('opt-strike');
-    if (strikeSel) strikeSel.addEventListener('change', scheduleEvaluate);
+    if (strikeSel) strikeSel.addEventListener('change', function(){ scheduleEvaluate(); pushUrlState(); });
 
     var manualForm = $('opt-manual-form');
     if (manualForm){
@@ -2949,11 +3101,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       var chainSection = $('opt-eval-section');
       if (chainSection){
         chainSection.addEventListener('click', function(ev){
-          var btn = ev.target.closest && ev.target.closest('.opt-tweak-btn');
-          if (!btn) return;
-          tweakInManual(btn.getAttribute('data-tweak'));
+          var tweakBtn = ev.target.closest && ev.target.closest('.opt-tweak-btn');
+          if (tweakBtn){ tweakInManual(tweakBtn.getAttribute('data-tweak')); return; }
+          var copyBtn = ev.target.closest && ev.target.closest('.opt-copylink-btn');
+          if (copyBtn){
+            var url = buildShareUrl();
+            var done = function(ok){
+              copyBtn.textContent = ok ? '✓ Copied' : 'Press ⌘C';
+              setTimeout(function(){ copyBtn.textContent = '🔗 Copy link'; }, 1800);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText){
+              navigator.clipboard.writeText(url).then(function(){ done(true); }, function(){ done(false); });
+            } else {
+              try { window.prompt('Copy this link', url); done(true); } catch (_){ done(false); }
+            }
+          }
         });
       }
+    }
+
+    // Auto-load any ticker from the URL. combo.commit walks the same path
+    // a user-pick takes, so loadChain consumes pendingUrlState as it lands.
+    var initial = parseUrlState();
+    if (initial && initial.sym && SYMBOLS.indexOf(initial.sym) !== -1){
+      pendingUrlState = initial;
+      var pageGradeTab = document.querySelector('[data-page-tab="grade"]');
+      if (pageGradeTab) pageGradeTab.click();
+      combo.commit(initial.sym);
     }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
@@ -4754,7 +4928,6 @@ main {
 .opt-news-body { color: var(--text); }
 .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
 .opt-tweak-btn {
-  margin: var(--s-2) 0 var(--s-1);
   background: transparent; color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: var(--r-2);
@@ -4764,6 +4937,20 @@ main {
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 .opt-tweak-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.opt-actions {
+  display: flex; flex-wrap: wrap; gap: var(--s-2);
+  margin: var(--s-2) 0 var(--s-1);
+}
+.opt-copylink-btn {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 8px 14px;
+  font: inherit; font-size: var(--fs-sm); font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.opt-copylink-btn:hover { color: var(--text-strong); border-color: var(--border-strong); }
 
 /* === Manual form === */
 .opt-manual-grid {

@@ -1673,7 +1673,6 @@ main {
 .opt-news-body { color: var(--text); }
 .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
 .opt-tweak-btn {
-  margin: var(--s-2) 0 var(--s-1);
   background: transparent; color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: var(--r-2);
@@ -1683,6 +1682,20 @@ main {
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 .opt-tweak-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.opt-actions {
+  display: flex; flex-wrap: wrap; gap: var(--s-2);
+  margin: var(--s-2) 0 var(--s-1);
+}
+.opt-copylink-btn {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 8px 14px;
+  font: inherit; font-size: var(--fs-sm); font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.opt-copylink-btn:hover { color: var(--text-strong); border-color: var(--border-strong); }
 
 /* === Manual form === */
 .opt-manual-grid {
