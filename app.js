@@ -1652,13 +1652,55 @@
       '<span class="flow-ratio">' + ratioStr + '</span>' +
     '</div>';
   }
+  var flowState = {
+    search: '',
+    side: 'all',
+    hotOnly: false,
+    sort: 'hottest',
+    collapsedAll: false,
+    perRowCollapsed: Object.create(null),
+  };
+  function filteredTickers(){
+    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers.slice() : [];
+    var out = [];
+    tickers.forEach(function(t){
+      var contracts = (t.contracts || []).slice();
+      if (flowState.side !== 'all'){
+        contracts = contracts.filter(function(c){ return c.side === flowState.side; });
+      }
+      if (flowState.hotOnly){
+        contracts = contracts.filter(function(c){ return (c.ratio || 0) >= 10; });
+      }
+      var sym = (t.symbol || '').toUpperCase();
+      var q = flowState.search.trim().toUpperCase();
+      if (q && sym.indexOf(q) === -1) return;
+      if (!contracts.length) return;
+      var topRatio = contracts.reduce(function(acc, c){ return Math.max(acc, c.ratio || 0); }, 0);
+      out.push({
+        symbol: t.symbol,
+        spot: t.spot,
+        contracts: contracts,
+        topRatio: topRatio,
+      });
+    });
+    if (flowState.sort === 'hottest'){
+      out.sort(function(a, b){ return (b.topRatio || 0) - (a.topRatio || 0); });
+    } else if (flowState.sort === 'contracts'){
+      out.sort(function(a, b){ return b.contracts.length - a.contracts.length; });
+    } else if (flowState.sort === 'alpha'){
+      out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
+    }
+    return out;
+  }
   function renderUnusualFlow(){
     var list = $('flow-list');
     var empty = $('flow-empty');
+    var noResults = $('flow-no-results');
     var eyebrow = $('flow-eyebrow');
     if (!list) return;
-    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+    var allTickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
     var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
+    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.hotOnly);
     if (eyebrow){
       if (UNUSUAL && summary && summary.contractCount){
         var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
@@ -1673,8 +1715,9 @@
         eyebrow.textContent = '';
       }
     }
-    if (!tickers.length){
+    if (!allTickers.length){
       list.innerHTML = '';
+      if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
         empty.textContent = UNUSUAL
@@ -1684,21 +1727,120 @@
       return;
     }
     if (empty) empty.hidden = true;
+    var tickers = filteredTickers();
+    if (!tickers.length){
+      list.innerHTML = '';
+      if (noResults){
+        noResults.hidden = false;
+        noResults.textContent = hasFilters
+          ? 'No tickers match these filters. Try clearing the search or switching back to All.'
+          : 'No unusual flow flagged in the latest scan.';
+      }
+      return;
+    }
+    if (noResults) noResults.hidden = true;
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = ratioTier(t.topRatio || 0);
-      return '<article class="flow-row tier-' + topTier + '" role="listitem">' +
-        '<header class="flow-row-head">' +
+      var collapsed = !!flowState.perRowCollapsed[t.symbol];
+      return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
+        '<button type="button" class="flow-row-head" aria-expanded="' + (!collapsed) + '" data-row-toggle="' + escapeHtml(t.symbol) + '">' +
+          '<svg class="flow-row-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>' +
           '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
           (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
           '<span class="flow-top">Top · ' + fmtRatio(t.topRatio) + '</span>' +
-        '</header>' +
-        '<div class="flow-contracts">' +
+        '</button>' +
+        '<div class="flow-contracts"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(flowContractHtml).join('') +
         '</div>' +
       '</article>';
     }).join('');
+  }
+  function bindFlowControls(){
+    var searchInput = $('flow-search-input');
+    var searchClear = $('flow-search-clear');
+    if (searchInput){
+      searchInput.addEventListener('input', function(){
+        flowState.search = searchInput.value || '';
+        if (searchClear) searchClear.hidden = !flowState.search;
+        renderUnusualFlow();
+      });
+    }
+    if (searchClear){
+      searchClear.addEventListener('click', function(){
+        if (searchInput){ searchInput.value = ''; searchInput.focus(); }
+        flowState.search = '';
+        searchClear.hidden = true;
+        renderUnusualFlow();
+      });
+    }
+    var sideFilter = document.querySelector('.flow-side-filter');
+    if (sideFilter){
+      sideFilter.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.flow-pill');
+        if (!btn) return;
+        var side = btn.getAttribute('data-side') || 'all';
+        flowState.side = side;
+        var pills = sideFilter.querySelectorAll('.flow-pill');
+        pills.forEach(function(p){
+          var on = p.getAttribute('data-side') === side;
+          p.classList.toggle('is-on', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderUnusualFlow();
+      });
+    }
+    var hotOnly = $('flow-hot-only');
+    if (hotOnly){
+      hotOnly.addEventListener('change', function(){
+        flowState.hotOnly = !!hotOnly.checked;
+        renderUnusualFlow();
+      });
+    }
+    var sortSelect = $('flow-sort-select');
+    if (sortSelect){
+      sortSelect.addEventListener('change', function(){
+        flowState.sort = sortSelect.value || 'hottest';
+        renderUnusualFlow();
+      });
+    }
+    var expandToggle = $('flow-expand-toggle');
+    if (expandToggle){
+      expandToggle.addEventListener('click', function(){
+        flowState.collapsedAll = !flowState.collapsedAll;
+        var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+        flowState.perRowCollapsed = Object.create(null);
+        if (flowState.collapsedAll){
+          tickers.forEach(function(t){ flowState.perRowCollapsed[t.symbol] = true; });
+        }
+        expandToggle.textContent = flowState.collapsedAll ? 'Expand all' : 'Collapse all';
+        expandToggle.setAttribute('aria-pressed', flowState.collapsedAll ? 'true' : 'false');
+        renderUnusualFlow();
+      });
+    }
+    var list = $('flow-list');
+    if (list){
+      list.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('[data-row-toggle]');
+        if (!btn) return;
+        var sym = btn.getAttribute('data-row-toggle');
+        flowState.perRowCollapsed[sym] = !flowState.perRowCollapsed[sym];
+        renderUnusualFlow();
+      });
+    }
+    var sectionToggle = $('flow-collapse');
+    var body = $('flow-body');
+    var section = $('flow-section');
+    if (sectionToggle && body && section){
+      sectionToggle.addEventListener('click', function(){
+        var expanded = sectionToggle.getAttribute('aria-expanded') !== 'false';
+        var next = !expanded;
+        sectionToggle.setAttribute('aria-expanded', next ? 'true' : 'false');
+        body.hidden = !next;
+        section.classList.toggle('is-collapsed', !next);
+      });
+    }
   }
 
   // --- Bind ---------------------------------------------------------------
@@ -1709,6 +1851,7 @@
     combo.init();
     renderNarratives();
     renderUnusualFlow();
+    bindFlowControls();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){
