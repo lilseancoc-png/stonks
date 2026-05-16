@@ -669,18 +669,35 @@ async function fetchRiskFreeRate() {
   return FALLBACK_RISK_FREE_RATE;
 }
 
+// Run tickers in parallel with a bounded concurrency cap. Each ticker still
+// paces its own per-expiration Yahoo calls with the existing 250ms gap inside
+// fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
+// times the serial baseline — still well below typical rate-limit thresholds.
+const TICKER_CONCURRENCY = 3;
+
 async function fetchAllTickerChains() {
   const out = {};
-  for (const sym of TICKERS) {
-    try {
-      out[sym] = await fetchTickerChainWithRetry(sym);
-      console.log(`  ✓ ${sym} — spot $${out[sym].spot.toFixed(2)}, ${out[sym].expirations.length} expirations`);
-    } catch (err) {
-      console.error(`  ✗ ${sym} — ${err.message} (gave up after ${FETCH_RETRIES} attempts)`);
+  let cursor = 0;
+
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= TICKERS.length) return;
+      const sym = TICKERS[i];
+      try {
+        out[sym] = await fetchTickerChainWithRetry(sym);
+        console.log(`  ✓ ${sym} — spot $${out[sym].spot.toFixed(2)}, ${out[sym].expirations.length} expirations`);
+      } catch (err) {
+        console.error(`  ✗ ${sym} — ${err.message} (gave up after ${FETCH_RETRIES} attempts)`);
+      }
+      // Small per-worker politeness pause so adjacent tickers on the same
+      // worker don't slam Yahoo back-to-back after the inner expiration loop.
+      await new Promise((r) => setTimeout(r, 350));
     }
-    // Politeness pause between tickers.
-    await new Promise((r) => setTimeout(r, 350));
   }
+
+  const workers = Array.from({ length: Math.min(TICKER_CONCURRENCY, TICKERS.length) }, worker);
+  await Promise.all(workers);
   return out;
 }
 
