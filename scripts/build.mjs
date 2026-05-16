@@ -696,15 +696,49 @@ function narrativesSection() {
 function unusualFlowSection() {
   // Card chrome only — the per-ticker rows and contract chips render
   // client-side from the inline manifest in app.js. Populated by the hourly
-  // GitHub Actions scan (scripts/scan-unusual.mjs).
-  return `<section class="card" id="flow-section">
-    <header class="card-header">
-      <h2 class="card-title">Unusual options flow</h2>
+  // GitHub Actions scan (scripts/scan-unusual.mjs). The controls bar
+  // (search/side/hot-only/sort + collapse-all) and the section collapse
+  // chevron are also wired in app.js. Rows render collapsed by default so
+  // the section stays a scannable list of headers.
+  return `<section class="card flow-card" id="flow-section">
+    <header class="card-header flow-card-header">
+      <button type="button" id="flow-collapse" class="flow-collapse-btn" aria-expanded="true" aria-controls="flow-body" title="Collapse section">
+        <svg class="flow-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        <h2 class="card-title">Unusual options flow</h2>
+      </button>
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Contracts where today's volume dwarfs the open interest — fresh positioning that often signals informed flow or large hedges. Scanned hourly during US market hours across the front 3 expirations. Threshold: 500+ contracts traded AND volume/OI ratio ≥ 2x. Sorted by hottest ratio.</p>
-    <div id="flow-list" class="flow-list" role="list"></div>
-    <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
+    <div id="flow-body" class="flow-body">
+      <p class="hint">Contracts where today's volume dwarfs the open interest — fresh positioning that often signals informed flow or large hedges. Scanned hourly during US market hours across the front 3 expirations. Threshold: 500+ contracts traded AND volume/OI ratio ≥ 2x. Sorted by hottest ratio.</p>
+      <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
+        <label class="flow-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="flow-search-input" placeholder="Search ticker (e.g. NVDA, TSLA)" autocomplete="off" spellcheck="false" />
+          <button type="button" id="flow-search-clear" class="flow-search-clear" aria-label="Clear search" hidden>&times;</button>
+        </label>
+        <div class="flow-side-filter" role="radiogroup" aria-label="Filter by side">
+          <button type="button" class="flow-pill is-on" data-side="all" role="radio" aria-checked="true">All</button>
+          <button type="button" class="flow-pill" data-side="call" role="radio" aria-checked="false">Calls</button>
+          <button type="button" class="flow-pill" data-side="put" role="radio" aria-checked="false">Puts</button>
+        </div>
+        <label class="flow-toggle">
+          <input type="checkbox" id="flow-hot-only" />
+          <span>Hot only <span class="flow-toggle-hint">(≥10x)</span></span>
+        </label>
+        <label class="flow-sort">
+          <span class="flow-sort-label">Sort</span>
+          <select id="flow-sort-select">
+            <option value="hottest">Hottest first</option>
+            <option value="contracts">Most contracts</option>
+            <option value="alpha">A → Z</option>
+          </select>
+        </label>
+        <button type="button" id="flow-expand-toggle" class="flow-action-btn" aria-pressed="true">Expand all</button>
+      </div>
+      <div id="flow-list" class="flow-list" role="list"></div>
+      <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
+      <div id="flow-no-results" class="flow-empty" hidden>No tickers match these filters.</div>
+    </div>
   </section>`;
 }
 
@@ -2516,13 +2550,63 @@ export function renderAppJs() {
       '<span class="flow-ratio">' + ratioStr + '</span>' +
     '</div>';
   }
+  var flowState = {
+    search: '',
+    side: 'all',
+    hotOnly: false,
+    sort: 'hottest',
+    collapsedAll: true,
+    perRowCollapsed: Object.create(null),
+  };
+  // Collapsed-by-default: with 200+ contracts on a hot ticker like QQQ the
+  // section dominates the page. Seed each known ticker as collapsed so the
+  // initial render is a scannable list of headers; users expand the ones
+  // they care about.
+  (function seedCollapsed(){
+    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+    tickers.forEach(function(t){ flowState.perRowCollapsed[t.symbol] = true; });
+  })();
+  function filteredTickers(){
+    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers.slice() : [];
+    var out = [];
+    tickers.forEach(function(t){
+      var contracts = (t.contracts || []).slice();
+      if (flowState.side !== 'all'){
+        contracts = contracts.filter(function(c){ return c.side === flowState.side; });
+      }
+      if (flowState.hotOnly){
+        contracts = contracts.filter(function(c){ return (c.ratio || 0) >= 10; });
+      }
+      var sym = (t.symbol || '').toUpperCase();
+      var q = flowState.search.trim().toUpperCase();
+      if (q && sym.indexOf(q) === -1) return;
+      if (!contracts.length) return;
+      var topRatio = contracts.reduce(function(acc, c){ return Math.max(acc, c.ratio || 0); }, 0);
+      out.push({
+        symbol: t.symbol,
+        spot: t.spot,
+        contracts: contracts,
+        topRatio: topRatio,
+      });
+    });
+    if (flowState.sort === 'hottest'){
+      out.sort(function(a, b){ return (b.topRatio || 0) - (a.topRatio || 0); });
+    } else if (flowState.sort === 'contracts'){
+      out.sort(function(a, b){ return b.contracts.length - a.contracts.length; });
+    } else if (flowState.sort === 'alpha'){
+      out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
+    }
+    return out;
+  }
   function renderUnusualFlow(){
     var list = $('flow-list');
     var empty = $('flow-empty');
+    var noResults = $('flow-no-results');
     var eyebrow = $('flow-eyebrow');
     if (!list) return;
-    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+    var allTickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
     var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
+    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.hotOnly);
     if (eyebrow){
       if (UNUSUAL && summary && summary.contractCount){
         var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
@@ -2537,8 +2621,9 @@ export function renderAppJs() {
         eyebrow.textContent = '';
       }
     }
-    if (!tickers.length){
+    if (!allTickers.length){
       list.innerHTML = '';
+      if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
         empty.textContent = UNUSUAL
@@ -2548,21 +2633,120 @@ export function renderAppJs() {
       return;
     }
     if (empty) empty.hidden = true;
+    var tickers = filteredTickers();
+    if (!tickers.length){
+      list.innerHTML = '';
+      if (noResults){
+        noResults.hidden = false;
+        noResults.textContent = hasFilters
+          ? 'No tickers match these filters. Try clearing the search or switching back to All.'
+          : 'No unusual flow flagged in the latest scan.';
+      }
+      return;
+    }
+    if (noResults) noResults.hidden = true;
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = ratioTier(t.topRatio || 0);
-      return '<article class="flow-row tier-' + topTier + '" role="listitem">' +
-        '<header class="flow-row-head">' +
+      var collapsed = !!flowState.perRowCollapsed[t.symbol];
+      return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
+        '<button type="button" class="flow-row-head" aria-expanded="' + (!collapsed) + '" data-row-toggle="' + escapeHtml(t.symbol) + '">' +
+          '<svg class="flow-row-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>' +
           '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
           (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
           '<span class="flow-top">Top · ' + fmtRatio(t.topRatio) + '</span>' +
-        '</header>' +
-        '<div class="flow-contracts">' +
+        '</button>' +
+        '<div class="flow-contracts"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(flowContractHtml).join('') +
         '</div>' +
       '</article>';
     }).join('');
+  }
+  function bindFlowControls(){
+    var searchInput = $('flow-search-input');
+    var searchClear = $('flow-search-clear');
+    if (searchInput){
+      searchInput.addEventListener('input', function(){
+        flowState.search = searchInput.value || '';
+        if (searchClear) searchClear.hidden = !flowState.search;
+        renderUnusualFlow();
+      });
+    }
+    if (searchClear){
+      searchClear.addEventListener('click', function(){
+        if (searchInput){ searchInput.value = ''; searchInput.focus(); }
+        flowState.search = '';
+        searchClear.hidden = true;
+        renderUnusualFlow();
+      });
+    }
+    var sideFilter = document.querySelector('.flow-side-filter');
+    if (sideFilter){
+      sideFilter.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.flow-pill');
+        if (!btn) return;
+        var side = btn.getAttribute('data-side') || 'all';
+        flowState.side = side;
+        var pills = sideFilter.querySelectorAll('.flow-pill');
+        pills.forEach(function(p){
+          var on = p.getAttribute('data-side') === side;
+          p.classList.toggle('is-on', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderUnusualFlow();
+      });
+    }
+    var hotOnly = $('flow-hot-only');
+    if (hotOnly){
+      hotOnly.addEventListener('change', function(){
+        flowState.hotOnly = !!hotOnly.checked;
+        renderUnusualFlow();
+      });
+    }
+    var sortSelect = $('flow-sort-select');
+    if (sortSelect){
+      sortSelect.addEventListener('change', function(){
+        flowState.sort = sortSelect.value || 'hottest';
+        renderUnusualFlow();
+      });
+    }
+    var expandToggle = $('flow-expand-toggle');
+    if (expandToggle){
+      expandToggle.addEventListener('click', function(){
+        flowState.collapsedAll = !flowState.collapsedAll;
+        var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+        flowState.perRowCollapsed = Object.create(null);
+        if (flowState.collapsedAll){
+          tickers.forEach(function(t){ flowState.perRowCollapsed[t.symbol] = true; });
+        }
+        expandToggle.textContent = flowState.collapsedAll ? 'Expand all' : 'Collapse all';
+        expandToggle.setAttribute('aria-pressed', flowState.collapsedAll ? 'true' : 'false');
+        renderUnusualFlow();
+      });
+    }
+    var list = $('flow-list');
+    if (list){
+      list.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('[data-row-toggle]');
+        if (!btn) return;
+        var sym = btn.getAttribute('data-row-toggle');
+        flowState.perRowCollapsed[sym] = !flowState.perRowCollapsed[sym];
+        renderUnusualFlow();
+      });
+    }
+    var sectionToggle = $('flow-collapse');
+    var body = $('flow-body');
+    var section = $('flow-section');
+    if (sectionToggle && body && section){
+      sectionToggle.addEventListener('click', function(){
+        var expanded = sectionToggle.getAttribute('aria-expanded') !== 'false';
+        var next = !expanded;
+        sectionToggle.setAttribute('aria-expanded', next ? 'true' : 'false');
+        body.hidden = !next;
+        section.classList.toggle('is-collapsed', !next);
+      });
+    }
   }
 
   // --- Bind ---------------------------------------------------------------
@@ -2573,6 +2757,7 @@ export function renderAppJs() {
     combo.init();
     renderNarratives();
     renderUnusualFlow();
+    bindFlowControls();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){
@@ -3569,6 +3754,157 @@ main {
 .opt-status.ok  { color: var(--pos); }
 
 /* === Unusual options flow === */
+.flow-card-header { align-items: center; }
+.flow-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.flow-collapse-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-2); }
+.flow-collapse-btn .card-title { margin: 0; }
+.flow-chevron {
+  color: var(--muted);
+  transition: transform .18s ease, color .18s ease;
+  flex: 0 0 auto;
+}
+.flow-collapse-btn:hover .flow-chevron { color: var(--text); }
+.flow-collapse-btn[aria-expanded="false"] .flow-chevron { transform: rotate(-90deg); }
+.flow-card.is-collapsed { padding-bottom: var(--s-3); }
+.flow-body[hidden] { display: none; }
+
+.flow-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-2) 0 var(--s-3);
+  margin-bottom: var(--s-2);
+  border-bottom: 1px dashed var(--border);
+}
+.flow-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 6px 10px;
+  min-width: 220px;
+  flex: 1 1 220px;
+  max-width: 320px;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.flow-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: var(--focus-ring);
+}
+.flow-search svg { color: var(--muted); flex: 0 0 auto; }
+.flow-search input {
+  border: 0;
+  background: transparent;
+  outline: 0;
+  width: 100%;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.flow-search input::placeholder { color: var(--muted); }
+.flow-search input::-webkit-search-decoration,
+.flow-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.flow-search-clear {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.flow-search-clear:hover { color: var(--text); }
+
+.flow-side-filter {
+  display: inline-flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 2px;
+  gap: 2px;
+}
+.flow-pill {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.flow-pill:hover { color: var(--text); }
+.flow-pill.is-on {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.flow-pill:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.flow-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.flow-toggle input { accent-color: var(--accent); margin: 0; }
+.flow-toggle-hint { color: var(--muted); font-size: var(--fs-xs); }
+
+.flow-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.flow-sort-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+.flow-sort select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.flow-sort select:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+
+.flow-action-btn {
+  margin-left: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.flow-action-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.flow-action-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
 .flow-list { display: flex; flex-direction: column; gap: var(--s-2); }
 .flow-list:empty { display: none; }
 .flow-row {
@@ -3583,11 +3919,35 @@ main {
 }
 .flow-row:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .flow-row.tier-hot { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.flow-row.is-collapsed { padding-bottom: var(--s-2); }
 .flow-row-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s-2);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  width: 100%;
+}
+.flow-row-head:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-2); }
+.flow-row-chevron {
+  color: var(--muted);
+  transition: transform .15s ease;
+  flex: 0 0 auto;
+}
+.flow-row-head[aria-expanded="false"] .flow-row-chevron { transform: rotate(-90deg); }
+.flow-row-head:hover .flow-row-chevron { color: var(--text); }
+
+@media (max-width: 640px){
+  .flow-controls { gap: var(--s-2); }
+  .flow-search { min-width: 0; max-width: none; flex: 1 1 100%; }
+  .flow-action-btn { margin-left: 0; }
+  .flow-sort-label { display: none; }
 }
 .flow-symbol {
   font-family: var(--font-mono);
@@ -3624,17 +3984,21 @@ main {
 .flow-contracts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
+/* The HTML 'hidden' attribute resolves to display:none via the UA stylesheet,
+   but \`.flow-contracts { display: flex }\` is an equally-specific class
+   selector that wins the cascade. Restore the collapse behavior explicitly. */
+.flow-contracts[hidden] { display: none; }
 .flow-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 2px 8px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   color: var(--text);
@@ -3652,9 +4016,9 @@ main {
 }
 .flow-side {
   font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  padding: 1px 6px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
   border-radius: var(--r-1);
 }
 .flow-chip.call .flow-side { color: var(--pos); background: var(--pos-soft); }
@@ -3675,7 +4039,7 @@ main {
 .flow-ratio {
   font-weight: 700;
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: 11px;
 }
 .flow-chip.tier-warm .flow-ratio { color: var(--warn); }
 .flow-chip.tier-mild .flow-ratio { color: var(--text); }

@@ -1657,9 +1657,17 @@
     side: 'all',
     hotOnly: false,
     sort: 'hottest',
-    collapsedAll: false,
+    collapsedAll: true,
     perRowCollapsed: Object.create(null),
   };
+  // Collapsed-by-default: with 200+ contracts on a hot ticker like QQQ the
+  // section dominates the page. Seed each known ticker as collapsed so the
+  // initial render is a scannable list of headers; users expand the ones
+  // they care about.
+  (function seedCollapsed(){
+    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
+    tickers.forEach(function(t){ flowState.perRowCollapsed[t.symbol] = true; });
+  })();
   function filteredTickers(){
     var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers.slice() : [];
     var out = [];
