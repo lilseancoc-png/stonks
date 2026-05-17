@@ -818,7 +818,7 @@ function unusualFlowSection() {
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
     <div id="flow-body" class="flow-body">
-      <p class="hint">Contracts where today's volume dwarfs open interest — fresh positioning that often flags informed flow. Hourly scan, front 3 expirations, 500+ volume and ratio ≥ 2x.</p>
+      <p class="hint">Block/sweep flow: 5–30% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI. The kind of single-shot directional buying that often signals informed positioning. Hourly scan, front 3 expirations.</p>
       <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
         <label class="flow-search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -831,16 +831,12 @@ function unusualFlowSection() {
           <button type="button" class="flow-pill" data-side="put" role="radio" aria-checked="false">Puts</button>
         </div>
         <label class="flow-toggle">
-          <input type="checkbox" id="flow-hot-only" />
-          <span>Hot ≥10x</span>
-        </label>
-        <label class="flow-toggle">
-          <input type="checkbox" id="flow-spike-only" />
-          <span>Spikes only</span>
+          <input type="checkbox" id="flow-near-only" />
+          <span>Near-term ≤14d</span>
         </label>
         <label class="flow-sort">
           <select id="flow-sort-select" aria-label="Sort">
-            <option value="hottest">Hottest first</option>
+            <option value="delta">Biggest hourly delta</option>
             <option value="contracts">Most contracts</option>
             <option value="alpha">A → Z</option>
           </select>
@@ -3034,21 +3030,42 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\\.0$/, '') + 'k';
     return String(n);
   }
-  function fmtRatio(r){
-    if (r == null || !isFinite(r)) return '—';
-    if (r >= 100) return Math.round(r) + 'x';
-    if (r >= 10) return r.toFixed(0) + 'x';
-    return r.toFixed(1).replace(/\\.0$/, '') + 'x';
-  }
   function fmtExpiry(epochSec){
     if (!epochSec) return '—';
     var d = new Date(epochSec * 1000);
     return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
   }
-  function ratioTier(r){
-    if (r >= 10) return 'hot';
-    if (r >= 5) return 'warm';
+  function deltaTier(d){
+    if (!d || !isFinite(d)) return 'mild';
+    if (d >= 8000) return 'hot';
+    if (d >= 4000) return 'warm';
     return 'mild';
+  }
+  function fmtDelta(d){
+    if (d == null || !isFinite(d)) return '—';
+    var sign = d > 0 ? '+' : '';
+    if (Math.abs(d) >= 1000) return sign + (d / 1000).toFixed(d >= 10000 || d <= -10000 ? 0 : 1).replace(/\\.0$/, '') + 'k';
+    return sign + d;
+  }
+  function fmtOtm(p){
+    if (p == null || !isFinite(p)) return '';
+    return Math.round(p * 100) + '%';
+  }
+  function tapeLabel(t){
+    if (t === 'ask') return 'AT ASK';
+    if (t === 'abv') return '>MID';
+    if (t === 'mid') return 'MID';
+    if (t === 'blw') return '<MID';
+    if (t === 'bid') return 'AT BID';
+    return '';
+  }
+  function tapeTitle(t){
+    if (t === 'ask') return 'Last print at ask — aggressive buyers scrambling for fills';
+    if (t === 'abv') return 'Last print above mid — buy-side pressure';
+    if (t === 'mid') return 'Last print near midpoint — balanced flow';
+    if (t === 'blw') return 'Last print below mid — sell-side pressure';
+    if (t === 'bid') return 'Last print at bid — aggressive sellers';
+    return '';
   }
   function fmtScannedAt(iso){
     if (!iso) return '';
@@ -3067,35 +3084,44 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function flowContractHtml(c){
     var sideLabel = c.side === 'put' ? 'PUT' : 'CALL';
     var strike = c.strike != null ? '$' + c.strike : '';
-    var ratioStr = fmtRatio(c.ratio);
-    var tier = ratioTier(c.ratio);
+    var deltaStr = fmtDelta(c.deltaVol);
+    var tier = deltaTier(c.deltaVol);
+    var otmStr = fmtOtm(c.otmPct);
+    var otmTag = otmStr ? '<span class="flow-otm">' + otmStr + ' OTM</span>' : '';
+    var dteTag = c.dte != null ? '<span class="flow-dte' + (c.dte <= 14 ? ' near' : '') + '">' + c.dte + 'd</span>' : '';
     var premStr = c.premium != null ? fmtBigDollars(c.premium) : null;
     var premTag = premStr ? '<span class="flow-prem">' + premStr + ' prem</span>' : '';
-    var spikeTag = c.isSpike
-      ? '<span class="flow-spike" title="Vol ' + (c.spikeRatio != null ? c.spikeRatio.toFixed(1) + 'x' : '') + ' prior hour (was ' + fmtVolume(c.prevVol || 0) + ')">SPIKE</span>'
-      : '';
+    var tapeLbl = tapeLabel(c.tape);
+    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + c.tape + '" title="' + tapeTitle(c.tape) + '">' + tapeLbl + '</span>' : '';
+    var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
-    var tipSpike = c.isSpike && c.prevVol != null ? ' · spike vs ' + fmtVolume(c.prevVol) + ' prior' : '';
-    return '<div class="flow-chip ' + c.side + ' tier-' + tier + (c.isSpike ? ' spike' : '') + '" title="Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + (c.last != null ? ' · last $' + c.last : '') + tipPrem + tipSpike + '">' +
+    var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
+    var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
+      (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
+      tipPrev +
+      (c.last != null ? ' · last $' + c.last : '') +
+      tipPrem + tipTape;
+    return '<div class="flow-chip ' + c.side + ' tier-' + tier + '" title="' + title + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
       '<span class="flow-strike">' + strike + '</span>' +
       '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
+      dteTag +
+      otmTag +
       '<span class="flow-stats">' +
         '<span class="flow-vol">' + fmtVolume(c.vol) + '</span>' +
         '<span class="flow-sep">/</span>' +
         '<span class="flow-oi">' + fmtVolume(c.oi) + '</span>' +
       '</span>' +
-      '<span class="flow-ratio">' + ratioStr + '</span>' +
+      '<span class="flow-delta">' + deltaStr + '/hr</span>' +
       premTag +
-      spikeTag +
+      tapeTag +
     '</div>';
   }
   var flowState = {
     search: '',
     side: 'all',
-    hotOnly: false,
-    spikeOnly: false,
-    sort: 'hottest',
+    nearOnly: false,
+    sort: 'delta',
     collapsedAll: true,
     perRowCollapsed: Object.create(null),
   };
@@ -3115,26 +3141,23 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       if (flowState.side !== 'all'){
         contracts = contracts.filter(function(c){ return c.side === flowState.side; });
       }
-      if (flowState.hotOnly){
-        contracts = contracts.filter(function(c){ return (c.ratio || 0) >= 10; });
-      }
-      if (flowState.spikeOnly){
-        contracts = contracts.filter(function(c){ return !!c.isSpike; });
+      if (flowState.nearOnly){
+        contracts = contracts.filter(function(c){ return c.dte != null && c.dte <= 14; });
       }
       var sym = (t.symbol || '').toUpperCase();
       var q = flowState.search.trim().toUpperCase();
       if (q && sym.indexOf(q) === -1) return;
       if (!contracts.length) return;
-      var topRatio = contracts.reduce(function(acc, c){ return Math.max(acc, c.ratio || 0); }, 0);
+      var topDelta = contracts.reduce(function(acc, c){ return Math.max(acc, c.deltaVol || 0); }, 0);
       out.push({
         symbol: t.symbol,
         spot: t.spot,
         contracts: contracts,
-        topRatio: topRatio,
+        topDelta: topDelta,
       });
     });
-    if (flowState.sort === 'hottest'){
-      out.sort(function(a, b){ return (b.topRatio || 0) - (a.topRatio || 0); });
+    if (flowState.sort === 'delta'){
+      out.sort(function(a, b){ return (b.topDelta || 0) - (a.topDelta || 0); });
     } else if (flowState.sort === 'contracts'){
       out.sort(function(a, b){ return b.contracts.length - a.contracts.length; });
     } else if (flowState.sort === 'alpha'){
@@ -3150,7 +3173,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (!list) return;
     var allTickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
     var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
-    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.hotOnly || flowState.spikeOnly);
+    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.nearOnly);
     if (eyebrow){
       if (UNUSUAL && summary && summary.contractCount){
         var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
@@ -3170,9 +3193,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
-        empty.textContent = UNUSUAL
-          ? 'No unusual flow flagged in the latest scan.'
-          : 'Waiting for the first hourly scan to land.';
+        if (!UNUSUAL){
+          empty.textContent = 'Waiting for the first hourly scan to land.';
+        } else if (UNUSUAL.summary && UNUSUAL.summary.hadPrior === false){
+          empty.textContent = 'First scan of the session — hourly delta needs a prior snapshot. Check back after the next hourly run.';
+        } else {
+          empty.textContent = 'No block/sweep flow flagged in the latest scan.';
+        }
       }
       return;
     }
@@ -3191,7 +3218,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (noResults) noResults.hidden = true;
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
-      var topTier = ratioTier(t.topRatio || 0);
+      var topTier = deltaTier(t.topDelta || 0);
       var collapsed = !!flowState.perRowCollapsed[t.symbol];
       return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
         '<button type="button" class="flow-row-head" aria-expanded="' + (!collapsed) + '" data-row-toggle="' + escapeHtml(t.symbol) + '">' +
@@ -3199,7 +3226,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
           '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
           (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
-          '<span class="flow-top">Top · ' + fmtRatio(t.topRatio) + '</span>' +
+          '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
         '<div class="flow-contracts"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(flowContractHtml).join('') +
@@ -3241,24 +3268,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         renderUnusualFlow();
       });
     }
-    var hotOnly = $('flow-hot-only');
-    if (hotOnly){
-      hotOnly.addEventListener('change', function(){
-        flowState.hotOnly = !!hotOnly.checked;
-        renderUnusualFlow();
-      });
-    }
-    var spikeOnly = $('flow-spike-only');
-    if (spikeOnly){
-      spikeOnly.addEventListener('change', function(){
-        flowState.spikeOnly = !!spikeOnly.checked;
+    var nearOnly = $('flow-near-only');
+    if (nearOnly){
+      nearOnly.addEventListener('change', function(){
+        flowState.nearOnly = !!nearOnly.checked;
         renderUnusualFlow();
       });
     }
     var sortSelect = $('flow-sort-select');
     if (sortSelect){
       sortSelect.addEventListener('change', function(){
-        flowState.sort = sortSelect.value || 'hottest';
+        flowState.sort = sortSelect.value || 'delta';
         renderUnusualFlow();
       });
     }
@@ -4673,13 +4693,34 @@ main {
 }
 .flow-sep { color: var(--muted); }
 .flow-oi { color: var(--muted); }
-.flow-ratio {
+.flow-delta {
   font-weight: 700;
   color: var(--accent-strong);
   font-size: 11px;
 }
-.flow-chip.tier-warm .flow-ratio { color: var(--warn); }
-.flow-chip.tier-mild .flow-ratio { color: var(--text); }
+.flow-chip.tier-warm .flow-delta { color: var(--warn); }
+.flow-chip.tier-mild .flow-delta { color: var(--text); }
+.flow-otm {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 1px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--surface-3) 60%, transparent);
+  letter-spacing: 0.02em;
+}
+.flow-dte {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 1px 5px;
+  border-radius: var(--r-1);
+  letter-spacing: 0.02em;
+}
+.flow-dte.near {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
 .flow-prem {
   font-size: 11px;
   font-weight: 600;
@@ -4687,20 +4728,20 @@ main {
   margin-left: 6px;
   letter-spacing: 0.01em;
 }
-.flow-spike {
+.flow-tape {
   font-size: 10px;
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--warn) 25%, transparent);
-  color: var(--warn);
   margin-left: 6px;
   letter-spacing: 0.06em;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-3) 60%, transparent);
 }
-.flow-chip.spike {
-  outline: 1px solid color-mix(in srgb, var(--warn) 60%, transparent);
-  outline-offset: -1px;
-}
+.flow-tape.tape-ask { color: var(--pos); background: color-mix(in srgb, var(--pos) 22%, transparent); }
+.flow-tape.tape-bid { color: var(--neg); background: color-mix(in srgb, var(--neg) 22%, transparent); }
+.flow-tape.tape-abv { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
+.flow-tape.tape-blw { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
 .flow-empty {
   color: var(--muted);
   font-size: var(--fs-sm);
