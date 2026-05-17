@@ -65,11 +65,11 @@ jobs:
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
           # Pull before staging so a concurrent push from daily.yml doesn't
-          # cause the rebase below to drop our newly-staged data/unusual.json.
-          git stash push --include-untracked --quiet data/unusual.json || true
+          # cause the rebase below to drop our newly-written scan files.
+          git stash push --include-untracked --quiet data/unusual.json data/unusual-history.json || true
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
           git stash pop --quiet || true
-          git add data/unusual.json
+          git add data/unusual.json data/unusual-history.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: unusual flow scan $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
