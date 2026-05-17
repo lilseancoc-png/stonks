@@ -1992,21 +1992,42 @@
     if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
     return String(n);
   }
-  function fmtRatio(r){
-    if (r == null || !isFinite(r)) return '—';
-    if (r >= 100) return Math.round(r) + 'x';
-    if (r >= 10) return r.toFixed(0) + 'x';
-    return r.toFixed(1).replace(/\.0$/, '') + 'x';
-  }
   function fmtExpiry(epochSec){
     if (!epochSec) return '—';
     var d = new Date(epochSec * 1000);
     return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
   }
-  function ratioTier(r){
-    if (r >= 10) return 'hot';
-    if (r >= 5) return 'warm';
+  function deltaTier(d){
+    if (!d || !isFinite(d)) return 'mild';
+    if (d >= 8000) return 'hot';
+    if (d >= 4000) return 'warm';
     return 'mild';
+  }
+  function fmtDelta(d){
+    if (d == null || !isFinite(d)) return '—';
+    var sign = d > 0 ? '+' : '';
+    if (Math.abs(d) >= 1000) return sign + (d / 1000).toFixed(d >= 10000 || d <= -10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+    return sign + d;
+  }
+  function fmtOtm(p){
+    if (p == null || !isFinite(p)) return '';
+    return Math.round(p * 100) + '%';
+  }
+  function tapeLabel(t){
+    if (t === 'ask') return 'AT ASK';
+    if (t === 'abv') return '>MID';
+    if (t === 'mid') return 'MID';
+    if (t === 'blw') return '<MID';
+    if (t === 'bid') return 'AT BID';
+    return '';
+  }
+  function tapeTitle(t){
+    if (t === 'ask') return 'Last print at ask — aggressive buyers scrambling for fills';
+    if (t === 'abv') return 'Last print above mid — buy-side pressure';
+    if (t === 'mid') return 'Last print near midpoint — balanced flow';
+    if (t === 'blw') return 'Last print below mid — sell-side pressure';
+    if (t === 'bid') return 'Last print at bid — aggressive sellers';
+    return '';
   }
   function fmtScannedAt(iso){
     if (!iso) return '';
@@ -2025,35 +2046,44 @@
   function flowContractHtml(c){
     var sideLabel = c.side === 'put' ? 'PUT' : 'CALL';
     var strike = c.strike != null ? '$' + c.strike : '';
-    var ratioStr = fmtRatio(c.ratio);
-    var tier = ratioTier(c.ratio);
+    var deltaStr = fmtDelta(c.deltaVol);
+    var tier = deltaTier(c.deltaVol);
+    var otmStr = fmtOtm(c.otmPct);
+    var otmTag = otmStr ? '<span class="flow-otm">' + otmStr + ' OTM</span>' : '';
+    var dteTag = c.dte != null ? '<span class="flow-dte' + (c.dte <= 14 ? ' near' : '') + '">' + c.dte + 'd</span>' : '';
     var premStr = c.premium != null ? fmtBigDollars(c.premium) : null;
     var premTag = premStr ? '<span class="flow-prem">' + premStr + ' prem</span>' : '';
-    var spikeTag = c.isSpike
-      ? '<span class="flow-spike" title="Vol ' + (c.spikeRatio != null ? c.spikeRatio.toFixed(1) + 'x' : '') + ' prior hour (was ' + fmtVolume(c.prevVol || 0) + ')">SPIKE</span>'
-      : '';
+    var tapeLbl = tapeLabel(c.tape);
+    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + c.tape + '" title="' + tapeTitle(c.tape) + '">' + tapeLbl + '</span>' : '';
+    var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
-    var tipSpike = c.isSpike && c.prevVol != null ? ' · spike vs ' + fmtVolume(c.prevVol) + ' prior' : '';
-    return '<div class="flow-chip ' + c.side + ' tier-' + tier + (c.isSpike ? ' spike' : '') + '" title="Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + (c.last != null ? ' · last $' + c.last : '') + tipPrem + tipSpike + '">' +
+    var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
+    var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
+      (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
+      tipPrev +
+      (c.last != null ? ' · last $' + c.last : '') +
+      tipPrem + tipTape;
+    return '<div class="flow-chip ' + c.side + ' tier-' + tier + '" title="' + title + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
       '<span class="flow-strike">' + strike + '</span>' +
       '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
+      dteTag +
+      otmTag +
       '<span class="flow-stats">' +
         '<span class="flow-vol">' + fmtVolume(c.vol) + '</span>' +
         '<span class="flow-sep">/</span>' +
         '<span class="flow-oi">' + fmtVolume(c.oi) + '</span>' +
       '</span>' +
-      '<span class="flow-ratio">' + ratioStr + '</span>' +
+      '<span class="flow-delta">' + deltaStr + '/hr</span>' +
       premTag +
-      spikeTag +
+      tapeTag +
     '</div>';
   }
   var flowState = {
     search: '',
     side: 'all',
-    hotOnly: false,
-    spikeOnly: false,
-    sort: 'hottest',
+    nearOnly: false,
+    sort: 'delta',
     collapsedAll: true,
     perRowCollapsed: Object.create(null),
   };
@@ -2073,26 +2103,23 @@
       if (flowState.side !== 'all'){
         contracts = contracts.filter(function(c){ return c.side === flowState.side; });
       }
-      if (flowState.hotOnly){
-        contracts = contracts.filter(function(c){ return (c.ratio || 0) >= 10; });
-      }
-      if (flowState.spikeOnly){
-        contracts = contracts.filter(function(c){ return !!c.isSpike; });
+      if (flowState.nearOnly){
+        contracts = contracts.filter(function(c){ return c.dte != null && c.dte <= 14; });
       }
       var sym = (t.symbol || '').toUpperCase();
       var q = flowState.search.trim().toUpperCase();
       if (q && sym.indexOf(q) === -1) return;
       if (!contracts.length) return;
-      var topRatio = contracts.reduce(function(acc, c){ return Math.max(acc, c.ratio || 0); }, 0);
+      var topDelta = contracts.reduce(function(acc, c){ return Math.max(acc, c.deltaVol || 0); }, 0);
       out.push({
         symbol: t.symbol,
         spot: t.spot,
         contracts: contracts,
-        topRatio: topRatio,
+        topDelta: topDelta,
       });
     });
-    if (flowState.sort === 'hottest'){
-      out.sort(function(a, b){ return (b.topRatio || 0) - (a.topRatio || 0); });
+    if (flowState.sort === 'delta'){
+      out.sort(function(a, b){ return (b.topDelta || 0) - (a.topDelta || 0); });
     } else if (flowState.sort === 'contracts'){
       out.sort(function(a, b){ return b.contracts.length - a.contracts.length; });
     } else if (flowState.sort === 'alpha'){
@@ -2108,7 +2135,7 @@
     if (!list) return;
     var allTickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
     var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
-    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.hotOnly || flowState.spikeOnly);
+    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.nearOnly);
     if (eyebrow){
       if (UNUSUAL && summary && summary.contractCount){
         var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
@@ -2128,9 +2155,13 @@
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
-        empty.textContent = UNUSUAL
-          ? 'No unusual flow flagged in the latest scan.'
-          : 'Waiting for the first hourly scan to land.';
+        if (!UNUSUAL){
+          empty.textContent = 'Waiting for the first hourly scan to land.';
+        } else if (UNUSUAL.summary && UNUSUAL.summary.hadPrior === false){
+          empty.textContent = 'First scan of the session — hourly delta needs a prior snapshot. Check back after the next hourly run.';
+        } else {
+          empty.textContent = 'No block/sweep flow flagged in the latest scan.';
+        }
       }
       return;
     }
@@ -2149,7 +2180,7 @@
     if (noResults) noResults.hidden = true;
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
-      var topTier = ratioTier(t.topRatio || 0);
+      var topTier = deltaTier(t.topDelta || 0);
       var collapsed = !!flowState.perRowCollapsed[t.symbol];
       return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
         '<button type="button" class="flow-row-head" aria-expanded="' + (!collapsed) + '" data-row-toggle="' + escapeHtml(t.symbol) + '">' +
@@ -2157,7 +2188,7 @@
           '<span class="flow-symbol">' + escapeHtml(t.symbol) + '</span>' +
           (spot ? '<span class="flow-spot">' + spot + '</span>' : '') +
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
-          '<span class="flow-top">Top · ' + fmtRatio(t.topRatio) + '</span>' +
+          '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
         '<div class="flow-contracts"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(flowContractHtml).join('') +
@@ -2199,24 +2230,17 @@
         renderUnusualFlow();
       });
     }
-    var hotOnly = $('flow-hot-only');
-    if (hotOnly){
-      hotOnly.addEventListener('change', function(){
-        flowState.hotOnly = !!hotOnly.checked;
-        renderUnusualFlow();
-      });
-    }
-    var spikeOnly = $('flow-spike-only');
-    if (spikeOnly){
-      spikeOnly.addEventListener('change', function(){
-        flowState.spikeOnly = !!spikeOnly.checked;
+    var nearOnly = $('flow-near-only');
+    if (nearOnly){
+      nearOnly.addEventListener('change', function(){
+        flowState.nearOnly = !!nearOnly.checked;
         renderUnusualFlow();
       });
     }
     var sortSelect = $('flow-sort-select');
     if (sortSelect){
       sortSelect.addEventListener('change', function(){
-        flowState.sort = sortSelect.value || 'hottest';
+        flowState.sort = sortSelect.value || 'delta';
         renderUnusualFlow();
       });
     }

@@ -1,13 +1,26 @@
 // Hourly unusual-options-flow scanner. Sweeps the curated ticker universe
-// during US market hours and flags option contracts where today's volume
-// dwarfs the open interest — the classic "fresh positioning" signal that
-// often surfaces informed flow or large hedges.
+// during US market hours and flags option contracts where a meaningful
+// block of volume hit the tape inside the last hour — the kind of
+// directional, single-shot activity that often signals informed flow.
 //
-// Threshold: volume >= 2000 AND volume / max(oi, 1) >= 2, within ±50% of spot.
-// Scope: front 3 expirations per ticker (near-dated where flow concentrates).
+// Criteria (all must hold):
+//   1. OTM band: 5% <= |strike - spot|/spot <= 30% (directional bets, not
+//      ITM hedges or far-OTM lottos).
+//   2. Volume > open interest (the classic baseline "unusual" signal).
+//   3. Hourly delta gate, scaled by days-to-expiry:
+//        - DTE <= 14 (near-term): vol - prevVol >= 4000
+//        - DTE > 14 (further out): vol - prevVol >= 2000
+//   4. A prior snapshot exists for that contract. First scan of the day
+//      produces no hits — we wait one hour so a real delta can be measured.
+//
+// Each hit is tagged with a "tape" string (ask/abv/mid/blw/bid) derived
+// from where the last print sat relative to bid/ask, as a read-the-tape
+// hint for execution context. Informational only.
 //
 // Writes data/unusual.json (current snapshot) and data/unusual-history.json
-// (rolling window of recent snapshots, used for hour-over-hour spike tagging).
+// (rolling window of recent snapshots — stores per-contract volume for
+// every in-band candidate, not just flagged hits, so the next scan can
+// compute deltas for contracts that weren't flagged last hour).
 // Invoked by .github/workflows/unusual-flow.yml at the top of every hour
 // 14:00-21:00 UTC Mon-Fri.
 import { writeFile, mkdir, readFile } from "node:fs/promises";
@@ -20,25 +33,27 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const DATA_DIR = resolve(ROOT, "data");
 
-const STRIKE_BAND = 0.50;
+// Strike scan band is tighter than the OTM-flag band so we still see a few
+// ITM strikes for context, but only OTM 5–30% can actually flag.
+const STRIKE_BAND = 0.35;
 const FRONT_EXPIRATIONS = 3;
-const MIN_VOLUME = 2000;
-const MIN_RATIO = 2;
+const OTM_MIN = 0.05;
+const OTM_MAX = 0.30;
+const DTE_NEAR_DAYS = 14;
+const DELTA_NEAR = 4000;
+const DELTA_FAR = 2000;
+// Minimum vol to bother persisting a contract in history. Skips dead
+// contracts and keeps history file size reasonable.
+const HISTORY_MIN_VOL = 50;
 const POLITENESS_MS = 250;
-// Rolling per-hour snapshot history used for hour-over-hour volume-spike
-// detection. 8 snapshots covers a full 9am-4pm ET session at hourly cadence.
+// Rolling per-hour snapshot history used to compute hour-over-hour volume
+// deltas. 8 snapshots covers a full 9am-4pm ET session at hourly cadence.
 const HISTORY_FILE = "unusual-history.json";
 const HISTORY_MAX_SNAPSHOTS = 8;
-// A "spike" is current vol >= 3x prior-snapshot vol, with an absolute floor
-// so small contracts (e.g. 50 -> 200) don't trip the label.
-const SPIKE_RATIO = 3;
-const SPIKE_ABS_FLOOR = 1000;
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst — match build.mjs's retry pattern.
 const FETCH_RETRIES = 3;
 const FETCH_BACKOFF_MS = [1000, 3000, 8000];
-// ETFs trade enormous volume on small "OI" relative to single names — keep
-// them in scope but they'll mostly self-filter out of the loudest hits.
 const EXCLUDE_FROM_SCAN = new Set([]);
 
 const yahooFinance = new YahooFinance({
@@ -81,33 +96,72 @@ async function fetchOptionsWithRetry(symbol, opts) {
   throw lastErr;
 }
 
-function compressHit(symbol, side, c, expSec, scannedAt, prevVolLookup) {
+// Where did the last trade sit relative to the current bid/ask? "ask" means
+// buyers were lifting offers (scrambling in), "bid" means sellers were
+// hitting bids. Returns null when quotes are missing or the spread is
+// degenerate (e.g. crossed market, illiquid contract).
+function tapeTag(bid, ask, last) {
+  if (bid == null || ask == null || last == null) return null;
+  const spread = ask - bid;
+  if (!(spread > 0)) return null;
+  const eps = Math.max(0.01, spread * 0.05);
+  const mid = (bid + ask) / 2;
+  if (last >= ask - eps) return "ask";
+  if (last <= bid + eps) return "bid";
+  if (Math.abs(last - mid) <= eps) return "mid";
+  return last > mid ? "abv" : "blw";
+}
+
+// Compresses one in-band contract into the candidate record that's used
+// both for flagging logic AND persisted to history. Returns the raw record
+// (no flag decision); caller filters on whether `flagged` is true.
+function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup, nowMs) {
   const vol = c.volume ?? 0;
   const oi = c.openInterest ?? 0;
-  const ratio = vol / Math.max(oi, 1);
+  const strike = c.strike;
+  if (strike == null) return null;
+  const otmPct = side === "call" ? (strike - spot) / spot : (spot - strike) / spot;
+  const dte = Math.max(0, Math.round((expSec * 1000 - nowMs) / 86400000));
   const last = c.lastPrice ?? null;
+  const bid = c.bid ?? null;
+  const ask = c.ask ?? null;
+  const prevVol = prevVolLookup
+    ? prevVolLookup.get(`${symbol}|${side}|${strike}|${expSec}`)
+    : null;
+  const havePrev = prevVol != null;
+  const deltaVol = havePrev ? vol - prevVol : null;
+  const deltaThreshold = dte <= DTE_NEAR_DAYS ? DELTA_NEAR : DELTA_FAR;
+
+  // Flag check — all four conditions must hold.
+  const flagged =
+    havePrev &&
+    deltaVol >= deltaThreshold &&
+    vol > oi &&
+    otmPct >= OTM_MIN &&
+    otmPct <= OTM_MAX;
+
   // Option premium in dollars: vol * last * 100 (each contract = 100 shares).
   const premium = (last != null && vol > 0) ? Math.round(vol * last * 100) : null;
-  const prevVol = prevVolLookup
-    ? prevVolLookup.get(`${symbol}|${side}|${c.strike}|${expSec}`)
-    : null;
-  const spikeRatio = (prevVol != null && prevVol > 0) ? vol / prevVol : null;
-  const isSpike =
-    spikeRatio != null && spikeRatio >= SPIKE_RATIO && (vol - prevVol) >= SPIKE_ABS_FLOOR;
+  const tape = tapeTag(bid, ask, last);
+
   return {
     symbol,
     side,
-    strike: c.strike,
+    strike,
     expSec,
     vol,
     oi,
-    ratio: Math.round(ratio * 10) / 10,
     last,
-    premium,
+    bid,
+    ask,
     iv: c.impliedVolatility ?? null,
-    prevVol: prevVol ?? null,
-    spikeRatio: spikeRatio != null ? Math.round(spikeRatio * 10) / 10 : null,
-    isSpike,
+    prevVol: havePrev ? prevVol : null,
+    deltaVol,
+    otmPct: Math.round(otmPct * 1000) / 1000,
+    dte,
+    premium,
+    tape,
+    flagged,
     scannedAt,
   };
 }
@@ -123,23 +177,21 @@ async function loadUnusualHistory() {
   }
 }
 
-// Flattens the most recent snapshot's hits into a vol-lookup map keyed by
-// the contract-identity tuple. Returned null when there's no prior snapshot
-// (first run after deploy, or the file was wiped).
+// Flattens the most recent snapshot's per-contract volumes into a lookup
+// keyed by contract identity tuple. Returns null when there's no prior
+// snapshot (first run after deploy, or file wiped).
 function buildPrevVolLookup(history) {
   const last = history?.snapshots?.[history.snapshots.length - 1];
-  if (!last || !Array.isArray(last.hits)) return null;
+  if (!last || !Array.isArray(last.contracts)) return null;
   const map = new Map();
-  for (const h of last.hits) {
+  for (const h of last.contracts) {
     if (h.symbol == null || h.strike == null || h.expSec == null) continue;
     map.set(`${h.symbol}|${h.side}|${h.strike}|${h.expSec}`, h.vol ?? 0);
   }
   return map;
 }
 
-async function scanTicker(symbol, scannedAt, prevVolLookup) {
-  // First call: nearest expiration + the full expirationDates list. Reuse its
-  // chain so we don't repeat the same Yahoo call when iterating expirations.
+async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
   const first = await fetchOptionsWithRetry(symbol);
   const spot =
     first.quote?.regularMarketPrice ??
@@ -155,7 +207,7 @@ async function scanTicker(symbol, scannedAt, prevVolLookup) {
   const expirationDates = Array.isArray(first.expirationDates) ? first.expirationDates : [];
   const expirations = expirationDates.slice(0, FRONT_EXPIRATIONS);
 
-  const hits = [];
+  const candidates = [];
   const firstEntry = first.options?.[0];
   const firstExpSec = firstEntry?.expirationDate
     ? Math.round(new Date(firstEntry.expirationDate).getTime() / 1000)
@@ -163,25 +215,17 @@ async function scanTicker(symbol, scannedAt, prevVolLookup) {
   const scanEntry = (entry, expSec) => {
     for (const c of entry.calls || []) {
       if (!inBand(c)) continue;
-      const vol = c.volume ?? 0;
-      const oi = c.openInterest ?? 0;
-      if (vol >= MIN_VOLUME && vol / Math.max(oi, 1) >= MIN_RATIO) {
-        hits.push(compressHit(symbol, "call", c, expSec, scannedAt, prevVolLookup));
-      }
+      const rec = buildCandidate(symbol, "call", c, expSec, scannedAt, spot, prevVolLookup, nowMs);
+      if (rec) candidates.push(rec);
     }
     for (const c of entry.puts || []) {
       if (!inBand(c)) continue;
-      const vol = c.volume ?? 0;
-      const oi = c.openInterest ?? 0;
-      if (vol >= MIN_VOLUME && vol / Math.max(oi, 1) >= MIN_RATIO) {
-        hits.push(compressHit(symbol, "put", c, expSec, scannedAt, prevVolLookup));
-      }
+      const rec = buildCandidate(symbol, "put", c, expSec, scannedAt, spot, prevVolLookup, nowMs);
+      if (rec) candidates.push(rec);
     }
   };
   if (firstEntry && firstExpSec) scanEntry(firstEntry, firstExpSec);
 
-  // Walk additional expirations (skip the first since `options(symbol)` with
-  // no date returned it already).
   for (let i = 1; i < expirations.length; i++) {
     const d = expirations[i];
     await sleep(POLITENESS_MS);
@@ -198,23 +242,22 @@ async function scanTicker(symbol, scannedAt, prevVolLookup) {
     }
   }
 
-  hits.sort((a, b) => b.ratio - a.ratio);
-  return { symbol, spot, marketState, hits };
+  const hits = candidates.filter((c) => c.flagged);
+  hits.sort((a, b) => (b.deltaVol ?? 0) - (a.deltaVol ?? 0));
+  return { symbol, spot, marketState, hits, candidates };
 }
 
 async function main() {
   const scannedAt = new Date().toISOString();
-  // Load prior snapshots BEFORE the scan so each hit can be tagged with its
-  // hour-over-hour spike status as it's computed. First-run history is just
-  // an empty container; lookup will be null and no contracts will be flagged
-  // as spikes until the second hourly snapshot lands.
+  const nowMs = Date.now();
   const history = await loadUnusualHistory();
   const prevVolLookup = buildPrevVolLookup(history);
   console.log(
     `Scanning ${TICKERS.length} tickers for unusual options flow…` +
-      (prevVolLookup ? ` (spike comparison vs ${prevVolLookup.size} prior contracts)` : " (no prior snapshot — spike tagging skipped)"),
+      (prevVolLookup ? ` (delta comparison vs ${prevVolLookup.size} prior contracts)` : " (no prior snapshot — flagging skipped this run)"),
   );
   const tickerRows = [];
+  const allCandidates = [];
   let firstMarketState = null;
   let scannedCount = 0;
   let failedCount = 0;
@@ -222,21 +265,26 @@ async function main() {
   for (const symbol of TICKERS) {
     if (EXCLUDE_FROM_SCAN.has(symbol)) continue;
     try {
-      const result = await scanTicker(symbol, scannedAt, prevVolLookup);
+      const result = await scanTicker(symbol, scannedAt, prevVolLookup, nowMs);
       if (!result) {
         failedCount++;
         continue;
       }
       scannedCount++;
       if (!firstMarketState && result.marketState) firstMarketState = result.marketState;
+      for (const c of result.candidates) {
+        if ((c.vol ?? 0) >= HISTORY_MIN_VOL) allCandidates.push(c);
+      }
       if (result.hits.length) {
+        const top = result.hits[0];
+        const topDelta = top.deltaVol ?? 0;
         tickerRows.push({
           symbol: result.symbol,
           spot: result.spot,
-          topRatio: result.hits[0].ratio,
-          contracts: result.hits,
+          topDelta,
+          contracts: result.hits.map(stripCandidate),
         });
-        console.log(`  ✓ ${symbol} — ${result.hits.length} hit${result.hits.length === 1 ? "" : "s"}, top ${result.hits[0].ratio.toFixed(1)}x (${result.hits[0].side} $${result.hits[0].strike})`);
+        console.log(`  ✓ ${symbol} — ${result.hits.length} hit${result.hits.length === 1 ? "" : "s"}, top +${topDelta}/hr (${top.side} $${top.strike})`);
       } else {
         console.log(`  · ${symbol} — no unusual flow`);
       }
@@ -247,9 +295,9 @@ async function main() {
     await sleep(POLITENESS_MS);
   }
 
-  tickerRows.sort((a, b) => b.topRatio - a.topRatio);
+  tickerRows.sort((a, b) => b.topDelta - a.topDelta);
   const contractCount = tickerRows.reduce((sum, t) => sum + t.contracts.length, 0);
-  const hottestRatio = tickerRows[0]?.topRatio ?? 0;
+  const hottestDelta = tickerRows[0]?.topDelta ?? 0;
 
   const payload = {
     scannedAt,
@@ -257,9 +305,10 @@ async function main() {
     summary: {
       tickerCount: tickerRows.length,
       contractCount,
-      hottestRatio,
+      hottestDelta,
       scanned: scannedCount,
       failed: failedCount,
+      hadPrior: !!prevVolLookup,
     },
     tickers: tickerRows,
   };
@@ -268,33 +317,51 @@ async function main() {
   const outPath = resolve(DATA_DIR, "unusual.json");
   await writeFile(outPath, JSON.stringify(payload), "utf8");
   console.log(
-    `wrote ${outPath} — ${tickerRows.length} ticker${tickerRows.length === 1 ? "" : "s"}, ${contractCount} contract${contractCount === 1 ? "" : "s"} flagged${hottestRatio ? `, hottest ${hottestRatio.toFixed(1)}x` : ""}`,
+    `wrote ${outPath} — ${tickerRows.length} ticker${tickerRows.length === 1 ? "" : "s"}, ${contractCount} contract${contractCount === 1 ? "" : "s"} flagged${hottestDelta ? `, hottest +${hottestDelta}/hr` : ""}`,
   );
 
-  // Append this scan to history and trim. Each entry stores only the keying
-  // tuple + vol so the file stays small (tens of KB across the full window).
+  // Append this scan to history. Persist EVERY in-band candidate (above the
+  // min-vol floor), not just the flagged hits, so next hour's scan can
+  // compute deltas for contracts that didn't flag this hour.
   history.snapshots.push({
     scannedAt,
-    hits: tickerRows.flatMap((t) =>
-      t.contracts.map((c) => ({
-        symbol: c.symbol,
-        side: c.side,
-        strike: c.strike,
-        expSec: c.expSec,
-        vol: c.vol,
-      })),
-    ),
+    contracts: allCandidates.map((c) => ({
+      symbol: c.symbol,
+      side: c.side,
+      strike: c.strike,
+      expSec: c.expSec,
+      vol: c.vol,
+    })),
   });
   history.snapshots = history.snapshots.slice(-HISTORY_MAX_SNAPSHOTS);
   const historyPath = resolve(DATA_DIR, HISTORY_FILE);
   await writeFile(historyPath, JSON.stringify(history), "utf8");
-  const spikeCount = tickerRows.reduce(
-    (sum, t) => sum + t.contracts.filter((c) => c.isSpike).length,
-    0,
-  );
   console.log(
-    `wrote ${historyPath} — ${history.snapshots.length}/${HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"} retained${spikeCount ? `, ${spikeCount} spike${spikeCount === 1 ? "" : "s"} tagged this run` : ""}`,
+    `wrote ${historyPath} — ${history.snapshots.length}/${HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"} retained, ${allCandidates.length} contract volume${allCandidates.length === 1 ? "" : "s"} stored`,
   );
+}
+
+// Trim the candidate object down to the fields the UI actually renders.
+function stripCandidate(c) {
+  return {
+    symbol: c.symbol,
+    side: c.side,
+    strike: c.strike,
+    expSec: c.expSec,
+    vol: c.vol,
+    oi: c.oi,
+    last: c.last,
+    bid: c.bid,
+    ask: c.ask,
+    iv: c.iv,
+    prevVol: c.prevVol,
+    deltaVol: c.deltaVol,
+    otmPct: c.otmPct,
+    dte: c.dte,
+    premium: c.premium,
+    tape: c.tape,
+    scannedAt: c.scannedAt,
+  };
 }
 
 main().catch((err) => {
