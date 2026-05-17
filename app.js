@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03588;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -2027,7 +2027,14 @@
     var strike = c.strike != null ? '$' + c.strike : '';
     var ratioStr = fmtRatio(c.ratio);
     var tier = ratioTier(c.ratio);
-    return '<div class="flow-chip ' + c.side + ' tier-' + tier + '" title="Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + (c.last != null ? ' · last $' + c.last : '') + '">' +
+    var premStr = c.premium != null ? fmtBigDollars(c.premium) : null;
+    var premTag = premStr ? '<span class="flow-prem">' + premStr + ' prem</span>' : '';
+    var spikeTag = c.isSpike
+      ? '<span class="flow-spike" title="Vol ' + (c.spikeRatio != null ? c.spikeRatio.toFixed(1) + 'x' : '') + ' prior hour (was ' + fmtVolume(c.prevVol || 0) + ')">SPIKE</span>'
+      : '';
+    var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
+    var tipSpike = c.isSpike && c.prevVol != null ? ' · spike vs ' + fmtVolume(c.prevVol) + ' prior' : '';
+    return '<div class="flow-chip ' + c.side + ' tier-' + tier + (c.isSpike ? ' spike' : '') + '" title="Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + (c.last != null ? ' · last $' + c.last : '') + tipPrem + tipSpike + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
       '<span class="flow-strike">' + strike + '</span>' +
       '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
@@ -2037,12 +2044,15 @@
         '<span class="flow-oi">' + fmtVolume(c.oi) + '</span>' +
       '</span>' +
       '<span class="flow-ratio">' + ratioStr + '</span>' +
+      premTag +
+      spikeTag +
     '</div>';
   }
   var flowState = {
     search: '',
     side: 'all',
     hotOnly: false,
+    spikeOnly: false,
     sort: 'hottest',
     collapsedAll: true,
     perRowCollapsed: Object.create(null),
@@ -2065,6 +2075,9 @@
       }
       if (flowState.hotOnly){
         contracts = contracts.filter(function(c){ return (c.ratio || 0) >= 10; });
+      }
+      if (flowState.spikeOnly){
+        contracts = contracts.filter(function(c){ return !!c.isSpike; });
       }
       var sym = (t.symbol || '').toUpperCase();
       var q = flowState.search.trim().toUpperCase();
@@ -2095,7 +2108,7 @@
     if (!list) return;
     var allTickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
     var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
-    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.hotOnly);
+    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.hotOnly || flowState.spikeOnly);
     if (eyebrow){
       if (UNUSUAL && summary && summary.contractCount){
         var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
@@ -2190,6 +2203,13 @@
     if (hotOnly){
       hotOnly.addEventListener('change', function(){
         flowState.hotOnly = !!hotOnly.checked;
+        renderUnusualFlow();
+      });
+    }
+    var spikeOnly = $('flow-spike-only');
+    if (spikeOnly){
+      spikeOnly.addEventListener('change', function(){
+        flowState.spikeOnly = !!spikeOnly.checked;
         renderUnusualFlow();
       });
     }

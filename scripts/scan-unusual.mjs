@@ -3,12 +3,14 @@
 // dwarfs the open interest — the classic "fresh positioning" signal that
 // often surfaces informed flow or large hedges.
 //
-// Threshold: volume >= 500 AND volume / max(oi, 1) >= 2, within ±50% of spot.
+// Threshold: volume >= 2000 AND volume / max(oi, 1) >= 2, within ±50% of spot.
 // Scope: front 3 expirations per ticker (near-dated where flow concentrates).
 //
-// Writes data/unusual.json. Invoked by .github/workflows/unusual-flow.yml at
-// the top of every hour 14:00-21:00 UTC Mon-Fri.
-import { writeFile, mkdir } from "node:fs/promises";
+// Writes data/unusual.json (current snapshot) and data/unusual-history.json
+// (rolling window of recent snapshots, used for hour-over-hour spike tagging).
+// Invoked by .github/workflows/unusual-flow.yml at the top of every hour
+// 14:00-21:00 UTC Mon-Fri.
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
@@ -20,9 +22,17 @@ const DATA_DIR = resolve(ROOT, "data");
 
 const STRIKE_BAND = 0.50;
 const FRONT_EXPIRATIONS = 3;
-const MIN_VOLUME = 500;
+const MIN_VOLUME = 2000;
 const MIN_RATIO = 2;
 const POLITENESS_MS = 250;
+// Rolling per-hour snapshot history used for hour-over-hour volume-spike
+// detection. 8 snapshots covers a full 9am-4pm ET session at hourly cadence.
+const HISTORY_FILE = "unusual-history.json";
+const HISTORY_MAX_SNAPSHOTS = 8;
+// A "spike" is current vol >= 3x prior-snapshot vol, with an absolute floor
+// so small contracts (e.g. 50 -> 200) don't trip the label.
+const SPIKE_RATIO = 3;
+const SPIKE_ABS_FLOOR = 1000;
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst — match build.mjs's retry pattern.
 const FETCH_RETRIES = 3;
@@ -71,10 +81,19 @@ async function fetchOptionsWithRetry(symbol, opts) {
   throw lastErr;
 }
 
-function compressHit(symbol, side, c, expSec, scannedAt) {
+function compressHit(symbol, side, c, expSec, scannedAt, prevVolLookup) {
   const vol = c.volume ?? 0;
   const oi = c.openInterest ?? 0;
   const ratio = vol / Math.max(oi, 1);
+  const last = c.lastPrice ?? null;
+  // Option premium in dollars: vol * last * 100 (each contract = 100 shares).
+  const premium = (last != null && vol > 0) ? Math.round(vol * last * 100) : null;
+  const prevVol = prevVolLookup
+    ? prevVolLookup.get(`${symbol}|${side}|${c.strike}|${expSec}`)
+    : null;
+  const spikeRatio = (prevVol != null && prevVol > 0) ? vol / prevVol : null;
+  const isSpike =
+    spikeRatio != null && spikeRatio >= SPIKE_RATIO && (vol - prevVol) >= SPIKE_ABS_FLOOR;
   return {
     symbol,
     side,
@@ -83,13 +102,42 @@ function compressHit(symbol, side, c, expSec, scannedAt) {
     vol,
     oi,
     ratio: Math.round(ratio * 10) / 10,
-    last: c.lastPrice ?? null,
+    last,
+    premium,
     iv: c.impliedVolatility ?? null,
+    prevVol: prevVol ?? null,
+    spikeRatio: spikeRatio != null ? Math.round(spikeRatio * 10) / 10 : null,
+    isSpike,
     scannedAt,
   };
 }
 
-async function scanTicker(symbol, scannedAt) {
+async function loadUnusualHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.snapshots)) return parsed;
+    return { snapshots: [] };
+  } catch {
+    return { snapshots: [] };
+  }
+}
+
+// Flattens the most recent snapshot's hits into a vol-lookup map keyed by
+// the contract-identity tuple. Returned null when there's no prior snapshot
+// (first run after deploy, or the file was wiped).
+function buildPrevVolLookup(history) {
+  const last = history?.snapshots?.[history.snapshots.length - 1];
+  if (!last || !Array.isArray(last.hits)) return null;
+  const map = new Map();
+  for (const h of last.hits) {
+    if (h.symbol == null || h.strike == null || h.expSec == null) continue;
+    map.set(`${h.symbol}|${h.side}|${h.strike}|${h.expSec}`, h.vol ?? 0);
+  }
+  return map;
+}
+
+async function scanTicker(symbol, scannedAt, prevVolLookup) {
   // First call: nearest expiration + the full expirationDates list. Reuse its
   // chain so we don't repeat the same Yahoo call when iterating expirations.
   const first = await fetchOptionsWithRetry(symbol);
@@ -118,7 +166,7 @@ async function scanTicker(symbol, scannedAt) {
       const vol = c.volume ?? 0;
       const oi = c.openInterest ?? 0;
       if (vol >= MIN_VOLUME && vol / Math.max(oi, 1) >= MIN_RATIO) {
-        hits.push(compressHit(symbol, "call", c, expSec, scannedAt));
+        hits.push(compressHit(symbol, "call", c, expSec, scannedAt, prevVolLookup));
       }
     }
     for (const c of entry.puts || []) {
@@ -126,7 +174,7 @@ async function scanTicker(symbol, scannedAt) {
       const vol = c.volume ?? 0;
       const oi = c.openInterest ?? 0;
       if (vol >= MIN_VOLUME && vol / Math.max(oi, 1) >= MIN_RATIO) {
-        hits.push(compressHit(symbol, "put", c, expSec, scannedAt));
+        hits.push(compressHit(symbol, "put", c, expSec, scannedAt, prevVolLookup));
       }
     }
   };
@@ -156,7 +204,16 @@ async function scanTicker(symbol, scannedAt) {
 
 async function main() {
   const scannedAt = new Date().toISOString();
-  console.log(`Scanning ${TICKERS.length} tickers for unusual options flow…`);
+  // Load prior snapshots BEFORE the scan so each hit can be tagged with its
+  // hour-over-hour spike status as it's computed. First-run history is just
+  // an empty container; lookup will be null and no contracts will be flagged
+  // as spikes until the second hourly snapshot lands.
+  const history = await loadUnusualHistory();
+  const prevVolLookup = buildPrevVolLookup(history);
+  console.log(
+    `Scanning ${TICKERS.length} tickers for unusual options flow…` +
+      (prevVolLookup ? ` (spike comparison vs ${prevVolLookup.size} prior contracts)` : " (no prior snapshot — spike tagging skipped)"),
+  );
   const tickerRows = [];
   let firstMarketState = null;
   let scannedCount = 0;
@@ -165,7 +222,7 @@ async function main() {
   for (const symbol of TICKERS) {
     if (EXCLUDE_FROM_SCAN.has(symbol)) continue;
     try {
-      const result = await scanTicker(symbol, scannedAt);
+      const result = await scanTicker(symbol, scannedAt, prevVolLookup);
       if (!result) {
         failedCount++;
         continue;
@@ -212,6 +269,31 @@ async function main() {
   await writeFile(outPath, JSON.stringify(payload), "utf8");
   console.log(
     `wrote ${outPath} — ${tickerRows.length} ticker${tickerRows.length === 1 ? "" : "s"}, ${contractCount} contract${contractCount === 1 ? "" : "s"} flagged${hottestRatio ? `, hottest ${hottestRatio.toFixed(1)}x` : ""}`,
+  );
+
+  // Append this scan to history and trim. Each entry stores only the keying
+  // tuple + vol so the file stays small (tens of KB across the full window).
+  history.snapshots.push({
+    scannedAt,
+    hits: tickerRows.flatMap((t) =>
+      t.contracts.map((c) => ({
+        symbol: c.symbol,
+        side: c.side,
+        strike: c.strike,
+        expSec: c.expSec,
+        vol: c.vol,
+      })),
+    ),
+  });
+  history.snapshots = history.snapshots.slice(-HISTORY_MAX_SNAPSHOTS);
+  const historyPath = resolve(DATA_DIR, HISTORY_FILE);
+  await writeFile(historyPath, JSON.stringify(history), "utf8");
+  const spikeCount = tickerRows.reduce(
+    (sum, t) => sum + t.contracts.filter((c) => c.isSpike).length,
+    0,
+  );
+  console.log(
+    `wrote ${historyPath} — ${history.snapshots.length}/${HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"} retained${spikeCount ? `, ${spikeCount} spike${spikeCount === 1 ? "" : "s"} tagged this run` : ""}`,
   );
 }
 

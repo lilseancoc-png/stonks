@@ -1195,6 +1195,27 @@ main {
 }
 .flow-chip.tier-warm .flow-ratio { color: var(--warn); }
 .flow-chip.tier-mild .flow-ratio { color: var(--text); }
+.flow-prem {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 6px;
+  letter-spacing: 0.01em;
+}
+.flow-spike {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn) 25%, transparent);
+  color: var(--warn);
+  margin-left: 6px;
+  letter-spacing: 0.06em;
+}
+.flow-chip.spike {
+  outline: 1px solid color-mix(in srgb, var(--warn) 60%, transparent);
+  outline-offset: -1px;
+}
 .flow-empty {
   color: var(--muted);
   font-size: var(--fs-sm);
