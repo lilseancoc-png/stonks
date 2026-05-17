@@ -52,9 +52,9 @@ export const TICKERS = [
   // Mega-caps
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
   // Other tech / semis
-  "ORCL", "CRM", "ADBE", "TSM", "MU", "INTC", "DRAM",
+  "ORCL", "CRM", "ADBE", "TSM", "MU", "INTC", "DRAM", "SWKS",
   // SaaS / cloud
-  "NOW", "SNOW", "NET", "DDOG", "CRWD", "ZS", "MDB", "OKTA", "PANW", "WDAY", "ZM", "DOCU",
+  "NOW", "SNOW", "NET", "DDOG", "CRWD", "ZS", "MDB", "OKTA", "PANW", "WDAY", "ZM", "DOCU", "TEAM",
   // Banks / payments
   "JPM", "BAC", "V", "MA",
   // Retail / consumer
@@ -82,11 +82,11 @@ const SECTORS = {
   TSLA: "Mega-cap tech", AMD: "Semis", NFLX: "Mega-cap tech", AVGO: "Semis",
   // Other tech / semis
   ORCL: "Software", CRM: "Software", ADBE: "Software",
-  TSM: "Semis", MU: "Semis", INTC: "Semis", DRAM: "Semis",
+  TSM: "Semis", MU: "Semis", INTC: "Semis", DRAM: "Semis", SWKS: "Semis",
   // SaaS / cloud
   NOW: "Software", SNOW: "Software", NET: "Software", DDOG: "Software",
   CRWD: "Software", ZS: "Software", MDB: "Software", OKTA: "Software",
-  PANW: "Software", WDAY: "Software", ZM: "Software", DOCU: "Software",
+  PANW: "Software", WDAY: "Software", ZM: "Software", DOCU: "Software", TEAM: "Software",
   // Banks / payments
   JPM: "Bank", BAC: "Bank", V: "Payments", MA: "Payments",
   // Retail / consumer
@@ -190,6 +190,7 @@ const INDUSTRY_OF_TICKER = {
   MU: "Semiconductors",
   INTC: "Semiconductors",
   DRAM: "Semiconductors",
+  SWKS: "Semiconductors",
   NOW: "Software Applications",
   SNOW: "Software Infrastructure",
   NET: "Software Infrastructure",
@@ -202,6 +203,7 @@ const INDUSTRY_OF_TICKER = {
   WDAY: "Software Applications",
   ZM: "Software Applications",
   DOCU: "Software Applications",
+  TEAM: "Software Applications",
   JPM: "Banks - Diversified",
   BAC: "Banks - Diversified",
   V: "Credit Services",
