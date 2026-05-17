@@ -50,6 +50,15 @@ const POLITENESS_MS = 250;
 // deltas. 8 snapshots covers a full 9am-4pm ET session at hourly cadence.
 const HISTORY_FILE = "unusual-history.json";
 const HISTORY_MAX_SNAPSHOTS = 8;
+// Long-running log of every flagged hit across hourly scans. Used to surface
+// "repeat conviction" — contracts that flag in multiple scans across days,
+// which is a much stronger informed-flow signal than a one-off block. Pruned
+// to a 7-day calendar window (covers ~5 trading days plus a weekend).
+const LOG_FILE = "unusual-log.json";
+const LOG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// Flag the "🔥 ×N" repeat badge on the UI when a contract has been flagged
+// at least this many times in the window.
+const REPEAT_MIN = 2;
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst — match build.mjs's retry pattern.
 const FETCH_RETRIES = 3;
@@ -177,6 +186,38 @@ async function loadUnusualHistory() {
   }
 }
 
+async function loadUnusualLog() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, LOG_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.entries)) return parsed;
+    return { entries: [] };
+  } catch {
+    return { entries: [] };
+  }
+}
+
+// Build a lookup from the persisted log: contract-key -> {count, lastSeen}.
+// Counts how many distinct scans flagged each contract within the window,
+// so the UI can render a "🔥 ×N" repeat-conviction badge inline.
+function buildRepeatLookup(log, nowMs) {
+  const cutoff = nowMs - LOG_WINDOW_MS;
+  const map = new Map();
+  for (const e of log.entries || []) {
+    const t = Date.parse(e.scannedAt || "");
+    if (!Number.isFinite(t) || t < cutoff) continue;
+    const key = `${e.symbol}|${e.side}|${e.strike}|${e.expSec}`;
+    const prior = map.get(key);
+    if (!prior) {
+      map.set(key, { count: 1, lastSeen: e.scannedAt });
+    } else {
+      prior.count += 1;
+      if (Date.parse(e.scannedAt) > Date.parse(prior.lastSeen)) prior.lastSeen = e.scannedAt;
+    }
+  }
+  return map;
+}
+
 // Flattens the most recent snapshot's per-contract volumes into a lookup
 // keyed by contract identity tuple. Returns null when there's no prior
 // snapshot (first run after deploy, or file wiped).
@@ -251,7 +292,12 @@ async function main() {
   const scannedAt = new Date().toISOString();
   const nowMs = Date.now();
   const history = await loadUnusualHistory();
+  const log = await loadUnusualLog();
   const prevVolLookup = buildPrevVolLookup(history);
+  // Repeat lookup is built from the log BEFORE we append this scan's hits, so
+  // a contract that fires for the first time today shows count=1 (not 2) on
+  // its inaugural badge.
+  const repeatLookup = buildRepeatLookup(log, nowMs);
   console.log(
     `Scanning ${TICKERS.length} tickers for unusual options flow…` +
       (prevVolLookup ? ` (delta comparison vs ${prevVolLookup.size} prior contracts)` : " (no prior snapshot — flagging skipped this run)"),
@@ -278,11 +324,22 @@ async function main() {
       if (result.hits.length) {
         const top = result.hits[0];
         const topDelta = top.deltaVol ?? 0;
+        const stripped = result.hits.map((h) => {
+          const out = stripCandidate(h);
+          const key = `${out.symbol}|${out.side}|${out.strike}|${out.expSec}`;
+          const prior = repeatLookup.get(key);
+          // +1 includes the current scan, so a contract flagged once before
+          // and again this hour shows "×2", a brand-new hit shows "×1" (badge
+          // won't render until count >= REPEAT_MIN).
+          out.repeatCount = (prior?.count ?? 0) + 1;
+          out.firstSeen = prior?.lastSeen ?? scannedAt;
+          return out;
+        });
         tickerRows.push({
           symbol: result.symbol,
           spot: result.spot,
           topDelta,
-          contracts: result.hits.map(stripCandidate),
+          contracts: stripped,
         });
         console.log(`  ✓ ${symbol} — ${result.hits.length} hit${result.hits.length === 1 ? "" : "s"}, top +${topDelta}/hr (${top.side} $${top.strike})`);
       } else {
@@ -338,6 +395,34 @@ async function main() {
   await writeFile(historyPath, JSON.stringify(history), "utf8");
   console.log(
     `wrote ${historyPath} — ${history.snapshots.length}/${HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"} retained, ${allCandidates.length} contract volume${allCandidates.length === 1 ? "" : "s"} stored`,
+  );
+
+  // Append this scan's flagged hits to the long-running log, then prune
+  // anything older than LOG_WINDOW_MS so the file size stays bounded.
+  const cutoff = nowMs - LOG_WINDOW_MS;
+  const kept = (log.entries || []).filter((e) => {
+    const t = Date.parse(e.scannedAt || "");
+    return Number.isFinite(t) && t >= cutoff;
+  });
+  for (const t of tickerRows) {
+    for (const c of t.contracts) {
+      kept.push({
+        scannedAt,
+        symbol: c.symbol,
+        side: c.side,
+        strike: c.strike,
+        expSec: c.expSec,
+        deltaVol: c.deltaVol,
+        vol: c.vol,
+        premium: c.premium,
+      });
+    }
+  }
+  const logPayload = { updatedAt: scannedAt, entries: kept };
+  const logPath = resolve(DATA_DIR, LOG_FILE);
+  await writeFile(logPath, JSON.stringify(logPayload), "utf8");
+  console.log(
+    `wrote ${logPath} — ${kept.length} log entr${kept.length === 1 ? "y" : "ies"} retained (${LOG_WINDOW_MS / 86400000}-day window)`,
   );
 }
 

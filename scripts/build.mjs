@@ -820,7 +820,7 @@ function unusualFlowSection() {
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
     <div id="flow-body" class="flow-body">
-      <p class="hint">Block/sweep flow: 5–30% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI. The kind of single-shot directional buying that often signals informed positioning. Hourly scan, front 3 expirations.</p>
+      <p class="hint">Block/sweep flow: 5–30% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI. The kind of single-shot directional buying that often signals informed positioning. A 🔥 ×N badge means the same contract has flagged that many times in the last 5 trading days — recurring conviction. Hourly scan, front 3 expirations.</p>
       <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
         <label class="flow-search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -835,6 +835,10 @@ function unusualFlowSection() {
         <label class="flow-toggle">
           <input type="checkbox" id="flow-near-only" />
           <span>Near-term ≤14d</span>
+        </label>
+        <label class="flow-toggle">
+          <input type="checkbox" id="flow-repeat-only" />
+          <span>🔥 Repeats only</span>
         </label>
         <label class="flow-sort">
           <select id="flow-sort-select" aria-label="Sort">
@@ -3095,15 +3099,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var premTag = premStr ? '<span class="flow-prem">' + premStr + ' prem</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
     var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + c.tape + '" title="' + tapeTitle(c.tape) + '">' + tapeLbl + '</span>' : '';
+    var repeatTag = '';
+    if (c.repeatCount && c.repeatCount >= 2){
+      var sinceTxt = c.firstSeen ? ' since ' + fmtRepeatSince(c.firstSeen) : '';
+      repeatTag = '<span class="flow-repeat" title="Flagged ' + c.repeatCount + ' times in the last 5 trading days' + sinceTxt + '">\u{1F525} ×' + c.repeatCount + '</span>';
+    }
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
+    var tipRepeat = (c.repeatCount && c.repeatCount >= 2) ? ' · flagged ' + c.repeatCount + 'x in last 5 trading days' : '';
     var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
       (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
       tipPrev +
       (c.last != null ? ' · last $' + c.last : '') +
-      tipPrem + tipTape;
-    return '<div class="flow-chip ' + c.side + ' tier-' + tier + '" title="' + title + '">' +
+      tipPrem + tipTape + tipRepeat;
+    return '<div class="flow-chip ' + c.side + ' tier-' + tier + (c.repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + title + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
       '<span class="flow-strike">' + strike + '</span>' +
       '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
@@ -3117,12 +3127,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       '<span class="flow-delta">' + deltaStr + '/hr</span>' +
       premTag +
       tapeTag +
+      repeatTag +
     '</div>';
+  }
+  function fmtRepeatSince(iso){
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        month: 'short',
+        day: 'numeric',
+      }).format(d);
+    } catch (_) { return ''; }
   }
   var flowState = {
     search: '',
     side: 'all',
     nearOnly: false,
+    repeatOnly: false,
     sort: 'delta',
     collapsedAll: true,
     perRowCollapsed: Object.create(null),
@@ -3145,6 +3168,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       }
       if (flowState.nearOnly){
         contracts = contracts.filter(function(c){ return c.dte != null && c.dte <= 14; });
+      }
+      if (flowState.repeatOnly){
+        contracts = contracts.filter(function(c){ return (c.repeatCount || 0) >= 2; });
       }
       var sym = (t.symbol || '').toUpperCase();
       var q = flowState.search.trim().toUpperCase();
@@ -3175,7 +3201,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (!list) return;
     var allTickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
     var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
-    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.nearOnly);
+    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.nearOnly || flowState.repeatOnly);
     if (eyebrow){
       if (UNUSUAL && summary && summary.contractCount){
         var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
@@ -3274,6 +3300,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (nearOnly){
       nearOnly.addEventListener('change', function(){
         flowState.nearOnly = !!nearOnly.checked;
+        renderUnusualFlow();
+      });
+    }
+    var repeatOnly = $('flow-repeat-only');
+    if (repeatOnly){
+      repeatOnly.addEventListener('change', function(){
+        flowState.repeatOnly = !!repeatOnly.checked;
         renderUnusualFlow();
       });
     }
@@ -4744,6 +4777,20 @@ main {
 .flow-tape.tape-bid { color: var(--neg); background: color-mix(in srgb, var(--neg) 22%, transparent); }
 .flow-tape.tape-abv { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
 .flow-tape.tape-blw { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
+.flow-repeat {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  letter-spacing: 0.04em;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.flow-chip.is-repeat {
+  outline: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  outline-offset: -1px;
+}
 .flow-empty {
   color: var(--muted);
   font-size: var(--fs-sm);
@@ -6498,6 +6545,7 @@ const TRENDS_FILE = "trends.json";
 const TRENDS_HISTORY_FILE = "trends-history.json";
 const UNUSUAL_FILE = "unusual.json";
 const UNUSUAL_HISTORY_FILE = "unusual-history.json";
+const UNUSUAL_LOG_FILE = "unusual-log.json";
 
 async function loadTrendHistory() {
   try {
@@ -6544,6 +6592,18 @@ async function loadUnusualFlow() {
 async function loadUnusualHistory() {
   try {
     const raw = await readFile(resolve(DATA_DIR, UNUSUAL_HISTORY_FILE), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// Same preservation pattern again for the rolling 7-day hit log that powers
+// the "🔥 ×N" repeat-conviction badges. Losing this on every daily build
+// would reset every contract's repeat count to 1.
+async function loadUnusualLog() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, UNUSUAL_LOG_FILE), "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -6957,6 +7017,7 @@ async function main() {
   const previousHistory = await loadTrendHistory();
   const unusual = await loadUnusualFlow();
   const unusualHistory = await loadUnusualHistory();
+  const unusualLog = await loadUnusualLog();
   const riskFreeRate = await fetchRiskFreeRate();
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
@@ -6993,6 +7054,9 @@ async function main() {
   }
   if (unusualHistory) {
     await writeFile(resolve(DATA_DIR, UNUSUAL_HISTORY_FILE), JSON.stringify(unusualHistory), "utf8");
+  }
+  if (unusualLog) {
+    await writeFile(resolve(DATA_DIR, UNUSUAL_LOG_FILE), JSON.stringify(unusualLog), "utf8");
   }
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,

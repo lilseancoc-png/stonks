@@ -2055,15 +2055,21 @@
     var premTag = premStr ? '<span class="flow-prem">' + premStr + ' prem</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
     var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + c.tape + '" title="' + tapeTitle(c.tape) + '">' + tapeLbl + '</span>' : '';
+    var repeatTag = '';
+    if (c.repeatCount && c.repeatCount >= 2){
+      var sinceTxt = c.firstSeen ? ' since ' + fmtRepeatSince(c.firstSeen) : '';
+      repeatTag = '<span class="flow-repeat" title="Flagged ' + c.repeatCount + ' times in the last 5 trading days' + sinceTxt + '">\u{1F525} ×' + c.repeatCount + '</span>';
+    }
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
+    var tipRepeat = (c.repeatCount && c.repeatCount >= 2) ? ' · flagged ' + c.repeatCount + 'x in last 5 trading days' : '';
     var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
       (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
       tipPrev +
       (c.last != null ? ' · last $' + c.last : '') +
-      tipPrem + tipTape;
-    return '<div class="flow-chip ' + c.side + ' tier-' + tier + '" title="' + title + '">' +
+      tipPrem + tipTape + tipRepeat;
+    return '<div class="flow-chip ' + c.side + ' tier-' + tier + (c.repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + title + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
       '<span class="flow-strike">' + strike + '</span>' +
       '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
@@ -2077,12 +2083,25 @@
       '<span class="flow-delta">' + deltaStr + '/hr</span>' +
       premTag +
       tapeTag +
+      repeatTag +
     '</div>';
+  }
+  function fmtRepeatSince(iso){
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        month: 'short',
+        day: 'numeric',
+      }).format(d);
+    } catch (_) { return ''; }
   }
   var flowState = {
     search: '',
     side: 'all',
     nearOnly: false,
+    repeatOnly: false,
     sort: 'delta',
     collapsedAll: true,
     perRowCollapsed: Object.create(null),
@@ -2105,6 +2124,9 @@
       }
       if (flowState.nearOnly){
         contracts = contracts.filter(function(c){ return c.dte != null && c.dte <= 14; });
+      }
+      if (flowState.repeatOnly){
+        contracts = contracts.filter(function(c){ return (c.repeatCount || 0) >= 2; });
       }
       var sym = (t.symbol || '').toUpperCase();
       var q = flowState.search.trim().toUpperCase();
@@ -2135,7 +2157,7 @@
     if (!list) return;
     var allTickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
     var summary = UNUSUAL && UNUSUAL.summary ? UNUSUAL.summary : null;
-    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.nearOnly);
+    var hasFilters = !!(flowState.search || flowState.side !== 'all' || flowState.nearOnly || flowState.repeatOnly);
     if (eyebrow){
       if (UNUSUAL && summary && summary.contractCount){
         var parts = [summary.contractCount + ' contract' + (summary.contractCount === 1 ? '' : 's')];
@@ -2234,6 +2256,13 @@
     if (nearOnly){
       nearOnly.addEventListener('change', function(){
         flowState.nearOnly = !!nearOnly.checked;
+        renderUnusualFlow();
+      });
+    }
+    var repeatOnly = $('flow-repeat-only');
+    if (repeatOnly){
+      repeatOnly.addEventListener('change', function(){
+        flowState.repeatOnly = !!repeatOnly.checked;
         renderUnusualFlow();
       });
     }
