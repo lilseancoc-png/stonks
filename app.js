@@ -34,9 +34,9 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.045;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -147,7 +147,7 @@
     }).formatToParts(probe);
     var h = parseInt((parts.find(function(p){return p.type==='hour';})||{}).value, 10) || 0;
     var mi = parseInt((parts.find(function(p){return p.type==='minute';})||{}).value, 10) || 0;
-    if (h === 24) h = 0;
+    if (h === 24) h = 0; // some impls emit '24' for midnight
     var diffMin = (16*60) - (h*60 + mi);
     return Math.floor((probe.getTime() + diffMin*60*1000) / 1000);
   }
@@ -311,7 +311,6 @@
     if (pendingUrlState.sym !== state.symbol) return;
     suppressUrlWrite = true;
     try {
-      // Type radio first so populateStrikes picks from the right side.
       if (pendingUrlState.t){
         var radio = document.querySelector('input[name="opt-type"][value="' + pendingUrlState.t + '"]');
         if (radio) radio.checked = true;
@@ -698,11 +697,12 @@
     var box = $('opt-news-pane');
     if (!box) return;
     if (!state.symbol){ box.innerHTML = ''; return; }
+    var socialHtml = renderSocialSentiment() || '';
     if (!state.news || !state.news.paragraph){
-      box.innerHTML = '<div class="opt-news-empty">No AI news take available for ' + escapeHtml(state.symbol) + ' in this build.</div>';
+      box.innerHTML = socialHtml + '<div class="opt-news-empty">No AI news take available for ' + escapeHtml(state.symbol) + ' in this build.</div>';
       return;
     }
-    box.innerHTML = newsTakeHtml(state.news, state.symbol, false);
+    box.innerHTML = socialHtml + newsTakeHtml(state.news, state.symbol, false);
   }
   function renderAnalysisShell(){
     // Show the tabbed analysis container as soon as a ticker is selected.
@@ -1059,6 +1059,7 @@
       state.news = entry.news || null;
       state.technicals = entry.technicals || null;
       state.fundamentals = entry.fundamentals || null;
+      state.social = entry.social || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       state.currentExp = state.expirations[0];
       populateExpiry();
@@ -1498,7 +1499,123 @@
       metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
     }
     metricsEl.innerHTML = metrics;
+    renderEarningsHistory();
     box.hidden = false;
+  }
+
+  function renderEarningsHistory(){
+    var box = $('opt-fund-earnings-history');
+    if (!box) return;
+    var f = state.fundamentals;
+    var eh = (f && Array.isArray(f.earningsHistory)) ? f.earningsHistory : [];
+    if (eh.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+
+    var W = 320, H = 140, padL = 36, padR = 12, padT = 12, padB = 26;
+    var plotW = W - padL - padR;
+    var plotH = H - padT - padB;
+
+    var vals = [];
+    eh.forEach(function(q){
+      if (q.epsActual != null) vals.push(q.epsActual);
+      if (q.epsEstimate != null) vals.push(q.epsEstimate);
+    });
+    if (vals.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+    var lo = Math.min.apply(null, vals);
+    var hi = Math.max.apply(null, vals);
+    var range = hi - lo;
+    if (range === 0){ range = Math.abs(hi) > 0 ? Math.abs(hi) * 0.2 : 1; }
+    var pad = range * 0.15;
+    var yMin = lo - pad;
+    var yMax = hi + pad;
+    function yFor(v){ return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
+
+    var colW = plotW / eh.length;
+    function xFor(i){ return padL + colW * (i + 0.5); }
+
+    var qLabel = function(q){
+      if (q.period) return q.period;
+      if (q.date){
+        var d = new Date(q.date);
+        if (!isNaN(d.getTime())){
+          var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+          return m + ' ' + String(d.getUTCFullYear()).slice(2);
+        }
+      }
+      return '';
+    };
+
+    var yTicks = 3;
+    var yAxis = '';
+    for (var i = 0; i < yTicks; i++){
+      var t = yMin + (yMax - yMin) * (i / (yTicks - 1));
+      var y = yFor(t);
+      yAxis += '<line class="opt-fund-eh-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" />';
+      yAxis += '<text class="opt-fund-eh-axis" x="' + (padL - 4) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + escapeHtml(t.toFixed(2)) + '</text>';
+    }
+
+    var actualPts = [];
+    var dots = '';
+    var xLabels = '';
+    eh.forEach(function(q, i){
+      var x = xFor(i);
+      if (q.epsEstimate != null){
+        dots += '<circle class="opt-fund-eh-est" cx="' + x.toFixed(1) + '" cy="' + yFor(q.epsEstimate).toFixed(1) + '" r="4"><title>Est ' + escapeHtml(q.epsEstimate.toFixed(2)) + '</title></circle>';
+      }
+      if (q.epsActual != null){
+        var ay = yFor(q.epsActual);
+        dots += '<circle class="opt-fund-eh-act" cx="' + x.toFixed(1) + '" cy="' + ay.toFixed(1) + '" r="4"><title>Actual ' + escapeHtml(q.epsActual.toFixed(2)) + (q.surprisePct != null ? ' (' + (q.surprisePct >= 0 ? '+' : '') + q.surprisePct.toFixed(1) + '%)' : '') + '</title></circle>';
+        actualPts.push(x.toFixed(1) + ',' + ay.toFixed(1));
+      }
+      xLabels += '<text class="opt-fund-eh-axis" x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(qLabel(q)) + '</text>';
+    });
+    var line = actualPts.length >= 2
+      ? '<polyline class="opt-fund-eh-line" points="' + actualPts.join(' ') + '" />'
+      : '';
+
+    var svg = '<svg class="opt-fund-eh-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="EPS estimated vs actual, last ' + eh.length + ' quarters">' +
+      yAxis + line + dots + xLabels +
+      '</svg>';
+    var legend = '<div class="opt-fund-eh-legend">' +
+      '<span><i class="opt-fund-eh-dot est"></i> Estimated EPS</span>' +
+      '<span><i class="opt-fund-eh-dot act"></i> Actual EPS</span>' +
+      '</div>';
+    var head = '<div class="opt-fund-eh-head">Earnings history</div>';
+    box.innerHTML = head + svg + legend;
+    box.hidden = false;
+  }
+
+  function renderSocialSentiment(){
+    var box = $('opt-news-pane');
+    if (!box) return null;
+    var s = state.social;
+    if (!s || !s.msgCount24h || s.msgCount24h < 5) return '';
+    var bull = Math.max(0, Math.round(s.bullishPct || 0));
+    var bear = Math.max(0, Math.round(s.bearishPct || 0));
+    var neutral = Math.max(0, 100 - bull - bear);
+    var msgs = s.msgCount24h >= 1000
+      ? (s.msgCount24h / 1000).toFixed(1) + 'k'
+      : Math.round(s.msgCount24h).toString();
+    var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
+    var chips = [];
+    if (s.sources && s.sources.stocktwits){
+      chips.push('st: ' + s.sources.stocktwits.total);
+    }
+    if (s.sources && s.sources.reddit){
+      chips.push('reddit: ' + s.sources.reddit.total);
+    }
+    var html = '<div class="opt-social ' + lean + '">' +
+      '<div class="opt-social-head">' +
+        '<span class="opt-social-label">Retail chatter</span>' +
+        '<span class="opt-social-stat">' + bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h</span>' +
+      '</div>' +
+      '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish">' +
+        '<span class="bull" style="width:' + bull + '%"></span>' +
+        '<span class="neutral" style="width:' + neutral + '%"></span>' +
+        '<span class="bear" style="width:' + bear + '%"></span>' +
+      '</div>' +
+      (chips.length ? '<div class="opt-social-sources">' + escapeHtml(chips.join(' · ')) + '</div>' : '') +
+    '</div>';
+    return html;
   }
 
   function onExpiryChange(){
