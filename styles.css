@@ -1188,13 +1188,34 @@ main {
 }
 .flow-sep { color: var(--muted); }
 .flow-oi { color: var(--muted); }
-.flow-ratio {
+.flow-delta {
   font-weight: 700;
   color: var(--accent-strong);
   font-size: 11px;
 }
-.flow-chip.tier-warm .flow-ratio { color: var(--warn); }
-.flow-chip.tier-mild .flow-ratio { color: var(--text); }
+.flow-chip.tier-warm .flow-delta { color: var(--warn); }
+.flow-chip.tier-mild .flow-delta { color: var(--text); }
+.flow-otm {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 1px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--surface-3) 60%, transparent);
+  letter-spacing: 0.02em;
+}
+.flow-dte {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 1px 5px;
+  border-radius: var(--r-1);
+  letter-spacing: 0.02em;
+}
+.flow-dte.near {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
 .flow-prem {
   font-size: 11px;
   font-weight: 600;
@@ -1202,20 +1223,20 @@ main {
   margin-left: 6px;
   letter-spacing: 0.01em;
 }
-.flow-spike {
+.flow-tape {
   font-size: 10px;
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--warn) 25%, transparent);
-  color: var(--warn);
   margin-left: 6px;
   letter-spacing: 0.06em;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-3) 60%, transparent);
 }
-.flow-chip.spike {
-  outline: 1px solid color-mix(in srgb, var(--warn) 60%, transparent);
-  outline-offset: -1px;
-}
+.flow-tape.tape-ask { color: var(--pos); background: color-mix(in srgb, var(--pos) 22%, transparent); }
+.flow-tape.tape-bid { color: var(--neg); background: color-mix(in srgb, var(--neg) 22%, transparent); }
+.flow-tape.tape-abv { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
+.flow-tape.tape-blw { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
 .flow-empty {
   color: var(--muted);
   font-size: var(--fs-sm);
