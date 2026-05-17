@@ -1138,6 +1138,9 @@ main {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* The HTML 'hidden' attribute resolves to display:none via the UA stylesheet,
+   but `.flow-contracts { display: flex }` is an equally-specific class
+   selector that wins the cascade. Restore the collapse behavior explicitly. */
 .flow-contracts[hidden] { display: none; }
 .flow-chip {
   display: inline-flex;
@@ -1511,6 +1514,75 @@ main {
 .opt-fund-foot {
   font-size: 11px; color: var(--muted);
   margin: var(--s-3) 0 0; line-height: 1.4;
+}
+
+/* === Earnings history dot chart === */
+.opt-fund-eh {
+  margin-top: var(--s-4);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.opt-fund-eh-head {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  margin-bottom: var(--s-2); letter-spacing: 0.02em;
+}
+.opt-fund-eh-svg {
+  width: 100%; height: auto; display: block;
+}
+.opt-fund-eh-grid {
+  stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6;
+}
+.opt-fund-eh-axis {
+  font-size: 10px; fill: var(--muted);
+}
+.opt-fund-eh-est { fill: color-mix(in srgb, var(--pos) 55%, transparent); }
+.opt-fund-eh-act { fill: var(--pos); }
+.opt-fund-eh-line {
+  fill: none; stroke: var(--pos); stroke-width: 1.5; opacity: 0.6;
+}
+.opt-fund-eh-legend {
+  display: flex; gap: var(--s-3); margin-top: var(--s-2);
+  font-size: 11px; color: var(--muted);
+}
+.opt-fund-eh-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  vertical-align: middle; margin-right: 4px;
+}
+.opt-fund-eh-dot.est { background: color-mix(in srgb, var(--pos) 55%, transparent); }
+.opt-fund-eh-dot.act { background: var(--pos); }
+
+/* === Retail sentiment gauge === */
+.opt-social {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  padding: var(--s-3);
+  margin-bottom: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.opt-social-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s-3); flex-wrap: wrap;
+}
+.opt-social-label {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  letter-spacing: 0.02em;
+}
+.opt-social-stat {
+  font-size: 11px; color: var(--muted);
+}
+.opt-social-bar {
+  display: flex; height: 8px; width: 100%;
+  border-radius: 4px; overflow: hidden;
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+.opt-social-bar .bull { background: var(--pos); }
+.opt-social-bar .bear { background: var(--neg); }
+.opt-social-bar .neutral { background: transparent; }
+.opt-social-sources {
+  font-size: 11px; color: var(--muted);
 }
 
 .opt-row-mute {

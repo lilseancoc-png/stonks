@@ -574,6 +574,29 @@ async function fetchFundamentals(symbol) {
     break;
   }
 
+  // Full quarter-by-quarter EPS history (oldest → newest) for the Robinhood-style
+  // dot chart. Yahoo returns up to 4 quarters in earningsHistory.history; we keep
+  // any row that has at least one of actual/estimate so blanks can still slot in.
+  const earningsHistory = [];
+  for (const h of history) {
+    const actual = num(h?.epsActual);
+    const estimate = num(h?.epsEstimate);
+    if (actual == null && estimate == null) continue;
+    let date = null;
+    if (h.quarter) {
+      const t = h.quarter instanceof Date ? h.quarter : new Date(h.quarter);
+      if (!isNaN(t.getTime())) date = t.toISOString().slice(0, 10);
+    }
+    const surprisePct = num(h?.surprisePercent);
+    earningsHistory.push({
+      date,
+      period: h.period || null,
+      epsActual: actual,
+      epsEstimate: estimate,
+      surprisePct: surprisePct != null ? surprisePct * 100 : null,
+    });
+  }
+
   // Next earnings date from calendarEvents.earnings.earningsDate (an array of
   // Date objects — Yahoo gives a single date once it's confirmed, otherwise a
   // start/end window).
@@ -626,6 +649,7 @@ async function fetchFundamentals(symbol) {
     recommendationKey: fd.recommendationKey || null,
     numberOfAnalystOpinions: num(fd.numberOfAnalystOpinions),
     lastQuarter,
+    earningsHistory: earningsHistory.slice(-8),
     nextEarningsDate: nextEarnings,
     growthEstimateCurQ: tq ? pct(tq.growth) : null,
     growthEstimateCurY: ty ? pct(ty.growth) : null,
@@ -892,6 +916,7 @@ function optionEvalSection() {
             </div>
           </div>
           <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
+          <div id="opt-fund-earnings-history" class="opt-fund-eh" hidden></div>
           <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
         </section>
       </div>
@@ -1049,7 +1074,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
   var RFR = ${rfrLiteral};
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -1710,11 +1735,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var box = $('opt-news-pane');
     if (!box) return;
     if (!state.symbol){ box.innerHTML = ''; return; }
+    var socialHtml = renderSocialSentiment() || '';
     if (!state.news || !state.news.paragraph){
-      box.innerHTML = '<div class="opt-news-empty">No AI news take available for ' + escapeHtml(state.symbol) + ' in this build.</div>';
+      box.innerHTML = socialHtml + '<div class="opt-news-empty">No AI news take available for ' + escapeHtml(state.symbol) + ' in this build.</div>';
       return;
     }
-    box.innerHTML = newsTakeHtml(state.news, state.symbol, false);
+    box.innerHTML = socialHtml + newsTakeHtml(state.news, state.symbol, false);
   }
   function renderAnalysisShell(){
     // Show the tabbed analysis container as soon as a ticker is selected.
@@ -2071,6 +2097,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       state.news = entry.news || null;
       state.technicals = entry.technicals || null;
       state.fundamentals = entry.fundamentals || null;
+      state.social = entry.social || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       state.currentExp = state.expirations[0];
       populateExpiry();
@@ -2510,7 +2537,123 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
     }
     metricsEl.innerHTML = metrics;
+    renderEarningsHistory();
     box.hidden = false;
+  }
+
+  function renderEarningsHistory(){
+    var box = $('opt-fund-earnings-history');
+    if (!box) return;
+    var f = state.fundamentals;
+    var eh = (f && Array.isArray(f.earningsHistory)) ? f.earningsHistory : [];
+    if (eh.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+
+    var W = 320, H = 140, padL = 36, padR = 12, padT = 12, padB = 26;
+    var plotW = W - padL - padR;
+    var plotH = H - padT - padB;
+
+    var vals = [];
+    eh.forEach(function(q){
+      if (q.epsActual != null) vals.push(q.epsActual);
+      if (q.epsEstimate != null) vals.push(q.epsEstimate);
+    });
+    if (vals.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+    var lo = Math.min.apply(null, vals);
+    var hi = Math.max.apply(null, vals);
+    var range = hi - lo;
+    if (range === 0){ range = Math.abs(hi) > 0 ? Math.abs(hi) * 0.2 : 1; }
+    var pad = range * 0.15;
+    var yMin = lo - pad;
+    var yMax = hi + pad;
+    function yFor(v){ return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
+
+    var colW = plotW / eh.length;
+    function xFor(i){ return padL + colW * (i + 0.5); }
+
+    var qLabel = function(q){
+      if (q.period) return q.period;
+      if (q.date){
+        var d = new Date(q.date);
+        if (!isNaN(d.getTime())){
+          var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+          return m + ' ' + String(d.getUTCFullYear()).slice(2);
+        }
+      }
+      return '';
+    };
+
+    var yTicks = 3;
+    var yAxis = '';
+    for (var i = 0; i < yTicks; i++){
+      var t = yMin + (yMax - yMin) * (i / (yTicks - 1));
+      var y = yFor(t);
+      yAxis += '<line class="opt-fund-eh-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" />';
+      yAxis += '<text class="opt-fund-eh-axis" x="' + (padL - 4) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + escapeHtml(t.toFixed(2)) + '</text>';
+    }
+
+    var actualPts = [];
+    var dots = '';
+    var xLabels = '';
+    eh.forEach(function(q, i){
+      var x = xFor(i);
+      if (q.epsEstimate != null){
+        dots += '<circle class="opt-fund-eh-est" cx="' + x.toFixed(1) + '" cy="' + yFor(q.epsEstimate).toFixed(1) + '" r="4"><title>Est ' + escapeHtml(q.epsEstimate.toFixed(2)) + '</title></circle>';
+      }
+      if (q.epsActual != null){
+        var ay = yFor(q.epsActual);
+        dots += '<circle class="opt-fund-eh-act" cx="' + x.toFixed(1) + '" cy="' + ay.toFixed(1) + '" r="4"><title>Actual ' + escapeHtml(q.epsActual.toFixed(2)) + (q.surprisePct != null ? ' (' + (q.surprisePct >= 0 ? '+' : '') + q.surprisePct.toFixed(1) + '%)' : '') + '</title></circle>';
+        actualPts.push(x.toFixed(1) + ',' + ay.toFixed(1));
+      }
+      xLabels += '<text class="opt-fund-eh-axis" x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(qLabel(q)) + '</text>';
+    });
+    var line = actualPts.length >= 2
+      ? '<polyline class="opt-fund-eh-line" points="' + actualPts.join(' ') + '" />'
+      : '';
+
+    var svg = '<svg class="opt-fund-eh-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="EPS estimated vs actual, last ' + eh.length + ' quarters">' +
+      yAxis + line + dots + xLabels +
+      '</svg>';
+    var legend = '<div class="opt-fund-eh-legend">' +
+      '<span><i class="opt-fund-eh-dot est"></i> Estimated EPS</span>' +
+      '<span><i class="opt-fund-eh-dot act"></i> Actual EPS</span>' +
+      '</div>';
+    var head = '<div class="opt-fund-eh-head">Earnings history</div>';
+    box.innerHTML = head + svg + legend;
+    box.hidden = false;
+  }
+
+  function renderSocialSentiment(){
+    var box = $('opt-news-pane');
+    if (!box) return null;
+    var s = state.social;
+    if (!s || !s.msgCount24h || s.msgCount24h < 5) return '';
+    var bull = Math.max(0, Math.round(s.bullishPct || 0));
+    var bear = Math.max(0, Math.round(s.bearishPct || 0));
+    var neutral = Math.max(0, 100 - bull - bear);
+    var msgs = s.msgCount24h >= 1000
+      ? (s.msgCount24h / 1000).toFixed(1) + 'k'
+      : Math.round(s.msgCount24h).toString();
+    var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
+    var chips = [];
+    if (s.sources && s.sources.stocktwits){
+      chips.push('st: ' + s.sources.stocktwits.total);
+    }
+    if (s.sources && s.sources.reddit){
+      chips.push('reddit: ' + s.sources.reddit.total);
+    }
+    var html = '<div class="opt-social ' + lean + '">' +
+      '<div class="opt-social-head">' +
+        '<span class="opt-social-label">Retail chatter</span>' +
+        '<span class="opt-social-stat">' + bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h</span>' +
+      '</div>' +
+      '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish">' +
+        '<span class="bull" style="width:' + bull + '%"></span>' +
+        '<span class="neutral" style="width:' + neutral + '%"></span>' +
+        '<span class="bear" style="width:' + bear + '%"></span>' +
+      '</div>' +
+      (chips.length ? '<div class="opt-social-sources">' + escapeHtml(chips.join(' · ')) + '</div>' : '') +
+    '</div>';
+    return html;
   }
 
   function onExpiryChange(){
@@ -4834,6 +4977,75 @@ main {
   margin: var(--s-3) 0 0; line-height: 1.4;
 }
 
+/* === Earnings history dot chart === */
+.opt-fund-eh {
+  margin-top: var(--s-4);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.opt-fund-eh-head {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  margin-bottom: var(--s-2); letter-spacing: 0.02em;
+}
+.opt-fund-eh-svg {
+  width: 100%; height: auto; display: block;
+}
+.opt-fund-eh-grid {
+  stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6;
+}
+.opt-fund-eh-axis {
+  font-size: 10px; fill: var(--muted);
+}
+.opt-fund-eh-est { fill: color-mix(in srgb, var(--pos) 55%, transparent); }
+.opt-fund-eh-act { fill: var(--pos); }
+.opt-fund-eh-line {
+  fill: none; stroke: var(--pos); stroke-width: 1.5; opacity: 0.6;
+}
+.opt-fund-eh-legend {
+  display: flex; gap: var(--s-3); margin-top: var(--s-2);
+  font-size: 11px; color: var(--muted);
+}
+.opt-fund-eh-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  vertical-align: middle; margin-right: 4px;
+}
+.opt-fund-eh-dot.est { background: color-mix(in srgb, var(--pos) 55%, transparent); }
+.opt-fund-eh-dot.act { background: var(--pos); }
+
+/* === Retail sentiment gauge === */
+.opt-social {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  padding: var(--s-3);
+  margin-bottom: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.opt-social-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s-3); flex-wrap: wrap;
+}
+.opt-social-label {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  letter-spacing: 0.02em;
+}
+.opt-social-stat {
+  font-size: 11px; color: var(--muted);
+}
+.opt-social-bar {
+  display: flex; height: 8px; width: 100%;
+  border-radius: 4px; overflow: hidden;
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+.opt-social-bar .bull { background: var(--pos); }
+.opt-social-bar .bear { background: var(--neg); }
+.opt-social-bar .neutral { background: transparent; }
+.opt-social-sources {
+  font-size: 11px; color: var(--muted);
+}
+
 .opt-row-mute {
   color: var(--muted); font-size: 11px; margin-left: 6px;
   font-weight: 500;
@@ -5719,6 +5931,127 @@ async function fetchTickerHeadlines(symbol) {
   }
 }
 
+// --- Retail sentiment (Stocktwits + Reddit) -------------------------------
+// Both endpoints are free and unauthenticated. Each fetcher returns null on
+// any failure so a single bad source never breaks the daily build. The
+// aggregator below sums per-source counts into a normalized percentage split.
+
+const SOCIAL_FETCH_TIMEOUT_MS = 6000;
+const STOCKTWITS_MAX_MESSAGES = 30;
+const REDDIT_USER_AGENT = "stonks-grader/1.0 (+github)";
+const REDDIT_BULL_RE = /\b(calls?|long|moon|buy|bull|breakout|squeeze|yolo)\b/i;
+const REDDIT_BEAR_RE = /\b(puts?|short|sell|bear|crash|dump|drilling)\b/i;
+
+async function fetchWithTimeout(url, opts = {}, timeoutMs = SOCIAL_FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function fetchStocktwitsSentiment(symbol) {
+  try {
+    const url = `https://api.stocktwits.com/api/2/streams/symbol/${encodeURIComponent(symbol)}.json`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const messages = Array.isArray(body?.messages) ? body.messages.slice(0, STOCKTWITS_MAX_MESSAGES) : [];
+    if (!messages.length) return null;
+    let bull = 0, bear = 0, neutral = 0;
+    let oldestMs = Infinity, newestMs = -Infinity;
+    for (const m of messages) {
+      const tag = m?.entities?.sentiment?.basic;
+      if (tag === "Bullish") bull++;
+      else if (tag === "Bearish") bear++;
+      else neutral++;
+      if (m?.created_at) {
+        const ts = Date.parse(m.created_at);
+        if (!isNaN(ts)) {
+          if (ts < oldestMs) oldestMs = ts;
+          if (ts > newestMs) newestMs = ts;
+        }
+      }
+    }
+    const total = bull + bear + neutral;
+    const spanDays = oldestMs < newestMs ? Math.max((newestMs - oldestMs) / 86400000, 1 / 24) : 1;
+    const msgsPerDay = total / spanDays;
+    return {
+      source: "stocktwits",
+      bull, bear, neutral, total,
+      msgsPerDay,
+      sampledAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} stocktwits fetch failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchRedditMentions(symbol) {
+  try {
+    const url = `https://www.reddit.com/r/wallstreetbets+stocks+options/search.json?q=${encodeURIComponent(symbol)}&restrict_sr=on&sort=new&t=day&limit=50`;
+    const res = await fetchWithTimeout(url, { headers: { "User-Agent": REDDIT_USER_AGENT } });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const children = Array.isArray(body?.data?.children) ? body.data.children : [];
+    if (!children.length) return null;
+    // Short symbols collide with English words (A, F, T) — require the $TICKER
+    // cashtag form for them. Longer symbols use a word-boundary match.
+    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matchRe = symbol.length <= 2
+      ? new RegExp(`\\$${escaped}\\b`, "i")
+      : new RegExp(`(?:\\$|\\b)${escaped}\\b`, "i");
+    let bull = 0, bear = 0, neutral = 0, total = 0;
+    for (const c of children) {
+      const title = (c?.data?.title || "").trim();
+      if (!title || !matchRe.test(title)) continue;
+      total++;
+      const isBull = REDDIT_BULL_RE.test(title);
+      const isBear = REDDIT_BEAR_RE.test(title);
+      if (isBull && !isBear) bull++;
+      else if (isBear && !isBull) bear++;
+      else neutral++;
+    }
+    if (total === 0) return null;
+    return {
+      source: "reddit",
+      bull, bear, neutral, total,
+      msgsPerDay: total, // search window is t=day
+      sampledAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} reddit fetch failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchSocialSentiment(symbol) {
+  const [stocktwits, reddit] = await Promise.all([
+    fetchStocktwitsSentiment(symbol),
+    fetchRedditMentions(symbol),
+  ]);
+  if (!stocktwits && !reddit) return null;
+  let bull = 0, bear = 0, neutral = 0, total = 0, msgCount24h = 0;
+  for (const s of [stocktwits, reddit]) {
+    if (!s) continue;
+    bull += s.bull; bear += s.bear; neutral += s.neutral; total += s.total;
+    msgCount24h += s.msgsPerDay || 0;
+  }
+  if (total === 0) return null;
+  return {
+    bullishPct: (bull / total) * 100,
+    bearishPct: (bear / total) * 100,
+    neutralPct: (neutral / total) * 100,
+    msgCount24h,
+    trend: "flat",
+    sources: { stocktwits, reddit },
+    builtAt: new Date().toISOString(),
+  };
+}
+
 async function generateNewsTake(ai, symbol, spot, headlines) {
   const headlineBlock = headlines.length
     ? headlines
@@ -6000,6 +6333,19 @@ async function attachAiNewsTakes(chains) {
     } catch (err) {
       console.log(`  ✗ ${sym} — AI take failed: ${err.message}`);
       data.news = null;
+    }
+  })());
+  await Promise.all(tasks);
+}
+
+async function attachSocialSentiment(chains) {
+  const entries = Object.entries(chains);
+  console.log(`Fetching retail sentiment (Stocktwits + Reddit) for ${entries.length} tickers…`);
+  const tasks = entries.map(([sym, data]) => (async () => {
+    const social = await fetchSocialSentiment(sym);
+    data.social = social;
+    if (social) {
+      console.log(`  ✓ ${sym} — ${social.bullishPct.toFixed(0)}% bull / ${social.bearishPct.toFixed(0)}% bear (${Math.round(social.msgCount24h)} msgs/day)`);
     }
   })());
   await Promise.all(tasks);
@@ -6502,6 +6848,7 @@ async function main() {
   // first fundamentals request will naturally wait for the news-takes
   // window to drain. Same for the narrative pass that runs next.
   await attachFundamentalsJudgments(chains);
+  await attachSocialSentiment(chains);
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
   // continuity; the unusual snapshot is rewritten after the wipe so the page
