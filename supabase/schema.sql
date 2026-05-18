@@ -3,8 +3,10 @@
 --
 -- Stores option positions per authenticated user. RLS is the ONLY thing
 -- standing between user portfolios — never disable the policies below.
-
-create extension if not exists "pgcrypto";
+--
+-- pgcrypto is pre-installed on Supabase, so gen_random_uuid() is available
+-- with no extension call (Supabase's SQL editor can also reject CREATE
+-- EXTENSION in read-only sessions, which is the other reason it's not here).
 
 create table if not exists public.positions (
   id            uuid primary key default gen_random_uuid(),
