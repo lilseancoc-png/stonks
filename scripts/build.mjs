@@ -6276,8 +6276,8 @@ function acquireAiSlot() {
 // quota window (rare under the limiter, but the API also enforces a separate
 // per-project per-second guard). Retry transient 5xx and 429, honouring the
 // "Please retry in Xs" hint the API surfaces for rate-limit errors.
-const AI_MAX_ATTEMPTS = 4;
-const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000];
+const AI_MAX_ATTEMPTS = 6;
+const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000, 30000, 60000];
 
 // Classify a Gemini/Gemma error as transient and return the backoff (ms) the
 // caller should wait before retrying, or null if the error isn't transient.
@@ -6809,16 +6809,27 @@ async function attachFundamentalsJudgments(chains) {
   // no per-task stagger needed. Tasks queue against the shared rate limiter
   // in roughly the order they were spawned, so we still get the same FIFO
   // behaviour the old stagger gave us but with retries also counted.
-  const tasks = entries.map(([sym, data]) => (async () => {
-    try {
-      const judgment = await generateFundamentalsJudgment(ai, sym, data.spot, data.fundamentals);
-      data.fundamentals = { ...data.fundamentals, judgment };
-      console.log(`  ✓ ${sym} fundamentals — ${judgment.verdict} (+${judgment.positives.length}/-${judgment.negatives.length})`);
-    } catch (err) {
-      console.log(`  ✗ ${sym} fundamentals judgment failed: ${err.message}`);
-    }
-  })());
-  await Promise.all(tasks);
+  const runPass = (passEntries) =>
+    Promise.all(passEntries.map(([sym, data]) => (async () => {
+      try {
+        const judgment = await generateFundamentalsJudgment(ai, sym, data.spot, data.fundamentals);
+        data.fundamentals = { ...data.fundamentals, judgment };
+        console.log(`  ✓ ${sym} fundamentals — ${judgment.verdict} (+${judgment.positives.length}/-${judgment.negatives.length})`);
+      } catch (err) {
+        console.log(`  ✗ ${sym} fundamentals judgment failed: ${err.message}`);
+      }
+    })()));
+  await runPass(entries);
+  // Final sweep: any ticker still missing a judgment hit a transient streak
+  // that exhausted the in-call retry budget. Sleep through a full rate-limit
+  // window so the API quota refreshes, then take one more swing with a
+  // fresh attempt budget. Caps spurious gaps without unbounded reruns.
+  const missed = entries.filter(([, data]) => !data.fundamentals?.judgment);
+  if (missed.length > 0) {
+    console.log(`Retrying ${missed.length} fundamentals judgment(s) after transient failures…`);
+    await new Promise((r) => setTimeout(r, 30000));
+    await runPass(missed);
+  }
 }
 
 async function attachAiNewsTakes(chains) {
