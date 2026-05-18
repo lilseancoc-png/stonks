@@ -18,10 +18,14 @@
 // from where the last print sat relative to bid/ask, as a read-the-tape
 // hint for execution context. Informational only.
 //
-// Writes data/unusual.json (current snapshot) and data/unusual-history.json
-// (rolling window of recent snapshots — stores per-contract volume for
-// every in-band candidate, not just flagged hits, so the next scan can
-// compute deltas for contracts that weren't flagged last hour).
+// Writes data/unusual.json (today's accumulated flagged contracts — each
+// scan merges its new hits into the prior file when both fall on the same
+// ET calendar day, so a contract flagged at 10am stays visible at 2pm
+// even if it didn't re-flag; the file resets on the next market day) and
+// data/unusual-history.json (rolling window of recent snapshots — stores
+// per-contract volume for every in-band candidate, not just flagged hits,
+// so the next scan can compute deltas for contracts that weren't flagged
+// last hour).
 // Invoked by .github/workflows/unusual-flow.yml at the top of every hour
 // 14:00-21:00 UTC Mon-Fri.
 import { writeFile, mkdir, readFile } from "node:fs/promises";
@@ -174,6 +178,71 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
     flagged,
     scannedAt,
   };
+}
+
+// YYYY-MM-DD in America/New_York. Used to decide whether the prior
+// unusual.json belongs to "today's" market session — if so, we merge its
+// flagged contracts in; if not, we start fresh.
+const ET_DATE_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+function etDateKey(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return ET_DATE_FMT.format(d);
+}
+
+async function loadPriorUnusual() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, "unusual.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.tickers)) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Merges this scan's flagged ticker rows on top of yesterday's-still-today
+// ones. Keyed by contract identity (symbol|side|strike|expSec); when a
+// contract appears in both, the new scan's record wins (fresher vol, last,
+// bid/ask, deltaVol). Spot price is taken from the new scan when present
+// since it's the live price.
+function mergeTickerRows(priorTickers, newTickers) {
+  const symMap = new Map();
+  function ingest(t, isNew) {
+    if (!t || !t.symbol) return;
+    let entry = symMap.get(t.symbol);
+    if (!entry) {
+      entry = { symbol: t.symbol, spot: t.spot ?? null, contracts: new Map() };
+      symMap.set(t.symbol, entry);
+    }
+    if (isNew && t.spot != null) entry.spot = t.spot;
+    else if (entry.spot == null && t.spot != null) entry.spot = t.spot;
+    for (const c of t.contracts || []) {
+      if (c == null || c.strike == null || c.expSec == null || !c.side) continue;
+      const key = `${c.side}|${c.strike}|${c.expSec}`;
+      if (isNew || !entry.contracts.has(key)) {
+        entry.contracts.set(key, c);
+      }
+    }
+  }
+  for (const t of priorTickers || []) ingest(t, false);
+  for (const t of newTickers || []) ingest(t, true);
+  const out = [];
+  for (const v of symMap.values()) {
+    const contracts = Array.from(v.contracts.values());
+    if (!contracts.length) continue;
+    contracts.sort((a, b) => (b.deltaVol ?? 0) - (a.deltaVol ?? 0));
+    const topDelta = contracts.reduce((acc, c) => Math.max(acc, c.deltaVol ?? 0), 0);
+    out.push({ symbol: v.symbol, spot: v.spot, topDelta, contracts });
+  }
+  out.sort((a, b) => b.topDelta - a.topDelta);
+  return out;
 }
 
 async function loadUnusualHistory() {
@@ -354,28 +423,44 @@ async function main() {
   }
 
   tickerRows.sort((a, b) => b.topDelta - a.topDelta);
-  const contractCount = tickerRows.reduce((sum, t) => sum + t.contracts.length, 0);
-  const hottestDelta = tickerRows[0]?.topDelta ?? 0;
+
+  // Carry over earlier-today hits so contracts that flagged at 10am stay on
+  // the page at 2pm even if they didn't re-flag. The prior file is treated
+  // as same-session only when its ET calendar date matches this scan's; on
+  // the next market day (or a manual run on a different ET date) we reset
+  // and only show this scan's hits.
+  const prior = await loadPriorUnusual();
+  const todayKey = etDateKey(scannedAt);
+  const priorKey = prior ? etDateKey(prior.scannedAt) : null;
+  const sameSession = !!(prior && todayKey && priorKey && todayKey === priorKey);
+  const mergedTickers = sameSession ? mergeTickerRows(prior.tickers, tickerRows) : tickerRows;
+  const carriedOver = sameSession
+    ? mergedTickers.reduce((sum, t) => sum + t.contracts.length, 0) - tickerRows.reduce((sum, t) => sum + t.contracts.length, 0)
+    : 0;
+
+  const contractCount = mergedTickers.reduce((sum, t) => sum + t.contracts.length, 0);
+  const hottestDelta = mergedTickers[0]?.topDelta ?? 0;
 
   const payload = {
     scannedAt,
     marketState: firstMarketState,
     summary: {
-      tickerCount: tickerRows.length,
+      tickerCount: mergedTickers.length,
       contractCount,
       hottestDelta,
       scanned: scannedCount,
       failed: failedCount,
       hadPrior: !!prevVolLookup,
     },
-    tickers: tickerRows,
+    tickers: mergedTickers,
   };
 
   await mkdir(DATA_DIR, { recursive: true });
   const outPath = resolve(DATA_DIR, "unusual.json");
   await writeFile(outPath, JSON.stringify(payload), "utf8");
   console.log(
-    `wrote ${outPath} — ${tickerRows.length} ticker${tickerRows.length === 1 ? "" : "s"}, ${contractCount} contract${contractCount === 1 ? "" : "s"} flagged${hottestDelta ? `, hottest +${hottestDelta}/hr` : ""}`,
+    `wrote ${outPath} — ${mergedTickers.length} ticker${mergedTickers.length === 1 ? "" : "s"}, ${contractCount} contract${contractCount === 1 ? "" : "s"} flagged${hottestDelta ? `, hottest +${hottestDelta}/hr` : ""}` +
+      (sameSession ? ` (${carriedOver} carried from earlier today)` : prior ? " (new session — prior day reset)" : ""),
   );
 
   // Append this scan to history. Persist EVERY in-band candidate (above the
