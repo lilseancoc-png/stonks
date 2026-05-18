@@ -47,62 +47,115 @@ const DATA_DIR = resolve(ROOT, "data");
 // added ticker adds ~2-3s of wall-clock time and a bit of rate-limit
 // risk against MIN_SUCCESS_RATE.
 export const TICKERS = [
-  // Index & sector ETFs
-  "SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLF", "XLE", "XLK",
+  // Broad-market ETFs
+  "SPY", "QQQ", "IWM", "DIA", "SMH",
+  // Fixed income / commodities / volatility ETFs
+  "TLT", "UVXY", "GLD", "SLV", "USO",
+  // Sector / international / crypto ETFs
+  "XLF", "XLE", "XLK", "KWEB", "EWY", "IBIT", "ETHA",
   // Mega-caps
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
-  // Other tech / semis
-  "ORCL", "CRM", "ADBE", "TSM", "MU", "INTC", "DRAM", "SWKS",
-  // SaaS / cloud
-  "NOW", "SNOW", "NET", "DDOG", "CRWD", "ZS", "MDB", "OKTA", "PANW", "WDAY", "ZM", "DOCU", "TEAM",
-  // Banks / payments
-  "JPM", "BAC", "V", "MA",
-  // Retail / consumer
-  "WMT", "COST", "DIS", "BA", "MCD", "SBUX",
-  // Healthcare / pharma
-  "NVO", "LLY", "UNH", "JNJ", "PFE",
+  "TSM", "ORCL", "BRK.B",
+  // Semis & semi equipment
+  "ASML", "QCOM", "TXN", "MRVL", "AMAT", "LRCX", "MU", "INTC", "NXPI", "ON",
+  "SMCI", "AMKR", "PLAB", "ALAB", "TSEM", "DRAM", "SWKS", "SNDK", "STX", "GLW",
+  "MP", "LITE", "AAOI",
+  // Hardware / networking / tech services
+  "DELL", "CSCO", "ANET", "IBM",
+  // Software / SaaS / cloud
+  "CRM", "ADBE", "ACN", "INTU", "NOW", "SNOW", "NET", "DDOG", "CRWD", "ZS",
+  "MDB", "OKTA", "PANW", "WDAY", "ZM", "DOCU", "TEAM", "FTNT", "HUBS", "TTD",
+  "FIG", "RBLX", "U", "APP", "TWLO", "CRWV",
+  // Power / data-center infra (AI buildout)
+  "CEG", "VST", "TLN", "VRT", "CLS", "BE", "OKLO",
+  // Banks / brokers / payments / fintech / asset mgmt
+  "JPM", "BAC", "WFC", "USB", "MS", "COF", "GS", "C", "HSBC", "UBS",
+  "V", "MA", "AXP", "PYPL", "XYZ", "SCHW", "IBKR", "HOOD", "AFRM", "APO", "BX",
+  // Consumer / retail / restaurants
+  "WMT", "COST", "TGT", "HD", "LOW", "NKE", "LULU", "MCD", "SBUX", "EL", "ELF",
+  "W", "EBAY", "ETSY", "ONON", "LEN",
+  // Industrials / aerospace / defense / logistics
+  "BA", "CAT", "DE", "MMM", "GD", "LMT", "RTX", "NOC", "FDX", "UPS",
+  // Healthcare / pharma / payors / med-tech
+  "NVO", "LLY", "UNH", "JNJ", "PFE", "TMO", "CI", "ELV", "CVS", "MOH", "BSX", "HIMS",
+  // Media / telecom
+  "DIS", "VZ", "CHTR", "SPOT",
   // Energy
-  "XOM", "CVX",
+  "XOM", "CVX", "OXY",
   // Travel / modern consumer
-  "UBER", "ABNB",
-  // High-volatility / popular
-  "COIN", "PLTR", "SHOP", "BABA", "NIO",
-  "GME", "AMC",
+  "UBER", "ABNB", "DASH",
+  // China / international
+  "BABA", "BIDU", "JD", "PDD", "TCEHY", "BILI", "NIO",
+  // High-volatility / popular / IPO / new
+  "COIN", "PLTR", "SHOP", "GME", "AMC", "RDDT", "RKLB", "ASTS",
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
 // by sector ("software", "semis", "pharma"). Mirrors the comment blocks above.
 const SECTORS = {
-  // Index & sector ETFs
-  SPY: "ETF", QQQ: "ETF", IWM: "ETF", DIA: "ETF", TLT: "ETF", GLD: "ETF",
-  SLV: "ETF", USO: "ETF", XLF: "ETF", XLE: "ETF", XLK: "ETF",
+  // Broad / sector / international / crypto / volatility ETFs
+  SPY: "ETF", QQQ: "ETF", IWM: "ETF", DIA: "ETF", SMH: "ETF",
+  TLT: "ETF", UVXY: "ETF", GLD: "ETF", SLV: "ETF", USO: "ETF",
+  XLF: "ETF", XLE: "ETF", XLK: "ETF", KWEB: "ETF", EWY: "ETF",
+  IBIT: "ETF", ETHA: "ETF",
   // Mega-caps
   AAPL: "Mega-cap tech", MSFT: "Mega-cap tech", NVDA: "Mega-cap tech",
   AMZN: "Mega-cap tech", GOOGL: "Mega-cap tech", META: "Mega-cap tech",
   TSLA: "Mega-cap tech", AMD: "Semis", NFLX: "Mega-cap tech", AVGO: "Semis",
-  // Other tech / semis
-  ORCL: "Software", CRM: "Software", ADBE: "Software",
-  TSM: "Semis", MU: "Semis", INTC: "Semis", DRAM: "Semis", SWKS: "Semis",
-  // SaaS / cloud
+  TSM: "Semis", ORCL: "Software", "BRK.B": "Conglomerate",
+  // Semis & semi equipment
+  ASML: "Semis", QCOM: "Semis", TXN: "Semis", MRVL: "Semis", AMAT: "Semis",
+  LRCX: "Semis", MU: "Semis", INTC: "Semis", NXPI: "Semis", ON: "Semis",
+  SMCI: "Semis", AMKR: "Semis", PLAB: "Semis", ALAB: "Semis", TSEM: "Semis",
+  DRAM: "Semis", SWKS: "Semis", SNDK: "Storage", STX: "Storage", GLW: "Semis",
+  MP: "Materials", LITE: "Semis", AAOI: "Semis",
+  // Hardware / networking / tech services
+  DELL: "Hardware", CSCO: "Networking", ANET: "Networking", IBM: "Tech services",
+  // Software / SaaS / cloud
+  CRM: "Software", ADBE: "Software", ACN: "IT services", INTU: "Software",
   NOW: "Software", SNOW: "Software", NET: "Software", DDOG: "Software",
   CRWD: "Software", ZS: "Software", MDB: "Software", OKTA: "Software",
-  PANW: "Software", WDAY: "Software", ZM: "Software", DOCU: "Software", TEAM: "Software",
-  // Banks / payments
-  JPM: "Bank", BAC: "Bank", V: "Payments", MA: "Payments",
-  // Retail / consumer
-  WMT: "Retail", COST: "Retail", DIS: "Media", BA: "Industrial",
+  PANW: "Software", WDAY: "Software", ZM: "Software", DOCU: "Software",
+  TEAM: "Software", FTNT: "Software", HUBS: "Software", TTD: "Software",
+  FIG: "Software", RBLX: "Software", U: "Software", APP: "Software",
+  TWLO: "Software", CRWV: "Software",
+  // Power / data-center infra
+  CEG: "Power", VST: "Power", TLN: "Power",
+  VRT: "Data center", CLS: "Data center",
+  BE: "Clean energy", OKLO: "Nuclear",
+  // Banks / brokers / payments / fintech / asset mgmt
+  JPM: "Bank", BAC: "Bank", WFC: "Bank", USB: "Bank", MS: "Bank",
+  COF: "Bank", GS: "Bank", C: "Bank", HSBC: "Bank", UBS: "Bank",
+  V: "Payments", MA: "Payments", AXP: "Payments", PYPL: "Payments", XYZ: "Payments",
+  SCHW: "Broker", IBKR: "Broker", HOOD: "Broker", AFRM: "Fintech",
+  APO: "Asset mgmt", BX: "Asset mgmt",
+  // Consumer / retail / restaurants
+  WMT: "Retail", COST: "Retail", TGT: "Retail", HD: "Retail", LOW: "Retail",
+  NKE: "Apparel", LULU: "Apparel", ONON: "Apparel", EL: "Beauty", ELF: "Beauty",
+  W: "E-commerce", EBAY: "E-commerce", ETSY: "E-commerce",
   MCD: "Restaurants", SBUX: "Restaurants",
-  // Healthcare / pharma
-  NVO: "Pharma", LLY: "Pharma", UNH: "Healthcare",
-  JNJ: "Pharma", PFE: "Pharma",
+  DIS: "Media", LEN: "Homebuilder",
+  // Industrials / aerospace / defense / logistics
+  BA: "Industrial", CAT: "Industrial", DE: "Industrial", MMM: "Industrial",
+  GD: "Defense", LMT: "Defense", RTX: "Defense", NOC: "Defense",
+  FDX: "Logistics", UPS: "Logistics",
+  // Healthcare / pharma / payors / med-tech
+  NVO: "Pharma", LLY: "Pharma", UNH: "Insurance", JNJ: "Pharma", PFE: "Pharma",
+  TMO: "Medical", CI: "Insurance", ELV: "Insurance", MOH: "Insurance",
+  CVS: "Pharmacy", BSX: "Medical", HIMS: "Telehealth",
+  // Media / telecom
+  VZ: "Telecom", CHTR: "Cable", SPOT: "Media",
   // Energy
-  XOM: "Energy", CVX: "Energy",
+  XOM: "Energy", CVX: "Energy", OXY: "Energy",
   // Travel / modern consumer
-  UBER: "Consumer", ABNB: "Consumer",
-  // High-volatility / popular
+  UBER: "Consumer", ABNB: "Consumer", DASH: "Consumer",
+  // China / international
+  BABA: "China tech", BIDU: "China tech", JD: "China tech",
+  PDD: "China tech", TCEHY: "China tech", BILI: "China tech", NIO: "China tech",
+  // High-volatility / popular / IPO / new
   COIN: "Crypto", PLTR: "Software", SHOP: "Software",
-  BABA: "China tech", NIO: "China tech",
   GME: "Meme", AMC: "Meme",
+  RDDT: "Social", RKLB: "Space", ASTS: "Space",
 };
 
 // Slimmed taxonomy — only the sectors and sub-industries that have a real
