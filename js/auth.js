@@ -81,10 +81,14 @@ export async function signOut() {
 }
 
 if (supabase) {
-  supabase.auth.onAuthStateChange((_event, session) => emit(session));
-  // Strip Supabase's #access_token hash from the URL after detectSessionInUrl
-  // has consumed it, so refresh doesn't re-trigger anything.
-  if (window.location.hash.includes("access_token")) {
-    history.replaceState(null, "", window.location.pathname + window.location.search);
-  }
+  supabase.auth.onAuthStateChange((event, session) => {
+    emit(session);
+    // Strip Supabase's #access_token hash once the SDK has consumed it and
+    // emitted SIGNED_IN. Doing this any earlier (e.g. synchronously after
+    // createClient) races with detectSessionInUrl — the SDK reads the hash
+    // asynchronously, so wiping it sync causes the session to be lost.
+    if (event === "SIGNED_IN" && window.location.hash) {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  });
 }
