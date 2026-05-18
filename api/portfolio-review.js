@@ -137,7 +137,10 @@ function buildPrompt(hydrated) {
   }));
 
   return `You are a disciplined options trader reviewing a retail user's portfolio.
-For EACH position, recommend one action ("sell", "hold", or "roll") and a short reason.
+
+CRITICAL: emit exactly one perPosition entry for EACH of the ${positionsForAI.length} positions below — even when the same ticker appears multiple times at different strikes/expirations. Treat every position as independent. Echo back each id exactly as given (do not modify, normalize, or merge them).
+
+For each position recommend one action ("sell", "hold", or "roll") and a short reason.
 Then write a portfolio-level summary: concentration risk, theta bleed, IV-crush exposure,
 and any hedge ideas. Be specific and direct. Plain English. No disclaimers. No emojis.
 
@@ -149,8 +152,33 @@ Rules of thumb:
 - Expired positions → mark "sell" with reason "expired, close to realize".
 - Heavy concentration in one ticker/sector → call it out in the portfolio summary.
 
-Positions:
+Positions (${positionsForAI.length} total):
 ${JSON.stringify(positionsForAI, null, 2)}`;
+}
+
+// Deterministic fallback rec for positions the AI omitted or returned with
+// a mismatched id. Uses simple P/L + DTE thresholds so the user always sees
+// SOMETHING actionable, even on AI failure modes.
+function deterministicRec(h) {
+  if (h.expired) {
+    return { action: "sell", headline: "Expired — close to realize", reasoning: "Position past expiry; close out to book P/L." };
+  }
+  if (h.pnlPct == null) {
+    return { action: "hold", headline: "Live mark unavailable", reasoning: "Couldn't get a current quote for this contract; check your broker." };
+  }
+  if (h.pnlPct >= 100) {
+    return { action: "sell", headline: `Up ${Math.round(h.pnlPct)}% — strong candidate to take profits`, reasoning: "Doubled or better — locking gains beats hoping for more, especially as theta accelerates near expiry." };
+  }
+  if (h.pnlPct >= 50) {
+    return { action: "roll", headline: `Up ${Math.round(h.pnlPct)}% — consider rolling up or trimming`, reasoning: "Big winner. Either roll to a higher strike to lock some gains while keeping upside, or sell partial size." };
+  }
+  if (h.daysToExpiry != null && h.daysToExpiry <= 14 && h.pnlPct <= 0) {
+    return { action: "sell", headline: `Underwater with ${h.daysToExpiry}d to expiry — theta bleed dominant`, reasoning: "Negative P/L this close to expiry rarely recovers; theta decay accelerates fast in the final two weeks." };
+  }
+  if (h.pnlPct <= -50) {
+    return { action: "sell", headline: `Down ${Math.round(-h.pnlPct)}% — likely no recovery before expiry`, reasoning: "Cut losses; capital is better redeployed than hoping for a sharp move." };
+  }
+  return { action: "hold", headline: `${h.pnlPct >= 0 ? "Up" : "Down"} ${Math.abs(Math.round(h.pnlPct))}% — nothing forcing the hand yet`, reasoning: `${h.daysToExpiry || "?"} days to expiry. Monitor for a clear directional move or a theta inflection point.` };
 }
 
 const RESPONSE_SCHEMA = {
@@ -162,6 +190,10 @@ const RESPONSE_SCHEMA = {
         type: "object",
         properties: {
           id: { type: "string" },
+          symbol: { type: "string" },
+          side: { type: "string" },
+          strike: { type: "number" },
+          expiry: { type: "number" },
           action: { type: "string", enum: ["sell", "hold", "roll", "unknown"] },
           headline: { type: "string" },
           reasoning: { type: "string" },
@@ -334,13 +366,31 @@ export default async function handler(req, res) {
   // Stitch AI text recs onto our deterministic numeric hydration. We don't
   // trust the AI to echo back numbers — those are computed server-side and
   // carried straight through to the client untouched.
+  //
+  // Matching: try exact id first; if that misses (Gemma sometimes truncates
+  // or normalizes UUIDs), fall back to a position-feature key — same symbol,
+  // side, strike, and expiry uniquely identifies the position. If both miss,
+  // use a deterministic P/L-based rec so the user never sees a blank row.
   const aiById = new Map();
+  const aiByFeatures = new Map();
+  const featureKey = (p) => `${p.symbol}|${p.side}|${p.strike}|${p.expiry}`;
   if (aiResult.ai?.perPosition) {
-    for (const r of aiResult.ai.perPosition) aiById.set(r.id, r);
+    for (const r of aiResult.ai.perPosition) {
+      if (r.id) aiById.set(r.id, r);
+      // The AI sometimes also echoes back the position context — match on
+      // that too as a defensive fallback.
+      if (r.symbol && r.strike != null && r.expiry != null) {
+        aiByFeatures.set(featureKey({
+          symbol: String(r.symbol).toUpperCase(),
+          side: r.side === "put" ? "put" : "call",
+          strike: Number(r.strike),
+          expiry: Number(r.expiry),
+        }), r);
+      }
+    }
   }
 
   const perPosition = hydrated.map((h) => {
-    const rec = aiById.get(h.id);
     if (h.error) {
       return {
         ...h,
@@ -349,15 +399,14 @@ export default async function handler(req, res) {
         reasoning: h.error,
       };
     }
-    if (!rec) {
-      return {
-        ...h,
-        action: "unknown",
-        headline: "AI review unavailable",
-        reasoning: aiResult.reason || "no recommendation returned",
-      };
+    const rec = aiById.get(h.id) || aiByFeatures.get(featureKey(h));
+    if (rec && rec.action && rec.headline) {
+      return { ...h, action: rec.action, headline: rec.headline, reasoning: rec.reasoning };
     }
-    return { ...h, action: rec.action, headline: rec.headline, reasoning: rec.reasoning };
+    // AI didn't return a usable rec for this position — fall back to
+    // deterministic P/L-based heuristics so the user always sees something.
+    const det = deterministicRec(h);
+    return { ...h, ...det };
   });
 
   res.setHeader("Cache-Control", "private, no-store");
