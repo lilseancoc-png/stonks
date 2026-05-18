@@ -12,6 +12,9 @@
     },
     "api/portfolio-review.js": {
       "maxDuration": 30
+    },
+    "api/config.js": {
+      "maxDuration": 5
     }
   },
   "headers": [
