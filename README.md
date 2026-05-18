@@ -156,11 +156,15 @@ Gemini for the strategy call.
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel only | Server-side JWT verification in `api/portfolio-review.js` |
 | `GEMINI_API_KEY` | Already required | Reused for the portfolio review prompt |
 
-After adding the env vars, redeploy (or run `node scripts/regen-static.mjs`
-locally and commit) so the new `SUPABASE_URL` / `SUPABASE_ANON_KEY` get
-inlined into `index.html` as `window.STONKS_SUPABASE`. Without those, the
-Portfolio tab shows a "sign-in not configured" message and the rest of the
-site keeps working unchanged.
+After adding the env vars to Vercel, the next deploy is enough — the
+browser reads `SUPABASE_URL` and `SUPABASE_ANON_KEY` at runtime from
+`/api/config`, which serves whatever's set in the Vercel project's env
+vars. (The same values are also inlined into `index.html` if they're set
+where `build.mjs` runs, but that's only for self-hosters who run the
+daily build with the env vars present — Vercel users don't need it.)
+
+Without those env vars set anywhere, the Portfolio tab shows a "sign-in
+not configured" message and the rest of the site keeps working unchanged.
 
 ## Disclaimer
 

@@ -3,7 +3,27 @@
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-const cfg = window.STONKS_SUPABASE || {};
+// Config can arrive two ways:
+//   1. Inlined at build time as window.STONKS_SUPABASE (requires the env
+//      vars to be present where build.mjs runs — i.e. GitHub Actions).
+//   2. Fetched at runtime from /api/config (reads Vercel env vars). This
+//      is the path that "just works" when the user only configures
+//      Supabase in the Vercel dashboard, which is the common case.
+// We try (1) first; if it's empty, we fall back to (2). Top-level await
+// is fine — modern browsers support it in ES modules.
+let cfg = window.STONKS_SUPABASE || {};
+if (!cfg.url || !cfg.anonKey) {
+  try {
+    const r = await fetch("/api/config");
+    if (r.ok) {
+      const remote = await r.json();
+      if (remote && remote.url && remote.anonKey) cfg = remote;
+    }
+  } catch (_) {
+    // Network error or 404 — leave cfg empty, the portfolio tab will
+    // show "sign-in not configured" instead of crashing.
+  }
+}
 const configured = !!(cfg.url && cfg.anonKey);
 
 export const supabase = configured
