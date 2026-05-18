@@ -3,18 +3,11 @@ name: Daily build
 # Regenerates the baked per-ticker JSON (chains, AI news takes, technicals)
 # three times a weekday. The commit it pushes triggers Vercel's GitHub
 # integration, which deploys the new static files automatically.
+#
+# Scheduling is handled externally by cron-job.org, which POSTs to the
+# workflow_dispatch endpoint at 9:00, 12:00, and 17:00 America/New_York
+# on weekdays. cron-job.org runs in ET so DST is handled by the service.
 on:
-  schedule:
-    # Three runs targeting 9:00am, 12:00pm, and 5:00pm America/New_York.
-    # GitHub cron is UTC-only, so each slot has two cron entries — one for
-    # EDT (UTC-4) and one for EST (UTC-5). The `check` job gates the build
-    # so exactly one run per slot per day executes regardless of DST regime.
-    - cron: "0 13 * * 1-5"   # 9:00 ET (EDT) / 8:00 ET (EST)
-    - cron: "0 14 * * 1-5"   # 10:00 ET (EDT) / 9:00 ET (EST)
-    - cron: "0 16 * * 1-5"   # 12:00 ET (EDT) / 11:00 ET (EST)
-    - cron: "0 17 * * 1-5"   # 13:00 ET (EDT) / 12:00 ET (EST)
-    - cron: "0 21 * * *"     # 17:00 ET (EDT) / 16:00 ET (EST)
-    - cron: "0 22 * * *"     # 18:00 ET (EDT) / 17:00 ET (EST)
   workflow_dispatch:
 
 permissions:

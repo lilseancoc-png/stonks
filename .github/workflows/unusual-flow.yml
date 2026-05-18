@@ -3,12 +3,11 @@ name: Unusual options flow
 # Hourly scan for unusual options activity (volume >> open interest) across
 # the curated ticker universe. Writes data/unusual.json; the commit triggers
 # Vercel's GitHub integration to redeploy the static page with fresh data.
+#
+# Scheduling is handled externally by cron-job.org, which POSTs to the
+# workflow_dispatch endpoint hourly from 9:00 to 16:00 America/New_York
+# on weekdays. cron-job.org runs in ET so DST is handled by the service.
 on:
-  schedule:
-    # Target ET market hours (9-16 ET). Each ET hour has two UTC cron entries
-    # — one for EDT (UTC-4) and one for EST (UTC-5). The `check` job below
-    # gates the scan to only the firings whose current ET hour is in [9, 16].
-    - cron: "0 13-21 * * 1-5"
   workflow_dispatch:
 
 permissions:
