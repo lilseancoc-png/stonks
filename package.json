@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.0.1",
+    "@supabase/supabase-js": "^2.45.0",
     "yahoo-finance2": "^3.14.0"
   }
 }

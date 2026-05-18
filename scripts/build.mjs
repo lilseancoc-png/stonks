@@ -3799,6 +3799,14 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     unusual: unusual || null,
     spots,
   }).replace(/<\/script>/gi, "<\\/script>");
+  // Browser Supabase config — anon key is safe to ship publicly (RLS does
+  // the actual access control). Service-role key stays server-side only.
+  // Missing env vars produce an empty object; the portfolio tab falls back
+  // to a "configure Supabase" message instead of crashing.
+  const supabasePayload = JSON.stringify({
+    url: process.env.SUPABASE_URL || "",
+    anonKey: process.env.SUPABASE_ANON_KEY || "",
+  }).replace(/<\/script>/gi, "<\\/script>");
   const cacheBust = encodeURIComponent(builtAtIso);
   return `<!doctype html>
 <html lang="en">
@@ -3820,6 +3828,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css?v=${cacheBust}">
+<link rel="stylesheet" href="portfolio.css?v=${cacheBust}">
 </head>
 <body>
 <header class="site-header">
@@ -3850,6 +3859,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="true" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives">
@@ -3861,6 +3871,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
   </div>
+  <div class="page-pane" id="page-pane-portfolio" role="tabpanel" aria-labelledby="page-tab-portfolio" hidden>
+    <section class="card"><p class="hint">Loading portfolio…</p></section>
+  </div>
 </main>
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
@@ -3868,7 +3881,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div><a href="https://github.com/lilseancoc-png/stonks" target="_blank" rel="noopener">Source on GitHub</a></div>
 </footer>
 <script>window.STONKS_MANIFEST=${manifestPayload};<\/script>
+<script>window.STONKS_SUPABASE=${supabasePayload};<\/script>
 <script src="app.js?v=${cacheBust}" defer></script>
+<script type="module" src="js/portfolio.js?v=${cacheBust}"></script>
 </body>
 </html>`;
 }
