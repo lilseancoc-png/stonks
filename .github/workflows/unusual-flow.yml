@@ -66,10 +66,17 @@ jobs:
           git config user.email "stonks-bot@users.noreply.github.com"
           # Pull before staging so a concurrent push from daily.yml doesn't
           # cause the rebase below to drop our newly-written scan files.
-          git stash push --include-untracked --quiet data/unusual.json data/unusual-history.json || true
+          # Stash all three scanner outputs (unusual-log.json was added with
+          # the repeat-conviction feature and must be included or the rebase
+          # will refuse / stash pop will silently lose it).
+          git stash push --include-untracked data/unusual.json data/unusual-history.json data/unusual-log.json || true
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
-          git stash pop --quiet || true
-          git add data/unusual.json data/unusual-history.json
+          # Don't swallow stash pop errors — a silent conflict here means
+          # the freshly-scanned files get discarded and the job ends green
+          # with nothing committed, which is exactly the failure mode we
+          # want to surface.
+          git stash pop
+          git add data/unusual.json data/unusual-history.json data/unusual-log.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: unusual flow scan $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
