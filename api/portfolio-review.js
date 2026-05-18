@@ -182,27 +182,70 @@ const RESPONSE_SCHEMA = {
   required: ["perPosition", "portfolio"],
 };
 
+// Primary model: gemini-3-flash — newest reasoning-grade Flash on the free
+// tier, best at structured JSON output. Capped at 20 RPD on free tier.
+// Fallback: gemini-3.1-flash-lite — 500 RPD, slightly weaker reasoning,
+// kicks in when the primary returns 429 / quota-exhausted so the feature
+// never goes dark. Both overridable via env vars.
+const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-3-flash";
+const FALLBACK_MODEL =
+  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemini-3.1-flash-lite";
+
+function isQuotaError(err) {
+  const msg = String(err?.message || err).toLowerCase();
+  return (
+    err?.status === 429 ||
+    msg.includes("429") ||
+    msg.includes("quota") ||
+    msg.includes("rate limit") ||
+    msg.includes("resource_exhausted")
+  );
+}
+
+async function generateReview(ai, model, prompt) {
+  const resp = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: RESPONSE_SCHEMA,
+      temperature: 0.3,
+    },
+  });
+  const text = resp?.text || resp?.response?.text?.() || "";
+  return JSON.parse(text);
+}
+
 async function aiReview(hydrated) {
   if (!process.env.GEMINI_API_KEY) {
     return { error: "ai_unavailable", reason: "GEMINI_API_KEY not set" };
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const prompt = buildPrompt(hydrated);
+
   try {
-    const resp = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-        temperature: 0.3,
-      },
-    });
-    const text = resp?.text || resp?.response?.text?.() || "";
-    const parsed = JSON.parse(text);
-    return { ai: parsed };
-  } catch (err) {
-    return { error: "ai_unavailable", reason: String(err?.message || err).slice(0, 200) };
+    return { ai: await generateReview(ai, PRIMARY_MODEL, prompt), model: PRIMARY_MODEL };
+  } catch (primaryErr) {
+    // Only fall back on quota / rate-limit errors. Other failures (bad
+    // prompt, schema mismatch) would just repeat on the fallback model.
+    if (!isQuotaError(primaryErr) || PRIMARY_MODEL === FALLBACK_MODEL) {
+      return {
+        error: "ai_unavailable",
+        reason: String(primaryErr?.message || primaryErr).slice(0, 200),
+      };
+    }
+    try {
+      return {
+        ai: await generateReview(ai, FALLBACK_MODEL, prompt),
+        model: FALLBACK_MODEL,
+        usedFallback: true,
+      };
+    } catch (fallbackErr) {
+      return {
+        error: "ai_unavailable",
+        reason: `primary (${PRIMARY_MODEL}) quota exhausted; fallback (${FALLBACK_MODEL}) failed: ${String(fallbackErr?.message || fallbackErr).slice(0, 160)}`,
+      };
+    }
   }
 }
 
@@ -289,6 +332,8 @@ export default async function handler(req, res) {
       concentrationWarnings: aiResult.ai?.portfolio?.concentrationWarnings || [],
       hedgeSuggestions: aiResult.ai?.portfolio?.hedgeSuggestions || null,
       aiError: aiResult.error || null,
+      aiModel: aiResult.model || null,
+      usedFallback: !!aiResult.usedFallback,
     },
     generatedAt: new Date().toISOString(),
   });
