@@ -2926,6 +2926,50 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     });
   }
 
+  function sentimentDot(sent){
+    var cls = sent === 'bullish' ? 'bull' : sent === 'bearish' ? 'bear' : 'neu';
+    var label = sent === 'bullish' ? 'Bullish' : sent === 'bearish' ? 'Bearish' : 'Neutral';
+    return '<span class="opt-social-ex-tag ' + cls + '" title="' + label + '">' + label + '</span>';
+  }
+  function renderSocialSourceBlock(name, src, gradingNote){
+    if (!src || !src.total) return '';
+    var b = src.bull | 0, r = src.bear | 0, n = src.neutral | 0;
+    var examples = Array.isArray(src.examples) ? src.examples : [];
+    var exHtml = '';
+    if (examples.length){
+      var rows = [];
+      for (var i = 0; i < examples.length; i++){
+        var e = examples[i];
+        var meta = [];
+        if (e.user) meta.push('@' + escapeHtml(String(e.user)));
+        if (e.subreddit) meta.push('r/' + escapeHtml(String(e.subreddit)));
+        if (typeof e.score === 'number') meta.push('↑' + e.score);
+        if (e.matchedKeyword) meta.push('match: "' + escapeHtml(String(e.matchedKeyword)) + '"');
+        var bodyText = escapeHtml(String(e.body || e.title || ''));
+        // Wrap titles in a link when we have a permalink (reddit). Stocktwits
+        // examples don't carry a stable URL so they stay plain text.
+        if (e.permalink){
+          bodyText = '<a href="' + escapeHtml(String(e.permalink)) + '" target="_blank" rel="noopener noreferrer">' + bodyText + '</a>';
+        }
+        rows.push(
+          '<li class="opt-social-example ' + (e.sentiment || 'neutral') + '">' +
+            sentimentDot(e.sentiment) +
+            '<span class="opt-social-ex-body">' + bodyText + '</span>' +
+            (meta.length ? '<span class="opt-social-ex-meta">' + meta.join(' · ') + '</span>' : '') +
+          '</li>'
+        );
+      }
+      exHtml = '<ul class="opt-social-examples">' + rows.join('') + '</ul>';
+    }
+    return '<div class="opt-social-source">' +
+      '<div class="opt-social-source-head">' +
+        '<span class="opt-social-source-name">' + escapeHtml(name) + '</span>' +
+        '<span class="opt-social-source-counts">' + src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish · ' + n + ' neutral</span>' +
+      '</div>' +
+      '<div class="opt-social-source-method">' + escapeHtml(gradingNote) + '</div>' +
+      exHtml +
+    '</div>';
+  }
   function renderSocialSentiment(){
     var box = $('opt-news-pane');
     if (!box) return null;
@@ -2938,14 +2982,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       ? (s.msgCount24h / 1000).toFixed(1) + 'k'
       : Math.round(s.msgCount24h).toString();
     var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
-    var chips = [];
-    if (s.sources && s.sources.stocktwits){
-      chips.push('st: ' + s.sources.stocktwits.total);
-    }
-    if (s.sources && s.sources.reddit){
-      chips.push('reddit: ' + s.sources.reddit.total);
-    }
-    var html = '<div class="opt-social ' + lean + '">' +
+    var st = s.sources && s.sources.stocktwits;
+    var rd = s.sources && s.sources.reddit;
+    var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages count as neutral.');
+    var rdBlock = renderSocialSourceBlock('Reddit (r/wallstreetbets + r/stocks + r/options)', rd, 'Post titles graded by keyword: bullish on calls/long/moon/buy/bull/breakout/squeeze/yolo; bearish on puts/short/sell/bear/crash/dump/drilling; both or neither → neutral.');
+    return '<div class="opt-social ' + lean + '">' +
       '<div class="opt-social-head">' +
         '<span class="opt-social-label">Retail chatter</span>' +
         '<span class="opt-social-stat">' + bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h</span>' +
@@ -2955,9 +2996,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         '<span class="neutral" style="width:' + neutral + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
-      (chips.length ? '<div class="opt-social-sources">' + escapeHtml(chips.join(' · ')) + '</div>' : '') +
+      stBlock + rdBlock +
     '</div>';
-    return html;
   }
 
   function onExpiryChange(){
@@ -5553,6 +5593,81 @@ main {
 .opt-social-sources {
   font-size: 11px; color: var(--muted);
 }
+.opt-social-source {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: var(--s-2);
+  padding-top: var(--s-2);
+  border-top: 1px dashed var(--border);
+}
+.opt-social-source-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s-2); flex-wrap: wrap;
+}
+.opt-social-source-name {
+  font-size: 11px; font-weight: 600; color: var(--text);
+  letter-spacing: 0.02em;
+}
+.opt-social-source-counts {
+  font-size: 11px; color: var(--muted);
+}
+.opt-social-source-method {
+  font-size: 11px; color: var(--muted); font-style: italic;
+  line-height: 1.35;
+}
+.opt-social-examples {
+  list-style: none; padding: 0; margin: 4px 0 0 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.opt-social-example {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 6px; row-gap: 2px;
+  align-items: start;
+  font-size: 11.5px; line-height: 1.4;
+  padding: 5px 6px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--surface-3) 60%, transparent);
+}
+.opt-social-example .opt-social-ex-tag {
+  grid-row: 1; grid-column: 1;
+  align-self: center;
+}
+.opt-social-ex-body {
+  grid-row: 1; grid-column: 2;
+  color: var(--text);
+  word-break: break-word;
+}
+.opt-social-ex-body a {
+  color: inherit; text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+.opt-social-ex-body a:hover {
+  text-decoration-color: currentColor;
+}
+.opt-social-ex-meta {
+  grid-row: 2; grid-column: 2;
+  font-size: 10.5px; color: var(--muted);
+}
+.opt-social-ex-tag {
+  display: inline-block;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  padding: 1px 6px; border-radius: 999px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.opt-social-ex-tag.bull {
+  background: color-mix(in srgb, var(--pos) 25%, transparent);
+  color: var(--pos);
+}
+.opt-social-ex-tag.bear {
+  background: color-mix(in srgb, var(--neg) 25%, transparent);
+  color: var(--neg);
+}
+.opt-social-ex-tag.neu {
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  color: var(--muted);
+}
 
 .opt-row-mute {
   color: var(--muted); font-size: 11px; margin-left: 6px;
@@ -6460,6 +6575,22 @@ async function fetchWithTimeout(url, opts = {}, timeoutMs = SOCIAL_FETCH_TIMEOUT
   }
 }
 
+// Try to spread examples across sentiment buckets so the UI shows at least
+// one of each. Falls through to the next bucket if a category is empty.
+function pickExamples(buckets, perBucket = 2) {
+  const picks = [];
+  for (const arr of buckets) {
+    for (let i = 0; i < Math.min(perBucket, arr.length); i++) picks.push(arr[i]);
+  }
+  return picks;
+}
+
+function truncateText(s, max = 160) {
+  if (!s) return "";
+  const clean = String(s).replace(/\s+/g, " ").trim();
+  return clean.length > max ? clean.slice(0, max - 1) + "…" : clean;
+}
+
 async function fetchStocktwitsSentiment(symbol) {
   try {
     const url = `https://api.stocktwits.com/api/2/streams/symbol/${encodeURIComponent(symbol)}.json`;
@@ -6470,17 +6601,28 @@ async function fetchStocktwitsSentiment(symbol) {
     if (!messages.length) return null;
     let bull = 0, bear = 0, neutral = 0;
     let oldestMs = Infinity, newestMs = -Infinity;
+    const exBull = [], exBear = [], exNeu = [];
     for (const m of messages) {
       const tag = m?.entities?.sentiment?.basic;
-      if (tag === "Bullish") bull++;
-      else if (tag === "Bearish") bear++;
-      else neutral++;
+      let sentiment;
+      if (tag === "Bullish") { bull++; sentiment = "bullish"; }
+      else if (tag === "Bearish") { bear++; sentiment = "bearish"; }
+      else { neutral++; sentiment = "neutral"; }
       if (m?.created_at) {
         const ts = Date.parse(m.created_at);
         if (!isNaN(ts)) {
           if (ts < oldestMs) oldestMs = ts;
           if (ts > newestMs) newestMs = ts;
         }
+      }
+      const bucket = sentiment === "bullish" ? exBull : sentiment === "bearish" ? exBear : exNeu;
+      if (bucket.length < 2 && m?.body) {
+        bucket.push({
+          sentiment,
+          body: truncateText(m.body, 160),
+          user: m?.user?.username || null,
+          createdAt: m?.created_at || null,
+        });
       }
     }
     const total = bull + bear + neutral;
@@ -6490,6 +6632,7 @@ async function fetchStocktwitsSentiment(symbol) {
       source: "stocktwits",
       bull, bear, neutral, total,
       msgsPerDay,
+      examples: pickExamples([exBull, exBear, exNeu], 2),
       sampledAt: new Date().toISOString(),
     };
   } catch (err) {
@@ -6513,21 +6656,38 @@ async function fetchRedditMentions(symbol) {
       ? new RegExp(`\\$${escaped}\\b`, "i")
       : new RegExp(`(?:\\$|\\b)${escaped}\\b`, "i");
     let bull = 0, bear = 0, neutral = 0, total = 0;
+    const exBull = [], exBear = [], exNeu = [];
     for (const c of children) {
-      const title = (c?.data?.title || "").trim();
+      const data = c?.data || {};
+      const title = (data.title || "").trim();
       if (!title || !matchRe.test(title)) continue;
       total++;
-      const isBull = REDDIT_BULL_RE.test(title);
-      const isBear = REDDIT_BEAR_RE.test(title);
-      if (isBull && !isBear) bull++;
-      else if (isBear && !isBull) bear++;
-      else neutral++;
+      const bullMatch = title.match(REDDIT_BULL_RE);
+      const bearMatch = title.match(REDDIT_BEAR_RE);
+      const isBull = !!bullMatch;
+      const isBear = !!bearMatch;
+      let sentiment, matched;
+      if (isBull && !isBear) { bull++; sentiment = "bullish"; matched = bullMatch[0]; }
+      else if (isBear && !isBull) { bear++; sentiment = "bearish"; matched = bearMatch[0]; }
+      else { neutral++; sentiment = "neutral"; matched = isBull && isBear ? `${bullMatch[0]}+${bearMatch[0]}` : null; }
+      const bucket = sentiment === "bullish" ? exBull : sentiment === "bearish" ? exBear : exNeu;
+      if (bucket.length < 2) {
+        bucket.push({
+          sentiment,
+          title: truncateText(title, 200),
+          matchedKeyword: matched,
+          subreddit: data.subreddit || null,
+          score: typeof data.score === "number" ? data.score : null,
+          permalink: data.permalink ? `https://www.reddit.com${data.permalink}` : null,
+        });
+      }
     }
     if (total === 0) return null;
     return {
       source: "reddit",
       bull, bear, neutral, total,
       msgsPerDay: total, // search window is t=day
+      examples: pickExamples([exBull, exBear, exNeu], 2),
       sampledAt: new Date().toISOString(),
     };
   } catch (err) {

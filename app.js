@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03575;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -1786,6 +1786,50 @@
     });
   }
 
+  function sentimentDot(sent){
+    var cls = sent === 'bullish' ? 'bull' : sent === 'bearish' ? 'bear' : 'neu';
+    var label = sent === 'bullish' ? 'Bullish' : sent === 'bearish' ? 'Bearish' : 'Neutral';
+    return '<span class="opt-social-ex-tag ' + cls + '" title="' + label + '">' + label + '</span>';
+  }
+  function renderSocialSourceBlock(name, src, gradingNote){
+    if (!src || !src.total) return '';
+    var b = src.bull | 0, r = src.bear | 0, n = src.neutral | 0;
+    var examples = Array.isArray(src.examples) ? src.examples : [];
+    var exHtml = '';
+    if (examples.length){
+      var rows = [];
+      for (var i = 0; i < examples.length; i++){
+        var e = examples[i];
+        var meta = [];
+        if (e.user) meta.push('@' + escapeHtml(String(e.user)));
+        if (e.subreddit) meta.push('r/' + escapeHtml(String(e.subreddit)));
+        if (typeof e.score === 'number') meta.push('↑' + e.score);
+        if (e.matchedKeyword) meta.push('match: "' + escapeHtml(String(e.matchedKeyword)) + '"');
+        var bodyText = escapeHtml(String(e.body || e.title || ''));
+        // Wrap titles in a link when we have a permalink (reddit). Stocktwits
+        // examples don't carry a stable URL so they stay plain text.
+        if (e.permalink){
+          bodyText = '<a href="' + escapeHtml(String(e.permalink)) + '" target="_blank" rel="noopener noreferrer">' + bodyText + '</a>';
+        }
+        rows.push(
+          '<li class="opt-social-example ' + (e.sentiment || 'neutral') + '">' +
+            sentimentDot(e.sentiment) +
+            '<span class="opt-social-ex-body">' + bodyText + '</span>' +
+            (meta.length ? '<span class="opt-social-ex-meta">' + meta.join(' · ') + '</span>' : '') +
+          '</li>'
+        );
+      }
+      exHtml = '<ul class="opt-social-examples">' + rows.join('') + '</ul>';
+    }
+    return '<div class="opt-social-source">' +
+      '<div class="opt-social-source-head">' +
+        '<span class="opt-social-source-name">' + escapeHtml(name) + '</span>' +
+        '<span class="opt-social-source-counts">' + src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish · ' + n + ' neutral</span>' +
+      '</div>' +
+      '<div class="opt-social-source-method">' + escapeHtml(gradingNote) + '</div>' +
+      exHtml +
+    '</div>';
+  }
   function renderSocialSentiment(){
     var box = $('opt-news-pane');
     if (!box) return null;
@@ -1798,14 +1842,11 @@
       ? (s.msgCount24h / 1000).toFixed(1) + 'k'
       : Math.round(s.msgCount24h).toString();
     var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
-    var chips = [];
-    if (s.sources && s.sources.stocktwits){
-      chips.push('st: ' + s.sources.stocktwits.total);
-    }
-    if (s.sources && s.sources.reddit){
-      chips.push('reddit: ' + s.sources.reddit.total);
-    }
-    var html = '<div class="opt-social ' + lean + '">' +
+    var st = s.sources && s.sources.stocktwits;
+    var rd = s.sources && s.sources.reddit;
+    var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages count as neutral.');
+    var rdBlock = renderSocialSourceBlock('Reddit (r/wallstreetbets + r/stocks + r/options)', rd, 'Post titles graded by keyword: bullish on calls/long/moon/buy/bull/breakout/squeeze/yolo; bearish on puts/short/sell/bear/crash/dump/drilling; both or neither → neutral.');
+    return '<div class="opt-social ' + lean + '">' +
       '<div class="opt-social-head">' +
         '<span class="opt-social-label">Retail chatter</span>' +
         '<span class="opt-social-stat">' + bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h</span>' +
@@ -1815,9 +1856,8 @@
         '<span class="neutral" style="width:' + neutral + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
-      (chips.length ? '<div class="opt-social-sources">' + escapeHtml(chips.join(' · ')) + '</div>' : '') +
+      stBlock + rdBlock +
     '</div>';
-    return html;
   }
 
   function onExpiryChange(){
