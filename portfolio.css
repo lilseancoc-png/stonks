@@ -1,0 +1,253 @@
+/* Portfolio tab styles. Loaded after styles.css so it inherits all design
+   tokens (--accent, --text, --muted, --border, --r-2, etc.) defined there. */
+
+.pf-signin-card {
+  max-width: 480px;
+}
+.pf-signin-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.pf-signin-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 18px 0 12px;
+}
+.pf-signin-divider::before,
+.pf-signin-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.pf-signin-providers {
+  display: grid;
+  gap: 8px;
+}
+
+.pf-btn {
+  appearance: none;
+  border: 1px solid var(--border-strong, var(--border));
+  background: var(--surface-2, transparent);
+  color: var(--text);
+  padding: 9px 14px;
+  border-radius: var(--r-2, 8px);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.pf-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-strong, var(--text));
+}
+.pf-btn:disabled { opacity: 0.55; cursor: progress; }
+.pf-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #001b00;
+}
+.pf-btn-primary:hover {
+  background: var(--accent-strong, var(--accent));
+  color: #001b00;
+}
+
+.pf-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.pf-iconbtn {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-2, 6px);
+  font-size: 14px;
+  line-height: 1;
+}
+.pf-iconbtn:hover { color: var(--text); border-color: var(--border-strong, var(--border)); }
+
+.pf-status {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+.pf-status-ok  { color: var(--accent); }
+.pf-status-err { color: var(--neg, #ff5252); }
+.pf-status-warn { color: var(--warn, #f0a500); }
+
+.pf-portfolio-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.pf-account { margin: 4px 0 0; font-size: 12px; }
+.pf-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.pf-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.pf-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-2, transparent);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-2, 8px);
+}
+
+.pf-row {
+  background: var(--surface-2, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 8px);
+  padding: 12px 14px;
+}
+.pf-row-main {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.9fr 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+@media (max-width: 720px) {
+  .pf-row-main { grid-template-columns: 1fr 1fr; }
+  .pf-row-actions { grid-column: 1 / -1; justify-content: space-between; }
+}
+
+.pf-symbol-block { display: grid; gap: 2px; min-width: 0; }
+.pf-symbol {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-strong, var(--text));
+}
+.pf-leg { color: var(--muted); font-size: 12px; }
+.pf-qty { color: var(--text); font-size: 13px; }
+.pf-mark { display: grid; gap: 2px; }
+.pf-mark-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.pf-mark-value { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; }
+
+.pf-pnl { display: grid; gap: 2px; font-family: var(--font-mono, ui-monospace, monospace); }
+.pf-pnl-pct { font-weight: 700; }
+.pf-pnl-total { font-size: 12px; color: var(--muted); }
+.pf-pos { color: var(--pos, var(--accent)); }
+.pf-pos .pf-pnl-total { color: var(--pos, var(--accent)); opacity: 0.85; }
+.pf-neg { color: var(--neg, #ff5252); }
+.pf-neg .pf-pnl-total { color: var(--neg, #ff5252); opacity: 0.85; }
+
+.pf-row-actions { display: flex; gap: 8px; align-items: center; }
+.pf-action {
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border-strong, var(--border));
+  background: var(--surface-3, transparent);
+}
+.pf-action-sell { color: var(--neg, #ff5252); border-color: var(--neg, #ff5252); }
+.pf-action-hold { color: var(--muted); }
+.pf-action-roll { color: var(--warn, #f0a500); border-color: var(--warn, #f0a500); }
+.pf-action-unknown { color: var(--muted); }
+
+.pf-row-rec {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: grid;
+  gap: 4px;
+}
+.pf-rec-headline { font-weight: 600; color: var(--text-strong, var(--text)); }
+.pf-rec-reason { color: var(--text); font-size: 13px; line-height: 1.45; }
+.pf-rec-greeks {
+  margin-top: 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pf-review { margin-top: 18px; }
+.pf-review-card {
+  background: var(--surface-2, transparent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-2, 8px);
+  padding: 14px 16px;
+}
+.pf-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.pf-review-head h3 { margin: 0; font-size: 16px; }
+.pf-review-total { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; }
+.pf-review-summary { margin: 6px 0; line-height: 1.5; }
+.pf-review-warnings { margin: 6px 0; padding-left: 18px; color: var(--warn, var(--text)); }
+.pf-review-hedge { margin: 6px 0 0; color: var(--text); }
+
+.pf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+.pf-modal {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+.pf-add-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 6px;
+}
+.pf-add-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.pf-user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 99px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2, transparent);
+}
+.pf-user-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}

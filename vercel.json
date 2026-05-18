@@ -9,6 +9,9 @@
     },
     "api/chain.js": {
       "maxDuration": 10
+    },
+    "api/portfolio-review.js": {
+      "maxDuration": 30
     }
   },
   "headers": [

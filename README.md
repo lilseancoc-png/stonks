@@ -125,6 +125,43 @@ Repository → stonks**. Defaults (root directory, no framework preset,
 `npm install` as the install command) are correct. No environment variables
 are needed for the live-quote endpoint to work.
 
+## Portfolio (sign-in + AI review)
+
+Signed-in users can save the option contracts they own and get an AI review
+that recommends sell / hold / roll per position, flags theta bleed and
+concentration risk, and summarizes portfolio P/L.
+
+Auth + storage runs on **Supabase** (free tier covers it). The browser uses
+the Supabase JS SDK loaded from the jsdelivr CDN — no bundler, no build
+step beyond the existing `regen-static.mjs`. The AI review runs in a new
+serverless function, `api/portfolio-review.js`, which verifies the JWT
+server-side, prices each contract via Yahoo, computes Greeks, and asks
+Gemini for the strategy call.
+
+### One-time Supabase setup
+
+1. Create a Supabase project at https://supabase.com.
+2. In the SQL editor, run `supabase/schema.sql` from this repo. That creates
+   the `positions` table and enables row-level security so each user only
+   sees their own portfolio.
+3. (Optional) In **Authentication → Providers**, enable GitHub and / or
+   Google OAuth. Email magic-link works out of the box.
+
+### Env vars (Vercel project settings)
+
+| Var | Where | Purpose |
+|-----|-------|---------|
+| `SUPABASE_URL` | All environments | Inlined into the page at build time |
+| `SUPABASE_ANON_KEY` | All environments | Browser client (safe to ship — RLS is the gatekeeper) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Vercel only | Server-side JWT verification in `api/portfolio-review.js` |
+| `GEMINI_API_KEY` | Already required | Reused for the portfolio review prompt |
+
+After adding the env vars, redeploy (or run `node scripts/regen-static.mjs`
+locally and commit) so the new `SUPABASE_URL` / `SUPABASE_ANON_KEY` get
+inlined into `index.html` as `window.STONKS_SUPABASE`. Without those, the
+Portfolio tab shows a "sign-in not configured" message and the rest of the
+site keeps working unchanged.
+
 ## Disclaimer
 
 For information only. Not investment advice.
