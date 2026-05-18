@@ -5,16 +5,16 @@ name: Daily build
 # integration, which deploys the new static files automatically.
 on:
   schedule:
-    # Three runs targeting ~9:00am, 12:30pm, and 5:30pm America/New_York.
+    # Three runs targeting 9:00am, 12:00pm, and 5:00pm America/New_York.
     # GitHub cron is UTC-only, so each slot has two cron entries — one for
     # EDT (UTC-4) and one for EST (UTC-5). The `check` job gates the build
     # so exactly one run per slot per day executes regardless of DST regime.
-    - cron: "0 13 * * 1-5"    # 9:00 ET (EDT) / 8:00 ET (EST)
-    - cron: "0 14 * * 1-5"    # 10:00 ET (EDT) / 9:00 ET (EST)
-    - cron: "30 16 * * 1-5"   # 12:30 ET (EDT) / 11:30 ET (EST)
-    - cron: "30 17 * * 1-5"   # 13:30 ET (EDT) / 12:30 ET (EST)
-    - cron: "30 21 * * *"     # 17:30 ET (EDT) / 16:30 ET (EST)
-    - cron: "30 22 * * *"     # 18:30 ET (EDT) / 17:30 ET (EST)
+    - cron: "0 13 * * 1-5"   # 9:00 ET (EDT) / 8:00 ET (EST)
+    - cron: "0 14 * * 1-5"   # 10:00 ET (EDT) / 9:00 ET (EST)
+    - cron: "0 16 * * 1-5"   # 12:00 ET (EDT) / 11:00 ET (EST)
+    - cron: "0 17 * * 1-5"   # 13:00 ET (EDT) / 12:00 ET (EST)
+    - cron: "0 21 * * *"     # 17:00 ET (EDT) / 16:00 ET (EST)
+    - cron: "0 22 * * *"     # 18:00 ET (EDT) / 17:00 ET (EST)
   workflow_dispatch:
 
 permissions:
