@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03588;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -1500,88 +1500,282 @@
     }
     metricsEl.innerHTML = metrics;
     renderEarningsHistory();
+    renderFundamentalHistoryCharts();
     box.hidden = false;
   }
 
-  function renderEarningsHistory(){
-    var box = $('opt-fund-earnings-history');
-    if (!box) return;
-    var f = state.fundamentals;
-    var eh = (f && Array.isArray(f.earningsHistory)) ? f.earningsHistory : [];
-    if (eh.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+  // Catmull-Rom → cubic-Bezier conversion. Returns an SVG path 'd' string
+  // through every input point with smooth (no overshoot) tension.
+  function smoothPath(pts){
+    if (pts.length < 2) return '';
+    if (pts.length === 2) return 'M' + pts[0][0] + ',' + pts[0][1] + 'L' + pts[1][0] + ',' + pts[1][1];
+    var d = 'M' + pts[0][0] + ',' + pts[0][1];
+    for (var i = 0; i < pts.length - 1; i++){
+      var p0 = pts[i - 1] || pts[i];
+      var p1 = pts[i];
+      var p2 = pts[i + 1];
+      var p3 = pts[i + 2] || pts[i + 1];
+      var c1x = p1[0] + (p2[0] - p0[0]) / 6;
+      var c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      var c2x = p2[0] - (p3[0] - p1[0]) / 6;
+      var c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      d += ' C' + c1x.toFixed(2) + ',' + c1y.toFixed(2) +
+           ' ' + c2x.toFixed(2) + ',' + c2y.toFixed(2) +
+           ' ' + p2[0].toFixed(2) + ',' + p2[1].toFixed(2);
+    }
+    return d;
+  }
 
-    var W = 320, H = 140, padL = 36, padR = 12, padT = 12, padB = 26;
+  function fmtQuarterLabel(date, period){
+    if (date){
+      var d = new Date(date);
+      if (!isNaN(d.getTime())){
+        var q = Math.floor(d.getUTCMonth() / 3) + 1;
+        return 'Q' + q + " '" + String(d.getUTCFullYear()).slice(2);
+      }
+    }
+    return period || '';
+  }
+
+  function renderHistoryChart(opts){
+    var box = $(opts.boxId);
+    if (!box) return;
+    var history = Array.isArray(opts.points) ? opts.points.slice() : [];
+    var forward = Array.isArray(opts.forwardPoints) ? opts.forwardPoints.slice() : [];
+    var secondary = Array.isArray(opts.secondaryPoints) ? opts.secondaryPoints : null;
+    if (history.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+
+    var W = 320, H = 150, padL = 14, padR = 14, padT = 26, padB = 28;
     var plotW = W - padL - padR;
     var plotH = H - padT - padB;
 
-    var vals = [];
-    eh.forEach(function(q){
-      if (q.epsActual != null) vals.push(q.epsActual);
-      if (q.epsEstimate != null) vals.push(q.epsEstimate);
-    });
+    var all = history.concat(forward);
+    var vals = all.map(function(p){ return p.value; }).filter(function(v){ return v != null && isFinite(v); });
+    if (secondary){
+      secondary.forEach(function(v){ if (v != null && isFinite(v)) vals.push(v); });
+    }
     if (vals.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
     var lo = Math.min.apply(null, vals);
     var hi = Math.max.apply(null, vals);
     var range = hi - lo;
     if (range === 0){ range = Math.abs(hi) > 0 ? Math.abs(hi) * 0.2 : 1; }
-    var pad = range * 0.15;
-    var yMin = lo - pad;
-    var yMax = hi + pad;
+    var yMin = lo - range * 0.15;
+    var yMax = hi + range * 0.15;
     function yFor(v){ return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
-
-    var colW = plotW / eh.length;
+    var colW = plotW / all.length;
     function xFor(i){ return padL + colW * (i + 0.5); }
 
-    var qLabel = function(q){
-      if (q.period) return q.period;
-      if (q.date){
-        var d = new Date(q.date);
-        if (!isNaN(d.getTime())){
-          var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
-          return m + ' ' + String(d.getUTCFullYear()).slice(2);
-        }
-      }
-      return '';
-    };
+    var firstV = history[0].value;
+    var lastV = history[history.length - 1].value;
+    var up = lastV >= firstV;
+    var lineClass = up ? 'opt-fund-eh-line up' : 'opt-fund-eh-line down';
+    var areaClass = up ? 'opt-fund-eh-area up' : 'opt-fund-eh-area down';
+    var trendDir = up ? 'up' : 'down';
 
-    var yTicks = 3;
-    var yAxis = '';
-    for (var i = 0; i < yTicks; i++){
-      var t = yMin + (yMax - yMin) * (i / (yTicks - 1));
-      var y = yFor(t);
-      yAxis += '<line class="opt-fund-eh-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" />';
-      yAxis += '<text class="opt-fund-eh-axis" x="' + (padL - 4) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + escapeHtml(t.toFixed(2)) + '</text>';
+    var fmt = opts.formatValue || function(v){ return v.toFixed(2); };
+
+    var histPts = history.map(function(p, i){ return [xFor(i), yFor(p.value)]; });
+    var linePath = smoothPath(histPts);
+    var baselineY = (padT + plotH).toFixed(1);
+    var areaPath = '';
+    if (histPts.length >= 2){
+      areaPath = linePath +
+        ' L' + histPts[histPts.length - 1][0].toFixed(2) + ',' + baselineY +
+        ' L' + histPts[0][0].toFixed(2) + ',' + baselineY + ' Z';
     }
 
-    var actualPts = [];
-    var dots = '';
-    var xLabels = '';
-    eh.forEach(function(q, i){
-      var x = xFor(i);
-      if (q.epsEstimate != null){
-        dots += '<circle class="opt-fund-eh-est" cx="' + x.toFixed(1) + '" cy="' + yFor(q.epsEstimate).toFixed(1) + '" r="4"><title>Est ' + escapeHtml(q.epsEstimate.toFixed(2)) + '</title></circle>';
+    // Forward dashed continuation from the last historical point.
+    var fwdPath = '';
+    var fwdDots = '';
+    var fwdLabels = '';
+    if (forward.length){
+      var lastHistIdx = history.length - 1;
+      var fwdPts = [[xFor(lastHistIdx), yFor(history[lastHistIdx].value)]];
+      forward.forEach(function(p, j){
+        fwdPts.push([xFor(history.length + j), yFor(p.value)]);
+      });
+      // Use a simple straight dashed connection — smoother bezier would imply
+      // the analyst data has intermediate resolution it doesn't.
+      var d = 'M' + fwdPts[0][0].toFixed(2) + ',' + fwdPts[0][1].toFixed(2);
+      for (var k = 1; k < fwdPts.length; k++){
+        d += ' L' + fwdPts[k][0].toFixed(2) + ',' + fwdPts[k][1].toFixed(2);
       }
-      if (q.epsActual != null){
-        var ay = yFor(q.epsActual);
-        dots += '<circle class="opt-fund-eh-act" cx="' + x.toFixed(1) + '" cy="' + ay.toFixed(1) + '" r="4"><title>Actual ' + escapeHtml(q.epsActual.toFixed(2)) + (q.surprisePct != null ? ' (' + (q.surprisePct >= 0 ? '+' : '') + q.surprisePct.toFixed(1) + '%)' : '') + '</title></circle>';
-        actualPts.push(x.toFixed(1) + ',' + ay.toFixed(1));
-      }
-      xLabels += '<text class="opt-fund-eh-axis" x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(qLabel(q)) + '</text>';
-    });
-    var line = actualPts.length >= 2
-      ? '<polyline class="opt-fund-eh-line" points="' + actualPts.join(' ') + '" />'
-      : '';
+      fwdPath = '<path class="opt-fund-eh-fwdline ' + trendDir + '" d="' + d + '" />';
+      forward.forEach(function(p, j){
+        var xi = xFor(history.length + j);
+        var yi = yFor(p.value);
+        var label = fmtQuarterLabel(p.date, p.period);
+        fwdDots += '<circle class="opt-fund-eh-fwdmark ' + trendDir + '" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="3.5"><title>' +
+          escapeHtml(label) + ' estimate · ' + escapeHtml(fmt(p.value)) + '</title></circle>';
+        fwdLabels += '<text class="opt-fund-eh-axis fwd" x="' + xi.toFixed(2) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(label) + ' est</text>';
+      });
+    }
 
-    var svg = '<svg class="opt-fund-eh-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="EPS estimated vs actual, last ' + eh.length + ' quarters">' +
-      yAxis + line + dots + xLabels +
-      '</svg>';
-    var legend = '<div class="opt-fund-eh-legend">' +
-      '<span><i class="opt-fund-eh-dot est"></i> Estimated EPS</span>' +
-      '<span><i class="opt-fund-eh-dot act"></i> Actual EPS</span>' +
+    // Secondary series dots (e.g. EPS analyst estimates per quarter).
+    var secMarkup = '';
+    if (secondary){
+      secondary.forEach(function(v, i){
+        if (v == null || !isFinite(v) || i >= history.length) return;
+        var xi = xFor(i);
+        var yi = yFor(v);
+        secMarkup += '<circle class="opt-fund-eh-est" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="2.5"><title>Est ' + escapeHtml(fmt(v)) + '</title></circle>';
+      });
+    }
+
+    // End-point dots: first historical, last historical.
+    var endDots = '';
+    if (histPts.length){
+      var firstP = histPts[0];
+      var lastP = histPts[histPts.length - 1];
+      endDots += '<circle class="opt-fund-eh-end ' + trendDir + ' halo" cx="' + lastP[0].toFixed(2) + '" cy="' + lastP[1].toFixed(2) + '" r="6"></circle>';
+      endDots += '<circle class="opt-fund-eh-end ' + trendDir + '" cx="' + lastP[0].toFixed(2) + '" cy="' + lastP[1].toFixed(2) + '" r="3"></circle>';
+      void firstP;
+    }
+
+    // X-axis labels: first and last historical quarter only.
+    var xLabels = '';
+    if (history.length){
+      xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(0).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="start">' +
+        escapeHtml(fmtQuarterLabel(history[0].date, history[0].period)) + '</text>';
+      var lastI = history.length - 1;
+      xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(lastI).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="' + (forward.length ? 'middle' : 'end') + '">' +
+        escapeHtml(fmtQuarterLabel(history[lastI].date, history[lastI].period)) + '</text>';
+    }
+
+    // Hover hit-zones. One invisible rect per data column for crosshair.
+    var hovers = '';
+    all.forEach(function(p, i){
+      var x = xFor(i);
+      var isFwd = i >= history.length;
+      var label = fmtQuarterLabel(p.date, p.period);
+      var valStr = fmt(p.value);
+      hovers += '<rect class="opt-fund-eh-hit" x="' + (x - colW / 2).toFixed(2) + '" y="' + padT + '" width="' + colW.toFixed(2) + '" height="' + plotH + '"' +
+        ' data-x="' + x.toFixed(2) + '" data-y="' + yFor(p.value).toFixed(2) + '"' +
+        ' data-label="' + escapeHtml(label + (isFwd ? ' est' : '')) + '"' +
+        ' data-value="' + escapeHtml(valStr) + '"></rect>';
+    });
+
+    var gradId = 'eh-grad-' + opts.boxId;
+    var defs = '<defs><linearGradient id="' + gradId + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" class="opt-fund-eh-stop1 ' + trendDir + '" />' +
+      '<stop offset="100%" class="opt-fund-eh-stop2" />' +
+      '</linearGradient></defs>';
+
+    var area = areaPath ? '<path class="' + areaClass + '" d="' + areaPath + '" fill="url(#' + gradId + ')" />' : '';
+    var line = linePath ? '<path class="' + lineClass + '" d="' + linePath + '" />' : '';
+
+    // Crosshair overlay (hidden by default).
+    var crosshair =
+      '<line class="opt-fund-eh-cross" x1="0" x2="0" y1="' + padT + '" y2="' + (padT + plotH) + '" style="display:none" />' +
+      '<circle class="opt-fund-eh-crossdot ' + trendDir + '" r="3.5" style="display:none" />';
+
+    // Header: title left, current value + delta right (Robinhood style).
+    var chgPct = firstV ? ((lastV - firstV) / Math.abs(firstV)) * 100 : 0;
+    var chgStr = (chgPct >= 0 ? '+' : '') + chgPct.toFixed(1) + '%';
+    var head =
+      '<div class="opt-fund-eh-head">' +
+        '<div class="opt-fund-eh-title">' + escapeHtml(opts.title) + '</div>' +
+        '<div class="opt-fund-eh-value">' +
+          '<span class="opt-fund-eh-now">' + escapeHtml(fmt(lastV)) + '</span>' +
+          '<span class="opt-fund-eh-chg ' + trendDir + '">' + escapeHtml(chgStr) + '</span>' +
+        '</div>' +
       '</div>';
-    var head = '<div class="opt-fund-eh-head">Earnings history</div>';
-    box.innerHTML = head + svg + legend;
+
+    var readout =
+      '<div class="opt-fund-eh-readout" hidden>' +
+        '<span class="opt-fund-eh-readout-label"></span>' +
+        '<span class="opt-fund-eh-readout-value"></span>' +
+      '</div>';
+
+    var svg = '<svg class="opt-fund-eh-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(opts.title) + ' history">' +
+      defs + area + line + fwdPath + crosshair + secMarkup + endDots + fwdDots + xLabels + fwdLabels + hovers +
+      '</svg>';
+
+    box.innerHTML = head + readout + svg;
     box.hidden = false;
+
+    // Wire crosshair interaction.
+    var svgEl = box.querySelector('svg');
+    var crossLine = box.querySelector('.opt-fund-eh-cross');
+    var crossDot = box.querySelector('.opt-fund-eh-crossdot');
+    var readoutEl = box.querySelector('.opt-fund-eh-readout');
+    var readoutLabel = box.querySelector('.opt-fund-eh-readout-label');
+    var readoutValue = box.querySelector('.opt-fund-eh-readout-value');
+    var hits = box.querySelectorAll('.opt-fund-eh-hit');
+    function showCross(hit){
+      var x = parseFloat(hit.getAttribute('data-x'));
+      var y = parseFloat(hit.getAttribute('data-y'));
+      crossLine.setAttribute('x1', x); crossLine.setAttribute('x2', x);
+      crossLine.style.display = '';
+      crossDot.setAttribute('cx', x); crossDot.setAttribute('cy', y);
+      crossDot.style.display = '';
+      readoutLabel.textContent = hit.getAttribute('data-label');
+      readoutValue.textContent = hit.getAttribute('data-value');
+      readoutEl.hidden = false;
+    }
+    function hideCross(){
+      crossLine.style.display = 'none';
+      crossDot.style.display = 'none';
+      readoutEl.hidden = true;
+    }
+    hits.forEach(function(hit){
+      hit.addEventListener('mouseenter', function(){ showCross(hit); });
+      hit.addEventListener('mousemove',  function(){ showCross(hit); });
+    });
+    svgEl.addEventListener('mouseleave', hideCross);
+  }
+
+  function renderEarningsHistory(){
+    var f = state.fundamentals;
+    var eh = (f && Array.isArray(f.earningsHistory)) ? f.earningsHistory : [];
+    if (eh.length < 2){
+      var box = $('opt-fund-earnings-history');
+      if (box){ box.hidden = true; box.innerHTML = ''; }
+      return;
+    }
+    var rows = eh.filter(function(q){ return q.epsActual != null; });
+    if (rows.length < 2){
+      var box2 = $('opt-fund-earnings-history');
+      if (box2){ box2.hidden = true; box2.innerHTML = ''; }
+      return;
+    }
+    renderHistoryChart({
+      boxId: 'opt-fund-earnings-history',
+      title: 'EPS',
+      points: rows.map(function(q){ return { date: q.date, period: q.period, value: q.epsActual }; }),
+      secondaryPoints: rows.map(function(q){ return q.epsEstimate; }),
+      forwardPoints: (f && Array.isArray(f.epsForwardEstimates)) ? f.epsForwardEstimates : [],
+      formatValue: function(v){ return v.toFixed(2); },
+    });
+  }
+
+  function renderFundamentalHistoryCharts(){
+    var f = state.fundamentals || {};
+    renderHistoryChart({
+      boxId: 'opt-fund-revenue-history',
+      title: 'Revenue',
+      points: f.revenueHistory || [],
+      forwardPoints: f.revenueForwardEstimates || [],
+      formatValue: fmtBigDollars,
+    });
+    renderHistoryChart({
+      boxId: 'opt-fund-gross-profit-history',
+      title: 'Gross profit',
+      points: f.grossProfitHistory || [],
+      formatValue: fmtBigDollars,
+    });
+    renderHistoryChart({
+      boxId: 'opt-fund-net-income-history',
+      title: 'Net income',
+      points: f.netIncomeHistory || [],
+      formatValue: fmtBigDollars,
+    });
+    renderHistoryChart({
+      boxId: 'opt-fund-net-margin-history',
+      title: 'Net margin',
+      points: f.netMarginHistory || [],
+      formatValue: function(v){ return v.toFixed(1) + '%'; },
+    });
   }
 
   function renderSocialSentiment(){
@@ -2058,7 +2252,7 @@
     var repeatTag = '';
     if (c.repeatCount && c.repeatCount >= 2){
       var sinceTxt = c.firstSeen ? ' since ' + fmtRepeatSince(c.firstSeen) : '';
-      repeatTag = '<span class="flow-repeat" title="Flagged ' + c.repeatCount + ' times in the last 5 trading days' + sinceTxt + '">\u{1F525} ×' + c.repeatCount + '</span>';
+      repeatTag = '<span class="flow-repeat" title="Flagged ' + c.repeatCount + ' times in the last 5 trading days' + sinceTxt + '">🔥 ×' + c.repeatCount + '</span>';
     }
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
