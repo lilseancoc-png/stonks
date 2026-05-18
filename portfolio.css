@@ -234,6 +234,74 @@
   margin-top: 6px;
 }
 
+/* Searchable ticker combobox in the Add-position modal */
+.pf-combo {
+  position: relative;
+}
+.pf-combo input[type="text"] {
+  width: 100%;
+  padding-right: 28px;
+}
+.pf-combo-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+}
+.pf-combo-clear:hover { color: var(--text); background: var(--surface-3, transparent); }
+.pf-combo ul {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface, var(--surface-2));
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--r-2, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 50;
+}
+.pf-combo ul li {
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+.pf-combo ul li:hover,
+.pf-combo ul li.is-active {
+  background: var(--accent-soft, var(--surface-3));
+  color: var(--text-strong, var(--text));
+}
+.pf-combo-sym {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 700;
+  min-width: 56px;
+}
+.pf-combo-sector { color: var(--muted); font-size: 12px; }
+.pf-combo-empty {
+  padding: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: default;
+}
+
 .pf-user-chip {
   display: inline-flex;
   align-items: center;

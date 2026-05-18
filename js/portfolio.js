@@ -245,7 +245,9 @@ async function deletePosition(id) {
 function openAddModal() {
   const host = $("pf-modal-host");
   if (!host) return;
-  const symbols = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.symbols) || [];
+  const manifest = window.STONKS_MANIFEST || {};
+  const symbols = Array.isArray(manifest.symbols) ? manifest.symbols : [];
+  const sectorMap = (manifest.sectors && typeof manifest.sectors === "object") ? manifest.sectors : {};
   host.innerHTML = `
     <div class="pf-modal-backdrop" id="pf-modal-backdrop">
       <div class="pf-modal card" role="dialog" aria-modal="true" aria-labelledby="pf-modal-title">
@@ -254,13 +256,19 @@ function openAddModal() {
           <button type="button" class="pf-iconbtn" id="pf-modal-close" aria-label="Close">✕</button>
         </header>
         <form id="pf-add-form" class="pf-add-form">
-          <label class="field">
+          <div class="field">
             <span class="field-label">Ticker</span>
-            <select id="pf-add-symbol" required>
-              <option value="">Pick a ticker…</option>
-              ${symbols.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
-            </select>
-          </label>
+            <div class="pf-combo" id="pf-symbol-combo">
+              <input type="text" id="pf-symbol-input" role="combobox"
+                     aria-expanded="false" aria-controls="pf-symbol-listbox"
+                     aria-autocomplete="list"
+                     placeholder="Search ticker or sector…"
+                     autocomplete="off" spellcheck="false" required>
+              <button type="button" id="pf-symbol-clear" class="pf-combo-clear" aria-label="Clear" tabindex="-1">&times;</button>
+              <ul id="pf-symbol-listbox" role="listbox" hidden></ul>
+              <input type="hidden" id="pf-add-symbol" name="pf-add-symbol">
+            </div>
+          </div>
           <div class="segmented" role="radiogroup" aria-label="Side">
             <input type="radio" name="pf-side" id="pf-side-call" value="call" checked>
             <label for="pf-side-call">Call</label>
@@ -303,11 +311,133 @@ function openAddModal() {
     if (e.target.id === "pf-modal-backdrop") closeModal();
   });
 
-  const symbolSel = $("pf-add-symbol");
+  const symbolSel = $("pf-add-symbol");          // hidden input — the canonical value
+  const symbolInput = $("pf-symbol-input");       // visible text input
+  const symbolListbox = $("pf-symbol-listbox");
+  const symbolClear = $("pf-symbol-clear");
   const expirySel = $("pf-add-expiry");
   const strikeSel = $("pf-add-strike");
   const sideCall = $("pf-side-call");
   const sidePut = $("pf-side-put");
+
+  // --- Searchable symbol combobox -----------------------------------------
+  const comboItems = symbols.map((s) => ({ symbol: s, sector: sectorMap[s] || "" }));
+  let comboFiltered = comboItems.slice();
+  let comboActive = -1;
+
+  function renderCombo() {
+    if (!comboFiltered.length) {
+      symbolListbox.innerHTML = `<li class="pf-combo-empty" role="option" aria-disabled="true">No matches</li>`;
+      return;
+    }
+    symbolListbox.innerHTML = comboFiltered.map((item, idx) => `
+      <li role="option"
+          data-symbol="${escapeHtml(item.symbol)}"
+          id="pf-combo-opt-${idx}"
+          class="${idx === comboActive ? "is-active" : ""}"
+          aria-selected="${idx === comboActive}">
+        <span class="pf-combo-sym">${escapeHtml(item.symbol)}</span>
+        ${item.sector ? `<span class="pf-combo-sector">${escapeHtml(item.sector)}</span>` : ""}
+      </li>
+    `).join("");
+  }
+
+  function openCombo() {
+    symbolListbox.hidden = false;
+    symbolInput.setAttribute("aria-expanded", "true");
+  }
+  function closeCombo() {
+    symbolListbox.hidden = true;
+    symbolInput.setAttribute("aria-expanded", "false");
+    comboActive = -1;
+  }
+
+  function filterCombo(q) {
+    const needle = q.trim().toLowerCase();
+    if (!needle) {
+      comboFiltered = comboItems.slice();
+    } else {
+      // Prefix match on symbol ranks first, then substring on symbol, then sector match.
+      const pre = [];
+      const sub = [];
+      const sec = [];
+      for (const item of comboItems) {
+        const sym = item.symbol.toLowerCase();
+        if (sym.startsWith(needle)) pre.push(item);
+        else if (sym.includes(needle)) sub.push(item);
+        else if (item.sector.toLowerCase().includes(needle)) sec.push(item);
+      }
+      comboFiltered = pre.concat(sub, sec);
+    }
+    comboActive = comboFiltered.length ? 0 : -1;
+    renderCombo();
+  }
+
+  function selectSymbol(symbol) {
+    symbolSel.value = symbol;
+    symbolInput.value = symbol;
+    closeCombo();
+    onSymbolPick();
+  }
+
+  symbolInput.addEventListener("focus", () => {
+    filterCombo(symbolInput.value);
+    openCombo();
+  });
+  symbolInput.addEventListener("input", () => {
+    // Typing in the input invalidates any previously committed selection.
+    symbolSel.value = "";
+    filterCombo(symbolInput.value);
+    openCombo();
+  });
+  symbolInput.addEventListener("keydown", (e) => {
+    if (symbolListbox.hidden && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      filterCombo(symbolInput.value);
+      openCombo();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      comboActive = Math.min(comboFiltered.length - 1, comboActive + 1);
+      renderCombo();
+      e.preventDefault();
+    } else if (e.key === "ArrowUp") {
+      comboActive = Math.max(0, comboActive - 1);
+      renderCombo();
+      e.preventDefault();
+    } else if (e.key === "Enter") {
+      if (comboActive >= 0 && comboFiltered[comboActive]) {
+        selectSymbol(comboFiltered[comboActive].symbol);
+        e.preventDefault();
+      }
+    } else if (e.key === "Escape") {
+      closeCombo();
+    }
+  });
+  symbolListbox.addEventListener("mousedown", (e) => {
+    // mousedown (not click) so the input doesn't blur before the selection commits.
+    const li = e.target.closest("li[data-symbol]");
+    if (!li) return;
+    e.preventDefault();
+    selectSymbol(li.dataset.symbol);
+  });
+  symbolInput.addEventListener("blur", () => {
+    // Defer close to let mousedown selection fire first.
+    setTimeout(closeCombo, 120);
+  });
+  symbolClear.addEventListener("click", () => {
+    symbolInput.value = "";
+    symbolSel.value = "";
+    expirySel.innerHTML = `<option value="">Pick a ticker first…</option>`;
+    expirySel.disabled = true;
+    strikeSel.innerHTML = `<option value="">Pick an expiration first…</option>`;
+    strikeSel.disabled = true;
+    filterCombo("");
+    symbolInput.focus();
+    openCombo();
+  });
+  // Seed the listbox so the dropdown isn't empty on first focus.
+  filterCombo("");
 
   async function onSymbolPick() {
     const sym = symbolSel.value;
@@ -360,7 +490,6 @@ function openAddModal() {
     strikeSel.disabled = false;
   }
 
-  symbolSel.addEventListener("change", onSymbolPick);
   expirySel.addEventListener("change", onExpiryOrSideChange);
   sideCall.addEventListener("change", onExpiryOrSideChange);
   sidePut.addEventListener("change", onExpiryOrSideChange);
