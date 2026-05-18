@@ -1609,9 +1609,10 @@ main {
 }
 .opt-fund-eh-chg.up   { color: var(--pos); }
 .opt-fund-eh-chg.down { color: var(--neg); }
+.opt-fund-eh.is-hovering .opt-fund-eh-value { visibility: hidden; }
 .opt-fund-eh-readout {
   position: absolute;
-  top: var(--s-4); right: var(--s-3);
+  top: var(--s-3); right: var(--s-3);
   display: inline-flex; align-items: baseline; gap: 6px;
   padding: 4px 8px;
   background: var(--surface-2);
@@ -1621,6 +1622,7 @@ main {
   pointer-events: none;
   z-index: 2;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .opt-fund-eh-readout-label { color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
 .opt-fund-eh-readout-value { color: var(--text-strong); font-weight: 700; font-family: var(--font-mono); }
