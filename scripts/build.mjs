@@ -561,7 +561,7 @@ async function fetchFundamentals(symbol) {
     since.setUTCFullYear(since.getUTCFullYear() - 3);
     const ft = await yahooFinance.fundamentalsTimeSeries(symbol, {
       period1: since.toISOString().slice(0, 10),
-      module: "income-statement",
+      module: "financials",
       type: "quarterly",
     });
     if (Array.isArray(ft)) incomeSeries = ft;
