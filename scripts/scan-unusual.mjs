@@ -4,8 +4,9 @@
 // directional, single-shot activity that often signals informed flow.
 //
 // Criteria (all must hold):
-//   1. OTM band: 5% <= |strike - spot|/spot <= 30% (directional bets, not
-//      ITM hedges or far-OTM lottos).
+//   1. OTM band: 5% <= |strike - spot|/spot <= 50% (directional bets, not
+//      ITM hedges or far-OTM lottos). Upper bound is loose enough to keep
+//      low-delta LEAPs (~0.2 delta, 25-35% OTM) in scope.
 //   2. Volume > open interest (the classic baseline "unusual" signal).
 //   3. Hourly delta gate, scaled by days-to-expiry:
 //        - DTE <= 14 (near-term): vol - prevVol >= 4000
@@ -33,12 +34,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const DATA_DIR = resolve(ROOT, "data");
 
-// Strike scan band is tighter than the OTM-flag band so we still see a few
-// ITM strikes for context, but only OTM 5–30% can actually flag.
-const STRIKE_BAND = 0.35;
+// Strike scan band is wider than the OTM-flag band so we still see a few
+// ITM strikes for context, but only OTM 5–50% can actually flag.
+const STRIKE_BAND = 0.55;
 const FRONT_EXPIRATIONS = 3;
 const OTM_MIN = 0.05;
-const OTM_MAX = 0.30;
+const OTM_MAX = 0.50;
 const DTE_NEAR_DAYS = 14;
 const DELTA_NEAR = 4000;
 const DELTA_FAR = 2000;
