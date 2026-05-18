@@ -182,17 +182,18 @@ const RESPONSE_SCHEMA = {
   required: ["perPosition", "portfolio"],
 };
 
-// Primary model: gemini-2.5-pro — top reasoning available on Tier 1
-// (1K RPD), best at the sell/hold/roll judgement call. Fallback drops
-// to gemini-2.5-flash (10K RPD on Tier 1) when Pro quota is hit so
-// the feature still works past the daily cap. Both overridable via env
-// vars — once you've confirmed the exact 3.1-pro API ID via
-// `curl https://generativelanguage.googleapis.com/v1beta/models?key=$KEY`,
-// you can set PORTFOLIO_REVIEW_MODEL=gemini-3.1-pro (or similar) without
-// touching the code.
-const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-2.5-pro";
+// Primary model: gemini-2.5-flash — best reasoning Flash available on
+// the free tier (20 RPD). Fallback: gemma-4-26b-a4b-it (1.5K RPD on
+// free tier, same Gemma the daily build uses, no billing required).
+// Pro models exist on Tier 1+ but require funded billing — even free-
+// tier-available models fail with "prepayment credits depleted" once
+// the project is moved to Tier 1 without funded credits.
+//
+// Both overridable via env vars — upgrade to gemini-2.5-pro or
+// gemini-3.1-pro after adding billing in AI Studio without a code change.
+const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-2.5-flash";
 const FALLBACK_MODEL =
-  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemini-2.5-flash";
+  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemma-4-26b-a4b-it";
 
 function isQuotaError(err) {
   const msg = String(err?.message || err).toLowerCase();
@@ -215,6 +216,25 @@ function isModelMissingError(err) {
   );
 }
 
+// Gemma respects responseMimeType: "application/json" but doesn't strictly
+// honor responseSchema the way Gemini does, so it can emit JSON wrapped in
+// a ```json ... ``` block or with leading prose. Extract the first
+// balanced JSON object as a fallback when JSON.parse fails on the raw text.
+function extractJson(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch (_) {}
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) {
+    try { return JSON.parse(fence[1]); } catch (_) {}
+  }
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch (_) {}
+  }
+  return null;
+}
+
 async function generateReview(ai, model, prompt) {
   const resp = await ai.models.generateContent({
     model,
@@ -226,7 +246,9 @@ async function generateReview(ai, model, prompt) {
     },
   });
   const text = resp?.text || resp?.response?.text?.() || "";
-  return JSON.parse(text);
+  const parsed = extractJson(text);
+  if (!parsed) throw new Error("model returned non-JSON output");
+  return parsed;
 }
 
 async function aiReview(hydrated) {

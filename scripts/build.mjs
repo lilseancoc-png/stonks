@@ -6381,14 +6381,13 @@ async function writeChainFiles(chains) {
 // tickers. The 26B MoE (4B active params) is fast, generous on free tier,
 // and plenty for a 3-sentence summary task.
 const AI_MODEL = "gemma-4-26b-a4b-it";
-// Narrative extraction is the trickiest reasoning task in the build —
-// it rewrites the entire homepage taxonomy from a single prompt — and
-// only runs ~10-15 times per build, so it's the call where it's most
-// worth spending Pro-quality reasoning. Defaults to gemini-2.5-pro
-// (1K RPD on Tier 1 — way more headroom than this needs). Override
-// with NARRATIVES_MODEL to point at a different ID (e.g. gemini-3.1-pro
-// once confirmed, or fall back to AI_MODEL/Gemma if Pro quota is tight).
-const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || "gemini-2.5-pro";
+// Narrative extraction is the trickiest reasoning task in the build, so
+// it's the call where stronger models earn their keep — but Pro models
+// (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
+// fail with "prepayment credits depleted" without it. Default to AI_MODEL
+// (Gemma 4 26B — 1.5K RPD on free tier, battle-tested). Override with
+// NARRATIVES_MODEL=gemini-2.5-pro etc. after adding billing in AI Studio.
+const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 const AI_NEWS_COUNT = 10;
 // Publishers we trust as "reputable" for sourcing. When Yahoo returns more
 // headlines than AI_NEWS_COUNT we float matches from this set to the front so
