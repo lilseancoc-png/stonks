@@ -6381,12 +6381,14 @@ async function writeChainFiles(chains) {
 // tickers. The 26B MoE (4B active params) is fast, generous on free tier,
 // and plenty for a 3-sentence summary task.
 const AI_MODEL = "gemma-4-26b-a4b-it";
-// Narrative extraction is the trickiest reasoning task in the build — it
-// rewrites the entire homepage taxonomy from a single prompt — and only
-// runs ~10–15 times per build, so it's cheap to spend Gemini's tighter
-// quota on it. Defaults to gemini-3-flash; override with NARRATIVES_MODEL
-// to point at a different model (e.g. fall back to Gemma if quota is hit).
-const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || "gemini-3-flash";
+// Narrative extraction is the trickiest reasoning task in the build —
+// it rewrites the entire homepage taxonomy from a single prompt — and
+// only runs ~10-15 times per build, so it's the call where it's most
+// worth spending Pro-quality reasoning. Defaults to gemini-2.5-pro
+// (1K RPD on Tier 1 — way more headroom than this needs). Override
+// with NARRATIVES_MODEL to point at a different ID (e.g. gemini-3.1-pro
+// once confirmed, or fall back to AI_MODEL/Gemma if Pro quota is tight).
+const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || "gemini-2.5-pro";
 const AI_NEWS_COUNT = 10;
 // Publishers we trust as "reputable" for sourcing. When Yahoo returns more
 // headlines than AI_NEWS_COUNT we float matches from this set to the front so

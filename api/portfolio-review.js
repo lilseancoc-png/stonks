@@ -182,14 +182,17 @@ const RESPONSE_SCHEMA = {
   required: ["perPosition", "portfolio"],
 };
 
-// Primary model: gemini-3-flash — newest reasoning-grade Flash on the free
-// tier, best at structured JSON output. Capped at 20 RPD on free tier.
-// Fallback: gemini-3.1-flash-lite — 500 RPD, slightly weaker reasoning,
-// kicks in when the primary returns 429 / quota-exhausted so the feature
-// never goes dark. Both overridable via env vars.
-const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-3-flash";
+// Primary model: gemini-2.5-pro — top reasoning available on Tier 1
+// (1K RPD), best at the sell/hold/roll judgement call. Fallback drops
+// to gemini-2.5-flash (10K RPD on Tier 1) when Pro quota is hit so
+// the feature still works past the daily cap. Both overridable via env
+// vars — once you've confirmed the exact 3.1-pro API ID via
+// `curl https://generativelanguage.googleapis.com/v1beta/models?key=$KEY`,
+// you can set PORTFOLIO_REVIEW_MODEL=gemini-3.1-pro (or similar) without
+// touching the code.
+const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-2.5-pro";
 const FALLBACK_MODEL =
-  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemini-3.1-flash-lite";
+  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemini-2.5-flash";
 
 function isQuotaError(err) {
   const msg = String(err?.message || err).toLowerCase();
@@ -199,6 +202,16 @@ function isQuotaError(err) {
     msg.includes("quota") ||
     msg.includes("rate limit") ||
     msg.includes("resource_exhausted")
+  );
+}
+
+function isModelMissingError(err) {
+  const msg = String(err?.message || err).toLowerCase();
+  return (
+    err?.status === 404 ||
+    msg.includes("404") ||
+    msg.includes("not found for api version") ||
+    msg.includes("is not supported for")
   );
 }
 
@@ -226,9 +239,11 @@ async function aiReview(hydrated) {
   try {
     return { ai: await generateReview(ai, PRIMARY_MODEL, prompt), model: PRIMARY_MODEL };
   } catch (primaryErr) {
-    // Only fall back on quota / rate-limit errors. Other failures (bad
-    // prompt, schema mismatch) would just repeat on the fallback model.
-    if (!isQuotaError(primaryErr) || PRIMARY_MODEL === FALLBACK_MODEL) {
+    // Fall back on quota errors AND model-missing errors (the latter
+    // covers a stale env var pointing at a renamed/retired model — the
+    // fallback is more likely to still exist).
+    const transient = isQuotaError(primaryErr) || isModelMissingError(primaryErr);
+    if (!transient || PRIMARY_MODEL === FALLBACK_MODEL) {
       return {
         error: "ai_unavailable",
         reason: String(primaryErr?.message || primaryErr).slice(0, 200),
