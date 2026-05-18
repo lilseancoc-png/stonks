@@ -1605,9 +1605,11 @@
         var xi = xFor(history.length + j);
         var yi = yFor(p.value);
         var label = fmtQuarterLabel(p.date, p.period);
+        var anchor = (j === forward.length - 1) ? 'end' : 'middle';
+        var lx = anchor === 'end' ? (xi + colW / 2 - 2) : xi;
         fwdDots += '<circle class="opt-fund-eh-fwdmark ' + trendDir + '" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="3.5"><title>' +
           escapeHtml(label) + ' estimate · ' + escapeHtml(fmt(p.value)) + '</title></circle>';
-        fwdLabels += '<text class="opt-fund-eh-axis fwd" x="' + xi.toFixed(2) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(label) + ' est</text>';
+        fwdLabels += '<text class="opt-fund-eh-axis fwd" x="' + lx.toFixed(2) + '" y="' + (H - 8) + '" text-anchor="' + anchor + '">' + escapeHtml(label) + ' est</text>';
       });
     }
 
@@ -1632,14 +1634,18 @@
       void firstP;
     }
 
-    // X-axis labels: first and last historical quarter only.
+    // X-axis labels: first historical quarter on the left, last historical
+    // (or rightmost forward) on the right. When forward labels exist they
+    // crowd the last-historical label, so we omit it.
     var xLabels = '';
     if (history.length){
       xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(0).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="start">' +
         escapeHtml(fmtQuarterLabel(history[0].date, history[0].period)) + '</text>';
-      var lastI = history.length - 1;
-      xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(lastI).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="' + (forward.length ? 'middle' : 'end') + '">' +
-        escapeHtml(fmtQuarterLabel(history[lastI].date, history[lastI].period)) + '</text>';
+      if (!forward.length){
+        var lastI = history.length - 1;
+        xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(lastI).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="end">' +
+          escapeHtml(fmtQuarterLabel(history[lastI].date, history[lastI].period)) + '</text>';
+      }
     }
 
     // Hover hit-zones. One invisible rect per data column for crosshair.
@@ -1712,11 +1718,13 @@
       readoutLabel.textContent = hit.getAttribute('data-label');
       readoutValue.textContent = hit.getAttribute('data-value');
       readoutEl.hidden = false;
+      box.classList.add('is-hovering');
     }
     function hideCross(){
       crossLine.style.display = 'none';
       crossDot.style.display = 'none';
       readoutEl.hidden = true;
+      box.classList.remove('is-hovering');
     }
     hits.forEach(function(hit){
       hit.addEventListener('mouseenter', function(){ showCross(hit); });
