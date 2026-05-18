@@ -550,6 +550,25 @@ async function fetchFundamentals(symbol) {
   const et = res.earningsTrend || {};
   const pr = res.price || {};
 
+  // Quarterly income-statement series. Yahoo retired the old
+  // incomeStatementHistoryQuarterly quoteSummary module (Nov 2024) — the
+  // current path is `fundamentalsTimeSeries`. We pull ~3 years of quarters so
+  // the chart has 8 points to draw from. Failure is non-fatal: missing series
+  // just hides the relevant chart for that ticker.
+  let incomeSeries = [];
+  try {
+    const since = new Date();
+    since.setUTCFullYear(since.getUTCFullYear() - 3);
+    const ft = await yahooFinance.fundamentalsTimeSeries(symbol, {
+      period1: since.toISOString().slice(0, 10),
+      module: "income-statement",
+      type: "quarterly",
+    });
+    if (Array.isArray(ft)) incomeSeries = ft;
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} income time-series fetch failed: ${err.message}`);
+  }
+
   // Most recent reported quarter from earningsHistory (Yahoo orders -4q..0q;
   // pick the latest with an actual EPS reported). epsActual / estimate are
   // already plain numbers in yahoo-finance2.
@@ -615,6 +634,71 @@ async function fetchFundamentals(symbol) {
   const findTrend = (p) => trend.find((t) => t?.period === p) || null;
   const tq = findTrend("0q");
   const ty = findTrend("0y");
+  const tq1 = findTrend("+1q");
+  const ty1 = findTrend("+1y");
+
+  // Quarterly income-statement series via fundamentalsTimeSeries. Each row
+  // has a `date` field plus the requested metrics keyed by their camelCase
+  // names (e.g. `totalRevenue`, `grossProfit`, `netIncome`).
+  const isoDate = (v) => {
+    if (v == null) return null;
+    if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+    if (typeof v === "number") {
+      // fundamentalsTimeSeries returns Unix seconds.
+      const ms = v < 1e12 ? v * 1000 : v;
+      const d = new Date(ms);
+      return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    }
+    if (typeof v === "object" && v.fmt) return v.fmt;
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  };
+  const incomeQuarters = incomeSeries
+    .map((row) => {
+      const date = isoDate(row?.date);
+      const totalRevenue = num(row?.totalRevenue) ?? num(row?.operatingRevenue);
+      const costOfRevenue = num(row?.costOfRevenue) ?? num(row?.reconciledCostOfRevenue);
+      const grossProfit = num(row?.grossProfit) ??
+        (totalRevenue != null && costOfRevenue != null ? totalRevenue - costOfRevenue : null);
+      const netIncome = num(row?.netIncome)
+        ?? num(row?.netIncomeCommonStockholders)
+        ?? num(row?.netIncomeContinuousOperations);
+      const netMargin = netIncome != null && totalRevenue ? (netIncome / totalRevenue) * 100 : null;
+      return { date, totalRevenue, grossProfit, netIncome, netMargin };
+    })
+    .filter((q) => q.date && (q.totalRevenue != null || q.netIncome != null))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-8);
+  const revenueHistory = incomeQuarters
+    .filter((q) => q.totalRevenue != null)
+    .map((q) => ({ date: q.date, value: q.totalRevenue }));
+  const grossProfitHistory = incomeQuarters
+    .filter((q) => q.grossProfit != null)
+    .map((q) => ({ date: q.date, value: q.grossProfit }));
+  const netIncomeHistory = incomeQuarters
+    .filter((q) => q.netIncome != null)
+    .map((q) => ({ date: q.date, value: q.netIncome }));
+  const netMarginHistory = incomeQuarters
+    .filter((q) => q.netMargin != null)
+    .map((q) => ({ date: q.date, value: q.netMargin }));
+
+  // Forward estimates (next quarter + next year) from earningsTrend.
+  // Each trend entry has earningsEstimate.avg (EPS) and revenueEstimate.avg (revenue).
+  const fwd = (node, period) => {
+    if (!node) return null;
+    const eps = num(node?.earningsEstimate?.avg);
+    const rev = num(node?.revenueEstimate?.avg);
+    const date = isoDate(node?.endDate);
+    if (eps == null && rev == null) return null;
+    return { date, period, eps, rev };
+  };
+  const fwdNodes = [fwd(tq1, "+1q"), fwd(ty1, "+1y")].filter(Boolean);
+  const epsForwardEstimates = fwdNodes
+    .filter((n) => n.eps != null)
+    .map((n) => ({ date: n.date, period: n.period, value: n.eps }));
+  const revenueForwardEstimates = fwdNodes
+    .filter((n) => n.rev != null)
+    .map((n) => ({ date: n.date, period: n.period, value: n.rev }));
 
   return {
     name: pr.shortName || pr.longName || null,
@@ -652,6 +736,12 @@ async function fetchFundamentals(symbol) {
     numberOfAnalystOpinions: num(fd.numberOfAnalystOpinions),
     lastQuarter,
     earningsHistory: earningsHistory.slice(-8),
+    revenueHistory,
+    grossProfitHistory,
+    netIncomeHistory,
+    netMarginHistory,
+    epsForwardEstimates,
+    revenueForwardEstimates,
     nextEarningsDate: nextEarnings,
     growthEstimateCurQ: tq ? pct(tq.growth) : null,
     growthEstimateCurY: ty ? pct(ty.growth) : null,
@@ -922,7 +1012,13 @@ function optionEvalSection() {
             </div>
           </div>
           <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
-          <div id="opt-fund-earnings-history" class="opt-fund-eh" hidden></div>
+          <div class="opt-fund-charts" id="opt-fund-charts">
+            <div id="opt-fund-earnings-history"     class="opt-fund-eh" hidden></div>
+            <div id="opt-fund-revenue-history"      class="opt-fund-eh" hidden></div>
+            <div id="opt-fund-gross-profit-history" class="opt-fund-eh" hidden></div>
+            <div id="opt-fund-net-income-history"   class="opt-fund-eh" hidden></div>
+            <div id="opt-fund-net-margin-history"   class="opt-fund-eh" hidden></div>
+          </div>
           <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
         </section>
       </div>
@@ -2544,88 +2640,282 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
     metricsEl.innerHTML = metrics;
     renderEarningsHistory();
+    renderFundamentalHistoryCharts();
     box.hidden = false;
   }
 
-  function renderEarningsHistory(){
-    var box = $('opt-fund-earnings-history');
-    if (!box) return;
-    var f = state.fundamentals;
-    var eh = (f && Array.isArray(f.earningsHistory)) ? f.earningsHistory : [];
-    if (eh.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+  // Catmull-Rom → cubic-Bezier conversion. Returns an SVG path 'd' string
+  // through every input point with smooth (no overshoot) tension.
+  function smoothPath(pts){
+    if (pts.length < 2) return '';
+    if (pts.length === 2) return 'M' + pts[0][0] + ',' + pts[0][1] + 'L' + pts[1][0] + ',' + pts[1][1];
+    var d = 'M' + pts[0][0] + ',' + pts[0][1];
+    for (var i = 0; i < pts.length - 1; i++){
+      var p0 = pts[i - 1] || pts[i];
+      var p1 = pts[i];
+      var p2 = pts[i + 1];
+      var p3 = pts[i + 2] || pts[i + 1];
+      var c1x = p1[0] + (p2[0] - p0[0]) / 6;
+      var c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      var c2x = p2[0] - (p3[0] - p1[0]) / 6;
+      var c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      d += ' C' + c1x.toFixed(2) + ',' + c1y.toFixed(2) +
+           ' ' + c2x.toFixed(2) + ',' + c2y.toFixed(2) +
+           ' ' + p2[0].toFixed(2) + ',' + p2[1].toFixed(2);
+    }
+    return d;
+  }
 
-    var W = 320, H = 140, padL = 36, padR = 12, padT = 12, padB = 26;
+  function fmtQuarterLabel(date, period){
+    if (date){
+      var d = new Date(date);
+      if (!isNaN(d.getTime())){
+        var q = Math.floor(d.getUTCMonth() / 3) + 1;
+        return 'Q' + q + " '" + String(d.getUTCFullYear()).slice(2);
+      }
+    }
+    return period || '';
+  }
+
+  function renderHistoryChart(opts){
+    var box = $(opts.boxId);
+    if (!box) return;
+    var history = Array.isArray(opts.points) ? opts.points.slice() : [];
+    var forward = Array.isArray(opts.forwardPoints) ? opts.forwardPoints.slice() : [];
+    var secondary = Array.isArray(opts.secondaryPoints) ? opts.secondaryPoints : null;
+    if (history.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+
+    var W = 320, H = 150, padL = 14, padR = 14, padT = 26, padB = 28;
     var plotW = W - padL - padR;
     var plotH = H - padT - padB;
 
-    var vals = [];
-    eh.forEach(function(q){
-      if (q.epsActual != null) vals.push(q.epsActual);
-      if (q.epsEstimate != null) vals.push(q.epsEstimate);
-    });
+    var all = history.concat(forward);
+    var vals = all.map(function(p){ return p.value; }).filter(function(v){ return v != null && isFinite(v); });
+    if (secondary){
+      secondary.forEach(function(v){ if (v != null && isFinite(v)) vals.push(v); });
+    }
     if (vals.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
     var lo = Math.min.apply(null, vals);
     var hi = Math.max.apply(null, vals);
     var range = hi - lo;
     if (range === 0){ range = Math.abs(hi) > 0 ? Math.abs(hi) * 0.2 : 1; }
-    var pad = range * 0.15;
-    var yMin = lo - pad;
-    var yMax = hi + pad;
+    var yMin = lo - range * 0.15;
+    var yMax = hi + range * 0.15;
     function yFor(v){ return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
-
-    var colW = plotW / eh.length;
+    var colW = plotW / all.length;
     function xFor(i){ return padL + colW * (i + 0.5); }
 
-    var qLabel = function(q){
-      if (q.period) return q.period;
-      if (q.date){
-        var d = new Date(q.date);
-        if (!isNaN(d.getTime())){
-          var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
-          return m + ' ' + String(d.getUTCFullYear()).slice(2);
-        }
-      }
-      return '';
-    };
+    var firstV = history[0].value;
+    var lastV = history[history.length - 1].value;
+    var up = lastV >= firstV;
+    var lineClass = up ? 'opt-fund-eh-line up' : 'opt-fund-eh-line down';
+    var areaClass = up ? 'opt-fund-eh-area up' : 'opt-fund-eh-area down';
+    var trendDir = up ? 'up' : 'down';
 
-    var yTicks = 3;
-    var yAxis = '';
-    for (var i = 0; i < yTicks; i++){
-      var t = yMin + (yMax - yMin) * (i / (yTicks - 1));
-      var y = yFor(t);
-      yAxis += '<line class="opt-fund-eh-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" />';
-      yAxis += '<text class="opt-fund-eh-axis" x="' + (padL - 4) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + escapeHtml(t.toFixed(2)) + '</text>';
+    var fmt = opts.formatValue || function(v){ return v.toFixed(2); };
+
+    var histPts = history.map(function(p, i){ return [xFor(i), yFor(p.value)]; });
+    var linePath = smoothPath(histPts);
+    var baselineY = (padT + plotH).toFixed(1);
+    var areaPath = '';
+    if (histPts.length >= 2){
+      areaPath = linePath +
+        ' L' + histPts[histPts.length - 1][0].toFixed(2) + ',' + baselineY +
+        ' L' + histPts[0][0].toFixed(2) + ',' + baselineY + ' Z';
     }
 
-    var actualPts = [];
-    var dots = '';
-    var xLabels = '';
-    eh.forEach(function(q, i){
-      var x = xFor(i);
-      if (q.epsEstimate != null){
-        dots += '<circle class="opt-fund-eh-est" cx="' + x.toFixed(1) + '" cy="' + yFor(q.epsEstimate).toFixed(1) + '" r="4"><title>Est ' + escapeHtml(q.epsEstimate.toFixed(2)) + '</title></circle>';
+    // Forward dashed continuation from the last historical point.
+    var fwdPath = '';
+    var fwdDots = '';
+    var fwdLabels = '';
+    if (forward.length){
+      var lastHistIdx = history.length - 1;
+      var fwdPts = [[xFor(lastHistIdx), yFor(history[lastHistIdx].value)]];
+      forward.forEach(function(p, j){
+        fwdPts.push([xFor(history.length + j), yFor(p.value)]);
+      });
+      // Use a simple straight dashed connection — smoother bezier would imply
+      // the analyst data has intermediate resolution it doesn't.
+      var d = 'M' + fwdPts[0][0].toFixed(2) + ',' + fwdPts[0][1].toFixed(2);
+      for (var k = 1; k < fwdPts.length; k++){
+        d += ' L' + fwdPts[k][0].toFixed(2) + ',' + fwdPts[k][1].toFixed(2);
       }
-      if (q.epsActual != null){
-        var ay = yFor(q.epsActual);
-        dots += '<circle class="opt-fund-eh-act" cx="' + x.toFixed(1) + '" cy="' + ay.toFixed(1) + '" r="4"><title>Actual ' + escapeHtml(q.epsActual.toFixed(2)) + (q.surprisePct != null ? ' (' + (q.surprisePct >= 0 ? '+' : '') + q.surprisePct.toFixed(1) + '%)' : '') + '</title></circle>';
-        actualPts.push(x.toFixed(1) + ',' + ay.toFixed(1));
-      }
-      xLabels += '<text class="opt-fund-eh-axis" x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(qLabel(q)) + '</text>';
-    });
-    var line = actualPts.length >= 2
-      ? '<polyline class="opt-fund-eh-line" points="' + actualPts.join(' ') + '" />'
-      : '';
+      fwdPath = '<path class="opt-fund-eh-fwdline ' + trendDir + '" d="' + d + '" />';
+      forward.forEach(function(p, j){
+        var xi = xFor(history.length + j);
+        var yi = yFor(p.value);
+        var label = fmtQuarterLabel(p.date, p.period);
+        fwdDots += '<circle class="opt-fund-eh-fwdmark ' + trendDir + '" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="3.5"><title>' +
+          escapeHtml(label) + ' estimate · ' + escapeHtml(fmt(p.value)) + '</title></circle>';
+        fwdLabels += '<text class="opt-fund-eh-axis fwd" x="' + xi.toFixed(2) + '" y="' + (H - 8) + '" text-anchor="middle">' + escapeHtml(label) + ' est</text>';
+      });
+    }
 
-    var svg = '<svg class="opt-fund-eh-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="EPS estimated vs actual, last ' + eh.length + ' quarters">' +
-      yAxis + line + dots + xLabels +
-      '</svg>';
-    var legend = '<div class="opt-fund-eh-legend">' +
-      '<span><i class="opt-fund-eh-dot est"></i> Estimated EPS</span>' +
-      '<span><i class="opt-fund-eh-dot act"></i> Actual EPS</span>' +
+    // Secondary series dots (e.g. EPS analyst estimates per quarter).
+    var secMarkup = '';
+    if (secondary){
+      secondary.forEach(function(v, i){
+        if (v == null || !isFinite(v) || i >= history.length) return;
+        var xi = xFor(i);
+        var yi = yFor(v);
+        secMarkup += '<circle class="opt-fund-eh-est" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="2.5"><title>Est ' + escapeHtml(fmt(v)) + '</title></circle>';
+      });
+    }
+
+    // End-point dots: first historical, last historical.
+    var endDots = '';
+    if (histPts.length){
+      var firstP = histPts[0];
+      var lastP = histPts[histPts.length - 1];
+      endDots += '<circle class="opt-fund-eh-end ' + trendDir + ' halo" cx="' + lastP[0].toFixed(2) + '" cy="' + lastP[1].toFixed(2) + '" r="6"></circle>';
+      endDots += '<circle class="opt-fund-eh-end ' + trendDir + '" cx="' + lastP[0].toFixed(2) + '" cy="' + lastP[1].toFixed(2) + '" r="3"></circle>';
+      void firstP;
+    }
+
+    // X-axis labels: first and last historical quarter only.
+    var xLabels = '';
+    if (history.length){
+      xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(0).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="start">' +
+        escapeHtml(fmtQuarterLabel(history[0].date, history[0].period)) + '</text>';
+      var lastI = history.length - 1;
+      xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(lastI).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="' + (forward.length ? 'middle' : 'end') + '">' +
+        escapeHtml(fmtQuarterLabel(history[lastI].date, history[lastI].period)) + '</text>';
+    }
+
+    // Hover hit-zones. One invisible rect per data column for crosshair.
+    var hovers = '';
+    all.forEach(function(p, i){
+      var x = xFor(i);
+      var isFwd = i >= history.length;
+      var label = fmtQuarterLabel(p.date, p.period);
+      var valStr = fmt(p.value);
+      hovers += '<rect class="opt-fund-eh-hit" x="' + (x - colW / 2).toFixed(2) + '" y="' + padT + '" width="' + colW.toFixed(2) + '" height="' + plotH + '"' +
+        ' data-x="' + x.toFixed(2) + '" data-y="' + yFor(p.value).toFixed(2) + '"' +
+        ' data-label="' + escapeHtml(label + (isFwd ? ' est' : '')) + '"' +
+        ' data-value="' + escapeHtml(valStr) + '"></rect>';
+    });
+
+    var gradId = 'eh-grad-' + opts.boxId;
+    var defs = '<defs><linearGradient id="' + gradId + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" class="opt-fund-eh-stop1 ' + trendDir + '" />' +
+      '<stop offset="100%" class="opt-fund-eh-stop2" />' +
+      '</linearGradient></defs>';
+
+    var area = areaPath ? '<path class="' + areaClass + '" d="' + areaPath + '" fill="url(#' + gradId + ')" />' : '';
+    var line = linePath ? '<path class="' + lineClass + '" d="' + linePath + '" />' : '';
+
+    // Crosshair overlay (hidden by default).
+    var crosshair =
+      '<line class="opt-fund-eh-cross" x1="0" x2="0" y1="' + padT + '" y2="' + (padT + plotH) + '" style="display:none" />' +
+      '<circle class="opt-fund-eh-crossdot ' + trendDir + '" r="3.5" style="display:none" />';
+
+    // Header: title left, current value + delta right (Robinhood style).
+    var chgPct = firstV ? ((lastV - firstV) / Math.abs(firstV)) * 100 : 0;
+    var chgStr = (chgPct >= 0 ? '+' : '') + chgPct.toFixed(1) + '%';
+    var head =
+      '<div class="opt-fund-eh-head">' +
+        '<div class="opt-fund-eh-title">' + escapeHtml(opts.title) + '</div>' +
+        '<div class="opt-fund-eh-value">' +
+          '<span class="opt-fund-eh-now">' + escapeHtml(fmt(lastV)) + '</span>' +
+          '<span class="opt-fund-eh-chg ' + trendDir + '">' + escapeHtml(chgStr) + '</span>' +
+        '</div>' +
       '</div>';
-    var head = '<div class="opt-fund-eh-head">Earnings history</div>';
-    box.innerHTML = head + svg + legend;
+
+    var readout =
+      '<div class="opt-fund-eh-readout" hidden>' +
+        '<span class="opt-fund-eh-readout-label"></span>' +
+        '<span class="opt-fund-eh-readout-value"></span>' +
+      '</div>';
+
+    var svg = '<svg class="opt-fund-eh-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(opts.title) + ' history">' +
+      defs + area + line + fwdPath + crosshair + secMarkup + endDots + fwdDots + xLabels + fwdLabels + hovers +
+      '</svg>';
+
+    box.innerHTML = head + readout + svg;
     box.hidden = false;
+
+    // Wire crosshair interaction.
+    var svgEl = box.querySelector('svg');
+    var crossLine = box.querySelector('.opt-fund-eh-cross');
+    var crossDot = box.querySelector('.opt-fund-eh-crossdot');
+    var readoutEl = box.querySelector('.opt-fund-eh-readout');
+    var readoutLabel = box.querySelector('.opt-fund-eh-readout-label');
+    var readoutValue = box.querySelector('.opt-fund-eh-readout-value');
+    var hits = box.querySelectorAll('.opt-fund-eh-hit');
+    function showCross(hit){
+      var x = parseFloat(hit.getAttribute('data-x'));
+      var y = parseFloat(hit.getAttribute('data-y'));
+      crossLine.setAttribute('x1', x); crossLine.setAttribute('x2', x);
+      crossLine.style.display = '';
+      crossDot.setAttribute('cx', x); crossDot.setAttribute('cy', y);
+      crossDot.style.display = '';
+      readoutLabel.textContent = hit.getAttribute('data-label');
+      readoutValue.textContent = hit.getAttribute('data-value');
+      readoutEl.hidden = false;
+    }
+    function hideCross(){
+      crossLine.style.display = 'none';
+      crossDot.style.display = 'none';
+      readoutEl.hidden = true;
+    }
+    hits.forEach(function(hit){
+      hit.addEventListener('mouseenter', function(){ showCross(hit); });
+      hit.addEventListener('mousemove',  function(){ showCross(hit); });
+    });
+    svgEl.addEventListener('mouseleave', hideCross);
+  }
+
+  function renderEarningsHistory(){
+    var f = state.fundamentals;
+    var eh = (f && Array.isArray(f.earningsHistory)) ? f.earningsHistory : [];
+    if (eh.length < 2){
+      var box = $('opt-fund-earnings-history');
+      if (box){ box.hidden = true; box.innerHTML = ''; }
+      return;
+    }
+    var rows = eh.filter(function(q){ return q.epsActual != null; });
+    if (rows.length < 2){
+      var box2 = $('opt-fund-earnings-history');
+      if (box2){ box2.hidden = true; box2.innerHTML = ''; }
+      return;
+    }
+    renderHistoryChart({
+      boxId: 'opt-fund-earnings-history',
+      title: 'EPS',
+      points: rows.map(function(q){ return { date: q.date, period: q.period, value: q.epsActual }; }),
+      secondaryPoints: rows.map(function(q){ return q.epsEstimate; }),
+      forwardPoints: (f && Array.isArray(f.epsForwardEstimates)) ? f.epsForwardEstimates : [],
+      formatValue: function(v){ return v.toFixed(2); },
+    });
+  }
+
+  function renderFundamentalHistoryCharts(){
+    var f = state.fundamentals || {};
+    renderHistoryChart({
+      boxId: 'opt-fund-revenue-history',
+      title: 'Revenue',
+      points: f.revenueHistory || [],
+      forwardPoints: f.revenueForwardEstimates || [],
+      formatValue: fmtBigDollars,
+    });
+    renderHistoryChart({
+      boxId: 'opt-fund-gross-profit-history',
+      title: 'Gross profit',
+      points: f.grossProfitHistory || [],
+      formatValue: fmtBigDollars,
+    });
+    renderHistoryChart({
+      boxId: 'opt-fund-net-income-history',
+      title: 'Net income',
+      points: f.netIncomeHistory || [],
+      formatValue: fmtBigDollars,
+    });
+    renderHistoryChart({
+      boxId: 'opt-fund-net-margin-history',
+      title: 'Net margin',
+      points: f.netMarginHistory || [],
+      formatValue: function(v){ return v.toFixed(1) + '%'; },
+    });
   }
 
   function renderSocialSentiment(){
@@ -3540,28 +3830,28 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 export function renderStylesCss() {
   return `/* Generated by scripts/build.mjs — do not edit by hand. */
 :root {
-  --bg:#0c0d11;
-  --surface:#13151a;
-  --surface-2:#191c22;
-  --surface-3:#22262e;
-  --border:#23272f;
-  --border-strong:#353a44;
-  --text:#d4d7dd;
-  --text-strong:#f1f2f5;
-  --muted:#878d99;
-  --accent:#d68a4f;
-  --accent-soft:rgba(214,138,79,0.12);
-  --accent-strong:#e09f6b;
-  --pos:#4ec9a0;
-  --pos-soft:rgba(78,201,160,0.12);
-  --neg:#e5536f;
-  --neg-soft:rgba(229,83,111,0.12);
+  --bg:#0a0a0a;
+  --surface:#111214;
+  --surface-2:#16181c;
+  --surface-3:#1f2126;
+  --border:#1f2126;
+  --border-strong:#2a2d33;
+  --text:#e6e7ea;
+  --text-strong:#ffffff;
+  --muted:#8b8f96;
+  --accent:#00c805;
+  --accent-soft:rgba(0,200,5,0.10);
+  --accent-strong:#00e404;
+  --pos:#00c805;
+  --pos-soft:rgba(0,200,5,0.12);
+  --neg:#ff5000;
+  --neg-soft:rgba(255,80,0,0.12);
   --warn:#e3b35c;
   --warn-soft:rgba(227,179,92,0.12);
-  --shadow-sm:0 1px 0 rgba(0,0,0,0.35);
-  --shadow-md:0 6px 22px rgba(0,0,0,0.42);
-  --shadow-lg:0 18px 44px rgba(0,0,0,0.5);
-  --r-1:4px; --r-2:6px; --r-3:8px; --r-4:12px; --r-pill:999px;
+  --shadow-sm:0 1px 0 rgba(0,0,0,0.0);
+  --shadow-md:0 0 0 rgba(0,0,0,0.0);
+  --shadow-lg:0 0 0 rgba(0,0,0,0.0);
+  --r-1:4px; --r-2:8px; --r-3:12px; --r-4:16px; --r-pill:999px;
   --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:28px; --s-7:40px; --s-8:56px;
   --fs-xs:11px; --fs-sm:12px; --fs-md:13px; --fs-lg:15px; --fs-xl:17px; --fs-2xl:22px; --fs-3xl:28px;
   --font-sans:"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
@@ -3570,43 +3860,41 @@ export function renderStylesCss() {
   color-scheme:dark;
 }
 :root[data-theme="light"] {
-  --bg:#fbfaf8;
+  --bg:#ffffff;
   --surface:#ffffff;
-  --surface-2:#f5f4f1;
-  --surface-3:#ebe9e5;
-  --border:#e2dfd9;
-  --border-strong:#bcb6ac;
-  --text:#26221d;
-  --text-strong:#0f0d0a;
-  --muted:#5a544c;
-  --accent:#b45a2b;
-  --accent-soft:rgba(180,90,43,0.09);
-  --accent-strong:#8f4520;
-  --pos:#2f8463;
-  --pos-soft:rgba(47,132,99,0.09);
-  --neg:#b9415a;
-  --neg-soft:rgba(185,65,90,0.09);
+  --surface-2:#f7f7f7;
+  --surface-3:#efefef;
+  --border:#e7e7e7;
+  --border-strong:#cfcfcf;
+  --text:#1f2228;
+  --text-strong:#0b0d12;
+  --muted:#6b7280;
+  --accent:#00a804;
+  --accent-soft:rgba(0,168,4,0.10);
+  --accent-strong:#008c03;
+  --pos:#00a804;
+  --pos-soft:rgba(0,168,4,0.10);
+  --neg:#d4380d;
+  --neg-soft:rgba(212,56,13,0.10);
   --warn:#a06a1f;
   --warn-soft:rgba(160,106,31,0.10);
-  --shadow-sm:0 1px 0 rgba(15,23,42,0.03);
-  --shadow-md:0 6px 18px rgba(15,23,42,0.06);
-  --shadow-lg:0 18px 36px rgba(15,23,42,0.08);
+  --shadow-sm:0 1px 0 rgba(15,23,42,0.0);
+  --shadow-md:0 0 0 rgba(15,23,42,0.0);
+  --shadow-lg:0 0 0 rgba(15,23,42,0.0);
   --focus-ring:0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
   color-scheme:light;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  background:
-    radial-gradient(1200px 600px at 50% -200px, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font: var(--fs-md)/1.6 var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
   font-feature-settings: "cv11", "ss01", "tnum" 1;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 .mono, code, kbd, samp {
   font-family: var(--font-mono);
@@ -5112,42 +5400,117 @@ main {
   margin: var(--s-3) 0 0; line-height: 1.4;
 }
 
-/* === Earnings history dot chart === */
-.opt-fund-eh {
+/* === Robinhood-style history charts === */
+.opt-fund-charts {
   margin-top: var(--s-4);
-  padding: var(--s-3);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--s-3);
+}
+.opt-fund-eh {
+  position: relative;
+  padding: var(--s-4) var(--s-3) var(--s-3);
   border: 1px solid var(--border);
-  border-radius: var(--r-2);
-  background: var(--surface-2);
+  border-radius: var(--r-3);
+  background: var(--surface);
 }
 .opt-fund-eh-head {
-  font-size: 12px; font-weight: 600; color: var(--text);
-  margin-bottom: var(--s-2); letter-spacing: 0.02em;
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s-2); margin-bottom: 2px;
 }
+.opt-fund-eh-title {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.opt-fund-eh-value {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-eh-now {
+  font-size: var(--fs-lg); font-weight: 700; color: var(--text-strong);
+  letter-spacing: -0.01em;
+  font-family: var(--font-mono);
+}
+.opt-fund-eh-chg {
+  font-size: 11px; font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-eh-chg.up   { color: var(--pos); }
+.opt-fund-eh-chg.down { color: var(--neg); }
+.opt-fund-eh-readout {
+  position: absolute;
+  top: var(--s-4); right: var(--s-3);
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: 11px;
+  pointer-events: none;
+  z-index: 2;
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-eh-readout-label { color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
+.opt-fund-eh-readout-value { color: var(--text-strong); font-weight: 700; font-family: var(--font-mono); }
 .opt-fund-eh-svg {
   width: 100%; height: auto; display: block;
-}
-.opt-fund-eh-grid {
-  stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6;
+  overflow: visible;
 }
 .opt-fund-eh-axis {
   font-size: 10px; fill: var(--muted);
+  font-family: var(--font-sans);
 }
-.opt-fund-eh-est { fill: color-mix(in srgb, var(--pos) 55%, transparent); }
-.opt-fund-eh-act { fill: var(--pos); }
+.opt-fund-eh-axis.fwd { fill: color-mix(in srgb, var(--muted) 70%, transparent); }
 .opt-fund-eh-line {
-  fill: none; stroke: var(--pos); stroke-width: 1.5; opacity: 0.6;
+  fill: none; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
 }
-.opt-fund-eh-legend {
-  display: flex; gap: var(--s-3); margin-top: var(--s-2);
-  font-size: 11px; color: var(--muted);
+.opt-fund-eh-line.up   { stroke: var(--pos); }
+.opt-fund-eh-line.down { stroke: var(--neg); }
+.opt-fund-eh-area      { opacity: 0.9; }
+.opt-fund-eh-stop1.up    { stop-color: var(--pos); stop-opacity: 0.28; }
+.opt-fund-eh-stop1.down  { stop-color: var(--neg); stop-opacity: 0.28; }
+.opt-fund-eh-stop2       { stop-color: var(--pos); stop-opacity: 0; }
+.opt-fund-eh-fwdline {
+  fill: none; stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+  stroke-linecap: round;
 }
-.opt-fund-eh-dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  vertical-align: middle; margin-right: 4px;
+.opt-fund-eh-fwdline.up   { stroke: var(--pos); }
+.opt-fund-eh-fwdline.down { stroke: var(--neg); }
+.opt-fund-eh-fwdmark {
+  fill: var(--surface); stroke-width: 1.5;
 }
-.opt-fund-eh-dot.est { background: color-mix(in srgb, var(--pos) 55%, transparent); }
-.opt-fund-eh-dot.act { background: var(--pos); }
+.opt-fund-eh-fwdmark.up   { stroke: var(--pos); }
+.opt-fund-eh-fwdmark.down { stroke: var(--neg); }
+.opt-fund-eh-est {
+  fill: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+.opt-fund-eh-end {
+  stroke: none;
+}
+.opt-fund-eh-end.up   { fill: var(--pos); }
+.opt-fund-eh-end.down { fill: var(--neg); }
+.opt-fund-eh-end.halo.up   { fill: color-mix(in srgb, var(--pos) 25%, transparent); }
+.opt-fund-eh-end.halo.down { fill: color-mix(in srgb, var(--neg) 25%, transparent); }
+.opt-fund-eh-cross {
+  stroke: var(--muted); stroke-width: 1;
+  stroke-dasharray: 2 3; opacity: 0.6;
+  pointer-events: none;
+}
+.opt-fund-eh-crossdot {
+  pointer-events: none;
+  stroke: var(--surface); stroke-width: 1.5;
+}
+.opt-fund-eh-crossdot.up   { fill: var(--pos); }
+.opt-fund-eh-crossdot.down { fill: var(--neg); }
+.opt-fund-eh-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
 
 /* === Retail sentiment gauge === */
 .opt-social {
