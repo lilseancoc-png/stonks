@@ -6696,9 +6696,13 @@ const MACRO_TOTAL_CAP = 28;
 // three passes) goes through one shared sliding-window limiter. The limiter
 // keeps a FIFO of timestamps of acquired slots; acquireAiSlot blocks until
 // fewer than AI_RPM timestamps sit inside the last AI_WINDOW_MS, then records
-// its own slot. With AI_RPM = 10 we leave a 5-RPM cushion below the 15 RPM
-// quota — comfortably absorbs a few simultaneous retries.
-const AI_RPM = 10;
+// its own slot.
+//
+// Default 100 sized for Tier 1 paid Flash / Flash-Lite (1K–4K RPM quotas).
+// Leaves a 10–40× cushion for retry bursts. Overridable via env so the same
+// code runs on the free Gemma tier (set AI_RPM=10 there — Gemma free is
+// 15 RPM and a 5-RPM cushion is the right shape).
+const AI_RPM = Number(process.env.AI_RPM) || 100;
 const AI_WINDOW_MS = 60000;
 const AI_SLOT_POLL_BUFFER_MS = 120;
 const _aiSlotTimestamps = [];
