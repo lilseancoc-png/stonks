@@ -142,6 +142,12 @@
   color: var(--text-strong, var(--text));
 }
 .pf-leg { color: var(--muted); font-size: 12px; }
+.pf-age {
+  display: inline-block; margin-top: 2px;
+  color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.pf-btn-sm { padding: 4px 10px; font-size: 12px; }
 .pf-qty { color: var(--text); font-size: 13px; }
 .pf-mark { display: grid; gap: 2px; }
 .pf-mark-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -169,7 +175,42 @@
 .pf-action-sell { color: var(--neg, #ff5252); border-color: var(--neg, #ff5252); }
 .pf-action-hold { color: var(--muted); }
 .pf-action-roll { color: var(--warn, #f0a500); border-color: var(--warn, #f0a500); }
+.pf-action-trim-to-cost { color: var(--pos, var(--accent)); border-color: var(--pos, var(--accent)); }
 .pf-action-unknown { color: var(--muted); }
+
+/* Equity chart panel */
+.pf-equity {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  background: var(--surface-2, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 8px);
+}
+.pf-equity-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.pf-equity-title { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+.pf-equity-value { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+.pf-equity-now { font-size: 22px; font-weight: 700; color: var(--text-strong, var(--text)); font-family: var(--font-mono, ui-monospace, monospace); }
+.pf-equity-chg { font-weight: 600; font-family: var(--font-mono, ui-monospace, monospace); }
+.pf-equity-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.pf-equity-ranges { display: flex; gap: 4px; flex-wrap: wrap; }
+.pf-range-btn {
+  appearance: none; background: transparent; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 99px;
+  padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer;
+}
+.pf-range-btn:hover { color: var(--text); border-color: var(--accent); }
+.pf-range-btn.is-active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pf-equity-svg { width: 100%; height: auto; display: block; }
+.pf-equity-line { fill: none; stroke-width: 2; }
+.pf-equity-line.up { stroke: var(--pos, var(--accent)); }
+.pf-equity-line.down { stroke: var(--neg, #ff5252); }
+.pf-equity-area { stroke: none; }
+.pf-equity-area.up { fill: color-mix(in srgb, var(--pos, var(--accent)) 18%, transparent); }
+.pf-equity-area.down { fill: color-mix(in srgb, var(--neg, #ff5252) 18%, transparent); }
 
 .pf-row-rec {
   margin-top: 10px;

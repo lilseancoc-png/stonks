@@ -402,7 +402,7 @@ async function fetchHistoricalBars(symbol) {
   const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
   return quotes
     .filter((q) => q && q.close != null && q.high != null && q.low != null)
-    .map((q) => ({ c: q.close, h: q.high, l: q.low }));
+    .map((q) => ({ c: q.close, h: q.high, l: q.low, v: q.volume ?? null }));
 }
 
 function emaSeries(values, period) {
@@ -519,6 +519,52 @@ function computeVolRegime(bars, window = 30) {
   };
 }
 
+// Volume conviction read: today's volume vs trailing 20-day average, paired
+// with today's 1-day price move. The 4-quadrant interpretation (large move +
+// high vol = strong conviction; small move + high vol = indecision /
+// accumulation; large move + low vol = weak conviction; small move + low vol
+// = no conviction) helps filter out after-hours noise — e.g. a 10% AH move on
+// 1k shares means almost nothing. `rvol >= 1.5` and `|move| >= 1.5%` thresholds
+// are conservative defaults; we surface the raw numbers so the AI prompt and
+// the user can both reason about edge cases.
+function computeVolumeStats(bars) {
+  if (!bars || bars.length < 2) return null;
+  const lastBar = bars[bars.length - 1];
+  if (lastBar.v == null || !isFinite(lastBar.v)) return null;
+  const today = lastBar.v;
+  const prior = bars.slice(-21, -1).filter((b) => b.v != null && isFinite(b.v));
+  if (prior.length < 5) return null;
+  const avg20 = prior.reduce((s, b) => s + b.v, 0) / prior.length;
+  const rvol = avg20 > 0 ? today / avg20 : null;
+  const prev = bars[bars.length - 2]?.c;
+  const priceMove1dPct =
+    prev != null && prev > 0 && lastBar.c != null
+      ? ((lastBar.c - prev) / prev) * 100
+      : null;
+  let conviction = "mixed";
+  if (rvol != null && priceMove1dPct != null) {
+    const moveAbs = Math.abs(priceMove1dPct);
+    const bigMove = moveAbs >= 1.5;
+    const tinyMove = moveAbs < 0.5;
+    const heavyVol = rvol >= 1.5;
+    const lightVol = rvol < 0.7;
+    if (bigMove && heavyVol) conviction = "strong";
+    else if (bigMove && lightVol) conviction = "weak";
+    else if (tinyMove && heavyVol) conviction = "indecision";
+    else if (tinyMove && lightVol) conviction = "none";
+  }
+  return {
+    today: Math.round(today),
+    avg20: Math.round(avg20),
+    rvol: rvol != null && isFinite(rvol) ? Math.round(rvol * 100) / 100 : null,
+    priceMove1dPct:
+      priceMove1dPct != null && isFinite(priceMove1dPct)
+        ? Math.round(priceMove1dPct * 100) / 100
+        : null,
+    conviction,
+  };
+}
+
 function computeTechnicals(bars) {
   if (!bars || bars.length < 27) return null;
   const closes = bars.map((b) => b.c);
@@ -526,6 +572,7 @@ function computeTechnicals(bars) {
   const macd = computeMACD(closes, 12, 26, 9);
   const sr = computeSupportResistance(bars);
   const volRegime = computeVolRegime(bars, 30);
+  const volume = computeVolumeStats(bars);
   const round2 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 100) / 100);
   const round4 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 10000) / 10000);
   return {
@@ -537,6 +584,7 @@ function computeTechnicals(bars) {
       ? { s20: round2(sr.s20), r20: round2(sr.r20), s50: round2(sr.s50), r50: round2(sr.r50) }
       : null,
     volRegime,
+    volume,
   };
 }
 
@@ -1098,7 +1146,17 @@ function optionEvalSection() {
           <li>&le;3 days to expiry (gamma and theta are extreme)</li>
           <li>Premium that is &gt;80% time-value with &lt;14 days to expiry</li>
         </ul>
-        <p>Otherwise it scores <b>news</b> (&plusmn;2), <b>RSI</b> + <b>MACD</b> (&plusmn;1 each), and <b>fundamentals</b> verdict (&plusmn;1). The score is multiplied by the option direction (+1 for calls, &minus;1 for puts). It clears to <b>YES</b> when either: aligned score &ge;+2 with no opposing signals, or two &ldquo;good&rdquo; mechanical grades with nothing opposing the direction.</p>
+        <p>Otherwise it scores <b>news</b> (&plusmn;2), <b>RSI</b> + <b>MACD</b> + <b>volume conviction</b> (&plusmn;1 each), and <b>fundamentals</b> verdict (&plusmn;1). The score is multiplied by the option direction (+1 for calls, &minus;1 for puts). Inside <b>30 DTE</b> the score takes a &minus;1 penalty &mdash; not a hard fail, but theta accelerates fast in the last month. It clears to <b>YES</b> when either: aligned score &ge;+2 with no opposing signals, or two &ldquo;good&rdquo; mechanical grades with nothing opposing the direction.</p>
+        <h4>Volume conviction</h4>
+        <p>Today&rsquo;s daily volume vs the trailing 20-day average, paired with today&rsquo;s 1-day price move, sorts the print into one of four buckets:</p>
+        <ul>
+          <li><b>Strong:</b> large move (&ge;1.5%) on heavy volume (&ge;1.5&times; avg) &mdash; real conviction</li>
+          <li><b>Indecision:</b> small move (&lt;0.5%) on heavy volume &mdash; accumulation or distribution</li>
+          <li><b>Weak:</b> large move on light volume (&lt;0.7&times; avg) &mdash; treat with skepticism (a 10% after-hours pop on 1,000 shares is not 10% of conviction)</li>
+          <li><b>None:</b> small move on light volume &mdash; nothing to react to</li>
+        </ul>
+        <h4>Open positions: free-ride / roll rule</h4>
+        <p>On the portfolio side: if a position is <b>ITM</b> or <b>up &ge;100%</b> with <b>&le;40 DTE</b> and conviction is still bullish, the recommendation flips to <b>trim-to-cost</b> (sell enough contracts to recover original cost, let the rest free-ride) or <b>roll</b> (extend the expiration / move the strike) instead of plain hold.</p>
         <p class="opt-explainer-foot">All thresholds are simple heuristics, not optimal strategies. For information only &mdash; not investment advice.</p>
       </div>
     </details>
@@ -1727,6 +1785,124 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (news.sentiment === 'bearish') return { label:'Poor contract · news headwind', cls:'bad', nudged:true };
     return verdict;
   }
+  // Structured recommendation panel — pulls together the same inputs
+  // shouldBuy() already weighs, but renders them as four labeled prose
+  // sections (Narrative / Technicals / Fundamentals / Mechanics) followed
+  // by the rule-of-thumb action line. No new AI call; the data is already
+  // attached to the ticker payload. Keeps shouldBuy() as the source of
+  // truth for the binary verdict at the top of the panel.
+  function buildRecommendationCard(ctx){
+    var input = ctx.input || {};
+    var tech = input.technicals || null;
+    var fund = input.fundamentals || null;
+    var news = input.news || null;
+    var dte = ctx.daysToExpiry;
+    var extRatio = ctx.extrinsicRatio;
+    var mid = ctx.mid;
+    var type = input.type;
+    var dir = type === 'call' ? 1 : -1;
+
+    function block(label, body){
+      if (!body) return '';
+      return '<div class="opt-rec-block"><div class="opt-rec-label">' + label + '</div>' +
+        '<div class="opt-rec-body">' + body + '</div></div>';
+    }
+
+    // Narrative — short news take + sentiment.
+    var narrative = '';
+    if (news && (news.paragraph || news.sentiment)){
+      var sentLabel = news.sentiment ? news.sentiment : 'neutral';
+      var sentCls = news.sentiment === 'bullish' ? 'pos' : news.sentiment === 'bearish' ? 'warn' : 'fair';
+      narrative = '<span class="opt-rec-pill ' + sentCls + '">' + escapeHtml(sentLabel) + '</span>';
+      if (news.paragraph) narrative += ' ' + escapeHtml(news.paragraph);
+    } else {
+      narrative = '<span class="opt-rec-muted">No fresh news take attached — recommendation leans on technicals and fundamentals alone.</span>';
+    }
+
+    // Technicals — RSI / MACD / volume conviction / S/R.
+    var techParts = [];
+    if (tech){
+      var rsiSt = rsiState(tech.rsi);
+      if (tech.rsi != null) techParts.push('RSI ' + tech.rsi.toFixed(1) + ' (' + rsiSt.label.toLowerCase() + ')');
+      var macdSt = macdState(tech.macd);
+      if (tech.macd) techParts.push('MACD ' + macdSt.label.toLowerCase());
+      var vol = tech.volume;
+      if (vol && vol.conviction && vol.rvol != null){
+        var moveTxt = vol.priceMove1dPct != null
+          ? ((vol.priceMove1dPct >= 0 ? '+' : '') + vol.priceMove1dPct.toFixed(2) + '%')
+          : 'flat';
+        techParts.push('volume ' + vol.rvol.toFixed(2) + 'x avg on ' + moveTxt + ' move — ' + vol.conviction + ' conviction');
+      }
+      if (tech.sr && input.spot > 0){
+        if (tech.sr.r20 != null && input.spot > tech.sr.r20) techParts.push('broke 20D resistance ($' + fmt(tech.sr.r20) + ')');
+        else if (tech.sr.s20 != null && input.spot < tech.sr.s20) techParts.push('broke 20D support ($' + fmt(tech.sr.s20) + ')');
+      }
+    }
+    var technicals = techParts.length
+      ? escapeHtml(techParts.join(' · '))
+      : '<span class="opt-rec-muted">Technicals unavailable for this name.</span>';
+
+    // Fundamentals — verdict + analyst target hint.
+    var fundParts = [];
+    if (fund){
+      if (fund.verdict){
+        fundParts.push('verdict <b>' + escapeHtml(fund.verdict) + '</b>');
+      }
+      if (fund.summary){
+        fundParts.push(escapeHtml(fund.summary));
+      } else {
+        if (fund.targetMeanPrice != null && input.spot > 0){
+          var upside = (fund.targetMeanPrice - input.spot) / input.spot * 100;
+          fundParts.push('analyst target $' + fmt(fund.targetMeanPrice) + ' (' + (upside >= 0 ? '+' : '') + upside.toFixed(1) + '% vs spot)');
+        }
+        if (fund.recommendationKey){
+          fundParts.push('consensus ' + escapeHtml(fund.recommendationKey.replace(/_/g, ' ')));
+        }
+      }
+    }
+    var fundamentals = fundParts.length
+      ? fundParts.join(' · ')
+      : '<span class="opt-rec-muted">Fundamentals unavailable.</span>';
+
+    // Mechanics — spread / delta / theta grades + theta-30 warning.
+    var mechParts = [];
+    if (ctx.sGrade) mechParts.push('spread ' + ctx.sGrade.label.toLowerCase());
+    if (ctx.dGrade) mechParts.push('delta ' + ctx.dGrade.label.toLowerCase());
+    if (ctx.tGrade) mechParts.push('theta ' + ctx.tGrade.label.toLowerCase());
+    if (dte != null) mechParts.push(dte + 'd to expiry');
+    if (extRatio != null && mid > 0) mechParts.push((extRatio*100).toFixed(0) + '% time value');
+    if (dte != null && dte > 3 && dte <= 30) mechParts.push('<b>theta accelerates inside 30D</b>');
+    var mechanics = mechParts.length
+      ? mechParts.join(' · ')
+      : '<span class="opt-rec-muted">Mechanics unavailable.</span>';
+
+    // Rule-of-thumb action line for OPEN positions is handled by the
+    // portfolio review; here we surface the take for a CANDIDATE entry.
+    var actionLine = '';
+    if (ctx.buy && ctx.buy.decision === 'yes'){
+      actionLine = 'Buy candidate — reasons: ' + escapeHtml(ctx.buy.reasons.join('; '));
+    } else if (ctx.buy){
+      actionLine = 'Skip — ' + escapeHtml(ctx.buy.reasons.join('; '));
+    }
+    // Free-ride / roll heuristic for the candidate, in case it's already a
+    // deep-ITM strike with little room and short DTE.
+    var moneynessPct = (input.spot > 0 && input.strike != null)
+      ? (input.spot - input.strike) / input.spot * 100 * dir
+      : null;
+    if (dte != null && dte <= 40 && moneynessPct != null && moneynessPct >= 5){
+      actionLine += '<div class="opt-rec-rule"><b>Rule of thumb:</b> already ITM with ≤40 days to expiry — if conviction holds, treat any entry here as a free-ride candidate (size small or roll to a longer-dated strike).</div>';
+    }
+
+    return '<div class="opt-rec-card" id="opt-rec-card">' +
+      '<div class="opt-rec-title">Recommendation breakdown</div>' +
+      block('Narrative', narrative) +
+      block('Technicals', technicals) +
+      block('Fundamentals', fundamentals) +
+      block('Mechanics', mechanics) +
+      (actionLine ? '<div class="opt-rec-action ' + (ctx.buy && ctx.buy.decision === 'yes' ? 'yes' : 'no') + '">' + actionLine + '</div>' : '') +
+    '</div>';
+  }
+
   // Binary buy decision aggregating mechanics + news + technicals +
   // fundamentals. Falls to NO on any hard mechanical disqualifier (wide
   // spread, far-OTM delta, bleeding theta, ≤3 DTE, premium that's almost
@@ -1755,6 +1931,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var dir = type === 'call' ? 1 : -1;
     var score = 0;
     var bull = [], bear = [];
+    var warnings = [];
     if (news && news.sentiment){
       if (news.sentiment === 'bullish'){ score += 2; bull.push('news'); }
       else if (news.sentiment === 'bearish'){ score -= 2; bear.push('news'); }
@@ -1766,10 +1943,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       else if (rsi.cls === 'warn'){ score -= 1; bear.push('RSI'); }
       if (macd.cls === 'pos'){ score += 1; bull.push('MACD'); }
       else if (macd.cls === 'warn'){ score -= 1; bear.push('MACD'); }
+      // Volume conviction nudges directional score in the trade direction.
+      // Strong conviction backs the printed move, weak/indecision argues against
+      // taking the breakout at face value. Neutral / mixed / missing → no nudge.
+      var vol = tech.volume;
+      if (vol && vol.conviction && vol.priceMove1dPct != null){
+        var moveSign = vol.priceMove1dPct >= 0 ? 1 : -1;
+        if (vol.conviction === 'strong'){
+          if (moveSign === dir){ score += 1; bull.push('volume'); }
+          else { score -= 1; bear.push('volume'); }
+        } else if (vol.conviction === 'weak'){
+          // Big print on thin volume — discount it.
+          if (moveSign === dir){ score -= 1; bear.push('volume (thin)'); }
+        }
+      }
     }
     if (fund && fund.verdict){
       if (fund.verdict === 'bullish'){ score += 1; bull.push('fundamentals'); }
       else if (fund.verdict === 'bearish'){ score -= 1; bear.push('fundamentals'); }
+    }
+    // Theta ramps up inside the last ~30 days to expiration. Not a hard fail
+    // (the ≤3 DTE and 80%-extrinsic guards above already cover the worst
+    // cases), but it's worth surfacing in the verdict so users know they're
+    // buying into the part of the curve where decay accelerates fastest.
+    if (dte != null && dte > 3 && dte <= 30){
+      score -= 1;
+      warnings.push('theta accelerates inside 30D (' + dte + 'd left)');
     }
 
     var aligned = score * dir;
@@ -1786,6 +1985,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       rs1.push(sGrade && sGrade.cls === 'good' ? 'spread tight' : 'spread workable');
       if (dGrade && dGrade.cls === 'good') rs1.push('delta balanced');
       rs1.push(alignedNames.join(' + ') + ' back the move');
+      if (warnings.length) rs1.push(warnings.join('; '));
       return yes(rs1);
     }
     // No positive conviction but mechanics are clean and nothing opposes:
@@ -1793,6 +1993,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (goodCount >= 2 && opposedNames.length === 0){
       var rs2 = ['mechanics clean'];
       rs2.push(alignedNames.length ? alignedNames.join(' + ') + ' lean ' + (type === 'call' ? 'bullish' : 'bearish') : 'no opposing signals');
+      if (warnings.length) rs2.push(warnings.join('; '));
       return yes(rs2);
     }
     return no('not enough conviction backing this direction');
@@ -1982,6 +2183,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
+    html += buildRecommendationCard({
+      input: input, sGrade: sGrade, dGrade: dGrade, tGrade: tGrade,
+      daysToExpiry: daysToExpiry, extrinsicRatio: extrinsicRatio, mid: mid,
+      buy: buy,
+    });
     html += '<div class="opt-contract">' + (input.label || '') + ' · spot $' + fmt(input.spot) + ' · ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry</div>';
     html += '<div class="opt-grid">';
     html += row('Bid / Ask', '$' + fmt(bid) + ' / $' + fmt(ask));
@@ -2516,6 +2722,44 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       );
     } else {
       html += techCard('MACD (12,26,9)', '<span class="opt-tech-num">—</span>', '', 'not enough history', TIPS.macd);
+    }
+
+    if (t.volume && t.volume.today != null){
+      var vol = t.volume;
+      var rvol = vol.rvol;
+      var volPillCls = 'fair';
+      var volPillLabel = '—';
+      if (rvol != null){
+        if (rvol >= 1.5){ volPillCls = 'pos'; volPillLabel = (rvol).toFixed(2) + 'x avg'; }
+        else if (rvol >= 0.7){ volPillCls = 'fair'; volPillLabel = (rvol).toFixed(2) + 'x avg'; }
+        else { volPillCls = 'warn'; volPillLabel = (rvol).toFixed(2) + 'x avg'; }
+      }
+      function fmtVol(n){
+        if (n == null || !isFinite(n)) return '—';
+        if (n >= 1e9) return (n/1e9).toFixed(2) + 'B';
+        if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
+        if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+        return String(Math.round(n));
+      }
+      var move = vol.priceMove1dPct;
+      var moveStr = move != null ? ((move >= 0 ? '+' : '') + move.toFixed(2) + '%') : '—';
+      var convictionNote;
+      switch (vol.conviction){
+        case 'strong':     convictionNote = 'large price move on heavy volume — strong conviction behind the print'; break;
+        case 'weak':       convictionNote = 'large price move on light volume — weak conviction; treat the print with skepticism'; break;
+        case 'indecision': convictionNote = 'heavy volume with little price change — accumulation, distribution, or indecision'; break;
+        case 'none':       convictionNote = 'tiny move on quiet volume — no conviction either way'; break;
+        default:           convictionNote = 'today\\'s price + volume don\\'t cleanly fit any of the four conviction buckets';
+      }
+      var volVal = '<span class="opt-tech-num">' + fmtVol(vol.today) + '</span>' +
+        '<span class="opt-tech-vsub">vs 20D avg ' + fmtVol(vol.avg20) + ' · ' + moveStr + '</span>';
+      html += techCard(
+        'Volume vs 20D avg',
+        volVal,
+        '<span class="opt-tech-pill ' + volPillCls + '">' + volPillLabel + '</span>',
+        escapeHtml(convictionNote),
+        'Today\\'s daily volume divided by the trailing 20-day average. Pair with the 1-day price move: big move + heavy volume = strong conviction; big move on light volume = weak (think after-hours pop on a few hundred shares); heavy volume with tiny move = accumulation or indecision; quiet move on quiet volume = no conviction.'
+      );
     }
 
     if (t.sr){
@@ -5922,6 +6166,45 @@ main {
 .opt-news-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; font-weight: 700; }
 .opt-news-body { color: var(--text); }
 .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
+.opt-rec-card {
+  margin: var(--s-2) 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  font-size: var(--fs-sm); line-height: 1.5;
+}
+.opt-rec-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); margin-bottom: var(--s-2); font-weight: 700;
+}
+.opt-rec-block { margin-bottom: 6px; display: grid; grid-template-columns: 110px 1fr; gap: var(--s-2); align-items: baseline; }
+.opt-rec-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
+.opt-rec-body { color: var(--text); }
+.opt-rec-muted { color: var(--muted); font-style: italic; }
+.opt-rec-pill {
+  display: inline-block; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  vertical-align: middle; border: 1px solid transparent; margin-right: 4px;
+}
+.opt-rec-pill.pos  { color: var(--pos);  background: var(--pos-soft);  border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-rec-pill.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-rec-pill.fair { color: var(--muted); background: var(--surface-3); }
+.opt-rec-action {
+  margin-top: var(--s-2); padding-top: var(--s-2);
+  border-top: 1px dashed var(--border);
+  font-weight: 600; color: var(--text);
+}
+.opt-rec-action.yes { color: var(--pos); }
+.opt-rec-action.no  { color: var(--muted); }
+.opt-rec-rule {
+  margin-top: 6px; padding: 6px 8px;
+  background: var(--surface-3); border-radius: var(--r-2);
+  font-size: 12px; color: var(--text); font-weight: 500;
+}
+@media (max-width: 560px){
+  .opt-rec-block { grid-template-columns: 1fr; gap: 2px; }
+}
 .opt-tweak-btn {
   background: transparent; color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
