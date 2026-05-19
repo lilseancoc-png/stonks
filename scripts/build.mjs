@@ -48,10 +48,10 @@ const DATA_DIR = resolve(ROOT, "data");
 // risk against MIN_SUCCESS_RATE.
 export const TICKERS = [
   // Broad-market / volatility / fixed income / commodities / international ETFs
-  "SPY", "QQQ", "IWM", "SMH", "VIX", "UVXY",
+  "SPY", "QQQ", "IWM", "SMH", "UVXY",
   "TLT", "USO", "GLD", "SLV", "KWEB", "EWY",
   // Mega-caps
-  "BRK.B", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
+  "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
   "TSM", "AVGO", "ORCL", "NFLX",
   // Financials / payments / pharma / retail
   "JPM", "V", "MA", "LLY", "WMT", "COST",
@@ -74,14 +74,14 @@ export const TICKERS = [
 // by sector ("software", "semis", "pharma"). Mirrors the comment blocks above.
 const SECTORS = {
   // Broad / sector / international / crypto / volatility ETFs
-  SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF", VIX: "Volatility",
+  SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF",
   UVXY: "ETF", TLT: "ETF", USO: "ETF", GLD: "ETF", SLV: "ETF",
   KWEB: "ETF", EWY: "ETF",
   // Mega-caps
   AAPL: "Mega-cap tech", MSFT: "Mega-cap tech", NVDA: "Mega-cap tech",
   AMZN: "Mega-cap tech", GOOGL: "Mega-cap tech", META: "Mega-cap tech",
   TSLA: "Mega-cap tech", AMD: "Semis", NFLX: "Mega-cap tech", AVGO: "Semis",
-  TSM: "Semis", ORCL: "Software", "BRK.B": "Conglomerate",
+  TSM: "Semis", ORCL: "Software",
   // Semis & semi equipment
   ASML: "Semis", QCOM: "Semis", TXN: "Semis", MRVL: "Semis", AMAT: "Semis",
   LRCX: "Semis", MU: "Semis", INTC: "Semis", NXPI: "Semis", ON: "Semis",
