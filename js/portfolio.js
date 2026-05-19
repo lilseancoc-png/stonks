@@ -42,12 +42,34 @@ function fmtExpiry(epochSec) {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function fmtAge(iso) {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (!isFinite(t)) return "";
+  const days = Math.max(0, Math.floor((Date.now() - t) / 86400000));
+  if (days === 0) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 7) return days + "d ago";
+  if (days < 30) return Math.floor(days / 7) + "w ago";
+  if (days < 365) return Math.floor(days / 30) + "mo ago";
+  return Math.floor(days / 365) + "y ago";
+}
+
 const state = {
   session: null,
   positions: [],
   review: null,
   reviewing: false,
   chainCache: Object.create(null), // symbol -> { expirations:[{sec,label}], chains:{sec:{c:[],p:[]}} }
+  snapshots: [],
+  snapshotRange: "1M",
 };
 
 // --- Sign-in panel + auth wiring -----------------------------------------
@@ -136,6 +158,7 @@ function renderSignedIn() {
           <button type="button" class="pf-btn pf-btn-primary" id="pf-review-btn">Review portfolio</button>
         </div>
       </header>
+      <div id="pf-equity" class="pf-equity" hidden></div>
       <div id="pf-list" class="pf-list" role="status" aria-live="polite">Loading…</div>
       <div id="pf-review" class="pf-review" hidden></div>
     </section>
@@ -146,6 +169,7 @@ function renderSignedIn() {
   $("pf-review-btn").addEventListener("click", runReview);
 
   loadPositions();
+  loadSnapshots();
 }
 
 // --- Positions CRUD -------------------------------------------------------
@@ -154,10 +178,13 @@ async function loadPositions() {
   const list = $("pf-list");
   if (!list) return;
   list.textContent = "Loading…";
+  // Only show OPEN positions (closed_at IS NULL). Closed positions still live
+  // in the table as history backing the realized-PnL calculation server-side.
   const { data, error } = await supabase
     .from("positions")
     .select("*")
-    .order("created_at", { ascending: false });
+    .is("closed_at", null)
+    .order("opened_at", { ascending: false });
   if (error) {
     list.innerHTML = `<p class="pf-status pf-status-err">Couldn't load positions: ${escapeHtml(error.message)}</p>`;
     return;
@@ -183,13 +210,18 @@ function renderPositions() {
     const pnlPct = r?.pnlPct;
     const totalPnl = r?.totalPnl;
     const action = r?.action;
-    const actionClass = action ? `pf-action pf-action-${action}` : "pf-action";
+    // The new "trim-to-cost" action contains a hyphen — strip it for the
+    // CSS class while keeping the human label intact.
+    const actionCls = action ? action.replace(/[^a-z]/gi, "-").toLowerCase() : "";
+    const actionClass = action ? `pf-action pf-action-${actionCls}` : "pf-action";
+    const ageLabel = fmtAge(p.opened_at || p.created_at);
     return `
       <article class="pf-row" data-id="${escapeHtml(p.id)}">
         <div class="pf-row-main">
           <div class="pf-symbol-block">
             <span class="pf-symbol">${escapeHtml(p.symbol)}</span>
             <span class="pf-leg">${escapeHtml(p.side.toUpperCase())} $${fmtNum(p.strike, 2)} · ${escapeHtml(fmtExpiry(p.expiry))}</span>
+            ${ageLabel ? `<span class="pf-age" title="Opened ${escapeHtml(fmtDate(p.opened_at || p.created_at))}">opened ${escapeHtml(ageLabel)}</span>` : ""}
           </div>
           <div class="pf-qty">${p.quantity}× @ ${fmtMoney(p.entry_premium)}</div>
           <div class="pf-mark">
@@ -202,6 +234,7 @@ function renderPositions() {
           </div>
           <div class="pf-row-actions">
             ${action ? `<span class="${actionClass}">${escapeHtml(action)}</span>` : ""}
+            <button type="button" class="pf-btn pf-btn-sm" data-sell="${escapeHtml(p.id)}" aria-label="Sell or close position">Sell</button>
             <button type="button" class="pf-iconbtn" data-del="${escapeHtml(p.id)}" aria-label="Delete position">✕</button>
           </div>
         </div>
@@ -222,6 +255,9 @@ function renderPositions() {
   list.innerHTML = rows.join("");
   list.querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", () => deletePosition(btn.dataset.del));
+  });
+  list.querySelectorAll("[data-sell]").forEach((btn) => {
+    btn.addEventListener("click", () => openSellModal(btn.dataset.sell));
   });
 }
 
@@ -578,6 +614,9 @@ async function runReview() {
     state.review = j;
     renderReview();
     renderPositions();
+    // The review endpoint upserts today's snapshot — reload so the equity
+    // chart picks it up immediately.
+    loadSnapshots();
   } catch (err) {
     reviewEl.innerHTML = `<p class="pf-status pf-status-err">${escapeHtml(err.message || "Review failed.")}</p>`;
   } finally {
@@ -610,6 +649,203 @@ function renderReview() {
         </ul>` : ""}
       ${p.hedgeSuggestions ? `<p class="pf-review-hedge"><strong>Hedge ideas:</strong> ${escapeHtml(p.hedgeSuggestions)}</p>` : ""}
     </div>`;
+}
+
+// --- Sell modal -----------------------------------------------------------
+
+function openSellModal(positionId) {
+  const pos = state.positions.find((p) => p.id === positionId);
+  if (!pos) return;
+  const host = $("pf-modal-host");
+  if (!host) return;
+  // Suggested sell price = the current AI-review mark if we have one,
+  // otherwise leave blank for the user to fill in manually.
+  const review = state.review?.perPosition?.find((r) => r.id === positionId);
+  const suggestedPrice = review?.currentMid != null ? Number(review.currentMid).toFixed(2) : "";
+  host.innerHTML = `
+    <div class="pf-modal-backdrop" id="pf-modal-backdrop">
+      <div class="pf-modal card" role="dialog" aria-modal="true" aria-labelledby="pf-sell-title">
+        <header class="card-header">
+          <h2 class="card-title" id="pf-sell-title">Sell ${escapeHtml(pos.symbol)} ${escapeHtml(pos.side.toUpperCase())} $${fmtNum(pos.strike, 2)}</h2>
+          <button type="button" class="pf-iconbtn" id="pf-modal-close" aria-label="Close">✕</button>
+        </header>
+        <form id="pf-sell-form" class="pf-add-form">
+          <p class="hint">${pos.quantity}× contract${pos.quantity === 1 ? "" : "s"} open · entry ${fmtMoney(pos.entry_premium)} · expiry ${escapeHtml(fmtExpiry(pos.expiry))}</p>
+          <label class="field">
+            <span class="field-label">Contracts to sell</span>
+            <input type="number" id="pf-sell-qty" min="1" max="${pos.quantity}" step="1" value="${pos.quantity}" required>
+          </label>
+          <label class="field">
+            <span class="field-label">Sell price (per contract)</span>
+            <input type="number" id="pf-sell-price" min="0" step="0.01" placeholder="e.g. 5.40" value="${suggestedPrice}" required>
+          </label>
+          <p id="pf-sell-status" class="pf-status" role="status" aria-live="polite"></p>
+          <div class="pf-add-actions">
+            <button type="button" class="pf-btn" id="pf-sell-cancel">Cancel</button>
+            <button type="submit" class="pf-btn pf-btn-primary" id="pf-sell-submit">Log sell</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  const closeModal = () => { host.innerHTML = ""; };
+  $("pf-modal-close").addEventListener("click", closeModal);
+  $("pf-sell-cancel").addEventListener("click", closeModal);
+  $("pf-modal-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "pf-modal-backdrop") closeModal();
+  });
+  $("pf-sell-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const status = $("pf-sell-status");
+    const submit = $("pf-sell-submit");
+    const quantity = Math.max(1, Math.floor(Number($("pf-sell-qty").value) || 0));
+    const price = Math.max(0, Number($("pf-sell-price").value) || 0);
+    if (quantity > pos.quantity) {
+      status.textContent = `You only have ${pos.quantity} contracts open.`;
+      status.className = "pf-status pf-status-err";
+      return;
+    }
+    submit.disabled = true;
+    status.textContent = "Logging sell…";
+    status.className = "pf-status";
+    try {
+      const token = state.session?.access_token;
+      const r = await fetch("/api/close-position", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: "Bearer " + token } : {}),
+        },
+        body: JSON.stringify({ position_id: positionId, quantity, price }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        status.textContent = j.error || "Couldn't log sell.";
+        status.className = "pf-status pf-status-err";
+        submit.disabled = false;
+        return;
+      }
+      closeModal();
+      await loadPositions();
+      await loadSnapshots();
+    } catch (err) {
+      status.textContent = err.message || "Couldn't log sell.";
+      status.className = "pf-status pf-status-err";
+      submit.disabled = false;
+    }
+  });
+}
+
+// --- Equity chart ---------------------------------------------------------
+
+async function loadSnapshots() {
+  // Reads via Supabase JS client; the snapshots_select_own RLS policy
+  // ensures we only see the signed-in user's rows.
+  try {
+    const { data, error } = await supabase
+      .from("portfolio_snapshots")
+      .select("date, equity, realized_pnl, unrealized_pnl, open_positions")
+      .order("date", { ascending: true });
+    if (error) {
+      // Table doesn't exist yet (older deployment) — silently hide the chart.
+      state.snapshots = [];
+    } else {
+      state.snapshots = data || [];
+    }
+  } catch (_) {
+    state.snapshots = [];
+  }
+  renderEquityChart();
+}
+
+const RANGE_DAYS = { "1D": 1, "1W": 7, "1M": 30, "3M": 90, "YTD": null, "1Y": 365, "ALL": null };
+
+function clipSnapshotsToRange(rows, range) {
+  if (!rows || !rows.length) return [];
+  const now = new Date();
+  if (range === "YTD") {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    return rows.filter((r) => new Date(r.date) >= start);
+  }
+  if (range === "ALL") return rows;
+  const days = RANGE_DAYS[range];
+  if (!days) return rows;
+  const cutoff = Date.now() - days * 86400000;
+  return rows.filter((r) => new Date(r.date).getTime() >= cutoff);
+}
+
+function renderEquityChart() {
+  const box = $("pf-equity");
+  if (!box) return;
+  const rows = state.snapshots || [];
+  if (rows.length < 2) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  const range = state.snapshotRange || "1M";
+  const clipped = clipSnapshotsToRange(rows, range);
+  const data = clipped.length >= 2 ? clipped : rows.slice(-2);
+  const W = 640, H = 180, padL = 8, padR = 8, padT = 20, padB = 22;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const vals = data.map((r) => Number(r.equity));
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  let range1 = hi - lo;
+  if (range1 === 0) range1 = Math.max(1, Math.abs(hi) * 0.2);
+  const yMin = lo - range1 * 0.1;
+  const yMax = hi + range1 * 0.1;
+  const yFor = (v) => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+  const xFor = (i) => padL + (plotW * i) / Math.max(1, data.length - 1);
+
+  const first = vals[0];
+  const last = vals[vals.length - 1];
+  const chg = first ? ((last - first) / Math.abs(first)) * 100 : 0;
+  const up = last >= first;
+
+  let path = "";
+  data.forEach((r, i) => {
+    const x = xFor(i).toFixed(2);
+    const y = yFor(Number(r.equity)).toFixed(2);
+    path += (i === 0 ? "M" : " L") + x + "," + y;
+  });
+  const areaPath = path +
+    ` L${xFor(data.length - 1).toFixed(2)},${(padT + plotH).toFixed(2)}` +
+    ` L${xFor(0).toFixed(2)},${(padT + plotH).toFixed(2)} Z`;
+
+  const ranges = ["1D", "1W", "1M", "3M", "YTD", "1Y", "ALL"];
+  const buttons = ranges.map((r) =>
+    `<button type="button" class="pf-range-btn ${r === range ? "is-active" : ""}" data-range="${r}">${r}</button>`,
+  ).join("");
+
+  const lastDate = data[data.length - 1].date;
+  const realized = data[data.length - 1].realized_pnl;
+  const unrealized = data[data.length - 1].unrealized_pnl;
+
+  box.innerHTML = `
+    <div class="pf-equity-head">
+      <div class="pf-equity-titles">
+        <div class="pf-equity-title">Equity</div>
+        <div class="pf-equity-value">
+          <span class="pf-equity-now">${fmtMoney(last)}</span>
+          <span class="pf-equity-chg ${up ? "pf-pos" : "pf-neg"}">${fmtPct(chg)}</span>
+        </div>
+        <div class="pf-equity-sub">As of ${escapeHtml(lastDate)} · realized ${fmtMoney(realized)} · unrealized ${fmtMoney(unrealized)}</div>
+      </div>
+      <div class="pf-equity-ranges" role="tablist">${buttons}</div>
+    </div>
+    <svg class="pf-equity-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Equity history">
+      <path class="pf-equity-area ${up ? "up" : "down"}" d="${areaPath}" />
+      <path class="pf-equity-line ${up ? "up" : "down"}" d="${path}" />
+    </svg>`;
+
+  box.querySelectorAll("[data-range]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.snapshotRange = btn.dataset.range;
+      renderEquityChart();
+    });
+  });
 }
 
 // --- Bootstrap ------------------------------------------------------------

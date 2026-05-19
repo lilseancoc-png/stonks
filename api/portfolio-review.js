@@ -3,14 +3,15 @@
 // POST /api/portfolio-review
 // Headers: Authorization: Bearer <supabase-jwt>
 // Body:    { positions: [{ id, symbol, side, expiry, strike, quantity,
-//                          entry_premium, created_at }] }
+//                          entry_premium, opened_at, created_at }] }
 //
 // Flow:
 //   1. Verify the JWT via Supabase (using the service-role key server-side).
 //   2. Hydrate each position with a live mid (Yahoo) + Greeks (Black-Scholes).
-//   3. Hand the hydrated portfolio to Gemini and ask for sell/hold/roll
-//      recommendations plus a portfolio-level summary.
-//   4. Return JSON. Per-position errors degrade gracefully; one bad symbol
+//   3. Hand the hydrated portfolio to Gemini and ask for sell/hold/roll/
+//      trim-to-cost recommendations plus a portfolio-level summary.
+//   4. Upsert today's equity snapshot (used by the equity chart).
+//   5. Return JSON. Per-position errors degrade gracefully; one bad symbol
 //      never blocks the whole review.
 
 import { createClient } from "@supabase/supabase-js";
@@ -48,7 +49,67 @@ async function verifyUser(req) {
   });
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data?.user) return { error: "invalid token" };
-  return { user: data.user };
+  return { user: data.user, supabase };
+}
+
+// Sum realized P/L across all SELL trades for this user, joined back to the
+// originating position's entry_premium. Returns 0 if there are no sells or
+// if the trades table doesn't exist yet (older deployments).
+async function fetchRealizedPnl(supabase, userId) {
+  const { data, error } = await supabase
+    .from("trades")
+    .select("quantity, price, side, positions!inner(entry_premium)")
+    .eq("user_id", userId)
+    .eq("side", "SELL");
+  if (error) return 0;
+  let total = 0;
+  for (const t of data || []) {
+    const entry = Number(t.positions?.entry_premium ?? 0);
+    total += (Number(t.price) - entry) * Number(t.quantity) * 100;
+  }
+  return total;
+}
+
+// Upsert today's equity snapshot. Idempotent on (user_id, date) — running
+// the review twice in one day overwrites with the latest marks. Best-effort:
+// snapshot failures don't block the review response.
+async function writeSnapshot(supabase, userId, hydrated, realizedPnl) {
+  let openValue = 0;
+  let costBasis = 0;
+  let openCount = 0;
+  for (const h of hydrated) {
+    if (h.error || h.entryPremium == null || h.quantity == null) continue;
+    openCount += 1;
+    const qty = Number(h.quantity);
+    costBasis += Number(h.entryPremium) * qty * 100;
+    const mark = h.currentMid != null ? Number(h.currentMid) : Number(h.entryPremium);
+    openValue += mark * qty * 100;
+  }
+  const unrealizedPnl = openValue - costBasis;
+  const equity = openValue + Number(realizedPnl || 0);
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  try {
+    await supabase
+      .from("portfolio_snapshots")
+      .upsert({
+        user_id: userId,
+        date: today,
+        equity: Math.round(equity * 100) / 100,
+        realized_pnl: Math.round(Number(realizedPnl || 0) * 100) / 100,
+        unrealized_pnl: Math.round(unrealizedPnl * 100) / 100,
+        open_positions: openCount,
+      }, { onConflict: "user_id,date" });
+  } catch (_) {
+    // schema not migrated yet — skip silently.
+  }
+  return { equity, unrealizedPnl, realizedPnl: Number(realizedPnl || 0), date: today };
+}
+
+function ageDaysFrom(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!isFinite(t)) return null;
+  return Math.max(0, Math.round((Date.now() - t) / 86400000));
 }
 
 async function hydratePosition(p) {
@@ -81,6 +142,17 @@ async function hydratePosition(p) {
       spot != null ? ((breakeven - spot) / spot) * 100 * (p.side === "call" ? 1 : -1) : null;
     const moneynessPct =
       spot != null ? ((spot - Number(p.strike)) / Number(p.strike)) * 100 : null;
+    const openedAt = p.opened_at || p.created_at || null;
+    const ageDays = ageDaysFrom(openedAt);
+    // "Just opened" heuristic — useful for the AI to recognize that a small
+    // gain or loss on a fresh position isn't worth acting on yet.
+    const recentlyOpened =
+      ageDays != null && ageDays <= 3 && pnlPct != null && Math.abs(pnlPct) < 10;
+    // ITM check from moneynessPct adjusted for direction.
+    const isItm =
+      moneynessPct != null
+        ? (p.side === "call" ? moneynessPct >= 0 : moneynessPct <= 0)
+        : null;
 
     return {
       id: p.id,
@@ -91,6 +163,10 @@ async function hydratePosition(p) {
       daysToExpiry: Math.max(0, Math.round((p.expiry * 1000 - Date.now()) / 86400000)),
       quantity: Number(p.quantity),
       entryPremium: entry,
+      openedAt,
+      ageDays,
+      recentlyOpened,
+      isItm,
       spot,
       currentMid: mid,
       iv: row?.iv ?? null,
@@ -121,6 +197,10 @@ function buildPrompt(hydrated) {
     expired: !!h.expired,
     quantity: h.quantity,
     entryPremium: h.entryPremium,
+    openedAt: h.openedAt,
+    ageDays: h.ageDays,
+    recentlyOpened: !!h.recentlyOpened,
+    isItm: h.isItm,
     currentMid: h.currentMid,
     spot: h.spot,
     pnlPct: h.pnlPct != null ? Math.round(h.pnlPct * 10) / 10 : null,
@@ -140,17 +220,29 @@ function buildPrompt(hydrated) {
 
 CRITICAL: emit exactly one perPosition entry for EACH of the ${positionsForAI.length} positions below — even when the same ticker appears multiple times at different strikes/expirations. Treat every position as independent. Echo back each id exactly as given (do not modify, normalize, or merge them).
 
-For each position recommend one action ("sell", "hold", or "roll") and a short reason.
-Then write a portfolio-level summary: concentration risk, theta bleed, IV-crush exposure,
-and any hedge ideas. Be specific and direct. Plain English. No disclaimers. No emojis.
+For each position recommend exactly ONE action from this list:
+- "hold"           — let it run; thesis intact and time is on your side.
+- "sell"           — close the position entirely.
+- "trim-to-cost"   — sell enough contracts to recover the original cost basis, free-ride the rest.
+- "roll"           — close the current contract and open a later-dated and/or further-strike one.
 
-Rules of thumb:
-- Big winner (>50% up) with limited remaining upside → consider selling or rolling up.
-- Theta-decaying near-the-money with <14 days → flag the bleed; recommend exit or roll out.
-- Deep ITM with high delta → suggest taking profit or rolling to lock gains.
-- Losing position with no catalyst before expiry → cut losses.
-- Expired positions → mark "sell" with reason "expired, close to realize".
-- Heavy concentration in one ticker/sector → call it out in the portfolio summary.
+Use this rule of thumb tree for the action:
+
+1. Expired → "sell" with reason "expired, close to realize".
+2. Big winner with theta risk: (isItm OR pnlPct >= 100) AND daysToExpiry <= 40.
+   - If the user still has high conviction on the name → "trim-to-cost" (take initial cost off, let the rest free-ride) OR "roll" (extend expiration / move strike out) to free up capital while keeping upside.
+   - If conviction is fading → "sell" outright.
+3. Theta acceleration zone: daysToExpiry <= 30 AND not ITM.
+   - Surface that theta accelerates inside 30 days. Tilt toward "sell" or "roll" out unless the position is up materially.
+4. Near-the-money with <14d and underwater → "sell"; theta bleed dominates.
+5. Recently opened (recentlyOpened === true): small swings on a fresh position aren't actionable yet → "hold".
+6. Losing position with no catalyst before expiry → "sell" to redeploy capital.
+
+When recommending "trim-to-cost" or "roll", say which contracts to sell or what to roll into in plain English (e.g. "sell 2 of 5 to take cost off; let 3 free-ride", or "roll to the same strike 30+ days further out").
+
+Then write a portfolio-level summary: concentration risk, theta bleed across positions inside 30 DTE, IV-crush exposure, and hedge ideas. Be specific and direct. Plain English. No disclaimers. No emojis.
+
+Each per-position "reasoning" should briefly tie together: (a) market narrative on the underlying, (b) technicals (RSI / MACD / volume conviction), (c) fundamentals (analyst consensus, earnings backdrop), (d) the contract mechanics (theta runway, moneyness), and (e) the rule-of-thumb branch that drove the action.
 
 Positions (${positionsForAI.length} total):
 ${JSON.stringify(positionsForAI, null, 2)}`;
@@ -166,14 +258,27 @@ function deterministicRec(h) {
   if (h.pnlPct == null) {
     return { action: "hold", headline: "Live mark unavailable", reasoning: "Couldn't get a current quote for this contract; check your broker." };
   }
-  if (h.pnlPct >= 100) {
-    return { action: "sell", headline: `Up ${Math.round(h.pnlPct)}% — strong candidate to take profits`, reasoning: "Doubled or better — locking gains beats hoping for more, especially as theta accelerates near expiry." };
+  // Recently opened — don't trigger on a small swing.
+  if (h.recentlyOpened) {
+    return { action: "hold", headline: "Just opened — give it room", reasoning: `Position is ${h.ageDays} day${h.ageDays === 1 ? "" : "s"} old with ${h.pnlPct >= 0 ? "+" : ""}${h.pnlPct.toFixed(1)}% move so far. Too early to act on this either way.` };
+  }
+  // Rule-of-thumb branch: ITM or +100% with ≤40 days — free-ride or roll.
+  const itmOrDouble = h.isItm === true || h.pnlPct >= 100;
+  if (itmOrDouble && h.daysToExpiry != null && h.daysToExpiry <= 40) {
+    return {
+      action: "trim-to-cost",
+      headline: `${h.isItm ? "ITM" : `Up ${Math.round(h.pnlPct)}%`} with ${h.daysToExpiry}d left — take cost off, free-ride the rest`,
+      reasoning: "Theta accelerates inside the last 30 days; with the position already in the money or doubled, selling enough contracts to recover your original cost locks the win and lets the remainder ride risk-free. If conviction is high and you want to keep full exposure, roll to a longer-dated strike instead.",
+    };
   }
   if (h.pnlPct >= 50) {
-    return { action: "roll", headline: `Up ${Math.round(h.pnlPct)}% — consider rolling up or trimming`, reasoning: "Big winner. Either roll to a higher strike to lock some gains while keeping upside, or sell partial size." };
+    return { action: "roll", headline: `Up ${Math.round(h.pnlPct)}% — consider rolling up or trimming`, reasoning: "Big winner. Either roll to a higher strike (and/or later date) to lock some gains while keeping upside, or sell partial size." };
   }
   if (h.daysToExpiry != null && h.daysToExpiry <= 14 && h.pnlPct <= 0) {
     return { action: "sell", headline: `Underwater with ${h.daysToExpiry}d to expiry — theta bleed dominant`, reasoning: "Negative P/L this close to expiry rarely recovers; theta decay accelerates fast in the final two weeks." };
+  }
+  if (h.daysToExpiry != null && h.daysToExpiry <= 30 && h.pnlPct < 25) {
+    return { action: "roll", headline: `${h.daysToExpiry}d left and no real lead — consider rolling out`, reasoning: "Inside 30 DTE theta accelerates; without a clear lead, rolling to a further-dated strike buys time without doubling exposure." };
   }
   if (h.pnlPct <= -50) {
     return { action: "sell", headline: `Down ${Math.round(-h.pnlPct)}% — likely no recovery before expiry`, reasoning: "Cut losses; capital is better redeployed than hoping for a sharp move." };
@@ -194,7 +299,7 @@ const RESPONSE_SCHEMA = {
           side: { type: "string" },
           strike: { type: "number" },
           expiry: { type: "number" },
-          action: { type: "string", enum: ["sell", "hold", "roll", "unknown"] },
+          action: { type: "string", enum: ["sell", "hold", "roll", "trim-to-cost", "unknown"] },
           headline: { type: "string" },
           reasoning: { type: "string" },
         },
@@ -358,10 +463,23 @@ export default async function handler(req, res) {
     strike: Number(p.strike),
     quantity: Math.max(1, Math.floor(Number(p.quantity) || 0)),
     entry_premium: Math.max(0, Number(p.entry_premium) || 0),
+    opened_at: p.opened_at || null,
+    created_at: p.created_at || null,
   }));
 
   const hydrated = await Promise.all(normalized.map(hydratePosition));
   const aiResult = await aiReview(hydrated);
+
+  // Realized P/L from prior SELL trades + today's equity snapshot. Both are
+  // best-effort: if the new tables aren't migrated yet, the review still
+  // returns a clean response without snapshot data.
+  let snapshot = null;
+  try {
+    const realizedPnl = await fetchRealizedPnl(auth.supabase, auth.user.id);
+    snapshot = await writeSnapshot(auth.supabase, auth.user.id, hydrated, realizedPnl);
+  } catch (_) {
+    snapshot = null;
+  }
 
   // Stitch AI text recs onto our deterministic numeric hydration. We don't
   // trust the AI to echo back numbers — those are computed server-side and
@@ -420,6 +538,7 @@ export default async function handler(req, res) {
       aiError: aiResult.error || null,
       aiModel: aiResult.model || null,
       usedFallback: !!aiResult.usedFallback,
+      snapshot,
     },
     generatedAt: new Date().toISOString(),
   });
