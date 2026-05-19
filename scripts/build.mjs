@@ -6641,12 +6641,14 @@ async function writeChainFiles(chains) {
 // verdict toward Good or Bad. Skipped silently if no GEMINI_API_KEY is set,
 // so forks without a key still build.
 //
-// Uses Google's free-tier API with gemma-4-26b-a4b-it — Gemma 3 was retired
-// from the v1beta endpoint when the Gemma 4 family launched (Mar 2026), and
-// gemini-*-flash free-tier RPD is too tight for a daily build over ~65
-// tickers. The 26B MoE (4B active params) is fast, generous on free tier,
-// and plenty for a 3-sentence summary task.
-const AI_MODEL = "gemma-4-26b-a4b-it";
+// Default to gemma-4-26b-a4b-it — Gemma 3 was retired from the v1beta
+// endpoint when the Gemma 4 family launched (Mar 2026), and gemini-*-flash
+// free-tier RPD is too tight for a daily build over ~65 tickers. The 26B MoE
+// (4B active params) is fast, generous on free tier, and plenty for a
+// 3-sentence summary task. Override via AI_MODEL env (e.g.
+// `gemini-2.5-flash-lite` on a funded Tier 1 project) to trade a bit of cost
+// for much higher RPM and faster builds.
+const AI_MODEL = process.env.AI_MODEL || "gemma-4-26b-a4b-it";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and

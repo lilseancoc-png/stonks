@@ -61,6 +61,12 @@ jobs:
       - name: Build site
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Model selection is plumbed through Actions Variables so we can
+          # swap models (Gemma free tier → Gemini 2.5 Flash-Lite on paid
+          # Tier 1, etc.) without touching code. Unset = build.mjs falls
+          # back to its hard-coded Gemma default.
+          AI_MODEL: ${{ vars.AI_MODEL }}
+          NARRATIVES_MODEL: ${{ vars.NARRATIVES_MODEL }}
         run: node scripts/build.mjs
 
       - name: Commit refreshed site
