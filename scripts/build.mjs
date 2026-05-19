@@ -7098,6 +7098,9 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
         config: {
           temperature: 0.3,
           maxOutputTokens: 600,
+          // Constrained-decoder JSON mode. On Gemini this guarantees the
+          // emitted text is parseable; Gemma also respects the flag.
+          responseMimeType: "application/json",
         },
       });
       break;
@@ -7279,6 +7282,7 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
         config: {
           temperature: 0.25,
           maxOutputTokens: 900,
+          responseMimeType: "application/json",
         },
       });
       break;
@@ -7630,6 +7634,10 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
         config: {
           temperature: 0.4,
           maxOutputTokens: 4200,
+          // Constrained-decoder JSON mode — narratives is the call that
+          // most reliably hits malformed-JSON failures because its output
+          // is the longest and most structured.
+          responseMimeType: "application/json",
         },
       });
       break;
@@ -7661,7 +7669,18 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
   const jsonText = firstBrace >= 0 && lastBrace > firstBrace
     ? stripped.slice(firstBrace, lastBrace + 1)
     : stripped;
-  const parsed = JSON.parse(jsonText);
+  // Wrap JSON.parse so a malformed response surfaces an excerpt of what the
+  // model actually wrote — saves a debugging round-trip if the constrained
+  // decoder ever fails open. JSON.parse errors otherwise carry only a byte
+  // offset, no content.
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (parseErr) {
+    const excerpt = jsonText.slice(0, 500).replace(/\s+/g, " ");
+    console.log(`    ⚠ narrative JSON parse failed (${parseErr.message}). Response excerpt: ${excerpt}`);
+    throw parseErr;
+  }
   const validSymbols = new Set(Object.keys(chains));
   const sanitizeTickers = (arr) =>
     Array.isArray(arr)
