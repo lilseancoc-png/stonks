@@ -47,57 +47,36 @@ const DATA_DIR = resolve(ROOT, "data");
 // added ticker adds ~2-3s of wall-clock time and a bit of rate-limit
 // risk against MIN_SUCCESS_RATE.
 export const TICKERS = [
-  // Broad-market ETFs
-  "SPY", "QQQ", "IWM", "DIA", "SMH",
-  // Fixed income / commodities / volatility ETFs
-  "TLT", "UVXY", "GLD", "SLV", "USO",
-  // Sector / international / crypto ETFs
-  "XLF", "XLE", "XLK", "KWEB", "EWY", "IBIT", "ETHA",
+  // Broad-market / volatility / fixed income / commodities / international ETFs
+  "SPY", "QQQ", "IWM", "SMH", "VIX", "UVXY",
+  "TLT", "USO", "GLD", "SLV", "KWEB", "EWY",
   // Mega-caps
-  "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO",
-  "TSM", "ORCL", "BRK.B",
-  // Semis & semi equipment
-  "ASML", "QCOM", "TXN", "MRVL", "AMAT", "LRCX", "MU", "INTC", "NXPI", "ON",
-  "SMCI", "AMKR", "PLAB", "ALAB", "TSEM", "DRAM", "SWKS", "SNDK", "STX", "GLW",
-  "MP", "LITE", "AAOI",
-  // Hardware / networking / tech services
-  "DELL", "CSCO", "ANET", "IBM",
-  // Software / SaaS / cloud
-  "CRM", "ADBE", "ACN", "INTU", "NOW", "SNOW", "NET", "DDOG", "CRWD", "ZS",
-  "MDB", "OKTA", "PANW", "WDAY", "ZM", "DOCU", "TEAM", "FTNT", "HUBS", "TTD",
-  "FIG", "RBLX", "U", "APP", "TWLO", "CRWV",
-  // Power / data-center infra (AI buildout)
-  "CEG", "VST", "TLN", "VRT", "CLS", "BE", "OKLO",
-  // Banks / brokers / payments / fintech / asset mgmt
-  "JPM", "BAC", "WFC", "USB", "MS", "COF", "GS", "C", "HSBC", "UBS",
-  "V", "MA", "AXP", "PYPL", "XYZ", "SCHW", "IBKR", "HOOD", "AFRM", "APO", "BX",
-  // Consumer / retail / restaurants
-  "WMT", "COST", "TGT", "HD", "LOW", "NKE", "LULU", "MCD", "SBUX", "EL", "ELF",
-  "W", "EBAY", "ETSY", "ONON", "LEN",
-  // Industrials / aerospace / defense / logistics
-  "BA", "CAT", "DE", "MMM", "GD", "LMT", "RTX", "NOC", "FDX", "UPS",
-  // Healthcare / pharma / payors / med-tech
-  "NVO", "LLY", "UNH", "JNJ", "PFE", "TMO", "CI", "ELV", "CVS", "MOH", "BSX", "HIMS",
-  // Media / telecom
-  "DIS", "VZ", "CHTR", "SPOT",
-  // Energy
-  "XOM", "CVX", "OXY",
-  // Travel / modern consumer
-  "UBER", "ABNB", "DASH",
-  // China / international
-  "BABA", "BIDU", "JD", "PDD", "TCEHY", "BILI", "NIO",
-  // High-volatility / popular / IPO / new
-  "COIN", "PLTR", "SHOP", "GME", "AMC", "RDDT", "RKLB", "ASTS",
+  "BRK.B", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
+  "TSM", "AVGO", "ORCL", "NFLX",
+  // Financials / payments / pharma / retail
+  "JPM", "V", "MA", "LLY", "WMT", "COST",
+  // Software / financials / consumer / semis / infra
+  "CRWD", "ADBE", "SHOP", "BAC", "UBS", "SCHW", "LULU", "BABA", "MS",
+  "COF", "GS", "HOOD", "AXP", "AMD", "C", "UNH", "APO", "BX",
+  "DELL", "ASML", "VST", "CAT",
+  // Software / SaaS / cloud / industrials / consumer / semis / hardware
+  "NOW", "ZS", "FIG", "BSX", "MDB", "ACN", "OKTA", "HUBS", "SNOW",
+  "RKLB", "CRM", "ASTS", "FTNT", "WDAY", "INTU", "DASH", "GD", "TEAM",
+  "NET", "LEN", "SPOT", "NKE", "PANW", "ETSY", "DIS", "IBM", "QCOM",
+  "HD", "PLTR", "CSCO", "CI", "DE", "RDDT", "PYPL", "DDOG", "NXPI",
+  "TWLO", "LOW", "SBUX", "EL", "ANET", "TXN", "INTC", "SMCI", "NVO",
+  "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
+  "MRVL", "PLAB", "AMAT", "AMKR", "MU", "BE", "OKLO", "SNDK", "GLW",
+  "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM",
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
 // by sector ("software", "semis", "pharma"). Mirrors the comment blocks above.
 const SECTORS = {
   // Broad / sector / international / crypto / volatility ETFs
-  SPY: "ETF", QQQ: "ETF", IWM: "ETF", DIA: "ETF", SMH: "ETF",
-  TLT: "ETF", UVXY: "ETF", GLD: "ETF", SLV: "ETF", USO: "ETF",
-  XLF: "ETF", XLE: "ETF", XLK: "ETF", KWEB: "ETF", EWY: "ETF",
-  IBIT: "ETF", ETHA: "ETF",
+  SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF", VIX: "Volatility",
+  UVXY: "ETF", TLT: "ETF", USO: "ETF", GLD: "ETF", SLV: "ETF",
+  KWEB: "ETF", EWY: "ETF",
   // Mega-caps
   AAPL: "Mega-cap tech", MSFT: "Mega-cap tech", NVDA: "Mega-cap tech",
   AMZN: "Mega-cap tech", GOOGL: "Mega-cap tech", META: "Mega-cap tech",
