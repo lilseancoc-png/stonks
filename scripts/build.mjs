@@ -841,21 +841,6 @@ async function fetchTickerChain(symbol) {
   if (!spot) throw new Error(`No spot for ${symbol}`);
   if (!allExp.length) throw new Error(`No expirations for ${symbol}`);
 
-  // Kick off the two side-channel Yahoo calls (chart for historical bars +
-  // quoteSummary for fundamentals) right away — they hit different endpoints
-  // from the per-expiration options loop, so they can run concurrently with
-  // it. Previously they awaited serially AFTER the loop finished, adding
-  // ~2s of pure wall-clock per ticker. Wrapped in catches so a hiccup on
-  // either side doesn't kill the ticker; option grading still works without
-  // them and the renderer hides those panels when missing.
-  const technicalsPromise = fetchHistoricalBars(symbol)
-    .then((bars) => computeTechnicals(bars))
-    .catch((err) => {
-      console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
-      return null;
-    });
-  const fundamentalsPromise = fetchFundamentals(symbol).catch(() => null);
-
   const expirations = allExp.slice(0, MAX_EXPIRATIONS);
   const minK = spot * (1 - STRIKE_BAND);
   const maxK = spot * (1 + STRIKE_BAND);
@@ -880,10 +865,22 @@ async function fetchTickerChain(symbol) {
     };
   }
 
-  const [technicals, fundamentals] = await Promise.all([
-    technicalsPromise,
-    fundamentalsPromise,
-  ]);
+  // Sequential side-channel calls — chart first, then quoteSummary — so a
+  // failure surfaces in the log right under THIS ticker's chain output
+  // instead of getting attributed to whichever ticker happened to be
+  // executing in parallel. Slower than the parallelized version but the
+  // log becomes scannable, which is the higher value here.
+  let technicals = null;
+  try {
+    const bars = await fetchHistoricalBars(symbol);
+    technicals = computeTechnicals(bars);
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
+  }
+  // ETFs return mostly empty modules, so the renderer hides the card when
+  // there's nothing useful to show. fetchFundamentals already logs its own
+  // failure line and returns null, so no extra try/catch needed here.
+  const fundamentals = await fetchFundamentals(symbol);
 
   return {
     spot,
@@ -919,7 +916,13 @@ async function fetchRiskFreeRate() {
 // paces its own per-expiration Yahoo calls with the existing 250ms gap inside
 // fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
 // times the serial baseline — still well below typical rate-limit thresholds.
-const TICKER_CONCURRENCY = 4;
+// One ticker at a time so the build log reads top-to-bottom with no
+// interleaving — when a ticker's fundamentals / chart call warns, the
+// warning lands directly under its chain success line. The bottleneck
+// here is the per-expiration 250ms politeness pause × ~15 expirations
+// per ticker, so concurrency >1 mostly hides Yahoo errors behind log
+// interleaving rather than buying meaningful wall-clock back.
+const TICKER_CONCURRENCY = 1;
 
 async function fetchAllTickerChains() {
   const out = {};
