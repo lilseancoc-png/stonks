@@ -916,13 +916,13 @@ async function fetchRiskFreeRate() {
 // paces its own per-expiration Yahoo calls with the existing 250ms gap inside
 // fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
 // times the serial baseline — still well below typical rate-limit thresholds.
-// One ticker at a time so the build log reads top-to-bottom with no
-// interleaving — when a ticker's fundamentals / chart call warns, the
-// warning lands directly under its chain success line. The bottleneck
-// here is the per-expiration 250ms politeness pause × ~15 expirations
-// per ticker, so concurrency >1 mostly hides Yahoo errors behind log
-// interleaving rather than buying meaningful wall-clock back.
-const TICKER_CONCURRENCY = 1;
+// Four workers — gives us the chain-fetch speedup without re-introducing
+// within-ticker parallelism. Because each worker runs its ticker's chain
+// loop, then chart, then fundamentals strictly in order (see
+// fetchTickerChain), any per-ticker warning lands directly before THAT
+// ticker's "✓ X — spot $Y" line. Other workers' lines may interleave
+// across tickers, but warnings never get misattributed.
+const TICKER_CONCURRENCY = 4;
 
 async function fetchAllTickerChains() {
   const out = {};
