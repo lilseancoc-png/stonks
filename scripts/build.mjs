@@ -48,10 +48,10 @@ const DATA_DIR = resolve(ROOT, "data");
 // risk against MIN_SUCCESS_RATE.
 export const TICKERS = [
   // Broad-market / volatility / fixed income / commodities / international ETFs
-  "SPY", "QQQ", "IWM", "SMH", "VIX", "UVXY",
+  "SPY", "QQQ", "IWM", "SMH", "UVXY",
   "TLT", "USO", "GLD", "SLV", "KWEB", "EWY",
   // Mega-caps
-  "BRK.B", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
+  "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
   "TSM", "AVGO", "ORCL", "NFLX",
   // Financials / payments / pharma / retail
   "JPM", "V", "MA", "LLY", "WMT", "COST",
@@ -74,14 +74,14 @@ export const TICKERS = [
 // by sector ("software", "semis", "pharma"). Mirrors the comment blocks above.
 const SECTORS = {
   // Broad / sector / international / crypto / volatility ETFs
-  SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF", VIX: "Volatility",
+  SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF",
   UVXY: "ETF", TLT: "ETF", USO: "ETF", GLD: "ETF", SLV: "ETF",
   KWEB: "ETF", EWY: "ETF",
   // Mega-caps
   AAPL: "Mega-cap tech", MSFT: "Mega-cap tech", NVDA: "Mega-cap tech",
   AMZN: "Mega-cap tech", GOOGL: "Mega-cap tech", META: "Mega-cap tech",
   TSLA: "Mega-cap tech", AMD: "Semis", NFLX: "Mega-cap tech", AVGO: "Semis",
-  TSM: "Semis", ORCL: "Software", "BRK.B": "Conglomerate",
+  TSM: "Semis", ORCL: "Software",
   // Semis & semi equipment
   ASML: "Semis", QCOM: "Semis", TXN: "Semis", MRVL: "Semis", AMAT: "Semis",
   LRCX: "Semis", MU: "Semis", INTC: "Semis", NXPI: "Semis", ON: "Semis",
@@ -921,18 +921,21 @@ const TICKER_CONCURRENCY = 3;
 async function fetchAllTickerChains() {
   const out = {};
   let cursor = 0;
+  const hb = startHeartbeat("chains", TICKERS.length);
 
   async function worker() {
     while (true) {
       const i = cursor++;
       if (i >= TICKERS.length) return;
       const sym = TICKERS[i];
-      try {
-        out[sym] = await fetchTickerChainWithRetry(sym);
-        console.log(`  ✓ ${sym} — spot $${out[sym].spot.toFixed(2)}, ${out[sym].expirations.length} expirations`);
-      } catch (err) {
-        console.error(`  ✗ ${sym} — ${err.message} (gave up after ${FETCH_RETRIES} attempts)`);
-      }
+      await hb.track(async () => {
+        try {
+          out[sym] = await fetchTickerChainWithRetry(sym);
+          console.log(`  ✓ ${sym} — spot $${out[sym].spot.toFixed(2)}, ${out[sym].expirations.length} expirations`);
+        } catch (err) {
+          console.error(`  ✗ ${sym} — ${err.message} (gave up after ${FETCH_RETRIES} attempts)`);
+        }
+      });
       // Small per-worker politeness pause so adjacent tickers on the same
       // worker don't slam Yahoo back-to-back after the inner expiration loop.
       await new Promise((r) => setTimeout(r, 350));
@@ -941,6 +944,7 @@ async function fetchAllTickerChains() {
 
   const workers = Array.from({ length: Math.min(TICKER_CONCURRENCY, TICKERS.length) }, worker);
   await Promise.all(workers);
+  hb.stop();
   return out;
 }
 
@@ -7089,6 +7093,11 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
       lastErr = err;
       const wait = classifyAiError(err, attempt);
       if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      // Short prefix on the error keeps the log scannable; the full chain
+      // bubbles up if we eventually throw. Backoff visibility matters because
+      // the 60s+ 429 waits are otherwise silent and make the build look hung.
+      const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
+      console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
       await new Promise((r) => setTimeout(r, wait));
     }
   }
@@ -7265,6 +7274,11 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
       lastErr = err;
       const wait = classifyAiError(err, attempt);
       if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      // Short prefix on the error keeps the log scannable; the full chain
+      // bubbles up if we eventually throw. Backoff visibility matters because
+      // the 60s+ 429 waits are otherwise silent and make the build look hung.
+      const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
+      console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
       await new Promise((r) => setTimeout(r, wait));
     }
   }
@@ -7294,6 +7308,46 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
   };
 }
 
+// Periodic progress heartbeat. Each AI phase fans out via Promise.all against
+// the shared 10-RPM limiter, so 121 tickers takes ~15 min minimum with most of
+// the wall-clock spent inside acquireAiSlot waits or per-call retry backoffs.
+// Without a heartbeat the CI log goes silent for minutes between per-ticker
+// success lines and the next phase header — easy to mistake for a hang.
+// `track(fn)` decorates a task so we can count it without disturbing the
+// caller's own try/catch error handling.
+const HEARTBEAT_MS = 30000;
+function startHeartbeat(label, total) {
+  const counter = { done: 0, inflight: 0, started: Date.now() };
+  const timer = setInterval(() => {
+    const remaining = total - counter.done;
+    if (remaining <= 0) return;
+    const elapsed = Math.round((Date.now() - counter.started) / 1000);
+    console.log(
+      `  ⏱ ${label}: ${counter.done}/${total} done` +
+      ` (${counter.inflight} in flight, ${remaining} pending)` +
+      ` · ${elapsed}s elapsed`,
+    );
+  }, HEARTBEAT_MS);
+  // Keep the heartbeat non-blocking for process exit.
+  if (typeof timer.unref === "function") timer.unref();
+  return {
+    track: async (fn) => {
+      counter.inflight += 1;
+      try {
+        return await fn();
+      } finally {
+        counter.done += 1;
+        counter.inflight -= 1;
+      }
+    },
+    stop: () => {
+      clearInterval(timer);
+      const elapsed = Math.round((Date.now() - counter.started) / 1000);
+      console.log(`  ⏹ ${label} done · ${counter.done}/${total} · ${elapsed}s elapsed`);
+    },
+  };
+}
+
 async function attachFundamentalsJudgments(chains) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping fundamentals judgments. Raw metrics still attached.");
@@ -7306,8 +7360,9 @@ async function attachFundamentalsJudgments(chains) {
   // no per-task stagger needed. Tasks queue against the shared rate limiter
   // in roughly the order they were spawned, so we still get the same FIFO
   // behaviour the old stagger gave us but with retries also counted.
+  const hb = startHeartbeat("fundamentals", entries.length);
   const runPass = (passEntries) =>
-    Promise.all(passEntries.map(([sym, data]) => (async () => {
+    Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
       try {
         const judgment = await generateFundamentalsJudgment(ai, sym, data.spot, data.fundamentals);
         data.fundamentals = { ...data.fundamentals, judgment };
@@ -7315,7 +7370,7 @@ async function attachFundamentalsJudgments(chains) {
       } catch (err) {
         console.log(`  ✗ ${sym} fundamentals judgment failed: ${err.message}`);
       }
-    })()));
+    })));
   await runPass(entries);
   // Final sweep: any ticker still missing a judgment hit a transient streak
   // that exhausted the in-call retry budget. Sleep through a full rate-limit
@@ -7323,10 +7378,11 @@ async function attachFundamentalsJudgments(chains) {
   // fresh attempt budget. Caps spurious gaps without unbounded reruns.
   const missed = entries.filter(([, data]) => !data.fundamentals?.judgment);
   if (missed.length > 0) {
-    console.log(`Retrying ${missed.length} fundamentals judgment(s) after transient failures…`);
+    console.log(`Retrying ${missed.length} fundamentals judgment(s) after transient failures (sleeping 30s for quota window)…`);
     await new Promise((r) => setTimeout(r, 30000));
     await runPass(missed);
   }
+  hb.stop();
 }
 
 async function attachAiNewsTakes(chains) {
@@ -7340,7 +7396,8 @@ async function attachAiNewsTakes(chains) {
   // Pacing handled by acquireAiSlot() inside generateNewsTake; the headline
   // fetch is a Yahoo HTTP call so it's safe to issue concurrently for all
   // tickers — only the model call goes through the shared limiter.
-  const tasks = entries.map(([sym, data]) => (async () => {
+  const hb = startHeartbeat("news takes", entries.length);
+  const tasks = entries.map(([sym, data]) => hb.track(async () => {
     try {
       const headlines = await fetchTickerHeadlines(sym);
       const take = await generateNewsTake(ai, sym, data.spot, headlines);
@@ -7350,21 +7407,24 @@ async function attachAiNewsTakes(chains) {
       console.log(`  ✗ ${sym} — AI take failed: ${err.message}`);
       data.news = null;
     }
-  })());
+  }));
   await Promise.all(tasks);
+  hb.stop();
 }
 
 async function attachSocialSentiment(chains) {
   const entries = Object.entries(chains);
   console.log(`Fetching retail sentiment (Stocktwits + Reddit) for ${entries.length} tickers…`);
-  const tasks = entries.map(([sym, data]) => (async () => {
+  const hb = startHeartbeat("social sentiment", entries.length);
+  const tasks = entries.map(([sym, data]) => hb.track(async () => {
     const social = await fetchSocialSentiment(sym);
     data.social = social;
     if (social) {
       console.log(`  ✓ ${sym} — ${social.bullishPct.toFixed(0)}% bull / ${social.bearishPct.toFixed(0)}% bear (${Math.round(social.msgCount24h)} msgs/day)`);
     }
-  })());
+  }));
   await Promise.all(tasks);
+  hb.stop();
 }
 
 // Trend tracking — markets run on stories (AI capex, GLP-1 obesity, tariffs,
