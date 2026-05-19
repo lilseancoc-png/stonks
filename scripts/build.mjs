@@ -841,6 +841,21 @@ async function fetchTickerChain(symbol) {
   if (!spot) throw new Error(`No spot for ${symbol}`);
   if (!allExp.length) throw new Error(`No expirations for ${symbol}`);
 
+  // Kick off the two side-channel Yahoo calls (chart for historical bars +
+  // quoteSummary for fundamentals) right away — they hit different endpoints
+  // from the per-expiration options loop, so they can run concurrently with
+  // it. Previously they awaited serially AFTER the loop finished, adding
+  // ~2s of pure wall-clock per ticker. Wrapped in catches so a hiccup on
+  // either side doesn't kill the ticker; option grading still works without
+  // them and the renderer hides those panels when missing.
+  const technicalsPromise = fetchHistoricalBars(symbol)
+    .then((bars) => computeTechnicals(bars))
+    .catch((err) => {
+      console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
+      return null;
+    });
+  const fundamentalsPromise = fetchFundamentals(symbol).catch(() => null);
+
   const expirations = allExp.slice(0, MAX_EXPIRATIONS);
   const minK = spot * (1 - STRIKE_BAND);
   const maxK = spot * (1 + STRIKE_BAND);
@@ -865,22 +880,10 @@ async function fetchTickerChain(symbol) {
     };
   }
 
-  // Pull daily history in parallel with the per-expiration loop above by
-  // kicking off the chart call last (it's cheap and we already have the spot
-  // pinned). Failure is non-fatal — option grading still works without the
-  // momentum panel; the runtime hides the technicals card if it's missing.
-  let technicals = null;
-  try {
-    const bars = await fetchHistoricalBars(symbol);
-    technicals = computeTechnicals(bars);
-  } catch (err) {
-    console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
-  }
-
-  // Fundamentals + earnings — separate Yahoo call (quoteSummary). ETFs return
-  // mostly empty modules, so the renderer hides the card when there's nothing
-  // useful to show.
-  const fundamentals = await fetchFundamentals(symbol);
+  const [technicals, fundamentals] = await Promise.all([
+    technicalsPromise,
+    fundamentalsPromise,
+  ]);
 
   return {
     spot,
@@ -916,7 +919,7 @@ async function fetchRiskFreeRate() {
 // paces its own per-expiration Yahoo calls with the existing 250ms gap inside
 // fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
 // times the serial baseline — still well below typical rate-limit thresholds.
-const TICKER_CONCURRENCY = 3;
+const TICKER_CONCURRENCY = 4;
 
 async function fetchAllTickerChains() {
   const out = {};
