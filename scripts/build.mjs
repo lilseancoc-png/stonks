@@ -2970,6 +2970,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var forward = Array.isArray(opts.forwardPoints) ? opts.forwardPoints.slice() : [];
     var secondary = Array.isArray(opts.secondaryPoints) ? opts.secondaryPoints : null;
     if (history.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+    // Yahoo's earningsTrend ships a "+1y" estimate alongside "+1q". On a
+    // chart of quarterly history the +1y point is 12–18 months past the
+    // last reported quarter but renders in the same equal-spaced column —
+    // making FY+1 estimates look like a near-term quarter (e.g. NVDA's
+    // Jan-2028 FY estimate next to its Jul-2026 +1q). Drop forward points
+    // whose date is more than ~9 months past the last historical quarter
+    // so only short-horizon estimates appear on the chart.
+    if (forward.length && history.length){
+      var lastHistMs = Date.parse(history[history.length - 1].date);
+      if (isFinite(lastHistMs)){
+        var cutoffMs = lastHistMs + 280 * 86400000;
+        forward = forward.filter(function(p){
+          if (!p || !p.date) return false;
+          var t = Date.parse(p.date);
+          return isFinite(t) && t <= cutoffMs;
+        });
+      }
+    }
 
     var W = 320, H = 150, padL = 14, padR = 14, padT = 26, padB = 28;
     var plotW = W - padL - padR;
@@ -3465,6 +3483,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function renderNarrativeTabs(grouped){
     var tabs = $('narratives-tabs');
     if (!tabs) return;
+    // Clone-replace the node so any previously-attached click listener is
+    // detached. Re-running this from multiple paths used to stack handlers
+    // and fire the click N times per click.
+    var fresh = tabs.cloneNode(false);
+    tabs.parentNode.replaceChild(fresh, tabs);
+    tabs = fresh;
     tabs.innerHTML = SECTOR_ORDER.map(function(sec){
       var industries = grouped[sec] || {};
       var total = 0;
@@ -3490,7 +3514,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         all[i].setAttribute('aria-selected', on ? 'true' : 'false');
       }
       renderActiveSectorPanel(grouped);
-    }, { once: false });
+    });
   }
   function renderActiveSectorPanel(grouped){
     var panel = $('narratives-panel');
@@ -3712,43 +3736,49 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     } catch (_) { return ''; }
   }
   function flowContractHtml(c){
+    // All user-visible strings flow through escapeHtml because c.* comes
+    // from a baked JSON feed that, while trusted today, would otherwise be
+    // a one-line path to XSS if the daily build ever included raw input.
+    var sideClass = c.side === 'put' ? 'put' : 'call';
     var sideLabel = c.side === 'put' ? 'PUT' : 'CALL';
-    var strike = c.strike != null ? '$' + c.strike : '';
+    var strike = c.strike != null ? '$' + Number(c.strike) : '';
     var deltaStr = fmtDelta(c.deltaVol);
     var tier = deltaTier(c.deltaVol);
     var otmStr = fmtOtm(c.otmPct);
-    var otmTag = otmStr ? '<span class="flow-otm">' + otmStr + ' OTM</span>' : '';
-    var dteTag = c.dte != null ? '<span class="flow-dte' + (c.dte <= 14 ? ' near' : '') + '">' + c.dte + 'd</span>' : '';
+    var otmTag = otmStr ? '<span class="flow-otm">' + escapeHtml(otmStr) + ' OTM</span>' : '';
+    var dteTag = c.dte != null ? '<span class="flow-dte' + (c.dte <= 14 ? ' near' : '') + '">' + Number(c.dte) + 'd</span>' : '';
     var premStr = c.premium != null ? fmtBigDollars(c.premium) : null;
-    var premTag = premStr ? '<span class="flow-prem">' + premStr + ' prem</span>' : '';
+    var premTag = premStr ? '<span class="flow-prem">' + escapeHtml(premStr) + ' prem</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
-    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + c.tape + '" title="' + tapeTitle(c.tape) + '">' + tapeLbl + '</span>' : '';
+    var tapeCls = String(c.tape || '').replace(/[^a-z0-9_-]/gi, '');
+    var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>' : '';
+    var repeatCount = Number(c.repeatCount) || 0;
     var repeatTag = '';
-    if (c.repeatCount && c.repeatCount >= 2){
+    if (repeatCount >= 2){
       var sinceTxt = c.firstSeen ? ' since ' + fmtRepeatSince(c.firstSeen) : '';
-      repeatTag = '<span class="flow-repeat" title="Flagged ' + c.repeatCount + ' times in the last 5 trading days' + sinceTxt + '">\u{1F525} ×' + c.repeatCount + '</span>';
+      repeatTag = '<span class="flow-repeat" title="' + escapeHtml('Flagged ' + repeatCount + ' times in the last 5 trading days' + sinceTxt) + '">\u{1F525} ×' + repeatCount + '</span>';
     }
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
-    var tipRepeat = (c.repeatCount && c.repeatCount >= 2) ? ' · flagged ' + c.repeatCount + 'x in last 5 trading days' : '';
+    var tipRepeat = repeatCount >= 2 ? ' · flagged ' + repeatCount + 'x in last 5 trading days' : '';
     var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
       (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
       tipPrev +
-      (c.last != null ? ' · last $' + c.last : '') +
+      (c.last != null ? ' · last $' + Number(c.last) : '') +
       tipPrem + tipTape + tipRepeat;
-    return '<div class="flow-chip ' + c.side + ' tier-' + tier + (c.repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + title + '">' +
+    return '<div class="flow-chip ' + sideClass + ' tier-' + tier + (repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + escapeHtml(title) + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
-      '<span class="flow-strike">' + strike + '</span>' +
-      '<span class="flow-exp">' + fmtExpiry(c.expSec) + '</span>' +
+      '<span class="flow-strike">' + escapeHtml(strike) + '</span>' +
+      '<span class="flow-exp">' + escapeHtml(fmtExpiry(c.expSec)) + '</span>' +
       dteTag +
       otmTag +
       '<span class="flow-stats">' +
-        '<span class="flow-vol">' + fmtVolume(c.vol) + '</span>' +
+        '<span class="flow-vol">' + escapeHtml(fmtVolume(c.vol)) + '</span>' +
         '<span class="flow-sep">/</span>' +
-        '<span class="flow-oi">' + fmtVolume(c.oi) + '</span>' +
+        '<span class="flow-oi">' + escapeHtml(fmtVolume(c.oi)) + '</span>' +
       '</span>' +
-      '<span class="flow-delta">' + deltaStr + '/hr</span>' +
+      '<span class="flow-delta">' + escapeHtml(deltaStr) + '/hr</span>' +
       premTag +
       tapeTag +
       repeatTag +
