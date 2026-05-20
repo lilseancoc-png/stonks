@@ -249,5 +249,19 @@ create policy "trades_delete_own"
   on public.trades for delete
   using (auth.uid() = user_id);
 
+-- delete_trade does `select ... for update` on the trade row to lock it
+-- against concurrent close_position calls. In Postgres, SELECT FOR UPDATE
+-- on an RLS-enabled table requires the row to satisfy *both* the SELECT
+-- policy AND the UPDATE policy -- acquiring a row lock counts as intent to
+-- modify. Trades had no UPDATE policy, so the lock-select returned zero
+-- rows and the RPC raised "trade not found" for every delete attempt.
+-- Allow the lock (using=own row) but block real updates (with check=false)
+-- so trades stay append-only at the data layer.
+drop policy if exists "trades_update_own" on public.trades;
+create policy "trades_update_own"
+  on public.trades for update
+  using (auth.uid() = user_id)
+  with check (false);
+
 -- Same story for positions UPDATE used by the RPC -- positions already has
 -- positions_update_own (line 49 above), so no change needed there.
