@@ -1730,6 +1730,24 @@
     var forward = Array.isArray(opts.forwardPoints) ? opts.forwardPoints.slice() : [];
     var secondary = Array.isArray(opts.secondaryPoints) ? opts.secondaryPoints : null;
     if (history.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+    // Yahoo's earningsTrend ships a "+1y" estimate alongside "+1q". On a
+    // chart of quarterly history the +1y point is 12–18 months past the
+    // last reported quarter but renders in the same equal-spaced column —
+    // making FY+1 estimates look like a near-term quarter (e.g. NVDA's
+    // Jan-2028 FY estimate next to its Jul-2026 +1q). Drop forward points
+    // whose date is more than ~9 months past the last historical quarter
+    // so only short-horizon estimates appear on the chart.
+    if (forward.length && history.length){
+      var lastHistMs = Date.parse(history[history.length - 1].date);
+      if (isFinite(lastHistMs)){
+        var cutoffMs = lastHistMs + 280 * 86400000;
+        forward = forward.filter(function(p){
+          if (!p || !p.date) return false;
+          var t = Date.parse(p.date);
+          return isFinite(t) && t <= cutoffMs;
+        });
+      }
+    }
 
     var W = 320, H = 150, padL = 14, padR = 14, padT = 26, padB = 28;
     var plotW = W - padL - padR;
