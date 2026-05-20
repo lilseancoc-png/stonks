@@ -2780,16 +2780,14 @@
     renderUnusualFlow();
     bindFlowControls();
 
-    var radioGroup = document.querySelector('[role="radiogroup"]');
-    if (radioGroup){
-      radioGroup.addEventListener('change', function(ev){
-        if (ev.target && ev.target.name === 'opt-type'){
-          if (state.currentExp) populateStrikes();
-          scheduleEvaluate();
-          pushUrlState();
-        }
+    var optTypeRadios = document.querySelectorAll('input[name="opt-type"]');
+    optTypeRadios.forEach(function(radio){
+      radio.addEventListener('change', function(){
+        if (state.currentExp) populateStrikes();
+        scheduleEvaluate();
+        pushUrlState();
       });
-    }
+    });
     var expSel = $('opt-expiry');
     if (expSel) expSel.addEventListener('change', onExpiryChange);
     var strikeSel = $('opt-strike');
