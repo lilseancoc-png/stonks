@@ -878,7 +878,7 @@
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['narratives','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -894,7 +894,7 @@
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
-    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'narratives');
+    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'tickers');
   }
 
   function buildResultHtml(input){
@@ -1683,6 +1683,36 @@
       var recPretty = f.recommendationKey.replace(/_/g, ' ');
       var recTone = /buy|outperform/i.test(f.recommendationKey) ? 'pos' : /sell|underperform/i.test(f.recommendationKey) ? 'neg' : null;
       metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
+    }
+    // Short interest from Yahoo's twice-monthly settlement print. Tone the
+    // % of float so > 10% reads as the kind of crowded short setup that
+    // tends to whipsaw on positive news.
+    var fmtShares = function(n){
+      if (n == null || !isFinite(n)) return null;
+      var a = Math.abs(n);
+      if (a >= 1e9) return (n/1e9).toFixed(2) + 'B';
+      if (a >= 1e6) return (n/1e6).toFixed(2) + 'M';
+      if (a >= 1e3) return (n/1e3).toFixed(1) + 'K';
+      return String(Math.round(n));
+    };
+    if (f.shortPercentOfFloat != null){
+      var sf = f.shortPercentOfFloat;
+      var sfTone = sf > 10 ? 'warn' : sf > 5 ? 'neg' : null;
+      var sfVal = sf.toFixed(2) + '%';
+      var shCount = fmtShares(f.sharesShort);
+      if (shCount) sfVal += ' <span class="opt-fund-metric-sub">' + shCount + ' sh</span>';
+      var sfLabel = 'Short interest' + (f.dateShortInterest ? ' · ' + f.dateShortInterest : '');
+      metrics += fundMetric(sfLabel, sfVal, sfTone);
+    } else if (f.sharesShort != null){
+      var shCountOnly = fmtShares(f.sharesShort);
+      var sfLabel2 = 'Short interest' + (f.dateShortInterest ? ' · ' + f.dateShortInterest : '');
+      if (shCountOnly) metrics += fundMetric(sfLabel2, shCountOnly + ' sh');
+    }
+    if (f.shortRatio != null){
+      // shortRatio = days-to-cover at avg daily volume. > 5 days is
+      // historically "hard to cover quickly" territory.
+      var srTone = f.shortRatio > 5 ? 'warn' : null;
+      metrics += fundMetric('Days to cover', f.shortRatio.toFixed(1) + 'd', srTone);
     }
     metricsEl.innerHTML = metrics;
     renderEarningsHistory();

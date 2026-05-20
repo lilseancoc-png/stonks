@@ -2536,3 +2536,51 @@ main { padding-top: var(--s-2); }
   font-size: 11px;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
+.streaks-tol {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  padding: 1px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  margin-left: var(--s-2);
+}
+.streaks-tol-counter { color: var(--neg); }
+
+.tickers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.ticker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 8px);
+  background: var(--surface, transparent);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 120ms, background 120ms, transform 120ms;
+}
+.ticker-card:hover {
+  border-color: var(--border-strong, var(--text));
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.ticker-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.ticker-sym {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.ticker-sector {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.3;
+}
