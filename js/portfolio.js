@@ -604,7 +604,7 @@ async function runReview() {
         "content-type": "application/json",
         ...(token ? { authorization: "Bearer " + token } : {}),
       },
-      body: JSON.stringify({ positions: state.positions }),
+      body: JSON.stringify({}),
     });
     const j = await r.json();
     if (!r.ok) {
@@ -662,6 +662,7 @@ function openSellModal(positionId) {
   // otherwise leave blank for the user to fill in manually.
   const review = state.review?.perPosition?.find((r) => r.id === positionId);
   const suggestedPrice = review?.currentMid != null ? Number(review.currentMid).toFixed(2) : "";
+  const opener = document.activeElement;
   host.innerHTML = `
     <div class="pf-modal-backdrop" id="pf-modal-backdrop">
       <div class="pf-modal card" role="dialog" aria-modal="true" aria-labelledby="pf-sell-title">
@@ -687,18 +688,41 @@ function openSellModal(positionId) {
         </form>
       </div>
     </div>`;
-  const closeModal = () => { host.innerHTML = ""; };
+  const onKeyDown = (e) => { if (e.key === "Escape") closeModal(); };
+  const closeModal = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    host.innerHTML = "";
+    if (opener && typeof opener.focus === "function") {
+      try { opener.focus(); } catch (_) {}
+    }
+  };
+  document.addEventListener("keydown", onKeyDown);
   $("pf-modal-close").addEventListener("click", closeModal);
   $("pf-sell-cancel").addEventListener("click", closeModal);
   $("pf-modal-backdrop").addEventListener("click", (e) => {
     if (e.target.id === "pf-modal-backdrop") closeModal();
   });
+  // Focus the quantity input so keyboard users can adjust immediately.
+  const qtyInput = $("pf-sell-qty");
+  if (qtyInput) { qtyInput.focus(); qtyInput.select?.(); }
   $("pf-sell-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const status = $("pf-sell-status");
     const submit = $("pf-sell-submit");
-    const quantity = Math.max(1, Math.floor(Number($("pf-sell-qty").value) || 0));
-    const price = Math.max(0, Number($("pf-sell-price").value) || 0);
+    const qtyRaw = Number($("pf-sell-qty").value);
+    const priceRaw = Number($("pf-sell-price").value);
+    if (!Number.isFinite(qtyRaw) || qtyRaw < 1) {
+      status.textContent = "Enter how many contracts to sell.";
+      status.className = "pf-status pf-status-err";
+      return;
+    }
+    if (!Number.isFinite(priceRaw) || priceRaw < 0) {
+      status.textContent = "Enter a non-negative sell price.";
+      status.className = "pf-status pf-status-err";
+      return;
+    }
+    const quantity = Math.floor(qtyRaw);
+    const price = priceRaw;
     if (quantity > pos.quantity) {
       status.textContent = `You only have ${pos.quantity} contracts open.`;
       status.className = "pf-status pf-status-err";
@@ -737,6 +761,15 @@ function openSellModal(positionId) {
 
 // --- Equity chart ---------------------------------------------------------
 
+function isMissingTableError(err) {
+  if (!err) return false;
+  // PostgREST surfaces "42P01" (Postgres "undefined_table") and its own
+  // "PGRST205" for missing relation/schema cache miss.
+  if (err.code === "42P01" || err.code === "PGRST205") return true;
+  const msg = String(err.message || "").toLowerCase();
+  return msg.includes("does not exist") || msg.includes("not found in schema cache");
+}
+
 async function loadSnapshots() {
   // Reads via Supabase JS client; the snapshots_select_own RLS policy
   // ensures we only see the signed-in user's rows.
@@ -746,12 +779,17 @@ async function loadSnapshots() {
       .select("date, equity, realized_pnl, unrealized_pnl, open_positions")
       .order("date", { ascending: true });
     if (error) {
-      // Table doesn't exist yet (older deployment) — silently hide the chart.
+      if (!isMissingTableError(error)) {
+        // Real failure (auth, network, RLS) — surface it instead of silently
+        // hiding the equity chart and leaving the user wondering.
+        console.error("loadSnapshots failed", error);
+      }
       state.snapshots = [];
     } else {
       state.snapshots = data || [];
     }
-  } catch (_) {
+  } catch (err) {
+    console.error("loadSnapshots threw", err);
     state.snapshots = [];
   }
   renderEquityChart();
@@ -850,23 +888,27 @@ function renderEquityChart() {
 
 // --- Bootstrap ------------------------------------------------------------
 
-async function refreshFromSession() {
-  state.session = await getSession();
-  if (state.session) renderSignedIn();
-  else renderSignedOut();
-}
-
 function init() {
   if (!isConfigured()) {
     renderSignedOut();
     return;
   }
-  onAuthChange((session) => {
+  // Supabase fires onAuthStateChange on token refresh (~hourly) and on tab
+  // focus. Re-rendering on every event wipes any open modal and double-
+  // fetches — only re-mount the pane when the user identity actually changes.
+  let mounted = false;
+  let lastUserId = null;
+  function applyAuth(session) {
+    const nextUserId = session?.user?.id || null;
     state.session = session;
+    if (mounted && nextUserId === lastUserId) return;
+    mounted = true;
+    lastUserId = nextUserId;
     if (session) renderSignedIn();
     else renderSignedOut();
-  });
-  refreshFromSession();
+  }
+  onAuthChange(applyAuth);
+  getSession().then(applyAuth);
 }
 
 // The pane lives inside #page-pane-portfolio. Initialize once the DOM is up.
