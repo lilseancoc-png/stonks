@@ -9,8 +9,9 @@
 //   2. Load the caller's position (RLS enforces user_id match).
 //   3. Validate: quantity > 0, quantity <= remaining, position not closed.
 //   4. Insert a SELL trade row + decrement positions.quantity. When the
-//      remaining quantity hits zero, mark closed_at instead of deleting so
-//      the trade log keeps its FK and the equity history stays intact.
+//      remaining quantity hits zero, mark closed_at (leaving quantity at its
+//      prior positive value to satisfy the > 0 check constraint) instead of
+//      deleting, so the trade log keeps its FK and equity history stays intact.
 //   5. Return updated row + the realized P/L delta for this close.
 
 import { createClient } from "@supabase/supabase-js";
@@ -87,10 +88,14 @@ export default async function handler(req, res) {
   });
   if (tradeErr) return res.status(500).json({ error: tradeErr.message });
 
+  // The positions.quantity column has a `> 0` check constraint, so on a full
+  // close we leave the remaining quantity at its prior value and rely on
+  // closed_at to mark the position closed. Trade rows record the exact sold
+  // quantity, so history is reconstructible.
   const remaining = pos.quantity - quantity;
   const update = remaining > 0
     ? { quantity: remaining }
-    : { quantity: 0, closed_at: new Date().toISOString() };
+    : { closed_at: new Date().toISOString() };
 
   const { data: updated, error: updErr } = await supabase
     .from("positions")
