@@ -54,28 +54,40 @@ async function verifyUser(req) {
   return { user: data.user, supabase };
 }
 
-// Sum realized P/L across all SELL trades for this user, joined back to the
-// originating position's entry_premium. Returns 0 if there are no sells or
-// if the trades table doesn't exist yet (older deployments).
-async function fetchRealizedPnl(supabase, userId) {
+// Walk every SELL trade for this user and tally two numbers:
+//   - realizedPnl:      cumulative profit, (exit - entry) * qty * 100. What
+//                       the UI displays as "realized P/L".
+//   - realizedProceeds: cumulative gross cash from sales, exit * qty * 100.
+//                       Used for the equity formula so the chart stays
+//                       continuous through a close — selling at the current
+//                       mark should leave equity flat, not drop it by the
+//                       cost basis.
+// Returns zeros if the trades table isn't migrated yet (older deployments).
+async function fetchRealizedFromTrades(supabase, userId) {
   const { data, error } = await supabase
     .from("trades")
     .select("quantity, price, side, positions!inner(entry_premium)")
     .eq("user_id", userId)
     .eq("side", "SELL");
-  if (error) return 0;
-  let total = 0;
+  if (error) return { realizedPnl: 0, realizedProceeds: 0 };
+  let realizedPnl = 0;
+  let realizedProceeds = 0;
   for (const t of data || []) {
     const entry = Number(t.positions?.entry_premium ?? 0);
-    total += (Number(t.price) - entry) * Number(t.quantity) * 100;
+    const qty = Number(t.quantity);
+    const price = Number(t.price);
+    realizedPnl += (price - entry) * qty * 100;
+    realizedProceeds += price * qty * 100;
   }
-  return total;
+  return { realizedPnl, realizedProceeds };
 }
 
 // Upsert today's equity snapshot. Idempotent on (user_id, date) — running
 // the review twice in one day overwrites with the latest marks. Best-effort:
 // snapshot failures don't block the review response.
-async function writeSnapshot(supabase, userId, hydrated, realizedPnl) {
+async function writeSnapshot(supabase, userId, hydrated, realized) {
+  const realizedPnl = Number(realized?.realizedPnl || 0);
+  const realizedProceeds = Number(realized?.realizedProceeds || 0);
   let openValue = 0;
   let costBasis = 0;
   let openCount = 0;
@@ -88,7 +100,12 @@ async function writeSnapshot(supabase, userId, hydrated, realizedPnl) {
     openValue += mark * qty * 100;
   }
   const unrealizedPnl = openValue - costBasis;
-  const equity = openValue + Number(realizedPnl || 0);
+  // Equity = mark-to-market value of open positions + gross cash from all
+  // prior sales. Stays continuous when a position closes: its mark drops
+  // out of openValue but its sale price re-enters as proceeds, so a sale
+  // at the live mark leaves equity unchanged (only profit/loss vs cost
+  // basis nudges it — which is the whole point of the chart).
+  const equity = openValue + realizedProceeds;
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
   try {
     await supabase
@@ -97,14 +114,14 @@ async function writeSnapshot(supabase, userId, hydrated, realizedPnl) {
         user_id: userId,
         date: today,
         equity: Math.round(equity * 100) / 100,
-        realized_pnl: Math.round(Number(realizedPnl || 0) * 100) / 100,
+        realized_pnl: Math.round(realizedPnl * 100) / 100,
         unrealized_pnl: Math.round(unrealizedPnl * 100) / 100,
         open_positions: openCount,
       }, { onConflict: "user_id,date" });
   } catch (_) {
     // schema not migrated yet — skip silently.
   }
-  return { equity, unrealizedPnl, realizedPnl: Number(realizedPnl || 0), date: today };
+  return { equity, unrealizedPnl, realizedPnl, realizedProceeds, date: today };
 }
 
 function ageDaysFrom(iso) {
@@ -489,8 +506,8 @@ export default async function handler(req, res) {
   // returns a clean response without snapshot data.
   let snapshot = null;
   try {
-    const realizedPnl = await fetchRealizedPnl(auth.supabase, auth.user.id);
-    snapshot = await writeSnapshot(auth.supabase, auth.user.id, hydrated, realizedPnl);
+    const realized = await fetchRealizedFromTrades(auth.supabase, auth.user.id);
+    snapshot = await writeSnapshot(auth.supabase, auth.user.id, hydrated, realized);
   } catch (_) {
     snapshot = null;
   }
