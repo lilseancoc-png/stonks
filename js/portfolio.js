@@ -70,6 +70,8 @@ const state = {
   chainCache: Object.create(null), // symbol -> { expirations:[{sec,label}], chains:{sec:{c:[],p:[]}} }
   snapshots: [],
   snapshotRange: "1M",
+  trades: [],       // closed trade history (SELL records from trades table)
+  tradesRange: "ALL",
 };
 
 // --- Sign-in panel + auth wiring -----------------------------------------
@@ -161,6 +163,7 @@ function renderSignedIn() {
       <div id="pf-equity" class="pf-equity" hidden></div>
       <div id="pf-list" class="pf-list" role="status" aria-live="polite">Loading…</div>
       <div id="pf-review" class="pf-review" hidden></div>
+      <div id="pf-history" class="pf-history" hidden></div>
     </section>
     <div id="pf-modal-host"></div>`;
 
@@ -170,6 +173,7 @@ function renderSignedIn() {
 
   loadPositions();
   loadSnapshots();
+  loadTradeHistory();
 }
 
 // --- Positions CRUD -------------------------------------------------------
@@ -680,6 +684,7 @@ function openSellModal(positionId) {
             <span class="field-label">Sell price (per contract)</span>
             <input type="number" id="pf-sell-price" min="0" step="0.01" placeholder="e.g. 5.40" value="${suggestedPrice}" required>
           </label>
+          <div id="pf-sell-preview" class="pf-sell-preview" role="status" aria-live="polite"></div>
           <p id="pf-sell-status" class="pf-status" role="status" aria-live="polite"></p>
           <div class="pf-add-actions">
             <button type="button" class="pf-btn" id="pf-sell-cancel">Cancel</button>
@@ -705,6 +710,30 @@ function openSellModal(positionId) {
   // Focus the quantity input so keyboard users can adjust immediately.
   const qtyInput = $("pf-sell-qty");
   if (qtyInput) { qtyInput.focus(); qtyInput.select?.(); }
+
+  // Live P&L preview as the user types sell price / quantity.
+  function updateSellPreview() {
+    const preview = $("pf-sell-preview");
+    if (!preview) return;
+    const qty = Number($("pf-sell-qty")?.value);
+    const price = Number($("pf-sell-price")?.value);
+    if (!isFinite(qty) || qty < 1 || !isFinite(price) || price < 0) {
+      preview.textContent = "";
+      preview.className = "pf-sell-preview";
+      return;
+    }
+    const pnl = (price - pos.entry_premium) * qty * 100;
+    const pct = pos.entry_premium > 0 ? ((price - pos.entry_premium) / pos.entry_premium) * 100 : null;
+    const sign = pnl >= 0 ? "+" : "";
+    const pnlStr = sign + (pnl < 0 ? "-" : "") + "$" + Math.abs(pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    preview.textContent = "Realize " + pnlStr + (pct != null ? " (" + fmtPct(pct) + ")" : "");
+    preview.className = "pf-sell-preview " + (pnl >= 0 ? "pf-pos" : "pf-neg");
+  }
+  $("pf-sell-price")?.addEventListener("input", updateSellPreview);
+  $("pf-sell-qty")?.addEventListener("input", updateSellPreview);
+  // Run once with pre-filled value.
+  updateSellPreview();
+
   $("pf-sell-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const status = $("pf-sell-status");
@@ -751,6 +780,7 @@ function openSellModal(positionId) {
       closeModal();
       await loadPositions();
       await loadSnapshots();
+      await loadTradeHistory();
     } catch (err) {
       status.textContent = err.message || "Couldn't log sell.";
       status.className = "pf-status pf-status-err";
@@ -882,6 +912,353 @@ function renderEquityChart() {
     btn.addEventListener("click", () => {
       state.snapshotRange = btn.dataset.range;
       renderEquityChart();
+    });
+  });
+}
+
+// --- Trade history & performance analytics --------------------------------
+
+async function loadTradeHistory() {
+  try {
+    const { data, error } = await supabase
+      .from("trades")
+      .select(`
+        id, quantity, price, traded_at,
+        positions!inner (
+          symbol, side, strike, expiry, entry_premium, opened_at, created_at
+        )
+      `)
+      .eq("side", "SELL")
+      .order("traded_at", { ascending: false });
+    if (error) {
+      state.trades = [];
+    } else {
+      state.trades = (data || []).map((t) => {
+        const pos = t.positions || {};
+        const entry = Number(pos.entry_premium ?? 0);
+        const exit = Number(t.price);
+        const qty = Number(t.quantity);
+        const realizedPnl = (exit - entry) * qty * 100;
+        const pnlPct = entry > 0 ? ((exit - entry) / entry) * 100 : null;
+        const openedAt = pos.opened_at || pos.created_at || null;
+        const holdMs = openedAt ? new Date(t.traded_at).getTime() - new Date(openedAt).getTime() : null;
+        const holdDays = holdMs != null ? Math.max(0, Math.round(holdMs / 86400000)) : null;
+        return {
+          id: t.id,
+          symbol: String(pos.symbol || "?").toUpperCase(),
+          side: String(pos.side || "?"),
+          strike: Number(pos.strike) || 0,
+          expiry: Number(pos.expiry) || 0,
+          quantity: qty,
+          entryPremium: entry,
+          exitPrice: exit,
+          openedAt,
+          closedAt: t.traded_at,
+          holdDays,
+          realizedPnl,
+          pnlPct,
+          isWin: realizedPnl > 0,
+        };
+      });
+    }
+  } catch (_) {
+    state.trades = [];
+  }
+  renderPerformance();
+}
+
+function filterTradesByRange(trades, range) {
+  if (!range || range === "ALL") return trades;
+  const now = new Date();
+  let cutoff;
+  if (range === "YTD") {
+    cutoff = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+  } else {
+    const days = { "1D": 1, "1W": 7, "1M": 30, "3M": 90, "1Y": 365 }[range];
+    if (!days) return trades;
+    cutoff = new Date(Date.now() - days * 86400000);
+  }
+  return trades.filter((t) => t.closedAt && new Date(t.closedAt) >= cutoff);
+}
+
+function computeTradeAnalytics(trades) {
+  if (!trades.length) return null;
+  const totalPnl = trades.reduce((s, t) => s + t.realizedPnl, 0);
+  const wins = trades.filter((t) => t.isWin);
+  const losses = trades.filter((t) => !t.isWin);
+  const winRate = (wins.length / trades.length) * 100;
+  const holdArr = trades.filter((t) => t.holdDays != null).map((t) => t.holdDays);
+  const avgHold = holdArr.length ? holdArr.reduce((s, d) => s + d, 0) / holdArr.length : null;
+  const sorted = trades.slice().sort((a, b) => b.realizedPnl - a.realizedPnl);
+  const topWins = sorted.filter((t) => t.realizedPnl > 0).slice(0, 5);
+  const topLosses = sorted.filter((t) => t.realizedPnl < 0).reverse().slice(0, 5);
+  const calls = trades.filter((t) => t.side === "call");
+  const puts = trades.filter((t) => t.side === "put");
+  const callWinRate = calls.length ? (calls.filter((t) => t.isWin).length / calls.length) * 100 : null;
+  const putWinRate = puts.length ? (puts.filter((t) => t.isWin).length / puts.length) * 100 : null;
+  const bySymbol = {};
+  for (const t of trades) {
+    if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { symbol: t.symbol, pnl: 0, count: 0, wins: 0 };
+    bySymbol[t.symbol].pnl += t.realizedPnl;
+    bySymbol[t.symbol].count++;
+    if (t.isWin) bySymbol[t.symbol].wins++;
+  }
+  const symbolList = Object.values(bySymbol).sort((a, b) => b.pnl - a.pnl).slice(0, 12);
+  return {
+    totalPnl,
+    tradeCount: trades.length,
+    winCount: wins.length,
+    lossCount: losses.length,
+    winRate,
+    avgHold,
+    topWins,
+    topLosses,
+    callCount: calls.length,
+    putCount: puts.length,
+    callWinRate,
+    putWinRate,
+    symbolList,
+  };
+}
+
+// Build cumulative realized P&L chart from individual trades (more accurate
+// than snapshots since it uses actual trade timestamps, not daily rollups).
+function buildPnlChartSvg(trades) {
+  const sorted = trades.slice().sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
+  if (sorted.length < 1) return "";
+  // Build cumulative curve: start at 0, add each trade in time order.
+  let cum = 0;
+  const points = [{ t: new Date(sorted[0].closedAt).getTime() - 1, v: 0 }];
+  for (const t of sorted) {
+    cum += t.realizedPnl;
+    points.push({ t: new Date(t.closedAt).getTime(), v: cum });
+  }
+  if (points.length < 2) return "";
+
+  const W = 640, H = 140, padL = 8, padR = 8, padT = 12, padB = 16;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const vals = points.map((p) => p.v);
+  const tMin = points[0].t;
+  const tMax = points[points.length - 1].t;
+  const tRange = Math.max(tMax - tMin, 1);
+  const lo = Math.min(0, ...vals);
+  const hi = Math.max(0, ...vals);
+  let vRange = hi - lo;
+  if (vRange === 0) vRange = Math.max(1, Math.abs(hi) * 0.2, 10);
+  const yMin = lo - vRange * 0.1;
+  const yMax = hi + vRange * 0.1;
+  const yFor = (v) => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+  const xFor = (t) => padL + ((t - tMin) / tRange) * plotW;
+  const lastVal = vals[vals.length - 1];
+  const up = lastVal >= 0;
+  const zeroY = yFor(0).toFixed(2);
+
+  let path = "";
+  points.forEach((p, i) => {
+    path += (i === 0 ? "M" : " L") + xFor(p.t).toFixed(2) + "," + yFor(p.v).toFixed(2);
+  });
+  const areaPath = path +
+    ` L${xFor(tMax).toFixed(2)},${zeroY} L${xFor(tMin).toFixed(2)},${zeroY} Z`;
+
+  return `<svg class="pf-equity-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Cumulative realized P&L">
+    <line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="4,3"/>
+    <path class="pf-equity-area ${up ? "up" : "down"}" d="${areaPath}" />
+    <path class="pf-equity-line ${up ? "up" : "down"}" d="${path}" />
+  </svg>`;
+}
+
+function renderPerformance() {
+  const box = $("pf-history");
+  if (!box) return;
+
+  const allTrades = state.trades;
+  const range = state.tradesRange;
+  const filtered = filterTradesByRange(allTrades, range);
+  const analytics = computeTradeAnalytics(filtered);
+
+  if (!allTrades.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+
+  const ranges = ["1D", "1W", "1M", "3M", "YTD", "1Y", "ALL"];
+  const rangeBtns = ranges.map((r) =>
+    `<button type="button" class="pf-range-btn ${r === range ? "is-active" : ""}" data-hist-range="${r}">${r}</button>`
+  ).join("");
+
+  const chartSvg = buildPnlChartSvg(filtered.length ? filtered : allTrades);
+
+  // Big P&L number for the period
+  const periodPnl = analytics ? analytics.totalPnl : null;
+  const periodPnlHtml = periodPnl != null ? `
+    <div class="pf-perf-pnl">
+      <div class="pf-perf-pnl-label">Realized P&amp;L · ${escapeHtml(range)}</div>
+      <div class="pf-perf-pnl-value ${periodPnl >= 0 ? "pf-pos" : "pf-neg"}">
+        ${periodPnl >= 0 ? "+" : ""}${periodPnl < 0 ? "-$" : "$"}${Math.abs(periodPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </div>
+    </div>` : "";
+
+  // 4-card stats grid
+  let statsHtml = "";
+  if (analytics) {
+    const holdStr = analytics.avgHold != null
+      ? (analytics.avgHold < 1 ? "<1d" : Math.round(analytics.avgHold) + "d")
+      : "—";
+    const sideStr = [
+      analytics.callCount ? analytics.callCount + "C" : "",
+      analytics.putCount ? analytics.putCount + "P" : "",
+    ].filter(Boolean).join(" · ") || "—";
+    const callWinStr = analytics.callWinRate != null ? analytics.callWinRate.toFixed(0) + "%" : "—";
+    const putWinStr = analytics.putWinRate != null ? analytics.putWinRate.toFixed(0) + "%" : "—";
+    statsHtml = `
+      <div class="pf-perf-stats">
+        <div class="pf-stat-card">
+          <div class="pf-stat-label">Win Rate</div>
+          <div class="pf-stat-value">${analytics.winRate.toFixed(0)}%</div>
+          <div class="pf-stat-sub">${analytics.winCount}W · ${analytics.lossCount}L · ${analytics.tradeCount} total</div>
+        </div>
+        <div class="pf-stat-card">
+          <div class="pf-stat-label">Avg Hold</div>
+          <div class="pf-stat-value">${holdStr}</div>
+          <div class="pf-stat-sub">${sideStr}</div>
+        </div>
+        <div class="pf-stat-card">
+          <div class="pf-stat-label">Call Win %</div>
+          <div class="pf-stat-value">${callWinStr}</div>
+          <div class="pf-stat-sub">${analytics.callCount} call trade${analytics.callCount !== 1 ? "s" : ""}</div>
+        </div>
+        <div class="pf-stat-card">
+          <div class="pf-stat-label">Put Win %</div>
+          <div class="pf-stat-value">${putWinStr}</div>
+          <div class="pf-stat-sub">${analytics.putCount} put trade${analytics.putCount !== 1 ? "s" : ""}</div>
+        </div>
+      </div>`;
+  }
+
+  // Top winners / biggest losses
+  let winsLossesHtml = "";
+  if (analytics && (analytics.topWins.length || analytics.topLosses.length)) {
+    const tradeCard = (t) => {
+      const pnlStr = (t.realizedPnl >= 0 ? "+" : "-") + "$" +
+        Math.abs(t.realizedPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return `
+        <div class="pf-trade-item">
+          <div class="pf-trade-item-info">
+            <span class="pf-symbol">${escapeHtml(t.symbol)}</span>
+            <span class="pf-leg">${escapeHtml(t.side.toUpperCase())} $${fmtNum(t.strike, 0)} · ${t.quantity}×</span>
+            ${t.holdDays != null ? `<span class="pf-age">${t.holdDays === 0 ? "<1d" : t.holdDays + "d hold"}</span>` : ""}
+          </div>
+          <div class="pf-trade-item-pnl ${t.realizedPnl >= 0 ? "pf-pos" : "pf-neg"}">
+            <span class="pf-trade-item-amt">${pnlStr}</span>
+            ${t.pnlPct != null ? `<span class="pf-trade-item-pct">${fmtPct(t.pnlPct)}</span>` : ""}
+          </div>
+        </div>`;
+    };
+    winsLossesHtml = `
+      <div class="pf-perf-wl">
+        ${analytics.topWins.length ? `
+          <div class="pf-perf-col">
+            <div class="pf-perf-col-head">Top Winners</div>
+            ${analytics.topWins.map(tradeCard).join("")}
+          </div>` : ""}
+        ${analytics.topLosses.length ? `
+          <div class="pf-perf-col">
+            <div class="pf-perf-col-head pf-perf-col-head-loss">Biggest Losses</div>
+            ${analytics.topLosses.map(tradeCard).join("")}
+          </div>` : ""}
+      </div>`;
+  }
+
+  // Symbol breakdown chips
+  let symbolHtml = "";
+  if (analytics && analytics.symbolList.length > 1) {
+    symbolHtml = `
+      <div class="pf-perf-symbols">
+        <div class="pf-perf-section-head">By Ticker</div>
+        <div class="pf-symbol-chips">
+          ${analytics.symbolList.map((s) => {
+            const pnlStr = (s.pnl >= 0 ? "+" : "-") + "$" +
+              Math.abs(s.pnl).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            const winPct = s.count ? Math.round((s.wins / s.count) * 100) : 0;
+            return `
+              <div class="pf-sym-chip ${s.pnl >= 0 ? "pos" : "neg"}">
+                <span class="pf-sym-chip-sym">${escapeHtml(s.symbol)}</span>
+                <span class="pf-sym-chip-pnl">${pnlStr}</span>
+                <span class="pf-sym-chip-meta">${winPct}% · ${s.count}t</span>
+              </div>`;
+          }).join("")}
+        </div>
+      </div>`;
+  }
+
+  // Trade log table
+  let logHtml = "";
+  if (filtered.length) {
+    const rows = filtered.map((t) => {
+      const pnlStr = (t.realizedPnl >= 0 ? "+" : "-") + "$" +
+        Math.abs(t.realizedPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return `
+        <tr>
+          <td>
+            <span class="pf-symbol">${escapeHtml(t.symbol)}</span>
+            <span class="pf-leg">${escapeHtml(t.side.toUpperCase())}</span>
+          </td>
+          <td class="pf-mono">$${fmtNum(t.strike, 0)}</td>
+          <td class="pf-mono">${fmtMoney(t.entryPremium)}</td>
+          <td class="pf-mono">${fmtMoney(t.exitPrice)}</td>
+          <td class="pf-mono">${t.quantity}×</td>
+          <td class="pf-mono ${t.realizedPnl >= 0 ? "pf-pos" : "pf-neg"}">${pnlStr}</td>
+          <td class="pf-mono ${t.pnlPct != null ? (t.pnlPct >= 0 ? "pf-pos" : "pf-neg") : ""}">${t.pnlPct != null ? fmtPct(t.pnlPct) : "—"}</td>
+          <td class="pf-muted">${t.holdDays != null ? (t.holdDays === 0 ? "<1d" : t.holdDays + "d") : "—"}</td>
+          <td class="pf-muted">${escapeHtml(fmtDate(t.closedAt))}</td>
+        </tr>`;
+    }).join("");
+    logHtml = `
+      <div class="pf-trade-log">
+        <div class="pf-perf-section-head">Trade History (${filtered.length})</div>
+        <div class="pf-table-scroll">
+          <table class="pf-trade-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Strike</th>
+                <th>Entry</th>
+                <th>Exit</th>
+                <th>Qty</th>
+                <th>P&amp;L $</th>
+                <th>P&amp;L %</th>
+                <th>Hold</th>
+                <th>Closed</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  } else {
+    logHtml = `<p class="pf-empty pf-perf-empty">No trades in this period.</p>`;
+  }
+
+  box.innerHTML = `
+    <div class="pf-perf">
+      <div class="pf-perf-header">
+        <h3 class="pf-perf-title">Performance</h3>
+        <div class="pf-equity-ranges" role="tablist">${rangeBtns}</div>
+      </div>
+      ${periodPnlHtml}
+      ${chartSvg ? `<div class="pf-perf-chart">${chartSvg}</div>` : ""}
+      ${statsHtml}
+      ${winsLossesHtml}
+      ${symbolHtml}
+      ${logHtml}
+    </div>`;
+
+  box.querySelectorAll("[data-hist-range]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.tradesRange = btn.dataset.histRange;
+      renderPerformance();
     });
   });
 }

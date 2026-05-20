@@ -360,3 +360,271 @@
   border-radius: 50%;
   background: var(--accent);
 }
+
+/* Sell modal P&L preview */
+.pf-sell-preview {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 700;
+  min-height: 1.4em;
+  padding: 4px 0;
+}
+
+/* =========================================================
+   Performance & Trade History Section
+   ========================================================= */
+
+.pf-history {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+
+.pf-perf {
+  display: grid;
+  gap: 20px;
+}
+
+.pf-perf-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pf-perf-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-strong, var(--text));
+}
+.pf-perf-title::before {
+  content: '';
+  display: inline-block;
+  width: 2px; height: 13px;
+  background: var(--accent);
+  border-radius: 2px;
+  margin-right: 10px;
+  vertical-align: -2px;
+  opacity: 0.85;
+}
+
+/* Big P&L number */
+.pf-perf-pnl {
+  display: grid;
+  gap: 2px;
+}
+.pf-perf-pnl-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.pf-perf-pnl-value {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+/* Chart container */
+.pf-perf-chart {
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 8px);
+  overflow: hidden;
+  background: var(--surface-2, transparent);
+  padding: 8px 0 4px;
+}
+
+/* 4-card stats grid */
+.pf-perf-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .pf-perf-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 400px) {
+  .pf-perf-stats { grid-template-columns: 1fr; }
+}
+.pf-stat-card {
+  background: var(--surface-2, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 8px);
+  padding: 12px 14px;
+  display: grid;
+  gap: 3px;
+}
+.pf-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.pf-stat-value {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.pf-stat-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Top winners / biggest losses two-col */
+.pf-perf-wl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 600px) {
+  .pf-perf-wl { grid-template-columns: 1fr; }
+}
+.pf-perf-col {
+  display: grid;
+  gap: 6px;
+}
+.pf-perf-col-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: var(--pos, var(--accent));
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.pf-perf-col-head-loss { color: var(--neg, #ff5000); }
+
+.pf-trade-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface-2, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 8px);
+}
+.pf-trade-item-info {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.pf-trade-item-pnl {
+  display: grid;
+  gap: 1px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.pf-trade-item-amt {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  font-weight: 700;
+}
+.pf-trade-item-pct {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Section sub-headings */
+.pf-perf-section-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* Symbol chips breakdown */
+.pf-perf-symbols { display: grid; gap: 8px; }
+.pf-symbol-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pf-sym-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  background: var(--surface-2, transparent);
+}
+.pf-sym-chip.pos {
+  border-color: color-mix(in srgb, var(--pos, var(--accent)) 40%, var(--border));
+  background: color-mix(in srgb, var(--pos, var(--accent)) 6%, transparent);
+}
+.pf-sym-chip.neg {
+  border-color: color-mix(in srgb, var(--neg, #ff5000) 40%, var(--border));
+  background: color-mix(in srgb, var(--neg, #ff5000) 6%, transparent);
+}
+.pf-sym-chip-sym {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 700;
+  font-size: 12px;
+}
+.pf-sym-chip-pnl {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 600;
+  font-size: 12px;
+}
+.pf-sym-chip.pos .pf-sym-chip-pnl { color: var(--pos, var(--accent)); }
+.pf-sym-chip.neg .pf-sym-chip-pnl { color: var(--neg, #ff5000); }
+.pf-sym-chip-meta { color: var(--muted); font-size: 11px; }
+
+/* Trade log table */
+.pf-trade-log { display: grid; gap: 8px; }
+.pf-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pf-trade-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pf-trade-table th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pf-trade-table td {
+  padding: 8px 10px 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  vertical-align: middle;
+}
+.pf-trade-table tr:last-child td { border-bottom: none; }
+.pf-trade-table .pf-symbol { font-size: 13px; }
+.pf-trade-table .pf-leg { font-size: 11px; display: block; }
+.pf-mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-feature-settings: "tnum" 1;
+}
+.pf-muted { color: var(--muted); }
+
+.pf-perf-empty {
+  padding: 20px 16px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-2, transparent);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-2, 8px);
+  margin: 0;
+  font-size: 13px;
+}
