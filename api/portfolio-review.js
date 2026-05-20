@@ -2,16 +2,18 @@
 //
 // POST /api/portfolio-review
 // Headers: Authorization: Bearer <supabase-jwt>
-// Body:    { positions: [{ id, symbol, side, expiry, strike, quantity,
-//                          entry_premium, opened_at, created_at }] }
+// Body:    {}  (positions are loaded server-side from the DB — clients used
+//               to send them in the body, which let a caller poison their
+//               own equity snapshot by fabricating prices)
 //
 // Flow:
 //   1. Verify the JWT via Supabase (using the service-role key server-side).
-//   2. Hydrate each position with a live mid (Yahoo) + Greeks (Black-Scholes).
-//   3. Hand the hydrated portfolio to Gemini and ask for sell/hold/roll/
+//   2. Load the caller's open positions from the DB (closed_at IS NULL).
+//   3. Hydrate each position with a live mid (Yahoo) + Greeks (Black-Scholes).
+//   4. Hand the hydrated portfolio to Gemini and ask for sell/hold/roll/
 //      trim-to-cost recommendations plus a portfolio-level summary.
-//   4. Upsert today's equity snapshot (used by the equity chart).
-//   5. Return JSON. Per-position errors degrade gracefully; one bad symbol
+//   5. Upsert today's equity snapshot (used by the equity chart).
+//   6. Return JSON. Per-position errors degrade gracefully; one bad symbol
 //      never blocks the whole review.
 
 import { createClient } from "@supabase/supabase-js";
@@ -445,17 +447,29 @@ export default async function handler(req, res) {
   const auth = await verifyUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
 
-  const body = req.body && typeof req.body === "object" ? req.body : {};
-  const positions = Array.isArray(body.positions) ? body.positions : null;
-  if (!positions || positions.length === 0) {
+  // Load the caller's open positions from the DB. Trusting client-supplied
+  // positions let a caller poison their own equity snapshot by submitting
+  // fabricated prices/quantities.
+  const { data: dbPositions, error: posErr } = await auth.supabase
+    .from("positions")
+    .select("id, symbol, side, expiry, strike, quantity, entry_premium, opened_at, created_at")
+    .eq("user_id", auth.user.id)
+    .is("closed_at", null)
+    .order("opened_at", { ascending: false })
+    .limit(MAX_POSITIONS + 1);
+  if (posErr) {
+    console.error("portfolio-review load failed", { code: posErr.code, message: posErr.message });
+    return res.status(500).json({ error: "could not load positions" });
+  }
+  if (!dbPositions || dbPositions.length === 0) {
     return res.status(400).json({ error: "no positions" });
   }
-  if (positions.length > MAX_POSITIONS) {
+  if (dbPositions.length > MAX_POSITIONS) {
     return res.status(400).json({ error: `too many positions (max ${MAX_POSITIONS})` });
   }
 
   // Normalize symbol + side to keep prompt + Yahoo calls predictable.
-  const normalized = positions.map((p) => ({
+  const normalized = dbPositions.map((p) => ({
     id: clean(p.id),
     symbol: String(p.symbol || "").toUpperCase().trim(),
     side: p.side === "put" ? "put" : "call",

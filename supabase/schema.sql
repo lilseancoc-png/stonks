@@ -109,3 +109,74 @@ drop policy if exists "snapshots_select_own" on public.portfolio_snapshots;
 create policy "snapshots_select_own"
   on public.portfolio_snapshots for select
   using (auth.uid() = user_id);
+
+-- Atomic close: takes a row lock on the position, validates, inserts the
+-- SELL trade, and updates quantity (or closed_at) in a single transaction.
+-- Runs as the caller (security invoker) so RLS on positions/trades enforces
+-- ownership via auth.uid(); the function only needs grant execute below.
+create or replace function public.close_position(
+  p_position_id uuid,
+  p_quantity int,
+  p_price numeric
+) returns table (
+  id uuid,
+  symbol text,
+  side text,
+  expiry bigint,
+  strike numeric,
+  quantity int,
+  entry_premium numeric,
+  opened_at timestamptz,
+  closed_at timestamptz,
+  realized_pnl numeric
+) language plpgsql security invoker as $$
+declare
+  pos public.positions%rowtype;
+begin
+  if p_quantity is null or p_quantity <= 0 then
+    raise exception 'quantity must be a positive integer' using errcode = '22023';
+  end if;
+  if p_price is null or p_price < 0 then
+    raise exception 'price must be a non-negative number' using errcode = '22023';
+  end if;
+
+  -- Row lock keeps concurrent closes from racing past validation.
+  select * into pos
+    from public.positions
+    where positions.id = p_position_id and positions.user_id = auth.uid()
+    for update;
+  if not found then
+    raise exception 'position not found' using errcode = 'P0002';
+  end if;
+  if pos.closed_at is not null then
+    raise exception 'position already closed' using errcode = 'P0001';
+  end if;
+  if p_quantity > pos.quantity then
+    raise exception 'quantity exceeds remaining (%)', pos.quantity using errcode = '22023';
+  end if;
+
+  insert into public.trades (user_id, position_id, side, quantity, price)
+    values (auth.uid(), p_position_id, 'SELL', p_quantity, p_price);
+
+  if pos.quantity - p_quantity > 0 then
+    update public.positions
+       set quantity = pos.quantity - p_quantity
+     where positions.id = p_position_id
+     returning * into pos;
+  else
+    -- Leave quantity at its prior positive value to satisfy the > 0 check
+    -- constraint; closed_at is the source of truth for "open" vs "closed".
+    update public.positions
+       set closed_at = now()
+     where positions.id = p_position_id
+     returning * into pos;
+  end if;
+
+  return query select
+    pos.id, pos.symbol, pos.side, pos.expiry, pos.strike, pos.quantity,
+    pos.entry_premium, pos.opened_at, pos.closed_at,
+    (p_price - pos.entry_premium) * p_quantity * 100;
+end;
+$$;
+
+grant execute on function public.close_position(uuid, int, numeric) to authenticated;
