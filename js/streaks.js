@@ -98,6 +98,17 @@ function entry(t, sectors) {
   const movesStr = moves.map((m) => fmtPct(m.changePct, 1)).join(", ");
   const cumCls = t.current.color === "green" ? "streaks-pos" : "streaks-neg";
   const dot = t.current.color === "green" ? "🟢" : t.current.color === "red" ? "🔴" : "⚪";
+  // Tolerance badge: only show when the streak has absorbed at least one
+  // counter day. Reads "tol 0.50%/1.5% · 1/4d" -- bank used / break point,
+  // consecutive counter days / break point. Helps the reader see how
+  // close the streak is to one of the tripwires firing.
+  const tol = Number(t.current.tolerancePct || 0);
+  const counterDays = Number(t.current.counterDays || 0);
+  const tolBreak = Number(t.current.toleranceBreakPct || 1.5);
+  const counterBreak = Number(t.current.counterDaysBreak || 4);
+  const toleranceBadge = (tol > 0 || counterDays > 0)
+    ? `<span class="streaks-tol streaks-tol-counter" title="Counter-day tolerance used / break point · consecutive counter days / break">tol ${tol.toFixed(2)}% / ${tolBreak.toFixed(1)}% · ${counterDays}/${counterBreak}d</span>`
+    : "";
   return `
     <article class="streaks-row">
       <div class="streaks-head">
@@ -105,6 +116,7 @@ function entry(t, sectors) {
         <span class="streaks-sym">${escapeHtml(sym)}</span>
         ${sector ? `<span class="streaks-sector">${escapeHtml(sector)}</span>` : ""}
         <span class="streaks-days">${t.current.days}d</span>
+        ${toleranceBadge}
       </div>
       <div class="streaks-meta">
         <span class="streaks-cum ${cumCls}">${fmtPct(t.current.cumulativePct)} cum</span>
