@@ -414,45 +414,127 @@ async function fetchHistoricalBars(symbol) {
     }));
 }
 
-// Walks daily closes newest-first and reports the current same-color run.
-// A move is green if (close-prevClose)>0, red if <0, otherwise flat. Flat
-// days break the streak. Returns null for tickers without enough bars to
-// derive even one day-over-day move.
+// Streak break thresholds. A "counter day" is a daily move opposite the
+// streak direction (red move during a green streak, or vice versa). Small
+// counter days don't break a streak immediately; they accumulate into a
+// tolerance bank and a consecutive-counter-day counter. The streak ends
+// only when one of these tripwires fires:
+//   • a single counter day's magnitude exceeds COUNTER_BREAK_PCT
+//   • the tolerance bank reaches CUM_TOLERANCE_BREAK_PCT
+//   • CONSECUTIVE_COUNTER_BREAK counter days line up in a row
+// A same-direction day "heals" the streak: tolerance bank and consecutive
+// counter-day counter both reset to zero. Tolerance only kicks in once
+// the streak has logged ≥ 2 same-direction days -- a lone +0.5% day
+// followed by a small red day isn't really a "streak" to defend.
+const STREAK_COUNTER_BREAK_PCT = 1.2;
+const STREAK_CUM_TOLERANCE_BREAK_PCT = 1.5;
+const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
+
+// Walks daily closes oldest-first, building each day's % change, and
+// simulates the current streak forward. Returns null for tickers without
+// enough bars to derive even one day-over-day move.
 function computeStreakForTicker(symbol, bars) {
   if (!bars || bars.length < 2) return null;
-  const ordered = bars.slice();
+  // Cap at the most recent ~60 sessions so we don't carry decades of
+  // history forward; the active streak is always recent by definition.
+  const tail = bars.slice(-60);
   const moves = [];
-  // Walk from newest down; produce up to 30 most-recent moves.
-  for (let i = ordered.length - 1; i > 0 && moves.length < 30; i--) {
-    const prev = ordered[i - 1];
-    const curr = ordered[i];
+  for (let i = 1; i < tail.length; i++) {
+    const prev = tail[i - 1];
+    const curr = tail[i];
     if (!(prev?.c > 0) || !(curr?.c > 0)) continue;
     const changePct = ((curr.c - prev.c) / prev.c) * 100;
     const color = changePct > 0 ? "green" : changePct < 0 ? "red" : "flat";
     moves.push({ date: curr.t || null, close: curr.c, changePct, color });
   }
   if (!moves.length) return null;
-  const headColor = moves[0].color;
-  let days = 0;
-  let cumulativePct = 0;
-  if (headColor !== "flat") {
-    for (const m of moves) {
-      if (m.color !== headColor) break;
-      days++;
-      cumulativePct += m.changePct;
+
+  // Walk oldest -> newest, restarting the streak whenever a break fires.
+  // Whatever streak survives to the end of the loop is the "current" one.
+  let streak = null;
+  const startStreak = (m) => ({
+    direction: m.color,
+    days: 1,
+    sameDays: 1,
+    cumulativePct: m.changePct,
+    tolerancePct: 0,
+    counterDays: 0,
+    history: [m],
+  });
+  for (const m of moves) {
+    if (m.color === "flat") {
+      // Flat days are neither same nor counter -- record them but don't
+      // touch the streak's bookkeeping.
+      if (streak) {
+        streak.days += 1;
+        streak.history.push(m);
+      }
+      continue;
     }
+    if (!streak) {
+      streak = startStreak(m);
+      continue;
+    }
+    if (m.color === streak.direction) {
+      // Same-direction day: extend, "heal" tolerance + counter counters.
+      streak.sameDays += 1;
+      streak.days += 1;
+      streak.cumulativePct += m.changePct;
+      streak.tolerancePct = 0;
+      streak.counterDays = 0;
+      streak.history.push(m);
+      continue;
+    }
+    // Counter-direction day. Tolerance only applies once the streak has
+    // ≥ 2 same-direction days under its belt; a 1-day "streak" followed
+    // by a counter just flips direction.
+    if (streak.sameDays < 2) {
+      streak = startStreak(m);
+      continue;
+    }
+    const counterMag = Math.abs(m.changePct);
+    const newTolerance = streak.tolerancePct + counterMag;
+    const newCounterDays = streak.counterDays + 1;
+    const breakSingleDay = counterMag > STREAK_COUNTER_BREAK_PCT;
+    const breakCumulative = newTolerance >= STREAK_CUM_TOLERANCE_BREAK_PCT;
+    const breakConsecutive = newCounterDays >= STREAK_CONSECUTIVE_COUNTER_BREAK;
+    if (breakSingleDay || breakCumulative || breakConsecutive) {
+      streak = startStreak(m);
+      continue;
+    }
+    // Tolerated: streak survives but logs the counter day's drag.
+    streak.days += 1;
+    streak.cumulativePct += m.changePct;
+    streak.tolerancePct = newTolerance;
+    streak.counterDays = newCounterDays;
+    streak.history.push(m);
   }
+  if (!streak) return null;
+
+  const lastMove = streak.history[streak.history.length - 1];
+  // History is emitted newest-first to match the existing data contract.
+  const histOut = streak.history.slice().reverse().slice(0, 10).map((m, idx) => ({
+    sessionsBack: idx,
+    date: m.date,
+    close: m.close,
+    changePct: m.changePct,
+    color: m.color,
+  }));
   return {
     symbol,
-    lastClose: moves[0].close,
-    current: { color: headColor, days, cumulativePct },
-    history: moves.slice(0, 10).map((m, idx) => ({
-      sessionsBack: idx,
-      date: m.date,
-      close: m.close,
-      changePct: m.changePct,
-      color: m.color,
-    })),
+    lastClose: lastMove?.close ?? null,
+    current: {
+      color: streak.direction,
+      days: streak.days,
+      sameDays: streak.sameDays,
+      cumulativePct: streak.cumulativePct,
+      tolerancePct: streak.tolerancePct,
+      counterDays: streak.counterDays,
+      counterBreakPct: STREAK_COUNTER_BREAK_PCT,
+      toleranceBreakPct: STREAK_CUM_TOLERANCE_BREAK_PCT,
+      counterDaysBreak: STREAK_CONSECUTIVE_COUNTER_BREAK,
+    },
+    history: histOut,
   };
 }
 
@@ -878,6 +960,15 @@ async function fetchFundamentals(symbol) {
     growthEstimateCurY: ty ? pct(ty.growth) : null,
     revenueEstimateCurQ: tq?.revenueEstimate ? num(tq.revenueEstimate.avg) : null,
     revenueEstimateCurY: ty?.revenueEstimate ? num(ty.revenueEstimate.avg) : null,
+    // Short-interest snapshot from defaultKeyStatistics. Yahoo publishes
+    // this twice a month (15th/EOM settlement); dateShortInterest is the
+    // as-of for the figures so we can flag a stale read in the UI.
+    sharesShort: num(ks.sharesShort),
+    sharesShortPriorMonth: num(ks.sharesShortPriorMonth),
+    shortRatio: num(ks.shortRatio),
+    shortPercentOfFloat: pct(ks.shortPercentOfFloat),
+    shortPercentOfSharesOut: pct(ks.sharesPercentSharesOut),
+    dateShortInterest: isoDate(ks.dateShortInterest),
   };
 }
 
@@ -1020,6 +1111,42 @@ function nyTimestamp() {
     minute: "2-digit",
     hour12: true,
   }).format(new Date());
+}
+
+// Minimal HTML-escape for build-time templating. Sector/industry strings
+// are controlled constants today (SECTORS / INDUSTRY_OF_TICKER), but
+// keeping this defensive means a future taxonomy update with a stray
+// ampersand can't sneak through as broken markup.
+function htmlEscape(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (ch) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]),
+  );
+}
+
+// Server-rendered grid of every supported ticker. Cards are <a> elements
+// deep-linking to ?s=SYMBOL on the Grade tab so the user can keyboard-
+// navigate or middle-click straight into the contract grader. Symbol +
+// sector + industry only -- no live data, so the pane paints on first
+// frame from the manifest without waiting for any fetch.
+function tickersSection({ symbols, sectors, industries }) {
+  const sorted = symbols.slice().sort();
+  const cards = sorted.map((sym) => {
+    const sec = sectors[sym] || "";
+    const ind = industries[sym] || "";
+    const subtitle = [sec, ind].filter(Boolean).join(" · ");
+    return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}">
+      <span class="ticker-sym">${htmlEscape(sym)}</span>
+      ${subtitle ? `<span class="ticker-sector">${htmlEscape(subtitle)}</span>` : ""}
+    </a>`;
+  }).join("");
+  return `<section class="card" id="tickers-section">
+    <header class="card-header">
+      <h2 class="card-title">All supported tickers</h2>
+      <span class="card-eyebrow">${sorted.length} symbols</span>
+    </header>
+    <p class="hint">Every ticker the site tracks. Click any card to grade options on it.</p>
+    <div class="tickers-grid">${cards}</div>
+  </section>`;
 }
 
 function narrativesSection() {
@@ -2174,7 +2301,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['narratives','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -2190,7 +2317,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
-    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'narratives');
+    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'tickers');
   }
 
   function buildResultHtml(input){
@@ -2979,6 +3106,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       var recPretty = f.recommendationKey.replace(/_/g, ' ');
       var recTone = /buy|outperform/i.test(f.recommendationKey) ? 'pos' : /sell|underperform/i.test(f.recommendationKey) ? 'neg' : null;
       metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
+    }
+    // Short interest from Yahoo's twice-monthly settlement print. Tone the
+    // % of float so > 10% reads as the kind of crowded short setup that
+    // tends to whipsaw on positive news.
+    var fmtShares = function(n){
+      if (n == null || !isFinite(n)) return null;
+      var a = Math.abs(n);
+      if (a >= 1e9) return (n/1e9).toFixed(2) + 'B';
+      if (a >= 1e6) return (n/1e6).toFixed(2) + 'M';
+      if (a >= 1e3) return (n/1e3).toFixed(1) + 'K';
+      return String(Math.round(n));
+    };
+    if (f.shortPercentOfFloat != null){
+      var sf = f.shortPercentOfFloat;
+      var sfTone = sf > 10 ? 'warn' : sf > 5 ? 'neg' : null;
+      var sfVal = sf.toFixed(2) + '%';
+      var shCount = fmtShares(f.sharesShort);
+      if (shCount) sfVal += ' <span class="opt-fund-metric-sub">' + shCount + ' sh</span>';
+      var sfLabel = 'Short interest' + (f.dateShortInterest ? ' · ' + f.dateShortInterest : '');
+      metrics += fundMetric(sfLabel, sfVal, sfTone);
+    } else if (f.sharesShort != null){
+      var shCountOnly = fmtShares(f.sharesShort);
+      var sfLabel2 = 'Short interest' + (f.dateShortInterest ? ' · ' + f.dateShortInterest : '');
+      if (shCountOnly) metrics += fundMetric(sfLabel2, shCountOnly + ' sh');
+    }
+    if (f.shortRatio != null){
+      // shortRatio = days-to-cover at avg daily volume. > 5 days is
+      // historically "hard to cover quickly" territory.
+      var srTone = f.shortRatio > 5 ? 'warn' : null;
+      metrics += fundMetric('Days to cover', f.shortRatio.toFixed(1) + 'd', srTone);
     }
     metricsEl.innerHTML = metrics;
     renderEarningsHistory();
@@ -4228,14 +4385,18 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <span id="freshness-text">Built ${builtAt} (NY)</span>
 </div>
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
-  <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="true" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="true" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
-  <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives">
+  <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers">
+  ${tickersSection({ symbols, sectors: SECTORS, industries: INDUSTRY_OF_TICKER })}
+  </div>
+  <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
   ${narrativesSection()}
   </div>
   <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
@@ -4250,7 +4411,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Daily green / red streaks</h2>
         <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
       </header>
-      <p class="hint">Each ticker's current run of consecutive same-color daily closes. Names with 2+ green days are often worth checking before the trend extends; same on the red side for shorts. Computed daily from Yahoo closes at build time.</p>
+      <p class="hint">Each ticker's current run of green or red daily closes. Streaks of 2+ days survive small counter days (a "tolerance bank" up to 1.5% cumulative, or up to 3 counter days in a row); a single counter day greater than 1.2%, hitting the 1.5% bank, or 4 counter days in a row breaks the run. Same-direction days heal the bank back to zero.</p>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <div id="streaks-footer" class="streaks-footer"></div>
     </section>
@@ -6813,6 +6974,54 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-size: 11px;
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+.streaks-tol {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  padding: 1px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  margin-left: var(--s-2);
+}
+.streaks-tol-counter { color: var(--neg); }
+
+.tickers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.ticker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 8px);
+  background: var(--surface, transparent);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 120ms, background 120ms, transform 120ms;
+}
+.ticker-card:hover {
+  border-color: var(--border-strong, var(--text));
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.ticker-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.ticker-sym {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.ticker-sector {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.3;
 }
 `;
 }
