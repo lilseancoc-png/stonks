@@ -1213,6 +1213,9 @@ function renderPerformance() {
           <td class="pf-mono ${t.pnlPct != null ? (t.pnlPct >= 0 ? "pf-pos" : "pf-neg") : ""}">${t.pnlPct != null ? fmtPct(t.pnlPct) : "—"}</td>
           <td class="pf-muted">${t.holdDays != null ? (t.holdDays === 0 ? "<1d" : t.holdDays + "d") : "—"}</td>
           <td class="pf-muted">${escapeHtml(fmtDate(t.closedAt))}</td>
+          <td class="pf-cell-actions">
+            <button type="button" class="pf-iconbtn" data-del-trade="${escapeHtml(t.id)}" aria-label="Delete trade" title="Delete trade">✕</button>
+          </td>
         </tr>`;
     }).join("");
     logHtml = `
@@ -1231,6 +1234,7 @@ function renderPerformance() {
                 <th>P&amp;L %</th>
                 <th>Hold</th>
                 <th>Closed</th>
+                <th aria-label="Delete"></th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -1261,6 +1265,37 @@ function renderPerformance() {
       renderPerformance();
     });
   });
+  box.querySelectorAll("[data-del-trade]").forEach((btn) => {
+    btn.addEventListener("click", () => deleteTrade(btn.dataset.delTrade));
+  });
+}
+
+// Reverses a SELL trade: re-opens the position (or restores quantity for a
+// partial close) and removes the trade row. Server-side RPC keeps the two
+// mutations atomic, so we just refresh both the open list and the history.
+async function deleteTrade(id) {
+  if (!id) return;
+  if (!confirm("Delete this trade? The position will be restored to its prior state.")) return;
+  try {
+    const token = state.session?.access_token;
+    const r = await fetch("/api/delete-trade", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: "Bearer " + token } : {}),
+      },
+      body: JSON.stringify({ trade_id: id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      alert(j.error || "Couldn't delete trade.");
+      return;
+    }
+    await loadTradeHistory();
+    await loadPositions();
+  } catch (err) {
+    alert(err.message || "Couldn't delete trade.");
+  }
 }
 
 // --- Bootstrap ------------------------------------------------------------

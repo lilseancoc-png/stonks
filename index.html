@@ -49,6 +49,7 @@
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="true" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
@@ -304,6 +305,17 @@
     </details>
   </section>
   </div>
+  <div class="page-pane" id="page-pane-streaks" role="tabpanel" aria-labelledby="page-tab-streaks" hidden>
+    <section class="card" id="streaks-section">
+      <header class="card-header">
+        <h2 class="card-title">Daily green / red streaks</h2>
+        <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
+      </header>
+      <p class="hint">Each ticker's current run of consecutive same-color daily closes. Names with 2+ green days are often worth checking before the trend extends; same on the red side for shorts. Computed daily from Yahoo closes at build time.</p>
+      <div id="streaks-root" class="streaks-root">Loading streaks…</div>
+      <div id="streaks-footer" class="streaks-footer"></div>
+    </section>
+  </div>
   <div class="page-pane" id="page-pane-portfolio" role="tabpanel" aria-labelledby="page-tab-portfolio" hidden>
     <section class="card"><p class="hint">Loading portfolio…</p></section>
   </div>
@@ -317,5 +329,6 @@
 <script>window.STONKS_SUPABASE={"url":"","anonKey":""};</script>
 <script src="app.js?v=2026-05-20T21%3A06%3A58.103Z" defer></script>
 <script type="module" src="js/portfolio.js?v=2026-05-20T21%3A06%3A58.103Z"></script>
+<script type="module" src="js/streaks.js?v=2026-05-20T21%3A06%3A58.103Z"></script>
 </body>
 </html>

@@ -402,7 +402,58 @@ async function fetchHistoricalBars(symbol) {
   const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
   return quotes
     .filter((q) => q && q.close != null && q.high != null && q.low != null)
-    .map((q) => ({ c: q.close, h: q.high, l: q.low, v: q.volume ?? null }));
+    .map((q) => ({
+      c: q.close,
+      h: q.high,
+      l: q.low,
+      v: q.volume ?? null,
+      // Date kept for the streak tracker (data/streaks.json). yahoo-finance2
+      // returns Date instances; serialize to YYYY-MM-DD so the runtime
+      // doesn't need to know about timezones.
+      t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
+    }));
+}
+
+// Walks daily closes newest-first and reports the current same-color run.
+// A move is green if (close-prevClose)>0, red if <0, otherwise flat. Flat
+// days break the streak. Returns null for tickers without enough bars to
+// derive even one day-over-day move.
+function computeStreakForTicker(symbol, bars) {
+  if (!bars || bars.length < 2) return null;
+  const ordered = bars.slice();
+  const moves = [];
+  // Walk from newest down; produce up to 30 most-recent moves.
+  for (let i = ordered.length - 1; i > 0 && moves.length < 30; i--) {
+    const prev = ordered[i - 1];
+    const curr = ordered[i];
+    if (!(prev?.c > 0) || !(curr?.c > 0)) continue;
+    const changePct = ((curr.c - prev.c) / prev.c) * 100;
+    const color = changePct > 0 ? "green" : changePct < 0 ? "red" : "flat";
+    moves.push({ date: curr.t || null, close: curr.c, changePct, color });
+  }
+  if (!moves.length) return null;
+  const headColor = moves[0].color;
+  let days = 0;
+  let cumulativePct = 0;
+  if (headColor !== "flat") {
+    for (const m of moves) {
+      if (m.color !== headColor) break;
+      days++;
+      cumulativePct += m.changePct;
+    }
+  }
+  return {
+    symbol,
+    lastClose: moves[0].close,
+    current: { color: headColor, days, cumulativePct },
+    history: moves.slice(0, 10).map((m, idx) => ({
+      sessionsBack: idx,
+      date: m.date,
+      close: m.close,
+      changePct: m.changePct,
+      color: m.color,
+    })),
+  };
 }
 
 function emaSeries(values, period) {
@@ -871,8 +922,9 @@ async function fetchTickerChain(symbol) {
   // executing in parallel. Slower than the parallelized version but the
   // log becomes scannable, which is the higher value here.
   let technicals = null;
+  let bars = null;
   try {
-    const bars = await fetchHistoricalBars(symbol);
+    bars = await fetchHistoricalBars(symbol);
     technicals = computeTechnicals(bars);
   } catch (err) {
     console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
@@ -888,6 +940,10 @@ async function fetchTickerChain(symbol) {
     chains,
     technicals,
     fundamentals,
+    // _bars stays in memory only -- stripped before writing per-ticker JSON.
+    // Used by the streak aggregator (data/streaks.json) so we don't re-hit
+    // Yahoo for the same daily closes.
+    _bars: bars,
   };
 }
 
@@ -2118,7 +2174,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['narratives','flow','grade'];
+    var valid = ['narratives','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -4175,6 +4231,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="true" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
@@ -4186,6 +4243,17 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
+  </div>
+  <div class="page-pane" id="page-pane-streaks" role="tabpanel" aria-labelledby="page-tab-streaks" hidden>
+    <section class="card" id="streaks-section">
+      <header class="card-header">
+        <h2 class="card-title">Daily green / red streaks</h2>
+        <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
+      </header>
+      <p class="hint">Each ticker's current run of consecutive same-color daily closes. Names with 2+ green days are often worth checking before the trend extends; same on the red side for shorts. Computed daily from Yahoo closes at build time.</p>
+      <div id="streaks-root" class="streaks-root">Loading streaks…</div>
+      <div id="streaks-footer" class="streaks-footer"></div>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-portfolio" role="tabpanel" aria-labelledby="page-tab-portfolio" hidden>
     <section class="card"><p class="hint">Loading portfolio…</p></section>
@@ -4200,6 +4268,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <script>window.STONKS_SUPABASE=${supabasePayload};<\/script>
 <script src="app.js?v=${cacheBust}" defer></script>
 <script type="module" src="js/portfolio.js?v=${cacheBust}"></script>
+<script type="module" src="js/streaks.js?v=${cacheBust}"></script>
 </body>
 </html>`;
 }
@@ -6653,6 +6722,98 @@ main {
 /* Section spacing — main cards sit closer to read as one continuous panel */
 main { padding-top: var(--s-2); }
 .card { margin-bottom: var(--s-3); }
+
+/* === Streaks tab === */
+.streaks-root { margin-top: var(--s-3); }
+.streaks-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+}
+@media (max-width: 720px) {
+  .streaks-cols { grid-template-columns: 1fr; }
+}
+.streaks-col-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 var(--s-2);
+}
+.streaks-col-bull { color: var(--pos); }
+.streaks-col-bear { color: var(--neg); }
+.streaks-row {
+  border: 1px solid var(--border);
+  border-radius: var(--r-3, 10px);
+  padding: var(--s-3);
+  margin-bottom: var(--s-2);
+  background: var(--surface);
+}
+.streaks-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin-bottom: var(--s-1);
+}
+.streaks-dot { font-size: 12px; }
+.streaks-sym {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-strong);
+}
+.streaks-sector {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.streaks-days {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--muted);
+}
+.streaks-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: var(--s-2);
+}
+.streaks-cum { font-weight: 600; }
+.streaks-pos { color: var(--pos); }
+.streaks-neg { color: var(--neg); }
+.streaks-moves { color: var(--text); }
+.streaks-actions { display: flex; }
+.streaks-btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong, var(--border));
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.streaks-btn:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.streaks-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: var(--s-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-3, 10px);
+  margin: 0;
+}
+.streaks-footer {
+  margin-top: var(--s-3);
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
 `;
 }
 
@@ -6664,11 +6825,28 @@ async function writeChainFiles(chains) {
   await mkdir(DATA_DIR, { recursive: true });
   let totalBytes = 0;
   for (const [sym, data] of Object.entries(chains)) {
-    const json = JSON.stringify(data);
+    // _bars is a transient field used by the streak aggregator; never write
+    // it to the per-ticker JSON (would inflate each file ~6x).
+    const { _bars, ...rest } = data;
+    const json = JSON.stringify(rest);
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
   return totalBytes;
+}
+
+// Per-ticker daily green/red streaks. Reuses the bars already fetched into
+// chains[sym]._bars by fetchTickerChain so this adds zero Yahoo calls.
+async function writeStreaksFile(chains, builtAtIso) {
+  const tickers = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    const row = computeStreakForTicker(sym, data._bars);
+    if (row) tickers.push(row);
+  }
+  const payload = { builtAtIso, tickers };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "streaks.json"), json, "utf8");
+  return { bytes: json.length, count: tickers.length };
 }
 
 // News-aware AI take per ticker. Runs after chains are fetched. The model
@@ -8059,6 +8237,8 @@ async function main() {
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
   const totalChainBytes = await writeChainFiles(chains);
+  const streaksInfo = await writeStreaksFile(chains, builtAtIso);
+  console.log(`wrote data/streaks.json — ${streaksInfo.count} tickers, ${streaksInfo.bytes} bytes`);
   await writeTrendFiles({
     narratives: trends.narratives,
     sectorOverviews: trends.sectorOverviews || {},
