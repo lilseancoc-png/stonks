@@ -878,7 +878,7 @@
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['narratives','flow','grade'];
+    var valid = ['narratives','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       tabs.forEach(function(btn){

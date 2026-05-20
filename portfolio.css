@@ -612,6 +612,8 @@
 .pf-trade-table tr:last-child td { border-bottom: none; }
 .pf-trade-table .pf-symbol { font-size: 13px; }
 .pf-trade-table .pf-leg { font-size: 11px; display: block; }
+.pf-trade-table .pf-cell-actions { text-align: right; width: 32px; padding-right: 4px; }
+.pf-trade-table .pf-cell-actions .pf-iconbtn { padding: 2px 6px; }
 .pf-mono {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-feature-settings: "tnum" 1;

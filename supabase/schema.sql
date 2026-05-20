@@ -58,8 +58,10 @@ create policy "positions_delete_own"
 
 -- Trade log. Every BUY (initial open) and SELL (partial or full close)
 -- writes one row here. Realized P/L is computed by joining SELL rows back to
--- their position's entry_premium server-side. We never edit a trade row
--- after insertion; corrections are made by adding a compensating trade.
+-- their position's entry_premium server-side. Trades are otherwise treated
+-- as append-only -- the one sanctioned exception is the delete_trade() RPC
+-- below, which atomically reverses the position-side effect of a SELL so a
+-- user can undo a fat-fingered close.
 create table if not exists public.trades (
   id           uuid primary key default gen_random_uuid(),
   user_id      uuid not null references auth.users(id) on delete cascade,
@@ -180,3 +182,72 @@ end;
 $$;
 
 grant execute on function public.close_position(uuid, int, numeric) to authenticated;
+
+-- Reverse a SELL trade: undoes the position-side mutation that close_position
+-- applied (re-opens a fully closed position, or restores quantity for a
+-- partial close) and deletes the trade row, all in one transaction. Row
+-- locks on both the trade and the parent position keep this race-free
+-- against concurrent close_position calls. security invoker so RLS on
+-- trades/positions enforces ownership via auth.uid().
+create or replace function public.delete_trade(p_trade_id uuid)
+returns table (
+  position_id uuid,
+  position_quantity int,
+  position_closed_at timestamptz,
+  reopened boolean
+) language plpgsql security invoker as $$
+declare
+  tr public.trades%rowtype;
+  pos public.positions%rowtype;
+  v_reopened boolean := false;
+begin
+  select * into tr
+    from public.trades
+    where trades.id = p_trade_id and trades.user_id = auth.uid()
+    for update;
+  if not found then
+    raise exception 'trade not found' using errcode = 'P0002';
+  end if;
+  if tr.side <> 'SELL' then
+    raise exception 'only SELL trades may be deleted' using errcode = '22023';
+  end if;
+
+  select * into pos
+    from public.positions
+    where positions.id = tr.position_id and positions.user_id = auth.uid()
+    for update;
+  if not found then
+    raise exception 'position not found' using errcode = 'P0002';
+  end if;
+
+  if pos.closed_at is not null then
+    update public.positions
+       set closed_at = null
+     where positions.id = pos.id
+     returning * into pos;
+    v_reopened := true;
+  else
+    update public.positions
+       set quantity = pos.quantity + tr.quantity
+     where positions.id = pos.id
+     returning * into pos;
+  end if;
+
+  delete from public.trades where id = tr.id;
+
+  return query select pos.id, pos.quantity, pos.closed_at, v_reopened;
+end;
+$$;
+
+grant execute on function public.delete_trade(uuid) to authenticated;
+
+-- delete_trade reads/writes trades, but trades has no DELETE policy by
+-- default. Add one scoped to own rows so the RPC's DELETE statement passes
+-- RLS while still running as the caller.
+drop policy if exists "trades_delete_own" on public.trades;
+create policy "trades_delete_own"
+  on public.trades for delete
+  using (auth.uid() = user_id);
+
+-- Same story for positions UPDATE used by the RPC -- positions already has
+-- positions_update_own (line 49 above), so no change needed there.
