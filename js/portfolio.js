@@ -266,12 +266,41 @@ function renderPositions() {
 }
 
 async function deletePosition(id) {
-  if (!confirm("Remove this position?")) return;
-  const { error } = await supabase.from("positions").delete().eq("id", id);
-  if (error) {
-    alert("Couldn't delete: " + error.message);
+  // trades.position_id has ON DELETE CASCADE, so a hard delete of a position
+  // that already has SELL trades against it silently wipes the realized-P/L
+  // history backing the performance tab. Check for trades first: if any
+  // exist, soft-close (set closed_at) so the position drops out of the open
+  // list while the trade rows — and their realized P/L — survive.
+  const { count: tradeCount, error: countErr } = await supabase
+    .from("trades")
+    .select("id", { count: "exact", head: true })
+    .eq("position_id", id);
+  if (countErr) {
+    alert("Couldn't check trade history: " + countErr.message);
     return;
   }
+
+  if (tradeCount && tradeCount > 0) {
+    const msg = `This position has ${tradeCount} trade record${tradeCount === 1 ? "" : "s"} in your history. ` +
+      `Archive it (keeps history, hides from open list)?`;
+    if (!confirm(msg)) return;
+    const { error } = await supabase
+      .from("positions")
+      .update({ closed_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      alert("Couldn't archive position: " + error.message);
+      return;
+    }
+  } else {
+    if (!confirm("Remove this position?")) return;
+    const { error } = await supabase.from("positions").delete().eq("id", id);
+    if (error) {
+      alert("Couldn't delete: " + error.message);
+      return;
+    }
+  }
+
   state.positions = state.positions.filter((p) => p.id !== id);
   if (state.review?.perPosition) {
     state.review.perPosition = state.review.perPosition.filter((r) => r.id !== id);
