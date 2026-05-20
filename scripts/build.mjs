@@ -7633,7 +7633,17 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
         contents: `${NARRATIVE_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.4,
-          maxOutputTokens: 4200,
+          // Gemini 2.5 Flash counts "thinking" tokens against
+          // maxOutputTokens, and on this prompt the dynamic thinking
+          // budget was eating ~95% of the old 4200 cap — leaving only a
+          // few hundred chars of actual JSON before the response was
+          // truncated mid-string (parse failed at byte ~670, well before
+          // the first sector even closed). Give the answer plenty of
+          // headroom and zero out the thinking budget: the prompt is
+          // already explicit about the shape, so deliberation isn't
+          // worth losing the response over.
+          maxOutputTokens: 16384,
+          thinkingConfig: { thinkingBudget: 0 },
           // Constrained-decoder JSON mode — narratives is the call that
           // most reliably hits malformed-JSON failures because its output
           // is the longest and most structured.
@@ -7678,7 +7688,13 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
     parsed = JSON.parse(jsonText);
   } catch (parseErr) {
     const excerpt = jsonText.slice(0, 500).replace(/\s+/g, " ");
-    console.log(`    ⚠ narrative JSON parse failed (${parseErr.message}). Response excerpt: ${excerpt}`);
+    // Pull finishReason + token usage when available — a "MAX_TOKENS"
+    // finish on a parse failure means we got truncated and need to
+    // raise maxOutputTokens / drop the thinking budget further.
+    const finishReason = response?.candidates?.[0]?.finishReason || "unknown";
+    const usage = response?.usageMetadata || {};
+    const usageStr = `prompt=${usage.promptTokenCount ?? "?"} thoughts=${usage.thoughtsTokenCount ?? 0} output=${usage.candidatesTokenCount ?? "?"} total=${usage.totalTokenCount ?? "?"}`;
+    console.log(`    ⚠ narrative JSON parse failed (${parseErr.message}) — finishReason=${finishReason} · ${usageStr}. Response excerpt: ${excerpt}`);
     throw parseErr;
   }
   const validSymbols = new Set(Object.keys(chains));
