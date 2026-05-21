@@ -677,12 +677,16 @@
         '<div class="opt-rec-body">' + body + '</div></div>';
     }
 
-    // Narrative — short news take + sentiment.
+    // Narrative — short news take + sentiment. When news.fallback is true
+    // the paragraph is the deterministic sector+macro synthesis (no readable
+    // ticker-specific articles available), so we tag it visibly so users
+    // don't confuse macro context for a ticker-specific catalyst.
     var narrative = '';
     if (news && (news.paragraph || news.sentiment)){
       var sentLabel = news.sentiment ? news.sentiment : 'neutral';
       var sentCls = news.sentiment === 'bullish' ? 'pos' : news.sentiment === 'bearish' ? 'warn' : 'fair';
       narrative = '<span class="opt-rec-pill ' + sentCls + '">' + escapeHtml(sentLabel) + '</span>';
+      if (news.fallback) narrative += '<span class="opt-rec-pill fair">macro fallback</span> ';
       if (news.paragraph) narrative += ' ' + escapeHtml(news.paragraph);
     } else {
       narrative = '<span class="opt-rec-muted">No fresh news take attached — recommendation leans on technicals and fundamentals alone.</span>';
@@ -1048,8 +1052,11 @@
   function newsTakeHtml(news, ticker, nudged){
     if (!news || !news.paragraph) return '';
     var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
-    var heading = 'AI news take' + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
+    var heading = (news.fallback ? 'Macro fallback' : 'AI news take') + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
     var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict from <b>Acceptable</b>.</div>' : '';
+    if (news.fallback) {
+      note = '<div class="opt-news-note"><b>No readable ticker-specific articles</b> — every recent headline was paywalled or unfetchable. The paragraph above is sector + macro context, not name-specific news. Treat as background, not a catalyst.</div>' + note;
+    }
     // Headlines are reputable-publisher-only (build-time hard filter). Show
     // up to 5 directly under the AI paragraph as a Sources block — each
     // row carries publisher tag + headline title + date, like a research
