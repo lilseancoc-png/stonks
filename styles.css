@@ -652,6 +652,211 @@ main {
 .freshness.warn #freshness-text { color: var(--warn); }
 .freshness.bad  #freshness-text { color: var(--neg); }
 
+/* === Landing / Home tab ===
+   First view a user lands on. A welcome hero + a grid of clickable
+   section cards. Each card uses the new gradient skin + glow tokens
+   so the entry point reads as the showcase surface. */
+.landing-hero {
+  position: relative;
+  max-width: var(--w-content);
+  margin: 0 auto var(--s-5);
+  padding: var(--s-6) var(--s-5) var(--s-5);
+  background: var(--surface);
+  background-image: var(--grad-hero);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  box-shadow: var(--elev-2), var(--elev-glow);
+  overflow: hidden;
+}
+.landing-hero::before {
+  content: "";
+  position: absolute;
+  inset: var(--s-3) auto var(--s-3) 0;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 60%, var(--accent-dim) 100%);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.landing-hero-eyebrow {
+  display: inline-block;
+  font: 700 var(--fs-xs)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-strong);
+  margin-bottom: var(--s-3);
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+}
+.landing-hero-title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-display);
+  letter-spacing: var(--ls-display);
+  color: var(--text-strong);
+  line-height: var(--lh-tight);
+}
+.landing-hero-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.02em;
+}
+.landing-hero-sub .mono { color: var(--text); }
+
+.landing-grid {
+  max-width: var(--w-content);
+  margin: 0 auto var(--s-4);
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--s-4);
+}
+
+.landing-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-5);
+  min-height: 180px;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  color: var(--text);
+  background: var(--surface);
+  background-image: var(--grad-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  box-shadow: var(--elev-1);
+  font: inherit;
+  transition: transform .25s var(--ease-out),
+              box-shadow .25s var(--ease-out),
+              border-color .15s var(--ease-out),
+              background .15s var(--ease-out);
+  overflow: hidden;
+}
+.landing-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-strong) 0%, var(--accent) 50%, transparent 100%);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .35s var(--ease-out);
+  pointer-events: none;
+}
+.landing-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
+  box-shadow: var(--elev-2), var(--elev-glow);
+}
+.landing-card:hover::before { transform: scaleX(1); }
+.landing-card:focus-visible {
+  outline: none;
+  box-shadow: var(--elev-focus);
+  border-color: var(--accent);
+}
+.landing-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-bottom: var(--s-1);
+}
+.landing-card-eyebrow {
+  font: 700 var(--fs-xs)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--muted-strong);
+}
+.landing-card-arrow {
+  font-size: var(--fs-lg);
+  color: var(--muted);
+  transform: translateX(0);
+  transition: transform .25s var(--ease-out), color .15s var(--ease-out);
+}
+.landing-card:hover .landing-card-arrow {
+  color: var(--accent-strong);
+  transform: translateX(4px);
+}
+.landing-card-stat {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-hero);
+  letter-spacing: var(--ls-display);
+  line-height: 1;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, var(--text-strong) 0%, color-mix(in srgb, var(--text-strong) 70%, var(--accent)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.landing-card-sub {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-top: -2px;
+}
+.landing-card-desc {
+  margin: auto 0 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--hairline);
+}
+
+/* Hot variant — used for Unusual flow when there's active flagging. */
+.landing-card-hot {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+}
+.landing-card-hot::before { transform: scaleX(0.35); opacity: 0.6; }
+
+.landing-foot {
+  max-width: var(--w-content);
+  margin: 0 auto var(--s-5);
+  padding: 0 var(--s-2);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.02em;
+}
+.landing-foot kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 600 10px/1 var(--font-mono);
+}
+
+@media (max-width: 640px) {
+  .landing-grid { grid-template-columns: 1fr; gap: var(--s-3); }
+  .landing-hero { padding: var(--s-5) var(--s-4); }
+  .landing-hero-title { font-size: var(--fs-2xl); }
+  .landing-card { min-height: 0; padding: var(--s-4); }
+  .landing-card-stat { font-size: var(--fs-3xl); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Stagger the landing cards in on first paint of the home pane so the
+     hub feels considered, not slammed in. */
+  .landing-card { animation: stonks-fade-up .42s var(--ease-out) both; }
+  .landing-grid .landing-card:nth-child(1) { animation-delay: 0ms; }
+  .landing-grid .landing-card:nth-child(2) { animation-delay: 60ms; }
+  .landing-grid .landing-card:nth-child(3) { animation-delay: 120ms; }
+  .landing-grid .landing-card:nth-child(4) { animation-delay: 180ms; }
+  .landing-grid .landing-card:nth-child(5) { animation-delay: 240ms; }
+  .landing-grid .landing-card:nth-child(6) { animation-delay: 300ms; }
+}
+
 /* === Cards ===
    Flat surface with a precise 1px hairline. Elevation by border, not shadow
    — institutional UIs read cleaner this way. */

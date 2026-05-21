@@ -1120,7 +1120,7 @@
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -1183,9 +1183,38 @@
         if (active) positionIndicator(active);
       }).catch(function(){});
     }
-    var saved = null;
-    try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
-    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'tickers');
+    // Landing-page section cards — click anywhere with data-go="<tabname>"
+    // to navigate. Event delegation so the cards can be regenerated.
+    var homePane = document.getElementById('page-pane-home');
+    if (homePane) {
+      homePane.addEventListener('click', function(ev){
+        var target = ev.target && ev.target.closest ? ev.target.closest('[data-go]') : null;
+        if (!target) return;
+        var go = target.getAttribute('data-go');
+        if (go && valid.indexOf(go) >= 0){
+          ev.preventDefault();
+          selectTab(go);
+        }
+      });
+    }
+    // Always land on Home — explicit user navigation, no sticky last-tab.
+    // (selectTab still writes localStorage so other features can read it.)
+    selectTab('home');
+    // Populate runtime stats on the landing cards from the inlined manifest.
+    try {
+      var m = window.STONKS_MANIFEST || {};
+      var statNar = document.getElementById('land-stat-narratives');
+      if (statNar) {
+        var nCount = (m.sectorOverviews ? Object.keys(m.sectorOverviews).length : 0)
+                  || (Array.isArray(m.narratives) ? m.narratives.length : 0);
+        if (nCount) statNar.textContent = String(nCount);
+      }
+      var statFlow = document.getElementById('land-stat-flow');
+      if (statFlow) {
+        var fCount = m.unusual && m.unusual.summary && (m.unusual.summary.contractCount || m.unusual.summary.tickerCount);
+        if (typeof fCount === 'number' && fCount >= 0) statFlow.textContent = String(fCount);
+      }
+    } catch (_) {}
   }
 
   function buildResultHtml(input){
