@@ -9356,30 +9356,37 @@ const F13_TOP_FIRM_DIRECTORY = [
 // label (e.g. "Q1 2026"), the period-end date, and a rough filing
 // window string for the UI hint.
 function currentF13Quarter(asOf) {
-  // Walk back 45 days from today — anything from that point onward
-  // belongs to a quarter whose filings have already started to land.
-  const cutoff = new Date(asOf.getTime() - 45 * 86400000);
-  const y = cutoff.getUTCFullYear();
-  const m = cutoff.getUTCMonth(); // 0-11
-  let qNum, periodEndMonth, periodEndDay, periodYear;
-  if (m <= 2) { qNum = 4; periodEndMonth = 11; periodEndDay = 31; periodYear = y - 1; }
-  else if (m <= 5) { qNum = 1; periodEndMonth = 2;  periodEndDay = 31; periodYear = y; }
-  else if (m <= 8) { qNum = 2; periodEndMonth = 5;  periodEndDay = 30; periodYear = y; }
-  else             { qNum = 3; periodEndMonth = 8;  periodEndDay = 30; periodYear = y; }
-  const periodEndDate = new Date(Date.UTC(periodYear, periodEndMonth, periodEndDay));
+  // The "active" 13F quarter is the most recent quarter whose 45-day
+  // filing deadline has already passed (i.e. filings are now public).
+  // Enumerate candidate quarter-end dates from the current and prior
+  // calendar years, then walk newest-first picking the first one whose
+  // deadline is on or before today.
+  const year = asOf.getUTCFullYear();
+  const candidates = [];
+  for (const y of [year, year - 1]) {
+    candidates.push({ year: y, q: 1, end: new Date(Date.UTC(y, 2, 31)) });
+    candidates.push({ year: y, q: 2, end: new Date(Date.UTC(y, 5, 30)) });
+    candidates.push({ year: y, q: 3, end: new Date(Date.UTC(y, 8, 30)) });
+    candidates.push({ year: y, q: 4, end: new Date(Date.UTC(y, 11, 31)) });
+  }
+  candidates.sort((a, b) => b.end.getTime() - a.end.getTime());
+  let active = candidates[candidates.length - 1]; // safe fallback (Q1 prior-year)
+  for (const c of candidates) {
+    const deadlineMs = c.end.getTime() + 45 * 86400000;
+    if (deadlineMs <= asOf.getTime()) { active = c; break; }
+  }
   const monthNames = ["January","February","March","April","May","June",
     "July","August","September","October","November","December"];
-  const periodEnd = `${monthNames[periodEndMonth]} ${periodEndDay}, ${periodYear}`;
-  // Filing window: from 30 days post-period-end through 45 days post.
-  const winStart = new Date(periodEndDate.getTime() + 30 * 86400000);
-  const winEnd = new Date(periodEndDate.getTime() + 45 * 86400000);
+  const periodEnd = `${monthNames[active.end.getUTCMonth()]} ${active.end.getUTCDate()}, ${active.year}`;
+  const winStart = new Date(active.end.getTime() + 30 * 86400000);
+  const winEnd = new Date(active.end.getTime() + 45 * 86400000);
   const winLabel = `${monthNames[winStart.getUTCMonth()].slice(0, 3)} ${winStart.getUTCDate()}–${monthNames[winEnd.getUTCMonth()].slice(0, 3)} ${winEnd.getUTCDate()}, ${winEnd.getUTCFullYear()}`;
   return {
-    period: `Q${qNum} ${periodYear}`,
+    period: `Q${active.q} ${active.year}`,
     periodEnd,
-    periodEndIso: periodEndDate.toISOString().slice(0, 10),
+    periodEndIso: active.end.toISOString().slice(0, 10),
     filingWindow: winLabel,
-    filingDeadlineDate: new Date(periodEndDate.getTime() + 45 * 86400000),
+    filingDeadlineDate: winEnd,
   };
 }
 
@@ -9403,11 +9410,17 @@ function rankBiggestPositionsByMarketCap(chains) {
 }
 
 function formatBigDollarsForF13(value) {
+  // Magnitude buckets are size-based, but we keep the sign on the final
+  // rendered value so a (rare) negative dollar amount still reads
+  // sensibly. Previously the abs was applied to bucket selection only,
+  // and the divisions used the signed value — fine for the positive
+  // path, but produced "$-5.0B" instead of "-$5.0B" for negatives.
+  const sign = value < 0 ? "-" : "";
   const v = Math.abs(value);
-  if (v >= 1e12) return "$" + (value / 1e12).toFixed(2) + "T";
-  if (v >= 1e9)  return "$" + (value / 1e9).toFixed(1) + "B";
-  if (v >= 1e6)  return "$" + (value / 1e6).toFixed(1) + "M";
-  return "$" + Math.round(value).toLocaleString("en-US");
+  if (v >= 1e12) return sign + "$" + (v / 1e12).toFixed(2) + "T";
+  if (v >= 1e9)  return sign + "$" + (v / 1e9).toFixed(1) + "B";
+  if (v >= 1e6)  return sign + "$" + (v / 1e6).toFixed(1) + "M";
+  return sign + "$" + Math.round(v).toLocaleString("en-US");
 }
 
 // Derive rotation themes (most bought / most sold sectors) from the
@@ -9607,11 +9620,24 @@ async function fetchFomcSchedule() {
         const endDay = daysMatch[2] ? Number(daysMatch[2]) : startDay;
         const yr = Number(year);
         if (!Number.isFinite(yr) || !Number.isFinite(endDay)) continue;
-        const date = `${yr}-${String(monthIdx + 1).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`;
+        // Month-spanning meetings (e.g. Jan 31 – Feb 1) show endDay < startDay.
+        // The decision day is the second day, so advance the month / year
+        // accordingly. Without this, the constructed date would land on
+        // Jan 1 instead of Feb 1, and the label would lack the second month.
+        let endMonthIdx = monthIdx;
+        let endYear = yr;
+        if (endDay < startDay) {
+          endMonthIdx = (monthIdx + 1) % 12;
+          if (endMonthIdx === 0) endYear = yr + 1;
+        }
+        const date = `${endYear}-${String(endMonthIdx + 1).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`;
         const monthShort = monthMatch[1].slice(0, 3);
+        const endMonthShort = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][endMonthIdx];
         const label = startDay === endDay
-          ? `${monthShort} ${endDay}, ${yr}`
-          : `${monthShort} ${startDay}–${endDay}, ${yr}`;
+          ? `${endMonthShort} ${endDay}, ${endYear}`
+          : (endMonthIdx === monthIdx
+            ? `${monthShort} ${startDay}–${endDay}, ${yr}`
+            : `${monthShort} ${startDay}–${endMonthShort} ${endDay}, ${endYear}`);
         out.push({ date, label });
       }
     }
