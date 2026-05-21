@@ -895,6 +895,11 @@ async function fetchFundamentals(symbol) {
     "earningsHistory",
     "earningsTrend",
     "price",
+    // assetProfile gives us longBusinessSummary, industry, and sector so the
+    // news-fallback paragraph (used when no readable articles flow through)
+    // can describe what the company actually does instead of just citing
+    // macro yields + DXY.
+    "assetProfile",
   ];
   let res;
   try {
@@ -920,6 +925,7 @@ async function fetchFundamentals(symbol) {
   const er = res.earnings || {};
   const ev = res.calendarEvents || {};
   const eh = res.earningsHistory || {};
+  const ap = res.assetProfile || {};
   const et = res.earningsTrend || {};
   const pr = res.price || {};
 
@@ -1096,6 +1102,13 @@ async function fetchFundamentals(symbol) {
     // names like "Taiwan Semiconductor Manufacturing Company Limited" mid-word
     // and leaks into the 13F biggest-positions list.
     name: pr.longName || pr.shortName || null,
+    // Business summary + industry/sector from assetProfile. Used by the
+    // news-take fallback so a ticker with no readable articles still gets a
+    // paragraph that explains what the company actually does. Truncated to
+    // a sentence or two in the consumer so the manifest doesn't bloat.
+    longBusinessSummary: ap.longBusinessSummary || null,
+    industry: ap.industry || null,
+    sector: ap.sector || null,
     marketCap: num(sd.marketCap) ?? num(pr.marketCap),
     trailingPE: num(sd.trailingPE),
     forwardPE: num(sd.forwardPE) ?? num(ks.forwardPE),
@@ -14739,21 +14752,51 @@ const AI_COMBINED = process.env.AI_COMBINED !== "0";
 // NARRATIVES_MODEL=gemini-2.5-pro etc. after adding billing in AI Studio.
 const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 const AI_NEWS_COUNT = 10;
-// Publishers we trust as "reputable" for sourcing. The narrative engine and
-// per-ticker news take BOTH hard-filter to publishers on this list — anything
-// else gets dropped before the AI sees it, so theses can never lean on a
-// blog aggregator. Matching is case-insensitive substring against
-// n.publisher. Curated to wire services, named major business press, and
-// institutional data providers; intentionally excludes contributor platforms
-// (Forbes) and aggregators (Yahoo Finance) since those don't carry an
-// editorial guarantee.
+// Publishers we accept as ticker-news sources. Two flavors mixed here:
+//   (1) WIRE-GRADE — Reuters / AP / MarketWatch / CNBC / Bloomberg / WSJ /
+//       FT / Barron's / NYT / WaPo / IBD / The Economist. Editorial guarantee,
+//       but several are paywalled — the article-body fetch handles that
+//       (paywall stubs get dropped before they reach the AI).
+//   (2) FREE-BODY FINANCIAL — Motley Fool, Zacks, Benzinga, InvestorPlace,
+//       TheStreet, Seeking Alpha, Yahoo Finance editorial, 24/7 Wall St.
+//       These can be promotional / SEO-heavy, but they ARE free, the article
+//       body extracts cleanly, and the AI prompt is instructed to ignore
+//       clickbait framing and ground its take in the body text. Including
+//       them is the difference between a ticker getting a real ticker-
+//       specific paragraph vs. the macro fallback.
+// Matching is case-insensitive substring against n.publisher.
 const REPUTABLE_PUBLISHERS = [
+  // Wire / major business press
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "Financial Times", "FT",
   "Associated Press", "AP", "MarketWatch", "CNBC", "Barron's",
   "The Economist", "New York Times", "Washington Post", "Business Insider",
   "Insider", "Investor's Business Daily", "Investopedia", "Morningstar",
   "Dow Jones", "S&P Global", "Moody's", "Fitch", "FactSet", "Refinitiv",
+  // Free-body financial news (broader coverage of mid-caps + ETFs Yahoo
+  // doesn't get from the wires)
+  "Motley Fool", "Fool.com", "Zacks", "Benzinga", "InvestorPlace",
+  "Investor's Place", "TheStreet", "Seeking Alpha", "Yahoo Finance",
+  "24/7 Wall St", "GuruFocus", "Simply Wall St", "PYMNTS",
+  "GlobeNewswire", "PR Newswire", "Business Wire", "Forbes",
 ];
+
+// Domains that are reliably paywalled / not body-scrapeable. We skip body
+// fetches for these URLs entirely — saves egress and avoids spending the
+// fetch budget on stubs. Reputable publisher headlines from these sources
+// still appear in the citation list, just without a body for the AI.
+const PAYWALL_DOMAINS = [
+  "wsj.com", "ft.com", "bloomberg.com", "barrons.com",
+  "nytimes.com", "washingtonpost.com", "economist.com",
+  "investors.com", // Investor's Business Daily
+];
+function isPaywallUrl(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return PAYWALL_DOMAINS.some((d) => host === d || host.endsWith("." + d));
+  } catch (_) { return false; }
+}
 // Top-tier official + major-press macro feeds. The narrative extractor sees a
 // digest of these alongside the per-ticker news takes so it can spot when the
 // data backing a thesis just printed (CPI surprise, Fed pivot, jobs miss).
@@ -15085,9 +15128,9 @@ async function fetchTickerHeadlines(symbol) {
 // use Mozilla Readability + jsdom here — the build has no bundler / no
 // browser deps, so we keep the extractor regex-based.
 const ARTICLE_FETCH_TIMEOUT_MS = 8000;
-const ARTICLE_MIN_BODY_CHARS = 600;
+const ARTICLE_MIN_BODY_CHARS = 400;
 const ARTICLE_MAX_BODY_CHARS = 3000;
-const ARTICLE_PARA_MIN_CHARS = 60;
+const ARTICLE_PARA_MIN_CHARS = 40;
 const PAYWALL_PHRASES = [
   "subscribe to continue",
   "to continue reading",
@@ -15114,15 +15157,20 @@ function decodeHtmlEntities(s) {
 }
 async function fetchArticleBody(url) {
   if (!url) return null;
+  // Skip URLs at known-paywall hosts entirely — saves egress, and these
+  // would just return stubs the heuristic below would drop anyway.
+  if (isPaywallUrl(url)) return null;
   try {
     const res = await fetchWithTimeout(url, {
-      // Browser-ish UA + Accept-Language gets us past most bot challenges.
-      // Some publishers (Bloomberg, FT) still gate at the edge — those just
-      // come back with a paywall stub which the heuristics below catch.
+      // Browser-ish UA + Accept-Language + Referer gets us past most bot
+      // challenges. Some publishers (Bloomberg, FT) still gate at the edge —
+      // those just come back with a paywall stub which the heuristics below
+      // catch.
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://finance.yahoo.com/",
       },
       redirect: "follow",
     }, ARTICLE_FETCH_TIMEOUT_MS);
@@ -15131,26 +15179,68 @@ async function fetchArticleBody(url) {
     if (ct && !ct.includes("html") && !ct.includes("xml")) return null;
     const html = await res.text();
     if (!html || html.length < 500) return null;
-    // Strip script/style/noscript blocks before paragraph extraction so we
-    // don't accidentally pull JSON-LD article bodies as plain text (some
-    // publishers stash entire articles inside <script type="application/ld+json">,
-    // which decodes to a mangled blob).
+    // Strip script/style/noscript/header/footer/nav blocks before extraction.
     const cleaned = html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
       .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, "")
-      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, "");
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, "")
+      .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, "")
+      .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, "")
+      .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, "")
+      .replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, "");
+    // Try to scope to the article body if the page tags it. Yahoo Finance
+    // uses .caas-body, CNBC uses [data-module="ArticleBody"], MarketWatch
+    // uses .article__body, Reuters uses [data-testid="paragraph-..."]. If
+    // none of these match, fall back to the whole document.
+    let scope = cleaned;
+    const articleScope = cleaned.match(/<article\b[^>]*>[\s\S]*?<\/article>/i);
+    if (articleScope) scope = articleScope[0];
+    else {
+      const candidates = [
+        /<div\b[^>]*class=["'][^"']*(caas-body|article__body|articleBody|article-body|article-content|story-body|post-content)[^"']*["'][^>]*>[\s\S]*?<\/div>/i,
+        /<div\b[^>]*data-module=["']ArticleBody["'][^>]*>[\s\S]*?<\/div>/i,
+        /<main\b[^>]*>[\s\S]*?<\/main>/i,
+      ];
+      for (const re of candidates) {
+        const match = cleaned.match(re);
+        if (match && match[0].length > 800) { scope = match[0]; break; }
+      }
+    }
+    // Pull text from <p> tags AND from div blocks that look like article
+    // paragraphs (Yahoo's caas-body wraps paragraphs in div[data-component]).
     const paragraphs = [];
     const pRegex = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
     let m;
-    while ((m = pRegex.exec(cleaned)) !== null) {
+    while ((m = pRegex.exec(scope)) !== null) {
       const inner = decodeHtmlEntities(m[1].replace(/<[^>]+>/g, " "))
         .replace(/\s+/g, " ")
         .trim();
       if (inner.length >= ARTICLE_PARA_MIN_CHARS) paragraphs.push(inner);
     }
-    if (!paragraphs.length) return null;
-    let text = paragraphs.join(" ");
+    // Also try div[data-component="paragraph"] (Yahoo Finance) and
+    // div[data-testid^="paragraph-"] (Reuters) when <p> alone is too sparse.
+    if (paragraphs.join(" ").length < ARTICLE_MIN_BODY_CHARS) {
+      const altRegex = /<div\b[^>]*(?:data-component=["']paragraph["']|data-testid=["']paragraph-[^"']*["'])[^>]*>([\s\S]*?)<\/div>/gi;
+      let mm;
+      while ((mm = altRegex.exec(scope)) !== null) {
+        const inner = decodeHtmlEntities(mm[1].replace(/<[^>]+>/g, " "))
+          .replace(/\s+/g, " ")
+          .trim();
+        if (inner.length >= ARTICLE_PARA_MIN_CHARS) paragraphs.push(inner);
+      }
+    }
+    // De-duplicate (some pages render the same paragraph twice in lazy-load
+    // wrappers) while preserving order.
+    const seen = new Set();
+    const uniq = [];
+    for (const p of paragraphs) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      uniq.push(p);
+    }
+    if (!uniq.length) return null;
+    let text = uniq.join(" ");
     if (text.length < ARTICLE_MIN_BODY_CHARS) return null;
     const lower = text.toLowerCase();
     if (PAYWALL_PHRASES.some((p) => lower.includes(p))) return null;
@@ -15199,30 +15289,62 @@ async function enrichHeadlinesWithBodies(headlines) {
 
 // Fallback news take used when a ticker has zero usable articles after body
 // enrichment (Yahoo returned nothing, OR everything was a paywall stub, OR
-// every fetch errored). We synthesize a short paragraph from the ticker's
-// sector + the current macro backdrop (10Y yield + DXY trend) WITHOUT calling
-// the AI — this is deterministic, free, and avoids the model inventing
-// ticker-specific events. Sentiment is always tagged "uncertain" so the
-// recommendation card surfaces it as macro context, not a buy signal.
-function synthesizeFallbackNewsTake(symbol, sector, macroBackdrop) {
+// every fetch errored). We synthesize a paragraph from data we already
+// have for this ticker — business description + next earnings + analyst
+// target + recent technicals — combined with sector + the current macro
+// backdrop (10Y yield + DXY trend). NO AI call: deterministic, free, and
+// avoids the model inventing ticker-specific events.
+//
+// Sentiment is tagged "uncertain" because none of this is news — it's
+// background context. The recommendation card surfaces a "macro fallback"
+// pill so users can't mistake this for a catalyst.
+function synthesizeFallbackNewsTake(symbol, sector, macroBackdrop, fundamentals, spot) {
   const parts = [];
-  parts.push(`No fresh ticker-specific news available for ${symbol} this build (Yahoo returned nothing readable, or every article was paywalled).`);
-  if (sector) parts.push(`Falling back to sector + macro context: ${symbol} is classified as ${sector}.`);
+  // Lead with what the company actually does, if we have it.
+  const fund = fundamentals || {};
+  const name = fund.name || symbol;
+  // Trim longBusinessSummary to first sentence or first ~280 chars — full
+  // version can be a paragraph and bloats the take. Yahoo's first sentence
+  // is usually the elevator pitch ("Apple Inc. designs, manufactures, and
+  // markets...").
+  if (fund.longBusinessSummary) {
+    const summary = String(fund.longBusinessSummary).replace(/\s+/g, " ").trim();
+    const firstSentence = summary.match(/^[^.]{20,400}\./);
+    const lead = firstSentence ? firstSentence[0] : summary.slice(0, 280) + (summary.length > 280 ? "…" : "");
+    parts.push(lead);
+  } else if (sector) {
+    parts.push(`${name} is a ${sector} name in our coverage.`);
+  }
+  // Forward-looking — earnings + analyst target tell traders what catalysts
+  // are on the calendar even without fresh news.
+  const catalysts = [];
+  if (fund.nextEarningsDate) {
+    catalysts.push(`next earnings ${fund.nextEarningsDate}${fund.nextEarningsSession ? ` (${fund.nextEarningsSession})` : ""}`);
+  }
+  if (fund.targetMeanPrice != null && typeof spot === "number" && spot > 0) {
+    const upside = ((fund.targetMeanPrice - spot) / spot) * 100;
+    catalysts.push(`analyst target $${fund.targetMeanPrice.toFixed(2)} (${upside >= 0 ? "+" : ""}${upside.toFixed(1)}% vs spot)`);
+  }
+  if (fund.recommendationKey) {
+    catalysts.push(`consensus ${String(fund.recommendationKey).replace(/_/g, " ")}`);
+  }
+  if (catalysts.length) parts.push("On the calendar: " + catalysts.join("; ") + ".");
+  // Macro backdrop — 10Y + DXY framed for the sector.
   if (macroBackdrop) {
     const macroBits = [];
     const ty = macroBackdrop.tenY;
     if (ty && ty.value != null) {
       const chg = ty.change5d != null ? ` (${ty.change5d >= 0 ? "+" : ""}${ty.change5d.toFixed(2)}% over 5d, ${ty.trend})` : ` (${ty.trend})`;
-      macroBits.push(`10Y Treasury yield at ${ty.value.toFixed(2)}%${chg}`);
+      macroBits.push(`10Y at ${ty.value.toFixed(2)}%${chg}`);
     }
     const dx = macroBackdrop.dxy;
     if (dx && dx.value != null) {
       const chg = dx.change5d != null ? ` (${dx.change5d >= 0 ? "+" : ""}${dx.change5d.toFixed(2)}% over 5d, ${dx.trend})` : ` (${dx.trend})`;
-      macroBits.push(`DXY at ${dx.value.toFixed(2)}${chg}`);
+      macroBits.push(`DXY ${dx.value.toFixed(2)}${chg}`);
     }
-    if (macroBits.length) parts.push(`Macro backdrop: ${macroBits.join(", ")} — see the Bonds & USD tab for how this typically translates to this sector.`);
+    if (macroBits.length) parts.push(`Macro backdrop: ${macroBits.join(", ")} — see the Bonds & USD tab for how this typically translates to ${sector || "this sector"}.`);
   }
-  parts.push(`Treat this take as market context, not a name-specific catalyst.`);
+  parts.push(`No fresh ticker-specific articles were readable this build; treat this take as background context, not a catalyst.`);
   return {
     paragraph: parts.join(" "),
     sentiment: "uncertain",
@@ -15967,7 +16089,7 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
       const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
       if (!headlines.length) {
         const sector = SECTORS[sym] || null;
-        data.news = synthesizeFallbackNewsTake(sym, sector, macroBackdrop);
+        data.news = synthesizeFallbackNewsTake(sym, sector, macroBackdrop, data.fundamentals, data.spot);
         console.log(`  ⊘ ${sym} — no readable articles → fallback macro paragraph`);
         return;
       }
@@ -16011,7 +16133,7 @@ async function attachTickerJudgments(chains, macroBackdrop) {
           // No AI call here on purpose: the goal is honest "market context",
           // not invented ticker-specific events.
           const sector = SECTORS[sym] || null;
-          data.news = synthesizeFallbackNewsTake(sym, sector, macroBackdrop);
+          data.news = synthesizeFallbackNewsTake(sym, sector, macroBackdrop, data.fundamentals, data.spot);
           console.log(`  ⊘ ${sym} — no readable articles (raw ${rawHeadlines.length}, all paywalled / unfetched) → fallback macro paragraph`);
           return;
         }
