@@ -3639,6 +3639,67 @@ main { padding-top: var(--s-2); }
   background: color-mix(in srgb, var(--neg) 8%, var(--surface));
 }
 .pick-driver-narrative { font-weight: 600; }
+
+/* Suggested contract block — strike/expiry, quote, Greeks, breakeven, and
+   a one-click jump into the grader pre-filled with the recommendation. */
+.pick-contract {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pick-card.call .pick-contract { border-left: 2px solid color-mix(in srgb, var(--pos) 45%, var(--border)); }
+.pick-card.put  .pick-contract { border-left: 2px solid color-mix(in srgb, var(--neg) 45%, var(--border)); }
+.pick-contract-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pick-contract-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.pick-contract-strike {
+  font: 700 13px/1.2 var(--font-mono);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.pick-contract-quote,
+.pick-contract-greeks,
+.pick-contract-be,
+.pick-contract-meta {
+  font: 500 12px/1.4 var(--font-mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.pick-contract-be { color: var(--muted-strong); }
+.pick-contract-meta { color: var(--muted); font-size: 11px; }
+.pick-contract-grade {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--text-strong);
+  border-radius: var(--r-2);
+  font: 600 12px/1 var(--font-sans);
+  cursor: pointer;
+  transition: background .15s var(--ease-out), border-color .15s var(--ease-out);
+}
+.pick-contract-grade:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
 .pick-conviction {
   display: flex;
   flex-direction: column;
