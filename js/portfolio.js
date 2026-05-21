@@ -10,6 +10,14 @@ import {
   signOut,
   onAuthChange,
 } from "./auth.js";
+import { greeks, yearsToExpiry } from "../lib/greeks.mjs";
+
+// Risk-free rate baked into app.js by the daily build (fetchRiskFreeRate
+// pulls the 3M T-bill rate). Mirror it here so the risk dashboard's Greeks
+// match what the grader and AI review use. window.STONKS_MANIFEST.riskFreeRate
+// could expose it cleanly later; for now the lib/greeks.mjs default (0.045)
+// is close enough for delta-equivalents at the portfolio level.
+const RISK_FREE_RATE = 0.045;
 
 const $ = (id) => document.getElementById(id);
 
@@ -188,6 +196,7 @@ function renderSignedIn() {
         </div>
       </header>
       <div id="pf-equity" class="pf-equity" hidden></div>
+      <div id="pf-risk" class="pf-risk" hidden></div>
       <div id="pf-list" class="pf-list" role="status" aria-live="polite">Loading…</div>
       <div id="pf-review" class="pf-review" hidden></div>
       <div id="pf-history" class="pf-history" hidden></div>
@@ -239,6 +248,9 @@ async function loadPositions() {
   }
   state.positions = data || [];
   renderPositions();
+  // Risk dashboard runs off the same position list; fire-and-forget so
+  // the position rows don't wait on chain fetches.
+  loadRisk();
 }
 
 function renderPositions() {
@@ -307,6 +319,228 @@ function renderPositions() {
   list.querySelectorAll("[data-sell]").forEach((btn) => {
     btn.addEventListener("click", () => openSellModal(btn.dataset.sell));
   });
+}
+
+// --- Risk dashboard -------------------------------------------------------
+
+// Pick the contract from an already-loaded chain that matches a saved
+// position (same strike, same side). Returns null when the strike rolled
+// off-band (Yahoo only stores ±55% of spot) so the caller can skip it
+// without crashing the aggregate.
+function lookupContract(chainCache, position) {
+  const entry = chainCache[position.symbol];
+  if (!entry) return null;
+  const chain = entry.chains[position.expiry];
+  if (!chain) return null;
+  const rows = (position.side === "put" ? chain.p : chain.c) || [];
+  // Tolerance for float-equality on strikes — Yahoo sometimes serializes
+  // 7.5 as 7.5 exactly, sometimes as 7.499999998. 0.01 covers it.
+  const hit = rows.find((r) => Math.abs(r.s - position.strike) < 0.01);
+  return hit || null;
+}
+
+// Pre-load every symbol the user holds so renderRisk doesn't have to await
+// per-row. Failed loads (delisted ticker, build skipped it) silently fall
+// through — the row just contributes nothing to the aggregate.
+async function preloadPositionChains() {
+  const symbols = Array.from(new Set(state.positions.map((p) => p.symbol)));
+  await Promise.all(symbols.map((s) => loadChain(s).catch(() => null)));
+}
+
+// Build a per-position pricing snapshot used by both the Greeks
+// aggregation and the concentration / VaR computations downstream.
+function buildPositionMetrics() {
+  const out = [];
+  for (const p of state.positions) {
+    const contract = lookupContract(state.chainCache, p);
+    const entry = state.chainCache[p.symbol] || {};
+    const spot = entry.spot;
+    const iv = contract?.iv;
+    const T = yearsToExpiry(p.expiry);
+    const g = (spot && iv && T && p.strike > 0)
+      ? greeks(p.side, spot, p.strike, T, iv, RISK_FREE_RATE)
+      : null;
+    const mid = contract && contract.b != null && contract.a != null && contract.b + contract.a > 0
+      ? (contract.b + contract.a) / 2
+      : contract?.l ?? null;
+    const qty = Math.max(0, Number(p.quantity) || 0);
+    const cost = (Number(p.entry_premium) || 0) * qty * 100;
+    const marketValue = mid != null ? mid * qty * 100 : null;
+    const beta = entry.fundamentals?.beta;
+    const sector = (window.STONKS_MANIFEST?.sectors || {})[p.symbol] || "Other";
+    out.push({
+      position: p,
+      contract,
+      spot,
+      iv,
+      greeks: g,
+      mid,
+      qty,
+      cost,
+      marketValue,
+      beta: beta != null && isFinite(beta) ? beta : null,
+      sector,
+    });
+  }
+  return out;
+}
+
+function spyDeltaWeighted(metrics, spySpot) {
+  if (!spySpot) return null;
+  let acc = 0;
+  let counted = 0;
+  for (const m of metrics) {
+    if (!m.greeks || m.spot == null || m.beta == null) continue;
+    // Standard beta-weighted delta: dollar delta × beta, expressed as
+    // equivalent SPY shares.
+    acc += m.greeks.delta * m.qty * 100 * m.spot * m.beta / spySpot;
+    counted += 1;
+  }
+  return counted > 0 ? acc : null;
+}
+
+function parametricVaR(metrics) {
+  // 1-day, 95% VaR using a simple delta-IV-equivalent estimate. Treats the
+  // portfolio's net dollar delta as a single position; not a substitute
+  // for a proper Monte Carlo but gives a directional sense of overnight
+  // exposure.
+  let netDollarMove = 0;
+  let anyCounted = false;
+  for (const m of metrics) {
+    if (!m.greeks || m.spot == null || !m.iv) continue;
+    netDollarMove += m.greeks.delta * m.qty * 100 * m.spot * (m.iv / Math.sqrt(252));
+    anyCounted = true;
+  }
+  if (!anyCounted) return null;
+  return 1.645 * Math.abs(netDollarMove);
+}
+
+async function loadRisk() {
+  const box = $("pf-risk");
+  if (!box) return;
+  if (!state.positions.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="pf-risk-loading"><span class="skeleton" style="width:240px;height:18px"></span></div>`;
+  try {
+    await preloadPositionChains();
+  } catch (_) {
+    // Non-fatal — renderRisk degrades gracefully on missing data.
+  }
+  // SPY's spot doubles as the beta-weighting denominator. Load lazily so
+  // forks without SPY in the curated set still render the rest.
+  try { await loadChain("SPY"); } catch (_) {}
+  renderRisk();
+}
+
+function fmtBigMoney(n) {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}K`;
+  return `${sign}$${a.toFixed(0)}`;
+}
+
+function fmtGreek(n, digits = 2) {
+  if (n == null || !isFinite(n)) return "—";
+  const fixed = Number(n).toFixed(digits);
+  return n >= 0 ? `+${fixed}` : fixed;
+}
+
+function renderRisk() {
+  const box = $("pf-risk");
+  if (!box) return;
+  if (!state.positions.length) { box.hidden = true; return; }
+  const metrics = buildPositionMetrics();
+  // Aggregate Greeks (dollar units — multiply by qty * 100 — so the numbers
+  // mean "for a $1 spot move, your portfolio moves $X"). Skipped rows are
+  // those whose strike rolled off-band or whose chain failed to load.
+  let delta = 0, gamma = 0, vega = 0, theta = 0;
+  let countedGreeks = 0;
+  for (const m of metrics) {
+    if (!m.greeks) continue;
+    const sign = m.qty * 100;
+    delta += m.greeks.delta * sign;
+    gamma += m.greeks.gamma * sign;
+    vega += m.greeks.vega * sign;
+    theta += m.greeks.thetaDay * sign;
+    countedGreeks += 1;
+  }
+  // Cost-basis concentration. Per-symbol AND per-sector. Sort by descending
+  // share so the top exposures are at the top of each list.
+  const totalCost = metrics.reduce((acc, m) => acc + m.cost, 0);
+  const bySymbol = new Map();
+  const bySector = new Map();
+  for (const m of metrics) {
+    const sym = m.position.symbol;
+    bySymbol.set(sym, (bySymbol.get(sym) || 0) + m.cost);
+    bySector.set(m.sector, (bySector.get(m.sector) || 0) + m.cost);
+  }
+  const symbolRows = Array.from(bySymbol.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  const sectorRows = Array.from(bySector.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  const spySpot = state.chainCache.SPY?.spot;
+  const betaDelta = spyDeltaWeighted(metrics, spySpot);
+  const var95 = parametricVaR(metrics);
+  const skipped = metrics.length - countedGreeks;
+
+  const concentrationListHtml = (rows, total, formatLabel) => rows.map(([key, cost]) => {
+    const pct = total > 0 ? (cost / total) * 100 : 0;
+    return `<li class="pf-conc-row">
+      <span class="pf-conc-label">${escapeHtml(formatLabel(key))}</span>
+      <span class="pf-conc-bar"><span class="pf-conc-fill" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="pf-conc-pct">${pct.toFixed(0)}%</span>
+    </li>`;
+  }).join("");
+
+  box.innerHTML = `
+    <header class="pf-risk-head">
+      <h3 class="pf-risk-title">Portfolio risk</h3>
+      <span class="pf-risk-sub">${countedGreeks} position${countedGreeks === 1 ? "" : "s"} priced${skipped > 0 ? ` · ${skipped} skipped (off-band strike or missing chain)` : ""}</span>
+    </header>
+    <div class="pf-risk-grid">
+      <div class="pf-risk-block">
+        <div class="pf-risk-block-head">Aggregate Greeks (per $1 underlying move)</div>
+        <div class="pf-risk-greeks">
+          <div class="pf-risk-greek"><span class="pf-greek-label">Δ Delta</span><span class="pf-greek-value ${delta >= 0 ? "pf-pos" : "pf-neg"}">${fmtGreek(delta, 1)}</span></div>
+          <div class="pf-risk-greek"><span class="pf-greek-label">Γ Gamma</span><span class="pf-greek-value">${fmtGreek(gamma, 2)}</span></div>
+          <div class="pf-risk-greek"><span class="pf-greek-label">V Vega</span><span class="pf-greek-value">${fmtGreek(vega, 1)}</span></div>
+          <div class="pf-risk-greek"><span class="pf-greek-label">Θ Theta/day</span><span class="pf-greek-value ${theta >= 0 ? "pf-pos" : "pf-neg"}">${fmtGreek(theta, 1)}</span></div>
+        </div>
+        <p class="pf-risk-foot">Sum of per-contract Greeks × quantity × 100. Δ is dollars-per-$1-move on the underlying; Θ is the dollar decay you bleed per calendar day.</p>
+      </div>
+      <div class="pf-risk-block">
+        <div class="pf-risk-block-head">Market exposure</div>
+        <div class="pf-risk-kpis">
+          <div class="pf-risk-kpi">
+            <span class="pf-kpi-label">Beta-weighted Δ (SPY)</span>
+            <span class="pf-kpi-value">${betaDelta != null ? fmtBigMoney(betaDelta) : "—"}</span>
+            <span class="pf-kpi-sub">${betaDelta != null ? "Equivalent SPY-share exposure given each name's beta" : "Need SPY spot + beta on positions"}</span>
+          </div>
+          <div class="pf-risk-kpi">
+            <span class="pf-kpi-label">1-day 95% VaR</span>
+            <span class="pf-kpi-value">${var95 != null ? fmtBigMoney(var95) : "—"}</span>
+            <span class="pf-kpi-sub">${var95 != null ? "Parametric, delta-IV estimate" : "Need IV on each contract"}</span>
+          </div>
+          <div class="pf-risk-kpi">
+            <span class="pf-kpi-label">Total cost basis</span>
+            <span class="pf-kpi-value">${fmtBigMoney(totalCost)}</span>
+            <span class="pf-kpi-sub">Premium paid across ${state.positions.length} open position${state.positions.length === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+      </div>
+      <div class="pf-risk-block">
+        <div class="pf-risk-block-head">Concentration · by symbol</div>
+        <ul class="pf-conc-list">${concentrationListHtml(symbolRows, totalCost, (k) => k)}</ul>
+      </div>
+      <div class="pf-risk-block">
+        <div class="pf-risk-block-head">Concentration · by sector</div>
+        <ul class="pf-conc-list">${concentrationListHtml(sectorRows, totalCost, (k) => k)}</ul>
+      </div>
+    </div>`;
 }
 
 async function deletePosition(id) {
@@ -670,7 +904,15 @@ async function loadChain(symbol) {
     sec,
     label: new Date(sec * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
   }));
-  const cached = { expirations, chains: j.chains || {} };
+  // Spot + fundamentals are kept alongside expirations/chains so the risk
+  // dashboard can read beta and the live underlying price for each holding
+  // without re-fetching.
+  const cached = {
+    expirations,
+    chains: j.chains || {},
+    spot: j.spot ?? null,
+    fundamentals: j.fundamentals || null,
+  };
   state.chainCache[symbol] = cached;
   return cached;
 }
