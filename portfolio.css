@@ -829,3 +829,80 @@
   margin: 0;
   font-size: 13px;
 }
+
+/* ============================================================================
+ * Mobile responsive — portfolio surfaces
+ * Keeps modals, position rows, and equity charts usable on <=640px screens.
+ * ========================================================================== */
+@media (max-width: 640px) {
+  /* Modals slide up from the bottom on phones — a familiar pattern for
+     iOS / Android sheet-style dialogs. Pinned to viewport edges so the
+     keyboard pushes the form upward instead of clipping it. */
+  .pf-modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .pf-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 88vh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: 0;
+  }
+
+  /* Position rows: stack to two-row layout (symbol + qty/mark/pnl on row 1,
+     actions on row 2) and ensure every button hits the 36px touch floor. */
+  .pf-row { padding: 10px; gap: 8px; }
+  .pf-row-main { grid-template-columns: 1fr; gap: 8px; }
+  .pf-row-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pf-btn, .pf-btn-sm, .pf-iconbtn {
+    min-height: 36px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .pf-symbol { font-size: 14px; }
+  .pf-leg { font-size: 11px; }
+  .pf-age { font-size: 10px; }
+
+  /* Account header: stack title + actions vertically so the +Add and
+     Review buttons get full breathing room. */
+  .pf-portfolio-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .pf-actions { justify-content: stretch; }
+  .pf-actions .pf-btn { flex: 1 1 auto; }
+
+  /* Equity chart: tighter header, single-column KPI row. */
+  .pf-equity { padding: 12px; }
+  .pf-equity-head { flex-direction: column; align-items: stretch; gap: 8px; }
+  .pf-equity-svg { max-width: 100%; height: auto; }
+  .pf-range-btn { min-height: 30px; padding: 4px 8px; }
+
+  /* Risk dashboard: narrower KPIs row and Greek tile typography
+     scales down. */
+  .pf-risk { padding: 12px; }
+  .pf-risk-grid { gap: 10px; }
+  .pf-risk-block { padding: 10px; }
+  .pf-greek-value { font-size: 14px; }
+  .pf-kpi-value { font-size: 13px; }
+  .pf-conc-row { grid-template-columns: 70px 1fr 30px; gap: 8px; }
+
+  /* Concentration bars need a hair more height to remain legible. */
+  .pf-conc-bar { height: 7px; }
+
+  /* Sign-in card: stack provider buttons. */
+  .pf-signin-providers { flex-direction: column; gap: 8px; }
+  .pf-signin-providers .pf-btn { width: 100%; }
+}
+
+/* === Extra-narrow phones (<=400px) ==================================== */
+@media (max-width: 400px) {
+  .pf-row { padding: 8px; }
+  .pf-mark, .pf-pnl, .pf-qty { font-size: 12px; }
+  .pf-mark-label { font-size: 9px; }
+  .pf-modal { padding: 14px; }
+}

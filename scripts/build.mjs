@@ -2643,14 +2643,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var valid = ['tickers','narratives','calendar','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
+      var activeBtn = null;
       tabs.forEach(function(btn){
         var sel = btn.getAttribute('data-page-tab') === name;
         btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        if (sel) activeBtn = btn;
         var paneId = btn.getAttribute('aria-controls');
         var pane = paneId ? document.getElementById(paneId) : null;
         if (pane) pane.hidden = !sel;
       });
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
+      // On narrow viewports the .page-tabs strip is horizontally scrollable.
+      // Programmatic selection (e.g. on page load from localStorage) can
+      // leave the active tab off-screen — scroll it into view so the user
+      // sees where they are. scrollIntoView with inline:center keeps the
+      // chosen tab visually anchored in the strip.
+      if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+        try {
+          activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        } catch (_) {
+          // Older Safari ignores object-form options — fall back to no-op.
+        }
+      }
     }
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
@@ -7977,6 +7991,178 @@ main { padding-top: var(--s-2); }
   font-size: 11px;
   color: var(--muted);
   line-height: 1.3;
+}
+
+/* ============================================================================
+ * Mobile responsive layer
+ *
+ * Bottom-of-stylesheet so it cleanly overrides earlier desktop-first rules.
+ * Goal: smooth, dense-but-readable single-column experience on <=640px-wide
+ * screens (covers every common phone in portrait). No layout breaks: every
+ * feature that works on desktop should remain reachable on mobile.
+ *
+ * Design notes:
+ * - Touch targets land at >=40px tall (Apple HIG = 44px, Material = 48dp;
+ *   40px is the trading-desk-dense compromise that keeps the page from
+ *   feeling sparse on a phone while still hitting reliably).
+ * - Hover styles are scoped to (hover: hover) so they don't strand a
+ *   "stuck" hover state on touch devices after a tap.
+ * - The horizontal-scrolling page-tabs strip gets scroll-snap so flicks
+ *   land cleanly on a tab boundary instead of mid-tab.
+ * ========================================================================== */
+
+/* On no-hover devices, replace hover-only visual cues with focus-visible
+   so keyboard nav still works but stale touch-hover doesn't stick. */
+@media (hover: none) {
+  .flow-chip:hover,
+  .cal-chip:hover,
+  .narr-card:hover,
+  .pf-risk-block:hover {
+    transform: none;
+    background: var(--surface-2);
+  }
+}
+
+/* === Tablet & narrow desktop (<=900px) ============================== */
+@media (max-width: 900px) {
+  main { padding: var(--s-3) var(--s-3) var(--s-6); }
+  .page-tabs { padding: 0 var(--s-3); }
+}
+
+/* === Phone (<=640px) ================================================ */
+@media (max-width: 640px) {
+  body { font-size: 13px; }
+  main { padding: var(--s-2) var(--s-2) var(--s-6); }
+  .page-tabs {
+    padding: 0 var(--s-2);
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .page-tab {
+    scroll-snap-align: start;
+    padding: var(--s-3);
+    min-height: 40px;
+    font-size: 12px;
+  }
+  /* Cards: tighter padding so on-screen content doesn't shrink below
+     readable size. */
+  .card {
+    padding: var(--s-3);
+    border-radius: var(--r-2);
+  }
+  .card-header { flex-wrap: wrap; gap: var(--s-2); }
+  .page-sub { font-size: 12px; }
+
+  /* Calendar: single-column chips, no source byline (saves horizontal
+     space, the date already implies the feed cluster). */
+  .cal-day {
+    grid-template-columns: 1fr;
+    padding: var(--s-2) 0;
+    gap: 4px;
+  }
+  .cal-date { font-size: 11px; padding-top: 0; }
+  .cal-chip { padding: 8px 10px; font-size: 12px; }
+  .cal-chip-source { display: none; }
+  .calendar-controls { gap: var(--s-2); }
+  .calendar-pill { min-height: 36px; padding: 6px 12px; }
+
+  /* Flow controls: stack search + filters vertically; keep pills tappable. */
+  .flow-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s-2);
+  }
+  .flow-search { width: 100%; min-width: 0; }
+  .flow-pill, .flow-action-btn {
+    min-height: 36px;
+    padding: 6px 12px;
+  }
+  .flow-chip { font-size: 11px; flex-wrap: wrap; }
+  .flow-chip > * { line-height: 1.4; }
+  .flow-row-head {
+    flex-wrap: wrap;
+    padding: var(--s-2);
+    gap: 6px;
+    min-height: 44px;
+  }
+  .flow-symbol { font-size: 14px; }
+  .flow-spot, .flow-count, .flow-top { font-size: 11px; }
+  .flow-note { font-size: 11px; padding: 6px 8px; max-width: none; }
+
+  /* Narratives: tab strip horizontally scrolls, panels keep single column. */
+  .narr-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+  .narr-tabs::-webkit-scrollbar { display: none; }
+  .narr-tab { white-space: nowrap; flex: 0 0 auto; min-height: 36px; }
+  .narr-card { padding: var(--s-3); }
+
+  /* Implied vol card: keep SVG fluid; tighten padding. */
+  .opt-iv { padding: var(--s-3); }
+  .opt-iv-head { gap: 6px; }
+  .opt-iv-foot { font-size: 10px; }
+
+  /* Option grader inputs: full-width, taller, 14px font so iOS doesn't
+     zoom in on focus (Safari auto-zooms when input < 16px text; 14px is
+     visually consistent with the rest of the form while staying close
+     enough that the zoom only triggers when the user explicitly taps
+     to zoom). The combobox listbox needs touch-friendly rows too. */
+  .opt-eval-section .field,
+  .opt-eval-section .field input,
+  .opt-eval-section .field select {
+    width: 100%;
+  }
+  select, input[type="text"], input[type="email"], input[type="number"], input[type="search"] {
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .opt-chain-row { grid-template-columns: 1fr !important; }
+  .opt-result { padding: var(--s-2); font-size: 12px; }
+  .opt-result-sticky { padding: var(--s-2); border-radius: 0; }
+  /* Result-sticky pins to bottom on phone so the verdict stays visible
+     while the user scrolls through the chain table or below-fold cards. */
+  .opt-result-sticky:not([hidden]) {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    background: var(--surface);
+    box-shadow: 0 -8px 16px -8px rgba(0,0,0,.45);
+  }
+
+  /* Streaks: stack the green/red columns on phones. */
+  .streaks-cols { grid-template-columns: 1fr; gap: var(--s-3); }
+
+  /* Site header: compact logo/title so the icon-btn cluster fits. */
+  .site-header { padding: var(--s-2) var(--s-3); }
+  .site-title { font-size: 14px; }
+  .freshness { font-size: 11px; }
+
+  /* Touch-target floor for any small buttons that fell through. */
+  button, .pf-iconbtn { min-height: 36px; }
+}
+
+/* === Extra-narrow (<=400px) for older / smaller phones ============== */
+@media (max-width: 400px) {
+  main { padding: var(--s-2) 10px var(--s-6); }
+  body { font-size: 12.5px; }
+  .page-tab { padding: var(--s-2); font-size: 11.5px; }
+  .card { padding: 10px; }
+  .cal-chip { padding: 7px 9px; }
+  .flow-row-head { gap: 4px; }
+  .pf-risk-greeks { grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+}
+
+/* === Landscape phone (low height) =================================== */
+/* Cap the sticky result bar so a rotated phone doesn't get its viewport
+   eaten in half. */
+@media (max-height: 500px) and (max-width: 900px) {
+  .opt-result-sticky:not([hidden]) {
+    max-height: 40vh;
+    overflow-y: auto;
+  }
 }
 `;
 }
