@@ -4942,33 +4942,64 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         '</table></div>' +
       '</div>';
     }
-    // === BlackRock detail ==============================================
-    if (d.blackrock && Array.isArray(d.blackrock.holdings) && d.blackrock.holdings.length){
-      var br = d.blackrock;
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">' + escapeHtml(br.label || 'BlackRock') + '</h3>' +
-        (br.concentrationNote ? '<p class="f13-note">' + escapeHtml(br.concentrationNote) + '</p>' : '') +
-        '<div class="f13-table-scroll"><table class="f13-table">' +
-          '<thead><tr>' +
-            '<th>Ticker</th><th>Sector</th><th>Shares</th><th>Market value</th>' +
-            '<th>Δ shares</th><th>Δ MV</th><th>Δ %</th>' +
-          '</tr></thead>' +
-          '<tbody>' +
-          br.holdings.map(function(h){
-            return '<tr>' +
-              '<td class="f13-tkr">' + escapeHtml(h.ticker || '') + '</td>' +
-              '<td>' + escapeHtml(h.sector || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(h.shares || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(h.marketValue || '') + '</td>' +
-              '<td class="f13-num f13-muted">' + escapeHtml(h.changeShares || '') + '</td>' +
-              '<td class="f13-num f13-muted">' + escapeHtml(h.changeMv || '') + '</td>' +
-              '<td class="f13-num f13-muted">' + escapeHtml(h.changePct || '') + '</td>' +
-            '</tr>';
-          }).join('') +
-          '</tbody>' +
-        '</table></div>' +
-        (br.tail ? '<p class="f13-tail">' + escapeHtml(br.tail) + '</p>' : '') +
-      '</div>';
+    // === Per-firm top 10 holdings (real SEC EDGAR data) =================
+    function fmtBigDollarsF13(v){
+      if (v == null || !isFinite(v)) return '—';
+      var abs = Math.abs(v); var sign = v < 0 ? '-' : '';
+      if (abs >= 1e12) return sign + '$' + (abs / 1e12).toFixed(2) + 'T';
+      if (abs >= 1e9)  return sign + '$' + (abs / 1e9).toFixed(1) + 'B';
+      if (abs >= 1e6)  return sign + '$' + (abs / 1e6).toFixed(1) + 'M';
+      return sign + '$' + Math.round(abs).toLocaleString('en-US');
+    }
+    function fmtSharesF13(v){
+      if (v == null || !isFinite(v)) return '—';
+      var abs = Math.abs(v);
+      if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+      return Math.round(v).toLocaleString('en-US');
+    }
+    if (d.perFirm && typeof d.perFirm === 'object'){
+      var firmsWithData = Object.keys(d.perFirm).filter(function(k){
+        var f = d.perFirm[k];
+        return f && Array.isArray(f.holdings) && f.holdings.length;
+      });
+      if (firmsWithData.length){
+        html += '<div class="f13-block">' +
+          '<h3 class="f13-block-title">Per-firm top 10 holdings (latest 13F-HR filings)</h3>' +
+          '<p class="f13-note">Parsed directly from SEC EDGAR XML. CUSIPs mapped to tickers via OpenFIGI.</p>';
+        firmsWithData.forEach(function(firmKey, i){
+          var f = d.perFirm[firmKey];
+          var firstOpen = i === 0 ? ' open' : '';
+          html += '<details class="f13-firm"' + firstOpen + '>' +
+            '<summary class="f13-firm-summary">' +
+              '<span class="f13-firm-name">' + escapeHtml(f.firm || firmKey) + '</span>' +
+              '<span class="f13-firm-meta">' +
+                escapeHtml(fmtBigDollarsF13(f.totalValue)) + ' · ' +
+                (f.totalPositions || 0) + ' positions · top-10 ' + (f.top10ConcentrationPct != null ? f.top10ConcentrationPct + '%' : '—') +
+                (f.filingDate ? ' · filed ' + escapeHtml(f.filingDate) : '') +
+              '</span>' +
+            '</summary>' +
+            '<div class="f13-table-scroll"><table class="f13-table">' +
+              '<thead><tr>' +
+                '<th>#</th><th>Ticker</th><th>Issuer</th><th>Value</th><th>Shares</th>' +
+              '</tr></thead>' +
+              '<tbody>' +
+              f.holdings.map(function(h, j){
+                return '<tr>' +
+                  '<td class="f13-num">' + (j + 1) + '</td>' +
+                  '<td class="f13-tkr">' + escapeHtml(h.ticker || '—') + '</td>' +
+                  '<td>' + escapeHtml(h.name || '') + '</td>' +
+                  '<td class="f13-num">' + escapeHtml(fmtBigDollarsF13(h.value)) + '</td>' +
+                  '<td class="f13-num f13-muted">' + escapeHtml(fmtSharesF13(h.shares)) + '</td>' +
+                '</tr>';
+              }).join('') +
+              '</tbody>' +
+            '</table></div>' +
+          '</details>';
+        });
+        html += '</div>';
+      }
     }
     // === Berkshire callout =============================================
     if (d.berkshire){
@@ -8553,6 +8584,55 @@ main { padding-top: var(--s-2); }
   font-size: 11px;
   font-style: italic;
 }
+.f13-firm {
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  margin-top: var(--s-2);
+  overflow: hidden;
+}
+.f13-firm[open] {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.f13-firm-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  flex-wrap: wrap;
+}
+.f13-firm-summary::-webkit-details-marker { display: none; }
+.f13-firm-summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  transition: transform .12s;
+  margin-right: 4px;
+}
+.f13-firm[open] .f13-firm-summary::before { transform: rotate(90deg); }
+.f13-firm-name {
+  font: 600 13px/1.2 var(--font-mono);
+  color: var(--text-strong);
+  letter-spacing: .03em;
+  flex: 1;
+  min-width: 0;
+}
+.f13-firm-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.f13-firm .f13-table-scroll {
+  border: none;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  background: var(--surface);
+}
 .f13-flow-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -9343,16 +9423,22 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
 // are computed from the active quarter so they advance automatically.
 const F13_FILE = "13f.json";
 
+// CIKs are the entity identifiers SEC EDGAR uses for 13F filings. Each
+// firm is keyed by the CIK that consistently files the largest 13F-HR
+// for that institution. Vanguard files under several CIKs across its
+// entities (Vanguard Group Inc. is the primary one we track). If a CIK
+// drifts (entity restructure / name change), the EDGAR fetch silently
+// degrades to the curated baseline numbers.
 const F13_TOP_FIRM_DIRECTORY = [
-  { firm: "BlackRock",                   aum: "~$5.7T", holdings: "~50,000+" },
-  { firm: "Vanguard (various entities)", aum: "~$4T+",  holdings: "Varies"   },
-  { firm: "State Street",                aum: "~$2.9T", holdings: "~4,300"   },
-  { firm: "FMR LLC (Fidelity)",          aum: "~$1.9T", holdings: "~13,000+" },
-  { firm: "Morgan Stanley",              aum: "~$1.7T", holdings: "~46,000"  },
-  { firm: "Geode Capital",               aum: "~$1.6T", holdings: "~8,500+"  },
-  { firm: "JPMorgan Chase",              aum: "~$1.6T", holdings: "~33,000"  },
-  { firm: "Bank of America",             aum: "~$1.4T", holdings: "~18,000"  },
-  { firm: "Berkshire Hathaway",          aum: "~$260B", holdings: "~90"      },
+  { firm: "BlackRock",                   cik: "1364742",  aum: "~$5.7T", holdings: "~50,000+" },
+  { firm: "Vanguard Group",              cik: "102909",   aum: "~$4T+",  holdings: "Varies"   },
+  { firm: "State Street Corp",           cik: "93751",    aum: "~$2.9T", holdings: "~4,300"   },
+  { firm: "FMR LLC (Fidelity)",          cik: "315066",   aum: "~$1.9T", holdings: "~13,000+" },
+  { firm: "Morgan Stanley",              cik: "895421",   aum: "~$1.7T", holdings: "~46,000"  },
+  { firm: "Geode Capital",               cik: "1532046",  aum: "~$1.6T", holdings: "~8,500+"  },
+  { firm: "JPMorgan Chase",              cik: "19617",    aum: "~$1.6T", holdings: "~33,000"  },
+  { firm: "Bank of America",             cik: "70858",    aum: "~$1.4T", holdings: "~18,000"  },
+  { firm: "Berkshire Hathaway",          cik: "1067983",  aum: "~$260B", holdings: "~90"      },
 ];
 
 // Compute which 13F quarter is "current" given today's date. 13Fs are
@@ -9465,7 +9551,251 @@ function deriveF13RotationThemes(narratives) {
   return { buys: buys.slice(0, 8), sells: sells.slice(0, 8) };
 }
 
-export function build13FPayload(chains, narratives, asOf) {
+// === SEC EDGAR 13F-HR holdings parser ================================
+// Free public source for real institutional holdings. SEC requires a
+// User-Agent that identifies the requester (a working email). Rate
+// limit is 10 requests/second; we run 9 firms in parallel and chunk
+// the OpenFIGI CUSIP→ticker lookups in batches of 100. On any failure
+// (network, parse, schema drift, missing filing) the firm degrades
+// silently and the curated baseline values remain.
+//
+// Pipeline per firm:
+//   1. submissions.json → recent filings list
+//   2. Find latest form=13F-HR (excluding 13F-NT)
+//   3. Fetch filing index.json → locate the information table XML
+//   4. Parse <infoTable> blocks for nameOfIssuer / cusip / value / shares
+//   5. Aggregate same-CUSIP rows (firms split puts/calls/shares)
+//   6. Sort by value, keep top 10, attach tickers via OpenFIGI
+
+const SEC_USER_AGENT = process.env.SEC_USER_AGENT
+  || "stonks-app build-pipeline contact@example.com";
+
+async function fetchEdgarSubmissions(cik) {
+  const padded = String(cik).padStart(10, "0");
+  const url = `https://data.sec.gov/submissions/CIK${padded}.json`;
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      console.log(`    ⚠ EDGAR submissions CIK${padded} HTTP ${res.status}`);
+      return null;
+    }
+    return await res.json();
+  } catch (err) {
+    console.log(`    ⚠ EDGAR submissions CIK${padded} failed: ${err.message}`);
+    return null;
+  }
+}
+
+function findLatest13F(submissions) {
+  const recent = submissions?.filings?.recent;
+  if (!recent) return null;
+  const forms = recent.form || [];
+  const dates = recent.filingDate || [];
+  const accessions = recent.accessionNumber || [];
+  const docs = recent.primaryDocument || [];
+  // Walk newest-first; the recent block is already date-descending.
+  for (let i = 0; i < forms.length; i++) {
+    // 13F-HR is the full holdings report; 13F-NT is a notice with no
+    // table. We only care about HR (and its amendments 13F-HR/A).
+    if (forms[i] === "13F-HR" || forms[i] === "13F-HR/A") {
+      return {
+        form: forms[i],
+        filingDate: dates[i],
+        accessionNumber: accessions[i],
+        primaryDocument: docs[i],
+      };
+    }
+  }
+  return null;
+}
+
+async function fetchEdgar13FHoldings(cik, filing) {
+  const cikNum = Number(cik);
+  const accessionNoDashes = filing.accessionNumber.replace(/-/g, "");
+  const indexUrl = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/index.json`;
+  try {
+    const idxRes = await fetch(indexUrl, {
+      headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!idxRes.ok) return [];
+    const idx = await idxRes.json();
+    const items = idx?.directory?.item || [];
+    // The information table XML is a separate file from the primary doc.
+    // Naming varies — try several patterns in priority order.
+    const xmlFile = items.find((f) => /information.*table.*\.xml$/i.test(f.name))
+      || items.find((f) => /infotable\.xml$/i.test(f.name))
+      || items.find((f) => /\.xml$/i.test(f.name) && !/primary_doc/i.test(f.name) && f.name !== filing.primaryDocument);
+    if (!xmlFile) return [];
+    const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/${xmlFile.name}`;
+    const xmlRes = await fetch(xmlUrl, {
+      headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!xmlRes.ok) return [];
+    const xml = await xmlRes.text();
+    return parseEdgar13FXml(xml);
+  } catch (err) {
+    console.log(`    ⚠ EDGAR holdings CIK${cik} accession ${filing.accessionNumber} failed: ${err.message}`);
+    return [];
+  }
+}
+
+function parseEdgar13FXml(xml) {
+  // Strip XML namespaces so a single regex set works across schema
+  // versions (the 13F XSD has been re-namespaced multiple times).
+  const clean = String(xml || "").replace(/<\/?([a-zA-Z0-9]+):/g, (_, _ns) => "<");
+  const out = [];
+  const blocks = clean.match(/<infoTable\b[^>]*>[\s\S]*?<\/infoTable>/g) || [];
+  for (const block of blocks) {
+    const name = (block.match(/<nameOfIssuer[^>]*>([\s\S]*?)<\/nameOfIssuer>/) || [])[1];
+    const cusip = (block.match(/<cusip[^>]*>([\s\S]*?)<\/cusip>/) || [])[1];
+    const valueRaw = (block.match(/<value[^>]*>([\s\S]*?)<\/value>/) || [])[1];
+    const sharesRaw = (block.match(/<sshPrnamt[^>]*>([\s\S]*?)<\/sshPrnamt>/) || [])[1];
+    const sharesType = (block.match(/<sshPrnamtType[^>]*>([\s\S]*?)<\/sshPrnamtType>/) || [])[1];
+    const putCall = (block.match(/<putCall[^>]*>([\s\S]*?)<\/putCall>/) || [])[1];
+    if (!name || !cusip) continue;
+    const value = Number(String(valueRaw || "").trim());
+    const shares = Number(String(sharesRaw || "").trim());
+    if (!Number.isFinite(value)) continue;
+    out.push({
+      name: name.trim(),
+      cusip: cusip.trim(),
+      value,
+      shares: Number.isFinite(shares) ? shares : null,
+      sharesType: (sharesType || "").trim() || null,
+      putCall: (putCall || "").trim() || null,
+    });
+  }
+  return out;
+}
+
+// SEC's 13F schema reported `value` in thousands of dollars through Q3
+// 2022; the 2022 amendment switched to actual dollars starting Q1 2023
+// filings. Both forms still occur in EDGAR. Detect by magnitude: if the
+// total across all holdings is below $10T it's almost certainly the
+// thousands-of-dollars schema (the largest 13F filer in the world is
+// ~$5.7T) and we multiply by 1000 to normalize to actual dollars.
+function normalize13FValueUnits(holdings) {
+  if (!holdings.length) return holdings;
+  const total = holdings.reduce((s, h) => s + h.value, 0);
+  if (total < 10e12) {
+    return holdings.map((h) => ({ ...h, value: h.value * 1000 }));
+  }
+  return holdings;
+}
+
+// OpenFIGI CUSIP → ticker mapping. Free tier: 25 req/min unauth, 100
+// CUSIPs per request. Set OPENFIGI_API_KEY for the paid tier (50 req/min).
+// On failure we silently fall through — the per-firm table renders the
+// holding by issuer name without a ticker chip.
+async function fetchOpenFigiCusipMap(cusips) {
+  const out = new Map();
+  const unique = [...new Set(cusips.filter(Boolean))];
+  if (!unique.length) return out;
+  const chunkSize = 100;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    try {
+      const headers = {
+        "content-type": "application/json",
+        accept: "application/json",
+      };
+      if (process.env.OPENFIGI_API_KEY) {
+        headers["x-openfigi-apikey"] = process.env.OPENFIGI_API_KEY;
+      }
+      const res = await fetch("https://api.openfigi.com/v3/mapping", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(chunk.map((c) => ({ idType: "ID_CUSIP", idValue: c }))),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) {
+        console.log(`    ⚠ OpenFIGI HTTP ${res.status} for batch ${i / chunkSize + 1}`);
+        continue;
+      }
+      const json = await res.json();
+      if (!Array.isArray(json)) continue;
+      for (let j = 0; j < json.length; j++) {
+        const entry = json[j];
+        const ticker = entry?.data?.[0]?.ticker;
+        if (ticker) out.set(chunk[j], ticker);
+      }
+    } catch (err) {
+      console.log(`    ⚠ OpenFIGI batch ${i / chunkSize + 1} failed: ${err.message}`);
+    }
+    // Throttle between batches to stay under 25 req/min unauthenticated.
+    if (i + chunkSize < unique.length && !process.env.OPENFIGI_API_KEY) {
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+  }
+  return out;
+}
+
+// Top-level orchestrator. Returns a per-firm map:
+//   { firmName: { filingDate, totalValue, top10ConcentrationPct,
+//                 totalPositions, holdings: [top 10 by value] } | null }
+export async function buildPerFirm13FHoldings() {
+  // Step 1: pull EDGAR submissions + parse XML for each firm in parallel.
+  const firmsRaw = await Promise.all(
+    F13_TOP_FIRM_DIRECTORY.map(async (f) => {
+      const subs = await fetchEdgarSubmissions(f.cik);
+      const filing = subs ? findLatest13F(subs) : null;
+      if (!filing) return { firm: f.firm, cik: f.cik, filing: null, holdings: [] };
+      const raw = await fetchEdgar13FHoldings(f.cik, filing);
+      const normalized = normalize13FValueUnits(raw);
+      return { firm: f.firm, cik: f.cik, filing, holdings: normalized };
+    }),
+  );
+  // Step 2: one OpenFIGI lookup across the union of CUSIPs.
+  const allCusips = firmsRaw.flatMap((f) => f.holdings.map((h) => h.cusip));
+  const cusipMap = await fetchOpenFigiCusipMap(allCusips);
+  // Step 3: aggregate + rank + truncate per firm.
+  const out = {};
+  for (const f of firmsRaw) {
+    if (!f.holdings.length) { out[f.firm] = null; continue; }
+    const byCusip = new Map();
+    let total = 0;
+    for (const h of f.holdings) {
+      // Skip put/call entries from the aggregate share count — they're
+      // notional option exposures, not share positions. Still include
+      // their value in the firm's total reported AUM.
+      total += h.value;
+      const prev = byCusip.get(h.cusip);
+      if (prev) {
+        prev.value += h.value;
+        if (!h.putCall && h.shares) prev.shares = (prev.shares || 0) + h.shares;
+      } else {
+        byCusip.set(h.cusip, {
+          ticker: cusipMap.get(h.cusip) || null,
+          name: h.name,
+          cusip: h.cusip,
+          value: h.value,
+          shares: h.putCall ? null : h.shares,
+        });
+      }
+    }
+    const sorted = [...byCusip.values()].sort((a, b) => b.value - a.value);
+    const top = sorted.slice(0, 10);
+    const top10Sum = top.reduce((s, h) => s + h.value, 0);
+    const concentration = total > 0 ? (top10Sum / total) * 100 : 0;
+    out[f.firm] = {
+      firm: f.firm,
+      filingDate: f.filing.filingDate,
+      filingForm: f.filing.form,
+      totalValue: total,
+      totalPositions: byCusip.size,
+      top10ConcentrationPct: Math.round(concentration * 10) / 10,
+      holdings: top,
+    };
+  }
+  return out;
+}
+
+export function build13FPayload(chains, narratives, asOf, perFirmHoldings) {
   const q = currentF13Quarter(asOf);
   const monthNames = ["January","February","March","April","May","June",
     "July","August","September","October","November","December"];
@@ -9479,34 +9809,24 @@ export function build13FPayload(chains, narratives, asOf) {
   }));
   const biggestPositions = rankBiggestPositionsByMarketCap(chains);
   const themes = deriveF13RotationThemes(narratives);
+  // Detect whether SEC EDGAR returned real per-firm holdings this build.
+  // If it did, the source note advertises real data; otherwise we fall
+  // back to the marketCap-derived narrative.
+  const perFirm = perFirmHoldings && typeof perFirmHoldings === "object" ? perFirmHoldings : {};
+  const hasRealHoldings = Object.values(perFirm).some((v) => v && Array.isArray(v.holdings) && v.holdings.length);
   return {
     builtAtIso: asOf.toISOString(),
     period: q.period,
     periodEnd: q.periodEnd,
     filingWindow: q.filingWindow,
-    sourceNote:
-      "Aggregated view of large institutional 13F filers ($5B+ AUM). " +
-      "Period, filing window, top-firms table dates, and the biggest-positions " +
-      "ranking refresh every build. Per-firm holdings tables are curated " +
-      "directory baselines — exact share counts and quarter-over-quarter deltas " +
-      "require an SEC EDGAR XML parse, which is out of scope here.",
+    sourceNote: hasRealHoldings
+      ? "Real per-firm 13F holdings parsed from SEC EDGAR (XML information tables), " +
+        "with CUSIP→ticker mapping via OpenFIGI. Top firms table, biggest-positions " +
+        "ranking, and rotation themes all refresh every build."
+      : "Aggregated view of large institutional 13F filers ($5B+ AUM). EDGAR fetch was " +
+        "unavailable this build — per-firm tables fall back to the curated baseline.",
     topFirms,
-    blackrock: {
-      label: "BlackRock — illustrative top holdings",
-      concentrationNote: "Top-six concentration historically ~25–30% of portfolio value.",
-      holdings: biggestPositions.slice(0, 6).map((p) => ({
-        ticker: p.ticker,
-        sector: "",
-        shares: "Large",
-        marketValue: p.note.replace(/^Market cap /, ""),
-        changeShares: "N/A",
-        changeMv: "N/A",
-        changePct: "N/A",
-      })),
-      tail: "Full portfolio has 50k+ positions — passive indexing dominant. " +
-        "Holdings above are the largest names by market cap from our curated universe; " +
-        "BlackRock's true 13F table is dominated by the same mega-caps.",
-    },
+    perFirm,
     berkshire: {
       label: "Berkshire Hathaway (Warren Buffett — concentrated)",
       summary:
@@ -9537,8 +9857,8 @@ export function build13FPayload(chains, narratives, asOf) {
   };
 }
 
-export async function write13FFile(chains, narratives, builtAtIso) {
-  const payload = build13FPayload(chains, narratives, new Date(builtAtIso));
+export async function write13FFile(chains, narratives, builtAtIso, perFirmHoldings) {
+  const payload = build13FPayload(chains, narratives, new Date(builtAtIso), perFirmHoldings);
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, F13_FILE), json, "utf8");
   return { bytes: json.length, positions: payload.biggestPositions.length };
@@ -12299,7 +12619,11 @@ async function main() {
   // positions (ranked from live marketCap), and rotation themes (from the
   // narratives engine output) each build. Replaces the previous static
   // data/13f.json so the tab stays current without code edits.
-  const f13Info = await write13FFile(chains, trends.narratives, builtAtIso);
+  console.log("Fetching per-firm 13F holdings (SEC EDGAR + OpenFIGI)…");
+  const perFirmHoldings = await buildPerFirm13FHoldings();
+  const realFirms = Object.entries(perFirmHoldings).filter(([, v]) => v && v.holdings.length).length;
+  console.log(`  · ${realFirms}/${Object.keys(perFirmHoldings).length} firms returned holdings`);
+  const f13Info = await write13FFile(chains, trends.narratives, builtAtIso, perFirmHoldings);
   console.log(`wrote data/13f.json — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
   await writeAiUsageState();
   console.log(
