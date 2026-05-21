@@ -340,13 +340,26 @@
 .pf-action-unknown { color: var(--muted); }
 
 /* Equity panel — institutional KPI hero. Big primary number, delta chip,
-   meta row. Flat surface + hairline border, no drop shadow. */
+   meta row. Flat surface + hairline border, with a thin accent rail on
+   the left that subtly identifies it as the headline metric. */
 .pf-equity {
-  margin: 0 0 16px;
-  padding: 20px 22px 18px;
+  position: relative;
+  margin: 0 0 18px;
+  padding: 22px 24px 20px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-3, 8px);
+  border-radius: var(--r-4, 9px);
+  box-shadow: var(--elev-1, 0 1px 2px rgba(0,0,0,0.35));
+  overflow: hidden;
+}
+.pf-equity::before {
+  content: "";
+  position: absolute;
+  inset: 14px auto 14px 0;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim, var(--accent)) 100%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .pf-equity-head {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -360,13 +373,16 @@
 }
 .pf-equity-value { display: flex; align-items: baseline; gap: 12px; margin-top: 2px; }
 .pf-equity-now {
-  font-size: var(--fs-hero, 36px);
+  font-size: var(--fs-hero, 40px);
   font-weight: 700;
   color: var(--text-strong, var(--text));
   font-family: var(--font-sans, system-ui);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
   line-height: 1;
+  background: linear-gradient(180deg, var(--text-strong) 0%, color-mix(in srgb, var(--text-strong) 75%, var(--text)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 .pf-equity-chg {
   display: inline-flex; align-items: center;

@@ -54,6 +54,36 @@
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
     });
   }
+  // Animated number transitions for KPIs, grades, P/L. Snaps to the target
+  // immediately when the user prefers reduced motion. Pulled into the
+  // runtime so portfolio.js + grade rendering can both hook into it.
+  function tweenNumber(el, from, to, opts){
+    if (!el) return;
+    opts = opts || {};
+    var dur = opts.duration == null ? 600 : opts.duration;
+    var format = typeof opts.format === 'function'
+      ? opts.format
+      : function(v){ return (Math.round(v * 100) / 100).toString(); };
+    var reduced = false;
+    try { reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(_){}
+    if (reduced || !isFinite(from) || !isFinite(to) || dur <= 0) {
+      el.textContent = format(to);
+      return;
+    }
+    var start = null;
+    function step(ts){
+      if (start == null) start = ts;
+      var t = Math.min(1, (ts - start) / dur);
+      // ease-out cubic so the value decelerates into its rest position
+      var k = 1 - Math.pow(1 - t, 3);
+      var v = from + (to - from) * k;
+      el.textContent = format(v);
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  try { window.stonksTweenNumber = tweenNumber; } catch(_){}
+
   function debounce(fn, ms){
     return function(){
       var args = arguments;
