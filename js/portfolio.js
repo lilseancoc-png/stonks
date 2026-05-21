@@ -208,7 +208,24 @@ function renderSignedIn() {
 async function loadPositions() {
   const list = $("pf-list");
   if (!list) return;
-  list.textContent = "Loading…";
+  // Shimmering skeleton rows beat a static "Loading…" — gives the user the
+  // sense that something is actively happening and previews row geometry so
+  // the layout doesn't pop when results land.
+  list.innerHTML = `
+    <article class="pf-row pf-row-skel" aria-hidden="true"><div class="pf-row-main">
+      <div class="pf-symbol-block"><span class="skeleton" style="width:72px;height:16px"></span><span class="skeleton" style="width:140px;height:11px;margin-top:6px"></span></div>
+      <div><span class="skeleton" style="width:80px;height:13px"></span></div>
+      <div><span class="skeleton" style="width:60px;height:13px"></span></div>
+      <div><span class="skeleton" style="width:70px;height:13px"></span></div>
+      <div><span class="skeleton" style="width:80px;height:24px;border-radius:99px"></span></div>
+    </div></article>
+    <article class="pf-row pf-row-skel" aria-hidden="true"><div class="pf-row-main">
+      <div class="pf-symbol-block"><span class="skeleton" style="width:60px;height:16px"></span><span class="skeleton" style="width:120px;height:11px;margin-top:6px"></span></div>
+      <div><span class="skeleton" style="width:80px;height:13px"></span></div>
+      <div><span class="skeleton" style="width:60px;height:13px"></span></div>
+      <div><span class="skeleton" style="width:70px;height:13px"></span></div>
+      <div><span class="skeleton" style="width:80px;height:24px;border-radius:99px"></span></div>
+    </div></article>`;
   // Only show OPEN positions (closed_at IS NULL). Closed positions still live
   // in the table as history backing the realized-PnL calculation server-side.
   const { data, error } = await supabase
