@@ -172,8 +172,25 @@ function jumpToGrade(symbol) {
   window.location.assign(url.toString());
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", loadStreaks);
-} else {
+// Lazy-load: streaks.json is ~60KB and most visits never open this tab.
+// app.js page-tab activation calls window.stonksLoadStreaks() on first
+// open. We also load on DOMContentLoaded if the saved tab is "streaks"
+// so a return visit lands on populated data instead of "Loading…".
+let streaksLoaded = false;
+function loadStreaksOnce() {
+  if (streaksLoaded) return;
+  streaksLoaded = true;
   loadStreaks();
+}
+window.stonksLoadStreaks = loadStreaksOnce;
+
+function bootstrap() {
+  let saved = null;
+  try { saved = localStorage.getItem("stonks-page-tab"); } catch (_) {}
+  if (saved === "streaks") loadStreaksOnce();
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bootstrap);
+} else {
+  bootstrap();
 }
