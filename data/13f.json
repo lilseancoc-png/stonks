@@ -1,0 +1,71 @@
+{
+  "builtAtIso": "2026-05-21T00:00:00.000Z",
+  "period": "Q1 2026",
+  "periodEnd": "March 31, 2026",
+  "filingWindow": "Mid-May 2026",
+  "sourceNote": "Aggregated from public SEC 13F filings (BlackRock, Vanguard, State Street, etc.). Focus: institutional investors managing $5B+ in assets.",
+  "topFirms": [
+    { "firm": "BlackRock",                  "aum": "$5.72T", "holdings": "50,651", "filingDate": "May 13, 2026" },
+    { "firm": "Vanguard (various entities)", "aum": "~$4T+", "holdings": "Varies", "filingDate": "May 2026"     },
+    { "firm": "State Street",                "aum": "$2.90T", "holdings": "4,269",  "filingDate": "May 15, 2026" },
+    { "firm": "FMR LLC (Fidelity)",          "aum": "$1.90T", "holdings": "13,282", "filingDate": "May 15, 2026" },
+    { "firm": "Morgan Stanley",              "aum": "$1.66T", "holdings": "45,985", "filingDate": "May 15, 2026" },
+    { "firm": "Geode Capital",               "aum": "$1.61T", "holdings": "8,577",  "filingDate": "May 15, 2026" },
+    { "firm": "JPMorgan Chase",              "aum": "$1.56T", "holdings": "33,063", "filingDate": "May 13, 2026" },
+    { "firm": "Bank of America",             "aum": "$1.37T", "holdings": "17,872", "filingDate": "May 18, 2026" },
+    { "firm": "Berkshire Hathaway",          "aum": "$263B",  "holdings": "90",     "filingDate": "May 15, 2026" }
+  ],
+  "blackrock": {
+    "label": "BlackRock ($5.72T Portfolio)",
+    "concentrationNote": "Top holdings concentration ~27.7%.",
+    "holdings": [
+      { "ticker": "NVDA",  "sector": "Technology",        "shares": "1.93B", "marketValue": "$336B", "changeShares": "N/A", "changeMv": "N/A", "changePct": "N/A" },
+      { "ticker": "AAPL",  "sector": "Technology",        "shares": "Large", "marketValue": "$290B", "changeShares": "N/A", "changeMv": "N/A", "changePct": "N/A" },
+      { "ticker": "MSFT",  "sector": "Technology",        "shares": "Large", "marketValue": "$220B", "changeShares": "N/A", "changeMv": "N/A", "changePct": "N/A" },
+      { "ticker": "AMZN",  "sector": "Consumer Cyclical", "shares": "Large", "marketValue": "$153B", "changeShares": "N/A", "changeMv": "N/A", "changePct": "N/A" },
+      { "ticker": "GOOGL", "sector": "Communication",     "shares": "Large", "marketValue": "$128B", "changeShares": "N/A", "changeMv": "N/A", "changePct": "N/A" },
+      { "ticker": "AVGO",  "sector": "Technology",        "shares": "Large", "marketValue": "$119B", "changeShares": "N/A", "changeMv": "N/A", "changePct": "N/A" }
+    ],
+    "tail": "Full portfolio has 50k+ positions — passive indexing dominant."
+  },
+  "berkshire": {
+    "label": "Berkshire Hathaway (Warren Buffett — concentrated)",
+    "summary": "~90 holdings, very high concentration. Classic value holdings: AAPL, banks, energy, etc. — known for minimal quarter-to-quarter changes."
+  },
+  "otherMajorFirms": [
+    "Vanguard / State Street: heavy passive indexing in SPY, IVV, mega-cap tech.",
+    "Fidelity / JPMorgan: mix of active + passive, strong in tech and financials."
+  ],
+  "biggestPositions": [
+    { "rank": 1,  "ticker": "NVDA",        "name": "NVIDIA",          "note": "Dominant #1 across managers" },
+    { "rank": 2,  "ticker": "AAPL",        "name": "Apple",           "note": "" },
+    { "rank": 3,  "ticker": "MSFT",        "name": "Microsoft",       "note": "" },
+    { "rank": 4,  "ticker": "AMZN",        "name": "Amazon",          "note": "" },
+    { "rank": 5,  "ticker": "GOOGL/GOOG",  "name": "Alphabet",        "note": "" },
+    { "rank": 6,  "ticker": "AVGO",        "name": "Broadcom",        "note": "" },
+    { "rank": 7,  "ticker": "META",        "name": "Meta Platforms",  "note": "" },
+    { "rank": 8,  "ticker": "TSLA",        "name": "Tesla",           "note": "" },
+    { "rank": 9,  "ticker": "SPY / IVV",   "name": "S&P 500 ETFs",    "note": "" },
+    { "rank": 10, "ticker": "JPM",         "name": "JPMorgan Chase",  "note": "" },
+    { "rank": null, "ticker": null, "name": "11–20", "note": "Typically include LLY, V, MA, HD, and similar mega-caps." }
+  ],
+  "mostBought": [
+    "Strong buying in AI / tech infrastructure (NVDA components, data centers).",
+    "Selected financials and selected consumer names.",
+    "Specific movers often include newer AI plays and selected semiconductors."
+  ],
+  "mostSold": [
+    "Selective trims in software / SaaS (some profit-taking).",
+    "Certain legacy holdings or high-valuation names.",
+    "Energy / oil in some cases depending on macro views."
+  ],
+  "rankingNote": "Exact net change rankings require full database aggregation (tools like WhaleWisdom or 13F.info provide sortable views).",
+  "keyObservations": [
+    "Mega-cap Tech continues to dominate institutional portfolios.",
+    "Passive managers (BlackRock, Vanguard, State Street) control enormous stakes in index names.",
+    "Hedge funds show more active rotation (AI winners vs. some software trims).",
+    "Concentration risk remains high in \"Magnificent 7\"-style names."
+  ],
+  "disclaimer": "13F filings are snapshots 45 days after quarter-end. They exclude non-13F assets (bonds, options details limited, international holdings partial). Data is self-reported and subject to rounding.",
+  "latestDataLinks": "For latest raw data, check SEC EDGAR, WhaleWisdom, or 13F.info."
+}

@@ -53,6 +53,7 @@
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
@@ -729,6 +730,17 @@
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <div id="streaks-footer" class="streaks-footer"></div>
     </section>
+  </div>
+  <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
+  <section class="card" id="f13-section">
+    <header class="card-header">
+      <h2 class="card-title">13F filings summary</h2>
+      <span class="card-eyebrow" id="f13-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Quarterly institutional-holdings snapshot for the largest 13F filers ($5B+ AUM). Includes top reporting firms, marquee positions, the 20 biggest aggregate holdings across all filers, and rotation themes (most bought vs. most sold). 13F filings are released 45 days after quarter-end and exclude bonds, options details, and most international holdings.</p>
+    <div id="f13-root" class="f13-root">Loading 13F summary…</div>
+    <div id="f13-empty" class="f13-empty" hidden>No 13F summary available.</div>
+  </section>
   </div>
   <div class="page-pane" id="page-pane-portfolio" role="tabpanel" aria-labelledby="page-tab-portfolio" hidden>
     <section class="card"><p class="hint">Loading portfolio…</p></section>

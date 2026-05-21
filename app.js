@@ -1025,7 +1025,7 @@
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -1039,6 +1039,7 @@
       });
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+      if (name === 'f13' && typeof loadF13 === 'function') loadF13();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -3197,6 +3198,177 @@
         renderCalendar();
       });
     }
+  }
+
+  // --- 13F filings tab ----------------------------------------------------
+  // Lazy-fetched on first activation. Data file is a curated quarterly
+  // summary — see data/13f.json for the schema. Re-rendering is cheap
+  // (static tables); no client-side filtering or sorting.
+  var f13State = { data: null, loading: false };
+  function loadF13(){
+    if (f13State.data || f13State.loading) { renderF13(); return; }
+    f13State.loading = true;
+    fetch('data/13f.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        f13State.data = json || null;
+        f13State.loading = false;
+        renderF13();
+      })
+      .catch(function(){
+        f13State.data = null;
+        f13State.loading = false;
+        renderF13();
+      });
+  }
+  function renderF13(){
+    var root = $('f13-root');
+    var empty = $('f13-empty');
+    var eyebrow = $('f13-eyebrow');
+    if (!root) return;
+    if (f13State.loading){
+      root.innerHTML = 'Loading 13F summary…';
+      if (empty) empty.hidden = true;
+      return;
+    }
+    var d = f13State.data;
+    if (!d){
+      root.innerHTML = '';
+      if (empty){ empty.hidden = false; empty.textContent = 'No 13F summary available.'; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (eyebrow){
+      eyebrow.textContent = (d.period || '') + (d.periodEnd ? ' · period ending ' + d.periodEnd : '');
+    }
+    var html = '';
+    if (d.sourceNote){
+      html += '<p class="f13-source">' + escapeHtml(d.sourceNote) +
+        (d.filingWindow ? ' Filing window: <strong>' + escapeHtml(d.filingWindow) + '</strong>.' : '') +
+      '</p>';
+    }
+    // === Top reporting firms ===========================================
+    if (Array.isArray(d.topFirms) && d.topFirms.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Top reporting firms (AUM &gt; $100B, selected)</h3>' +
+        '<div class="f13-table-scroll"><table class="f13-table">' +
+          '<thead><tr><th>Firm</th><th>13F AUM</th><th># of Holdings</th><th>Filing date</th></tr></thead>' +
+          '<tbody>' +
+          d.topFirms.map(function(f){
+            return '<tr>' +
+              '<td>' + escapeHtml(f.firm || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(f.aum || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(f.holdings || '') + '</td>' +
+              '<td>' + escapeHtml(f.filingDate || '') + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody>' +
+        '</table></div>' +
+      '</div>';
+    }
+    // === BlackRock detail ==============================================
+    if (d.blackrock && Array.isArray(d.blackrock.holdings) && d.blackrock.holdings.length){
+      var br = d.blackrock;
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">' + escapeHtml(br.label || 'BlackRock') + '</h3>' +
+        (br.concentrationNote ? '<p class="f13-note">' + escapeHtml(br.concentrationNote) + '</p>' : '') +
+        '<div class="f13-table-scroll"><table class="f13-table">' +
+          '<thead><tr>' +
+            '<th>Ticker</th><th>Sector</th><th>Shares</th><th>Market value</th>' +
+            '<th>Δ shares</th><th>Δ MV</th><th>Δ %</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+          br.holdings.map(function(h){
+            return '<tr>' +
+              '<td class="f13-tkr">' + escapeHtml(h.ticker || '') + '</td>' +
+              '<td>' + escapeHtml(h.sector || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(h.shares || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(h.marketValue || '') + '</td>' +
+              '<td class="f13-num f13-muted">' + escapeHtml(h.changeShares || '') + '</td>' +
+              '<td class="f13-num f13-muted">' + escapeHtml(h.changeMv || '') + '</td>' +
+              '<td class="f13-num f13-muted">' + escapeHtml(h.changePct || '') + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody>' +
+        '</table></div>' +
+        (br.tail ? '<p class="f13-tail">' + escapeHtml(br.tail) + '</p>' : '') +
+      '</div>';
+    }
+    // === Berkshire callout =============================================
+    if (d.berkshire){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">' + escapeHtml(d.berkshire.label || 'Berkshire Hathaway') + '</h3>' +
+        '<p class="f13-paragraph">' + escapeHtml(d.berkshire.summary || '') + '</p>' +
+      '</div>';
+    }
+    // === Other major firms =============================================
+    if (Array.isArray(d.otherMajorFirms) && d.otherMajorFirms.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Other major firms</h3>' +
+        '<ul class="f13-list">' +
+        d.otherMajorFirms.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+        '</ul>' +
+      '</div>';
+    }
+    // === Biggest positions =============================================
+    if (Array.isArray(d.biggestPositions) && d.biggestPositions.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">20 biggest positions held by dollar amount (across all filers)</h3>' +
+        '<ol class="f13-rank-list">' +
+        d.biggestPositions.map(function(p){
+          var lead = p.rank
+            ? '<span class="f13-rank">#' + p.rank + '</span>'
+            : '<span class="f13-rank f13-rank-range">' + escapeHtml(p.name || '') + '</span>';
+          var body = p.rank
+            ? '<span class="f13-tkr">' + escapeHtml(p.ticker || '') + '</span>' +
+              (p.name ? ' <span class="f13-pos-name">' + escapeHtml(p.name) + '</span>' : '')
+            : '';
+          var note = p.note ? ' <span class="f13-pos-note">' + escapeHtml(p.note) + '</span>' : '';
+          return '<li class="f13-rank-row">' + lead + ' ' + body + note + '</li>';
+        }).join('') +
+        '</ol>' +
+      '</div>';
+    }
+    // === Most bought / most sold (side-by-side on wide viewports) =====
+    if ((Array.isArray(d.mostBought) && d.mostBought.length) ||
+        (Array.isArray(d.mostSold) && d.mostSold.length)){
+      html += '<div class="f13-block f13-flow-block">' +
+        '<div class="f13-flow-pair">' +
+          (Array.isArray(d.mostBought) && d.mostBought.length
+            ? '<div class="f13-flow-col f13-flow-buy">' +
+                '<h3 class="f13-block-title">20 most bought (net increase)</h3>' +
+                '<ul class="f13-list">' +
+                  d.mostBought.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+                '</ul>' +
+              '</div>' : '') +
+          (Array.isArray(d.mostSold) && d.mostSold.length
+            ? '<div class="f13-flow-col f13-flow-sell">' +
+                '<h3 class="f13-block-title">20 most sold (net decrease)</h3>' +
+                '<ul class="f13-list">' +
+                  d.mostSold.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+                '</ul>' +
+              '</div>' : '') +
+        '</div>' +
+        (d.rankingNote ? '<p class="f13-note">' + escapeHtml(d.rankingNote) + '</p>' : '') +
+      '</div>';
+    }
+    // === Key observations ==============================================
+    if (Array.isArray(d.keyObservations) && d.keyObservations.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Key observations</h3>' +
+        '<ul class="f13-list">' +
+        d.keyObservations.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+        '</ul>' +
+      '</div>';
+    }
+    // === Disclaimer + links ============================================
+    if (d.disclaimer || d.latestDataLinks){
+      html += '<div class="f13-footer">' +
+        (d.disclaimer ? '<p class="f13-disclaimer"><strong>Disclaimer:</strong> ' + escapeHtml(d.disclaimer) + '</p>' : '') +
+        (d.latestDataLinks ? '<p class="f13-links">' + escapeHtml(d.latestDataLinks) + '</p>' : '') +
+      '</div>';
+    }
+    root.innerHTML = html;
   }
 
   // --- Top picks tab ------------------------------------------------------
