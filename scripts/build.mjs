@@ -5213,6 +5213,56 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     '</span>';
   }
   function pickSideClass(side){ return side === 'put' ? 'put' : 'call'; }
+  // Build a contract block — the recommended strike/expiry the daily build
+  // picked for this signal stack. Returns '' if no contract was attached
+  // (older builds, or signals too weak for a confident strike pick).
+  function pickContractHtml(p){
+    var c = p && p.contract;
+    if (!c || c.strike == null || !c.expiryLabel) return '';
+    var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var dteTxt = (c.dte != null) ? ' · ' + c.dte + 'd' : '';
+    var quote = '';
+    if (c.bid != null && c.ask != null){
+      quote = '$' + Number(c.bid).toFixed(2) + ' × $' + Number(c.ask).toFixed(2);
+      if (c.mid != null) quote += ' · mid $' + Number(c.mid).toFixed(2);
+    } else if (c.mid != null){
+      quote = 'mid $' + Number(c.mid).toFixed(2);
+    } else if (c.last != null){
+      quote = 'last $' + Number(c.last).toFixed(2);
+    }
+    var greeks = [];
+    if (c.delta != null && isFinite(c.delta)) greeks.push('Δ ' + Number(c.delta).toFixed(2));
+    if (c.thetaDay != null && isFinite(c.thetaDay)) greeks.push('Θ $' + Number(c.thetaDay).toFixed(2) + '/day');
+    if (c.iv != null && isFinite(c.iv)) greeks.push('IV ' + (Number(c.iv) * 100).toFixed(0) + '%');
+    var breakeven = '';
+    if (c.breakeven != null){
+      breakeven = 'Breakeven $' + Number(c.breakeven).toFixed(2);
+      if (c.breakevenMovePct != null){
+        var m = Number(c.breakevenMovePct);
+        breakeven += ' (' + (m >= 0 ? '+' : '') + m.toFixed(1) + '%)';
+      }
+    }
+    var liqParts = [];
+    if (c.oi != null && isFinite(c.oi)) liqParts.push('OI ' + Number(c.oi).toLocaleString());
+    if (c.volume != null && isFinite(c.volume)) liqParts.push('vol ' + Number(c.volume).toLocaleString());
+    var liq = liqParts.length ? '<span class="pick-contract-liq">' + escapeHtml(liqParts.join(' · ')) + '</span>' : '';
+    var btnAttrs =
+      ' data-pick-symbol="' + escapeHtml(p.symbol) + '"' +
+      ' data-pick-strike="' + escapeHtml(String(c.strike)) + '"' +
+      ' data-pick-exp="' + escapeHtml(String(c.expiry || '')) + '"' +
+      ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"';
+    return '<div class="pick-contract">' +
+      '<div class="pick-contract-head">' +
+        '<span class="pick-contract-label">Suggested ' + sideLabel + '</span>' +
+        '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + '</span>' +
+      '</div>' +
+      (quote ? '<div class="pick-contract-quote">' + escapeHtml(quote) + '</div>' : '') +
+      (greeks.length ? '<div class="pick-contract-greeks">' + escapeHtml(greeks.join(' · ')) + '</div>' : '') +
+      (breakeven ? '<div class="pick-contract-be">' + escapeHtml(breakeven) + '</div>' : '') +
+      (liq ? '<div class="pick-contract-meta">' + liq + '</div>' : '') +
+      '<button type="button" class="pick-contract-grade"' + btnAttrs + '>Grade this contract →</button>' +
+    '</div>';
+  }
   function renderPicks(){
     var root = $('picks-root');
     var empty = $('picks-empty');
@@ -5261,6 +5311,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
           '</span>'
         : '';
       var drivers = (p.drivers || []).slice(0, 5).map(pickDriverChip).join('');
+      var contractHtml = pickContractHtml(p);
       return '<article class="pick-card ' + sideCls + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
         '<div class="pick-rank">#' + (idx + 1) + '</div>' +
         '<div class="pick-main">' +
@@ -5273,6 +5324,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
           '</div>' +
           '<p class="pick-thesis">' + escapeHtml(p.thesis) + '</p>' +
           (drivers ? '<div class="pick-drivers">' + drivers + '</div>' : '') +
+          contractHtml +
         '</div>' +
         '<div class="pick-conviction" aria-label="Conviction score" style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
           '<div class="pick-conv-label">Conv</div>' +
@@ -5281,22 +5333,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         '</div>' +
       '</article>';
     }).join('');
-    // Clicking a symbol jumps to the grader. The state ?sym=X URL pattern
-    // the rest of the app already understands is the cleanest way in —
-    // a hashchange triggers the grader's existing URL-state handler so
-    // expirations and the first strike auto-populate.
+    // Clicking a symbol (or "Grade this contract") jumps to the grader and
+    // loads the ticker via the same path the URL ?s=X handler walks. We
+    // stage pendingUrlState first so applyPendingUrlState() snaps the
+    // expiry/strike/type to the pick's recommendation once the chain JSON
+    // has parsed. (The previous implementation wrote ?sym=X — the wrong
+    // param name — and dispatched a hashchange, which the grader doesn't
+    // listen to, so nothing loaded.)
     root.querySelectorAll('[data-pick-symbol]').forEach(function(btn){
       btn.addEventListener('click', function(){
         var sym = btn.getAttribute('data-pick-symbol');
-        if (!sym) return;
+        if (!sym || SYMBOLS.indexOf(sym) === -1) return;
+        var k = parseFloat(btn.getAttribute('data-pick-strike') || '');
+        var exp = parseInt(btn.getAttribute('data-pick-exp') || '', 10);
+        var t = btn.getAttribute('data-pick-type') || null;
+        if (t !== 'call' && t !== 'put') t = null;
+        pendingUrlState = {
+          sym: sym,
+          k: isFinite(k) && k > 0 ? k : null,
+          exp: isFinite(exp) && exp > 0 ? exp : null,
+          t: t,
+        };
         var gradeTab = document.querySelector('[data-page-tab="grade"]');
         if (gradeTab) gradeTab.click();
-        try {
-          var url = new URL(window.location.href);
-          url.searchParams.set('sym', sym);
-          window.history.replaceState({}, '', url.toString());
-          window.dispatchEvent(new HashChangeEvent('hashchange'));
-        } catch (_) {}
+        combo.commit(sym);
       });
     });
   }
@@ -9203,6 +9263,67 @@ main { padding-top: var(--s-2); }
   background: color-mix(in srgb, var(--neg) 8%, var(--surface));
 }
 .pick-driver-narrative { font-weight: 600; }
+
+/* Suggested contract block — strike/expiry, quote, Greeks, breakeven, and
+   a one-click jump into the grader pre-filled with the recommendation. */
+.pick-contract {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pick-card.call .pick-contract { border-left: 2px solid color-mix(in srgb, var(--pos) 45%, var(--border)); }
+.pick-card.put  .pick-contract { border-left: 2px solid color-mix(in srgb, var(--neg) 45%, var(--border)); }
+.pick-contract-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pick-contract-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.pick-contract-strike {
+  font: 700 13px/1.2 var(--font-mono);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.pick-contract-quote,
+.pick-contract-greeks,
+.pick-contract-be,
+.pick-contract-meta {
+  font: 500 12px/1.4 var(--font-mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.pick-contract-be { color: var(--muted-strong); }
+.pick-contract-meta { color: var(--muted); font-size: 11px; }
+.pick-contract-grade {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--text-strong);
+  border-radius: var(--r-2);
+  font: 600 12px/1 var(--font-sans);
+  cursor: pointer;
+  transition: background .15s var(--ease-out), border-color .15s var(--ease-out);
+}
+.pick-contract-grade:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
 .pick-conviction {
   display: flex;
   flex-direction: column;
