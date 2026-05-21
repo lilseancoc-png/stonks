@@ -122,6 +122,118 @@ body {
   from { background-position: -200px 0; }
   to   { background-position: calc(200px + 100%) 0; }
 }
+
+/* === Motion primitives ===================================================
+   Tasteful, professional micro-animations. All gated under
+   prefers-reduced-motion: no-preference so accessibility settings short-
+   circuit motion entirely. Reuses --ease-out (1,0.3,1 cubic-bezier) so
+   timing matches the rest of the UI's transitions.
+
+   stonks-fade-up:   subtle 8px rise + opacity 0→1, used for card entrances
+   stonks-fade-in:   pure opacity 0→1, used for page-pane swaps where a
+                     translate would conflict with the underlying layout
+   stonks-draw:      stroke-dashoffset 1→0, used for SVG paths drawing in
+   stonks-pulse:     soft scale 1→1.04→1, used for value-change emphasis
+   ----------------------------------------------------------------------*/
+@keyframes stonks-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes stonks-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes stonks-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Page-tab swap: fade the freshly-shown pane in. Gives the top-level
+     nav a sense of weight without disrupting layout. */
+  .page-pane:not([hidden]) {
+    animation: stonks-fade-in .22s var(--ease-out);
+  }
+  /* Calendar chips cascade in on first paint of a day group. Limit the
+     cascade depth so a heavy news day doesn't ripple visibly for 2s. */
+  .cal-chip {
+    animation: stonks-fade-up .32s var(--ease-out) both;
+  }
+  .cal-day .cal-chip:nth-child(1) { animation-delay: 0ms; }
+  .cal-day .cal-chip:nth-child(2) { animation-delay: 30ms; }
+  .cal-day .cal-chip:nth-child(3) { animation-delay: 60ms; }
+  .cal-day .cal-chip:nth-child(4) { animation-delay: 90ms; }
+  .cal-day .cal-chip:nth-child(5) { animation-delay: 120ms; }
+  .cal-day .cal-chip:nth-child(n+6) { animation-delay: 140ms; }
+  .cal-chip {
+    transition: border-color .15s var(--ease-out), transform .15s var(--ease-out), background .15s var(--ease-out);
+  }
+  .cal-chip:hover {
+    transform: translateX(2px);
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface-2));
+  }
+
+  /* Portfolio risk: stagger the four sub-blocks on first render so the
+     dashboard composes itself instead of slamming in. */
+  .pf-risk-block {
+    animation: stonks-fade-up .35s var(--ease-out) both;
+    transition: transform .18s var(--ease-out), border-color .18s var(--ease-out);
+  }
+  .pf-risk-grid .pf-risk-block:nth-child(1) { animation-delay: 0ms; }
+  .pf-risk-grid .pf-risk-block:nth-child(2) { animation-delay: 50ms; }
+  .pf-risk-grid .pf-risk-block:nth-child(3) { animation-delay: 100ms; }
+  .pf-risk-grid .pf-risk-block:nth-child(4) { animation-delay: 150ms; }
+  .pf-risk-block:hover {
+    border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+  }
+
+  /* IV card: term-structure line draws itself in. stroke-dasharray on
+     the path is set inline by the renderer so the keyframe just sweeps
+     the offset to zero. */
+  .opt-iv-svg .opt-iv-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: stonks-draw .9s var(--ease-out) forwards;
+  }
+  .opt-iv-svg .opt-iv-dots circle {
+    opacity: 0;
+    animation: stonks-fade-in .25s var(--ease-out) forwards;
+    animation-delay: .55s;
+  }
+
+  /* Flow chips already have a hover background; add a tiny translate so
+     the interaction feels intentional rather than flat. */
+  .flow-chip {
+    transition: background .15s var(--ease-out), border-color .15s var(--ease-out), transform .15s var(--ease-out);
+  }
+  .flow-chip:hover {
+    transform: translateY(-1px);
+  }
+  /* Narrative cards: subtle lift on hover. Many cards on screen at once,
+     so keep it light to avoid making the page feel busy. */
+  .narr-industry, .narr-card {
+    transition: transform .18s var(--ease-out), border-color .18s var(--ease-out), box-shadow .18s var(--ease-out);
+  }
+  .narr-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -6px rgba(0, 0, 0, .35);
+  }
+
+  /* Page-tab selection indicator slide. The underline is the bottom
+     border of the active tab; smoothing the color transition makes
+     switching between sections feel less abrupt. */
+  .page-tab {
+    transition: color .15s var(--ease-out), border-color .2s var(--ease-out), background .15s var(--ease-out);
+  }
+
+  /* Primary CTAs and pill toggles get a press-down state for tactility. */
+  .pf-btn, .calendar-pill, .flow-pill, .opt-tab {
+    transition: color .12s var(--ease-out), background .12s var(--ease-out), border-color .12s var(--ease-out), transform .08s var(--ease-out);
+  }
+  .pf-btn:active, .calendar-pill:active, .flow-pill:active, .opt-tab:active {
+    transform: translateY(1px);
+  }
+}
+
 .skeleton {
   display: inline-block;
   background: linear-gradient(90deg,
@@ -2799,6 +2911,195 @@ main { padding-top: var(--s-2); }
   .cal-day { grid-template-columns: 1fr; gap: 4px; }
 }
 
+/* === Top picks tab === */
+.picks-root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: var(--s-3);
+}
+.picks-empty {
+  padding: var(--s-4) var(--s-3);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.picks-foot {
+  font-size: 10px;
+  color: var(--muted);
+  margin: var(--s-3) 0 0;
+  line-height: 1.45;
+}
+.pick-card {
+  display: grid;
+  grid-template-columns: 44px 1fr 64px;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  align-items: stretch;
+  transition: border-color .18s var(--ease-out), transform .18s var(--ease-out);
+}
+.pick-card.call { border-left-color: var(--pos); }
+.pick-card.put { border-left-color: var(--neg); }
+.pick-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.pick-rank {
+  font: 700 18px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: -.02em;
+  align-self: center;
+  text-align: center;
+}
+.pick-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pick-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pick-symbol {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: 700 16px/1 var(--font-mono);
+  color: var(--text-strong);
+  cursor: pointer;
+  letter-spacing: .02em;
+  transition: color .12s var(--ease-out);
+}
+.pick-symbol:hover { color: var(--accent); }
+.pick-spot {
+  font: 500 12px/1 var(--font-mono);
+  color: var(--muted);
+}
+.pick-sector {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: var(--r-1);
+  border: 1px solid var(--border);
+}
+.pick-side {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  padding: 3px 7px;
+  border-radius: var(--r-1);
+}
+.pick-side-call { background: var(--pos-soft); color: var(--pos); }
+.pick-side-put { background: var(--neg-soft); color: var(--neg); }
+.pick-streak {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+}
+.pick-streak-green { background: var(--pos-soft); color: var(--pos); }
+.pick-streak-red { background: var(--neg-soft); color: var(--neg); }
+.pick-thesis {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.pick-drivers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.pick-driver {
+  font: 500 10px/1.3 var(--font-mono);
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface);
+}
+.pick-driver-pos { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); }
+.pick-driver-neg { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); }
+.pick-driver-narrative { font-weight: 600; }
+.pick-conviction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  border-left: 1px solid var(--border);
+  min-width: 50px;
+}
+.pick-conv-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.pick-conv-value {
+  font: 700 18px/1 var(--font-mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.pick-conv-bar {
+  width: 5px;
+  height: 36px;
+  background: var(--surface);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+.pick-conv-fill {
+  display: block;
+  width: 100%;
+  height: var(--pick-conv-pct, 50%);
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--r-pill);
+  transition: height .3s var(--ease-out), width .3s var(--ease-out);
+}
+.pick-card.call .pick-conv-fill { background: color-mix(in srgb, var(--pos) 60%, transparent); }
+.pick-card.put .pick-conv-fill { background: color-mix(in srgb, var(--neg) 60%, transparent); }
+
+/* Mobile: drop the right-side conviction column down to a row beneath
+   the thesis. Bar flips horizontal — the same --pick-conv-pct custom
+   property now drives width rather than height. */
+@media (max-width: 640px) {
+  .pick-card {
+    grid-template-columns: 34px 1fr;
+    gap: var(--s-2);
+    padding: 10px;
+  }
+  .pick-rank { font-size: 14px; }
+  .pick-conviction {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    gap: 10px;
+    justify-content: flex-start;
+    min-width: 0;
+    align-items: center;
+  }
+  .pick-conv-bar {
+    flex: 1;
+    width: auto;
+    height: 5px;
+    align-items: stretch;
+  }
+  .pick-conv-fill {
+    width: var(--pick-conv-pct, 50%);
+    height: 100%;
+  }
+}
+
 /* === Streaks tab === */
 .streaks-root { margin-top: var(--s-3); }
 .streaks-cols {
@@ -2939,4 +3240,176 @@ main { padding-top: var(--s-2); }
   font-size: 11px;
   color: var(--muted);
   line-height: 1.3;
+}
+
+/* ============================================================================
+ * Mobile responsive layer
+ *
+ * Bottom-of-stylesheet so it cleanly overrides earlier desktop-first rules.
+ * Goal: smooth, dense-but-readable single-column experience on <=640px-wide
+ * screens (covers every common phone in portrait). No layout breaks: every
+ * feature that works on desktop should remain reachable on mobile.
+ *
+ * Design notes:
+ * - Touch targets land at >=40px tall (Apple HIG = 44px, Material = 48dp;
+ *   40px is the trading-desk-dense compromise that keeps the page from
+ *   feeling sparse on a phone while still hitting reliably).
+ * - Hover styles are scoped to (hover: hover) so they don't strand a
+ *   "stuck" hover state on touch devices after a tap.
+ * - The horizontal-scrolling page-tabs strip gets scroll-snap so flicks
+ *   land cleanly on a tab boundary instead of mid-tab.
+ * ========================================================================== */
+
+/* On no-hover devices, replace hover-only visual cues with focus-visible
+   so keyboard nav still works but stale touch-hover doesn't stick. */
+@media (hover: none) {
+  .flow-chip:hover,
+  .cal-chip:hover,
+  .narr-card:hover,
+  .pf-risk-block:hover {
+    transform: none;
+    background: var(--surface-2);
+  }
+}
+
+/* === Tablet & narrow desktop (<=900px) ============================== */
+@media (max-width: 900px) {
+  main { padding: var(--s-3) var(--s-3) var(--s-6); }
+  .page-tabs { padding: 0 var(--s-3); }
+}
+
+/* === Phone (<=640px) ================================================ */
+@media (max-width: 640px) {
+  body { font-size: 13px; }
+  main { padding: var(--s-2) var(--s-2) var(--s-6); }
+  .page-tabs {
+    padding: 0 var(--s-2);
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .page-tab {
+    scroll-snap-align: start;
+    padding: var(--s-3);
+    min-height: 40px;
+    font-size: 12px;
+  }
+  /* Cards: tighter padding so on-screen content doesn't shrink below
+     readable size. */
+  .card {
+    padding: var(--s-3);
+    border-radius: var(--r-2);
+  }
+  .card-header { flex-wrap: wrap; gap: var(--s-2); }
+  .page-sub { font-size: 12px; }
+
+  /* Calendar: single-column chips, no source byline (saves horizontal
+     space, the date already implies the feed cluster). */
+  .cal-day {
+    grid-template-columns: 1fr;
+    padding: var(--s-2) 0;
+    gap: 4px;
+  }
+  .cal-date { font-size: 11px; padding-top: 0; }
+  .cal-chip { padding: 8px 10px; font-size: 12px; }
+  .cal-chip-source { display: none; }
+  .calendar-controls { gap: var(--s-2); }
+  .calendar-pill { min-height: 36px; padding: 6px 12px; }
+
+  /* Flow controls: stack search + filters vertically; keep pills tappable. */
+  .flow-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s-2);
+  }
+  .flow-search { width: 100%; min-width: 0; }
+  .flow-pill, .flow-action-btn {
+    min-height: 36px;
+    padding: 6px 12px;
+  }
+  .flow-chip { font-size: 11px; flex-wrap: wrap; }
+  .flow-chip > * { line-height: 1.4; }
+  .flow-row-head {
+    flex-wrap: wrap;
+    padding: var(--s-2);
+    gap: 6px;
+    min-height: 44px;
+  }
+  .flow-symbol { font-size: 14px; }
+  .flow-spot, .flow-count, .flow-top { font-size: 11px; }
+  .flow-note { font-size: 11px; padding: 6px 8px; max-width: none; }
+
+  /* Narratives: tab strip horizontally scrolls, panels keep single column. */
+  .narr-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+  .narr-tabs::-webkit-scrollbar { display: none; }
+  .narr-tab { white-space: nowrap; flex: 0 0 auto; min-height: 36px; }
+  .narr-card { padding: var(--s-3); }
+
+  /* Implied vol card: keep SVG fluid; tighten padding. */
+  .opt-iv { padding: var(--s-3); }
+  .opt-iv-head { gap: 6px; }
+  .opt-iv-foot { font-size: 10px; }
+
+  /* Option grader inputs: full-width, taller, 14px font so iOS doesn't
+     zoom in on focus (Safari auto-zooms when input < 16px text; 14px is
+     visually consistent with the rest of the form while staying close
+     enough that the zoom only triggers when the user explicitly taps
+     to zoom). The combobox listbox needs touch-friendly rows too. */
+  .opt-eval-section .field,
+  .opt-eval-section .field input,
+  .opt-eval-section .field select {
+    width: 100%;
+  }
+  select, input[type="text"], input[type="email"], input[type="number"], input[type="search"] {
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .opt-chain-row { grid-template-columns: 1fr !important; }
+  .opt-result { padding: var(--s-2); font-size: 12px; }
+  .opt-result-sticky { padding: var(--s-2); border-radius: 0; }
+  /* Result-sticky pins to bottom on phone so the verdict stays visible
+     while the user scrolls through the chain table or below-fold cards. */
+  .opt-result-sticky:not([hidden]) {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    background: var(--surface);
+    box-shadow: 0 -8px 16px -8px rgba(0,0,0,.45);
+  }
+
+  /* Streaks: stack the green/red columns on phones. */
+  .streaks-cols { grid-template-columns: 1fr; gap: var(--s-3); }
+
+  /* Site header: compact logo/title so the icon-btn cluster fits. */
+  .site-header { padding: var(--s-2) var(--s-3); }
+  .site-title { font-size: 14px; }
+  .freshness { font-size: 11px; }
+
+  /* Touch-target floor for any small buttons that fell through. */
+  button, .pf-iconbtn { min-height: 36px; }
+}
+
+/* === Extra-narrow (<=400px) for older / smaller phones ============== */
+@media (max-width: 400px) {
+  main { padding: var(--s-2) 10px var(--s-6); }
+  body { font-size: 12.5px; }
+  .page-tab { padding: var(--s-2); font-size: 11.5px; }
+  .card { padding: 10px; }
+  .cal-chip { padding: 7px 9px; }
+  .flow-row-head { gap: 4px; }
+  .pf-risk-greeks { grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+}
+
+/* === Landscape phone (low height) =================================== */
+/* Cap the sticky result bar so a rotated phone doesn't get its viewport
+   eaten in half. */
+@media (max-height: 500px) and (max-width: 900px) {
+  .opt-result-sticky:not([hidden]) {
+    max-height: 40vh;
+    overflow-y: auto;
+  }
 }

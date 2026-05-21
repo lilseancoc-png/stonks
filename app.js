@@ -928,7 +928,7 @@
       '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="start">' + xMin + 'd</text>' +
       '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="end">' + xMax + 'd</text>';
     return '<svg class="opt-iv-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="IV term structure">' +
-      '<path d="' + path + '" class="opt-iv-line" fill="none" />' +
+      '<path d="' + path + '" class="opt-iv-line" fill="none" pathLength="1" />' +
       '<g class="opt-iv-dots">' + dots + '</g>' +
       yLabels + xLabels +
     '</svg>';
@@ -1025,17 +1025,32 @@
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['tickers','narratives','calendar','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
+      var activeBtn = null;
       tabs.forEach(function(btn){
         var sel = btn.getAttribute('data-page-tab') === name;
         btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        if (sel) activeBtn = btn;
         var paneId = btn.getAttribute('aria-controls');
         var pane = paneId ? document.getElementById(paneId) : null;
         if (pane) pane.hidden = !sel;
       });
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
+      if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+      // On narrow viewports the .page-tabs strip is horizontally scrollable.
+      // Programmatic selection (e.g. on page load from localStorage) can
+      // leave the active tab off-screen — scroll it into view so the user
+      // sees where they are. scrollIntoView with inline:center keeps the
+      // chosen tab visually anchored in the strip.
+      if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+        try {
+          activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        } catch (_) {
+          // Older Safari ignores object-form options — fall back to no-op.
+        }
+      }
     }
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
@@ -3087,6 +3102,114 @@
         renderCalendar();
       });
     }
+  }
+
+  // --- Top picks tab ------------------------------------------------------
+  // Lazy-fetched on first activation; cached client-side for the rest of
+  // the session. Rebuilds every daily build, so a hard reload is enough
+  // to refresh.
+  var picksState = { data: null, loading: false };
+  function loadPicks(){
+    if (picksState.data || picksState.loading) { renderPicks(); return; }
+    picksState.loading = true;
+    fetch('data/picks.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        picksState.loading = false;
+        renderPicks();
+      })
+      .catch(function(){
+        picksState.data = { picks: [] };
+        picksState.loading = false;
+        renderPicks();
+      });
+  }
+  function pickDriverChip(d){
+    var sign = (d.weight || 0) >= 0 ? 'pos' : 'neg';
+    return '<span class="pick-driver pick-driver-' + sign + ' pick-driver-' + escapeHtml(d.tag || 'misc') + '">' +
+      escapeHtml(d.text || '') +
+    '</span>';
+  }
+  function pickSideClass(side){ return side === 'put' ? 'put' : 'call'; }
+  function renderPicks(){
+    var root = $('picks-root');
+    var empty = $('picks-empty');
+    var eyebrow = $('picks-eyebrow');
+    if (!root) return;
+    if (picksState.loading){
+      root.innerHTML = 'Loading top picks…';
+      if (empty) empty.hidden = true;
+      return;
+    }
+    var data = picksState.data || { picks: [] };
+    var picks = Array.isArray(data.picks) ? data.picks : [];
+    if (eyebrow){
+      eyebrow.textContent = picks.length + ' pick' + (picks.length === 1 ? '' : 's') + ' · rebuilt with each daily refresh';
+    }
+    if (!picks.length){
+      root.innerHTML = '';
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    // Conviction bar widths scale to the strongest pick so the visual
+    // contrast across the list reflects actual signal-stack depth.
+    var maxConv = 0;
+    for (var i=0; i<picks.length; i++) {
+      if (picks[i].conviction > maxConv) maxConv = picks[i].conviction;
+    }
+    root.innerHTML = picks.map(function(p, idx){
+      var sideCls = pickSideClass(p.side);
+      var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+      var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
+      var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
+      var convPct = maxConv > 0 ? (p.conviction / maxConv) * 100 : 0;
+      var streakHtml = p.streak
+        ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '">' +
+            p.streak.days + 'd ' + (p.streak.color === 'green' ? '▲' : '▼') +
+            ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
+          '</span>'
+        : '';
+      var drivers = (p.drivers || []).slice(0, 5).map(pickDriverChip).join('');
+      return '<article class="pick-card ' + sideCls + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+        '<div class="pick-rank">#' + (idx + 1) + '</div>' +
+        '<div class="pick-main">' +
+          '<div class="pick-head">' +
+            '<button type="button" class="pick-symbol" data-pick-symbol="' + escapeHtml(p.symbol) + '" title="Open ' + escapeHtml(p.symbol) + ' in the grader">' + escapeHtml(p.symbol) + '</button>' +
+            (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
+            sectorTag +
+            '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
+            streakHtml +
+          '</div>' +
+          '<p class="pick-thesis">' + escapeHtml(p.thesis) + '</p>' +
+          (drivers ? '<div class="pick-drivers">' + drivers + '</div>' : '') +
+        '</div>' +
+        '<div class="pick-conviction" aria-label="Conviction score" style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
+          '<div class="pick-conv-label">Conv</div>' +
+          '<div class="pick-conv-value">' + p.conviction + '</div>' +
+          '<div class="pick-conv-bar"><span class="pick-conv-fill"></span></div>' +
+        '</div>' +
+      '</article>';
+    }).join('');
+    // Clicking a symbol jumps to the grader. The state ?sym=X URL pattern
+    // the rest of the app already understands is the cleanest way in —
+    // a hashchange triggers the grader's existing URL-state handler so
+    // expirations and the first strike auto-populate.
+    root.querySelectorAll('[data-pick-symbol]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var sym = btn.getAttribute('data-pick-symbol');
+        if (!sym) return;
+        var gradeTab = document.querySelector('[data-page-tab="grade"]');
+        if (gradeTab) gradeTab.click();
+        try {
+          var url = new URL(window.location.href);
+          url.searchParams.set('sym', sym);
+          window.history.replaceState({}, '', url.toString());
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        } catch (_) {}
+      });
+    });
   }
 
   // --- Bind ---------------------------------------------------------------
