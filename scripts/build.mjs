@@ -2391,30 +2391,39 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
     var heading = 'AI news take' + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
     var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict from <b>Acceptable</b>.</div>' : '';
-    var sources = Array.isArray(news.sources) ? news.sources : [];
-    var sourcesRow = sources.length
-      ? '<div class="opt-news-sources"><span class="opt-news-sources-label">Sources</span>' +
-          sources.slice(0, 6).map(function(s){ return '<span class="opt-news-source">' + escapeHtml(s) + '</span>'; }).join('') +
-        '</div>'
-      : '';
-    // headlines may be plain strings (old builds) or {title, publisher} objects.
+    // Headlines are reputable-publisher-only (build-time hard filter). Show
+    // up to 5 directly under the AI paragraph as a Sources block — each
+    // row carries publisher tag + headline title + date, like a research
+    // note's footnote table. No more collapsible <details>: the citations
+    // ARE the proof, not a hidden afterthought.
     var hl = Array.isArray(news.headlines) ? news.headlines : [];
-    var hlRow = hl.length
-      ? '<details class="opt-news-headlines"><summary>' + hl.length + ' headlines used</summary><ul>' +
-          hl.slice(0, 10).map(function(h){
+    function fmtHlDate(iso){
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    }
+    var hlBlock = hl.length
+      ? '<div class="opt-news-sources">' +
+          '<span class="opt-news-sources-label">Sources</span>' +
+          '<ul class="opt-news-sources-list">' +
+          hl.slice(0, 5).map(function(h){
             var title = typeof h === 'string' ? h : (h.title || '');
             var pub = (h && typeof h === 'object') ? (h.publisher || '') : '';
-            var rep = (h && typeof h === 'object' && h.reputable) ? ' opt-news-headline-rep' : '';
-            var pubTag = pub ? '<span class="opt-news-headline-pub' + rep + '">' + escapeHtml(pub) + '</span>' : '';
-            return '<li>' + pubTag + '<span class="opt-news-headline-title">' + escapeHtml(title) + '</span></li>';
+            var date = (h && typeof h === 'object') ? fmtHlDate(h.publishedAt) : '';
+            return '<li class="opt-news-source-row">' +
+              (pub ? '<span class="opt-news-source-pub">' + escapeHtml(pub) + '</span>' : '') +
+              '<span class="opt-news-source-title">' + escapeHtml(title) + '</span>' +
+              (date ? '<span class="opt-news-source-date">' + escapeHtml(date) + '</span>' : '') +
+            '</li>';
           }).join('') +
-        '</ul></details>'
+          '</ul>' +
+        '</div>'
       : '';
     return '<div class="opt-news ' + (news.sentiment || 'neutral') + '">' +
       '<div class="opt-news-head">' + heading + '</div>' +
       '<div class="opt-news-body">' + escapeHtml(news.paragraph) + '</div>' +
-      sourcesRow +
-      hlRow +
+      hlBlock +
       note +
     '</div>';
   }
@@ -3616,17 +3625,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       var rows = [];
       for (var i = 0; i < examples.length; i++){
         var e = examples[i];
+        // Stocktwits examples carry {user, sentiment, body}. (Legacy Reddit
+        // shapes carried subreddit/score/permalink — those branches were
+        // removed when we dropped Reddit as a source.)
         var meta = [];
         if (e.user) meta.push('@' + escapeHtml(String(e.user)));
-        if (e.subreddit) meta.push('r/' + escapeHtml(String(e.subreddit)));
-        if (typeof e.score === 'number') meta.push('↑' + e.score);
-        if (e.matchedKeyword) meta.push('match: "' + escapeHtml(String(e.matchedKeyword)) + '"');
         var bodyText = escapeHtml(String(e.body || e.title || ''));
-        // Wrap titles in a link when we have a permalink (reddit). Stocktwits
-        // examples don't carry a stable URL so they stay plain text.
-        if (e.permalink){
-          bodyText = '<a href="' + escapeHtml(String(e.permalink)) + '" target="_blank" rel="noopener noreferrer">' + bodyText + '</a>';
-        }
         rows.push(
           '<li class="opt-social-example ' + (e.sentiment || 'neutral') + '">' +
             sentimentDot(e.sentiment) +
@@ -3659,9 +3663,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       : Math.round(s.msgCount24h).toString();
     var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
     var st = s.sources && s.sources.stocktwits;
-    var rd = s.sources && s.sources.reddit;
     var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages count as neutral.');
-    var rdBlock = renderSocialSourceBlock('Reddit (r/wallstreetbets + r/stocks + r/options)', rd, 'Post titles graded by keyword: bullish on calls/long/moon/buy/bull/breakout/squeeze/yolo; bearish on puts/short/sell/bear/crash/dump/drilling; both or neither → neutral.');
     return '<div class="opt-social ' + lean + '">' +
       '<div class="opt-social-head">' +
         '<span class="opt-social-label">Retail chatter</span>' +
@@ -3672,7 +3674,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         '<span class="neutral" style="width:' + neutral + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
-      stBlock + rdBlock +
+      stBlock +
     '</div>';
   }
 
@@ -3741,6 +3743,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       n.conflictsWith.map(function(c){ return '<span class="narr-conflict-chip">' + escapeHtml(c) + '</span>'; }).join('') +
     '</div>';
   }
+  // "Sources" — every headline the AI cited as backing this narrative,
+  // copied verbatim from the SOURCE POOL it was given. Each entry is the
+  // shape {publisher, title, date}. Build-time validation guarantees these
+  // are real headlines from REPUTABLE_PUBLISHERS (no hallucinated cites).
+  function fmtSrcDate(iso){
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00Z');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+  function narrativeSourcesHtml(n){
+    if (!Array.isArray(n.sources) || !n.sources.length) return '';
+    var items = n.sources.map(function(s){
+      var pub = escapeHtml(String(s.publisher || ''));
+      var title = escapeHtml(String(s.title || ''));
+      var date = escapeHtml(fmtSrcDate(s.date));
+      return '<li class="narr-source">' +
+        '<span class="narr-source-pub">' + pub + '</span>' +
+        '<span class="narr-source-title">' + title + '</span>' +
+        (date ? '<span class="narr-source-date">' + date + '</span>' : '') +
+      '</li>';
+    }).join('');
+    return '<div class="narr-sources">' +
+      '<span class="narr-sources-label">Sources</span>' +
+      '<ul class="narr-sources-list">' + items + '</ul>' +
+    '</div>';
+  }
   function narrativeCardHtml(n, rankInSector){
     var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
     var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
@@ -3782,6 +3811,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       longRow + shortRow +
       watchForHtml(n) +
       conflictsHtml(n) +
+      narrativeSourcesHtml(n) +
     '</article>';
   }
   // Sector-overview banner — the top-down story for the active sector. Sits
@@ -5407,6 +5437,69 @@ main {
   border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent);
   border-radius: var(--r-pill);
 }
+
+/* Per-narrative source citations — appears under watchFor/conflicts. Each
+   entry is a verified headline that informed the thesis. Hairline divider
+   above to separate from the thesis body; tracked-uppercase eyebrow label;
+   mono publisher tag + regular-weight title + UTC date so traders can
+   recognize the wire at a glance. */
+.narr-sources {
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
+  border-top: 1px dashed var(--hairline);
+}
+.narr-sources-label {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.narr-sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.narr-source {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.narr-source-pub {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-strong);
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+.narr-source-title {
+  flex: 1 1 auto;
+  color: var(--text);
+  min-width: 0;
+}
+.narr-source-date {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  font-feature-settings: "tnum" 1;
+}
+
 .narr-macro { margin-top: var(--s-4); }
 .narr-macro:empty { display: none; }
 .narr-macro-details {
@@ -6994,70 +7087,66 @@ main {
 .opt-news-pane .opt-news-empty {
   color: var(--muted); font-style: italic; font-size: var(--fs-sm);
 }
+/* News take "Sources" block — open by default, each row a real headline
+   citation. Reputable-publisher hard filter at build time means everything
+   in this list is wire-grade, so the rows act as the user's proof that
+   the AI take is grounded. Hairline above to separate from the body
+   paragraph; tracked-uppercase label; mono publisher tag on the left,
+   headline title in the middle, UTC date on the right. */
 .opt-news-sources {
-  display: flex; flex-wrap: wrap; align-items: center;
-  gap: 6px;
-  margin-top: var(--s-2);
+  margin-top: var(--s-3);
   padding-top: var(--s-2);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--hairline);
 }
 .opt-news-sources-label {
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--muted);
-  margin-right: 2px;
-}
-.opt-news-source {
-  display: inline-flex; align-items: center;
-  height: 20px;
-  padding: 0 8px;
-  font-size: 11px; font-weight: 600;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-pill);
-}
-.opt-news-headlines {
-  margin-top: var(--s-2);
-  font-size: var(--fs-sm);
-}
-.opt-news-headlines > summary {
-  cursor: pointer;
-  color: var(--muted);
-  list-style: none;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 10px;
   font-weight: 700;
-}
-.opt-news-headlines > summary::-webkit-details-marker { display: none; }
-.opt-news-headlines > summary::after {
-  content: ' +';
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--muted);
   font-family: var(--font-mono);
 }
-.opt-news-headlines[open] > summary::after { content: ' −'; }
-.opt-news-headlines ul {
+.opt-news-sources-list {
   list-style: none;
-  margin: var(--s-2) 0 0; padding: 0;
-  display: flex; flex-direction: column; gap: 4px;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column;
+  gap: 6px;
 }
-.opt-news-headlines li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--s-2);
+.opt-news-source-row {
+  display: flex;
   align-items: baseline;
-  padding: 4px 0;
-  border-top: 1px solid var(--border);
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.4;
 }
-.opt-news-headlines li:first-child { border-top: none; }
-.opt-news-headline-pub {
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--muted);
+.opt-news-source-pub {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-strong);
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
   white-space: nowrap;
 }
-.opt-news-headline-pub.opt-news-headline-rep { color: var(--accent-strong); }
-.opt-news-headline-title { color: var(--text); line-height: 1.4; }
+.opt-news-source-title {
+  flex: 1 1 auto;
+  color: var(--text);
+  min-width: 0;
+}
+.opt-news-source-date {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  font-feature-settings: "tnum" 1;
+}
 
 /* === Manual grader accordion === */
 .opt-manual-details summary {
@@ -7348,16 +7437,20 @@ const AI_MODEL = process.env.AI_MODEL || "gemma-4-26b-a4b-it";
 // NARRATIVES_MODEL=gemini-2.5-pro etc. after adding billing in AI Studio.
 const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 const AI_NEWS_COUNT = 10;
-// Publishers we trust as "reputable" for sourcing. When Yahoo returns more
-// headlines than AI_NEWS_COUNT we float matches from this set to the front so
-// the AI take leans on wire/major-business-press reporting rather than blog
-// aggregators. Matching is case-insensitive substring against n.publisher.
+// Publishers we trust as "reputable" for sourcing. The narrative engine and
+// per-ticker news take BOTH hard-filter to publishers on this list — anything
+// else gets dropped before the AI sees it, so theses can never lean on a
+// blog aggregator. Matching is case-insensitive substring against
+// n.publisher. Curated to wire services, named major business press, and
+// institutional data providers; intentionally excludes contributor platforms
+// (Forbes) and aggregators (Yahoo Finance) since those don't carry an
+// editorial guarantee.
 const REPUTABLE_PUBLISHERS = [
   "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "Financial Times", "FT",
-  "Associated Press", "AP", "MarketWatch", "CNBC", "Barron's", "Forbes",
+  "Associated Press", "AP", "MarketWatch", "CNBC", "Barron's",
   "The Economist", "New York Times", "Washington Post", "Business Insider",
   "Insider", "Investor's Business Daily", "Investopedia", "Morningstar",
-  "Dow Jones", "S&P Global", "Moody's", "Fitch", "Yahoo Finance",
+  "Dow Jones", "S&P Global", "Moody's", "Fitch", "FactSet", "Refinitiv",
 ];
 // Top-tier official + major-press macro feeds. The narrative extractor sees a
 // digest of these alongside the per-ticker news takes so it can spot when the
@@ -7558,10 +7651,12 @@ async function fetchMacroHeadlines() {
 
 async function fetchTickerHeadlines(symbol) {
   try {
-    // Pull more than AI_NEWS_COUNT so we can float reputable wires to the front
-    // and still hit the target count when Yahoo returns a mix.
+    // Pull a wider slate (3× the target) because we hard-filter to reputable
+    // publishers below — a quiet news cycle for a small-cap can leave only
+    // 2-3 wires in a 20-headline pull, and we'd rather keep 2 wire-grade
+    // items than dilute with blog aggregators.
     const res = await yahooFinance.search(symbol, {
-      newsCount: AI_NEWS_COUNT * 2,
+      newsCount: AI_NEWS_COUNT * 3,
       quotesCount: 0,
       enableFuzzyQuery: false,
     });
@@ -7574,13 +7669,13 @@ async function fetchTickerHeadlines(symbol) {
           ? new Date(n.providerPublishTime instanceof Date ? n.providerPublishTime : n.providerPublishTime * 1000).toISOString()
           : null,
       }))
-      .filter((n) => n.title.length > 0);
-    // Stable sort: reputable publishers first, then most recent first. The
-    // resulting list is what both the AI prompt and the data file see.
+      .filter((n) => n.title.length > 0)
+      // Hard reputable filter: anything not on REPUTABLE_PUBLISHERS gets
+      // dropped before it touches the AI prompt or the data file. The user
+      // sees only wire-grade citations.
+      .filter((n) => isReputablePublisher(n.publisher));
+    // Newest first now that publisher quality is already guaranteed.
     normalized.sort((a, b) => {
-      const ra = isReputablePublisher(a.publisher) ? 0 : 1;
-      const rb = isReputablePublisher(b.publisher) ? 0 : 1;
-      if (ra !== rb) return ra - rb;
       const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
       const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
       return db - da;
@@ -7592,16 +7687,15 @@ async function fetchTickerHeadlines(symbol) {
   }
 }
 
-// --- Retail sentiment (Stocktwits + Reddit) -------------------------------
-// Both endpoints are free and unauthenticated. Each fetcher returns null on
-// any failure so a single bad source never breaks the daily build. The
-// aggregator below sums per-source counts into a normalized percentage split.
+// --- Retail sentiment (Stocktwits only) -----------------------------------
+// Stocktwits exposes a free unauthenticated stream with self-tagged
+// Bullish/Bearish messages — high signal. Reddit was removed because the
+// keyword-graded approach (regex on r/wallstreetbets titles) produced too
+// much noise to act on. fetchStocktwitsSentiment returns null on any
+// failure so a single bad source never breaks the daily build.
 
 const SOCIAL_FETCH_TIMEOUT_MS = 6000;
 const STOCKTWITS_MAX_MESSAGES = 30;
-const REDDIT_USER_AGENT = "stonks-grader/1.0 (+github)";
-const REDDIT_BULL_RE = /\b(calls?|long|moon|buy|bull|breakout|squeeze|yolo)\b/i;
-const REDDIT_BEAR_RE = /\b(puts?|short|sell|bear|crash|dump|drilling)\b/i;
 
 async function fetchWithTimeout(url, opts = {}, timeoutMs = SOCIAL_FETCH_TIMEOUT_MS) {
   const ctrl = new AbortController();
@@ -7679,81 +7773,18 @@ async function fetchStocktwitsSentiment(symbol) {
   }
 }
 
-async function fetchRedditMentions(symbol) {
-  try {
-    const url = `https://www.reddit.com/r/wallstreetbets+stocks+options/search.json?q=${encodeURIComponent(symbol)}&restrict_sr=on&sort=new&t=day&limit=50`;
-    const res = await fetchWithTimeout(url, { headers: { "User-Agent": REDDIT_USER_AGENT } });
-    if (!res.ok) return null;
-    const body = await res.json();
-    const children = Array.isArray(body?.data?.children) ? body.data.children : [];
-    if (!children.length) return null;
-    // Short symbols collide with English words (A, F, T) — require the $TICKER
-    // cashtag form for them. Longer symbols use a word-boundary match.
-    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const matchRe = symbol.length <= 2
-      ? new RegExp(`\\$${escaped}\\b`, "i")
-      : new RegExp(`(?:\\$|\\b)${escaped}\\b`, "i");
-    let bull = 0, bear = 0, neutral = 0, total = 0;
-    const exBull = [], exBear = [], exNeu = [];
-    for (const c of children) {
-      const data = c?.data || {};
-      const title = (data.title || "").trim();
-      if (!title || !matchRe.test(title)) continue;
-      total++;
-      const bullMatch = title.match(REDDIT_BULL_RE);
-      const bearMatch = title.match(REDDIT_BEAR_RE);
-      const isBull = !!bullMatch;
-      const isBear = !!bearMatch;
-      let sentiment, matched;
-      if (isBull && !isBear) { bull++; sentiment = "bullish"; matched = bullMatch[0]; }
-      else if (isBear && !isBull) { bear++; sentiment = "bearish"; matched = bearMatch[0]; }
-      else { neutral++; sentiment = "neutral"; matched = isBull && isBear ? `${bullMatch[0]}+${bearMatch[0]}` : null; }
-      const bucket = sentiment === "bullish" ? exBull : sentiment === "bearish" ? exBear : exNeu;
-      if (bucket.length < 2) {
-        bucket.push({
-          sentiment,
-          title: truncateText(title, 200),
-          matchedKeyword: matched,
-          subreddit: data.subreddit || null,
-          score: typeof data.score === "number" ? data.score : null,
-          permalink: data.permalink ? `https://www.reddit.com${data.permalink}` : null,
-        });
-      }
-    }
-    if (total === 0) return null;
-    return {
-      source: "reddit",
-      bull, bear, neutral, total,
-      msgsPerDay: total, // search window is t=day
-      examples: pickExamples([exBull, exBear, exNeu], 2),
-      sampledAt: new Date().toISOString(),
-    };
-  } catch (err) {
-    console.log(`    ⚠ ${symbol} reddit fetch failed: ${err.message}`);
-    return null;
-  }
-}
-
 async function fetchSocialSentiment(symbol) {
-  const [stocktwits, reddit] = await Promise.all([
-    fetchStocktwitsSentiment(symbol),
-    fetchRedditMentions(symbol),
-  ]);
-  if (!stocktwits && !reddit) return null;
-  let bull = 0, bear = 0, neutral = 0, total = 0, msgCount24h = 0;
-  for (const s of [stocktwits, reddit]) {
-    if (!s) continue;
-    bull += s.bull; bear += s.bear; neutral += s.neutral; total += s.total;
-    msgCount24h += s.msgsPerDay || 0;
-  }
+  const stocktwits = await fetchStocktwitsSentiment(symbol);
+  if (!stocktwits) return null;
+  const { bull, bear, neutral, total, msgsPerDay } = stocktwits;
   if (total === 0) return null;
   return {
     bullishPct: (bull / total) * 100,
     bearishPct: (bear / total) * 100,
     neutralPct: (neutral / total) * 100,
-    msgCount24h,
+    msgCount24h: msgsPerDay || 0,
     trend: "flat",
-    sources: { stocktwits, reddit },
+    sources: { stocktwits },
     builtAt: new Date().toISOString(),
   };
 }
@@ -8115,7 +8146,7 @@ async function attachAiNewsTakes(chains) {
 
 async function attachSocialSentiment(chains) {
   const entries = Object.entries(chains);
-  console.log(`Fetching retail sentiment (Stocktwits + Reddit) for ${entries.length} tickers…`);
+  console.log(`Fetching retail sentiment (Stocktwits) for ${entries.length} tickers…`);
   const hb = startHeartbeat("social sentiment", entries.length);
   const tasks = entries.map(([sym, data]) => hb.track(async () => {
     const social = await fetchSocialSentiment(sym);
@@ -8175,12 +8206,13 @@ const NARRATIVE_SYSTEM_PROMPT =
   `a "timeframe" of "immediate" (this week), "near-term" (1-4 weeks), "medium-term" (1-3 months), or "long-term" (3+ months); ` +
   `a "watchFor" array of 1-3 short concrete red flags / catalysts that would FLIP or BREAK this specific narrative (e.g. for an AI Semis bull narrative: "Hyperscaler capex cuts at next earnings", "MSFT spends $100B but revenue growth slows below 10%", "China export controls expand to HBM"). Frame each item as something a trader could watch and recognize when it happens. ` +
   `a "conflictsWith" array listing the NAMES of OTHER narratives in this same response that this one directly opposes. Empty array if none clash. ` +
+  `a "sources" array of 1-4 SPECIFIC headlines from the SOURCE POOL provided in the user message that directly support this narrative. Each entry has the shape {"publisher":"...","title":"...","date":"YYYY-MM-DD"}. The publisher and title MUST be copied verbatim from a single SOURCE POOL line — do not paraphrase, do not combine titles, do not invent a publisher, do not cite a headline that is not in the pool. Pick the headlines that most directly back the thesis (a CPI print supports a Fed-pivot narrative; an NVDA earnings beat supports an AI infra narrative). If genuinely none of the pool headlines apply, return an empty array — DO NOT manufacture sources. ` +
   "Rules: only use tickers from the provided list — do not invent tickers. Each sub-industry narrative MUST have at least one long or one short. Prefer broader narratives over very narrow single-name stories. " +
   "Sectors with thin coverage (e.g. \"Consumer Defensive\" with only Discount Stores, or \"Precious Metals\" with Gold/Silver) still get an overview AND any sub-industry narratives that legitimately apply — just shorter. For Precious Metals, treat Gold (GLD) and Silver (SLV) as standalone macro plays (real-yield trade, dollar trade, geopolitical hedge, central-bank buying); the longs/shorts arrays should reference GLD and SLV directly. " +
   "If a list of PREVIOUS narrative names is provided, reuse a previous name verbatim when today's narrative is the same story so we can track its lifespan; otherwise pick a fresh name. " +
   "conflictsWith names MUST match other names in your own response exactly. " +
   "Respond with ONLY a JSON object of the form " +
-  `{"sectors":[{"sector":"Technology","overview":{"stance":"bullish"|"bearish"|"mixed","thesis":"...","strength":0-100,"watchFor":["...","..."]},"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","watchFor":["..."],"conflictsWith":["..."]}]}]} ` +
+  `{"sectors":[{"sector":"Technology","overview":{"stance":"bullish"|"bearish"|"mixed","thesis":"...","strength":0-100,"watchFor":["...","..."]},"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","watchFor":["..."],"conflictsWith":["..."],"sources":[{"publisher":"...","title":"...","date":"YYYY-MM-DD"}]}]}]} ` +
   "— include an entry for EVERY sector in the whitelist (even if its narratives array is empty), no markdown fences, no prose before or after the JSON.";
 
 const TRENDS_FILE = "trends.json";
@@ -8252,6 +8284,20 @@ async function loadUnusualLog() {
   }
 }
 
+// Truncate a headline title for prompt budget without losing the lead.
+function clipHeadlineTitle(t, maxLen = 160) {
+  const cleaned = (t || "").replace(/\s+/g, " ").trim();
+  return cleaned.length > maxLen ? cleaned.slice(0, maxLen - 1) + "…" : cleaned;
+}
+
+// Format one headline as a single SOURCE POOL line. Stable shape the AI
+// copies verbatim into a narrative's `sources` array.
+function formatPoolLine(scope, publisher, title, publishedAt) {
+  const date = publishedAt ? publishedAt.slice(0, 10) : "undated";
+  const pub = (publisher || "source").trim();
+  return `- ${scope} [${date}] (${pub}) "${clipHeadlineTitle(title)}"`;
+}
+
 function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
   const lines = Object.entries(chains).map(([sym, data]) => {
     const news = data.news;
@@ -8277,6 +8323,33 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
   const previousBlock = previousNames.length
     ? `Previous narrative names from the last build (reuse verbatim when the same story is still live):\n${previousNames.map((n) => `- ${n}`).join("\n")}`
     : "No previous narratives recorded.";
+
+  // SOURCE POOL — every cite-able headline the AI is allowed to copy into a
+  // narrative's `sources` array. Macro feeds first (already reputable by
+  // construction), then up to 2 per-ticker headlines per symbol (also
+  // reputable by construction since fetchTickerHeadlines hard-filters).
+  // Each line uses the exact same format we ask the AI to echo back —
+  // `(publisher) "title"` — so copy-paste lookup is trivial in cleanNarrative.
+  const poolMacroLines = Array.isArray(macroHeadlines) && macroHeadlines.length
+    ? macroHeadlines.slice(0, MACRO_TOTAL_CAP).map((h) =>
+        formatPoolLine("MACRO", h.publisher, h.title, h.publishedAt))
+    : [];
+  const poolTickerLines = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    const hs = Array.isArray(data?.news?.headlines) ? data.news.headlines.slice(0, 2) : [];
+    for (const h of hs) {
+      if (!h || typeof h !== "object") continue;
+      if (!h.title || !h.publisher) continue;
+      poolTickerLines.push(formatPoolLine(sym, h.publisher, h.title, h.publishedAt));
+    }
+  }
+  const sourcePoolBlock = (poolMacroLines.length || poolTickerLines.length)
+    ? `${poolMacroLines.join("\n")}${poolMacroLines.length && poolTickerLines.length ? "\n" : ""}${poolTickerLines.join("\n")}`
+    : "(empty source pool — emit empty sources arrays this run)";
+
+  // Legacy macro digest for narrative-trigger context (kept separate from the
+  // SOURCE POOL above so the AI understands these are also fair game to cite
+  // — same shape, same publishers).
   const macroLines = Array.isArray(macroHeadlines) && macroHeadlines.length
     ? macroHeadlines.slice(0, MACRO_TOTAL_CAP).map((h) => {
         const date = h.publishedAt ? h.publishedAt.slice(0, 10) : "undated";
@@ -8293,6 +8366,7 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
     `INDUSTRY WHITELIST — the "industry" field on every narrative must match one of these exact strings:\n${industryWhitelist}\n\n` +
     `${previousBlock}\n\n` +
     `Macro headlines digest (official + major business press, newest first — use these to judge whether each narrative's trigger has fired):\n${macroLines}\n\n` +
+    `SOURCE POOL — the ONLY headlines you may cite in any narrative's "sources" array. Copy publisher + title verbatim. Each line is one cite-able headline; macro entries start with "MACRO", ticker-specific entries start with the ticker symbol.\n${sourcePoolBlock}\n\n` +
     `Recent per-ticker news takes:\n${lines.join("\n")}`
   );
 }
@@ -8403,6 +8477,57 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
   const STATUS_WEIGHT = { active: 2, building: 1, fading: 0 };
   const TF_WEIGHT = { immediate: 3, "near-term": 2, "medium-term": 1, "long-term": 0 };
 
+  // Build a lookup of every cite-able headline the AI was actually given,
+  // keyed by lowercased+trimmed "publisher|title" (with the same title clip
+  // applied at prompt time so the keys line up exactly). The AI is allowed
+  // to copy entries verbatim; anything that doesn't match a real headline
+  // is hallucinated and gets dropped in cleanNarrative below.
+  const sourceKey = (pub, title) =>
+    `${String(pub || "").toLowerCase().trim()}|${clipHeadlineTitle(title).toLowerCase()}`;
+  const validSourcesPool = new Map();
+  if (Array.isArray(macroHeadlines)) {
+    for (const h of macroHeadlines.slice(0, MACRO_TOTAL_CAP)) {
+      if (!h?.title || !h?.publisher) continue;
+      validSourcesPool.set(sourceKey(h.publisher, h.title), {
+        publisher: h.publisher,
+        title: clipHeadlineTitle(h.title),
+        date: h.publishedAt ? h.publishedAt.slice(0, 10) : null,
+      });
+    }
+  }
+  for (const [, data] of Object.entries(chains)) {
+    const hs = Array.isArray(data?.news?.headlines) ? data.news.headlines.slice(0, 2) : [];
+    for (const h of hs) {
+      if (!h || typeof h !== "object" || !h.title || !h.publisher) continue;
+      validSourcesPool.set(sourceKey(h.publisher, h.title), {
+        publisher: h.publisher,
+        title: clipHeadlineTitle(h.title),
+        date: h.publishedAt ? h.publishedAt.slice(0, 10) : null,
+      });
+    }
+  }
+  const sanitizeSources = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const raw of arr) {
+      if (!raw || typeof raw !== "object") continue;
+      const pub = String(raw.publisher || "").trim();
+      const title = String(raw.title || "").trim();
+      if (!pub || !title) continue;
+      const key = sourceKey(pub, title);
+      if (seen.has(key)) continue;
+      const hit = validSourcesPool.get(key);
+      if (!hit) continue; // dropped — AI cited a headline that wasn't in the pool
+      seen.add(key);
+      out.push({ publisher: hit.publisher, title: hit.title, date: hit.date });
+      if (out.length >= 4) break;
+    }
+    // Newest first; entries without a date sort last.
+    out.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    return out;
+  };
+
   // The new prompt emits a sectors[] array; tolerate the legacy flat
   // narratives[] shape for stale-fallback safety.
   const sectorsRaw = Array.isArray(parsed.sectors) ? parsed.sectors : null;
@@ -8427,11 +8552,12 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       160,
     );
     const conflictsWithRaw = sanitizeStringList(n.conflictsWith, 4, 60);
+    const sources = sanitizeSources(n.sources);
     // Industry must match the whitelist. If the model omits / invents one,
     // vote from the longs (then shorts). Falls back to "Uncategorized" only
     // when no ticker resolves either (which the upstream filter then drops).
     const industry = resolveNarrativeIndustry(n.industry, longs, shorts);
-    const out = { name, industry, thesis, sentiment, confidence, strength, status, timeframe, watchFor, conflictsWith: conflictsWithRaw, longs, shorts };
+    const out = { name, industry, thesis, sentiment, confidence, strength, status, timeframe, watchFor, conflictsWith: conflictsWithRaw, longs, shorts, sources };
     // Stamp the parent sector when we know it from the wrapper. The UI
     // groups by SECTOR_OF_INDUSTRY anyway, but having `sector` on the
     // narrative simplifies the stale-fallback path.
@@ -8532,7 +8658,10 @@ function updateTrendHistory(history, narratives, todayIso) {
   // Compact snapshot — name + sentiment + ticker lists are enough to compute
   // continuity and a "trends that came and went" view. Include strength /
   // status so later builds can chart how a narrative built up or faded
-  // without bloating the file with theses/triggers.
+  // without bloating the file with theses/triggers. Sources are stored as
+  // bare publisher names (deduped) for a 90-day trail of which outlets
+  // backed each narrative — the full {publisher, title, date} payload
+  // lives in trends.json proper.
   const snapshot = {
     date,
     builtAtIso: todayIso,
@@ -8543,6 +8672,9 @@ function updateTrendHistory(history, narratives, todayIso) {
       status: n.status,
       longs: n.longs,
       shorts: n.shorts,
+      sourcePublishers: Array.isArray(n.sources)
+        ? Array.from(new Set(n.sources.map((s) => s.publisher).filter(Boolean))).slice(0, 6)
+        : [],
     })),
   };
   // Replace any existing snapshot for today (a re-run on the same day overwrites).
