@@ -339,6 +339,7 @@ main {
 }
 .page-tabs::-webkit-scrollbar { display: none; }
 .page-tab {
+  position: relative;
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -349,15 +350,31 @@ main {
   letter-spacing: 0.02em;
   padding: var(--s-2) var(--s-3);
   cursor: pointer;
-  transition: color .15s var(--ease-out), border-color .15s var(--ease-out);
+  transition: color .15s var(--ease-out), border-color .15s var(--ease-out), background .15s var(--ease-out);
   margin-bottom: -1px;
   white-space: nowrap;
   flex: 0 0 auto;
+  border-radius: var(--r-1) var(--r-1) 0 0;
 }
-.page-tab:hover { color: var(--text); }
+.page-tab:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
 .page-tab[aria-selected="true"] {
   color: var(--text-strong);
   border-bottom-color: var(--accent);
+}
+.page-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -2px 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 60%, transparent) 50%,
+    transparent 100%);
+  filter: blur(3px);
+  pointer-events: none;
 }
 .page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-1); }
 .page-pane[hidden] { display: none; }
@@ -400,6 +417,7 @@ main {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--pos); flex: 0 0 7px;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 18%, transparent);
+  animation: freshness-pulse 2.4s var(--ease-in-out) infinite;
 }
 .freshness.warn .freshness-dot {
   background: var(--warn);
@@ -408,6 +426,23 @@ main {
 .freshness.bad .freshness-dot {
   background: var(--neg);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--neg) 18%, transparent);
+  animation: freshness-pulse 1.2s var(--ease-in-out) infinite;
+}
+@keyframes freshness-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent),
+                0 0 0 0 color-mix(in srgb, currentColor 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent),
+                0 0 0 6px color-mix(in srgb, currentColor 0%, transparent);
+  }
+}
+.freshness .freshness-dot { color: var(--pos); }
+.freshness.warn .freshness-dot { color: var(--warn); }
+.freshness.bad .freshness-dot { color: var(--neg); }
+@media (prefers-reduced-motion: reduce) {
+  .freshness .freshness-dot { animation: none; }
 }
 .freshness-detail { color: var(--muted); text-transform: none; letter-spacing: 0; }
 .freshness #freshness-text { color: var(--text); font-weight: 600; }
@@ -3041,10 +3076,21 @@ main { padding-top: var(--s-2); }
   font-style: italic;
 }
 .calendar-empty {
-  padding: var(--s-4) var(--s-3);
+  padding: var(--s-5) var(--s-3);
   text-align: center;
   color: var(--muted);
   font-size: 12px;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--r-2);
+  margin-top: var(--s-2);
+  background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+}
+.calendar-empty::before {
+  content: "📅";
+  display: block;
+  font-size: 18px;
+  margin-bottom: 4px;
+  opacity: 0.5;
 }
 @media (max-width: 640px) {
   .cal-day { grid-template-columns: 1fr; gap: 4px; }
@@ -3751,4 +3797,234 @@ main { padding-top: var(--s-2); }
     max-height: 40vh;
     overflow-y: auto;
   }
+}
+
+/* === Shared UI utilities (added in the polish pass) ===================
+   Skeleton placeholders, micro-bars for in-table magnitude, empty-state
+   chrome, refined card hover, accessible focus polish, tabular-num
+   enforcement for any numeric content. Components above can opt in. */
+
+/* Skeleton — shimmer placeholder for loading states. Use as a span or
+   div with the .skel class plus a width/height; multiple .skel-line
+   elements stacked give a "loading paragraph" look. */
+.skel {
+  display: block;
+  background: linear-gradient(90deg,
+    var(--surface-2) 0%,
+    color-mix(in srgb, var(--text) 6%, var(--surface-2)) 50%,
+    var(--surface-2) 100%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s var(--ease-in-out) infinite;
+  border-radius: var(--r-1);
+  color: transparent;
+}
+.skel-line { height: 12px; margin: 6px 0; }
+.skel-line.lg { height: 16px; }
+.skel-line.sm { height: 10px; }
+.skel-block { height: 80px; border-radius: var(--r-2); margin: var(--s-2) 0; }
+@keyframes skel-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; opacity: 0.6; }
+}
+
+/* In-table magnitude bar — renders behind a numeric cell to show its
+   share of a total (e.g. 13F holding value / top-10 sum, FOMC hike %).
+   Use as: <span class="mag-bar" style="--mag:0.42"></span> placed
+   inside a position:relative cell. */
+.mag-cell {
+  position: relative;
+}
+.mag-cell > .mag-bar {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.mag-cell > .mag-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--mag, 0) * 100%);
+  background: var(--mag-color, color-mix(in srgb, var(--accent) 14%, transparent));
+  border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  transition: width .35s var(--ease-out);
+  border-radius: inherit;
+}
+.mag-cell > * { position: relative; }
+.mag-hike { --mag-color: color-mix(in srgb, var(--pos) 14%, transparent); }
+.mag-cut  { --mag-color: color-mix(in srgb, var(--neg) 14%, transparent); }
+.mag-hold { --mag-color: color-mix(in srgb, var(--muted) 14%, transparent); }
+.mag-hike-bdr::after { border-right-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.mag-cut-bdr::after  { border-right-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.mag-hold-bdr::after { border-right-color: color-mix(in srgb, var(--muted) 35%, transparent); }
+
+/* Empty-state chrome — replaces bare "No data" text with a centered
+   icon + line + optional helper text. Toggle visibility via [hidden]. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-6) var(--s-4);
+  color: var(--muted);
+  text-align: center;
+}
+.empty-state-icon {
+  width: 32px; height: 32px;
+  opacity: 0.45;
+  color: var(--muted-strong);
+}
+.empty-state-title {
+  font: 600 12px/1.2 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted-strong);
+}
+.empty-state-hint {
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 32ch;
+  line-height: 1.5;
+}
+
+/* Subtle card hover — only on cards that opt in via .card.is-hoverable.
+   Pure cards stay flat (institutional); content rows + chips can lift. */
+.card.is-hoverable {
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
+}
+.card.is-hoverable:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 2%, var(--surface));
+  transform: translateY(-1px);
+}
+
+/* Calendar chip hover lift — keeps the existing border + adds gentle
+   shadow + accent tint on hover. */
+.cal-chip {
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .12s var(--ease-out);
+}
+.cal-chip:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface-2));
+  transform: translateX(2px);
+}
+
+/* AM/PM pill: add a sunrise/sunset glyph alongside the AM/PM letters so
+   the meaning is immediate even before reading the tooltip. */
+.cal-session::before {
+  margin-right: 3px;
+  font-size: 9px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.cal-session-am::before { content: "☀"; opacity: 0.85; }
+.cal-session-pm::before { content: "☾"; opacity: 0.85; }
+.cal-session-tbd::before { content: "?"; opacity: 0.5; }
+
+/* FOMC probability table — add visual width bar behind each cell. */
+.fomc-prob-table tbody td {
+  position: relative;
+  font-variant-numeric: tabular-nums;
+}
+.fomc-prob-bar {
+  position: absolute;
+  inset: 0 0 0 0;
+  pointer-events: none;
+  border-radius: var(--r-1);
+  background-image: linear-gradient(
+    to right,
+    var(--mag-color, color-mix(in srgb, var(--accent) 14%, transparent)) 0%,
+    var(--mag-color, color-mix(in srgb, var(--accent) 14%, transparent)) calc(var(--mag, 0) * 100%),
+    transparent calc(var(--mag, 0) * 100%));
+  border-right: 1px solid transparent;
+}
+.fomc-prob-table tbody td > span { position: relative; }
+.fomc-prob-row { white-space: nowrap; }
+
+/* 13F per-firm row — show top-10 concentration as a thin bar under the
+   summary, and per-holding share of top-10 as a horizontal bar in the
+   value cell. */
+.f13-firm-bar {
+  height: 3px;
+  width: 100%;
+  background: var(--hairline);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.f13-firm-bar > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 60%, transparent),
+    var(--accent));
+  border-radius: inherit;
+  transition: width .4s var(--ease-out);
+}
+.f13-firm-meta { font-variant-numeric: tabular-nums; }
+.f13-holding-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  pointer-events: none;
+  border-radius: inherit;
+}
+.f13-table td.mag-cell > * { position: relative; z-index: 1; }
+
+/* Top picks conviction gauge — visual conviction strength next to the
+   numeric score. Stacked thin bars (1-12 score) at the start of each
+   picks row. */
+.picks-conviction-gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: var(--s-2);
+}
+.picks-conviction-gauge i {
+  display: block;
+  width: 2px;
+  height: 10px;
+  background: var(--hairline);
+  border-radius: 1px;
+}
+.picks-conviction-gauge i.on-pos { background: var(--pos); }
+.picks-conviction-gauge i.on-neg { background: var(--neg); }
+
+/* Enforce tabular numerals across every numeric surface. Many cells
+   already opt in explicitly; this is a defensive default for any new
+   data cells that forget to. */
+.f13-num, .cal-report-val, .fomc-prob-table td,
+.streaks-stat-value, .picks-conviction,
+.pf-greek-value, .pf-table .f13-num,
+.opt-result-stat-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessible focus rings — clearer than the global :focus-visible for
+   non-button interactive surfaces (page-tabs, calendar-pills, opt-tabs,
+   pf-btns). */
+.calendar-pill:focus-visible,
+.flow-pill:focus-visible,
+.opt-tab:focus-visible,
+.pf-btn:focus-visible,
+.f13-firm-summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-2);
+}
+
+/* Section reveal on scroll — graceful enhancement. Cards inside the
+   active page-pane fade in as the page settles. */
+.page-pane:not([hidden]) > .card {
+  animation: section-fade-in .35s var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-pane:not([hidden]) > .card { animation: none; }
+}
+@keyframes section-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
