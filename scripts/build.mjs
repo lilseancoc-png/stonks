@@ -2758,6 +2758,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
       if (name === 'f13' && typeof loadF13 === 'function') loadF13();
+      if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -4741,14 +4742,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
     calendarState.loading = true;
     fetch('data/calendar.json', { cache: 'no-cache' })
-      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
         calendarState.loading = false;
         renderCalendar();
       })
       .catch(function(){
-        calendarState.data = { events: [] };
+        calendarState.data = { events: [], loadError: true };
         calendarState.loading = false;
         renderCalendar();
       });
@@ -4903,9 +4904,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       root.innerHTML = '';
       if (empty){
         empty.hidden = false;
-        empty.textContent = data.events.length
-          ? 'No events match this filter.'
-          : 'No events in the next 30 days.';
+        empty.textContent = data.loadError
+          ? 'Couldn’t load the calendar — refresh the page to try again.'
+          : data.events.length
+            ? 'No events match this filter.'
+            : 'No events in the next 30 days.';
       }
       return;
     }
@@ -5188,14 +5191,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
     fetch('data/picks.json', { cache: 'no-cache' })
-      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
         picksState.loading = false;
         renderPicks();
       })
       .catch(function(){
-        picksState.data = { picks: [] };
+        // Distinguish load-failure from genuinely-empty so the empty
+        // state copy doesn't claim every ticker scored low when the
+        // fetch never landed.
+        picksState.data = { picks: [], loadError: true };
         picksState.loading = false;
         renderPicks();
       });
@@ -5227,7 +5233,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
     if (!picks.length){
       root.innerHTML = '';
-      if (empty) empty.hidden = false;
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = data.loadError
+          ? 'Couldn’t load picks — refresh the page to try again.'
+          : 'No high-conviction picks in this build — every ticker scored below the minimum.';
+      }
       return;
     }
     if (empty) empty.hidden = true;
