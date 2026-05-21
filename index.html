@@ -455,11 +455,14 @@
       <h2 class="card-title">30-day calendar</h2>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Confirmed earnings dates for every curated ticker plus upcoming macro events (Fed, BLS releases, SEC notices) inside the next 30 days. Earnings dates come from Yahoo's confirmed calendar; macro events come from official press feeds.</p>
+    <p class="hint">Confirmed earnings dates (with AM/PM session tagging) for every curated ticker, structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus / Forecast values, upcoming FOMC meetings, and the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks.</p>
+    <div id="fomc-widget" class="fomc-widget" hidden></div>
     <div class="calendar-controls" role="toolbar" aria-label="Filter calendar">
       <div class="calendar-type-filter" role="radiogroup" aria-label="Filter by event type">
         <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All</button>
         <button type="button" class="calendar-pill" data-cal-type="earnings" role="radio" aria-checked="false">Earnings</button>
+        <button type="button" class="calendar-pill" data-cal-type="reports" role="radio" aria-checked="false">Reports</button>
+        <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">FOMC</button>
         <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro</button>
       </div>
     </div>

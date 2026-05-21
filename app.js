@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03557;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3014,6 +3014,8 @@
   }
   function calendarTypeLabel(type){
     if (type === 'earnings') return 'Earnings';
+    if (type === 'report') return 'Report';
+    if (type === 'fomc') return 'FOMC';
     if (type === 'fed') return 'Fed';
     if (type === 'cpi') return 'CPI / Jobs';
     if (type === 'sec') return 'SEC';
@@ -3022,8 +3024,92 @@
   function calendarTypeMatches(eventType, filter){
     if (filter === 'all') return true;
     if (filter === 'earnings') return eventType === 'earnings';
-    if (filter === 'macro') return eventType !== 'earnings';
+    if (filter === 'reports') return eventType === 'report';
+    if (filter === 'fomc') return eventType === 'fomc';
+    if (filter === 'macro') return eventType !== 'earnings' && eventType !== 'report' && eventType !== 'fomc';
     return true;
+  }
+  function calendarSessionPill(session){
+    if (!session) return '';
+    var s = String(session).toUpperCase();
+    var title = s === 'AM' ? 'Before market open' :
+                s === 'PM' ? 'After market close' : 'Time not supplied';
+    return ' <span class="cal-session cal-session-' + s.toLowerCase() + '" title="' + title + '">' + s + '</span>';
+  }
+  function renderReportChip(e){
+    var fmt = function(v){ return (v == null || v === '') ? '—' : String(v); };
+    var grid =
+      '<div class="cal-report-grid">' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Actual</span><span class="cal-report-val">' + escapeHtml(fmt(e.actual)) + '</span></div>' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Previous</span><span class="cal-report-val">' + escapeHtml(fmt(e.previous)) + '</span></div>' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Consensus</span><span class="cal-report-val">' + escapeHtml(fmt(e.consensus)) + '</span></div>' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>' +
+      '</div>';
+    var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+    return '<div class="cal-chip cal-report">' +
+      '<div class="cal-report-head">' +
+        '<span class="cal-chip-tag">Report</span> ' +
+        '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
+        src +
+      '</div>' +
+      grid +
+    '</div>';
+  }
+  function renderFomcWidget(fomc){
+    var root = $('fomc-widget');
+    if (!root) return;
+    if (!fomc || (!fomc.effectiveRate && (!fomc.meetings || !fomc.meetings.length))){
+      root.hidden = true;
+      return;
+    }
+    root.hidden = false;
+    var rate = fomc.effectiveRate;
+    var meetings = (fomc.meetings || []).slice(0, 2);
+    var probs = fomc.probabilities || {};
+    var header = '<div class="fomc-head">' +
+      (rate
+        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rate.rate.toFixed(2)) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf) + '</span></div>'
+        : '') +
+      (meetings.length
+        ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + '</span></div>'
+        : '') +
+      '</div>';
+    var formatProb = function(p, key){
+      if (!p || p[key] == null) return '—';
+      var v = Number(p[key]);
+      if (!isFinite(v)) return '—';
+      // Snapshots from CME can be on a 0-1 or 0-100 scale; normalise.
+      var pct = v > 1.5 ? v : v * 100;
+      return pct.toFixed(0) + '%';
+    };
+    var rows = ['hike','hold','cut'];
+    var rowLabel = { hike: 'Hike', hold: 'Hold', cut: 'Cut' };
+    var meetingBlocks = meetings.map(function(m){
+      var bucket = probs[m.date] || { now: null, day: null, week: null, month: null };
+      var allEmpty = !bucket.now && !bucket.day && !bucket.week && !bucket.month;
+      var grid =
+        '<table class="fomc-prob-table"><thead><tr>' +
+          '<th></th><th>Now</th><th>1d ago</th><th>1w ago</th><th>1m ago</th>' +
+        '</tr></thead><tbody>' +
+          rows.map(function(k){
+            return '<tr><th class="fomc-prob-row">' + rowLabel[k] + '</th>' +
+              '<td>' + formatProb(bucket.now, k) + '</td>' +
+              '<td>' + formatProb(bucket.day, k) + '</td>' +
+              '<td>' + formatProb(bucket.week, k) + '</td>' +
+              '<td>' + formatProb(bucket.month, k) + '</td>' +
+            '</tr>';
+          }).join('') +
+        '</tbody></table>';
+      var note = allEmpty
+        ? '<p class="fomc-prob-empty">No CME FedWatch snapshot yet for this meeting. Probability buckets will populate once daily snapshots accumulate.</p>'
+        : '';
+      return '<div class="fomc-meeting">' +
+        '<h3 class="fomc-meeting-title">' + escapeHtml(m.label) + '</h3>' +
+        grid +
+        note +
+      '</div>';
+    }).join('');
+    root.innerHTML = header + meetingBlocks;
   }
   function fmtCalendarDate(dateStr){
     if (!dateStr) return '';
@@ -3046,10 +3132,14 @@
       return;
     }
     var data = calendarState.data || { events: [] };
+    renderFomcWidget(data.fomc || null);
     var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
     if (eyebrow){
-      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') +
-        (calendarState.type === 'all' ? '' : ' · ' + calendarTypeLabel(calendarState.type === 'macro' ? 'macro' : 'earnings'));
+      var filterLabel = calendarState.type === 'all' ? '' :
+        ' · ' + (calendarState.type === 'reports' ? 'Reports' :
+                 calendarState.type === 'fomc' ? 'FOMC' :
+                 calendarState.type === 'earnings' ? 'Earnings' : 'Macro');
+      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') + filterLabel;
     }
     if (!filtered.length){
       root.innerHTML = '';
@@ -3071,12 +3161,17 @@
     });
     root.innerHTML = dateOrder.map(function(date){
       var rows = groups[date].map(function(e){
+        if (e.type === 'report') return renderReportChip(e);
         var cls = 'cal-chip cal-' + e.type;
-        var label = e.type === 'earnings'
-          ? '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span> ' +
-            '<span class="cal-chip-text">earnings</span>'
-          : '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
+        var label;
+        if (e.type === 'earnings'){
+          label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span>' +
+            calendarSessionPill(e.session) +
+            ' <span class="cal-chip-text">earnings</span>';
+        } else {
+          label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
+        }
         var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
         return '<div class="' + cls + '">' + label + src + '</div>';
       }).join('');

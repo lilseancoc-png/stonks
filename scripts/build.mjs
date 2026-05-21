@@ -992,13 +992,31 @@ async function fetchFundamentals(symbol) {
 
   // Next earnings date from calendarEvents.earnings.earningsDate (an array of
   // Date objects — Yahoo gives a single date once it's confirmed, otherwise a
-  // start/end window).
+  // start/end window). We also derive the trading session (AM = before market
+  // open / BMO, PM = after market close / AMC) from the timestamp's hour:
+  // Yahoo encodes BMO releases around 11:00-13:30 UTC (7:00-9:30 ET) and AMC
+  // releases at 20:00+ UTC (16:00+ ET). A 00:00 UTC timestamp means Yahoo
+  // didn't supply a time — surface as TBD.
   let nextEarnings = null;
+  let nextEarningsSession = null;
   const ed = ev?.earnings?.earningsDate;
   if (Array.isArray(ed) && ed.length) {
     const first = ed[0] instanceof Date ? ed[0] : new Date(ed[0]);
-    if (!isNaN(first.getTime())) nextEarnings = first.toISOString().slice(0, 10);
+    if (!isNaN(first.getTime())) {
+      nextEarnings = first.toISOString().slice(0, 10);
+      const hourUtc = first.getUTCHours();
+      const minUtc = first.getUTCMinutes();
+      if (hourUtc === 0 && minUtc === 0) nextEarningsSession = "TBD";
+      else if (hourUtc < 14) nextEarningsSession = "AM";
+      else nextEarningsSession = "PM";
+    }
   }
+  // Yahoo occasionally exposes a separate earningsCallTime string ("BMO"/"AMC")
+  // — prefer it when present since it's the canonical signal.
+  const callTime = String(ev?.earnings?.earningsCallTime || "").toUpperCase();
+  if (callTime === "BMO" || callTime === "BEFORE MARKET OPEN") nextEarningsSession = "AM";
+  else if (callTime === "AMC" || callTime === "AFTER MARKET CLOSE") nextEarningsSession = "PM";
+  else if (callTime === "TAS" || callTime === "TNS") nextEarningsSession = "TBD";
 
   // Current-quarter / current-year growth estimates from earningsTrend. The
   // trend array is keyed by period: 0q (current Q), +1q, 0y (current FY), +1y.
@@ -1115,6 +1133,7 @@ async function fetchFundamentals(symbol) {
     epsForwardEstimates,
     revenueForwardEstimates,
     nextEarningsDate: nextEarnings,
+    nextEarningsSession,
     growthEstimateCurQ: tq ? pct(tq.growth) : null,
     growthEstimateCurY: ty ? pct(ty.growth) : null,
     revenueEstimateCurQ: tq?.revenueEstimate ? num(tq.revenueEstimate.avg) : null,
@@ -1344,19 +1363,22 @@ function topPicksSection() {
 }
 
 function calendarSection() {
-  // Card chrome only — the timeline rows render client-side from
-  // data/calendar.json, fetched lazily on first tab activation by
-  // renderCalendar() in app.js.
+  // Card chrome only — the timeline rows, FOMC widget, and macro-report
+  // rows render client-side from data/calendar.json (fetched lazily on
+  // first tab activation by loadCalendar() in app.js).
   return `<section class="card" id="calendar-section">
     <header class="card-header">
       <h2 class="card-title">30-day calendar</h2>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Confirmed earnings dates for every curated ticker plus upcoming macro events (Fed, BLS releases, SEC notices) inside the next 30 days. Earnings dates come from Yahoo's confirmed calendar; macro events come from official press feeds.</p>
+    <p class="hint">Confirmed earnings dates (with AM/PM session tagging) for every curated ticker, structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus / Forecast values, upcoming FOMC meetings, and the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks.</p>
+    <div id="fomc-widget" class="fomc-widget" hidden></div>
     <div class="calendar-controls" role="toolbar" aria-label="Filter calendar">
       <div class="calendar-type-filter" role="radiogroup" aria-label="Filter by event type">
         <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All</button>
         <button type="button" class="calendar-pill" data-cal-type="earnings" role="radio" aria-checked="false">Earnings</button>
+        <button type="button" class="calendar-pill" data-cal-type="reports" role="radio" aria-checked="false">Reports</button>
+        <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">FOMC</button>
         <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro</button>
       </div>
     </div>
@@ -4646,6 +4668,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   }
   function calendarTypeLabel(type){
     if (type === 'earnings') return 'Earnings';
+    if (type === 'report') return 'Report';
+    if (type === 'fomc') return 'FOMC';
     if (type === 'fed') return 'Fed';
     if (type === 'cpi') return 'CPI / Jobs';
     if (type === 'sec') return 'SEC';
@@ -4654,8 +4678,92 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function calendarTypeMatches(eventType, filter){
     if (filter === 'all') return true;
     if (filter === 'earnings') return eventType === 'earnings';
-    if (filter === 'macro') return eventType !== 'earnings';
+    if (filter === 'reports') return eventType === 'report';
+    if (filter === 'fomc') return eventType === 'fomc';
+    if (filter === 'macro') return eventType !== 'earnings' && eventType !== 'report' && eventType !== 'fomc';
     return true;
+  }
+  function calendarSessionPill(session){
+    if (!session) return '';
+    var s = String(session).toUpperCase();
+    var title = s === 'AM' ? 'Before market open' :
+                s === 'PM' ? 'After market close' : 'Time not supplied';
+    return ' <span class="cal-session cal-session-' + s.toLowerCase() + '" title="' + title + '">' + s + '</span>';
+  }
+  function renderReportChip(e){
+    var fmt = function(v){ return (v == null || v === '') ? '—' : String(v); };
+    var grid =
+      '<div class="cal-report-grid">' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Actual</span><span class="cal-report-val">' + escapeHtml(fmt(e.actual)) + '</span></div>' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Previous</span><span class="cal-report-val">' + escapeHtml(fmt(e.previous)) + '</span></div>' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Consensus</span><span class="cal-report-val">' + escapeHtml(fmt(e.consensus)) + '</span></div>' +
+        '<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>' +
+      '</div>';
+    var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+    return '<div class="cal-chip cal-report">' +
+      '<div class="cal-report-head">' +
+        '<span class="cal-chip-tag">Report</span> ' +
+        '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
+        src +
+      '</div>' +
+      grid +
+    '</div>';
+  }
+  function renderFomcWidget(fomc){
+    var root = $('fomc-widget');
+    if (!root) return;
+    if (!fomc || (!fomc.effectiveRate && (!fomc.meetings || !fomc.meetings.length))){
+      root.hidden = true;
+      return;
+    }
+    root.hidden = false;
+    var rate = fomc.effectiveRate;
+    var meetings = (fomc.meetings || []).slice(0, 2);
+    var probs = fomc.probabilities || {};
+    var header = '<div class="fomc-head">' +
+      (rate
+        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rate.rate.toFixed(2)) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf) + '</span></div>'
+        : '') +
+      (meetings.length
+        ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + '</span></div>'
+        : '') +
+      '</div>';
+    var formatProb = function(p, key){
+      if (!p || p[key] == null) return '—';
+      var v = Number(p[key]);
+      if (!isFinite(v)) return '—';
+      // Snapshots from CME can be on a 0-1 or 0-100 scale; normalise.
+      var pct = v > 1.5 ? v : v * 100;
+      return pct.toFixed(0) + '%';
+    };
+    var rows = ['hike','hold','cut'];
+    var rowLabel = { hike: 'Hike', hold: 'Hold', cut: 'Cut' };
+    var meetingBlocks = meetings.map(function(m){
+      var bucket = probs[m.date] || { now: null, day: null, week: null, month: null };
+      var allEmpty = !bucket.now && !bucket.day && !bucket.week && !bucket.month;
+      var grid =
+        '<table class="fomc-prob-table"><thead><tr>' +
+          '<th></th><th>Now</th><th>1d ago</th><th>1w ago</th><th>1m ago</th>' +
+        '</tr></thead><tbody>' +
+          rows.map(function(k){
+            return '<tr><th class="fomc-prob-row">' + rowLabel[k] + '</th>' +
+              '<td>' + formatProb(bucket.now, k) + '</td>' +
+              '<td>' + formatProb(bucket.day, k) + '</td>' +
+              '<td>' + formatProb(bucket.week, k) + '</td>' +
+              '<td>' + formatProb(bucket.month, k) + '</td>' +
+            '</tr>';
+          }).join('') +
+        '</tbody></table>';
+      var note = allEmpty
+        ? '<p class="fomc-prob-empty">No CME FedWatch snapshot yet for this meeting. Probability buckets will populate once daily snapshots accumulate.</p>'
+        : '';
+      return '<div class="fomc-meeting">' +
+        '<h3 class="fomc-meeting-title">' + escapeHtml(m.label) + '</h3>' +
+        grid +
+        note +
+      '</div>';
+    }).join('');
+    root.innerHTML = header + meetingBlocks;
   }
   function fmtCalendarDate(dateStr){
     if (!dateStr) return '';
@@ -4678,10 +4786,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       return;
     }
     var data = calendarState.data || { events: [] };
+    renderFomcWidget(data.fomc || null);
     var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
     if (eyebrow){
-      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') +
-        (calendarState.type === 'all' ? '' : ' · ' + calendarTypeLabel(calendarState.type === 'macro' ? 'macro' : 'earnings'));
+      var filterLabel = calendarState.type === 'all' ? '' :
+        ' · ' + (calendarState.type === 'reports' ? 'Reports' :
+                 calendarState.type === 'fomc' ? 'FOMC' :
+                 calendarState.type === 'earnings' ? 'Earnings' : 'Macro');
+      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') + filterLabel;
     }
     if (!filtered.length){
       root.innerHTML = '';
@@ -4703,12 +4815,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     });
     root.innerHTML = dateOrder.map(function(date){
       var rows = groups[date].map(function(e){
+        if (e.type === 'report') return renderReportChip(e);
         var cls = 'cal-chip cal-' + e.type;
-        var label = e.type === 'earnings'
-          ? '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span> ' +
-            '<span class="cal-chip-text">earnings</span>'
-          : '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
+        var label;
+        if (e.type === 'earnings'){
+          label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span>' +
+            calendarSessionPill(e.session) +
+            ' <span class="cal-chip-text">earnings</span>';
+        } else {
+          label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
+        }
         var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
         return '<div class="' + cls + '">' + label + src + '</div>';
       }).join('');
@@ -7971,6 +8088,145 @@ main { padding-top: var(--s-2); }
 .cal-sec { border-left-color: var(--muted); }
 .cal-sec .cal-chip-tag { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
 .cal-macro { border-left-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.cal-fomc { border-left-color: var(--warn); }
+.cal-fomc .cal-chip-tag { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.cal-session {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .08em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  color: var(--muted);
+  text-transform: uppercase;
+  cursor: help;
+}
+.cal-session-am {
+  background: color-mix(in srgb, var(--pos) 18%, transparent);
+  color: var(--pos);
+}
+.cal-session-pm {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.cal-report {
+  flex-direction: column;
+  align-items: stretch;
+  border-left-color: var(--warn);
+  padding: 8px 12px;
+  gap: 6px;
+}
+.cal-report-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cal-report-head .cal-chip-tag {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+.cal-report-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.cal-report-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  min-width: 0;
+}
+.cal-report-label {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cal-report-val {
+  font: 600 12px/1.2 var(--font-mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .cal-report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.fomc-widget {
+  margin-top: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.fomc-head {
+  display: flex;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.fomc-rate, .fomc-next { display: flex; flex-direction: column; gap: 2px; }
+.fomc-rate-label, .fomc-next-label {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fomc-rate-value {
+  font: 700 22px/1.1 var(--font-mono);
+  color: var(--text-strong);
+}
+.fomc-next-value {
+  font: 600 13px/1.2 var(--font-mono);
+  color: var(--text);
+}
+.fomc-rate-asof {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+.fomc-meeting + .fomc-meeting { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
+.fomc-meeting-title {
+  font: 600 12px/1.2 var(--font-mono);
+  color: var(--text);
+  margin: 0 0 6px 0;
+  letter-spacing: .03em;
+}
+.fomc-prob-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.fomc-prob-table th, .fomc-prob-table td {
+  padding: 4px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--hairline);
+}
+.fomc-prob-table thead th {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fomc-prob-row {
+  text-align: left !important;
+  font-weight: 600;
+  color: var(--text);
+}
+.fomc-prob-empty {
+  margin: 6px 0 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
 .calendar-empty {
   padding: var(--s-4) var(--s-3);
   text-align: center;
@@ -8616,15 +8872,22 @@ function classifyMacroEvent(publisher, title) {
   return "macro";
 }
 
-function buildCalendarPayload(chains, macroHeadlines, builtAtIso) {
+function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const today = new Date();
   const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
   const cutoffMs = startMs + CALENDAR_DAYS_AHEAD * 86400000;
   const events = [];
+  const reportEvents = extras?.reportEvents || [];
+  const fomcMeetings = extras?.fomcMeetings || [];
+  const fedRate = extras?.fedRate || null;
+  const fedwatch = extras?.fedwatch || null;
 
   // Per-ticker earnings — Yahoo's quoteSummary returns the next confirmed
   // earnings date as "YYYY-MM-DD". Some tickers (ETFs, recently-IPO'd
-  // names) have no date; skip silently.
+  // names) have no date; skip silently. Earnings session (AM = before
+  // market open / PM = after market close / TBD = Yahoo didn't supply a
+  // time) is derived during the per-ticker fundamentals pull and surfaces
+  // here so the calendar chip can tag it.
   for (const [sym, data] of Object.entries(chains)) {
     const dateStr = data?.fundamentals?.nextEarningsDate;
     if (!dateStr || typeof dateStr !== "string") continue;
@@ -8632,12 +8895,47 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso) {
     if (!m) continue;
     const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (eventMs < startMs || eventMs > cutoffMs) continue;
+    const session = data?.fundamentals?.nextEarningsSession || "TBD";
     events.push({
       type: "earnings",
       date: `${m[1]}-${m[2]}-${m[3]}`,
       symbol: sym,
       title: `${sym} earnings`,
+      session,
       source: "Yahoo Finance",
+    });
+  }
+
+  // Structured macro report releases (NFP, Unemployment, JOLTS, CPI MoM/YoY,
+  // Core CPI MoM/YoY, PPI MoM). Each carries Actual / Previous / Consensus /
+  // Forecast — see fetchMacroReleases() for the data source notes.
+  for (const ev of reportEvents) {
+    if (!ev?.date) continue;
+    const ms = Date.UTC(
+      Number(ev.date.slice(0, 4)),
+      Number(ev.date.slice(5, 7)) - 1,
+      Number(ev.date.slice(8, 10)),
+    );
+    if (ms < startMs || ms > cutoffMs) continue;
+    events.push(ev);
+  }
+
+  // FOMC meeting decision days. The meeting itself is a calendar event in
+  // its own right (separate from the rate-probability widget rendered at
+  // the top of the Macro pane).
+  for (const m of fomcMeetings) {
+    if (!m?.date) continue;
+    const ms = Date.UTC(
+      Number(m.date.slice(0, 4)),
+      Number(m.date.slice(5, 7)) - 1,
+      Number(m.date.slice(8, 10)),
+    );
+    if (ms < startMs || ms > cutoffMs) continue;
+    events.push({
+      type: "fomc",
+      date: m.date,
+      title: "FOMC rate decision · " + m.label,
+      source: "Federal Reserve",
     });
   }
 
@@ -8664,14 +8962,305 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso) {
     builtAtIso,
     windowDays: CALENDAR_DAYS_AHEAD,
     events,
+    // Top-of-page FOMC widget data. Rendered separately from the event
+    // timeline; the same FOMC dates still appear in `events` as chips.
+    fomc: {
+      effectiveRate: fedRate,
+      meetings: fomcMeetings,
+      probabilities: fedwatch || {},
+    },
   };
 }
 
-async function writeCalendarFile(chains, macroHeadlines, builtAtIso) {
-  const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso);
+export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extras) {
+  const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras);
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, CALENDAR_FILE), json, "utf8");
   return { bytes: json.length, count: payload.events.length };
+}
+
+// === FOMC meeting schedule (2026) ====================================
+// Published once a year by the Federal Reserve. Two-day meetings list the
+// second day (when the rate decision drops at 14:00 ET).
+export const FOMC_MEETINGS_2026 = [
+  { date: "2026-01-28", label: "Jan 27–28, 2026" },
+  { date: "2026-03-18", label: "Mar 17–18, 2026" },
+  { date: "2026-04-29", label: "Apr 28–29, 2026" },
+  { date: "2026-06-17", label: "Jun 16–17, 2026" },
+  { date: "2026-07-29", label: "Jul 28–29, 2026" },
+  { date: "2026-09-16", label: "Sep 15–16, 2026" },
+  { date: "2026-10-28", label: "Oct 27–28, 2026" },
+  { date: "2026-12-09", label: "Dec 8–9, 2026" },
+];
+
+// === U.S. economic release schedule (2026) ===========================
+// BLS/BEA standard cadence. NFP + Unemployment release together on the
+// first Friday of each month. CPI (headline + core, MoM + YoY) and PPI
+// release on the BLS-published mid-month dates. JOLTS is the prior
+// month's Job Openings, typically released the first or second Tuesday.
+//
+// Dates are best-effort calendar approximations; the build re-reads them
+// from this table each run so updating next year is a single edit.
+const ECON_RELEASE_DATES_2026 = {
+  empSit: ["2026-01-09","2026-02-06","2026-03-06","2026-04-03","2026-05-01","2026-06-05","2026-07-02","2026-08-07","2026-09-04","2026-10-02","2026-11-06","2026-12-04"],
+  cpi:    ["2026-01-14","2026-02-11","2026-03-12","2026-04-14","2026-05-13","2026-06-10","2026-07-15","2026-08-12","2026-09-10","2026-10-15","2026-11-13","2026-12-10"],
+  ppi:    ["2026-01-15","2026-02-12","2026-03-13","2026-04-15","2026-05-14","2026-06-11","2026-07-16","2026-08-13","2026-09-11","2026-10-16","2026-11-16","2026-12-11"],
+  jolts:  ["2026-01-07","2026-02-04","2026-03-10","2026-04-07","2026-05-05","2026-06-03","2026-07-08","2026-08-05","2026-09-09","2026-10-07","2026-11-04","2026-12-08"],
+};
+
+// Reports we surface in the calendar. Each entry carries the FRED series
+// id to pull the time series from, the canonical user-facing label, the
+// release-schedule key, and a per-series formatter that maps the raw
+// value to a display string the calendar chips render verbatim.
+const ECON_REPORTS = [
+  { subtype: "nfp",          label: "Non-Farm Payroll",      schedule: "empSit", series: "PAYEMS",   format: "nfp"  },
+  { subtype: "unrate",       label: "Unemployment Rate",     schedule: "empSit", series: "UNRATE",   format: "pct"  },
+  { subtype: "jolts",        label: "JOLTS Job Openings",    schedule: "jolts",  series: "JTSJOL",   format: "jobs" },
+  { subtype: "cpi-mom",      label: "CPI MoM",               schedule: "cpi",    series: "CPIAUCSL", format: "mom"  },
+  { subtype: "cpi-yoy",      label: "CPI YoY",               schedule: "cpi",    series: "CPIAUCSL", format: "yoy"  },
+  { subtype: "core-cpi-mom", label: "Core CPI MoM",          schedule: "cpi",    series: "CPILFESL", format: "mom"  },
+  { subtype: "core-cpi-yoy", label: "Core CPI YoY",          schedule: "cpi",    series: "CPILFESL", format: "yoy"  },
+  { subtype: "ppi-mom",      label: "PPI MoM",               schedule: "ppi",    series: "PPIFIS",   format: "mom"  },
+];
+
+// === FRED ============================================================
+// Free public CSV endpoint, no API key required:
+//   https://fred.stlouisfed.org/graph/fredgraph.csv?id=<SERIES>
+// Returns "observation_date,<SERIES>\nYYYY-MM-DD,<value>\n..." sorted
+// oldest → newest. We pull each series once and reuse across reports
+// (e.g., CPIAUCSL feeds both CPI MoM and CPI YoY).
+async function fetchFredSeries(seriesId) {
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
+  try {
+    const res = await fetch(url, {
+      // FRED's Cloudflare front rejects bare User-Agents with 403. Send a
+      // realistic desktop browser UA + accept/lang headers to pass the WAF.
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        accept: "text/csv,application/csv,text/plain,*/*;q=0.5",
+        "accept-language": "en-US,en;q=0.9",
+        referer: "https://fred.stlouisfed.org/",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      console.log(`    ⚠ FRED ${seriesId} HTTP ${res.status}`);
+      return [];
+    }
+    const csv = await res.text();
+    const lines = csv.split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return [];
+    const out = [];
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(",");
+      if (parts.length < 2) continue;
+      const date = parts[0].trim();
+      const raw = parts[1].trim();
+      if (raw === "" || raw === ".") continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) continue;
+      out.push({ date, value });
+    }
+    return out;
+  } catch (err) {
+    console.log(`    ⚠ FRED ${seriesId} failed: ${err.message}`);
+    return [];
+  }
+}
+
+// Format a release value for display, given the format key from the
+// ECON_REPORTS table and a reference into the time series (newest-last).
+// Returns null when we don't have enough history to compute the metric.
+function formatEconValue(format, series, idx) {
+  if (idx < 0 || idx >= series.length) return null;
+  const cur = series[idx];
+  if (!cur) return null;
+  if (format === "pct") return cur.value.toFixed(1) + "%";
+  if (format === "jobs") {
+    // FRED JTSJOL is published in thousands of jobs. Convert to "M" for
+    // readability (typically 7-10M openings since 2018).
+    const millions = cur.value / 1000;
+    return millions.toFixed(2) + "M";
+  }
+  if (format === "nfp") {
+    // PAYEMS is the headline level (thousands). Report the month-over-month
+    // change which is what "Non-Farm Payroll" colloquially refers to.
+    const prev = series[idx - 1];
+    if (!prev) return null;
+    const delta = cur.value - prev.value;
+    const sign = delta >= 0 ? "+" : "";
+    return sign + Math.round(delta).toLocaleString("en-US") + "K";
+  }
+  if (format === "mom") {
+    const prev = series[idx - 1];
+    if (!prev || prev.value === 0) return null;
+    const pct = ((cur.value - prev.value) / prev.value) * 100;
+    const sign = pct >= 0 ? "+" : "";
+    return sign + pct.toFixed(1) + "%";
+  }
+  if (format === "yoy") {
+    const prevYear = series[idx - 12];
+    if (!prevYear || prevYear.value === 0) return null;
+    const pct = ((cur.value - prevYear.value) / prevYear.value) * 100;
+    const sign = pct >= 0 ? "+" : "";
+    return sign + pct.toFixed(1) + "%";
+  }
+  return String(cur.value);
+}
+
+// Build the macro report rows for the calendar. Pulls each unique FRED
+// series once and walks the release schedule to find the next upcoming
+// release date inside the calendar window. For each release we surface
+// previous (most recent observation), and if the release date is in the
+// past, populate actual from the latest observation. Consensus / Forecast
+// are reserved fields — populated later when a consensus data source is
+// wired (TradingEconomics / Investing.com).
+export async function fetchMacroReleases(startMs, cutoffMs) {
+  const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series)));
+  const seriesData = {};
+  await Promise.all(uniqueSeries.map(async (id) => {
+    seriesData[id] = await fetchFredSeries(id);
+  }));
+  const todayIso = new Date(startMs).toISOString().slice(0, 10);
+  const events = [];
+  for (const report of ECON_REPORTS) {
+    const sched = ECON_RELEASE_DATES_2026[report.schedule] || [];
+    const series = seriesData[report.series] || [];
+    if (!series.length) continue;
+    // For each release in the window, build a row.
+    for (const dateStr of sched) {
+      const ms = Date.UTC(
+        Number(dateStr.slice(0, 4)),
+        Number(dateStr.slice(5, 7)) - 1,
+        Number(dateStr.slice(8, 10)),
+      );
+      if (ms < startMs || ms > cutoffMs) continue;
+      // The most recent FRED observation is the "previous" reading until
+      // this release prints. After release date passes the build re-runs,
+      // the new value lands as "actual" and the prior one moves into
+      // "previous".
+      const latestIdx = series.length - 1;
+      const isPast = dateStr <= todayIso;
+      const actual = isPast ? formatEconValue(report.format, series, latestIdx) : null;
+      const previous = formatEconValue(report.format, series, isPast ? latestIdx - 1 : latestIdx);
+      events.push({
+        type: "report",
+        subtype: report.subtype,
+        date: dateStr,
+        title: report.label,
+        actual,
+        previous,
+        consensus: null,
+        forecast: null,
+        source: "FRED · " + report.series,
+      });
+    }
+  }
+  return events;
+}
+
+// === Federal Funds Rate (FRED DFF) ===================================
+export async function fetchEffectiveFedFundsRate() {
+  const series = await fetchFredSeries("DFF");
+  if (!series.length) return null;
+  const last = series[series.length - 1];
+  return { rate: last.value, asOf: last.date, source: "FRED:DFF" };
+}
+
+// === CME FedWatch probabilities (best-effort) ========================
+// CME publishes implied rate-decision probabilities for each upcoming
+// FOMC meeting via their public FedWatch widget. The exact endpoint URL
+// changes over time, and CME aggressively WAFs non-browser traffic, so
+// this fetch is best-effort: on success we record one snapshot per
+// meeting in data/fedwatch-history.json (append-only), and the UI picks
+// Now / 1d / 1w / 1m buckets from the history. On failure (timeout, 4xx,
+// shape change) the build logs a warning, history stays intact, and the
+// UI falls back to "—" for the affected buckets.
+const FEDWATCH_HISTORY_FILE = "fedwatch-history.json";
+
+export async function readFedwatchHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, FEDWATCH_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && parsed.meetings ? parsed : { meetings: {} };
+  } catch (_) {
+    return { meetings: {} };
+  }
+}
+
+export async function writeFedwatchHistory(history) {
+  await writeFile(resolve(DATA_DIR, FEDWATCH_HISTORY_FILE), JSON.stringify(history), "utf8");
+}
+
+// Attempt a snapshot fetch for each upcoming FOMC meeting. CME's widget
+// loads its probability tree from `cmegroup.com/CmeWS/mvc/.../FedWatch`
+// JSON endpoints — we try the documented shape and silently degrade if
+// the response doesn't match. Snapshots get keyed by today's date so a
+// daily build appends one row per meeting per day.
+export async function fetchFedwatchSnapshot(meetingDates) {
+  const browserHeaders = {
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    accept: "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.9",
+    referer: "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html",
+  };
+  const out = {};
+  for (const m of meetingDates) {
+    try {
+      // The widget exposes a per-meeting probabilities feed. Endpoint
+      // shape isn't officially documented; try the known path and parse
+      // {hike, hold, cut} from whatever comes back. On any error or
+      // schema mismatch, we skip — history retains prior snapshots.
+      const url = `https://www.cmegroup.com/CmeWS/mvc/Quotes/Future/FedWatch/ProbabilityHistory?meetingDate=${m.date.replace(/-/g, "")}`;
+      const res = await fetch(url, { headers: browserHeaders, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch (_) { continue; }
+      // Try common shapes — CME has changed the schema multiple times.
+      // Look for top-level {hike, hold, cut} percentages, then a nested
+      // probabilityTable[lastBucket] shape, then bail.
+      let probs = null;
+      if (json && typeof json.hike === "number") {
+        probs = { hike: json.hike, hold: json.hold, cut: json.cut };
+      } else if (Array.isArray(json?.probabilities) && json.probabilities.length) {
+        const last = json.probabilities[json.probabilities.length - 1];
+        if (last && typeof last.hike === "number") probs = last;
+      }
+      if (!probs) continue;
+      out[m.date] = probs;
+    } catch (_) {
+      // ignore — network failure / WAF block
+    }
+  }
+  return out;
+}
+
+// Walk an append-only history map and pick buckets at four lookbacks
+// from "now". For each meeting we return Now / 1d ago / 1w ago / 1m ago
+// or null if no snapshot exists in the bucket.
+export function pickFedwatchBuckets(history, meetingDate, nowIso) {
+  const snapshots = history.meetings?.[meetingDate] || {};
+  const dates = Object.keys(snapshots).sort();
+  if (!dates.length) return { now: null, day: null, week: null, month: null };
+  const nowMs = Date.parse(nowIso + "T00:00:00Z");
+  const lookup = (lookbackDays) => {
+    const target = nowMs - lookbackDays * 86400000;
+    let pick = null;
+    for (const d of dates) {
+      if (Date.parse(d + "T00:00:00Z") <= target) pick = d;
+      else break;
+    }
+    return pick ? snapshots[pick] : null;
+  };
+  return {
+    now: snapshots[dates[dates.length - 1]],
+    day: lookup(1),
+    week: lookup(7),
+    month: lookup(30),
+  };
 }
 
 // ============================================================================
@@ -10739,7 +11328,51 @@ async function main() {
   if (ivHistory.size) {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
-  const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso);
+  // Calendar extras: structured macro releases (FRED), FOMC schedule,
+  // current effective Fed funds rate, and a fresh CME FedWatch snapshot.
+  // FedWatch history is append-only — today's snapshot lands beside any
+  // prior days so the UI can pick Now / 1d / 1w / 1m buckets.
+  const todayMs = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate(),
+  );
+  const cutoffMs = todayMs + CALENDAR_DAYS_AHEAD * 86400000;
+  console.log("Fetching macro report releases (FRED)…");
+  const reportEvents = await fetchMacroReleases(todayMs, cutoffMs);
+  console.log(`  · ${reportEvents.length} report rows`);
+  console.log("Fetching effective Fed Funds rate (FRED:DFF)…");
+  const fedRate = await fetchEffectiveFedFundsRate();
+  if (fedRate) console.log(`  · ${fedRate.rate}% as of ${fedRate.asOf}`);
+  console.log("Snapshotting CME FedWatch probabilities…");
+  const fedwatchHistory = await readFedwatchHistory();
+  const upcomingMeetings = FOMC_MEETINGS_2026.filter((m) => {
+    const ms = Date.UTC(Number(m.date.slice(0,4)), Number(m.date.slice(5,7))-1, Number(m.date.slice(8,10)));
+    return ms >= todayMs;
+  });
+  const todayIso = new Date(todayMs).toISOString().slice(0, 10);
+  const snapshot = await fetchFedwatchSnapshot(upcomingMeetings);
+  let snapshotCount = 0;
+  for (const [meetingDate, probs] of Object.entries(snapshot)) {
+    if (!fedwatchHistory.meetings[meetingDate]) fedwatchHistory.meetings[meetingDate] = {};
+    fedwatchHistory.meetings[meetingDate][todayIso] = probs;
+    snapshotCount++;
+  }
+  await writeFedwatchHistory(fedwatchHistory);
+  console.log(`  · ${snapshotCount} meeting snapshots (history: ${Object.keys(fedwatchHistory.meetings).length} meetings tracked)`);
+  // For each upcoming meeting, project the four lookback buckets the UI
+  // expects (Now / 1d / 1w / 1m) so the client doesn't have to do the
+  // history walk itself.
+  const fedwatch = {};
+  for (const m of upcomingMeetings) {
+    fedwatch[m.date] = pickFedwatchBuckets(fedwatchHistory, m.date, todayIso);
+  }
+  const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
+    reportEvents,
+    fomcMeetings: upcomingMeetings,
+    fedRate,
+    fedwatch,
+  });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (next ${CALENDAR_DAYS_AHEAD}d), ${calendarInfo.bytes} bytes`);
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
