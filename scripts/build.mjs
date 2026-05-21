@@ -3885,10 +3885,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       }
       exHtml = '<ul class="opt-social-examples">' + rows.join('') + '</ul>';
     }
+    // Drop the neutral count from the visible label — only directional
+    // (bullish / bearish) posts inform the chatter signal. The total post
+    // count stays so readers see the sample size.
     return '<div class="opt-social-source">' +
       '<div class="opt-social-source-head">' +
         '<span class="opt-social-source-name">' + escapeHtml(name) + '</span>' +
-        '<span class="opt-social-source-counts">' + src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish · ' + n + ' neutral</span>' +
+        '<span class="opt-social-source-counts">' + src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish</span>' +
       '</div>' +
       '<div class="opt-social-source-method">' + escapeHtml(gradingNote) + '</div>' +
       exHtml +
@@ -3899,15 +3902,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (!box) return null;
     var s = state.social;
     if (!s || !s.msgCount24h || s.msgCount24h < 5) return '';
-    var bull = Math.max(0, Math.round(s.bullishPct || 0));
-    var bear = Math.max(0, Math.round(s.bearishPct || 0));
-    var neutral = Math.max(0, 100 - bull - bear);
+    // Re-normalize so the bar shows the directional split only — neutral
+    // (untagged) messages don't carry sentiment signal, so they shouldn't
+    // get bar real estate. The eyebrow label drops the neutral % too.
+    var rawBull = Math.max(0, Number(s.bullishPct) || 0);
+    var rawBear = Math.max(0, Number(s.bearishPct) || 0);
+    var directional = rawBull + rawBear;
+    var bull = directional > 0 ? Math.round((rawBull / directional) * 100) : 0;
+    var bear = directional > 0 ? 100 - bull : 0;
     var msgs = s.msgCount24h >= 1000
       ? (s.msgCount24h / 1000).toFixed(1) + 'k'
       : Math.round(s.msgCount24h).toString();
     var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
     var st = s.sources && s.sources.stocktwits;
-    var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages count as neutral.');
+    var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages are excluded from this split.');
     return '<div class="opt-social ' + lean + '">' +
       '<div class="opt-social-head">' +
         '<span class="opt-social-label">Retail chatter</span>' +
@@ -3915,7 +3923,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       '</div>' +
       '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish">' +
         '<span class="bull" style="width:' + bull + '%"></span>' +
-        '<span class="neutral" style="width:' + neutral + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
       stBlock +
@@ -5541,6 +5548,19 @@ body {
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
   font-feature-settings: "cv11", "ss01", "tnum" 1;
+  /* Ambient backdrop — a barely-visible accent halo at the top of the
+     viewport that fades out by 60vh. Adds visual depth without
+     competing with content. Stays fixed to the viewport so scroll
+     doesn't shift the highlight. */
+  background-image:
+    radial-gradient(ellipse 1100px 480px at 50% -120px,
+      color-mix(in srgb, var(--accent) 6%, transparent) 0%,
+      transparent 70%),
+    radial-gradient(ellipse 800px 380px at 90% 8%,
+      color-mix(in srgb, var(--info) 4%, transparent) 0%,
+      transparent 70%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   letter-spacing: 0;
 }
 /* Numeric data — always tabular and slightly tighter than prose */
@@ -9414,6 +9434,125 @@ main { padding-top: var(--s-2); }
   .cal-chip { padding: 7px 9px; }
   .flow-row-head { gap: 4px; }
   .pf-risk-greeks { grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+}
+
+/* === Design refresh (big-pass) =======================================
+   Coordinated polish applied across the whole site: subtle paper-edge
+   highlight on cards, press-down micro-feedback on every clickable
+   surface, refined focus ring with a soft outer halo, and a numeric
+   utility for muting the decimal portion of large numbers so the
+   reader's eye lands on the integer first. */
+
+/* Paper-edge highlight on every card — 1px top inset that picks up
+   surface light. Sits BELOW any explicit border because it's drawn
+   inside the card via a pseudo-element. */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--text) 8%, transparent) 20%,
+    color-mix(in srgb, var(--text) 8%, transparent) 80%,
+    transparent 100%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+:root[data-theme="light"] .card::before {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(15, 23, 42, 0.05) 20%,
+    rgba(15, 23, 42, 0.05) 80%,
+    transparent 100%);
+}
+
+/* Press-down feedback on every common button/pill so clicks feel
+   responsive. Subtle 1px translateY + slight darken — institutional,
+   not bouncy. */
+.icon-btn:active,
+.calendar-pill:active,
+.flow-pill:active,
+.opt-tab:active,
+.pf-btn:active,
+.streaks-btn:active,
+.page-tab:active,
+.pick-symbol:active,
+.combo-clear:active {
+  transform: translateY(1px);
+  filter: brightness(0.94);
+  transition-duration: .04s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn:active, .calendar-pill:active, .flow-pill:active,
+  .opt-tab:active, .pf-btn:active, .streaks-btn:active,
+  .page-tab:active, .pick-symbol:active, .combo-clear:active {
+    transform: none;
+  }
+}
+
+/* Refined focus ring — primary accent ring + soft outer halo so the
+   focused element stands out without looking aggressive. Overrides the
+   global :focus-visible only on interactive surfaces that opt in. */
+:focus-visible {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Number-style utility — for large monetary readouts where the integer
+   should dominate visually and the decimals recede. Use on a span
+   containing the whole number; the descendant .dec span gets muted. */
+.num-large {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+}
+.num-large .dec {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* Refined hint paragraph — already gets a left accent stripe from the
+   earlier round. Add a slightly tighter top margin so the breathing
+   room between card-title bottom-border and hint is consistent. */
+.card-header + .hint { margin-top: var(--s-3); }
+
+/* Refined section divider — used to break up a card into sub-sections
+   (e.g. "Per-firm holdings" inside the 13F card). Subtle tracked
+   eyebrow above a hairline rule. */
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: var(--s-4) 0 var(--s-2);
+}
+.section-divider-label {
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--muted-strong);
+  flex: 0 0 auto;
+}
+.section-divider::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--hairline);
+}
+
+/* Cleaner long-form prose inside cards — paragraph rhythm */
+.card p { margin-block: 0; }
+.card p + p { margin-top: var(--s-2); }
+
+/* Make the freshness banner read a tad more confidently — slightly
+   tighter padding and slightly larger pulse glow. */
+.freshness {
+  padding: var(--s-2) var(--s-4);
+  background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+  border-radius: var(--r-2);
+  border-bottom: none;
+  margin-inline: auto;
+  border: 1px solid var(--hairline);
 }
 
 /* === Landscape phone (low height) =================================== */
