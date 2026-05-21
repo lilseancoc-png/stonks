@@ -8713,7 +8713,7 @@ main { padding-top: var(--s-2); }
 .calendar-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
 .cal-day {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: 120px minmax(0, 1fr);
   gap: var(--s-3);
   align-items: start;
   padding: var(--s-2) 0;
@@ -8727,7 +8727,7 @@ main { padding-top: var(--s-2); }
   text-transform: uppercase;
   padding-top: 4px;
 }
-.cal-chips { display: flex; flex-direction: column; gap: 6px; }
+.cal-chips { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .cal-chip {
   display: inline-flex;
   align-items: center;
@@ -8947,10 +8947,6 @@ main { padding-top: var(--s-2); }
   margin-bottom: 4px;
   opacity: 0.5;
 }
-@media (max-width: 640px) {
-  .cal-day { grid-template-columns: 1fr; gap: 4px; }
-}
-
 /* === 13F filings tab === */
 .f13-root {
   display: flex;
@@ -9726,7 +9722,7 @@ main { padding-top: var(--s-2); }
   /* Calendar: single-column chips, no source byline (saves horizontal
      space, the date already implies the feed cluster). */
   .cal-day {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     padding: var(--s-2) 0;
     gap: 4px;
   }
