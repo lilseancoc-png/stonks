@@ -7429,6 +7429,16 @@ async function writeStreaksFile(chains, builtAtIso) {
 // `gemini-2.5-flash-lite` on a funded Tier 1 project) to trade a bit of cost
 // for much higher RPM and faster builds.
 const AI_MODEL = process.env.AI_MODEL || "gemma-4-26b-a4b-it";
+// News + fundamentals are short, schema-shaped summaries — Gemini 2.5
+// Flash-Lite is cheaper per token than Gemma 4 26B, supports both
+// responseSchema (constrained decoding, no fence-stripping fallback
+// needed) and implicit prompt caching (PR 3 will exploit the shared
+// system-prompt prefix). Defaulted directly to Flash-Lite; rollback to
+// Gemma is one env var per call type. Note Flash-Lite's responseSchema
+// requires a Tier 1 funded project; the parser still tolerates fenced
+// output so a fallback model can be slotted in without churn.
+const AI_NEWS_MODEL = process.env.AI_NEWS_MODEL || "gemini-2.5-flash-lite";
+const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-2.5-flash-lite";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -7517,6 +7527,79 @@ function acquireAiSlot() {
     }
   });
 }
+// Token-usage logging. Every Gemini/Gemma response carries a usageMetadata
+// block with promptTokenCount / candidatesTokenCount / cachedContentTokenCount
+// / thoughtsTokenCount. We accumulate per-day, per-model, per-callType totals
+// in data/ai-usage.json so we can: (a) see what a build actually cost,
+// (b) verify implicit caching is engaging once we move to a Flash-Lite model
+// with a long shared system-prompt prefix, (c) confirm the Batch API path
+// is taking the discounted route. The file is preserved across the data/
+// wipe by loading at build start and rewriting at the end.
+const AI_USAGE_FILE = "ai-usage.json";
+const AI_USAGE_HISTORY_DAYS = 14;
+let _aiUsageState = null;
+
+async function loadAiUsageState() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, AI_USAGE_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    _aiUsageState = parsed && typeof parsed === "object" && parsed.dates ? parsed : { dates: {} };
+  } catch (_) {
+    _aiUsageState = { dates: {} };
+  }
+  return _aiUsageState;
+}
+
+function recordAiUsage({ model, callType, symbol, usage, mode }) {
+  if (!_aiUsageState) _aiUsageState = { dates: {} };
+  const today = new Date().toISOString().slice(0, 10);
+  const byDate = (_aiUsageState.dates[today] ??= {});
+  const byModel = (byDate[model] ??= {});
+  const bucket = (byModel[callType] ??= {
+    calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, thoughtTokens: 0, mode: mode || "inline",
+  });
+  bucket.calls += 1;
+  bucket.inputTokens += usage?.promptTokenCount || 0;
+  bucket.outputTokens += usage?.candidatesTokenCount || 0;
+  bucket.cachedTokens += usage?.cachedContentTokenCount || 0;
+  bucket.thoughtTokens += usage?.thoughtsTokenCount || 0;
+  if (mode) bucket.mode = mode;
+  const inT = usage?.promptTokenCount ?? "?";
+  const outT = usage?.candidatesTokenCount ?? "?";
+  const cachedT = usage?.cachedContentTokenCount ?? 0;
+  const thoughtT = usage?.thoughtsTokenCount ?? 0;
+  const sym = symbol ? ` ${symbol}` : "";
+  console.log(`    [ai]${sym} ${callType} ${model} in=${inT} cached=${cachedT} out=${outT}${thoughtT ? ` thought=${thoughtT}` : ""}`);
+}
+
+async function writeAiUsageState() {
+  if (!_aiUsageState) return;
+  const cutoff = new Date(Date.now() - AI_USAGE_HISTORY_DAYS * 86400000)
+    .toISOString().slice(0, 10);
+  const pruned = {};
+  for (const [date, val] of Object.entries(_aiUsageState.dates)) {
+    if (date >= cutoff) pruned[date] = val;
+  }
+  _aiUsageState.dates = pruned;
+  await writeFile(resolve(DATA_DIR, AI_USAGE_FILE), JSON.stringify(_aiUsageState), "utf8");
+}
+
+function logAiUsageSummary() {
+  if (!_aiUsageState || !Object.keys(_aiUsageState.dates).length) return;
+  const dates = Object.keys(_aiUsageState.dates).sort();
+  console.log(`AI usage summary (last ${dates.length} days):`);
+  for (const date of dates) {
+    let calls = 0, inT = 0, outT = 0, cachedT = 0;
+    for (const byModel of Object.values(_aiUsageState.dates[date])) {
+      for (const b of Object.values(byModel)) {
+        calls += b.calls; inT += b.inputTokens; outT += b.outputTokens; cachedT += b.cachedTokens;
+      }
+    }
+    const cachedPct = inT > 0 ? Math.round((cachedT / inT) * 100) : 0;
+    console.log(`  ${date}: ${calls} calls · in=${inT} out=${outT} cached=${cachedT} (${cachedPct}%)`);
+  }
+}
+
 // Google's free tier intermittently returns 500 INTERNAL on otherwise valid
 // requests, and 429 RESOURCE_EXHAUSTED if a request slips through to the
 // quota window (rare under the limiter, but the API also enforces a separate
@@ -7789,6 +7872,20 @@ async function fetchSocialSentiment(symbol) {
   };
 }
 
+// Constrained-decoder schema for the news-take call. With responseSchema
+// set, Gemini guarantees the emitted text parses as this shape — no fence
+// stripping or excerpt extraction needed on the happy path. The parser
+// below still tolerates fences defensively in case a fallback model
+// without responseSchema support is slotted in via AI_NEWS_MODEL.
+const NEWS_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    paragraph: { type: "string" },
+    sentiment: { type: "string", enum: ["bullish", "neutral", "bearish", "uncertain"] },
+  },
+  required: ["paragraph", "sentiment"],
+};
+
 async function generateNewsTake(ai, symbol, spot, headlines) {
   const headlineBlock = headlines.length
     ? headlines
@@ -7800,25 +7897,28 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
     `Spot price: $${spot.toFixed(2)}\n` +
     `Recent headlines:\n${headlineBlock}`;
 
-  // Gemma doesn't support Gemini's responseSchema (constrained decoding) and
-  // sometimes ignores responseMimeType. The prompt is explicit about the JSON
-  // shape; the parser below is forgiving about fences/commentary.
+  // Flash-Lite + responseSchema means the JSON shape is enforced by the
+  // decoder; the parser below keeps the fence-stripping fallback for the
+  // rollback case (AI_NEWS_MODEL=gemma-... still parses fine).
   let response;
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_MODEL,
+        model: AI_NEWS_MODEL,
         contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.3,
           maxOutputTokens: 600,
-          // Constrained-decoder JSON mode. On Gemini this guarantees the
-          // emitted text is parseable; Gemma also respects the flag.
           responseMimeType: "application/json",
+          responseSchema: NEWS_RESPONSE_SCHEMA,
+          // News take is a 2-4 sentence summary — no deliberation needed,
+          // and on Flash-Lite thinking tokens count against maxOutputTokens.
+          thinkingConfig: { thinkingBudget: 0 },
         },
       });
+      recordAiUsage({ model: AI_NEWS_MODEL, callType: "news", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -7985,6 +8085,22 @@ function hasUsefulFundamentals(f) {
   return false;
 }
 
+// Constrained-decoder schema for the fundamentals call. Same rationale as
+// NEWS_RESPONSE_SCHEMA — Flash-Lite enforces the shape; the downstream
+// cleanList / verdict-validation logic still defends against an empty or
+// short positives/negatives array (which is normal for ETFs).
+const FUNDAMENTALS_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: { type: "string", enum: ["strong", "mixed", "weak"] },
+    summary: { type: "string" },
+    earningsRecap: { type: "string" },
+    positives: { type: "array", items: { type: "string" } },
+    negatives: { type: "array", items: { type: "string" } },
+  },
+  required: ["verdict", "summary", "positives", "negatives"],
+};
+
 async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
   const userMessage = formatFundamentalsForPrompt(symbol, spot, fundamentals);
   let response;
@@ -7993,14 +8109,17 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_MODEL,
+        model: AI_FUNDAMENTALS_MODEL,
         contents: `${FUNDAMENTALS_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.25,
           maxOutputTokens: 900,
           responseMimeType: "application/json",
+          responseSchema: FUNDAMENTALS_RESPONSE_SCHEMA,
+          thinkingConfig: { thinkingBudget: 0 },
         },
       });
+      recordAiUsage({ model: AI_FUNDAMENTALS_MODEL, callType: "fundamentals", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -8409,6 +8528,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
           responseMimeType: "application/json",
         },
       });
+      recordAiUsage({ model: NARRATIVES_MODEL, callType: "narratives", usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -8803,6 +8923,10 @@ async function attachMarketNarratives(chains, previousHistory) {
 }
 
 async function main() {
+  // Load running AI-usage totals BEFORE the data/ wipe further down so we
+  // can merge today's calls into the existing rolling window. Lives in
+  // data/ai-usage.json — gets rewritten after writeChainFiles below.
+  await loadAiUsageState();
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
   const got = Object.keys(chains).length;
@@ -8870,9 +8994,11 @@ async function main() {
   if (unusualLog) {
     await writeFile(resolve(DATA_DIR, UNUSUAL_LOG_FILE), JSON.stringify(unusualLog), "utf8");
   }
+  await writeAiUsageState();
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );
+  logAiUsageSummary();
 }
 
 async function writeTrendFiles({ narratives, sectorOverviews, recentlyEnded, macroHeadlines, history, builtAtIso }) {
