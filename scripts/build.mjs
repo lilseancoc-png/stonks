@@ -9826,6 +9826,55 @@ main { padding-top: var(--s-2); }
     flex: 0 0 78vw;
     max-width: 280px;
   }
+
+  /* Grade tab: the call/put/technicals/fundamentals/news tab strip
+     wrapped to two lines on phones, which made the active underline
+     ambiguous. Switch to a horizontal scroller (same pattern as
+     .narr-tabs) so the strip stays one row and flicks cleanly. */
+  .opt-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .opt-tabs::-webkit-scrollbar { display: none; }
+  .opt-tab { flex: 0 0 auto; white-space: nowrap; }
+
+  /* Grade tab technicals grid: minmax(170px,1fr) tried to fit two
+     columns at ~360px viewport and overflowed. Force single column. */
+  .opt-tech-grid { grid-template-columns: 1fr; }
+
+  /* Ticker grid: rare long sector strings (e.g. "Communication
+     Services") could push the card wider than its grid cell. Let the
+     label wrap mid-word as a last resort instead of clipping. */
+  .ticker-sector { overflow-wrap: anywhere; }
+
+  /* Top-picks: the greek row (Δ / Θ / IV / vol) and the drivers chip
+     row are tight at 360px. Let them wrap onto a second line instead
+     of horizontal overflow. */
+  .pick-contract-greeks {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    font-size: 11px;
+  }
+  .pick-drivers { flex-wrap: wrap; gap: 6px; }
+}
+
+/* === Extra-narrow (<=480px) tightenings — 13F table + brand tag ==== */
+@media (max-width: 480px) {
+  /* 13F holdings table has a desktop-oriented min-width: 520px that
+     forces a horizontal scrollbar inside .f13-table-scroll even when
+     the page itself fits. Drop it on phones, tighten the cell padding,
+     and let non-numeric cells wrap so company names don't push the
+     numerics column out of view. */
+  .f13-table { min-width: 0; font-size: 11px; }
+  .f13-table th, .f13-table td { padding: 6px 7px; }
+  .f13-table td:not(.f13-num) { white-space: normal; }
+
+  /* The small "REV-X" badge next to the brand competes with the icon
+     cluster for the limited header width. Hide on tiny screens; the
+     wordmark alone is unambiguous. */
+  .brand-tag { display: none; }
 }
 
 /* === Extra-narrow (<=400px) for older / smaller phones ============== */
