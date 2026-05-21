@@ -3065,11 +3065,17 @@
     }
     root.hidden = false;
     var rate = fomc.effectiveRate;
+    // Guard the rate render against a partially-populated effectiveRate
+    // object — a future schema drift or a partial /api/fed-rate response
+    // could deliver only asOf without a numeric rate, which would crash
+    // toFixed on undefined.
+    var rateValue = (rate && typeof rate.rate === 'number' && isFinite(rate.rate))
+      ? rate.rate.toFixed(2) : null;
     var meetings = (fomc.meetings || []).slice(0, 2);
     var probs = fomc.probabilities || {};
     var header = '<div class="fomc-head">' +
-      (rate
-        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rate.rate.toFixed(2)) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf) + '</span></div>'
+      (rateValue != null
+        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span></div>'
         : '') +
       (meetings.length
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + '</span></div>'

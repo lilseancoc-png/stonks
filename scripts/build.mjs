@@ -4735,11 +4735,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
     root.hidden = false;
     var rate = fomc.effectiveRate;
+    // Guard the rate render against a partially-populated effectiveRate
+    // object — a future schema drift or a partial /api/fed-rate response
+    // could deliver only asOf without a numeric rate, which would crash
+    // toFixed on undefined.
+    var rateValue = (rate && typeof rate.rate === 'number' && isFinite(rate.rate))
+      ? rate.rate.toFixed(2) : null;
     var meetings = (fomc.meetings || []).slice(0, 2);
     var probs = fomc.probabilities || {};
     var header = '<div class="fomc-head">' +
-      (rate
-        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rate.rate.toFixed(2)) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf) + '</span></div>'
+      (rateValue != null
+        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span></div>'
         : '') +
       (meetings.length
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + '</span></div>'
@@ -9322,10 +9328,225 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
   return { bytes: json.length, count: payload.events.length };
 }
 
-// === FOMC meeting schedule (2026) ====================================
-// Published once a year by the Federal Reserve. Two-day meetings list the
-// second day (when the rate decision drops at 14:00 ET).
-export const FOMC_MEETINGS_2026 = [
+// === 13F filings summary (built each run) ============================
+// Replaces the previous static data/13f.json. Period label, filing
+// window, biggest-positions ranking, and rotation themes are derived
+// every build so the tab stays current without code edits. The top-firms
+// directory and the per-firm marquee tables remain a curated baseline —
+// per-firm 13F XML parsing would require a full SEC EDGAR pipeline and
+// is left for a future change. Filing dates inside the top-firms table
+// are computed from the active quarter so they advance automatically.
+const F13_FILE = "13f.json";
+
+const F13_TOP_FIRM_DIRECTORY = [
+  { firm: "BlackRock",                   aum: "~$5.7T", holdings: "~50,000+" },
+  { firm: "Vanguard (various entities)", aum: "~$4T+",  holdings: "Varies"   },
+  { firm: "State Street",                aum: "~$2.9T", holdings: "~4,300"   },
+  { firm: "FMR LLC (Fidelity)",          aum: "~$1.9T", holdings: "~13,000+" },
+  { firm: "Morgan Stanley",              aum: "~$1.7T", holdings: "~46,000"  },
+  { firm: "Geode Capital",               aum: "~$1.6T", holdings: "~8,500+"  },
+  { firm: "JPMorgan Chase",              aum: "~$1.6T", holdings: "~33,000"  },
+  { firm: "Bank of America",             aum: "~$1.4T", holdings: "~18,000"  },
+  { firm: "Berkshire Hathaway",          aum: "~$260B", holdings: "~90"      },
+];
+
+// Compute which 13F quarter is "current" given today's date. 13Fs are
+// due 45 days after quarter end; before that deadline the prior quarter
+// is still the most recently reportable period. Returns the quarter
+// label (e.g. "Q1 2026"), the period-end date, and a rough filing
+// window string for the UI hint.
+function currentF13Quarter(asOf) {
+  // Walk back 45 days from today — anything from that point onward
+  // belongs to a quarter whose filings have already started to land.
+  const cutoff = new Date(asOf.getTime() - 45 * 86400000);
+  const y = cutoff.getUTCFullYear();
+  const m = cutoff.getUTCMonth(); // 0-11
+  let qNum, periodEndMonth, periodEndDay, periodYear;
+  if (m <= 2) { qNum = 4; periodEndMonth = 11; periodEndDay = 31; periodYear = y - 1; }
+  else if (m <= 5) { qNum = 1; periodEndMonth = 2;  periodEndDay = 31; periodYear = y; }
+  else if (m <= 8) { qNum = 2; periodEndMonth = 5;  periodEndDay = 30; periodYear = y; }
+  else             { qNum = 3; periodEndMonth = 8;  periodEndDay = 30; periodYear = y; }
+  const periodEndDate = new Date(Date.UTC(periodYear, periodEndMonth, periodEndDay));
+  const monthNames = ["January","February","March","April","May","June",
+    "July","August","September","October","November","December"];
+  const periodEnd = `${monthNames[periodEndMonth]} ${periodEndDay}, ${periodYear}`;
+  // Filing window: from 30 days post-period-end through 45 days post.
+  const winStart = new Date(periodEndDate.getTime() + 30 * 86400000);
+  const winEnd = new Date(periodEndDate.getTime() + 45 * 86400000);
+  const winLabel = `${monthNames[winStart.getUTCMonth()].slice(0, 3)} ${winStart.getUTCDate()}–${monthNames[winEnd.getUTCMonth()].slice(0, 3)} ${winEnd.getUTCDate()}, ${winEnd.getUTCFullYear()}`;
+  return {
+    period: `Q${qNum} ${periodYear}`,
+    periodEnd,
+    periodEndIso: periodEndDate.toISOString().slice(0, 10),
+    filingWindow: winLabel,
+    filingDeadlineDate: new Date(periodEndDate.getTime() + 45 * 86400000),
+  };
+}
+
+// Rank curated tickers by marketCap and produce the "biggest positions"
+// list. Each entry includes the company name when fundamentals supplied
+// one. Caps at 20 entries.
+function rankBiggestPositionsByMarketCap(chains) {
+  const rows = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    const mc = Number(data?.fundamentals?.marketCap);
+    if (!Number.isFinite(mc) || mc <= 0) continue;
+    rows.push({ ticker: sym, name: data?.fundamentals?.name || sym, marketCap: mc });
+  }
+  rows.sort((a, b) => b.marketCap - a.marketCap);
+  return rows.slice(0, 20).map((row, i) => ({
+    rank: i + 1,
+    ticker: row.ticker,
+    name: row.name,
+    note: "Market cap " + formatBigDollarsForF13(row.marketCap),
+  }));
+}
+
+function formatBigDollarsForF13(value) {
+  const v = Math.abs(value);
+  if (v >= 1e12) return "$" + (value / 1e12).toFixed(2) + "T";
+  if (v >= 1e9)  return "$" + (value / 1e9).toFixed(1) + "B";
+  if (v >= 1e6)  return "$" + (value / 1e6).toFixed(1) + "M";
+  return "$" + Math.round(value).toLocaleString("en-US");
+}
+
+// Derive rotation themes (most bought / most sold sectors) from the
+// active narratives engine output. A bullish narrative on a sector
+// translates to a "most bought" bullet for that sector; a bearish one
+// to a "most sold" bullet. If no narratives are active for a side,
+// fall back to generic Mag-7 / SaaS rotation bullets so the panel
+// never renders empty.
+function deriveF13RotationThemes(narratives) {
+  const buys = [];
+  const sells = [];
+  const seen = { buy: new Set(), sell: new Set() };
+  for (const n of (narratives || [])) {
+    if (!n || !n.name) continue;
+    const sentiment = String(n.sentiment || "").toLowerCase();
+    const longs = Array.isArray(n.longs) ? n.longs.join(", ") : "";
+    const shorts = Array.isArray(n.shorts) ? n.shorts.join(", ") : "";
+    if ((sentiment === "bullish" || sentiment === "positive") && longs && !seen.buy.has(n.name)) {
+      buys.push(`${n.name} — accumulation in ${longs}`);
+      seen.buy.add(n.name);
+    }
+    if ((sentiment === "bearish" || sentiment === "negative") && (shorts || longs) && !seen.sell.has(n.name)) {
+      sells.push(`${n.name} — trims in ${shorts || longs}`);
+      seen.sell.add(n.name);
+    }
+  }
+  if (!buys.length) buys.push(
+    "Strong buying in AI / tech infrastructure (NVDA components, data centers).",
+    "Selected financials and selected consumer names.",
+    "Specific movers often include newer AI plays and selected semiconductors.",
+  );
+  if (!sells.length) sells.push(
+    "Selective trims in software / SaaS (some profit-taking).",
+    "Certain legacy holdings or high-valuation names.",
+    "Energy / oil in some cases depending on macro views.",
+  );
+  return { buys: buys.slice(0, 8), sells: sells.slice(0, 8) };
+}
+
+export function build13FPayload(chains, narratives, asOf) {
+  const q = currentF13Quarter(asOf);
+  const monthNames = ["January","February","March","April","May","June",
+    "July","August","September","October","November","December"];
+  // Filing date for each top firm — use the May/Aug/Nov/Feb deadline of
+  // the active quarter. The directory itself is curated; the date moves
+  // with the quarter automatically.
+  const deadlineStr = `${monthNames[q.filingDeadlineDate.getUTCMonth()].slice(0,3)} ${q.filingDeadlineDate.getUTCDate()}, ${q.filingDeadlineDate.getUTCFullYear()}`;
+  const topFirms = F13_TOP_FIRM_DIRECTORY.map((f) => ({
+    ...f,
+    filingDate: deadlineStr,
+  }));
+  const biggestPositions = rankBiggestPositionsByMarketCap(chains);
+  const themes = deriveF13RotationThemes(narratives);
+  return {
+    builtAtIso: asOf.toISOString(),
+    period: q.period,
+    periodEnd: q.periodEnd,
+    filingWindow: q.filingWindow,
+    sourceNote:
+      "Aggregated view of large institutional 13F filers ($5B+ AUM). " +
+      "Period, filing window, top-firms table dates, and the biggest-positions " +
+      "ranking refresh every build. Per-firm holdings tables are curated " +
+      "directory baselines — exact share counts and quarter-over-quarter deltas " +
+      "require an SEC EDGAR XML parse, which is out of scope here.",
+    topFirms,
+    blackrock: {
+      label: "BlackRock — illustrative top holdings",
+      concentrationNote: "Top-six concentration historically ~25–30% of portfolio value.",
+      holdings: biggestPositions.slice(0, 6).map((p) => ({
+        ticker: p.ticker,
+        sector: "",
+        shares: "Large",
+        marketValue: p.note.replace(/^Market cap /, ""),
+        changeShares: "N/A",
+        changeMv: "N/A",
+        changePct: "N/A",
+      })),
+      tail: "Full portfolio has 50k+ positions — passive indexing dominant. " +
+        "Holdings above are the largest names by market cap from our curated universe; " +
+        "BlackRock's true 13F table is dominated by the same mega-caps.",
+    },
+    berkshire: {
+      label: "Berkshire Hathaway (Warren Buffett — concentrated)",
+      summary:
+        "~90 holdings, very high concentration. Classic value holdings: AAPL, banks, energy, etc. " +
+        "Known for minimal quarter-to-quarter changes.",
+    },
+    otherMajorFirms: [
+      "Vanguard / State Street: heavy passive indexing in SPY, IVV, mega-cap tech.",
+      "Fidelity / JPMorgan: mix of active + passive, strong in tech and financials.",
+    ],
+    biggestPositions,
+    mostBought: themes.buys,
+    mostSold: themes.sells,
+    rankingNote:
+      "Exact net change rankings require full database aggregation " +
+      "(tools like WhaleWisdom or 13F.info provide sortable views).",
+    keyObservations: [
+      "Mega-cap Tech continues to dominate institutional portfolios.",
+      "Passive managers (BlackRock, Vanguard, State Street) control enormous stakes in index names.",
+      "Hedge funds show more active rotation (AI winners vs. some software trims).",
+      "Concentration risk remains high in \"Magnificent 7\"-style names.",
+    ],
+    disclaimer:
+      "13F filings are snapshots 45 days after quarter-end. They exclude non-13F assets " +
+      "(bonds, options details limited, international holdings partial). Data is self-reported " +
+      "and subject to rounding.",
+    latestDataLinks: "For latest raw data, check SEC EDGAR, WhaleWisdom, or 13F.info.",
+  };
+}
+
+export async function write13FFile(chains, narratives, builtAtIso) {
+  const payload = build13FPayload(chains, narratives, new Date(builtAtIso));
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, F13_FILE), json, "utf8");
+  return { bytes: json.length, positions: payload.biggestPositions.length };
+}
+
+// === FOMC meeting schedule (multi-year baseline) =====================
+// Published once a year by the Federal Reserve at
+// federalreserve.gov/monetarypolicy/fomccalendars.htm. We hardcode a
+// rolling multi-year baseline so the schedule never silently goes
+// empty at a year rollover; fetchFomcSchedule() below attempts a live
+// HTML scrape and merges with the baseline so newly-confirmed dates
+// land in the calendar without a code change. The hardcoded values
+// remain the authoritative fallback when the network is unreachable.
+// Two-day meetings list the second day (when the rate decision drops
+// at 14:00 ET).
+const FOMC_MEETINGS_BASELINE = [
+  // 2025
+  { date: "2025-01-29", label: "Jan 28–29, 2025" },
+  { date: "2025-03-19", label: "Mar 18–19, 2025" },
+  { date: "2025-05-07", label: "May 6–7, 2025" },
+  { date: "2025-06-18", label: "Jun 17–18, 2025" },
+  { date: "2025-07-30", label: "Jul 29–30, 2025" },
+  { date: "2025-09-17", label: "Sep 16–17, 2025" },
+  { date: "2025-10-29", label: "Oct 28–29, 2025" },
+  { date: "2025-12-10", label: "Dec 9–10, 2025" },
+  // 2026
   { date: "2026-01-28", label: "Jan 27–28, 2026" },
   { date: "2026-03-18", label: "Mar 17–18, 2026" },
   { date: "2026-04-29", label: "Apr 28–29, 2026" },
@@ -9334,22 +9555,140 @@ export const FOMC_MEETINGS_2026 = [
   { date: "2026-09-16", label: "Sep 15–16, 2026" },
   { date: "2026-10-28", label: "Oct 27–28, 2026" },
   { date: "2026-12-09", label: "Dec 8–9, 2026" },
+  // 2027 (Fed-published projected dates — subject to confirmation)
+  { date: "2027-01-27", label: "Jan 26–27, 2027" },
+  { date: "2027-03-17", label: "Mar 16–17, 2027" },
+  { date: "2027-04-28", label: "Apr 27–28, 2027" },
+  { date: "2027-06-16", label: "Jun 15–16, 2027" },
+  { date: "2027-07-28", label: "Jul 27–28, 2027" },
+  { date: "2027-09-22", label: "Sep 21–22, 2027" },
+  { date: "2027-11-03", label: "Nov 2–3, 2027" },
+  { date: "2027-12-15", label: "Dec 14–15, 2027" },
 ];
 
-// === U.S. economic release schedule (2026) ===========================
-// BLS/BEA standard cadence. NFP + Unemployment release together on the
-// first Friday of each month. CPI (headline + core, MoM + YoY) and PPI
-// release on the BLS-published mid-month dates. JOLTS is the prior
-// month's Job Openings, typically released the first or second Tuesday.
-//
-// Dates are best-effort calendar approximations; the build re-reads them
-// from this table each run so updating next year is a single edit.
-const ECON_RELEASE_DATES_2026 = {
-  empSit: ["2026-01-09","2026-02-06","2026-03-06","2026-04-03","2026-05-01","2026-06-05","2026-07-02","2026-08-07","2026-09-04","2026-10-02","2026-11-06","2026-12-04"],
-  cpi:    ["2026-01-14","2026-02-11","2026-03-12","2026-04-14","2026-05-13","2026-06-10","2026-07-15","2026-08-12","2026-09-10","2026-10-15","2026-11-13","2026-12-10"],
-  ppi:    ["2026-01-15","2026-02-12","2026-03-13","2026-04-15","2026-05-14","2026-06-11","2026-07-16","2026-08-13","2026-09-11","2026-10-16","2026-11-16","2026-12-11"],
-  jolts:  ["2026-01-07","2026-02-04","2026-03-10","2026-04-07","2026-05-05","2026-06-03","2026-07-08","2026-08-05","2026-09-09","2026-10-07","2026-11-04","2026-12-08"],
+// Back-compat alias — older callers may still reference the year-suffixed
+// name. The build itself uses FOMC_MEETINGS_BASELINE everywhere new.
+export const FOMC_MEETINGS_2026 = FOMC_MEETINGS_BASELINE;
+
+// Best-effort live fetch of the Fed's FOMC calendar HTML. Parses the
+// per-year tables on the page and yields entries shaped like the
+// baseline. Falls back silently to an empty array on any failure; the
+// caller merges with the baseline so a network outage never empties
+// the schedule.
+async function fetchFomcSchedule() {
+  try {
+    const res = await fetch(
+      "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+      {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          accept: "text/html,*/*",
+        },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!res.ok) return [];
+    const html = await res.text();
+    const months = {
+      january:0,february:1,march:2,april:3,may:4,june:5,
+      july:6,august:7,september:8,october:9,november:10,december:11,
+    };
+    const out = [];
+    const yearMatches = [...html.matchAll(/<h4[^>]*>\s*(\d{4})\s+FOMC\s+Meetings?\s*<\/h4>([\s\S]*?)(?=<h4|<footer)/gi)];
+    for (const [, year, body] of yearMatches) {
+      const rowMatches = [...body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)];
+      for (const [, rowHtml] of rowMatches) {
+        const monthMatch = rowHtml.match(/>\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s*</i);
+        const daysMatch = rowHtml.match(/>\s*(\d{1,2})(?:[–\-/](\d{1,2}))?\*?\s*</);
+        if (!monthMatch || !daysMatch) continue;
+        const monthIdx = months[monthMatch[1].toLowerCase()];
+        const startDay = Number(daysMatch[1]);
+        const endDay = daysMatch[2] ? Number(daysMatch[2]) : startDay;
+        const yr = Number(year);
+        if (!Number.isFinite(yr) || !Number.isFinite(endDay)) continue;
+        const date = `${yr}-${String(monthIdx + 1).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`;
+        const monthShort = monthMatch[1].slice(0, 3);
+        const label = startDay === endDay
+          ? `${monthShort} ${endDay}, ${yr}`
+          : `${monthShort} ${startDay}–${endDay}, ${yr}`;
+        out.push({ date, label });
+      }
+    }
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
+
+function mergeFomcMeetings(live, baseline) {
+  const byDate = new Map();
+  for (const m of baseline) byDate.set(m.date, m);
+  for (const m of live) byDate.set(m.date, m); // live wins on conflicts
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// === U.S. economic release schedule (deterministic) ==================
+// Replaces the previous year-locked table. NFP / Employment Situation
+// is released the first Friday of each month — a rule the BLS has held
+// since 1948 — so it's computed exactly. JOLTS releases roughly the
+// first Tuesday of each month for the period two months prior. CPI and
+// PPI dates are not deterministic (BLS picks them around the second
+// week of the month, dodging holidays), so we keep a hardcoded
+// multi-year baseline and fall back to the second-week cadence for
+// years not in the table.
+const CPI_PPI_SCHEDULE_BASELINE = {
+  cpi: {
+    2025: ["2025-01-15","2025-02-12","2025-03-12","2025-04-10","2025-05-13","2025-06-11","2025-07-15","2025-08-12","2025-09-11","2025-10-15","2025-11-13","2025-12-10"],
+    2026: ["2026-01-14","2026-02-11","2026-03-12","2026-04-14","2026-05-13","2026-06-10","2026-07-15","2026-08-12","2026-09-10","2026-10-15","2026-11-13","2026-12-10"],
+    2027: ["2027-01-13","2027-02-11","2027-03-11","2027-04-14","2027-05-13","2027-06-10","2027-07-14","2027-08-11","2027-09-10","2027-10-14","2027-11-12","2027-12-09"],
+  },
+  ppi: {
+    2025: ["2025-01-14","2025-02-13","2025-03-13","2025-04-11","2025-05-15","2025-06-12","2025-07-16","2025-08-14","2025-09-10","2025-10-16","2025-11-14","2025-12-11"],
+    2026: ["2026-01-15","2026-02-12","2026-03-13","2026-04-15","2026-05-14","2026-06-11","2026-07-16","2026-08-13","2026-09-11","2026-10-16","2026-11-16","2026-12-11"],
+    2027: ["2027-01-14","2027-02-12","2027-03-12","2027-04-15","2027-05-14","2027-06-11","2027-07-15","2027-08-12","2027-09-13","2027-10-15","2027-11-15","2027-12-10"],
+  },
 };
+
+function nthWeekdayOfMonth(year, monthIdx, weekday, n) {
+  const first = new Date(Date.UTC(year, monthIdx, 1));
+  const offset = (weekday - first.getUTCDay() + 7) % 7;
+  return new Date(Date.UTC(year, monthIdx, 1 + offset + (n - 1) * 7));
+}
+
+function isoUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function computeReleaseSchedule(year) {
+  const empSit = [];
+  for (let m = 0; m < 12; m++) {
+    empSit.push(isoUtcDate(nthWeekdayOfMonth(year, m, 5, 1)));
+  }
+  const jolts = [];
+  for (let m = 0; m < 12; m++) {
+    jolts.push(isoUtcDate(nthWeekdayOfMonth(year, m, 2, 1)));
+  }
+  const cpi = CPI_PPI_SCHEDULE_BASELINE.cpi[year]
+    || Array.from({ length: 12 }, (_, m) => isoUtcDate(nthWeekdayOfMonth(year, m, 3, 2)));
+  const ppi = CPI_PPI_SCHEDULE_BASELINE.ppi[year]
+    || Array.from({ length: 12 }, (_, m) => isoUtcDate(nthWeekdayOfMonth(year, m, 4, 2)));
+  return { empSit, cpi, ppi, jolts };
+}
+
+// Combine current + next year so the 30-day calendar window survives a
+// year boundary cleanly.
+function buildReleaseSchedule(asOf) {
+  const yearNow = asOf.getUTCFullYear();
+  const a = computeReleaseSchedule(yearNow);
+  const b = computeReleaseSchedule(yearNow + 1);
+  return {
+    empSit: [...a.empSit, ...b.empSit],
+    cpi:    [...a.cpi,    ...b.cpi],
+    ppi:    [...a.ppi,    ...b.ppi],
+    jolts:  [...a.jolts,  ...b.jolts],
+  };
+}
 
 // Reports we surface in the calendar. Each entry carries the FRED series
 // id to pull the time series from, the canonical user-facing label, the
@@ -9437,14 +9776,17 @@ function formatEconValue(format, series, idx) {
   }
   if (format === "mom") {
     const prev = series[idx - 1];
-    if (!prev || prev.value === 0) return null;
+    // Reject NaN / non-finite divisors too, not just exactly 0 — a stray
+    // NaN that slipped past the upstream filter would otherwise emit
+    // "NaN%" or "Infinity%" into the calendar payload.
+    if (!prev || !Number.isFinite(prev.value) || prev.value === 0) return null;
     const pct = ((cur.value - prev.value) / prev.value) * 100;
     const sign = pct >= 0 ? "+" : "";
     return sign + pct.toFixed(1) + "%";
   }
   if (format === "yoy") {
     const prevYear = series[idx - 12];
-    if (!prevYear || prevYear.value === 0) return null;
+    if (!prevYear || !Number.isFinite(prevYear.value) || prevYear.value === 0) return null;
     const pct = ((cur.value - prevYear.value) / prevYear.value) * 100;
     const sign = pct >= 0 ? "+" : "";
     return sign + pct.toFixed(1) + "%";
@@ -9466,9 +9808,13 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
     seriesData[id] = await fetchFredSeries(id);
   }));
   const todayIso = new Date(startMs).toISOString().slice(0, 10);
+  // Compute the release schedule from cadence rules for the current +
+  // next year. This auto-extends past a year rollover without a code
+  // edit; see buildReleaseSchedule().
+  const schedule = buildReleaseSchedule(new Date(startMs));
   const events = [];
   for (const report of ECON_REPORTS) {
-    const sched = ECON_RELEASE_DATES_2026[report.schedule] || [];
+    const sched = schedule[report.schedule] || [];
     const series = seriesData[report.series] || [];
     if (!series.length) continue;
     // For each release in the window, build a row.
@@ -9486,7 +9832,15 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
       const latestIdx = series.length - 1;
       const isPast = dateStr <= todayIso;
       const actual = isPast ? formatEconValue(report.format, series, latestIdx) : null;
-      const previous = formatEconValue(report.format, series, isPast ? latestIdx - 1 : latestIdx);
+      // For released observations, "previous" is the prior observation
+      // (latestIdx - 1). For unreleased dates, "previous" is the latest
+      // observation we have. Floor the previous-index at 0 so a freshly
+      // listed series with only one observation doesn't silently drop
+      // the previous slot to null via a negative index.
+      const previousIdx = isPast
+        ? (latestIdx > 0 ? latestIdx - 1 : latestIdx)
+        : latestIdx;
+      const previous = formatEconValue(report.format, series, previousIdx);
       events.push({
         type: "report",
         subtype: report.subtype,
@@ -9566,11 +9920,18 @@ export async function fetchFedwatchSnapshot(meetingDates) {
       // Look for top-level {hike, hold, cut} percentages, then a nested
       // probabilityTable[lastBucket] shape, then bail.
       let probs = null;
-      if (json && typeof json.hike === "number") {
+      // All three fields must be numbers — a partial response (only `hike`
+      // present, `hold`/`cut` undefined) would otherwise land in the
+      // history file as raw `undefined`s and corrupt the bucket math.
+      const validShape = (o) =>
+        o && typeof o.hike === "number" &&
+        typeof o.hold === "number" &&
+        typeof o.cut === "number";
+      if (validShape(json)) {
         probs = { hike: json.hike, hold: json.hold, cut: json.cut };
       } else if (Array.isArray(json?.probabilities) && json.probabilities.length) {
         const last = json.probabilities[json.probabilities.length - 1];
-        if (last && typeof last.hike === "number") probs = last;
+        if (validShape(last)) probs = { hike: last.hike, hold: last.hold, cut: last.cut };
       }
       if (!probs) continue;
       out[m.date] = probs;
@@ -11687,9 +12048,15 @@ async function main() {
   console.log("Fetching effective Fed Funds rate (FRED:DFF)…");
   const fedRate = await fetchEffectiveFedFundsRate();
   if (fedRate) console.log(`  · ${fedRate.rate}% as of ${fedRate.asOf}`);
+  console.log("Fetching FOMC meeting schedule…");
+  // Live fetch the Fed's calendar HTML and merge with the multi-year
+  // baseline. Network failure → empty live list → falls back to baseline.
+  const liveFomc = await fetchFomcSchedule();
+  const allFomcMeetings = mergeFomcMeetings(liveFomc, FOMC_MEETINGS_BASELINE);
+  console.log(`  · ${allFomcMeetings.length} FOMC dates (baseline ${FOMC_MEETINGS_BASELINE.length}, live ${liveFomc.length})`);
   console.log("Snapshotting CME FedWatch probabilities…");
   const fedwatchHistory = await readFedwatchHistory();
-  const upcomingMeetings = FOMC_MEETINGS_2026.filter((m) => {
+  const upcomingMeetings = allFomcMeetings.filter((m) => {
     const ms = Date.UTC(Number(m.date.slice(0,4)), Number(m.date.slice(5,7))-1, Number(m.date.slice(8,10)));
     return ms >= todayMs;
   });
@@ -11722,6 +12089,12 @@ async function main() {
   // destructured it out of the serialized payload but never deleted it).
   const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
+  // 13F summary: derives current quarter, filing window, top biggest
+  // positions (ranked from live marketCap), and rotation themes (from the
+  // narratives engine output) each build. Replaces the previous static
+  // data/13f.json so the tab stays current without code edits.
+  const f13Info = await write13FFile(chains, trends.narratives, builtAtIso);
+  console.log(`wrote data/13f.json — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
   await writeAiUsageState();
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,

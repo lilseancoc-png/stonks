@@ -157,10 +157,17 @@ async function hydratePosition(p) {
       pnlPerContract != null ? pnlPerContract * Number(p.quantity) * 100 : null;
     const breakeven =
       p.side === "call" ? Number(p.strike) + entry : Number(p.strike) - entry;
+    // Spot/strike must both be strictly positive — a zero or null on either
+    // side would otherwise emit Infinity / NaN into the review payload.
+    const strikeNum = Number(p.strike);
     const breakevenDistPct =
-      spot != null ? ((breakeven - spot) / spot) * 100 * (p.side === "call" ? 1 : -1) : null;
+      spot != null && spot > 0
+        ? ((breakeven - spot) / spot) * 100 * (p.side === "call" ? 1 : -1)
+        : null;
     const moneynessPct =
-      spot != null ? ((spot - Number(p.strike)) / Number(p.strike)) * 100 : null;
+      spot != null && strikeNum > 0
+        ? ((spot - strikeNum) / strikeNum) * 100
+        : null;
     const openedAt = p.opened_at || p.created_at || null;
     const ageDays = ageDaysFrom(openedAt);
     // "Just opened" heuristic — useful for the AI to recognize that a small
