@@ -5725,7 +5725,14 @@ button { font: inherit; }
   letter-spacing: -0.02em;
 }
 .brand:hover { text-decoration: none; }
-.brand-mark { color: var(--accent); }
+.brand-mark {
+  color: var(--accent);
+  transition: transform .25s var(--ease-out), filter .25s var(--ease-out);
+}
+.brand:hover .brand-mark {
+  transform: translateX(1px) scale(1.06);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));
+}
 .brand-tag {
   font-size: 9px; font-weight: 700;
   color: var(--muted); letter-spacing: 0.10em;
@@ -5775,6 +5782,7 @@ main {
    Underline indicator — institutional standard. Crisp 2px accent bar on the
    active tab, no decorative chrome. Persists to localStorage. */
 .page-tabs {
+  position: relative;
   max-width: 760px;
   margin: 0 auto var(--s-4);
   padding: 0 var(--s-5);
@@ -5783,6 +5791,16 @@ main {
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
+  /* When the strip overflows horizontally, fade the trailing edge so
+     users see there's more to scroll. Pure CSS, no JS hooks. */
+  mask-image: linear-gradient(to right,
+    black 0,
+    black calc(100% - 24px),
+    transparent 100%);
+  -webkit-mask-image: linear-gradient(to right,
+    black 0,
+    black calc(100% - 24px),
+    transparent 100%);
 }
 .page-tabs::-webkit-scrollbar { display: none; }
 .page-tab {
@@ -5829,15 +5847,28 @@ main {
 .site-footer {
   max-width: 960px;
   margin: var(--s-7) auto 0;
-  padding: var(--s-4) var(--s-5) var(--s-6);
+  padding: var(--s-5) var(--s-5) var(--s-6);
   color: var(--muted); font-size: var(--fs-xs);
-  display: flex; flex-wrap: wrap; gap: var(--s-3); justify-content: space-between;
+  display: flex; flex-wrap: wrap; gap: var(--s-4); justify-content: space-between;
+  align-items: center;
   border-top: 1px solid var(--hairline);
   font-family: var(--font-mono);
   font-feature-settings: "tnum" 1;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
-.site-footer .muted { color: var(--muted); }
+.site-footer > div { display: inline-flex; align-items: center; gap: var(--s-2); }
+.site-footer .muted { color: var(--muted); text-transform: none; letter-spacing: 0.02em; }
+.site-footer a {
+  color: var(--muted);
+  border-bottom: 1px solid transparent;
+  transition: color .12s var(--ease-out), border-color .12s var(--ease-out);
+}
+.site-footer a:hover {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  text-decoration: none;
+}
 
 /* === Status strip ===
    Sits between the header and the page tabs. Three slots laid out like a
@@ -5940,7 +5971,16 @@ main {
   margin: 0 0 var(--s-3);
   color: var(--muted);
   font-size: var(--fs-sm);
-  line-height: 1.5;
+  line-height: 1.55;
+  /* Hairline left accent — gives the descriptive intro paragraph
+     visual weight without competing with the card title above. */
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, var(--hairline));
+  padding-left: var(--s-2);
+}
+.hint em {
+  color: var(--text);
+  font-style: normal;
+  font-weight: 600;
 }
 .hint code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -9105,18 +9145,36 @@ main { padding-top: var(--s-2); }
   background: var(--surface);
   color: var(--text);
   text-decoration: none;
-  transition: border-color .15s var(--ease-out), background .15s var(--ease-out);
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+/* Subtle accent strip on the left edge that animates in on hover —
+   borrows the same "left border accent" pattern as macro report rows. */
+.ticker-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform .18s var(--ease-out);
 }
 .ticker-card:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
   text-decoration: none;
+  transform: translateY(-1px);
 }
+.ticker-card:hover::before { transform: scaleY(1); }
+.ticker-card:hover .ticker-sym { color: var(--text-strong); }
 .ticker-card:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
   border-color: var(--accent);
 }
+.ticker-sym { transition: color .12s var(--ease-out); }
 .ticker-sym {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 14px;
