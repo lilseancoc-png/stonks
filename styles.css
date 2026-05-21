@@ -766,13 +766,24 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
-  transition: border-color .15s var(--ease-out), background .15s var(--ease-out);
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
 }
-.narr:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.narr:hover {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 2%, var(--surface));
+  transform: translateY(-1px);
+}
 .narr-accent {
   position: absolute; left: 12px; top: 14px; bottom: 14px;
   width: 2px; border-radius: 1px;
   background: var(--pos);
+  transition: box-shadow .15s var(--ease-out);
+}
+.narr:hover .narr-accent {
+  box-shadow: 0 0 8px color-mix(in srgb, var(--pos) 50%, transparent);
+}
+.narr[data-sent="bearish"]:hover .narr-accent {
+  box-shadow: 0 0 8px color-mix(in srgb, var(--neg) 50%, transparent);
 }
 .narr[data-sent="bearish"] .narr-accent { background: var(--neg); }
 .narr-head {
@@ -863,6 +874,11 @@ main {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out);
+}
+.narr-ended-card:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
 }
 .narr-ended-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .narr-ended-meta { font-size: 11px; color: var(--muted); }
@@ -2380,10 +2396,14 @@ main {
 }
 .opt-row {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px dashed var(--border);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: var(--r-1);
   font-size: var(--fs-md);
+  transition: background .12s var(--ease-out);
 }
+.opt-row:nth-child(odd) { background: color-mix(in srgb, var(--surface-2) 40%, transparent); }
+.opt-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface-2)); }
 .opt-row:last-child { border-bottom: none; }
 .opt-row-label {
   color: var(--muted);
@@ -2675,6 +2695,7 @@ main {
 }
 .opt-tabs[hidden] { display: none; }
 .opt-tab {
+  position: relative;
   appearance: none; background: transparent;
   border: none; border-bottom: 2px solid transparent;
   padding: 10px 16px;
@@ -2684,12 +2705,28 @@ main {
   color: var(--muted);
   cursor: pointer;
   margin-bottom: -1px;
+  border-radius: var(--r-1) var(--r-1) 0 0;
   transition: color .12s ease, border-color .12s ease, background .12s ease;
 }
-.opt-tab:hover { color: var(--text); background: var(--surface-2); }
+.opt-tab:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
 .opt-tab[aria-selected="true"] {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+.opt-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -2px 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 60%, transparent) 50%,
+    transparent 100%);
+  filter: blur(3px);
+  pointer-events: none;
 }
 .opt-tab-pane {
   padding-top: var(--s-4);
