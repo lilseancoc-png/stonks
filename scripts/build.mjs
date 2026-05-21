@@ -2543,7 +2543,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="start">' + xMin + 'd</text>' +
       '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="end">' + xMax + 'd</text>';
     return '<svg class="opt-iv-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="IV term structure">' +
-      '<path d="' + path + '" class="opt-iv-line" fill="none" />' +
+      '<path d="' + path + '" class="opt-iv-line" fill="none" pathLength="1" />' +
       '<g class="opt-iv-dots">' + dots + '</g>' +
       yLabels + xLabels +
     '</svg>';
@@ -5048,6 +5048,118 @@ body {
   from { background-position: -200px 0; }
   to   { background-position: calc(200px + 100%) 0; }
 }
+
+/* === Motion primitives ===================================================
+   Tasteful, professional micro-animations. All gated under
+   prefers-reduced-motion: no-preference so accessibility settings short-
+   circuit motion entirely. Reuses --ease-out (1,0.3,1 cubic-bezier) so
+   timing matches the rest of the UI's transitions.
+
+   stonks-fade-up:   subtle 8px rise + opacity 0→1, used for card entrances
+   stonks-fade-in:   pure opacity 0→1, used for page-pane swaps where a
+                     translate would conflict with the underlying layout
+   stonks-draw:      stroke-dashoffset 1→0, used for SVG paths drawing in
+   stonks-pulse:     soft scale 1→1.04→1, used for value-change emphasis
+   ----------------------------------------------------------------------*/
+@keyframes stonks-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes stonks-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes stonks-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Page-tab swap: fade the freshly-shown pane in. Gives the top-level
+     nav a sense of weight without disrupting layout. */
+  .page-pane:not([hidden]) {
+    animation: stonks-fade-in .22s var(--ease-out);
+  }
+  /* Calendar chips cascade in on first paint of a day group. Limit the
+     cascade depth so a heavy news day doesn't ripple visibly for 2s. */
+  .cal-chip {
+    animation: stonks-fade-up .32s var(--ease-out) both;
+  }
+  .cal-day .cal-chip:nth-child(1) { animation-delay: 0ms; }
+  .cal-day .cal-chip:nth-child(2) { animation-delay: 30ms; }
+  .cal-day .cal-chip:nth-child(3) { animation-delay: 60ms; }
+  .cal-day .cal-chip:nth-child(4) { animation-delay: 90ms; }
+  .cal-day .cal-chip:nth-child(5) { animation-delay: 120ms; }
+  .cal-day .cal-chip:nth-child(n+6) { animation-delay: 140ms; }
+  .cal-chip {
+    transition: border-color .15s var(--ease-out), transform .15s var(--ease-out), background .15s var(--ease-out);
+  }
+  .cal-chip:hover {
+    transform: translateX(2px);
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface-2));
+  }
+
+  /* Portfolio risk: stagger the four sub-blocks on first render so the
+     dashboard composes itself instead of slamming in. */
+  .pf-risk-block {
+    animation: stonks-fade-up .35s var(--ease-out) both;
+    transition: transform .18s var(--ease-out), border-color .18s var(--ease-out);
+  }
+  .pf-risk-grid .pf-risk-block:nth-child(1) { animation-delay: 0ms; }
+  .pf-risk-grid .pf-risk-block:nth-child(2) { animation-delay: 50ms; }
+  .pf-risk-grid .pf-risk-block:nth-child(3) { animation-delay: 100ms; }
+  .pf-risk-grid .pf-risk-block:nth-child(4) { animation-delay: 150ms; }
+  .pf-risk-block:hover {
+    border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+  }
+
+  /* IV card: term-structure line draws itself in. stroke-dasharray on
+     the path is set inline by the renderer so the keyframe just sweeps
+     the offset to zero. */
+  .opt-iv-svg .opt-iv-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: stonks-draw .9s var(--ease-out) forwards;
+  }
+  .opt-iv-svg .opt-iv-dots circle {
+    opacity: 0;
+    animation: stonks-fade-in .25s var(--ease-out) forwards;
+    animation-delay: .55s;
+  }
+
+  /* Flow chips already have a hover background; add a tiny translate so
+     the interaction feels intentional rather than flat. */
+  .flow-chip {
+    transition: background .15s var(--ease-out), border-color .15s var(--ease-out), transform .15s var(--ease-out);
+  }
+  .flow-chip:hover {
+    transform: translateY(-1px);
+  }
+  /* Narrative cards: subtle lift on hover. Many cards on screen at once,
+     so keep it light to avoid making the page feel busy. */
+  .narr-industry, .narr-card {
+    transition: transform .18s var(--ease-out), border-color .18s var(--ease-out), box-shadow .18s var(--ease-out);
+  }
+  .narr-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -6px rgba(0, 0, 0, .35);
+  }
+
+  /* Page-tab selection indicator slide. The underline is the bottom
+     border of the active tab; smoothing the color transition makes
+     switching between sections feel less abrupt. */
+  .page-tab {
+    transition: color .15s var(--ease-out), border-color .2s var(--ease-out), background .15s var(--ease-out);
+  }
+
+  /* Primary CTAs and pill toggles get a press-down state for tactility. */
+  .pf-btn, .calendar-pill, .flow-pill, .opt-tab {
+    transition: color .12s var(--ease-out), background .12s var(--ease-out), border-color .12s var(--ease-out), transform .08s var(--ease-out);
+  }
+  .pf-btn:active, .calendar-pill:active, .flow-pill:active, .opt-tab:active {
+    transform: translateY(1px);
+  }
+}
+
 .skeleton {
   display: inline-block;
   background: linear-gradient(90deg,
