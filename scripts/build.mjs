@@ -4820,9 +4820,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var header = '<div class="fomc-head">' +
       (rateValue != null
         ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span></div>'
-        : '') +
+        : '<div class="fomc-rate fomc-rate-missing"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">—</span><span class="fomc-rate-asof">FRED:DFF unavailable this build</span></div>') +
       (meetings.length
-        ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + '</span></div>'
+        ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + ' · 14:00 ET</span></div>'
         : '') +
       '</div>';
     // Normalize a probability to [0, 1] for the bar width; return null
@@ -4859,7 +4859,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
           }).join('') +
         '</tbody></table>';
       var note = allEmpty
-        ? '<p class="fomc-prob-empty">No CME FedWatch snapshot yet for this meeting. Probability buckets will populate once daily snapshots accumulate.</p>'
+        ? '<p class="fomc-prob-empty">No FedWatch snapshot yet — the build was unable to fetch ZQ Fed Funds futures from Yahoo. ' +
+            'Check <a href="https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html" target="_blank" rel="noopener noreferrer">CME FedWatch</a> directly for current probabilities.</p>'
         : '';
       return '<div class="fomc-meeting">' +
         '<h3 class="fomc-meeting-title">' + escapeHtml(m.label) + '</h3>' +
@@ -4934,6 +4935,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
             ' <span class="cal-chip-text">earnings</span>';
         } else {
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
+            (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
         }
         var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
@@ -8766,6 +8768,14 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.cal-chip-time {
+  font: 600 10px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .04em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
 .cal-earnings { border-left-color: var(--accent); }
 .cal-fed { border-left-color: var(--neg); }
 .cal-fed .cal-chip-tag { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }
@@ -8879,6 +8889,7 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.fomc-rate-missing .fomc-rate-value { color: var(--muted); }
 .fomc-meeting + .fomc-meeting { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
 .fomc-meeting-title {
   font: 600 12px/1.2 var(--font-mono);
@@ -8913,6 +8924,12 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.fomc-prob-empty a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.fomc-prob-empty a:hover { color: var(--text-strong); }
 .calendar-empty {
   padding: var(--s-5) var(--s-3);
   text-align: center;
@@ -10455,6 +10472,10 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     events.push({
       type: "fomc",
       date: m.date,
+      // FOMC statements release at 14:00 ET on the decision day. Surfacing
+      // the time lets the calendar chip show when the market actually
+      // reacts, not just the day. Powell's presser follows at 14:30 ET.
+      time: "14:00 ET",
       title: "FOMC rate decision · " + m.label,
       source: "Federal Reserve",
     });
@@ -11068,7 +11089,7 @@ export async function write13FFile(chains, narratives, builtAtIso, perFirmHoldin
 // remain the authoritative fallback when the network is unreachable.
 // Two-day meetings list the second day (when the rate decision drops
 // at 14:00 ET).
-const FOMC_MEETINGS_BASELINE = [
+export const FOMC_MEETINGS_BASELINE = [
   // 2025
   { date: "2025-01-29", label: "Jan 28–29, 2025" },
   { date: "2025-03-19", label: "Mar 18–19, 2025" },
@@ -11097,10 +11118,6 @@ const FOMC_MEETINGS_BASELINE = [
   { date: "2027-11-03", label: "Nov 2–3, 2027" },
   { date: "2027-12-15", label: "Dec 14–15, 2027" },
 ];
-
-// Back-compat alias — older callers may still reference the year-suffixed
-// name. The build itself uses FOMC_MEETINGS_BASELINE everywhere new.
-export const FOMC_MEETINGS_2026 = FOMC_MEETINGS_BASELINE;
 
 // Best-effort live fetch of the Fed's FOMC calendar HTML. Parses the
 // per-year tables on the page and yields entries shaped like the
@@ -11426,7 +11443,10 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
 // === Federal Funds Rate (FRED DFF) ===================================
 export async function fetchEffectiveFedFundsRate() {
   const series = await fetchFredSeries("DFF");
-  if (!series.length) return null;
+  if (!series.length) {
+    console.log("    ⚠ Fed Funds Rate fetch returned no observations (FRED:DFF empty / blocked).");
+    return null;
+  }
   const last = series[series.length - 1];
   return { rate: last.value, asOf: last.date, source: "FRED:DFF" };
 }
@@ -11569,20 +11589,35 @@ export async function writeFedwatchHistory(history) {
 }
 
 // Fetch the latest settle / mid price for a Yahoo futures symbol.
-// Tries the specific contract first (e.g. ZQM26.CBT), falls back to the
-// continuous front-month (ZQ=F) if Yahoo doesn't list that contract.
-// Uses the yahoo-finance2 SDK (cookies/crumb handled) rather than a raw
-// fetch — the v7 quote endpoint rejects uncookied calls with 401 since
-// 2023, which is why fedwatch-history.json was permanently empty.
-async function fetchYahooFutureClose(symbol) {
-  try {
-    const q = await yahooFinance.quote(symbol, {}, { validateResult: false });
-    if (!q) return null;
-    const price = q.regularMarketPrice ?? q.postMarketPrice ?? q.preMarketPrice;
-    return Number.isFinite(price) ? Number(price) : null;
-  } catch (_) {
-    return null;
+// Tries the specific contract first (e.g. ZQM26.CBT). If the caller
+// passes `fallback`, retries with that symbol when the specific contract
+// returns no quote — useful for the front-month meeting where ZQ=F
+// (continuous) is the canonical liquid contract on Yahoo even when the
+// dated symbol returns nothing. Uses the yahoo-finance2 SDK (cookies/
+// crumb handled) rather than a raw fetch — the v7 quote endpoint rejects
+// uncookied calls with 401 since 2023.
+async function fetchYahooFutureClose(symbol, fallback) {
+  const attempt = async (sym) => {
+    try {
+      const q = await yahooFinance.quote(sym, {}, { validateResult: false });
+      if (!q) return null;
+      const price = q.regularMarketPrice ?? q.postMarketPrice ?? q.preMarketPrice;
+      return Number.isFinite(price) ? Number(price) : null;
+    } catch (err) {
+      console.log(`    ⚠ Yahoo futures ${sym} fetch failed: ${err?.message || err}`);
+      return null;
+    }
+  };
+  const primary = await attempt(symbol);
+  if (primary != null) return primary;
+  if (fallback && fallback !== symbol) {
+    const alt = await attempt(fallback);
+    if (alt != null) {
+      console.log(`    · Yahoo futures ${symbol} empty; using fallback ${fallback}=${alt}`);
+      return alt;
+    }
   }
+  return null;
 }
 
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
@@ -11625,14 +11660,28 @@ function probabilitiesFromZq(currentRate, meetingDateStr, zqPrice) {
 }
 
 export async function fetchFedwatchSnapshot(meetingDates, currentRate) {
-  if (!Number.isFinite(currentRate)) return {};
+  if (!Number.isFinite(currentRate)) {
+    console.log("    ⚠ FedWatch snapshot skipped — no current Fed Funds rate to anchor against.");
+    return {};
+  }
   const out = {};
+  // Only the nearest-meeting contract can fall back to ZQ=F (continuous
+  // front-month) — for far-dated meetings ZQ=F is the wrong contract.
+  const frontMonthDate = meetingDates[0]?.date;
   await Promise.all(meetingDates.map(async (m) => {
     const sym = zqSymbolForMeeting(m.date);
-    const zqPrice = await fetchYahooFutureClose(sym);
-    if (zqPrice == null) return;
+    const fallback = m.date === frontMonthDate ? "ZQ=F" : null;
+    const zqPrice = await fetchYahooFutureClose(sym, fallback);
+    if (zqPrice == null) {
+      console.log(`    ⚠ FedWatch ${m.date} (${sym}): no ZQ price`);
+      return;
+    }
     const probs = probabilitiesFromZq(currentRate, m.date, zqPrice);
-    if (!probs) return;
+    if (!probs) {
+      console.log(`    ⚠ FedWatch ${m.date} (${sym}): ZQ=${zqPrice} but probabilities couldn't be derived (likely end-of-month meeting)`);
+      return;
+    }
+    console.log(`    · FedWatch ${m.date} (${sym}): ZQ=${zqPrice} → hike=${(probs.hike * 100).toFixed(0)}% hold=${(probs.hold * 100).toFixed(0)}% cut=${(probs.cut * 100).toFixed(0)}%`);
     out[m.date] = probs;
   }));
   return out;

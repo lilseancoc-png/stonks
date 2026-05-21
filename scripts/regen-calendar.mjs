@@ -57,7 +57,7 @@ async function main() {
 
   console.log("Snapshotting CME FedWatch probabilities…");
   const fedwatchHistory = await build.readFedwatchHistory();
-  const upcomingMeetings = build.FOMC_MEETINGS_2026.filter((m) => {
+  const upcomingMeetings = build.FOMC_MEETINGS_BASELINE.filter((m) => {
     const ms = Date.UTC(
       Number(m.date.slice(0, 4)),
       Number(m.date.slice(5, 7)) - 1,
