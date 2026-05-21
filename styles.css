@@ -2901,6 +2901,145 @@ main { padding-top: var(--s-2); }
 .cal-sec { border-left-color: var(--muted); }
 .cal-sec .cal-chip-tag { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
 .cal-macro { border-left-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.cal-fomc { border-left-color: var(--warn); }
+.cal-fomc .cal-chip-tag { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.cal-session {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .08em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  color: var(--muted);
+  text-transform: uppercase;
+  cursor: help;
+}
+.cal-session-am {
+  background: color-mix(in srgb, var(--pos) 18%, transparent);
+  color: var(--pos);
+}
+.cal-session-pm {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.cal-report {
+  flex-direction: column;
+  align-items: stretch;
+  border-left-color: var(--warn);
+  padding: 8px 12px;
+  gap: 6px;
+}
+.cal-report-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cal-report-head .cal-chip-tag {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+.cal-report-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.cal-report-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  min-width: 0;
+}
+.cal-report-label {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cal-report-val {
+  font: 600 12px/1.2 var(--font-mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .cal-report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.fomc-widget {
+  margin-top: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.fomc-head {
+  display: flex;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.fomc-rate, .fomc-next { display: flex; flex-direction: column; gap: 2px; }
+.fomc-rate-label, .fomc-next-label {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fomc-rate-value {
+  font: 700 22px/1.1 var(--font-mono);
+  color: var(--text-strong);
+}
+.fomc-next-value {
+  font: 600 13px/1.2 var(--font-mono);
+  color: var(--text);
+}
+.fomc-rate-asof {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+.fomc-meeting + .fomc-meeting { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
+.fomc-meeting-title {
+  font: 600 12px/1.2 var(--font-mono);
+  color: var(--text);
+  margin: 0 0 6px 0;
+  letter-spacing: .03em;
+}
+.fomc-prob-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.fomc-prob-table th, .fomc-prob-table td {
+  padding: 4px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--hairline);
+}
+.fomc-prob-table thead th {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fomc-prob-row {
+  text-align: left !important;
+  font-weight: 600;
+  color: var(--text);
+}
+.fomc-prob-empty {
+  margin: 6px 0 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
 .calendar-empty {
   padding: var(--s-4) var(--s-3);
   text-align: center;
