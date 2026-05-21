@@ -1326,6 +1326,23 @@ function narrativesSection() {
   </section>`;
 }
 
+function topPicksSection() {
+  // Skeleton chrome only — renderTopPicks() in app.js fetches
+  // data/picks.json lazily on first tab activation and fills these
+  // containers in. Card body is intentionally a list of cards rather
+  // than a table so each pick can carry its own signal breakdown.
+  return `<section class="card" id="picks-section">
+    <header class="card-header">
+      <h2 class="card-title">Top options picks</h2>
+      <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">The ten highest-conviction tickers to trade options on right now, scored by fusing every signal the daily build already produces: active narratives this ticker rides, news sentiment, fundamentals verdict, RSI extremes, MACD direction, and the current daily streak. Each pick is tagged with the side (call or put) the signal stack points to and a thesis enumerating the drivers.</p>
+    <div id="picks-root" class="picks-root">Loading top picks…</div>
+    <div id="picks-empty" class="picks-empty" hidden>No high-conviction picks in this build — every ticker scored below the minimum.</div>
+    <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Conviction is the absolute signal score (typically 3-12); higher means more independent signals lined up the same direction. For information only — not investment advice.</p>
+  </section>`;
+}
+
 function calendarSection() {
   // Card chrome only — the timeline rows render client-side from
   // data/calendar.json, fetched lazily on first tab activation by
@@ -2640,7 +2657,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['tickers','narratives','calendar','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -2653,6 +2670,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         if (pane) pane.hidden = !sel;
       });
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
+      if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -4718,6 +4736,114 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
   }
 
+  // --- Top picks tab ------------------------------------------------------
+  // Lazy-fetched on first activation; cached client-side for the rest of
+  // the session. Rebuilds every daily build, so a hard reload is enough
+  // to refresh.
+  var picksState = { data: null, loading: false };
+  function loadPicks(){
+    if (picksState.data || picksState.loading) { renderPicks(); return; }
+    picksState.loading = true;
+    fetch('data/picks.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        picksState.loading = false;
+        renderPicks();
+      })
+      .catch(function(){
+        picksState.data = { picks: [] };
+        picksState.loading = false;
+        renderPicks();
+      });
+  }
+  function pickDriverChip(d){
+    var sign = (d.weight || 0) >= 0 ? 'pos' : 'neg';
+    return '<span class="pick-driver pick-driver-' + sign + ' pick-driver-' + escapeHtml(d.tag || 'misc') + '">' +
+      escapeHtml(d.text || '') +
+    '</span>';
+  }
+  function pickSideClass(side){ return side === 'put' ? 'put' : 'call'; }
+  function renderPicks(){
+    var root = $('picks-root');
+    var empty = $('picks-empty');
+    var eyebrow = $('picks-eyebrow');
+    if (!root) return;
+    if (picksState.loading){
+      root.innerHTML = 'Loading top picks…';
+      if (empty) empty.hidden = true;
+      return;
+    }
+    var data = picksState.data || { picks: [] };
+    var picks = Array.isArray(data.picks) ? data.picks : [];
+    if (eyebrow){
+      eyebrow.textContent = picks.length + ' pick' + (picks.length === 1 ? '' : 's') + ' · rebuilt with each daily refresh';
+    }
+    if (!picks.length){
+      root.innerHTML = '';
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    // Conviction bar widths scale to the strongest pick so the visual
+    // contrast across the list reflects actual signal-stack depth.
+    var maxConv = 0;
+    for (var i=0; i<picks.length; i++) {
+      if (picks[i].conviction > maxConv) maxConv = picks[i].conviction;
+    }
+    root.innerHTML = picks.map(function(p, idx){
+      var sideCls = pickSideClass(p.side);
+      var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+      var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
+      var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
+      var convPct = maxConv > 0 ? (p.conviction / maxConv) * 100 : 0;
+      var streakHtml = p.streak
+        ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '">' +
+            p.streak.days + 'd ' + (p.streak.color === 'green' ? '▲' : '▼') +
+            ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
+          '</span>'
+        : '';
+      var drivers = (p.drivers || []).slice(0, 5).map(pickDriverChip).join('');
+      return '<article class="pick-card ' + sideCls + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+        '<div class="pick-rank">#' + (idx + 1) + '</div>' +
+        '<div class="pick-main">' +
+          '<div class="pick-head">' +
+            '<button type="button" class="pick-symbol" data-pick-symbol="' + escapeHtml(p.symbol) + '" title="Open ' + escapeHtml(p.symbol) + ' in the grader">' + escapeHtml(p.symbol) + '</button>' +
+            (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
+            sectorTag +
+            '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
+            streakHtml +
+          '</div>' +
+          '<p class="pick-thesis">' + escapeHtml(p.thesis) + '</p>' +
+          (drivers ? '<div class="pick-drivers">' + drivers + '</div>' : '') +
+        '</div>' +
+        '<div class="pick-conviction" aria-label="Conviction score" style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
+          '<div class="pick-conv-label">Conv</div>' +
+          '<div class="pick-conv-value">' + p.conviction + '</div>' +
+          '<div class="pick-conv-bar"><span class="pick-conv-fill"></span></div>' +
+        '</div>' +
+      '</article>';
+    }).join('');
+    // Clicking a symbol jumps to the grader. The state ?sym=X URL pattern
+    // the rest of the app already understands is the cleanest way in —
+    // a hashchange triggers the grader's existing URL-state handler so
+    // expirations and the first strike auto-populate.
+    root.querySelectorAll('[data-pick-symbol]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var sym = btn.getAttribute('data-pick-symbol');
+        if (!sym) return;
+        var gradeTab = document.querySelector('[data-page-tab="grade"]');
+        if (gradeTab) gradeTab.click();
+        try {
+          var url = new URL(window.location.href);
+          url.searchParams.set('sym', sym);
+          window.history.replaceState({}, '', url.toString());
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        } catch (_) {}
+      });
+    });
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
@@ -4884,6 +5010,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="true" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
@@ -4896,6 +5023,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
   ${narrativesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
+  ${topPicksSection()}
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
   ${calendarSection()}
@@ -7851,6 +7981,195 @@ main { padding-top: var(--s-2); }
   .cal-day { grid-template-columns: 1fr; gap: 4px; }
 }
 
+/* === Top picks tab === */
+.picks-root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: var(--s-3);
+}
+.picks-empty {
+  padding: var(--s-4) var(--s-3);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.picks-foot {
+  font-size: 10px;
+  color: var(--muted);
+  margin: var(--s-3) 0 0;
+  line-height: 1.45;
+}
+.pick-card {
+  display: grid;
+  grid-template-columns: 44px 1fr 64px;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  align-items: stretch;
+  transition: border-color .18s var(--ease-out), transform .18s var(--ease-out);
+}
+.pick-card.call { border-left-color: var(--pos); }
+.pick-card.put { border-left-color: var(--neg); }
+.pick-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.pick-rank {
+  font: 700 18px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: -.02em;
+  align-self: center;
+  text-align: center;
+}
+.pick-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pick-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pick-symbol {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: 700 16px/1 var(--font-mono);
+  color: var(--text-strong);
+  cursor: pointer;
+  letter-spacing: .02em;
+  transition: color .12s var(--ease-out);
+}
+.pick-symbol:hover { color: var(--accent); }
+.pick-spot {
+  font: 500 12px/1 var(--font-mono);
+  color: var(--muted);
+}
+.pick-sector {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: var(--r-1);
+  border: 1px solid var(--border);
+}
+.pick-side {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  padding: 3px 7px;
+  border-radius: var(--r-1);
+}
+.pick-side-call { background: var(--pos-soft); color: var(--pos); }
+.pick-side-put { background: var(--neg-soft); color: var(--neg); }
+.pick-streak {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+}
+.pick-streak-green { background: var(--pos-soft); color: var(--pos); }
+.pick-streak-red { background: var(--neg-soft); color: var(--neg); }
+.pick-thesis {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.pick-drivers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.pick-driver {
+  font: 500 10px/1.3 var(--font-mono);
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface);
+}
+.pick-driver-pos { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); }
+.pick-driver-neg { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); }
+.pick-driver-narrative { font-weight: 600; }
+.pick-conviction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  border-left: 1px solid var(--border);
+  min-width: 50px;
+}
+.pick-conv-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.pick-conv-value {
+  font: 700 18px/1 var(--font-mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.pick-conv-bar {
+  width: 5px;
+  height: 36px;
+  background: var(--surface);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+.pick-conv-fill {
+  display: block;
+  width: 100%;
+  height: var(--pick-conv-pct, 50%);
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--r-pill);
+  transition: height .3s var(--ease-out), width .3s var(--ease-out);
+}
+.pick-card.call .pick-conv-fill { background: color-mix(in srgb, var(--pos) 60%, transparent); }
+.pick-card.put .pick-conv-fill { background: color-mix(in srgb, var(--neg) 60%, transparent); }
+
+/* Mobile: drop the right-side conviction column down to a row beneath
+   the thesis. Bar flips horizontal — the same --pick-conv-pct custom
+   property now drives width rather than height. */
+@media (max-width: 640px) {
+  .pick-card {
+    grid-template-columns: 34px 1fr;
+    gap: var(--s-2);
+    padding: 10px;
+  }
+  .pick-rank { font-size: 14px; }
+  .pick-conviction {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    gap: 10px;
+    justify-content: flex-start;
+    min-width: 0;
+    align-items: center;
+  }
+  .pick-conv-bar {
+    flex: 1;
+    width: auto;
+    height: 5px;
+    align-items: stretch;
+  }
+  .pick-conv-fill {
+    width: var(--pick-conv-pct, 50%);
+    height: 100%;
+  }
+}
+
 /* === Streaks tab === */
 .streaks-root { margin-top: var(--s-3); }
 .streaks-cols {
@@ -8353,6 +8672,180 @@ async function writeCalendarFile(chains, macroHeadlines, builtAtIso) {
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, CALENDAR_FILE), json, "utf8");
   return { bytes: json.length, count: payload.events.length };
+}
+
+// ============================================================================
+// Top picks
+//
+// Ranks every curated ticker by a directional conviction score that fuses
+// every signal the daily build already produces (narratives, news take,
+// fundamentals verdict, RSI, MACD, daily streak). Top 10 by |score| ship
+// to data/picks.json with a suggested side (call/put), a conviction number,
+// and a templated thesis enumerating which signals drove the pick.
+//
+// Deliberately deterministic — no AI call. The templated thesis is built
+// from the same signal breakdown that drove the score, so it always
+// matches reality. Easier to audit and 0¢ to run.
+// ============================================================================
+const PICKS_FILE = "picks.json";
+const PICKS_COUNT = 10;
+const PICKS_MIN_CONVICTION = 3; // skip picks weaker than this
+
+function scoreTicker(sym, data, narratives, streakRow) {
+  // Each signal contributes a signed integer to `score`. Positive = bullish
+  // (suggests calls), negative = bearish (suggests puts). Drivers carries
+  // a human-readable bullet per signal so the thesis can list them in order
+  // of contribution magnitude.
+  let score = 0;
+  const drivers = [];
+
+  // --- News sentiment ----------------------------------------------------
+  const sentiment = data?.news?.sentiment;
+  if (sentiment === "bullish") {
+    score += 3;
+    drivers.push({ tag: "news", weight: 3, text: "bullish news sentiment" });
+  } else if (sentiment === "bearish") {
+    score -= 3;
+    drivers.push({ tag: "news", weight: -3, text: "bearish news sentiment" });
+  }
+
+  // --- Fundamentals verdict ---------------------------------------------
+  const verdict = data?.fundamentals?.judgment?.verdict;
+  if (verdict === "strong") {
+    score += 2;
+    drivers.push({ tag: "fundamentals", weight: 2, text: "strong fundamentals" });
+  } else if (verdict === "weak") {
+    score -= 2;
+    drivers.push({ tag: "fundamentals", weight: -2, text: "weak fundamentals" });
+  }
+
+  // --- Technicals: RSI ---------------------------------------------------
+  // Oversold (RSI < 30) can mean bounce setup; overbought (>70) can mean
+  // pullback. Treat as soft signals (±1) since RSI extremes persist in
+  // strong trends.
+  const rsi = data?.technicals?.rsi;
+  if (rsi != null) {
+    if (rsi < 30) {
+      score += 1;
+      drivers.push({ tag: "rsi", weight: 1, text: `RSI ${rsi.toFixed(0)} (oversold)` });
+    } else if (rsi > 70) {
+      score -= 1;
+      drivers.push({ tag: "rsi", weight: -1, text: `RSI ${rsi.toFixed(0)} (overbought)` });
+    }
+  }
+
+  // --- Technicals: MACD histogram sign ----------------------------------
+  const macdHist = data?.technicals?.macd?.hist;
+  if (macdHist != null && macdHist !== 0) {
+    if (macdHist > 0) {
+      score += 1;
+      drivers.push({ tag: "macd", weight: 1, text: "MACD above signal (bullish)" });
+    } else {
+      score -= 1;
+      drivers.push({ tag: "macd", weight: -1, text: "MACD below signal (bearish)" });
+    }
+  }
+
+  // --- Streak ------------------------------------------------------------
+  if (streakRow?.current) {
+    const c = streakRow.current;
+    if (c.color === "green" && c.days >= 3) {
+      const w = Math.min(3, Math.floor(c.days / 2));
+      score += w;
+      drivers.push({ tag: "streak", weight: w, text: `${c.days}-day green run (+${c.cumulativePct.toFixed(1)}%)` });
+    } else if (c.color === "red" && c.days >= 3) {
+      const w = Math.min(3, Math.floor(c.days / 2));
+      score -= w;
+      drivers.push({ tag: "streak", weight: -w, text: `${c.days}-day red run (${c.cumulativePct.toFixed(1)}%)` });
+    }
+  }
+
+  // --- Narrative alignment -----------------------------------------------
+  // Strongest narrative driver wins for the thesis (avoid listing 5
+  // narratives if the ticker rides many of them). Sum scores from all
+  // matched narratives so a ticker that rides three active stories
+  // outscores one that only rides one.
+  let topNarrative = null;
+  let topNarrativeWeight = 0;
+  for (const n of narratives || []) {
+    if (n.status !== "active") continue;
+    const inLongs = Array.isArray(n.longs) && n.longs.includes(sym);
+    const inShorts = Array.isArray(n.shorts) && n.shorts.includes(sym);
+    if (!inLongs && !inShorts) continue;
+    // Narrative weight scales with strength (0-100) — strong stories
+    // matter more than weak ones. Cap at ±4 so one narrative can't
+    // dominate the score.
+    const baseWeight = Math.max(1, Math.min(4, Math.round((n.strength || 50) / 25)));
+    const directional = inLongs ? baseWeight : -baseWeight;
+    score += directional;
+    if (Math.abs(directional) > Math.abs(topNarrativeWeight)) {
+      topNarrativeWeight = directional;
+      topNarrative = n;
+    }
+  }
+  if (topNarrative) {
+    drivers.push({
+      tag: "narrative",
+      weight: topNarrativeWeight,
+      text: `${topNarrativeWeight > 0 ? "rides" : "exposed to"} "${topNarrative.name}" (str ${topNarrative.strength}, day ${topNarrative.daysRunning || 1})`,
+    });
+  }
+
+  return { score, drivers };
+}
+
+function buildTopPicks(chains, narratives) {
+  const ranked = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    const streakRow = computeStreakForTicker(sym, data._bars);
+    const { score, drivers } = scoreTicker(sym, data, narratives, streakRow);
+    if (Math.abs(score) < PICKS_MIN_CONVICTION) continue;
+    ranked.push({ sym, data, score, drivers, streakRow });
+  }
+  ranked.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+  const top = ranked.slice(0, PICKS_COUNT);
+  return top.map((r) => {
+    const side = r.score > 0 ? "call" : "put";
+    // Sort drivers by absolute contribution so the thesis lists the
+    // strongest reasons first.
+    const ordered = r.drivers.slice().sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
+    const verb = side === "call" ? "Bullish setup" : "Bearish setup";
+    const reasons = ordered.map((d) => d.text);
+    const thesis = `${verb} on ${r.sym}: ${reasons.join("; ")}.`;
+    const sector = (data) => data?.fundamentals?.sector || null;
+    return {
+      symbol: r.sym,
+      side,
+      score: r.score,
+      conviction: Math.abs(r.score),
+      thesis,
+      drivers: ordered,
+      spot: r.data?.spot ?? null,
+      sector: sector(r.data),
+      sentiment: r.data?.news?.sentiment || null,
+      fundamentalsVerdict: r.data?.fundamentals?.judgment?.verdict || null,
+      rsi: r.data?.technicals?.rsi ?? null,
+      streak: r.streakRow?.current
+        ? {
+            color: r.streakRow.current.color,
+            days: r.streakRow.current.days,
+            cumulativePct: r.streakRow.current.cumulativePct,
+          }
+        : null,
+    };
+  });
+}
+
+async function writeTopPicksFile(chains, narratives, builtAtIso) {
+  const picks = buildTopPicks(chains, narratives);
+  const payload = {
+    builtAtIso,
+    minConviction: PICKS_MIN_CONVICTION,
+    picks,
+  };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, PICKS_FILE), json, "utf8");
+  return { bytes: json.length, count: picks.length };
 }
 
 // Per-ticker daily green/red streaks. Reuses the bars already fetched into
@@ -10248,6 +10741,11 @@ async function main() {
   }
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso);
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (next ${CALENDAR_DAYS_AHEAD}d), ${calendarInfo.bytes} bytes`);
+  // Top picks: rank tickers by fused signal score and write data/picks.json.
+  // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
+  // destructured it out of the serialized payload but never deleted it).
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso);
+  console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   await writeAiUsageState();
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
