@@ -1241,6 +1241,49 @@ async function fetchRiskFreeRate() {
   return FALLBACK_RISK_FREE_RATE;
 }
 
+// Macro backdrop — pulls 10Y Treasury yield (^TNX) and the US Dollar Index
+// (DX-Y.NYB) plus 5-trading-day history so the Grade tab can frame each
+// contract against the prevailing yields + dollar trend. Source for the
+// rules wired into shouldBuy/buildRecommendationCard: bonds_and_usd primer
+// in the Bonds & USD tab. Graceful degradation: if either fetch fails, the
+// missing leg is set to null and the recommendation card omits that line.
+async function fetchMacroBackdrop() {
+  async function fetchLeg(symbol, label) {
+    try {
+      const q = await yahooFinance.quote(symbol);
+      const value = q?.regularMarketPrice;
+      if (typeof value !== "number" || !isFinite(value)) return null;
+      // 7 calendar days back gives us ~5 trading sessions.
+      const end = new Date();
+      const start = new Date(end.getTime() - 10 * 86400000);
+      let prior = null;
+      try {
+        const hist = await yahooFinance.chart(symbol, { period1: start, period2: end, interval: "1d" });
+        const quotes = (hist && hist.quotes) || [];
+        // Use the close from ~5 trading days ago (or the earliest available).
+        const pick = quotes.length >= 6 ? quotes[quotes.length - 6] : quotes[0];
+        if (pick && typeof pick.close === "number" && isFinite(pick.close)) prior = pick.close;
+      } catch (_) { /* history optional — value alone is still useful */ }
+      const change5d = prior != null && prior > 0 ? ((value - prior) / prior) * 100 : null;
+      const trend = change5d == null ? "flat"
+        : change5d >= 0.5 ? "rising"
+        : change5d <= -0.5 ? "falling"
+        : "flat";
+      console.log(`Macro ${label} (${symbol}): ${value.toFixed(2)}${change5d != null ? ` · 5d ${change5d >= 0 ? '+' : ''}${change5d.toFixed(2)}% (${trend})` : ""}`);
+      return { value, prior, change5d, trend };
+    } catch (err) {
+      console.warn(`Macro ${label} fetch failed (${symbol}): ${err.message}`);
+      return null;
+    }
+  }
+  const [tenY, dxy] = await Promise.all([
+    fetchLeg("^TNX", "10Y yield"),
+    fetchLeg("DX-Y.NYB", "DXY"),
+  ]);
+  if (!tenY && !dxy) return null;
+  return { tenY, dxy, asOf: new Date().toISOString() };
+}
+
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
 // paces its own per-expiration Yahoo calls with the existing 250ms gap inside
 // fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
@@ -1701,6 +1744,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   var INDUSTRIES_BY_SECTOR = MANIFEST.industriesBySector || {};
   var UNUSUAL = MANIFEST.unusual || null;
   var SPOTS = MANIFEST.spots || {};
+  // Macro backdrop — { tenY:{value,change5d,trend}, dxy:{value,change5d,trend}, asOf }
+  // or null if both legs failed at bake time. Consumed by the Grade tab's
+  // recommendation card and shouldBuy() to add a small macro nudge in line
+  // with the Bonds & USD primer.
+  var MACRO = (MANIFEST.macro && typeof MANIFEST.macro === 'object') ? MANIFEST.macro : null;
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
     var m = {};
@@ -2406,6 +2454,42 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       ? fundParts.join(' · ')
       : '<span class="opt-rec-muted">Fundamentals unavailable.</span>';
 
+    // Macro backdrop — yields + USD framed for the ticker's dominant
+    // sensitivity. Appended to the fundamentals block as a separate line so
+    // it reads as "what the macro is doing TO this name" rather than an
+    // analyst opinion. Falls back silently when no macro data or the ticker
+    // doesn't fall into a mapped class.
+    var macroLines = [];
+    if (MACRO && (MACRO.tenY || MACRO.dxy)) {
+      var summaryBits = [];
+      if (MACRO.tenY && MACRO.tenY.value != null) {
+        var ty = MACRO.tenY;
+        var tyChg = ty.change5d != null ? ((ty.change5d >= 0 ? '+' : '') + ty.change5d.toFixed(2) + '% 5d, ' + ty.trend) : ty.trend;
+        summaryBits.push('10Y ' + ty.value.toFixed(2) + '% (' + tyChg + ')');
+      }
+      if (MACRO.dxy && MACRO.dxy.value != null) {
+        var dx = MACRO.dxy;
+        var dxChg = dx.change5d != null ? ((dx.change5d >= 0 ? '+' : '') + dx.change5d.toFixed(2) + '% 5d, ' + dx.trend) : dx.trend;
+        summaryBits.push('DXY ' + dx.value.toFixed(2) + ' (' + dxChg + ')');
+      }
+      if (summaryBits.length) macroLines.push('<span class="opt-rec-pill fair">macro</span> ' + escapeHtml(summaryBits.join(' · ')));
+      var sym = input.ticker || input.symbol || null;
+      var tilt = sym ? macroTilt(sym, type) : null;
+      if (tilt && (tilt.bull.length || tilt.bear.length)) {
+        var dirLabel = type === 'call' ? 'calls' : 'puts';
+        var verdictTxt = '';
+        if (tilt.score > 0) verdictTxt = (type === 'call' ? 'Tailwind' : 'Headwind') + ' for ' + dirLabel + ': ';
+        else if (tilt.score < 0) verdictTxt = (type === 'call' ? 'Headwind' : 'Tailwind') + ' for ' + dirLabel + ': ';
+        else verdictTxt = 'Mixed macro: ';
+        macroLines.push(escapeHtml(verdictTxt) + escapeHtml(tilt.reason));
+      } else if (tilt) {
+        macroLines.push('<span class="opt-rec-muted">No directional macro signal vs ' + escapeHtml(classifyMacro(sym).label || 'sector') + ' today.</span>');
+      }
+    }
+    if (macroLines.length) {
+      fundamentals += '<div class="opt-rec-sub">' + macroLines.join('<br>') + '</div>';
+    }
+
     // Mechanics — spread / delta / theta grades + theta-30 warning.
     var mechParts = [];
     if (ctx.sGrade) mechParts.push('spread ' + ctx.sGrade.label.toLowerCase());
@@ -2445,13 +2529,110 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     '</div>';
   }
 
+  // Classify a ticker by its dominant macro sensitivity. Drives the macro
+  // backdrop sentence in the recommendation card and the ±1 macro nudge
+  // inside shouldBuy(). Rules sourced from the Bonds & USD primer:
+  //   · growth / multinational tech → rising yields + strong USD = headwind
+  //   · banks → rising yields = NIM tailwind (weak yields = drag)
+  //   · commodity / materials / energy → weak USD = tailwind, strong USD = drag
+  //   · gold / silver ETFs → strong USD + rising real yields = drag (opp. cost)
+  //   · EM / China / international → strong USD = drag (capital outflows)
+  //   · exporters / industrials → strong USD = drag for foreign revenue
+  // Tickers that don't fall into any class get a neutral classification so
+  // the macro nudge is a no-op.
+  function classifyMacro(symbol){
+    var sector = (SECTORS && symbol) ? SECTORS[symbol] : null;
+    if (!sector) return { kinds: [], label: null };
+    var kinds = [];
+    var label = sector;
+    // Growth & multinational tech — rate-sensitive, dollar-sensitive.
+    if (sector === 'Mega-cap tech' || sector === 'Software' || sector === 'Semis' ||
+        sector === 'Networking' || sector === 'Data center' || sector === 'Hardware' ||
+        sector === 'Storage' || sector === 'IT services' || sector === 'Tech services' ||
+        sector === 'Social' || sector === 'Fintech' || sector === 'Crypto') {
+      kinds.push('growth');
+      kinds.push('multinational');
+    }
+    // Banks — rising yields expand NIM.
+    if (sector === 'Bank') kinds.push('bank');
+    // Commodity-linked: energy, materials, mining-adjacent.
+    if (sector === 'Energy' || sector === 'Materials') kinds.push('commodity');
+    // Gold / silver / precious metals ETFs — pure dollar inverse.
+    if (symbol === 'GLD' || symbol === 'SLV') kinds.push('gold');
+    // EM / international — capital-flow sensitive to USD.
+    if (sector === 'China tech') kinds.push('em');
+    if (symbol === 'EWY' || symbol === 'KWEB') kinds.push('em');
+    // Industrials / defense / exporters — strong USD hurts foreign revenue.
+    if (sector === 'Industrial' || sector === 'Defense' || sector === 'Logistics') kinds.push('exporter');
+    return { kinds: kinds, label: label };
+  }
+
+  // Macro tilt for a (ticker, call/put) combo. Returns { score, reason } where
+  // score is in {-1, 0, +1} from the call-side perspective; shouldBuy multiplies
+  // by direction. reason is a short human-readable sentence for the card.
+  function macroTilt(symbol, type){
+    if (!MACRO) return null;
+    var tenY = MACRO.tenY || null;
+    var dxy = MACRO.dxy || null;
+    var cls = classifyMacro(symbol);
+    if (!cls.kinds.length) return null;
+    var bullParts = [], bearParts = [];
+    var yieldsRising = tenY && tenY.trend === 'rising';
+    var yieldsFalling = tenY && tenY.trend === 'falling';
+    var dollarRising = dxy && dxy.trend === 'rising';
+    var dollarFalling = dxy && dxy.trend === 'falling';
+    cls.kinds.forEach(function(k){
+      if (k === 'growth') {
+        if (yieldsRising) bearParts.push('rising 10Y pressures growth multiples');
+        if (yieldsFalling) bullParts.push('falling 10Y supports growth multiples');
+      }
+      if (k === 'multinational') {
+        if (dollarRising) bearParts.push('strong USD trims foreign-revenue translation (~40% of S&P 500 revenue is overseas)');
+        if (dollarFalling) bullParts.push('weak USD boosts foreign-revenue translation');
+      }
+      if (k === 'bank') {
+        if (yieldsRising) bullParts.push('rising 10Y expands net interest margin');
+        if (yieldsFalling) bearParts.push('falling 10Y compresses net interest margin');
+      }
+      if (k === 'commodity') {
+        if (dollarFalling) bullParts.push('weak USD is a tailwind for USD-priced commodities');
+        if (dollarRising) bearParts.push('strong USD pressures USD-priced commodities');
+      }
+      if (k === 'gold') {
+        if (dollarRising) bearParts.push('strong USD + opportunity cost of yield weigh on gold');
+        if (dollarFalling) bullParts.push('weak USD lifts gold (priced in USD)');
+        if (yieldsRising) bearParts.push('higher yields raise the opportunity cost of holding non-yielding gold');
+      }
+      if (k === 'em') {
+        if (dollarRising) bearParts.push('strong USD drives EM capital outflows + USD-debt stress');
+        if (dollarFalling) bullParts.push('weak USD supports EM equities');
+      }
+      if (k === 'exporter') {
+        if (dollarRising) bearParts.push('strong USD makes US exports less competitive');
+        if (dollarFalling) bullParts.push('weak USD makes US exports more competitive');
+      }
+    });
+    // Deduplicate while preserving order.
+    function uniq(a){ var seen={}, out=[]; a.forEach(function(s){ if (!seen[s]){ seen[s]=1; out.push(s);} }); return out; }
+    bullParts = uniq(bullParts);
+    bearParts = uniq(bearParts);
+    var net = bullParts.length - bearParts.length;
+    var score = net > 0 ? 1 : net < 0 ? -1 : 0;
+    var parts = [];
+    if (bullParts.length) parts.push(bullParts.join('; '));
+    if (bearParts.length) parts.push(bearParts.join('; '));
+    var reason = parts.join(' · ');
+    return { score: score, reason: reason, bull: bullParts, bear: bearParts, tenY: tenY, dxy: dxy };
+  }
+
   // Binary buy decision aggregating mechanics + news + technicals +
-  // fundamentals. Falls to NO on any hard mechanical disqualifier (wide
-  // spread, far-OTM delta, bleeding theta, ≤3 DTE, premium that's almost
-  // all time value with no runway). Otherwise scores directional alignment
-  // — news (±2), RSI and MACD (±1 each), fundamentals verdict (±1) — and
-  // multiplies by the option direction (+1 for calls, -1 for puts). Needs
-  // at least +2 aligned points and zero opposing edge to clear to YES.
+  // fundamentals + macro backdrop. Falls to NO on any hard mechanical
+  // disqualifier (wide spread, far-OTM delta, bleeding theta, ≤3 DTE,
+  // premium that's almost all time value with no runway). Otherwise scores
+  // directional alignment — news (±2), RSI and MACD (±1 each), fundamentals
+  // verdict (±1), macro (±1) — and multiplies by the option direction
+  // (+1 for calls, -1 for puts). Needs at least +2 aligned points and zero
+  // opposing edge to clear to YES.
   function shouldBuy(args){
     var sGrade = args.sGrade, dGrade = args.dGrade, tGrade = args.tGrade;
     var dte = args.daysToExpiry;
@@ -2503,6 +2684,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     if (fund && fund.verdict){
       if (fund.verdict === 'bullish'){ score += 1; bull.push('fundamentals'); }
       else if (fund.verdict === 'bearish'){ score -= 1; bear.push('fundamentals'); }
+    }
+    // Macro backdrop nudge — yields + USD framed against the ticker's
+    // dominant sensitivity (growth / multinational / bank / commodity /
+    // gold / EM / exporter). Adds at most ±1 to the score so the binary
+    // verdict still hinges on news + technicals primarily.
+    var macro = macroTilt(args.symbol, type);
+    if (macro && macro.score !== 0){
+      if (macro.score > 0){ score += 1; bull.push('macro'); }
+      else if (macro.score < 0){ score -= 1; bear.push('macro'); }
     }
     // Theta ramps up inside the last ~30 days to expiration. Not a hard fail
     // (the ≤3 DTE and 80%-extrinsic guards above already cover the worst
@@ -2798,7 +2988,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','fear-greed','f13','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','fear-greed','f13','bonds-usd','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -2939,6 +3129,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       daysToExpiry: daysToExpiry, extrinsicRatio: extrinsicRatio,
       type: input.type,
       news: input.news, technicals: input.technicals, fundamentals: input.fundamentals,
+      symbol: input.ticker || input.symbol,
     });
 
     var html = '';
@@ -6292,7 +6483,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
 `;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -6329,6 +6520,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     unusual: unusual || null,
     spots,
     fearGreed: fearGreed || null,
+    macro: macro || null,
   }).replace(/<\/script>/gi, "<\\/script>");
   // Browser Supabase config — anon key is safe to ship publicly (RLS does
   // the actual access control). Service-role key stays server-side only.
@@ -6403,6 +6595,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="bonds-usd" aria-selected="false" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
@@ -6508,6 +6701,140 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </header>
       <p class="hint">A 0–100 sentiment gauge built by CNN from seven equally-weighted indicators of US equity-market psychology. Low readings (extreme fear) have historically preceded rebounds; high readings (extreme greed) often mark overheated conditions. Refreshed each build from <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">cnn.com/markets/fear-and-greed</a>.</p>
       <div id="fng-root" class="fng-root">Loading Fear &amp; Greed…</div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-bonds-usd" role="tabpanel" aria-labelledby="page-tab-bonds-usd" hidden>
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Bonds, Treasury yields &amp; the US dollar</h2>
+        <span class="card-eyebrow">Primer</span>
+      </header>
+      <p class="hint">A primer on how Treasury yields and the US Dollar Index (DXY) shape stock-market behavior. US Treasuries are debt securities issued by the US government and are considered among the safest financial assets in the world. They influence borrowing costs globally, impact stock-market valuations, affect mortgage and loan rates, drive risk-on / risk-off behavior, and shape the strength of the US dollar.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Types of US Treasuries</h2>
+      </header>
+      <table class="bonds-usd-table">
+        <thead><tr><th>Type</th><th>Maturity</th><th>Interest payment</th></tr></thead>
+        <tbody>
+          <tr><td>T-Bills</td><td>4 weeks to 1 year</td><td>No coupon. Sold at discount, mature at face value.</td></tr>
+          <tr><td>T-Notes</td><td>2 to 10 years</td><td>Semiannual interest payments.</td></tr>
+          <tr><td>T-Bonds</td><td>20 to 30 years</td><td>Semiannual interest payments.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">2-Year Treasury yield</h2>
+        <span class="card-eyebrow">Fed policy proxy</span>
+      </header>
+      <p class="hint">Most sensitive to current Federal Reserve policy. Reacts quickly to Fed rate hikes or cuts, reflects short-term interest-rate expectations, and is closely tied to monetary policy.</p>
+      <p class="hint"><em>Higher 2-year yields</em> generally tighten financial conditions, hurt growth stocks and speculative assets, and make bonds more attractive relative to equities. Example: if the 2-year yields 5%, investors may prefer a guaranteed return over taking stock-market risk.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">10-Year Treasury yield</h2>
+        <span class="card-eyebrow">Benchmark</span>
+      </header>
+      <p class="hint">The benchmark yield and arguably the most important Treasury rate. Influences 30-year mortgage rates, corporate borrowing costs, stock valuations, consumer loans, and the discount rate used for equities.</p>
+      <p class="hint"><em>Higher 10-year yields</em> pressure stock valuations, increase borrowing costs, reduce future-earnings valuations, and tighten credit conditions.</p>
+      <p class="hint"><em>Lower 10-year yields</em> support growth stocks, encourage borrowing and investing, and improve liquidity conditions.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">30-Year Treasury yield</h2>
+        <span class="card-eyebrow">Long-term inflation</span>
+      </header>
+      <p class="hint">A gauge for long-term inflation expectations and fiscal sustainability. Sensitive to government deficits, long-term inflation expectations, pension and insurance demand, and global risk sentiment.</p>
+      <p class="hint"><em>Higher 30-year yields</em> can signal inflation concerns, fiscal stress, or weak demand for long-duration bonds.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Treasury yields &amp; the stock market</h2>
+      </header>
+      <p class="hint">Higher Treasury yields make bonds more attractive relative to stocks. As yields rise, investors may move from stocks into bonds, borrowing becomes more expensive, corporate investment slows, credit conditions tighten, and interest on new loans increases.</p>
+      <p class="hint">Risk assets often struggle when Treasury yields rise rapidly, when the Federal Reserve hikes interest rates, or when liquidity conditions tighten.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">US Dollar strength (DXY)</h2>
+        <span class="card-eyebrow">Overview</span>
+      </header>
+      <p class="hint">The US Dollar Index (DXY) measures the strength of the US dollar relative to a basket of foreign currencies. Dollar strength has major effects on corporate earnings, commodity prices, emerging markets, global liquidity, and risk appetite.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Stronger US dollar (rising DXY)</h2>
+        <span class="card-eyebrow">Bearish for stocks</span>
+      </header>
+      <p class="hint"><em>Multinational earnings take a hit.</em> Approximately 40% of S&amp;P 500 revenue comes from overseas. A stronger dollar means foreign earnings convert into fewer US dollars, and reported earnings decline.</p>
+      <p class="hint"><em>US exports become more expensive.</em> American goods become less competitive globally — a headwind for exporters, industrial companies, and manufacturing sectors.</p>
+      <p class="hint"><em>Commodities often fall.</em> Commodities are priced in USD, so a stronger dollar typically pressures energy, materials, agriculture, and metals.</p>
+      <p class="hint"><em>Emerging markets suffer.</em> Borrowing in USD becomes more expensive — capital outflows, higher debt stress, and weakening foreign currencies follow.</p>
+      <p class="hint"><em>Higher yields often accompany a stronger dollar.</em> The combination makes risk assets less attractive.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Weaker US dollar (falling DXY)</h2>
+        <span class="card-eyebrow">Bullish for stocks</span>
+      </header>
+      <p class="hint"><em>Good for stocks.</em> Supports earnings growth, global liquidity, and risk appetite.</p>
+      <p class="hint"><em>Boosts multinational earnings.</em> Foreign earnings convert into more US dollars — positive for large multinationals, technology companies, and global consumer brands.</p>
+      <p class="hint"><em>US exports become cheaper.</em> American goods become more competitive internationally.</p>
+      <p class="hint"><em>Commodities often rise.</em> A weaker dollar is a major tailwind for gold, industrials, materials, and energy.</p>
+      <p class="hint"><em>Emerging markets &amp; international stocks perform better.</em> Foreign assets become worth more in USD terms — supportive for international equities, EM, and foreign currencies.</p>
+      <p class="hint"><em>Easier global financial conditions.</em> Encourages risk-on behavior across markets.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Winners during weak-dollar environments</h2>
+      </header>
+      <ul class="bonds-usd-list">
+        <li>Multinationals</li>
+        <li>Exporters</li>
+        <li>Cyclicals</li>
+        <li>Commodities</li>
+        <li>International stocks</li>
+        <li>Emerging markets</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Dollar &amp; stock-market relationship</h2>
+        <span class="card-eyebrow">Caveats</span>
+      </header>
+      <p class="hint">The relationship is not always perfectly inverse.</p>
+      <p class="hint"><em>Strong growth periods.</em> Sometimes stocks and the dollar rise together — this can occur during strong US economic growth.</p>
+      <p class="hint"><em>Risk-off environments.</em> Typically the dollar rises while stocks fall — investors seek safety in USD assets.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Gold &amp; dollar inverse correlation</h2>
+      </header>
+      <p class="hint"><em>Gold is priced in USD.</em> A stronger dollar makes gold more expensive for foreign buyers and less attractive globally.</p>
+      <p class="hint"><em>Gold pays no yield.</em> A stronger dollar often comes with higher interest rates and higher Treasury yields, which increases the opportunity cost of holding gold.</p>
+      <p class="hint"><em>The dollar competes with gold as a safe haven.</em> When investors seek safety, capital can flow into either USD or gold — a strengthening dollar often pressures gold prices.</p>
+    </section>
+
+    <section class="card">
+      <header class="card-header">
+        <h2 class="card-title">Summary</h2>
+        <span class="card-eyebrow">TL;DR</span>
+      </header>
+      <p class="hint"><em>Weak dollar</em> — generally bullish for stocks, bullish for commodities, supportive of risk assets. Weak dollar + falling yields often supports strong bull-market rallies.</p>
+      <p class="hint"><em>Strong dollar</em> — generally bearish for stocks, tightens financial conditions, hurts risk assets. Strong dollar + rising Treasury yields can create severe market stress.</p>
     </section>
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
@@ -9481,6 +9808,14 @@ main {
 .opt-rec-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
 .opt-rec-body { color: var(--text); }
 .opt-rec-muted { color: var(--muted); font-style: italic; }
+.opt-rec-sub {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--hairline);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
 .opt-rec-pill {
   display: inline-block; padding: 1px 6px; border-radius: 999px;
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
@@ -11930,6 +12265,37 @@ main { padding-top: var(--s-2); }
   --fng-greed:        #4f9b58;
   --fng-extreme-greed:#2c8a47;
 }
+/* Bonds & USD educational tab — plain table + list styling scoped to that pane
+   so the markdown-derived content reads cleanly without affecting other tabs. */
+.bonds-usd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.bonds-usd-table th,
+.bonds-usd-table td {
+  text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+}
+.bonds-usd-table th {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.bonds-usd-table tbody tr:last-child td { border-bottom: none; }
+.bonds-usd-list {
+  margin: 0;
+  padding-left: var(--s-5);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.bonds-usd-list li { margin-bottom: var(--s-1, 4px); }
 .fng-root { display: flex; flex-direction: column; gap: var(--s-5); }
 .fng-headline {
   display: grid;
@@ -16175,6 +16541,8 @@ async function main() {
   // returns an in-memory map to flush back after the wipe.
   const ivHistory = await collectIvHistory(chains);
   const riskFreeRate = await fetchRiskFreeRate();
+  console.log("Fetching macro backdrop (10Y yield + DXY)…");
+  const macroBackdrop = await fetchMacroBackdrop();
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
@@ -16190,6 +16558,7 @@ async function main() {
     unusual,
     spots,
     fearGreed,
+    macro: macroBackdrop,
   });
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });
