@@ -1387,6 +1387,22 @@ function calendarSection() {
   </section>`;
 }
 
+function f13Section() {
+  // Card chrome only — content renders client-side from data/13f.json,
+  // fetched lazily on first tab activation by loadF13() in app.js. The
+  // data file is a curated quarterly summary aggregating headline numbers
+  // from the largest 13F filers; see data/13f.json for the schema.
+  return `<section class="card" id="f13-section">
+    <header class="card-header">
+      <h2 class="card-title">13F filings summary</h2>
+      <span class="card-eyebrow" id="f13-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Quarterly institutional-holdings snapshot for the largest 13F filers ($5B+ AUM). Includes top reporting firms, marquee positions, the 20 biggest aggregate holdings across all filers, and rotation themes (most bought vs. most sold). 13F filings are released 45 days after quarter-end and exclude bonds, options details, and most international holdings.</p>
+    <div id="f13-root" class="f13-root">Loading 13F summary…</div>
+    <div id="f13-empty" class="f13-empty" hidden>No 13F summary available.</div>
+  </section>`;
+}
+
 function unusualFlowSection() {
   // Card chrome only — the per-ticker rows and contract chips render
   // client-side from the inline manifest in app.js. Populated by the hourly
@@ -2679,7 +2695,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -2693,6 +2709,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       });
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+      if (name === 'f13' && typeof loadF13 === 'function') loadF13();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -4853,6 +4870,177 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
   }
 
+  // --- 13F filings tab ----------------------------------------------------
+  // Lazy-fetched on first activation. Data file is a curated quarterly
+  // summary — see data/13f.json for the schema. Re-rendering is cheap
+  // (static tables); no client-side filtering or sorting.
+  var f13State = { data: null, loading: false };
+  function loadF13(){
+    if (f13State.data || f13State.loading) { renderF13(); return; }
+    f13State.loading = true;
+    fetch('data/13f.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        f13State.data = json || null;
+        f13State.loading = false;
+        renderF13();
+      })
+      .catch(function(){
+        f13State.data = null;
+        f13State.loading = false;
+        renderF13();
+      });
+  }
+  function renderF13(){
+    var root = $('f13-root');
+    var empty = $('f13-empty');
+    var eyebrow = $('f13-eyebrow');
+    if (!root) return;
+    if (f13State.loading){
+      root.innerHTML = 'Loading 13F summary…';
+      if (empty) empty.hidden = true;
+      return;
+    }
+    var d = f13State.data;
+    if (!d){
+      root.innerHTML = '';
+      if (empty){ empty.hidden = false; empty.textContent = 'No 13F summary available.'; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (eyebrow){
+      eyebrow.textContent = (d.period || '') + (d.periodEnd ? ' · period ending ' + d.periodEnd : '');
+    }
+    var html = '';
+    if (d.sourceNote){
+      html += '<p class="f13-source">' + escapeHtml(d.sourceNote) +
+        (d.filingWindow ? ' Filing window: <strong>' + escapeHtml(d.filingWindow) + '</strong>.' : '') +
+      '</p>';
+    }
+    // === Top reporting firms ===========================================
+    if (Array.isArray(d.topFirms) && d.topFirms.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Top reporting firms (AUM &gt; $100B, selected)</h3>' +
+        '<div class="f13-table-scroll"><table class="f13-table">' +
+          '<thead><tr><th>Firm</th><th>13F AUM</th><th># of Holdings</th><th>Filing date</th></tr></thead>' +
+          '<tbody>' +
+          d.topFirms.map(function(f){
+            return '<tr>' +
+              '<td>' + escapeHtml(f.firm || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(f.aum || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(f.holdings || '') + '</td>' +
+              '<td>' + escapeHtml(f.filingDate || '') + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody>' +
+        '</table></div>' +
+      '</div>';
+    }
+    // === BlackRock detail ==============================================
+    if (d.blackrock && Array.isArray(d.blackrock.holdings) && d.blackrock.holdings.length){
+      var br = d.blackrock;
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">' + escapeHtml(br.label || 'BlackRock') + '</h3>' +
+        (br.concentrationNote ? '<p class="f13-note">' + escapeHtml(br.concentrationNote) + '</p>' : '') +
+        '<div class="f13-table-scroll"><table class="f13-table">' +
+          '<thead><tr>' +
+            '<th>Ticker</th><th>Sector</th><th>Shares</th><th>Market value</th>' +
+            '<th>Δ shares</th><th>Δ MV</th><th>Δ %</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+          br.holdings.map(function(h){
+            return '<tr>' +
+              '<td class="f13-tkr">' + escapeHtml(h.ticker || '') + '</td>' +
+              '<td>' + escapeHtml(h.sector || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(h.shares || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(h.marketValue || '') + '</td>' +
+              '<td class="f13-num f13-muted">' + escapeHtml(h.changeShares || '') + '</td>' +
+              '<td class="f13-num f13-muted">' + escapeHtml(h.changeMv || '') + '</td>' +
+              '<td class="f13-num f13-muted">' + escapeHtml(h.changePct || '') + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody>' +
+        '</table></div>' +
+        (br.tail ? '<p class="f13-tail">' + escapeHtml(br.tail) + '</p>' : '') +
+      '</div>';
+    }
+    // === Berkshire callout =============================================
+    if (d.berkshire){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">' + escapeHtml(d.berkshire.label || 'Berkshire Hathaway') + '</h3>' +
+        '<p class="f13-paragraph">' + escapeHtml(d.berkshire.summary || '') + '</p>' +
+      '</div>';
+    }
+    // === Other major firms =============================================
+    if (Array.isArray(d.otherMajorFirms) && d.otherMajorFirms.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Other major firms</h3>' +
+        '<ul class="f13-list">' +
+        d.otherMajorFirms.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+        '</ul>' +
+      '</div>';
+    }
+    // === Biggest positions =============================================
+    if (Array.isArray(d.biggestPositions) && d.biggestPositions.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">20 biggest positions held by dollar amount (across all filers)</h3>' +
+        '<ol class="f13-rank-list">' +
+        d.biggestPositions.map(function(p){
+          var lead = p.rank
+            ? '<span class="f13-rank">#' + p.rank + '</span>'
+            : '<span class="f13-rank f13-rank-range">' + escapeHtml(p.name || '') + '</span>';
+          var body = p.rank
+            ? '<span class="f13-tkr">' + escapeHtml(p.ticker || '') + '</span>' +
+              (p.name ? ' <span class="f13-pos-name">' + escapeHtml(p.name) + '</span>' : '')
+            : '';
+          var note = p.note ? ' <span class="f13-pos-note">' + escapeHtml(p.note) + '</span>' : '';
+          return '<li class="f13-rank-row">' + lead + ' ' + body + note + '</li>';
+        }).join('') +
+        '</ol>' +
+      '</div>';
+    }
+    // === Most bought / most sold (side-by-side on wide viewports) =====
+    if ((Array.isArray(d.mostBought) && d.mostBought.length) ||
+        (Array.isArray(d.mostSold) && d.mostSold.length)){
+      html += '<div class="f13-block f13-flow-block">' +
+        '<div class="f13-flow-pair">' +
+          (Array.isArray(d.mostBought) && d.mostBought.length
+            ? '<div class="f13-flow-col f13-flow-buy">' +
+                '<h3 class="f13-block-title">20 most bought (net increase)</h3>' +
+                '<ul class="f13-list">' +
+                  d.mostBought.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+                '</ul>' +
+              '</div>' : '') +
+          (Array.isArray(d.mostSold) && d.mostSold.length
+            ? '<div class="f13-flow-col f13-flow-sell">' +
+                '<h3 class="f13-block-title">20 most sold (net decrease)</h3>' +
+                '<ul class="f13-list">' +
+                  d.mostSold.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+                '</ul>' +
+              '</div>' : '') +
+        '</div>' +
+        (d.rankingNote ? '<p class="f13-note">' + escapeHtml(d.rankingNote) + '</p>' : '') +
+      '</div>';
+    }
+    // === Key observations ==============================================
+    if (Array.isArray(d.keyObservations) && d.keyObservations.length){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Key observations</h3>' +
+        '<ul class="f13-list">' +
+        d.keyObservations.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+        '</ul>' +
+      '</div>';
+    }
+    // === Disclaimer + links ============================================
+    if (d.disclaimer || d.latestDataLinks){
+      html += '<div class="f13-footer">' +
+        (d.disclaimer ? '<p class="f13-disclaimer"><strong>Disclaimer:</strong> ' + escapeHtml(d.disclaimer) + '</p>' : '') +
+        (d.latestDataLinks ? '<p class="f13-links">' + escapeHtml(d.latestDataLinks) + '</p>' : '') +
+      '</div>';
+    }
+    root.innerHTML = html;
+  }
+
   // --- Top picks tab ------------------------------------------------------
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
@@ -5132,6 +5320,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
@@ -5163,6 +5352,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <div id="streaks-footer" class="streaks-footer"></div>
     </section>
+  </div>
+  <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
+  ${f13Section()}
   </div>
   <div class="page-pane" id="page-pane-portfolio" role="tabpanel" aria-labelledby="page-tab-portfolio" hidden>
     <section class="card"><p class="hint">Loading portfolio…</p></section>
@@ -8235,6 +8427,157 @@ main { padding-top: var(--s-2); }
 }
 @media (max-width: 640px) {
   .cal-day { grid-template-columns: 1fr; gap: 4px; }
+}
+
+/* === 13F filings tab === */
+.f13-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  margin-top: var(--s-3);
+}
+.f13-empty {
+  padding: var(--s-4) var(--s-3);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.f13-source {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.f13-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.f13-block-title {
+  font: 600 13px/1.2 var(--font-mono);
+  letter-spacing: .03em;
+  color: var(--text);
+  margin: 0;
+}
+.f13-note, .f13-tail {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+  font-style: italic;
+}
+.f13-paragraph {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.5;
+}
+.f13-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.f13-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.f13-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 520px;
+}
+.f13-table th, .f13-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+.f13-table th {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface);
+}
+.f13-table tbody tr:last-child td { border-bottom: none; }
+.f13-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.f13-num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+.f13-tkr { font: 600 12px/1.2 var(--font-mono); color: var(--text-strong); letter-spacing: .02em; }
+.f13-muted { color: var(--muted); }
+.f13-rank-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.f13-rank-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+.f13-rank-row:last-child { border-bottom: none; }
+.f13-rank {
+  font: 700 11px/1 var(--font-mono);
+  color: var(--accent);
+  min-width: 32px;
+  letter-spacing: .04em;
+}
+.f13-rank-range {
+  color: var(--muted);
+  font-weight: 600;
+  min-width: auto;
+}
+.f13-pos-name {
+  color: var(--muted);
+  font-size: 12px;
+}
+.f13-pos-note {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+.f13-flow-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+.f13-flow-col {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.f13-flow-buy { border-left: 3px solid var(--pos); }
+.f13-flow-sell { border-left: 3px solid var(--neg); }
+.f13-footer {
+  border-top: 1px solid var(--border);
+  padding-top: var(--s-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.f13-disclaimer, .f13-links {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+@media (max-width: 640px) {
+  .f13-flow-pair { grid-template-columns: 1fr; }
 }
 
 /* === Top picks tab === */
