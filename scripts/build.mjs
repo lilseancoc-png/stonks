@@ -7517,6 +7517,79 @@ function acquireAiSlot() {
     }
   });
 }
+// Token-usage logging. Every Gemini/Gemma response carries a usageMetadata
+// block with promptTokenCount / candidatesTokenCount / cachedContentTokenCount
+// / thoughtsTokenCount. We accumulate per-day, per-model, per-callType totals
+// in data/ai-usage.json so we can: (a) see what a build actually cost,
+// (b) verify implicit caching is engaging once we move to a Flash-Lite model
+// with a long shared system-prompt prefix, (c) confirm the Batch API path
+// is taking the discounted route. The file is preserved across the data/
+// wipe by loading at build start and rewriting at the end.
+const AI_USAGE_FILE = "ai-usage.json";
+const AI_USAGE_HISTORY_DAYS = 14;
+let _aiUsageState = null;
+
+async function loadAiUsageState() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, AI_USAGE_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    _aiUsageState = parsed && typeof parsed === "object" && parsed.dates ? parsed : { dates: {} };
+  } catch (_) {
+    _aiUsageState = { dates: {} };
+  }
+  return _aiUsageState;
+}
+
+function recordAiUsage({ model, callType, symbol, usage, mode }) {
+  if (!_aiUsageState) _aiUsageState = { dates: {} };
+  const today = new Date().toISOString().slice(0, 10);
+  const byDate = (_aiUsageState.dates[today] ??= {});
+  const byModel = (byDate[model] ??= {});
+  const bucket = (byModel[callType] ??= {
+    calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, thoughtTokens: 0, mode: mode || "inline",
+  });
+  bucket.calls += 1;
+  bucket.inputTokens += usage?.promptTokenCount || 0;
+  bucket.outputTokens += usage?.candidatesTokenCount || 0;
+  bucket.cachedTokens += usage?.cachedContentTokenCount || 0;
+  bucket.thoughtTokens += usage?.thoughtsTokenCount || 0;
+  if (mode) bucket.mode = mode;
+  const inT = usage?.promptTokenCount ?? "?";
+  const outT = usage?.candidatesTokenCount ?? "?";
+  const cachedT = usage?.cachedContentTokenCount ?? 0;
+  const thoughtT = usage?.thoughtsTokenCount ?? 0;
+  const sym = symbol ? ` ${symbol}` : "";
+  console.log(`    [ai]${sym} ${callType} ${model} in=${inT} cached=${cachedT} out=${outT}${thoughtT ? ` thought=${thoughtT}` : ""}`);
+}
+
+async function writeAiUsageState() {
+  if (!_aiUsageState) return;
+  const cutoff = new Date(Date.now() - AI_USAGE_HISTORY_DAYS * 86400000)
+    .toISOString().slice(0, 10);
+  const pruned = {};
+  for (const [date, val] of Object.entries(_aiUsageState.dates)) {
+    if (date >= cutoff) pruned[date] = val;
+  }
+  _aiUsageState.dates = pruned;
+  await writeFile(resolve(DATA_DIR, AI_USAGE_FILE), JSON.stringify(_aiUsageState), "utf8");
+}
+
+function logAiUsageSummary() {
+  if (!_aiUsageState || !Object.keys(_aiUsageState.dates).length) return;
+  const dates = Object.keys(_aiUsageState.dates).sort();
+  console.log(`AI usage summary (last ${dates.length} days):`);
+  for (const date of dates) {
+    let calls = 0, inT = 0, outT = 0, cachedT = 0;
+    for (const byModel of Object.values(_aiUsageState.dates[date])) {
+      for (const b of Object.values(byModel)) {
+        calls += b.calls; inT += b.inputTokens; outT += b.outputTokens; cachedT += b.cachedTokens;
+      }
+    }
+    const cachedPct = inT > 0 ? Math.round((cachedT / inT) * 100) : 0;
+    console.log(`  ${date}: ${calls} calls · in=${inT} out=${outT} cached=${cachedT} (${cachedPct}%)`);
+  }
+}
+
 // Google's free tier intermittently returns 500 INTERNAL on otherwise valid
 // requests, and 429 RESOURCE_EXHAUSTED if a request slips through to the
 // quota window (rare under the limiter, but the API also enforces a separate
@@ -7819,6 +7892,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
           responseMimeType: "application/json",
         },
       });
+      recordAiUsage({ model: AI_MODEL, callType: "news", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -8001,6 +8075,7 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
           responseMimeType: "application/json",
         },
       });
+      recordAiUsage({ model: AI_MODEL, callType: "fundamentals", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -8409,6 +8484,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
           responseMimeType: "application/json",
         },
       });
+      recordAiUsage({ model: NARRATIVES_MODEL, callType: "narratives", usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -8803,6 +8879,10 @@ async function attachMarketNarratives(chains, previousHistory) {
 }
 
 async function main() {
+  // Load running AI-usage totals BEFORE the data/ wipe further down so we
+  // can merge today's calls into the existing rolling window. Lives in
+  // data/ai-usage.json — gets rewritten after writeChainFiles below.
+  await loadAiUsageState();
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
   const got = Object.keys(chains).length;
@@ -8870,9 +8950,11 @@ async function main() {
   if (unusualLog) {
     await writeFile(resolve(DATA_DIR, UNUSUAL_LOG_FILE), JSON.stringify(unusualLog), "utf8");
   }
+  await writeAiUsageState();
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );
+  logAiUsageSummary();
 }
 
 async function writeTrendFiles({ narratives, sectorOverviews, recentlyEnded, macroHeadlines, history, builtAtIso }) {
