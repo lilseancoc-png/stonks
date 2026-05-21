@@ -2072,7 +2072,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       var r = rows[i];
       var d = Math.abs((r.s||0) - spot);
       if (d < bestDist){ bestDist = d; bestIdx = i; }
-      parts[i] = '<option value="' + i + '">$' + fmt(r.s) + ' · bid ' + fmt(r.b) + ' / ask ' + fmt(r.a) + '</option>';
+      // Yahoo returns bid=0/ask=0 when there's no live quote (after-hours,
+      // weekends, illiquid strikes on high-priced names like GS). Fall back
+      // to the last trade so the dropdown stays informative instead of
+      // showing 'bid 0.00 / ask 0.00' everywhere.
+      var quoteStr;
+      if (r.b > 0 && r.a > 0) quoteStr = 'bid ' + fmt(r.b) + ' / ask ' + fmt(r.a);
+      else if (r.l > 0) quoteStr = 'last $' + fmt(r.l);
+      else quoteStr = 'no quote';
+      parts[i] = '<option value="' + i + '">$' + fmt(r.s) + ' · ' + quoteStr + '</option>';
     }
     sel.innerHTML = parts.join('');
     sel.selectedIndex = bestIdx;
@@ -2824,7 +2832,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     });
     html += '<div class="opt-contract">' + (input.label || '') + ' · spot $' + fmt(input.spot) + ' · ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry</div>';
     html += '<div class="opt-grid">';
-    html += row('Bid / Ask', '$' + fmt(bid) + ' / $' + fmt(ask));
+    var hasQuote = (bid != null && ask != null && (bid + ask) > 0);
+    var bidAskStr = hasQuote
+      ? '$' + fmt(bid) + ' / $' + fmt(ask)
+      : (input.last > 0 ? '— / — · last $' + fmt(input.last) : '— / —');
+    html += row('Bid / Ask', bidAskStr);
     html += row('Mid', mid != null ? '$' + fmt(mid) : '—');
     html += row('Spread', spread != null ? ('$' + fmt(spread) + ' (' + fmtPct(spreadPct) + ')') : '—', gradeChip(sGrade), TIPS.spread);
     html += row('Intrinsic value', intrinsic != null ? '$' + fmt(intrinsic) : '—', '', TIPS.intrinsic);
@@ -3170,6 +3182,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       // current type/expiry selection is preserved by populateStrikes().
       populateStrikes();
       evaluate();
+    }
+    // Always fire one immediate chain refresh on ticker selection so the
+    // user sees fresh bid/ask the moment they pick a name, instead of
+    // waiting up to 30s for the first poll. Outside regular hours Yahoo
+    // typically returns bid=0/ask=0 (no live market), so the dropdown's
+    // last-trade fallback still applies — but last prices, OI, and volume
+    // can move during pre/post sessions and this keeps them current.
+    if (state.symbol === symbol && state.currentExp) {
+      refreshLiveChain(symbol, state.currentExp);
     }
     // Once we know the market is open, start polling the chain endpoint
     // every 30s so bid/ask/IV/volume stay fresh while the user is on the
@@ -3966,11 +3987,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     renderMaxPain();
     scheduleEvaluate();
     pushUrlState();
-    // The baked chain for the new expiration is already cached, but during
-    // market hours the user wants fresh quotes for the expiration they're
-    // looking at — fire one extra poll immediately and let the interval
-    // pick up from there.
-    if (currentMarketState() === 'REGULAR') refreshLiveChain(state.symbol, exp);
+    // The baked chain for the new expiration is already cached, but the
+    // user expects fresh bid/ask the moment they pick a new expiration.
+    // Fire one immediate refresh regardless of market state — during regular
+    // hours this gets live quotes; outside hours Yahoo returns no live bid/ask
+    // (the dropdown falls back to last-trade), but OI/volume/IV can still
+    // move from after-hours trades and prints.
+    if (state.symbol && exp) refreshLiveChain(state.symbol, exp);
   }
 
   // --- Narratives ---------------------------------------------------------
