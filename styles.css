@@ -1306,6 +1306,33 @@ main {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* When any contract carries an AI flow-explanation note, switch to a
+   vertical stack so each chip + note pair owns its own row. Otherwise
+   the dense pill layout keeps the original horizontal wrap. */
+.flow-contracts.has-notes {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.flow-contract { display: contents; }
+.flow-contracts.has-notes .flow-contract {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.flow-note {
+  margin: 0 0 0 4px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  font-style: italic;
+  max-width: 64em;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+}
 /* The HTML 'hidden' attribute resolves to display:none via the UA stylesheet,
    but `.flow-contracts { display: flex }` is an equally-specific class
    selector that wins the cascade. Restore the collapse behavior explicitly. */
@@ -1568,6 +1595,64 @@ main {
   border-radius: var(--r-3);
   background: var(--surface-2);
 }
+
+/* --- Implied vol card ---------------------------------------------------- */
+.opt-iv {
+  margin: var(--s-3) 0;
+  padding: var(--s-3) var(--s-3) var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+}
+.opt-iv[hidden] { display: none; }
+.opt-iv-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  justify-content: space-between;
+}
+.opt-iv-title {
+  margin: 0; font-size: var(--fs-md); font-weight: 700;
+  color: var(--text-strong); letter-spacing: 0.01em;
+}
+.opt-iv-rank {
+  font: 600 11px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .03em;
+}
+.opt-iv-rank-rich { color: var(--neg); }
+.opt-iv-rank-cheap { color: var(--pos); }
+.opt-iv-rank-normal { color: var(--text); }
+.opt-iv-term { margin: var(--s-2) 0; }
+.opt-iv-svg {
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  font-family: var(--font-mono);
+}
+.opt-iv-line {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.opt-iv-dots circle {
+  fill: var(--accent);
+}
+.opt-iv-axis {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.opt-iv-empty {
+  padding: var(--s-3);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.opt-iv-foot {
+  font-size: 10px;
+  color: var(--muted);
+  margin: var(--s-2) 0 0;
+  line-height: 1.4;
+}
+
 .opt-tech-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2);
   margin-bottom: var(--s-2);
@@ -2610,6 +2695,109 @@ main {
 /* Section spacing — main cards sit closer to read as one continuous panel */
 main { padding-top: var(--s-2); }
 .card { margin-bottom: var(--s-3); }
+
+/* === Calendar tab === */
+.calendar-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin: var(--s-2) 0 var(--s-3);
+}
+.calendar-type-filter { display: inline-flex; gap: 4px; }
+.calendar-pill {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.calendar-pill:hover { color: var(--text); }
+.calendar-pill.is-on {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.calendar-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
+.cal-day {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--s-3);
+  align-items: start;
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--border);
+}
+.cal-day:first-child { border-top: none; }
+.cal-date {
+  font: 600 12px/1.2 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding-top: 4px;
+}
+.cal-chips { display: flex; flex-direction: column; gap: 6px; }
+.cal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-2);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.cal-chip-sym {
+  font: 600 12px/1 var(--font-mono);
+  color: var(--text);
+  letter-spacing: .02em;
+}
+.cal-chip-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.cal-chip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-chip-source {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+.cal-earnings { border-left-color: var(--accent); }
+.cal-fed { border-left-color: var(--neg); }
+.cal-fed .cal-chip-tag { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }
+.cal-cpi { border-left-color: var(--warn); }
+.cal-cpi .cal-chip-tag { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.cal-sec { border-left-color: var(--muted); }
+.cal-sec .cal-chip-tag { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+.cal-macro { border-left-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.calendar-empty {
+  padding: var(--s-4) var(--s-3);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .cal-day { grid-template-columns: 1fr; gap: 4px; }
+}
 
 /* === Streaks tab === */
 .streaks-root { margin-top: var(--s-3); }

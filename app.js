@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03557;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -862,6 +862,144 @@
     var shell = $('opt-analysis');
     if (shell) shell.hidden = !state.symbol;
   }
+
+  // --- Implied vol tab --------------------------------------------------
+  // Per-ticker IV history is collected by the daily build into
+  // data/iv-history/<SYM>.json. Cache responses so re-selecting a ticker
+  // in the same session doesn't re-fetch.
+  var IV_HISTORY_CACHE = Object.create(null);
+  function atmIvForExpiration(chain, spot){
+    if (!chain || spot == null) return null;
+    var pick = function(rows){
+      if (!Array.isArray(rows) || !rows.length) return null;
+      var best = null, bestDist = Infinity;
+      for (var i=0; i<rows.length; i++){
+        var r = rows[i];
+        if (!r || r.iv == null || !isFinite(r.iv) || r.iv <= 0 || r.s == null) continue;
+        var d = Math.abs(r.s - spot);
+        if (d < bestDist){ best = r; bestDist = d; }
+      }
+      return best;
+    };
+    var c = pick(chain.c), p = pick(chain.p);
+    if (c && p) return (c.iv + p.iv) / 2;
+    if (c) return c.iv;
+    if (p) return p.iv;
+    return null;
+  }
+  function computeTermStructure(){
+    if (!state.expirations || !state.expirations.length) return [];
+    var nowSec = Date.now() / 1000;
+    var pts = [];
+    for (var i=0; i<state.expirations.length; i++){
+      var expSec = state.expirations[i];
+      var dte = Math.max(0, Math.round((expSec - nowSec) / 86400));
+      var iv = atmIvForExpiration(state.chains[expSec], state.spot);
+      if (iv != null) pts.push({ expSec: expSec, dte: dte, iv: iv });
+    }
+    pts.sort(function(a, b){ return a.dte - b.dte; });
+    return pts;
+  }
+  function termStructureSvg(points){
+    if (!points.length) return '<div class="opt-iv-empty">No usable IV in the loaded chain.</div>';
+    var W = 360, H = 110, PAD_L = 36, PAD_R = 8, PAD_T = 8, PAD_B = 22;
+    var minIv = Infinity, maxIv = -Infinity;
+    for (var i=0; i<points.length; i++){
+      if (points[i].iv < minIv) minIv = points[i].iv;
+      if (points[i].iv > maxIv) maxIv = points[i].iv;
+    }
+    // 5% padding around the range so the line doesn't graze the axes.
+    var ivPad = (maxIv - minIv) * 0.15 || maxIv * 0.05 || 0.02;
+    var y0 = minIv - ivPad, y1 = maxIv + ivPad;
+    var xMin = points[0].dte, xMax = points[points.length - 1].dte;
+    if (xMax === xMin) xMax = xMin + 1;
+    var sx = function(d){ return PAD_L + (d - xMin) / (xMax - xMin) * (W - PAD_L - PAD_R); };
+    var sy = function(iv){ return PAD_T + (1 - (iv - y0) / (y1 - y0)) * (H - PAD_T - PAD_B); };
+    var path = points.map(function(p, idx){ return (idx === 0 ? 'M' : 'L') + sx(p.dte).toFixed(1) + ' ' + sy(p.iv).toFixed(1); }).join(' ');
+    var dots = points.map(function(p){
+      return '<circle cx="' + sx(p.dte).toFixed(1) + '" cy="' + sy(p.iv).toFixed(1) + '" r="2.5" />';
+    }).join('');
+    // Y-axis labels: just the min and max IV so the chart stays legible.
+    var yLabels =
+      '<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + 4) + '" class="opt-iv-axis" text-anchor="end">' + (y1 * 100).toFixed(0) + '%</text>' +
+      '<text x="' + (PAD_L - 4) + '" y="' + (H - PAD_B + 2) + '" class="opt-iv-axis" text-anchor="end">' + (y0 * 100).toFixed(0) + '%</text>';
+    // X-axis labels: leftmost (front-month) and rightmost (longest) DTE.
+    var xLabels =
+      '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="start">' + xMin + 'd</text>' +
+      '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="end">' + xMax + 'd</text>';
+    return '<svg class="opt-iv-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="IV term structure">' +
+      '<path d="' + path + '" class="opt-iv-line" fill="none" />' +
+      '<g class="opt-iv-dots">' + dots + '</g>' +
+      yLabels + xLabels +
+    '</svg>';
+  }
+  function computeIvRank(history, today){
+    if (!history || !history.length) return null;
+    var entries = history.filter(function(e){ return e && e.iv != null && isFinite(e.iv); });
+    if (entries.length < 60) {
+      return { ready: false, count: entries.length, target: 60 };
+    }
+    var values = entries.map(function(e){ return e.iv; });
+    var lower = 0;
+    for (var i=0; i<values.length; i++){ if (values[i] <= today) lower += 1; }
+    var pct = (lower / values.length) * 100;
+    return { ready: true, percentile: pct, count: entries.length, today: today };
+  }
+  function fetchIvHistory(symbol){
+    if (IV_HISTORY_CACHE[symbol] !== undefined) return Promise.resolve(IV_HISTORY_CACHE[symbol]);
+    return fetch('data/iv-history/' + encodeURIComponent(symbol) + '.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        var entries = json && Array.isArray(json.entries) ? json.entries : [];
+        IV_HISTORY_CACHE[symbol] = entries;
+        return entries;
+      })
+      .catch(function(){
+        IV_HISTORY_CACHE[symbol] = [];
+        return [];
+      });
+  }
+  function renderImpliedVol(symbol){
+    var section = $('opt-iv');
+    var termBox = $('opt-iv-term');
+    var rankBox = $('opt-iv-rank');
+    if (!section || !termBox || !rankBox) return;
+    if (!state.symbol || !state.expirations || !state.expirations.length){
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    var points = computeTermStructure();
+    termBox.innerHTML = termStructureSvg(points);
+    var todayIv = points.length ? atmIvForExpiration(
+      state.chains[points.reduce(function(best, p){
+        return Math.abs(p.dte - 30) < Math.abs(best.dte - 30) ? p : best;
+      }).expSec],
+      state.spot
+    ) : null;
+    rankBox.textContent = 'Loading IV rank…';
+    fetchIvHistory(symbol).then(function(entries){
+      if (state.symbol !== symbol) return; // ticker switched while loading
+      if (todayIv == null){
+        rankBox.textContent = 'No ATM IV in chain';
+        return;
+      }
+      var rank = computeIvRank(entries, todayIv);
+      if (!rank){
+        rankBox.textContent = 'Building history — 0/60 days';
+        return;
+      }
+      if (!rank.ready){
+        rankBox.textContent = 'Building history — ' + rank.count + '/' + rank.target + ' days';
+        return;
+      }
+      var pctStr = rank.percentile.toFixed(0) + '%';
+      var label = rank.percentile >= 80 ? 'rich' : rank.percentile <= 20 ? 'cheap' : 'normal';
+      rankBox.textContent = 'IV rank ' + pctStr + ' · ' + label + ' (' + rank.count + 'd history · today ' + (rank.today * 100).toFixed(0) + '%)';
+      rankBox.className = 'opt-iv-rank opt-iv-rank-' + label;
+    });
+  }
+
   function bindTabs(){
     var tabs = document.querySelectorAll('.opt-tab');
     if (!tabs.length) return;
@@ -880,14 +1018,14 @@
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
-    selectTab(saved && ['fund','tech','news'].indexOf(saved) >= 0 ? saved : 'fund');
+    selectTab(saved && ['fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'fund');
   }
   // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
   // so a return visit lands the user where they left off.
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['tickers','narratives','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','calendar','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -897,6 +1035,7 @@
         var pane = paneId ? document.getElementById(paneId) : null;
         if (pane) pane.hidden = !sel;
       });
+      if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
     }
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
@@ -1229,6 +1368,7 @@
       renderAnalysisShell();
       renderTechnicals(symbol);
       renderFundamentals(symbol);
+      renderImpliedVol(symbol);
       renderNewsPane();
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
@@ -2587,7 +2727,10 @@
       tipPrev +
       (c.last != null ? ' · last $' + Number(c.last) : '') +
       tipPrem + tipTape + tipRepeat;
-    return '<div class="flow-chip ' + sideClass + ' tier-' + tier + (repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + escapeHtml(title) + '">' +
+    var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
+    var wrapClass = 'flow-contract' + (c.note ? ' has-note' : '');
+    return '<div class="' + wrapClass + '">' +
+      '<div class="flow-chip ' + sideClass + ' tier-' + tier + (repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + escapeHtml(title) + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
       '<span class="flow-strike">' + escapeHtml(strike) + '</span>' +
       '<span class="flow-exp">' + escapeHtml(fmtExpiry(c.expSec)) + '</span>' +
@@ -2602,6 +2745,8 @@
       premTag +
       tapeTag +
       repeatTag +
+      '</div>' +
+      noteHtml +
     '</div>';
   }
   function fmtRepeatSince(iso){
@@ -2722,6 +2867,8 @@
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = deltaTier(t.topDelta || 0);
       var collapsed = !!flowState.perRowCollapsed[t.symbol];
+      var hasNotes = t.contracts.some(function(c){ return !!c.note; });
+      var contractsCls = 'flow-contracts' + (hasNotes ? ' has-notes' : '');
       return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
         '<button type="button" class="flow-row-head" aria-expanded="' + (!collapsed) + '" data-row-toggle="' + escapeHtml(t.symbol) + '">' +
           '<svg class="flow-row-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>' +
@@ -2730,7 +2877,7 @@
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
           '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
-        '<div class="flow-contracts"' + (collapsed ? ' hidden' : '') + '>' +
+        '<div class="' + contractsCls + '"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(flowContractHtml).join('') +
         '</div>' +
       '</article>';
@@ -2829,6 +2976,119 @@
     }
   }
 
+  // --- Calendar tab -------------------------------------------------------
+  var calendarState = { data: null, loading: false, type: 'all' };
+  function loadCalendar(){
+    if (calendarState.data || calendarState.loading) {
+      renderCalendar();
+      return;
+    }
+    calendarState.loading = true;
+    fetch('data/calendar.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
+        calendarState.loading = false;
+        renderCalendar();
+      })
+      .catch(function(){
+        calendarState.data = { events: [] };
+        calendarState.loading = false;
+        renderCalendar();
+      });
+  }
+  function calendarTypeLabel(type){
+    if (type === 'earnings') return 'Earnings';
+    if (type === 'fed') return 'Fed';
+    if (type === 'cpi') return 'CPI / Jobs';
+    if (type === 'sec') return 'SEC';
+    return 'Macro';
+  }
+  function calendarTypeMatches(eventType, filter){
+    if (filter === 'all') return true;
+    if (filter === 'earnings') return eventType === 'earnings';
+    if (filter === 'macro') return eventType !== 'earnings';
+    return true;
+  }
+  function fmtCalendarDate(dateStr){
+    if (!dateStr) return '';
+    var parts = String(dateStr).split('-');
+    if (parts.length !== 3) return dateStr;
+    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
+    }).format(d);
+  }
+  function renderCalendar(){
+    var root = $('calendar-root');
+    var empty = $('calendar-empty');
+    var eyebrow = $('calendar-eyebrow');
+    if (!root) return;
+    if (calendarState.loading){
+      root.innerHTML = 'Loading calendar…';
+      if (empty) empty.hidden = true;
+      return;
+    }
+    var data = calendarState.data || { events: [] };
+    var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    if (eyebrow){
+      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') +
+        (calendarState.type === 'all' ? '' : ' · ' + calendarTypeLabel(calendarState.type === 'macro' ? 'macro' : 'earnings'));
+    }
+    if (!filtered.length){
+      root.innerHTML = '';
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = data.events.length
+          ? 'No events match this filter.'
+          : 'No events in the next 30 days.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    // Group by date for the timeline. Each group renders a date header + chips.
+    var groups = {};
+    var dateOrder = [];
+    filtered.forEach(function(e){
+      if (!groups[e.date]){ groups[e.date] = []; dateOrder.push(e.date); }
+      groups[e.date].push(e);
+    });
+    root.innerHTML = dateOrder.map(function(date){
+      var rows = groups[date].map(function(e){
+        var cls = 'cal-chip cal-' + e.type;
+        var label = e.type === 'earnings'
+          ? '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span> ' +
+            '<span class="cal-chip-text">earnings</span>'
+          : '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
+            '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
+        var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+        return '<div class="' + cls + '">' + label + src + '</div>';
+      }).join('');
+      return '<div class="cal-day">' +
+        '<div class="cal-date">' + escapeHtml(fmtCalendarDate(date)) + '</div>' +
+        '<div class="cal-chips">' + rows + '</div>' +
+      '</div>';
+    }).join('');
+  }
+  function bindCalendarControls(){
+    var typeFilter = document.querySelector('.calendar-type-filter');
+    if (typeFilter){
+      typeFilter.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.calendar-pill');
+        if (!btn) return;
+        var type = btn.getAttribute('data-cal-type') || 'all';
+        calendarState.type = type;
+        typeFilter.querySelectorAll('.calendar-pill').forEach(function(p){
+          var on = p.getAttribute('data-cal-type') === type;
+          p.classList.toggle('is-on', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderCalendar();
+      });
+    }
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
@@ -2839,6 +3099,7 @@
     renderNarratives();
     renderUnusualFlow();
     bindFlowControls();
+    bindCalendarControls();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){
