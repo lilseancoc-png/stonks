@@ -7401,6 +7401,99 @@ async function writeChainFiles(chains) {
   return totalBytes;
 }
 
+// ATM ~30-day IV snapshot per ticker. Captured every build into
+// data/iv-history/<SYM>.json so the front-end can later show "IV rank"
+// (today's IV as a percentile of its own ~18-month history) and "IV
+// term structure" (which lands in PR 5). The Yahoo chain we already
+// fetched carries per-contract implied vol — picking the nearest-strike
+// call/put pair at the nearest-30d expiration is essentially free.
+const IV_HISTORY_DIR = "iv-history";
+// ~18 months of daily samples; the file stays small (each entry is
+// ~25 bytes, so 400 entries × per-ticker ≈ 10 KB on disk).
+const IV_HISTORY_MAX_ENTRIES = 400;
+// Days-to-expiration target for the ATM sample. Picks the closest
+// expiration to this many days out so the series tracks a comparable
+// horizon over time (1M IV is the conventional one).
+const IV_HISTORY_TARGET_DTE = 30;
+
+function computeAtm30dIv(data) {
+  if (!data?.spot || !data?.chains) return null;
+  const spot = data.spot;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const target = nowSec + IV_HISTORY_TARGET_DTE * 86400;
+  const exps = Object.keys(data.chains).map(Number)
+    .filter((e) => e > nowSec)
+    .sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
+  if (!exps.length) return null;
+  const expSec = exps[0];
+  const chain = data.chains[expSec];
+  if (!chain) return null;
+  // Nearest-strike-to-spot with a finite positive IV. compressContract
+  // emits {s, b, a, l, iv, oi, v}.
+  const pickAtm = (contracts) => {
+    const valid = (contracts || []).filter(
+      (c) => c?.iv != null && isFinite(c.iv) && c.iv > 0 && c.s != null,
+    );
+    if (!valid.length) return null;
+    return valid.reduce((best, c) =>
+      Math.abs(c.s - spot) < Math.abs(best.s - spot) ? c : best,
+    );
+  };
+  const atmC = pickAtm(chain.c);
+  const atmP = pickAtm(chain.p);
+  // Average call+put IV when both available — smooths the put/call skew
+  // around the money so the series doesn't jump just because liquidity
+  // tilted to one side that day.
+  if (atmC && atmP) return (atmC.iv + atmP.iv) / 2;
+  if (atmC) return atmC.iv;
+  if (atmP) return atmP.iv;
+  return null;
+}
+
+async function loadIvHistoryEntries(symbol) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, IV_HISTORY_DIR, `${symbol}.json`), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.entries) ? parsed.entries : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+// Build today's iv-history snapshots before the writeChainFiles wipe.
+// Returns Map<symbol, {symbol, entries, dte}> ready to flush after the
+// wipe via writeIvHistory.
+async function collectIvHistory(chains) {
+  const today = new Date().toISOString().slice(0, 10);
+  const out = new Map();
+  for (const [sym, data] of Object.entries(chains)) {
+    const iv = computeAtm30dIv(data);
+    if (iv == null) continue;
+    const prior = await loadIvHistoryEntries(sym);
+    // Replace today's entry if a previous run already wrote one (the
+    // build runs pre-market + EOD on weekdays — keep the later sample).
+    const filtered = prior.filter((e) => e?.date !== today);
+    filtered.push({ date: today, iv: Number(iv.toFixed(4)) });
+    filtered.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const capped = filtered.slice(-IV_HISTORY_MAX_ENTRIES);
+    out.set(sym, { symbol: sym, dteTarget: IV_HISTORY_TARGET_DTE, entries: capped });
+  }
+  return out;
+}
+
+async function writeIvHistory(historyMap) {
+  if (!historyMap || !historyMap.size) return 0;
+  const dir = resolve(DATA_DIR, IV_HISTORY_DIR);
+  await mkdir(dir, { recursive: true });
+  let bytes = 0;
+  for (const [sym, payload] of historyMap.entries()) {
+    const json = JSON.stringify(payload);
+    await writeFile(resolve(dir, `${sym}.json`), json, "utf8");
+    bytes += json.length;
+  }
+  return bytes;
+}
+
 // Per-ticker daily green/red streaks. Reuses the bars already fetched into
 // chains[sym]._bars by fetchTickerChain so this adds zero Yahoo calls.
 async function writeStreaksFile(chains, builtAtIso) {
@@ -9240,6 +9333,10 @@ async function main() {
   const unusual = await loadUnusualFlow();
   const unusualHistory = await loadUnusualHistory();
   const unusualLog = await loadUnusualLog();
+  // collectIvHistory reads each ticker's previous iv-history file from
+  // data/iv-history/ before writeChainFiles wipes the directory, then
+  // returns an in-memory map to flush back after the wipe.
+  const ivHistory = await collectIvHistory(chains);
   const riskFreeRate = await fetchRiskFreeRate();
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
@@ -9281,6 +9378,10 @@ async function main() {
   }
   if (unusualLog) {
     await writeFile(resolve(DATA_DIR, UNUSUAL_LOG_FILE), JSON.stringify(unusualLog), "utf8");
+  }
+  const ivHistoryBytes = await writeIvHistory(ivHistory);
+  if (ivHistory.size) {
+    console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
   await writeAiUsageState();
   console.log(
