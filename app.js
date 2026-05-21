@@ -23,6 +23,11 @@
   var INDUSTRIES_BY_SECTOR = MANIFEST.industriesBySector || {};
   var UNUSUAL = MANIFEST.unusual || null;
   var SPOTS = MANIFEST.spots || {};
+  // Macro backdrop — { tenY:{value,change5d,trend}, dxy:{value,change5d,trend}, asOf }
+  // or null if both legs failed at bake time. Consumed by the Grade tab's
+  // recommendation card and shouldBuy() to add a small macro nudge in line
+  // with the Bonds & USD primer.
+  var MACRO = (MANIFEST.macro && typeof MANIFEST.macro === 'object') ? MANIFEST.macro : null;
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
     var m = {};
@@ -728,6 +733,42 @@
       ? fundParts.join(' · ')
       : '<span class="opt-rec-muted">Fundamentals unavailable.</span>';
 
+    // Macro backdrop — yields + USD framed for the ticker's dominant
+    // sensitivity. Appended to the fundamentals block as a separate line so
+    // it reads as "what the macro is doing TO this name" rather than an
+    // analyst opinion. Falls back silently when no macro data or the ticker
+    // doesn't fall into a mapped class.
+    var macroLines = [];
+    if (MACRO && (MACRO.tenY || MACRO.dxy)) {
+      var summaryBits = [];
+      if (MACRO.tenY && MACRO.tenY.value != null) {
+        var ty = MACRO.tenY;
+        var tyChg = ty.change5d != null ? ((ty.change5d >= 0 ? '+' : '') + ty.change5d.toFixed(2) + '% 5d, ' + ty.trend) : ty.trend;
+        summaryBits.push('10Y ' + ty.value.toFixed(2) + '% (' + tyChg + ')');
+      }
+      if (MACRO.dxy && MACRO.dxy.value != null) {
+        var dx = MACRO.dxy;
+        var dxChg = dx.change5d != null ? ((dx.change5d >= 0 ? '+' : '') + dx.change5d.toFixed(2) + '% 5d, ' + dx.trend) : dx.trend;
+        summaryBits.push('DXY ' + dx.value.toFixed(2) + ' (' + dxChg + ')');
+      }
+      if (summaryBits.length) macroLines.push('<span class="opt-rec-pill fair">macro</span> ' + escapeHtml(summaryBits.join(' · ')));
+      var sym = input.ticker || input.symbol || null;
+      var tilt = sym ? macroTilt(sym, type) : null;
+      if (tilt && (tilt.bull.length || tilt.bear.length)) {
+        var dirLabel = type === 'call' ? 'calls' : 'puts';
+        var verdictTxt = '';
+        if (tilt.score > 0) verdictTxt = (type === 'call' ? 'Tailwind' : 'Headwind') + ' for ' + dirLabel + ': ';
+        else if (tilt.score < 0) verdictTxt = (type === 'call' ? 'Headwind' : 'Tailwind') + ' for ' + dirLabel + ': ';
+        else verdictTxt = 'Mixed macro: ';
+        macroLines.push(escapeHtml(verdictTxt) + escapeHtml(tilt.reason));
+      } else if (tilt) {
+        macroLines.push('<span class="opt-rec-muted">No directional macro signal vs ' + escapeHtml(classifyMacro(sym).label || 'sector') + ' today.</span>');
+      }
+    }
+    if (macroLines.length) {
+      fundamentals += '<div class="opt-rec-sub">' + macroLines.join('<br>') + '</div>';
+    }
+
     // Mechanics — spread / delta / theta grades + theta-30 warning.
     var mechParts = [];
     if (ctx.sGrade) mechParts.push('spread ' + ctx.sGrade.label.toLowerCase());
@@ -767,13 +808,110 @@
     '</div>';
   }
 
+  // Classify a ticker by its dominant macro sensitivity. Drives the macro
+  // backdrop sentence in the recommendation card and the ±1 macro nudge
+  // inside shouldBuy(). Rules sourced from the Bonds & USD primer:
+  //   · growth / multinational tech → rising yields + strong USD = headwind
+  //   · banks → rising yields = NIM tailwind (weak yields = drag)
+  //   · commodity / materials / energy → weak USD = tailwind, strong USD = drag
+  //   · gold / silver ETFs → strong USD + rising real yields = drag (opp. cost)
+  //   · EM / China / international → strong USD = drag (capital outflows)
+  //   · exporters / industrials → strong USD = drag for foreign revenue
+  // Tickers that don't fall into any class get a neutral classification so
+  // the macro nudge is a no-op.
+  function classifyMacro(symbol){
+    var sector = (SECTORS && symbol) ? SECTORS[symbol] : null;
+    if (!sector) return { kinds: [], label: null };
+    var kinds = [];
+    var label = sector;
+    // Growth & multinational tech — rate-sensitive, dollar-sensitive.
+    if (sector === 'Mega-cap tech' || sector === 'Software' || sector === 'Semis' ||
+        sector === 'Networking' || sector === 'Data center' || sector === 'Hardware' ||
+        sector === 'Storage' || sector === 'IT services' || sector === 'Tech services' ||
+        sector === 'Social' || sector === 'Fintech' || sector === 'Crypto') {
+      kinds.push('growth');
+      kinds.push('multinational');
+    }
+    // Banks — rising yields expand NIM.
+    if (sector === 'Bank') kinds.push('bank');
+    // Commodity-linked: energy, materials, mining-adjacent.
+    if (sector === 'Energy' || sector === 'Materials') kinds.push('commodity');
+    // Gold / silver / precious metals ETFs — pure dollar inverse.
+    if (symbol === 'GLD' || symbol === 'SLV') kinds.push('gold');
+    // EM / international — capital-flow sensitive to USD.
+    if (sector === 'China tech') kinds.push('em');
+    if (symbol === 'EWY' || symbol === 'KWEB') kinds.push('em');
+    // Industrials / defense / exporters — strong USD hurts foreign revenue.
+    if (sector === 'Industrial' || sector === 'Defense' || sector === 'Logistics') kinds.push('exporter');
+    return { kinds: kinds, label: label };
+  }
+
+  // Macro tilt for a (ticker, call/put) combo. Returns { score, reason } where
+  // score is in {-1, 0, +1} from the call-side perspective; shouldBuy multiplies
+  // by direction. reason is a short human-readable sentence for the card.
+  function macroTilt(symbol, type){
+    if (!MACRO) return null;
+    var tenY = MACRO.tenY || null;
+    var dxy = MACRO.dxy || null;
+    var cls = classifyMacro(symbol);
+    if (!cls.kinds.length) return null;
+    var bullParts = [], bearParts = [];
+    var yieldsRising = tenY && tenY.trend === 'rising';
+    var yieldsFalling = tenY && tenY.trend === 'falling';
+    var dollarRising = dxy && dxy.trend === 'rising';
+    var dollarFalling = dxy && dxy.trend === 'falling';
+    cls.kinds.forEach(function(k){
+      if (k === 'growth') {
+        if (yieldsRising) bearParts.push('rising 10Y pressures growth multiples');
+        if (yieldsFalling) bullParts.push('falling 10Y supports growth multiples');
+      }
+      if (k === 'multinational') {
+        if (dollarRising) bearParts.push('strong USD trims foreign-revenue translation (~40% of S&P 500 revenue is overseas)');
+        if (dollarFalling) bullParts.push('weak USD boosts foreign-revenue translation');
+      }
+      if (k === 'bank') {
+        if (yieldsRising) bullParts.push('rising 10Y expands net interest margin');
+        if (yieldsFalling) bearParts.push('falling 10Y compresses net interest margin');
+      }
+      if (k === 'commodity') {
+        if (dollarFalling) bullParts.push('weak USD is a tailwind for USD-priced commodities');
+        if (dollarRising) bearParts.push('strong USD pressures USD-priced commodities');
+      }
+      if (k === 'gold') {
+        if (dollarRising) bearParts.push('strong USD + opportunity cost of yield weigh on gold');
+        if (dollarFalling) bullParts.push('weak USD lifts gold (priced in USD)');
+        if (yieldsRising) bearParts.push('higher yields raise the opportunity cost of holding non-yielding gold');
+      }
+      if (k === 'em') {
+        if (dollarRising) bearParts.push('strong USD drives EM capital outflows + USD-debt stress');
+        if (dollarFalling) bullParts.push('weak USD supports EM equities');
+      }
+      if (k === 'exporter') {
+        if (dollarRising) bearParts.push('strong USD makes US exports less competitive');
+        if (dollarFalling) bullParts.push('weak USD makes US exports more competitive');
+      }
+    });
+    // Deduplicate while preserving order.
+    function uniq(a){ var seen={}, out=[]; a.forEach(function(s){ if (!seen[s]){ seen[s]=1; out.push(s);} }); return out; }
+    bullParts = uniq(bullParts);
+    bearParts = uniq(bearParts);
+    var net = bullParts.length - bearParts.length;
+    var score = net > 0 ? 1 : net < 0 ? -1 : 0;
+    var parts = [];
+    if (bullParts.length) parts.push(bullParts.join('; '));
+    if (bearParts.length) parts.push(bearParts.join('; '));
+    var reason = parts.join(' · ');
+    return { score: score, reason: reason, bull: bullParts, bear: bearParts, tenY: tenY, dxy: dxy };
+  }
+
   // Binary buy decision aggregating mechanics + news + technicals +
-  // fundamentals. Falls to NO on any hard mechanical disqualifier (wide
-  // spread, far-OTM delta, bleeding theta, ≤3 DTE, premium that's almost
-  // all time value with no runway). Otherwise scores directional alignment
-  // — news (±2), RSI and MACD (±1 each), fundamentals verdict (±1) — and
-  // multiplies by the option direction (+1 for calls, -1 for puts). Needs
-  // at least +2 aligned points and zero opposing edge to clear to YES.
+  // fundamentals + macro backdrop. Falls to NO on any hard mechanical
+  // disqualifier (wide spread, far-OTM delta, bleeding theta, ≤3 DTE,
+  // premium that's almost all time value with no runway). Otherwise scores
+  // directional alignment — news (±2), RSI and MACD (±1 each), fundamentals
+  // verdict (±1), macro (±1) — and multiplies by the option direction
+  // (+1 for calls, -1 for puts). Needs at least +2 aligned points and zero
+  // opposing edge to clear to YES.
   function shouldBuy(args){
     var sGrade = args.sGrade, dGrade = args.dGrade, tGrade = args.tGrade;
     var dte = args.daysToExpiry;
@@ -825,6 +963,15 @@
     if (fund && fund.verdict){
       if (fund.verdict === 'bullish'){ score += 1; bull.push('fundamentals'); }
       else if (fund.verdict === 'bearish'){ score -= 1; bear.push('fundamentals'); }
+    }
+    // Macro backdrop nudge — yields + USD framed against the ticker's
+    // dominant sensitivity (growth / multinational / bank / commodity /
+    // gold / EM / exporter). Adds at most ±1 to the score so the binary
+    // verdict still hinges on news + technicals primarily.
+    var macro = macroTilt(args.symbol, type);
+    if (macro && macro.score !== 0){
+      if (macro.score > 0){ score += 1; bull.push('macro'); }
+      else if (macro.score < 0){ score -= 1; bear.push('macro'); }
     }
     // Theta ramps up inside the last ~30 days to expiration. Not a hard fail
     // (the ≤3 DTE and 80%-extrinsic guards above already cover the worst
@@ -1120,7 +1267,7 @@
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','fear-greed','f13','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','fear-greed','f13','bonds-usd','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -1261,6 +1408,7 @@
       daysToExpiry: daysToExpiry, extrinsicRatio: extrinsicRatio,
       type: input.type,
       news: input.news, technicals: input.technicals, fundamentals: input.fundamentals,
+      symbol: input.ticker || input.symbol,
     });
 
     var html = '';

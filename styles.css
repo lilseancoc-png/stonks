@@ -2928,6 +2928,14 @@ main {
 .opt-rec-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
 .opt-rec-body { color: var(--text); }
 .opt-rec-muted { color: var(--muted); font-style: italic; }
+.opt-rec-sub {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--hairline);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
 .opt-rec-pill {
   display: inline-block; padding: 1px 6px; border-radius: 999px;
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
@@ -5377,6 +5385,37 @@ main { padding-top: var(--s-2); }
   --fng-greed:        #4f9b58;
   --fng-extreme-greed:#2c8a47;
 }
+/* Bonds & USD educational tab — plain table + list styling scoped to that pane
+   so the markdown-derived content reads cleanly without affecting other tabs. */
+.bonds-usd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.bonds-usd-table th,
+.bonds-usd-table td {
+  text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+}
+.bonds-usd-table th {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.bonds-usd-table tbody tr:last-child td { border-bottom: none; }
+.bonds-usd-list {
+  margin: 0;
+  padding-left: var(--s-5);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.bonds-usd-list li { margin-bottom: var(--s-1, 4px); }
 .fng-root { display: flex; flex-direction: column; gap: var(--s-5); }
 .fng-headline {
   display: grid;
