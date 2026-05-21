@@ -16761,8 +16761,6 @@ async function main() {
   // returns an in-memory map to flush back after the wipe.
   const ivHistory = await collectIvHistory(chains);
   const riskFreeRate = await fetchRiskFreeRate();
-  console.log("Fetching macro backdrop (10Y yield + DXY)…");
-  const macroBackdrop = await fetchMacroBackdrop();
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
