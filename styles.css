@@ -3397,12 +3397,13 @@ main { padding-top: var(--s-2); }
 }
 .f13-rank-row {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   font-size: 13px;
   line-height: 1.5;
   padding: 4px 8px;
   border-bottom: 1px solid var(--hairline);
+  flex-wrap: wrap;
 }
 .f13-rank-row:last-child { border-bottom: none; }
 .f13-rank {
@@ -3419,6 +3420,8 @@ main { padding-top: var(--s-2); }
 .f13-pos-name {
   color: var(--muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .f13-pos-note {
   color: var(--muted);
@@ -3461,6 +3464,7 @@ main { padding-top: var(--s-2); }
   letter-spacing: .03em;
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .f13-firm-meta {
   font-size: 11px;

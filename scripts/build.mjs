@@ -1092,7 +1092,10 @@ async function fetchFundamentals(symbol) {
     .map((n) => ({ date: n.date, period: n.period, value: n.rev }));
 
   return {
-    name: pr.shortName || pr.longName || null,
+    // Prefer longName: Yahoo caps shortName at ~30 chars, which truncates
+    // names like "Taiwan Semiconductor Manufacturing Company Limited" mid-word
+    // and leaks into the 13F biggest-positions list.
+    name: pr.longName || pr.shortName || null,
     marketCap: num(sd.marketCap) ?? num(pr.marketCap),
     trailingPE: num(sd.trailingPE),
     forwardPE: num(sd.forwardPE) ?? num(ks.forwardPE),
@@ -9021,12 +9024,13 @@ main { padding-top: var(--s-2); }
 }
 .f13-rank-row {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   font-size: 13px;
   line-height: 1.5;
   padding: 4px 8px;
   border-bottom: 1px solid var(--hairline);
+  flex-wrap: wrap;
 }
 .f13-rank-row:last-child { border-bottom: none; }
 .f13-rank {
@@ -9043,6 +9047,8 @@ main { padding-top: var(--s-2); }
 .f13-pos-name {
   color: var(--muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .f13-pos-note {
   color: var(--muted);
@@ -9085,6 +9091,7 @@ main { padding-top: var(--s-2); }
   letter-spacing: .03em;
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .f13-firm-meta {
   font-size: 11px;
@@ -10724,7 +10731,82 @@ async function fetchEdgar13FHoldings(cik, filing) {
   }
 }
 
-function parseEdgar13FXml(xml) {
+// SEC issuer names arrive in SHOUTING UPPERCASE (e.g. "MICROSOFT CORP COM").
+// Title-case each word, then restore canonical forms for a small set of
+// well-known suffixes/abbreviations that shouldn't be Title Case (PLC, LLC,
+// etc.) or that have a specific casing (Inc, Corp).
+const F13_ISSUER_TOKEN_OVERRIDES = {
+  INC: "Inc",
+  "INC.": "Inc.",
+  CORP: "Corp",
+  "CORP.": "Corp.",
+  CO: "Co",
+  "CO.": "Co.",
+  COS: "Cos",
+  LLC: "LLC",
+  LTD: "Ltd",
+  "LTD.": "Ltd.",
+  PLC: "PLC",
+  LP: "LP",
+  LLP: "LLP",
+  NA: "NA",
+  "N.A.": "N.A.",
+  NV: "NV",
+  "N.V.": "N.V.",
+  SA: "SA",
+  "S.A.": "S.A.",
+  AG: "AG",
+  AB: "AB",
+  ASA: "ASA",
+  COM: "Com",
+  CL: "Cl",
+  HLDGS: "Hldgs",
+  HLDG: "Hldg",
+  GRP: "Grp",
+  GP: "GP",
+  TR: "Tr",
+  REIT: "REIT",
+  ETF: "ETF",
+  USA: "USA",
+  US: "US",
+  UK: "UK",
+  AMER: "Amer",
+  INTL: "Intl",
+  ADR: "ADR",
+  ADS: "ADS",
+  SP: "Sp",
+  ADJ: "Adj",
+  III: "III",
+  II: "II",
+  IV: "IV",
+};
+export function titleCaseIssuer(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return s;
+  // If the input already has lowercase letters it's probably already mixed-case
+  // — leave it alone rather than risk mangling a hand-formatted name.
+  if (/[a-z]/.test(s)) return s;
+  return s.split(/\s+/).map((token) => {
+    const up = token.toUpperCase();
+    if (Object.prototype.hasOwnProperty.call(F13_ISSUER_TOKEN_OVERRIDES, up)) {
+      return F13_ISSUER_TOKEN_OVERRIDES[up];
+    }
+    // Preserve trailing punctuation so "INC," → "Inc,".
+    const m = token.match(/^([A-Z0-9.&'/-]+?)([,;:.]?)$/);
+    if (m) {
+      const core = m[1];
+      const tail = m[2];
+      const coreUp = core.toUpperCase();
+      if (Object.prototype.hasOwnProperty.call(F13_ISSUER_TOKEN_OVERRIDES, coreUp)) {
+        return F13_ISSUER_TOKEN_OVERRIDES[coreUp] + tail;
+      }
+      return core.charAt(0) + core.slice(1).toLowerCase() + tail;
+    }
+    return token.charAt(0) + token.slice(1).toLowerCase();
+  }).join(" ");
+}
+
+export function parseEdgar13FXml(xml) {
   // Strip XML namespaces so a single regex set works across schema
   // versions (the 13F XSD has been re-namespaced multiple times).
   const clean = String(xml || "").replace(/<\/?([a-zA-Z0-9]+):/g, (_, _ns) => "<");
@@ -10742,7 +10824,7 @@ function parseEdgar13FXml(xml) {
     const shares = Number(String(sharesRaw || "").trim());
     if (!Number.isFinite(value)) continue;
     out.push({
-      name: name.trim(),
+      name: titleCaseIssuer(name.trim()),
       cusip: cusip.trim(),
       value,
       shares: Number.isFinite(shares) ? shares : null,
@@ -10815,21 +10897,40 @@ async function fetchOpenFigiCusipMap(cusips) {
   return out;
 }
 
+// Per-firm budget: cap the combined submissions + holdings fetch at 60s
+// so one stuck firm can't starve out the rest. The whole 9-firm fan-out
+// is also wrapped in a higher-level timeout by main().
+const F13_PER_FIRM_TIMEOUT_MS = 60_000;
+
 // Top-level orchestrator. Returns a per-firm map:
 //   { firmName: { filingDate, totalValue, top10ConcentrationPct,
 //                 totalPositions, holdings: [top 10 by value] } | null }
 export async function buildPerFirm13FHoldings() {
   // Step 1: pull EDGAR submissions + parse XML for each firm in parallel.
-  const firmsRaw = await Promise.all(
-    F13_TOP_FIRM_DIRECTORY.map(async (f) => {
-      const subs = await fetchEdgarSubmissions(f.cik);
-      const filing = subs ? findLatest13F(subs) : null;
-      if (!filing) return { firm: f.firm, cik: f.cik, filing: null, holdings: [] };
-      const raw = await fetchEdgar13FHoldings(f.cik, filing);
-      const normalized = normalize13FValueUnits(raw);
-      return { firm: f.firm, cik: f.cik, filing, holdings: normalized };
-    }),
+  // allSettled (not all) so one firm's failure doesn't drop the rest, and
+  // each firm races against its own 60s budget.
+  const settled = await Promise.allSettled(
+    F13_TOP_FIRM_DIRECTORY.map((f) => Promise.race([
+      (async () => {
+        const subs = await fetchEdgarSubmissions(f.cik);
+        const filing = subs ? findLatest13F(subs) : null;
+        if (!filing) return { firm: f.firm, cik: f.cik, filing: null, holdings: [] };
+        const raw = await fetchEdgar13FHoldings(f.cik, filing);
+        const normalized = normalize13FValueUnits(raw);
+        return { firm: f.firm, cik: f.cik, filing, holdings: normalized };
+      })(),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`per-firm timeout ${F13_PER_FIRM_TIMEOUT_MS / 1000}s`)),
+        F13_PER_FIRM_TIMEOUT_MS,
+      )),
+    ])),
   );
+  const firmsRaw = settled.map((res, i) => {
+    const f = F13_TOP_FIRM_DIRECTORY[i];
+    if (res.status === "fulfilled") return res.value;
+    console.log(`    ⚠ EDGAR firm ${f.firm} (CIK${f.cik}) failed: ${res.reason?.message || res.reason}`);
+    return { firm: f.firm, cik: f.cik, filing: null, holdings: [] };
+  });
   // Step 2: one OpenFIGI lookup across the union of CUSIPs.
   const allCusips = firmsRaw.flatMap((f) => f.holdings.map((h) => h.cusip));
   const cusipMap = await fetchOpenFigiCusipMap(allCusips);
@@ -10890,21 +10991,34 @@ export function build13FPayload(chains, narratives, asOf, perFirmHoldings) {
   const biggestPositions = rankBiggestPositionsByMarketCap(chains);
   const themes = deriveF13RotationThemes(narratives);
   // Detect whether SEC EDGAR returned real per-firm holdings this build.
-  // If it did, the source note advertises real data; otherwise we fall
-  // back to the marketCap-derived narrative.
+  // Three modes: full success (all curated firms returned data), partial
+  // (some returned, some failed) and full failure (curated baseline only).
   const perFirm = perFirmHoldings && typeof perFirmHoldings === "object" ? perFirmHoldings : {};
-  const hasRealHoldings = Object.values(perFirm).some((v) => v && Array.isArray(v.holdings) && v.holdings.length);
+  const totalFirms = F13_TOP_FIRM_DIRECTORY.length;
+  const realFirms = Object.values(perFirm)
+    .filter((v) => v && Array.isArray(v.holdings) && v.holdings.length)
+    .length;
+  let sourceNote;
+  if (realFirms === totalFirms) {
+    sourceNote = "Real per-firm 13F holdings parsed from SEC EDGAR (XML information tables), " +
+      "with CUSIP→ticker mapping via OpenFIGI. Top firms table, biggest-positions " +
+      "ranking, and rotation themes all refresh every build.";
+  } else if (realFirms > 0) {
+    sourceNote = `Partial EDGAR data this build: ${realFirms} of ${totalFirms} firms returned ` +
+      "holdings (XML information tables parsed from SEC EDGAR, CUSIPs mapped via OpenFIGI). " +
+      "Firms missing below fall back to the curated baseline directory.";
+  } else {
+    sourceNote = "Aggregated view of large institutional 13F filers ($5B+ AUM). EDGAR fetch was " +
+      "unavailable this build — per-firm tables fall back to the curated baseline.";
+  }
   return {
     builtAtIso: asOf.toISOString(),
     period: q.period,
     periodEnd: q.periodEnd,
     filingWindow: q.filingWindow,
-    sourceNote: hasRealHoldings
-      ? "Real per-firm 13F holdings parsed from SEC EDGAR (XML information tables), " +
-        "with CUSIP→ticker mapping via OpenFIGI. Top firms table, biggest-positions " +
-        "ranking, and rotation themes all refresh every build."
-      : "Aggregated view of large institutional 13F filers ($5B+ AUM). EDGAR fetch was " +
-        "unavailable this build — per-firm tables fall back to the curated baseline.",
+    sourceNote,
+    realFirms,
+    totalFirms,
     topFirms,
     perFirm,
     berkshire: {
@@ -13835,7 +13949,11 @@ async function main() {
   const baselineInfo = await write13FFile(chains, trends.narratives, builtAtIso, {});
   console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
   console.log("Fetching per-firm 13F holdings (SEC EDGAR + OpenFIGI)…");
-  const F13_TIMEOUT_MS = 90_000;
+  // OpenFIGI's unauthenticated tier throttles every batch by 2.5s. With ~9
+  // firms × top-10 holdings (~90 unique CUSIPs) the mapping call alone can
+  // run 20-30s, on top of the 9 parallel SEC fetches. 180s gives both a
+  // realistic budget on cold caches without wedging the workflow.
+  const F13_TIMEOUT_MS = 180_000;
   const perFirmHoldings = await Promise.race([
     buildPerFirm13FHoldings().catch((err) => {
       console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
