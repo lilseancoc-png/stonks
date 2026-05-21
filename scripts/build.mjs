@@ -2798,7 +2798,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','fear-greed','f13','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -2827,6 +2827,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
       if (name === 'f13' && typeof loadF13 === 'function') loadF13();
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
+      if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -5335,6 +5336,211 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     root.innerHTML = html;
   }
 
+  // --- Fear & Greed tab ---------------------------------------------------
+  // Snapshot is inlined into STONKS_MANIFEST at build time, so there's no
+  // network call here — just paint the gauge, comparison strip, component
+  // grid, and 1-year sparkline. Rendered idempotently each tab activation
+  // (cheap) so a refresh after a theme toggle re-tints correctly.
+  function fngBandFromScore(n){
+    if (!isFinite(n)) return 'neutral';
+    if (n <= 24) return 'extreme-fear';
+    if (n <= 44) return 'fear';
+    if (n <= 55) return 'neutral';
+    if (n <= 75) return 'greed';
+    return 'extreme-greed';
+  }
+  function fngBandLabel(b){
+    return ({ 'extreme-fear':'Extreme Fear','fear':'Fear','neutral':'Neutral','greed':'Greed','extreme-greed':'Extreme Greed' })[b] || 'Neutral';
+  }
+  function fngGaugeSvg(score){
+    var s = Math.max(0, Math.min(100, Number(score) || 0));
+    // Semicircle gauge: 5 zone arcs + needle. cx=110, cy=110, r=95.
+    // Angle math: 180° (left, score=0) → 0° (right, score=100).
+    var cx = 110, cy = 110, r = 95;
+    function pol(deg){
+      var rad = deg * Math.PI / 180;
+      return [cx + r * Math.cos(rad), cy - r * Math.sin(rad)];
+    }
+    function arcPath(fromScore, toScore){
+      // 0..100 → 180..0 degrees (left to right across the top half).
+      var a1 = 180 - (fromScore * 1.8);
+      var a2 = 180 - (toScore * 1.8);
+      var p1 = pol(a1), p2 = pol(a2);
+      var large = Math.abs(a1 - a2) > 180 ? 1 : 0;
+      // sweep-flag 0 = counter-clockwise; with our y-flip we want 0 here
+      // so the arc draws across the top.
+      return 'M ' + p1[0].toFixed(2) + ' ' + p1[1].toFixed(2) +
+        ' A ' + r + ' ' + r + ' 0 ' + large + ' 0 ' + p2[0].toFixed(2) + ' ' + p2[1].toFixed(2);
+    }
+    var zones = [
+      [0, 24,  'extreme-fear'],
+      [24, 44, 'fear'],
+      [44, 55, 'neutral'],
+      [55, 75, 'greed'],
+      [75, 100,'extreme-greed'],
+    ];
+    var arcs = zones.map(function(z){
+      return '<path class="fng-arc fng-arc-' + z[2] + '" d="' + arcPath(z[0], z[1]) + '" />';
+    }).join('');
+    // Needle: line from center to score angle, with a small base disk.
+    var needleAng = 180 - (s * 1.8);
+    var nEnd = pol(needleAng);
+    var needle = '<line class="fng-needle" x1="' + cx + '" y1="' + cy + '" x2="' + nEnd[0].toFixed(2) + '" y2="' + nEnd[1].toFixed(2) + '" />' +
+      '<circle class="fng-needle-hub" cx="' + cx + '" cy="' + cy + '" r="6" />';
+    var band = fngBandFromScore(s);
+    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 130" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
+      arcs + needle +
+      '<text class="fng-gauge-num" x="' + cx + '" y="105" text-anchor="middle">' + Math.round(s) + '</text>' +
+    '</svg>';
+  }
+  function fngSparkline(points){
+    if (!Array.isArray(points) || points.length < 2) return '';
+    var w = 600, h = 80, padX = 4, padY = 6;
+    var n = points.length;
+    var xs = points.map(function(_, i){ return padX + (w - padX * 2) * (i / (n - 1)); });
+    var ys = points.map(function(p){
+      var v = Math.max(0, Math.min(100, Number(p.score) || 0));
+      return padY + (h - padY * 2) * (1 - v / 100);
+    });
+    var poly = xs.map(function(x, i){ return x.toFixed(1) + ',' + ys[i].toFixed(1); }).join(' ');
+    // Zone bands behind the line so the eye reads green/red regions.
+    var zones = [
+      [0, 24,  'extreme-fear'],
+      [24, 44, 'fear'],
+      [44, 55, 'neutral'],
+      [55, 75, 'greed'],
+      [75, 100,'extreme-greed'],
+    ];
+    var bands = zones.map(function(z){
+      var yTop = padY + (h - padY * 2) * (1 - z[1] / 100);
+      var yBot = padY + (h - padY * 2) * (1 - z[0] / 100);
+      return '<rect class="fng-spark-band fng-band-' + z[2] + '" x="' + padX + '" y="' + yTop.toFixed(1) + '" width="' + (w - padX * 2).toFixed(1) + '" height="' + (yBot - yTop).toFixed(1) + '" />';
+    }).join('');
+    var first = points[0].date || '';
+    var last = points[n - 1].date || '';
+    return '<div class="fng-spark-wrap">' +
+      '<svg class="fng-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="Fear and Greed 1-year history">' +
+        bands +
+        '<polyline class="fng-spark-line" fill="none" points="' + poly + '" />' +
+      '</svg>' +
+      '<div class="fng-spark-axis"><span>' + escapeHtml(first) + '</span><span>' + escapeHtml(last) + '</span></div>' +
+    '</div>';
+  }
+  function fngComponentBarHtml(score){
+    var v = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+    var band = fngBandFromScore(v);
+    return '<div class="fng-bar fng-band-' + band + '" title="' + v + ' / 100">' +
+      '<div class="fng-bar-track"><div class="fng-bar-fill" style="width:' + v + '%"></div></div>' +
+      '<span class="fng-bar-num">' + v + '</span>' +
+    '</div>';
+  }
+  function fngCompareChip(label, score){
+    if (score == null || !isFinite(Number(score))) {
+      return '<div class="fng-chip fng-chip-empty"><div class="fng-chip-label">' + escapeHtml(label) + '</div><div class="fng-chip-num">—</div></div>';
+    }
+    var v = Math.round(Number(score));
+    var band = fngBandFromScore(v);
+    return '<div class="fng-chip fng-band-' + band + '">' +
+      '<div class="fng-chip-label">' + escapeHtml(label) + '</div>' +
+      '<div class="fng-chip-num">' + v + '</div>' +
+      '<div class="fng-chip-rating">' + fngBandLabel(band) + '</div>' +
+    '</div>';
+  }
+  function fmtFngTimestamp(iso){
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    try {
+      return new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:'America/New_York' }).format(d) + ' ET';
+    } catch (_){
+      return d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    }
+  }
+  var fngRendered = false;
+  function renderFearGreed(){
+    var root = document.getElementById('fng-root');
+    var eyebrow = document.getElementById('fng-eyebrow');
+    if (!root) return;
+    var m = window.STONKS_MANIFEST || {};
+    var d = m.fearGreed || null;
+    if (!d) {
+      root.innerHTML = '<p class="hint">No Fear &amp; Greed snapshot available — CNN\\'s endpoint may have been unreachable during the last build. Check back after the next refresh.</p>';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    // Re-paint each activation is cheap and keeps the gauge in sync with
+    // theme toggles. fngRendered just suppresses redundant work mid-tab.
+    if (fngRendered && root.dataset.painted === '1') return;
+    var band = fngBandFromScore(d.score);
+    if (eyebrow) {
+      eyebrow.textContent = (d.stale ? 'stale · ' : '') + 'as of ' + fmtFngTimestamp(d.asOf);
+    }
+    var COMPONENTS = [
+      { key:'momentum',   title:'Market momentum',     blurb:'S&P 500 vs its 125-day moving average. Above the average → bullish momentum (Greed); below → defensive (Fear).' },
+      { key:'strength',   title:'Stock price strength',blurb:'NYSE stocks making 52-week highs vs 52-week lows. Broad participation in highs reads as Greed.' },
+      { key:'breadth',    title:'Stock price breadth', blurb:'Advancing vs declining trading volume on the NYSE (McClellan Volume Summation). Strong up-volume → Greed.' },
+      { key:'putCall',    title:'Put / call options',  blurb:'5-day put/call ratio. More calls than puts → speculative Greed; more puts → hedging Fear.' },
+      { key:'volatility', title:'Market volatility',   blurb:'VIX vs its 50-day moving average. Calm tape (falling VIX) → Greed; spikes → Fear.' },
+      { key:'safeHaven',  title:'Safe-haven demand',   blurb:'20-day return spread between stocks and Treasury bonds. Stocks outperforming → Greed.' },
+      { key:'junkBond',   title:'Junk bond demand',    blurb:'Yield spread between high-yield bonds and investment grade. Narrow spread (risk-on) → Greed.' },
+    ];
+    var prev = d.previous || {};
+    var stripHtml = '<div class="fng-strip">' +
+      fngCompareChip('Now', d.score) +
+      fngCompareChip('Prev close', prev.close) +
+      fngCompareChip('1 W ago', prev.week) +
+      fngCompareChip('1 M ago', prev.month) +
+      fngCompareChip('1 Y ago', prev.year) +
+    '</div>';
+    var c = d.components || {};
+    var cardsHtml = '<div class="fng-cards">' + COMPONENTS.map(function(spec){
+      var entry = c[spec.key];
+      if (!entry || !isFinite(Number(entry.score))) {
+        return '<article class="fng-card fng-card-empty">' +
+          '<h3 class="fng-card-title">' + escapeHtml(spec.title) + '</h3>' +
+          '<p class="fng-card-blurb">' + escapeHtml(spec.blurb) + '</p>' +
+          '<div class="fng-card-foot"><span class="muted">No reading.</span></div>' +
+        '</article>';
+      }
+      var v = Math.round(Number(entry.score));
+      var b = fngBandFromScore(v);
+      return '<article class="fng-card fng-band-' + b + '">' +
+        '<h3 class="fng-card-title">' + escapeHtml(spec.title) + '</h3>' +
+        '<p class="fng-card-blurb">' + escapeHtml(spec.blurb) + '</p>' +
+        '<div class="fng-card-foot">' +
+          fngComponentBarHtml(v) +
+          '<span class="fng-card-rating">' + escapeHtml(fngBandLabel(b)) + '</span>' +
+        '</div>' +
+      '</article>';
+    }).join('') + '</div>';
+    var sparkHtml = '';
+    if (Array.isArray(d.history) && d.history.length > 1) {
+      sparkHtml = '<section class="fng-spark-section">' +
+        '<h3 class="fng-section-title">1-year composite history</h3>' +
+        fngSparkline(d.history) +
+      '</section>';
+    }
+    var staleTag = d.stale
+      ? '<span class="fng-stale-tag" title="CNN\\'s endpoint was unreachable on the latest build — showing the last good reading.">stale</span>'
+      : '';
+    root.innerHTML =
+      '<div class="fng-headline fng-band-' + band + '">' +
+        fngGaugeSvg(d.score) +
+        '<div class="fng-headline-meta">' +
+          '<div class="fng-rating">' + escapeHtml(fngBandLabel(band)) + staleTag + '</div>' +
+          '<div class="fng-headline-sub">CNN composite · ' + escapeHtml(fmtFngTimestamp(d.asOf)) + '</div>' +
+          stripHtml +
+        '</div>' +
+      '</div>' +
+      sparkHtml +
+      '<section class="fng-cards-section">' +
+        '<h3 class="fng-section-title">Seven components</h3>' +
+        cardsHtml +
+      '</section>';
+    root.dataset.painted = '1';
+    fngRendered = true;
+  }
+
   // --- Top picks tab ------------------------------------------------------
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
@@ -5837,6 +6043,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       ['flow', 'Unusual flow'],
       ['grade', 'Grade a contract'],
       ['streaks', 'Streaks'],
+      ['fear-greed', 'Fear & Greed'],
       ['f13', '13F filings'],
       ['portfolio', 'Portfolio'],
     ];
@@ -6085,7 +6292,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
 `;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {} }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -6121,6 +6328,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     industriesBySector: INDUSTRIES_BY_SECTOR,
     unusual: unusual || null,
     spots,
+    fearGreed: fearGreed || null,
   }).replace(/<\/script>/gi, "<\\/script>");
   // Browser Supabase config — anon key is safe to ship publicly (RLS does
   // the actual access control). Service-role key stays server-side only.
@@ -6194,6 +6402,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
@@ -6289,6 +6498,16 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <p class="hint">Each ticker's current run of green or red daily closes. Streaks of 2+ days survive small counter days (a "tolerance bank" up to 1.5% cumulative, or up to 3 counter days in a row); a single counter day greater than 1.2%, hitting the 1.5% bank, or 4 counter days in a row breaks the run. Same-direction days heal the bank back to zero.</p>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <div id="streaks-footer" class="streaks-footer"></div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-fear-greed" role="tabpanel" aria-labelledby="page-tab-fear-greed" hidden>
+    <section class="card" id="fng-section">
+      <header class="card-header">
+        <h2 class="card-title">CNN Fear &amp; Greed Index</h2>
+        <span class="card-eyebrow" id="fng-eyebrow" aria-live="polite"></span>
+      </header>
+      <p class="hint">A 0–100 sentiment gauge built by CNN from seven equally-weighted indicators of US equity-market psychology. Low readings (extreme fear) have historically preceded rebounds; high readings (extreme greed) often mark overheated conditions. Refreshed each build from <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">cnn.com/markets/fear-and-greed</a>.</p>
+      <div id="fng-root" class="fng-root">Loading Fear &amp; Greed…</div>
     </section>
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
@@ -11695,6 +11914,238 @@ main { padding-top: var(--s-2); }
   .page-tabs { padding: 0 var(--s-3); gap: 0; }
   .page-tab { padding: 6px 10px; font-size: 11px; }
 }
+
+/* === CNN Fear & Greed Index tab ========================================= */
+:root {
+  --fng-extreme-fear: #d54a4a;
+  --fng-fear:         #d68040;
+  --fng-neutral:      #c8b94a;
+  --fng-greed:        #6db367;
+  --fng-extreme-greed:#3aa55a;
+}
+[data-theme="light"] {
+  --fng-extreme-fear: #c1393c;
+  --fng-fear:         #c46f2b;
+  --fng-neutral:      #a8993a;
+  --fng-greed:        #4f9b58;
+  --fng-extreme-greed:#2c8a47;
+}
+.fng-root { display: flex; flex-direction: column; gap: var(--s-5); }
+.fng-headline {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) 1fr;
+  gap: var(--s-5);
+  align-items: center;
+  padding: var(--s-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+}
+.fng-gauge { width: 100%; height: auto; display: block; }
+.fng-arc {
+  fill: none;
+  stroke-width: 18;
+  stroke-linecap: butt;
+  opacity: 0.35;
+}
+.fng-arc-extreme-fear  { stroke: var(--fng-extreme-fear); }
+.fng-arc-fear          { stroke: var(--fng-fear); }
+.fng-arc-neutral       { stroke: var(--fng-neutral); }
+.fng-arc-greed         { stroke: var(--fng-greed); }
+.fng-arc-extreme-greed { stroke: var(--fng-extreme-greed); }
+.fng-gauge.fng-band-extreme-fear  .fng-arc-extreme-fear,
+.fng-gauge.fng-band-fear          .fng-arc-fear,
+.fng-gauge.fng-band-neutral       .fng-arc-neutral,
+.fng-gauge.fng-band-greed         .fng-arc-greed,
+.fng-gauge.fng-band-extreme-greed .fng-arc-extreme-greed { opacity: 1; }
+.fng-needle {
+  stroke: var(--text);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.fng-needle-hub { fill: var(--text); }
+.fng-gauge-num {
+  fill: var(--text);
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: var(--ls-num);
+}
+.fng-headline-meta { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
+.fng-rating {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  letter-spacing: var(--ls-num);
+  text-transform: capitalize;
+  display: flex; align-items: center; gap: var(--s-2);
+}
+.fng-band-extreme-fear  .fng-rating { color: var(--fng-extreme-fear); }
+.fng-band-fear          .fng-rating { color: var(--fng-fear); }
+.fng-band-neutral       .fng-rating { color: var(--fng-neutral); }
+.fng-band-greed         .fng-rating { color: var(--fng-greed); }
+.fng-band-extreme-greed .fng-rating { color: var(--fng-extreme-greed); }
+.fng-stale-tag {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--ls-caps);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+.fng-headline-sub {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  letter-spacing: var(--ls-num);
+}
+.fng-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.fng-chip {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--s-2);
+  border-radius: var(--r-3);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+}
+.fng-chip-label {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-caps);
+  color: var(--muted);
+}
+.fng-chip-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-num);
+  line-height: 1.05;
+}
+.fng-chip-rating {
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-caps);
+}
+.fng-chip.fng-band-extreme-fear  .fng-chip-num { color: var(--fng-extreme-fear); }
+.fng-chip.fng-band-fear          .fng-chip-num { color: var(--fng-fear); }
+.fng-chip.fng-band-neutral       .fng-chip-num { color: var(--fng-neutral); }
+.fng-chip.fng-band-greed         .fng-chip-num { color: var(--fng-greed); }
+.fng-chip.fng-band-extreme-greed .fng-chip-num { color: var(--fng-extreme-greed); }
+.fng-chip-empty .fng-chip-num { color: var(--muted); }
+.fng-section-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin: 0 0 var(--s-3);
+  color: var(--text);
+}
+.fng-spark-section { display: flex; flex-direction: column; gap: var(--s-2); }
+.fng-spark-wrap {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+}
+.fng-spark { width: 100%; height: 100px; display: block; }
+.fng-spark-band { opacity: 0.10; }
+.fng-spark-band.fng-band-extreme-fear  { fill: var(--fng-extreme-fear); }
+.fng-spark-band.fng-band-fear          { fill: var(--fng-fear); }
+.fng-spark-band.fng-band-neutral       { fill: var(--fng-neutral); }
+.fng-spark-band.fng-band-greed         { fill: var(--fng-greed); }
+.fng-spark-band.fng-band-extreme-greed { fill: var(--fng-extreme-greed); }
+.fng-spark-line {
+  stroke: var(--text);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.fng-spark-axis {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+}
+.fng-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--s-3);
+}
+.fng-card {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+}
+.fng-card.fng-band-extreme-fear  { border-left-color: var(--fng-extreme-fear); }
+.fng-card.fng-band-fear          { border-left-color: var(--fng-fear); }
+.fng-card.fng-band-neutral       { border-left-color: var(--fng-neutral); }
+.fng-card.fng-band-greed         { border-left-color: var(--fng-greed); }
+.fng-card.fng-band-extreme-greed { border-left-color: var(--fng-extreme-greed); }
+.fng-card-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+.fng-card-blurb {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  margin: 0;
+  line-height: var(--lh-snug);
+}
+.fng-card-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: auto;
+}
+.fng-card-rating {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-caps);
+  color: var(--muted);
+}
+.fng-bar { display: flex; align-items: center; gap: var(--s-2); flex: 1 1 auto; }
+.fng-bar-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.fng-bar-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: var(--r-pill);
+  background: var(--muted);
+  transition: width .2s ease;
+}
+.fng-bar.fng-band-extreme-fear  .fng-bar-fill { background: var(--fng-extreme-fear); }
+.fng-bar.fng-band-fear          .fng-bar-fill { background: var(--fng-fear); }
+.fng-bar.fng-band-neutral       .fng-bar-fill { background: var(--fng-neutral); }
+.fng-bar.fng-band-greed         .fng-bar-fill { background: var(--fng-greed); }
+.fng-bar.fng-band-extreme-greed .fng-bar-fill { background: var(--fng-extreme-greed); }
+.fng-bar-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 26px; text-align: right;
+}
+.fng-card-empty { opacity: 0.7; }
+@media (max-width: 720px) {
+  .fng-headline { grid-template-columns: 1fr; }
+  .fng-strip { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); }
+}
 `;
 }
 
@@ -13025,6 +13476,169 @@ function matchForexFactoryEventSubtype(title) {
     return "cpi-mom";
   }
   return null;
+}
+
+// === CNN Fear & Greed Index =========================================
+// CNN publishes the 7-component composite at production.dataviz.cnn.io.
+// The endpoint is public but Cloudflare-fronted — bare fetches get 403
+// without a browser-shaped UA + Referer, same trick we already use for
+// FRED. Result is normalized to a compact shape the front-end can paint
+// without any post-processing.
+const FNG_FILE = "fear-greed.json";
+const FNG_HISTORY_FILE = "fear-greed-history.json";
+const FNG_HISTORY_MAX_DAYS = 365;
+const CNN_FNG_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata";
+
+function ratingFromScore(n) {
+  if (!Number.isFinite(n)) return "neutral";
+  if (n <= 24) return "extreme fear";
+  if (n <= 44) return "fear";
+  if (n <= 55) return "neutral";
+  if (n <= 75) return "greed";
+  return "extreme greed";
+}
+
+function normalizeFngComponent(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const score = Number(raw.score);
+  if (!Number.isFinite(score)) return null;
+  return {
+    score: Math.round(score * 100) / 100,
+    rating: typeof raw.rating === "string" && raw.rating
+      ? raw.rating.toLowerCase()
+      : ratingFromScore(score),
+  };
+}
+
+export async function fetchCnnFearGreed() {
+  try {
+    const res = await fetch(CNN_FNG_URL, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        accept: "application/json, text/plain, */*",
+        "accept-language": "en-US,en;q=0.9",
+        referer: "https://www.cnn.com/",
+        origin: "https://www.cnn.com",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      console.log(`    ⚠ CNN F&G HTTP ${res.status}`);
+      return null;
+    }
+    const json = await res.json();
+    const root = json && json.fear_and_greed;
+    if (!root || !Number.isFinite(Number(root.score))) {
+      console.log("    ⚠ CNN F&G payload missing fear_and_greed.score");
+      return null;
+    }
+    const score = Math.round(Number(root.score) * 100) / 100;
+    const rating = typeof root.rating === "string" && root.rating
+      ? root.rating.toLowerCase()
+      : ratingFromScore(score);
+    const previous = {
+      close: Number.isFinite(Number(root.previous_close)) ? Math.round(Number(root.previous_close) * 100) / 100 : null,
+      week:  Number.isFinite(Number(root.previous_1_week))  ? Math.round(Number(root.previous_1_week)  * 100) / 100 : null,
+      month: Number.isFinite(Number(root.previous_1_month)) ? Math.round(Number(root.previous_1_month) * 100) / 100 : null,
+      year:  Number.isFinite(Number(root.previous_1_year))  ? Math.round(Number(root.previous_1_year)  * 100) / 100 : null,
+    };
+    const components = {
+      momentum:   normalizeFngComponent(json.market_momentum_sp500),
+      strength:   normalizeFngComponent(json.stock_price_strength),
+      breadth:    normalizeFngComponent(json.stock_price_breadth),
+      putCall:    normalizeFngComponent(json.put_call_options),
+      volatility: normalizeFngComponent(json.market_volatility_vix),
+      safeHaven:  normalizeFngComponent(json.safe_haven_demand),
+      junkBond:   normalizeFngComponent(json.junk_bond_demand),
+    };
+    // Trim history to the last ~1y of daily samples. CNN ships an hourly
+    // intraday series within the most recent day; we keep one point per
+    // YYYY-MM-DD (the last value seen for that day) so the sparkline draws
+    // a clean daily line.
+    const histRaw = json.fear_and_greed_historical && Array.isArray(json.fear_and_greed_historical.data)
+      ? json.fear_and_greed_historical.data
+      : [];
+    const byDay = new Map();
+    for (const pt of histRaw) {
+      const ts = Number(pt && pt.x);
+      const val = Number(pt && pt.y);
+      if (!Number.isFinite(ts) || !Number.isFinite(val)) continue;
+      const day = new Date(ts).toISOString().slice(0, 10);
+      byDay.set(day, Math.round(val * 100) / 100);
+    }
+    const history = Array.from(byDay.entries())
+      .sort((a, b) => a[0] < b[0] ? -1 : 1)
+      .slice(-FNG_HISTORY_MAX_DAYS)
+      .map(([date, val]) => ({ date, score: val }));
+    return {
+      asOf: typeof root.timestamp === "string" ? root.timestamp : new Date().toISOString(),
+      score,
+      rating,
+      previous,
+      components,
+      history,
+      stale: false,
+    };
+  } catch (err) {
+    console.log(`    ⚠ CNN F&G fetch failed: ${err?.message || err}`);
+    return null;
+  }
+}
+
+export async function readFearGreedHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, FNG_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.snapshots)) return { snapshots: parsed.snapshots };
+    return { snapshots: [] };
+  } catch (_) {
+    return { snapshots: [] };
+  }
+}
+
+export async function writeFearGreedHistory(history) {
+  await writeFile(resolve(DATA_DIR, FNG_HISTORY_FILE), JSON.stringify(history), "utf8");
+}
+
+// Read the last-good Fear & Greed snapshot before writeChainFiles wipes
+// data/. Used as the stale fallback when CNN's endpoint fails this build.
+export async function readLastFearGreed() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, FNG_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Number.isFinite(Number(parsed.score))) {
+      return parsed;
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export async function writeFearGreedFile(snapshot) {
+  await writeFile(resolve(DATA_DIR, FNG_FILE), JSON.stringify(snapshot), "utf8");
+}
+
+// Append today's component snapshot to the rolling per-component history.
+// CNN ships ~1y of composite-only history, so this file is where the
+// per-component breakdown accumulates over time.
+export function appendFearGreedHistory(history, snapshot, todayIso) {
+  if (!snapshot) return history;
+  const next = { snapshots: Array.isArray(history?.snapshots) ? history.snapshots.slice() : [] };
+  const idx = next.snapshots.findIndex((s) => s.date === todayIso);
+  const entry = {
+    date: todayIso,
+    score: snapshot.score,
+    components: snapshot.components || {},
+  };
+  if (idx >= 0) next.snapshots[idx] = entry;
+  else next.snapshots.push(entry);
+  next.snapshots.sort((a, b) => a.date < b.date ? -1 : 1);
+  if (next.snapshots.length > FNG_HISTORY_MAX_DAYS) {
+    next.snapshots = next.snapshots.slice(-FNG_HISTORY_MAX_DAYS);
+  }
+  return next;
 }
 
 // === CME FedWatch (computed from Fed Funds Futures via Yahoo) ========
@@ -15539,6 +16153,23 @@ async function main() {
   const unusual = await loadUnusualFlow();
   const unusualHistory = await loadUnusualHistory();
   const unusualLog = await loadUnusualLog();
+  // Fear & Greed history + last-good snapshot live in data/, which
+  // writeChainFiles wipes. Load both now and rewrite after the wipe so
+  // we keep prior days even if today's CNN fetch fails.
+  const fngHistoryPrev = await readFearGreedHistory();
+  const fngLastGood = await readLastFearGreed();
+  console.log("Fetching CNN Fear & Greed index…");
+  const fngFresh = await fetchCnnFearGreed();
+  let fearGreed = null;
+  if (fngFresh) {
+    fearGreed = fngFresh;
+    console.log(`  · score=${fngFresh.score} (${fngFresh.rating})`);
+  } else if (fngLastGood) {
+    fearGreed = { ...fngLastGood, stale: true };
+    console.log("  · CNN fetch failed — keeping last-good snapshot (stale).");
+  } else {
+    console.log("  · CNN fetch failed and no prior snapshot on disk.");
+  }
   // collectIvHistory reads each ticker's previous iv-history file from
   // data/iv-history/ before writeChainFiles wipes the directory, then
   // returns an in-memory map to flush back after the wipe.
@@ -15558,6 +16189,7 @@ async function main() {
     macroHeadlines: trends.macroHeadlines || [],
     unusual,
     spots,
+    fearGreed,
   });
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });
@@ -15589,6 +16221,19 @@ async function main() {
   if (ivHistory.size) {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
+  // Fear & Greed: write today's snapshot + the appended per-component
+  // history back into the freshly-recreated data/ dir. We always persist
+  // history (even with no fresh snapshot) so prior days survive.
+  if (fearGreed) {
+    await writeFearGreedFile(fearGreed);
+    console.log(`wrote data/${FNG_FILE} — score ${fearGreed.score} (${fearGreed.rating})${fearGreed.stale ? " [stale]" : ""}`);
+  }
+  const todayIsoForFng = new Date().toISOString().slice(0, 10);
+  const fngHistoryNext = fearGreed && !fearGreed.stale
+    ? appendFearGreedHistory(fngHistoryPrev, fearGreed, todayIsoForFng)
+    : fngHistoryPrev;
+  await writeFearGreedHistory(fngHistoryNext);
+  console.log(`wrote data/${FNG_HISTORY_FILE} — ${fngHistoryNext.snapshots.length} daily snapshots`);
   // Calendar extras: structured macro releases (FRED), FOMC schedule,
   // current effective Fed funds rate, and a fresh CME FedWatch snapshot.
   // FedWatch history is append-only — today's snapshot lands beside any

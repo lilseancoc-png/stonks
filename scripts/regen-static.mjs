@@ -19,6 +19,12 @@ try {
   unusual = JSON.parse(unusualRaw);
 } catch {}
 
+let fearGreed = null;
+try {
+  const fngRaw = await readFile(resolve(DATA_DIR, "fear-greed.json"), "utf8");
+  fearGreed = JSON.parse(fngRaw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 const symbols = files
   .filter((f) => /^[A-Z]+\.json$/.test(f))
@@ -60,6 +66,7 @@ const html = renderHtml({
   macroHeadlines: trends.macroHeadlines || [],
   unusual,
   spots,
+  fearGreed,
 });
 const css = renderStylesCss();
 const js = renderAppJs();

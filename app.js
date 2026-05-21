@@ -1120,7 +1120,7 @@
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','fear-greed','f13','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -1149,6 +1149,7 @@
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
       if (name === 'f13' && typeof loadF13 === 'function') loadF13();
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
+      if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -3657,6 +3658,211 @@
     root.innerHTML = html;
   }
 
+  // --- Fear & Greed tab ---------------------------------------------------
+  // Snapshot is inlined into STONKS_MANIFEST at build time, so there's no
+  // network call here — just paint the gauge, comparison strip, component
+  // grid, and 1-year sparkline. Rendered idempotently each tab activation
+  // (cheap) so a refresh after a theme toggle re-tints correctly.
+  function fngBandFromScore(n){
+    if (!isFinite(n)) return 'neutral';
+    if (n <= 24) return 'extreme-fear';
+    if (n <= 44) return 'fear';
+    if (n <= 55) return 'neutral';
+    if (n <= 75) return 'greed';
+    return 'extreme-greed';
+  }
+  function fngBandLabel(b){
+    return ({ 'extreme-fear':'Extreme Fear','fear':'Fear','neutral':'Neutral','greed':'Greed','extreme-greed':'Extreme Greed' })[b] || 'Neutral';
+  }
+  function fngGaugeSvg(score){
+    var s = Math.max(0, Math.min(100, Number(score) || 0));
+    // Semicircle gauge: 5 zone arcs + needle. cx=110, cy=110, r=95.
+    // Angle math: 180° (left, score=0) → 0° (right, score=100).
+    var cx = 110, cy = 110, r = 95;
+    function pol(deg){
+      var rad = deg * Math.PI / 180;
+      return [cx + r * Math.cos(rad), cy - r * Math.sin(rad)];
+    }
+    function arcPath(fromScore, toScore){
+      // 0..100 → 180..0 degrees (left to right across the top half).
+      var a1 = 180 - (fromScore * 1.8);
+      var a2 = 180 - (toScore * 1.8);
+      var p1 = pol(a1), p2 = pol(a2);
+      var large = Math.abs(a1 - a2) > 180 ? 1 : 0;
+      // sweep-flag 0 = counter-clockwise; with our y-flip we want 0 here
+      // so the arc draws across the top.
+      return 'M ' + p1[0].toFixed(2) + ' ' + p1[1].toFixed(2) +
+        ' A ' + r + ' ' + r + ' 0 ' + large + ' 0 ' + p2[0].toFixed(2) + ' ' + p2[1].toFixed(2);
+    }
+    var zones = [
+      [0, 24,  'extreme-fear'],
+      [24, 44, 'fear'],
+      [44, 55, 'neutral'],
+      [55, 75, 'greed'],
+      [75, 100,'extreme-greed'],
+    ];
+    var arcs = zones.map(function(z){
+      return '<path class="fng-arc fng-arc-' + z[2] + '" d="' + arcPath(z[0], z[1]) + '" />';
+    }).join('');
+    // Needle: line from center to score angle, with a small base disk.
+    var needleAng = 180 - (s * 1.8);
+    var nEnd = pol(needleAng);
+    var needle = '<line class="fng-needle" x1="' + cx + '" y1="' + cy + '" x2="' + nEnd[0].toFixed(2) + '" y2="' + nEnd[1].toFixed(2) + '" />' +
+      '<circle class="fng-needle-hub" cx="' + cx + '" cy="' + cy + '" r="6" />';
+    var band = fngBandFromScore(s);
+    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 130" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
+      arcs + needle +
+      '<text class="fng-gauge-num" x="' + cx + '" y="105" text-anchor="middle">' + Math.round(s) + '</text>' +
+    '</svg>';
+  }
+  function fngSparkline(points){
+    if (!Array.isArray(points) || points.length < 2) return '';
+    var w = 600, h = 80, padX = 4, padY = 6;
+    var n = points.length;
+    var xs = points.map(function(_, i){ return padX + (w - padX * 2) * (i / (n - 1)); });
+    var ys = points.map(function(p){
+      var v = Math.max(0, Math.min(100, Number(p.score) || 0));
+      return padY + (h - padY * 2) * (1 - v / 100);
+    });
+    var poly = xs.map(function(x, i){ return x.toFixed(1) + ',' + ys[i].toFixed(1); }).join(' ');
+    // Zone bands behind the line so the eye reads green/red regions.
+    var zones = [
+      [0, 24,  'extreme-fear'],
+      [24, 44, 'fear'],
+      [44, 55, 'neutral'],
+      [55, 75, 'greed'],
+      [75, 100,'extreme-greed'],
+    ];
+    var bands = zones.map(function(z){
+      var yTop = padY + (h - padY * 2) * (1 - z[1] / 100);
+      var yBot = padY + (h - padY * 2) * (1 - z[0] / 100);
+      return '<rect class="fng-spark-band fng-band-' + z[2] + '" x="' + padX + '" y="' + yTop.toFixed(1) + '" width="' + (w - padX * 2).toFixed(1) + '" height="' + (yBot - yTop).toFixed(1) + '" />';
+    }).join('');
+    var first = points[0].date || '';
+    var last = points[n - 1].date || '';
+    return '<div class="fng-spark-wrap">' +
+      '<svg class="fng-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="Fear and Greed 1-year history">' +
+        bands +
+        '<polyline class="fng-spark-line" fill="none" points="' + poly + '" />' +
+      '</svg>' +
+      '<div class="fng-spark-axis"><span>' + escapeHtml(first) + '</span><span>' + escapeHtml(last) + '</span></div>' +
+    '</div>';
+  }
+  function fngComponentBarHtml(score){
+    var v = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+    var band = fngBandFromScore(v);
+    return '<div class="fng-bar fng-band-' + band + '" title="' + v + ' / 100">' +
+      '<div class="fng-bar-track"><div class="fng-bar-fill" style="width:' + v + '%"></div></div>' +
+      '<span class="fng-bar-num">' + v + '</span>' +
+    '</div>';
+  }
+  function fngCompareChip(label, score){
+    if (score == null || !isFinite(Number(score))) {
+      return '<div class="fng-chip fng-chip-empty"><div class="fng-chip-label">' + escapeHtml(label) + '</div><div class="fng-chip-num">—</div></div>';
+    }
+    var v = Math.round(Number(score));
+    var band = fngBandFromScore(v);
+    return '<div class="fng-chip fng-band-' + band + '">' +
+      '<div class="fng-chip-label">' + escapeHtml(label) + '</div>' +
+      '<div class="fng-chip-num">' + v + '</div>' +
+      '<div class="fng-chip-rating">' + fngBandLabel(band) + '</div>' +
+    '</div>';
+  }
+  function fmtFngTimestamp(iso){
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    try {
+      return new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:'America/New_York' }).format(d) + ' ET';
+    } catch (_){
+      return d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    }
+  }
+  var fngRendered = false;
+  function renderFearGreed(){
+    var root = document.getElementById('fng-root');
+    var eyebrow = document.getElementById('fng-eyebrow');
+    if (!root) return;
+    var m = window.STONKS_MANIFEST || {};
+    var d = m.fearGreed || null;
+    if (!d) {
+      root.innerHTML = '<p class="hint">No Fear &amp; Greed snapshot available — CNN\'s endpoint may have been unreachable during the last build. Check back after the next refresh.</p>';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    // Re-paint each activation is cheap and keeps the gauge in sync with
+    // theme toggles. fngRendered just suppresses redundant work mid-tab.
+    if (fngRendered && root.dataset.painted === '1') return;
+    var band = fngBandFromScore(d.score);
+    if (eyebrow) {
+      eyebrow.textContent = (d.stale ? 'stale · ' : '') + 'as of ' + fmtFngTimestamp(d.asOf);
+    }
+    var COMPONENTS = [
+      { key:'momentum',   title:'Market momentum',     blurb:'S&P 500 vs its 125-day moving average. Above the average → bullish momentum (Greed); below → defensive (Fear).' },
+      { key:'strength',   title:'Stock price strength',blurb:'NYSE stocks making 52-week highs vs 52-week lows. Broad participation in highs reads as Greed.' },
+      { key:'breadth',    title:'Stock price breadth', blurb:'Advancing vs declining trading volume on the NYSE (McClellan Volume Summation). Strong up-volume → Greed.' },
+      { key:'putCall',    title:'Put / call options',  blurb:'5-day put/call ratio. More calls than puts → speculative Greed; more puts → hedging Fear.' },
+      { key:'volatility', title:'Market volatility',   blurb:'VIX vs its 50-day moving average. Calm tape (falling VIX) → Greed; spikes → Fear.' },
+      { key:'safeHaven',  title:'Safe-haven demand',   blurb:'20-day return spread between stocks and Treasury bonds. Stocks outperforming → Greed.' },
+      { key:'junkBond',   title:'Junk bond demand',    blurb:'Yield spread between high-yield bonds and investment grade. Narrow spread (risk-on) → Greed.' },
+    ];
+    var prev = d.previous || {};
+    var stripHtml = '<div class="fng-strip">' +
+      fngCompareChip('Now', d.score) +
+      fngCompareChip('Prev close', prev.close) +
+      fngCompareChip('1 W ago', prev.week) +
+      fngCompareChip('1 M ago', prev.month) +
+      fngCompareChip('1 Y ago', prev.year) +
+    '</div>';
+    var c = d.components || {};
+    var cardsHtml = '<div class="fng-cards">' + COMPONENTS.map(function(spec){
+      var entry = c[spec.key];
+      if (!entry || !isFinite(Number(entry.score))) {
+        return '<article class="fng-card fng-card-empty">' +
+          '<h3 class="fng-card-title">' + escapeHtml(spec.title) + '</h3>' +
+          '<p class="fng-card-blurb">' + escapeHtml(spec.blurb) + '</p>' +
+          '<div class="fng-card-foot"><span class="muted">No reading.</span></div>' +
+        '</article>';
+      }
+      var v = Math.round(Number(entry.score));
+      var b = fngBandFromScore(v);
+      return '<article class="fng-card fng-band-' + b + '">' +
+        '<h3 class="fng-card-title">' + escapeHtml(spec.title) + '</h3>' +
+        '<p class="fng-card-blurb">' + escapeHtml(spec.blurb) + '</p>' +
+        '<div class="fng-card-foot">' +
+          fngComponentBarHtml(v) +
+          '<span class="fng-card-rating">' + escapeHtml(fngBandLabel(b)) + '</span>' +
+        '</div>' +
+      '</article>';
+    }).join('') + '</div>';
+    var sparkHtml = '';
+    if (Array.isArray(d.history) && d.history.length > 1) {
+      sparkHtml = '<section class="fng-spark-section">' +
+        '<h3 class="fng-section-title">1-year composite history</h3>' +
+        fngSparkline(d.history) +
+      '</section>';
+    }
+    var staleTag = d.stale
+      ? '<span class="fng-stale-tag" title="CNN\'s endpoint was unreachable on the latest build — showing the last good reading.">stale</span>'
+      : '';
+    root.innerHTML =
+      '<div class="fng-headline fng-band-' + band + '">' +
+        fngGaugeSvg(d.score) +
+        '<div class="fng-headline-meta">' +
+          '<div class="fng-rating">' + escapeHtml(fngBandLabel(band)) + staleTag + '</div>' +
+          '<div class="fng-headline-sub">CNN composite · ' + escapeHtml(fmtFngTimestamp(d.asOf)) + '</div>' +
+          stripHtml +
+        '</div>' +
+      '</div>' +
+      sparkHtml +
+      '<section class="fng-cards-section">' +
+        '<h3 class="fng-section-title">Seven components</h3>' +
+        cardsHtml +
+      '</section>';
+    root.dataset.painted = '1';
+    fngRendered = true;
+  }
+
   // --- Top picks tab ------------------------------------------------------
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
@@ -4159,6 +4365,7 @@
       ['flow', 'Unusual flow'],
       ['grade', 'Grade a contract'],
       ['streaks', 'Streaks'],
+      ['fear-greed', 'Fear & Greed'],
       ['f13', '13F filings'],
       ['portfolio', 'Portfolio'],
     ];
