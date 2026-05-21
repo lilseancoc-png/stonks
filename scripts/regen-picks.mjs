@@ -1,0 +1,66 @@
+// Regenerates data/picks.json from the existing per-ticker data/*.json
+// files + data/streaks.json + data/trends.json. Useful when only the
+// picks algorithm changed — no Yahoo or Gemini calls needed.
+import { readFile, writeFile, readdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildTopPicks } from "./build.mjs";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, "..");
+const DATA_DIR = resolve(ROOT, "data");
+
+const trendsRaw = await readFile(resolve(DATA_DIR, "trends.json"), "utf8");
+const trends = JSON.parse(trendsRaw);
+const narratives = trends.narratives || [];
+
+const streaksRaw = await readFile(resolve(DATA_DIR, "streaks.json"), "utf8");
+const streaksFile = JSON.parse(streaksRaw);
+const streaksMap = {};
+for (const row of streaksFile.tickers || []) {
+  if (row && row.symbol) streaksMap[row.symbol] = row;
+}
+
+const files = await readdir(DATA_DIR);
+const symbols = files
+  .filter((f) => /^[A-Z]+\.json$/.test(f))
+  .map((f) => f.replace(/\.json$/, ""))
+  .sort();
+
+const chains = {};
+for (const sym of symbols) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, sym + ".json"), "utf8");
+    const j = JSON.parse(raw);
+    if (j && j.chains && j.spot > 0) chains[sym] = j;
+  } catch {}
+}
+
+const picks = buildTopPicks(chains, narratives, streaksMap);
+const out = {
+  builtAtIso: new Date().toISOString(),
+  minConviction: 3,
+  picks,
+};
+
+await writeFile(
+  resolve(DATA_DIR, "picks.json"),
+  JSON.stringify(out, null, 2),
+  "utf8",
+);
+
+console.log(`Regenerated picks.json — ${picks.length} pick${picks.length === 1 ? "" : "s"}.`);
+for (const p of picks) {
+  const c = p.contract;
+  const overall = c?.contractQuality?.overall || "—";
+  console.log(
+    `  ${p.symbol.padEnd(6)} ${p.side.toUpperCase()} ` +
+    `conv=${String(p.conviction).padStart(2)} ` +
+    `comp=${String(p.compositeScore).padStart(5)} ` +
+    `Δ${c?.delta?.toFixed?.(2) ?? "—"} ` +
+    `${c?.dte ?? "?"}d ` +
+    `RR=${c?.rrRatio ?? "—"} ` +
+    `overall=${overall}` +
+    (c?.earningsInWindow ? " 📅EARNINGS" : ""),
+  );
+}

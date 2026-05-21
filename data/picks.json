@@ -1,1 +1,921 @@
-{"builtAtIso":"2026-05-21T21:05:31.515Z","minConviction":3,"picks":[{"symbol":"ASML","side":"call","score":13,"conviction":13,"thesis":"Bullish setup on ASML: rides \"AI Infrastructure Buildout\" (str 95, day 10); bullish news sentiment; strong fundamentals; MACD above signal (bullish).","drivers":[{"tag":"narrative","weight":4,"text":"rides \"AI Infrastructure Buildout\" (str 95, day 10)"},{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"macd","weight":1,"text":"MACD above signal (bullish)"}],"spot":1592,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":59.35,"streak":{"color":"green","days":2,"cumulativePct":8.915095355246786},"contract":{"strike":1650,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":68,"ask":78,"mid":73,"last":61.82,"iv":0.5079,"oi":42,"volume":1,"delta":0.452,"thetaDay":-1.4936,"breakeven":1723,"breakevenMovePct":8.23}},{"symbol":"V","side":"call","score":12,"conviction":12,"thesis":"Bullish setup on V: bullish news sentiment; 6-day green run (+3.4%); rides \"Credit Services Strength\" (str 80, day 2); strong fundamentals; MACD above signal (bullish).","drivers":[{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"streak","weight":3,"text":"6-day green run (+3.4%)"},{"tag":"narrative","weight":3,"text":"rides \"Credit Services Strength\" (str 80, day 2)"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"macd","weight":1,"text":"MACD above signal (bullish)"}],"spot":331.12,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":60.74,"streak":{"color":"green","days":6,"cumulativePct":3.3523380530003837},"contract":{"strike":330,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":9.3,"ask":11.1,"mid":10.2,"last":10.28,"iv":0.2508,"oi":159,"volume":28,"delta":0.555,"thetaDay":-0.1662,"breakeven":340.2,"breakevenMovePct":2.74}},{"symbol":"TSM","side":"call","score":11,"conviction":11,"thesis":"Bullish setup on TSM: rides \"AI Infrastructure Buildout\" (str 95, day 10); bullish news sentiment; strong fundamentals; MACD below signal (bearish).","drivers":[{"tag":"narrative","weight":4,"text":"rides \"AI Infrastructure Buildout\" (str 95, day 10)"},{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"macd","weight":-1,"text":"MACD below signal (bearish)"}],"spot":407.15,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":56.89,"streak":{"color":"green","days":2,"cumulativePct":3.6718239908443113},"contract":{"strike":420,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":15.85,"ask":17.35,"mid":16.6,"last":17.39,"iv":0.4422,"oi":187,"volume":79,"delta":0.45,"thetaDay":-0.3352,"breakeven":436.6,"breakevenMovePct":7.23}},{"symbol":"MA","side":"call","score":11,"conviction":11,"thesis":"Bullish setup on MA: bullish news sentiment; rides \"Credit Services Strength\" (str 80, day 2); strong fundamentals; MACD above signal (bullish); 3-day red run (-1.2%).","drivers":[{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"narrative","weight":3,"text":"rides \"Credit Services Strength\" (str 80, day 2)"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"macd","weight":1,"text":"MACD above signal (bullish)"},{"tag":"streak","weight":-1,"text":"3-day red run (-1.2%)"}],"spot":499.62,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":48.92,"streak":{"color":"red","days":3,"cumulativePct":-1.21901542633737},"contract":{"strike":495,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":16.9,"ask":19.7,"mid":18.3,"last":21.9,"iv":0.2738,"oi":25,"volume":11,"delta":0.58,"thetaDay":-0.2694,"breakeven":513.3,"breakevenMovePct":2.74}},{"symbol":"FTNT","side":"call","score":11,"conviction":11,"thesis":"Bullish setup on FTNT: bullish news sentiment; 7-day green run (+13.0%); rides \"AI Software & Cloud Adoption\" (str 85, day 2); strong fundamentals; RSI 87 (overbought); MACD above signal (bullish).","drivers":[{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"streak","weight":3,"text":"7-day green run (+13.0%)"},{"tag":"narrative","weight":3,"text":"rides \"AI Software & Cloud Adoption\" (str 85, day 2)"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"rsi","weight":-1,"text":"RSI 87 (overbought)"},{"tag":"macd","weight":1,"text":"MACD above signal (bullish)"}],"spot":129.46,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":86.6,"streak":{"color":"green","days":7,"cumulativePct":13.017437626042081},"contract":{"strike":130,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":5.25,"ask":7.5,"mid":6.38,"last":5.9,"iv":0.4718,"oi":57,"volume":15,"delta":0.53,"thetaDay":-0.1149,"breakeven":136.38,"breakevenMovePct":5.34}},{"symbol":"AMZN","side":"call","score":10,"conviction":10,"thesis":"Bullish setup on AMZN: bullish news sentiment; rides \"Digital Ad & Content Dominance\" (str 75, day 7); strong fundamentals; MACD below signal (bearish).","drivers":[{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"narrative","weight":3,"text":"rides \"Digital Ad & Content Dominance\" (str 75, day 7)"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"macd","weight":-1,"text":"MACD below signal (bearish)"}],"spot":268.46,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":60.81,"streak":{"color":"green","days":2,"cumulativePct":3.4881550354408564},"contract":{"strike":275,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":7.05,"ask":7.6,"mid":7.32,"last":7.36,"iv":0.3057,"oi":1128,"volume":130,"delta":0.436,"thetaDay":-0.1563,"breakeven":282.32,"breakevenMovePct":5.16}},{"symbol":"LLY","side":"call","score":10,"conviction":10,"thesis":"Bullish setup on LLY: rides \"GLP-1 Obesity Wave\" (str 90, day 10); bullish news sentiment; strong fundamentals; MACD above signal (bullish).","drivers":[{"tag":"narrative","weight":4,"text":"rides \"GLP-1 Obesity Wave\" (str 90, day 10)"},{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"macd","weight":1,"text":"MACD above signal (bullish)"}],"spot":1041.65,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":65.09,"streak":{"color":"green","days":1,"cumulativePct":2.235813146529544},"contract":{"strike":1075,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":26,"ask":32.9,"mid":29.45,"last":29.83,"iv":0.3553,"oi":28,"volume":1,"delta":0.424,"thetaDay":-0.6907,"breakeven":1104.45,"breakevenMovePct":6.03}},{"symbol":"DE","side":"put","score":-10,"conviction":10,"thesis":"Bearish setup on DE: bearish news sentiment; 7-day red run (-10.1%); exposed to \"Heavy Machinery Agricultural Headwinds\" (str 70, day 1); MACD below signal (bearish).","drivers":[{"tag":"news","weight":-3,"text":"bearish news sentiment"},{"tag":"streak","weight":-3,"text":"7-day red run (-10.1%)"},{"tag":"narrative","weight":-3,"text":"exposed to \"Heavy Machinery Agricultural Headwinds\" (str 70, day 1)"},{"tag":"macd","weight":-1,"text":"MACD below signal (bearish)"}],"spot":531.35,"sector":null,"sentiment":"bearish","fundamentalsVerdict":"mixed","rsi":33.5,"streak":{"color":"red","days":7,"cumulativePct":-10.143264013265725},"contract":{"strike":530,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":16,"ask":18.1,"mid":17.05,"last":26,"iv":0.2785,"oi":3,"volume":1,"delta":-0.451,"thetaDay":-0.2273,"breakeven":512.95,"breakevenMovePct":-3.46}},{"symbol":"ALAB","side":"call","score":10,"conviction":10,"thesis":"Bullish setup on ALAB: rides \"AI Infrastructure Buildout\" (str 95, day 10); bullish news sentiment; strong fundamentals; RSI 78 (overbought); MACD above signal (bullish); 3-day green run (+34.6%).","drivers":[{"tag":"narrative","weight":4,"text":"rides \"AI Infrastructure Buildout\" (str 95, day 10)"},{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"rsi","weight":-1,"text":"RSI 78 (overbought)"},{"tag":"macd","weight":1,"text":"MACD above signal (bullish)"},{"tag":"streak","weight":1,"text":"3-day green run (+34.6%)"}],"spot":297.84,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":77.7,"streak":{"color":"green","days":3,"cumulativePct":34.60163354887472},"contract":{"strike":300,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":34.55,"ask":36.5,"mid":35.52,"last":35,"iv":0.9676,"oi":136,"volume":38,"delta":0.556,"thetaDay":-0.519,"breakeven":335.52,"breakevenMovePct":12.65}},{"symbol":"NFLX","side":"call","score":9,"conviction":9,"thesis":"Bullish setup on NFLX: bullish news sentiment; rides \"Digital Ad & Content Dominance\" (str 75, day 7); strong fundamentals; MACD above signal (bullish).","drivers":[{"tag":"news","weight":3,"text":"bullish news sentiment"},{"tag":"narrative","weight":3,"text":"rides \"Digital Ad & Content Dominance\" (str 75, day 7)"},{"tag":"fundamentals","weight":2,"text":"strong fundamentals"},{"tag":"macd","weight":1,"text":"MACD above signal (bullish)"}],"spot":89.3,"sector":null,"sentiment":"bullish","fundamentalsVerdict":"strong","rsi":45.77,"streak":{"color":"green","days":1,"cumulativePct":1.3736028654444623},"contract":{"strike":91,"expiry":1782432000,"expiryLabel":"Jun 25 '26","dte":35,"bid":2.42,"ask":3.05,"mid":2.73,"last":3.25,"iv":0.3355,"oi":298,"volume":36,"delta":0.465,"thetaDay":-0.0573,"breakeven":93.73,"breakevenMovePct":4.97}}]}
+{
+  "builtAtIso": "2026-05-21T21:17:17.218Z",
+  "minConviction": 3,
+  "picks": [
+    {
+      "symbol": "ASML",
+      "side": "call",
+      "score": 12,
+      "conviction": 12,
+      "compositeScore": 10.26,
+      "thesis": "Bullish setup on ASML: rides \"AI Infrastructure Buildout\" (str 95, day 10); bullish news sentiment; strong fundamentals; MACD above signal (bullish); IV elevated (85th %ile) — expensive premium.",
+      "drivers": [
+        {
+          "tag": "narrative",
+          "weight": 4,
+          "text": "rides \"AI Infrastructure Buildout\" (str 95, day 10)"
+        },
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "macd",
+          "weight": 1,
+          "text": "MACD above signal (bullish)"
+        },
+        {
+          "tag": "iv",
+          "weight": -1,
+          "text": "IV elevated (85th %ile) — expensive premium"
+        }
+      ],
+      "spot": 1592,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 59.35,
+      "ivPctile": 85,
+      "streak": {
+        "color": "green",
+        "days": 2,
+        "cumulativePct": 8.915095355246786
+      },
+      "contract": {
+        "strike": 1640,
+        "expiry": 1781740800,
+        "expiryLabel": "Jun 17 '26",
+        "dte": 27,
+        "bid": 63.4,
+        "ask": 69,
+        "mid": 66.2,
+        "last": 61.5,
+        "iv": 0.5011,
+        "oi": 245,
+        "volume": 50,
+        "delta": 0.45,
+        "thetaDay": -1.6679,
+        "breakeven": 1706.2,
+        "breakevenMovePct": 7.17,
+        "expectedMovePct": 13.66,
+        "rrRatio": 0.53,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.855
+      }
+    },
+    {
+      "symbol": "V",
+      "side": "call",
+      "score": 11,
+      "conviction": 11,
+      "compositeScore": 9.647,
+      "thesis": "Bullish setup on V: bullish news sentiment; 6-day green run (+3.4%); rides \"Credit Services Strength\" (str 80, day 2); strong fundamentals; MACD above signal (bullish); IV elevated (89th %ile) — expensive premium.",
+      "drivers": [
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "streak",
+          "weight": 3,
+          "text": "6-day green run (+3.4%)"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "rides \"Credit Services Strength\" (str 80, day 2)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "macd",
+          "weight": 1,
+          "text": "MACD above signal (bullish)"
+        },
+        {
+          "tag": "iv",
+          "weight": -1,
+          "text": "IV elevated (89th %ile) — expensive premium"
+        }
+      ],
+      "spot": 331.12,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 60.74,
+      "ivPctile": 89,
+      "streak": {
+        "color": "green",
+        "days": 6,
+        "cumulativePct": 3.3523380530003837
+      },
+      "contract": {
+        "strike": 340,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 56,
+        "bid": 7.8,
+        "ask": 8.35,
+        "mid": 8.07,
+        "last": 7.85,
+        "iv": 0.2302,
+        "oi": 4680,
+        "volume": 83,
+        "delta": 0.432,
+        "thetaDay": -0.1213,
+        "breakeven": 348.07,
+        "breakevenMovePct": 5.12,
+        "expectedMovePct": 9.03,
+        "rrRatio": 0.57,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.877
+      }
+    },
+    {
+      "symbol": "MA",
+      "side": "call",
+      "score": 11,
+      "conviction": 11,
+      "compositeScore": 9.295,
+      "thesis": "Bullish setup on MA: bullish news sentiment; rides \"Credit Services Strength\" (str 80, day 2); strong fundamentals; MACD above signal (bullish); 3-day red run (-1.2%).",
+      "drivers": [
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "rides \"Credit Services Strength\" (str 80, day 2)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "macd",
+          "weight": 1,
+          "text": "MACD above signal (bullish)"
+        },
+        {
+          "tag": "streak",
+          "weight": -1,
+          "text": "3-day red run (-1.2%)"
+        }
+      ],
+      "spot": 499.62,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 48.92,
+      "ivPctile": 58,
+      "streak": {
+        "color": "red",
+        "days": 3,
+        "cumulativePct": -1.21901542633737
+      },
+      "contract": {
+        "strike": 510,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 56,
+        "bid": 14.9,
+        "ask": 15.7,
+        "mid": 15.3,
+        "last": 15.2,
+        "iv": 0.2551,
+        "oi": 161,
+        "volume": 22,
+        "delta": 0.466,
+        "thetaDay": -0.2036,
+        "breakeven": 525.3,
+        "breakevenMovePct": 5.14,
+        "expectedMovePct": 10,
+        "rrRatio": 0.51,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.845
+      }
+    },
+    {
+      "symbol": "TSM",
+      "side": "call",
+      "score": 11,
+      "conviction": 11,
+      "compositeScore": 9.284,
+      "thesis": "Bullish setup on TSM: rides \"AI Infrastructure Buildout\" (str 95, day 10); bullish news sentiment; strong fundamentals; MACD below signal (bearish).",
+      "drivers": [
+        {
+          "tag": "narrative",
+          "weight": 4,
+          "text": "rides \"AI Infrastructure Buildout\" (str 95, day 10)"
+        },
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "macd",
+          "weight": -1,
+          "text": "MACD below signal (bearish)"
+        }
+      ],
+      "spot": 407.15,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 56.89,
+      "ivPctile": 64,
+      "streak": {
+        "color": "green",
+        "days": 2,
+        "cumulativePct": 3.6718239908443113
+      },
+      "contract": {
+        "strike": 420,
+        "expiry": 1782432000,
+        "expiryLabel": "Jun 25 '26",
+        "dte": 35,
+        "bid": 15.85,
+        "ask": 17.35,
+        "mid": 16.6,
+        "last": 17.39,
+        "iv": 0.4422,
+        "oi": 187,
+        "volume": 79,
+        "delta": 0.45,
+        "thetaDay": -0.3352,
+        "breakeven": 436.6,
+        "breakevenMovePct": 7.23,
+        "expectedMovePct": 13.72,
+        "rrRatio": 0.53,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.844
+      }
+    },
+    {
+      "symbol": "AMZN",
+      "side": "call",
+      "score": 10,
+      "conviction": 10,
+      "compositeScore": 9,
+      "thesis": "Bullish setup on AMZN: bullish news sentiment; rides \"Digital Ad & Content Dominance\" (str 75, day 7); strong fundamentals; MACD below signal (bearish).",
+      "drivers": [
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "rides \"Digital Ad & Content Dominance\" (str 75, day 7)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "macd",
+          "weight": -1,
+          "text": "MACD below signal (bearish)"
+        }
+      ],
+      "spot": 268.46,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 60.81,
+      "ivPctile": 9,
+      "streak": {
+        "color": "green",
+        "days": 2,
+        "cumulativePct": 3.4881550354408564
+      },
+      "contract": {
+        "strike": 275,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 56,
+        "bid": 10.15,
+        "ask": 10.55,
+        "mid": 10.35,
+        "last": 10.34,
+        "iv": 0.3142,
+        "oi": 24424,
+        "volume": 1114,
+        "delta": 0.469,
+        "thetaDay": -0.1314,
+        "breakeven": 285.35,
+        "breakevenMovePct": 6.29,
+        "expectedMovePct": 12.32,
+        "rrRatio": 0.51,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "good",
+            "label": "Calm"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.9
+      }
+    },
+    {
+      "symbol": "FTNT",
+      "side": "call",
+      "score": 10,
+      "conviction": 10,
+      "compositeScore": 8.76,
+      "thesis": "Bullish setup on FTNT: bullish news sentiment; 7-day green run (+13.0%); rides \"AI Software & Cloud Adoption\" (str 85, day 2); strong fundamentals; RSI 87 (overbought); MACD above signal (bullish); IV elevated (91th %ile) — expensive premium.",
+      "drivers": [
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "streak",
+          "weight": 3,
+          "text": "7-day green run (+13.0%)"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "rides \"AI Software & Cloud Adoption\" (str 85, day 2)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "rsi",
+          "weight": -1,
+          "text": "RSI 87 (overbought)"
+        },
+        {
+          "tag": "macd",
+          "weight": 1,
+          "text": "MACD above signal (bullish)"
+        },
+        {
+          "tag": "iv",
+          "weight": -1,
+          "text": "IV elevated (91th %ile) — expensive premium"
+        }
+      ],
+      "spot": 129.46,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 86.6,
+      "ivPctile": 91,
+      "streak": {
+        "color": "green",
+        "days": 7,
+        "cumulativePct": 13.017437626042081
+      },
+      "contract": {
+        "strike": 135,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 56,
+        "bid": 5.55,
+        "ask": 6.15,
+        "mid": 5.85,
+        "last": 4.95,
+        "iv": 0.4113,
+        "oi": 1723,
+        "volume": 33,
+        "delta": 0.446,
+        "thetaDay": -0.0799,
+        "breakeven": 140.85,
+        "breakevenMovePct": 8.8,
+        "expectedMovePct": 16.13,
+        "rrRatio": 0.55,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.876
+      }
+    },
+    {
+      "symbol": "LLY",
+      "side": "call",
+      "score": 10,
+      "conviction": 10,
+      "compositeScore": 8.53,
+      "thesis": "Bullish setup on LLY: rides \"GLP-1 Obesity Wave\" (str 90, day 10); bullish news sentiment; strong fundamentals; MACD above signal (bullish).",
+      "drivers": [
+        {
+          "tag": "narrative",
+          "weight": 4,
+          "text": "rides \"GLP-1 Obesity Wave\" (str 90, day 10)"
+        },
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "macd",
+          "weight": 1,
+          "text": "MACD above signal (bullish)"
+        }
+      ],
+      "spot": 1041.65,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 65.09,
+      "ivPctile": 67,
+      "streak": {
+        "color": "green",
+        "days": 1,
+        "cumulativePct": 2.235813146529544
+      },
+      "contract": {
+        "strike": 1060,
+        "expiry": 1781740800,
+        "expiryLabel": "Jun 17 '26",
+        "dte": 27,
+        "bid": 28.85,
+        "ask": 31.5,
+        "mid": 30.18,
+        "last": 31.64,
+        "iv": 0.3387,
+        "oi": 732,
+        "volume": 37,
+        "delta": 0.457,
+        "thetaDay": -0.7584,
+        "breakeven": 1090.17,
+        "breakevenMovePct": 4.66,
+        "expectedMovePct": 9.23,
+        "rrRatio": 0.5,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.853
+      }
+    },
+    {
+      "symbol": "ALAB",
+      "side": "call",
+      "score": 9,
+      "conviction": 9,
+      "compositeScore": 7.812,
+      "thesis": "Bullish setup on ALAB: rides \"AI Infrastructure Buildout\" (str 95, day 10); bullish news sentiment; strong fundamentals; RSI 78 (overbought); MACD above signal (bullish); 3-day green run (+34.6%); IV elevated (76th %ile) — expensive premium.",
+      "drivers": [
+        {
+          "tag": "narrative",
+          "weight": 4,
+          "text": "rides \"AI Infrastructure Buildout\" (str 95, day 10)"
+        },
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "rsi",
+          "weight": -1,
+          "text": "RSI 78 (overbought)"
+        },
+        {
+          "tag": "macd",
+          "weight": 1,
+          "text": "MACD above signal (bullish)"
+        },
+        {
+          "tag": "streak",
+          "weight": 1,
+          "text": "3-day green run (+34.6%)"
+        },
+        {
+          "tag": "iv",
+          "weight": -1,
+          "text": "IV elevated (76th %ile) — expensive premium"
+        }
+      ],
+      "spot": 297.84,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 77.7,
+      "ivPctile": 76,
+      "streak": {
+        "color": "green",
+        "days": 3,
+        "cumulativePct": 34.60163354887472
+      },
+      "contract": {
+        "strike": 320,
+        "expiry": 1781740800,
+        "expiryLabel": "Jun 17 '26",
+        "dte": 27,
+        "bid": 23.2,
+        "ask": 24.8,
+        "mid": 24,
+        "last": 23.96,
+        "iv": 0.9804,
+        "oi": 287,
+        "volume": 67,
+        "delta": 0.451,
+        "thetaDay": -0.595,
+        "breakeven": 344,
+        "breakevenMovePct": 15.5,
+        "expectedMovePct": 26.72,
+        "rrRatio": 0.58,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.868
+      }
+    },
+    {
+      "symbol": "BAC",
+      "side": "call",
+      "score": 9,
+      "conviction": 9,
+      "compositeScore": 7.704,
+      "thesis": "Bullish setup on BAC: bullish news sentiment; rides \"Banks - Diversified AI Adoption\" (str 70, day 1); strong fundamentals; 4-day green run (+3.4%); MACD below signal (bearish).",
+      "drivers": [
+        {
+          "tag": "news",
+          "weight": 3,
+          "text": "bullish news sentiment"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "rides \"Banks - Diversified AI Adoption\" (str 70, day 1)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "strong fundamentals"
+        },
+        {
+          "tag": "streak",
+          "weight": 2,
+          "text": "4-day green run (+3.4%)"
+        },
+        {
+          "tag": "macd",
+          "weight": -1,
+          "text": "MACD below signal (bearish)"
+        }
+      ],
+      "spot": 51.49,
+      "sector": null,
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 50.49,
+      "ivPctile": 25,
+      "streak": {
+        "color": "green",
+        "days": 4,
+        "cumulativePct": 3.421113160444474
+      },
+      "contract": {
+        "strike": 52,
+        "expiry": 1781222400,
+        "expiryLabel": "Jun 11 '26",
+        "dte": 21,
+        "bid": 0.94,
+        "ask": 0.98,
+        "mid": 0.96,
+        "last": 0.96,
+        "iv": 0.2349,
+        "oi": 6208,
+        "volume": 131,
+        "delta": 0.46,
+        "thetaDay": -0.0302,
+        "breakeven": 52.96,
+        "breakevenMovePct": 2.85,
+        "expectedMovePct": 5.65,
+        "rrRatio": 0.51,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "good",
+            "label": "Balanced"
+          },
+          "theta": {
+            "cls": "bad",
+            "label": "Bleeding"
+          },
+          "iv": {
+            "cls": "good",
+            "label": "Calm"
+          },
+          "overall": "bad"
+        },
+        "qualityScore": 0.856
+      }
+    },
+    {
+      "symbol": "DE",
+      "side": "put",
+      "score": -10,
+      "conviction": 10,
+      "compositeScore": 7.52,
+      "thesis": "Bearish setup on DE: bearish news sentiment; 7-day red run (-10.1%); exposed to \"Heavy Machinery Agricultural Headwinds\" (str 70, day 1); MACD below signal (bearish).",
+      "drivers": [
+        {
+          "tag": "news",
+          "weight": -3,
+          "text": "bearish news sentiment"
+        },
+        {
+          "tag": "streak",
+          "weight": -3,
+          "text": "7-day red run (-10.1%)"
+        },
+        {
+          "tag": "narrative",
+          "weight": -3,
+          "text": "exposed to \"Heavy Machinery Agricultural Headwinds\" (str 70, day 1)"
+        },
+        {
+          "tag": "macd",
+          "weight": -1,
+          "text": "MACD below signal (bearish)"
+        }
+      ],
+      "spot": 531.35,
+      "sector": null,
+      "sentiment": "bearish",
+      "fundamentalsVerdict": "mixed",
+      "rsi": 33.5,
+      "ivPctile": 63,
+      "streak": {
+        "color": "red",
+        "days": 7,
+        "cumulativePct": -10.143264013265725
+      },
+      "contract": {
+        "strike": 520,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 56,
+        "bid": 17.3,
+        "ask": 19.1,
+        "mid": 18.2,
+        "last": 18.79,
+        "iv": 0.2916,
+        "oi": 214,
+        "volume": 30,
+        "delta": -0.38,
+        "thetaDay": -0.1791,
+        "breakeven": 501.8,
+        "breakevenMovePct": 5.56,
+        "expectedMovePct": 11.43,
+        "rrRatio": 0.49,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "Skewed"
+          },
+          "theta": {
+            "cls": "good",
+            "label": "Slow"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.752
+      }
+    }
+  ]
+}
