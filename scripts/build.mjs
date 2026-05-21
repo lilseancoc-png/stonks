@@ -1445,6 +1445,7 @@ function optionEvalSection() {
       <div class="opt-tabs" role="tablist" aria-label="Ticker analysis">
         <button type="button" class="opt-tab" role="tab" aria-selected="true" aria-controls="opt-tab-pane-fund" id="opt-tab-btn-fund" data-tab="fund">Fundamentals</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-tech" id="opt-tab-btn-tech" data-tab="tech">Technicals</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-iv" id="opt-tab-btn-iv" data-tab="iv">Implied vol</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-news" id="opt-tab-btn-news" data-tab="news">News</button>
       </div>
       <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-fund" aria-labelledby="opt-tab-btn-fund">
@@ -1484,6 +1485,16 @@ function optionEvalSection() {
           </header>
           <div class="opt-tech-grid" id="opt-tech-grid"></div>
           <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
+        </section>
+      </div>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-iv" aria-labelledby="opt-tab-btn-iv" hidden>
+        <section id="opt-iv" class="opt-iv" hidden aria-label="Implied vol term structure and rank">
+          <header class="opt-iv-head">
+            <h3 class="opt-iv-title">Implied volatility</h3>
+            <span id="opt-iv-rank" class="opt-iv-rank"></span>
+          </header>
+          <div class="opt-iv-term" id="opt-iv-term"></div>
+          <p class="opt-iv-foot">Term structure plots ATM (call/put average) IV for every expiration in the chain — rising left-to-right is contango, falling is backwardation. IV rank is today's nearest-30d ATM IV as a percentile of the prior ~18 months of daily snapshots; needs 60+ days of history before a rank is shown.</p>
         </section>
       </div>
       <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-news" aria-labelledby="opt-tab-btn-news" hidden>
@@ -2466,6 +2477,144 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var shell = $('opt-analysis');
     if (shell) shell.hidden = !state.symbol;
   }
+
+  // --- Implied vol tab --------------------------------------------------
+  // Per-ticker IV history is collected by the daily build into
+  // data/iv-history/<SYM>.json. Cache responses so re-selecting a ticker
+  // in the same session doesn't re-fetch.
+  var IV_HISTORY_CACHE = Object.create(null);
+  function atmIvForExpiration(chain, spot){
+    if (!chain || spot == null) return null;
+    var pick = function(rows){
+      if (!Array.isArray(rows) || !rows.length) return null;
+      var best = null, bestDist = Infinity;
+      for (var i=0; i<rows.length; i++){
+        var r = rows[i];
+        if (!r || r.iv == null || !isFinite(r.iv) || r.iv <= 0 || r.s == null) continue;
+        var d = Math.abs(r.s - spot);
+        if (d < bestDist){ best = r; bestDist = d; }
+      }
+      return best;
+    };
+    var c = pick(chain.c), p = pick(chain.p);
+    if (c && p) return (c.iv + p.iv) / 2;
+    if (c) return c.iv;
+    if (p) return p.iv;
+    return null;
+  }
+  function computeTermStructure(){
+    if (!state.expirations || !state.expirations.length) return [];
+    var nowSec = Date.now() / 1000;
+    var pts = [];
+    for (var i=0; i<state.expirations.length; i++){
+      var expSec = state.expirations[i];
+      var dte = Math.max(0, Math.round((expSec - nowSec) / 86400));
+      var iv = atmIvForExpiration(state.chains[expSec], state.spot);
+      if (iv != null) pts.push({ expSec: expSec, dte: dte, iv: iv });
+    }
+    pts.sort(function(a, b){ return a.dte - b.dte; });
+    return pts;
+  }
+  function termStructureSvg(points){
+    if (!points.length) return '<div class="opt-iv-empty">No usable IV in the loaded chain.</div>';
+    var W = 360, H = 110, PAD_L = 36, PAD_R = 8, PAD_T = 8, PAD_B = 22;
+    var minIv = Infinity, maxIv = -Infinity;
+    for (var i=0; i<points.length; i++){
+      if (points[i].iv < minIv) minIv = points[i].iv;
+      if (points[i].iv > maxIv) maxIv = points[i].iv;
+    }
+    // 5% padding around the range so the line doesn't graze the axes.
+    var ivPad = (maxIv - minIv) * 0.15 || maxIv * 0.05 || 0.02;
+    var y0 = minIv - ivPad, y1 = maxIv + ivPad;
+    var xMin = points[0].dte, xMax = points[points.length - 1].dte;
+    if (xMax === xMin) xMax = xMin + 1;
+    var sx = function(d){ return PAD_L + (d - xMin) / (xMax - xMin) * (W - PAD_L - PAD_R); };
+    var sy = function(iv){ return PAD_T + (1 - (iv - y0) / (y1 - y0)) * (H - PAD_T - PAD_B); };
+    var path = points.map(function(p, idx){ return (idx === 0 ? 'M' : 'L') + sx(p.dte).toFixed(1) + ' ' + sy(p.iv).toFixed(1); }).join(' ');
+    var dots = points.map(function(p){
+      return '<circle cx="' + sx(p.dte).toFixed(1) + '" cy="' + sy(p.iv).toFixed(1) + '" r="2.5" />';
+    }).join('');
+    // Y-axis labels: just the min and max IV so the chart stays legible.
+    var yLabels =
+      '<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + 4) + '" class="opt-iv-axis" text-anchor="end">' + (y1 * 100).toFixed(0) + '%</text>' +
+      '<text x="' + (PAD_L - 4) + '" y="' + (H - PAD_B + 2) + '" class="opt-iv-axis" text-anchor="end">' + (y0 * 100).toFixed(0) + '%</text>';
+    // X-axis labels: leftmost (front-month) and rightmost (longest) DTE.
+    var xLabels =
+      '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="start">' + xMin + 'd</text>' +
+      '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="end">' + xMax + 'd</text>';
+    return '<svg class="opt-iv-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="IV term structure">' +
+      '<path d="' + path + '" class="opt-iv-line" fill="none" />' +
+      '<g class="opt-iv-dots">' + dots + '</g>' +
+      yLabels + xLabels +
+    '</svg>';
+  }
+  function computeIvRank(history, today){
+    if (!history || !history.length) return null;
+    var entries = history.filter(function(e){ return e && e.iv != null && isFinite(e.iv); });
+    if (entries.length < 60) {
+      return { ready: false, count: entries.length, target: 60 };
+    }
+    var values = entries.map(function(e){ return e.iv; });
+    var lower = 0;
+    for (var i=0; i<values.length; i++){ if (values[i] <= today) lower += 1; }
+    var pct = (lower / values.length) * 100;
+    return { ready: true, percentile: pct, count: entries.length, today: today };
+  }
+  function fetchIvHistory(symbol){
+    if (IV_HISTORY_CACHE[symbol] !== undefined) return Promise.resolve(IV_HISTORY_CACHE[symbol]);
+    return fetch('data/iv-history/' + encodeURIComponent(symbol) + '.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        var entries = json && Array.isArray(json.entries) ? json.entries : [];
+        IV_HISTORY_CACHE[symbol] = entries;
+        return entries;
+      })
+      .catch(function(){
+        IV_HISTORY_CACHE[symbol] = [];
+        return [];
+      });
+  }
+  function renderImpliedVol(symbol){
+    var section = $('opt-iv');
+    var termBox = $('opt-iv-term');
+    var rankBox = $('opt-iv-rank');
+    if (!section || !termBox || !rankBox) return;
+    if (!state.symbol || !state.expirations || !state.expirations.length){
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    var points = computeTermStructure();
+    termBox.innerHTML = termStructureSvg(points);
+    var todayIv = points.length ? atmIvForExpiration(
+      state.chains[points.reduce(function(best, p){
+        return Math.abs(p.dte - 30) < Math.abs(best.dte - 30) ? p : best;
+      }).expSec],
+      state.spot
+    ) : null;
+    rankBox.textContent = 'Loading IV rank…';
+    fetchIvHistory(symbol).then(function(entries){
+      if (state.symbol !== symbol) return; // ticker switched while loading
+      if (todayIv == null){
+        rankBox.textContent = 'No ATM IV in chain';
+        return;
+      }
+      var rank = computeIvRank(entries, todayIv);
+      if (!rank){
+        rankBox.textContent = 'Building history — 0/60 days';
+        return;
+      }
+      if (!rank.ready){
+        rankBox.textContent = 'Building history — ' + rank.count + '/' + rank.target + ' days';
+        return;
+      }
+      var pctStr = rank.percentile.toFixed(0) + '%';
+      var label = rank.percentile >= 80 ? 'rich' : rank.percentile <= 20 ? 'cheap' : 'normal';
+      rankBox.textContent = 'IV rank ' + pctStr + ' · ' + label + ' (' + rank.count + 'd history · today ' + (rank.today * 100).toFixed(0) + '%)';
+      rankBox.className = 'opt-iv-rank opt-iv-rank-' + label;
+    });
+  }
+
   function bindTabs(){
     var tabs = document.querySelectorAll('.opt-tab');
     if (!tabs.length) return;
@@ -2484,7 +2633,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
-    selectTab(saved && ['fund','tech','news'].indexOf(saved) >= 0 ? saved : 'fund');
+    selectTab(saved && ['fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'fund');
   }
   // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
   // so a return visit lands the user where they left off.
@@ -2834,6 +2983,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       renderAnalysisShell();
       renderTechnicals(symbol);
       renderFundamentals(symbol);
+      renderImpliedVol(symbol);
       renderNewsPane();
       setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
       evaluate();
@@ -6371,6 +6521,64 @@ main {
   border-radius: var(--r-3);
   background: var(--surface-2);
 }
+
+/* --- Implied vol card ---------------------------------------------------- */
+.opt-iv {
+  margin: var(--s-3) 0;
+  padding: var(--s-3) var(--s-3) var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+}
+.opt-iv[hidden] { display: none; }
+.opt-iv-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  justify-content: space-between;
+}
+.opt-iv-title {
+  margin: 0; font-size: var(--fs-md); font-weight: 700;
+  color: var(--text-strong); letter-spacing: 0.01em;
+}
+.opt-iv-rank {
+  font: 600 11px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .03em;
+}
+.opt-iv-rank-rich { color: var(--neg); }
+.opt-iv-rank-cheap { color: var(--pos); }
+.opt-iv-rank-normal { color: var(--text); }
+.opt-iv-term { margin: var(--s-2) 0; }
+.opt-iv-svg {
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  font-family: var(--font-mono);
+}
+.opt-iv-line {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.opt-iv-dots circle {
+  fill: var(--accent);
+}
+.opt-iv-axis {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.opt-iv-empty {
+  padding: var(--s-3);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.opt-iv-foot {
+  font-size: 10px;
+  color: var(--muted);
+  margin: var(--s-2) 0 0;
+  line-height: 1.4;
+}
+
 .opt-tech-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2);
   margin-bottom: var(--s-2);
