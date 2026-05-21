@@ -54,6 +54,53 @@
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
     });
   }
+  // ---------------------------------------------------------------------
+  // CSV export — used by Unusual Flow, Calendar, and Top Picks "Export
+  // CSV" buttons. Quotes per RFC 4180 (double the quote, wrap if a comma
+  // / newline / quote is present).
+  function csvEscape(v){
+    if (v == null) return '';
+    var s = String(v);
+    if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function downloadCsv(filename, rows){
+    if (!Array.isArray(rows) || !rows.length) return false;
+    var headers = Object.keys(rows[0]);
+    var body = rows.map(function(r){
+      return headers.map(function(h){ return csvEscape(r[h]); }).join(',');
+    });
+    var csv = headers.map(csvEscape).join(',') + '\n' + body.join('\n') + '\n';
+    try {
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 100);
+      return true;
+    } catch (_){
+      return false;
+    }
+  }
+  function todayStamp(){ return new Date().toISOString().slice(0,10); }
+
+  // ---------------------------------------------------------------------
+  // Pin-to-compare state. Persisted to localStorage so the strip survives
+  // navigations. Items are full grade snapshots so a click can rehydrate
+  // the chain grader without re-fetching.
+  var PIN_KEY = 'stonks-pinned-v1';
+  var PIN_LIMIT = 6;
+  var PINNED = (function(){
+    try {
+      var raw = localStorage.getItem(PIN_KEY);
+      var arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.slice(0, PIN_LIMIT) : [];
+    } catch (_) { return []; }
+  })();
+  function savePinned(){
+    try { localStorage.setItem(PIN_KEY, JSON.stringify(PINNED.slice(0, PIN_LIMIT))); } catch (_){}
+  }
   // Animated number transitions for KPIs, grades, P/L. Snaps to the target
   // immediately when the user prefers reduced motion. Pulled into the
   // runtime so portfolio.js + grade rendering can both hook into it.
@@ -1241,17 +1288,48 @@
       html += '<li><b>Heads-up:</b> only ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry — gamma is enormous and theta is brutal. Treat this like a same-day trade.</li>';
     }
     html += '</ul>';
+    // Pin-to-compare snapshot. A trimmed view of the inputs + grades so the
+    // pinned-strip can render the gist without re-fetching anything. We
+    // stash it on the state object so the Pin click handler can read the
+    // latest grade regardless of which mode (chain / manual) produced it.
+    var pinSnapshot = {
+      pinnedAt: Date.now(),
+      source: input.source || 'chain',
+      symbol: input.ticker || (input.label || '').split(' ')[0] || '',
+      type: input.type,
+      strike: input.strike,
+      spot: input.spot,
+      expEpoch: input.expEpoch,
+      label: input.label || '',
+      iv: input.iv != null ? input.iv : null,
+      bid: input.bid != null ? input.bid : null,
+      ask: input.ask != null ? input.ask : null,
+      oi: input.oi != null ? input.oi : null,
+      volume: input.volume != null ? input.volume : null,
+      mid: mid != null ? Number(mid.toFixed(4)) : null,
+      spreadPct: spreadPct,
+      delta: g ? g.delta : null,
+      thetaDay: g ? g.thetaDay : null,
+      daysToExpiry: daysToExpiry,
+      verdict: { label: verdict.label, cls: verdict.cls },
+      buy: { decision: buy.decision },
+      sGradeLabel: sGrade.label, sGradeCls: sGrade.cls,
+      dGradeLabel: dGrade.label, dGradeCls: dGrade.cls,
+      tGradeLabel: tGrade.label, tGradeCls: tGrade.cls,
+    };
+    state.lastGrade = pinSnapshot;
+    html += '<div class="opt-actions">';
+    html += '<button type="button" class="opt-pin-btn" title="Pin this contract to compare side-by-side">📌 Pin to compare</button>';
     if (input.source === 'chain') {
       var payload = JSON.stringify({
         type: input.type, spot: input.spot, strike: input.strike, expEpoch: input.expEpoch,
         bid: input.bid, ask: input.ask, iv: input.iv,
         oi: input.oi, volume: input.volume,
       }).replace(/'/g, '&apos;');
-      html += '<div class="opt-actions">';
       html += '<button type="button" class="opt-tweak-btn" data-tweak=\'' + payload + '\'>Tweak in manual form &darr;</button>';
       html += '<button type="button" class="opt-copylink-btn" id="opt-copy-link" title="Copy a link that restores this exact contract">🔗 Copy link</button>';
-      html += '</div>';
     }
+    html += '</div>';
     var disc = input.source === 'manual'
       ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
       : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
@@ -3697,6 +3775,430 @@
     });
   }
 
+  // --- Pinned-to-compare strip --------------------------------------------
+  function renderPinnedStrip(){
+    var strip = $('opt-pinned-strip');
+    if (!strip) return;
+    if (!PINNED.length){
+      strip.hidden = true;
+      strip.innerHTML = '';
+      return;
+    }
+    strip.hidden = false;
+    strip.innerHTML = '<div class="opt-pinned-head">' +
+        '<span class="opt-pinned-title">Pinned · compare</span>' +
+        '<button type="button" class="opt-pinned-clear" data-pin-clear>Clear all</button>' +
+      '</div>' +
+      '<div class="opt-pinned-cards">' +
+      PINNED.map(function(p, idx){
+        var sideCls = p.type === 'put' ? 'pin-put' : 'pin-call';
+        var sideLbl = (p.type || '').toUpperCase();
+        var strikeStr = p.strike != null ? '$' + fmt(p.strike) : '';
+        var dteStr = p.daysToExpiry != null ? p.daysToExpiry + 'd' : '';
+        var buyCls = p.buy && p.buy.decision === 'yes' ? 'pin-yes' : 'pin-no';
+        var buyLbl = p.buy && p.buy.decision === 'yes' ? 'YES' : 'NO';
+        var verdictCls = (p.verdict && p.verdict.cls) || 'fair';
+        var verdictLbl = (p.verdict && p.verdict.label) || '';
+        var midStr = p.mid != null ? '$' + fmt(p.mid) : '';
+        return '<article class="opt-pinned-card" data-pin-idx="' + idx + '" tabindex="0" role="button" aria-label="Reload pinned contract ' + escapeHtml(p.symbol) + '">' +
+          '<header class="opt-pinned-card-head">' +
+            '<span class="opt-pinned-sym">' + escapeHtml(p.symbol || '—') + '</span>' +
+            '<span class="opt-pinned-side ' + sideCls + '">' + sideLbl + '</span>' +
+            '<button type="button" class="opt-pinned-x" data-pin-remove="' + idx + '" aria-label="Unpin">×</button>' +
+          '</header>' +
+          '<div class="opt-pinned-meta">' +
+            '<span class="opt-pinned-strike">' + escapeHtml(strikeStr) + '</span>' +
+            (dteStr ? '<span class="opt-pinned-dte">' + escapeHtml(dteStr) + '</span>' : '') +
+            (midStr ? '<span class="opt-pinned-mid">' + escapeHtml(midStr) + '</span>' : '') +
+          '</div>' +
+          '<div class="opt-pinned-grades">' +
+            '<span class="pin-grade pin-grade-' + (p.sGradeCls || 'fair') + '" title="Spread">S</span>' +
+            '<span class="pin-grade pin-grade-' + (p.dGradeCls || 'fair') + '" title="Delta">D</span>' +
+            '<span class="pin-grade pin-grade-' + (p.tGradeCls || 'fair') + '" title="Theta">T</span>' +
+          '</div>' +
+          '<footer class="opt-pinned-foot">' +
+            '<span class="opt-pinned-buy ' + buyCls + '">' + buyLbl + '</span>' +
+            '<span class="opt-pinned-verdict opt-verdict-' + verdictCls + '">' + escapeHtml(verdictLbl) + '</span>' +
+          '</footer>' +
+        '</article>';
+      }).join('') + '</div>';
+  }
+
+  function pinCurrentGrade(clickedBtn){
+    var snap = state.lastGrade;
+    if (!snap){ return; }
+    // De-dupe by (symbol, type, strike, expEpoch). Re-pinning an existing
+    // contract updates its grade in place rather than spawning a duplicate.
+    var existingIdx = -1;
+    for (var i=0; i<PINNED.length; i++){
+      var p = PINNED[i];
+      if (p.symbol === snap.symbol && p.type === snap.type && p.strike === snap.strike && p.expEpoch === snap.expEpoch){
+        existingIdx = i; break;
+      }
+    }
+    if (existingIdx >= 0){
+      PINNED[existingIdx] = snap;
+    } else {
+      PINNED.unshift(snap);
+      if (PINNED.length > PIN_LIMIT) PINNED.length = PIN_LIMIT;
+    }
+    savePinned();
+    renderPinnedStrip();
+    // Flash the Pin button so the user gets confirmation. We flash the one
+    // the user clicked (passed in by the delegated handler).
+    if (clickedBtn){
+      var orig = clickedBtn.textContent;
+      clickedBtn.textContent = '✓ Pinned';
+      clickedBtn.classList.add('is-pinned');
+      setTimeout(function(){ clickedBtn.textContent = orig; clickedBtn.classList.remove('is-pinned'); }, 1400);
+    }
+  }
+
+  function rehydratePinned(snap){
+    if (!snap) return;
+    // Always jump to the Grade tab first.
+    var gradeTab = document.querySelector('[data-page-tab="grade"]');
+    if (gradeTab) gradeTab.click();
+    if (snap.source === 'manual'){
+      // Repopulate the manual form. Expand the details if collapsed.
+      var details = document.querySelector('.opt-manual-details');
+      if (details && !details.open) details.open = true;
+      var setVal = function(id, v){ var el = $(id); if (el) el.value = (v != null ? String(v) : ''); };
+      $('m-type').value = snap.type || 'call';
+      setVal('m-spot', snap.spot);
+      setVal('m-strike', snap.strike);
+      if (snap.expEpoch){
+        var d = new Date(snap.expEpoch * 1000);
+        var iso = d.toISOString().slice(0,10);
+        setVal('m-expiry', iso);
+      }
+      if (snap.bid != null) setVal('m-bid', snap.bid);
+      if (snap.ask != null) setVal('m-ask', snap.ask);
+      if (snap.iv != null) setVal('m-iv', (snap.iv * 100).toFixed(2));
+      if (snap.oi != null) setVal('m-oi', snap.oi);
+      if (snap.volume != null) setVal('m-vol', snap.volume);
+      // Scroll the manual form into view so the rehydrated state is visible
+      // (the manual section can be far down on large screens).
+      try { details && details.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_){}
+      try { $('opt-manual-form').dispatchEvent(new Event('submit', { cancelable: true })); } catch (_){}
+    } else {
+      // Chain mode: commit the ticker then queue expiry + strike. We reuse
+      // the existing pendingUrlState pipe so loadChain() consumes them.
+      pendingUrlState = {
+        sym: snap.symbol,
+        exp: snap.expEpoch || null,
+        k: snap.strike != null ? snap.strike : null,
+        t: snap.type || 'call',
+      };
+      combo.commit(snap.symbol);
+    }
+  }
+
+  function bindPinCompare(){
+    renderPinnedStrip();
+    var strip = $('opt-pinned-strip');
+    if (strip){
+      strip.addEventListener('click', function(ev){
+        if (ev.target.closest && ev.target.closest('[data-pin-clear]')){
+          PINNED = [];
+          savePinned();
+          renderPinnedStrip();
+          return;
+        }
+        var rmBtn = ev.target.closest && ev.target.closest('[data-pin-remove]');
+        if (rmBtn){
+          ev.stopPropagation();
+          var idx = Number(rmBtn.getAttribute('data-pin-remove'));
+          if (idx >= 0 && idx < PINNED.length){
+            PINNED.splice(idx, 1);
+            savePinned();
+            renderPinnedStrip();
+          }
+          return;
+        }
+        var card = ev.target.closest && ev.target.closest('[data-pin-idx]');
+        if (card){
+          var i = Number(card.getAttribute('data-pin-idx'));
+          if (PINNED[i]) rehydratePinned(PINNED[i]);
+        }
+      });
+      strip.addEventListener('keydown', function(ev){
+        if ((ev.key === 'Enter' || ev.key === ' ') && ev.target && ev.target.classList.contains('opt-pinned-card')){
+          ev.preventDefault();
+          var i = Number(ev.target.getAttribute('data-pin-idx'));
+          if (PINNED[i]) rehydratePinned(PINNED[i]);
+        }
+      });
+    }
+    // Pin button lives inside the result HTML, so use event delegation on
+    // the eval + manual sections. Each result re-renders on every grade so
+    // the button identity is class-based, not id-based.
+    var section = document.getElementById('opt-eval-section');
+    if (section){
+      section.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.opt-pin-btn');
+        if (btn) pinCurrentGrade(btn);
+      });
+    }
+    var manualSection = document.getElementById('opt-manual-section');
+    if (manualSection){
+      manualSection.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.opt-pin-btn');
+        if (btn) pinCurrentGrade(btn);
+      });
+    }
+  }
+
+  // --- CSV export ---------------------------------------------------------
+  function bindCsvExports(){
+    var flowBtn = $('flow-export-csv');
+    if (flowBtn){
+      flowBtn.addEventListener('click', function(){
+        var tickers = filteredTickers();
+        var rows = [];
+        tickers.forEach(function(t){
+          (t.contracts || []).forEach(function(c){
+            rows.push({
+              ticker: t.symbol,
+              spot: t.spot != null ? t.spot : '',
+              side: c.type || '',
+              strike: c.s != null ? c.s : '',
+              expiry: c.expDate || '',
+              dte: c.dte != null ? c.dte : '',
+              volume: c.v != null ? c.v : '',
+              openInterest: c.oi != null ? c.oi : '',
+              iv: c.iv != null ? c.iv : '',
+              tape: c.tape || '',
+              hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
+              premium: c.premium != null ? c.premium : '',
+              repeats5d: c.repeatCount || 0,
+              note: c.note || '',
+            });
+          });
+        });
+        if (!rows.length){
+          try { alert('No flow rows to export with the current filters.'); } catch (_){}
+          return;
+        }
+        downloadCsv('stonks-unusual-' + todayStamp() + '.csv', rows);
+      });
+    }
+    var calBtn = $('calendar-export-csv');
+    if (calBtn){
+      calBtn.addEventListener('click', function(){
+        var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
+        var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+        var rows = filtered.map(function(e){
+          return {
+            date: e.date || '',
+            type: e.type || '',
+            ticker: e.ticker || e.symbol || '',
+            title: e.title || e.label || e.name || '',
+            session: e.session || '',
+            actual: e.actual != null ? e.actual : '',
+            previous: e.previous != null ? e.previous : '',
+            consensus: e.consensus != null ? e.consensus : '',
+            forecast: e.forecast != null ? e.forecast : '',
+          };
+        });
+        if (!rows.length){
+          try { alert('No events to export with the current filter.'); } catch (_){}
+          return;
+        }
+        downloadCsv('stonks-calendar-' + todayStamp() + '.csv', rows);
+      });
+    }
+    var picksBtn = $('picks-export-csv');
+    if (picksBtn){
+      picksBtn.addEventListener('click', function(){
+        var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
+        var picks = Array.isArray(data.picks) ? data.picks : [];
+        var rows = picks.map(function(p){
+          var c = p.contract || {};
+          return {
+            ticker: p.symbol || '',
+            side: p.side || '',
+            spot: p.spot != null ? p.spot : '',
+            sector: p.sector || '',
+            conviction: p.conviction != null ? p.conviction : '',
+            strike: c.strike != null ? c.strike : '',
+            expiry: c.expDate || '',
+            dte: c.dte != null ? c.dte : '',
+            delta: c.delta != null ? c.delta : '',
+            iv: c.iv != null ? c.iv : '',
+            thesis: (p.thesis || '').replace(/\r?\n/g, ' '),
+            drivers: (p.drivers || []).map(function(d){ return typeof d === 'string' ? d : (d && d.label) || ''; }).filter(Boolean).join('; '),
+          };
+        });
+        if (!rows.length){
+          try { alert('No picks to export.'); } catch (_){}
+          return;
+        }
+        downloadCsv('stonks-picks-' + todayStamp() + '.csv', rows);
+      });
+    }
+  }
+
+  // --- Cmd+K command palette ----------------------------------------------
+  function bindCmdPalette(){
+    var modal = $('cmd-palette');
+    var input = $('cmd-palette-input');
+    var results = $('cmd-palette-results');
+    var trigger = $('cmd-palette-trigger');
+    if (!modal || !input || !results) return;
+
+    var TABS = [
+      ['tickers', 'Tickers'],
+      ['narratives', 'Narratives'],
+      ['picks', 'Top picks'],
+      ['calendar', 'Calendar'],
+      ['flow', 'Unusual flow'],
+      ['grade', 'Grade a contract'],
+      ['streaks', 'Streaks'],
+      ['f13', '13F filings'],
+      ['portfolio', 'Portfolio'],
+    ];
+
+    function buildCorpus(){
+      var out = [];
+      SYMBOLS.forEach(function(sym){
+        out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
+      });
+      (NARRATIVES || []).forEach(function(n){
+        out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
+      });
+      TABS.forEach(function(tt){
+        out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
+      });
+      return out;
+    }
+    var corpus = buildCorpus();
+    var filtered = [];
+    var selectedIdx = 0;
+
+    function scoreMatch(it, q){
+      if (!q) return 0;
+      q = q.toLowerCase();
+      var lbl = (it.label || '').toLowerCase();
+      var sub = (it.sub || '').toLowerCase();
+      if (lbl === q) return 100;
+      if (lbl.indexOf(q) === 0) return 90;
+      if (lbl.indexOf(q) !== -1) return 70;
+      if (sub.indexOf(q) !== -1) return 40;
+      var i = 0, j = 0;
+      while (i < q.length && j < lbl.length){ if (q[i] === lbl[j]) i++; j++; }
+      if (i === q.length) return 20;
+      return -1;
+    }
+    function update(){
+      var q = (input.value || '').trim();
+      if (!q){
+        filtered = corpus.slice(0, 30);
+      } else {
+        filtered = corpus.map(function(it){ return { it: it, score: scoreMatch(it, q) }; })
+          .filter(function(x){ return x.score >= 0; })
+          .sort(function(a,b){ return b.score - a.score; })
+          .slice(0, 30)
+          .map(function(x){ return x.it; });
+      }
+      selectedIdx = 0;
+      renderList();
+    }
+    function renderList(){
+      if (!filtered.length){
+        results.innerHTML = '<li class="cmd-palette-empty" role="option" aria-selected="false">No matches</li>';
+        return;
+      }
+      results.innerHTML = filtered.map(function(it, i){
+        var typeLbl = it.type === 'ticker' ? 'TICKER' : it.type === 'narrative' ? 'THEME' : 'TAB';
+        var sub = it.sub ? '<span class="cmd-palette-row-sub">' + escapeHtml(it.sub) + '</span>' : '';
+        return '<li class="cmd-palette-row' + (i === selectedIdx ? ' is-active' : '') + '" role="option" data-cmd-idx="' + i + '" aria-selected="' + (i === selectedIdx ? 'true' : 'false') + '">' +
+          '<span class="cmd-palette-row-type cmd-type-' + it.type + '">' + typeLbl + '</span>' +
+          '<span class="cmd-palette-row-label">' + escapeHtml(it.label) + '</span>' +
+          sub +
+        '</li>';
+      }).join('');
+    }
+    function scrollSelectedIntoView(){
+      var active = results.querySelector('.cmd-palette-row.is-active');
+      if (active && typeof active.scrollIntoView === 'function'){
+        try { active.scrollIntoView({ block: 'nearest' }); } catch (_){}
+      }
+    }
+    function activate(it){
+      close();
+      if (!it) return;
+      if (it.action === 'open-tab'){
+        var btn = document.querySelector('[data-page-tab="' + it.payload + '"]');
+        if (btn) btn.click();
+      } else if (it.action === 'open-ticker'){
+        var gradeBtn = document.querySelector('[data-page-tab="grade"]');
+        if (gradeBtn) gradeBtn.click();
+        setTimeout(function(){
+          try { combo.commit(it.payload); } catch (_){}
+        }, 0);
+      } else if (it.action === 'open-narrative'){
+        var nbtn = document.querySelector('[data-page-tab="narratives"]');
+        if (nbtn) nbtn.click();
+      }
+    }
+    function open(){
+      modal.hidden = false;
+      document.body.classList.add('cmd-palette-open');
+      input.value = '';
+      update();
+      setTimeout(function(){ try { input.focus(); } catch (_){} }, 0);
+    }
+    function close(){
+      modal.hidden = true;
+      document.body.classList.remove('cmd-palette-open');
+    }
+    function isTypingTarget(t){
+      if (!t) return false;
+      var tag = (t.tagName || '').toUpperCase();
+      if (t.isContentEditable) return true;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    }
+
+    document.addEventListener('keydown', function(e){
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')){
+        e.preventDefault();
+        if (modal.hidden) open(); else close();
+        return;
+      }
+      if (modal.hidden && e.key === '/' && !isTypingTarget(e.target) && !e.metaKey && !e.ctrlKey){
+        e.preventDefault();
+        open();
+        return;
+      }
+      if (!modal.hidden){
+        if (e.key === 'Escape'){ e.preventDefault(); close(); return; }
+        if (e.key === 'ArrowDown'){ e.preventDefault(); selectedIdx = Math.min(filtered.length - 1, selectedIdx + 1); renderList(); scrollSelectedIntoView(); return; }
+        if (e.key === 'ArrowUp'){ e.preventDefault(); selectedIdx = Math.max(0, selectedIdx - 1); renderList(); scrollSelectedIntoView(); return; }
+        if (e.key === 'Enter'){ e.preventDefault(); if (filtered[selectedIdx]) activate(filtered[selectedIdx]); return; }
+      }
+    });
+    input.addEventListener('input', update);
+    results.addEventListener('click', function(e){
+      var row = e.target && e.target.closest && e.target.closest('[data-cmd-idx]');
+      if (row){
+        var idx = Number(row.getAttribute('data-cmd-idx'));
+        if (filtered[idx]) activate(filtered[idx]);
+      }
+    });
+    results.addEventListener('mousemove', function(e){
+      var row = e.target && e.target.closest && e.target.closest('[data-cmd-idx]');
+      if (row){
+        var idx = Number(row.getAttribute('data-cmd-idx'));
+        if (idx !== selectedIdx){ selectedIdx = idx; renderList(); }
+      }
+    });
+    modal.addEventListener('click', function(e){
+      if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-cmd-close')) close();
+    });
+    if (trigger){ trigger.addEventListener('click', open); }
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
@@ -3708,6 +4210,9 @@
     renderUnusualFlow();
     bindFlowControls();
     bindCalendarControls();
+    bindCsvExports();
+    bindCmdPalette();
+    bindPinCompare();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){
