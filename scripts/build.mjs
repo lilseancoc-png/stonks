@@ -1400,7 +1400,7 @@ function f13Section() {
     </header>
     <p class="hint">Quarterly institutional-holdings snapshot for the largest 13F filers ($5B+ AUM). Includes top reporting firms, marquee positions, the 20 biggest aggregate holdings across all filers, and rotation themes (most bought vs. most sold). 13F filings are released 45 days after quarter-end and exclude bonds, options details, and most international holdings.</p>
     <div id="f13-root" class="f13-root">Loading 13F summary…</div>
-    <div id="f13-empty" class="f13-empty" hidden>No 13F summary available.</div>
+    <div id="f13-empty" class="f13-empty" hidden>13F summary will appear after the next daily build refresh.</div>
   </section>`;
 }
 
@@ -1885,6 +1885,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         if (!li) return;
         e.preventDefault();
         self.commit(li.getAttribute('data-sym'));
+      });
+      // Touch devices don't reliably fire blur when the user taps
+      // outside the combobox (especially in iOS Safari), so the list can
+      // stay stranded. Close on any pointerdown outside the combo.
+      var combo = $('symbol-combo');
+      document.addEventListener('pointerdown', function(e){
+        if (!self.open) return;
+        if (combo && combo.contains(e.target)) return;
+        self.close();
       });
     },
     rank: function(q){
@@ -4986,7 +4995,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var d = f13State.data;
     if (!d){
       root.innerHTML = '';
-      if (empty){ empty.hidden = false; empty.textContent = 'No 13F summary available.'; }
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = '13F summary will appear after the next daily build refresh.';
+      }
       return;
     }
     if (empty) empty.hidden = true;
@@ -5310,6 +5322,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       manualForm.addEventListener('submit', evaluateManual);
       var paste = $('m-paste');
       if (paste) paste.addEventListener('input', onPasteContract);
+      // Wipe the "Graded." pill the moment the user edits any input, so
+      // a stale success message doesn't outlive the numbers it referred
+      // to. Result pane stays — only the status pill clears.
+      manualForm.addEventListener('input', function(ev){
+        if (ev.target && ev.target.id === 'm-paste') return; // paste hint handles itself
+        setStatus('opt-manual-status', '', '');
+      });
       var chainSection = $('opt-eval-section');
       if (chainSection){
         chainSection.addEventListener('click', function(ev){
@@ -5331,6 +5350,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         });
       }
     }
+
+    // Touch-friendly tooltips: tapping a .tip toggles .is-open so the
+    // explainer bubble actually shows on phones. Tapping elsewhere
+    // closes any open tip. Hover-only desktop UX is unchanged.
+    document.addEventListener('click', function(ev){
+      var tip = ev.target && ev.target.closest && ev.target.closest('.tip');
+      var openTips = document.querySelectorAll('.tip.is-open');
+      for (var i=0; i<openTips.length; i++){
+        if (openTips[i] !== tip) openTips[i].classList.remove('is-open');
+      }
+      if (tip){
+        ev.preventDefault();
+        tip.classList.toggle('is-open');
+      }
+    });
+
+    // Relative-time freshness banner ("Refreshed 12 minutes ago") goes
+    // stale on its own as the page sits open. Re-render when the tab
+    // becomes visible and on a 5-minute heartbeat so the warn / bad
+    // states trip when their thresholds (36h, 7d) cross.
+    document.addEventListener('visibilitychange', function(){
+      if (!document.hidden) renderFreshness();
+    });
+    setInterval(renderFreshness, 5 * 60 * 1000);
 
     // Auto-load any ticker from the URL. combo.commit walks the same path
     // a user-pick takes, so loadChain consumes pendingUrlState as it lands.
@@ -8226,7 +8269,7 @@ main {
   position: relative; vertical-align: middle;
   text-transform: none; letter-spacing: 0;
 }
-.tip:hover, .tip:focus-visible {
+.tip:hover, .tip:focus-visible, .tip.is-open {
   color: var(--text); border-color: var(--accent);
   outline: none;
 }
@@ -8246,7 +8289,13 @@ main {
   transition: opacity .12s ease;
   z-index: 30;
 }
-.tip:hover::after, .tip:focus-visible::after { opacity: 1; }
+.tip:hover::after, .tip:focus-visible::after, .tip.is-open::after { opacity: 1; }
+/* Hover-only devices: keep the cursor signal. Touch devices reveal the
+   bubble via tap (toggling .is-open from JS), so the bubble can't be
+   stranded by a sticky hover state. */
+@media (hover: none) {
+  .tip { cursor: pointer; }
+}
 @media (max-width: 480px){
   .tip::after { left: auto; right: 0; transform: none; }
 }
@@ -9570,19 +9619,18 @@ main { padding-top: var(--s-2); }
   .opt-iv-head { gap: 6px; }
   .opt-iv-foot { font-size: 10px; }
 
-  /* Option grader inputs: full-width, taller, 14px font so iOS doesn't
-     zoom in on focus (Safari auto-zooms when input < 16px text; 14px is
-     visually consistent with the rest of the form while staying close
-     enough that the zoom only triggers when the user explicitly taps
-     to zoom). The combobox listbox needs touch-friendly rows too. */
+  /* Option grader inputs: full-width, taller, 16px font so iOS Safari
+     doesn't auto-zoom in on focus (anything below 16px triggers the
+     zoom and never zooms back out). The combobox listbox needs
+     touch-friendly rows too. */
   .opt-eval-section .field,
   .opt-eval-section .field input,
   .opt-eval-section .field select {
     width: 100%;
   }
-  select, input[type="text"], input[type="email"], input[type="number"], input[type="search"] {
-    min-height: 40px;
-    font-size: 14px;
+  select, input[type="text"], input[type="email"], input[type="number"], input[type="search"], input[type="date"], input[type="tel"], textarea {
+    min-height: 44px;
+    font-size: 16px;
   }
   .opt-chain-row { grid-template-columns: 1fr !important; }
   .opt-result { padding: var(--s-2); font-size: 12px; }
@@ -9607,6 +9655,25 @@ main { padding-top: var(--s-2); }
 
   /* Touch-target floor for any small buttons that fell through. */
   button, .pf-iconbtn { min-height: 36px; }
+
+  /* Site-header icon buttons (theme toggle, GitHub link) — bump to the
+     40px touch floor on phones so the cluster doesn't feel cramped. */
+  .icon-btn { width: 40px; height: 40px; }
+
+  /* Hero numbers — equity total + perf P/L — were sized for desktop;
+     scale them down so they don't blow past the card edge on a 360px
+     phone. clamp keeps them fluid between 22px and 32px. */
+  .pf-equity-now, .pf-perf-pnl-value {
+    font-size: clamp(22px, 7vw, 32px);
+  }
+
+  /* Narratives "recently ended" carousel: shrink cards so one full card
+     + a peek of the next signals scrollability instead of one card
+     filling the viewport awkwardly. */
+  .narr-ended-card {
+    flex: 0 0 78vw;
+    max-width: 280px;
+  }
 }
 
 /* === Extra-narrow (<=400px) for older / smaller phones ============== */
@@ -9618,6 +9685,11 @@ main { padding-top: var(--s-2); }
   .cal-chip { padding: 7px 9px; }
   .flow-row-head { gap: 4px; }
   .pf-risk-greeks { grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+  /* Tighter ticker grid so two cards still sit side-by-side on
+     iPhone-SE-class screens (375px) and the smallest 360/320px
+     devices don't overflow. */
+  .tickers-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--s-2); }
+  .ticker-card { padding: var(--s-2) var(--s-3); min-height: 64px; }
 }
 
 /* === Design refresh (big-pass) =======================================

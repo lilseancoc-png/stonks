@@ -215,6 +215,15 @@
         e.preventDefault();
         self.commit(li.getAttribute('data-sym'));
       });
+      // Touch devices don't reliably fire blur when the user taps
+      // outside the combobox (especially in iOS Safari), so the list can
+      // stay stranded. Close on any pointerdown outside the combo.
+      var combo = $('symbol-combo');
+      document.addEventListener('pointerdown', function(e){
+        if (!self.open) return;
+        if (combo && combo.contains(e.target)) return;
+        self.close();
+      });
     },
     rank: function(q){
       q = (q||'').trim().toUpperCase();
@@ -3315,7 +3324,10 @@
     var d = f13State.data;
     if (!d){
       root.innerHTML = '';
-      if (empty){ empty.hidden = false; empty.textContent = 'No 13F summary available.'; }
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = '13F summary will appear after the next daily build refresh.';
+      }
       return;
     }
     if (empty) empty.hidden = true;
@@ -3639,6 +3651,13 @@
       manualForm.addEventListener('submit', evaluateManual);
       var paste = $('m-paste');
       if (paste) paste.addEventListener('input', onPasteContract);
+      // Wipe the "Graded." pill the moment the user edits any input, so
+      // a stale success message doesn't outlive the numbers it referred
+      // to. Result pane stays — only the status pill clears.
+      manualForm.addEventListener('input', function(ev){
+        if (ev.target && ev.target.id === 'm-paste') return; // paste hint handles itself
+        setStatus('opt-manual-status', '', '');
+      });
       var chainSection = $('opt-eval-section');
       if (chainSection){
         chainSection.addEventListener('click', function(ev){
@@ -3660,6 +3679,30 @@
         });
       }
     }
+
+    // Touch-friendly tooltips: tapping a .tip toggles .is-open so the
+    // explainer bubble actually shows on phones. Tapping elsewhere
+    // closes any open tip. Hover-only desktop UX is unchanged.
+    document.addEventListener('click', function(ev){
+      var tip = ev.target && ev.target.closest && ev.target.closest('.tip');
+      var openTips = document.querySelectorAll('.tip.is-open');
+      for (var i=0; i<openTips.length; i++){
+        if (openTips[i] !== tip) openTips[i].classList.remove('is-open');
+      }
+      if (tip){
+        ev.preventDefault();
+        tip.classList.toggle('is-open');
+      }
+    });
+
+    // Relative-time freshness banner ("Refreshed 12 minutes ago") goes
+    // stale on its own as the page sits open. Re-render when the tab
+    // becomes visible and on a 5-minute heartbeat so the warn / bad
+    // states trip when their thresholds (36h, 7d) cross.
+    document.addEventListener('visibilitychange', function(){
+      if (!document.hidden) renderFreshness();
+    });
+    setInterval(renderFreshness, 5 * 60 * 1000);
 
     // Auto-load any ticker from the URL. combo.commit walks the same path
     // a user-pick takes, so loadChain consumes pendingUrlState as it lands.

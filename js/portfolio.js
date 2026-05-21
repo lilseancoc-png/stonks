@@ -790,6 +790,15 @@ function openAddModal() {
     // Defer close to let mousedown selection fire first.
     setTimeout(closeCombo, 120);
   });
+  // Touch devices don't reliably fire `blur` on outside tap (notably
+  // iOS Safari), which strands the listbox open across the page. Close
+  // on any pointerdown outside the combo container.
+  const symbolCombo = $("pf-symbol-combo");
+  document.addEventListener("pointerdown", (e) => {
+    if (symbolListbox.hidden) return;
+    if (symbolCombo && symbolCombo.contains(e.target)) return;
+    closeCombo();
+  });
   symbolClear.addEventListener("click", () => {
     symbolInput.value = "";
     symbolSel.value = "";

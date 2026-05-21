@@ -2716,7 +2716,7 @@ main {
   position: relative; vertical-align: middle;
   text-transform: none; letter-spacing: 0;
 }
-.tip:hover, .tip:focus-visible {
+.tip:hover, .tip:focus-visible, .tip.is-open {
   color: var(--text); border-color: var(--accent);
   outline: none;
 }
@@ -2736,7 +2736,13 @@ main {
   transition: opacity .12s ease;
   z-index: 30;
 }
-.tip:hover::after, .tip:focus-visible::after { opacity: 1; }
+.tip:hover::after, .tip:focus-visible::after, .tip.is-open::after { opacity: 1; }
+/* Hover-only devices: keep the cursor signal. Touch devices reveal the
+   bubble via tap (toggling .is-open from JS), so the bubble can't be
+   stranded by a sticky hover state. */
+@media (hover: none) {
+  .tip { cursor: pointer; }
+}
 @media (max-width: 480px){
   .tip::after { left: auto; right: 0; transform: none; }
 }
@@ -4060,19 +4066,18 @@ main { padding-top: var(--s-2); }
   .opt-iv-head { gap: 6px; }
   .opt-iv-foot { font-size: 10px; }
 
-  /* Option grader inputs: full-width, taller, 14px font so iOS doesn't
-     zoom in on focus (Safari auto-zooms when input < 16px text; 14px is
-     visually consistent with the rest of the form while staying close
-     enough that the zoom only triggers when the user explicitly taps
-     to zoom). The combobox listbox needs touch-friendly rows too. */
+  /* Option grader inputs: full-width, taller, 16px font so iOS Safari
+     doesn't auto-zoom in on focus (anything below 16px triggers the
+     zoom and never zooms back out). The combobox listbox needs
+     touch-friendly rows too. */
   .opt-eval-section .field,
   .opt-eval-section .field input,
   .opt-eval-section .field select {
     width: 100%;
   }
-  select, input[type="text"], input[type="email"], input[type="number"], input[type="search"] {
-    min-height: 40px;
-    font-size: 14px;
+  select, input[type="text"], input[type="email"], input[type="number"], input[type="search"], input[type="date"], input[type="tel"], textarea {
+    min-height: 44px;
+    font-size: 16px;
   }
   .opt-chain-row { grid-template-columns: 1fr !important; }
   .opt-result { padding: var(--s-2); font-size: 12px; }
@@ -4097,6 +4102,25 @@ main { padding-top: var(--s-2); }
 
   /* Touch-target floor for any small buttons that fell through. */
   button, .pf-iconbtn { min-height: 36px; }
+
+  /* Site-header icon buttons (theme toggle, GitHub link) — bump to the
+     40px touch floor on phones so the cluster doesn't feel cramped. */
+  .icon-btn { width: 40px; height: 40px; }
+
+  /* Hero numbers — equity total + perf P/L — were sized for desktop;
+     scale them down so they don't blow past the card edge on a 360px
+     phone. clamp keeps them fluid between 22px and 32px. */
+  .pf-equity-now, .pf-perf-pnl-value {
+    font-size: clamp(22px, 7vw, 32px);
+  }
+
+  /* Narratives "recently ended" carousel: shrink cards so one full card
+     + a peek of the next signals scrollability instead of one card
+     filling the viewport awkwardly. */
+  .narr-ended-card {
+    flex: 0 0 78vw;
+    max-width: 280px;
+  }
 }
 
 /* === Extra-narrow (<=400px) for older / smaller phones ============== */
@@ -4108,6 +4132,11 @@ main { padding-top: var(--s-2); }
   .cal-chip { padding: 7px 9px; }
   .flow-row-head { gap: 4px; }
   .pf-risk-greeks { grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+  /* Tighter ticker grid so two cards still sit side-by-side on
+     iPhone-SE-class screens (375px) and the smallest 360/320px
+     devices don't overflow. */
+  .tickers-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--s-2); }
+  .ticker-card { padding: var(--s-2) var(--s-3); min-height: 64px; }
 }
 
 /* === Design refresh (big-pass) =======================================
