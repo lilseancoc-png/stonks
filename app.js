@@ -809,30 +809,39 @@
     var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
     var heading = 'AI news take' + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
     var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict from <b>Acceptable</b>.</div>' : '';
-    var sources = Array.isArray(news.sources) ? news.sources : [];
-    var sourcesRow = sources.length
-      ? '<div class="opt-news-sources"><span class="opt-news-sources-label">Sources</span>' +
-          sources.slice(0, 6).map(function(s){ return '<span class="opt-news-source">' + escapeHtml(s) + '</span>'; }).join('') +
-        '</div>'
-      : '';
-    // headlines may be plain strings (old builds) or {title, publisher} objects.
+    // Headlines are reputable-publisher-only (build-time hard filter). Show
+    // up to 5 directly under the AI paragraph as a Sources block — each
+    // row carries publisher tag + headline title + date, like a research
+    // note's footnote table. No more collapsible <details>: the citations
+    // ARE the proof, not a hidden afterthought.
     var hl = Array.isArray(news.headlines) ? news.headlines : [];
-    var hlRow = hl.length
-      ? '<details class="opt-news-headlines"><summary>' + hl.length + ' headlines used</summary><ul>' +
-          hl.slice(0, 10).map(function(h){
+    function fmtHlDate(iso){
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    }
+    var hlBlock = hl.length
+      ? '<div class="opt-news-sources">' +
+          '<span class="opt-news-sources-label">Sources</span>' +
+          '<ul class="opt-news-sources-list">' +
+          hl.slice(0, 5).map(function(h){
             var title = typeof h === 'string' ? h : (h.title || '');
             var pub = (h && typeof h === 'object') ? (h.publisher || '') : '';
-            var rep = (h && typeof h === 'object' && h.reputable) ? ' opt-news-headline-rep' : '';
-            var pubTag = pub ? '<span class="opt-news-headline-pub' + rep + '">' + escapeHtml(pub) + '</span>' : '';
-            return '<li>' + pubTag + '<span class="opt-news-headline-title">' + escapeHtml(title) + '</span></li>';
+            var date = (h && typeof h === 'object') ? fmtHlDate(h.publishedAt) : '';
+            return '<li class="opt-news-source-row">' +
+              (pub ? '<span class="opt-news-source-pub">' + escapeHtml(pub) + '</span>' : '') +
+              '<span class="opt-news-source-title">' + escapeHtml(title) + '</span>' +
+              (date ? '<span class="opt-news-source-date">' + escapeHtml(date) + '</span>' : '') +
+            '</li>';
           }).join('') +
-        '</ul></details>'
+          '</ul>' +
+        '</div>'
       : '';
     return '<div class="opt-news ' + (news.sentiment || 'neutral') + '">' +
       '<div class="opt-news-head">' + heading + '</div>' +
       '<div class="opt-news-body">' + escapeHtml(news.paragraph) + '</div>' +
-      sourcesRow +
-      hlRow +
+      hlBlock +
       note +
     '</div>';
   }
@@ -2034,17 +2043,12 @@
       var rows = [];
       for (var i = 0; i < examples.length; i++){
         var e = examples[i];
+        // Stocktwits examples carry {user, sentiment, body}. (Legacy Reddit
+        // shapes carried subreddit/score/permalink — those branches were
+        // removed when we dropped Reddit as a source.)
         var meta = [];
         if (e.user) meta.push('@' + escapeHtml(String(e.user)));
-        if (e.subreddit) meta.push('r/' + escapeHtml(String(e.subreddit)));
-        if (typeof e.score === 'number') meta.push('↑' + e.score);
-        if (e.matchedKeyword) meta.push('match: "' + escapeHtml(String(e.matchedKeyword)) + '"');
         var bodyText = escapeHtml(String(e.body || e.title || ''));
-        // Wrap titles in a link when we have a permalink (reddit). Stocktwits
-        // examples don't carry a stable URL so they stay plain text.
-        if (e.permalink){
-          bodyText = '<a href="' + escapeHtml(String(e.permalink)) + '" target="_blank" rel="noopener noreferrer">' + bodyText + '</a>';
-        }
         rows.push(
           '<li class="opt-social-example ' + (e.sentiment || 'neutral') + '">' +
             sentimentDot(e.sentiment) +
@@ -2077,9 +2081,7 @@
       : Math.round(s.msgCount24h).toString();
     var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
     var st = s.sources && s.sources.stocktwits;
-    var rd = s.sources && s.sources.reddit;
     var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages count as neutral.');
-    var rdBlock = renderSocialSourceBlock('Reddit (r/wallstreetbets + r/stocks + r/options)', rd, 'Post titles graded by keyword: bullish on calls/long/moon/buy/bull/breakout/squeeze/yolo; bearish on puts/short/sell/bear/crash/dump/drilling; both or neither → neutral.');
     return '<div class="opt-social ' + lean + '">' +
       '<div class="opt-social-head">' +
         '<span class="opt-social-label">Retail chatter</span>' +
@@ -2090,7 +2092,7 @@
         '<span class="neutral" style="width:' + neutral + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
-      stBlock + rdBlock +
+      stBlock +
     '</div>';
   }
 
@@ -2159,6 +2161,33 @@
       n.conflictsWith.map(function(c){ return '<span class="narr-conflict-chip">' + escapeHtml(c) + '</span>'; }).join('') +
     '</div>';
   }
+  // "Sources" — every headline the AI cited as backing this narrative,
+  // copied verbatim from the SOURCE POOL it was given. Each entry is the
+  // shape {publisher, title, date}. Build-time validation guarantees these
+  // are real headlines from REPUTABLE_PUBLISHERS (no hallucinated cites).
+  function fmtSrcDate(iso){
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00Z');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+  function narrativeSourcesHtml(n){
+    if (!Array.isArray(n.sources) || !n.sources.length) return '';
+    var items = n.sources.map(function(s){
+      var pub = escapeHtml(String(s.publisher || ''));
+      var title = escapeHtml(String(s.title || ''));
+      var date = escapeHtml(fmtSrcDate(s.date));
+      return '<li class="narr-source">' +
+        '<span class="narr-source-pub">' + pub + '</span>' +
+        '<span class="narr-source-title">' + title + '</span>' +
+        (date ? '<span class="narr-source-date">' + date + '</span>' : '') +
+      '</li>';
+    }).join('');
+    return '<div class="narr-sources">' +
+      '<span class="narr-sources-label">Sources</span>' +
+      '<ul class="narr-sources-list">' + items + '</ul>' +
+    '</div>';
+  }
   function narrativeCardHtml(n, rankInSector){
     var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
     var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
@@ -2200,6 +2229,7 @@
       longRow + shortRow +
       watchForHtml(n) +
       conflictsHtml(n) +
+      narrativeSourcesHtml(n) +
     '</article>';
   }
   // Sector-overview banner — the top-down story for the active sector. Sits

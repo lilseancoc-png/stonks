@@ -809,6 +809,69 @@ main {
   border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent);
   border-radius: var(--r-pill);
 }
+
+/* Per-narrative source citations — appears under watchFor/conflicts. Each
+   entry is a verified headline that informed the thesis. Hairline divider
+   above to separate from the thesis body; tracked-uppercase eyebrow label;
+   mono publisher tag + regular-weight title + UTC date so traders can
+   recognize the wire at a glance. */
+.narr-sources {
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
+  border-top: 1px dashed var(--hairline);
+}
+.narr-sources-label {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.narr-sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.narr-source {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.narr-source-pub {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-strong);
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+.narr-source-title {
+  flex: 1 1 auto;
+  color: var(--text);
+  min-width: 0;
+}
+.narr-source-date {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  font-feature-settings: "tnum" 1;
+}
+
 .narr-macro { margin-top: var(--s-4); }
 .narr-macro:empty { display: none; }
 .narr-macro-details {
@@ -2396,70 +2459,66 @@ main {
 .opt-news-pane .opt-news-empty {
   color: var(--muted); font-style: italic; font-size: var(--fs-sm);
 }
+/* News take "Sources" block — open by default, each row a real headline
+   citation. Reputable-publisher hard filter at build time means everything
+   in this list is wire-grade, so the rows act as the user's proof that
+   the AI take is grounded. Hairline above to separate from the body
+   paragraph; tracked-uppercase label; mono publisher tag on the left,
+   headline title in the middle, UTC date on the right. */
 .opt-news-sources {
-  display: flex; flex-wrap: wrap; align-items: center;
-  gap: 6px;
-  margin-top: var(--s-2);
+  margin-top: var(--s-3);
   padding-top: var(--s-2);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--hairline);
 }
 .opt-news-sources-label {
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--muted);
-  margin-right: 2px;
-}
-.opt-news-source {
-  display: inline-flex; align-items: center;
-  height: 20px;
-  padding: 0 8px;
-  font-size: 11px; font-weight: 600;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-pill);
-}
-.opt-news-headlines {
-  margin-top: var(--s-2);
-  font-size: var(--fs-sm);
-}
-.opt-news-headlines > summary {
-  cursor: pointer;
-  color: var(--muted);
-  list-style: none;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 10px;
   font-weight: 700;
-}
-.opt-news-headlines > summary::-webkit-details-marker { display: none; }
-.opt-news-headlines > summary::after {
-  content: ' +';
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--muted);
   font-family: var(--font-mono);
 }
-.opt-news-headlines[open] > summary::after { content: ' −'; }
-.opt-news-headlines ul {
+.opt-news-sources-list {
   list-style: none;
-  margin: var(--s-2) 0 0; padding: 0;
-  display: flex; flex-direction: column; gap: 4px;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column;
+  gap: 6px;
 }
-.opt-news-headlines li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--s-2);
+.opt-news-source-row {
+  display: flex;
   align-items: baseline;
-  padding: 4px 0;
-  border-top: 1px solid var(--border);
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.4;
 }
-.opt-news-headlines li:first-child { border-top: none; }
-.opt-news-headline-pub {
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--muted);
+.opt-news-source-pub {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-strong);
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
   white-space: nowrap;
 }
-.opt-news-headline-pub.opt-news-headline-rep { color: var(--accent-strong); }
-.opt-news-headline-title { color: var(--text); line-height: 1.4; }
+.opt-news-source-title {
+  flex: 1 1 auto;
+  color: var(--text);
+  min-width: 0;
+}
+.opt-news-source-date {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  font-feature-settings: "tnum" 1;
+}
 
 /* === Manual grader accordion === */
 .opt-manual-details summary {
