@@ -33,6 +33,20 @@
   --shadow-md:0 4px 16px rgba(0,0,0,0.45);
   --shadow-lg:0 24px 60px rgba(0,0,0,0.60);
   --shadow-glow-accent:0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  /* Refined elevation ladder — pairs hairlines with a soft drop. Used for
+     sticky chrome and popovers; data cards stay flat. */
+  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(0,0,0,0.35);
+  --elev-2:0 1px 0 var(--hairline), 0 8px 24px rgba(0,0,0,0.45);
+  --elev-pop:0 0 0 1px var(--border-strong), 0 16px 48px rgba(0,0,0,0.55);
+  /* Glass surfaces — sticky header, popovers, command palette only.
+     Never on data cards. */
+  --glass-bg:color-mix(in srgb, var(--surface) 78%, transparent);
+  --glass-border:color-mix(in srgb, var(--text-strong) 6%, var(--border));
+  --glass-blur:saturate(140%) blur(14px);
+  /* Accent ramp extras for tinted backgrounds and on-fill text. */
+  --accent-dim:#168f53;
+  --accent-fg:#06120c;
+  --accent-line:color-mix(in srgb, var(--accent) 35%, var(--border));
   /* Gradients reserved for sentiment-keyed surfaces (sector overview).
      Default cards are flat so data reads clean. */
   --gradient-card:var(--surface);
@@ -40,12 +54,19 @@
   --gradient-negative:linear-gradient(180deg, color-mix(in srgb, var(--neg) 10%, var(--surface)) 0%, var(--surface) 70%);
   --r-1:3px; --r-2:5px; --r-3:7px; --r-4:9px; --r-5:11px; --r-pill:999px;
   --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-7:32px; --s-8:48px;
-  --fs-xs:10px; --fs-sm:11px; --fs-md:12px; --fs-lg:14px; --fs-xl:16px; --fs-2xl:20px; --fs-3xl:28px; --fs-hero:36px; --fs-mega:48px;
+  --fs-2xs:9px; --fs-xs:10px; --fs-sm:11px; --fs-md:13px; --fs-lg:15px; --fs-xl:17px; --fs-2xl:22px; --fs-3xl:30px; --fs-hero:40px; --fs-mega:56px;
+  --lh-tight:1.15; --lh-snug:1.35; --lh-normal:1.5;
+  --ls-num:-0.01em; --ls-caps:0.10em;
   --font-sans:"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono:"JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --focus-ring:0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
   --ease-out:cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out:cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-1:120ms; --dur-2:200ms; --dur-3:320ms;
+  /* Unified content widths — wider than the legacy 760px to give the new
+     dashboard layouts room to breathe without losing the focused feel. */
+  --w-content:1080px;
+  --w-shell:1180px;
   color-scheme:dark;
 }
 :root[data-theme="light"] {
@@ -78,6 +99,15 @@
   --shadow-md:0 4px 12px rgba(15,23,42,0.08);
   --shadow-lg:0 24px 48px rgba(15,23,42,0.12);
   --shadow-glow-accent:0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(15,23,42,0.04);
+  --elev-2:0 1px 0 var(--hairline), 0 8px 24px rgba(15,23,42,0.08);
+  --elev-pop:0 0 0 1px var(--border-strong), 0 16px 48px rgba(15,23,42,0.14);
+  --glass-bg:color-mix(in srgb, var(--surface) 82%, transparent);
+  --glass-border:color-mix(in srgb, var(--text-strong) 6%, var(--border));
+  --glass-blur:saturate(140%) blur(14px);
+  --accent-dim:#0a8748;
+  --accent-fg:#ffffff;
+  --accent-line:color-mix(in srgb, var(--accent) 35%, var(--border));
   --gradient-card:var(--surface);
   --gradient-positive:linear-gradient(180deg, color-mix(in srgb, var(--pos) 8%, var(--surface)) 0%, var(--surface) 70%);
   --gradient-negative:linear-gradient(180deg, color-mix(in srgb, var(--neg) 8%, var(--surface)) 0%, var(--surface) 70%);
@@ -99,11 +129,14 @@ body {
      competing with content. Stays fixed to the viewport so scroll
      doesn't shift the highlight. */
   background-image:
-    radial-gradient(ellipse 1100px 480px at 50% -120px,
-      color-mix(in srgb, var(--accent) 6%, transparent) 0%,
+    radial-gradient(ellipse 1400px 560px at 50% -160px,
+      color-mix(in srgb, var(--accent) 7%, transparent) 0%,
       transparent 70%),
-    radial-gradient(ellipse 800px 380px at 90% 8%,
-      color-mix(in srgb, var(--info) 4%, transparent) 0%,
+    radial-gradient(ellipse 900px 420px at 92% 8%,
+      color-mix(in srgb, var(--info) 5%, transparent) 0%,
+      transparent 70%),
+    radial-gradient(ellipse 700px 320px at 6% 22%,
+      color-mix(in srgb, var(--accent) 3%, transparent) 0%,
       transparent 70%);
   background-attachment: fixed;
   background-repeat: no-repeat;
@@ -161,10 +194,11 @@ body {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Page-tab swap: fade the freshly-shown pane in. Gives the top-level
-     nav a sense of weight without disrupting layout. */
+  /* Page-tab swap: fade the freshly-shown pane in with a small upward
+     translate. Gives the top-level nav a sense of weight without
+     disrupting layout. */
   .page-pane:not([hidden]) {
-    animation: stonks-fade-in .22s var(--ease-out);
+    animation: stonks-fade-up var(--dur-3) var(--ease-out);
   }
   /* Calendar chips cascade in on first paint of a day group. Limit the
      cascade depth so a heavy news day doesn't ripple visibly for 2s. */
@@ -276,13 +310,30 @@ button { font: inherit; }
 }
 
 /* === Layout ===
-   Top utility bar — sits above the freshness strip (which carries the
-   actual divider line) so the page has a clear visual top edge without
-   stacking parallel hairlines. */
+   Top utility bar — sticky glass chrome that floats over the scroll.
+   Backed by a translucent surface + backdrop blur so content reads
+   through without bleeding. Border-bottom carries the hairline so the
+   strip below it (page-sub / freshness) doesn't double up. */
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 60;
   display: flex; align-items: center; justify-content: space-between;
-  max-width: 960px; margin: 0 auto;
-  padding: var(--s-4) var(--s-5) var(--s-2);
+  margin: 0 auto;
+  padding: var(--s-3) var(--s-5);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+}
+.site-header-inner {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%;
+  max-width: var(--w-shell);
+  margin: 0 auto;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .site-header { background: var(--surface); }
 }
 .brand {
   display: inline-flex; align-items: center; gap: var(--s-2);
@@ -333,14 +384,15 @@ button { font: inherit; }
 /* Marketing tagline under the header — kept small + muted so it reads as
    metadata, not as a hero. Institutional dashboards don't need a pitch. */
 .page-sub {
-  max-width: 760px; margin: 0 auto;
-  padding: var(--s-3) var(--s-5) 0;
+  max-width: var(--w-content); margin: 0 auto;
+  padding: var(--s-4) var(--s-5) 0;
   color: var(--muted);
   font-size: var(--fs-xs);
+  letter-spacing: 0.01em;
 }
 
 main {
-  max-width: 760px; margin: 0 auto;
+  max-width: var(--w-content); margin: 0 auto;
   padding: var(--s-3) var(--s-5) var(--s-7);
 }
 
@@ -349,7 +401,7 @@ main {
    active tab, no decorative chrome. Persists to localStorage. */
 .page-tabs {
   position: relative;
-  max-width: 760px;
+  max-width: var(--w-content);
   margin: 0 auto var(--s-4);
   padding: 0 var(--s-5);
   display: flex;
@@ -378,10 +430,12 @@ main {
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: var(--s-2) var(--s-3);
+  letter-spacing: 0.03em;
+  padding: var(--s-3) var(--s-3);
   cursor: pointer;
-  transition: color .15s var(--ease-out), border-color .15s var(--ease-out), background .15s var(--ease-out);
+  transition: color var(--dur-1) var(--ease-out),
+              border-color var(--dur-2) var(--ease-out),
+              background var(--dur-1) var(--ease-out);
   margin-bottom: -1px;
   white-space: nowrap;
   flex: 0 0 auto;
@@ -389,29 +443,30 @@ main {
 }
 .page-tab:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 .page-tab[aria-selected="true"] {
   color: var(--text-strong);
   border-bottom-color: var(--accent);
 }
+/* Soft accent halo behind the active tab — replaces the older blurred
+   underline so the indicator reads crisply on both themes. */
 .page-tab[aria-selected="true"]::after {
   content: "";
   position: absolute;
-  inset: auto 0 -2px 0;
-  height: 2px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--accent) 60%, transparent) 50%,
-    transparent 100%);
-  filter: blur(3px);
+  inset: auto 12px -1px 12px;
+  height: 6px;
+  background: radial-gradient(ellipse at center,
+    color-mix(in srgb, var(--accent) 38%, transparent) 0%,
+    transparent 70%);
   pointer-events: none;
+  filter: blur(2px);
 }
 .page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-1); }
 .page-pane[hidden] { display: none; }
 
 .site-footer {
-  max-width: 960px;
+  max-width: var(--w-shell);
   margin: var(--s-7) auto 0;
   padding: var(--s-5) var(--s-5) var(--s-6);
   color: var(--muted); font-size: var(--fs-xs);
@@ -442,7 +497,7 @@ main {
    Each is a label-over-value cell with a hairline divider between, mono
    font for the value so timestamps line up. */
 .freshness {
-  max-width: 760px;
+  max-width: var(--w-content);
   margin: 0 auto var(--s-3);
   padding: var(--s-2) var(--s-5);
   display: flex;
@@ -500,21 +555,22 @@ main {
   position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-3);
-  padding: var(--s-4) var(--s-5);
-  margin-bottom: var(--s-3);
+  border-radius: var(--r-4);
+  padding: var(--s-5) var(--s-5);
+  margin-bottom: var(--s-4);
+  box-shadow: var(--elev-1);
 }
 .card-header {
   display: flex; align-items: center; gap: var(--s-3);
   padding-bottom: var(--s-3);
-  margin-bottom: var(--s-3);
+  margin-bottom: var(--s-4);
   border-bottom: 1px solid var(--hairline);
 }
 .card-title {
   margin: 0;
   font-size: var(--fs-sm);
   font-weight: 700;
-  letter-spacing: 0.10em;
+  letter-spacing: var(--ls-caps);
   text-transform: uppercase;
   color: var(--text-strong);
   display: inline-flex; align-items: center; gap: 10px;
@@ -522,9 +578,10 @@ main {
 .card-title::before {
   content: '';
   display: inline-block;
-  width: 3px; height: 12px;
-  background: var(--accent);
-  border-radius: 1px;
+  width: 3px; height: 14px;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim) 100%);
+  border-radius: 2px;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .card-eyebrow {
   font-size: var(--fs-xs); color: var(--muted);
@@ -3819,41 +3876,49 @@ main { padding-top: var(--s-2); }
 
 .tickers-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--s-2);
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: var(--s-3);
   margin-top: var(--s-3);
 }
 .ticker-card {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--s-3) var(--s-3);
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 78px;
+  padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4);
   border: 1px solid var(--border);
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   background: var(--surface);
   color: var(--text);
   text-decoration: none;
-  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
+  transition: border-color var(--dur-1) var(--ease-out),
+              background var(--dur-1) var(--ease-out),
+              transform var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-1) var(--ease-out);
   position: relative;
   overflow: hidden;
 }
-/* Subtle accent strip on the left edge that animates in on hover —
+/* Subtle accent rail on the left edge that animates in on hover —
    borrows the same "left border accent" pattern as macro report rows. */
 .ticker-card::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: 6px auto 6px 0;
   width: 2px;
+  border-radius: 2px;
   background: var(--accent);
   transform: scaleY(0);
   transform-origin: center;
-  transition: transform .18s var(--ease-out);
+  opacity: 0.85;
+  transition: transform var(--dur-2) var(--ease-out);
 }
 .ticker-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
-  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
   text-decoration: none;
   transform: translateY(-1px);
+  box-shadow: var(--elev-1);
 }
 .ticker-card:hover::before { transform: scaleY(1); }
 .ticker-card:hover .ticker-sym { color: var(--text-strong); }
@@ -3862,17 +3927,25 @@ main { padding-top: var(--s-2); }
   box-shadow: var(--focus-ring);
   border-color: var(--accent);
 }
-.ticker-sym { transition: color .12s var(--ease-out); }
+.ticker-card-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s-2);
+}
 .ticker-sym {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: var(--text-strong);
+  transition: color var(--dur-1) var(--ease-out);
 }
 .ticker-sector {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--muted);
-  line-height: 1.3;
+  line-height: var(--lh-snug);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-caps);
+  font-weight: 600;
 }
 
 /* ============================================================================
