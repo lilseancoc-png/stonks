@@ -8333,7 +8333,9 @@ function parseRssItems(xml, max) {
     // Decode the handful of named/numeric entities RSS feeds commonly use.
     title = title
       .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)));
     if (!title) continue;
     const dateRaw =
       (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) ||
