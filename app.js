@@ -3081,13 +3081,20 @@
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + '</span></div>'
         : '') +
       '</div>';
-    var formatProb = function(p, key){
-      if (!p || p[key] == null) return '—';
+    // Normalize a probability to [0, 1] for the bar width; return null
+    // when no snapshot exists for that bucket so we can render "—".
+    var normProb = function(p, key){
+      if (!p || p[key] == null) return null;
       var v = Number(p[key]);
-      if (!isFinite(v)) return '—';
-      // Snapshots from CME can be on a 0-1 or 0-100 scale; normalise.
-      var pct = v > 1.5 ? v : v * 100;
-      return pct.toFixed(0) + '%';
+      if (!isFinite(v)) return null;
+      return v > 1.5 ? v / 100 : v; // accept 0-1 or 0-100 scale
+    };
+    var probCell = function(p, key){
+      var n = normProb(p, key);
+      if (n == null) return '<td><span>—</span></td>';
+      var pct = (n * 100).toFixed(0) + '%';
+      var bar = '<span class="fomc-prob-bar mag-' + key + '" style="--mag:' + n.toFixed(3) + '" aria-hidden="true"></span>';
+      return '<td>' + bar + '<span>' + pct + '</span></td>';
     };
     var rows = ['hike','hold','cut'];
     var rowLabel = { hike: 'Hike', hold: 'Hold', cut: 'Cut' };
@@ -3100,10 +3107,10 @@
         '</tr></thead><tbody>' +
           rows.map(function(k){
             return '<tr><th class="fomc-prob-row">' + rowLabel[k] + '</th>' +
-              '<td>' + formatProb(bucket.now, k) + '</td>' +
-              '<td>' + formatProb(bucket.day, k) + '</td>' +
-              '<td>' + formatProb(bucket.week, k) + '</td>' +
-              '<td>' + formatProb(bucket.month, k) + '</td>' +
+              probCell(bucket.now, k) +
+              probCell(bucket.day, k) +
+              probCell(bucket.week, k) +
+              probCell(bucket.month, k) +
             '</tr>';
           }).join('') +
         '</tbody></table>';
@@ -3134,7 +3141,11 @@
     var eyebrow = $('calendar-eyebrow');
     if (!root) return;
     if (calendarState.loading){
-      root.innerHTML = 'Loading calendar…';
+      root.innerHTML =
+        '<div class="cal-day"><div class="cal-date"><span class="skel skel-line sm" style="width:80px"></span></div>' +
+        '<div class="cal-chips"><span class="skel skel-line" style="width:62%"></span><span class="skel skel-line" style="width:78%"></span></div></div>' +
+        '<div class="cal-day"><div class="cal-date"><span class="skel skel-line sm" style="width:80px"></span></div>' +
+        '<div class="cal-chips"><span class="skel skel-line" style="width:70%"></span></div></div>';
       if (empty) empty.hidden = true;
       return;
     }
@@ -3233,7 +3244,11 @@
     var eyebrow = $('f13-eyebrow');
     if (!root) return;
     if (f13State.loading){
-      root.innerHTML = 'Loading 13F summary…';
+      root.innerHTML =
+        '<div class="f13-block"><span class="skel skel-line lg" style="width:240px"></span>' +
+        '<span class="skel skel-block"></span></div>' +
+        '<div class="f13-block"><span class="skel skel-line lg" style="width:200px"></span>' +
+        '<span class="skel skel-block"></span></div>';
       if (empty) empty.hidden = true;
       return;
     }
@@ -3301,14 +3316,25 @@
         firmsWithData.forEach(function(firmKey, i){
           var f = d.perFirm[firmKey];
           var firstOpen = i === 0 ? ' open' : '';
+          // Find the largest holding value to scale the per-row bars
+          // (top holding always shows full bar, others scale relative).
+          var maxValue = 0;
+          for (var k = 0; k < f.holdings.length; k++) {
+            if (f.holdings[k].value > maxValue) maxValue = f.holdings[k].value;
+          }
+          var concPct = f.top10ConcentrationPct != null ? f.top10ConcentrationPct : null;
+          var concBar = concPct != null
+            ? '<span class="f13-firm-bar" aria-hidden="true"><i style="width:' + Math.min(100, concPct).toFixed(1) + '%"></i></span>'
+            : '';
           html += '<details class="f13-firm"' + firstOpen + '>' +
             '<summary class="f13-firm-summary">' +
               '<span class="f13-firm-name">' + escapeHtml(f.firm || firmKey) + '</span>' +
               '<span class="f13-firm-meta">' +
                 escapeHtml(fmtBigDollarsF13(f.totalValue)) + ' · ' +
-                (f.totalPositions || 0) + ' positions · top-10 ' + (f.top10ConcentrationPct != null ? f.top10ConcentrationPct + '%' : '—') +
+                (f.totalPositions || 0) + ' positions · top-10 ' + (concPct != null ? concPct + '%' : '—') +
                 (f.filingDate ? ' · filed ' + escapeHtml(f.filingDate) : '') +
               '</span>' +
+              concBar +
             '</summary>' +
             '<div class="f13-table-scroll"><table class="f13-table">' +
               '<thead><tr>' +
@@ -3316,12 +3342,14 @@
               '</tr></thead>' +
               '<tbody>' +
               f.holdings.map(function(h, j){
+                var w = maxValue > 0 ? (h.value / maxValue) : 0;
+                var bar = '<i class="f13-holding-bar" style="width:' + (w * 100).toFixed(1) + '%"></i>';
                 return '<tr>' +
-                  '<td class="f13-num">' + (j + 1) + '</td>' +
-                  '<td class="f13-tkr">' + escapeHtml(h.ticker || '—') + '</td>' +
-                  '<td>' + escapeHtml(h.name || '') + '</td>' +
-                  '<td class="f13-num">' + escapeHtml(fmtBigDollarsF13(h.value)) + '</td>' +
-                  '<td class="f13-num f13-muted">' + escapeHtml(fmtSharesF13(h.shares)) + '</td>' +
+                  '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
+                  '<td class="f13-tkr"><span>' + escapeHtml(h.ticker || '—') + '</span></td>' +
+                  '<td><span>' + escapeHtml(h.name || '') + '</span></td>' +
+                  '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtBigDollarsF13(h.value)) + '</span></td>' +
+                  '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSharesF13(h.shares)) + '</span></td>' +
                 '</tr>';
               }).join('') +
               '</tbody>' +
@@ -3442,7 +3470,10 @@
     var eyebrow = $('picks-eyebrow');
     if (!root) return;
     if (picksState.loading){
-      root.innerHTML = 'Loading top picks…';
+      root.innerHTML =
+        '<span class="skel skel-block" style="height:60px"></span>' +
+        '<span class="skel skel-block" style="height:60px"></span>' +
+        '<span class="skel skel-block" style="height:60px"></span>';
       if (empty) empty.hidden = true;
       return;
     }
