@@ -2798,7 +2798,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -2861,9 +2861,38 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         if (active) positionIndicator(active);
       }).catch(function(){});
     }
-    var saved = null;
-    try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
-    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'tickers');
+    // Landing-page section cards — click anywhere with data-go="<tabname>"
+    // to navigate. Event delegation so the cards can be regenerated.
+    var homePane = document.getElementById('page-pane-home');
+    if (homePane) {
+      homePane.addEventListener('click', function(ev){
+        var target = ev.target && ev.target.closest ? ev.target.closest('[data-go]') : null;
+        if (!target) return;
+        var go = target.getAttribute('data-go');
+        if (go && valid.indexOf(go) >= 0){
+          ev.preventDefault();
+          selectTab(go);
+        }
+      });
+    }
+    // Always land on Home — explicit user navigation, no sticky last-tab.
+    // (selectTab still writes localStorage so other features can read it.)
+    selectTab('home');
+    // Populate runtime stats on the landing cards from the inlined manifest.
+    try {
+      var m = window.STONKS_MANIFEST || {};
+      var statNar = document.getElementById('land-stat-narratives');
+      if (statNar) {
+        var nCount = (m.sectorOverviews ? Object.keys(m.sectorOverviews).length : 0)
+                  || (Array.isArray(m.narratives) ? m.narratives.length : 0);
+        if (nCount) statNar.textContent = String(nCount);
+      }
+      var statFlow = document.getElementById('land-stat-flow');
+      if (statFlow) {
+        var fCount = m.unusual && m.unusual.summary && (m.unusual.summary.contractCount || m.unusual.summary.tickerCount);
+        if (typeof fCount === 'number' && fCount >= 0) statFlow.textContent = String(fCount);
+      }
+    } catch (_) {}
   }
 
   function buildResultHtml(input){
@@ -6114,7 +6143,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <span id="freshness-text">Built ${builtAt} (NY)</span>
 </div>
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
-  <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="true" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
@@ -6125,7 +6155,71 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
-  <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers">
+  <div class="page-pane" id="page-pane-home" role="tabpanel" aria-labelledby="page-tab-home">
+    <section class="landing-hero">
+      <span class="landing-hero-eyebrow">Today's desk</span>
+      <h1 class="landing-hero-title">What do you want to look at?</h1>
+      <p class="landing-hero-sub">Built <span class="mono">${builtAt}</span> (NY) · ${tickerCount} curated tickers</p>
+    </section>
+    <div class="landing-grid">
+      <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Tickers</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-tickers">${tickerCount}</div>
+        <div class="landing-card-sub">symbols tracked</div>
+        <p class="landing-card-desc">Per-ticker chains, technicals, Greeks, IV term structure, AI news takes.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Narratives</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-narratives">—</div>
+        <div class="landing-card-sub">sectors covered</div>
+        <p class="landing-card-desc">AI-built theses on what's driving capital today — longs, shorts, and the triggers to watch.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Top picks</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-picks">Today</div>
+        <div class="landing-card-sub">highest conviction</div>
+        <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
+      </button>
+      <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Unusual flow</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-flow">—</div>
+        <div class="landing-card-sub">flagged today</div>
+        <p class="landing-card-desc">Options prints with abnormal volume vs the prior session — who's pricing in what.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="grade" aria-label="Grade a contract">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Grade a contract</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat">Score it</div>
+        <div class="landing-card-sub">any chain</div>
+        <p class="landing-card-desc">Spread, delta, theta + AI conviction for any specific contract you're eyeing.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="portfolio" aria-label="Open portfolio">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Portfolio</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat">Track</div>
+        <div class="landing-card-sub">positions + AI review</div>
+        <p class="landing-card-desc">Save what you own, then ask the model for hold / sell / roll on each position.</p>
+      </button>
+    </div>
+    <p class="landing-foot">Or jump anywhere with the tab strip above · press <kbd>⌘K</kbd> for the command palette.</p>
+  </div>
+  <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers" hidden>
   ${tickersSection({ symbols, sectors: SECTORS, industries: INDUSTRY_OF_TICKER })}
   </div>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
@@ -6848,6 +6942,211 @@ main {
 .freshness #freshness-text { color: var(--text); font-weight: 600; }
 .freshness.warn #freshness-text { color: var(--warn); }
 .freshness.bad  #freshness-text { color: var(--neg); }
+
+/* === Landing / Home tab ===
+   First view a user lands on. A welcome hero + a grid of clickable
+   section cards. Each card uses the new gradient skin + glow tokens
+   so the entry point reads as the showcase surface. */
+.landing-hero {
+  position: relative;
+  max-width: var(--w-content);
+  margin: 0 auto var(--s-5);
+  padding: var(--s-6) var(--s-5) var(--s-5);
+  background: var(--surface);
+  background-image: var(--grad-hero);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  box-shadow: var(--elev-2), var(--elev-glow);
+  overflow: hidden;
+}
+.landing-hero::before {
+  content: "";
+  position: absolute;
+  inset: var(--s-3) auto var(--s-3) 0;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 60%, var(--accent-dim) 100%);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.landing-hero-eyebrow {
+  display: inline-block;
+  font: 700 var(--fs-xs)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-strong);
+  margin-bottom: var(--s-3);
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+}
+.landing-hero-title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-display);
+  letter-spacing: var(--ls-display);
+  color: var(--text-strong);
+  line-height: var(--lh-tight);
+}
+.landing-hero-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.02em;
+}
+.landing-hero-sub .mono { color: var(--text); }
+
+.landing-grid {
+  max-width: var(--w-content);
+  margin: 0 auto var(--s-4);
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--s-4);
+}
+
+.landing-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-5);
+  min-height: 180px;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  color: var(--text);
+  background: var(--surface);
+  background-image: var(--grad-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  box-shadow: var(--elev-1);
+  font: inherit;
+  transition: transform .25s var(--ease-out),
+              box-shadow .25s var(--ease-out),
+              border-color .15s var(--ease-out),
+              background .15s var(--ease-out);
+  overflow: hidden;
+}
+.landing-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-strong) 0%, var(--accent) 50%, transparent 100%);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .35s var(--ease-out);
+  pointer-events: none;
+}
+.landing-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
+  box-shadow: var(--elev-2), var(--elev-glow);
+}
+.landing-card:hover::before { transform: scaleX(1); }
+.landing-card:focus-visible {
+  outline: none;
+  box-shadow: var(--elev-focus);
+  border-color: var(--accent);
+}
+.landing-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-bottom: var(--s-1);
+}
+.landing-card-eyebrow {
+  font: 700 var(--fs-xs)/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--muted-strong);
+}
+.landing-card-arrow {
+  font-size: var(--fs-lg);
+  color: var(--muted);
+  transform: translateX(0);
+  transition: transform .25s var(--ease-out), color .15s var(--ease-out);
+}
+.landing-card:hover .landing-card-arrow {
+  color: var(--accent-strong);
+  transform: translateX(4px);
+}
+.landing-card-stat {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-hero);
+  letter-spacing: var(--ls-display);
+  line-height: 1;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, var(--text-strong) 0%, color-mix(in srgb, var(--text-strong) 70%, var(--accent)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.landing-card-sub {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-top: -2px;
+}
+.landing-card-desc {
+  margin: auto 0 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--hairline);
+}
+
+/* Hot variant — used for Unusual flow when there's active flagging. */
+.landing-card-hot {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+}
+.landing-card-hot::before { transform: scaleX(0.35); opacity: 0.6; }
+
+.landing-foot {
+  max-width: var(--w-content);
+  margin: 0 auto var(--s-5);
+  padding: 0 var(--s-2);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.02em;
+}
+.landing-foot kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 600 10px/1 var(--font-mono);
+}
+
+@media (max-width: 640px) {
+  .landing-grid { grid-template-columns: 1fr; gap: var(--s-3); }
+  .landing-hero { padding: var(--s-5) var(--s-4); }
+  .landing-hero-title { font-size: var(--fs-2xl); }
+  .landing-card { min-height: 0; padding: var(--s-4); }
+  .landing-card-stat { font-size: var(--fs-3xl); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Stagger the landing cards in on first paint of the home pane so the
+     hub feels considered, not slammed in. */
+  .landing-card { animation: stonks-fade-up .42s var(--ease-out) both; }
+  .landing-grid .landing-card:nth-child(1) { animation-delay: 0ms; }
+  .landing-grid .landing-card:nth-child(2) { animation-delay: 60ms; }
+  .landing-grid .landing-card:nth-child(3) { animation-delay: 120ms; }
+  .landing-grid .landing-card:nth-child(4) { animation-delay: 180ms; }
+  .landing-grid .landing-card:nth-child(5) { animation-delay: 240ms; }
+  .landing-grid .landing-card:nth-child(6) { animation-delay: 300ms; }
+}
 
 /* === Cards ===
    Flat surface with a precise 1px hairline. Elevation by border, not shadow
