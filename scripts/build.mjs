@@ -11253,22 +11253,12 @@ export async function writeFedwatchHistory(history) {
 // Fetch the latest settle / mid price for a Yahoo futures symbol.
 // Tries the specific contract first (e.g. ZQM26.CBT), falls back to the
 // continuous front-month (ZQ=F) if Yahoo doesn't list that contract.
+// Uses the yahoo-finance2 SDK (cookies/crumb handled) rather than a raw
+// fetch — the v7 quote endpoint rejects uncookied calls with 401 since
+// 2023, which is why fedwatch-history.json was permanently empty.
 async function fetchYahooFutureClose(symbol) {
   try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`,
-      {
-        headers: {
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          accept: "application/json",
-        },
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    if (!res.ok) return null;
-    const json = await res.json();
-    const q = json?.quoteResponse?.result?.[0];
+    const q = await yahooFinance.quote(symbol, {}, { validateResult: false });
     if (!q) return null;
     const price = q.regularMarketPrice ?? q.postMarketPrice ?? q.preMarketPrice;
     return Number.isFinite(price) ? Number(price) : null;
@@ -13624,17 +13614,43 @@ async function main() {
   // destructured it out of the serialized payload but never deleted it).
   const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
+  // Persist AI usage now (rather than at the very end) so a hang/timeout in
+  // the slow EDGAR fetch below can't leave data/ai-usage.json missing —
+  // writeChainFiles wiped it, and we want to make sure it's written back
+  // even when the 13F section degrades.
+  await writeAiUsageState();
   // 13F summary: derives current quarter, filing window, top biggest
   // positions (ranked from live marketCap), and rotation themes (from the
-  // narratives engine output) each build. Replaces the previous static
-  // data/13f.json so the tab stays current without code edits.
+  // narratives engine output) each build. Write a baseline file FIRST
+  // (no live data, just the curated directory) so we always leave a usable
+  // data/13f.json on disk; then attempt the EDGAR + OpenFIGI enrichment
+  // under a hard timeout and overwrite when it succeeds. Without this
+  // belt-and-suspenders setup, a slow OpenFIGI throttle (~2.5s × dozens of
+  // batches per firm) can blow past the workflow budget and leave the
+  // file deleted in the next commit.
+  const baselineInfo = await write13FFile(chains, trends.narratives, builtAtIso, {});
+  console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
   console.log("Fetching per-firm 13F holdings (SEC EDGAR + OpenFIGI)…");
-  const perFirmHoldings = await buildPerFirm13FHoldings();
+  const F13_TIMEOUT_MS = 90_000;
+  const perFirmHoldings = await Promise.race([
+    buildPerFirm13FHoldings().catch((err) => {
+      console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
+      return {};
+    }),
+    new Promise((resolve) => setTimeout(() => {
+      console.log(`  ⚠ buildPerFirm13FHoldings exceeded ${F13_TIMEOUT_MS / 1000}s — keeping baseline.`);
+      resolve({});
+    }, F13_TIMEOUT_MS)),
+  ]);
   const realFirms = Object.entries(perFirmHoldings).filter(([, v]) => v && v.holdings.length).length;
-  console.log(`  · ${realFirms}/${Object.keys(perFirmHoldings).length} firms returned holdings`);
-  const f13Info = await write13FFile(chains, trends.narratives, builtAtIso, perFirmHoldings);
-  console.log(`wrote data/13f.json — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
-  await writeAiUsageState();
+  const totalFirms = Object.keys(perFirmHoldings).length;
+  console.log(`  · ${realFirms}/${totalFirms} firms returned holdings`);
+  if (realFirms > 0) {
+    const f13Info = await write13FFile(chains, trends.narratives, builtAtIso, perFirmHoldings);
+    console.log(`wrote data/13f.json (enriched) — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
+  } else {
+    console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings.");
+  }
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );

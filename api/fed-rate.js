@@ -14,7 +14,16 @@ export default async function handler(req, res) {
   try {
     const csvUrl = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFF";
     const r = await fetch(csvUrl, {
-      headers: { "user-agent": "stonks-edge/1.0" },
+      // FRED's Cloudflare WAF rejects bare user-agents with 403; mirror the
+      // browser-shaped headers build.mjs uses for the same series so the
+      // calendar's live Fed-rate refresh keeps working between daily builds.
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        accept: "text/csv,application/csv,text/plain,*/*;q=0.5",
+        "accept-language": "en-US,en;q=0.9",
+        referer: "https://fred.stlouisfed.org/",
+      },
       signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) {
