@@ -3517,7 +3517,62 @@ main { padding-top: var(--s-2); }
   gap: var(--s-2);
   margin-bottom: var(--s-1);
 }
-.streaks-dot { font-size: 12px; }
+.streaks-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 8px;
+  background: var(--muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 18%, transparent);
+}
+.streaks-dot.is-green {
+  background: var(--pos);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 22%, transparent);
+}
+.streaks-dot.is-red {
+  background: var(--neg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neg) 22%, transparent);
+}
+.streaks-dot.is-flat {
+  background: var(--muted);
+}
+.streaks-row {
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
+}
+.streaks-row:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 2.5%, var(--surface));
+  transform: translateX(2px);
+}
+.streaks-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 8px;
+}
+.streaks-bar {
+  display: block;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--hairline);
+  overflow: hidden;
+  position: relative;
+}
+.streaks-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--w, 0);
+  background: var(--c, var(--accent));
+  border-radius: inherit;
+  transition: width .4s var(--ease-out);
+}
+.streaks-bar-len::after {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 40%, transparent),
+    var(--accent));
+}
 .streaks-sym {
   font-weight: 700;
   font-size: 15px;
@@ -4057,9 +4112,15 @@ main { padding-top: var(--s-2); }
   border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
   border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--pos) 6%, transparent);
+  flex-shrink: 0;
 }
 .freshness.warn::after { content: "Stale"; color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 6%, transparent); }
 .freshness.bad::after  { content: "Stale"; color: var(--neg);  border-color: color-mix(in srgb, var(--neg) 40%, transparent);  background: color-mix(in srgb, var(--neg) 6%, transparent); }
+@media (max-width: 420px) {
+  /* On very narrow viewports the pill can overlap the relative-time
+     text. Hide the label and rely on the pulsing dot for state. */
+  .freshness::after { display: none; }
+}
 
 /* Calendar AM/PM session pill — kept compact but uses a fixed min-width
    so the chips align across the timeline. */
