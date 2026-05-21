@@ -2215,10 +2215,13 @@
       }
       exHtml = '<ul class="opt-social-examples">' + rows.join('') + '</ul>';
     }
+    // Drop the neutral count from the visible label — only directional
+    // (bullish / bearish) posts inform the chatter signal. The total post
+    // count stays so readers see the sample size.
     return '<div class="opt-social-source">' +
       '<div class="opt-social-source-head">' +
         '<span class="opt-social-source-name">' + escapeHtml(name) + '</span>' +
-        '<span class="opt-social-source-counts">' + src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish · ' + n + ' neutral</span>' +
+        '<span class="opt-social-source-counts">' + src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish</span>' +
       '</div>' +
       '<div class="opt-social-source-method">' + escapeHtml(gradingNote) + '</div>' +
       exHtml +
@@ -2229,15 +2232,20 @@
     if (!box) return null;
     var s = state.social;
     if (!s || !s.msgCount24h || s.msgCount24h < 5) return '';
-    var bull = Math.max(0, Math.round(s.bullishPct || 0));
-    var bear = Math.max(0, Math.round(s.bearishPct || 0));
-    var neutral = Math.max(0, 100 - bull - bear);
+    // Re-normalize so the bar shows the directional split only — neutral
+    // (untagged) messages don't carry sentiment signal, so they shouldn't
+    // get bar real estate. The eyebrow label drops the neutral % too.
+    var rawBull = Math.max(0, Number(s.bullishPct) || 0);
+    var rawBear = Math.max(0, Number(s.bearishPct) || 0);
+    var directional = rawBull + rawBear;
+    var bull = directional > 0 ? Math.round((rawBull / directional) * 100) : 0;
+    var bear = directional > 0 ? 100 - bull : 0;
     var msgs = s.msgCount24h >= 1000
       ? (s.msgCount24h / 1000).toFixed(1) + 'k'
       : Math.round(s.msgCount24h).toString();
     var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
     var st = s.sources && s.sources.stocktwits;
-    var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages count as neutral.');
+    var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages are excluded from this split.');
     return '<div class="opt-social ' + lean + '">' +
       '<div class="opt-social-head">' +
         '<span class="opt-social-label">Retail chatter</span>' +
@@ -2245,7 +2253,6 @@
       '</div>' +
       '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish">' +
         '<span class="bull" style="width:' + bull + '%"></span>' +
-        '<span class="neutral" style="width:' + neutral + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
       stBlock +
