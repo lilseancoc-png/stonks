@@ -1358,6 +1358,7 @@ function topPicksSection() {
     <header class="card-header">
       <h2 class="card-title">Top options picks</h2>
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
+      <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
     <p class="hint">The ten highest-conviction tickers to trade options on right now, scored by fusing every signal the daily build already produces: active narratives this ticker rides, news sentiment, fundamentals verdict, RSI extremes, MACD direction, and the current daily streak. Each pick is tagged with the side (call or put) the signal stack points to and a thesis enumerating the drivers.</p>
     <div id="picks-root" class="picks-root">Loading top picks…</div>
@@ -1385,6 +1386,7 @@ function calendarSection() {
         <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">FOMC</button>
         <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro</button>
       </div>
+      <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>
     <div id="calendar-root" class="calendar-root">Loading calendar…</div>
     <div id="calendar-empty" class="calendar-empty" hidden>No events in the next 30 days.</div>
@@ -1451,6 +1453,7 @@ function unusualFlowSection() {
           </select>
         </label>
         <button type="button" id="flow-expand-toggle" class="flow-action-btn" aria-pressed="true">Expand all</button>
+        <button type="button" id="flow-export-csv" class="flow-action-btn csv-export-btn" title="Download visible rows as CSV">Export CSV</button>
       </div>
       <div id="flow-list" class="flow-list" role="list"></div>
       <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
@@ -1468,6 +1471,7 @@ function optionEvalSection() {
       <h2 class="card-title">Grade a contract</h2>
     </header>
     <p class="hint">Type to search a curated ticker, pick a call or put, then dial in expiry and strike. The verdict regrades as you go.</p>
+    <div id="opt-pinned-strip" class="opt-pinned-strip" hidden aria-label="Pinned contracts for comparison"></div>
     <div class="opt-controls">
       <div class="combo" id="symbol-combo">
         <input type="text" id="symbol-input" role="combobox"
@@ -1727,6 +1731,53 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     return String(s).replace(/[&<>"']/g, function(ch){
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
     });
+  }
+  // ---------------------------------------------------------------------
+  // CSV export — used by Unusual Flow, Calendar, and Top Picks "Export
+  // CSV" buttons. Quotes per RFC 4180 (double the quote, wrap if a comma
+  // / newline / quote is present).
+  function csvEscape(v){
+    if (v == null) return '';
+    var s = String(v);
+    if (/[",\\n\\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function downloadCsv(filename, rows){
+    if (!Array.isArray(rows) || !rows.length) return false;
+    var headers = Object.keys(rows[0]);
+    var body = rows.map(function(r){
+      return headers.map(function(h){ return csvEscape(r[h]); }).join(',');
+    });
+    var csv = headers.map(csvEscape).join(',') + '\\n' + body.join('\\n') + '\\n';
+    try {
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 100);
+      return true;
+    } catch (_){
+      return false;
+    }
+  }
+  function todayStamp(){ return new Date().toISOString().slice(0,10); }
+
+  // ---------------------------------------------------------------------
+  // Pin-to-compare state. Persisted to localStorage so the strip survives
+  // navigations. Items are full grade snapshots so a click can rehydrate
+  // the chain grader without re-fetching.
+  var PIN_KEY = 'stonks-pinned-v1';
+  var PIN_LIMIT = 6;
+  var PINNED = (function(){
+    try {
+      var raw = localStorage.getItem(PIN_KEY);
+      var arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.slice(0, PIN_LIMIT) : [];
+    } catch (_) { return []; }
+  })();
+  function savePinned(){
+    try { localStorage.setItem(PIN_KEY, JSON.stringify(PINNED.slice(0, PIN_LIMIT))); } catch (_){}
   }
   // Animated number transitions for KPIs, grades, P/L. Snaps to the target
   // immediately when the user prefers reduced motion. Pulled into the
@@ -2915,17 +2966,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       html += '<li><b>Heads-up:</b> only ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry — gamma is enormous and theta is brutal. Treat this like a same-day trade.</li>';
     }
     html += '</ul>';
+    // Pin-to-compare snapshot. A trimmed view of the inputs + grades so the
+    // pinned-strip can render the gist without re-fetching anything. We
+    // stash it on the state object so the Pin click handler can read the
+    // latest grade regardless of which mode (chain / manual) produced it.
+    var pinSnapshot = {
+      pinnedAt: Date.now(),
+      source: input.source || 'chain',
+      symbol: input.ticker || (input.label || '').split(' ')[0] || '',
+      type: input.type,
+      strike: input.strike,
+      spot: input.spot,
+      expEpoch: input.expEpoch,
+      label: input.label || '',
+      iv: input.iv != null ? input.iv : null,
+      bid: input.bid != null ? input.bid : null,
+      ask: input.ask != null ? input.ask : null,
+      oi: input.oi != null ? input.oi : null,
+      volume: input.volume != null ? input.volume : null,
+      mid: mid != null ? Number(mid.toFixed(4)) : null,
+      spreadPct: spreadPct,
+      delta: g ? g.delta : null,
+      thetaDay: g ? g.thetaDay : null,
+      daysToExpiry: daysToExpiry,
+      verdict: { label: verdict.label, cls: verdict.cls },
+      buy: { decision: buy.decision },
+      sGradeLabel: sGrade.label, sGradeCls: sGrade.cls,
+      dGradeLabel: dGrade.label, dGradeCls: dGrade.cls,
+      tGradeLabel: tGrade.label, tGradeCls: tGrade.cls,
+    };
+    state.lastGrade = pinSnapshot;
+    html += '<div class="opt-actions">';
+    html += '<button type="button" class="opt-pin-btn" title="Pin this contract to compare side-by-side">📌 Pin to compare</button>';
     if (input.source === 'chain') {
       var payload = JSON.stringify({
         type: input.type, spot: input.spot, strike: input.strike, expEpoch: input.expEpoch,
         bid: input.bid, ask: input.ask, iv: input.iv,
         oi: input.oi, volume: input.volume,
       }).replace(/'/g, '&apos;');
-      html += '<div class="opt-actions">';
       html += '<button type="button" class="opt-tweak-btn" data-tweak=\\'' + payload + '\\'>Tweak in manual form &darr;</button>';
       html += '<button type="button" class="opt-copylink-btn" id="opt-copy-link" title="Copy a link that restores this exact contract">🔗 Copy link</button>';
-      html += '</div>';
     }
+    html += '</div>';
     var disc = input.source === 'manual'
       ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
       : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
@@ -5371,6 +5453,430 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     });
   }
 
+  // --- Pinned-to-compare strip --------------------------------------------
+  function renderPinnedStrip(){
+    var strip = $('opt-pinned-strip');
+    if (!strip) return;
+    if (!PINNED.length){
+      strip.hidden = true;
+      strip.innerHTML = '';
+      return;
+    }
+    strip.hidden = false;
+    strip.innerHTML = '<div class="opt-pinned-head">' +
+        '<span class="opt-pinned-title">Pinned · compare</span>' +
+        '<button type="button" class="opt-pinned-clear" data-pin-clear>Clear all</button>' +
+      '</div>' +
+      '<div class="opt-pinned-cards">' +
+      PINNED.map(function(p, idx){
+        var sideCls = p.type === 'put' ? 'pin-put' : 'pin-call';
+        var sideLbl = (p.type || '').toUpperCase();
+        var strikeStr = p.strike != null ? '$' + fmt(p.strike) : '';
+        var dteStr = p.daysToExpiry != null ? p.daysToExpiry + 'd' : '';
+        var buyCls = p.buy && p.buy.decision === 'yes' ? 'pin-yes' : 'pin-no';
+        var buyLbl = p.buy && p.buy.decision === 'yes' ? 'YES' : 'NO';
+        var verdictCls = (p.verdict && p.verdict.cls) || 'fair';
+        var verdictLbl = (p.verdict && p.verdict.label) || '';
+        var midStr = p.mid != null ? '$' + fmt(p.mid) : '';
+        return '<article class="opt-pinned-card" data-pin-idx="' + idx + '" tabindex="0" role="button" aria-label="Reload pinned contract ' + escapeHtml(p.symbol) + '">' +
+          '<header class="opt-pinned-card-head">' +
+            '<span class="opt-pinned-sym">' + escapeHtml(p.symbol || '—') + '</span>' +
+            '<span class="opt-pinned-side ' + sideCls + '">' + sideLbl + '</span>' +
+            '<button type="button" class="opt-pinned-x" data-pin-remove="' + idx + '" aria-label="Unpin">×</button>' +
+          '</header>' +
+          '<div class="opt-pinned-meta">' +
+            '<span class="opt-pinned-strike">' + escapeHtml(strikeStr) + '</span>' +
+            (dteStr ? '<span class="opt-pinned-dte">' + escapeHtml(dteStr) + '</span>' : '') +
+            (midStr ? '<span class="opt-pinned-mid">' + escapeHtml(midStr) + '</span>' : '') +
+          '</div>' +
+          '<div class="opt-pinned-grades">' +
+            '<span class="pin-grade pin-grade-' + (p.sGradeCls || 'fair') + '" title="Spread">S</span>' +
+            '<span class="pin-grade pin-grade-' + (p.dGradeCls || 'fair') + '" title="Delta">D</span>' +
+            '<span class="pin-grade pin-grade-' + (p.tGradeCls || 'fair') + '" title="Theta">T</span>' +
+          '</div>' +
+          '<footer class="opt-pinned-foot">' +
+            '<span class="opt-pinned-buy ' + buyCls + '">' + buyLbl + '</span>' +
+            '<span class="opt-pinned-verdict opt-verdict-' + verdictCls + '">' + escapeHtml(verdictLbl) + '</span>' +
+          '</footer>' +
+        '</article>';
+      }).join('') + '</div>';
+  }
+
+  function pinCurrentGrade(clickedBtn){
+    var snap = state.lastGrade;
+    if (!snap){ return; }
+    // De-dupe by (symbol, type, strike, expEpoch). Re-pinning an existing
+    // contract updates its grade in place rather than spawning a duplicate.
+    var existingIdx = -1;
+    for (var i=0; i<PINNED.length; i++){
+      var p = PINNED[i];
+      if (p.symbol === snap.symbol && p.type === snap.type && p.strike === snap.strike && p.expEpoch === snap.expEpoch){
+        existingIdx = i; break;
+      }
+    }
+    if (existingIdx >= 0){
+      PINNED[existingIdx] = snap;
+    } else {
+      PINNED.unshift(snap);
+      if (PINNED.length > PIN_LIMIT) PINNED.length = PIN_LIMIT;
+    }
+    savePinned();
+    renderPinnedStrip();
+    // Flash the Pin button so the user gets confirmation. We flash the one
+    // the user clicked (passed in by the delegated handler).
+    if (clickedBtn){
+      var orig = clickedBtn.textContent;
+      clickedBtn.textContent = '✓ Pinned';
+      clickedBtn.classList.add('is-pinned');
+      setTimeout(function(){ clickedBtn.textContent = orig; clickedBtn.classList.remove('is-pinned'); }, 1400);
+    }
+  }
+
+  function rehydratePinned(snap){
+    if (!snap) return;
+    // Always jump to the Grade tab first.
+    var gradeTab = document.querySelector('[data-page-tab="grade"]');
+    if (gradeTab) gradeTab.click();
+    if (snap.source === 'manual'){
+      // Repopulate the manual form. Expand the details if collapsed.
+      var details = document.querySelector('.opt-manual-details');
+      if (details && !details.open) details.open = true;
+      var setVal = function(id, v){ var el = $(id); if (el) el.value = (v != null ? String(v) : ''); };
+      $('m-type').value = snap.type || 'call';
+      setVal('m-spot', snap.spot);
+      setVal('m-strike', snap.strike);
+      if (snap.expEpoch){
+        var d = new Date(snap.expEpoch * 1000);
+        var iso = d.toISOString().slice(0,10);
+        setVal('m-expiry', iso);
+      }
+      if (snap.bid != null) setVal('m-bid', snap.bid);
+      if (snap.ask != null) setVal('m-ask', snap.ask);
+      if (snap.iv != null) setVal('m-iv', (snap.iv * 100).toFixed(2));
+      if (snap.oi != null) setVal('m-oi', snap.oi);
+      if (snap.volume != null) setVal('m-vol', snap.volume);
+      // Scroll the manual form into view so the rehydrated state is visible
+      // (the manual section can be far down on large screens).
+      try { details && details.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_){}
+      try { $('opt-manual-form').dispatchEvent(new Event('submit', { cancelable: true })); } catch (_){}
+    } else {
+      // Chain mode: commit the ticker then queue expiry + strike. We reuse
+      // the existing pendingUrlState pipe so loadChain() consumes them.
+      pendingUrlState = {
+        sym: snap.symbol,
+        exp: snap.expEpoch || null,
+        k: snap.strike != null ? snap.strike : null,
+        t: snap.type || 'call',
+      };
+      combo.commit(snap.symbol);
+    }
+  }
+
+  function bindPinCompare(){
+    renderPinnedStrip();
+    var strip = $('opt-pinned-strip');
+    if (strip){
+      strip.addEventListener('click', function(ev){
+        if (ev.target.closest && ev.target.closest('[data-pin-clear]')){
+          PINNED = [];
+          savePinned();
+          renderPinnedStrip();
+          return;
+        }
+        var rmBtn = ev.target.closest && ev.target.closest('[data-pin-remove]');
+        if (rmBtn){
+          ev.stopPropagation();
+          var idx = Number(rmBtn.getAttribute('data-pin-remove'));
+          if (idx >= 0 && idx < PINNED.length){
+            PINNED.splice(idx, 1);
+            savePinned();
+            renderPinnedStrip();
+          }
+          return;
+        }
+        var card = ev.target.closest && ev.target.closest('[data-pin-idx]');
+        if (card){
+          var i = Number(card.getAttribute('data-pin-idx'));
+          if (PINNED[i]) rehydratePinned(PINNED[i]);
+        }
+      });
+      strip.addEventListener('keydown', function(ev){
+        if ((ev.key === 'Enter' || ev.key === ' ') && ev.target && ev.target.classList.contains('opt-pinned-card')){
+          ev.preventDefault();
+          var i = Number(ev.target.getAttribute('data-pin-idx'));
+          if (PINNED[i]) rehydratePinned(PINNED[i]);
+        }
+      });
+    }
+    // Pin button lives inside the result HTML, so use event delegation on
+    // the eval + manual sections. Each result re-renders on every grade so
+    // the button identity is class-based, not id-based.
+    var section = document.getElementById('opt-eval-section');
+    if (section){
+      section.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.opt-pin-btn');
+        if (btn) pinCurrentGrade(btn);
+      });
+    }
+    var manualSection = document.getElementById('opt-manual-section');
+    if (manualSection){
+      manualSection.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.opt-pin-btn');
+        if (btn) pinCurrentGrade(btn);
+      });
+    }
+  }
+
+  // --- CSV export ---------------------------------------------------------
+  function bindCsvExports(){
+    var flowBtn = $('flow-export-csv');
+    if (flowBtn){
+      flowBtn.addEventListener('click', function(){
+        var tickers = filteredTickers();
+        var rows = [];
+        tickers.forEach(function(t){
+          (t.contracts || []).forEach(function(c){
+            rows.push({
+              ticker: t.symbol,
+              spot: t.spot != null ? t.spot : '',
+              side: c.type || '',
+              strike: c.s != null ? c.s : '',
+              expiry: c.expDate || '',
+              dte: c.dte != null ? c.dte : '',
+              volume: c.v != null ? c.v : '',
+              openInterest: c.oi != null ? c.oi : '',
+              iv: c.iv != null ? c.iv : '',
+              tape: c.tape || '',
+              hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
+              premium: c.premium != null ? c.premium : '',
+              repeats5d: c.repeatCount || 0,
+              note: c.note || '',
+            });
+          });
+        });
+        if (!rows.length){
+          try { alert('No flow rows to export with the current filters.'); } catch (_){}
+          return;
+        }
+        downloadCsv('stonks-unusual-' + todayStamp() + '.csv', rows);
+      });
+    }
+    var calBtn = $('calendar-export-csv');
+    if (calBtn){
+      calBtn.addEventListener('click', function(){
+        var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
+        var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+        var rows = filtered.map(function(e){
+          return {
+            date: e.date || '',
+            type: e.type || '',
+            ticker: e.ticker || e.symbol || '',
+            title: e.title || e.label || e.name || '',
+            session: e.session || '',
+            actual: e.actual != null ? e.actual : '',
+            previous: e.previous != null ? e.previous : '',
+            consensus: e.consensus != null ? e.consensus : '',
+            forecast: e.forecast != null ? e.forecast : '',
+          };
+        });
+        if (!rows.length){
+          try { alert('No events to export with the current filter.'); } catch (_){}
+          return;
+        }
+        downloadCsv('stonks-calendar-' + todayStamp() + '.csv', rows);
+      });
+    }
+    var picksBtn = $('picks-export-csv');
+    if (picksBtn){
+      picksBtn.addEventListener('click', function(){
+        var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
+        var picks = Array.isArray(data.picks) ? data.picks : [];
+        var rows = picks.map(function(p){
+          var c = p.contract || {};
+          return {
+            ticker: p.symbol || '',
+            side: p.side || '',
+            spot: p.spot != null ? p.spot : '',
+            sector: p.sector || '',
+            conviction: p.conviction != null ? p.conviction : '',
+            strike: c.strike != null ? c.strike : '',
+            expiry: c.expDate || '',
+            dte: c.dte != null ? c.dte : '',
+            delta: c.delta != null ? c.delta : '',
+            iv: c.iv != null ? c.iv : '',
+            thesis: (p.thesis || '').replace(/\\r?\\n/g, ' '),
+            drivers: (p.drivers || []).map(function(d){ return typeof d === 'string' ? d : (d && d.label) || ''; }).filter(Boolean).join('; '),
+          };
+        });
+        if (!rows.length){
+          try { alert('No picks to export.'); } catch (_){}
+          return;
+        }
+        downloadCsv('stonks-picks-' + todayStamp() + '.csv', rows);
+      });
+    }
+  }
+
+  // --- Cmd+K command palette ----------------------------------------------
+  function bindCmdPalette(){
+    var modal = $('cmd-palette');
+    var input = $('cmd-palette-input');
+    var results = $('cmd-palette-results');
+    var trigger = $('cmd-palette-trigger');
+    if (!modal || !input || !results) return;
+
+    var TABS = [
+      ['tickers', 'Tickers'],
+      ['narratives', 'Narratives'],
+      ['picks', 'Top picks'],
+      ['calendar', 'Calendar'],
+      ['flow', 'Unusual flow'],
+      ['grade', 'Grade a contract'],
+      ['streaks', 'Streaks'],
+      ['f13', '13F filings'],
+      ['portfolio', 'Portfolio'],
+    ];
+
+    function buildCorpus(){
+      var out = [];
+      SYMBOLS.forEach(function(sym){
+        out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
+      });
+      (NARRATIVES || []).forEach(function(n){
+        out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
+      });
+      TABS.forEach(function(tt){
+        out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
+      });
+      return out;
+    }
+    var corpus = buildCorpus();
+    var filtered = [];
+    var selectedIdx = 0;
+
+    function scoreMatch(it, q){
+      if (!q) return 0;
+      q = q.toLowerCase();
+      var lbl = (it.label || '').toLowerCase();
+      var sub = (it.sub || '').toLowerCase();
+      if (lbl === q) return 100;
+      if (lbl.indexOf(q) === 0) return 90;
+      if (lbl.indexOf(q) !== -1) return 70;
+      if (sub.indexOf(q) !== -1) return 40;
+      var i = 0, j = 0;
+      while (i < q.length && j < lbl.length){ if (q[i] === lbl[j]) i++; j++; }
+      if (i === q.length) return 20;
+      return -1;
+    }
+    function update(){
+      var q = (input.value || '').trim();
+      if (!q){
+        filtered = corpus.slice(0, 30);
+      } else {
+        filtered = corpus.map(function(it){ return { it: it, score: scoreMatch(it, q) }; })
+          .filter(function(x){ return x.score >= 0; })
+          .sort(function(a,b){ return b.score - a.score; })
+          .slice(0, 30)
+          .map(function(x){ return x.it; });
+      }
+      selectedIdx = 0;
+      renderList();
+    }
+    function renderList(){
+      if (!filtered.length){
+        results.innerHTML = '<li class="cmd-palette-empty" role="option" aria-selected="false">No matches</li>';
+        return;
+      }
+      results.innerHTML = filtered.map(function(it, i){
+        var typeLbl = it.type === 'ticker' ? 'TICKER' : it.type === 'narrative' ? 'THEME' : 'TAB';
+        var sub = it.sub ? '<span class="cmd-palette-row-sub">' + escapeHtml(it.sub) + '</span>' : '';
+        return '<li class="cmd-palette-row' + (i === selectedIdx ? ' is-active' : '') + '" role="option" data-cmd-idx="' + i + '" aria-selected="' + (i === selectedIdx ? 'true' : 'false') + '">' +
+          '<span class="cmd-palette-row-type cmd-type-' + it.type + '">' + typeLbl + '</span>' +
+          '<span class="cmd-palette-row-label">' + escapeHtml(it.label) + '</span>' +
+          sub +
+        '</li>';
+      }).join('');
+    }
+    function scrollSelectedIntoView(){
+      var active = results.querySelector('.cmd-palette-row.is-active');
+      if (active && typeof active.scrollIntoView === 'function'){
+        try { active.scrollIntoView({ block: 'nearest' }); } catch (_){}
+      }
+    }
+    function activate(it){
+      close();
+      if (!it) return;
+      if (it.action === 'open-tab'){
+        var btn = document.querySelector('[data-page-tab="' + it.payload + '"]');
+        if (btn) btn.click();
+      } else if (it.action === 'open-ticker'){
+        var gradeBtn = document.querySelector('[data-page-tab="grade"]');
+        if (gradeBtn) gradeBtn.click();
+        setTimeout(function(){
+          try { combo.commit(it.payload); } catch (_){}
+        }, 0);
+      } else if (it.action === 'open-narrative'){
+        var nbtn = document.querySelector('[data-page-tab="narratives"]');
+        if (nbtn) nbtn.click();
+      }
+    }
+    function open(){
+      modal.hidden = false;
+      document.body.classList.add('cmd-palette-open');
+      input.value = '';
+      update();
+      setTimeout(function(){ try { input.focus(); } catch (_){} }, 0);
+    }
+    function close(){
+      modal.hidden = true;
+      document.body.classList.remove('cmd-palette-open');
+    }
+    function isTypingTarget(t){
+      if (!t) return false;
+      var tag = (t.tagName || '').toUpperCase();
+      if (t.isContentEditable) return true;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    }
+
+    document.addEventListener('keydown', function(e){
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')){
+        e.preventDefault();
+        if (modal.hidden) open(); else close();
+        return;
+      }
+      if (modal.hidden && e.key === '/' && !isTypingTarget(e.target) && !e.metaKey && !e.ctrlKey){
+        e.preventDefault();
+        open();
+        return;
+      }
+      if (!modal.hidden){
+        if (e.key === 'Escape'){ e.preventDefault(); close(); return; }
+        if (e.key === 'ArrowDown'){ e.preventDefault(); selectedIdx = Math.min(filtered.length - 1, selectedIdx + 1); renderList(); scrollSelectedIntoView(); return; }
+        if (e.key === 'ArrowUp'){ e.preventDefault(); selectedIdx = Math.max(0, selectedIdx - 1); renderList(); scrollSelectedIntoView(); return; }
+        if (e.key === 'Enter'){ e.preventDefault(); if (filtered[selectedIdx]) activate(filtered[selectedIdx]); return; }
+      }
+    });
+    input.addEventListener('input', update);
+    results.addEventListener('click', function(e){
+      var row = e.target && e.target.closest && e.target.closest('[data-cmd-idx]');
+      if (row){
+        var idx = Number(row.getAttribute('data-cmd-idx'));
+        if (filtered[idx]) activate(filtered[idx]);
+      }
+    });
+    results.addEventListener('mousemove', function(e){
+      var row = e.target && e.target.closest && e.target.closest('[data-cmd-idx]');
+      if (row){
+        var idx = Number(row.getAttribute('data-cmd-idx'));
+        if (idx !== selectedIdx){ selectedIdx = idx; renderList(); }
+      }
+    });
+    modal.addEventListener('click', function(e){
+      if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-cmd-close')) close();
+    });
+    if (trigger){ trigger.addEventListener('click', open); }
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
@@ -5382,6 +5888,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     renderUnusualFlow();
     bindFlowControls();
     bindCalendarControls();
+    bindCsvExports();
+    bindCmdPalette();
+    bindPinCompare();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){
@@ -5552,6 +6061,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <span class="brand-tag">Option Rater</span>
     </a>
     <nav class="site-nav">
+      <button id="cmd-palette-trigger" class="cmd-palette-trigger" type="button" aria-label="Open command palette" title="Jump to ticker, narrative, or tab (⌘K / Ctrl+K)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span class="cmd-palette-trigger-label">Search</span>
+        <kbd class="cmd-palette-trigger-kbd">⌘K</kbd>
+      </button>
       <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -5620,6 +6134,23 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
   <div><a href="https://github.com/lilseancoc-png/stonks" target="_blank" rel="noopener">Source on GitHub</a></div>
 </footer>
+<div id="cmd-palette" class="cmd-palette" hidden role="dialog" aria-modal="true" aria-labelledby="cmd-palette-title">
+  <div class="cmd-palette-backdrop" data-cmd-close></div>
+  <div class="cmd-palette-modal" role="document">
+    <h2 id="cmd-palette-title" class="cmd-palette-srtitle">Command palette</h2>
+    <div class="cmd-palette-input-wrap">
+      <svg class="cmd-palette-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="text" id="cmd-palette-input" placeholder="Jump to ticker, narrative, or tab…" autocomplete="off" spellcheck="false" aria-controls="cmd-palette-results" aria-expanded="true" />
+      <kbd class="cmd-palette-kbd">esc</kbd>
+    </div>
+    <ul id="cmd-palette-results" class="cmd-palette-results" role="listbox" aria-label="Command palette results"></ul>
+    <div class="cmd-palette-footer">
+      <span><kbd>↑↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> open</span>
+      <span><kbd>esc</kbd> close</span>
+    </div>
+  </div>
+</div>
 <script>window.STONKS_MANIFEST=${manifestPayload};<\/script>
 <script>window.STONKS_SUPABASE=${supabasePayload};<\/script>
 <script src="app.js?v=${cacheBust}" defer></script>
@@ -8284,6 +8815,243 @@ main {
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 .opt-copylink-btn:hover { color: var(--text-strong); border-color: var(--border-strong); }
+
+/* === Pin to compare === */
+.opt-pin-btn {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 8px 14px;
+  font: inherit; font-size: var(--fs-sm); font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.opt-pin-btn:hover { color: var(--text-strong); border-color: var(--accent); background: var(--accent-soft); }
+.opt-pin-btn.is-pinned { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.opt-pinned-strip {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+}
+.opt-pinned-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--s-2);
+}
+.opt-pinned-title {
+  font: 600 var(--fs-xs)/1 var(--font-sans, inherit);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.opt-pinned-clear {
+  appearance: none; background: transparent; border: none; cursor: pointer;
+  color: var(--muted); font: 500 var(--fs-xs)/1 inherit; padding: 4px 6px;
+  border-radius: var(--r-2);
+}
+.opt-pinned-clear:hover { color: var(--text-strong); background: var(--surface-3); }
+.opt-pinned-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s-2);
+}
+.opt-pinned-card {
+  position: relative;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease, transform .12s ease;
+}
+.opt-pinned-card:hover { border-color: var(--accent); background: var(--surface-2); }
+.opt-pinned-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.opt-pinned-card-head { display: flex; align-items: center; gap: 6px; }
+.opt-pinned-sym {
+  font: 700 13px/1 var(--font-mono, inherit);
+  color: var(--text-strong); letter-spacing: 0.02em;
+}
+.opt-pinned-side {
+  font: 600 9px/1 var(--font-mono, inherit);
+  padding: 3px 5px; border-radius: 3px;
+  letter-spacing: 0.06em;
+}
+.opt-pinned-side.pin-call { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.opt-pinned-side.pin-put  { background: rgba(220, 60, 80, 0.16); color: #ff8a8a; }
+.opt-pinned-x {
+  margin-left: auto; appearance: none; background: transparent; border: none;
+  color: var(--muted); font: 600 18px/1 inherit; cursor: pointer;
+  padding: 0 4px; border-radius: 3px;
+}
+.opt-pinned-x:hover { color: var(--text-strong); background: var(--surface-3); }
+.opt-pinned-meta {
+  display: flex; align-items: center; gap: 8px;
+  font: 500 11px/1.3 var(--font-mono, inherit);
+  color: var(--muted);
+}
+.opt-pinned-strike { color: var(--text); }
+.opt-pinned-grades { display: flex; gap: 4px; }
+.pin-grade {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px;
+  font: 700 10px/1 var(--font-mono, inherit);
+  background: var(--surface-3); color: var(--muted);
+}
+.pin-grade-good { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.pin-grade-bad  { background: rgba(220, 60, 80, 0.18); color: #ff8a8a; }
+.pin-grade-fair { background: var(--surface-3); color: var(--muted); }
+.opt-pinned-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.opt-pinned-buy {
+  font: 700 9px/1 var(--font-mono, inherit); letter-spacing: 0.08em;
+  padding: 3px 5px; border-radius: 3px;
+}
+.opt-pinned-buy.pin-yes { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.opt-pinned-buy.pin-no  { background: rgba(220, 60, 80, 0.18); color: #ff8a8a; }
+.opt-pinned-verdict { font: 500 11px/1 inherit; color: var(--muted); }
+
+/* === CSV export button === */
+.csv-export-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font: inherit; font-size: var(--fs-xs); font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.csv-export-btn:hover { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
+.csv-export-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.calendar-controls .csv-export-btn { margin-left: auto; }
+.card-header .csv-export-btn { margin-left: auto; }
+
+/* === Command palette === */
+.cmd-palette-trigger {
+  appearance: none;
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font: inherit; font-size: var(--fs-xs); font-weight: 500;
+  padding: 6px 10px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.cmd-palette-trigger:hover { color: var(--text-strong); border-color: var(--border-strong); background: var(--surface-3); }
+.cmd-palette-trigger-label { letter-spacing: 0.02em; }
+.cmd-palette-trigger-kbd {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 1px 5px; border-radius: 3px;
+  font: 600 10px/1 var(--font-mono, inherit);
+}
+@media (max-width: 640px){
+  .cmd-palette-trigger-label, .cmd-palette-trigger-kbd { display: none; }
+  .cmd-palette-trigger { padding: 6px 8px; }
+}
+
+.cmd-palette {
+  position: fixed; inset: 0; z-index: 9999;
+}
+.cmd-palette[hidden] { display: none; }
+.cmd-palette-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.cmd-palette-modal {
+  position: relative;
+  max-width: 560px;
+  margin: 14vh auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-3);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.4);
+  overflow: hidden;
+}
+.cmd-palette-srtitle {
+  position: absolute; left: -9999px; top: -9999px;
+}
+.cmd-palette-input-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cmd-palette-icon { color: var(--muted); flex-shrink: 0; }
+.cmd-palette-input-wrap input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-strong);
+  font: 500 15px/1.2 inherit;
+  outline: none;
+  padding: 0;
+}
+.cmd-palette-kbd, .cmd-palette-footer kbd {
+  background: var(--surface-3);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font: 600 10px/1 var(--font-mono, inherit);
+}
+.cmd-palette-results {
+  list-style: none; margin: 0; padding: 6px;
+  max-height: 50vh; overflow-y: auto;
+}
+.cmd-palette-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+}
+.cmd-palette-row.is-active { background: var(--surface-2); }
+.cmd-palette-row-type {
+  font: 700 9px/1 var(--font-mono, inherit);
+  letter-spacing: 0.06em;
+  padding: 3px 5px; border-radius: 3px;
+  flex-shrink: 0;
+}
+.cmd-type-ticker { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.cmd-type-narrative { background: rgba(191,135,0,0.22); color: #ffce5b; }
+.cmd-type-tab { background: var(--surface-3); color: var(--muted); }
+.cmd-palette-row-label {
+  font: 500 14px/1.3 inherit;
+  color: var(--text-strong);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmd-palette-row-sub {
+  color: var(--muted);
+  font: 400 12px/1.3 inherit;
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  max-width: 40%;
+}
+.cmd-palette-empty {
+  list-style: none;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font: 500 13px/1.3 inherit;
+}
+.cmd-palette-footer {
+  display: flex; gap: 14px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font: 500 11px/1.3 inherit;
+}
+body.cmd-palette-open { overflow: hidden; }
+@media (max-width: 640px){
+  .cmd-palette-modal { margin: 8vh 16px 0; }
+  .cmd-palette-footer { gap: 10px; font-size: 10px; }
+}
 
 /* === Manual form === */
 .opt-manual-grid {
