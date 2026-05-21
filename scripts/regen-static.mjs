@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderHtml, renderAppJs, renderStylesCss } from "./build.mjs";
+import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -45,11 +45,16 @@ const builtAt = new Intl.DateTimeFormat("en-US", {
   hour12: true,
 }).format(new Date(builtAtIso));
 
+// Backfill ticker coverage on the existing narratives — the daily build only
+// started doing this after the AI-cherry-picks-tickers fix, so trends.json
+// produced before that lacks watchlists for quiet sub-industries.
+const coveredNarratives = ensureTickerCoverage(trends.narratives || [], symbols);
+
 const html = renderHtml({
   symbols,
   builtAt,
   builtAtIso,
-  narratives: trends.narratives || [],
+  narratives: coveredNarratives,
   sectorOverviews: trends.sectorOverviews || {},
   recentlyEnded: trends.recentlyEnded || [],
   macroHeadlines: trends.macroHeadlines || [],

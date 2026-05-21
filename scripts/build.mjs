@@ -137,11 +137,15 @@ const SECTORS = {
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
 };
 
-// Slimmed taxonomy — only the sectors and sub-industries that have a real
-// story we want to track. The narratives card is structured
-// Sector → Sector overview → Sub-industry narratives, so this list controls
-// the tab strip across the top. "Precious Metals" sits at the end as a
-// macro-signal block (GLD + SLV), distinct from the equity sectors above it.
+// Taxonomy — the sectors and sub-industries the narratives card paints.
+// Structured Sector → Sector overview → Sub-industry narratives, so this list
+// controls the tab strip across the top.
+//
+// The taxonomy is wide enough to slot EVERY curated non-ETF ticker into
+// exactly one sub-industry (see INDUSTRY_OF_TICKER below). Sub-industries
+// without an AI-generated narrative still get a low-strength "watchlist"
+// card auto-populated by ensureTickerCoverage so no ticker disappears from
+// the panel just because its corner of the market is quiet today.
 const SECTOR_ORDER = [
   "Technology",
   "Consumer Cyclical",
@@ -150,28 +154,30 @@ const SECTOR_ORDER = [
   "Healthcare",
   "Financials",
   "Consumer Defensive",
+  "Utilities",
+  "Basic Materials",
   "Precious Metals",
 ];
 
-// Sub-industries under each sector. The AI emits a sector-level overview
-// (bullish/bearish/mixed + thesis + watch-for items) PLUS one or more
-// narratives per sub-industry. Sub-industries without an active narrative
-// surface as a "watching, no active narrative" placeholder at the bottom.
 const INDUSTRIES_BY_SECTOR = {
   "Technology": [
     "Software Infrastructure",
+    "Software Applications",
     "Semiconductors",
+    "Semiconductor Equipment & Materials",
     "Communication Equipment",
     "Computer Hardware",
-    "Semiconductor Equipment & Materials",
     "Consumer Electronics",
-    "Software Applications",
+    "Information Technology Services",
   ],
   "Consumer Cyclical": [
     "Internet Retail",
-    "Restaurants",
+    "Specialty Retail",
     "Apparel Retail",
+    "Restaurants",
     "Residential Construction",
+    "Auto Manufacturers",
+    "Travel Services",
   ],
   "Communication Services": [
     "Internet Content & Information",
@@ -180,21 +186,34 @@ const INDUSTRIES_BY_SECTOR = {
     "Advertising Agencies",
   ],
   "Industrials": [
-    "Electrical Equipment & Parts",
-    "Integrated Freight & Logistics",
     "Aerospace & Defense",
+    "Integrated Freight & Logistics",
     "Farm & Heavy Construction Machinery",
+    "Electrical Equipment & Parts",
+    "Specialty Industrial Machinery",
   ],
   "Healthcare": [
     "Drug Manufacturers - General",
     "Healthcare Plans",
+    "Medical Devices",
+    "Consumer Health Products",
   ],
   "Financials": [
     "Banks - Diversified",
     "Credit Services",
+    "Asset Management",
+    "Capital Markets",
   ],
   "Consumer Defensive": [
     "Discount Stores",
+    "Household & Personal Products",
+  ],
+  "Utilities": [
+    "Utilities - Independent Power Producers",
+    "Utilities - Renewable",
+  ],
+  "Basic Materials": [
+    "Other Industrial Metals & Mining",
   ],
   "Precious Metals": [
     "Gold",
@@ -202,66 +221,138 @@ const INDUSTRIES_BY_SECTOR = {
   ],
 };
 
-// Each curated ticker → its Morningstar-style industry. ETFs are intentionally
-// omitted; they sit outside the sector tabs and only surface inside narratives'
-// longs/shorts chips.
+// Each curated ticker → its Morningstar-style sub-industry. Every curated
+// non-ETF ticker MUST have a mapping — ensureTickerCoverage relies on this
+// to guarantee orphans get slotted into the right sub-industry watchlist.
+// ETFs (SPY/QQQ/GLD/etc.) sit outside the sector tabs and only surface
+// inside narratives' longs/shorts chips.
 const INDUSTRY_OF_TICKER = {
-  AAPL: "Consumer Electronics",
+  // --- Technology · Software Infrastructure ---
   MSFT: "Software Infrastructure",
-  NVDA: "Semiconductors",
-  AMZN: "Internet Retail",
-  GOOGL: "Internet Content & Information",
-  META: "Internet Content & Information",
-  AMD: "Semiconductors",
-  NFLX: "Entertainment",
-  AVGO: "Semiconductors",
   ORCL: "Software Infrastructure",
-  CRM: "Software Applications",
-  ADBE: "Software Applications",
-  TSM: "Semiconductors",
-  MU: "Semiconductors",
-  INTC: "Semiconductors",
-  DRAM: "Semiconductors",
-  SWKS: "Semiconductors",
-  NOW: "Software Applications",
   SNOW: "Software Infrastructure",
   NET: "Software Infrastructure",
-  DDOG: "Software Applications",
   CRWD: "Software Infrastructure",
   ZS: "Software Infrastructure",
   MDB: "Software Infrastructure",
   OKTA: "Software Infrastructure",
   PANW: "Software Infrastructure",
+  FTNT: "Software Infrastructure",
+  PLTR: "Software Infrastructure",
+  CRWV: "Software Infrastructure",
+  // --- Technology · Software Applications ---
+  CRM: "Software Applications",
+  ADBE: "Software Applications",
+  NOW: "Software Applications",
+  DDOG: "Software Applications",
   WDAY: "Software Applications",
-  ZM: "Software Applications",
-  DOCU: "Software Applications",
   TEAM: "Software Applications",
-  JPM: "Banks - Diversified",
-  BAC: "Banks - Diversified",
-  V: "Credit Services",
-  MA: "Credit Services",
-  WMT: "Discount Stores",
-  COST: "Discount Stores",
-  DIS: "Entertainment",
-  BA: "Aerospace & Defense",
-  MCD: "Restaurants",
+  INTU: "Software Applications",
+  HUBS: "Software Applications",
+  TWLO: "Software Applications",
+  SHOP: "Software Applications",
+  FIG: "Software Applications",
+  APP: "Software Applications",
+  U: "Software Applications",
+  // --- Technology · Semiconductors ---
+  NVDA: "Semiconductors",
+  AMD: "Semiconductors",
+  AVGO: "Semiconductors",
+  TSM: "Semiconductors",
+  MU: "Semiconductors",
+  INTC: "Semiconductors",
+  MRVL: "Semiconductors",
+  QCOM: "Semiconductors",
+  TXN: "Semiconductors",
+  NXPI: "Semiconductors",
+  ON: "Semiconductors",
+  AMKR: "Semiconductors",
+  PLAB: "Semiconductors",
+  ALAB: "Semiconductors",
+  TSEM: "Semiconductors",
+  SNDK: "Semiconductors",
+  SMCI: "Semiconductors",
+  AAOI: "Semiconductors",
+  LITE: "Semiconductors",
+  STX: "Semiconductors",
+  // --- Technology · Semiconductor Equipment & Materials ---
+  AMAT: "Semiconductor Equipment & Materials",
+  LRCX: "Semiconductor Equipment & Materials",
+  ASML: "Semiconductor Equipment & Materials",
+  // --- Technology · Communication Equipment ---
+  ANET: "Communication Equipment",
+  CSCO: "Communication Equipment",
+  GLW: "Communication Equipment",
+  // --- Technology · Computer Hardware ---
+  DELL: "Computer Hardware",
+  CLS: "Computer Hardware",
+  // --- Technology · Information Technology Services ---
+  ACN: "Information Technology Services",
+  IBM: "Information Technology Services",
+  // --- Consumer Cyclical ---
+  AMZN: "Internet Retail",
+  BABA: "Internet Retail",
+  EBAY: "Internet Retail",
+  ETSY: "Internet Retail",
+  HD: "Specialty Retail",
+  LOW: "Specialty Retail",
+  NKE: "Apparel Retail",
+  LULU: "Apparel Retail",
   SBUX: "Restaurants",
+  LEN: "Residential Construction",
+  TSLA: "Auto Manufacturers",
+  DASH: "Travel Services",
+  // --- Communication Services ---
+  GOOGL: "Internet Content & Information",
+  META: "Internet Content & Information",
+  RDDT: "Internet Content & Information",
+  NFLX: "Entertainment",
+  DIS: "Entertainment",
+  SPOT: "Entertainment",
+  // --- Industrials ---
+  GD: "Aerospace & Defense",
+  RKLB: "Aerospace & Defense",
+  ASTS: "Aerospace & Defense",
+  FDX: "Integrated Freight & Logistics",
+  UPS: "Integrated Freight & Logistics",
+  CAT: "Farm & Heavy Construction Machinery",
+  DE: "Farm & Heavy Construction Machinery",
+  // --- Healthcare ---
   NVO: "Drug Manufacturers - General",
   LLY: "Drug Manufacturers - General",
   UNH: "Healthcare Plans",
-  JNJ: "Drug Manufacturers - General",
-  PFE: "Drug Manufacturers - General",
-  UBER: "Software Applications",
-  PLTR: "Software Infrastructure",
-  SHOP: "Software Applications",
-  BABA: "Internet Retail",
+  CI: "Healthcare Plans",
+  BSX: "Medical Devices",
+  HIMS: "Consumer Health Products",
+  // --- Financials ---
+  JPM: "Banks - Diversified",
+  BAC: "Banks - Diversified",
+  C: "Banks - Diversified",
+  COF: "Banks - Diversified",
+  UBS: "Banks - Diversified",
+  V: "Credit Services",
+  MA: "Credit Services",
+  AXP: "Credit Services",
+  PYPL: "Credit Services",
+  APO: "Asset Management",
+  BX: "Asset Management",
+  GS: "Capital Markets",
+  MS: "Capital Markets",
+  SCHW: "Capital Markets",
+  HOOD: "Capital Markets",
+  // --- Consumer Defensive ---
+  WMT: "Discount Stores",
+  COST: "Discount Stores",
+  EL: "Household & Personal Products",
+  // --- Utilities ---
+  VST: "Utilities - Independent Power Producers",
+  BE: "Utilities - Renewable",
+  OKLO: "Utilities - Renewable",
+  // --- Basic Materials ---
+  MP: "Other Industrial Metals & Mining",
+  // --- Precious Metals (ETFs) ---
   GLD: "Gold",
   SLV: "Silver",
-  // Tickers intentionally without an industry mapping (TSLA, NIO, COIN, GME,
-  // AMC, XOM, CVX, ABNB) sit outside the slimmed taxonomy — they still trade
-  // and get option-graded, but the narrative engine won't slot them into a
-  // sub-industry. They can still surface as long/short chips on narratives
-  // that ride them.
 };
 
 // industry → parent sector, built once from INDUSTRIES_BY_SECTOR.
@@ -309,6 +400,74 @@ function resolveNarrativeIndustry(rawIndustry, longs, shorts) {
     }
   }
   return best || "Uncategorized";
+}
+
+// Guarantee every curated ticker shows up somewhere in the narratives panel.
+//
+// The AI cherry-picks tickers per narrative — only names with an active
+// story in motion get cited. That means quiet sub-industries (e.g. Credit
+// Services when AXP is the only one with fresh earnings) drop everyone
+// else, so V, MA and PYPL silently disappear from the Financials tab.
+// The user expects every ticker we track to be visible somewhere.
+//
+// For every ticker that has an INDUSTRY_OF_TICKER mapping but isn't named
+// in any narrative's longs/shorts, synthesize a per-industry "Watchlist"
+// narrative listing them. Status is "building" + strength 10 so it sorts
+// to the bottom of its industry section and the UI styles it as a low-
+// stakes card, not a real conviction call. Idempotent: re-running with
+// the same inputs produces the same output, so the lifespan annotator
+// gives each watchlist a stable firstSeen once it persists in history.
+//
+// `allSymbols` is the universe of tickers we successfully fetched — only
+// names actually in scope get a watchlist slot. Existing AI narratives are
+// returned untouched.
+export function ensureTickerCoverage(narratives, allSymbols) {
+  const mentioned = new Set();
+  for (const n of narratives) {
+    for (const t of n.longs || []) mentioned.add(t);
+    for (const t of n.shorts || []) mentioned.add(t);
+  }
+  const orphansByIndustry = new Map();
+  for (const sym of allSymbols) {
+    if (mentioned.has(sym)) continue;
+    const ind = INDUSTRY_OF_TICKER[sym];
+    if (!ind) continue;
+    const list = orphansByIndustry.get(ind) || [];
+    list.push(sym);
+    orphansByIndustry.set(ind, list);
+  }
+  if (!orphansByIndustry.size) return narratives.slice();
+  const synthetic = [];
+  // Sort industries by the taxonomy order so the watchlists slot in
+  // predictably under their parent sector.
+  const industryOrder = [];
+  for (const sec of SECTOR_ORDER) {
+    for (const ind of INDUSTRIES_BY_SECTOR[sec] || []) industryOrder.push(ind);
+  }
+  const orderedIndustries = industryOrder.filter((i) => orphansByIndustry.has(i));
+  for (const industry of orderedIndustries) {
+    const syms = Array.from(new Set(orphansByIndustry.get(industry))).sort();
+    if (!syms.length) continue;
+    synthetic.push({
+      name: `${industry} Watchlist`,
+      industry,
+      sector: SECTOR_OF_INDUSTRY[industry] || null,
+      thesis:
+        `No single narrative is driving ${industry} on the current tape — ` +
+        `these names are in scope and watched for a catalyst to break out.`,
+      sentiment: "bullish",
+      confidence: "low",
+      strength: 10,
+      status: "building",
+      timeframe: "medium-term",
+      watchFor: [],
+      conflictsWith: [],
+      longs: syms,
+      shorts: [],
+      autogenerated: true,
+    });
+  }
+  return narratives.concat(synthetic);
 }
 
 // ±50% strikes around spot — captures lottery OTM and deep-ITM strikes
@@ -8225,7 +8384,12 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
     if (tw !== 0) return tw;
     return (CONF_WEIGHT[b.confidence] || 0) - (CONF_WEIGHT[a.confidence] || 0);
   });
-  return { narratives: cleaned, sectorOverviews };
+  // Fill in sub-industry watchlists for any curated ticker the AI didn't
+  // mention. Appended AFTER the slice + sort so the synthetic cards always
+  // sit at the bottom of their industry section without crowding out real
+  // narratives at the cap.
+  const covered = ensureTickerCoverage(cleaned, validSymbols);
+  return { narratives: covered, sectorOverviews };
 }
 
 // Walk back through prior snapshots to discover when each narrative first
