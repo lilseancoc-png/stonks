@@ -49,6 +49,33 @@ function fmtDate(iso) {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
+// Modal key handling: Escape closes, Tab cycles focus within the dialog so
+// keyboard users can't tab out into the (inert, visually-blocked) page
+// behind it. Returns an uninstall function the modal's closer must call.
+function installModalKeyHandling(host, closeModal) {
+  const FOCUSABLE_SELECTOR =
+    'a[href], button:not([disabled]), input:not([disabled]), ' +
+    'select:not([disabled]), textarea:not([disabled]), ' +
+    '[tabindex]:not([tabindex="-1"])';
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); closeModal(); return; }
+    if (e.key !== "Tab" || !host) return;
+    const focusable = host.querySelectorAll(FOCUSABLE_SELECTOR);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  document.addEventListener("keydown", onKeyDown);
+  return () => document.removeEventListener("keydown", onKeyDown);
+}
+
 function fmtAge(iso) {
   if (!iso) return "";
   const t = new Date(iso).getTime();
@@ -373,7 +400,16 @@ function openAddModal() {
       </div>
     </div>`;
 
-  const closeModal = () => { host.innerHTML = ""; };
+  const opener = document.activeElement;
+  let uninstallKeys = () => {};
+  const closeModal = () => {
+    uninstallKeys();
+    host.innerHTML = "";
+    if (opener && document.contains(opener) && typeof opener.focus === "function") {
+      try { opener.focus(); } catch (_) {}
+    }
+  };
+  uninstallKeys = installModalKeyHandling($("pf-modal-backdrop"), closeModal);
   $("pf-modal-close").addEventListener("click", closeModal);
   $("pf-add-cancel").addEventListener("click", closeModal);
   $("pf-modal-backdrop").addEventListener("click", (e) => {
@@ -397,6 +433,7 @@ function openAddModal() {
   function renderCombo() {
     if (!comboFiltered.length) {
       symbolListbox.innerHTML = `<li class="pf-combo-empty" role="option" aria-disabled="true">No matches</li>`;
+      symbolInput.removeAttribute("aria-activedescendant");
       return;
     }
     symbolListbox.innerHTML = comboFiltered.map((item, idx) => `
@@ -409,6 +446,13 @@ function openAddModal() {
         ${item.sector ? `<span class="pf-combo-sector">${escapeHtml(item.sector)}</span>` : ""}
       </li>
     `).join("");
+    // Announce the highlighted option to screen readers — without this, the
+    // combobox advertises aria-controls but the focused row is silent.
+    if (comboActive >= 0) {
+      symbolInput.setAttribute("aria-activedescendant", `pf-combo-opt-${comboActive}`);
+    } else {
+      symbolInput.removeAttribute("aria-activedescendant");
+    }
   }
 
   function openCombo() {
@@ -418,6 +462,7 @@ function openAddModal() {
   function closeCombo() {
     symbolListbox.hidden = true;
     symbolInput.setAttribute("aria-expanded", "false");
+    symbolInput.removeAttribute("aria-activedescendant");
     comboActive = -1;
   }
 
@@ -520,7 +565,7 @@ function openAddModal() {
       const opts = data.expirations
         .map((e) => `<option value="${e.sec}">${escapeHtml(e.label)}</option>`)
         .join("");
-      expirySel.innerHTML = `<option value="">Pick expiration…</option>` + opts;
+      expirySel.innerHTML = `<option value="">Pick an expiration…</option>` + opts;
       expirySel.disabled = false;
     } catch (err) {
       expirySel.innerHTML = `<option value="">Couldn't load chain</option>`;
@@ -551,7 +596,7 @@ function openAddModal() {
       return;
     }
     const sorted = rows.slice().sort((a, b) => a.s - b.s);
-    strikeSel.innerHTML = `<option value="">Pick strike…</option>` +
+    strikeSel.innerHTML = `<option value="">Pick a strike…</option>` +
       sorted.map((r) => {
         const mid = r.b != null && r.a != null ? ((r.b + r.a) / 2).toFixed(2) : (r.l != null ? Number(r.l).toFixed(2) : "—");
         return `<option value="${r.s}">$${fmtNum(r.s, 2)} (mid ${mid})</option>`;
@@ -722,15 +767,15 @@ function openSellModal(positionId) {
         </form>
       </div>
     </div>`;
-  const onKeyDown = (e) => { if (e.key === "Escape") closeModal(); };
+  let uninstallKeys = () => {};
   const closeModal = () => {
-    document.removeEventListener("keydown", onKeyDown);
+    uninstallKeys();
     host.innerHTML = "";
-    if (opener && typeof opener.focus === "function") {
+    if (opener && document.contains(opener) && typeof opener.focus === "function") {
       try { opener.focus(); } catch (_) {}
     }
   };
-  document.addEventListener("keydown", onKeyDown);
+  uninstallKeys = installModalKeyHandling($("pf-modal-backdrop"), closeModal);
   $("pf-modal-close").addEventListener("click", closeModal);
   $("pf-sell-cancel").addEventListener("click", closeModal);
   $("pf-modal-backdrop").addEventListener("click", (e) => {
@@ -832,6 +877,7 @@ function isMissingTableError(err) {
 async function loadSnapshots() {
   // Reads via Supabase JS client; the snapshots_select_own RLS policy
   // ensures we only see the signed-in user's rows.
+  state.snapshotsError = null;
   try {
     const { data, error } = await supabase
       .from("portfolio_snapshots")
@@ -839,9 +885,10 @@ async function loadSnapshots() {
       .order("date", { ascending: true });
     if (error) {
       if (!isMissingTableError(error)) {
-        // Real failure (auth, network, RLS) — surface it instead of silently
-        // hiding the equity chart and leaving the user wondering.
+        // Real failure (auth, network, RLS) — surface it via the equity card
+        // instead of silently hiding the chart and leaving the user wondering.
         console.error("loadSnapshots failed", error);
+        state.snapshotsError = error.message || "Couldn't load equity history.";
       }
       state.snapshots = [];
     } else {
@@ -849,6 +896,7 @@ async function loadSnapshots() {
     }
   } catch (err) {
     console.error("loadSnapshots threw", err);
+    state.snapshotsError = err?.message || "Couldn't load equity history.";
     state.snapshots = [];
   }
   renderEquityChart();
@@ -874,6 +922,11 @@ function renderEquityChart() {
   const box = $("pf-equity");
   if (!box) return;
   const rows = state.snapshots || [];
+  if (state.snapshotsError) {
+    box.hidden = false;
+    box.innerHTML = `<p class="pf-status pf-status-err">Couldn't load equity history: ${escapeHtml(state.snapshotsError)}</p>`;
+    return;
+  }
   if (rows.length < 2) {
     box.hidden = true;
     box.innerHTML = "";
