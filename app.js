@@ -3272,33 +3272,64 @@
         '</table></div>' +
       '</div>';
     }
-    // === BlackRock detail ==============================================
-    if (d.blackrock && Array.isArray(d.blackrock.holdings) && d.blackrock.holdings.length){
-      var br = d.blackrock;
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">' + escapeHtml(br.label || 'BlackRock') + '</h3>' +
-        (br.concentrationNote ? '<p class="f13-note">' + escapeHtml(br.concentrationNote) + '</p>' : '') +
-        '<div class="f13-table-scroll"><table class="f13-table">' +
-          '<thead><tr>' +
-            '<th>Ticker</th><th>Sector</th><th>Shares</th><th>Market value</th>' +
-            '<th>Δ shares</th><th>Δ MV</th><th>Δ %</th>' +
-          '</tr></thead>' +
-          '<tbody>' +
-          br.holdings.map(function(h){
-            return '<tr>' +
-              '<td class="f13-tkr">' + escapeHtml(h.ticker || '') + '</td>' +
-              '<td>' + escapeHtml(h.sector || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(h.shares || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(h.marketValue || '') + '</td>' +
-              '<td class="f13-num f13-muted">' + escapeHtml(h.changeShares || '') + '</td>' +
-              '<td class="f13-num f13-muted">' + escapeHtml(h.changeMv || '') + '</td>' +
-              '<td class="f13-num f13-muted">' + escapeHtml(h.changePct || '') + '</td>' +
-            '</tr>';
-          }).join('') +
-          '</tbody>' +
-        '</table></div>' +
-        (br.tail ? '<p class="f13-tail">' + escapeHtml(br.tail) + '</p>' : '') +
-      '</div>';
+    // === Per-firm top 10 holdings (real SEC EDGAR data) =================
+    function fmtBigDollarsF13(v){
+      if (v == null || !isFinite(v)) return '—';
+      var abs = Math.abs(v); var sign = v < 0 ? '-' : '';
+      if (abs >= 1e12) return sign + '$' + (abs / 1e12).toFixed(2) + 'T';
+      if (abs >= 1e9)  return sign + '$' + (abs / 1e9).toFixed(1) + 'B';
+      if (abs >= 1e6)  return sign + '$' + (abs / 1e6).toFixed(1) + 'M';
+      return sign + '$' + Math.round(abs).toLocaleString('en-US');
+    }
+    function fmtSharesF13(v){
+      if (v == null || !isFinite(v)) return '—';
+      var abs = Math.abs(v);
+      if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+      return Math.round(v).toLocaleString('en-US');
+    }
+    if (d.perFirm && typeof d.perFirm === 'object'){
+      var firmsWithData = Object.keys(d.perFirm).filter(function(k){
+        var f = d.perFirm[k];
+        return f && Array.isArray(f.holdings) && f.holdings.length;
+      });
+      if (firmsWithData.length){
+        html += '<div class="f13-block">' +
+          '<h3 class="f13-block-title">Per-firm top 10 holdings (latest 13F-HR filings)</h3>' +
+          '<p class="f13-note">Parsed directly from SEC EDGAR XML. CUSIPs mapped to tickers via OpenFIGI.</p>';
+        firmsWithData.forEach(function(firmKey, i){
+          var f = d.perFirm[firmKey];
+          var firstOpen = i === 0 ? ' open' : '';
+          html += '<details class="f13-firm"' + firstOpen + '>' +
+            '<summary class="f13-firm-summary">' +
+              '<span class="f13-firm-name">' + escapeHtml(f.firm || firmKey) + '</span>' +
+              '<span class="f13-firm-meta">' +
+                escapeHtml(fmtBigDollarsF13(f.totalValue)) + ' · ' +
+                (f.totalPositions || 0) + ' positions · top-10 ' + (f.top10ConcentrationPct != null ? f.top10ConcentrationPct + '%' : '—') +
+                (f.filingDate ? ' · filed ' + escapeHtml(f.filingDate) : '') +
+              '</span>' +
+            '</summary>' +
+            '<div class="f13-table-scroll"><table class="f13-table">' +
+              '<thead><tr>' +
+                '<th>#</th><th>Ticker</th><th>Issuer</th><th>Value</th><th>Shares</th>' +
+              '</tr></thead>' +
+              '<tbody>' +
+              f.holdings.map(function(h, j){
+                return '<tr>' +
+                  '<td class="f13-num">' + (j + 1) + '</td>' +
+                  '<td class="f13-tkr">' + escapeHtml(h.ticker || '—') + '</td>' +
+                  '<td>' + escapeHtml(h.name || '') + '</td>' +
+                  '<td class="f13-num">' + escapeHtml(fmtBigDollarsF13(h.value)) + '</td>' +
+                  '<td class="f13-num f13-muted">' + escapeHtml(fmtSharesF13(h.shares)) + '</td>' +
+                '</tr>';
+              }).join('') +
+              '</tbody>' +
+            '</table></div>' +
+          '</details>';
+        });
+        html += '</div>';
+      }
     }
     // === Berkshire callout =============================================
     if (d.berkshire){
