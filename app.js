@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03570;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3524,37 +3524,6 @@
     '</span>';
   }
   function pickSideClass(side){ return side === 'put' ? 'put' : 'call'; }
-  function pickContractBadge(p){
-    var c = p && p.contract;
-    if (!c || c.strike == null) return '';
-    var sideCls = pickSideClass(p.side);
-    var sideWord = p.side === 'put' ? 'PUT' : 'CALL';
-    var midStr = c.mid != null ? '$' + Number(c.mid).toFixed(2) + ' mid' : '—';
-    var ivStr = c.iv != null ? (c.iv * 100).toFixed(1) + '% IV' : '';
-    var deltaStr = c.delta != null ? 'Δ ' + Number(c.delta).toFixed(2) : '';
-    var oiStr = (c.oi || 0).toLocaleString() + ' OI';
-    var dteStr = c.dte + 'd';
-    var meta = [midStr, deltaStr, ivStr, oiStr, dteStr]
-      .filter(function(s){ return !!s; })
-      .map(function(s){ return '<span class="pick-contract-chip">' + escapeHtml(s) + '</span>'; })
-      .join('');
-    var beHtml = '';
-    if (c.breakeven != null && c.breakevenMovePct != null){
-      var sign = c.breakevenMovePct >= 0 ? '+' : '';
-      beHtml = '<div class="pick-contract-be">Breakeven <b>$' + Number(c.breakeven).toFixed(2) +
-        '</b> · needs <b>' + sign + c.breakevenMovePct.toFixed(1) + '%</b> by ' + escapeHtml(c.expiryLabel || '') +
-        '</div>';
-    }
-    return '<div class="pick-contract pick-contract-' + sideCls + '">' +
-      '<div class="pick-contract-head">' +
-        '<span class="pick-contract-action">BUY</span>' +
-        '<span class="pick-contract-strike">$' + Number(c.strike).toFixed(2) + ' ' + sideWord + '</span>' +
-        '<span class="pick-contract-exp">' + escapeHtml(c.expiryLabel || '') + '</span>' +
-      '</div>' +
-      (meta ? '<div class="pick-contract-meta">' + meta + '</div>' : '') +
-      beHtml +
-    '</div>';
-  }
   function renderPicks(){
     var root = $('picks-root');
     var empty = $('picks-empty');
@@ -3598,7 +3567,6 @@
           '</span>'
         : '';
       var drivers = (p.drivers || []).slice(0, 5).map(pickDriverChip).join('');
-      var contractHtml = pickContractBadge(p);
       return '<article class="pick-card ' + sideCls + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
         '<div class="pick-rank">#' + (idx + 1) + '</div>' +
         '<div class="pick-main">' +
@@ -3611,7 +3579,6 @@
           '</div>' +
           '<p class="pick-thesis">' + escapeHtml(p.thesis) + '</p>' +
           (drivers ? '<div class="pick-drivers">' + drivers + '</div>' : '') +
-          contractHtml +
         '</div>' +
         '<div class="pick-conviction" aria-label="Conviction score" style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
           '<div class="pick-conv-label">Conv</div>' +
