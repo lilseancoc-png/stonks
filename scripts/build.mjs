@@ -5395,23 +5395,66 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         breakeven += ' (' + (m >= 0 ? '+' : '') + m.toFixed(1) + '%)';
       }
     }
+    // Risk/reward — required breakeven move vs IV-implied 1σ expected
+    // move at expiry. <1 means the chain already prices a move that
+    // size; >1 means the bet needs more than the market is pricing.
+    var rr = '';
+    if (c.expectedMovePct != null && c.breakevenMovePct != null){
+      var req = Math.abs(Number(c.breakevenMovePct));
+      var exp = Math.abs(Number(c.expectedMovePct));
+      var rrCls = c.rrRatio == null || c.rrRatio <= 0.7 ? 'good'
+                : c.rrRatio <= 1.0 ? 'fair' : 'bad';
+      rr = '<div class="pick-contract-rr pick-rr-' + rrCls + '">' +
+        'Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · chain prices ±' + exp.toFixed(1) + '%' +
+      '</div>';
+    }
     var liqParts = [];
     if (c.oi != null && isFinite(c.oi)) liqParts.push('OI ' + Number(c.oi).toLocaleString());
     if (c.volume != null && isFinite(c.volume)) liqParts.push('vol ' + Number(c.volume).toLocaleString());
     var liq = liqParts.length ? '<span class="pick-contract-liq">' + escapeHtml(liqParts.join(' · ')) + '</span>' : '';
+    // Contract-quality chips — Spread / Liquidity / Delta / Theta + IV
+    // regime. Color-coded green/amber/red so the user can eyeball
+    // mechanical risk before opening the grader. Older picks.json
+    // payloads lack contractQuality; just skip chips in that case.
+    var qChips = '';
+    var q = c.contractQuality;
+    if (q && q.spread){
+      function chip(label, g){
+        if (!g) return '';
+        return '<span class="pick-qchip pick-qchip-' + escapeHtml(g.cls) + '" title="' + escapeHtml(label) + '">' +
+          '<span class="pick-qchip-label">' + escapeHtml(label) + '</span>' +
+          '<span class="pick-qchip-val">' + escapeHtml(g.label) + '</span>' +
+        '</span>';
+      }
+      qChips =
+        '<div class="pick-contract-quality">' +
+          chip('Spread', q.spread) +
+          chip('Liq', q.oi) +
+          chip('Δ', q.delta) +
+          chip('Θ', q.theta) +
+          (q.iv ? chip('IV', q.iv) : '') +
+        '</div>';
+    }
+    var earningsBadge = c.earningsInWindow
+      ? '<span class="pick-badge pick-badge-warn">Earnings in window</span>'
+      : '';
     var btnAttrs =
       ' data-pick-symbol="' + escapeHtml(p.symbol) + '"' +
       ' data-pick-strike="' + escapeHtml(String(c.strike)) + '"' +
       ' data-pick-exp="' + escapeHtml(String(c.expiry || '')) + '"' +
       ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"';
-    return '<div class="pick-contract">' +
+    var overall = (q && q.overall) ? ' pick-contract-overall-' + escapeHtml(q.overall) : '';
+    return '<div class="pick-contract' + overall + '">' +
       '<div class="pick-contract-head">' +
         '<span class="pick-contract-label">Suggested ' + sideLabel + '</span>' +
         '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + '</span>' +
+        earningsBadge +
       '</div>' +
       (quote ? '<div class="pick-contract-quote">' + escapeHtml(quote) + '</div>' : '') +
       (greeks.length ? '<div class="pick-contract-greeks">' + escapeHtml(greeks.join(' · ')) + '</div>' : '') +
       (breakeven ? '<div class="pick-contract-be">' + escapeHtml(breakeven) + '</div>' : '') +
+      rr +
+      qChips +
       (liq ? '<div class="pick-contract-meta">' + liq + '</div>' : '') +
       '<button type="button" class="pick-contract-grade"' + btnAttrs + '>Grade this contract →</button>' +
     '</div>';
@@ -10595,6 +10638,88 @@ main { padding-top: var(--s-2); }
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
 }
 
+/* Overall-quality accent: an extra glow tint when every component
+   grades clean. Subtle on dark, near-invisible on light. */
+.pick-contract-overall-good {
+  background-image: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 6%, var(--surface)) 0%,
+    var(--surface) 70%);
+  box-shadow: var(--elev-1), 0 0 18px -8px var(--accent-glow);
+}
+.pick-contract-overall-bad {
+  background-image: linear-gradient(180deg,
+    color-mix(in srgb, var(--neg) 6%, var(--surface)) 0%,
+    var(--surface) 70%);
+}
+
+/* Risk/reward readout — compares required breakeven move to
+   IV-implied 1σ expected move. Color-coded by ratio. */
+.pick-contract-rr {
+  font: 600 11px/1.3 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  padding: 4px 6px;
+  border-radius: var(--r-1);
+  display: inline-block;
+  margin-top: 2px;
+}
+.pick-rr-good { color: var(--pos); background: var(--pos-soft); }
+.pick-rr-fair { color: var(--warn); background: var(--warn-soft); }
+.pick-rr-bad  { color: var(--neg); background: var(--neg-soft); }
+
+/* Contract-quality chip row — Spread / Liq / Δ / Θ / IV. Each chip
+   shows label + grade, color-coded so the user can eyeball
+   mechanical risk before pulling the trigger. */
+.pick-contract-quality {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.pick-qchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--r-1);
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  background: var(--surface-2);
+}
+.pick-qchip-label { color: var(--muted); text-transform: uppercase; }
+.pick-qchip-val { color: var(--text); }
+.pick-qchip-good {
+  background: var(--pos-soft);
+  border-color: color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.pick-qchip-good .pick-qchip-val { color: var(--pos); }
+.pick-qchip-fair {
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.pick-qchip-fair .pick-qchip-val { color: var(--warn); }
+.pick-qchip-bad {
+  background: var(--neg-soft);
+  border-color: color-mix(in srgb, var(--neg) 35%, transparent);
+}
+.pick-qchip-bad .pick-qchip-val { color: var(--neg); }
+
+/* Earnings-in-window badge — small warning chip in the header. */
+.pick-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  font: 700 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid transparent;
+}
+.pick-badge-warn {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
 .pick-conviction {
   display: flex;
   flex-direction: column;
@@ -13080,6 +13205,88 @@ const PICKS_FILE = "picks.json";
 const PICKS_COUNT = 10;
 const PICKS_MIN_CONVICTION = 3; // skip picks weaker than this
 
+// Hard mechanical filters applied to candidate contracts. A pick that
+// can't find a contract clearing every threshold is dropped — we'd
+// rather ship fewer picks than recommend a structurally bad one.
+const PICKS_MAX_SPREAD_PCT = 0.18;  // reject wider than 18% bid/ask
+const PICKS_MIN_OI = 50;            // need real two-sided market
+const PICKS_MIN_DTE = 14;           // theta acceleration zone starts ~30d
+const PICKS_MAX_DTE = 120;          // beyond ~4mo theta drags too long
+const PICKS_IDEAL_DTE_LO = 30;
+const PICKS_IDEAL_DTE_HI = 60;
+const PICKS_DELTA_MIN = 0.30;       // far OTM lottos rejected
+const PICKS_DELTA_MAX = 0.65;       // too deep ITM = mostly intrinsic
+const PICKS_DELTA_IDEAL = 0.45;
+// Required breakeven move vs IV-implied 1σ expected move at expiry.
+// Anything beyond this ratio is asking the underlying to move
+// substantially more than what the chain itself is pricing — a
+// structurally low-probability bet.
+const PICKS_MAX_REQ_MOVE_RATIO = 1.5;
+// Soft penalty when the contract's IV is in the top quintile of the
+// underlying's 30-day realized-vol percentile (buying expensive premium).
+const PICKS_IV_REGIME_HIGH = 70;
+
+// ---- Contract grade helpers (mirror app.js thresholds) ------------------
+// These mirror gradeSpread/gradeLiquidity/gradeDelta/gradeTheta/gradeVolRegime
+// in the browser app.js. Duplicated by design — app.js is a generated IIFE
+// with no module imports, so the build-side picks pipeline keeps its own
+// copy. Keep these thresholds in sync.
+function gradeSpread(spreadPct) {
+  if (spreadPct == null || !isFinite(spreadPct)) return { cls: "fair", label: "—" };
+  if (spreadPct <= 0.08) return { cls: "good", label: "Tight" };
+  if (spreadPct <= 0.15) return { cls: "fair", label: "OK" };
+  return { cls: "bad", label: "Wide" };
+}
+function gradeLiquidity(oi) {
+  if (oi == null || !isFinite(oi)) return { cls: "fair", label: "—" };
+  if (oi >= 500) return { cls: "good", label: "Liquid" };
+  if (oi >= 100) return { cls: "fair", label: "Light" };
+  return { cls: "bad", label: "Thin" };
+}
+function gradeDelta(absDelta) {
+  if (absDelta == null || !isFinite(absDelta)) return { cls: "fair", label: "—" };
+  if (absDelta >= 0.40 && absDelta <= 0.55) return { cls: "good", label: "Balanced" };
+  if (absDelta >= 0.30 && absDelta <= 0.65) return { cls: "fair", label: "Skewed" };
+  if (absDelta < 0.30) return { cls: "bad", label: "Far OTM" };
+  return { cls: "bad", label: "Deep ITM" };
+}
+function gradeTheta(thetaDay, mid) {
+  if (thetaDay == null || mid == null || mid <= 0 || !isFinite(thetaDay)) {
+    return { cls: "fair", label: "—" };
+  }
+  const decayPctPerDay = Math.abs(thetaDay) / mid;
+  if (decayPctPerDay <= 0.012) return { cls: "good", label: "Slow" };
+  if (decayPctPerDay <= 0.030) return { cls: "fair", label: "Normal" };
+  return { cls: "bad", label: "Bleeding" };
+}
+function gradeVolRegime(rv30Pctile) {
+  if (rv30Pctile == null || !isFinite(rv30Pctile)) return { cls: "fair", label: "—" };
+  if (rv30Pctile <= 35) return { cls: "good", label: "Calm" };
+  if (rv30Pctile <= PICKS_IV_REGIME_HIGH) return { cls: "fair", label: "Normal" };
+  return { cls: "bad", label: "Elevated" };
+}
+
+// 1-sigma expected move % at expiry from IV (annualized). Useful as a
+// risk/reward sanity check: if the contract needs a move much larger
+// than this to break even, the chain itself is pricing the bet as low
+// probability.
+function expectedMovePct(iv, dteDays) {
+  if (!(iv > 0) || !(dteDays > 0)) return null;
+  return iv * Math.sqrt(dteDays / 365) * 100;
+}
+
+// True if an earnings date (ISO yyyy-mm-dd) falls inside [now, expSec].
+// Returns false on missing/invalid input so missing earnings doesn't kill
+// every pick.
+function earningsInsideWindow(earningsIso, expSec) {
+  if (!earningsIso || typeof earningsIso !== "string") return false;
+  const t = Date.parse(earningsIso);
+  if (!Number.isFinite(t)) return false;
+  const earningsSec = Math.floor(t / 1000);
+  const nowSec = Math.floor(Date.now() / 1000);
+  return earningsSec >= nowSec && earningsSec <= expSec;
+}
+
 function scoreTicker(sym, data, narratives, streakRow) {
   // Each signal contributes a signed integer to `score`. Positive = bullish
   // (suggests calls), negative = bearish (suggests puts). Drivers carries
@@ -13153,11 +13360,13 @@ function scoreTicker(sym, data, narratives, streakRow) {
   // Strongest narrative driver wins for the thesis (avoid listing 5
   // narratives if the ticker rides many of them). Sum scores from all
   // matched narratives so a ticker that rides three active stories
-  // outscores one that only rides one.
+  // outscores one that only rides one. Require strength >= 35 so weak
+  // narratives (below ~1/3 percentile) don't pad the score.
   let topNarrative = null;
   let topNarrativeWeight = 0;
   for (const n of narratives || []) {
     if (n.status !== "active") continue;
+    if ((n.strength || 0) < 35) continue;
     const inLongs = Array.isArray(n.longs) && n.longs.includes(sym);
     const inShorts = Array.isArray(n.shorts) && n.shorts.includes(sym);
     if (!inLongs && !inShorts) continue;
@@ -13177,6 +13386,34 @@ function scoreTicker(sym, data, narratives, streakRow) {
       tag: "narrative",
       weight: topNarrativeWeight,
       text: `${topNarrativeWeight > 0 ? "rides" : "exposed to"} "${topNarrative.name}" (str ${topNarrative.strength}, day ${topNarrative.daysRunning || 1})`,
+    });
+  }
+
+  // --- Directional alignment penalty -------------------------------------
+  // If positive and negative drivers both contribute material weight,
+  // signals are mixed and the absolute score overstates conviction.
+  // Subtract a point from |score| (in the appropriate direction) so
+  // genuinely-aligned picks rank above conflicted ones.
+  const posWeight = drivers.filter((d) => d.weight > 0).reduce((s, d) => s + d.weight, 0);
+  const negWeight = drivers.filter((d) => d.weight < 0).reduce((s, d) => s + Math.abs(d.weight), 0);
+  if (posWeight >= 2 && negWeight >= 2) {
+    const sign = score >= 0 ? -1 : 1;
+    score += sign;
+    drivers.push({ tag: "alignment", weight: sign, text: "mixed signals (alignment penalty)" });
+  }
+
+  // --- IV regime penalty -------------------------------------------------
+  // Buying calls when IV is in the top 30% means paying expensive
+  // premium that needs a bigger move to recoup — same logic in
+  // reverse for puts. Penalty is ±1 against the direction of the bet.
+  const rv30Pctile = data?.technicals?.volRegime?.rv30Pctile;
+  if (rv30Pctile != null && rv30Pctile > PICKS_IV_REGIME_HIGH && score !== 0) {
+    const sign = score >= 0 ? -1 : 1;
+    score += sign;
+    drivers.push({
+      tag: "iv",
+      weight: sign,
+      text: `IV elevated (${rv30Pctile}th %ile) — expensive premium`,
     });
   }
 
@@ -13201,151 +13438,238 @@ function fmtExpiryLabelShort(epochSec) {
   return `${m} ${day} '${yr}`;
 }
 
-// Pick one contract on `side` ('call' | 'put') for a top pick. We aim for the
-// directional-swing sweet spot: ~35 DTE, |delta| ~0.45, decent liquidity and
-// a non-pathological spread. Returns null when no expiration has a usable
-// strike with a valid IV (without IV we can't compute delta, and a contract
-// with no quoted price is useless to recommend anyway).
+// Pick the highest-quality contract on `side` ('call' | 'put') for a top
+// pick. Two-phase pipeline:
+//   1. Apply HARD mechanical filters (DTE, |delta|, bid-ask spread, OI,
+//      required breakeven move vs IV-implied expected move). Anything
+//      failing any one filter is dropped — we'd rather ship fewer picks
+//      than recommend a structurally bad one.
+//   2. Score survivors by a composite of delta-distance from 0.45, DTE
+//      sweet-spot proximity, spread tightness, liquidity, and breakeven
+//      headroom vs the chain's own expected move. Pick best.
+// Returns null when no contract on any expiration clears every filter.
 function pickContractForPick(side, data) {
   if (!data || !data.chains || !(data.spot > 0)) return null;
   const spot = data.spot;
   const nowSec = Math.floor(Date.now() / 1000);
+  const earningsIso = data?.fundamentals?.nextEarningsDate || null;
+
   const exps = Object.keys(data.chains)
     .map(Number)
     .filter((e) => e > nowSec)
     .sort((a, b) => a - b);
   if (!exps.length) return null;
 
-  // 1) Choose expiration. Prefer one in [21, 60] DTE closest to 35; else the
-  //    longest-dated <=90 DTE; else just the nearest. Skip expirations whose
-  //    chosen side has no valid contracts (e.g., illiquid chains).
-  const TARGET_DTE = 35;
-  const expHasValid = (e) => {
-    const ch = data.chains[e];
-    const rows = side === "call" ? ch?.c : ch?.p;
-    return Array.isArray(rows) && rows.some(
-      (c) => c?.s != null && c?.iv != null && isFinite(c.iv) && c.iv > 0,
-    );
-  };
-  const withDte = exps
-    .filter(expHasValid)
-    .map((e) => ({ e, dte: (e - nowSec) / 86400 }));
-  if (!withDte.length) return null;
-  const inBand = withDte.filter((x) => x.dte >= 21 && x.dte <= 60);
-  let chosenExp;
-  if (inBand.length) {
-    inBand.sort((a, b) => Math.abs(a.dte - TARGET_DTE) - Math.abs(b.dte - TARGET_DTE));
-    chosenExp = inBand[0];
-  } else {
-    const longish = withDte.filter((x) => x.dte <= 90);
-    if (longish.length) {
-      longish.sort((a, b) => b.dte - a.dte);
-      chosenExp = longish[0];
-    } else {
-      withDte.sort((a, b) => a.dte - b.dte);
-      chosenExp = withDte[0];
+  // Build candidate (expiration, contract) tuples that pass every hard
+  // filter. Collect across the full chain so we can rank globally rather
+  // than locking to one expiration up front.
+  const candidates = [];
+  for (const expSec of exps) {
+    const dte = (expSec - nowSec) / 86400;
+    if (dte < PICKS_MIN_DTE || dte > PICKS_MAX_DTE) continue;
+    const ch = data.chains[expSec];
+    const rows = (side === "call" ? ch?.c : ch?.p) || [];
+    if (!rows.length) continue;
+    const T = yearsToExpiry(expSec);
+    const earningsBefore = earningsInsideWindow(earningsIso, expSec);
+    for (const row of rows) {
+      if (!row || row.s == null) continue;
+      if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
+      // Need a real two-sided quote to be tradeable.
+      if (!(row.b > 0 && row.a > 0)) continue;
+      const mid = (row.b + row.a) / 2;
+      if (!(mid > 0)) continue;
+      const spreadPct = (row.a - row.b) / mid;
+      if (spreadPct > PICKS_MAX_SPREAD_PCT) continue;
+      const oi = row.oi || 0;
+      if (oi < PICKS_MIN_OI) continue;
+      const g = greeks(side, spot, row.s, T, row.iv);
+      if (!g) continue;
+      const absDelta = Math.abs(g.delta);
+      if (!isFinite(absDelta) || absDelta < PICKS_DELTA_MIN || absDelta > PICKS_DELTA_MAX) continue;
+      // Risk/reward check: required move to break even vs IV-implied
+      // 1σ expected move at expiry. Anything beyond MAX_REQ_MOVE_RATIO
+      // is asking for materially more than what the chain is pricing.
+      const breakeven = side === "call" ? row.s + mid : row.s - mid;
+      const reqMovePct = ((breakeven - spot) / spot) * 100 * (side === "call" ? 1 : -1);
+      const expMovePct = expectedMovePct(row.iv, dte);
+      if (expMovePct != null && reqMovePct / expMovePct > PICKS_MAX_REQ_MOVE_RATIO) continue;
+      // Extrinsic ratio — paying mostly time premium with short DTE is
+      // a losing structure. Allowed for longer-dated.
+      const intrinsic = side === "call"
+        ? Math.max(0, spot - row.s)
+        : Math.max(0, row.s - spot);
+      const extrinsic = Math.max(0, mid - intrinsic);
+      const extrinsicRatio = mid > 0 ? extrinsic / mid : 1;
+      if (extrinsicRatio > 0.85 && dte < 21) continue;
+
+      candidates.push({
+        row,
+        expSec,
+        dte,
+        T,
+        g,
+        absDelta,
+        mid,
+        spreadPct,
+        oi,
+        breakeven,
+        reqMovePct,
+        expMovePct,
+        extrinsicRatio,
+        earningsBefore,
+      });
     }
   }
+  if (!candidates.length) return null;
 
-  // 2) Choose strike. Score = delta-distance from 0.45 + liquidity / spread
-  //    nudges. Lower score wins; ties broken by closer to spot.
-  const chain = data.chains[chosenExp.e];
-  const rows = (side === "call" ? chain?.c : chain?.p) || [];
-  const T = yearsToExpiry(chosenExp.e);
-  const DELTA_TARGET = 0.45;
-  let best = null;
-  let bestScore = Infinity;
-  for (const row of rows) {
-    if (!row || row.s == null) continue;
-    if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
-    const g = greeks(side, spot, row.s, T, row.iv);
-    if (!g) continue;
-    const absDelta = Math.abs(g.delta);
-    if (!isFinite(absDelta)) continue;
-    let score = Math.abs(absDelta - DELTA_TARGET);
-    // Liquidity nudge: thin (<25) gets a hard penalty so we step away if
-    // there's a workable neighbor; modest (<100) gets a small penalty; deep
-    // (>=100) gets a small bonus.
-    const oi = row.oi || 0;
-    if (oi < 25) score += 0.40;
-    else if (oi < 100) score += 0.05;
-    else score -= 0.02;
-    // Spread nudge using bid/ask when present. Yahoo returns 0/0 outside
-    // RTH so we only score when both sides are quoted.
-    if (row.b > 0 && row.a > 0) {
-      const mid = (row.b + row.a) / 2;
-      const spreadPct = mid > 0 ? ((row.a - row.b) / mid) : 0;
-      if (spreadPct > 0.25) score += 0.30;
-      else if (spreadPct <= 0.10) score -= 0.02;
+  // Composite quality score — lower is better.
+  // Weighted: delta-distance (0.40), DTE-fit (0.20), spread (0.15),
+  // liquidity (0.10), risk/reward (0.15). Each subterm in [0, 1].
+  function dteFitPenalty(dte) {
+    if (dte >= PICKS_IDEAL_DTE_LO && dte <= PICKS_IDEAL_DTE_HI) return 0;
+    if (dte < PICKS_IDEAL_DTE_LO) {
+      return (PICKS_IDEAL_DTE_LO - dte) / PICKS_IDEAL_DTE_LO;
     }
-    if (
-      score < bestScore ||
-      (score === bestScore && best && Math.abs(row.s - spot) < Math.abs(best.s - spot))
-    ) {
-      bestScore = score;
-      best = row;
-      best._greeks = g;
+    return (dte - PICKS_IDEAL_DTE_HI) / (PICKS_MAX_DTE - PICKS_IDEAL_DTE_HI);
+  }
+  function liquidityPenalty(oi) {
+    if (oi >= 1000) return 0;
+    if (oi >= 500) return 0.10;
+    if (oi >= 200) return 0.25;
+    if (oi >= 100) return 0.50;
+    return 0.75;
+  }
+  function rrPenalty(reqMovePct, expMovePct) {
+    if (expMovePct == null || expMovePct <= 0) return 0.50;
+    const ratio = reqMovePct / expMovePct;
+    if (ratio <= 0) return 0;          // already ITM through breakeven
+    if (ratio <= 0.50) return 0;       // big cushion
+    if (ratio <= 1.00) return 0.20;
+    if (ratio <= 1.25) return 0.50;
+    return 0.80;
+  }
+
+  let best = null;
+  let bestComposite = Infinity;
+  for (const c of candidates) {
+    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.20);
+    const dtePen = Math.min(1, dteFitPenalty(c.dte));
+    const spreadPen = Math.min(1, c.spreadPct / PICKS_MAX_SPREAD_PCT);
+    const liqPen = Math.min(1, liquidityPenalty(c.oi));
+    const rrPen = rrPenalty(c.reqMovePct, c.expMovePct);
+    let composite =
+      deltaPen * 0.40 +
+      dtePen * 0.20 +
+      spreadPen * 0.15 +
+      liqPen * 0.10 +
+      rrPen * 0.15;
+    // If earnings fall inside the contract window, nudge against —
+    // not a reject (earnings can be a catalyst) but a tie-break in
+    // favor of a clean expiry when one exists.
+    if (c.earningsBefore) composite += 0.06;
+    if (composite < bestComposite) {
+      bestComposite = composite;
+      best = c;
     }
   }
   if (!best) return null;
 
-  const mid = best.b > 0 && best.a > 0 ? (best.b + best.a) / 2 : (best.l > 0 ? best.l : null);
-  const breakeven = mid != null
-    ? (side === "call" ? best.s + mid : best.s - mid)
-    : null;
-  const breakevenMovePct = (breakeven != null && spot > 0)
-    ? ((breakeven - spot) / spot) * 100
-    : null;
+  const spreadGrade = gradeSpread(best.spreadPct);
+  const oiGrade = gradeLiquidity(best.oi);
+  const deltaGrade = gradeDelta(best.absDelta);
+  const thetaGrade = gradeTheta(best.g.thetaDay, best.mid);
+  const ivPctile = data?.technicals?.volRegime?.rv30Pctile;
+  const ivGrade = gradeVolRegime(ivPctile);
+
+  // Overall: worst component wins. A single "bad" component is enough
+  // to flag the pick as risky even if the rest is clean.
+  const cls = [spreadGrade.cls, oiGrade.cls, deltaGrade.cls, thetaGrade.cls];
+  let overall = "good";
+  if (cls.includes("bad")) overall = "bad";
+  else if (cls.includes("fair")) overall = "fair";
+
   return {
-    strike: best.s,
-    expiry: chosenExp.e,
-    expiryLabel: fmtExpiryLabelShort(chosenExp.e),
-    dte: Math.max(0, Math.round(chosenExp.dte)),
-    bid: best.b ?? null,
-    ask: best.a ?? null,
-    mid: mid != null ? Number(mid.toFixed(2)) : null,
-    last: best.l ?? null,
-    iv: best.iv != null ? Number(best.iv.toFixed(4)) : null,
-    oi: best.oi ?? 0,
-    volume: best.v ?? 0,
-    delta: Number(best._greeks.delta.toFixed(3)),
-    thetaDay: Number(best._greeks.thetaDay.toFixed(4)),
-    breakeven: breakeven != null ? Number(breakeven.toFixed(2)) : null,
-    breakevenMovePct: breakevenMovePct != null ? Number(breakevenMovePct.toFixed(2)) : null,
+    strike: best.row.s,
+    expiry: best.expSec,
+    expiryLabel: fmtExpiryLabelShort(best.expSec),
+    dte: Math.max(0, Math.round(best.dte)),
+    bid: best.row.b ?? null,
+    ask: best.row.a ?? null,
+    mid: Number(best.mid.toFixed(2)),
+    last: best.row.l ?? null,
+    iv: Number(best.row.iv.toFixed(4)),
+    oi: best.oi,
+    volume: best.row.v ?? 0,
+    delta: Number(best.g.delta.toFixed(3)),
+    thetaDay: Number(best.g.thetaDay.toFixed(4)),
+    breakeven: Number(best.breakeven.toFixed(2)),
+    breakevenMovePct: Number(best.reqMovePct.toFixed(2)),
+    expectedMovePct: best.expMovePct != null ? Number(best.expMovePct.toFixed(2)) : null,
+    rrRatio: best.expMovePct ? Number((best.reqMovePct / best.expMovePct).toFixed(2)) : null,
+    extrinsicRatio: Number(best.extrinsicRatio.toFixed(2)),
+    earningsInWindow: !!best.earningsBefore,
+    contractQuality: {
+      spread: spreadGrade,
+      oi: oiGrade,
+      delta: deltaGrade,
+      theta: thetaGrade,
+      iv: ivGrade,
+      overall,
+    },
+    qualityScore: Number((1 - bestComposite).toFixed(3)),
   };
 }
 
-function buildTopPicks(chains, narratives) {
+export function buildTopPicks(chains, narratives, streaksMap = null) {
   const ranked = [];
   for (const [sym, data] of Object.entries(chains)) {
-    const streakRow = computeStreakForTicker(sym, data._bars);
+    // Prefer the precomputed streak map when available (offline regen
+    // doesn't have access to the in-memory _bars). Falls back to
+    // computing from data._bars during the full bake.
+    const streakRow = streaksMap && streaksMap[sym]
+      ? streaksMap[sym]
+      : computeStreakForTicker(sym, data._bars);
     const { score, drivers } = scoreTicker(sym, data, narratives, streakRow);
     if (Math.abs(score) < PICKS_MIN_CONVICTION) continue;
     ranked.push({ sym, data, score, drivers, streakRow });
   }
   ranked.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
-  const top = ranked.slice(0, PICKS_COUNT);
-  return top.map((r) => {
+  // Score more tickers than we ship — some won't have a tradeable
+  // contract and will get dropped at the mechanical-filter stage.
+  const candidates = ranked.slice(0, PICKS_COUNT * 3);
+  const out = [];
+  for (const r of candidates) {
+    if (out.length >= PICKS_COUNT) break;
     const side = r.score > 0 ? "call" : "put";
+    const contract = pickContractForPick(side, r.data);
+    if (!contract) continue; // hard-filtered out — drop the pick
     // Sort drivers by absolute contribution so the thesis lists the
     // strongest reasons first.
     const ordered = r.drivers.slice().sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
     const reasons = ordered.map((d) => d.text);
     const thesis = `${verb} on ${r.sym}: ${reasons.join("; ")}.`;
-    const sector = (data) => data?.fundamentals?.sector || null;
-    return {
+    const sector = r.data?.fundamentals?.sector || null;
+    out.push({
       symbol: r.sym,
       side,
       score: r.score,
       conviction: Math.abs(r.score),
+      // Composite ranking score = conviction * contract quality.
+      // Surfaced for transparency; the picks array itself is already
+      // ordered by this when re-sorted below.
+      compositeScore: Number(
+        (Math.abs(r.score) * (contract.qualityScore ?? 0.5)).toFixed(3),
+      ),
       thesis,
       drivers: ordered,
       spot: r.data?.spot ?? null,
-      sector: sector(r.data),
+      sector,
       sentiment: r.data?.news?.sentiment || null,
       fundamentalsVerdict: r.data?.fundamentals?.judgment?.verdict || null,
       rsi: r.data?.technicals?.rsi ?? null,
+      ivPctile: r.data?.technicals?.volRegime?.rv30Pctile ?? null,
       streak: r.streakRow?.current
         ? {
             color: r.streakRow.current.color,
@@ -13353,9 +13677,13 @@ function buildTopPicks(chains, narratives) {
             cumulativePct: r.streakRow.current.cumulativePct,
           }
         : null,
-      contract: pickContractForPick(side, r.data),
-    };
-  });
+      contract,
+    });
+  }
+  // Final sort by composite — conviction-only ordering can put a weak
+  // contract above a slightly-lower-conviction pick with a great chain.
+  out.sort((a, b) => b.compositeScore - a.compositeScore);
+  return out;
 }
 
 async function writeTopPicksFile(chains, narratives, builtAtIso) {

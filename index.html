@@ -53,7 +53,8 @@
   <span id="freshness-text">Built May 21, 2026, 5:05 PM (NY)</span>
 </div>
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
-  <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="true" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
@@ -64,7 +65,71 @@
   <button type="button" class="page-tab" role="tab" data-page-tab="portfolio" aria-selected="false" aria-controls="page-pane-portfolio" id="page-tab-portfolio">Portfolio</button>
 </nav>
 <main>
-  <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers">
+  <div class="page-pane" id="page-pane-home" role="tabpanel" aria-labelledby="page-tab-home">
+    <section class="landing-hero">
+      <span class="landing-hero-eyebrow">Today's desk</span>
+      <h1 class="landing-hero-title">What do you want to look at?</h1>
+      <p class="landing-hero-sub">Built <span class="mono">May 21, 2026, 5:05 PM</span> (NY) · 119 curated tickers</p>
+    </section>
+    <div class="landing-grid">
+      <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Tickers</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-tickers">119</div>
+        <div class="landing-card-sub">symbols tracked</div>
+        <p class="landing-card-desc">Per-ticker chains, technicals, Greeks, IV term structure, AI news takes.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Narratives</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-narratives">—</div>
+        <div class="landing-card-sub">sectors covered</div>
+        <p class="landing-card-desc">AI-built theses on what's driving capital today — longs, shorts, and the triggers to watch.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Top picks</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-picks">Today</div>
+        <div class="landing-card-sub">highest conviction</div>
+        <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
+      </button>
+      <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Unusual flow</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat" id="land-stat-flow">—</div>
+        <div class="landing-card-sub">flagged today</div>
+        <p class="landing-card-desc">Options prints with abnormal volume vs the prior session — who's pricing in what.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="grade" aria-label="Grade a contract">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Grade a contract</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat">Score it</div>
+        <div class="landing-card-sub">any chain</div>
+        <p class="landing-card-desc">Spread, delta, theta + AI conviction for any specific contract you're eyeing.</p>
+      </button>
+      <button type="button" class="landing-card" data-go="portfolio" aria-label="Open portfolio">
+        <header class="landing-card-head">
+          <span class="landing-card-eyebrow">Portfolio</span>
+          <span class="landing-card-arrow" aria-hidden="true">→</span>
+        </header>
+        <div class="landing-card-stat">Track</div>
+        <div class="landing-card-sub">positions + AI review</div>
+        <p class="landing-card-desc">Save what you own, then ask the model for hold / sell / roll on each position.</p>
+      </button>
+    </div>
+    <p class="landing-foot">Or jump anywhere with the tab strip above · press <kbd>⌘K</kbd> for the command palette.</p>
+  </div>
+  <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers" hidden>
   <section class="card" id="tickers-section">
     <header class="card-header">
       <h2 class="card-title">All supported tickers</h2>

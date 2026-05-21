@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03582;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -1120,7 +1120,7 @@
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -1183,9 +1183,38 @@
         if (active) positionIndicator(active);
       }).catch(function(){});
     }
-    var saved = null;
-    try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
-    selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'tickers');
+    // Landing-page section cards — click anywhere with data-go="<tabname>"
+    // to navigate. Event delegation so the cards can be regenerated.
+    var homePane = document.getElementById('page-pane-home');
+    if (homePane) {
+      homePane.addEventListener('click', function(ev){
+        var target = ev.target && ev.target.closest ? ev.target.closest('[data-go]') : null;
+        if (!target) return;
+        var go = target.getAttribute('data-go');
+        if (go && valid.indexOf(go) >= 0){
+          ev.preventDefault();
+          selectTab(go);
+        }
+      });
+    }
+    // Always land on Home — explicit user navigation, no sticky last-tab.
+    // (selectTab still writes localStorage so other features can read it.)
+    selectTab('home');
+    // Populate runtime stats on the landing cards from the inlined manifest.
+    try {
+      var m = window.STONKS_MANIFEST || {};
+      var statNar = document.getElementById('land-stat-narratives');
+      if (statNar) {
+        var nCount = (m.sectorOverviews ? Object.keys(m.sectorOverviews).length : 0)
+                  || (Array.isArray(m.narratives) ? m.narratives.length : 0);
+        if (nCount) statNar.textContent = String(nCount);
+      }
+      var statFlow = document.getElementById('land-stat-flow');
+      if (statFlow) {
+        var fCount = m.unusual && m.unusual.summary && (m.unusual.summary.contractCount || m.unusual.summary.tickerCount);
+        if (typeof fCount === 'number' && fCount >= 0) statFlow.textContent = String(fCount);
+      }
+    } catch (_) {}
   }
 
   function buildResultHtml(input){
@@ -3688,23 +3717,66 @@
         breakeven += ' (' + (m >= 0 ? '+' : '') + m.toFixed(1) + '%)';
       }
     }
+    // Risk/reward — required breakeven move vs IV-implied 1σ expected
+    // move at expiry. <1 means the chain already prices a move that
+    // size; >1 means the bet needs more than the market is pricing.
+    var rr = '';
+    if (c.expectedMovePct != null && c.breakevenMovePct != null){
+      var req = Math.abs(Number(c.breakevenMovePct));
+      var exp = Math.abs(Number(c.expectedMovePct));
+      var rrCls = c.rrRatio == null || c.rrRatio <= 0.7 ? 'good'
+                : c.rrRatio <= 1.0 ? 'fair' : 'bad';
+      rr = '<div class="pick-contract-rr pick-rr-' + rrCls + '">' +
+        'Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · chain prices ±' + exp.toFixed(1) + '%' +
+      '</div>';
+    }
     var liqParts = [];
     if (c.oi != null && isFinite(c.oi)) liqParts.push('OI ' + Number(c.oi).toLocaleString());
     if (c.volume != null && isFinite(c.volume)) liqParts.push('vol ' + Number(c.volume).toLocaleString());
     var liq = liqParts.length ? '<span class="pick-contract-liq">' + escapeHtml(liqParts.join(' · ')) + '</span>' : '';
+    // Contract-quality chips — Spread / Liquidity / Delta / Theta + IV
+    // regime. Color-coded green/amber/red so the user can eyeball
+    // mechanical risk before opening the grader. Older picks.json
+    // payloads lack contractQuality; just skip chips in that case.
+    var qChips = '';
+    var q = c.contractQuality;
+    if (q && q.spread){
+      function chip(label, g){
+        if (!g) return '';
+        return '<span class="pick-qchip pick-qchip-' + escapeHtml(g.cls) + '" title="' + escapeHtml(label) + '">' +
+          '<span class="pick-qchip-label">' + escapeHtml(label) + '</span>' +
+          '<span class="pick-qchip-val">' + escapeHtml(g.label) + '</span>' +
+        '</span>';
+      }
+      qChips =
+        '<div class="pick-contract-quality">' +
+          chip('Spread', q.spread) +
+          chip('Liq', q.oi) +
+          chip('Δ', q.delta) +
+          chip('Θ', q.theta) +
+          (q.iv ? chip('IV', q.iv) : '') +
+        '</div>';
+    }
+    var earningsBadge = c.earningsInWindow
+      ? '<span class="pick-badge pick-badge-warn">Earnings in window</span>'
+      : '';
     var btnAttrs =
       ' data-pick-symbol="' + escapeHtml(p.symbol) + '"' +
       ' data-pick-strike="' + escapeHtml(String(c.strike)) + '"' +
       ' data-pick-exp="' + escapeHtml(String(c.expiry || '')) + '"' +
       ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"';
-    return '<div class="pick-contract">' +
+    var overall = (q && q.overall) ? ' pick-contract-overall-' + escapeHtml(q.overall) : '';
+    return '<div class="pick-contract' + overall + '">' +
       '<div class="pick-contract-head">' +
         '<span class="pick-contract-label">Suggested ' + sideLabel + '</span>' +
         '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + '</span>' +
+        earningsBadge +
       '</div>' +
       (quote ? '<div class="pick-contract-quote">' + escapeHtml(quote) + '</div>' : '') +
       (greeks.length ? '<div class="pick-contract-greeks">' + escapeHtml(greeks.join(' · ')) + '</div>' : '') +
       (breakeven ? '<div class="pick-contract-be">' + escapeHtml(breakeven) + '</div>' : '') +
+      rr +
+      qChips +
       (liq ? '<div class="pick-contract-meta">' + liq + '</div>' : '') +
       '<button type="button" class="pick-contract-grade"' + btnAttrs + '>Grade this contract →</button>' +
     '</div>';
