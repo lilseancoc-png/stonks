@@ -3974,25 +3974,6 @@ main { padding-top: var(--s-2); }
 }
 .f13-table td.mag-cell > * { position: relative; z-index: 1; }
 
-/* Top picks conviction gauge — visual conviction strength next to the
-   numeric score. Stacked thin bars (1-12 score) at the start of each
-   picks row. */
-.picks-conviction-gauge {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  margin-left: var(--s-2);
-}
-.picks-conviction-gauge i {
-  display: block;
-  width: 2px;
-  height: 10px;
-  background: var(--hairline);
-  border-radius: 1px;
-}
-.picks-conviction-gauge i.on-pos { background: var(--pos); }
-.picks-conviction-gauge i.on-neg { background: var(--neg); }
-
 /* Enforce tabular numerals across every numeric surface. Many cells
    already opt in explicitly; this is a defensive default for any new
    data cells that forget to. */
@@ -4016,15 +3997,94 @@ main { padding-top: var(--s-2); }
   border-radius: var(--r-2);
 }
 
-/* Section reveal on scroll — graceful enhancement. Cards inside the
-   active page-pane fade in as the page settles. */
+/* Section reveal on tab activate — staggered fade per card so the page
+   settles in a single visual beat instead of all cards popping at once. */
 .page-pane:not([hidden]) > .card {
   animation: section-fade-in .35s var(--ease-out) both;
 }
+.page-pane:not([hidden]) > .card:nth-of-type(1) { animation-delay: 0ms; }
+.page-pane:not([hidden]) > .card:nth-of-type(2) { animation-delay: 50ms; }
+.page-pane:not([hidden]) > .card:nth-of-type(3) { animation-delay: 100ms; }
+.page-pane:not([hidden]) > .card:nth-of-type(n+4) { animation-delay: 140ms; }
 @media (prefers-reduced-motion: reduce) {
   .page-pane:not([hidden]) > .card { animation: none; }
 }
 @keyframes section-fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Pick cards are clickable — give them a real hover affordance. The
+   default cursor + transform stays subtle so the page reads as a data
+   table, not a marketing grid. */
+.pick-card {
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
+}
+.pick-card:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 2.5%, var(--surface));
+}
+.pick-card .pick-symbol {
+  cursor: pointer;
+  transition: color .12s var(--ease-out);
+}
+.pick-card .pick-symbol:hover {
+  color: var(--accent-strong);
+}
+.pick-card .pick-symbol:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-1);
+}
+
+/* Pick rank — refine the small "#1" / "#2" badge so it reads as a rank,
+   not as inline body text. */
+.pick-rank {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* Freshness strip — when the build is fresh, surface a faint "Live"
+   chip aligned to the right so the strip reads with both age + state. */
+.freshness::after {
+  content: "Live";
+  margin-left: auto;
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--pos);
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--pos) 6%, transparent);
+}
+.freshness.warn::after { content: "Stale"; color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 6%, transparent); }
+.freshness.bad::after  { content: "Stale"; color: var(--neg);  border-color: color-mix(in srgb, var(--neg) 40%, transparent);  background: color-mix(in srgb, var(--neg) 6%, transparent); }
+
+/* Calendar AM/PM session pill — kept compact but uses a fixed min-width
+   so the chips align across the timeline. */
+.cal-session {
+  min-width: 32px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Brand wordmark — keep the existing layout but add a subtle accent
+   underline on hover so the link reads as interactive without breaking
+   the institutional feel. */
+.brand:hover .brand-word {
+  background-image: linear-gradient(to right, var(--accent), var(--accent));
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+}
+.brand-word { transition: background-size .15s var(--ease-out); }
+
+/* Tighten the page-tab strip on very narrow viewports so the labels
+   don't grow into a second row before the horizontal scroll kicks in. */
+@media (max-width: 480px) {
+  .page-tabs { padding: 0 var(--s-3); gap: 0; }
+  .page-tab { padding: 6px 10px; font-size: 11px; }
 }
