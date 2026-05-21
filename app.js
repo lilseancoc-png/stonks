@@ -1119,7 +1119,21 @@
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
+    var tabsStrip = document.querySelector('.page-tabs');
     var valid = ['tickers','narratives','picks','calendar','flow','grade','streaks','f13','portfolio'];
+    // Active-tab indicator: a 2px accent bar that slides between tabs.
+    // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
+    // single 1px-wide bar to the right size + position. We measure
+    // here from layout so it survives font swaps + viewport resizes.
+    function positionIndicator(activeBtn){
+      if (!tabsStrip || !activeBtn) return;
+      var rectBtn = activeBtn.getBoundingClientRect();
+      var rectStrip = tabsStrip.getBoundingClientRect();
+      var x = (activeBtn.offsetLeft - tabsStrip.scrollLeft);
+      var w = rectBtn.width;
+      tabsStrip.style.setProperty('--ind-x', x + 'px');
+      tabsStrip.style.setProperty('--ind-w', String(w));
+    }
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -1147,10 +1161,28 @@
           // Older Safari ignores object-form options — fall back to no-op.
         }
       }
+      positionIndicator(activeBtn);
     }
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
     });
+    // Recompute indicator on resize + font-load so it doesn't drift.
+    if (tabsStrip) {
+      tabsStrip.addEventListener('scroll', function(){
+        var active = tabsStrip.querySelector('.page-tab[aria-selected="true"]');
+        if (active) positionIndicator(active);
+      }, { passive: true });
+    }
+    window.addEventListener('resize', function(){
+      var active = document.querySelector('.page-tab[aria-selected="true"]');
+      if (active) positionIndicator(active);
+    });
+    if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+      document.fonts.ready.then(function(){
+        var active = document.querySelector('.page-tab[aria-selected="true"]');
+        if (active) positionIndicator(active);
+      }).catch(function(){});
+    }
     var saved = null;
     try { saved = localStorage.getItem('stonks-page-tab'); } catch (_) {}
     selectTab(saved && valid.indexOf(saved) >= 0 ? saved : 'tickers');

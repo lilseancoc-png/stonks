@@ -15,43 +15,66 @@
   --muted-strong:#9aa0a8;
   --accent:#1ec773;
   --accent-soft:rgba(30,199,115,0.10);
-  --accent-strong:#22d97d;
-  --accent-glow:rgba(30,199,115,0.20);
+  --accent-strong:#2ee089;
+  --accent-glow:rgba(30,199,115,0.28);
+  --accent-glow-soft:rgba(30,199,115,0.14);
+  --accent-tint-1:rgba(30,199,115,0.06);
+  --accent-tint-2:rgba(30,199,115,0.12);
   --pos:#1ec773;
   --pos-soft:rgba(30,199,115,0.10);
   --pos-glow:rgba(30,199,115,0.18);
+  --pos-tint:rgba(30,199,115,0.07);
   --neg:#ff4d4d;
   --neg-soft:rgba(255,77,77,0.10);
   --neg-glow:rgba(255,77,77,0.18);
+  --neg-tint:rgba(255,77,77,0.07);
   --warn:#f59f00;
   --warn-soft:rgba(245,159,0,0.12);
+  --warn-tint:rgba(245,159,0,0.08);
   --info:#5b8def;
   --info-soft:rgba(91,141,239,0.10);
+  --info-tint:rgba(91,141,239,0.07);
   /* Institutional UIs are defined by precise hairlines + subtle drop, not
      puffy shadows. Keep elevation strictly for modals + popovers. */
   --shadow-sm:0 1px 2px rgba(0,0,0,0.35);
   --shadow-md:0 4px 16px rgba(0,0,0,0.45);
   --shadow-lg:0 24px 60px rgba(0,0,0,0.60);
   --shadow-glow-accent:0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
-  /* Refined elevation ladder — pairs hairlines with a soft drop. Used for
-     sticky chrome and popovers; data cards stay flat. */
-  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(0,0,0,0.35);
-  --elev-2:0 1px 0 var(--hairline), 0 8px 24px rgba(0,0,0,0.45);
-  --elev-pop:0 0 0 1px var(--border-strong), 0 16px 48px rgba(0,0,0,0.55);
+  /* Refined 4-tier elevation ladder — hairline + soft drops. Tier 0 is
+     flat (data rows). Tier 1 is the resting card. Tier 2 is a raised
+     surface (hero readouts, pinned strip). Tier 3 is modal/popover. */
+  --elev-0:0 0 0 1px var(--hairline);
+  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(0,0,0,0.40);
+  --elev-2:0 1px 0 var(--hairline), 0 8px 24px rgba(0,0,0,0.50), inset 0 1px 0 rgba(255,255,255,0.02);
+  --elev-3:0 0 0 1px var(--border-strong), 0 24px 60px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.04);
+  --elev-pop:var(--elev-3);
+  --elev-focus:0 0 0 1px var(--accent), 0 0 0 4px var(--accent-glow-soft);
+  --elev-glow:0 0 24px -4px var(--accent-glow);
   /* Glass surfaces — sticky header, popovers, command palette only.
      Never on data cards. */
-  --glass-bg:color-mix(in srgb, var(--surface) 78%, transparent);
-  --glass-border:color-mix(in srgb, var(--text-strong) 6%, var(--border));
-  --glass-blur:saturate(140%) blur(14px);
+  --glass-bg:color-mix(in srgb, var(--surface) 72%, transparent);
+  --glass-border:color-mix(in srgb, var(--text-strong) 8%, var(--border));
+  --glass-blur:saturate(160%) blur(16px);
   /* Accent ramp extras for tinted backgrounds and on-fill text. */
   --accent-dim:#168f53;
   --accent-fg:#06120c;
   --accent-line:color-mix(in srgb, var(--accent) 35%, var(--border));
-  /* Gradients reserved for sentiment-keyed surfaces (sector overview).
-     Default cards are flat so data reads clean. */
+  /* Gradient skins — applied via background-image so borders + box-shadow
+     compose cleanly on top. The "hero" gradient is reserved for the
+     few flagship surfaces (score readout, AI review, sign-in card). */
   --gradient-card:var(--surface);
   --gradient-positive:linear-gradient(180deg, color-mix(in srgb, var(--pos) 10%, var(--surface)) 0%, var(--surface) 70%);
   --gradient-negative:linear-gradient(180deg, color-mix(in srgb, var(--neg) 10%, var(--surface)) 0%, var(--surface) 70%);
+  --grad-surface:linear-gradient(180deg, color-mix(in srgb, #ffffff 3%, var(--surface)) 0%, var(--surface) 60%);
+  --grad-surface-raised:linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, var(--surface-2)) 0%, var(--surface) 70%);
+  --grad-pos:linear-gradient(180deg, var(--pos-tint) 0%, transparent 60%);
+  --grad-neg:linear-gradient(180deg, var(--neg-tint) 0%, transparent 60%);
+  --grad-warn:linear-gradient(180deg, var(--warn-tint) 0%, transparent 60%);
+  --grad-hero:linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--surface)) 0%, var(--surface) 55%, color-mix(in srgb, var(--info) 8%, var(--surface)) 100%);
+  /* Display typography — large hero numbers (equity, score) lean on
+     this weight + slight negative tracking. */
+  --fw-display:800;
+  --ls-display:-0.025em;
   --r-1:3px; --r-2:5px; --r-3:7px; --r-4:9px; --r-5:11px; --r-pill:999px;
   --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-7:32px; --s-8:48px;
   --fs-2xs:9px; --fs-xs:10px; --fs-sm:11px; --fs-md:13px; --fs-lg:15px; --fs-xl:17px; --fs-2xl:22px; --fs-3xl:30px; --fs-hero:40px; --fs-mega:56px;
@@ -84,33 +107,47 @@
   --accent:#0f9d58;
   --accent-soft:rgba(15,157,88,0.10);
   --accent-strong:#0a8748;
-  --accent-glow:rgba(15,157,88,0.16);
+  --accent-glow:rgba(15,157,88,0.22);
+  --accent-glow-soft:rgba(15,157,88,0.10);
+  --accent-tint-1:rgba(15,157,88,0.05);
+  --accent-tint-2:rgba(15,157,88,0.10);
   --pos:#0f9d58;
   --pos-soft:rgba(15,157,88,0.10);
   --pos-glow:rgba(15,157,88,0.16);
+  --pos-tint:rgba(15,157,88,0.06);
   --neg:#d4380d;
   --neg-soft:rgba(212,56,13,0.10);
   --neg-glow:rgba(212,56,13,0.14);
+  --neg-tint:rgba(212,56,13,0.06);
   --warn:#a06a1f;
   --warn-soft:rgba(160,106,31,0.10);
+  --warn-tint:rgba(160,106,31,0.07);
   --info:#1d4ed8;
   --info-soft:rgba(29,78,216,0.10);
+  --info-tint:rgba(29,78,216,0.06);
   --shadow-sm:0 1px 2px rgba(15,23,42,0.05);
   --shadow-md:0 4px 12px rgba(15,23,42,0.08);
   --shadow-lg:0 24px 48px rgba(15,23,42,0.12);
   --shadow-glow-accent:0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
-  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(15,23,42,0.04);
-  --elev-2:0 1px 0 var(--hairline), 0 8px 24px rgba(15,23,42,0.08);
-  --elev-pop:0 0 0 1px var(--border-strong), 0 16px 48px rgba(15,23,42,0.14);
-  --glass-bg:color-mix(in srgb, var(--surface) 82%, transparent);
+  --elev-0:0 0 0 1px var(--hairline);
+  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(15,23,42,0.05);
+  --elev-2:0 1px 0 var(--hairline), 0 10px 28px rgba(15,23,42,0.10);
+  --elev-3:0 0 0 1px var(--border-strong), 0 28px 60px rgba(15,23,42,0.18);
+  --elev-pop:var(--elev-3);
+  --elev-focus:0 0 0 1px var(--accent), 0 0 0 4px var(--accent-glow-soft);
+  --elev-glow:0 0 22px -4px var(--accent-glow);
+  --glass-bg:color-mix(in srgb, var(--surface) 78%, transparent);
   --glass-border:color-mix(in srgb, var(--text-strong) 6%, var(--border));
-  --glass-blur:saturate(140%) blur(14px);
+  --glass-blur:saturate(150%) blur(16px);
   --accent-dim:#0a8748;
   --accent-fg:#ffffff;
   --accent-line:color-mix(in srgb, var(--accent) 35%, var(--border));
   --gradient-card:var(--surface);
   --gradient-positive:linear-gradient(180deg, color-mix(in srgb, var(--pos) 8%, var(--surface)) 0%, var(--surface) 70%);
   --gradient-negative:linear-gradient(180deg, color-mix(in srgb, var(--neg) 8%, var(--surface)) 0%, var(--surface) 70%);
+  --grad-surface:linear-gradient(180deg, #ffffff 0%, color-mix(in srgb, #ffffff 96%, var(--surface-2)) 100%);
+  --grad-surface-raised:linear-gradient(180deg, color-mix(in srgb, var(--accent) 3%, #ffffff) 0%, #ffffff 70%);
+  --grad-hero:linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, #ffffff) 0%, #ffffff 55%, color-mix(in srgb, var(--info) 6%, #ffffff) 100%);
   --focus-ring:0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
   color-scheme:light;
 }
@@ -137,10 +174,29 @@ body {
       transparent 70%),
     radial-gradient(ellipse 700px 320px at 6% 22%,
       color-mix(in srgb, var(--accent) 3%, transparent) 0%,
-      transparent 70%);
+      transparent 70%),
+    /* Ultra-fine scanline texture — adds tactile depth on dark.
+       Light theme overrides this to none. */
+    repeating-linear-gradient(180deg,
+      transparent 0 2px,
+      rgba(255,255,255,0.012) 2px 3px);
   background-attachment: fixed;
   background-repeat: no-repeat;
   letter-spacing: 0;
+}
+:root[data-theme="light"] body {
+  /* Scanline is invisible / counterproductive on white; keep only the
+     ambient radial halos. */
+  background-image:
+    radial-gradient(ellipse 1400px 560px at 50% -160px,
+      color-mix(in srgb, var(--accent) 5%, transparent) 0%,
+      transparent 70%),
+    radial-gradient(ellipse 900px 420px at 92% 8%,
+      color-mix(in srgb, var(--info) 4%, transparent) 0%,
+      transparent 70%),
+    radial-gradient(ellipse 700px 320px at 6% 22%,
+      color-mix(in srgb, var(--accent) 2%, transparent) 0%,
+      transparent 70%);
 }
 /* Numeric data — always tabular and slightly tighter than prose */
 .num, .mono, code, kbd, samp,
@@ -191,6 +247,13 @@ body {
 }
 @keyframes stonks-draw {
   to { stroke-dashoffset: 0; }
+}
+/* Hero surfaces (score readout, AI review) softly breathe an accent
+   halo so the user's eye returns to them. Capped iteration so the
+   motion doesn't feel relentless on long sessions. */
+@keyframes stonks-glow-pulse {
+  0%, 100% { box-shadow: var(--elev-2), 0 0 0 0 var(--accent-glow-soft); }
+  50%      { box-shadow: var(--elev-2), 0 0 24px 2px var(--accent-glow); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -279,6 +342,41 @@ body {
   .pf-btn:active, .calendar-pill:active, .flow-pill:active, .opt-tab:active {
     transform: translateY(1px);
   }
+
+  /* Cards opted into hover lift get a subtle raise + accent-tinted
+     shadow. Sentiment-keyed surfaces (sector overviews, recommendation
+     cards) compose this with their existing background gradient. */
+  .card.is-hoverable:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--elev-2), var(--elev-glow);
+  }
+
+  /* Active page-tab indicator — a 2px accent bar that slides between
+     tabs. The two CSS vars are written from JS in selectTab().
+     Falls back gracefully when JS doesn't set them. */
+  .page-tabs::before {
+    content: "";
+    position: absolute;
+    left: 0; bottom: -1px;
+    width: 1px; height: 2px;
+    background: var(--accent);
+    transform: translateX(var(--ind-x, 0px)) scaleX(var(--ind-w, 0));
+    transform-origin: left;
+    transition: transform .28s var(--ease-out);
+    box-shadow: 0 0 8px var(--accent-glow);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Hero surfaces breathe softly so the eye returns to them. Capped to
+     a handful of iterations so it settles after the initial draw. */
+  .opt-rec-card { animation: stonks-glow-pulse 6s var(--ease-in-out) 3; }
+  .pf-review-card { animation: stonks-glow-pulse 6s var(--ease-in-out) 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-tabs::before { transition: none; transform: none; opacity: 0; }
+  .opt-rec-card, .pf-review-card { animation: none; }
 }
 
 .skeleton {
@@ -325,6 +423,12 @@ button { font: inherit; }
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--glass-border);
+  /* Floating chrome — lifts the bar off the page so scrolled content
+     reads as passing beneath it. */
+  box-shadow: 0 1px 0 var(--hairline), 0 8px 24px -8px rgba(0,0,0,0.50);
+}
+:root[data-theme="light"] .site-header {
+  box-shadow: 0 1px 0 var(--hairline), 0 8px 24px -10px rgba(15,23,42,0.12);
 }
 .site-header-inner {
   display: flex; align-items: center; justify-content: space-between;
@@ -554,12 +658,17 @@ main {
 .card {
   position: relative;
   background: var(--surface);
+  background-image: var(--grad-surface);
   border: 1px solid var(--border);
   border-radius: var(--r-4);
   padding: var(--s-5) var(--s-5);
   margin-bottom: var(--s-4);
   box-shadow: var(--elev-1);
+  transition: box-shadow .25s var(--ease-out),
+              transform .25s var(--ease-out),
+              border-color .15s var(--ease-out);
 }
+.card.is-hoverable { cursor: default; }
 .card-header {
   display: flex; align-items: center; gap: var(--s-3);
   padding-bottom: var(--s-3);
@@ -578,10 +687,10 @@ main {
 .card-title::before {
   content: '';
   display: inline-block;
-  width: 3px; height: 14px;
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim) 100%);
+  width: 4px; height: 14px;
+  background: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 60%, var(--accent-dim) 100%);
   border-radius: 2px;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 8px var(--accent-glow-soft);
 }
 .card-eyebrow {
   font-size: var(--fs-xs); color: var(--muted);
@@ -649,6 +758,7 @@ main {
   color: var(--accent-strong);
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 0 3px var(--accent-glow-soft);
 }
 .narr-tab-count {
   display: inline-flex;
@@ -1215,7 +1325,13 @@ main {
   grid-template-columns: 1fr 1fr;
   gap: var(--s-2) var(--s-3);
   margin-bottom: var(--s-2);
+  padding: 4px 8px;
+  margin-inline: -8px;
+  border-radius: var(--r-2);
+  transition: background .15s var(--ease-out), box-shadow .15s var(--ease-out);
 }
+.opt-chain-row:hover { background: var(--accent-tint-1); }
+.opt-chain-row:focus-within { box-shadow: var(--elev-focus); }
 @media (max-width: 480px){ .opt-chain-row { grid-template-columns: 1fr; } }
 .field {
   display: flex; flex-direction: column; gap: 4px;
@@ -1530,7 +1646,7 @@ main {
   border-radius: var(--r-3);
   transition: border-color .15s ease, background .15s ease;
 }
-.flow-row:hover { background: var(--surface-3); border-color: var(--border-strong); }
+.flow-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface-3)); border-color: var(--border-strong); }
 .flow-row.tier-hot { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .flow-row.is-collapsed { padding-bottom: var(--s-2); }
 .flow-row-head {
@@ -2588,12 +2704,16 @@ main {
 .opt-news-body { color: var(--text); }
 .opt-news-note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
 .opt-rec-card {
+  position: relative;
   margin: var(--s-2) 0 var(--s-3);
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-3) var(--s-4);
   background: var(--surface-2);
+  background-image: var(--grad-hero);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: var(--r-3);
   font-size: var(--fs-sm); line-height: 1.5;
+  box-shadow: var(--elev-2), var(--elev-glow);
 }
 .opt-rec-title {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
@@ -2667,8 +2787,10 @@ main {
   margin: 0 0 var(--s-3);
   padding: var(--s-3);
   background: var(--surface-2);
+  background-image: var(--grad-surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
+  box-shadow: var(--elev-1);
 }
 .opt-pinned-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -2695,12 +2817,19 @@ main {
   display: flex; flex-direction: column; gap: 4px;
   padding: 10px 12px;
   background: var(--surface);
+  background-image: var(--grad-surface);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
   cursor: pointer;
-  transition: border-color .12s ease, background .12s ease, transform .12s ease;
+  box-shadow: var(--elev-1);
+  transition: border-color .12s ease, background .12s ease, transform .18s var(--ease-out), box-shadow .25s var(--ease-out);
 }
-.opt-pinned-card:hover { border-color: var(--accent); background: var(--surface-2); }
+.opt-pinned-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  box-shadow: var(--elev-2), var(--elev-glow);
+  transform: translateY(-1px);
+}
 .opt-pinned-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .opt-pinned-card-head { display: flex; align-items: center; gap: 6px; }
 .opt-pinned-sym {
@@ -2928,16 +3057,25 @@ body.cmd-palette-open { overflow: hidden; }
 }
 .opt-paste-hint.err { color: var(--neg); }
 .opt-manual-submit {
-  background: var(--accent); color: #fff;
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+  color: var(--accent-fg);
   border: none; border-radius: var(--r-2);
   padding: 10px 18px;
-  font-size: var(--fs-md); font-weight: 600;
+  font-size: var(--fs-md); font-weight: 700;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background .15s ease, transform .05s ease;
+  box-shadow: var(--elev-1), var(--elev-glow);
+  transition: background .15s var(--ease-out),
+              transform .08s var(--ease-out),
+              box-shadow .2s var(--ease-out),
+              filter .15s var(--ease-out);
   justify-self: start;
 }
-.opt-manual-submit:hover { background: color-mix(in srgb, var(--accent) 85%, #000); }
-.opt-manual-submit:active { transform: translateY(1px); }
+.opt-manual-submit:hover {
+  filter: brightness(1.06);
+  box-shadow: var(--elev-2), var(--elev-glow);
+}
+.opt-manual-submit:active { transform: scale(0.98); }
 
 /* === Tooltip === */
 .tip {
@@ -4218,12 +4356,14 @@ main { padding-top: var(--s-2); }
   border: 1px solid var(--border);
   border-radius: var(--r-3);
   background: var(--surface);
+  background-image: var(--grad-surface);
   color: var(--text);
   text-decoration: none;
+  box-shadow: var(--elev-1);
   transition: border-color var(--dur-1) var(--ease-out),
               background var(--dur-1) var(--ease-out),
               transform var(--dur-1) var(--ease-out),
-              box-shadow var(--dur-1) var(--ease-out);
+              box-shadow var(--dur-2) var(--ease-out);
   position: relative;
   overflow: hidden;
 }
@@ -4245,8 +4385,8 @@ main { padding-top: var(--s-2); }
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border-strong));
   background: color-mix(in srgb, var(--accent) 4%, var(--surface));
   text-decoration: none;
-  transform: translateY(-1px);
-  box-shadow: var(--elev-1);
+  transform: translateY(-2px);
+  box-shadow: var(--elev-2), var(--elev-glow);
 }
 .ticker-card:hover::before { transform: scaleY(1); }
 .ticker-card:hover .ticker-sym { color: var(--text-strong); }
