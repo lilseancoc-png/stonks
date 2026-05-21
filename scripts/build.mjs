@@ -15155,17 +15155,56 @@ function decodeHtmlEntities(s) {
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)));
 }
+// Extracts content from <meta> tags — Open Graph + standard description +
+// Twitter card. These are guaranteed to be in the initial HTML of every
+// news article (FB/Twitter crawlers depend on them), they're article-
+// specific, and they survive paywalls / JS rendering / consent walls.
+// 150-400 chars typically — short, but enough for the AI to write a
+// ticker-specific paragraph if the full body is unfetchable.
+function extractMetaSummary(html) {
+  if (!html) return null;
+  // Order of preference: og:description (Facebook standard, set by every
+  // CMS), twitter:description (Twitter Card), then plain <meta name="description">.
+  const patterns = [
+    /<meta\s+[^>]*property=["']og:description["'][^>]*content=["']([^"']{50,})["']/i,
+    /<meta\s+[^>]*content=["']([^"']{50,})["'][^>]*property=["']og:description["']/i,
+    /<meta\s+[^>]*name=["']twitter:description["'][^>]*content=["']([^"']{50,})["']/i,
+    /<meta\s+[^>]*content=["']([^"']{50,})["'][^>]*name=["']twitter:description["']/i,
+    /<meta\s+[^>]*name=["']description["'][^>]*content=["']([^"']{50,})["']/i,
+    /<meta\s+[^>]*content=["']([^"']{50,})["'][^>]*name=["']description["']/i,
+  ];
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m && m[1]) {
+      const txt = decodeHtmlEntities(m[1]).replace(/\s+/g, " ").trim();
+      if (txt.length >= 80) return txt;
+    }
+  }
+  return null;
+}
+
+// Diagnostic shared across one build run — counts WHY fetches failed.
+// Logged once per ticker pass so the build output tells us whether to
+// blame HTTP rejection vs. extractor logic vs. paywall heuristic.
+const _bodyFetchStats = {
+  ok: 0, ogOnly: 0, http: 0, ctype: 0, tooSmall: 0,
+  noExtraction: 0, paywall: 0, paywallDomain: 0, err: 0,
+};
+function resetBodyFetchStats() {
+  for (const k of Object.keys(_bodyFetchStats)) _bodyFetchStats[k] = 0;
+}
+function summarizeBodyFetchStats() {
+  const s = _bodyFetchStats;
+  return `body fetches: ok=${s.ok} og=${s.ogOnly} http_err=${s.http} non_html=${s.ctype} too_small=${s.tooSmall} no_extract=${s.noExtraction} paywall_phrase=${s.paywall} paywall_domain=${s.paywallDomain} thrown=${s.err}`;
+}
+
 async function fetchArticleBody(url) {
   if (!url) return null;
   // Skip URLs at known-paywall hosts entirely — saves egress, and these
   // would just return stubs the heuristic below would drop anyway.
-  if (isPaywallUrl(url)) return null;
+  if (isPaywallUrl(url)) { _bodyFetchStats.paywallDomain++; return null; }
   try {
     const res = await fetchWithTimeout(url, {
-      // Browser-ish UA + Accept-Language + Referer gets us past most bot
-      // challenges. Some publishers (Bloomberg, FT) still gate at the edge —
-      // those just come back with a paywall stub which the heuristics below
-      // catch.
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -15174,11 +15213,11 @@ async function fetchArticleBody(url) {
       },
       redirect: "follow",
     }, ARTICLE_FETCH_TIMEOUT_MS);
-    if (!res.ok) return null;
+    if (!res.ok) { _bodyFetchStats.http++; return null; }
     const ct = (res.headers.get("content-type") || "").toLowerCase();
-    if (ct && !ct.includes("html") && !ct.includes("xml")) return null;
+    if (ct && !ct.includes("html") && !ct.includes("xml")) { _bodyFetchStats.ctype++; return null; }
     const html = await res.text();
-    if (!html || html.length < 500) return null;
+    if (!html || html.length < 500) { _bodyFetchStats.tooSmall++; return null; }
     // Strip script/style/noscript/header/footer/nav blocks before extraction.
     const cleaned = html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
@@ -15189,10 +15228,7 @@ async function fetchArticleBody(url) {
       .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, "")
       .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, "")
       .replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, "");
-    // Try to scope to the article body if the page tags it. Yahoo Finance
-    // uses .caas-body, CNBC uses [data-module="ArticleBody"], MarketWatch
-    // uses .article__body, Reuters uses [data-testid="paragraph-..."]. If
-    // none of these match, fall back to the whole document.
+    // Try to scope to the article body if the page tags it.
     let scope = cleaned;
     const articleScope = cleaned.match(/<article\b[^>]*>[\s\S]*?<\/article>/i);
     if (articleScope) scope = articleScope[0];
@@ -15207,8 +15243,6 @@ async function fetchArticleBody(url) {
         if (match && match[0].length > 800) { scope = match[0]; break; }
       }
     }
-    // Pull text from <p> tags AND from div blocks that look like article
-    // paragraphs (Yahoo's caas-body wraps paragraphs in div[data-component]).
     const paragraphs = [];
     const pRegex = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
     let m;
@@ -15218,8 +15252,6 @@ async function fetchArticleBody(url) {
         .trim();
       if (inner.length >= ARTICLE_PARA_MIN_CHARS) paragraphs.push(inner);
     }
-    // Also try div[data-component="paragraph"] (Yahoo Finance) and
-    // div[data-testid^="paragraph-"] (Reuters) when <p> alone is too sparse.
     if (paragraphs.join(" ").length < ARTICLE_MIN_BODY_CHARS) {
       const altRegex = /<div\b[^>]*(?:data-component=["']paragraph["']|data-testid=["']paragraph-[^"']*["'])[^>]*>([\s\S]*?)<\/div>/gi;
       let mm;
@@ -15239,14 +15271,38 @@ async function fetchArticleBody(url) {
       seen.add(p);
       uniq.push(p);
     }
-    if (!uniq.length) return null;
     let text = uniq.join(" ");
-    if (text.length < ARTICLE_MIN_BODY_CHARS) return null;
-    const lower = text.toLowerCase();
-    if (PAYWALL_PHRASES.some((p) => lower.includes(p))) return null;
-    if (text.length > ARTICLE_MAX_BODY_CHARS) text = text.slice(0, ARTICLE_MAX_BODY_CHARS).trim() + "…";
-    return text;
+    // Paywall-phrase check is BEFORE the OG fallback so a stub doesn't
+    // sneak through via its meta description (which is usually still legit
+    // even when the body is gated — but if the body literally says
+    // "subscribe to continue", we don't want the description either).
+    if (text.length >= ARTICLE_MIN_BODY_CHARS) {
+      const lower = text.toLowerCase();
+      if (PAYWALL_PHRASES.some((p) => lower.includes(p))) {
+        _bodyFetchStats.paywall++;
+        return null;
+      }
+      if (text.length > ARTICLE_MAX_BODY_CHARS) text = text.slice(0, ARTICLE_MAX_BODY_CHARS).trim() + "…";
+      _bodyFetchStats.ok++;
+      return text;
+    }
+    // Full body extraction failed — fall back to <meta> summary so the AI
+    // STILL gets ticker-specific content (just shorter). This is the
+    // critical path: it survives JS-rendered pages, consent walls, and
+    // every other failure mode that breaks <p> extraction.
+    const meta = extractMetaSummary(html);
+    if (meta) {
+      _bodyFetchStats.ogOnly++;
+      // Prefix with any successful body paragraphs we did extract.
+      const combined = uniq.length ? uniq.join(" ") + " " + meta : meta;
+      return combined.length > ARTICLE_MAX_BODY_CHARS
+        ? combined.slice(0, ARTICLE_MAX_BODY_CHARS).trim() + "…"
+        : combined;
+    }
+    _bodyFetchStats.noExtraction++;
+    return null;
   } catch (_) {
+    _bodyFetchStats.err++;
     return null;
   }
 }
@@ -16078,6 +16134,7 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const entries = Object.entries(chains);
   console.log(`Generating AI news takes for ${entries.length} tickers…`);
+  resetBodyFetchStats();
   // Pacing handled by acquireAiSlot() inside generateNewsTake; the headline
   // fetch + body enrichment are HTTP calls so they're safe to issue
   // concurrently for all tickers — only the model call goes through the
@@ -16102,6 +16159,7 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
     }
   }));
   await Promise.all(tasks);
+  console.log(summarizeBodyFetchStats());
   hb.stop();
 }
 
@@ -16118,6 +16176,7 @@ async function attachTickerJudgments(chains, macroBackdrop) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const entries = Object.entries(chains);
   console.log(`Generating combined ticker judgments (news + fundamentals) for ${entries.length} tickers…`);
+  resetBodyFetchStats();
   const hb = startHeartbeat("ticker judgments", entries.length);
   const runPass = (passEntries) =>
     Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
@@ -16160,6 +16219,7 @@ async function attachTickerJudgments(chains, macroBackdrop) {
     await new Promise((r) => setTimeout(r, 30000));
     await runPass(missed);
   }
+  console.log(summarizeBodyFetchStats());
   hb.stop();
 }
 
