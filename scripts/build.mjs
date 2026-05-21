@@ -1326,6 +1326,28 @@ function narrativesSection() {
   </section>`;
 }
 
+function calendarSection() {
+  // Card chrome only — the timeline rows render client-side from
+  // data/calendar.json, fetched lazily on first tab activation by
+  // renderCalendar() in app.js.
+  return `<section class="card" id="calendar-section">
+    <header class="card-header">
+      <h2 class="card-title">30-day calendar</h2>
+      <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Confirmed earnings dates for every curated ticker plus upcoming macro events (Fed, BLS releases, SEC notices) inside the next 30 days. Earnings dates come from Yahoo's confirmed calendar; macro events come from official press feeds.</p>
+    <div class="calendar-controls" role="toolbar" aria-label="Filter calendar">
+      <div class="calendar-type-filter" role="radiogroup" aria-label="Filter by event type">
+        <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All</button>
+        <button type="button" class="calendar-pill" data-cal-type="earnings" role="radio" aria-checked="false">Earnings</button>
+        <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro</button>
+      </div>
+    </div>
+    <div id="calendar-root" class="calendar-root">Loading calendar…</div>
+    <div id="calendar-empty" class="calendar-empty" hidden>No events in the next 30 days.</div>
+  </section>`;
+}
+
 function unusualFlowSection() {
   // Card chrome only — the per-ticker rows and contract chips render
   // client-side from the inline manifest in app.js. Populated by the hourly
@@ -2469,7 +2491,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   function bindPageTabs(){
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
-    var valid = ['tickers','narratives','flow','grade','streaks','portfolio'];
+    var valid = ['tickers','narratives','calendar','flow','grade','streaks','portfolio'];
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -2479,6 +2501,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         var pane = paneId ? document.getElementById(paneId) : null;
         if (pane) pane.hidden = !sel;
       });
+      if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
     }
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
@@ -4169,7 +4192,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       tipPrev +
       (c.last != null ? ' · last $' + Number(c.last) : '') +
       tipPrem + tipTape + tipRepeat;
-    return '<div class="flow-chip ' + sideClass + ' tier-' + tier + (repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + escapeHtml(title) + '">' +
+    var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
+    var wrapClass = 'flow-contract' + (c.note ? ' has-note' : '');
+    return '<div class="' + wrapClass + '">' +
+      '<div class="flow-chip ' + sideClass + ' tier-' + tier + (repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + escapeHtml(title) + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
       '<span class="flow-strike">' + escapeHtml(strike) + '</span>' +
       '<span class="flow-exp">' + escapeHtml(fmtExpiry(c.expSec)) + '</span>' +
@@ -4184,6 +4210,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       premTag +
       tapeTag +
       repeatTag +
+      '</div>' +
+      noteHtml +
     '</div>';
   }
   function fmtRepeatSince(iso){
@@ -4304,6 +4332,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = deltaTier(t.topDelta || 0);
       var collapsed = !!flowState.perRowCollapsed[t.symbol];
+      var hasNotes = t.contracts.some(function(c){ return !!c.note; });
+      var contractsCls = 'flow-contracts' + (hasNotes ? ' has-notes' : '');
       return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
         '<button type="button" class="flow-row-head" aria-expanded="' + (!collapsed) + '" data-row-toggle="' + escapeHtml(t.symbol) + '">' +
           '<svg class="flow-row-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>' +
@@ -4312,7 +4342,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
           '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
-        '<div class="flow-contracts"' + (collapsed ? ' hidden' : '') + '>' +
+        '<div class="' + contractsCls + '"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(flowContractHtml).join('') +
         '</div>' +
       '</article>';
@@ -4411,6 +4441,119 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
   }
 
+  // --- Calendar tab -------------------------------------------------------
+  var calendarState = { data: null, loading: false, type: 'all' };
+  function loadCalendar(){
+    if (calendarState.data || calendarState.loading) {
+      renderCalendar();
+      return;
+    }
+    calendarState.loading = true;
+    fetch('data/calendar.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
+        calendarState.loading = false;
+        renderCalendar();
+      })
+      .catch(function(){
+        calendarState.data = { events: [] };
+        calendarState.loading = false;
+        renderCalendar();
+      });
+  }
+  function calendarTypeLabel(type){
+    if (type === 'earnings') return 'Earnings';
+    if (type === 'fed') return 'Fed';
+    if (type === 'cpi') return 'CPI / Jobs';
+    if (type === 'sec') return 'SEC';
+    return 'Macro';
+  }
+  function calendarTypeMatches(eventType, filter){
+    if (filter === 'all') return true;
+    if (filter === 'earnings') return eventType === 'earnings';
+    if (filter === 'macro') return eventType !== 'earnings';
+    return true;
+  }
+  function fmtCalendarDate(dateStr){
+    if (!dateStr) return '';
+    var parts = String(dateStr).split('-');
+    if (parts.length !== 3) return dateStr;
+    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
+    }).format(d);
+  }
+  function renderCalendar(){
+    var root = $('calendar-root');
+    var empty = $('calendar-empty');
+    var eyebrow = $('calendar-eyebrow');
+    if (!root) return;
+    if (calendarState.loading){
+      root.innerHTML = 'Loading calendar…';
+      if (empty) empty.hidden = true;
+      return;
+    }
+    var data = calendarState.data || { events: [] };
+    var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    if (eyebrow){
+      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') +
+        (calendarState.type === 'all' ? '' : ' · ' + calendarTypeLabel(calendarState.type === 'macro' ? 'macro' : 'earnings'));
+    }
+    if (!filtered.length){
+      root.innerHTML = '';
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = data.events.length
+          ? 'No events match this filter.'
+          : 'No events in the next 30 days.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    // Group by date for the timeline. Each group renders a date header + chips.
+    var groups = {};
+    var dateOrder = [];
+    filtered.forEach(function(e){
+      if (!groups[e.date]){ groups[e.date] = []; dateOrder.push(e.date); }
+      groups[e.date].push(e);
+    });
+    root.innerHTML = dateOrder.map(function(date){
+      var rows = groups[date].map(function(e){
+        var cls = 'cal-chip cal-' + e.type;
+        var label = e.type === 'earnings'
+          ? '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span> ' +
+            '<span class="cal-chip-text">earnings</span>'
+          : '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
+            '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
+        var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+        return '<div class="' + cls + '">' + label + src + '</div>';
+      }).join('');
+      return '<div class="cal-day">' +
+        '<div class="cal-date">' + escapeHtml(fmtCalendarDate(date)) + '</div>' +
+        '<div class="cal-chips">' + rows + '</div>' +
+      '</div>';
+    }).join('');
+  }
+  function bindCalendarControls(){
+    var typeFilter = document.querySelector('.calendar-type-filter');
+    if (typeFilter){
+      typeFilter.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.calendar-pill');
+        if (!btn) return;
+        var type = btn.getAttribute('data-cal-type') || 'all';
+        calendarState.type = type;
+        typeFilter.querySelectorAll('.calendar-pill').forEach(function(p){
+          var on = p.getAttribute('data-cal-type') === type;
+          p.classList.toggle('is-on', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderCalendar();
+      });
+    }
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
@@ -4421,6 +4564,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     renderNarratives();
     renderUnusualFlow();
     bindFlowControls();
+    bindCalendarControls();
 
     var radioGroup = document.querySelector('[role="radiogroup"]');
     if (radioGroup){
@@ -4576,6 +4720,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="true" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
@@ -4587,6 +4732,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
   ${narrativesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
+  ${calendarSection()}
   </div>
   <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
   ${unusualFlowSection()}
@@ -5934,6 +6082,33 @@ main {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* When any contract carries an AI flow-explanation note, switch to a
+   vertical stack so each chip + note pair owns its own row. Otherwise
+   the dense pill layout keeps the original horizontal wrap. */
+.flow-contracts.has-notes {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.flow-contract { display: contents; }
+.flow-contracts.has-notes .flow-contract {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.flow-note {
+  margin: 0 0 0 4px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  font-style: italic;
+  max-width: 64em;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+}
 /* The HTML 'hidden' attribute resolves to display:none via the UA stylesheet,
    but \`.flow-contracts { display: flex }\` is an equally-specific class
    selector that wins the cascade. Restore the collapse behavior explicitly. */
@@ -7239,6 +7414,109 @@ main {
 main { padding-top: var(--s-2); }
 .card { margin-bottom: var(--s-3); }
 
+/* === Calendar tab === */
+.calendar-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin: var(--s-2) 0 var(--s-3);
+}
+.calendar-type-filter { display: inline-flex; gap: 4px; }
+.calendar-pill {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.calendar-pill:hover { color: var(--text); }
+.calendar-pill.is-on {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.calendar-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
+.cal-day {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--s-3);
+  align-items: start;
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--border);
+}
+.cal-day:first-child { border-top: none; }
+.cal-date {
+  font: 600 12px/1.2 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding-top: 4px;
+}
+.cal-chips { display: flex; flex-direction: column; gap: 6px; }
+.cal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-2);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.cal-chip-sym {
+  font: 600 12px/1 var(--font-mono);
+  color: var(--text);
+  letter-spacing: .02em;
+}
+.cal-chip-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.cal-chip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-chip-source {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+.cal-earnings { border-left-color: var(--accent); }
+.cal-fed { border-left-color: var(--neg); }
+.cal-fed .cal-chip-tag { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }
+.cal-cpi { border-left-color: var(--warn); }
+.cal-cpi .cal-chip-tag { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.cal-sec { border-left-color: var(--muted); }
+.cal-sec .cal-chip-tag { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+.cal-macro { border-left-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.calendar-empty {
+  padding: var(--s-4) var(--s-3);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .cal-day { grid-template-columns: 1fr; gap: 4px; }
+}
+
 /* === Streaks tab === */
 .streaks-root { margin-top: var(--s-3); }
 .streaks-cols {
@@ -7494,6 +7772,83 @@ async function writeIvHistory(historyMap) {
   return bytes;
 }
 
+// Unified 30-day-forward macro + earnings calendar. Pulls confirmed
+// next-earnings dates straight out of each ticker's fundamentals (already
+// fetched) and merges them with future-dated macro headlines (Fed
+// announcements, BLS releases, SEC press) from the same RSS digest the
+// narratives engine consumes. Macro feeds publish historical items too —
+// we only keep the ones whose pubDate falls in [today, +30 days].
+const CALENDAR_FILE = "calendar.json";
+const CALENDAR_DAYS_AHEAD = 30;
+// RSS publishers carry items of mixed event types; tag them so the UI
+// can color-code chips without having to NLP the title at render time.
+function classifyMacroEvent(publisher, title) {
+  const t = String(title || "").toLowerCase();
+  const pub = String(publisher || "").toLowerCase();
+  if (pub.includes("federal reserve") || /\bfomc\b|\bfed\b|interest rate|fomc minutes/.test(t)) return "fed";
+  if (pub.includes("bls") || /\bcpi\b|\bppi\b|inflation|employment situation|jobs report|payroll|unemployment/.test(t)) return "cpi";
+  if (pub.includes("sec")) return "sec";
+  return "macro";
+}
+
+function buildCalendarPayload(chains, macroHeadlines, builtAtIso) {
+  const today = new Date();
+  const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const cutoffMs = startMs + CALENDAR_DAYS_AHEAD * 86400000;
+  const events = [];
+
+  // Per-ticker earnings — Yahoo's quoteSummary returns the next confirmed
+  // earnings date as "YYYY-MM-DD". Some tickers (ETFs, recently-IPO'd
+  // names) have no date; skip silently.
+  for (const [sym, data] of Object.entries(chains)) {
+    const dateStr = data?.fundamentals?.nextEarningsDate;
+    if (!dateStr || typeof dateStr !== "string") continue;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+    if (!m) continue;
+    const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (eventMs < startMs || eventMs > cutoffMs) continue;
+    events.push({
+      type: "earnings",
+      date: `${m[1]}-${m[2]}-${m[3]}`,
+      symbol: sym,
+      title: `${sym} earnings`,
+      source: "Yahoo Finance",
+    });
+  }
+
+  // Macro events from the RSS digest. RSS items carry pubDate (when
+  // published) — for the calendar we only keep items whose pubDate is
+  // in the forward window, which catches Fed pre-announcements, BLS
+  // release schedules, and SEC notices. Past items just clutter the
+  // timeline so we drop them.
+  for (const h of macroHeadlines || []) {
+    if (!h?.publishedAt) continue;
+    const eventMs = Date.parse(h.publishedAt);
+    if (!Number.isFinite(eventMs) || eventMs < startMs || eventMs > cutoffMs) continue;
+    const date = new Date(eventMs).toISOString().slice(0, 10);
+    events.push({
+      type: classifyMacroEvent(h.publisher, h.title),
+      date,
+      title: h.title,
+      source: h.publisher || h.source || "Macro feed",
+    });
+  }
+
+  events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || "").localeCompare(b.symbol || "")));
+  return {
+    builtAtIso,
+    windowDays: CALENDAR_DAYS_AHEAD,
+    events,
+  };
+}
+
+async function writeCalendarFile(chains, macroHeadlines, builtAtIso) {
+  const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, CALENDAR_FILE), json, "utf8");
+  return { bytes: json.length, count: payload.events.length };
+}
+
 // Per-ticker daily green/red streaks. Reuses the bars already fetched into
 // chains[sym]._bars by fetchTickerChain so this adds zero Yahoo calls.
 async function writeStreaksFile(chains, builtAtIso) {
@@ -7640,7 +7995,7 @@ const AI_USAGE_FILE = "ai-usage.json";
 const AI_USAGE_HISTORY_DAYS = 14;
 let _aiUsageState = null;
 
-async function loadAiUsageState() {
+export async function loadAiUsageState() {
   try {
     const raw = await readFile(resolve(DATA_DIR, AI_USAGE_FILE), "utf8");
     const parsed = JSON.parse(raw);
@@ -7651,7 +8006,7 @@ async function loadAiUsageState() {
   return _aiUsageState;
 }
 
-function recordAiUsage({ model, callType, symbol, usage, mode }) {
+export function recordAiUsage({ model, callType, symbol, usage, mode }) {
   if (!_aiUsageState) _aiUsageState = { dates: {} };
   const today = new Date().toISOString().slice(0, 10);
   const byDate = (_aiUsageState.dates[today] ??= {});
@@ -7673,7 +8028,7 @@ function recordAiUsage({ model, callType, symbol, usage, mode }) {
   console.log(`    [ai]${sym} ${callType} ${model} in=${inT} cached=${cachedT} out=${outT}${thoughtT ? ` thought=${thoughtT}` : ""}`);
 }
 
-async function writeAiUsageState() {
+export async function writeAiUsageState() {
   if (!_aiUsageState) return;
   const cutoff = new Date(Date.now() - AI_USAGE_HISTORY_DAYS * 86400000)
     .toISOString().slice(0, 10);
@@ -9383,6 +9738,8 @@ async function main() {
   if (ivHistory.size) {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
+  const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso);
+  console.log(`wrote data/calendar.json — ${calendarInfo.count} events (next ${CALENDAR_DAYS_AHEAD}d), ${calendarInfo.bytes} bytes`);
   await writeAiUsageState();
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,

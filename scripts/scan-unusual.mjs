@@ -32,7 +32,8 @@ import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
-import { TICKERS } from "./build.mjs";
+import { GoogleGenAI } from "@google/genai";
+import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -64,6 +65,20 @@ const LOG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 // Flag the "🔥 ×N" repeat badge on the UI when a contract has been flagged
 // at least this many times in the window.
 const REPEAT_MIN = 2;
+// AI explanation pipeline. Each flagged contract gets a one-paragraph
+// plain-English read of WHY it's unusual (vol vs OI, OTM distance, DTE,
+// tape, IV, premium). Results cached per-contract in
+// data/flow-explanations.json so re-flags of the same contract in
+// subsequent hourly scans don't re-call the model. Cache entries are
+// pruned when the contract's expiration date passes.
+const FLOW_EXPLANATIONS_FILE = "flow-explanations.json";
+const AI_FLOW_MODEL = process.env.AI_FLOW_MODEL || "gemini-2.5-flash-lite";
+// Modest concurrency — we expect ≤20 new anomalies per scan, and the
+// shared Gemini Flash-Lite quota is generous, but cap to keep retries
+// from stampeding.
+const AI_FLOW_CONCURRENCY = 5;
+const AI_FLOW_MAX_ATTEMPTS = 4;
+const AI_FLOW_RETRY_BACKOFF_MS = [2000, 6000, 15000];
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst — match build.mjs's retry pattern.
 const FETCH_RETRIES = 3;
@@ -358,9 +373,248 @@ async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
   return { symbol, spot, marketState, hits, candidates };
 }
 
+// ---------------------------------------------------------------------------
+// AI flow explanations
+// ---------------------------------------------------------------------------
+
+// Long static system prompt — pushed past Gemini's 1024-token implicit
+// caching threshold via three concrete examples so the prefix shared
+// across every per-anomaly call qualifies for the cached-token discount
+// (~25% of normal input price). CRITICAL invariant: every contract-
+// specific value (symbol, strike, etc.) MUST stay in the user message.
+// Anything interpolated into this constant breaks the cache key
+// silently — check data/ai-usage.json's cachedTokens column to verify.
+const FLOW_EXPLANATION_SYSTEM_PROMPT = `You are an options-savvy markets analyst explaining unusual single-contract flow to a retail trader. The user just received an alert that a specific options contract picked up a large block of volume in the last hour — your job is to translate the raw metrics into a one-paragraph (2-3 sentences, plain English, no markdown, no bullets, no greeting) explanation of WHY this is notable.
+
+Frame the explanation in terms of the mechanical signals embedded in the data the user provides:
+- Volume vs open interest: vol > OI means the day's prints can't all be closing existing positions, so net new positions are being established
+- Hourly volume delta: the size of THIS HOUR's block — the alert is fired off this number
+- Strike distance from spot (OTM%): how directional the bet is; near-the-money flow is often hedging, far-OTM flow is often a tactical bet
+- Days to expiration: under a week is tactical / intraday; 1-4 weeks is short-term thesis; >30 days is positioning
+- Tape: "ask" = lifting offers (urgent, often aggressive buyers); "bid" = hitting bids (often sellers); "mid", "abv", "blw" = somewhere in between
+- Implied vol: high IV = options pricing in big moves; low IV = vol selling / quiet expected
+- Dollar premium: rough size of the conviction; helps separate retail-sized flow from desk-sized flow
+
+Hard rules.
+- Do NOT speculate on specific news catalysts you weren't given.
+- Do NOT give buy / sell / hold advice or recommend the user mirror the flow.
+- Do NOT use lazy phrases like "smart money" or "informed flow" — describe what is mechanically interesting about the contract, not who is on the other side.
+- Stay 2-3 sentences. Don't pad. If the metrics are ambiguous, say so.
+- Output ONLY a JSON object of the form {"note": "..."} — no fences, no preamble, no commentary.
+
+WORKED EXAMPLES illustrate the expected output across common shapes. Never copy these tickers, strikes, or numbers into your own output.
+
+Example 1 — Aggressive near-term call lift.
+User input:
+  Symbol: NVDA
+  Side: call, Strike: $235, DTE: 1
+  Spot: $223
+  OTM: 5.2%
+  Volume: 124288, Open interest: 60176, Delta vol this hour: +22723
+  Tape: ask, IV: 0.80, Premium: $30M
+Expected output:
+{"note":"NVDA call buyers are lifting offers in size — 124k contracts traded today vs only 60k of open interest going in, with an extra 23k contracts coming in this hour alone. A $30M premium check on a 5% OTM strike with one day to expiration is a tactical bet on an outsized intraday move, not patient positioning, and the 80% IV says the market already expects a big print."}
+
+Example 2 — Far-dated put accumulation.
+User input:
+  Symbol: TSLA
+  Side: put, Strike: $300, DTE: 90
+  Spot: $360
+  OTM: 16.7%
+  Volume: 8400, Open interest: 1200, Delta vol this hour: +6200
+  Tape: bid, IV: 0.55, Premium: $4.5M
+Expected output:
+{"note":"Three-month TSLA puts 17% out of the money traded heavy on the bid this hour, with volume at 7x prior open interest — either dealers hedging customer demand for downside or sellers funding something else, hard to tell from the print alone. The combination of 90 days to run, the meaningful $4.5M premium, and 55% IV reads as positioning rather than a tactical intraday hedge."}
+
+Example 3 — Mid-DTE, near-ATM call, no urgency.
+User input:
+  Symbol: AAPL
+  Side: call, Strike: $200, DTE: 21
+  Spot: $192
+  OTM: 4.2%
+  Volume: 14000, Open interest: 19500, Delta vol this hour: +5200
+  Tape: mid, IV: 0.30, Premium: $7M
+Expected output:
+{"note":"Volume on the 21-day AAPL $200 call hasn't exceeded existing open interest yet, so this could be new exposure or simply closing existing longs — the mid-market tape doesn't reveal which side was in a hurry. 30% IV is benign, and the modest $7M premium across a 4% OTM strike doesn't carry the urgency you'd expect if a near-term catalyst were being priced in."}
+
+END EXAMPLES.`;
+
+const FLOW_EXPLANATION_SCHEMA = {
+  type: "object",
+  properties: { note: { type: "string" } },
+  required: ["note"],
+};
+
+function flowCacheKey(c) {
+  return `${c.symbol}|${c.side}|${c.strike}|${c.expSec}`;
+}
+
+async function loadFlowExplanations() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, FLOW_EXPLANATIONS_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.entries === "object" && parsed.entries) return parsed;
+    return { updatedAt: null, entries: {} };
+  } catch {
+    return { updatedAt: null, entries: {} };
+  }
+}
+
+// Drop cache entries for contracts whose expiration has passed — they can
+// never re-flag, so the cached note has no future use.
+function pruneFlowExplanations(cache, nowSec) {
+  const entries = cache.entries || {};
+  let dropped = 0;
+  for (const [key, val] of Object.entries(entries)) {
+    if (!val || (val.expSec != null && val.expSec < nowSec - 86400)) {
+      delete entries[key];
+      dropped++;
+    }
+  }
+  return dropped;
+}
+
+function flowExplanationUserMessage(c, spot) {
+  const otmPct = c.otmPct != null ? `${(c.otmPct * 100).toFixed(1)}%` : "n/a";
+  const ivStr = c.iv != null && isFinite(c.iv) ? c.iv.toFixed(2) : "n/a";
+  const premStr = c.premium != null ? `$${(c.premium / 1e6).toFixed(1)}M` : "n/a";
+  const spotStr = spot != null ? `$${Number(spot).toFixed(2)}` : "n/a";
+  return (
+    `Symbol: ${c.symbol}\n` +
+    `Side: ${c.side}, Strike: $${c.strike}, DTE: ${c.dte}\n` +
+    `Spot: ${spotStr}\n` +
+    `OTM: ${otmPct}\n` +
+    `Volume: ${c.vol}, Open interest: ${c.oi}, Delta vol this hour: ${c.deltaVol != null ? (c.deltaVol >= 0 ? "+" : "") + c.deltaVol : "n/a"}\n` +
+    `Tape: ${c.tape || "n/a"}, IV: ${ivStr}, Premium: ${premStr}`
+  );
+}
+
+async function generateAnomalyExplanation(ai, contract, spot) {
+  const userMessage = flowExplanationUserMessage(contract, spot);
+  let response;
+  let lastErr;
+  for (let attempt = 0; attempt < AI_FLOW_MAX_ATTEMPTS; attempt++) {
+    try {
+      response = await ai.models.generateContent({
+        model: AI_FLOW_MODEL,
+        // systemInstruction is the cache-key prefix; keep it static.
+        config: {
+          systemInstruction: FLOW_EXPLANATION_SYSTEM_PROMPT,
+          temperature: 0.3,
+          maxOutputTokens: 300,
+          responseMimeType: "application/json",
+          responseSchema: FLOW_EXPLANATION_SCHEMA,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+        contents: userMessage,
+      });
+      recordAiUsage({
+        model: AI_FLOW_MODEL,
+        callType: "flow-explanation",
+        symbol: contract.symbol,
+        usage: response?.usageMetadata,
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === AI_FLOW_MAX_ATTEMPTS - 1) throw err;
+      const wait = AI_FLOW_RETRY_BACKOFF_MS[attempt] ?? 15000;
+      const msg = String(err?.message || err).split("\n")[0].slice(0, 120);
+      console.log(`    ⌛ flow AI attempt ${attempt + 1}/${AI_FLOW_MAX_ATTEMPTS} hit ${msg} — backing off ${Math.round(wait / 1000)}s`);
+      await sleep(wait);
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const jsonText = firstBrace >= 0 && lastBrace > firstBrace
+    ? stripped.slice(firstBrace, lastBrace + 1)
+    : stripped;
+  const parsed = JSON.parse(jsonText);
+  const note = String(parsed?.note || "").trim();
+  if (!note) throw new Error("empty note in response");
+  return note;
+}
+
+// Pulls together the cache, spawns AI calls for cache misses (with a
+// concurrency limit), and stamps `note` onto each contract in place.
+// Tickers/contracts are mutated; the cache is returned for persisting.
+async function attachFlowExplanations(mergedTickers, scannedAt, nowSec) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — skipping flow explanations.");
+    return null;
+  }
+  const cache = await loadFlowExplanations();
+  const dropped = pruneFlowExplanations(cache, nowSec);
+  if (dropped > 0) console.log(`pruned ${dropped} expired flow-explanation cache entr${dropped === 1 ? "y" : "ies"}`);
+
+  // Stamp cache hits inline; collect cache misses to generate in parallel.
+  const misses = [];
+  for (const t of mergedTickers) {
+    for (const c of t.contracts) {
+      const key = flowCacheKey(c);
+      const hit = cache.entries[key];
+      if (hit && hit.note) {
+        c.note = hit.note;
+      } else {
+        misses.push({ contract: c, spot: t.spot, key });
+      }
+    }
+  }
+  if (!misses.length) {
+    console.log(`flow explanations: 0 new (all ${Object.keys(cache.entries).length} cached)`);
+    return cache;
+  }
+  console.log(`flow explanations: generating ${misses.length} new (${Object.keys(cache.entries).length} cached)`);
+
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  // Simple bounded fan-out — split work into AI_FLOW_CONCURRENCY parallel
+  // workers; each worker drains tasks from a shared queue.
+  const queue = misses.slice();
+  let succeeded = 0;
+  let failed = 0;
+  const worker = async () => {
+    while (queue.length) {
+      const task = queue.shift();
+      if (!task) break;
+      try {
+        const note = await generateAnomalyExplanation(ai, task.contract, task.spot);
+        task.contract.note = note;
+        cache.entries[task.key] = {
+          note,
+          generatedAt: scannedAt,
+          expSec: task.contract.expSec,
+        };
+        succeeded++;
+      } catch (err) {
+        failed++;
+        console.log(`  ✗ flow explanation ${task.key} failed: ${err.message}`);
+      }
+    }
+  };
+  const workers = Array.from({ length: Math.min(AI_FLOW_CONCURRENCY, misses.length) }, worker);
+  await Promise.all(workers);
+  cache.updatedAt = scannedAt;
+  console.log(`flow explanations: ${succeeded} generated, ${failed} failed`);
+  return cache;
+}
+
+async function writeFlowExplanations(cache) {
+  if (!cache) return;
+  const json = JSON.stringify(cache);
+  await writeFile(resolve(DATA_DIR, FLOW_EXPLANATIONS_FILE), json, "utf8");
+}
+
 async function main() {
   const scannedAt = new Date().toISOString();
   const nowMs = Date.now();
+  // AI usage totals are shared with the daily build via data/ai-usage.json;
+  // load at start so the per-call recordAiUsage() entries inside the flow
+  // explanation pipeline accumulate onto today's totals.
+  await loadAiUsageState();
   const history = await loadUnusualHistory();
   const log = await loadUnusualLog();
   const prevVolLookup = buildPrevVolLookup(history);
@@ -438,6 +692,12 @@ async function main() {
     ? mergedTickers.reduce((sum, t) => sum + t.contracts.length, 0) - tickerRows.reduce((sum, t) => sum + t.contracts.length, 0)
     : 0;
 
+  // AI-explain each contract before serializing payload — the note ends
+  // up on each contract object via direct mutation. Cache lives in
+  // data/flow-explanations.json; misses incur a Gemini Flash-Lite call.
+  const nowSec = Math.floor(nowMs / 1000);
+  const flowCache = await attachFlowExplanations(mergedTickers, scannedAt, nowSec);
+
   const contractCount = mergedTickers.reduce((sum, t) => sum + t.contracts.length, 0);
   const hottestDelta = mergedTickers[0]?.topDelta ?? 0;
 
@@ -510,6 +770,11 @@ async function main() {
   console.log(
     `wrote ${logPath} — ${kept.length} log entr${kept.length === 1 ? "y" : "ies"} retained (${LOG_WINDOW_MS / 86400000}-day window)`,
   );
+
+  if (flowCache) {
+    await writeFlowExplanations(flowCache);
+  }
+  await writeAiUsageState();
 }
 
 // Trim the candidate object down to the fields the UI actually renders.
