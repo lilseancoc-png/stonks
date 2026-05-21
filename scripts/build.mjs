@@ -7429,6 +7429,16 @@ async function writeStreaksFile(chains, builtAtIso) {
 // `gemini-2.5-flash-lite` on a funded Tier 1 project) to trade a bit of cost
 // for much higher RPM and faster builds.
 const AI_MODEL = process.env.AI_MODEL || "gemma-4-26b-a4b-it";
+// News + fundamentals are short, schema-shaped summaries — Gemini 2.5
+// Flash-Lite is cheaper per token than Gemma 4 26B, supports both
+// responseSchema (constrained decoding, no fence-stripping fallback
+// needed) and implicit prompt caching (PR 3 will exploit the shared
+// system-prompt prefix). Defaulted directly to Flash-Lite; rollback to
+// Gemma is one env var per call type. Note Flash-Lite's responseSchema
+// requires a Tier 1 funded project; the parser still tolerates fenced
+// output so a fallback model can be slotted in without churn.
+const AI_NEWS_MODEL = process.env.AI_NEWS_MODEL || "gemini-2.5-flash-lite";
+const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-2.5-flash-lite";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -7862,6 +7872,20 @@ async function fetchSocialSentiment(symbol) {
   };
 }
 
+// Constrained-decoder schema for the news-take call. With responseSchema
+// set, Gemini guarantees the emitted text parses as this shape — no fence
+// stripping or excerpt extraction needed on the happy path. The parser
+// below still tolerates fences defensively in case a fallback model
+// without responseSchema support is slotted in via AI_NEWS_MODEL.
+const NEWS_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    paragraph: { type: "string" },
+    sentiment: { type: "string", enum: ["bullish", "neutral", "bearish", "uncertain"] },
+  },
+  required: ["paragraph", "sentiment"],
+};
+
 async function generateNewsTake(ai, symbol, spot, headlines) {
   const headlineBlock = headlines.length
     ? headlines
@@ -7873,26 +7897,28 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
     `Spot price: $${spot.toFixed(2)}\n` +
     `Recent headlines:\n${headlineBlock}`;
 
-  // Gemma doesn't support Gemini's responseSchema (constrained decoding) and
-  // sometimes ignores responseMimeType. The prompt is explicit about the JSON
-  // shape; the parser below is forgiving about fences/commentary.
+  // Flash-Lite + responseSchema means the JSON shape is enforced by the
+  // decoder; the parser below keeps the fence-stripping fallback for the
+  // rollback case (AI_NEWS_MODEL=gemma-... still parses fine).
   let response;
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_MODEL,
+        model: AI_NEWS_MODEL,
         contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.3,
           maxOutputTokens: 600,
-          // Constrained-decoder JSON mode. On Gemini this guarantees the
-          // emitted text is parseable; Gemma also respects the flag.
           responseMimeType: "application/json",
+          responseSchema: NEWS_RESPONSE_SCHEMA,
+          // News take is a 2-4 sentence summary — no deliberation needed,
+          // and on Flash-Lite thinking tokens count against maxOutputTokens.
+          thinkingConfig: { thinkingBudget: 0 },
         },
       });
-      recordAiUsage({ model: AI_MODEL, callType: "news", symbol, usage: response?.usageMetadata });
+      recordAiUsage({ model: AI_NEWS_MODEL, callType: "news", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -8059,6 +8085,22 @@ function hasUsefulFundamentals(f) {
   return false;
 }
 
+// Constrained-decoder schema for the fundamentals call. Same rationale as
+// NEWS_RESPONSE_SCHEMA — Flash-Lite enforces the shape; the downstream
+// cleanList / verdict-validation logic still defends against an empty or
+// short positives/negatives array (which is normal for ETFs).
+const FUNDAMENTALS_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: { type: "string", enum: ["strong", "mixed", "weak"] },
+    summary: { type: "string" },
+    earningsRecap: { type: "string" },
+    positives: { type: "array", items: { type: "string" } },
+    negatives: { type: "array", items: { type: "string" } },
+  },
+  required: ["verdict", "summary", "positives", "negatives"],
+};
+
 async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
   const userMessage = formatFundamentalsForPrompt(symbol, spot, fundamentals);
   let response;
@@ -8067,15 +8109,17 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_MODEL,
+        model: AI_FUNDAMENTALS_MODEL,
         contents: `${FUNDAMENTALS_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.25,
           maxOutputTokens: 900,
           responseMimeType: "application/json",
+          responseSchema: FUNDAMENTALS_RESPONSE_SCHEMA,
+          thinkingConfig: { thinkingBudget: 0 },
         },
       });
-      recordAiUsage({ model: AI_MODEL, callType: "fundamentals", symbol, usage: response?.usageMetadata });
+      recordAiUsage({ model: AI_FUNDAMENTALS_MODEL, callType: "fundamentals", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
