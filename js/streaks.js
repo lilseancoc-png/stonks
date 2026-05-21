@@ -28,11 +28,27 @@ function dataUrl() {
   return `data/streaks.json?v=${encodeURIComponent(v)}`;
 }
 
+function streaksSkeleton() {
+  // Shimmering placeholder that matches the eventual two-column layout
+  // so the page doesn't visually jump when streaks arrive.
+  const col = (n) => `
+    <div class="streaks-col">
+      <span class="skel skel-line" style="width: 60%; height: 14px; margin-bottom: 12px;"></span>
+      ${Array(n).fill(0).map(() => `
+        <div class="streaks-row" aria-hidden="true">
+          <div class="streaks-head"><span class="skel skel-line" style="width: 50%"></span></div>
+          <div class="streaks-meta"><span class="skel skel-line" style="width: 80%"></span></div>
+        </div>`).join("")}
+    </div>`;
+  return `<div class="streaks-cols">${col(3)}${col(3)}</div>`;
+}
+
 async function loadStreaks() {
   const root = $("streaks-root");
   const footer = $("streaks-footer");
   const eyebrow = $("streaks-eyebrow");
   if (!root) return;
+  root.innerHTML = streaksSkeleton();
   try {
     const r = await fetch(dataUrl(), { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
@@ -97,7 +113,10 @@ function entry(t, sectors) {
   const moves = (t.history || []).slice(0, t.current.days).reverse();
   const movesStr = moves.map((m) => fmtPct(m.changePct, 1)).join(", ");
   const cumCls = t.current.color === "green" ? "streaks-pos" : "streaks-neg";
-  const dot = t.current.color === "green" ? "🟢" : t.current.color === "red" ? "🔴" : "⚪";
+  // Use a styled circle instead of an emoji — emojis render at different
+  // sizes/colors across platforms and end up dominating the row.
+  const dotCls = t.current.color === "green" ? "is-green" : t.current.color === "red" ? "is-red" : "is-flat";
+  const dot = `<span class="streaks-dot ${dotCls}" aria-hidden="true"></span>`;
   // Tolerance badge: only show when the streak has absorbed at least one
   // counter day. Reads "tol 0.50%/1.5% · 1/4d" -- bank used / break point,
   // consecutive counter days / break point. Helps the reader see how
@@ -109,14 +128,23 @@ function entry(t, sectors) {
   const toleranceBadge = (tol > 0 || counterDays > 0)
     ? `<span class="streaks-tol streaks-tol-counter" title="Counter-day tolerance used / break point · consecutive counter days / break">tol ${tol.toFixed(2)}% / ${tolBreak.toFixed(1)}% · ${counterDays}/${counterBreak}d</span>`
     : "";
+  // Streak-length bar: visualises how deep the run is relative to a
+  // 10-day "very long streak" reference. Anything longer pegs full.
+  const lengthPct = Math.min(100, (Number(t.current.days) || 0) * 10);
+  const cumPct = Math.min(100, Math.abs(Number(t.current.cumulativePct) || 0) * 5);
+  const cumColor = t.current.color === "green" ? "var(--pos)" : "var(--neg)";
   return `
     <article class="streaks-row">
       <div class="streaks-head">
-        <span class="streaks-dot" aria-hidden="true">${dot}</span>
+        ${dot}
         <span class="streaks-sym">${escapeHtml(sym)}</span>
         ${sector ? `<span class="streaks-sector">${escapeHtml(sector)}</span>` : ""}
         <span class="streaks-days">${t.current.days}d</span>
         ${toleranceBadge}
+      </div>
+      <div class="streaks-bars" aria-hidden="true">
+        <span class="streaks-bar streaks-bar-len" style="--w:${lengthPct.toFixed(0)}%" title="Streak length (10d = full)"></span>
+        <span class="streaks-bar streaks-bar-cum" style="--w:${cumPct.toFixed(0)}%; --c:${cumColor}" title="Cumulative move magnitude (20% = full)"></span>
       </div>
       <div class="streaks-meta">
         <span class="streaks-cum ${cumCls}">${fmtPct(t.current.cumulativePct)} cum</span>
