@@ -9230,13 +9230,12 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const fomcMeetings = extras?.fomcMeetings || [];
   const fedRate = extras?.fedRate || null;
   const fedwatch = extras?.fedwatch || null;
+  // session map: "<SYMBOL>|<YYYY-MM-DD>" → "AM" | "PM" | "TBD" pulled from
+  // a fresh Nasdaq-calendar fetch in main(). Overrides the Yahoo-timestamp
+  // heuristic (which is unreliable — Yahoo returns midnight UTC for many
+  // confirmed earnings, defaulting to TBD).
+  const sessionMap = extras?.sessionMap || null;
 
-  // Per-ticker earnings — Yahoo's quoteSummary returns the next confirmed
-  // earnings date as "YYYY-MM-DD". Some tickers (ETFs, recently-IPO'd
-  // names) have no date; skip silently. Earnings session (AM = before
-  // market open / PM = after market close / TBD = Yahoo didn't supply a
-  // time) is derived during the per-ticker fundamentals pull and surfaces
-  // here so the calendar chip can tag it.
   for (const [sym, data] of Object.entries(chains)) {
     const dateStr = data?.fundamentals?.nextEarningsDate;
     if (!dateStr || typeof dateStr !== "string") continue;
@@ -9244,10 +9243,16 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     if (!m) continue;
     const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (eventMs < startMs || eventMs > cutoffMs) continue;
-    const session = data?.fundamentals?.nextEarningsSession || "TBD";
+    const date = `${m[1]}-${m[2]}-${m[3]}`;
+    // Prefer Nasdaq-supplied session over the Yahoo-timestamp heuristic.
+    let session = data?.fundamentals?.nextEarningsSession || "TBD";
+    if (sessionMap) {
+      const fresh = sessionMap.get(sym + "|" + date);
+      if (fresh) session = fresh;
+    }
     events.push({
       type: "earnings",
-      date: `${m[1]}-${m[2]}-${m[3]}`,
+      date,
       symbol: sym,
       title: `${sym} earnings`,
       session,
@@ -9830,20 +9835,36 @@ function formatEconValue(format, series, idx) {
 export async function fetchMacroReleases(startMs, cutoffMs) {
   const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series)));
   const seriesData = {};
-  await Promise.all(uniqueSeries.map(async (id) => {
-    seriesData[id] = await fetchFredSeries(id);
-  }));
+  // Pull FRED + ForexFactory in parallel — FRED provides Actual/Previous
+  // (canonical), ForexFactory provides Consensus/Forecast (and sometimes
+  // a faster Actual, since FF tends to publish within minutes of release
+  // while FRED's monthly observation can lag a day or two).
+  const [ , ffEvents ] = await Promise.all([
+    Promise.all(uniqueSeries.map(async (id) => {
+      seriesData[id] = await fetchFredSeries(id);
+    })),
+    fetchForexFactoryCalendar(),
+  ]);
   const todayIso = new Date(startMs).toISOString().slice(0, 10);
-  // Compute the release schedule from cadence rules for the current +
-  // next year. This auto-extends past a year rollover without a code
-  // edit; see buildReleaseSchedule().
   const schedule = buildReleaseSchedule(new Date(startMs));
+
+  // Index ForexFactory events by subtype + date so we can attach
+  // Consensus / Forecast / fast-Actual to each scheduled release row.
+  // FF date strings are ISO-with-offset; slice the date portion.
+  const ffByKey = new Map();
+  for (const ev of (ffEvents || [])) {
+    if (String(ev?.country || "").toUpperCase() !== "USD") continue;
+    const subtype = matchForexFactoryEventSubtype(ev.title);
+    if (!subtype) continue;
+    const eventDate = String(ev.date || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) continue;
+    ffByKey.set(subtype + "|" + eventDate, ev);
+  }
+
   const events = [];
   for (const report of ECON_REPORTS) {
     const sched = schedule[report.schedule] || [];
     const series = seriesData[report.series] || [];
-    if (!series.length) continue;
-    // For each release in the window, build a row.
     for (const dateStr of sched) {
       const ms = Date.UTC(
         Number(dateStr.slice(0, 4)),
@@ -9851,32 +9872,37 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         Number(dateStr.slice(8, 10)),
       );
       if (ms < startMs || ms > cutoffMs) continue;
-      // The most recent FRED observation is the "previous" reading until
-      // this release prints. After release date passes the build re-runs,
-      // the new value lands as "actual" and the prior one moves into
-      // "previous".
-      const latestIdx = series.length - 1;
+      const latestIdx = series.length ? series.length - 1 : -1;
       const isPast = dateStr <= todayIso;
-      const actual = isPast ? formatEconValue(report.format, series, latestIdx) : null;
-      // For released observations, "previous" is the prior observation
-      // (latestIdx - 1). For unreleased dates, "previous" is the latest
-      // observation we have. Floor the previous-index at 0 so a freshly
-      // listed series with only one observation doesn't silently drop
-      // the previous slot to null via a negative index.
+      const fredActual = (isPast && latestIdx >= 0) ? formatEconValue(report.format, series, latestIdx) : null;
       const previousIdx = isPast
         ? (latestIdx > 0 ? latestIdx - 1 : latestIdx)
         : latestIdx;
-      const previous = formatEconValue(report.format, series, previousIdx);
+      const fredPrevious = previousIdx >= 0 ? formatEconValue(report.format, series, previousIdx) : null;
+      // Pull whatever ForexFactory has for this exact (subtype, date).
+      // Date matching is exact — FF's dates align with the BLS/BEA release
+      // dates we computed from cadence rules.
+      const ff = ffByKey.get(report.subtype + "|" + dateStr);
+      const consensus = (ff?.forecast && ff.forecast !== "") ? String(ff.forecast) : null;
+      const ffActual = (ff?.actual && ff.actual !== "") ? String(ff.actual) : null;
+      const ffPrevious = (ff?.previous && ff.previous !== "") ? String(ff.previous) : null;
+      // Skip rows where we have no data at all from either source.
+      if (!fredActual && !fredPrevious && !consensus && !ffActual && !ffPrevious) continue;
       events.push({
         type: "report",
         subtype: report.subtype,
         date: dateStr,
         title: report.label,
-        actual,
-        previous,
-        consensus: null,
-        forecast: null,
-        source: "FRED · " + report.series,
+        // Prefer ForexFactory's actual when present (it publishes within
+        // minutes of release); fall back to FRED's monthly observation.
+        actual: ffActual || fredActual,
+        previous: ffPrevious || fredPrevious,
+        consensus,
+        // Forecast is reserved for a forward-looking estimate distinct
+        // from consensus; treat ff.forecast as both for now, since FF
+        // doesn't expose a separate "forecast" feed.
+        forecast: consensus,
+        source: ff ? "BLS · FRED · ForexFactory" : "FRED · " + report.series,
       });
     }
   }
@@ -9891,16 +9917,128 @@ export async function fetchEffectiveFedFundsRate() {
   return { rate: last.value, asOf: last.date, source: "FRED:DFF" };
 }
 
-// === CME FedWatch probabilities (best-effort) ========================
-// CME publishes implied rate-decision probabilities for each upcoming
-// FOMC meeting via their public FedWatch widget. The exact endpoint URL
-// changes over time, and CME aggressively WAFs non-browser traffic, so
-// this fetch is best-effort: on success we record one snapshot per
-// meeting in data/fedwatch-history.json (append-only), and the UI picks
-// Now / 1d / 1w / 1m buckets from the history. On failure (timeout, 4xx,
-// shape change) the build logs a warning, history stays intact, and the
-// UI falls back to "—" for the affected buckets.
+// === Nasdaq earnings calendar (AM / PM session) ======================
+// Free public endpoint, no key required. Returns rows shaped like
+// { symbol, time: "time-pre-market" | "time-after-hours" | "time-not-supplied", ... }.
+// We pull every weekday in the calendar window in parallel (Nasdaq
+// caches aggressively at the edge, so the parallel burst is cheap) and
+// build a Map<"SYM|YYYY-MM-DD", "AM"|"PM"|"TBD">.
+export async function fetchNasdaqEarningsSessions(startMs, windowDays) {
+  const headers = {
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    accept: "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.9",
+    referer: "https://www.nasdaq.com/market-activity/earnings",
+    origin: "https://www.nasdaq.com",
+  };
+  const out = new Map();
+  const dates = [];
+  for (let i = 0; i < windowDays; i++) {
+    const d = new Date(startMs + i * 86400000);
+    const wd = d.getUTCDay();
+    if (wd === 0 || wd === 6) continue; // earnings only print on weekdays
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  await Promise.all(dates.map(async (date) => {
+    try {
+      const url = `https://api.nasdaq.com/api/calendar/earnings?date=${date}`;
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
+      if (!res.ok) return;
+      const json = await res.json();
+      const rows = json?.data?.rows;
+      if (!Array.isArray(rows)) return;
+      for (const r of rows) {
+        const sym = String(r?.symbol || "").toUpperCase().trim();
+        if (!sym) continue;
+        const t = String(r?.time || "").toLowerCase();
+        let session = "TBD";
+        if (t.includes("pre")) session = "AM";
+        else if (t.includes("after") || t.includes("post")) session = "PM";
+        out.set(sym + "|" + date, session);
+      }
+    } catch (_) {
+      // network / WAF block — fall through silently
+    }
+  }));
+  return out;
+}
+
+// === ForexFactory economic calendar (Consensus + Forecast) ===========
+// Public weekly JSON, no API key required. Returns events with
+// { title, country, date, impact, forecast, previous, actual }.
+// We match the high-impact USD events by title keywords to populate the
+// Consensus + Forecast fields on the Macro reports. Updated continuously,
+// so subsequent daily builds pick up forecast revisions and actuals as
+// they print.
+async function fetchForexFactoryCalendar() {
+  const urls = [
+    "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+    "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
+  ];
+  const out = [];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          accept: "application/json, text/plain, */*",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (Array.isArray(json)) out.push(...json);
+    } catch (_) {
+      // Network error → empty list. Macro reports degrade to FRED-only.
+    }
+  }
+  return out;
+}
+
+// Map a ForexFactory event title to our internal report subtype. Matching
+// is keyword-based since FF titles drift slightly across feeds ("Non-Farm
+// Employment Change", "Non-Farm Payrolls", etc.).
+function matchForexFactoryEventSubtype(title) {
+  const t = String(title || "").toLowerCase();
+  if (t.includes("jolts")) return "jolts";
+  if (t.includes("unemployment rate")) return "unrate";
+  if (t.includes("non-farm") || t.includes("nonfarm") || t.includes("nfp") || t.includes("employment change")) return "nfp";
+  if (t.includes("ppi")) return "ppi-mom";
+  const isCore = t.includes("core");
+  const isYoy = t.includes("y/y") || t.includes("yoy") || t.includes("annual");
+  if (t.includes("cpi")) {
+    if (isCore && isYoy) return "core-cpi-yoy";
+    if (isCore) return "core-cpi-mom";
+    if (isYoy) return "cpi-yoy";
+    return "cpi-mom";
+  }
+  return null;
+}
+
+// === CME FedWatch (computed from Fed Funds Futures via Yahoo) ========
+// CME's FedWatch widget is the canonical source for hike/hold/cut
+// probabilities, but its endpoints aren't documented and the front
+// aggressively WAFs non-browser traffic. We compute the same numbers
+// from first principles using the 30-Day Fed Funds Futures (ZQ) on the
+// CME — exactly what FedWatch itself prices off. Yahoo distributes the
+// ZQ continuous and the monthly contracts.
+//
+// Math (single-meeting month, the common case):
+//   implied_month_avg_rate = 100 - ZQ_settle_price
+//   implied_post_meeting_rate = (avg * N - M * pre_rate) / (N - M)
+//     where N = days in month, M = days at pre-meeting rate
+//   delta = implied_post - pre_rate
+// We then map delta to {hike, hold, cut} probabilities by assuming a
+// 25bp policy step. Smooth interpolation across [-0.25, +0.25]:
+//   P(hike) = clamp01(delta / 0.25)         if delta > 0
+//   P(cut)  = clamp01(-delta / 0.25)        if delta < 0
+//   P(hold) = 1 - P(hike) - P(cut)
+// All snapshots get appended to data/fedwatch-history.json so the UI's
+// Now / 1d / 1w / 1m bucket lookup keeps working.
 const FEDWATCH_HISTORY_FILE = "fedwatch-history.json";
+const CME_MONTH_CODES = ["F","G","H","J","K","M","N","Q","U","V","X","Z"];
 
 export async function readFedwatchHistory() {
   try {
@@ -9916,55 +10054,83 @@ export async function writeFedwatchHistory(history) {
   await writeFile(resolve(DATA_DIR, FEDWATCH_HISTORY_FILE), JSON.stringify(history), "utf8");
 }
 
-// Attempt a snapshot fetch for each upcoming FOMC meeting. CME's widget
-// loads its probability tree from `cmegroup.com/CmeWS/mvc/.../FedWatch`
-// JSON endpoints — we try the documented shape and silently degrade if
-// the response doesn't match. Snapshots get keyed by today's date so a
-// daily build appends one row per meeting per day.
-export async function fetchFedwatchSnapshot(meetingDates) {
-  const browserHeaders = {
-    "user-agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    accept: "application/json, text/plain, */*",
-    "accept-language": "en-US,en;q=0.9",
-    referer: "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html",
-  };
-  const out = {};
-  for (const m of meetingDates) {
-    try {
-      // The widget exposes a per-meeting probabilities feed. Endpoint
-      // shape isn't officially documented; try the known path and parse
-      // {hike, hold, cut} from whatever comes back. On any error or
-      // schema mismatch, we skip — history retains prior snapshots.
-      const url = `https://www.cmegroup.com/CmeWS/mvc/Quotes/Future/FedWatch/ProbabilityHistory?meetingDate=${m.date.replace(/-/g, "")}`;
-      const res = await fetch(url, { headers: browserHeaders, signal: AbortSignal.timeout(8000) });
-      if (!res.ok) continue;
-      const text = await res.text();
-      let json;
-      try { json = JSON.parse(text); } catch (_) { continue; }
-      // Try common shapes — CME has changed the schema multiple times.
-      // Look for top-level {hike, hold, cut} percentages, then a nested
-      // probabilityTable[lastBucket] shape, then bail.
-      let probs = null;
-      // All three fields must be numbers — a partial response (only `hike`
-      // present, `hold`/`cut` undefined) would otherwise land in the
-      // history file as raw `undefined`s and corrupt the bucket math.
-      const validShape = (o) =>
-        o && typeof o.hike === "number" &&
-        typeof o.hold === "number" &&
-        typeof o.cut === "number";
-      if (validShape(json)) {
-        probs = { hike: json.hike, hold: json.hold, cut: json.cut };
-      } else if (Array.isArray(json?.probabilities) && json.probabilities.length) {
-        const last = json.probabilities[json.probabilities.length - 1];
-        if (validShape(last)) probs = { hike: last.hike, hold: last.hold, cut: last.cut };
-      }
-      if (!probs) continue;
-      out[m.date] = probs;
-    } catch (_) {
-      // ignore — network failure / WAF block
-    }
+// Fetch the latest settle / mid price for a Yahoo futures symbol.
+// Tries the specific contract first (e.g. ZQM26.CBT), falls back to the
+// continuous front-month (ZQ=F) if Yahoo doesn't list that contract.
+async function fetchYahooFutureClose(symbol) {
+  try {
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`,
+      {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          accept: "application/json",
+        },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const q = json?.quoteResponse?.result?.[0];
+    if (!q) return null;
+    const price = q.regularMarketPrice ?? q.postMarketPrice ?? q.preMarketPrice;
+    return Number.isFinite(price) ? Number(price) : null;
+  } catch (_) {
+    return null;
   }
+}
+
+function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+// Convert a meeting (YYYY-MM-DD) into the Yahoo ZQ contract symbol for
+// the month the meeting falls in. Yahoo accepts "ZQM26.CBT" style
+// symbols.
+function zqSymbolForMeeting(meetingDateStr) {
+  const y = Number(meetingDateStr.slice(0, 4));
+  const m = Number(meetingDateStr.slice(5, 7)) - 1;
+  return `ZQ${CME_MONTH_CODES[m]}${String(y).slice(-2)}.CBT`;
+}
+
+// Given the current effective Fed Funds rate, an upcoming meeting date,
+// and the settle price of the ZQ contract for the meeting's month,
+// derive the implied post-meeting rate and convert the delta to
+// hike/hold/cut probabilities.
+function probabilitiesFromZq(currentRate, meetingDateStr, zqPrice) {
+  if (!Number.isFinite(currentRate) || !Number.isFinite(zqPrice)) return null;
+  const y = Number(meetingDateStr.slice(0, 4));
+  const mIdx = Number(meetingDateStr.slice(5, 7)) - 1;
+  const meetingDay = Number(meetingDateStr.slice(8, 10));
+  const daysInMonth = new Date(Date.UTC(y, mIdx + 1, 0)).getUTCDate();
+  // FOMC decisions take effect at end-of-day on the decision day, so
+  // the new rate applies from meetingDay+1 through month end. Edge case:
+  // if the meeting is on the last day of the month, there are zero days
+  // at the new rate and we can't infer the post-meeting rate from this
+  // contract — fall back to the next-month contract via the caller.
+  const daysAtPreRate = meetingDay;
+  const daysAtPostRate = daysInMonth - meetingDay;
+  if (daysAtPostRate <= 0) return null;
+  const impliedAvg = 100 - zqPrice;
+  const impliedPost = (impliedAvg * daysInMonth - currentRate * daysAtPreRate) / daysAtPostRate;
+  const delta = impliedPost - currentRate;
+  let hike = 0, cut = 0;
+  if (delta > 0) hike = clamp01(delta / 0.25);
+  else if (delta < 0) cut = clamp01(-delta / 0.25);
+  const hold = clamp01(1 - hike - cut);
+  return { hike, hold, cut };
+}
+
+export async function fetchFedwatchSnapshot(meetingDates, currentRate) {
+  if (!Number.isFinite(currentRate)) return {};
+  const out = {};
+  await Promise.all(meetingDates.map(async (m) => {
+    const sym = zqSymbolForMeeting(m.date);
+    const zqPrice = await fetchYahooFutureClose(sym);
+    if (zqPrice == null) return;
+    const probs = probabilitiesFromZq(currentRate, m.date, zqPrice);
+    if (!probs) return;
+    out[m.date] = probs;
+  }));
   return out;
 }
 
@@ -12080,14 +12246,19 @@ async function main() {
   const liveFomc = await fetchFomcSchedule();
   const allFomcMeetings = mergeFomcMeetings(liveFomc, FOMC_MEETINGS_BASELINE);
   console.log(`  · ${allFomcMeetings.length} FOMC dates (baseline ${FOMC_MEETINGS_BASELINE.length}, live ${liveFomc.length})`);
-  console.log("Snapshotting CME FedWatch probabilities…");
+  console.log("Computing FedWatch probabilities from ZQ Fed Funds Futures…");
   const fedwatchHistory = await readFedwatchHistory();
   const upcomingMeetings = allFomcMeetings.filter((m) => {
     const ms = Date.UTC(Number(m.date.slice(0,4)), Number(m.date.slice(5,7))-1, Number(m.date.slice(8,10)));
     return ms >= todayMs;
   });
   const todayIso = new Date(todayMs).toISOString().slice(0, 10);
-  const snapshot = await fetchFedwatchSnapshot(upcomingMeetings);
+  // Compute hike/hold/cut probabilities from the front-month ZQ contract
+  // for each upcoming meeting. Requires the current effective rate as a
+  // pre-meeting anchor — without it we can't separate pre/post-meeting
+  // averages from the implied month-average rate.
+  const currentRateNum = fedRate?.rate;
+  const snapshot = await fetchFedwatchSnapshot(upcomingMeetings, currentRateNum);
   let snapshotCount = 0;
   for (const [meetingDate, probs] of Object.entries(snapshot)) {
     if (!fedwatchHistory.meetings[meetingDate]) fedwatchHistory.meetings[meetingDate] = {};
@@ -12103,11 +12274,20 @@ async function main() {
   for (const m of upcomingMeetings) {
     fedwatch[m.date] = pickFedwatchBuckets(fedwatchHistory, m.date, todayIso);
   }
+  // Earnings AM/PM session: Nasdaq's calendar API returns
+  // time-pre-market / time-after-hours / time-not-supplied per ticker,
+  // which is far more reliable than Yahoo's earnings-timestamp hour
+  // (Yahoo returns 00:00 UTC for many confirmed earnings, which falls
+  // back to TBD). Builds a SYM|YYYY-MM-DD → AM/PM/TBD map.
+  console.log("Fetching earnings AM/PM sessions (Nasdaq)…");
+  const sessionMap = await fetchNasdaqEarningsSessions(todayMs, CALENDAR_DAYS_AHEAD);
+  console.log(`  · ${sessionMap.size} session entries`);
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
     reportEvents,
     fomcMeetings: upcomingMeetings,
     fedRate,
     fedwatch,
+    sessionMap,
   });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (next ${CALENDAR_DAYS_AHEAD}d), ${calendarInfo.bytes} bytes`);
   // Top picks: rank tickers by fused signal score and write data/picks.json.

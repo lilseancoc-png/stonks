@@ -66,7 +66,7 @@ async function main() {
     return ms >= todayMs;
   });
   const todayIso = new Date(todayMs).toISOString().slice(0, 10);
-  const snapshot = await build.fetchFedwatchSnapshot(upcomingMeetings);
+  const snapshot = await build.fetchFedwatchSnapshot(upcomingMeetings, fedRate?.rate);
   let snapshotCount = 0;
   for (const [meetingDate, probs] of Object.entries(snapshot)) {
     if (!fedwatchHistory.meetings[meetingDate]) fedwatchHistory.meetings[meetingDate] = {};
@@ -81,8 +81,11 @@ async function main() {
     fedwatch[m.date] = build.pickFedwatchBuckets(fedwatchHistory, m.date, todayIso);
   }
 
+  console.log("Fetching earnings AM/PM sessions (Nasdaq)…");
+  const sessionMap = await build.fetchNasdaqEarningsSessions(todayMs, 30);
+  console.log(`  · ${sessionMap.size} session entries`);
+
   // Read existing macro headlines so calendar continues to surface them.
-  // They're persisted in data/trends.json.
   let macroHeadlines = [];
   try {
     const trendsRaw = await readFile(resolve(DATA_DIR, "trends.json"), "utf8");
@@ -95,6 +98,7 @@ async function main() {
     fomcMeetings: upcomingMeetings,
     fedRate,
     fedwatch,
+    sessionMap,
   });
   console.log(`wrote data/calendar.json — ${info.count} events, ${info.bytes} bytes`);
 }
