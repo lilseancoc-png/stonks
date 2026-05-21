@@ -71,13 +71,34 @@ jobs:
 
       - name: Commit refreshed site
         run: |
+          set -euo pipefail
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
-          git add index.html styles.css app.js
-          if [ -d data ]; then git add data; fi
-          if ! git diff --cached --quiet; then
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          # Retry the commit-and-push up to 3 times so a concurrent commit
+          # to main (PR merge, hourly unusual-flow scan) doesn't fail the
+          # whole 4-minute build. On each attempt we fetch fresh remote
+          # state, reset the index/HEAD to it (working tree keeps our
+          # freshly-built artifacts intact), then re-stage and push. This
+          # avoids stash/rebase entirely because the daily build wipes and
+          # regenerates data/ wholesale — there's nothing local worth
+          # merging from the remote, only the new commit base to land on.
+          for attempt in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git reset --mixed "origin/$BRANCH"
+            git add index.html styles.css app.js
+            if [ -d data ]; then git add data; fi
+            if git diff --cached --quiet; then
+              echo "No changes to commit (attempt $attempt)."
+              exit 0
+            fi
             git commit -m "chore: daily refresh $(date -u +%Y-%m-%d)"
-            git push
-          else
-            echo "No changes to commit."
-          fi
+            if git push origin "HEAD:$BRANCH"; then
+              echo "Push succeeded on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected on attempt $attempt — remote moved, retrying."
+            sleep $((attempt * 5))
+          done
+          echo "Push failed after 3 attempts." >&2
+          exit 1
