@@ -16,6 +16,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
+import { greeks, yearsToExpiry } from "../lib/greeks.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -11474,6 +11475,138 @@ function scoreTicker(sym, data, narratives, streakRow) {
   return { score, drivers };
 }
 
+// Format an expiration epoch (seconds) as a short ET label like "Dec 20 '26".
+// Mirrors fmtExpiryLabel in app.js but emits the year suffix the picks card
+// shows alongside the strike. Uses Intl with the America/New_York time zone
+// so weekday expirations don't shift by one day around DST boundaries.
+function fmtExpiryLabelShort(epochSec) {
+  const d = new Date(epochSec * 1000);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    year: "2-digit",
+  }).formatToParts(d);
+  const m = parts.find((p) => p.type === "month")?.value || "";
+  const day = parts.find((p) => p.type === "day")?.value || "";
+  const yr = parts.find((p) => p.type === "year")?.value || "";
+  return `${m} ${day} '${yr}`;
+}
+
+// Pick one contract on `side` ('call' | 'put') for a top pick. We aim for the
+// directional-swing sweet spot: ~35 DTE, |delta| ~0.45, decent liquidity and
+// a non-pathological spread. Returns null when no expiration has a usable
+// strike with a valid IV (without IV we can't compute delta, and a contract
+// with no quoted price is useless to recommend anyway).
+function pickContractForPick(side, data) {
+  if (!data || !data.chains || !(data.spot > 0)) return null;
+  const spot = data.spot;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const exps = Object.keys(data.chains)
+    .map(Number)
+    .filter((e) => e > nowSec)
+    .sort((a, b) => a - b);
+  if (!exps.length) return null;
+
+  // 1) Choose expiration. Prefer one in [21, 60] DTE closest to 35; else the
+  //    longest-dated <=90 DTE; else just the nearest. Skip expirations whose
+  //    chosen side has no valid contracts (e.g., illiquid chains).
+  const TARGET_DTE = 35;
+  const expHasValid = (e) => {
+    const ch = data.chains[e];
+    const rows = side === "call" ? ch?.c : ch?.p;
+    return Array.isArray(rows) && rows.some(
+      (c) => c?.s != null && c?.iv != null && isFinite(c.iv) && c.iv > 0,
+    );
+  };
+  const withDte = exps
+    .filter(expHasValid)
+    .map((e) => ({ e, dte: (e - nowSec) / 86400 }));
+  if (!withDte.length) return null;
+  const inBand = withDte.filter((x) => x.dte >= 21 && x.dte <= 60);
+  let chosenExp;
+  if (inBand.length) {
+    inBand.sort((a, b) => Math.abs(a.dte - TARGET_DTE) - Math.abs(b.dte - TARGET_DTE));
+    chosenExp = inBand[0];
+  } else {
+    const longish = withDte.filter((x) => x.dte <= 90);
+    if (longish.length) {
+      longish.sort((a, b) => b.dte - a.dte);
+      chosenExp = longish[0];
+    } else {
+      withDte.sort((a, b) => a.dte - b.dte);
+      chosenExp = withDte[0];
+    }
+  }
+
+  // 2) Choose strike. Score = delta-distance from 0.45 + liquidity / spread
+  //    nudges. Lower score wins; ties broken by closer to spot.
+  const chain = data.chains[chosenExp.e];
+  const rows = (side === "call" ? chain?.c : chain?.p) || [];
+  const T = yearsToExpiry(chosenExp.e);
+  const DELTA_TARGET = 0.45;
+  let best = null;
+  let bestScore = Infinity;
+  for (const row of rows) {
+    if (!row || row.s == null) continue;
+    if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
+    const g = greeks(side, spot, row.s, T, row.iv);
+    if (!g) continue;
+    const absDelta = Math.abs(g.delta);
+    if (!isFinite(absDelta)) continue;
+    let score = Math.abs(absDelta - DELTA_TARGET);
+    // Liquidity nudge: thin (<25) gets a hard penalty so we step away if
+    // there's a workable neighbor; modest (<100) gets a small penalty; deep
+    // (>=100) gets a small bonus.
+    const oi = row.oi || 0;
+    if (oi < 25) score += 0.40;
+    else if (oi < 100) score += 0.05;
+    else score -= 0.02;
+    // Spread nudge using bid/ask when present. Yahoo returns 0/0 outside
+    // RTH so we only score when both sides are quoted.
+    if (row.b > 0 && row.a > 0) {
+      const mid = (row.b + row.a) / 2;
+      const spreadPct = mid > 0 ? ((row.a - row.b) / mid) : 0;
+      if (spreadPct > 0.25) score += 0.30;
+      else if (spreadPct <= 0.10) score -= 0.02;
+    }
+    if (
+      score < bestScore ||
+      (score === bestScore && best && Math.abs(row.s - spot) < Math.abs(best.s - spot))
+    ) {
+      bestScore = score;
+      best = row;
+      best._greeks = g;
+    }
+  }
+  if (!best) return null;
+
+  const mid = best.b > 0 && best.a > 0 ? (best.b + best.a) / 2 : (best.l > 0 ? best.l : null);
+  const breakeven = mid != null
+    ? (side === "call" ? best.s + mid : best.s - mid)
+    : null;
+  const breakevenMovePct = (breakeven != null && spot > 0)
+    ? ((breakeven - spot) / spot) * 100
+    : null;
+  return {
+    strike: best.s,
+    expiry: chosenExp.e,
+    expiryLabel: fmtExpiryLabelShort(chosenExp.e),
+    dte: Math.max(0, Math.round(chosenExp.dte)),
+    bid: best.b ?? null,
+    ask: best.a ?? null,
+    mid: mid != null ? Number(mid.toFixed(2)) : null,
+    last: best.l ?? null,
+    iv: best.iv != null ? Number(best.iv.toFixed(4)) : null,
+    oi: best.oi ?? 0,
+    volume: best.v ?? 0,
+    delta: Number(best._greeks.delta.toFixed(3)),
+    thetaDay: Number(best._greeks.thetaDay.toFixed(4)),
+    breakeven: breakeven != null ? Number(breakeven.toFixed(2)) : null,
+    breakevenMovePct: breakevenMovePct != null ? Number(breakevenMovePct.toFixed(2)) : null,
+  };
+}
+
 function buildTopPicks(chains, narratives) {
   const ranked = [];
   for (const [sym, data] of Object.entries(chains)) {
@@ -11512,6 +11645,7 @@ function buildTopPicks(chains, narratives) {
             cumulativePct: r.streakRow.current.cumulativePct,
           }
         : null,
+      contract: pickContractForPick(side, r.data),
     };
   });
 }
