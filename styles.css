@@ -3147,6 +3147,15 @@ main { padding-top: var(--s-2); }
   border-radius: var(--r-1);
   background: color-mix(in srgb, var(--muted) 12%, transparent);
 }
+.cal-chip-move {
+  font: 600 10px/1 var(--font-mono);
+  color: var(--warn);
+  letter-spacing: .02em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  cursor: help;
+}
 .cal-earnings { border-left-color: var(--accent); }
 .cal-fed { border-left-color: var(--neg); }
 .cal-fed .cal-chip-tag { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }

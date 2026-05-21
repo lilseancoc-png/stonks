@@ -34,7 +34,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03580;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3256,8 +3256,13 @@
         var cls = 'cal-chip cal-' + e.type;
         var label;
         if (e.type === 'earnings'){
+          var movePill = (e.impliedMovePct != null && isFinite(e.impliedMovePct))
+            ? ' <span class="cal-chip-move" title="Implied move from ATM straddle mid at the first expiry on/after this date">' +
+                '±' + (e.impliedMovePct * 100).toFixed(1) + '%' +
+              '</span>'
+            : '';
           label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span>' +
-            calendarSessionPill(e.session) +
+            calendarSessionPill(e.session) + movePill +
             ' <span class="cal-chip-text">earnings</span>';
         } else {
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +

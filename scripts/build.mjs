@@ -4930,8 +4930,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         var cls = 'cal-chip cal-' + e.type;
         var label;
         if (e.type === 'earnings'){
+          var movePill = (e.impliedMovePct != null && isFinite(e.impliedMovePct))
+            ? ' <span class="cal-chip-move" title="Implied move from ATM straddle mid at the first expiry on/after this date">' +
+                '±' + (e.impliedMovePct * 100).toFixed(1) + '%' +
+              '</span>'
+            : '';
           label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span>' +
-            calendarSessionPill(e.session) +
+            calendarSessionPill(e.session) + movePill +
             ' <span class="cal-chip-text">earnings</span>';
         } else {
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
@@ -8776,6 +8781,15 @@ main { padding-top: var(--s-2); }
   border-radius: var(--r-1);
   background: color-mix(in srgb, var(--muted) 12%, transparent);
 }
+.cal-chip-move {
+  font: 600 10px/1 var(--font-mono);
+  color: var(--warn);
+  letter-spacing: .02em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  cursor: help;
+}
 .cal-earnings { border-left-color: var(--accent); }
 .cal-fed { border-left-color: var(--neg); }
 .cal-fed .cal-chip-tag { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }
@@ -10353,6 +10367,57 @@ const IV_HISTORY_MAX_ENTRIES = 400;
 // horizon over time (1M IV is the conventional one).
 const IV_HISTORY_TARGET_DTE = 30;
 
+// ATM straddle mid → implied move for a given earnings date. Picks the
+// first cached expiration on/after the event date and prices a long
+// straddle at the nearest-to-spot strike on each side. Returns the move
+// as a decimal of spot (0.04 → ±4%) plus the expiration epoch used.
+// Filters on bid+ask > 0 because we want a tradable mid; falls back to
+// `last` only when both quotes are missing but the print is positive.
+function computeImpliedMoveForDate(data, earningsDateStr) {
+  if (!data?.spot || !(data.spot > 0) || !data?.chains) return null;
+  if (typeof earningsDateStr !== "string") return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(earningsDateStr);
+  if (!m) return null;
+  const thresholdSec = Math.floor(
+    Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 1000,
+  );
+  const exps = Object.keys(data.chains).map(Number)
+    .filter((e) => Number.isFinite(e) && e >= thresholdSec)
+    .sort((a, b) => a - b);
+  if (!exps.length) return null;
+  const expSec = exps[0];
+  const chain = data.chains[expSec];
+  if (!chain) return null;
+  const spot = data.spot;
+  const tradableMid = (c) => {
+    if (!c || c.s == null) return null;
+    const b = Number(c.b);
+    const a = Number(c.a);
+    if (b > 0 && a > 0 && a >= b) return (b + a) / 2;
+    const l = Number(c.l);
+    if ((b === 0 || !isFinite(b)) && (a === 0 || !isFinite(a)) && l > 0) return l;
+    return null;
+  };
+  const pickAtmTradable = (contracts) => {
+    let best = null;
+    let bestDist = Infinity;
+    for (const c of contracts || []) {
+      if (tradableMid(c) == null) continue;
+      const d = Math.abs(c.s - spot);
+      if (d < bestDist) { best = c; bestDist = d; }
+    }
+    return best;
+  };
+  const atmC = pickAtmTradable(chain.c);
+  const atmP = pickAtmTradable(chain.p);
+  if (!atmC || !atmP) return null;
+  const straddleMid = tradableMid(atmC) + tradableMid(atmP);
+  if (!(straddleMid > 0)) return null;
+  const pct = straddleMid / spot;
+  if (!isFinite(pct) || pct <= 0) return null;
+  return { pct: Number(pct.toFixed(4)), expiry: expSec };
+}
+
 function computeAtm30dIv(data) {
   if (!data?.spot || !data?.chains) return null;
   const spot = data.spot;
@@ -10479,6 +10544,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       const fresh = sessionMap.get(sym + "|" + date);
       if (fresh) session = fresh;
     }
+    const implied = computeImpliedMoveForDate(data, date);
     events.push({
       type: "earnings",
       date,
@@ -10486,6 +10552,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       title: `${sym} earnings`,
       session,
       source: "Yahoo Finance",
+      ...(implied ? { impliedMovePct: implied.pct } : {}),
     });
   }
 
