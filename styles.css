@@ -3139,6 +3139,14 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.cal-chip-time {
+  font: 600 10px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .04em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
 .cal-earnings { border-left-color: var(--accent); }
 .cal-fed { border-left-color: var(--neg); }
 .cal-fed .cal-chip-tag { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }
@@ -3252,6 +3260,7 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.fomc-rate-missing .fomc-rate-value { color: var(--muted); }
 .fomc-meeting + .fomc-meeting { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
 .fomc-meeting-title {
   font: 600 12px/1.2 var(--font-mono);
@@ -3286,6 +3295,12 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.fomc-prob-empty a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.fomc-prob-empty a:hover { color: var(--text-strong); }
 .calendar-empty {
   padding: var(--s-5) var(--s-3);
   text-align: center;

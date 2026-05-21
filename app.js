@@ -3146,9 +3146,9 @@
     var header = '<div class="fomc-head">' +
       (rateValue != null
         ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span></div>'
-        : '') +
+        : '<div class="fomc-rate fomc-rate-missing"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">—</span><span class="fomc-rate-asof">FRED:DFF unavailable this build</span></div>') +
       (meetings.length
-        ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + '</span></div>'
+        ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + ' · 14:00 ET</span></div>'
         : '') +
       '</div>';
     // Normalize a probability to [0, 1] for the bar width; return null
@@ -3185,7 +3185,8 @@
           }).join('') +
         '</tbody></table>';
       var note = allEmpty
-        ? '<p class="fomc-prob-empty">No CME FedWatch snapshot yet for this meeting. Probability buckets will populate once daily snapshots accumulate.</p>'
+        ? '<p class="fomc-prob-empty">No FedWatch snapshot yet — the build was unable to fetch ZQ Fed Funds futures from Yahoo. ' +
+            'Check <a href="https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html" target="_blank" rel="noopener noreferrer">CME FedWatch</a> directly for current probabilities.</p>'
         : '';
       return '<div class="fomc-meeting">' +
         '<h3 class="fomc-meeting-title">' + escapeHtml(m.label) + '</h3>' +
@@ -3260,6 +3261,7 @@
             ' <span class="cal-chip-text">earnings</span>';
         } else {
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
+            (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
         }
         var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
