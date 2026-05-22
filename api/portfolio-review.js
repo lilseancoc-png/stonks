@@ -36,6 +36,20 @@ function clean(s) {
   return String(s || "").slice(0, 60);
 }
 
+// JWT-scoped client: uses the public anon key so RLS policies apply, and
+// passes the user's JWT in Authorization so auth.uid() resolves to them.
+// Matches the pattern in close-position.js / delete-trade.js — RLS, not
+// application-layer filtering, is the security boundary.
+function userClient(token) {
+  const url = process.env.SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if (!url || !anonKey) return null;
+  return createClient(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+}
+
 async function verifyUser(req) {
   const auth = req.headers.authorization || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
@@ -44,14 +58,23 @@ async function verifyUser(req) {
 
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return { error: "supabase not configured" };
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if (!url || !serviceKey || !anonKey) return { error: "supabase not configured" };
 
-  const supabase = createClient(url, serviceKey, {
+  // Service-role client verifies the JWT and is also retained for the
+  // server-computed snapshot upsert — portfolio_snapshots has no
+  // INSERT/UPDATE policy by design (equity is computed from positions,
+  // not user-writable), so RLS would reject a JWT-scoped write there.
+  // Every read of user data (positions, trades) goes through the
+  // JWT-scoped client so RLS enforces ownership at the DB layer.
+  const svc = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const { data, error } = await supabase.auth.getUser(token);
+  const { data, error } = await svc.auth.getUser(token);
   if (error || !data?.user) return { error: "invalid token" };
-  return { user: data.user, supabase };
+  const supabase = userClient(token);
+  if (!supabase) return { error: "supabase not configured" };
+  return { user: data.user, supabase, svc };
 }
 
 // Walk every SELL trade for this user and tally two numbers:
@@ -511,10 +534,14 @@ export default async function handler(req, res) {
   // Realized P/L from prior SELL trades + today's equity snapshot. Both are
   // best-effort: if the new tables aren't migrated yet, the review still
   // returns a clean response without snapshot data.
+  // Trades read goes through the JWT-scoped client so RLS enforces
+  // ownership; snapshot write uses the service-role client because
+  // portfolio_snapshots has no INSERT/UPDATE RLS policy (equity is
+  // server-computed and intentionally not user-writable).
   let snapshot = null;
   try {
     const realized = await fetchRealizedFromTrades(auth.supabase, auth.user.id);
-    snapshot = await writeSnapshot(auth.supabase, auth.user.id, hydrated, realized);
+    snapshot = await writeSnapshot(auth.svc, auth.user.id, hydrated, realized);
   } catch (_) {
     snapshot = null;
   }
