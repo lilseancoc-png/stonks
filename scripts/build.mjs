@@ -15242,22 +15242,26 @@ function classifyAiError(err, attempt) {
 const AI_SYSTEM_PROMPT =
   "You are an options-savvy financial news summarizer. " +
   "Given a US-listed ticker, its current share price, and a handful of recent " +
-  "news articles (each with a headline AND the article BODY text), write ONE " +
-  "paragraph (2-4 sentences, plain English, no bullet points, no markdown) " +
+  "news articles (some with the article BODY text attached, others headline-only), " +
+  "write ONE paragraph (2-4 sentences, plain English, no bullet points, no markdown) " +
   "describing the current news context an options trader should weigh before " +
   "opening a contract on this name. The paragraph MUST be SPECIFIC TO THE " +
-  "TICKER and grounded in the article BODY text — bodies are the source of " +
-  "truth, not the titles. Cite the most material name-specific facts (deal " +
+  "TICKER and grounded in the supplied article material. Article bodies are " +
+  "the strongest source when present; when only a title + publisher + date are " +
+  "supplied, treat the title as the signal and paraphrase what the headlines " +
+  "collectively say happened. Cite the most material name-specific facts (deal " +
   "terms, earnings beats/misses, product launches, regulatory actions, " +
   "executive moves, analyst-target shifts, lawsuit outcomes). AVOID generic " +
   "market commentary ('broader market sentiment', 'macro volatility', " +
-  "'geopolitical risk') unless the article bodies specifically tie that macro " +
-  "story to the ticker. Mention any imminent catalyst the bodies surface. " +
-  "Stay factual; do not invent numbers or events that are not in the bodies. " +
+  "'geopolitical risk') unless the articles specifically tie that macro " +
+  "story to the ticker. Mention any imminent catalyst the material surfaces. " +
+  "Stay factual; do not invent numbers or events the articles do not support. " +
   "Do not give buy/sell advice. Also return a sentiment tag derived from the " +
   "news: 'bullish' if the balance of recent news is clearly positive for the " +
   "underlying, 'bearish' if clearly negative, 'neutral' if mixed or routine, " +
-  "and 'uncertain' if there is not enough recent news to judge. " +
+  "and 'uncertain' if recent ticker-specific news is too thin to judge — in " +
+  "which case the paragraph should explicitly state that recent ticker-specific " +
+  "news is limited rather than falling back to generic macro commentary. " +
   "Respond with ONLY a JSON object of the form " +
   `{"paragraph": "...", "sentiment": "bullish"|"neutral"|"bearish"|"uncertain"} ` +
   "— no markdown fences, no prose before or after the JSON.";
@@ -15359,7 +15363,10 @@ async function fetchMacroHeadlines() {
 // `title + description` per item, plenty of ticker-specific text to ground
 // a paragraph in.
 const RSS_FETCH_TIMEOUT_MS = 10000;
-const RSS_DESC_MIN_CHARS = 60;
+// Was 60 — but on GHA the publisher-URL body fetch path is blocked, so
+// any item we blank here ends up dropped entirely. Better to keep even a
+// short snippet (15-50 chars) than fall through to a fetch that fails.
+const RSS_DESC_MIN_CHARS = 0;
 const RSS_DESC_MAX_CHARS = 1500;
 function decodeAndStripHtml(s) {
   return decodeHtmlEntities(String(s).replace(/<[^>]+>/g, " "))
@@ -15686,9 +15693,14 @@ async function fetchArticleBody(url) {
 // articles to write a faithful paragraph; pulling 10 just to feed the same
 // summary doubles fetch time + risks rate limits on news domains.
 //
-// Returns a NEW array where each kept item has a `body` field. Headlines
-// whose body couldn't be fetched (404, paywall stub, video page, etc.)
-// are dropped entirely so the AI never sees a stub it might paraphrase.
+// Returns a NEW array preserving every input headline in order. Items
+// whose body fetch succeeded get a populated `body`; items where the
+// fetch failed (404, paywall stub, video page, GHA-IP-blocked) keep
+// whatever `body` they arrived with (empty string for RSS items with no
+// description, undefined for search-API items). The downstream prompt
+// handles headline-only items — we'd rather have the AI write a take
+// grounded in titles + publisher + date than fall through to the
+// deterministic macro paragraph just because publishers block GHA IPs.
 const ARTICLE_FETCH_CONCURRENCY = 3;
 const ARTICLE_FETCH_TOP = 5;
 async function enrichHeadlinesWithBodies(headlines) {
@@ -15699,29 +15711,25 @@ async function enrichHeadlinesWithBodies(headlines) {
   // on items that don't have body text yet (the legacy yahooFinance.search()
   // fallback path). This keeps the bake-time HTTP burst small now that RSS
   // is the primary source.
+  const out = slice.map((h) => ({ ...h }));
   const needsFetch = [];
-  const out = [];
-  for (const h of slice) {
-    if (h.body) { out.push(h); continue; }
-    needsFetch.push(h);
+  for (let i = 0; i < out.length; i++) {
+    if (!out[i].body && out[i].link) needsFetch.push(i);
   }
   if (!needsFetch.length) return out;
-  const fetched = new Array(needsFetch.length).fill(null);
   let cursor = 0;
   async function worker() {
     while (true) {
-      const i = cursor++;
-      if (i >= needsFetch.length) return;
-      const h = needsFetch[i];
-      if (!h.link) continue;
-      const body = await fetchArticleBody(h.link);
-      if (body) fetched[i] = { ...h, body };
+      const k = cursor++;
+      if (k >= needsFetch.length) return;
+      const i = needsFetch[k];
+      const body = await fetchArticleBody(out[i].link);
+      if (body) out[i].body = body;
     }
   }
   const workers = [];
   for (let k = 0; k < Math.min(ARTICLE_FETCH_CONCURRENCY, needsFetch.length); k++) workers.push(worker());
   await Promise.all(workers);
-  for (const f of fetched) if (f) out.push(f);
   return out;
 }
 
@@ -15910,9 +15918,10 @@ const NEWS_RESPONSE_SCHEMA = {
 };
 
 async function generateNewsTake(ai, symbol, spot, headlines) {
-  // headlines arrive enriched with `body` (article text) from
-  // enrichHeadlinesWithBodies — anything without a readable body has
-  // already been dropped upstream.
+  // headlines arrive from enrichHeadlinesWithBodies — items with a body got
+  // a successful body fetch (or a usable RSS description); items without
+  // are headline-only (publisher fetch failed, common on GHA egress IPs)
+  // but the title + publisher + date are still real signal.
   const headlineBlock = headlines.length
     ? headlines
         .map((h, i) => {
@@ -15926,7 +15935,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
   const userMessage =
     `Ticker: ${symbol}\n` +
     `Spot price: $${spot.toFixed(2)}\n` +
-    `Recent articles (newest first — body text is the source of truth, the title is for citation only):\n${headlineBlock}`;
+    `Recent articles (newest first — article bodies, when present, are the strongest source; otherwise the title + publisher + date are the signal):\n${headlineBlock}`;
 
   // Flash-Lite + responseSchema means the JSON shape is enforced by the
   // decoder; the parser below keeps the fence-stripping fallback for the
@@ -16205,7 +16214,7 @@ const COMBINED_SYSTEM_PROMPT = `You are an options-savvy equity analyst writing 
 OUTPUT SHAPE — you always return a single JSON object with at minimum a "news" field. The "fundamentals" field is included only when the user message contains a "Fundamentals snapshot:" block (some tickers — ETFs, ADRs without disclosure, micro-caps — have no useful fundamentals; for those return only the news field and omit fundamentals entirely).
 
 NEWS FIELD — {paragraph, sentiment}.
-- paragraph: ONE paragraph, 2-4 sentences, plain English, no bullets, no markdown. The paragraph MUST be SPECIFIC TO THE TICKER and grounded in the article BODY text supplied — the bodies are the source of truth, not the titles. Cite the most material name-specific facts (deal terms, earnings beats/misses, product launches, regulatory actions, executive moves, analyst-target shifts, lawsuit outcomes). Mention any imminent catalyst the bodies surface. AVOID generic market commentary ("broader market sentiment", "macro volatility", "geopolitical risk") unless the article bodies specifically tie that macro story to the ticker. Stay factual: do not invent numbers, dates, or events that aren't in the bodies. Do not give buy/sell advice.
+- paragraph: ONE paragraph, 2-4 sentences, plain English, no bullets, no markdown. The paragraph MUST be SPECIFIC TO THE TICKER and grounded in the supplied article material. Article bodies are the strongest source when present; when only titles + publisher + date are supplied (no body), treat the title text as the signal and paraphrase what the collection of headlines collectively says happened. Cite the most material name-specific facts (deal terms, earnings beats/misses, product launches, regulatory actions, executive moves, analyst-target shifts, lawsuit outcomes). Mention any imminent catalyst the material surfaces. AVOID generic market commentary ("broader market sentiment", "macro volatility", "geopolitical risk") unless the articles specifically tie that macro story to the ticker. Stay factual: do not invent numbers, dates, or events the articles don't support. Do not give buy/sell advice. If the supplied news is too thin to say anything ticker-specific, return sentiment "uncertain" and a one-sentence paragraph stating that recent ticker-specific news is limited — do NOT fall back to generic macro commentary.
 - sentiment: derived from the NEWS only.
     - "bullish"   — recent news is clearly positive for the underlying
     - "bearish"   — recent news is clearly negative
@@ -16308,10 +16317,11 @@ const TICKER_JUDGMENT_SCHEMA = {
 };
 
 async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals) {
-  // Articles arrive with full body text from enrichHeadlinesWithBodies —
-  // anything without a readable body has already been dropped upstream so
-  // the AI never reasons off a paywall stub. The bodies are the source of
-  // truth; the headline title is kept for citation only.
+  // Articles arrive from enrichHeadlinesWithBodies. Items with a body got
+  // a successful publisher-URL fetch (or a usable RSS description); items
+  // without a body are headline-only — the publisher fetch failed (common
+  // on GHA egress IPs) but the title + publisher + date are still real
+  // signal the AI should ground a take in.
   const headlineBlock = headlines.length
     ? headlines
         .map((h, i) => {
@@ -16325,7 +16335,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
   let userMessage =
     `Ticker: ${symbol}\n` +
     `Spot price: $${spot.toFixed(2)}\n` +
-    `Recent articles (newest first — body text is the source of truth, the title is for citation only):\n${headlineBlock}`;
+    `Recent articles (newest first — article bodies, when present, are the strongest source; otherwise the title + publisher + date are the signal):\n${headlineBlock}`;
   const includeFundamentals = fundamentals && hasUsefulFundamentals(fundamentals);
   if (includeFundamentals) {
     // Reuse formatFundamentalsForPrompt verbatim — the duplicated header
@@ -16526,15 +16536,16 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
     try {
       const rawHeadlines = await fetchTickerHeadlines(sym);
       const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
-      if (!headlines.length) {
+      if (!rawHeadlines.length) {
         const sector = SECTORS[sym] || null;
         data.news = synthesizeFallbackNewsTake(sym, sector, macroBackdrop, data.fundamentals, data.spot);
-        console.log(`  ⊘ ${sym} — no readable articles → fallback macro paragraph`);
+        console.log(`  ⊘ ${sym} — Yahoo returned no recent news → fallback macro paragraph`);
         return;
       }
+      const withBody = headlines.filter((h) => h.body).length;
       const take = await generateNewsTake(ai, sym, data.spot, headlines);
       data.news = take;
-      console.log(`  ✓ ${sym} — ${take.sentiment} (${headlines.length}/${rawHeadlines.length} articles with body)`);
+      console.log(`  ✓ ${sym} — ${take.sentiment} (${headlines.length} articles, ${withBody} with body)`);
     } catch (err) {
       console.log(`  ✗ ${sym} — AI take failed: ${err.message}`);
       data.news = null;
@@ -16564,27 +16575,27 @@ async function attachTickerJudgments(chains, macroBackdrop) {
     Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
       try {
         const rawHeadlines = await fetchTickerHeadlines(sym);
-        // Body enrichment is the quality gate: any article we cannot actually
-        // read (404, paywall stub, video page) is dropped before the AI sees
-        // it, so the model never paraphrases a headline it didn't read.
+        // Body enrichment best-effort attaches article body text to each
+        // headline. When the fetch fails (which is most of the time on GHA
+        // egress IPs) the headline still passes through with title +
+        // publisher + date — the AI prompt knows how to ground a take in
+        // that. Only synthesize the deterministic fallback when Yahoo
+        // returned literally zero recent news for the ticker.
         const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
-        if (!headlines.length) {
-          // No ticker-specific news the AI could read in full → synthesize a
-          // deterministic fallback paragraph from sector + macro backdrop.
-          // No AI call here on purpose: the goal is honest "market context",
-          // not invented ticker-specific events.
+        if (!rawHeadlines.length) {
           const sector = SECTORS[sym] || null;
           data.news = synthesizeFallbackNewsTake(sym, sector, macroBackdrop, data.fundamentals, data.spot);
-          console.log(`  ⊘ ${sym} — no readable articles (raw ${rawHeadlines.length}, all paywalled / unfetched) → fallback macro paragraph`);
+          console.log(`  ⊘ ${sym} — Yahoo returned no recent news → fallback macro paragraph`);
           return;
         }
+        const withBody = headlines.filter((h) => h.body).length;
         const { news, judgment } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
         data.news = news;
         if (judgment) {
           data.fundamentals = { ...data.fundamentals, judgment };
         }
         const fundTag = judgment ? ` · fundamentals ${judgment.verdict}` : "";
-        console.log(`  ✓ ${sym} — ${news.sentiment} (${headlines.length}/${rawHeadlines.length} articles with body)${fundTag}`);
+        console.log(`  ✓ ${sym} — ${news.sentiment} (${headlines.length} articles, ${withBody} with body)${fundTag}`);
       } catch (err) {
         console.log(`  ✗ ${sym} ticker judgment failed: ${err.message}`);
         if (!data.news) data.news = null;
