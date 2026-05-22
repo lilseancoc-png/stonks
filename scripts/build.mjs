@@ -13183,13 +13183,29 @@ async function fetchEdgar13FHoldings(cik, filing) {
       || items.find((f) => /\.xml$/i.test(f.name) && !/primary_doc/i.test(f.name) && f.name !== filing.primaryDocument);
     if (!xmlFile) return [];
     const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/${xmlFile.name}`;
-    const xmlRes = await fetch(xmlUrl, {
-      headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!xmlRes.ok) return [];
-    const xml = await xmlRes.text();
-    return parseEdgar13FXml(xml);
+    // EDGAR's XML mirror occasionally stalls beyond 30s on large filings;
+    // a single retry catches transient hops without doubling worst-case
+    // wall clock (still well inside the per-firm 60s budget).
+    let xmlErr = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const xmlRes = await fetch(xmlUrl, {
+          headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!xmlRes.ok) return [];
+        const xml = await xmlRes.text();
+        return parseEdgar13FXml(xml);
+      } catch (err) {
+        xmlErr = err;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw xmlErr || new Error("EDGAR XML fetch failed");
   } catch (err) {
     console.log(`    ⚠ EDGAR holdings CIK${cik} accession ${filing.accessionNumber} failed: ${err.message}`);
     return [];
@@ -15592,16 +15608,48 @@ function extractMetaSummary(html) {
 // Diagnostic shared across one build run — counts WHY fetches failed.
 // Logged once per ticker pass so the build output tells us whether to
 // blame HTTP rejection vs. extractor logic vs. paywall heuristic.
+// `httpByStatus` tracks status-code buckets so we can distinguish bot-
+// detection (403) from genuinely missing articles (404) from upstream
+// flake (5xx) — when one bucket dominates we know what to fix.
 const _bodyFetchStats = {
   ok: 0, ogOnly: 0, http: 0, ctype: 0, tooSmall: 0,
   noExtraction: 0, paywall: 0, paywallDomain: 0, err: 0,
+  domainSkipped: 0,
+  httpByStatus: { "403": 0, "404": 0, "429": 0, "5xx": 0, "other": 0 },
 };
+// Per-run domain blocklist: a domain that returns 403/404 several times
+// in a row is almost certainly blocking our IP wholesale — keep trying
+// it just wastes the 8s fetch timeout. Tracked across one build run and
+// reset between runs alongside the stats counters.
+const BODY_FETCH_DOMAIN_FAIL_THRESHOLD = 3;
+const _bodyFetchDomainFails = new Map();
 function resetBodyFetchStats() {
-  for (const k of Object.keys(_bodyFetchStats)) _bodyFetchStats[k] = 0;
+  for (const k of Object.keys(_bodyFetchStats)) {
+    if (k === "httpByStatus") {
+      for (const code of Object.keys(_bodyFetchStats.httpByStatus)) {
+        _bodyFetchStats.httpByStatus[code] = 0;
+      }
+    } else {
+      _bodyFetchStats[k] = 0;
+    }
+  }
+  _bodyFetchDomainFails.clear();
 }
 function summarizeBodyFetchStats() {
   const s = _bodyFetchStats;
-  return `body fetches: ok=${s.ok} og=${s.ogOnly} http_err=${s.http} non_html=${s.ctype} too_small=${s.tooSmall} no_extract=${s.noExtraction} paywall_phrase=${s.paywall} paywall_domain=${s.paywallDomain} thrown=${s.err}`;
+  const h = s.httpByStatus;
+  return `body fetches: ok=${s.ok} og=${s.ogOnly} http_err=${s.http} (403=${h["403"]} 404=${h["404"]} 429=${h["429"]} 5xx=${h["5xx"]} other=${h["other"]}) non_html=${s.ctype} too_small=${s.tooSmall} no_extract=${s.noExtraction} paywall_phrase=${s.paywall} paywall_domain=${s.paywallDomain} thrown=${s.err} domain_skipped=${s.domainSkipped}`;
+}
+function _bodyFetchHost(url) {
+  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ""); }
+  catch { return null; }
+}
+function _bodyFetchBucketForStatus(status) {
+  if (status === 403) return "403";
+  if (status === 404) return "404";
+  if (status === 429) return "429";
+  if (status >= 500 && status < 600) return "5xx";
+  return "other";
 }
 
 async function fetchArticleBody(url) {
@@ -15609,6 +15657,14 @@ async function fetchArticleBody(url) {
   // Skip URLs at known-paywall hosts entirely — saves egress, and these
   // would just return stubs the heuristic below would drop anyway.
   if (isPaywallUrl(url)) { _bodyFetchStats.paywallDomain++; return null; }
+  // Within this run, abandon domains that have already rejected us
+  // repeatedly — they're almost certainly IP-blocking and each retry
+  // burns the full 8s fetch timeout.
+  const host = _bodyFetchHost(url);
+  if (host && (_bodyFetchDomainFails.get(host) || 0) >= BODY_FETCH_DOMAIN_FAIL_THRESHOLD) {
+    _bodyFetchStats.domainSkipped++;
+    return null;
+  }
   try {
     const res = await fetchWithTimeout(url, {
       headers: {
@@ -15619,7 +15675,17 @@ async function fetchArticleBody(url) {
       },
       redirect: "follow",
     }, ARTICLE_FETCH_TIMEOUT_MS);
-    if (!res.ok) { _bodyFetchStats.http++; return null; }
+    if (!res.ok) {
+      _bodyFetchStats.http++;
+      const bucket = _bodyFetchBucketForStatus(res.status);
+      _bodyFetchStats.httpByStatus[bucket]++;
+      // Only count terminal rejections (403/404) toward the domain
+      // blocklist — 5xx and 429 are usually transient.
+      if ((bucket === "403" || bucket === "404") && host) {
+        _bodyFetchDomainFails.set(host, (_bodyFetchDomainFails.get(host) || 0) + 1);
+      }
+      return null;
+    }
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     if (ct && !ct.includes("html") && !ct.includes("xml")) { _bodyFetchStats.ctype++; return null; }
     const html = await res.text();
