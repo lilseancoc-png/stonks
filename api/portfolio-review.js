@@ -130,8 +130,14 @@ async function writeSnapshot(supabase, userId, hydrated, realized) {
   // basis nudges it — which is the whole point of the chart).
   const equity = openValue + realizedProceeds;
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  // Supabase JS returns { error } rather than throwing for query failures,
+  // so the previous try/catch only ever caught network-layer errors and let
+  // RLS denials, validation failures, etc. fall through silently with the
+  // snapshot row never written. Check the response and log loudly; only
+  // swallow the "schema not migrated yet" case (PostgREST PGRST205 / 42P01)
+  // so older deployments without the snapshots table still review cleanly.
   try {
-    await supabase
+    const { error } = await supabase
       .from("portfolio_snapshots")
       .upsert({
         user_id: userId,
@@ -141,8 +147,16 @@ async function writeSnapshot(supabase, userId, hydrated, realized) {
         unrealized_pnl: Math.round(unrealizedPnl * 100) / 100,
         open_positions: openCount,
       }, { onConflict: "user_id,date" });
-  } catch (_) {
-    // schema not migrated yet — skip silently.
+    if (error) {
+      const code = error.code || "";
+      const missingTable = code === "42P01" || code === "PGRST205"
+        || /does not exist|not found in schema cache/i.test(error.message || "");
+      if (!missingTable) {
+        console.error("portfolio snapshot upsert failed", { code, message: error.message });
+      }
+    }
+  } catch (err) {
+    console.error("portfolio snapshot upsert threw", { message: String(err?.message || err) });
   }
   return { equity, unrealizedPnl, realizedPnl, realizedProceeds, date: today };
 }
