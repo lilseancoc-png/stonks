@@ -53,7 +53,11 @@ export default async function handler(req, res) {
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
-    const msg = String(err?.message || err);
-    return res.status(502).json({ error: msg.slice(0, 200) });
+    // Log the full upstream error server-side for debugging, but return a
+    // generic message to the client — raw SDK errors (Yahoo allowlist
+    // strings, internal stack frames) aren't useful to end users and can
+    // leak implementation detail.
+    console.error("chain upstream failed", { symbol, expDate, message: String(err?.message || err) });
+    return res.status(502).json({ error: "chain unavailable" });
   }
 }
