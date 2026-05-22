@@ -13315,16 +13315,29 @@ function normalize13FValueUnits(holdings) {
   return holdings;
 }
 
-// OpenFIGI CUSIP → ticker mapping. Free tier: 25 req/min unauth, 100
-// CUSIPs per request. Set OPENFIGI_API_KEY for the paid tier (50 req/min).
+// OpenFIGI CUSIP → ticker mapping. Free tier (no key): 25 req/min, max
+// 10 jobs per request — anything larger comes back as 413. Paid tier
+// (OPENFIGI_API_KEY set): higher rate limit, 100 jobs per request.
 // On failure we silently fall through — the per-firm table renders the
 // holding by issuer name without a ticker chip.
+// We also cap total batches so unauth throttling can't blow past the
+// 180s buildPerFirm13FHoldings budget; remaining CUSIPs fall through.
+const OPENFIGI_MAX_BATCHES_UNAUTH = 50; // ~50 × 2.5s = 125s
 async function fetchOpenFigiCusipMap(cusips) {
   const out = new Map();
   const unique = [...new Set(cusips.filter(Boolean))];
   if (!unique.length) return out;
-  const chunkSize = 100;
+  const hasKey = !!process.env.OPENFIGI_API_KEY;
+  const chunkSize = hasKey ? 100 : 10;
+  const maxBatches = hasKey ? Infinity : OPENFIGI_MAX_BATCHES_UNAUTH;
+  let batchesDone = 0;
   for (let i = 0; i < unique.length; i += chunkSize) {
+    if (batchesDone >= maxBatches) {
+      const skipped = unique.length - i;
+      console.log(`    ⚠ OpenFIGI batch budget exhausted — skipping ${skipped} CUSIPs (set OPENFIGI_API_KEY to map more)`);
+      break;
+    }
+    batchesDone++;
     const chunk = unique.slice(i, i + chunkSize);
     try {
       const headers = {
@@ -13860,42 +13873,59 @@ const ECON_REPORTS = [
 // (e.g., CPIAUCSL feeds both CPI MoM and CPI YoY).
 async function fetchFredSeries(seriesId) {
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
-  try {
-    const res = await fetch(url, {
-      // FRED's Cloudflare front rejects bare User-Agents with 403. Send a
-      // realistic desktop browser UA + accept/lang headers to pass the WAF.
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        accept: "text/csv,application/csv,text/plain,*/*;q=0.5",
-        "accept-language": "en-US,en;q=0.9",
-        referer: "https://fred.stlouisfed.org/",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      console.log(`    ⚠ FRED ${seriesId} HTTP ${res.status}`);
-      return [];
+  // FRED occasionally responds in >15s during heavy load (or behind a
+  // slow Cloudflare hop). Retry once after a short backoff before giving
+  // up — callers already tolerate an empty result on permanent failure.
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(url, {
+        // FRED's Cloudflare front rejects bare User-Agents with 403. Send a
+        // realistic desktop browser UA + accept/lang headers to pass the WAF.
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          accept: "text/csv,application/csv,text/plain,*/*;q=0.5",
+          "accept-language": "en-US,en;q=0.9",
+          referer: "https://fred.stlouisfed.org/",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        console.log(`    ⚠ FRED ${seriesId} HTTP ${res.status}${attempt < 2 ? " — retrying" : ""}`);
+        lastErr = new Error(`HTTP ${res.status}`);
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        return [];
+      }
+      const csv = await res.text();
+      const lines = csv.split(/\r?\n/).filter(Boolean);
+      if (lines.length < 2) return [];
+      const out = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(",");
+        if (parts.length < 2) continue;
+        const date = parts[0].trim();
+        const raw = parts[1].trim();
+        if (raw === "" || raw === ".") continue;
+        const value = Number(raw);
+        if (!Number.isFinite(value)) continue;
+        out.push({ date, value });
+      }
+      return out;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        console.log(`    ⚠ FRED ${seriesId} attempt ${attempt} failed: ${err.message} — retrying`);
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
     }
-    const csv = await res.text();
-    const lines = csv.split(/\r?\n/).filter(Boolean);
-    if (lines.length < 2) return [];
-    const out = [];
-    for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(",");
-      if (parts.length < 2) continue;
-      const date = parts[0].trim();
-      const raw = parts[1].trim();
-      if (raw === "" || raw === ".") continue;
-      const value = Number(raw);
-      if (!Number.isFinite(value)) continue;
-      out.push({ date, value });
-    }
-    return out;
-  } catch (err) {
-    console.log(`    ⚠ FRED ${seriesId} failed: ${err.message}`);
-    return [];
   }
+  console.log(`    ⚠ FRED ${seriesId} failed: ${lastErr ? lastErr.message : "unknown"}`);
+  return [];
 }
 
 // Format a release value for display, given the format key from the
