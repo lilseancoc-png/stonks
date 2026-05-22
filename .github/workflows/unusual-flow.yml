@@ -93,7 +93,14 @@ jobs:
           # effectively dead and every flagged contract re-incurs an AI
           # call. Guard its inclusion since it only exists when GEMINI_API_KEY
           # is set (forks / unconfigured deployments will skip the file).
-          STASH_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json index.html app.js styles.css"
+          # ai-usage.json is the shared per-day Gemini budget tracker
+          # (writeAiUsageState in build.mjs). The scanner rewrites it on
+          # every run via loadAiUsageState/writeAiUsageState even when
+          # GEMINI_API_KEY is unset, so it must be stashed too — otherwise
+          # it sits unstaged after `git stash push` and the subsequent
+          # `git pull --rebase` aborts with "cannot pull with rebase: You
+          # have unstaged changes", killing the whole commit step.
+          STASH_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json index.html app.js styles.css"
           if [ -f data/flow-explanations.json ]; then
             STASH_PATHS="$STASH_PATHS data/flow-explanations.json"
           fi
