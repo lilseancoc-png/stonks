@@ -882,8 +882,14 @@ function openAddModal() {
     e.preventDefault();
     const status = $("pf-add-status");
     const submit = $("pf-add-submit");
+    const uid = state.session?.user?.id;
+    if (!uid) {
+      status.textContent = "Sign-in expired — refresh and sign in again.";
+      status.className = "pf-status pf-status-err";
+      return;
+    }
     const payload = {
-      user_id: state.session.user.id,
+      user_id: uid,
       symbol: symbolSel.value,
       side: sidePut.checked ? "put" : "call",
       expiry: Number(expirySel.value),
@@ -953,12 +959,21 @@ async function runReview() {
   reviewEl.innerHTML = `<p class="pf-status">Pricing positions and asking AI for a strategy…</p>`;
 
   try {
-    const token = state.session?.access_token;
+    // Pull a fresh session straight from the SDK rather than reading the
+    // cached state.session — the auto-refresh timer may have rotated the
+    // access token without onAuthChange firing yet, and a stale bearer
+    // turns into a generic 401 the user can't recover from.
+    const session = await getSession();
+    const token = session?.access_token;
+    if (!token) {
+      reviewEl.innerHTML = `<p class="pf-status pf-status-err">Sign-in expired — refresh and sign in again.</p>`;
+      return;
+    }
     const r = await fetch("/api/portfolio-review", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(token ? { authorization: "Bearer " + token } : {}),
+        authorization: "Bearer " + token,
       },
       body: JSON.stringify({}),
     });
@@ -1113,12 +1128,21 @@ function openSellModal(positionId) {
     status.textContent = "Logging sell…";
     status.className = "pf-status";
     try {
-      const token = state.session?.access_token;
+      // Same reason as runReview: read from the SDK so an auto-refreshed
+      // token isn't missed by a stale state.session.
+      const session = await getSession();
+      const token = session?.access_token;
+      if (!token) {
+        status.textContent = "Sign-in expired — refresh and sign in again.";
+        status.className = "pf-status pf-status-err";
+        submit.disabled = false;
+        return;
+      }
       const r = await fetch("/api/close-position", {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(token ? { authorization: "Bearer " + token } : {}),
+          authorization: "Bearer " + token,
         },
         body: JSON.stringify({ position_id: positionId, quantity, price }),
       });
