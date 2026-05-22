@@ -57,6 +57,12 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Scan for unusual flow
+        env:
+          # Per-flag AI explanations need a Gemini key; without one the
+          # scanner silently skips the whole pipeline (see scan-unusual.mjs
+          # attachFlowExplanations) and the UI renders without notes.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AI_FLOW_MODEL: ${{ vars.AI_FLOW_MODEL }}
         run: node scripts/scan-unusual.mjs
 
       - name: Regenerate static site with fresh unusual flow
@@ -82,9 +88,16 @@ jobs:
           # the repeat-conviction feature and must be included or the rebase
           # will refuse / stash pop will silently lose it). Include the
           # regenerated static files too so the page reflects this scan.
-          git stash push --include-untracked \
-            data/unusual.json data/unusual-history.json data/unusual-log.json \
-            index.html app.js styles.css || true
+          # flow-explanations.json is the per-contract AI cache and must
+          # persist across hourly runs — without committing it the cache is
+          # effectively dead and every flagged contract re-incurs an AI
+          # call. Guard its inclusion since it only exists when GEMINI_API_KEY
+          # is set (forks / unconfigured deployments will skip the file).
+          STASH_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json index.html app.js styles.css"
+          if [ -f data/flow-explanations.json ]; then
+            STASH_PATHS="$STASH_PATHS data/flow-explanations.json"
+          fi
+          git stash push --include-untracked $STASH_PATHS || true
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
           # Don't swallow stash pop errors — a silent conflict here means
           # the freshly-scanned files get discarded and the job ends green
@@ -92,7 +105,7 @@ jobs:
           # want to surface. The set -e above ensures we exit non-zero on
           # any conflict rather than continuing to the empty commit path.
           git stash pop
-          git add data/unusual.json data/unusual-history.json data/unusual-log.json index.html app.js styles.css
+          git add $STASH_PATHS
           if ! git diff --cached --quiet; then
             git commit -m "chore: unusual flow scan $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
