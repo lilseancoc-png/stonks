@@ -116,10 +116,16 @@ async function writeSnapshot(supabase, userId, hydrated, realized) {
   let openCount = 0;
   for (const h of hydrated) {
     if (h.error || h.entryPremium == null || h.quantity == null) continue;
-    openCount += 1;
     const qty = Number(h.quantity);
-    costBasis += Number(h.entryPremium) * qty * 100;
-    const mark = h.currentMid != null ? Number(h.currentMid) : Number(h.entryPremium);
+    const ep = Number(h.entryPremium);
+    // Skip the row entirely if entry premium isn't a finite number — a
+    // single NaN poisons openValue/costBasis and the chart ends up with a
+    // gap. Defense in depth against malformed legacy rows.
+    if (!Number.isFinite(qty) || !Number.isFinite(ep)) continue;
+    openCount += 1;
+    costBasis += ep * qty * 100;
+    let mark = h.currentMid != null ? Number(h.currentMid) : ep;
+    if (!Number.isFinite(mark)) mark = ep;
     openValue += mark * qty * 100;
   }
   const unrealizedPnl = openValue - costBasis;
@@ -506,9 +512,12 @@ function totalPortfolioPnlPct(hydrated) {
   let value = 0;
   for (const h of hydrated) {
     if (h.error || h.entryPremium == null || h.quantity == null) continue;
-    cost += h.entryPremium * h.quantity * 100;
-    if (h.currentMid != null) value += h.currentMid * h.quantity * 100;
-    else value += h.entryPremium * h.quantity * 100; // unknown → treat as flat
+    const qty = Number(h.quantity);
+    const ep = Number(h.entryPremium);
+    if (!Number.isFinite(qty) || !Number.isFinite(ep)) continue;
+    cost += ep * qty * 100;
+    const cm = h.currentMid != null ? Number(h.currentMid) : ep;
+    value += (Number.isFinite(cm) ? cm : ep) * qty * 100;
   }
   if (cost <= 0) return null;
   return ((value - cost) / cost) * 100;
