@@ -15075,12 +15075,115 @@ async function fetchMacroHeadlines() {
   return fresh.slice(0, MACRO_TOTAL_CAP);
 }
 
-async function fetchTickerHeadlines(symbol) {
+// Yahoo Finance publishes a per-ticker RSS feed that returns pre-summarized
+// headlines with a 200-500 char description per item. This is the most
+// reliable ticker-news source we have:
+//   · Free, no API key, no rate limits documented
+//   · Pre-extracted text (no HTML scraping, no paywall walls, no JS render)
+//   · Ticker-specific by URL construction
+//   · Yahoo curates from wires + financial press, so the publishers we get
+//     here are generally higher quality than a raw `search()` slate.
+// The description IS the article body for our purposes — the AI gets
+// `title + description` per item, plenty of ticker-specific text to ground
+// a paragraph in.
+const RSS_FETCH_TIMEOUT_MS = 10000;
+const RSS_DESC_MIN_CHARS = 60;
+const RSS_DESC_MAX_CHARS = 1500;
+function decodeAndStripHtml(s) {
+  return decodeHtmlEntities(String(s).replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+async function fetchTickerRssHeadlines(symbol) {
+  const url = `https://finance.yahoo.com/rss/headline?s=${encodeURIComponent(symbol)}`;
+  let xml;
   try {
-    // Pull a wider slate (3× the target) because we hard-filter to reputable
-    // publishers below — a quiet news cycle for a small-cap can leave only
-    // 2-3 wires in a 20-headline pull, and we'd rather keep 2 wire-grade
-    // items than dilute with blog aggregators.
+    const res = await fetchWithTimeout(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    }, RSS_FETCH_TIMEOUT_MS);
+    if (!res.ok) return [];
+    xml = await res.text();
+  } catch (_) {
+    return [];
+  }
+  if (!xml || xml.length < 200) return [];
+  // Yahoo RSS uses RSS 2.0 with <item> blocks. Parse with regex — pulling
+  // in xml2js for this would add a runtime dependency for a tiny extractor.
+  // Pattern allows for <![CDATA[...]]> wrappers around title/description/link
+  // which Yahoo intermittently uses.
+  const items = [];
+  const itemRegex = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
+  function pull(block, tag) {
+    const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+    const m = block.match(re);
+    if (!m) return "";
+    let v = m[1].trim();
+    // Unwrap CDATA.
+    const cd = v.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
+    if (cd) v = cd[1];
+    return v;
+  }
+  let m;
+  while ((m = itemRegex.exec(xml)) !== null) {
+    const block = m[1];
+    const title = decodeAndStripHtml(pull(block, "title"));
+    let description = decodeAndStripHtml(pull(block, "description"));
+    const link = pull(block, "link").trim();
+    const pubDateRaw = pull(block, "pubDate").trim();
+    if (!title) continue;
+    // Some Yahoo RSS items have a near-empty description (single sentence).
+    // Drop items where the description doesn't add anything over the title
+    // — those waste tokens without giving the AI new info.
+    if (description.length < RSS_DESC_MIN_CHARS) description = "";
+    if (description.length > RSS_DESC_MAX_CHARS) {
+      description = description.slice(0, RSS_DESC_MAX_CHARS).trim() + "…";
+    }
+    let publishedAt = null;
+    if (pubDateRaw) {
+      const t = new Date(pubDateRaw);
+      if (!isNaN(t.getTime())) publishedAt = t.toISOString();
+    }
+    items.push({ title, description, link, publisher: "Yahoo Finance", publishedAt });
+  }
+  // Newest first. Yahoo usually returns items in chronological order already
+  // but we re-sort defensively in case the feed isn't ordered.
+  items.sort((a, b) => {
+    const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+    const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+    return db - da;
+  });
+  return items.slice(0, AI_NEWS_COUNT);
+}
+
+async function fetchTickerHeadlines(symbol) {
+  // PRIMARY: Yahoo per-ticker RSS. Returns title + description for each
+  // item, pre-extracted. We map description → body so downstream code
+  // (generateTickerJudgment / generateNewsTake) sees the same shape it
+  // would see from the HTML-scraping path.
+  const rss = await fetchTickerRssHeadlines(symbol);
+  if (rss.length > 0) {
+    return rss.map((r) => ({
+      title: r.title,
+      publisher: r.publisher,
+      link: r.link,
+      publishedAt: r.publishedAt,
+      // The description IS the body. Empty string when Yahoo gave us only
+      // a title — the AI prompt handles that gracefully (item is still in
+      // the citation list, just without body text to ground a sentence in).
+      body: r.description || "",
+    }));
+  }
+  // SECONDARY: fall back to yahooFinance.search() which returns headlines
+  // from a broader publisher set but without description. The downstream
+  // body-fetch step tries to extract content from the article URL (rarely
+  // succeeds on GitHub Actions IPs — see PR #162 — but the OG meta fallback
+  // catches a substantial fraction).
+  try {
     const res = await yahooFinance.search(symbol, {
       newsCount: AI_NEWS_COUNT * 3,
       quotesCount: 0,
@@ -15097,13 +15200,7 @@ async function fetchTickerHeadlines(symbol) {
           : null,
       }))
       .filter((n) => n.title.length > 0)
-      // Hard reputable filter: anything not on REPUTABLE_PUBLISHERS gets
-      // dropped before it touches the AI prompt or the data file. The user
-      // sees only wire-grade citations. The article-body enrichment step
-      // (enrichHeadlinesWithBodies) then drops anything we can't actually
-      // read in full so the AI never reasons off paywall stubs.
       .filter((n) => isReputablePublisher(n.publisher));
-    // Newest first now that publisher quality is already guaranteed.
     normalized.sort((a, b) => {
       const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
       const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
@@ -15325,22 +15422,35 @@ const ARTICLE_FETCH_TOP = 5;
 async function enrichHeadlinesWithBodies(headlines) {
   if (!headlines.length) return [];
   const slice = headlines.slice(0, ARTICLE_FETCH_TOP);
-  const out = new Array(slice.length).fill(null);
+  // Headlines from the Yahoo RSS path already arrive with a `body` (the
+  // RSS <description>). Those are kept as-is; we only spend HTTP fetches
+  // on items that don't have body text yet (the legacy yahooFinance.search()
+  // fallback path). This keeps the bake-time HTTP burst small now that RSS
+  // is the primary source.
+  const needsFetch = [];
+  const out = [];
+  for (const h of slice) {
+    if (h.body) { out.push(h); continue; }
+    needsFetch.push(h);
+  }
+  if (!needsFetch.length) return out;
+  const fetched = new Array(needsFetch.length).fill(null);
   let cursor = 0;
   async function worker() {
     while (true) {
       const i = cursor++;
-      if (i >= slice.length) return;
-      const h = slice[i];
+      if (i >= needsFetch.length) return;
+      const h = needsFetch[i];
       if (!h.link) continue;
       const body = await fetchArticleBody(h.link);
-      if (body) out[i] = { ...h, body };
+      if (body) fetched[i] = { ...h, body };
     }
   }
   const workers = [];
-  for (let k = 0; k < Math.min(ARTICLE_FETCH_CONCURRENCY, slice.length); k++) workers.push(worker());
+  for (let k = 0; k < Math.min(ARTICLE_FETCH_CONCURRENCY, needsFetch.length); k++) workers.push(worker());
   await Promise.all(workers);
-  return out.filter(Boolean);
+  for (const f of fetched) if (f) out.push(f);
+  return out;
 }
 
 // Fallback news take used when a ticker has zero usable articles after body
