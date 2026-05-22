@@ -903,7 +903,11 @@ async function fetchFundamentals(symbol) {
   ];
   let res;
   try {
-    res = await yahooFinance.quoteSummary(symbol, { modules });
+    // validateResult: false lets us keep partial data when Yahoo returns
+    // an unexpected shape (common for newer/smaller tickers like OKLO).
+    // The `num()` helper below already tolerates missing fields, so a
+    // best-effort response is more useful than discarding everything.
+    res = await yahooFinance.quoteSummary(symbol, { modules }, { validateResult: false });
   } catch (err) {
     console.log(`    ⚠ ${symbol} fundamentals fetch failed: ${err.message}`);
     return null;
@@ -17508,6 +17512,22 @@ async function main() {
   console.log("Fetching effective Fed Funds rate (FRED:DFF)…");
   const fedRate = await fetchEffectiveFedFundsRate();
   if (fedRate) console.log(`  · ${fedRate.rate}% as of ${fedRate.asOf}`);
+  // Read FedWatch history early so a missing Fed rate today can fall
+  // back to the most recent persisted observation. The Fed only moves
+  // rates at FOMC meetings (every 6-8 weeks), so a 14-day-old anchor
+  // is still a reasonable proxy — better than losing the entire
+  // FedWatch tab to one bad FRED day.
+  const fedwatchHistory = await readFedwatchHistory();
+  let effectiveFedRate = fedRate;
+  if (!effectiveFedRate && fedwatchHistory.lastKnownFedRate) {
+    const last = fedwatchHistory.lastKnownFedRate;
+    const lastMs = Date.parse(last.capturedAt || last.asOf || "");
+    const ageDays = Number.isFinite(lastMs) ? (Date.now() - lastMs) / 86400000 : Infinity;
+    if (ageDays <= 14 && Number.isFinite(last.rate)) {
+      effectiveFedRate = { rate: last.rate, asOf: last.asOf, source: "FRED:DFF (cached)" };
+      console.log(`  · using cached Fed Funds rate ${last.rate}% from ${last.capturedAt || last.asOf} (${ageDays.toFixed(1)}d old)`);
+    }
+  }
   console.log("Fetching FOMC meeting schedule…");
   // Live fetch the Fed's calendar HTML and merge with the multi-year
   // baseline. Network failure → empty live list → falls back to baseline.
@@ -17515,7 +17535,6 @@ async function main() {
   const allFomcMeetings = mergeFomcMeetings(liveFomc, FOMC_MEETINGS_BASELINE);
   console.log(`  · ${allFomcMeetings.length} FOMC dates (baseline ${FOMC_MEETINGS_BASELINE.length}, live ${liveFomc.length})`);
   console.log("Computing FedWatch probabilities from ZQ Fed Funds Futures…");
-  const fedwatchHistory = await readFedwatchHistory();
   const upcomingMeetings = allFomcMeetings.filter((m) => {
     const ms = Date.UTC(Number(m.date.slice(0,4)), Number(m.date.slice(5,7))-1, Number(m.date.slice(8,10)));
     return ms >= todayMs;
@@ -17525,7 +17544,17 @@ async function main() {
   // for each upcoming meeting. Requires the current effective rate as a
   // pre-meeting anchor — without it we can't separate pre/post-meeting
   // averages from the implied month-average rate.
-  const currentRateNum = fedRate?.rate;
+  const currentRateNum = effectiveFedRate?.rate;
+  // Persist today's Fed rate so a future FRED outage can still anchor
+  // FedWatch from a recent observation. Only update when we got a fresh
+  // reading from FRED (not when we fell back to the cached value).
+  if (fedRate && Number.isFinite(fedRate.rate)) {
+    fedwatchHistory.lastKnownFedRate = {
+      rate: fedRate.rate,
+      asOf: fedRate.asOf,
+      capturedAt: todayIso,
+    };
+  }
   const snapshot = await fetchFedwatchSnapshot(upcomingMeetings, currentRateNum);
   let snapshotCount = 0;
   for (const [meetingDate, probs] of Object.entries(snapshot)) {
