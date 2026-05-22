@@ -15327,13 +15327,43 @@ export function buildTopPicks(chains, narratives, streaksMap = null) {
 
 async function writeTopPicksFile(chains, narratives, builtAtIso) {
   const picks = buildTopPicks(chains, narratives);
+  const picksPath = resolve(DATA_DIR, PICKS_FILE);
+  // Preserve last-good picks when this run produces zero. The 9 ET cron
+  // fires before the bell, so Yahoo returns bid=0 / ask=0 for nearly every
+  // option contract and pickContractForPick's mechanical filters
+  // (build.mjs ~15118) reject all of them. Rather than overwriting
+  // yesterday afternoon's picks with [] every morning, reuse the previous
+  // file and mark it stale so the UI can flag the freshness. Mirrors the
+  // narratives last-good pattern documented in CLAUDE.md.
+  if (picks.length === 0) {
+    try {
+      const prior = JSON.parse(await readFile(picksPath, "utf8"));
+      if (Array.isArray(prior?.picks) && prior.picks.length > 0) {
+        const stalePayload = {
+          builtAtIso,
+          minConviction: PICKS_MIN_CONVICTION,
+          picks: prior.picks,
+          stale: true,
+          stalePicksFromIso: prior.builtAtIso || null,
+        };
+        const staleJson = JSON.stringify(stalePayload);
+        await writeFile(picksPath, staleJson, "utf8");
+        console.warn(
+          `[picks] buildTopPicks returned 0 picks — reusing ${prior.picks.length} from ${prior.builtAtIso || "previous run"} (marked stale)`,
+        );
+        return { bytes: staleJson.length, count: prior.picks.length, stale: true };
+      }
+    } catch {
+      // No prior file (or unreadable) — fall through to the empty write.
+    }
+  }
   const payload = {
     builtAtIso,
     minConviction: PICKS_MIN_CONVICTION,
     picks,
   };
   const json = JSON.stringify(payload);
-  await writeFile(resolve(DATA_DIR, PICKS_FILE), json, "utf8");
+  await writeFile(picksPath, json, "utf8");
   return { bytes: json.length, count: picks.length };
 }
 
