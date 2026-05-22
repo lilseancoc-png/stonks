@@ -653,8 +653,14 @@ function openAddModal() {
 
   const opener = document.activeElement;
   let uninstallKeys = () => {};
+  // Collect any document-level listeners we attach inside this modal so
+  // we can detach them on close — otherwise repeated opens accumulate
+  // listeners that keep firing against detached modal DOM nodes.
+  const docCleanups = [];
   const closeModal = () => {
     uninstallKeys();
+    for (const fn of docCleanups) { try { fn(); } catch (_) {} }
+    docCleanups.length = 0;
     host.innerHTML = "";
     if (opener && document.contains(opener) && typeof opener.focus === "function") {
       try { opener.focus(); } catch (_) {}
@@ -792,13 +798,17 @@ function openAddModal() {
   });
   // Touch devices don't reliably fire `blur` on outside tap (notably
   // iOS Safari), which strands the listbox open across the page. Close
-  // on any pointerdown outside the combo container.
+  // on any pointerdown outside the combo container. Stored in
+  // docCleanups so closeModal() can detach it — otherwise repeated
+  // modal opens leak listeners against detached DOM.
   const symbolCombo = $("pf-symbol-combo");
-  document.addEventListener("pointerdown", (e) => {
+  const onDocPointerdown = (e) => {
     if (symbolListbox.hidden) return;
     if (symbolCombo && symbolCombo.contains(e.target)) return;
     closeCombo();
-  });
+  };
+  document.addEventListener("pointerdown", onDocPointerdown);
+  docCleanups.push(() => document.removeEventListener("pointerdown", onDocPointerdown));
   symbolClear.addEventListener("click", () => {
     symbolInput.value = "";
     symbolSel.value = "";
