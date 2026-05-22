@@ -58,7 +58,9 @@ export default async function handler(req, res) {
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
-    const msg = String(err?.message || err);
-    return res.status(502).json({ error: msg.slice(0, 200) });
+    // Log full upstream error for debugging; return a generic message so
+    // we don't leak FRED/Cloudflare WAF internals to the browser.
+    console.error("fed-rate upstream failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "fed-rate unavailable" });
   }
 }
