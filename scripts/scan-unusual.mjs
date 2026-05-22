@@ -461,12 +461,18 @@ async function loadFlowExplanations() {
 }
 
 // Drop cache entries for contracts whose expiration has passed — they can
-// never re-flag, so the cached note has no future use.
+// never re-flag, so the cached note has no future use. Also evict entries
+// that are missing expSec (corrupt or schema-drifted) so the cache can't
+// accumulate unprunable rows over weeks of runs.
 function pruneFlowExplanations(cache, nowSec) {
   const entries = cache.entries || {};
   let dropped = 0;
   for (const [key, val] of Object.entries(entries)) {
-    if (!val || (val.expSec != null && val.expSec < nowSec - 86400)) {
+    const expired = !val
+      || val.expSec == null
+      || !Number.isFinite(val.expSec)
+      || val.expSec < nowSec - 86400;
+    if (expired) {
       delete entries[key];
       dropped++;
     }
