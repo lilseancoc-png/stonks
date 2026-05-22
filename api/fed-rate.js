@@ -38,7 +38,10 @@ export default async function handler(req, res) {
       const raw = parts[1].trim();
       if (raw === "" || raw === ".") continue;
       const value = Number(raw);
-      if (!Number.isFinite(value)) continue;
+      // Reject any value outside the plausible Fed-rate range — catches a
+      // mis-parsed column (which has hit FRED CSV consumers before) so
+      // we never ship "rate: 10000" to the FOMC widget.
+      if (!Number.isFinite(value) || value < 0 || value > 25) continue;
       last = { rate: value, asOf: parts[0].trim() };
       break;
     }
