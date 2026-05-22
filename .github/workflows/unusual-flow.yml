@@ -68,6 +68,12 @@ jobs:
 
       - name: Commit refreshed unusual flow
         run: |
+          # set -e so a failed rebase / stash pop fails the workflow loudly
+          # instead of falling through to a clean-looking "no changes"
+          # commit that silently dropped the freshly-scanned files. The
+          # `|| true` on the stash push below explicitly tolerates the
+          # empty-stash case; every other git command should hard-fail.
+          set -euo pipefail
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
           # Pull before staging so a concurrent push from daily.yml doesn't
@@ -83,7 +89,8 @@ jobs:
           # Don't swallow stash pop errors — a silent conflict here means
           # the freshly-scanned files get discarded and the job ends green
           # with nothing committed, which is exactly the failure mode we
-          # want to surface.
+          # want to surface. The set -e above ensures we exit non-zero on
+          # any conflict rather than continuing to the empty commit path.
           git stash pop
           git add data/unusual.json data/unusual-history.json data/unusual-log.json index.html app.js styles.css
           if ! git diff --cached --quiet; then
