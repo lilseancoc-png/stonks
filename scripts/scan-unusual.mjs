@@ -100,9 +100,25 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Per-call wall clock so a hung Yahoo connection can't stall the entire
+// hourly scan — without this, one stuck ticker would tie up a worker
+// past the next hourly trigger. 12s is the inner budget; the retry
+// loop below gets up to FETCH_RETRIES attempts at that limit each.
+const YAHOO_CALL_TIMEOUT_MS = 12000;
+function withYahooTimeout(promise, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`yahoo ${label} timed out after ${YAHOO_CALL_TIMEOUT_MS}ms`)),
+      YAHOO_CALL_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function isTransientYahooError(err) {
   const msg = String(err?.message || err || "");
-  if (/allowlist|401|403|429|5\d\d|ENOTFOUND|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(msg)) return true;
+  if (/allowlist|401|403|429|5\d\d|ENOTFOUND|ECONNRESET|ETIMEDOUT|fetch failed|network|timed out/i.test(msg)) return true;
   if (/validation|schema|FailedYahooValidationError/i.test(msg)) return false;
   return true;
 }
@@ -111,7 +127,10 @@ async function fetchOptionsWithRetry(symbol, opts) {
   let lastErr;
   for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
     try {
-      const result = await yahooFinance.options(symbol, opts);
+      const result = await withYahooTimeout(
+        yahooFinance.options(symbol, opts),
+        `options(${symbol})`,
+      );
       if (attempt > 1) console.log(`    ↻ ${symbol} succeeded on attempt ${attempt}`);
       return result;
     } catch (err) {
