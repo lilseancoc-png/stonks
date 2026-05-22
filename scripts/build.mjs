@@ -14042,7 +14042,7 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
       const isPast = dateStr <= todayIso;
       const fredActual = (isPast && latestIdx >= 0) ? formatEconValue(report.format, series, latestIdx) : null;
       const previousIdx = isPast
-        ? (latestIdx > 0 ? latestIdx - 1 : latestIdx)
+        ? (latestIdx > 0 ? latestIdx - 1 : -1)
         : latestIdx;
       const fredPrevious = previousIdx >= 0 ? formatEconValue(report.format, series, previousIdx) : null;
       // Pull whatever ForexFactory has for this exact (subtype, date).
