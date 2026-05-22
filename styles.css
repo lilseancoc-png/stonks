@@ -5247,7 +5247,49 @@ main { padding-top: var(--s-2); }
   pointer-events: none;
   border-radius: inherit;
 }
+.f13-holding-bar.f13-bar-buy {
+  background: color-mix(in srgb, var(--pos) 14%, transparent);
+  border-right-color: color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.f13-holding-bar.f13-bar-sell {
+  background: color-mix(in srgb, var(--neg) 14%, transparent);
+  border-right-color: color-mix(in srgb, var(--neg) 35%, transparent);
+}
 .f13-table td.mag-cell > * { position: relative; z-index: 1; }
+.f13-subtitle {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 var(--s-2);
+}
+.f13-tag-new, .f13-tag-exit {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: var(--s-2);
+  vertical-align: middle;
+}
+.f13-tag-new {
+  background: color-mix(in srgb, var(--pos) 18%, transparent);
+  color: var(--pos);
+  border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.f13-tag-exit {
+  background: color-mix(in srgb, var(--neg) 18%, transparent);
+  color: var(--neg);
+  border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent);
+}
+.f13-empty-side {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-style: italic;
+  margin: var(--s-3) 0 0;
+}
 
 /* Enforce tabular numerals across every numeric surface. Many cells
    already opt in explicitly; this is a defensive default for any new

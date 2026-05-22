@@ -39,7 +39,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03582;
+  var RFR = 0.04500;
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3645,26 +3645,6 @@
         (d.filingWindow ? ' Filing window: <strong>' + escapeHtml(d.filingWindow) + '</strong>.' : '') +
       '</p>';
     }
-    // === Top reporting firms ===========================================
-    if (Array.isArray(d.topFirms) && d.topFirms.length){
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">Top reporting firms (AUM &gt; $100B, selected)</h3>' +
-        '<div class="f13-table-scroll"><table class="f13-table">' +
-          '<thead><tr><th>Firm</th><th>13F AUM</th><th># of Holdings</th><th>Filing date</th></tr></thead>' +
-          '<tbody>' +
-          d.topFirms.map(function(f){
-            return '<tr>' +
-              '<td>' + escapeHtml(f.firm || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(f.aum || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(f.holdings || '') + '</td>' +
-              '<td>' + escapeHtml(f.filingDate || '') + '</td>' +
-            '</tr>';
-          }).join('') +
-          '</tbody>' +
-        '</table></div>' +
-      '</div>';
-    }
-    // === Per-firm top 10 holdings (real SEC EDGAR data) =================
     function fmtBigDollarsF13(v){
       if (v == null || !isFinite(v)) return '—';
       var abs = Math.abs(v); var sign = v < 0 ? '-' : '';
@@ -3675,82 +3655,160 @@
     }
     function fmtSharesF13(v){
       if (v == null || !isFinite(v)) return '—';
-      var abs = Math.abs(v);
-      if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-      if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-      if (abs >= 1e3) return (v / 1e3).toFixed(1) + 'K';
-      return Math.round(v).toLocaleString('en-US');
+      var abs = Math.abs(v); var sign = v < 0 ? '-' : '';
+      if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return sign + (abs / 1e3).toFixed(1) + 'K';
+      return sign + Math.round(abs).toLocaleString('en-US');
     }
+    function fmtSignedDollarsF13(v){
+      if (v == null || !isFinite(v) || v === 0) return fmtBigDollarsF13(v);
+      var s = fmtBigDollarsF13(Math.abs(v));
+      return (v > 0 ? '+' : '−') + s;
+    }
+    function fmtSignedSharesF13(v){
+      if (v == null || !isFinite(v) || v === 0) return fmtSharesF13(v);
+      var s = fmtSharesF13(Math.abs(v));
+      return (v > 0 ? '+' : '−') + s;
+    }
+    // === Tracked firms ($5B–$200B AUM band) =============================
+    if (Array.isArray(d.topFirms) && d.topFirms.length){
+      var bandHi = d.aumBandBillions ? d.aumBandBillions.max : 200;
+      var bandLo = d.aumBandBillions ? d.aumBandBillions.min : 5;
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Tracked firms ($' + bandLo + 'B–$' + bandHi + 'B AUM)</h3>' +
+        '<p class="f13-note">Mid-sized active managers — the BlackRock/Vanguard passive tier is excluded since their 13F moves track index rebalances, not conviction. Smallest funds (&lt;$' + bandLo + 'B) are excluded on signal-to-noise.</p>' +
+        '<div class="f13-table-scroll"><table class="f13-table">' +
+          '<thead><tr><th>Firm</th><th>AUM</th><th>Style</th><th>Filing deadline</th></tr></thead>' +
+          '<tbody>' +
+          d.topFirms.map(function(f){
+            return '<tr>' +
+              '<td>' + escapeHtml(f.firm || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(f.aum || '') + '</td>' +
+              '<td>' + escapeHtml(f.kind || '') + '</td>' +
+              '<td>' + escapeHtml(f.filingDate || '') + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody>' +
+        '</table></div>' +
+      '</div>';
+    }
+    // === Cross-firm aggregate (top 20 most bought / most sold OVERALL) ==
+    function renderDeltaTable(rows, side){
+      if (!rows || !rows.length) return '';
+      var maxAbs = 0;
+      for (var k = 0; k < rows.length; k++) {
+        var av = Math.abs(rows[k].valueChange || 0);
+        if (av > maxAbs) maxAbs = av;
+      }
+      return '<div class="f13-table-scroll"><table class="f13-table">' +
+        '<thead><tr>' +
+          '<th>#</th><th>Ticker</th><th>Issuer</th>' +
+          '<th>Δ Value</th><th>Δ Shares</th><th># Firms</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+        rows.map(function(r, j){
+          var w = maxAbs > 0 ? Math.abs(r.valueChange) / maxAbs : 0;
+          var bar = '<i class="f13-holding-bar f13-bar-' + side + '" style="width:' + (w * 100).toFixed(1) + '%"></i>';
+          var firmsTitle = Array.isArray(r.sampleFirms) ? r.sampleFirms.join(' · ') : '';
+          return '<tr>' +
+            '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
+            '<td class="f13-tkr"><span>' + escapeHtml(r.ticker || '—') + '</span></td>' +
+            '<td><span>' + escapeHtml(r.name || '') + '</span></td>' +
+            '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(r.valueChange)) + '</span></td>' +
+            '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(r.shareChange)) + '</span></td>' +
+            '<td class="f13-num f13-muted" title="' + escapeHtml(firmsTitle) + '"><span>' + (r.firmCount || 1) + '</span></td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody>' +
+      '</table></div>';
+    }
+    if ((Array.isArray(d.overallTopBought) && d.overallTopBought.length) ||
+        (Array.isArray(d.overallTopSold) && d.overallTopSold.length)){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Top 20 most bought &amp; most sold this quarter (across all tracked firms)</h3>' +
+        '<p class="f13-note">Sum of every qualifying firm&rsquo;s dollar change in each position vs prior quarter. Hover the # Firms cell to see which managers are on each side.</p>' +
+        '<div class="f13-flow-pair">' +
+          '<div class="f13-flow-col f13-flow-buy">' +
+            '<h4 class="f13-subtitle">Most bought</h4>' +
+            renderDeltaTable(d.overallTopBought, 'buy') +
+          '</div>' +
+          '<div class="f13-flow-col f13-flow-sell">' +
+            '<h4 class="f13-subtitle">Most sold</h4>' +
+            renderDeltaTable(d.overallTopSold, 'sell') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+    // === Per-firm top 20 most bought / most sold ========================
     if (d.perFirm && typeof d.perFirm === 'object'){
       var firmsWithData = Object.keys(d.perFirm).filter(function(k){
         var f = d.perFirm[k];
-        return f && Array.isArray(f.holdings) && f.holdings.length;
+        return f && ((Array.isArray(f.topBought) && f.topBought.length) ||
+                     (Array.isArray(f.topSold) && f.topSold.length));
       });
       if (firmsWithData.length){
         html += '<div class="f13-block">' +
-          '<h3 class="f13-block-title">Per-firm top 10 holdings (latest 13F-HR filings)</h3>' +
-          '<p class="f13-note">Parsed directly from SEC EDGAR XML. CUSIPs mapped to tickers via OpenFIGI.</p>';
+          '<h3 class="f13-block-title">Per-firm top ' + 20 + ' most bought &amp; most sold</h3>' +
+          '<p class="f13-note">Each firm&rsquo;s 20 largest position increases and decreases this quarter. &Delta; Value is the dollar swing in each position; &Delta; Shares shows direction by share count (negative = trimmed/exited).</p>';
         firmsWithData.forEach(function(firmKey, i){
           var f = d.perFirm[firmKey];
           var firstOpen = i === 0 ? ' open' : '';
-          // Find the largest holding value to scale the per-row bars
-          // (top holding always shows full bar, others scale relative).
-          var maxValue = 0;
-          for (var k = 0; k < f.holdings.length; k++) {
-            if (f.holdings[k].value > maxValue) maxValue = f.holdings[k].value;
-          }
-          var concPct = f.top10ConcentrationPct != null ? f.top10ConcentrationPct : null;
-          var concBar = concPct != null
-            ? '<span class="f13-firm-bar" aria-hidden="true"><i style="width:' + Math.min(100, concPct).toFixed(1) + '%"></i></span>'
-            : '';
-          html += '<details class="f13-firm"' + firstOpen + '>' +
-            '<summary class="f13-firm-summary">' +
-              '<span class="f13-firm-name">' + escapeHtml(f.firm || firmKey) + '</span>' +
-              '<span class="f13-firm-meta">' +
-                escapeHtml(fmtBigDollarsF13(f.totalValue)) + ' · ' +
-                (f.totalPositions || 0) + ' positions · top-10 ' + (concPct != null ? concPct + '%' : '—') +
-                (f.filingDate ? ' · filed ' + escapeHtml(f.filingDate) : '') +
-              '</span>' +
-              concBar +
-            '</summary>' +
-            '<div class="f13-table-scroll"><table class="f13-table">' +
+          function rowTable(rows, side){
+            if (!rows || !rows.length) {
+              return '<p class="f13-empty-side">No ' + (side === 'buy' ? 'increases' : 'decreases') + ' this quarter.</p>';
+            }
+            var maxAbs = 0;
+            for (var k = 0; k < rows.length; k++) {
+              var av = Math.abs(rows[k].valueChange || 0);
+              if (av > maxAbs) maxAbs = av;
+            }
+            return '<div class="f13-table-scroll"><table class="f13-table">' +
               '<thead><tr>' +
-                '<th>#</th><th>Ticker</th><th>Issuer</th><th>Value</th><th>Shares</th>' +
+                '<th>#</th><th>Ticker</th><th>Issuer</th>' +
+                '<th>Δ Value</th><th>Δ Shares</th><th>' + (side === 'buy' ? 'Now' : 'Prior') + '</th>' +
               '</tr></thead>' +
               '<tbody>' +
-              f.holdings.map(function(h, j){
-                var w = maxValue > 0 ? (h.value / maxValue) : 0;
-                var bar = '<i class="f13-holding-bar" style="width:' + (w * 100).toFixed(1) + '%"></i>';
+              rows.map(function(h, j){
+                var w = maxAbs > 0 ? Math.abs(h.valueChange) / maxAbs : 0;
+                var bar = '<i class="f13-holding-bar f13-bar-' + side + '" style="width:' + (w * 100).toFixed(1) + '%"></i>';
+                var posCell = side === 'buy'
+                  ? fmtBigDollarsF13(h.valueNow) + (h.isNew ? ' <span class="f13-tag-new">NEW</span>' : '')
+                  : fmtBigDollarsF13(h.valuePrior) + (h.isExit ? ' <span class="f13-tag-exit">EXIT</span>' : '');
                 return '<tr>' +
                   '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
                   '<td class="f13-tkr"><span>' + escapeHtml(h.ticker || '—') + '</span></td>' +
                   '<td><span>' + escapeHtml(h.name || '') + '</span></td>' +
-                  '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtBigDollarsF13(h.value)) + '</span></td>' +
-                  '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSharesF13(h.shares)) + '</span></td>' +
+                  '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(h.valueChange)) + '</span></td>' +
+                  '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(h.shareChange)) + '</span></td>' +
+                  '<td class="f13-num f13-muted"><span>' + posCell + '</span></td>' +
                 '</tr>';
               }).join('') +
               '</tbody>' +
-            '</table></div>' +
+            '</table></div>';
+          }
+          var meta = fmtBigDollarsF13(f.totalValue) + ' · ' + (f.totalPositions || 0) + ' positions' +
+            (f.filingDate ? ' · filed ' + f.filingDate : '') +
+            (f.priorFilingDate ? ' vs ' + f.priorFilingDate : '');
+          html += '<details class="f13-firm"' + firstOpen + '>' +
+            '<summary class="f13-firm-summary">' +
+              '<span class="f13-firm-name">' + escapeHtml(f.firm || firmKey) + '</span>' +
+              '<span class="f13-firm-meta">' + escapeHtml(meta) + '</span>' +
+            '</summary>' +
+            '<div class="f13-flow-pair">' +
+              '<div class="f13-flow-col f13-flow-buy">' +
+                '<h4 class="f13-subtitle">Top ' + 20 + ' bought</h4>' +
+                rowTable(f.topBought, 'buy') +
+              '</div>' +
+              '<div class="f13-flow-col f13-flow-sell">' +
+                '<h4 class="f13-subtitle">Top ' + 20 + ' sold</h4>' +
+                rowTable(f.topSold, 'sell') +
+              '</div>' +
+            '</div>' +
           '</details>';
         });
         html += '</div>';
       }
-    }
-    // === Berkshire callout =============================================
-    if (d.berkshire){
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">' + escapeHtml(d.berkshire.label || 'Berkshire Hathaway') + '</h3>' +
-        '<p class="f13-paragraph">' + escapeHtml(d.berkshire.summary || '') + '</p>' +
-      '</div>';
-    }
-    // === Other major firms =============================================
-    if (Array.isArray(d.otherMajorFirms) && d.otherMajorFirms.length){
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">Other major firms</h3>' +
-        '<ul class="f13-list">' +
-        d.otherMajorFirms.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
-        '</ul>' +
-      '</div>';
     }
     // === Biggest positions =============================================
     if (Array.isArray(d.biggestPositions) && d.biggestPositions.length){

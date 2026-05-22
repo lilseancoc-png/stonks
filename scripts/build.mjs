@@ -5379,26 +5379,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         (d.filingWindow ? ' Filing window: <strong>' + escapeHtml(d.filingWindow) + '</strong>.' : '') +
       '</p>';
     }
-    // === Top reporting firms ===========================================
-    if (Array.isArray(d.topFirms) && d.topFirms.length){
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">Top reporting firms (AUM &gt; $100B, selected)</h3>' +
-        '<div class="f13-table-scroll"><table class="f13-table">' +
-          '<thead><tr><th>Firm</th><th>13F AUM</th><th># of Holdings</th><th>Filing date</th></tr></thead>' +
-          '<tbody>' +
-          d.topFirms.map(function(f){
-            return '<tr>' +
-              '<td>' + escapeHtml(f.firm || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(f.aum || '') + '</td>' +
-              '<td class="f13-num">' + escapeHtml(f.holdings || '') + '</td>' +
-              '<td>' + escapeHtml(f.filingDate || '') + '</td>' +
-            '</tr>';
-          }).join('') +
-          '</tbody>' +
-        '</table></div>' +
-      '</div>';
-    }
-    // === Per-firm top 10 holdings (real SEC EDGAR data) =================
     function fmtBigDollarsF13(v){
       if (v == null || !isFinite(v)) return '—';
       var abs = Math.abs(v); var sign = v < 0 ? '-' : '';
@@ -5409,82 +5389,160 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     }
     function fmtSharesF13(v){
       if (v == null || !isFinite(v)) return '—';
-      var abs = Math.abs(v);
-      if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-      if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-      if (abs >= 1e3) return (v / 1e3).toFixed(1) + 'K';
-      return Math.round(v).toLocaleString('en-US');
+      var abs = Math.abs(v); var sign = v < 0 ? '-' : '';
+      if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return sign + (abs / 1e3).toFixed(1) + 'K';
+      return sign + Math.round(abs).toLocaleString('en-US');
     }
+    function fmtSignedDollarsF13(v){
+      if (v == null || !isFinite(v) || v === 0) return fmtBigDollarsF13(v);
+      var s = fmtBigDollarsF13(Math.abs(v));
+      return (v > 0 ? '+' : '−') + s;
+    }
+    function fmtSignedSharesF13(v){
+      if (v == null || !isFinite(v) || v === 0) return fmtSharesF13(v);
+      var s = fmtSharesF13(Math.abs(v));
+      return (v > 0 ? '+' : '−') + s;
+    }
+    // === Tracked firms ($5B–$200B AUM band) =============================
+    if (Array.isArray(d.topFirms) && d.topFirms.length){
+      var bandHi = d.aumBandBillions ? d.aumBandBillions.max : 200;
+      var bandLo = d.aumBandBillions ? d.aumBandBillions.min : 5;
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Tracked firms ($' + bandLo + 'B–$' + bandHi + 'B AUM)</h3>' +
+        '<p class="f13-note">Mid-sized active managers — the BlackRock/Vanguard passive tier is excluded since their 13F moves track index rebalances, not conviction. Smallest funds (&lt;$' + bandLo + 'B) are excluded on signal-to-noise.</p>' +
+        '<div class="f13-table-scroll"><table class="f13-table">' +
+          '<thead><tr><th>Firm</th><th>AUM</th><th>Style</th><th>Filing deadline</th></tr></thead>' +
+          '<tbody>' +
+          d.topFirms.map(function(f){
+            return '<tr>' +
+              '<td>' + escapeHtml(f.firm || '') + '</td>' +
+              '<td class="f13-num">' + escapeHtml(f.aum || '') + '</td>' +
+              '<td>' + escapeHtml(f.kind || '') + '</td>' +
+              '<td>' + escapeHtml(f.filingDate || '') + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody>' +
+        '</table></div>' +
+      '</div>';
+    }
+    // === Cross-firm aggregate (top 20 most bought / most sold OVERALL) ==
+    function renderDeltaTable(rows, side){
+      if (!rows || !rows.length) return '';
+      var maxAbs = 0;
+      for (var k = 0; k < rows.length; k++) {
+        var av = Math.abs(rows[k].valueChange || 0);
+        if (av > maxAbs) maxAbs = av;
+      }
+      return '<div class="f13-table-scroll"><table class="f13-table">' +
+        '<thead><tr>' +
+          '<th>#</th><th>Ticker</th><th>Issuer</th>' +
+          '<th>Δ Value</th><th>Δ Shares</th><th># Firms</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+        rows.map(function(r, j){
+          var w = maxAbs > 0 ? Math.abs(r.valueChange) / maxAbs : 0;
+          var bar = '<i class="f13-holding-bar f13-bar-' + side + '" style="width:' + (w * 100).toFixed(1) + '%"></i>';
+          var firmsTitle = Array.isArray(r.sampleFirms) ? r.sampleFirms.join(' · ') : '';
+          return '<tr>' +
+            '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
+            '<td class="f13-tkr"><span>' + escapeHtml(r.ticker || '—') + '</span></td>' +
+            '<td><span>' + escapeHtml(r.name || '') + '</span></td>' +
+            '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(r.valueChange)) + '</span></td>' +
+            '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(r.shareChange)) + '</span></td>' +
+            '<td class="f13-num f13-muted" title="' + escapeHtml(firmsTitle) + '"><span>' + (r.firmCount || 1) + '</span></td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody>' +
+      '</table></div>';
+    }
+    if ((Array.isArray(d.overallTopBought) && d.overallTopBought.length) ||
+        (Array.isArray(d.overallTopSold) && d.overallTopSold.length)){
+      html += '<div class="f13-block">' +
+        '<h3 class="f13-block-title">Top 20 most bought &amp; most sold this quarter (across all tracked firms)</h3>' +
+        '<p class="f13-note">Sum of every qualifying firm&rsquo;s dollar change in each position vs prior quarter. Hover the # Firms cell to see which managers are on each side.</p>' +
+        '<div class="f13-flow-pair">' +
+          '<div class="f13-flow-col f13-flow-buy">' +
+            '<h4 class="f13-subtitle">Most bought</h4>' +
+            renderDeltaTable(d.overallTopBought, 'buy') +
+          '</div>' +
+          '<div class="f13-flow-col f13-flow-sell">' +
+            '<h4 class="f13-subtitle">Most sold</h4>' +
+            renderDeltaTable(d.overallTopSold, 'sell') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+    // === Per-firm top 20 most bought / most sold ========================
     if (d.perFirm && typeof d.perFirm === 'object'){
       var firmsWithData = Object.keys(d.perFirm).filter(function(k){
         var f = d.perFirm[k];
-        return f && Array.isArray(f.holdings) && f.holdings.length;
+        return f && ((Array.isArray(f.topBought) && f.topBought.length) ||
+                     (Array.isArray(f.topSold) && f.topSold.length));
       });
       if (firmsWithData.length){
         html += '<div class="f13-block">' +
-          '<h3 class="f13-block-title">Per-firm top 10 holdings (latest 13F-HR filings)</h3>' +
-          '<p class="f13-note">Parsed directly from SEC EDGAR XML. CUSIPs mapped to tickers via OpenFIGI.</p>';
+          '<h3 class="f13-block-title">Per-firm top ' + 20 + ' most bought &amp; most sold</h3>' +
+          '<p class="f13-note">Each firm&rsquo;s 20 largest position increases and decreases this quarter. &Delta; Value is the dollar swing in each position; &Delta; Shares shows direction by share count (negative = trimmed/exited).</p>';
         firmsWithData.forEach(function(firmKey, i){
           var f = d.perFirm[firmKey];
           var firstOpen = i === 0 ? ' open' : '';
-          // Find the largest holding value to scale the per-row bars
-          // (top holding always shows full bar, others scale relative).
-          var maxValue = 0;
-          for (var k = 0; k < f.holdings.length; k++) {
-            if (f.holdings[k].value > maxValue) maxValue = f.holdings[k].value;
-          }
-          var concPct = f.top10ConcentrationPct != null ? f.top10ConcentrationPct : null;
-          var concBar = concPct != null
-            ? '<span class="f13-firm-bar" aria-hidden="true"><i style="width:' + Math.min(100, concPct).toFixed(1) + '%"></i></span>'
-            : '';
-          html += '<details class="f13-firm"' + firstOpen + '>' +
-            '<summary class="f13-firm-summary">' +
-              '<span class="f13-firm-name">' + escapeHtml(f.firm || firmKey) + '</span>' +
-              '<span class="f13-firm-meta">' +
-                escapeHtml(fmtBigDollarsF13(f.totalValue)) + ' · ' +
-                (f.totalPositions || 0) + ' positions · top-10 ' + (concPct != null ? concPct + '%' : '—') +
-                (f.filingDate ? ' · filed ' + escapeHtml(f.filingDate) : '') +
-              '</span>' +
-              concBar +
-            '</summary>' +
-            '<div class="f13-table-scroll"><table class="f13-table">' +
+          function rowTable(rows, side){
+            if (!rows || !rows.length) {
+              return '<p class="f13-empty-side">No ' + (side === 'buy' ? 'increases' : 'decreases') + ' this quarter.</p>';
+            }
+            var maxAbs = 0;
+            for (var k = 0; k < rows.length; k++) {
+              var av = Math.abs(rows[k].valueChange || 0);
+              if (av > maxAbs) maxAbs = av;
+            }
+            return '<div class="f13-table-scroll"><table class="f13-table">' +
               '<thead><tr>' +
-                '<th>#</th><th>Ticker</th><th>Issuer</th><th>Value</th><th>Shares</th>' +
+                '<th>#</th><th>Ticker</th><th>Issuer</th>' +
+                '<th>Δ Value</th><th>Δ Shares</th><th>' + (side === 'buy' ? 'Now' : 'Prior') + '</th>' +
               '</tr></thead>' +
               '<tbody>' +
-              f.holdings.map(function(h, j){
-                var w = maxValue > 0 ? (h.value / maxValue) : 0;
-                var bar = '<i class="f13-holding-bar" style="width:' + (w * 100).toFixed(1) + '%"></i>';
+              rows.map(function(h, j){
+                var w = maxAbs > 0 ? Math.abs(h.valueChange) / maxAbs : 0;
+                var bar = '<i class="f13-holding-bar f13-bar-' + side + '" style="width:' + (w * 100).toFixed(1) + '%"></i>';
+                var posCell = side === 'buy'
+                  ? fmtBigDollarsF13(h.valueNow) + (h.isNew ? ' <span class="f13-tag-new">NEW</span>' : '')
+                  : fmtBigDollarsF13(h.valuePrior) + (h.isExit ? ' <span class="f13-tag-exit">EXIT</span>' : '');
                 return '<tr>' +
                   '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
                   '<td class="f13-tkr"><span>' + escapeHtml(h.ticker || '—') + '</span></td>' +
                   '<td><span>' + escapeHtml(h.name || '') + '</span></td>' +
-                  '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtBigDollarsF13(h.value)) + '</span></td>' +
-                  '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSharesF13(h.shares)) + '</span></td>' +
+                  '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(h.valueChange)) + '</span></td>' +
+                  '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(h.shareChange)) + '</span></td>' +
+                  '<td class="f13-num f13-muted"><span>' + posCell + '</span></td>' +
                 '</tr>';
               }).join('') +
               '</tbody>' +
-            '</table></div>' +
+            '</table></div>';
+          }
+          var meta = fmtBigDollarsF13(f.totalValue) + ' · ' + (f.totalPositions || 0) + ' positions' +
+            (f.filingDate ? ' · filed ' + f.filingDate : '') +
+            (f.priorFilingDate ? ' vs ' + f.priorFilingDate : '');
+          html += '<details class="f13-firm"' + firstOpen + '>' +
+            '<summary class="f13-firm-summary">' +
+              '<span class="f13-firm-name">' + escapeHtml(f.firm || firmKey) + '</span>' +
+              '<span class="f13-firm-meta">' + escapeHtml(meta) + '</span>' +
+            '</summary>' +
+            '<div class="f13-flow-pair">' +
+              '<div class="f13-flow-col f13-flow-buy">' +
+                '<h4 class="f13-subtitle">Top ' + 20 + ' bought</h4>' +
+                rowTable(f.topBought, 'buy') +
+              '</div>' +
+              '<div class="f13-flow-col f13-flow-sell">' +
+                '<h4 class="f13-subtitle">Top ' + 20 + ' sold</h4>' +
+                rowTable(f.topSold, 'sell') +
+              '</div>' +
+            '</div>' +
           '</details>';
         });
         html += '</div>';
       }
-    }
-    // === Berkshire callout =============================================
-    if (d.berkshire){
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">' + escapeHtml(d.berkshire.label || 'Berkshire Hathaway') + '</h3>' +
-        '<p class="f13-paragraph">' + escapeHtml(d.berkshire.summary || '') + '</p>' +
-      '</div>';
-    }
-    // === Other major firms =============================================
-    if (Array.isArray(d.otherMajorFirms) && d.otherMajorFirms.length){
-      html += '<div class="f13-block">' +
-        '<h3 class="f13-block-title">Other major firms</h3>' +
-        '<ul class="f13-list">' +
-        d.otherMajorFirms.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
-        '</ul>' +
-      '</div>';
     }
     // === Biggest positions =============================================
     if (Array.isArray(d.biggestPositions) && d.biggestPositions.length){
@@ -12147,7 +12205,49 @@ main { padding-top: var(--s-2); }
   pointer-events: none;
   border-radius: inherit;
 }
+.f13-holding-bar.f13-bar-buy {
+  background: color-mix(in srgb, var(--pos) 14%, transparent);
+  border-right-color: color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.f13-holding-bar.f13-bar-sell {
+  background: color-mix(in srgb, var(--neg) 14%, transparent);
+  border-right-color: color-mix(in srgb, var(--neg) 35%, transparent);
+}
 .f13-table td.mag-cell > * { position: relative; z-index: 1; }
+.f13-subtitle {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 var(--s-2);
+}
+.f13-tag-new, .f13-tag-exit {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: var(--s-2);
+  vertical-align: middle;
+}
+.f13-tag-new {
+  background: color-mix(in srgb, var(--pos) 18%, transparent);
+  color: var(--pos);
+  border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.f13-tag-exit {
+  background: color-mix(in srgb, var(--neg) 18%, transparent);
+  color: var(--neg);
+  border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent);
+}
+.f13-empty-side {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-style: italic;
+  margin: var(--s-3) 0 0;
+}
 
 /* Enforce tabular numerals across every numeric surface. Many cells
    already opt in explicitly; this is a defensive default for any new
@@ -12850,17 +12950,39 @@ const F13_FILE = "13f.json";
 // entities (Vanguard Group Inc. is the primary one we track). If a CIK
 // drifts (entity restructure / name change), the EDGAR fetch silently
 // degrades to the curated baseline numbers.
-const F13_TOP_FIRM_DIRECTORY = [
-  { firm: "BlackRock",                   cik: "1364742",  aum: "~$5.7T", holdings: "~50,000+" },
-  { firm: "Vanguard Group",              cik: "102909",   aum: "~$4T+",  holdings: "Varies"   },
-  { firm: "State Street Corp",           cik: "93751",    aum: "~$2.9T", holdings: "~4,300"   },
-  { firm: "FMR LLC (Fidelity)",          cik: "315066",   aum: "~$1.9T", holdings: "~13,000+" },
-  { firm: "Morgan Stanley",              cik: "895421",   aum: "~$1.7T", holdings: "~46,000"  },
-  { firm: "Geode Capital",               cik: "1532046",  aum: "~$1.6T", holdings: "~8,500+"  },
-  { firm: "JPMorgan Chase",              cik: "19617",    aum: "~$1.6T", holdings: "~33,000"  },
-  { firm: "Bank of America",             cik: "70858",    aum: "~$1.4T", holdings: "~18,000"  },
-  { firm: "Berkshire Hathaway",          cik: "1067983",  aum: "~$260B", holdings: "~90"      },
+// Curated mid-sized fund managers, AUM in the $5–200B band. The cutoff
+// excludes the BlackRock / Vanguard / State Street tier (their 13Fs are
+// dominated by index-fund mechanics, not active conviction trades) and
+// the smallest hobby-shop funds (signal-to-noise drops fast under $5B).
+// What's left: the names whose quarter-over-quarter portfolio changes
+// actually move tickers — multi-strats, activists, TMT growth shops.
+// CIKs are SEC's stable identifiers. If a firm's CIK ever drifts the
+// EDGAR fetch silently degrades — the rest of the directory still ships.
+const F13_AUM_MIN_BILLIONS = 5;
+const F13_AUM_MAX_BILLIONS = 200;
+const F13_FIRM_DIRECTORY = [
+  // Multi-strat / quant
+  { firm: "Bridgewater Associates",       cik: "1350694", aumBillions: 108, kind: "Multi-strat" },
+  { firm: "Renaissance Technologies",     cik: "1037389", aumBillions: 132, kind: "Quant" },
+  { firm: "Citadel Advisors",             cik: "1423053", aumBillions: 65,  kind: "Multi-strat" },
+  { firm: "Millennium Management",        cik: "1273087", aumBillions: 70,  kind: "Multi-strat" },
+  { firm: "Two Sigma Investments",        cik: "1179392", aumBillions: 60,  kind: "Quant" },
+  { firm: "D.E. Shaw",                    cik: "1009207", aumBillions: 65,  kind: "Quant" },
+  { firm: "AQR Capital Management",       cik: "1167557", aumBillions: 140, kind: "Quant" },
+  { firm: "Point72 Asset Management",     cik: "1603466", aumBillions: 36,  kind: "Multi-strat" },
+  // Activists / long-biased value
+  { firm: "Pershing Square Capital",      cik: "1336528", aumBillions: 17,  kind: "Activist" },
+  { firm: "Third Point",                  cik: "1040273", aumBillions: 13,  kind: "Activist" },
+  // TMT / growth
+  { firm: "Tiger Global Management",      cik: "1167483", aumBillions: 60,  kind: "TMT growth" },
+  { firm: "Coatue Management",            cik: "1135730", aumBillions: 50,  kind: "TMT growth" },
+  { firm: "Viking Global Investors",      cik: "1170725", aumBillions: 50,  kind: "Long/short" },
+  { firm: "Lone Pine Capital",            cik: "1061165", aumBillions: 15,  kind: "TMT growth" },
 ];
+// AUM filter — applied at fetch time so out-of-band firms never hit EDGAR.
+const F13_TOP_FIRM_DIRECTORY = F13_FIRM_DIRECTORY.filter(
+  (f) => f.aumBillions >= F13_AUM_MIN_BILLIONS && f.aumBillions < F13_AUM_MAX_BILLIONS
+);
 
 // Compute which 13F quarter is "current" given today's date. 13Fs are
 // due 45 days after quarter end; before that deadline the prior quarter
@@ -13011,26 +13133,35 @@ async function fetchEdgarSubmissions(cik) {
 }
 
 function findLatest13F(submissions) {
+  const list = findLatestTwo13Fs(submissions);
+  return list?.[0] || null;
+}
+// Returns up to two filings — the latest 13F-HR and the prior quarter's.
+// Both are needed to compute QoQ deltas (positions added/exited/sized).
+// If the firm has only one 13F on file (first-time filer), the second
+// slot is omitted and downstream code treats every current holding as a
+// "new" position.
+function findLatestTwo13Fs(submissions) {
   const recent = submissions?.filings?.recent;
-  if (!recent) return null;
+  if (!recent) return [];
   const forms = recent.form || [];
   const dates = recent.filingDate || [];
   const accessions = recent.accessionNumber || [];
   const docs = recent.primaryDocument || [];
-  // Walk newest-first; the recent block is already date-descending.
+  const found = [];
+  // recent block is already date-descending; walk newest-first.
   for (let i = 0; i < forms.length; i++) {
-    // 13F-HR is the full holdings report; 13F-NT is a notice with no
-    // table. We only care about HR (and its amendments 13F-HR/A).
     if (forms[i] === "13F-HR" || forms[i] === "13F-HR/A") {
-      return {
+      found.push({
         form: forms[i],
         filingDate: dates[i],
         accessionNumber: accessions[i],
         primaryDocument: docs[i],
-      };
+      });
+      if (found.length >= 2) break;
     }
   }
-  return null;
+  return found;
 }
 
 async function fetchEdgar13FHoldings(cik, filing) {
@@ -13236,22 +13367,115 @@ async function fetchOpenFigiCusipMap(cusips) {
 // is also wrapped in a higher-level timeout by main().
 const F13_PER_FIRM_TIMEOUT_MS = 60_000;
 
-// Top-level orchestrator. Returns a per-firm map:
-//   { firmName: { filingDate, totalValue, top10ConcentrationPct,
-//                 totalPositions, holdings: [top 10 by value] } | null }
+// Number of positions to surface per side, per firm AND in the
+// cross-firm aggregate.
+const F13_TOP_N_PER_SIDE = 20;
+// Collapse a raw EDGAR holdings array (rows of {cusip, name, value, shares,
+// putCall}) into a per-CUSIP map: position value, share count, and a
+// reference name. Put/call entries are kept in the dollar total but never
+// counted toward share-count math (they're notional option exposures).
+function collapseHoldingsByCusip(holdings) {
+  const byCusip = new Map();
+  let total = 0;
+  for (const h of holdings) {
+    total += h.value;
+    const prev = byCusip.get(h.cusip);
+    if (prev) {
+      prev.value += h.value;
+      if (!h.putCall && h.shares) prev.shares = (prev.shares || 0) + h.shares;
+    } else {
+      byCusip.set(h.cusip, {
+        name: h.name,
+        cusip: h.cusip,
+        value: h.value,
+        shares: h.putCall ? null : h.shares,
+      });
+    }
+  }
+  return { byCusip, total };
+}
+// Diff latest-vs-prior collapsed maps. Output rows describe what changed:
+//   isNew   — position exists this quarter, did not exist last quarter
+//   isExit  — position existed last quarter, gone this quarter
+//   shareChange — current shares minus prior shares (null when shares missing
+//                 on either side)
+//   valueChange — current value minus prior value (always defined; sub for
+//                 sorting). For exits this is -prior.value; for new it's
+//                 +current.value.
+function diffHoldings(latestByCusip, priorByCusip, cusipMap) {
+  const all = new Set([...latestByCusip.keys(), ...priorByCusip.keys()]);
+  const rows = [];
+  for (const cusip of all) {
+    const cur = latestByCusip.get(cusip);
+    const pri = priorByCusip.get(cusip);
+    const ticker = cusipMap.get(cusip) || null;
+    const name = (cur || pri).name;
+    const curShares = cur && cur.shares != null ? cur.shares : null;
+    const priShares = pri && pri.shares != null ? pri.shares : null;
+    const shareChange = curShares != null && priShares != null
+      ? curShares - priShares
+      : (cur && pri ? null : (cur ? curShares : (priShares != null ? -priShares : null)));
+    const valueChange = (cur ? cur.value : 0) - (pri ? pri.value : 0);
+    rows.push({
+      ticker, name, cusip,
+      sharesNow: curShares,
+      sharesPrior: priShares,
+      shareChange,
+      valueNow: cur ? cur.value : 0,
+      valuePrior: pri ? pri.value : 0,
+      valueChange,
+      isNew: !!cur && !pri,
+      isExit: !!pri && !cur,
+    });
+  }
+  return rows;
+}
+// Top-level orchestrator. For each firm in the AUM-filtered directory:
+//   1. fetch the latest TWO 13F filings (current + prior quarter)
+//   2. parse + normalize both
+//   3. diff to produce per-position deltas
+//   4. surface the top 20 most-bought and 20 most-sold (by $ change)
+// Also computes a cross-firm aggregate so the UI can show "what every
+// active manager piled into this quarter" and "what they collectively
+// dumped" in addition to the per-firm view.
+//
+// Returns:
+//   {
+//     perFirm: {
+//       [firmName]: {
+//         firm, filingDate, priorFilingDate, filingForm,
+//         totalValue, priorTotalValue, totalPositions,
+//         topBought: [{ ticker, name, cusip, valueChange, shareChange,
+//                       valueNow, sharesNow, isNew }, ...20],
+//         topSold:   [{ ticker, name, cusip, valueChange, shareChange,
+//                       valuePrior, sharesPrior, isExit }, ...20],
+//       } | null
+//     },
+//     overallTopBought: [{ ticker, name, cusip, valueChange, shareChange,
+//                          firmCount, sampleFirms }, ...20],
+//     overallTopSold:   [...20],
+//   }
 export async function buildPerFirm13FHoldings() {
-  // Step 1: pull EDGAR submissions + parse XML for each firm in parallel.
-  // allSettled (not all) so one firm's failure doesn't drop the rest, and
-  // each firm races against its own 60s budget.
+  // Step 1: pull EDGAR submissions + the two most recent 13Fs for each firm
+  // in parallel. allSettled (not all) so one firm's failure doesn't drop
+  // the rest, and each firm races against its own 60s budget.
   const settled = await Promise.allSettled(
     F13_TOP_FIRM_DIRECTORY.map((f) => Promise.race([
       (async () => {
         const subs = await fetchEdgarSubmissions(f.cik);
-        const filing = subs ? findLatest13F(subs) : null;
-        if (!filing) return { firm: f.firm, cik: f.cik, filing: null, holdings: [] };
-        const raw = await fetchEdgar13FHoldings(f.cik, filing);
-        const normalized = normalize13FValueUnits(raw);
-        return { firm: f.firm, cik: f.cik, filing, holdings: normalized };
+        const filings = subs ? findLatestTwo13Fs(subs) : [];
+        if (!filings.length) {
+          return { firm: f.firm, cik: f.cik, latest: null, prior: null, latestHoldings: [], priorHoldings: [] };
+        }
+        const [latest, prior] = filings;
+        const latestRaw = await fetchEdgar13FHoldings(f.cik, latest);
+        const latestHoldings = normalize13FValueUnits(latestRaw);
+        let priorHoldings = [];
+        if (prior) {
+          const priorRaw = await fetchEdgar13FHoldings(f.cik, prior);
+          priorHoldings = normalize13FValueUnits(priorRaw);
+        }
+        return { firm: f.firm, cik: f.cik, latest, prior, latestHoldings, priorHoldings };
       })(),
       new Promise((_, reject) => setTimeout(
         () => reject(new Error(`per-firm timeout ${F13_PER_FIRM_TIMEOUT_MS / 1000}s`)),
@@ -13263,54 +13487,100 @@ export async function buildPerFirm13FHoldings() {
     const f = F13_TOP_FIRM_DIRECTORY[i];
     if (res.status === "fulfilled") return res.value;
     console.log(`    ⚠ EDGAR firm ${f.firm} (CIK${f.cik}) failed: ${res.reason?.message || res.reason}`);
-    return { firm: f.firm, cik: f.cik, filing: null, holdings: [] };
+    return { firm: f.firm, cik: f.cik, latest: null, prior: null, latestHoldings: [], priorHoldings: [] };
   });
-  // Step 2: one OpenFIGI lookup across the union of CUSIPs.
-  const allCusips = firmsRaw.flatMap((f) => f.holdings.map((h) => h.cusip));
+  // Step 2: one OpenFIGI lookup across the union of CUSIPs from BOTH
+  // quarters of every firm. Exit positions show up only in the prior
+  // filing, so we'd lose their ticker if we mapped on latest-only.
+  const allCusips = firmsRaw.flatMap((f) => [
+    ...f.latestHoldings.map((h) => h.cusip),
+    ...f.priorHoldings.map((h) => h.cusip),
+  ]);
   const cusipMap = await fetchOpenFigiCusipMap(allCusips);
-  // Step 3: aggregate + rank + truncate per firm.
-  const out = {};
+  // Step 3: diff + rank per firm. Skip firms with no latest filing.
+  const perFirm = {};
+  const allDeltaRows = []; // for cross-firm aggregation
   for (const f of firmsRaw) {
-    if (!f.holdings.length) { out[f.firm] = null; continue; }
-    const byCusip = new Map();
-    let total = 0;
-    for (const h of f.holdings) {
-      // Skip put/call entries from the aggregate share count — they're
-      // notional option exposures, not share positions. Still include
-      // their value in the firm's total reported AUM.
-      total += h.value;
-      const prev = byCusip.get(h.cusip);
-      if (prev) {
-        prev.value += h.value;
-        if (!h.putCall && h.shares) prev.shares = (prev.shares || 0) + h.shares;
-      } else {
-        byCusip.set(h.cusip, {
-          ticker: cusipMap.get(h.cusip) || null,
-          name: h.name,
-          cusip: h.cusip,
-          value: h.value,
-          shares: h.putCall ? null : h.shares,
-        });
-      }
-    }
-    const sorted = [...byCusip.values()].sort((a, b) => b.value - a.value);
-    const top = sorted.slice(0, 10);
-    const top10Sum = top.reduce((s, h) => s + h.value, 0);
-    const concentration = total > 0 ? (top10Sum / total) * 100 : 0;
-    out[f.firm] = {
+    if (!f.latest || !f.latestHoldings.length) { perFirm[f.firm] = null; continue; }
+    const latestCollapsed = collapseHoldingsByCusip(f.latestHoldings);
+    const priorCollapsed = f.priorHoldings.length
+      ? collapseHoldingsByCusip(f.priorHoldings)
+      : { byCusip: new Map(), total: 0 };
+    const deltas = diffHoldings(latestCollapsed.byCusip, priorCollapsed.byCusip, cusipMap);
+    // Top bought = largest positive valueChange. Top sold = largest
+    // negative valueChange (sorted ascending so most-negative first).
+    const sortedBought = deltas
+      .filter((d) => d.valueChange > 0)
+      .sort((a, b) => b.valueChange - a.valueChange)
+      .slice(0, F13_TOP_N_PER_SIDE);
+    const sortedSold = deltas
+      .filter((d) => d.valueChange < 0)
+      .sort((a, b) => a.valueChange - b.valueChange)
+      .slice(0, F13_TOP_N_PER_SIDE);
+    perFirm[f.firm] = {
       firm: f.firm,
-      filingDate: f.filing.filingDate,
-      filingForm: f.filing.form,
-      totalValue: total,
-      totalPositions: byCusip.size,
-      top10ConcentrationPct: Math.round(concentration * 10) / 10,
-      holdings: top,
+      filingDate: f.latest.filingDate,
+      filingForm: f.latest.form,
+      priorFilingDate: f.prior ? f.prior.filingDate : null,
+      totalValue: latestCollapsed.total,
+      priorTotalValue: priorCollapsed.total,
+      totalPositions: latestCollapsed.byCusip.size,
+      topBought: sortedBought.map((d) => ({
+        ticker: d.ticker, name: d.name, cusip: d.cusip,
+        valueChange: d.valueChange, shareChange: d.shareChange,
+        valueNow: d.valueNow, sharesNow: d.sharesNow,
+        isNew: d.isNew,
+      })),
+      topSold: sortedSold.map((d) => ({
+        ticker: d.ticker, name: d.name, cusip: d.cusip,
+        valueChange: d.valueChange, shareChange: d.shareChange,
+        valuePrior: d.valuePrior, sharesPrior: d.sharesPrior,
+        isExit: d.isExit,
+      })),
     };
+    // Tag every delta row with the firm so we can attribute aggregate
+    // moves to specific firms in the UI.
+    for (const d of deltas) {
+      if (d.valueChange === 0) continue;
+      allDeltaRows.push({ ...d, firm: f.firm });
+    }
   }
-  return out;
+  // Step 4: cross-firm aggregate. Sum valueChange and shareChange per
+  // CUSIP across every firm that traded it. Top 20 positive sum = "most
+  // bought overall"; top 20 most-negative sum = "most sold overall".
+  const aggregate = new Map(); // cusip → { ticker, name, valueChange, shareChange, firms: Set }
+  for (const d of allDeltaRows) {
+    const k = d.cusip;
+    let agg = aggregate.get(k);
+    if (!agg) {
+      agg = { ticker: d.ticker, name: d.name, cusip: d.cusip, valueChange: 0, shareChange: 0, firms: new Set() };
+      aggregate.set(k, agg);
+    }
+    agg.valueChange += d.valueChange;
+    if (d.shareChange != null) agg.shareChange += d.shareChange;
+    agg.firms.add(d.firm);
+    // Use whichever row has a ticker (some firms' rows might not have
+    // resolved via OpenFIGI but another firm's row for the same CUSIP did).
+    if (!agg.ticker && d.ticker) agg.ticker = d.ticker;
+  }
+  const aggregateRows = [...aggregate.values()].map((a) => ({
+    ticker: a.ticker, name: a.name, cusip: a.cusip,
+    valueChange: a.valueChange, shareChange: a.shareChange,
+    firmCount: a.firms.size,
+    sampleFirms: [...a.firms].slice(0, 5),
+  }));
+  const overallTopBought = aggregateRows
+    .filter((a) => a.valueChange > 0)
+    .sort((a, b) => b.valueChange - a.valueChange)
+    .slice(0, F13_TOP_N_PER_SIDE);
+  const overallTopSold = aggregateRows
+    .filter((a) => a.valueChange < 0)
+    .sort((a, b) => a.valueChange - b.valueChange)
+    .slice(0, F13_TOP_N_PER_SIDE);
+  return { perFirm, overallTopBought, overallTopSold };
 }
 
-export function build13FPayload(chains, narratives, asOf, perFirmHoldings) {
+export function build13FPayload(chains, narratives, asOf, perFirmResult) {
   const q = currentF13Quarter(asOf);
   const monthNames = ["January","February","March","April","May","June",
     "July","August","September","October","November","December"];
@@ -13319,63 +13589,65 @@ export function build13FPayload(chains, narratives, asOf, perFirmHoldings) {
   // with the quarter automatically.
   const deadlineStr = `${monthNames[q.filingDeadlineDate.getUTCMonth()].slice(0,3)} ${q.filingDeadlineDate.getUTCDate()}, ${q.filingDeadlineDate.getUTCFullYear()}`;
   const topFirms = F13_TOP_FIRM_DIRECTORY.map((f) => ({
-    ...f,
+    firm: f.firm,
+    cik: f.cik,
+    aumBillions: f.aumBillions,
+    aum: `~$${f.aumBillions}B`,
+    kind: f.kind,
     filingDate: deadlineStr,
   }));
   const biggestPositions = rankBiggestPositionsByMarketCap(chains);
   const themes = deriveF13RotationThemes(narratives);
-  // Detect whether SEC EDGAR returned real per-firm holdings this build.
-  // Three modes: full success (all curated firms returned data), partial
-  // (some returned, some failed) and full failure (curated baseline only).
-  const perFirm = perFirmHoldings && typeof perFirmHoldings === "object" ? perFirmHoldings : {};
+  // perFirmResult is { perFirm, overallTopBought, overallTopSold } from
+  // buildPerFirm13FHoldings. Defend against null/legacy callers.
+  const perFirm = perFirmResult && perFirmResult.perFirm ? perFirmResult.perFirm : {};
+  const overallTopBought = perFirmResult && Array.isArray(perFirmResult.overallTopBought) ? perFirmResult.overallTopBought : [];
+  const overallTopSold = perFirmResult && Array.isArray(perFirmResult.overallTopSold) ? perFirmResult.overallTopSold : [];
   const totalFirms = F13_TOP_FIRM_DIRECTORY.length;
+  // A firm "counts" as real if EDGAR returned a current quarter we could
+  // diff against (topBought + topSold non-empty, OR just topBought non-
+  // empty in the first-time-filer case).
   const realFirms = Object.values(perFirm)
-    .filter((v) => v && Array.isArray(v.holdings) && v.holdings.length)
+    .filter((v) => v && (Array.isArray(v.topBought) && v.topBought.length > 0
+                       || Array.isArray(v.topSold) && v.topSold.length > 0))
     .length;
   let sourceNote;
   if (realFirms === totalFirms) {
-    sourceNote = "Real per-firm 13F holdings parsed from SEC EDGAR (XML information tables), " +
-      "with CUSIP→ticker mapping via OpenFIGI. Top firms table, biggest-positions " +
-      "ranking, and rotation themes all refresh every build.";
+    sourceNote = `Real quarter-over-quarter 13F deltas parsed from SEC EDGAR for ${totalFirms} mid-sized fund managers ` +
+      `($${F13_AUM_MIN_BILLIONS}B–$${F13_AUM_MAX_BILLIONS}B AUM). Each firm's top ${F13_TOP_N_PER_SIDE} ` +
+      `most-bought and most-sold positions are computed by diffing the latest filing against the prior quarter; ` +
+      "CUSIP→ticker via OpenFIGI.";
   } else if (realFirms > 0) {
     sourceNote = `Partial EDGAR data this build: ${realFirms} of ${totalFirms} firms returned ` +
-      "holdings (XML information tables parsed from SEC EDGAR, CUSIPs mapped via OpenFIGI). " +
-      "Firms missing below fall back to the curated baseline directory.";
+      "quarter-over-quarter holdings deltas. Firms missing fall back to the curated baseline directory.";
   } else {
-    sourceNote = "Aggregated view of large institutional 13F filers ($5B+ AUM). EDGAR fetch was " +
-      "unavailable this build — per-firm tables fall back to the curated baseline.";
+    sourceNote = `Aggregated view of mid-sized institutional 13F filers ($${F13_AUM_MIN_BILLIONS}B–$${F13_AUM_MAX_BILLIONS}B AUM). ` +
+      "EDGAR fetch was unavailable this build — per-firm tables fall back to the curated baseline.";
   }
   return {
     builtAtIso: asOf.toISOString(),
     period: q.period,
     periodEnd: q.periodEnd,
     filingWindow: q.filingWindow,
+    aumBandBillions: { min: F13_AUM_MIN_BILLIONS, max: F13_AUM_MAX_BILLIONS },
     sourceNote,
     realFirms,
     totalFirms,
     topFirms,
     perFirm,
-    berkshire: {
-      label: "Berkshire Hathaway (Warren Buffett — concentrated)",
-      summary:
-        "~90 holdings, very high concentration. Classic value holdings: AAPL, banks, energy, etc. " +
-        "Known for minimal quarter-to-quarter changes.",
-    },
-    otherMajorFirms: [
-      "Vanguard / State Street: heavy passive indexing in SPY, IVV, mega-cap tech.",
-      "Fidelity / JPMorgan: mix of active + passive, strong in tech and financials.",
-    ],
+    overallTopBought,
+    overallTopSold,
     biggestPositions,
     mostBought: themes.buys,
     mostSold: themes.sells,
     rankingNote:
-      "Exact net change rankings require full database aggregation " +
-      "(tools like WhaleWisdom or 13F.info provide sortable views).",
+      `Cross-firm aggregate sums every qualifying firm's $-change in each CUSIP. ` +
+      `Per-firm tables list the top ${F13_TOP_N_PER_SIDE} most-bought and most-sold positions by $ change, ` +
+      `with the share-count change shown alongside.`,
     keyObservations: [
-      "Mega-cap Tech continues to dominate institutional portfolios.",
-      "Passive managers (BlackRock, Vanguard, State Street) control enormous stakes in index names.",
-      "Hedge funds show more active rotation (AI winners vs. some software trims).",
-      "Concentration risk remains high in \"Magnificent 7\"-style names.",
+      `Mid-cap fund managers ($${F13_AUM_MIN_BILLIONS}B–$${F13_AUM_MAX_BILLIONS}B AUM) show more active rotation than the BlackRock/Vanguard passive tier.`,
+      "Quarter-over-quarter dollar deltas filter out the noise of passive index rebalancing.",
+      "Cross-firm aggregate surfaces names where multiple active managers are taking the same side.",
     ],
     disclaimer:
       "13F filings are snapshots 45 days after quarter-end. They exclude non-13F assets " +
@@ -13385,8 +13657,8 @@ export function build13FPayload(chains, narratives, asOf, perFirmHoldings) {
   };
 }
 
-export async function write13FFile(chains, narratives, builtAtIso, perFirmHoldings) {
-  const payload = build13FPayload(chains, narratives, new Date(builtAtIso), perFirmHoldings);
+export async function write13FFile(chains, narratives, builtAtIso, perFirmResult) {
+  const payload = build13FPayload(chains, narratives, new Date(builtAtIso), perFirmResult);
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, F13_FILE), json, "utf8");
   return { bytes: json.length, positions: payload.biggestPositions.length };
@@ -17206,21 +17478,27 @@ async function main() {
   // run 20-30s, on top of the 9 parallel SEC fetches. 180s gives both a
   // realistic budget on cold caches without wedging the workflow.
   const F13_TIMEOUT_MS = 180_000;
-  const perFirmHoldings = await Promise.race([
+  // buildPerFirm13FHoldings now returns { perFirm, overallTopBought,
+  // overallTopSold } — the diff-based shape this PR introduced.
+  const f13Empty = { perFirm: {}, overallTopBought: [], overallTopSold: [] };
+  const perFirmResult = await Promise.race([
     buildPerFirm13FHoldings().catch((err) => {
       console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
-      return {};
+      return f13Empty;
     }),
     new Promise((resolve) => setTimeout(() => {
       console.log(`  ⚠ buildPerFirm13FHoldings exceeded ${F13_TIMEOUT_MS / 1000}s — keeping baseline.`);
-      resolve({});
+      resolve(f13Empty);
     }, F13_TIMEOUT_MS)),
   ]);
-  const realFirms = Object.entries(perFirmHoldings).filter(([, v]) => v && v.holdings.length).length;
-  const totalFirms = Object.keys(perFirmHoldings).length;
-  console.log(`  · ${realFirms}/${totalFirms} firms returned holdings`);
+  const perFirmMap = perFirmResult.perFirm || {};
+  const realFirms = Object.values(perFirmMap)
+    .filter((v) => v && ((v.topBought && v.topBought.length) || (v.topSold && v.topSold.length)))
+    .length;
+  const totalFirms = Object.keys(perFirmMap).length;
+  console.log(`  · ${realFirms}/${totalFirms} firms returned QoQ deltas (overall: ${perFirmResult.overallTopBought.length} buys / ${perFirmResult.overallTopSold.length} sells)`);
   if (realFirms > 0) {
-    const f13Info = await write13FFile(chains, trends.narratives, builtAtIso, perFirmHoldings);
+    const f13Info = await write13FFile(chains, trends.narratives, builtAtIso, perFirmResult);
     console.log(`wrote data/13f.json (enriched) — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
   } else {
     console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings.");
