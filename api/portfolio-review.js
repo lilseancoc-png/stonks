@@ -168,6 +168,21 @@ async function hydratePosition(p) {
     if (mid == null && row?.iv && spot != null && !expired) {
       mid = bsPrice(p.side, spot, p.strike, T, row.iv, RFR);
     }
+    // Expired positions don't have a tradable mid — Yahoo drops the chain
+    // and BS can't price T<=0. Without a fallback, writeSnapshot treats the
+    // position at entryPremium and equity stays flat across expiration. The
+    // honest mark is intrinsic value at the current spot (0 if OTM); the
+    // user-driven close will overwrite this once they record the actual
+    // settlement.
+    if (mid == null && expired) {
+      if (spot != null && spot > 0) {
+        mid = p.side === "call"
+          ? Math.max(0, spot - p.strike)
+          : Math.max(0, p.strike - spot);
+      } else {
+        mid = 0;
+      }
+    }
     const g =
       row?.iv && spot != null && !expired
         ? greeks(p.side, spot, p.strike, T, row.iv, RFR)

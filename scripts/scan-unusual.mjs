@@ -577,9 +577,14 @@ async function attachFlowExplanations(mergedTickers, scannedAt, nowSec) {
   if (dropped > 0) console.log(`pruned ${dropped} expired flow-explanation cache entr${dropped === 1 ? "y" : "ies"}`);
 
   // Stamp cache hits inline; collect cache misses to generate in parallel.
+  // Carried-over contracts (from mergeTickerRows) already have c.note set from
+  // the prior unusual.json, so short-circuit those before touching the cache —
+  // otherwise a stale or wiped cache file would regenerate the same note on
+  // every hourly scan, burning quota on contracts we already explained.
   const misses = [];
   for (const t of mergedTickers) {
     for (const c of t.contracts) {
+      if (c.note) continue;
       const key = flowCacheKey(c);
       const hit = cache.entries[key];
       if (hit && hit.note) {
