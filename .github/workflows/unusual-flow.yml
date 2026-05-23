@@ -48,6 +48,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Resolve the freshest tip of the dispatched ref at checkout
+          # time (rather than the SHA pinned at dispatch time, which is
+          # the @v5 default). Matters when concurrency:cancel-in-progress
+          # is false: an hourly run that sat in the queue while another
+          # commit landed on main would otherwise scan against stale
+          # code.
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v5
         with:
