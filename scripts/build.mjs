@@ -593,7 +593,7 @@ const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
 // Walks daily closes oldest-first, building each day's % change, and
 // simulates the current streak forward. Returns null for tickers without
 // enough bars to derive even one day-over-day move.
-function computeStreakForTicker(symbol, bars) {
+export function computeStreakForTicker(symbol, bars) {
   if (!bars || bars.length < 2) return null;
   // Cap at the most recent ~60 sessions so we don't carry decades of
   // history forward; the active streak is always recent by definition.
@@ -617,8 +617,14 @@ function computeStreakForTicker(symbol, bars) {
     days: 1,
     sameDays: 1,
     cumulativePct: m.changePct,
+    // Cumulative counter-day drag across the *whole* streak window --
+    // do not reset when a same-direction day heals the trailing run.
     tolerancePct: 0,
+    // Total counter days seen in the streak window, also cumulative.
     counterDays: 0,
+    // Current trailing run of counter days -- only this resets on a
+    // same-direction day. Used solely for the N-in-a-row break rule.
+    consecutiveCounterDays: 0,
     history: [m],
   });
   for (const m of moves) {
@@ -636,12 +642,13 @@ function computeStreakForTicker(symbol, bars) {
       continue;
     }
     if (m.color === streak.direction) {
-      // Same-direction day: extend, "heal" tolerance + counter counters.
+      // Same-direction day: extend. The trailing counter run resets,
+      // but the cumulative tolerance bank + total counter-day count
+      // stay -- those are properties of the whole streak window.
       streak.sameDays += 1;
       streak.days += 1;
       streak.cumulativePct += m.changePct;
-      streak.tolerancePct = 0;
-      streak.counterDays = 0;
+      streak.consecutiveCounterDays = 0;
       streak.history.push(m);
       continue;
     }
@@ -655,9 +662,10 @@ function computeStreakForTicker(symbol, bars) {
     const counterMag = Math.abs(m.changePct);
     const newTolerance = streak.tolerancePct + counterMag;
     const newCounterDays = streak.counterDays + 1;
+    const newConsecutiveCounter = streak.consecutiveCounterDays + 1;
     const breakSingleDay = counterMag > STREAK_COUNTER_BREAK_PCT;
     const breakCumulative = newTolerance >= STREAK_CUM_TOLERANCE_BREAK_PCT;
-    const breakConsecutive = newCounterDays >= STREAK_CONSECUTIVE_COUNTER_BREAK;
+    const breakConsecutive = newConsecutiveCounter >= STREAK_CONSECUTIVE_COUNTER_BREAK;
     if (breakSingleDay || breakCumulative || breakConsecutive) {
       streak = startStreak(m);
       continue;
@@ -667,13 +675,17 @@ function computeStreakForTicker(symbol, bars) {
     streak.cumulativePct += m.changePct;
     streak.tolerancePct = newTolerance;
     streak.counterDays = newCounterDays;
+    streak.consecutiveCounterDays = newConsecutiveCounter;
     streak.history.push(m);
   }
   if (!streak) return null;
 
   const lastMove = streak.history[streak.history.length - 1];
   // History is emitted newest-first to match the existing data contract.
-  const histOut = streak.history.slice().reverse().slice(0, 10).map((m, idx) => ({
+  // Emit the full streak window so the rendered daily moves sum to
+  // cumulativePct -- the renderer slices by current.days, and long
+  // streaks were previously truncated to 10.
+  const histOut = streak.history.slice().reverse().map((m, idx) => ({
     sessionsBack: idx,
     date: m.date,
     close: m.close,
