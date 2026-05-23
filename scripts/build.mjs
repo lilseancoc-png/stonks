@@ -13262,6 +13262,41 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
 
 export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extras) {
   const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras);
+  // Final tier of macro-report resilience: if FRED + BLS both came back
+  // empty AND no in-window report dates landed (the schedule may also
+  // have no upcoming releases), salvage any in-window report rows from
+  // the prior calendar.json so a transient outage doesn't blank the
+  // macro tab. Mirrors the lastKnownFedRate pattern in
+  // fedwatch-history.json. Carried rows are tagged `stale:true` so the
+  // UI can flag them if it ever wants to.
+  const hasFreshReports = payload.events.some((ev) => ev?.type === "report");
+  if (!hasFreshReports) {
+    try {
+      const prior = JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
+      const today = new Date(builtAtIso || Date.now());
+      const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+      const cutoffMs = startMs + CALENDAR_DAYS_AHEAD * 86400000;
+      const carried = [];
+      for (const ev of (prior?.events || [])) {
+        if (ev?.type !== "report" || !ev?.date) continue;
+        const ms = Date.UTC(
+          Number(ev.date.slice(0, 4)),
+          Number(ev.date.slice(5, 7)) - 1,
+          Number(ev.date.slice(8, 10)),
+        );
+        if (ms < startMs || ms > cutoffMs) continue;
+        carried.push({ ...ev, stale: true });
+      }
+      if (carried.length) {
+        payload.events = payload.events.concat(carried);
+        payload.events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || "").localeCompare(b.symbol || "")));
+        console.log(`    ⚠ macro reports empty — carried ${carried.length} stale rows from prior calendar.json`);
+      }
+    } catch (_) {
+      // No prior calendar.json (first run) or unreadable JSON — nothing
+      // to carry. Calendar still ships with whatever else is in events.
+    }
+  }
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, CALENDAR_FILE), json, "utf8");
   return { bytes: json.length, count: payload.events.length };
@@ -14202,16 +14237,18 @@ function buildReleaseSchedule(asOf) {
 // Reports we surface in the calendar. Each entry carries the FRED series
 // id to pull the time series from, the canonical user-facing label, the
 // release-schedule key, and a per-series formatter that maps the raw
-// value to a display string the calendar chips render verbatim.
+// value to a display string the calendar chips render verbatim. The
+// `bls` field is the matching BLS Public Data API series ID, used as a
+// fallback when FRED is unreachable — see fetchBlsSeries.
 const ECON_REPORTS = [
-  { subtype: "nfp",          label: "Non-Farm Payroll",      schedule: "empSit", series: "PAYEMS",   format: "nfp"  },
-  { subtype: "unrate",       label: "Unemployment Rate",     schedule: "empSit", series: "UNRATE",   format: "pct"  },
-  { subtype: "jolts",        label: "JOLTS Job Openings",    schedule: "jolts",  series: "JTSJOL",   format: "jobs" },
-  { subtype: "cpi-mom",      label: "CPI MoM",               schedule: "cpi",    series: "CPIAUCSL", format: "mom"  },
-  { subtype: "cpi-yoy",      label: "CPI YoY",               schedule: "cpi",    series: "CPIAUCSL", format: "yoy"  },
-  { subtype: "core-cpi-mom", label: "Core CPI MoM",          schedule: "cpi",    series: "CPILFESL", format: "mom"  },
-  { subtype: "core-cpi-yoy", label: "Core CPI YoY",          schedule: "cpi",    series: "CPILFESL", format: "yoy"  },
-  { subtype: "ppi-mom",      label: "PPI MoM",               schedule: "ppi",    series: "PPIFIS",   format: "mom"  },
+  { subtype: "nfp",          label: "Non-Farm Payroll",      schedule: "empSit", series: "PAYEMS",   bls: "CES0000000001",     format: "nfp"  },
+  { subtype: "unrate",       label: "Unemployment Rate",     schedule: "empSit", series: "UNRATE",   bls: "LNS14000000",       format: "pct"  },
+  { subtype: "jolts",        label: "JOLTS Job Openings",    schedule: "jolts",  series: "JTSJOL",   bls: "JTS000000000000000JOL", format: "jobs" },
+  { subtype: "cpi-mom",      label: "CPI MoM",               schedule: "cpi",    series: "CPIAUCSL", bls: "CUSR0000SA0",       format: "mom"  },
+  { subtype: "cpi-yoy",      label: "CPI YoY",               schedule: "cpi",    series: "CPIAUCSL", bls: "CUSR0000SA0",       format: "yoy"  },
+  { subtype: "core-cpi-mom", label: "Core CPI MoM",          schedule: "cpi",    series: "CPILFESL", bls: "CUSR0000SA0L1E",    format: "mom"  },
+  { subtype: "core-cpi-yoy", label: "Core CPI YoY",          schedule: "cpi",    series: "CPILFESL", bls: "CUSR0000SA0L1E",    format: "yoy"  },
+  { subtype: "ppi-mom",      label: "PPI MoM",               schedule: "ppi",    series: "PPIFIS",   bls: "WPSFD4",            format: "mom"  },
 ];
 
 // === FRED ============================================================
@@ -14337,6 +14374,76 @@ async function fetchFredSeries(seriesId) {
   return [];
 }
 
+// === BLS Public Data API ============================================
+// Alternate source for the macro series FRED publishes — used as a
+// fallback when FRED is unreachable (e.g. the Cloudflare-fronted CSV
+// endpoint blocking the runner IP). The v2 GET endpoint is
+// unauthenticated and returns the last 3 calendar years of monthly
+// observations:
+//   GET https://api.bls.gov/publicAPI/v2/timeseries/data/<SERIES_ID>
+// Response (newest-first):
+//   {
+//     "status": "REQUEST_SUCCEEDED",
+//     "Results": { "series": [{
+//       "seriesID": "...",
+//       "data": [{ "year": "2026", "period": "M04", "value": "158234", ... }]
+//     }]}
+//   }
+// We dropped to ~6 calls per build (one per unique FRED series) so the
+// unauthenticated v2 throttle is plenty. Periods "M01"–"M12" map to
+// months 1–12; "M13" (annual avg) is skipped so cadence matches FRED's
+// monthly observations.
+async function fetchBlsSeries(blsId) {
+  if (!blsId) return [];
+  try {
+    const res = await fetch(
+      `https://api.bls.gov/publicAPI/v2/timeseries/data/${encodeURIComponent(blsId)}`,
+      {
+        headers: {
+          accept: "application/json",
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        },
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) {
+      console.log(`    ⚠ BLS ${blsId} HTTP ${res.status}`);
+      return [];
+    }
+    const json = await res.json();
+    if (json?.status !== "REQUEST_SUCCEEDED") {
+      console.log(`    ⚠ BLS ${blsId} non-success status: ${json?.status || "unknown"}`);
+      return [];
+    }
+    const data = json?.Results?.series?.[0]?.data || [];
+    const out = [];
+    for (const ob of data) {
+      const m = /^M(\d{2})$/.exec(String(ob?.period || ""));
+      if (!m) continue;
+      const month = Number(m[1]);
+      if (month < 1 || month > 12) continue;     // skips M13 (annual avg)
+      const year = Number(ob?.year);
+      if (!Number.isFinite(year)) continue;
+      const raw = ob?.value;
+      if (raw === "" || raw == null) continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) continue;
+      // FRED monthly series are dated YYYY-MM-01 (start of reference
+      // month); match that so formatEconValue's idx walks line up.
+      const date = `${year}-${String(month).padStart(2, "0")}-01`;
+      out.push({ date, value });
+    }
+    // BLS returns newest-first; the rest of the pipeline expects
+    // oldest-first (latestIdx = series.length - 1).
+    out.reverse();
+    return out;
+  } catch (err) {
+    console.log(`    ⚠ BLS ${blsId} fetch failed: ${err.message}`);
+    return [];
+  }
+}
+
 // Format a release value for display, given the format key from the
 // ECON_REPORTS table and a reference into the time series (newest-last).
 // Returns null when we don't have enough history to compute the metric.
@@ -14389,14 +14496,43 @@ function formatEconValue(format, series, idx) {
 // wired (TradingEconomics / Investing.com).
 export async function fetchMacroReleases(startMs, cutoffMs) {
   const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series)));
+  // Map FRED series id → BLS series id for the per-id fallback. Only one
+  // BLS id per FRED id (CPIAUCSL/CPILFESL each appear twice in
+  // ECON_REPORTS but share a single BLS counterpart).
+  const blsByFredId = {};
+  for (const r of ECON_REPORTS) {
+    if (r.bls && !blsByFredId[r.series]) blsByFredId[r.series] = r.bls;
+  }
   const seriesData = {};
-  // Pull FRED + ForexFactory in parallel — FRED provides Actual/Previous
-  // (canonical), ForexFactory provides Consensus/Forecast (and sometimes
-  // a faster Actual, since FF tends to publish within minutes of release
-  // while FRED's monthly observation can lag a day or two).
+  // Tracks which source ultimately filled each series so event.source can
+  // attribute correctly (FRED:ID vs BLS:ID). null = both empty.
+  const seriesSource = {};
+  // Pull FRED (+ BLS fallback) + ForexFactory in parallel. FRED provides
+  // Actual/Previous (canonical); when FRED is blocked from the runner IP
+  // we fall back to the BLS Public API for the same Actual/Previous
+  // numbers. ForexFactory provides Consensus/Forecast (and sometimes a
+  // faster Actual, since FF tends to publish within minutes of release
+  // while the monthly observation can lag a day or two).
   const [ , ffEvents ] = await Promise.all([
     Promise.all(uniqueSeries.map(async (id) => {
-      seriesData[id] = await fetchFredSeries(id);
+      let data = await fetchFredSeries(id);
+      if (data.length) {
+        seriesData[id] = data;
+        seriesSource[id] = "FRED:" + id;
+        return;
+      }
+      const blsId = blsByFredId[id];
+      if (blsId) {
+        data = await fetchBlsSeries(blsId);
+        if (data.length) {
+          console.log(`    ✓ ${id} sourced from BLS (${blsId}) — FRED returned empty`);
+          seriesData[id] = data;
+          seriesSource[id] = "BLS:" + blsId;
+          return;
+        }
+      }
+      seriesData[id] = [];
+      seriesSource[id] = null;
     })),
     fetchForexFactoryCalendar(),
   ]);
@@ -14457,22 +14593,66 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         // from consensus; treat ff.forecast as both for now, since FF
         // doesn't expose a separate "forecast" feed.
         forecast: consensus,
-        source: ff ? "BLS · FRED · ForexFactory" : "FRED · " + report.series,
+        source: ff
+          ? "BLS · FRED · ForexFactory"
+          : (seriesSource[report.series] || "FRED · " + report.series).replace(":", " · "),
       });
     }
   }
   return events;
 }
 
-// === Federal Funds Rate (FRED DFF) ===================================
-export async function fetchEffectiveFedFundsRate() {
-  const series = await fetchFredSeries("DFF");
-  if (!series.length) {
-    console.log("    ⚠ Fed Funds Rate fetch returned no observations (FRED:DFF empty / blocked).");
+// === Federal Funds Rate (FRED DFF + NY Fed EFFR fallback) ============
+// The NY Fed publishes the effective fed funds rate (EFFR) daily at a
+// public JSON endpoint with no auth and no Cloudflare WAF — it's
+// literally the upstream of FRED's DFF series. Response shape:
+//   { "refRates": [{ "effectiveDate": "YYYY-MM-DD", "type": "EFFR",
+//                    "percentRate": 4.33, ... }] }
+async function fetchNyFedEffr() {
+  try {
+    const res = await fetch(
+      "https://markets.newyorkfed.org/api/rates/unsecured/effr/last/1.json",
+      {
+        headers: {
+          accept: "application/json",
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!res.ok) {
+      console.log(`    ⚠ NY Fed EFFR HTTP ${res.status}`);
+      return null;
+    }
+    const json = await res.json();
+    const row = json?.refRates?.[0];
+    const rate = Number(row?.percentRate);
+    const asOf = row?.effectiveDate;
+    if (!Number.isFinite(rate) || !asOf) return null;
+    return { rate, asOf, source: "NYFED:EFFR" };
+  } catch (err) {
+    console.log(`    ⚠ NY Fed EFFR fetch failed: ${err.message}`);
     return null;
   }
-  const last = series[series.length - 1];
-  return { rate: last.value, asOf: last.date, source: "FRED:DFF" };
+}
+
+export async function fetchEffectiveFedFundsRate() {
+  const series = await fetchFredSeries("DFF");
+  if (series.length) {
+    const last = series[series.length - 1];
+    return { rate: last.value, asOf: last.date, source: "FRED:DFF" };
+  }
+  // FRED empty (cascade short-circuit, timeout, or genuinely empty
+  // response). Try the NY Fed EFFR endpoint as a backstop — same daily
+  // series, different publisher, different network path.
+  const nyFed = await fetchNyFedEffr();
+  if (nyFed) {
+    console.log(`    ✓ Fed Funds rate sourced from NY Fed EFFR ${nyFed.rate}% as of ${nyFed.asOf} (FRED returned empty)`);
+    return nyFed;
+  }
+  console.log("    ⚠ Fed Funds Rate fetch returned no observations (FRED:DFF + NY Fed both empty / blocked).");
+  return null;
 }
 
 // === Nasdaq earnings calendar (AM / PM session) ======================
