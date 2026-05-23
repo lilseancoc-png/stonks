@@ -14203,22 +14203,76 @@ const ECON_REPORTS = [
 ];
 
 // === FRED ============================================================
-// Free public CSV endpoint, no API key required:
+// Primary path when FRED_API_KEY is set: the official JSON API at
+//   https://api.stlouisfed.org/fred/series/observations?series_id=<ID>&api_key=<KEY>&file_type=json
+// This host doesn't go through the Cloudflare WAF that gates the public
+// CSV endpoint, so it's far more reliable from CI runner IPs (which have
+// been observed to time out every CSV attempt for minutes at a time —
+// see the 2026-05-23 daily build log).
+//
+// Fallback / unauthenticated path: the public CSV endpoint
 //   https://fred.stlouisfed.org/graph/fredgraph.csv?id=<SERIES>
-// Returns "observation_date,<SERIES>\nYYYY-MM-DD,<value>\n..." sorted
-// oldest → newest. We pull each series once and reuse across reports
-// (e.g., CPIAUCSL feeds both CPI MoM and CPI YoY).
+// returning "observation_date,<SERIES>\nYYYY-MM-DD,<value>\n..." oldest →
+// newest. We pull each series once and reuse across reports (e.g.,
+// CPIAUCSL feeds both CPI MoM and CPI YoY).
+//
+// Cascade short-circuit: when ≥2 series fail their first attempt against
+// the CSV endpoint in the same run, FRED is clearly unreachable from
+// this IP — subsequent retries and later series' first attempts are
+// skipped to avoid burning ~25s per attempt × N series. The counter is
+// at module scope so a cascade in fetchMacroReleases also short-circuits
+// the subsequent fetchEffectiveFedFundsRate.
+let _fredFirstAttemptFailures = 0;
+const FRED_CASCADE_THRESHOLD = 2;
+
 async function fetchFredSeries(seriesId) {
+  if (_fredFirstAttemptFailures >= FRED_CASCADE_THRESHOLD) {
+    console.log(`    ⚠ FRED ${seriesId} skipped — cascade detected (${_fredFirstAttemptFailures} first-attempt failures)`);
+    return [];
+  }
+
+  // Primary path: official JSON API when FRED_API_KEY is set.
+  const apiKey = process.env.FRED_API_KEY;
+  if (apiKey) {
+    try {
+      const apiRes = await fetch(
+        `https://api.stlouisfed.org/fred/series/observations?series_id=${encodeURIComponent(seriesId)}&api_key=${encodeURIComponent(apiKey)}&file_type=json`,
+        { signal: AbortSignal.timeout(15000) },
+      );
+      if (apiRes.ok) {
+        const json = await apiRes.json();
+        const out = [];
+        for (const ob of (json?.observations || [])) {
+          const date = ob?.date;
+          const raw = ob?.value;
+          if (!date || raw === "" || raw === "." || raw == null) continue;
+          const value = Number(raw);
+          if (!Number.isFinite(value)) continue;
+          out.push({ date, value });
+        }
+        if (out.length) return out;
+        console.log(`    ⚠ FRED ${seriesId} API returned no observations — falling back to CSV`);
+      } else {
+        console.log(`    ⚠ FRED ${seriesId} API HTTP ${apiRes.status} — falling back to CSV`);
+      }
+    } catch (err) {
+      console.log(`    ⚠ FRED ${seriesId} API failed: ${err.message} — falling back to CSV`);
+    }
+  }
+
+  // Fallback path: public CSV endpoint with retries. Cloudflare-fronted
+  // and intermittently flaky under load — up to 4 attempts with
+  // exponential backoff (1s, 2s, 4s) and a generous 25s per-attempt
+  // timeout; callers still tolerate an empty result on permanent failure.
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
-  // FRED's Cloudflare hop is unreliable under load — we've seen every
-  // attempt time out at 15s during heavy traffic windows. Try up to 4
-  // times with exponential backoff (1s, 2s, 4s) and a generous 25s
-  // per-attempt timeout; callers still tolerate an empty result on
-  // permanent failure.
   const MAX_ATTEMPTS = 4;
   const BACKOFFS_MS = [1000, 2000, 4000];
   let lastErr = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1 && _fredFirstAttemptFailures >= FRED_CASCADE_THRESHOLD) {
+      console.log(`    ⚠ FRED ${seriesId} retries cut short — cascade detected (${_fredFirstAttemptFailures} first-attempt failures)`);
+      return [];
+    }
     try {
       const res = await fetch(url, {
         // FRED's Cloudflare front rejects bare User-Agents with 403. Send a
@@ -14234,6 +14288,7 @@ async function fetchFredSeries(seriesId) {
       });
       if (!res.ok) {
         console.log(`    ⚠ FRED ${seriesId} HTTP ${res.status}${attempt < MAX_ATTEMPTS ? " — retrying" : ""}`);
+        if (attempt === 1) _fredFirstAttemptFailures++;
         lastErr = new Error(`HTTP ${res.status}`);
         if (attempt < MAX_ATTEMPTS) {
           await new Promise((r) => setTimeout(r, BACKOFFS_MS[attempt - 1]));
@@ -14257,6 +14312,7 @@ async function fetchFredSeries(seriesId) {
       }
       return out;
     } catch (err) {
+      if (attempt === 1) _fredFirstAttemptFailures++;
       lastErr = err;
       if (attempt < MAX_ATTEMPTS) {
         console.log(`    ⚠ FRED ${seriesId} attempt ${attempt} failed: ${err.message} — retrying`);
@@ -16034,9 +16090,13 @@ async function fetchArticleBody(url) {
       _bodyFetchStats.http++;
       const bucket = _bodyFetchBucketForStatus(res.status);
       _bodyFetchStats.httpByStatus[bucket]++;
-      // Only count terminal rejections (403/404) toward the domain
-      // blocklist — 5xx and 429 are usually transient.
-      if ((bucket === "403" || bucket === "404") && host) {
+      // Count 403/404/429 toward the domain blocklist. 403/404 are
+      // terminal; 429 is nominally transient but in practice has been
+      // sticky per-host across a single run (one log showed 315 of 316
+      // body fetch failures were 429s from the same handful of hosts),
+      // so retrying just wastes the fetch budget. 5xx stays out — it's
+      // usually a real upstream blip that clears within seconds.
+      if ((bucket === "403" || bucket === "404" || bucket === "429") && host) {
         _bodyFetchDomainFails.set(host, (_bodyFetchDomainFails.get(host) || 0) + 1);
       }
       return null;
@@ -17969,16 +18029,23 @@ async function main() {
   // buildPerFirm13FHoldings now returns { perFirm, overallTopBought,
   // overallTopSold } — the diff-based shape this PR introduced.
   const f13Empty = { perFirm: {}, overallTopBought: [], overallTopSold: [] };
-  const perFirmResult = await Promise.race([
-    buildPerFirm13FHoldings().catch((err) => {
-      console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
-      return f13Empty;
-    }),
-    new Promise((resolve) => setTimeout(() => {
+  // Clear the timer when the real work resolves first — otherwise the
+  // unfired setTimeout keeps counting and prints a misleading "exceeded
+  // 240s — keeping baseline" warning long after the enriched 13F was
+  // already written.
+  let f13TimeoutHandle = null;
+  const f13TimeoutPromise = new Promise((resolve) => {
+    f13TimeoutHandle = setTimeout(() => {
       console.log(`  ⚠ buildPerFirm13FHoldings exceeded ${F13_TIMEOUT_MS / 1000}s — keeping baseline.`);
       resolve(f13Empty);
-    }, F13_TIMEOUT_MS)),
-  ]);
+    }, F13_TIMEOUT_MS);
+  });
+  const f13WorkPromise = buildPerFirm13FHoldings().catch((err) => {
+    console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
+    return f13Empty;
+  });
+  const perFirmResult = await Promise.race([f13WorkPromise, f13TimeoutPromise]);
+  clearTimeout(f13TimeoutHandle);
   const perFirmMap = perFirmResult.perFirm || {};
   const realFirms = Object.values(perFirmMap)
     .filter((v) => v && ((v.topBought && v.topBought.length) || (v.topSold && v.topSold.length)))
