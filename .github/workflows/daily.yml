@@ -49,9 +49,9 @@ jobs:
     if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -67,6 +67,15 @@ jobs:
           # back to its hard-coded Gemma default.
           AI_MODEL: ${{ vars.AI_MODEL }}
           NARRATIVES_MODEL: ${{ vars.NARRATIVES_MODEL }}
+          # Optional: when set, FRED fetches use api.stlouisfed.org (the
+          # official JSON API, not Cloudflare-fronted) as the primary
+          # path, with the public CSV endpoint as the fallback. Without
+          # it, the build degrades gracefully — see fetchFredSeries in
+          # scripts/build.mjs. Register a free key at
+          # https://fred.stlouisfed.org/docs/api/api_key.html and add it
+          # as a repo secret to populate macro events + Fed Funds rate
+          # reliably from the GH Actions runner IPs.
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: node scripts/build.mjs
 
       - name: Commit refreshed site

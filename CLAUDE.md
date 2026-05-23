@@ -47,6 +47,7 @@ There is **no test suite, no linter, and no type checker** wired into `package.j
 | `AI_MODEL`, `NARRATIVES_MODEL`, `AI_FLOW_MODEL` | build / scan scripts | Override the default Gemini model per call site. |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | `api/config.js`, `js/auth.js` | Browser auth client. Anon key is safe to ship — RLS gates access. |
 | `SUPABASE_SERVICE_ROLE_KEY` | `api/portfolio-review.js`, `api/close-position.js`, `api/delete-trade.js` | Server-side JWT verification only. Never sent to the browser. |
+| `FRED_API_KEY` | `scripts/build.mjs` (`fetchFredSeries`) | Optional. When set, FRED fetches go through `api.stlouisfed.org` (the official JSON API, not Cloudflare-fronted) as the primary path, with the public CSV endpoint as fallback. Without it the build degrades gracefully — but the GH Actions runner IPs intermittently get every CSV attempt blocked for minutes, blanking the macro calendar + Fed Funds rate + FedWatch. Free key at <https://fred.stlouisfed.org/docs/api/api_key.html>. |
 
 ## High-level architecture
 
