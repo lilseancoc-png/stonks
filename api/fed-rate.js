@@ -24,7 +24,12 @@ export default async function handler(req, res) {
         "accept-language": "en-US,en;q=0.9",
         referer: "https://fred.stlouisfed.org/",
       },
-      signal: AbortSignal.timeout(8000),
+      // FRED's Cloudflare hop can take >8s under load — daily-build runs
+      // have shown the same series timing out at 15s. Give the live
+      // refresh enough budget to clear a slow upstream while still
+      // failing fast enough to fall through to whatever cached rate the
+      // page held before.
+      signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) {
       return res.status(502).json({ error: "FRED HTTP " + r.status });
