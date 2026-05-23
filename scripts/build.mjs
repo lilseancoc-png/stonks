@@ -14210,11 +14210,15 @@ const ECON_REPORTS = [
 // (e.g., CPIAUCSL feeds both CPI MoM and CPI YoY).
 async function fetchFredSeries(seriesId) {
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
-  // FRED occasionally responds in >15s during heavy load (or behind a
-  // slow Cloudflare hop). Retry once after a short backoff before giving
-  // up — callers already tolerate an empty result on permanent failure.
+  // FRED's Cloudflare hop is unreliable under load — we've seen every
+  // attempt time out at 15s during heavy traffic windows. Try up to 4
+  // times with exponential backoff (1s, 2s, 4s) and a generous 25s
+  // per-attempt timeout; callers still tolerate an empty result on
+  // permanent failure.
+  const MAX_ATTEMPTS = 4;
+  const BACKOFFS_MS = [1000, 2000, 4000];
   let lastErr = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(url, {
         // FRED's Cloudflare front rejects bare User-Agents with 403. Send a
@@ -14226,13 +14230,13 @@ async function fetchFredSeries(seriesId) {
           "accept-language": "en-US,en;q=0.9",
           referer: "https://fred.stlouisfed.org/",
         },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(25000),
       });
       if (!res.ok) {
-        console.log(`    ⚠ FRED ${seriesId} HTTP ${res.status}${attempt < 2 ? " — retrying" : ""}`);
+        console.log(`    ⚠ FRED ${seriesId} HTTP ${res.status}${attempt < MAX_ATTEMPTS ? " — retrying" : ""}`);
         lastErr = new Error(`HTTP ${res.status}`);
-        if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 1000));
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((r) => setTimeout(r, BACKOFFS_MS[attempt - 1]));
           continue;
         }
         return [];
@@ -14254,14 +14258,14 @@ async function fetchFredSeries(seriesId) {
       return out;
     } catch (err) {
       lastErr = err;
-      if (attempt < 2) {
+      if (attempt < MAX_ATTEMPTS) {
         console.log(`    ⚠ FRED ${seriesId} attempt ${attempt} failed: ${err.message} — retrying`);
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, BACKOFFS_MS[attempt - 1]));
         continue;
       }
     }
   }
-  console.log(`    ⚠ FRED ${seriesId} failed: ${lastErr ? lastErr.message : "unknown"}`);
+  console.log(`    ⚠ FRED ${seriesId} failed after ${MAX_ATTEMPTS} attempts: ${lastErr ? lastErr.message : "unknown"}`);
   return [];
 }
 
@@ -17956,11 +17960,12 @@ async function main() {
   const baselineInfo = await write13FFile(chains, trends.narratives, builtAtIso, {});
   console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
   console.log("Fetching per-firm 13F holdings (SEC EDGAR + OpenFIGI)…");
-  // OpenFIGI's unauthenticated tier throttles every batch by 2.5s. With ~9
-  // firms × top-10 holdings (~90 unique CUSIPs) the mapping call alone can
-  // run 20-30s, on top of the 9 parallel SEC fetches. 180s gives both a
-  // realistic budget on cold caches without wedging the workflow.
-  const F13_TIMEOUT_MS = 180_000;
+  // OpenFIGI's unauthenticated tier throttles every batch by 2.5s. With
+  // OPENFIGI_MAX_BATCHES_UNAUTH=50 that's ~125s of pure throttle sleep,
+  // and the slowest EDGAR firm can burn the full 60s per-firm budget on
+  // top of that — 185s observed in the wild, blowing past an earlier
+  // 180s cap. 240s gives ~55s of headroom while still capping a runaway.
+  const F13_TIMEOUT_MS = 240_000;
   // buildPerFirm13FHoldings now returns { perFirm, overallTopBought,
   // overallTopSold } — the diff-based shape this PR introduced.
   const f13Empty = { perFirm: {}, overallTopBought: [], overallTopSold: [] };
