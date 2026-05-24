@@ -1213,16 +1213,27 @@ async function fetchCikMap() {
 }
 
 // Revenue segments come from the raw XBRL instance document inside each
-// 10-K filing — NOT from SEC's companyfacts / companyconcept REST APIs.
-// Both REST endpoints aggregate facts and strip the XBRL `<segment>`
-// dimensions (ProductOrServiceAxis, StatementGeographicalAxis, etc.), so
-// every entry comes back without any axis breakdown. The instance XML
-// preserves the contexts; we re-join facts → contexts ourselves.
+// 10-K filing (US-GAAP filers) or 20-F filing (foreign private issuers
+// like NVO/ASML/TSM/BABA, who file IFRS) — NOT from SEC's companyfacts /
+// companyconcept REST APIs. Both REST endpoints aggregate facts and strip
+// the XBRL `<segment>` dimensions (ProductOrServiceAxis, etc.), so every
+// entry comes back without any axis breakdown. The instance XML preserves
+// the contexts; we re-join facts → contexts ourselves.
+//
+// Each entry is `prefix:LocalName` so the parser can match both US-GAAP
+// 10-K filers and IFRS 20-F filers in one pass.
 const REVENUE_CONCEPTS = [
-  "RevenueFromContractWithCustomerExcludingAssessedTax",
-  "RevenueFromContractWithCustomerIncludingAssessedTax",
-  "Revenues",
-  "SalesRevenueNet",
+  "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+  "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+  "us-gaap:Revenues",
+  "us-gaap:SalesRevenueNet",
+  // Banks / broker-dealers / payment networks report top-line revenue as
+  // "revenues net of interest expense" because interest is the cost of
+  // their primary revenue-generating activity. Without this concept,
+  // financials like MS/GS show no revenue facts at all.
+  "us-gaap:RevenuesNetOfInterestExpense",
+  "ifrs-full:Revenue",
+  "ifrs-full:RevenueFromContractsWithCustomers",
 ];
 
 // Axes treated as the "product / line of business" breakdown, in priority
@@ -1230,17 +1241,22 @@ const REVENUE_CONCEPTS = [
 // never merge across axes, because operating segments, product lines, and
 // geography are each independent breakdowns of the SAME total revenue.
 // Combining them sums to 2x–3x the company's real revenue. Filings use
-// both `srt:` (Securities Reporting Taxonomy) and `us-gaap:` prefixes;
-// MSFT uses srt:, older filings use us-gaap:.
+// `srt:` (Securities Reporting Taxonomy), `us-gaap:`, and `ifrs-full:`
+// prefixes — MSFT uses srt:, older 10-Ks use us-gaap:, 20-F filers use
+// ifrs-full:.
 const PRODUCT_AXES_PRIORITY = [
   "us-gaap:StatementBusinessSegmentsAxis",
   "srt:StatementBusinessSegmentsAxis",
+  "ifrs-full:SegmentsAxis",
   "srt:ProductOrServiceAxis",
   "us-gaap:ProductOrServiceAxis",
+  "ifrs-full:ProductsAndServicesAxis",
 ];
 const GEOGRAPHIC_AXES_PRIORITY = [
   "srt:StatementGeographicalAxis",
   "us-gaap:StatementGeographicalAxis",
+  "ifrs-full:GeographicalAreasAxis",
+  "ifrs-full:CountriesAxis",
 ];
 
 // Rollups are detected automatically by total-reconciliation against the
@@ -1251,7 +1267,7 @@ const GEOGRAPHIC_AXES_PRIORITY = [
 
 let _edgarLogCount = 0;
 
-async function fetchLatest10KFiling(cik, symbol) {
+async function fetchLatestAnnualFiling(cik, symbol) {
   const url = `https://data.sec.gov/submissions/CIK${cik}.json`;
   try {
     const res = await fetch(url, {
@@ -1268,19 +1284,24 @@ async function fetchLatest10KFiling(cik, symbol) {
     const data = await res.json();
     const recent = data?.filings?.recent;
     if (!Array.isArray(recent?.form)) return null;
-    // Prefer the original 10-K over 10-K/A amendments. Amendments are
+    // Prefer the original annual report over /A amendments. Amendments are
     // often just cover-page or signature corrections with a tiny instance
     // document and no revenue facts (e.g. TSLA's recent 10-K/A is ~6 KB).
+    // 10-K covers US-GAAP filers; 20-F covers foreign private issuers
+    // (NVO/ASML/TSM/BABA/SPOT/UBS/TSEM in this universe), which mostly
+    // file IFRS XBRL.
     let original = null;
     let amendment = null;
     for (let i = 0; i < recent.form.length; i++) {
+      const form = recent.form[i];
       const entry = {
         accession: recent.accessionNumber[i],
         primaryDoc: recent.primaryDocument[i],
         filingDate: recent.filingDate[i],
+        form,
       };
-      if (recent.form[i] === "10-K" && !original) original = entry;
-      else if (recent.form[i] === "10-K/A" && !amendment) amendment = entry;
+      if ((form === "10-K" || form === "20-F") && !original) original = entry;
+      else if ((form === "10-K/A" || form === "20-F/A") && !amendment) amendment = entry;
     }
     return original || amendment || null;
   } catch (err) {
@@ -1379,15 +1400,29 @@ function parseXbrlRevenueFacts(xml) {
   }
   if (!contexts.size) return null;
 
-  // Find all us-gaap revenue facts. A fact may carry any of the configured
-  // concepts; dedupe by (concept, contextRef) since attribute order varies.
+  // unitRef id → ISO-4217 currency code (e.g. "usd" → "USD", "dkk" → "DKK").
+  // IFRS filers report in their reporting currency (NVO=DKK, ASML=EUR,
+  // TSM=USD, BABA=CNY, etc.); without this map the per-fact unit is just
+  // an opaque id like "dkk".
+  const unitToCurrency = new Map();
+  const unitRe = /<unit\s+id="([^"]+)"[^>]*>([\s\S]*?)<\/unit>/g;
+  let u;
+  while ((u = unitRe.exec(xml)) !== null) {
+    const measure = (u[2].match(/<measure>([^<]+)<\/measure>/) || [])[1];
+    if (!measure) continue;
+    const iso = measure.match(/iso4217:([A-Za-z]{3})/);
+    if (iso) unitToCurrency.set(u[1], iso[1].toUpperCase());
+  }
+
+  // Find all revenue facts across the configured concepts (us-gaap + ifrs-full).
+  // A fact may carry any of the configured concepts; dedupe by
+  // (concept, contextRef) since attribute order varies.
   const facts = [];
   const seen = new Set();
   for (const concept of REVENUE_CONCEPTS) {
-    const factRe = new RegExp(
-      `<us-gaap:${concept}\\b([^>]*)>([^<]+)<\\/us-gaap:${concept}>`,
-      "g"
-    );
+    // concept is "prefix:LocalName" — escape ":" for regex via the literal.
+    const escaped = concept.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const factRe = new RegExp(`<${escaped}\\b([^>]*)>([^<]+)<\\/${escaped}>`, "g");
     let f;
     while ((f = factRe.exec(xml)) !== null) {
       const cm = f[1].match(/contextRef="([^"]+)"/);
@@ -1397,7 +1432,9 @@ function parseXbrlRevenueFacts(xml) {
       seen.add(key);
       const value = Number(String(f[2]).trim());
       if (!Number.isFinite(value)) continue;
-      facts.push({ concept, contextRef: cm[1], value });
+      const um = f[1].match(/unitRef="([^"]+)"/);
+      const currency = um ? unitToCurrency.get(um[1]) || null : null;
+      facts.push({ concept, contextRef: cm[1], value, currency });
     }
   }
   return { contexts, facts };
@@ -1437,11 +1474,90 @@ function findTotalRevenue(facts, contexts) {
   return noSeg || consolidated || null;
 }
 
-function reconcileToTotal(byMember, totalRevenue) {
-  // If sum of breakdown exceeds the company's true revenue by more than
-  // 10%, the axis contains rollup member(s) that double-count. Drop the
-  // largest member iteratively until the sum lands within tolerance.
+// Strip namespace prefix + "Member" suffix so member-name comparisons work
+// against the raw XBRL local name (e.g. "us-gaap:ClientComputingGroupMember"
+// → "ClientComputingGroup").
+function memberLocalName(rawMember) {
+  let s = String(rawMember);
+  const colon = s.lastIndexOf(":");
+  if (colon >= 0) s = s.slice(colon + 1);
+  return s.replace(/Member$/, "");
+}
+
+// Detect rollup members by name: if member A's local name starts with
+// member B's local name (followed by an uppercase letter or "And"+upper),
+// A is a composite that includes B. Catches two failure modes seen in
+// real filings:
+//   - INTC: `ClientComputingGroupDatacenterAndAIAndNetworkAndEdgeMember`
+//     rolls up `ClientComputingGroupMember`.
+//   - META: `USCanadaMember` rolls up `country:US`.
+// The 2-char floor on `lb` is intentional — ISO country codes (US, JP,
+// CN, …) routinely appear as the inner term of a geographic rollup.
+function dropPrefixRollups(byMember) {
+  const names = [...byMember.keys()];
+  if (names.length < 3) return byMember;
+  const locals = new Map(names.map((n) => [n, memberLocalName(n)]));
+  const drop = new Set();
+  for (const a of names) {
+    const la = locals.get(a);
+    for (const b of names) {
+      if (a === b) continue;
+      const lb = locals.get(b);
+      if (lb.length < 2 || la.length <= lb.length + 2) continue;
+      if (!la.startsWith(lb)) continue;
+      const rest = la.slice(lb.length);
+      // The suffix must look like a continuation of another member name —
+      // a CamelCase word boundary or an "And"+upper join — not just an
+      // accidental shared prefix inside one longer word.
+      if (!/^(And)?[A-Z]/.test(rest)) continue;
+      drop.add(a);
+      break;
+    }
+  }
+  if (drop.size === 0) return byMember;
+  const out = new Map();
+  for (const [k, v] of byMember) if (!drop.has(k)) out.set(k, v);
+  return out;
+}
+
+// Drop generic catch-all rollups by name. Catches the LLY pattern:
+// `us-gaap:ProductMember` ($61B, every drug combined) sitting alongside
+// specific drug members ($3-4B each). The generic-named member rolls up
+// everything beneath it; keeping it produces a breakdown that mixes
+// granularity levels. The threshold is intentionally above 100% of
+// company total — a true rollup overcounts the whole company (LLY:
+// $61B Product vs. $54B total revenue). A `ProductMember` of normal
+// size (ASTS: $0.04B Product / $0.07B total) is just one product line
+// and stays.
+function dropGenericRollups(byMember, totalRevenue) {
   if (!totalRevenue || totalRevenue <= 0) return byMember;
+  const GENERIC = /^(Product|Products|Service|Services|Total|All|Combined|Aggregate|ReportableSegment)$/i;
+  const out = new Map();
+  for (const [name, value] of byMember) {
+    if (GENERIC.test(memberLocalName(name)) && value / totalRevenue > 0.95) continue;
+    out.set(name, value);
+  }
+  return out;
+}
+
+function reconcileToTotal(byMember, totalRevenue) {
+  // First pass: drop name-based composite rollups (e.g. "AAndB" when
+  // "A" and "B" exist as separate members). Catches INTC's
+  // ClientComputingGroupDatacenterAndAI... and META's USCanada cleanly,
+  // without sacrificing a real segment to balance the books.
+  const beforeSize = byMember.size;
+  byMember = dropPrefixRollups(byMember);
+  const droppedNamed = byMember.size < beforeSize;
+
+  if (!totalRevenue || totalRevenue <= 0) return byMember;
+
+  // Second pass: size-based reconciliation. Companies routinely report
+  // segments BEFORE intersegment eliminations, so a 20–30% overshoot is
+  // normal and not a rollup signal. If the name-based pass already
+  // removed an obvious rollup, trust the result. Otherwise drop the
+  // largest member iteratively at the original 1.1× tolerance.
+  if (droppedNamed) return byMember;
+
   const entries = [...byMember.entries()].sort((a, b) => b[1] - a[1]);
   const tolerance = 1.1;
   let sum = entries.reduce((s, [, v]) => s + v, 0);
@@ -1460,22 +1576,95 @@ function reconcileToTotal(byMember, totalRevenue) {
   return out;
 }
 
+// XBRL marker companion dims — they tag *which kind of fact* a context
+// represents (segment-level, concentration disclosure, …) rather than
+// categorizing revenue on a new axis. Safe to strip when one of the
+// other dims is the target axis.
+//   - ConsolidationItemsAxis=OperatingSegmentsMember: segment value (vs
+//     corporate / intersegment-elimination). QCOM, AMD, INTC.
+//   - ConcentrationRiskByBenchmarkAxis / ConcentrationRiskByTypeAxis:
+//     SHOP's geographic disaggregation lives inside a 3-dim
+//     concentration-risk context; both companion axes just label the
+//     disclosure, they don't slice revenue further.
+function isSegmentMarkerDim(dim) {
+  return (
+    (/(^|:)ConsolidationItemsAxis$/.test(dim.axis) &&
+      /(^|:)OperatingSegmentsMember$/.test(dim.member)) ||
+    /(^|:)ConcentrationRiskByBenchmarkAxis$/.test(dim.axis) ||
+    /(^|:)ConcentrationRiskByTypeAxis$/.test(dim.axis)
+  );
+}
+
 function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
-  // Only consider facts whose context has EXACTLY this one axis dim. That
-  // excludes cross-cuts (e.g. "Product × SecondaryCategorization") that
-  // appear in some filings alongside the primary breakdown and would
-  // duplicate values.
-  const candidates = [];
+  // Three candidate sources, in order of safety:
+  //
+  //   1. Pure 1-dim contexts on the target axis (always safe).
+  //   2. 2-dim contexts where the companion dim is a "this is the segment
+  //      value" marker (ConsolidationItemsAxis=OperatingSegmentsMember).
+  //      Companies like QCOM/AMD/INTC tag every segment-revenue fact this
+  //      way — without it, the parser only sees one orphan single-dim
+  //      member.
+  //   3. Cross-cut 2-dim contexts where the OTHER axis has only ONE
+  //      distinct member across all such facts (NFLX: every geo region is
+  //      paired with ProductOrService=Streaming, the company's sole
+  //      product). A constant companion dim is just a label, not a
+  //      cross-cut that would double-count.
+  //
+  // Genuine cross-cuts (e.g. Product × Geographic where both axes have
+  // multiple members) are still excluded — summing across both would
+  // overstate revenue.
+  const primary = [];  // sources 1 + 2
+  const crossCutCandidates = [];  // source 3 candidates, pending filter
   for (const f of facts) {
     const ctx = contexts.get(f.contextRef);
-    if (!ctx || ctx.dims.length !== 1) continue;
-    if (ctx.dims[0].axis !== axis) continue;
-    if (!isAnnualPeriod(ctx)) continue;
-    candidates.push({
-      member: ctx.dims[0].member,
-      value: Math.abs(f.value),
-      periodEnd: ctx.periodEnd,
-    });
+    if (!ctx || !isAnnualPeriod(ctx)) continue;
+    const targetDims = ctx.dims.filter((d) => d.axis === axis);
+    if (targetDims.length !== 1) continue;
+    const others = ctx.dims.filter((d) => d.axis !== axis);
+    if (others.length === 0) {
+      // Pure 1-dim context on the target axis.
+      primary.push({ member: targetDims[0].member, value: Math.abs(f.value), periodEnd: ctx.periodEnd });
+    } else if (others.every(isSegmentMarkerDim)) {
+      // Target axis plus only marker companion dims (any count) — strip
+      // the markers and treat as 1-dim. Handles QCOM/AMD/INTC (2-dim with
+      // ConsolidationItems marker) and SHOP (3-dim with two
+      // ConcentrationRisk markers).
+      primary.push({ member: targetDims[0].member, value: Math.abs(f.value), periodEnd: ctx.periodEnd });
+    } else if (ctx.dims.length === 2) {
+      // 2-dim cross-cut with a non-marker companion. Held aside for the
+      // collapsed-cross-cut fallback (only used if `primary` came up
+      // short).
+      const companion = others[0];
+      crossCutCandidates.push({
+        member: targetDims[0].member,
+        companionAxis: companion.axis,
+        companionMember: companion.member,
+        value: Math.abs(f.value),
+        periodEnd: ctx.periodEnd,
+      });
+    }
+  }
+
+  // Cross-cut fallback only kicks in if the primary sources came up empty
+  // (or with too few members). Group by companion axis and only keep
+  // groups where the companion has a SINGLE distinct member — those are
+  // safe to collapse into a target-axis-only breakdown.
+  let candidates = primary;
+  if (primary.length === 0 || new Set(primary.map((c) => c.member)).size < 2) {
+    const byCompanionAxis = new Map();
+    for (const c of crossCutCandidates) {
+      if (!byCompanionAxis.has(c.companionAxis)) byCompanionAxis.set(c.companionAxis, []);
+      byCompanionAxis.get(c.companionAxis).push(c);
+    }
+    for (const [, rows] of byCompanionAxis) {
+      const companionMembers = new Set(rows.map((r) => r.companionMember));
+      if (companionMembers.size !== 1) continue;
+      if (new Set(rows.map((r) => r.member)).size < 2) continue;
+      // Found a safe collapsed cross-cut; prefer it over the thin primary
+      // pool (if any) since it has more members.
+      candidates = rows.map(({ member, value, periodEnd }) => ({ member, value, periodEnd }));
+      break;
+    }
   }
   if (!candidates.length) return null;
 
@@ -1490,7 +1679,11 @@ function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
   }
 
   // Drop rollups by reconciling against the company's true total revenue.
-  const reconciled = reconcileToTotal(byMember, totalRevenue);
+  let reconciled = reconcileToTotal(byMember, totalRevenue);
+  // Then drop any generic-name member that still dominates the total —
+  // those are catch-all rollups that mix granularity with the rest of the
+  // axis (LLY's `ProductMember` paired with specific drug names).
+  reconciled = dropGenericRollups(reconciled, totalRevenue);
 
   const out = new Map();
   for (const [k, v] of reconciled) {
@@ -1533,7 +1726,7 @@ function consolidateSegments(segMap) {
 // 10-K hasn't been refiled. Bump when modifying axis priority, rollup
 // detection, member-name formatting, or anything else that affects
 // `product` / `geographic` output for the SAME source filing.
-const SEGMENT_PARSER_VERSION = 2;
+const SEGMENT_PARSER_VERSION = 10;
 
 export async function fetchRevenueSegments(symbol) {
   if (SECTORS[symbol] === "ETF") return null;
@@ -1561,7 +1754,7 @@ export async function fetchRevenueSegments(symbol) {
   const cik = cikMap.get(symbol);
   if (!cik) return fallback();
 
-  const filing = await fetchLatest10KFiling(cik, symbol);
+  const filing = await fetchLatestAnnualFiling(cik, symbol);
   if (!filing) return fallback();
 
   // 10-Ks file once a year but the bake runs ~3x/day. If we've already
@@ -1605,9 +1798,24 @@ export async function fetchRevenueSegments(symbol) {
     return fallback();
   }
 
+  // Pick the dominant currency among annual revenue facts. Almost every
+  // filing reports in a single currency (NVO=DKK, ASML=EUR, MSFT=USD);
+  // tallying gives us a safe default when stray contexts in other units
+  // sneak in.
+  const currencyCounts = new Map();
+  for (const f of parsed.facts) {
+    if (!f.currency) continue;
+    currencyCounts.set(f.currency, (currencyCounts.get(f.currency) || 0) + 1);
+  }
+  let currency = null;
+  let bestCount = 0;
+  for (const [cur, cnt] of currencyCounts) {
+    if (cnt > bestCount) { bestCount = cnt; currency = cur; }
+  }
+
   if (_edgarLogCount < 5) {
     console.log(
-      `    [edgar] ${symbol} ✓ product=${product?.length || 0} geo=${geographic?.length || 0} accession=${filing.accession}`
+      `    [edgar] ${symbol} ✓ product=${product?.length || 0} geo=${geographic?.length || 0} cur=${currency || "?"} accession=${filing.accession}`
     );
     _edgarLogCount++;
   }
@@ -1615,6 +1823,7 @@ export async function fetchRevenueSegments(symbol) {
   return {
     product,
     geographic,
+    currency,
     fetchedDate: today,
     accession: filing.accession,
     filingDate: filing.filingDate,

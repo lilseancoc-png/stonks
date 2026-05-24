@@ -2575,6 +2575,7 @@ main {
   gap: var(--s-3);
   margin-top: var(--s-4);
 }
+.opt-fund-segments[hidden] { display: none; }
 .opt-fund-seg-chart {
   position: relative;
   padding: var(--s-4) var(--s-3) var(--s-3);

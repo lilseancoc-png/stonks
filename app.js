@@ -2117,6 +2117,18 @@
     if (a >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
     return '$' + Math.round(n).toLocaleString();
   }
+  // Same scale + suffix as fmtBigDollars, but with an ISO-4217 code instead
+  // of "$". Used for foreign-private-issuer revenue segments where the XBRL
+  // values are in the filer's reporting currency (NVO=DKK, ASML=EUR, etc.).
+  function fmtBigCurrency(n, code){
+    if (n == null || !isFinite(n)) return null;
+    if (!code || code === 'USD') return fmtBigDollars(n);
+    var a = Math.abs(n);
+    if (a >= 1e12) return code + ' ' + (n/1e12).toFixed(2) + 'T';
+    if (a >= 1e9) return code + ' ' + (n/1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return code + ' ' + (n/1e6).toFixed(2) + 'M';
+    return code + ' ' + Math.round(n).toLocaleString();
+  }
   function fundMetric(label, value, tone){
     if (value == null || value === '') return '';
     var toneCls = tone ? ' tone-' + tone : '';
@@ -2602,7 +2614,8 @@
       angle += sweep;
     }
 
-    var centerLabel = fmtBigDollars(total);
+    var fmtBig = opts.formatValue || fmtBigDollars;
+    var centerLabel = fmtBig(total);
     var svg = '<svg class="opt-fund-seg-svg" viewBox="0 0 ' + W + ' ' + W + '" width="180" height="180">' +
       paths +
       '<text class="opt-fund-seg-center" x="' + CX + '" y="' + (CY - 2) + '" dominant-baseline="auto">' + escapeHtml(centerLabel) + '</text>' +
@@ -2643,7 +2656,7 @@
       var sl = slices[idx];
       var pctStr = ((sl.value / total) * 100).toFixed(1) + '%';
       tipEl.innerHTML = '<span class="opt-fund-seg-tip-name">' + escapeHtml(sl.name) + '</span>' +
-        '<span class="opt-fund-seg-tip-val">' + fmtBigDollars(sl.value) + ' (' + pctStr + ')</span>';
+        '<span class="opt-fund-seg-tip-val">' + fmtBig(sl.value) + ' (' + pctStr + ')</span>';
       tipEl.hidden = false;
     }
     function unhighlight(){
@@ -2671,17 +2684,23 @@
     var seg = f && f.segments;
     if (!seg || (!seg.product && !seg.geographic)){
       container.hidden = true;
+      var pBox = $('opt-fund-seg-product'); if (pBox) pBox.innerHTML = '';
+      var gBox = $('opt-fund-seg-geo'); if (gBox) gBox.innerHTML = '';
       return;
     }
+    var cur = seg.currency || 'USD';
+    var fmtVal = function(v){ return fmtBigCurrency(v, cur); };
     renderDonutChart({
       boxId: 'opt-fund-seg-product',
       title: 'Revenue by segment',
       slices: seg.product || null,
+      formatValue: fmtVal,
     });
     renderDonutChart({
       boxId: 'opt-fund-seg-geo',
       title: 'Revenue by region',
       slices: seg.geographic || null,
+      formatValue: fmtVal,
     });
     container.hidden = !(seg.product || seg.geographic);
   }
