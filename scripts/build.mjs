@@ -1695,24 +1695,64 @@ async function fetchTickerChain(symbol) {
 }
 
 // Annualized 13-week T-bill yield as a decimal (e.g. 0.0452). Used as the
-// risk-free rate for Black-Scholes Greeks. Falls back to a static 4.5% if
-// Yahoo's `^IRX` is unreachable so the build stays robust.
+// risk-free rate for Black-Scholes Greeks across the entire site. When
+// Yahoo's `^IRX` is unreachable we fall back to the persisted last-good
+// reading (up to RFR_CACHE_MAX_DAYS old); the static fallback is the
+// last resort and is visibly tagged in the greeks tooltip when used.
 const FALLBACK_RISK_FREE_RATE = 0.045;
+const RFR_CACHE_MAX_DAYS = 14;
+const RFR_HISTORY_FILE = "rfr-history.json";
 
-async function fetchRiskFreeRate() {
+// Read the persisted last-good ^IRX reading. Must be called BEFORE
+// writeChainFiles wipes data/, since the file lives in data/. The
+// payload is `{ rate, asOf, capturedAt }` — same shape as the Fed Funds
+// cache in fedwatch-history.json.
+export async function readRfrHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, RFR_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Number.isFinite(parsed.rate)) return parsed;
+  } catch (_) { /* missing or unreadable — treat as no cache */ }
+  return null;
+}
+
+export async function writeRfrHistory(entry) {
+  if (!entry || !Number.isFinite(entry.rate)) return;
+  await writeFile(resolve(DATA_DIR, RFR_HISTORY_FILE), JSON.stringify(entry), "utf8");
+}
+
+// Fetch today's ^IRX. Returns a structured payload so the UI can flag
+// when greeks are being computed against a non-fresh anchor.
+//   { rate, asOf, source: 'fresh' | 'cached' | 'fallback' }
+// `cachedRfr` is the prior persisted reading (loaded before the data/
+// wipe by the caller). When today's fetch fails and the cache is fresher
+// than RFR_CACHE_MAX_DAYS, we use the cache; otherwise we use the
+// hardcoded fallback as a last resort.
+async function fetchRiskFreeRate(cachedRfr = null) {
+  const todayIso = new Date().toISOString().slice(0, 10);
   try {
     const q = await yahooFinance.quote("^IRX");
     const pct = q?.regularMarketPrice;
     if (typeof pct === "number" && isFinite(pct) && pct >= 0 && pct < 20) {
       const rate = pct / 100;
       console.log(`Risk-free rate (^IRX): ${(rate * 100).toFixed(2)}%`);
-      return rate;
+      return { rate, asOf: todayIso, source: "fresh" };
     }
-    console.warn(`^IRX returned unexpected price: ${pct}. Using fallback ${FALLBACK_RISK_FREE_RATE * 100}%.`);
+    console.warn(`^IRX returned unexpected price: ${pct}.`);
   } catch (err) {
-    console.warn(`^IRX fetch failed (${err.message}). Using fallback ${FALLBACK_RISK_FREE_RATE * 100}%.`);
+    console.warn(`^IRX fetch failed (${err.message}).`);
   }
-  return FALLBACK_RISK_FREE_RATE;
+  if (cachedRfr && Number.isFinite(cachedRfr.rate)) {
+    const capturedMs = Date.parse(cachedRfr.capturedAt || cachedRfr.asOf || "");
+    const ageDays = Number.isFinite(capturedMs) ? (Date.now() - capturedMs) / 86400000 : Infinity;
+    if (ageDays <= RFR_CACHE_MAX_DAYS) {
+      console.warn(`  ↩ falling back to cached ^IRX ${cachedRfr.rate * 100}% from ${cachedRfr.capturedAt || cachedRfr.asOf} (${ageDays.toFixed(1)}d old)`);
+      return { rate: cachedRfr.rate, asOf: cachedRfr.asOf || todayIso, source: "cached", ageDays };
+    }
+    console.warn(`  ✗ cached ^IRX exists but is ${ageDays.toFixed(1)}d old (max ${RFR_CACHE_MAX_DAYS}d) — using hardcoded fallback.`);
+  }
+  console.warn(`Using hardcoded fallback risk-free rate ${(FALLBACK_RISK_FREE_RATE * 100).toFixed(1)}%.`);
+  return { rate: FALLBACK_RISK_FREE_RATE, asOf: todayIso, source: "fallback" };
 }
 
 // Macro backdrop — pulls 10Y Treasury yield (^TNX) and the US Dollar Index
@@ -2195,8 +2235,22 @@ function optionEvalSection() {
 // Returns the page runtime as a plain JS string for writing to app.js.
 // Loaded via <script src="app.js" defer> — the inline manifest <script> tag
 // runs first per HTML parsing order so MANIFEST is always defined.
-export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
-  const rfrLiteral = Number(riskFreeRate).toFixed(5);
+export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRateMeta = null } = {}) {
+  // Accept either a bare number (legacy) or the structured payload from
+  // fetchRiskFreeRate. The structured form lets the greeks tooltip surface
+  // "cached" / "fallback" warnings when the anchor isn't a fresh fetch.
+  const rfrNum = typeof riskFreeRate === "object" && riskFreeRate
+    ? Number(riskFreeRate.rate)
+    : Number(riskFreeRate);
+  const rfrLiteral = (Number.isFinite(rfrNum) ? rfrNum : FALLBACK_RISK_FREE_RATE).toFixed(5);
+  const rfrMeta = riskFreeRateMeta
+    || (typeof riskFreeRate === "object" && riskFreeRate ? riskFreeRate : null)
+    || { source: "fresh", asOf: new Date().toISOString().slice(0, 10) };
+  const rfrMetaLiteral = JSON.stringify({
+    source: rfrMeta.source || "fresh",
+    asOf: rfrMeta.asOf || null,
+    ageDays: rfrMeta.ageDays != null ? Number(rfrMeta.ageDays) : null,
+  });
   return `// Generated by scripts/build.mjs — do not edit by hand.
 (function(){
   // Theme bootstrap. Runs synchronously before the rest of the IIFE binds
@@ -2239,6 +2293,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
   var RFR = ${rfrLiteral};
+  // Provenance for the risk-free rate baked above. source is
+  // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
+  // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
+  // surfaces non-fresh sources so traders know the anchor is degraded.
+  var RFR_META = ${rfrMetaLiteral};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3746,9 +3805,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       html += '<button type="button" class="opt-copylink-btn" id="opt-copy-link" title="Copy a link that restores this exact contract">🔗 Copy link</button>';
     }
     html += '</div>';
+    // Surface RFR provenance when it's not a fresh ^IRX read so traders
+    // know the greeks anchor is degraded. 'cached' means the last-good
+    // reading (up to 14d old) is being used; 'fallback' means both
+    // failed and we're using the hardcoded 4.5% — greeks (especially
+    // theta) can be materially off in either case.
+    var rfrNote = '';
+    if (RFR_META && RFR_META.source === 'cached'){
+      var rfrAge = RFR_META.ageDays != null ? Math.max(1, Math.round(RFR_META.ageDays)) : null;
+      rfrNote = ' (cached ^IRX' + (rfrAge ? ', ' + rfrAge + 'd old' : '') + ' — Yahoo unavailable this build)';
+    } else if (RFR_META && RFR_META.source === 'fallback'){
+      rfrNote = ' (HARDCODED fallback — neither ^IRX nor cache available; greeks may be off if rates have moved)';
+    }
     var disc = input.source === 'manual'
-      ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
-      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
+      ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. You are the data source — only as accurate as the numbers you typed.'
+      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
     html += '<p class="opt-disclaimer">' + disc + '</p>';
     return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '' };
   }
@@ -5739,10 +5810,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
         '<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>' +
       '</div>';
     var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
-    return '<div class="cal-chip cal-report">' +
+    // Stale tag: writeCalendarFile carries forward in-window report rows
+    // from the prior calendar.json when FRED + BLS both come back empty
+    // (each carried row gets ev.stale=true). Surface it so traders know
+    // the figures may not reflect today's release schedule.
+    var staleTag = e.stale
+      ? '<span class="cal-chip-stale" title="Today\\'s FRED + BLS fetches were empty — these figures were carried forward from the previous build">Stale</span>'
+      : '';
+    return '<div class="cal-chip cal-report' + (e.stale ? ' is-stale' : '') + '">' +
       '<div class="cal-report-head">' +
         '<span class="cal-chip-tag">Report</span> ' +
         '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
+        staleTag +
         src +
       '</div>' +
       grid +
@@ -5763,11 +5842,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     // toFixed on undefined.
     var rateValue = (rate && typeof rate.rate === 'number' && isFinite(rate.rate))
       ? rate.rate.toFixed(2) : null;
+    // Tag the rate visibly when it came from the on-disk cache instead of
+    // a fresh FRED fetch. The build silently substitutes a prior reading
+    // (up to 14 days old) when FRED:DFF flakes; without this tag, the
+    // 'as of' date is the only signal — and it's easy to miss. Probabilities
+    // in the table below are anchored to this rate, so traders need to
+    // know its provenance.
+    var rateStaleTag = '';
+    if (rate && typeof rate.source === 'string' && /cached/i.test(rate.source) && rate.asOf){
+      var rateSince = Date.parse(rate.asOf);
+      if (isFinite(rateSince)){
+        var rateDays = Math.max(1, Math.floor((Date.now() - rateSince) / 86400000));
+        rateStaleTag = '<span class="fomc-rate-stale" title="FRED:DFF unavailable today — using the last persisted reading (max age 14d before the widget hides itself)">Cached · ' + rateDays + 'd</span>';
+      }
+    }
     var meetings = (fomc.meetings || []).slice(0, 2);
     var probs = fomc.probabilities || {};
     var header = '<div class="fomc-head">' +
       (rateValue != null
-        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span></div>'
+        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span>' + rateStaleTag + '</div>'
         : '<div class="fomc-rate fomc-rate-missing"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">—</span><span class="fomc-rate-asof">FRED:DFF unavailable this build</span></div>') +
       (meetings.length
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + ' · 14:00 ET</span></div>'
@@ -11355,6 +11448,18 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.cal-chip-stale {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warn);
+  font: 600 10px/1.4 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: help;
+}
+.cal-chip.is-stale .cal-report-val { color: var(--muted); }
 .cal-chip-time {
   font: 600 10px/1 var(--font-mono);
   color: var(--muted);
@@ -11484,6 +11589,17 @@ main { padding-top: var(--s-2); }
   font-size: 10px;
   color: var(--muted);
   font-style: italic;
+}
+.fomc-rate-stale {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warn);
+  font: 600 10px/1.4 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 .fomc-rate-missing .fomc-rate-value { color: var(--muted); }
 .fomc-meeting + .fomc-meeting { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
@@ -18823,7 +18939,17 @@ async function main() {
   // data/iv-history/ before writeChainFiles wipes the directory, then
   // returns an in-memory map to flush back after the wipe.
   const ivHistory = await collectIvHistory(chains);
-  const riskFreeRate = await fetchRiskFreeRate();
+  // Load persisted last-good readings BEFORE writeChainFiles wipes data/.
+  // Without these reads the caches would never serve a value across builds
+  // — the file is gone by the time the post-wipe code tries to read it.
+  // We then thread the cached value into fetchRiskFreeRate (so a Yahoo
+  // ^IRX flake falls back to the last reading instead of the hardcoded
+  // 4.5%) and into the FedWatch block (so a FRED:DFF outage falls back
+  // to the last persisted Fed funds rate). The cached payloads are also
+  // re-persisted after the wipe so the chain continues.
+  const cachedRfr = await readRfrHistory();
+  const fedwatchHistoryPrev = await readFedwatchHistory();
+  const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
@@ -18848,6 +18974,21 @@ async function main() {
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
   const totalChainBytes = await writeChainFiles(chains);
+  // Persist today's ^IRX so a future Yahoo flake can fall back to it.
+  // We only refresh on a 'fresh' read — keeping a stale cache from
+  // overwriting itself with the same stale data lets the age-out at
+  // RFR_CACHE_MAX_DAYS work correctly.
+  if (riskFreeRate?.source === "fresh" && Number.isFinite(riskFreeRate.rate)) {
+    await writeRfrHistory({
+      rate: riskFreeRate.rate,
+      asOf: riskFreeRate.asOf,
+      capturedAt: new Date().toISOString().slice(0, 10),
+    });
+  } else if (cachedRfr) {
+    // Cache wasn't refreshed — re-persist the prior reading so it
+    // survives writeChainFiles' wipe for tomorrow's build.
+    await writeRfrHistory(cachedRfr);
+  }
   const streaksInfo = await writeStreaksFile(chains, builtAtIso);
   console.log(`wrote data/streaks.json — ${streaksInfo.count} tickers, ${streaksInfo.bytes} bytes`);
   await writeTrendFiles({
@@ -18900,12 +19041,13 @@ async function main() {
   console.log("Fetching effective Fed Funds rate (FRED:DFF)…");
   const fedRate = await fetchEffectiveFedFundsRate();
   if (fedRate) console.log(`  · ${fedRate.rate}% as of ${fedRate.asOf}`);
-  // Read FedWatch history early so a missing Fed rate today can fall
-  // back to the most recent persisted observation. The Fed only moves
-  // rates at FOMC meetings (every 6-8 weeks), so a 14-day-old anchor
-  // is still a reasonable proxy — better than losing the entire
-  // FedWatch tab to one bad FRED day.
-  const fedwatchHistory = await readFedwatchHistory();
+  // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
+  // from that pre-wipe snapshot so the lastKnownFedRate cache actually
+  // serves as a fallback when FRED:DFF flakes today — the Fed only
+  // moves rates every 6-8 weeks, so a 14-day-old anchor still produces
+  // a defensible probability spread.
+  const fedwatchHistory = fedwatchHistoryPrev || { meetings: {} };
+  if (!fedwatchHistory.meetings) fedwatchHistory.meetings = {};
   let effectiveFedRate = fedRate;
   if (!effectiveFedRate && fedwatchHistory.lastKnownFedRate) {
     const last = fedwatchHistory.lastKnownFedRate;
@@ -18978,7 +19120,11 @@ async function main() {
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
     reportEvents,
     fomcMeetings: upcomingMeetings,
-    fedRate,
+    // Use effectiveFedRate (not fedRate) so the widget shows the same
+    // value the FedWatch math is actually anchored to — when FRED:DFF
+    // fails today we fall back to a cached reading (up to 14d old), and
+    // the UI now renders a 'Cached · Xd' tag courtesy of the source field.
+    fedRate: effectiveFedRate || fedRate,
     fedwatch,
     sessionMap,
   });
