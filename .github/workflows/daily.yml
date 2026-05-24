@@ -86,6 +86,13 @@ jobs:
           # reliably from the GH Actions runner IPs.
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          # Optional: when set, OpenFIGI batches use the authenticated
+          # rate limit (250 req/min, 100 jobs/req → ~25k mappings/min)
+          # instead of the unauthenticated 25 req/min cap. Without it,
+          # 13F enrichment skips thousands of CUSIPs per run — see
+          # OPENFIGI_MAX_BATCHES_UNAUTH in scripts/build.mjs. Free key
+          # at https://www.openfigi.com/api.
+          OPENFIGI_API_KEY: ${{ secrets.OPENFIGI_API_KEY }}
         run: node scripts/build.mjs
 
       - name: Commit refreshed site
