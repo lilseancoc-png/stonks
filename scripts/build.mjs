@@ -1183,6 +1183,7 @@ async function fetchFundamentals(symbol) {
   };
 }
 
+let _fmpLoggedOnce = false;
 async function fetchRevenueSegments(symbol) {
   const apiKey = process.env.FMP_API_KEY;
   if (!apiKey) return null;
@@ -1202,13 +1203,20 @@ async function fetchRevenueSegments(symbol) {
     if (!Array.isArray(data) || !data.length) return null;
     const latest = data[0];
     if (!latest || typeof latest !== "object") return null;
-    const entries = [];
+    const flat = {};
     for (const [key, val] of Object.entries(latest)) {
       if (key === "date" || key === "symbol") continue;
-      const n = Number(val);
-      if (!Number.isFinite(n) || n <= 0) continue;
-      entries.push({ name: key, value: n });
+      if (typeof val === "object" && val !== null) {
+        for (const [sk, sv] of Object.entries(val)) {
+          const n = Number(sv);
+          if (Number.isFinite(n) && n > 0) flat[sk] = n;
+        }
+      } else {
+        const n = Number(val);
+        if (Number.isFinite(n) && n > 0) flat[key] = n;
+      }
     }
+    const entries = Object.entries(flat).map(([name, value]) => ({ name, value }));
     if (!entries.length) return null;
     entries.sort((a, b) => b.value - a.value);
     const total = entries.reduce((s, e) => s + e.value, 0);
@@ -1231,8 +1239,20 @@ async function fetchRevenueSegments(symbol) {
       fetch(`${base}/revenue-product-segmentation?symbol=${encodeURIComponent(symbol)}&structure=flat&period=annual&apikey=${encodeURIComponent(apiKey)}`, { signal: AbortSignal.timeout(15000) }),
       fetch(`${base}/revenue-geographic-segmentation?symbol=${encodeURIComponent(symbol)}&structure=flat&period=annual&apikey=${encodeURIComponent(apiKey)}`, { signal: AbortSignal.timeout(15000) }),
     ]);
+    if (!prodRes.ok || !geoRes.ok) {
+      if (!_fmpLoggedOnce) {
+        const body = !prodRes.ok ? await prodRes.text().catch(() => "") : await geoRes.text().catch(() => "");
+        console.log(`    ⚠ FMP segments HTTP ${prodRes.status}/${geoRes.status} for ${symbol}: ${body.slice(0, 200)}`);
+        _fmpLoggedOnce = true;
+      }
+      if (!prodRes.ok && !geoRes.ok) return null;
+    }
     const prodJson = prodRes.ok ? await prodRes.json() : null;
     const geoJson = geoRes.ok ? await geoRes.json() : null;
+    if (!_fmpLoggedOnce && symbol === "NVDA") {
+      console.log(`    [fmp] NVDA product sample: ${JSON.stringify(prodJson?.[0]).slice(0, 300)}`);
+      _fmpLoggedOnce = true;
+    }
     const product = parseSegments(prodJson);
     const geographic = parseSegments(geoJson);
     if (!product && !geographic) return null;
