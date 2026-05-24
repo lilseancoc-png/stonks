@@ -808,8 +808,8 @@ function computeVolRegime(bars, window = 30) {
   // Build the historical distribution: one annualized-vol sample per
   // trailing-window position across the available bars.
   const series = [];
-  for (let end = window; end <= closes.length; end++) {
-    const v = annualizedRealizedVol(closes.slice(0, end), window);
+  for (let end = window + 1; end <= closes.length; end++) {
+    const v = annualizedRealizedVol(closes.slice(end - window - 1, end), window);
     if (v != null && isFinite(v)) series.push(v);
   }
   if (series.length < 10) return null;

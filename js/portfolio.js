@@ -823,7 +823,9 @@ function openAddModal() {
   // Seed the listbox so the dropdown isn't empty on first focus.
   filterCombo("");
 
+  let symbolPickGen = 0;
   async function onSymbolPick() {
+    const gen = ++symbolPickGen;
     const sym = symbolSel.value;
     expirySel.innerHTML = `<option value="">Loading…</option>`;
     expirySel.disabled = true;
@@ -832,12 +834,14 @@ function openAddModal() {
     if (!sym) return;
     try {
       const data = await loadChain(sym);
+      if (gen !== symbolPickGen) return;
       const opts = data.expirations
         .map((e) => `<option value="${e.sec}">${escapeHtml(e.label)}</option>`)
         .join("");
       expirySel.innerHTML = `<option value="">Pick an expiration…</option>` + opts;
       expirySel.disabled = false;
     } catch (err) {
+      if (gen !== symbolPickGen) return;
       expirySel.innerHTML = `<option value="">Couldn't load chain</option>`;
       $("pf-add-status").textContent = err.message || "Failed to load chain.";
       $("pf-add-status").className = "pf-status pf-status-err";

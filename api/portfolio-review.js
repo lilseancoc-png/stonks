@@ -415,6 +415,7 @@ const RESPONSE_SCHEMA = {
 const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-2.5-flash";
 const FALLBACK_MODEL =
   process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemma-4-26b-a4b-it";
+const GEMINI_TIMEOUT_MS = 25_000;
 
 function isQuotaError(err) {
   const msg = String(err?.message || err).toLowerCase();
@@ -457,15 +458,30 @@ function extractJson(text) {
 }
 
 async function generateReview(ai, model, prompt) {
-  const resp = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-      temperature: 0.3,
-    },
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Gemini ${model} timed out after ${GEMINI_TIMEOUT_MS}ms`)),
+      GEMINI_TIMEOUT_MS,
+    );
   });
+  let resp;
+  try {
+    resp = await Promise.race([
+      ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: RESPONSE_SCHEMA,
+          temperature: 0.3,
+        },
+      }),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
   const text = resp?.text || resp?.response?.text?.() || "";
   const parsed = extractJson(text);
   if (!parsed) throw new Error("model returned non-JSON output");
