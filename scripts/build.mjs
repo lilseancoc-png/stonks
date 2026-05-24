@@ -1528,6 +1528,13 @@ function consolidateSegments(segMap) {
   return significant;
 }
 
+// Bumped whenever the XBRL parser changes shape — forces a re-parse of
+// previously-cached accessions on the next bake even if the underlying
+// 10-K hasn't been refiled. Bump when modifying axis priority, rollup
+// detection, member-name formatting, or anything else that affects
+// `product` / `geographic` output for the SAME source filing.
+const SEGMENT_PARSER_VERSION = 2;
+
 export async function fetchRevenueSegments(symbol) {
   if (SECTORS[symbol] === "ETF") return null;
 
@@ -1539,39 +1546,47 @@ export async function fetchRevenueSegments(symbol) {
     existing = JSON.parse(raw);
   } catch {}
   const cached = existing?.fundamentals?.segments;
-  if (cached && cached.fetchedDate === today) return cached;
+  const cacheValid = cached && cached.parserVersion === SEGMENT_PARSER_VERSION;
+  if (cacheValid && cached.fetchedDate === today) return cached;
+
+  // Transient SEC failures (5xx, timeouts, rate limits) must NOT wipe
+  // previously-good segment data. `writeChainFiles` regenerates every
+  // per-ticker JSON each bake, so returning null here would erase the
+  // donut chart from the UI until the next successful bake. Always
+  // fall back to the cached value when network or parsing fails.
+  const fallback = () => (cacheValid ? cached : null);
 
   const cikMap = await fetchCikMap();
-  if (!cikMap) return null;
+  if (!cikMap) return fallback();
   const cik = cikMap.get(symbol);
-  if (!cik) return null;
+  if (!cik) return fallback();
 
   const filing = await fetchLatest10KFiling(cik, symbol);
-  if (!filing) return null;
+  if (!filing) return fallback();
 
   // 10-Ks file once a year but the bake runs ~3x/day. If we've already
-  // parsed this exact accession, skip the ~10 MB instance re-download and
-  // just bump fetchedDate so we don't recheck submissions until tomorrow.
-  if (cached && cached.accession === filing.accession) {
+  // parsed this exact accession with the current parser, skip the
+  // ~10 MB XBRL re-download and just bump fetchedDate.
+  if (cacheValid && cached.accession === filing.accession) {
     return { ...cached, fetchedDate: today };
   }
 
   const xml = await fetchEdgarXbrlInstance(cik, filing.accession, symbol);
-  if (!xml) return null;
+  if (!xml) return fallback();
 
   let parsed;
   try {
     parsed = parseXbrlRevenueFacts(xml);
   } catch (err) {
     console.log(`    ⚠ ${symbol} XBRL parse failed: ${err.message}`);
-    return null;
+    return fallback();
   }
   if (!parsed || !parsed.facts.length) {
     if (_edgarLogCount < 5) {
       console.log(`    [edgar] ${symbol} no revenue facts in XBRL instance`);
       _edgarLogCount++;
     }
-    return null;
+    return fallback();
   }
 
   const totalRevenue = findTotalRevenue(parsed.facts, parsed.contexts);
@@ -1587,7 +1602,7 @@ export async function fetchRevenueSegments(symbol) {
       );
       _edgarLogCount++;
     }
-    return null;
+    return fallback();
   }
 
   if (_edgarLogCount < 5) {
@@ -1603,6 +1618,7 @@ export async function fetchRevenueSegments(symbol) {
     fetchedDate: today,
     accession: filing.accession,
     filingDate: filing.filingDate,
+    parserVersion: SEGMENT_PARSER_VERSION,
   };
 }
 
