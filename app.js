@@ -2238,6 +2238,7 @@
     metricsEl.innerHTML = metrics;
     renderEarningsHistory();
     renderFundamentalHistoryCharts();
+    renderRevenueSegments();
     box.hidden = false;
   }
 
@@ -2539,6 +2540,133 @@
       points: f.netMarginHistory || [],
       formatValue: function(v){ return v.toFixed(1) + '%'; },
     });
+  }
+
+  var SEG_COLORS = ['#5b8def','#1ec773','#f59e0b','#f43f5e','#a78bfa','#14b8a6','#f97316','#6b7280','#ec4899'];
+
+  function renderDonutChart(opts){
+    var box = $(opts.boxId);
+    if (!box) return;
+    var slices = opts.slices;
+    if (!slices || !slices.length){ box.innerHTML = ''; box.style.display = 'none'; return; }
+    var total = slices.reduce(function(s,e){ return s + e.value; }, 0);
+    if (!total){ box.innerHTML = ''; box.style.display = 'none'; return; }
+    box.style.display = '';
+
+    var W = 200, CX = 100, CY = 100, R = 80, IR = 50;
+    var TAU = Math.PI * 2;
+
+    function arcPath(startAngle, endAngle){
+      var s = startAngle - Math.PI / 2;
+      var e = endAngle - Math.PI / 2;
+      var large = (endAngle - startAngle) > Math.PI ? 1 : 0;
+      var sx1 = CX + R * Math.cos(s), sy1 = CY + R * Math.sin(s);
+      var sx2 = CX + R * Math.cos(e), sy2 = CY + R * Math.sin(e);
+      var ix1 = CX + IR * Math.cos(e), iy1 = CY + IR * Math.sin(e);
+      var ix2 = CX + IR * Math.cos(s), iy2 = CY + IR * Math.sin(s);
+      return 'M' + sx1.toFixed(2) + ',' + sy1.toFixed(2) +
+        ' A' + R + ',' + R + ' 0 ' + large + ' 1 ' + sx2.toFixed(2) + ',' + sy2.toFixed(2) +
+        ' L' + ix1.toFixed(2) + ',' + iy1.toFixed(2) +
+        ' A' + IR + ',' + IR + ' 0 ' + large + ' 0 ' + ix2.toFixed(2) + ',' + iy2.toFixed(2) +
+        ' Z';
+    }
+
+    var paths = '';
+    var angle = 0;
+    var GAP = 0.02;
+    for (var i = 0; i < slices.length; i++){
+      var frac = slices[i].value / total;
+      var sweep = frac * TAU;
+      var sa = angle + (slices.length > 1 ? GAP / 2 : 0);
+      var ea = angle + sweep - (slices.length > 1 ? GAP / 2 : 0);
+      if (ea <= sa) ea = sa + 0.001;
+      var col = SEG_COLORS[i % SEG_COLORS.length];
+      paths += '<path class="opt-fund-seg-slice" d="' + arcPath(sa, ea) + '" fill="' + col + '" data-idx="' + i + '"/>';
+      angle += sweep;
+    }
+
+    var centerLabel = fmtBigDollars(total);
+    var svg = '<svg class="opt-fund-seg-svg" viewBox="0 0 ' + W + ' ' + W + '" width="180" height="180">' +
+      paths +
+      '<text class="opt-fund-seg-center" x="' + CX + '" y="' + (CY - 2) + '" dominant-baseline="auto">' + escapeHtml(centerLabel) + '</text>' +
+      '<text class="opt-fund-seg-center-sub" x="' + CX + '" y="' + (CY + 12) + '" dominant-baseline="auto">Total</text>' +
+      '</svg>';
+
+    var legend = '<div class="opt-fund-seg-legend">';
+    for (var j = 0; j < slices.length; j++){
+      var pct = ((slices[j].value / total) * 100).toFixed(1);
+      var lCol = SEG_COLORS[j % SEG_COLORS.length];
+      legend += '<div class="opt-fund-seg-leg-item" data-idx="' + j + '">' +
+        '<span class="opt-fund-seg-leg-dot" style="background:' + lCol + '"></span>' +
+        '<span>' + escapeHtml(slices[j].name) + '</span>' +
+        '<span class="opt-fund-seg-leg-pct">' + pct + '%</span>' +
+      '</div>';
+    }
+    legend += '</div>';
+
+    var tip = '<div class="opt-fund-seg-tip" hidden></div>';
+
+    box.innerHTML = '<div class="opt-fund-seg-title">' + escapeHtml(opts.title) + '</div>' + tip + svg + legend;
+
+    var tipEl = box.querySelector('.opt-fund-seg-tip');
+    var svgEl = box.querySelector('svg');
+    var allSlices = box.querySelectorAll('.opt-fund-seg-slice');
+    var allLegs = box.querySelectorAll('.opt-fund-seg-leg-item');
+
+    function highlight(idx){
+      allSlices.forEach(function(s){
+        var si = parseInt(s.getAttribute('data-idx'));
+        if (si === idx) s.classList.remove('dimmed');
+        else s.classList.add('dimmed');
+      });
+      allLegs.forEach(function(l){
+        var li = parseInt(l.getAttribute('data-idx'));
+        l.style.opacity = li === idx ? '1' : '0.4';
+      });
+      var sl = slices[idx];
+      var pctStr = ((sl.value / total) * 100).toFixed(1) + '%';
+      tipEl.innerHTML = '<span class="opt-fund-seg-tip-name">' + escapeHtml(sl.name) + '</span>' +
+        '<span class="opt-fund-seg-tip-val">' + fmtBigDollars(sl.value) + ' (' + pctStr + ')</span>';
+      tipEl.hidden = false;
+    }
+    function unhighlight(){
+      allSlices.forEach(function(s){ s.classList.remove('dimmed'); });
+      allLegs.forEach(function(l){ l.style.opacity = ''; });
+      tipEl.hidden = true;
+    }
+
+    allSlices.forEach(function(s){
+      var idx = parseInt(s.getAttribute('data-idx'));
+      s.addEventListener('mouseenter', function(){ highlight(idx); });
+    });
+    allLegs.forEach(function(l){
+      var idx = parseInt(l.getAttribute('data-idx'));
+      l.addEventListener('mouseenter', function(){ highlight(idx); });
+    });
+    svgEl.addEventListener('mouseleave', unhighlight);
+    box.querySelector('.opt-fund-seg-legend').addEventListener('mouseleave', unhighlight);
+  }
+
+  function renderRevenueSegments(){
+    var container = $('opt-fund-segments');
+    if (!container) return;
+    var f = state.fundamentals;
+    var seg = f && f.segments;
+    if (!seg || (!seg.product && !seg.geographic)){
+      container.hidden = true;
+      return;
+    }
+    renderDonutChart({
+      boxId: 'opt-fund-seg-product',
+      title: 'Revenue by segment',
+      slices: seg.product || null,
+    });
+    renderDonutChart({
+      boxId: 'opt-fund-seg-geo',
+      title: 'Revenue by region',
+      slices: seg.geographic || null,
+    });
+    container.hidden = !(seg.product || seg.geographic);
   }
 
   function sentimentDot(sent){

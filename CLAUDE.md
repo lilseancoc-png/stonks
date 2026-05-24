@@ -48,6 +48,7 @@ There is **no test suite, no linter, and no type checker** wired into `package.j
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | `api/config.js`, `js/auth.js` | Browser auth client. Anon key is safe to ship — RLS gates access. |
 | `SUPABASE_SERVICE_ROLE_KEY` | `api/portfolio-review.js`, `api/close-position.js`, `api/delete-trade.js` | Server-side JWT verification only. Never sent to the browser. |
 | `FRED_API_KEY` | `scripts/build.mjs` (`fetchFredSeries`) | Optional. When set, FRED fetches go through `api.stlouisfed.org` (the official JSON API, not Cloudflare-fronted) as the primary path, with the public CSV endpoint as fallback. Without it the build degrades gracefully — but the GH Actions runner IPs intermittently get every CSV attempt blocked for minutes, blanking the macro calendar + Fed Funds rate + FedWatch. Free key at <https://fred.stlouisfed.org/docs/api/api_key.html>. |
+| `FMP_API_KEY` | `scripts/build.mjs` (`fetchRevenueSegments`) | Optional. Revenue segment breakdowns (product + geographic) from Financial Modeling Prep. Powers the donut charts in the Grade tab's fundamentals section. Free tier (250 req/day) covers all ~119 tickers. Without it the segment charts are hidden — the rest of fundamentals still works. Free key at <https://site.financialmodelingprep.com/register>. |
 
 ## High-level architecture
 
