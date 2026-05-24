@@ -455,13 +455,15 @@ button { font: inherit; }
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));
 }
 .brand-tag {
-  font-size: 9px; font-weight: 700;
-  color: var(--muted); letter-spacing: 0.10em;
+  font-size: 10px; font-weight: 500;
+  color: var(--muted); letter-spacing: 0.14em;
   text-transform: uppercase;
-  padding: 3px 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-1);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   margin-left: var(--s-2);
+  padding-left: var(--s-2);
+  border-left: 1px solid var(--hairline);
   background: transparent;
 }
 .site-nav { display: inline-flex; gap: var(--s-2); align-items: center; }
@@ -489,10 +491,11 @@ button { font: inherit; }
    metadata, not as a hero. Institutional dashboards don't need a pitch. */
 .page-sub {
   max-width: var(--w-content); margin: 0 auto;
-  padding: var(--s-4) var(--s-5) 0;
+  padding: var(--s-3) var(--s-5) 0;
   color: var(--muted);
-  font-size: var(--fs-xs);
-  letter-spacing: 0.01em;
+  font-size: var(--fs-sm);
+  letter-spacing: 0;
+  line-height: var(--lh-snug);
 }
 
 main {
@@ -572,18 +575,19 @@ main {
 .site-footer {
   max-width: var(--w-shell);
   margin: var(--s-7) auto 0;
-  padding: var(--s-6) var(--s-5) var(--s-7);
+  padding: var(--s-5) var(--s-5) var(--s-6);
   color: var(--muted); font-size: var(--fs-xs);
   display: flex; flex-wrap: wrap; gap: var(--s-4); justify-content: space-between;
   align-items: center;
-  border-top: 1px solid var(--border);
-  font-family: var(--font-mono);
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-sans);
   font-feature-settings: "tnum" 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .site-footer > div { display: inline-flex; align-items: center; gap: var(--s-2); }
-.site-footer .muted { color: var(--muted); text-transform: none; letter-spacing: 0.02em; }
+.site-footer .muted { color: var(--muted); text-transform: none; letter-spacing: 0; }
+.site-footer .mono, .site-footer time { font-family: var(--font-mono); }
 .site-footer a {
   color: var(--muted);
   border-bottom: 1px solid transparent;
@@ -602,19 +606,18 @@ main {
    font for the value so timestamps line up. */
 .freshness {
   max-width: var(--w-content);
-  margin: 0 auto var(--s-3);
-  padding: var(--s-2) var(--s-5);
+  margin: 0 auto var(--s-2);
+  padding: var(--s-3) var(--s-5) var(--s-2);
   display: flex;
   gap: var(--s-3);
   align-items: center;
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: var(--fs-xs);
-  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-family: var(--font-sans);
   font-feature-settings: "tnum" 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  border-bottom: 1px solid var(--hairline);
+  letter-spacing: 0;
+  text-transform: none;
 }
 .freshness .freshness-dot {
   width: 7px; height: 7px; border-radius: 50%;
@@ -648,7 +651,8 @@ main {
   .freshness .freshness-dot { animation: none; }
 }
 .freshness-detail { color: var(--muted); text-transform: none; letter-spacing: 0; }
-.freshness #freshness-text { color: var(--text); font-weight: 600; }
+.freshness #freshness-text { color: var(--text); font-weight: 500; }
+.freshness .mono, .freshness time { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
 .freshness.warn #freshness-text { color: var(--warn); }
 .freshness.bad  #freshness-text { color: var(--neg); }
 
@@ -660,34 +664,25 @@ main {
   position: relative;
   max-width: var(--w-content);
   margin: 0 auto var(--s-5);
-  padding: var(--s-8) var(--s-6) var(--s-6);
+  padding: var(--s-7) var(--s-6) var(--s-6);
   background: var(--surface);
   background-image: var(--grad-hero);
   border: 1px solid var(--border);
-  border-radius: var(--r-4);
-  box-shadow: var(--elev-2), var(--elev-glow);
+  border-radius: var(--r-5);
+  box-shadow: var(--elev-1);
   overflow: hidden;
-}
-.landing-hero::before {
-  content: "";
-  position: absolute;
-  inset: var(--s-3) auto var(--s-3) 0;
-  width: 3px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 60%, var(--accent-dim) 100%);
-  box-shadow: 0 0 12px var(--accent-glow);
 }
 .landing-hero-eyebrow {
   display: inline-block;
-  font: 700 var(--fs-xs)/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-sans);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   color: var(--accent-strong);
   margin-bottom: var(--s-3);
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  border-radius: var(--r-pill);
-  background: var(--accent-soft);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .landing-hero-title {
   margin: 0 0 var(--s-2);
@@ -767,10 +762,10 @@ main {
   margin-bottom: var(--s-1);
 }
 .landing-card-eyebrow {
-  font: 700 var(--fs-xs)/1 var(--font-mono);
+  font: 600 var(--fs-xs)/1 var(--font-sans);
   text-transform: uppercase;
-  letter-spacing: 0.10em;
-  color: var(--muted-strong);
+  letter-spacing: 0.12em;
+  color: var(--muted);
 }
 .landing-card-arrow {
   font-size: var(--fs-lg);
@@ -783,24 +778,21 @@ main {
   transform: translateX(4px);
 }
 .landing-card-stat {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-weight: var(--fw-display);
   font-size: var(--fs-hero);
   letter-spacing: var(--ls-display);
   line-height: 1;
   color: var(--text-strong);
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(180deg, var(--text-strong) 0%, color-mix(in srgb, var(--text-strong) 70%, var(--accent)) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
 }
 .landing-card-sub {
   font-size: var(--fs-xs);
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 600;
-  margin-top: -2px;
+  letter-spacing: 0.10em;
+  font-weight: 500;
+  margin-top: 2px;
 }
 .landing-card-desc {
   margin: auto 0 0;
@@ -811,11 +803,21 @@ main {
   border-top: 1px solid var(--hairline);
 }
 
-/* Hot variant — used for Unusual flow when there's active flagging. */
-.landing-card-hot {
-  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+/* Hot variant — used for Unusual flow when there's active flagging. The
+   accent shows up as a small pulsing dot in the corner rather than a
+   permanent border tint, so the badge means "live activity" instead of
+   competing with the user's other cards. */
+.landing-card-hot::after {
+  content: "";
+  position: absolute;
+  top: var(--s-4); right: calc(var(--s-4) + 20px);
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+  animation: stonks-glow-pulse 2.4s var(--ease-in-out) infinite;
+  pointer-events: none;
 }
-.landing-card-hot::before { transform: scaleX(0.35); opacity: 0.6; }
 
 .landing-foot {
   max-width: var(--w-content);
@@ -892,17 +894,20 @@ main {
 .card-title::before {
   content: '';
   display: inline-block;
-  width: 4px; height: 14px;
-  background: linear-gradient(180deg, var(--accent-strong) 0%, var(--accent) 60%, var(--accent-dim) 100%);
+  width: 3px; height: 12px;
+  background: var(--accent);
   border-radius: 2px;
-  box-shadow: 0 0 8px var(--accent-glow-soft);
+  opacity: 0.85;
 }
 .card-eyebrow {
   font-size: var(--fs-xs); color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
-  font-family: var(--font-mono);
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  font-family: var(--font-sans);
   font-feature-settings: "tnum" 1;
   margin-left: auto;
+}
+.card-eyebrow .mono, .card-eyebrow time {
+  font-family: var(--font-mono); font-feature-settings: "tnum" 1;
 }
 .hint {
   margin: 0 0 var(--s-3);
@@ -962,8 +967,7 @@ main {
 .narr-tab.is-active {
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  box-shadow: 0 0 0 3px var(--accent-glow-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .narr-tab-count {
   display: inline-flex;
@@ -3425,7 +3429,7 @@ body.cmd-palette-open { overflow: hidden; }
 
 /* Brand wordmark feels right in mono too */
 .brand-word { font-family: var(--font-mono); letter-spacing: -0.02em; font-weight: 700; }
-.brand-tag { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+.brand-tag { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; }
 
 /* Restrained verdict — square label, no pill, terminal-flat */
 .opt-verdict {
@@ -3692,17 +3696,21 @@ body.cmd-palette-open { overflow: hidden; }
 
 /* Slightly tighter freshness banner — it competes with the header otherwise */
 .freshness {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  border-radius: var(--r-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  text-transform: none;
+  letter-spacing: 0;
+  border-radius: 0;
 }
 
-/* Page subtitle reads as muted terminal line under the header */
+/* Page subtitle reads as a quiet sentence-case tagline under the header.
+   Earlier iterations used mono+uppercase here; that made the page feel
+   like a terminal banner rather than a product. */
 .page-sub {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-transform: uppercase; letter-spacing: 0.06em;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--muted);
 }
 
@@ -5463,23 +5471,23 @@ main { padding-top: var(--s-2); }
   letter-spacing: 0.02em;
 }
 
-/* Freshness strip — when the build is fresh, surface a faint "Live"
-   chip aligned to the right so the strip reads with both age + state. */
-.freshness::after {
-  content: "Live";
+/* Freshness strip status label — only surfaces when the data is stale.
+   For a fresh build the pulsing dot is already the state indicator, so
+   appending a redundant "Live" pill just adds noise. */
+.freshness::after { content: none; }
+.freshness.warn::after,
+.freshness.bad::after {
+  content: "Stale";
   margin-left: auto;
-  font: 700 9px/1 var(--font-mono);
-  letter-spacing: 0.10em;
+  font: 600 10px/1 var(--font-sans);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--pos);
-  padding: 3px 6px;
-  border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
+  padding: 4px 8px;
   border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--pos) 6%, transparent);
   flex-shrink: 0;
 }
-.freshness.warn::after { content: "Stale"; color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 6%, transparent); }
-.freshness.bad::after  { content: "Stale"; color: var(--neg);  border-color: color-mix(in srgb, var(--neg) 40%, transparent);  background: color-mix(in srgb, var(--neg) 6%, transparent); }
+.freshness.warn::after { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.freshness.bad::after  { color: var(--neg);  background: color-mix(in srgb, var(--neg)  14%, transparent); }
 @media (max-width: 420px) {
   /* On very narrow viewports the pill can overlap the relative-time
      text. Hide the label and rely on the pulsing dot for state. */
@@ -5998,9 +6006,10 @@ main { padding-top: var(--s-2); }
   }
 }
 
-/* Freshness banner — refine the "Live" / "Stale" status pill with a
-   subtle inner highlight so it reads as a chip not flat text. */
-.freshness::after {
+/* Freshness banner — when a stale-state pill is shown, give it a subtle
+   inner highlight so it reads as a chip not flat text. */
+.freshness.warn::after,
+.freshness.bad::after {
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-strong) 5%, transparent);
 }
 
