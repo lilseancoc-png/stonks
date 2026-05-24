@@ -3804,6 +3804,18 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
   font-style: italic;
 }
+.cal-chip-stale {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warn);
+  font: 600 10px/1.4 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: help;
+}
+.cal-chip.is-stale .cal-report-val { color: var(--muted); }
 .cal-chip-time {
   font: 600 10px/1 var(--font-mono);
   color: var(--muted);
@@ -3933,6 +3945,17 @@ main { padding-top: var(--s-2); }
   font-size: 10px;
   color: var(--muted);
   font-style: italic;
+}
+.fomc-rate-stale {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warn);
+  font: 600 10px/1.4 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 .fomc-rate-missing .fomc-rate-value { color: var(--muted); }
 .fomc-meeting + .fomc-meeting { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
