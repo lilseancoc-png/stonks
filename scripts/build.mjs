@@ -1871,13 +1871,12 @@ export function htmlEscape(s) {
 // Returns the page runtime as a plain JS string for writing to app.js.
 // Loaded via <script src="app.js" defer> — the inline manifest <script> tag
 // runs first per HTML parsing order so MANIFEST is always defined.
-export { renderAppJs } from './render/app-js.mjs';
-
-export { renderHtml } from './render/html.mjs';
-
+import { renderAppJs } from './render/app-js.mjs';
+import { renderHtml } from './render/html.mjs';
 // Production-grade stylesheet — light default + dark via data-theme on
 // <html>. Token-driven so the same component rules apply to both themes.
-export { renderStylesCss } from './render/styles-css.mjs';
+import { renderStylesCss } from './render/styles-css.mjs';
+export { renderAppJs, renderHtml, renderStylesCss };
 
 async function writeChainFiles(chains) {
   // Wipe data/ first so tickers that fell out of the curated list (or
@@ -6976,33 +6975,6 @@ async function main() {
   await loadAiUsageState();
   console.log("Loading SEC CIK mapping…");
   await fetchCikMap();
-  if (_cikMap) {
-    const probeCik = _cikMap.get("NVDA");
-    if (probeCik) {
-      try {
-        const probeFacts = await fetchEdgarCompanyFacts(probeCik, "NVDA");
-        if (probeFacts) {
-          const found = extractRevenueConceptData(probeFacts);
-          if (found) {
-            const usd = found.units.USD;
-            const withSeg = usd.filter((e) => e.segment);
-            const annual = usd.filter((e) => e.form === "10-K" || e.form === "10-K/A");
-            const annualSeg = annual.filter((e) => e.segment);
-            console.log(`  · EDGAR probe NVDA: concept=${found.concept.slice(0, 40)} total=${usd.length} withSeg=${withSeg.length} annual=${annual.length} annual+seg=${annualSeg.length}`);
-            if (annualSeg.length > 0) {
-              console.log(`    sample: ${JSON.stringify(annualSeg[annualSeg.length - 1]).slice(0, 400)}`);
-            } else if (withSeg.length > 0) {
-              console.log(`    sample (non-annual): ${JSON.stringify(withSeg[withSeg.length - 1]).slice(0, 400)}`);
-            }
-          } else {
-            console.log(`  ⚠ EDGAR probe NVDA: no revenue concept found in companyfacts`);
-          }
-        }
-      } catch (err) {
-        console.log(`  ⚠ EDGAR probe failed: ${err.message}`);
-      }
-    }
-  }
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
   const got = Object.keys(chains).length;
