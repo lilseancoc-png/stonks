@@ -1183,10 +1183,126 @@ async function fetchFundamentals(symbol) {
   };
 }
 
-let _fmpLoggedOnce = false;
+let _cikMap = null;
+
+async function fetchCikMap() {
+  if (_cikMap) return _cikMap;
+  try {
+    const res = await fetch("https://www.sec.gov/files/company_tickers.json", {
+      headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) {
+      console.log(`  ⚠ CIK map fetch HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const map = new Map();
+    for (const entry of Object.values(data)) {
+      const ticker = String(entry.ticker).toUpperCase();
+      const cik = String(entry.cik_str).padStart(10, "0");
+      if (!map.has(ticker)) map.set(ticker, cik);
+    }
+    _cikMap = map;
+    console.log(`  · CIK map loaded: ${map.size} tickers`);
+    return map;
+  } catch (err) {
+    console.log(`  ⚠ CIK map fetch failed: ${err.message}`);
+    return null;
+  }
+}
+
+const REVENUE_CONCEPTS = [
+  "RevenueFromContractWithCustomerExcludingAssessedTax",
+  "RevenueFromContractWithCustomerIncludingAssessedTax",
+  "Revenues",
+  "SalesRevenueNet",
+];
+
+async function fetchEdgarRevenueConcept(cik, concept) {
+  const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/us-gaap/${concept}.json`;
+  const res = await fetch(url, {
+    headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+function formatMemberName(raw) {
+  let name = raw.includes(":") ? raw.split(":").pop() : raw;
+  name = name.replace(/Member$/, "").replace(/Segment$/, "").replace(/ProductLine$/, "");
+  const tokens = name.match(/[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+/g);
+  if (!tokens) return name;
+  return tokens.join(" ");
+}
+
+function classifySegmentAxis(segmentStr) {
+  if (!segmentStr) return null;
+  if (segmentStr.includes("ProductOrServiceAxis")) return "product";
+  if (segmentStr.includes("StatementGeographicalAxis")) return "geographic";
+  if (segmentStr.includes("StatementBusinessSegmentsAxis")) return "product";
+  return null;
+}
+
+function parseEdgarSegments(conceptData) {
+  const units = conceptData?.units?.USD;
+  if (!Array.isArray(units) || !units.length) return null;
+
+  const annual = units.filter(
+    (e) => (e.form === "10-K" || e.form === "10-K/A") && e.val != null
+  );
+  if (!annual.length) return null;
+
+  const latestEnd = [...new Set(annual.map((e) => e.end))].sort().pop();
+  if (!latestEnd) return null;
+
+  const latest = annual.filter((e) => e.end === latestEnd);
+  const product = new Map();
+  const geographic = new Map();
+
+  for (const entry of latest) {
+    const seg = entry.segment;
+    if (!seg) continue;
+    const axis = classifySegmentAxis(seg);
+    if (!axis) continue;
+
+    const parts = seg.split(":");
+    const memberRaw = parts.slice(-2).join(":");
+    const label = formatMemberName(memberRaw);
+    const value = Math.abs(Number(entry.val));
+    if (!Number.isFinite(value) || value <= 0) continue;
+
+    const bucket = axis === "product" ? product : geographic;
+    bucket.set(label, Math.max(bucket.get(label) || 0, value));
+  }
+
+  return { product, geographic };
+}
+
+function consolidateSegments(segMap) {
+  if (!segMap || segMap.size === 0) return null;
+  const entries = [...segMap.entries()]
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
+  const total = entries.reduce((s, e) => s + e.value, 0);
+  if (!total) return null;
+  const significant = [];
+  let otherSum = 0;
+  for (const e of entries) {
+    if (significant.length < 8 && (e.value / total) >= 0.02) {
+      significant.push(e);
+    } else {
+      otherSum += e.value;
+    }
+  }
+  if (otherSum > 0) significant.push({ name: "Other", value: otherSum });
+  return significant;
+}
+
 async function fetchRevenueSegments(symbol) {
-  const apiKey = process.env.FMP_API_KEY;
-  if (!apiKey) return null;
+  if (SECTORS[symbol] === "ETF") return null;
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -1199,66 +1315,35 @@ async function fetchRevenueSegments(symbol) {
     }
   } catch {}
 
-  function parseSegments(data) {
-    if (!Array.isArray(data) || !data.length) return null;
-    const latest = data[0];
-    if (!latest || typeof latest !== "object") return null;
-    const flat = {};
-    for (const [key, val] of Object.entries(latest)) {
-      if (key === "date" || key === "symbol") continue;
-      if (typeof val === "object" && val !== null) {
-        for (const [sk, sv] of Object.entries(val)) {
-          const n = Number(sv);
-          if (Number.isFinite(n) && n > 0) flat[sk] = n;
-        }
-      } else {
-        const n = Number(val);
-        if (Number.isFinite(n) && n > 0) flat[key] = n;
-      }
+  const cikMap = await fetchCikMap();
+  if (!cikMap) return null;
+
+  const cik = cikMap.get(symbol);
+  if (!cik) return null;
+
+  let conceptData = null;
+  for (const concept of REVENUE_CONCEPTS) {
+    try {
+      conceptData = await fetchEdgarRevenueConcept(cik, concept);
+      if (conceptData?.units?.USD?.length) break;
+      conceptData = null;
+    } catch {
+      conceptData = null;
     }
-    const entries = Object.entries(flat).map(([name, value]) => ({ name, value }));
-    if (!entries.length) return null;
-    entries.sort((a, b) => b.value - a.value);
-    const total = entries.reduce((s, e) => s + e.value, 0);
-    const significant = [];
-    let otherSum = 0;
-    for (const e of entries) {
-      if (significant.length < 8 && (e.value / total) >= 0.02) {
-        significant.push(e);
-      } else {
-        otherSum += e.value;
-      }
-    }
-    if (otherSum > 0) significant.push({ name: "Other", value: otherSum });
-    return significant;
+    await new Promise((r) => setTimeout(r, 100));
   }
 
+  if (!conceptData) return null;
+
   try {
-    const base = "https://financialmodelingprep.com/api/v4";
-    const [prodRes, geoRes] = await Promise.all([
-      fetch(`${base}/revenue-product-segmentation?symbol=${encodeURIComponent(symbol)}&structure=flat&period=annual&apikey=${encodeURIComponent(apiKey)}`, { signal: AbortSignal.timeout(15000) }),
-      fetch(`${base}/revenue-geographic-segmentation?symbol=${encodeURIComponent(symbol)}&structure=flat&period=annual&apikey=${encodeURIComponent(apiKey)}`, { signal: AbortSignal.timeout(15000) }),
-    ]);
-    if (!prodRes.ok || !geoRes.ok) {
-      if (!_fmpLoggedOnce) {
-        const body = !prodRes.ok ? await prodRes.text().catch(() => "") : await geoRes.text().catch(() => "");
-        console.log(`    ⚠ FMP segments HTTP ${prodRes.status}/${geoRes.status} for ${symbol}: ${body.slice(0, 200)}`);
-        _fmpLoggedOnce = true;
-      }
-      if (!prodRes.ok && !geoRes.ok) return null;
-    }
-    const prodJson = prodRes.ok ? await prodRes.json() : null;
-    const geoJson = geoRes.ok ? await geoRes.json() : null;
-    if (!_fmpLoggedOnce && symbol === "NVDA") {
-      console.log(`    [fmp] NVDA product sample: ${JSON.stringify(prodJson?.[0]).slice(0, 300)}`);
-      _fmpLoggedOnce = true;
-    }
-    const product = parseSegments(prodJson);
-    const geographic = parseSegments(geoJson);
+    const parsed = parseEdgarSegments(conceptData);
+    if (!parsed) return null;
+    const product = consolidateSegments(parsed.product);
+    const geographic = consolidateSegments(parsed.geographic);
     if (!product && !geographic) return null;
     return { product, geographic, fetchedDate: today };
   } catch (err) {
-    console.log(`    ⚠ ${symbol} revenue segments fetch failed: ${err.message}`);
+    console.log(`    ⚠ ${symbol} EDGAR segment parse failed: ${err.message}`);
     return null;
   }
 }
@@ -18300,6 +18385,8 @@ async function main() {
   // can merge today's calls into the existing rolling window. Lives in
   // data/ai-usage.json — gets rewritten after writeChainFiles below.
   await loadAiUsageState();
+  console.log("Loading SEC CIK mapping…");
+  await fetchCikMap();
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
   const got = Object.keys(chains).length;
