@@ -313,10 +313,10 @@ function buildRepeatLookup(log, nowMs) {
     const key = `${e.symbol}|${e.side}|${e.strike}|${e.expSec}`;
     const prior = map.get(key);
     if (!prior) {
-      map.set(key, { count: 1, lastSeen: e.scannedAt });
+      map.set(key, { count: 1, lastSeen: e.scannedAt, lastSeenMs: t });
     } else {
       prior.count += 1;
-      if (Date.parse(e.scannedAt) > Date.parse(prior.lastSeen)) prior.lastSeen = e.scannedAt;
+      if (t > prior.lastSeenMs) { prior.lastSeen = e.scannedAt; prior.lastSeenMs = t; }
     }
   }
   return map;
