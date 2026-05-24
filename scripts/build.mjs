@@ -1187,6 +1187,17 @@ async function fetchRevenueSegments(symbol) {
   const apiKey = process.env.FMP_API_KEY;
   if (!apiKey) return null;
 
+  const today = new Date().toISOString().slice(0, 10);
+
+  try {
+    const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
+    const existing = JSON.parse(raw);
+    const cached = existing?.fundamentals?.segments;
+    if (cached && cached.fetchedDate === today) {
+      return cached;
+    }
+  } catch {}
+
   function parseSegments(data) {
     if (!Array.isArray(data) || !data.length) return null;
     const latest = data[0];
@@ -1225,7 +1236,7 @@ async function fetchRevenueSegments(symbol) {
     const product = parseSegments(prodJson);
     const geographic = parseSegments(geoJson);
     if (!product && !geographic) return null;
-    return { product, geographic };
+    return { product, geographic, fetchedDate: today };
   } catch (err) {
     console.log(`    ⚠ ${symbol} revenue segments fetch failed: ${err.message}`);
     return null;
