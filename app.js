@@ -39,7 +39,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03585;
+  var RFR = 0.04500;
+  // Provenance for the risk-free rate baked above. source is
+  // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
+  // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
+  // surfaces non-fresh sources so traders know the anchor is degraded.
+  var RFR_META = {"source":"fresh","asOf":"2026-05-24","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -1547,9 +1552,21 @@
       html += '<button type="button" class="opt-copylink-btn" id="opt-copy-link" title="Copy a link that restores this exact contract">🔗 Copy link</button>';
     }
     html += '</div>';
+    // Surface RFR provenance when it's not a fresh ^IRX read so traders
+    // know the greeks anchor is degraded. 'cached' means the last-good
+    // reading (up to 14d old) is being used; 'fallback' means both
+    // failed and we're using the hardcoded 4.5% — greeks (especially
+    // theta) can be materially off in either case.
+    var rfrNote = '';
+    if (RFR_META && RFR_META.source === 'cached'){
+      var rfrAge = RFR_META.ageDays != null ? Math.max(1, Math.round(RFR_META.ageDays)) : null;
+      rfrNote = ' (cached ^IRX' + (rfrAge ? ', ' + rfrAge + 'd old' : '') + ' — Yahoo unavailable this build)';
+    } else if (RFR_META && RFR_META.source === 'fallback'){
+      rfrNote = ' (HARDCODED fallback — neither ^IRX nor cache available; greeks may be off if rates have moved)';
+    }
     var disc = input.source === 'manual'
-      ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate. You are the data source — only as accurate as the numbers you typed.'
-      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
+      ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. You are the data source — only as accurate as the numbers you typed.'
+      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
     html += '<p class="opt-disclaimer">' + disc + '</p>';
     return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '' };
   }
@@ -3540,10 +3557,18 @@
         '<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>' +
       '</div>';
     var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
-    return '<div class="cal-chip cal-report">' +
+    // Stale tag: writeCalendarFile carries forward in-window report rows
+    // from the prior calendar.json when FRED + BLS both come back empty
+    // (each carried row gets ev.stale=true). Surface it so traders know
+    // the figures may not reflect today's release schedule.
+    var staleTag = e.stale
+      ? '<span class="cal-chip-stale" title="Today\'s FRED + BLS fetches were empty — these figures were carried forward from the previous build">Stale</span>'
+      : '';
+    return '<div class="cal-chip cal-report' + (e.stale ? ' is-stale' : '') + '">' +
       '<div class="cal-report-head">' +
         '<span class="cal-chip-tag">Report</span> ' +
         '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
+        staleTag +
         src +
       '</div>' +
       grid +
@@ -3564,11 +3589,25 @@
     // toFixed on undefined.
     var rateValue = (rate && typeof rate.rate === 'number' && isFinite(rate.rate))
       ? rate.rate.toFixed(2) : null;
+    // Tag the rate visibly when it came from the on-disk cache instead of
+    // a fresh FRED fetch. The build silently substitutes a prior reading
+    // (up to 14 days old) when FRED:DFF flakes; without this tag, the
+    // 'as of' date is the only signal — and it's easy to miss. Probabilities
+    // in the table below are anchored to this rate, so traders need to
+    // know its provenance.
+    var rateStaleTag = '';
+    if (rate && typeof rate.source === 'string' && /cached/i.test(rate.source) && rate.asOf){
+      var rateSince = Date.parse(rate.asOf);
+      if (isFinite(rateSince)){
+        var rateDays = Math.max(1, Math.floor((Date.now() - rateSince) / 86400000));
+        rateStaleTag = '<span class="fomc-rate-stale" title="FRED:DFF unavailable today — using the last persisted reading (max age 14d before the widget hides itself)">Cached · ' + rateDays + 'd</span>';
+      }
+    }
     var meetings = (fomc.meetings || []).slice(0, 2);
     var probs = fomc.probabilities || {};
     var header = '<div class="fomc-head">' +
       (rateValue != null
-        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span></div>'
+        ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span>' + rateStaleTag + '</div>'
         : '<div class="fomc-rate fomc-rate-missing"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">—</span><span class="fomc-rate-asof">FRED:DFF unavailable this build</span></div>') +
       (meetings.length
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + ' · 14:00 ET</span></div>'
