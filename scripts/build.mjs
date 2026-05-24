@@ -1212,6 +1212,12 @@ async function fetchCikMap() {
   }
 }
 
+// Revenue segments come from the raw XBRL instance document inside each
+// 10-K filing — NOT from SEC's companyfacts / companyconcept REST APIs.
+// Both REST endpoints aggregate facts and strip the XBRL `<segment>`
+// dimensions (ProductOrServiceAxis, StatementGeographicalAxis, etc.), so
+// every entry comes back without any axis breakdown. The instance XML
+// preserves the contexts; we re-join facts → contexts ourselves.
 const REVENUE_CONCEPTS = [
   "RevenueFromContractWithCustomerExcludingAssessedTax",
   "RevenueFromContractWithCustomerIncludingAssessedTax",
@@ -1219,40 +1225,127 @@ const REVENUE_CONCEPTS = [
   "SalesRevenueNet",
 ];
 
+// Axes treated as the "product / line of business" breakdown, in priority
+// order. We pick the FIRST axis (per category) that produces ≥2 entries —
+// never merge across axes, because operating segments, product lines, and
+// geography are each independent breakdowns of the SAME total revenue.
+// Combining them sums to 2x–3x the company's real revenue. Filings use
+// both `srt:` (Securities Reporting Taxonomy) and `us-gaap:` prefixes;
+// MSFT uses srt:, older filings use us-gaap:.
+const PRODUCT_AXES_PRIORITY = [
+  "us-gaap:StatementBusinessSegmentsAxis",
+  "srt:StatementBusinessSegmentsAxis",
+  "srt:ProductOrServiceAxis",
+  "us-gaap:ProductOrServiceAxis",
+];
+const GEOGRAPHIC_AXES_PRIORITY = [
+  "srt:StatementGeographicalAxis",
+  "us-gaap:StatementGeographicalAxis",
+];
+
+// Rollups are detected automatically by total-reconciliation against the
+// company's no-segment annual revenue (see findTotalRevenue) — no static
+// member lists needed. Some companies report both a category rollup
+// (e.g. NVDA "Data Center") AND its components on the same axis; the
+// reconciliation pass drops the rollup once the sum exceeds the truth.
+
 let _edgarLogCount = 0;
 
-async function fetchEdgarCompanyFacts(cik, symbol) {
-  const url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`;
+async function fetchLatest10KFiling(cik, symbol) {
+  const url = `https://data.sec.gov/submissions/CIK${cik}.json`;
   try {
     const res = await fetch(url, {
       headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) {
       if (_edgarLogCount < 5) {
-        console.log(`    ⚠ EDGAR ${symbol} companyfacts HTTP ${res.status}`);
+        console.log(`    ⚠ EDGAR ${symbol} submissions HTTP ${res.status}`);
         _edgarLogCount++;
       }
       return null;
     }
-    return await res.json();
+    const data = await res.json();
+    const recent = data?.filings?.recent;
+    if (!Array.isArray(recent?.form)) return null;
+    // Prefer the original 10-K over 10-K/A amendments. Amendments are
+    // often just cover-page or signature corrections with a tiny instance
+    // document and no revenue facts (e.g. TSLA's recent 10-K/A is ~6 KB).
+    let original = null;
+    let amendment = null;
+    for (let i = 0; i < recent.form.length; i++) {
+      const entry = {
+        accession: recent.accessionNumber[i],
+        primaryDoc: recent.primaryDocument[i],
+        filingDate: recent.filingDate[i],
+      };
+      if (recent.form[i] === "10-K" && !original) original = entry;
+      else if (recent.form[i] === "10-K/A" && !amendment) amendment = entry;
+    }
+    return original || amendment || null;
   } catch (err) {
     if (_edgarLogCount < 5) {
-      console.log(`    ⚠ EDGAR ${symbol} companyfacts ${err.message}`);
+      console.log(`    ⚠ EDGAR ${symbol} submissions ${err.message}`);
       _edgarLogCount++;
     }
     return null;
   }
 }
 
-function extractRevenueConceptData(companyFacts) {
-  const gaap = companyFacts?.facts?.["us-gaap"];
-  if (!gaap) return null;
-  for (const concept of REVENUE_CONCEPTS) {
-    const data = gaap[concept];
-    if (data?.units?.USD?.length) return { concept, units: data.units };
+async function fetchEdgarXbrlInstance(cik, accession, symbol) {
+  const cikNum = Number(cik);
+  const noDash = accession.replace(/-/g, "");
+  const base = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${noDash}`;
+  try {
+    const idxRes = await fetch(`${base}/index.json`, {
+      headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!idxRes.ok) {
+      if (_edgarLogCount < 5) {
+        console.log(`    ⚠ EDGAR ${symbol} index HTTP ${idxRes.status}`);
+        _edgarLogCount++;
+      }
+      return null;
+    }
+    const idx = await idxRes.json();
+    const items = idx?.directory?.item || [];
+    // The XBRL instance ends in `_htm.xml` (e.g. msft-20250630_htm.xml).
+    // Some older filings name it `<ticker>-<date>.xml`; fall back to the
+    // largest .xml that isn't a linkbase / schema / report.
+    const instance =
+      items.find((f) => /_htm\.xml$/i.test(f.name)) ||
+      items
+        .filter(
+          (f) =>
+            /\.xml$/i.test(f.name) &&
+            !/(_cal|_def|_lab|_pre|_ref)\.xml$/i.test(f.name) &&
+            !/^(FilingSummary|R\d+)\.xml$/i.test(f.name)
+        )
+        .sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
+    if (!instance) return null;
+    // Instance documents run ~5–15 MB. 60s covers the slowest mirror hops
+    // we've seen; the per-ticker cache below means we only pay this cost
+    // on the first daily bake after a new 10-K files (annual cadence).
+    const xmlRes = await fetch(`${base}/${instance.name}`, {
+      headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!xmlRes.ok) {
+      if (_edgarLogCount < 5) {
+        console.log(`    ⚠ EDGAR ${symbol} XBRL HTTP ${xmlRes.status}`);
+        _edgarLogCount++;
+      }
+      return null;
+    }
+    return await xmlRes.text();
+  } catch (err) {
+    if (_edgarLogCount < 5) {
+      console.log(`    ⚠ EDGAR ${symbol} XBRL ${err.message}`);
+      _edgarLogCount++;
+    }
+    return null;
   }
-  return null;
 }
 
 function formatMemberName(raw) {
@@ -1263,47 +1356,156 @@ function formatMemberName(raw) {
   return tokens.join(" ");
 }
 
-function classifySegmentAxis(segmentStr) {
-  if (!segmentStr) return null;
-  if (segmentStr.includes("ProductOrServiceAxis")) return "product";
-  if (segmentStr.includes("StatementGeographicalAxis")) return "geographic";
-  if (segmentStr.includes("StatementBusinessSegmentsAxis")) return "product";
-  return null;
+function parseXbrlRevenueFacts(xml) {
+  // contextId → { dims: [{axis, member}], periodStart, periodEnd }
+  const contexts = new Map();
+  const ctxRe = /<context\s+id="([^"]+)"[^>]*>([\s\S]*?)<\/context>/g;
+  let m;
+  while ((m = ctxRe.exec(xml)) !== null) {
+    const id = m[1];
+    const body = m[2];
+    const dims = [];
+    const dimRe = /<xbrldi:explicitMember\s+dimension="([^"]+)"[^>]*>([^<]+)<\/xbrldi:explicitMember>/g;
+    let d;
+    while ((d = dimRe.exec(body)) !== null) {
+      dims.push({ axis: d[1].trim(), member: d[2].trim() });
+    }
+    const periodEnd =
+      (body.match(/<endDate>([^<]+)<\/endDate>/) ||
+        body.match(/<instant>([^<]+)<\/instant>/) ||
+        [])[1] || null;
+    const periodStart = (body.match(/<startDate>([^<]+)<\/startDate>/) || [])[1] || null;
+    contexts.set(id, { dims, periodStart, periodEnd });
+  }
+  if (!contexts.size) return null;
+
+  // Find all us-gaap revenue facts. A fact may carry any of the configured
+  // concepts; dedupe by (concept, contextRef) since attribute order varies.
+  const facts = [];
+  const seen = new Set();
+  for (const concept of REVENUE_CONCEPTS) {
+    const factRe = new RegExp(
+      `<us-gaap:${concept}\\b([^>]*)>([^<]+)<\\/us-gaap:${concept}>`,
+      "g"
+    );
+    let f;
+    while ((f = factRe.exec(xml)) !== null) {
+      const cm = f[1].match(/contextRef="([^"]+)"/);
+      if (!cm) continue;
+      const key = `${concept}::${cm[1]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const value = Number(String(f[2]).trim());
+      if (!Number.isFinite(value)) continue;
+      facts.push({ concept, contextRef: cm[1], value });
+    }
+  }
+  return { contexts, facts };
 }
 
-function parseEdgarSegments(conceptData) {
-  const units = conceptData?.units?.USD;
-  if (!Array.isArray(units) || !units.length) return null;
+function isAnnualPeriod(ctx) {
+  if (!ctx?.periodStart || !ctx?.periodEnd) return false;
+  const start = new Date(ctx.periodStart).getTime();
+  const end = new Date(ctx.periodEnd).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+  const days = (end - start) / 86400000;
+  return days >= 350 && days <= 380;
+}
 
-  const annual = units.filter(
-    (e) => (e.form === "10-K" || e.form === "10-K/A") && e.val != null
-  );
-  if (!annual.length) return null;
+function findTotalRevenue(facts, contexts) {
+  // The company's true annual revenue, used to detect rollups. Prefer
+  // facts with NO segment dimensions; fall back to the
+  // ConsolidationItemsAxis:OperatingSegmentsMember total (commonly used
+  // when no segment-less fact exists, e.g. NVDA).
+  let noSeg = 0;
+  let consolidated = 0;
+  for (const f of facts) {
+    const ctx = contexts.get(f.contextRef);
+    if (!ctx || !isAnnualPeriod(ctx)) continue;
+    const v = Math.abs(f.value);
+    if (!Number.isFinite(v) || v <= 0) continue;
+    if (ctx.dims.length === 0) {
+      if (v > noSeg) noSeg = v;
+    } else if (
+      ctx.dims.length === 1 &&
+      /ConsolidationItemsAxis$/.test(ctx.dims[0].axis) &&
+      /OperatingSegmentsMember$/.test(ctx.dims[0].member)
+    ) {
+      if (v > consolidated) consolidated = v;
+    }
+  }
+  return noSeg || consolidated || null;
+}
 
-  const latestEnd = [...new Set(annual.map((e) => e.end))].sort().pop();
-  if (!latestEnd) return null;
+function reconcileToTotal(byMember, totalRevenue) {
+  // If sum of breakdown exceeds the company's true revenue by more than
+  // 10%, the axis contains rollup member(s) that double-count. Drop the
+  // largest member iteratively until the sum lands within tolerance.
+  if (!totalRevenue || totalRevenue <= 0) return byMember;
+  const entries = [...byMember.entries()].sort((a, b) => b[1] - a[1]);
+  const tolerance = 1.1;
+  let sum = entries.reduce((s, [, v]) => s + v, 0);
+  const kept = new Set(entries.map(([k]) => k));
+  for (const [k, v] of entries) {
+    if (sum <= totalRevenue * tolerance) break;
+    // Don't drop everything — leave at least 2 members so the donut works.
+    if (kept.size <= 2) break;
+    kept.delete(k);
+    sum -= v;
+  }
+  const out = new Map();
+  for (const [k, v] of byMember) {
+    if (kept.has(k)) out.set(k, v);
+  }
+  return out;
+}
 
-  const latest = annual.filter((e) => e.end === latestEnd);
-  const product = new Map();
-  const geographic = new Map();
+function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
+  // Only consider facts whose context has EXACTLY this one axis dim. That
+  // excludes cross-cuts (e.g. "Product × SecondaryCategorization") that
+  // appear in some filings alongside the primary breakdown and would
+  // duplicate values.
+  const candidates = [];
+  for (const f of facts) {
+    const ctx = contexts.get(f.contextRef);
+    if (!ctx || ctx.dims.length !== 1) continue;
+    if (ctx.dims[0].axis !== axis) continue;
+    if (!isAnnualPeriod(ctx)) continue;
+    candidates.push({
+      member: ctx.dims[0].member,
+      value: Math.abs(f.value),
+      periodEnd: ctx.periodEnd,
+    });
+  }
+  if (!candidates.length) return null;
 
-  for (const entry of latest) {
-    const seg = entry.segment;
-    if (!seg) continue;
-    const axis = classifySegmentAxis(seg);
-    if (!axis) continue;
+  const latestEnd = [...new Set(candidates.map((c) => c.periodEnd))].sort().pop();
+  const rows = candidates.filter((c) => c.periodEnd === latestEnd);
 
-    const parts = seg.split(":");
-    const memberRaw = parts.slice(-2).join(":");
-    const label = formatMemberName(memberRaw);
-    const value = Math.abs(Number(entry.val));
-    if (!Number.isFinite(value) || value <= 0) continue;
-
-    const bucket = axis === "product" ? product : geographic;
-    bucket.set(label, Math.max(bucket.get(label) || 0, value));
+  // A member can repeat across multiple revenue concepts — keep the larger.
+  const byMember = new Map();
+  for (const r of rows) {
+    const prev = byMember.get(r.member) || 0;
+    if (r.value > prev) byMember.set(r.member, r.value);
   }
 
-  return { product, geographic };
+  // Drop rollups by reconciling against the company's true total revenue.
+  const reconciled = reconcileToTotal(byMember, totalRevenue);
+
+  const out = new Map();
+  for (const [k, v] of reconciled) {
+    if (!Number.isFinite(v) || v <= 0) continue;
+    out.set(formatMemberName(k), v);
+  }
+  return out;
+}
+
+function pickBestAxisBreakdown(facts, contexts, priorityList, totalRevenue) {
+  for (const axis of priorityList) {
+    const result = extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue);
+    if (result && result.size >= 2) return result;
+  }
+  return null;
 }
 
 function consolidateSegments(segMap) {
@@ -1316,7 +1518,7 @@ function consolidateSegments(segMap) {
   const significant = [];
   let otherSum = 0;
   for (const e of entries) {
-    if (significant.length < 8 && (e.value / total) >= 0.02) {
+    if (significant.length < 8 && e.value / total >= 0.02) {
       significant.push(e);
     } else {
       otherSum += e.value;
@@ -1326,62 +1528,82 @@ function consolidateSegments(segMap) {
   return significant;
 }
 
-async function fetchRevenueSegments(symbol) {
+export async function fetchRevenueSegments(symbol) {
   if (SECTORS[symbol] === "ETF") return null;
 
   const today = new Date().toISOString().slice(0, 10);
 
+  let existing = null;
   try {
     const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
-    const existing = JSON.parse(raw);
-    const cached = existing?.fundamentals?.segments;
-    if (cached && cached.fetchedDate === today) {
-      return cached;
-    }
+    existing = JSON.parse(raw);
   } catch {}
+  const cached = existing?.fundamentals?.segments;
+  if (cached && cached.fetchedDate === today) return cached;
 
   const cikMap = await fetchCikMap();
   if (!cikMap) return null;
-
   const cik = cikMap.get(symbol);
   if (!cik) return null;
 
-  const companyFacts = await fetchEdgarCompanyFacts(cik, symbol);
-  if (!companyFacts) return null;
+  const filing = await fetchLatest10KFiling(cik, symbol);
+  if (!filing) return null;
 
-  const found = extractRevenueConceptData(companyFacts);
-  if (!found) return null;
+  // 10-Ks file once a year but the bake runs ~3x/day. If we've already
+  // parsed this exact accession, skip the ~10 MB instance re-download and
+  // just bump fetchedDate so we don't recheck submissions until tomorrow.
+  if (cached && cached.accession === filing.accession) {
+    return { ...cached, fetchedDate: today };
+  }
 
+  const xml = await fetchEdgarXbrlInstance(cik, filing.accession, symbol);
+  if (!xml) return null;
+
+  let parsed;
   try {
-    const parsed = parseEdgarSegments(found);
-    if (!parsed) return null;
-    const product = consolidateSegments(parsed.product);
-    const geographic = consolidateSegments(parsed.geographic);
-    if (!product && !geographic) {
-      if (_edgarLogCount < 5) {
-        const usdEntries = found.units.USD;
-        const withSeg = usdEntries.filter((e) => e.segment);
-        const annual = usdEntries.filter((e) => e.form === "10-K" || e.form === "10-K/A");
-        const annualWithSeg = annual.filter((e) => e.segment);
-        console.log(`    [edgar] ${symbol} concept=${found.concept.slice(0, 40)} total=${usdEntries.length} withSeg=${withSeg.length} annual=${annual.length} annualWithSeg=${annualWithSeg.length}`);
-        if (annualWithSeg.length > 0) {
-          console.log(`    [edgar] ${symbol} sample: ${JSON.stringify(annualWithSeg[annualWithSeg.length - 1]).slice(0, 400)}`);
-        } else if (withSeg.length > 0) {
-          console.log(`    [edgar] ${symbol} sample (non-annual): ${JSON.stringify(withSeg[withSeg.length - 1]).slice(0, 400)}`);
-        }
-        _edgarLogCount++;
-      }
-      return null;
-    }
-    if (_edgarLogCount < 3) {
-      console.log(`    [edgar] ${symbol} ✓ product=${product?.length || 0} geo=${geographic?.length || 0} concept=${found.concept.slice(0, 40)}`);
-      _edgarLogCount++;
-    }
-    return { product, geographic, fetchedDate: today };
+    parsed = parseXbrlRevenueFacts(xml);
   } catch (err) {
-    console.log(`    ⚠ ${symbol} EDGAR segment parse failed: ${err.message}`);
+    console.log(`    ⚠ ${symbol} XBRL parse failed: ${err.message}`);
     return null;
   }
+  if (!parsed || !parsed.facts.length) {
+    if (_edgarLogCount < 5) {
+      console.log(`    [edgar] ${symbol} no revenue facts in XBRL instance`);
+      _edgarLogCount++;
+    }
+    return null;
+  }
+
+  const totalRevenue = findTotalRevenue(parsed.facts, parsed.contexts);
+  const productMap = pickBestAxisBreakdown(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, totalRevenue);
+  const geoMap = pickBestAxisBreakdown(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, totalRevenue);
+  const product = consolidateSegments(productMap);
+  const geographic = consolidateSegments(geoMap);
+
+  if (!product && !geographic) {
+    if (_edgarLogCount < 5) {
+      console.log(
+        `    [edgar] ${symbol} ${parsed.facts.length} revenue facts, but no product/geo axes (accession ${filing.accession})`
+      );
+      _edgarLogCount++;
+    }
+    return null;
+  }
+
+  if (_edgarLogCount < 5) {
+    console.log(
+      `    [edgar] ${symbol} ✓ product=${product?.length || 0} geo=${geographic?.length || 0} accession=${filing.accession}`
+    );
+    _edgarLogCount++;
+  }
+
+  return {
+    product,
+    geographic,
+    fetchedDate: today,
+    accession: filing.accession,
+    filingDate: filing.filingDate,
+  };
 }
 
 async function fetchTickerChain(symbol) {
