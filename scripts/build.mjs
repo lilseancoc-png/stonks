@@ -1183,6 +1183,55 @@ async function fetchFundamentals(symbol) {
   };
 }
 
+async function fetchRevenueSegments(symbol) {
+  const apiKey = process.env.FMP_API_KEY;
+  if (!apiKey) return null;
+
+  function parseSegments(data) {
+    if (!Array.isArray(data) || !data.length) return null;
+    const latest = data[0];
+    if (!latest || typeof latest !== "object") return null;
+    const entries = [];
+    for (const [key, val] of Object.entries(latest)) {
+      if (key === "date" || key === "symbol") continue;
+      const n = Number(val);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      entries.push({ name: key, value: n });
+    }
+    if (!entries.length) return null;
+    entries.sort((a, b) => b.value - a.value);
+    const total = entries.reduce((s, e) => s + e.value, 0);
+    const significant = [];
+    let otherSum = 0;
+    for (const e of entries) {
+      if (significant.length < 8 && (e.value / total) >= 0.02) {
+        significant.push(e);
+      } else {
+        otherSum += e.value;
+      }
+    }
+    if (otherSum > 0) significant.push({ name: "Other", value: otherSum });
+    return significant;
+  }
+
+  try {
+    const base = "https://financialmodelingprep.com/api/v4";
+    const [prodRes, geoRes] = await Promise.all([
+      fetch(`${base}/revenue-product-segmentation?symbol=${encodeURIComponent(symbol)}&structure=flat&period=annual&apikey=${encodeURIComponent(apiKey)}`, { signal: AbortSignal.timeout(15000) }),
+      fetch(`${base}/revenue-geographic-segmentation?symbol=${encodeURIComponent(symbol)}&structure=flat&period=annual&apikey=${encodeURIComponent(apiKey)}`, { signal: AbortSignal.timeout(15000) }),
+    ]);
+    const prodJson = prodRes.ok ? await prodRes.json() : null;
+    const geoJson = geoRes.ok ? await geoRes.json() : null;
+    const product = parseSegments(prodJson);
+    const geographic = parseSegments(geoJson);
+    if (!product && !geographic) return null;
+    return { product, geographic };
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} revenue segments fetch failed: ${err.message}`);
+    return null;
+  }
+}
+
 async function fetchTickerChain(symbol) {
   const initial = await fetchYahooOptions(symbol);
   const spot =
@@ -1234,7 +1283,13 @@ async function fetchTickerChain(symbol) {
   // ETFs return mostly empty modules, so the renderer hides the card when
   // there's nothing useful to show. fetchFundamentals already logs its own
   // failure line and returns null, so no extra try/catch needed here.
-  const fundamentals = await fetchFundamentals(symbol);
+  const [fundamentals, revenueSegments] = await Promise.all([
+    fetchFundamentals(symbol),
+    fetchRevenueSegments(symbol),
+  ]);
+  if (fundamentals && revenueSegments) {
+    fundamentals.segments = revenueSegments;
+  }
 
   return {
     spot,
@@ -1602,6 +1657,10 @@ function optionEvalSection() {
             </div>
           </div>
           <div id="opt-fund-metrics" class="opt-fund-metrics"></div>
+          <div id="opt-fund-segments" class="opt-fund-segments" hidden>
+            <div id="opt-fund-seg-product" class="opt-fund-seg-chart"></div>
+            <div id="opt-fund-seg-geo" class="opt-fund-seg-chart"></div>
+          </div>
           <div class="opt-fund-charts" id="opt-fund-charts">
             <div id="opt-fund-earnings-history"     class="opt-fund-eh" hidden></div>
             <div id="opt-fund-revenue-history"      class="opt-fund-eh" hidden></div>
@@ -3988,6 +4047,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
     metricsEl.innerHTML = metrics;
     renderEarningsHistory();
     renderFundamentalHistoryCharts();
+    renderRevenueSegments();
     box.hidden = false;
   }
 
@@ -4289,6 +4349,133 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE } = {}) {
       points: f.netMarginHistory || [],
       formatValue: function(v){ return v.toFixed(1) + '%'; },
     });
+  }
+
+  var SEG_COLORS = ['#5b8def','#1ec773','#f59e0b','#f43f5e','#a78bfa','#14b8a6','#f97316','#6b7280','#ec4899'];
+
+  function renderDonutChart(opts){
+    var box = $(opts.boxId);
+    if (!box) return;
+    var slices = opts.slices;
+    if (!slices || !slices.length){ box.innerHTML = ''; box.style.display = 'none'; return; }
+    var total = slices.reduce(function(s,e){ return s + e.value; }, 0);
+    if (!total){ box.innerHTML = ''; box.style.display = 'none'; return; }
+    box.style.display = '';
+
+    var W = 200, CX = 100, CY = 100, R = 80, IR = 50;
+    var TAU = Math.PI * 2;
+
+    function arcPath(startAngle, endAngle){
+      var s = startAngle - Math.PI / 2;
+      var e = endAngle - Math.PI / 2;
+      var large = (endAngle - startAngle) > Math.PI ? 1 : 0;
+      var sx1 = CX + R * Math.cos(s), sy1 = CY + R * Math.sin(s);
+      var sx2 = CX + R * Math.cos(e), sy2 = CY + R * Math.sin(e);
+      var ix1 = CX + IR * Math.cos(e), iy1 = CY + IR * Math.sin(e);
+      var ix2 = CX + IR * Math.cos(s), iy2 = CY + IR * Math.sin(s);
+      return 'M' + sx1.toFixed(2) + ',' + sy1.toFixed(2) +
+        ' A' + R + ',' + R + ' 0 ' + large + ' 1 ' + sx2.toFixed(2) + ',' + sy2.toFixed(2) +
+        ' L' + ix1.toFixed(2) + ',' + iy1.toFixed(2) +
+        ' A' + IR + ',' + IR + ' 0 ' + large + ' 0 ' + ix2.toFixed(2) + ',' + iy2.toFixed(2) +
+        ' Z';
+    }
+
+    var paths = '';
+    var angle = 0;
+    var GAP = 0.02;
+    for (var i = 0; i < slices.length; i++){
+      var frac = slices[i].value / total;
+      var sweep = frac * TAU;
+      var sa = angle + (slices.length > 1 ? GAP / 2 : 0);
+      var ea = angle + sweep - (slices.length > 1 ? GAP / 2 : 0);
+      if (ea <= sa) ea = sa + 0.001;
+      var col = SEG_COLORS[i % SEG_COLORS.length];
+      paths += '<path class="opt-fund-seg-slice" d="' + arcPath(sa, ea) + '" fill="' + col + '" data-idx="' + i + '"/>';
+      angle += sweep;
+    }
+
+    var centerLabel = fmtBigDollars(total);
+    var svg = '<svg class="opt-fund-seg-svg" viewBox="0 0 ' + W + ' ' + W + '" width="180" height="180">' +
+      paths +
+      '<text class="opt-fund-seg-center" x="' + CX + '" y="' + (CY - 2) + '" dominant-baseline="auto">' + escapeHtml(centerLabel) + '</text>' +
+      '<text class="opt-fund-seg-center-sub" x="' + CX + '" y="' + (CY + 12) + '" dominant-baseline="auto">Total</text>' +
+      '</svg>';
+
+    var legend = '<div class="opt-fund-seg-legend">';
+    for (var j = 0; j < slices.length; j++){
+      var pct = ((slices[j].value / total) * 100).toFixed(1);
+      var lCol = SEG_COLORS[j % SEG_COLORS.length];
+      legend += '<div class="opt-fund-seg-leg-item" data-idx="' + j + '">' +
+        '<span class="opt-fund-seg-leg-dot" style="background:' + lCol + '"></span>' +
+        '<span>' + escapeHtml(slices[j].name) + '</span>' +
+        '<span class="opt-fund-seg-leg-pct">' + pct + '%</span>' +
+      '</div>';
+    }
+    legend += '</div>';
+
+    var tip = '<div class="opt-fund-seg-tip" hidden></div>';
+
+    box.innerHTML = '<div class="opt-fund-seg-title">' + escapeHtml(opts.title) + '</div>' + tip + svg + legend;
+
+    var tipEl = box.querySelector('.opt-fund-seg-tip');
+    var svgEl = box.querySelector('svg');
+    var allSlices = box.querySelectorAll('.opt-fund-seg-slice');
+    var allLegs = box.querySelectorAll('.opt-fund-seg-leg-item');
+
+    function highlight(idx){
+      allSlices.forEach(function(s){
+        var si = parseInt(s.getAttribute('data-idx'));
+        if (si === idx) s.classList.remove('dimmed');
+        else s.classList.add('dimmed');
+      });
+      allLegs.forEach(function(l){
+        var li = parseInt(l.getAttribute('data-idx'));
+        l.style.opacity = li === idx ? '1' : '0.4';
+      });
+      var sl = slices[idx];
+      var pctStr = ((sl.value / total) * 100).toFixed(1) + '%';
+      tipEl.innerHTML = '<span class="opt-fund-seg-tip-name">' + escapeHtml(sl.name) + '</span>' +
+        '<span class="opt-fund-seg-tip-val">' + fmtBigDollars(sl.value) + ' (' + pctStr + ')</span>';
+      tipEl.hidden = false;
+    }
+    function unhighlight(){
+      allSlices.forEach(function(s){ s.classList.remove('dimmed'); });
+      allLegs.forEach(function(l){ l.style.opacity = ''; });
+      tipEl.hidden = true;
+    }
+
+    allSlices.forEach(function(s){
+      var idx = parseInt(s.getAttribute('data-idx'));
+      s.addEventListener('mouseenter', function(){ highlight(idx); });
+    });
+    allLegs.forEach(function(l){
+      var idx = parseInt(l.getAttribute('data-idx'));
+      l.addEventListener('mouseenter', function(){ highlight(idx); });
+    });
+    svgEl.addEventListener('mouseleave', unhighlight);
+    box.querySelector('.opt-fund-seg-legend').addEventListener('mouseleave', unhighlight);
+  }
+
+  function renderRevenueSegments(){
+    var container = $('opt-fund-segments');
+    if (!container) return;
+    var f = state.fundamentals;
+    var seg = f && f.segments;
+    if (!seg || (!seg.product && !seg.geographic)){
+      container.hidden = true;
+      return;
+    }
+    renderDonutChart({
+      boxId: 'opt-fund-seg-product',
+      title: 'Revenue by segment',
+      slices: seg.product || null,
+    });
+    renderDonutChart({
+      boxId: 'opt-fund-seg-geo',
+      title: 'Revenue by region',
+      slices: seg.geographic || null,
+    });
+    container.hidden = !(seg.product || seg.geographic);
   }
 
   function sentimentDot(sent){
@@ -9535,6 +9722,82 @@ main {
 .opt-fund-eh-hit {
   fill: transparent;
   cursor: crosshair;
+}
+
+/* === Revenue segment donut charts === */
+.opt-fund-segments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+.opt-fund-seg-chart {
+  position: relative;
+  padding: var(--s-4) var(--s-3) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface);
+}
+.opt-fund-seg-title {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); margin-bottom: var(--s-2);
+}
+.opt-fund-seg-svg {
+  display: block; margin: 0 auto;
+}
+.opt-fund-seg-slice {
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  transform-origin: 100px 100px;
+}
+.opt-fund-seg-slice:hover { transform: scale(1.04); }
+.opt-fund-seg-slice.dimmed { opacity: 0.35; }
+.opt-fund-seg-center {
+  font-size: 13px; font-weight: 700;
+  fill: var(--text-strong); text-anchor: middle;
+  font-family: var(--font-mono);
+  pointer-events: none;
+}
+.opt-fund-seg-center-sub {
+  font-size: 9px; fill: var(--muted); text-anchor: middle;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  pointer-events: none;
+}
+.opt-fund-seg-legend {
+  display: flex; flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  margin-top: var(--s-3);
+  justify-content: center;
+}
+.opt-fund-seg-leg-item {
+  display: inline-flex; align-items: center;
+  gap: 5px; font-size: 11px; color: var(--text);
+  cursor: pointer; white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+.opt-fund-seg-leg-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.opt-fund-seg-leg-pct {
+  color: var(--muted); font-family: var(--font-mono); font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-seg-tip {
+  position: absolute; top: var(--s-3); right: var(--s-3);
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font-size: 11px;
+  pointer-events: none; z-index: 2;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-seg-tip-name { color: var(--muted); font-weight: 600; }
+.opt-fund-seg-tip-val {
+  color: var(--text-strong); font-weight: 700;
+  font-family: var(--font-mono); margin-left: 4px;
 }
 
 /* === Retail sentiment gauge === */

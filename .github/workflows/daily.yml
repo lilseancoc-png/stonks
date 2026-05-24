@@ -85,6 +85,7 @@ jobs:
           # as a repo secret to populate macro events + Fed Funds rate
           # reliably from the GH Actions runner IPs.
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: node scripts/build.mjs
 
       - name: Commit refreshed site
