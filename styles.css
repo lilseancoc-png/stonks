@@ -11,8 +11,8 @@
   --hairline:#1a1e25;
   --text:#d8dae0;
   --text-strong:#ffffff;
-  --muted:#7a8089;
-  --muted-strong:#9aa0a8;
+  --muted:#808899;
+  --muted-strong:#9ca3b0;
   --accent:#1ec773;
   --accent-soft:rgba(30,199,115,0.10);
   --accent-strong:#2ee089;
@@ -24,13 +24,13 @@
   --pos-soft:rgba(30,199,115,0.10);
   --pos-glow:rgba(30,199,115,0.18);
   --pos-tint:rgba(30,199,115,0.07);
-  --neg:#ff4d4d;
-  --neg-soft:rgba(255,77,77,0.10);
-  --neg-glow:rgba(255,77,77,0.18);
-  --neg-tint:rgba(255,77,77,0.07);
-  --warn:#f59f00;
-  --warn-soft:rgba(245,159,0,0.12);
-  --warn-tint:rgba(245,159,0,0.08);
+  --neg:#f43f5e;
+  --neg-soft:rgba(244,63,94,0.10);
+  --neg-glow:rgba(244,63,94,0.18);
+  --neg-tint:rgba(244,63,94,0.07);
+  --warn:#f59e0b;
+  --warn-soft:rgba(245,158,11,0.12);
+  --warn-tint:rgba(245,158,11,0.08);
   --info:#5b8def;
   --info-soft:rgba(91,141,239,0.10);
   --info-tint:rgba(91,141,239,0.07);
@@ -75,21 +75,21 @@
      this weight + slight negative tracking. */
   --fw-display:800;
   --ls-display:-0.025em;
-  --r-1:3px; --r-2:5px; --r-3:7px; --r-4:9px; --r-5:11px; --r-pill:999px;
+  --r-1:4px; --r-2:6px; --r-3:8px; --r-4:12px; --r-5:14px; --r-pill:999px;
   --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-7:32px; --s-8:48px;
-  --fs-2xs:9px; --fs-xs:10px; --fs-sm:11px; --fs-md:13px; --fs-lg:15px; --fs-xl:17px; --fs-2xl:22px; --fs-3xl:30px; --fs-hero:40px; --fs-mega:56px;
-  --lh-tight:1.15; --lh-snug:1.35; --lh-normal:1.5;
+  --fs-2xs:9px; --fs-xs:10px; --fs-sm:12px; --fs-md:14px; --fs-lg:15px; --fs-xl:18px; --fs-2xl:24px; --fs-3xl:32px; --fs-hero:44px; --fs-mega:56px;
+  --lh-tight:1.15; --lh-snug:1.35; --lh-normal:1.55;
   --ls-num:-0.01em; --ls-caps:0.10em;
   --font-sans:"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono:"JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --focus-ring:0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
   --ease-out:cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out:cubic-bezier(0.4, 0, 0.2, 1);
-  --dur-1:120ms; --dur-2:200ms; --dur-3:320ms;
+  --dur-1:120ms; --dur-2:220ms; --dur-3:350ms;
   /* Unified content widths — wider than the legacy 760px to give the new
      dashboard layouts room to breathe without losing the focused feel. */
-  --w-content:1080px;
-  --w-shell:1180px;
+  --w-content:1120px;
+  --w-shell:1220px;
   color-scheme:dark;
 }
 :root[data-theme="light"] {
@@ -115,10 +115,10 @@
   --pos-soft:rgba(15,157,88,0.10);
   --pos-glow:rgba(15,157,88,0.16);
   --pos-tint:rgba(15,157,88,0.06);
-  --neg:#d4380d;
-  --neg-soft:rgba(212,56,13,0.10);
-  --neg-glow:rgba(212,56,13,0.14);
-  --neg-tint:rgba(212,56,13,0.06);
+  --neg:#dc2626;
+  --neg-soft:rgba(220,38,38,0.10);
+  --neg-glow:rgba(220,38,38,0.14);
+  --neg-tint:rgba(220,38,38,0.06);
   --warn:#a06a1f;
   --warn-soft:rgba(160,106,31,0.10);
   --warn-tint:rgba(160,106,31,0.07);
@@ -156,7 +156,7 @@ html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: var(--fs-md)/1.5 var(--font-sans);
+  font: var(--fs-md)/var(--lh-normal) var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
@@ -418,7 +418,7 @@ button { font: inherit; }
   z-index: 60;
   display: flex; align-items: center; justify-content: space-between;
   margin: 0 auto;
-  padding: var(--s-3) var(--s-5);
+  padding: var(--s-3) var(--s-6);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -509,7 +509,7 @@ main {
   margin: 0 auto var(--s-4);
   padding: 0 var(--s-5);
   display: flex;
-  gap: 2px;
+  gap: 4px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
@@ -535,7 +535,7 @@ main {
   font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: 0.03em;
-  padding: var(--s-3) var(--s-3);
+  padding: var(--s-3) var(--s-4);
   cursor: pointer;
   transition: color var(--dur-1) var(--ease-out),
               border-color var(--dur-2) var(--ease-out),
@@ -572,11 +572,11 @@ main {
 .site-footer {
   max-width: var(--w-shell);
   margin: var(--s-7) auto 0;
-  padding: var(--s-5) var(--s-5) var(--s-6);
+  padding: var(--s-6) var(--s-5) var(--s-7);
   color: var(--muted); font-size: var(--fs-xs);
   display: flex; flex-wrap: wrap; gap: var(--s-4); justify-content: space-between;
   align-items: center;
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid var(--border);
   font-family: var(--font-mono);
   font-feature-settings: "tnum" 1;
   letter-spacing: 0.04em;
@@ -660,7 +660,7 @@ main {
   position: relative;
   max-width: var(--w-content);
   margin: 0 auto var(--s-5);
-  padding: var(--s-6) var(--s-5) var(--s-5);
+  padding: var(--s-8) var(--s-6) var(--s-6);
   background: var(--surface);
   background-image: var(--grad-hero);
   border: 1px solid var(--border);
@@ -719,8 +719,8 @@ main {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
-  padding: var(--s-5);
-  min-height: 180px;
+  padding: var(--s-6);
+  min-height: 194px;
   text-align: left;
   cursor: pointer;
   appearance: none;
@@ -866,7 +866,7 @@ main {
   background-image: var(--grad-surface);
   border: 1px solid var(--border);
   border-radius: var(--r-4);
-  padding: var(--s-5) var(--s-5);
+  padding: var(--s-5) var(--s-6);
   margin-bottom: var(--s-4);
   box-shadow: var(--elev-1);
   transition: box-shadow .25s var(--ease-out),
@@ -1547,8 +1547,8 @@ main {
   color: var(--muted);
 }
 .field select, .opt-manual-field input, .opt-manual-field select {
-  height: 40px; padding: 0 var(--s-3);
-  border-radius: var(--r-2);
+  height: 42px; padding: 0 var(--s-3);
+  border-radius: var(--r-3);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -1568,9 +1568,9 @@ main {
   flex: 1 1 260px; min-width: 200px;
 }
 .combo input {
-  width: 100%; height: 40px;
+  width: 100%; height: 42px;
   padding: 0 36px 0 var(--s-3);
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -1596,8 +1596,8 @@ main {
   max-height: min(50vh, 320px); overflow: auto;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-2);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--r-3);
+  box-shadow: var(--elev-3);
 }
 .combo ul li {
   position: relative;
@@ -2870,11 +2870,12 @@ main {
   display: inline-block; margin-left: 6px;
   font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 2px 7px; border-radius: var(--r-1);
+  padding: 3px 8px; border-radius: var(--r-2);
+  border: 1px solid transparent;
 }
-.opt-grade.good { color: var(--pos); background: var(--pos-soft); }
-.opt-grade.fair { color: var(--warn); background: var(--warn-soft); }
-.opt-grade.bad  { color: var(--neg); background: var(--neg-soft); }
+.opt-grade.good { color: var(--pos); background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 30%, transparent); }
+.opt-grade.fair { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.opt-grade.bad  { color: var(--neg); background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 30%, transparent); }
 .opt-notes {
   margin: var(--s-3) 0 var(--s-1);
   padding-left: var(--s-4);
@@ -3112,8 +3113,8 @@ main {
   border: 1px solid var(--border);
   color: var(--muted);
   font: inherit; font-size: var(--fs-xs); font-weight: 500;
-  padding: 6px 10px;
-  border-radius: var(--r-2);
+  padding: 7px 12px;
+  border-radius: var(--r-3);
   cursor: pointer;
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
@@ -3138,8 +3139,8 @@ main {
 .cmd-palette-backdrop {
   position: absolute; inset: 0;
   background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .cmd-palette-modal {
   position: relative;
@@ -3147,8 +3148,8 @@ main {
   margin: 14vh auto 0;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-3);
-  box-shadow: 0 24px 48px rgba(0,0,0,0.4);
+  border-radius: var(--r-4);
+  box-shadow: 0 32px 64px rgba(0,0,0,0.5);
   overflow: hidden;
 }
 .cmd-palette-srtitle {
@@ -3353,7 +3354,7 @@ body.cmd-palette-open { overflow: hidden; }
 /* Restrained verdict — square label, no pill, terminal-flat */
 .opt-verdict {
   display: inline-flex; align-items: center;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-radius: var(--r-2);
   font-weight: 700; font-size: var(--fs-sm);
   text-transform: uppercase; letter-spacing: 0.08em;
@@ -3374,7 +3375,7 @@ body.cmd-palette-open { overflow: hidden; }
   margin-top: var(--s-3);
 }
 .opt-row {
-  padding: 7px 0;
+  padding: 9px 2px;
   border-bottom: 1px solid var(--border);
   border-bottom-style: solid;
 }
@@ -4646,8 +4647,8 @@ main { padding-top: var(--s-2); }
   flex-direction: column;
   justify-content: space-between;
   gap: var(--s-2);
-  min-height: 78px;
-  padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4);
+  min-height: 84px;
+  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-4);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
   background: var(--surface);
@@ -5058,6 +5059,8 @@ main { padding-top: var(--s-2); }
 .freshness {
   padding: var(--s-2) var(--s-4);
   background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   border-radius: var(--r-2);
   border-bottom: none;
   margin-inline: auto;
@@ -5979,10 +5982,10 @@ main { padding-top: var(--s-2); }
    .mono, code, kbd, samp font-feature-settings rule still applies. */
 kbd {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border: 1px solid var(--border);
   border-bottom-width: 2px;
-  border-radius: var(--r-1);
+  border-radius: var(--r-2);
   background: var(--surface-2);
   color: var(--text);
   font-weight: 600;
@@ -5990,4 +5993,24 @@ kbd {
   line-height: 1.4;
   letter-spacing: 0;
   vertical-align: 1px;
+  box-shadow: 0 1px 0 var(--border-strong);
+}
+
+/* Global scrollbar — thin, tinted track so the browser chrome matches
+   the institutional palette instead of defaulting to OS gray. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+html::-webkit-scrollbar { width: 10px; }
+html::-webkit-scrollbar-track { background: transparent; }
+html::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+html::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  background-clip: padding-box;
 }
