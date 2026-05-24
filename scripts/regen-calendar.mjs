@@ -68,9 +68,10 @@ async function main() {
   const todayIso = new Date(todayMs).toISOString().slice(0, 10);
   const snapshot = await build.fetchFedwatchSnapshot(upcomingMeetings, fedRate?.rate);
   let snapshotCount = 0;
-  for (const [meetingDate, probs] of Object.entries(snapshot)) {
+  for (const [meetingDate, buckets] of Object.entries(snapshot)) {
+    if (!buckets?.now) continue;
     if (!fedwatchHistory.meetings[meetingDate]) fedwatchHistory.meetings[meetingDate] = {};
-    fedwatchHistory.meetings[meetingDate][todayIso] = probs;
+    fedwatchHistory.meetings[meetingDate][todayIso] = buckets.now;
     snapshotCount++;
   }
   await build.writeFedwatchHistory(fedwatchHistory);
@@ -78,7 +79,12 @@ async function main() {
 
   const fedwatch = {};
   for (const m of upcomingMeetings) {
-    fedwatch[m.date] = build.pickFedwatchBuckets(fedwatchHistory, m.date, todayIso);
+    const fresh = snapshot[m.date];
+    if (fresh && (fresh.now || fresh.day || fresh.week || fresh.month)) {
+      fedwatch[m.date] = fresh;
+    } else {
+      fedwatch[m.date] = build.pickFedwatchBuckets(fedwatchHistory, m.date, todayIso);
+    }
   }
 
   console.log("Fetching earnings AM/PM sessions (Nasdaq)…");
