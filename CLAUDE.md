@@ -19,8 +19,8 @@ node scripts/build.mjs
 # or: npm run build
 
 # Regenerate ONLY index.html / app.js / styles.css from existing data/*.json
-# (no Yahoo, no Gemini). Use this when you only touched renderHtml /
-# renderAppJs / renderStylesCss in scripts/build.mjs.
+# (no Yahoo, no Gemini). Use this when you only touched the render layer
+# in scripts/render/ (or one of the shared helpers they import from build.mjs).
 node scripts/regen-static.mjs
 
 # Regenerate ONLY data/calendar.json (macro releases, FOMC, FedWatch, earnings
@@ -58,14 +58,16 @@ The site is built around a strict split:
 
 1. **Bake time** (`scripts/build.mjs`, run by `.github/workflows/daily.yml` ~3×/day): fetches every curated ticker's option chain + ~6mo of daily bars from Yahoo, computes technicals (RSI/MACD/S&R/IV regime), asks Gemini for per-ticker news takes and the global narratives view, then writes every artifact the page needs into the repo:
    - `index.html` — page shell with a `~30 KB` `window.STONKS_MANIFEST` JSON blob inlined (ticker list, sectors, narratives, sector overviews, spots, unusual flow snapshot, build timestamp).
-   - `app.js` — generated single IIFE that runs the Tickers / Narratives / Calendar / Grade / etc. tabs. **Never edit `app.js` directly.** Its source is the string returned by `renderAppJs()` in `scripts/build.mjs` (line ~1670). Same applies to `styles.css` (`renderStylesCss()`).
+   - `app.js` — generated single IIFE that runs the Tickers / Narratives / Calendar / Grade / etc. tabs. **Never edit `app.js` directly.** Its source is the template string returned by `renderAppJs()` in [`scripts/render/app-js.mjs`](scripts/render/app-js.mjs). Same applies to `styles.css` ([`scripts/render/styles-css.mjs`](scripts/render/styles-css.mjs)) and the page shell in [`scripts/render/html.mjs`](scripts/render/html.mjs).
    - `data/<SYMBOL>.json` — per-ticker option chain + technicals + AI news take. Loaded lazily by the browser when a ticker is picked.
    - `data/{calendar,picks,trends,trends-history,streaks,unusual,unusual-history,unusual-log,13f,fedwatch-history,iv-history/*,ai-usage}.json` — every other tab's data.
 2. **Request time** (Vercel serverless functions in `api/`): only used for things that genuinely need a server — live spot/chain proxies (Yahoo's consent/crumb handshake doesn't work from the browser), the live Fed Funds rate, Supabase-authenticated portfolio reads/writes, and the AI portfolio review.
 
-When you change a tab's rendering logic, you almost always edit `scripts/build.mjs` (which contains the entire `renderHtml` / `renderAppJs` / `renderStylesCss` payload as template literals) and then run `node scripts/regen-static.mjs` to refresh `index.html` / `app.js` / `styles.css` without touching the data pipeline.
+When you change a tab's rendering logic, you almost always edit one of `scripts/render/app-js.mjs` (browser IIFE), `scripts/render/html.mjs` (page shell + per-tab section helpers), or `scripts/render/styles-css.mjs` (stylesheet), and then run `node scripts/regen-static.mjs` to refresh `index.html` / `app.js` / `styles.css` without touching the data pipeline. `scripts/build.mjs` only needs editing when you change the data pipeline itself or one of the shared constants the render files import (`SECTORS`, `INDUSTRY_OF_TICKER`, `FALLBACK_RISK_FREE_RATE`, `htmlEscape`, etc.).
 
-### `scripts/build.mjs` is huge (~14k lines) — orient via exports
+### `scripts/build.mjs` is still large (~7k lines) — orient via exports
+
+The three big render template-strings (`renderAppJs`, `renderHtml`, `renderStylesCss`) used to live inline here but were extracted to `scripts/render/` — `build.mjs` re-exports them so existing `import` sites in `regen-static.mjs` etc. keep working unchanged.
 
 The file is one big module. The reusable surface (also imported by `regen-static.mjs`, `regen-calendar.mjs`, and `scan-unusual.mjs`) is the `export`ed identifiers near the top and bottom. Key exports:
 
@@ -132,7 +134,7 @@ The `/api/quote`, `/api/chain`, and `/api/fed-rate` endpoints set their own `Cac
 
 ## Conventions worth knowing
 
-- **Generated files are committed.** `index.html`, `app.js`, `styles.css`, every `data/*.json`. Don't add them to `.gitignore`; the workflows commit and push them. Direct hand-edits to `app.js` or `styles.css` will be overwritten on the next build — edit the `renderAppJs` / `renderStylesCss` template strings in `scripts/build.mjs` instead.
+- **Generated files are committed.** `index.html`, `app.js`, `styles.css`, every `data/*.json`. Don't add them to `.gitignore`; the workflows commit and push them. Direct hand-edits to `app.js` or `styles.css` will be overwritten on the next build — edit the template strings in `scripts/render/app-js.mjs` / `scripts/render/styles-css.mjs` instead.
 - **Per-ticker JSON keys are compressed.** Each option row is `{ s, b, a, l, iv, oi, v }` (strike, bid, ask, last, IV, OI, volume). See `compressContract()` in `lib/yahoo.mjs` and `scripts/build.mjs`. The browser code expects this shape.
 - **Expirations are epoch seconds.** Used as keys throughout (`data/<SYM>.json`, `positions.expiry`, `/api/chain?exp=...`).
 - **Graceful degradation is everywhere.** Yahoo flake → skip that ticker, don't fail the build. Gemini flake → reuse last-good narratives and mark them stale. FRED flake → fall back to `FALLBACK_RISK_FREE_RATE`. Single-position pricing error in the portfolio review → that row degrades, the rest of the review still ships. Preserve this pattern.
