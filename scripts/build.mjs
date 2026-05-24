@@ -15612,8 +15612,13 @@ export function appendFearGreedHistory(history, snapshot, todayIso) {
 //   P(hike) = clamp01(delta / 0.25)         if delta > 0
 //   P(cut)  = clamp01(-delta / 0.25)        if delta < 0
 //   P(hold) = 1 - P(hike) - P(cut)
-// All snapshots get appended to data/fedwatch-history.json so the UI's
-// Now / 1d / 1w / 1m bucket lookup keeps working.
+// The Now / 1d / 1w / 1m buckets the UI displays are derived per build
+// from the ZQ daily close on (or just before) each lookback date —
+// fetchFedwatchSnapshot pulls ~45 calendar days of history per contract
+// and computes probabilities for each bucket independently. Today's
+// "now" entry is also appended to data/fedwatch-history.json so the
+// history-walk fallback (pickFedwatchBuckets) can still rescue a build
+// where the chart endpoint flakes.
 const FEDWATCH_HISTORY_FILE = "fedwatch-history.json";
 const CME_MONTH_CODES = ["F","G","H","J","K","M","N","Q","U","V","X","Z"];
 
@@ -15663,6 +15668,58 @@ async function fetchYahooFutureClose(symbol, fallback) {
   return null;
 }
 
+// Fetch ~45 calendar days of daily closes for a Yahoo futures symbol.
+// Returns rows sorted ascending by date — caller picks the close on or
+// before each lookback bucket. Falls back to the continuous front-month
+// contract (ZQ=F) when the dated symbol has no history, same pattern as
+// fetchYahooFutureClose.
+async function fetchYahooFutureHistory(symbol, fallback) {
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - 45 * 86400000);
+  const attempt = async (sym) => {
+    try {
+      const res = await yahooFinance.chart(sym, { period1, period2, interval: "1d" });
+      const quotes = Array.isArray(res?.quotes) ? res.quotes : [];
+      return quotes
+        .filter((q) => q && q.date && q.close != null && Number.isFinite(Number(q.close)))
+        .map((q) => ({
+          date: new Date(q.date).toISOString().slice(0, 10),
+          close: Number(q.close),
+        }));
+    } catch (err) {
+      console.log(`    ⚠ Yahoo futures ${sym} history failed: ${err?.message || err}`);
+      return null;
+    }
+  };
+  const primary = await attempt(symbol);
+  if (primary && primary.length) return primary;
+  if (fallback && fallback !== symbol) {
+    const alt = await attempt(fallback);
+    if (alt && alt.length) {
+      console.log(`    · Yahoo futures ${symbol} history empty; using fallback ${fallback}`);
+      return alt;
+    }
+  }
+  return [];
+}
+
+// Pick the most recent close on or before `daysAgo` calendar days from
+// today. Returns null when the history starts after the target — e.g.
+// asking for "30 days ago" when the contract only began trading two
+// weeks back.
+function pickHistoricalClose(history, daysAgo) {
+  if (!history || !history.length) return null;
+  const target = Date.now() - daysAgo * 86400000;
+  let pick = null;
+  for (const row of history) {
+    const ms = Date.parse(row.date + "T00:00:00Z");
+    if (!Number.isFinite(ms)) continue;
+    if (ms <= target) pick = row;
+    else break;
+  }
+  return pick;
+}
+
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
 
 // Convert a meeting (YYYY-MM-DD) into the Yahoo ZQ contract symbol for
@@ -15702,6 +15759,17 @@ function probabilitiesFromZq(currentRate, meetingDateStr, zqPrice) {
   return { hike, hold, cut };
 }
 
+// Lookback buckets the FedWatch widget renders. Keep the names aligned
+// with the `{now, day, week, month}` shape consumed by renderFomcWidget
+// in the generated app.js and by pickFedwatchBuckets (the legacy
+// history-walk fallback).
+const FEDWATCH_LOOKBACKS = [
+  ["now", 0],
+  ["day", 1],
+  ["week", 7],
+  ["month", 30],
+];
+
 export async function fetchFedwatchSnapshot(meetingDates, currentRate) {
   if (!Number.isFinite(currentRate)) {
     console.log("    ⚠ FedWatch snapshot skipped — no current Fed Funds rate to anchor against.");
@@ -15714,18 +15782,30 @@ export async function fetchFedwatchSnapshot(meetingDates, currentRate) {
   await Promise.all(meetingDates.map(async (m) => {
     const sym = zqSymbolForMeeting(m.date);
     const fallback = m.date === frontMonthDate ? "ZQ=F" : null;
-    const zqPrice = await fetchYahooFutureClose(sym, fallback);
-    if (zqPrice == null) {
-      console.log(`    ⚠ FedWatch ${m.date} (${sym}): no ZQ price`);
+    // One chart fetch per meeting covers all four lookback buckets — we
+    // pick the daily close on or before each target date and compute the
+    // implied hike/hold/cut from that close. This makes the Now / 1d /
+    // 1w / 1m view populate immediately from a single build instead of
+    // requiring weeks of accumulated history.
+    const history = await fetchYahooFutureHistory(sym, fallback);
+    if (!history.length) {
+      console.log(`    ⚠ FedWatch ${m.date} (${sym}): no ZQ history`);
       return;
     }
-    const probs = probabilitiesFromZq(currentRate, m.date, zqPrice);
-    if (!probs) {
-      console.log(`    ⚠ FedWatch ${m.date} (${sym}): ZQ=${zqPrice} but probabilities couldn't be derived (likely end-of-month meeting)`);
+    const buckets = { now: null, day: null, week: null, month: null };
+    for (const [label, days] of FEDWATCH_LOOKBACKS) {
+      const row = pickHistoricalClose(history, days);
+      if (!row) continue;
+      const probs = probabilitiesFromZq(currentRate, m.date, row.close);
+      if (probs) buckets[label] = probs;
+    }
+    if (!buckets.now) {
+      console.log(`    ⚠ FedWatch ${m.date} (${sym}): couldn't derive a 'now' probability from latest close (likely end-of-month meeting)`);
       return;
     }
-    console.log(`    · FedWatch ${m.date} (${sym}): ZQ=${zqPrice} → hike=${(probs.hike * 100).toFixed(0)}% hold=${(probs.hold * 100).toFixed(0)}% cut=${(probs.cut * 100).toFixed(0)}%`);
-    out[m.date] = probs;
+    const n = buckets.now;
+    console.log(`    · FedWatch ${m.date} (${sym}): now hike=${(n.hike * 100).toFixed(0)}% hold=${(n.hold * 100).toFixed(0)}% cut=${(n.cut * 100).toFixed(0)}% (${Object.values(buckets).filter(Boolean).length}/4 buckets)`);
+    out[m.date] = buckets;
   }));
   return out;
 }
@@ -18865,19 +18945,27 @@ async function main() {
   }
   const snapshot = await fetchFedwatchSnapshot(upcomingMeetings, currentRateNum);
   let snapshotCount = 0;
-  for (const [meetingDate, probs] of Object.entries(snapshot)) {
+  for (const [meetingDate, buckets] of Object.entries(snapshot)) {
+    if (!buckets?.now) continue;
     if (!fedwatchHistory.meetings[meetingDate]) fedwatchHistory.meetings[meetingDate] = {};
-    fedwatchHistory.meetings[meetingDate][todayIso] = probs;
+    fedwatchHistory.meetings[meetingDate][todayIso] = buckets.now;
     snapshotCount++;
   }
   await writeFedwatchHistory(fedwatchHistory);
   console.log(`  · ${snapshotCount} meeting snapshots (history: ${Object.keys(fedwatchHistory.meetings).length} meetings tracked)`);
-  // For each upcoming meeting, project the four lookback buckets the UI
-  // expects (Now / 1d / 1w / 1m) so the client doesn't have to do the
-  // history walk itself.
+  // For each upcoming meeting, ship the four lookback buckets the UI
+  // expects (Now / 1d / 1w / 1m). The buckets come straight from the
+  // ZQ historical chart (one fetch per contract covers all four
+  // lookbacks). If the historical fetch flaked, fall back to the
+  // history-walk so the widget still renders something.
   const fedwatch = {};
   for (const m of upcomingMeetings) {
-    fedwatch[m.date] = pickFedwatchBuckets(fedwatchHistory, m.date, todayIso);
+    const fresh = snapshot[m.date];
+    if (fresh && (fresh.now || fresh.day || fresh.week || fresh.month)) {
+      fedwatch[m.date] = fresh;
+    } else {
+      fedwatch[m.date] = pickFedwatchBuckets(fedwatchHistory, m.date, todayIso);
+    }
   }
   // Earnings AM/PM session: Nasdaq's calendar API returns
   // time-pre-market / time-after-hours / time-not-supplied per ticker,
