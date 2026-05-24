@@ -1219,15 +1219,31 @@ const REVENUE_CONCEPTS = [
   "SalesRevenueNet",
 ];
 
-async function fetchEdgarRevenueConcept(cik, concept) {
+let _edgarLogCount = 0;
+
+async function fetchEdgarRevenueConcept(cik, concept, symbol) {
   const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/us-gaap/${concept}.json`;
-  const res = await fetch(url, {
-    headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) return null;
-  return await res.json();
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      if (_edgarLogCount < 5) {
+        console.log(`    ⚠ EDGAR ${symbol} ${concept.slice(0, 30)}… HTTP ${res.status}`);
+        _edgarLogCount++;
+      }
+      return null;
+    }
+    return await res.json();
+  } catch (err) {
+    if (_edgarLogCount < 5) {
+      console.log(`    ⚠ EDGAR ${symbol} ${concept.slice(0, 30)}… ${err.message}`);
+      _edgarLogCount++;
+    }
+    return null;
+  }
 }
 
 function formatMemberName(raw) {
@@ -1322,10 +1338,14 @@ async function fetchRevenueSegments(symbol) {
   if (!cik) return null;
 
   let conceptData = null;
+  let usedConcept = null;
   for (const concept of REVENUE_CONCEPTS) {
     try {
-      conceptData = await fetchEdgarRevenueConcept(cik, concept);
-      if (conceptData?.units?.USD?.length) break;
+      conceptData = await fetchEdgarRevenueConcept(cik, concept, symbol);
+      if (conceptData?.units?.USD?.length) {
+        usedConcept = concept;
+        break;
+      }
       conceptData = null;
     } catch {
       conceptData = null;
@@ -1340,7 +1360,26 @@ async function fetchRevenueSegments(symbol) {
     if (!parsed) return null;
     const product = consolidateSegments(parsed.product);
     const geographic = consolidateSegments(parsed.geographic);
-    if (!product && !geographic) return null;
+    if (!product && !geographic) {
+      if (_edgarLogCount < 5) {
+        const usdEntries = conceptData.units.USD;
+        const withSeg = usdEntries.filter((e) => e.segment);
+        const annual = usdEntries.filter((e) => e.form === "10-K" || e.form === "10-K/A");
+        const annualWithSeg = annual.filter((e) => e.segment);
+        console.log(`    [edgar] ${symbol} concept=${usedConcept.slice(0, 40)} total=${usdEntries.length} withSeg=${withSeg.length} annual=${annual.length} annualWithSeg=${annualWithSeg.length}`);
+        if (annualWithSeg.length > 0) {
+          console.log(`    [edgar] ${symbol} sample segment: ${JSON.stringify(annualWithSeg[0]).slice(0, 300)}`);
+        } else if (withSeg.length > 0) {
+          console.log(`    [edgar] ${symbol} sample non-annual segment: ${JSON.stringify(withSeg[0]).slice(0, 300)}`);
+        }
+        _edgarLogCount++;
+      }
+      return null;
+    }
+    if (_edgarLogCount < 3) {
+      console.log(`    [edgar] ${symbol} ✓ product=${product?.length || 0} geo=${geographic?.length || 0} concept=${usedConcept.slice(0, 40)}`);
+      _edgarLogCount++;
+    }
     return { product, geographic, fetchedDate: today };
   } catch (err) {
     console.log(`    ⚠ ${symbol} EDGAR segment parse failed: ${err.message}`);
@@ -18387,6 +18426,35 @@ async function main() {
   await loadAiUsageState();
   console.log("Loading SEC CIK mapping…");
   await fetchCikMap();
+  if (_cikMap) {
+    const probeCik = _cikMap.get("NVDA");
+    if (probeCik) {
+      try {
+        const probeUrl = `https://data.sec.gov/api/xbrl/companyconcept/CIK${probeCik}/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json`;
+        const probeRes = await fetch(probeUrl, {
+          headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (probeRes.ok) {
+          const probeData = await probeRes.json();
+          const usd = probeData?.units?.USD || [];
+          const withSeg = usd.filter((e) => e.segment);
+          const annual = usd.filter((e) => e.form === "10-K" || e.form === "10-K/A");
+          const annualSeg = annual.filter((e) => e.segment);
+          console.log(`  · EDGAR probe NVDA (CIK${probeCik}): ${usd.length} entries, ${withSeg.length} with segment, ${annual.length} annual, ${annualSeg.length} annual+seg`);
+          if (annualSeg.length > 0) {
+            console.log(`    sample: ${JSON.stringify(annualSeg[annualSeg.length - 1]).slice(0, 400)}`);
+          } else if (withSeg.length > 0) {
+            console.log(`    sample (non-annual): ${JSON.stringify(withSeg[withSeg.length - 1]).slice(0, 400)}`);
+          }
+        } else {
+          console.log(`  ⚠ EDGAR probe NVDA HTTP ${probeRes.status}: ${(await probeRes.text().catch(() => "")).slice(0, 200)}`);
+        }
+      } catch (err) {
+        console.log(`  ⚠ EDGAR probe failed: ${err.message}`);
+      }
+    }
+  }
   console.log("Fetching option chains for", TICKERS.length, "tickers…");
   const chains = await fetchAllTickerChains();
   const got = Object.keys(chains).length;
