@@ -6744,6 +6744,11 @@ const TRENDS_HISTORY_FILE = "trends-history.json";
 const UNUSUAL_FILE = "unusual.json";
 const UNUSUAL_HISTORY_FILE = "unusual-history.json";
 const UNUSUAL_LOG_FILE = "unusual-log.json";
+// Volume + S/R break scanner outputs (scripts/scan-unusual.mjs runs hourly
+// and writes both). Daily build preserves them across the data/ wipe so the
+// Volume tab keeps showing the latest hourly scan until the next one runs.
+const VOLUME_FLAGS_FILE = "volume-flags.json";
+const VOLUME_HISTORY_FILE = "volume-history.json";
 
 async function loadTrendHistory() {
   try {
@@ -6802,6 +6807,26 @@ async function loadUnusualHistory() {
 async function loadUnusualLog() {
   try {
     const raw = await readFile(resolve(DATA_DIR, UNUSUAL_LOG_FILE), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// Volume-flag + cumulative-volume-snapshot files written by the hourly
+// scanner. Preserved across the daily build's data/ wipe the same way
+// unusual.json is.
+async function loadVolumeFlags() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, VOLUME_FLAGS_FILE), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+async function loadVolumeHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, VOLUME_HISTORY_FILE), "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -7368,6 +7393,8 @@ async function main() {
   const unusual = await loadUnusualFlow();
   const unusualHistory = await loadUnusualHistory();
   const unusualLog = await loadUnusualLog();
+  const volumeFlags = await loadVolumeFlags();
+  const volumeHistory = await loadVolumeHistory();
   // Fear & Greed history + last-good snapshot live in data/, which
   // writeChainFiles wipes. Load both now and rewrite after the wipe so
   // we keep prior days even if today's CNN fetch fails.
@@ -7416,6 +7443,7 @@ async function main() {
     spots,
     fearGreed,
     macro: macroBackdrop,
+    volumeFlags,
   });
   // Persist macro to disk so regen-static.mjs can reuse it without re-hitting
   // Yahoo. Without this the Bonds & USD live tile + Home card go blank
@@ -7463,6 +7491,12 @@ async function main() {
   }
   if (unusualLog) {
     await writeFile(resolve(DATA_DIR, UNUSUAL_LOG_FILE), JSON.stringify(unusualLog), "utf8");
+  }
+  if (volumeFlags) {
+    await writeFile(resolve(DATA_DIR, VOLUME_FLAGS_FILE), JSON.stringify(volumeFlags), "utf8");
+  }
+  if (volumeHistory) {
+    await writeFile(resolve(DATA_DIR, VOLUME_HISTORY_FILE), JSON.stringify(volumeHistory), "utf8");
   }
   const ivHistoryBytes = await writeIvHistory(ivHistory);
   if (ivHistory.size) {

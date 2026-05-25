@@ -31,6 +31,12 @@ try {
   macro = JSON.parse(macroRaw);
 } catch {}
 
+let volumeFlags = null;
+try {
+  const vfRaw = await readFile(resolve(DATA_DIR, "volume-flags.json"), "utf8");
+  volumeFlags = JSON.parse(vfRaw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 const symbols = files
   .filter((f) => /^[A-Z]+\.json$/.test(f))
@@ -74,6 +80,7 @@ const html = renderHtml({
   spots,
   fearGreed,
   macro,
+  volumeFlags,
 });
 const css = renderStylesCss();
 const js = renderAppJs();

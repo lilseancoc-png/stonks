@@ -1764,7 +1764,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','calendar','flow','grade','streaks','fear-greed','f13','bonds-usd','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','volume','grade','streaks','fear-greed','f13','bonds-usd','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -1812,6 +1812,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
       if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
+      if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -4204,6 +4205,192 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   }
 
+  // --- Volume + S/R break tab --------------------------------------------
+  // Hourly volume vs the weighted intraday distribution + 20D S/R break
+  // tracker. Data comes from data/volume-flags.json via MANIFEST.volumeFlags
+  // (populated by the volume pass in scripts/scan-unusual.mjs). See
+  // lib/volume-flags.mjs for the flag classification rules.
+  var VOLUME_FLAGS = MANIFEST.volumeFlags || null;
+  var volState = { search: '', filter: 'all' };
+
+  function fmtVolNum(n){
+    if (n == null || !isFinite(n)) return '—';
+    var v = Number(n);
+    if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+    if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+    return String(Math.round(v));
+  }
+  function volConvictionCls(c){
+    if (!c) return '';
+    return 'vol-conv-' + String(c).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  }
+  function filteredVolTickers(){
+    var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
+    var q = (volState.search || '').trim().toUpperCase();
+    var out = [];
+    for (var i = 0; i < list.length; i++){
+      var t = list[i];
+      if (!t || !t.symbol) continue;
+      if (q && String(t.symbol).toUpperCase().indexOf(q) < 0) continue;
+      var hasHourly = false, hasSr = false;
+      var hasEod = !!(t.eod && t.eod.flagged);
+      var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+      for (var j = 0; j < buckets.length; j++){
+        if (buckets[j].hourlyFlagged) hasHourly = true;
+        if (buckets[j].srBreak) hasSr = true;
+      }
+      if (volState.filter === 'hourly' && !hasHourly) continue;
+      if (volState.filter === 'sr' && !hasSr) continue;
+      if (volState.filter === 'eod' && !hasEod) continue;
+      if (volState.filter === 'all' && !hasHourly && !hasSr && !hasEod) continue;
+      out.push(t);
+    }
+    return out;
+  }
+  function volBucketHtml(hit){
+    var ratio = hit.volRatio != null ? Number(hit.volRatio).toFixed(2) + 'x' : '—';
+    var move = hit.priceMovePct != null
+      ? (hit.priceMovePct >= 0 ? '+' : '') + Number(hit.priceMovePct).toFixed(2) + '%'
+      : '';
+    var moveCls = hit.priceMovePct == null ? '' : (hit.priceMovePct >= 0 ? ' is-up' : ' is-dn');
+    var bits = [];
+    bits.push(
+      '<div class="vol-bucket-row">' +
+        '<span class="vol-bucket-label">' + escapeHtml(hit.bucketLabel || '') + '</span>' +
+        '<span class="vol-bucket-vol' + (hit.hourlyFlagged ? ' is-flagged' : '') + '">' +
+          'Vol ' + fmtVolNum(hit.actualHourVol) + ' / ' + fmtVolNum(hit.expectedHourVol) + ' · ' + ratio +
+        '</span>' +
+        (move ? '<span class="vol-bucket-move' + moveCls + '">' + move + '</span>' : '') +
+      '</div>',
+    );
+    var badges = [];
+    if (hit.moveClass && hit.moveClass.conviction && hit.moveClass.conviction !== 'None'){
+      badges.push(
+        '<span class="vol-pill-badge ' + volConvictionCls(hit.moveClass.conviction) + '">' +
+          escapeHtml(hit.moveClass.action || hit.moveClass.conviction) +
+        '</span>',
+      );
+    }
+    if (hit.srBreak){
+      var sr = hit.srBreak;
+      var lvl = sr.level != null ? '$' + Number(sr.level).toFixed(2) : '—';
+      badges.push(
+        '<span class="vol-pill-badge vol-sr-' + escapeHtml(sr.type || 'upper') + ' ' + volConvictionCls(sr.conviction) + '" ' +
+          'title="Crossed ' + (sr.type === 'upper' ? 'resistance' : 'support') + ' ' + lvl + '">' +
+          escapeHtml(sr.action || sr.conviction || '') +
+        '</span>',
+      );
+    }
+    if (badges.length) bits.push('<div class="vol-badges">' + badges.join('') + '</div>');
+    return '<div class="vol-bucket">' + bits.join('') + '</div>';
+  }
+  function renderVolumeFlags(){
+    var list = $('vol-list');
+    var empty = $('vol-empty');
+    var noResults = $('vol-no-results');
+    var eyebrow = $('vol-eyebrow');
+    if (!list) return;
+    var allTickers = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
+    if (eyebrow){
+      if (VOLUME_FLAGS && VOLUME_FLAGS.summary){
+        var s = VOLUME_FLAGS.summary;
+        var parts = [];
+        if (s.hourlyFlagCount) parts.push(s.hourlyFlagCount + ' hourly');
+        if (s.srBreakCount) parts.push(s.srBreakCount + ' S/R');
+        if (s.eodFlagCount) parts.push(s.eodFlagCount + ' EOD');
+        var when = fmtScannedAt(VOLUME_FLAGS.scannedAt);
+        if (when) parts.push('scanned ' + when);
+        eyebrow.textContent = parts.join(' · ');
+      } else {
+        eyebrow.textContent = '';
+      }
+    }
+    if (!allTickers.length){
+      list.innerHTML = '';
+      if (noResults) noResults.hidden = true;
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = VOLUME_FLAGS
+          ? 'No volume or S/R-break flags in the latest scan.'
+          : 'Waiting for the first hourly scan to land.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    var tickers = filteredVolTickers();
+    if (!tickers.length){
+      list.innerHTML = '';
+      if (noResults){
+        noResults.hidden = false;
+        noResults.textContent = 'No tickers match these filters.';
+      }
+      return;
+    }
+    if (noResults) noResults.hidden = true;
+    list.innerHTML = tickers.map(function(t){
+      var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+      var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+      var eodHtml = '';
+      if (t.eod && t.eod.flagged){
+        var ratio = t.eod.ratio != null ? Number(t.eod.ratio).toFixed(2) + 'x' : '—';
+        var dayMove = t.eod.dayMovePct != null
+          ? (t.eod.dayMovePct >= 0 ? '+' : '') + Number(t.eod.dayMovePct).toFixed(2) + '%'
+          : '';
+        var dayCls = t.eod.dayMovePct == null ? '' : (t.eod.dayMovePct >= 0 ? ' is-up' : ' is-dn');
+        eodHtml = '<div class="vol-eod is-flagged">' +
+          '<span class="vol-eod-label">EOD</span>' +
+          '<span class="vol-eod-vol">Day vol ' + fmtVolNum(t.eod.dayVol) + ' / ' + fmtVolNum(t.eod.avg20) + ' · ' + ratio + '</span>' +
+          (dayMove ? '<span class="vol-eod-move' + dayCls + '">' + dayMove + '</span>' : '') +
+        '</div>';
+      }
+      return '<article class="vol-row" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
+        '<header class="vol-row-head">' +
+          '<span class="vol-symbol">' + escapeHtml(t.symbol) + '</span>' +
+          (spot ? '<span class="vol-spot">' + spot + '</span>' : '') +
+          (t.avg20 != null ? '<span class="vol-avg20">20D avg: ' + fmtVolNum(t.avg20) + '</span>' : '') +
+        '</header>' +
+        buckets.map(volBucketHtml).join('') +
+        eodHtml +
+      '</article>';
+    }).join('');
+  }
+  function bindVolumeControls(){
+    var search = $('vol-search-input');
+    var clear = $('vol-search-clear');
+    if (search){
+      search.addEventListener('input', function(){
+        volState.search = search.value || '';
+        if (clear) clear.hidden = !volState.search;
+        renderVolumeFlags();
+      });
+    }
+    if (clear){
+      clear.addEventListener('click', function(){
+        if (search){ search.value = ''; search.focus(); }
+        volState.search = '';
+        clear.hidden = true;
+        renderVolumeFlags();
+      });
+    }
+    var filterGroup = document.querySelector('.vol-filter');
+    if (filterGroup){
+      filterGroup.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.vol-pill');
+        if (!btn) return;
+        var v = btn.getAttribute('data-vol-filter') || 'all';
+        volState.filter = v;
+        var pills = filterGroup.querySelectorAll('.vol-pill');
+        pills.forEach(function(p){
+          var on = p.getAttribute('data-vol-filter') === v;
+          p.classList.toggle('is-on', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderVolumeFlags();
+      });
+    }
+  }
+
   // --- Calendar tab -------------------------------------------------------
   var calendarState = { data: null, loading: false, type: 'all' };
   function loadCalendar(){
@@ -5749,6 +5936,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     renderNarratives();
     renderUnusualFlow();
     bindFlowControls();
+    renderVolumeFlags();
+    bindVolumeControls();
     bindCalendarControls();
     bindCsvExports();
     bindCmdPalette();
