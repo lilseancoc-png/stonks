@@ -3295,12 +3295,14 @@ export async function buildPerFirm13FHoldings() {
         ticker: d.ticker, name: d.name, cusip: d.cusip,
         valueChange: d.valueChange, shareChange: d.shareChange,
         valueNow: d.valueNow, sharesNow: d.sharesNow,
+        valuePrior: d.valuePrior, sharesPrior: d.sharesPrior,
         isNew: d.isNew,
       })),
       topSold: sortedSold.map((d) => ({
         ticker: d.ticker, name: d.name, cusip: d.cusip,
         valueChange: d.valueChange, shareChange: d.shareChange,
         valuePrior: d.valuePrior, sharesPrior: d.sharesPrior,
+        valueNow: d.valueNow, sharesNow: d.sharesNow,
         isExit: d.isExit,
       })),
     };
