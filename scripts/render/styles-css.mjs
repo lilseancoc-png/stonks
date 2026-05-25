@@ -3042,6 +3042,34 @@ main {
 .opt-buy-stat.good { color: var(--pos);  background: color-mix(in srgb, var(--pos)  14%, transparent); }
 .opt-buy-stat.bad  { color: var(--neg);  background: color-mix(in srgb, var(--neg)  14%, transparent); }
 .opt-buy-stat.fair { color: var(--muted); background: var(--surface-3); }
+
+/* "In plain English" primer for the conviction card. Quietly framed so it
+   doesn't overpower the technical reasoning below — but always visible
+   for first-time users who can't infer what calls/puts/aligned-score mean. */
+.opt-buy-explainer {
+  margin: var(--s-2) 0 var(--s-3);
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--surface-3) 80%, transparent);
+  border: 1px dashed var(--hairline);
+  border-radius: var(--r-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.opt-buy-explainer-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.opt-buy-explainer p { margin: 0 0 6px; }
+.opt-buy-explainer p:last-child { margin-bottom: 0; }
+.opt-buy-explainer b { color: var(--text); }
+.opt-buy-explainer-pos { color: var(--pos); font-weight: 600; }
+.opt-buy-explainer-neg { color: var(--neg); font-weight: 600; }
+.opt-buy-explainer-sub { font-size: 11.5px; font-style: italic; }
 .opt-buy-sections {
   display: flex;
   flex-direction: column;
@@ -3504,6 +3532,49 @@ main {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.opt-exec-meta-sep { color: var(--hairline); margin: 0 2px; }
+
+/* Plain-English primer for the Execute-now card. Spells out
+   EXECUTE / WAIT / AVOID with everyday-language definitions so beginners
+   understand this card grades the MOMENT (entry timing), not the contract. */
+.opt-exec-explainer {
+  margin: var(--s-2) 0 var(--s-3);
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--surface-3) 80%, transparent);
+  border: 1px dashed var(--hairline);
+  border-radius: var(--r-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.opt-exec-explainer-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.opt-exec-explainer p { margin: 0 0 6px; }
+.opt-exec-explainer b { color: var(--text); }
+.opt-exec-explainer em { color: var(--text); font-style: italic; }
+.opt-exec-explainer-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.opt-exec-explainer-list li { font-size: 12px; line-height: 1.5; }
+.opt-exec-explainer-tag {
+  display: inline-block;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 6px; border-radius: 999px;
+  margin-right: 6px; vertical-align: middle;
+  border: 1px solid transparent;
+}
+.opt-exec-explainer-tag.pos  { color: var(--pos);  background: var(--pos-soft);  border-color: color-mix(in srgb, var(--pos)  35%, transparent); }
+.opt-exec-explainer-tag.fair { color: var(--muted); background: var(--surface-3); border-color: var(--hairline); }
+.opt-exec-explainer-tag.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+
 .opt-exec-body { color: var(--text); margin-bottom: var(--s-3); }
 .opt-exec-section { margin-top: var(--s-2); }
 .opt-exec-section-title {

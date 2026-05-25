@@ -39,7 +39,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03585;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
@@ -1056,32 +1056,60 @@
     var prosHtml = pros.map(function(p){ return renderItem(p, 'pos'); }).join('');
     var consHtml = cons.map(function(c){ return renderItem(c, 'warn'); }).join('');
 
-    var metaBits = ['Spot $' + fmt(spot)];
-    if (todayMovePct != null) metaBits.push(signedPct(todayMovePct) + ' today (' + moveSrc + ')');
-    if (rvol != null) metaBits.push(rvol.toFixed(2) + 'x avg volume');
-    if (r20 != null) metaBits.push('R20 $' + fmt(r20));
-    if (s20 != null) metaBits.push('S20 $' + fmt(s20));
-    var metaLine = metaBits.join(' · ');
+    // Build the meta strip as HTML pieces so we can attach tooltips to the
+    // jargon (R20 / S20 / relative volume) without escaping them away.
+    var R20_TIP = '20-day resistance — the highest price the stock has hit in the last month. Acts as a ceiling: rallies often stall here until volume breaks through.';
+    var S20_TIP = '20-day support — the lowest price the stock has hit in the last month. Acts as a floor: selloffs often find buyers here.';
+    var RVOL_TIP = 'Relative volume — today\'s shares traded divided by the recent daily average. 1.0x is normal. Above 1.5x = unusually active (institutions involved); below 0.7x = quiet tape.';
+    var metaBits = ['<span>Spot $' + fmt(spot) + '</span>'];
+    if (todayMovePct != null) metaBits.push('<span>' + escapeHtml(signedPct(todayMovePct)) + ' today (' + escapeHtml(moveSrc) + ')</span>');
+    if (rvol != null) metaBits.push('<span>' + rvol.toFixed(2) + 'x avg volume' + tipChip(RVOL_TIP) + '</span>');
+    if (r20 != null) metaBits.push('<span>R20' + tipChip(R20_TIP) + ' $' + fmt(r20) + '</span>');
+    if (s20 != null) metaBits.push('<span>S20' + tipChip(S20_TIP) + ' $' + fmt(s20) + '</span>');
+    var metaLine = metaBits.join(' <span class="opt-exec-meta-sep">·</span> ');
+
+    // Plain-English primer for the Execute-now card. Beginners coming
+    // straight from the verdict above need to know this isn't a re-grade
+    // of the contract — it's a read of the live chart pattern. Spells out
+    // EXECUTE / WAIT / AVOID and what each pattern means in everyday words.
+    var STRUCTURE_TIP = 'The pattern playing out on the live chart right now — where price is relative to its recent ceiling and floor, and how today\'s move + volume confirm or reject that pattern.';
+    var SECTION_TIP_PRO = dir > 0
+      ? 'Buy-flow signals = patterns that historically reward buying calls — breakouts above resistance with volume, uptrends still intact, pullbacks held by support.'
+      : 'Sell-flow signals = patterns that historically reward buying puts — breakdowns below support with volume, downtrends still intact, rally failures at resistance.';
+    var SECTION_TIP_CON = dir > 0
+      ? 'Sell-flow signals against this trade — patterns that reward selling, not buying calls. Each one is a reason today is the wrong moment to enter long.'
+      : 'Buy-flow signals against this trade — patterns that reward buying calls, not puts. Each one is a reason today is the wrong moment to enter short.';
+    var explainerExec = '<div class="opt-exec-explainer">' +
+      '<div class="opt-exec-explainer-title">In plain English</div>' +
+      '<p>Even if the contract looks fine on paper, is right <em>now</em> a good moment to click buy? ' +
+      'This card reads the <b>live chart</b> for a familiar pattern and gives one of three verdicts:</p>' +
+      '<ul class="opt-exec-explainer-list">' +
+        '<li><span class="opt-exec-explainer-tag pos">EXECUTE</span> price is breaking out of its range with conviction (volume + momentum lined up) — the pattern says enter on this move.</li>' +
+        '<li><span class="opt-exec-explainer-tag fair">WAIT</span> nothing is firing yet — price is drifting sideways or signals are mixed. Sit on hands until the next bar clears it up.</li>' +
+        '<li><span class="opt-exec-explainer-tag warn">AVOID</span> the chart is doing the opposite of what this trade needs — entering here is fighting the tape.</li>' +
+      '</ul>' +
+    '</div>';
 
     return '<div class="opt-exec-card opt-exec-' + vCls + '" id="opt-exec-card">' +
       '<div class="opt-exec-head">' +
         '<span class="opt-exec-verdict opt-exec-verdict-' + vCls + '">' + verdict + '</span>' +
         '<div class="opt-exec-headline">' +
-          '<div class="opt-exec-title">Execute now?</div>' +
+          '<div class="opt-exec-title">Execute now?' + tipChip(STRUCTURE_TIP) + '</div>' +
           '<div class="opt-exec-subtitle">' + escapeHtml(vHeadline) + '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="opt-exec-meta">' + escapeHtml(metaLine) + '</div>' +
+      explainerExec +
+      '<div class="opt-exec-meta">' + metaLine + '</div>' +
       '<div class="opt-exec-body">' + escapeHtml(vBody) + '</div>' +
       (prosHtml
         ? '<div class="opt-exec-section">' +
-            '<div class="opt-exec-section-title">' + (dir > 0 ? 'Buy-flow signals' : 'Sell-flow signals') + '</div>' +
+            '<div class="opt-exec-section-title">' + (dir > 0 ? 'Buy-flow signals' : 'Sell-flow signals') + tipChip(SECTION_TIP_PRO) + '</div>' +
             '<ul class="opt-exec-list">' + prosHtml + '</ul>' +
           '</div>'
         : '') +
       (consHtml
         ? '<div class="opt-exec-section">' +
-            '<div class="opt-exec-section-title">' + (dir > 0 ? 'Sell-flow signals (against)' : 'Buy-flow signals (against)') + '</div>' +
+            '<div class="opt-exec-section-title">' + (dir > 0 ? 'Sell-flow signals (against)' : 'Buy-flow signals (against)') + tipChip(SECTION_TIP_CON) + '</div>' +
             '<ul class="opt-exec-list">' + consHtml + '</ul>' +
           '</div>'
         : '') +
@@ -1554,6 +1582,18 @@
     var t = text.replace(/"/g, '&quot;');
     return ' <span class="tip" tabindex="0" role="button" aria-label="Explain: ' + t + '" data-tip="' + t + '">?</span>';
   }
+  // Plain-English glosses for each signal name shown in the Recommendation
+  // panel. Hover/tap reveals these definitions so a first-time user can read
+  // the verdict without prior trading knowledge.
+  var SIGNAL_BEGINNER_TIPS = {
+    News:         'AI-summarized sentiment from the last week of reputable headlines. Bullish news tends to bring buyers; bearish news tends to bring sellers. Weighted +2 because catalysts move stocks more than indicators.',
+    RSI:          'Relative Strength Index — a momentum gauge from 0 to 100. Above 55 = uptrend tilt (trend-followers buy). Above 70 = stretched (often pulls back). Below 30 = washed out (often bounces).',
+    MACD:         'Moving Average Convergence Divergence — a trend gauge. When the MACD line is above its signal line and above zero, the uptrend is confirmed. Used to time when a trend turns.',
+    Volume:       'How much trading happened today versus the recent average (relative volume). Big moves on big volume = institutions involved (trust the move). Big moves on quiet volume = retail noise (fades often).',
+    Fundamentals: 'The business itself — earnings growth, margins, last earnings beat/miss. Bullish fundamentals give the stock a tailwind; bearish, a headwind.',
+    Macro:        'The broader economy — long-term Treasury yields (10Y), the dollar (DXY), oil. Different sectors react differently: banks earn more when long rates rise (wider lending margins) and less when they fall.',
+  };
+  var ALIGNED_SCORE_TIP = 'Bullish signals (+1 each, News +2) minus bearish signals, pointed in this trade\'s direction. Positive = signals back the bet. Zero or negative = signals do not agree enough to commit yet.';
   function row(label, value, sub, tip){
     return '<div class="opt-row"><div class="opt-row-label">' + label + tipChip(tip) +
       '</div><div class="opt-row-value">' + value + (sub ? ' <span class="opt-row-sub">' + sub + '</span>' : '') + '</div></div>';
@@ -1598,12 +1638,13 @@
     var bearCount = (buy.bear || []).length;
     if (bullCount) summaryBits.push('<span class="opt-buy-stat good">' + bullCount + ' bullish</span>');
     if (bearCount) summaryBits.push('<span class="opt-buy-stat bad">' + bearCount + ' bearish</span>');
-    if (buy.aligned != null) summaryBits.push('<span class="opt-buy-stat ' + (buy.aligned > 0 ? 'good' : buy.aligned < 0 ? 'bad' : 'fair') + '">aligned score ' + (buy.aligned > 0 ? '+' : '') + buy.aligned + '</span>');
+    if (buy.aligned != null) summaryBits.push('<span class="opt-buy-stat ' + (buy.aligned > 0 ? 'good' : buy.aligned < 0 ? 'bad' : 'fair') + '">aligned score ' + (buy.aligned > 0 ? '+' : '') + buy.aligned + tipChip(ALIGNED_SCORE_TIP) + '</span>');
 
     function ulFromSignals(signals){
       return signals.map(function(s){
-        return '<li><b>' + escapeHtml(s.name) + '</b> ' +
-          (s.weight ? '<span class="opt-buy-weight">+' + s.weight + '</span>' : '') +
+        var tip = SIGNAL_BEGINNER_TIPS[s.name] || '';
+        return '<li><b>' + escapeHtml(s.name) + '</b>' + (tip ? tipChip(tip) : '') +
+          (s.weight ? ' <span class="opt-buy-weight">+' + s.weight + '</span>' : '') +
           ' — ' + escapeHtml(s.why) + '</li>';
       }).join('');
     }
@@ -1746,6 +1787,23 @@
         regradeBtn +
       '</div>';
 
+    // Plain-English primer. A first-time user lands on the verdict without
+    // knowing what calls/puts are, what "aligned score" means, or why a
+    // bullish RSI is supposed to help a call. This block bridges that gap
+    // without bloating the technical reasoning below — the actual signal
+    // lines still read the way an experienced trader would expect.
+    var dirVerb = buy.direction === 'call' ? 'rises' : 'falls';
+    var dirContract = buy.direction === 'call' ? 'call' : 'put';
+    var explainerHtml = '<div class="opt-buy-explainer">' +
+      '<div class="opt-buy-explainer-title">In plain English</div>' +
+      '<p>This card grades the <b>big picture</b> behind the trade. A ' + dirContract +
+      ' profits when the stock ' + dirVerb + ' before expiry. ' +
+      'Each signal below either pulls toward this trade (<span class="opt-buy-explainer-pos">bullish</span>) ' +
+      'or against it (<span class="opt-buy-explainer-neg">bearish</span>). ' +
+      'The <b>aligned score</b> sums them — positive backs the bet, zero or negative means the signals don\'t agree enough yet.</p>' +
+      '<p class="opt-buy-explainer-sub">Hover the <b>?</b> next to any signal name (or chip) for a beginner-friendly definition.</p>' +
+    '</div>';
+
     return '<div class="opt-buy ' + buy.decision + '" id="opt-buy-main" role="status">' +
       '<div class="opt-buy-head">' +
         '<span class="opt-buy-badge">' + badgeText + '</span>' +
@@ -1754,6 +1812,7 @@
           (headlineSub ? '<div class="opt-buy-headline-sub">' + escapeHtml(headlineSub) + ' · for ' + dirLabel + '</div>' : '') +
         '</div>' +
       '</div>' +
+      explainerHtml +
       (summaryBits.length ? '<div class="opt-buy-stats">' + summaryBits.join('') + '</div>' : '') +
       metaLine +
       '<div class="opt-buy-sections">' + sections + altBlock + '</div>' +
