@@ -2305,6 +2305,26 @@ main {
   max-width: 480px;
   height: auto;
   font-family: var(--font-mono);
+  cursor: crosshair;
+}
+.opt-iv-hit { fill: transparent; }
+.opt-iv-hover-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.7;
+  pointer-events: none;
+}
+.opt-iv-hover-dot {
+  fill: var(--accent);
+  stroke: var(--surface-2);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.opt-iv-hover-label {
+  fill: var(--text-strong);
+  font: 700 10px var(--font-mono);
+  pointer-events: none;
 }
 .opt-iv-line {
   stroke: var(--accent);
