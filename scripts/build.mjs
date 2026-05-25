@@ -1885,7 +1885,10 @@ function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPred
 //   v13: QoQ comparison. Stores current + previous period breakdowns
 //        with per-slice $ and % delta. Falls back to YoY annual when
 //        two quarterly periods aren't available (foreign filers, etc).
-const SEGMENT_PARSER_VERSION = 13;
+//   v14: Prefer YoY same-quarter over sequential QoQ. Sequential
+//        comparisons are dominated by seasonality (Apple iPhone holiday
+//        → spring -33%, retail Q4 peaks, etc.) and hide actual growth.
+const SEGMENT_PARSER_VERSION = 14;
 
 // Forms we'll try to extract segment data from. 10-K + 10-Q cover
 // US-GAAP filers; 20-F + 6-K cover foreign private issuers (NVO, ASML,
@@ -2039,18 +2042,20 @@ export async function fetchRevenueSegments(symbol) {
 
   // Pick the current (most recent) period plus the most sensible "prior"
   // period to compare against. Preference order:
-  //   1. True QoQ: ~90 days back (80-100 day window) — quarterly companies
-  //      whose immediately prior 10-Q is in our window.
-  //   2. YoY-quarter: ~365 days back (340-385 day window) — works when the
-  //      immediately prior quarter only lives in the 10-K (which doesn't
-  //      disaggregate Q4 as a standalone fact). The current 10-Q's
-  //      comparative prior-year-same-quarter data always provides this.
-  //   3. Annual YoY: similar logic — pick the period closest to 365 days
-  //      back (350-380 day annual window) since callers also pass us
-  //      annual maps.
-  //   4. Fallback to next-most-recent period.
+  //   1. YoY same-quarter: ~365 days back (340-385 day window) — removes
+  //      seasonality. Sequential QoQ comparisons mislead on seasonal
+  //      issuers (Apple iPhone holiday → spring -33%, retail/holiday
+  //      peaks, Disney parks summer, etc.). The current quarter's 10-Q
+  //      always reports comparative prior-year-same-quarter XBRL, so
+  //      this is reliably available whenever quarterly data exists.
+  //   2. True QoQ: ~90 days back (80-100 day window) — fallback when no
+  //      same-quarter-prior-year is in our window (fresh IPO, gap in
+  //      filings, etc.).
+  //   3. Annual YoY: same ~365-day window applied to annual maps. The
+  //      yoyQ filter (340-385) is a superset of yoyA (350-380) and will
+  //      usually fire first for annual periods; yoyA is a backstop.
   // Returning a 6-month-back period as "prior" would silently mislabel a
-  // half-year delta as QoQ — explicitly disallow that.
+  // half-year delta — explicitly disallow that.
   function pickTwoLatest(periodMap) {
     if (!periodMap || periodMap.size === 0) return null;
     const sortedEnds = [...periodMap.keys()].sort();
@@ -2067,12 +2072,12 @@ export async function fetchRevenueSegments(symbol) {
     const yoyQ = candidates.filter((c) => c.days >= 340 && c.days <= 385);
     const yoyA = candidates.filter((c) => c.days >= 350 && c.days <= 380);
     let prevEnd = null;
-    if (qoq.length) {
-      qoq.sort((a, b) => Math.abs(a.days - 91) - Math.abs(b.days - 91));
-      prevEnd = qoq[0].end;
-    } else if (yoyQ.length) {
+    if (yoyQ.length) {
       yoyQ.sort((a, b) => Math.abs(a.days - 365) - Math.abs(b.days - 365));
       prevEnd = yoyQ[0].end;
+    } else if (qoq.length) {
+      qoq.sort((a, b) => Math.abs(a.days - 91) - Math.abs(b.days - 91));
+      prevEnd = qoq[0].end;
     } else if (yoyA.length) {
       yoyA.sort((a, b) => Math.abs(a.days - 365) - Math.abs(b.days - 365));
       prevEnd = yoyA[0].end;
