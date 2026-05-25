@@ -932,109 +932,321 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // Binary buy decision aggregating mechanics + news + technicals +
-  // fundamentals + macro backdrop. Falls to NO on any hard mechanical
-  // disqualifier (wide spread, far-OTM delta, bleeding theta, ≤3 DTE,
-  // premium that's almost all time value with no runway). Otherwise scores
-  // directional alignment — news (±2), RSI and MACD (±1 each), fundamentals
-  // verdict (±1), macro (±1) — and multiplies by the option direction
-  // (+1 for calls, -1 for puts). Needs at least +2 aligned points and zero
-  // opposing edge to clear to YES.
+  // fundamentals + macro backdrop. Unlike the prior version this DOES NOT
+  // bail at the first hard fail — it walks every gate, collects every
+  // disqualifier, every supporting signal, every opposing signal, and
+  // returns a structured object the renderer turns into a full reasoning
+  // panel. The user needs to see the whole stack to make a profitable
+  // call, not just the first thing that broke.
+  //
+  // Hard fails (wide spread, far-OTM delta, bleeding theta, ≤3 DTE,
+  // ≥80%-time-value with <14 DTE) are absolute deal-breakers — any one
+  // forces NO regardless of how good the directional signals look.
+  //
+  // Directional scoring (when no hard fails): news (±2), RSI / MACD /
+  // volume conviction (±1 each), fundamentals (±1), macro (±1), with a
+  // −1 penalty inside 30 DTE for accelerating theta. Multiplied by
+  // direction (+1 call, −1 put), the aligned score is the headline:
+  //   ≥+3 → strong YES, ≥+2 → moderate YES, <0 → NO (signals oppose),
+  //   else → tentative (clears only if mechanics are clean and nothing
+  //   opposes).
   function shouldBuy(args){
     var sGrade = args.sGrade, dGrade = args.dGrade, tGrade = args.tGrade;
     var dte = args.daysToExpiry;
     var extrinsicRatio = args.extrinsicRatio;
     var type = args.type;
     var news = args.news, tech = args.technicals, fund = args.fundamentals;
+    var dir = type === 'call' ? 1 : -1;
+    var dirLabel = type === 'call' ? 'calls' : 'puts';
 
-    function no(why){ return { decision:'no', reasons:[why] }; }
-    function yes(rs){ return { decision:'yes', reasons: rs }; }
-
-    if (sGrade && sGrade.cls === 'bad') return no('wide spread will eat your edge on entry/exit');
-    if (dGrade && dGrade.cls === 'bad') return no('far OTM — most likely expires worthless');
-    if (tGrade && tGrade.cls === 'bad') return no('heavy theta decay grinds this down fast');
-    if (dte != null && dte <= 3) return no('only ' + dte + ' day' + (dte === 1 ? '' : 's') + ' to expiry — gamma and theta are extreme');
+    // 1) Hard fails — collect ALL of them, don't return at the first one.
+    var hardFails = [];
+    if (sGrade && sGrade.cls === 'bad') {
+      hardFails.push({
+        kind: 'spread',
+        label: 'Wide spread',
+        why: 'Bid/ask is wide enough that you give back a large chunk of the move just on entry/exit. Look for a more liquid strike or a more popular expiry.',
+      });
+    }
+    if (dGrade && dGrade.cls === 'bad') {
+      hardFails.push({
+        kind: 'delta',
+        label: 'Far-OTM delta',
+        why: 'The strike is so far out of the money that the contract barely moves with the stock. Statistically most likely to expire worthless — this is a lottery ticket, not a directional bet.',
+      });
+    }
+    if (tGrade && tGrade.cls === 'bad') {
+      hardFails.push({
+        kind: 'theta',
+        label: 'Heavy theta decay',
+        why: 'Premium is bleeding > 3% per day just from time passing. Even if you\\'re right on direction, the clock is working against you faster than the move can compound.',
+      });
+    }
+    if (dte != null && dte <= 3) {
+      hardFails.push({
+        kind: 'dte',
+        label: 'Expiry crisis (' + dte + ' day' + (dte === 1 ? '' : 's') + ' left)',
+        why: 'Gamma is enormous and theta is brutal in the last 3 days. This behaves more like a same-day lottery than a positional trade. If you must, size very small.',
+      });
+    }
     if (extrinsicRatio != null && extrinsicRatio > 0.8 && dte != null && dte < 14) {
-      return no('paying almost all time premium with little time for it to pay off');
+      hardFails.push({
+        kind: 'extrinsic',
+        label: 'All-premium / no time',
+        why: Math.round(extrinsicRatio * 100) + '% of the price is pure time value but only ' + dte + ' day' + (dte === 1 ? '' : 's') + ' to expiry — there\\'s almost no cushion if the move stalls for even a session.',
+      });
     }
 
-    var dir = type === 'call' ? 1 : -1;
+    // 2) Score directional signals (collect bull/bear with the full reason
+    //    text, not just labels — so the panel can read like a research note).
     var score = 0;
     var bull = [], bear = [];
     var warnings = [];
+
     if (news && news.sentiment){
-      if (news.sentiment === 'bullish'){ score += 2; bull.push('news'); }
-      else if (news.sentiment === 'bearish'){ score -= 2; bear.push('news'); }
+      if (news.sentiment === 'bullish'){
+        bull.push({ name: 'News', why: 'AI news take reads bullish (+2 toward calls).', weight: 2 });
+        score += 2;
+      } else if (news.sentiment === 'bearish'){
+        bear.push({ name: 'News', why: 'AI news take reads bearish (+2 toward puts).', weight: 2 });
+        score -= 2;
+      }
     }
     if (tech){
       var rsi = rsiState(tech.rsi);
       var macd = macdState(tech.macd);
-      if (rsi.cls === 'pos'){ score += 1; bull.push('RSI'); }
-      else if (rsi.cls === 'warn'){ score -= 1; bear.push('RSI'); }
-      if (macd.cls === 'pos'){ score += 1; bull.push('MACD'); }
-      else if (macd.cls === 'warn'){ score -= 1; bear.push('MACD'); }
-      // Volume conviction nudges directional score in the trade direction.
-      // Strong conviction backs the printed move, weak/indecision argues against
-      // taking the breakout at face value. Neutral / mixed / missing → no nudge.
+      if (rsi.cls === 'pos'){
+        bull.push({ name: 'RSI', why: 'RSI ' + (tech.rsi != null ? tech.rsi.toFixed(1) : '—') + ' — ' + rsi.note + '.', weight: 1 });
+        score += 1;
+      } else if (rsi.cls === 'warn'){
+        bear.push({ name: 'RSI', why: 'RSI ' + (tech.rsi != null ? tech.rsi.toFixed(1) : '—') + ' — ' + rsi.note + '.', weight: 1 });
+        score -= 1;
+      }
+      if (macd.cls === 'pos'){
+        bull.push({ name: 'MACD', why: macd.label + ' — ' + macd.note + '.', weight: 1 });
+        score += 1;
+      } else if (macd.cls === 'warn'){
+        bear.push({ name: 'MACD', why: macd.label + ' — ' + macd.note + '.', weight: 1 });
+        score -= 1;
+      }
       var vol = tech.volume;
       if (vol && vol.conviction && vol.priceMove1dPct != null){
         var moveSign = vol.priceMove1dPct >= 0 ? 1 : -1;
+        var moveLabel = (vol.priceMove1dPct >= 0 ? '+' : '') + vol.priceMove1dPct.toFixed(2) + '%';
+        var rvolLabel = vol.rvol != null ? vol.rvol.toFixed(2) + 'x avg' : 'volume';
         if (vol.conviction === 'strong'){
-          if (moveSign === dir){ score += 1; bull.push('volume'); }
-          else { score -= 1; bear.push('volume'); }
+          if (moveSign === dir){
+            bull.push({ name: 'Volume', why: 'Strong conviction print: ' + moveLabel + ' on ' + rvolLabel + ' — institutional flow agrees with the direction.', weight: 1 });
+            score += 1;
+          } else {
+            bear.push({ name: 'Volume', why: 'Strong conviction in the OPPOSITE direction: ' + moveLabel + ' on ' + rvolLabel + '. Fighting institutional flow is expensive.', weight: 1 });
+            score -= 1;
+          }
         } else if (vol.conviction === 'weak'){
-          // Big print on thin volume — discount it.
-          if (moveSign === dir){ score -= 1; bear.push('volume (thin)'); }
+          if (moveSign === dir){
+            bear.push({ name: 'Volume', why: 'Print of ' + moveLabel + ' came on only ' + rvolLabel + ' — thin tape, treat the move as low-conviction.', weight: 1 });
+            score -= 1;
+          }
         }
       }
     }
     if (fund && fund.verdict){
-      if (fund.verdict === 'bullish'){ score += 1; bull.push('fundamentals'); }
-      else if (fund.verdict === 'bearish'){ score -= 1; bear.push('fundamentals'); }
+      if (fund.verdict === 'bullish'){
+        bull.push({ name: 'Fundamentals', why: 'Last reported fundamentals + earnings read bullish.', weight: 1 });
+        score += 1;
+      } else if (fund.verdict === 'bearish'){
+        bear.push({ name: 'Fundamentals', why: 'Last reported fundamentals + earnings read bearish.', weight: 1 });
+        score -= 1;
+      }
     }
     // Macro backdrop nudge — yields + USD framed against the ticker's
     // dominant sensitivity (growth / multinational / bank / commodity /
-    // gold / EM / exporter). Adds at most ±1 to the score so the binary
-    // verdict still hinges on news + technicals primarily.
+    // gold / EM / exporter). Adds at most ±1 so news + technicals still
+    // dominate the verdict.
     var macro = macroTilt(args.symbol, type);
     if (macro && macro.score !== 0){
-      if (macro.score > 0){ score += 1; bull.push('macro'); }
-      else if (macro.score < 0){ score -= 1; bear.push('macro'); }
+      var macroWhy = macro.score > 0
+        ? (macro.bull && macro.bull.length ? macro.bull[0] : 'Macro tailwind for ' + dirLabel + '.')
+        : (macro.bear && macro.bear.length ? macro.bear[0] : 'Macro headwind for ' + dirLabel + '.');
+      if (macro.score > 0){ bull.push({ name: 'Macro', why: macroWhy + '.', weight: 1 }); score += 1; }
+      else { bear.push({ name: 'Macro', why: macroWhy + '.', weight: 1 }); score -= 1; }
     }
-    // Theta ramps up inside the last ~30 days to expiration. Not a hard fail
-    // (the ≤3 DTE and 80%-extrinsic guards above already cover the worst
-    // cases), but it's worth surfacing in the verdict so users know they're
-    // buying into the part of the curve where decay accelerates fastest.
+    // 30 DTE penalty — soft warning, not a hard fail (the 3 DTE + 80%
+    // extrinsic gates already catch the worst cases). Still surfaced so
+    // users know they're buying into accelerating decay.
     if (dte != null && dte > 3 && dte <= 30){
       score -= 1;
-      warnings.push('theta accelerates inside 30D (' + dte + 'd left)');
+      warnings.push('Theta accelerates inside 30 DTE — ' + dte + ' day' + (dte === 1 ? '' : 's') + ' left means decay is going to step up week-over-week from here.');
     }
 
     var aligned = score * dir;
-    var alignedNames = dir > 0 ? bull : bear;
-    var opposedNames = dir > 0 ? bear : bull;
+    var alignedSignals = dir > 0 ? bull : bear;
+    var opposedSignals = dir > 0 ? bear : bull;
+    var alignedNames = alignedSignals.map(function(s){ return s.name; });
+    var opposedNames = opposedSignals.map(function(s){ return s.name; });
     var goodCount = (sGrade && sGrade.cls === 'good' ? 1 : 0) +
                     (dGrade && dGrade.cls === 'good' ? 1 : 0) +
                     (tGrade && tGrade.cls === 'good' ? 1 : 0);
 
-    if (aligned < 0) return no((opposedNames.length ? opposedNames.join(' + ') + ' lean against ' : 'signals lean against ') + (type === 'call' ? 'calls' : 'puts'));
-    // Strong alignment passes regardless of mechanical "good" count.
-    if (aligned >= 2){
-      var rs1 = [];
-      rs1.push(sGrade && sGrade.cls === 'good' ? 'spread tight' : 'spread workable');
-      if (dGrade && dGrade.cls === 'good') rs1.push('delta balanced');
-      rs1.push(alignedNames.join(' + ') + ' back the move');
-      if (warnings.length) rs1.push(warnings.join('; '));
-      return yes(rs1);
+    // 3) Decision + confidence. Hard fails always force NO.
+    var decision, confidence, headline;
+    if (hardFails.length){
+      decision = 'no';
+      confidence = hardFails.length >= 2 ? 'strong' : 'firm';
+      headline = hardFails.length === 1
+        ? hardFails[0].label.toLowerCase() + ' is a deal-breaker'
+        : hardFails.length + ' deal-breakers: ' + hardFails.map(function(f){ return f.label.toLowerCase(); }).join(', ');
+    } else if (aligned < 0){
+      decision = 'no'; confidence = aligned <= -2 ? 'strong' : 'moderate';
+      headline = (opposedNames.length ? opposedNames.join(' + ') + ' lean against ' : 'signals lean against ') + dirLabel;
+    } else if (aligned >= 3){
+      decision = 'yes'; confidence = 'strong';
+      headline = alignedNames.slice(0, 3).join(' + ') + ' back this — mechanics clean enough to act';
+    } else if (aligned >= 2){
+      decision = 'yes'; confidence = 'moderate';
+      headline = (alignedNames.length ? alignedNames.join(' + ') + ' back ' + (type === 'call' ? 'the call' : 'the put') : 'mechanics back ' + dirLabel);
+    } else if (goodCount >= 2 && opposedNames.length === 0){
+      decision = 'yes'; confidence = 'tentative';
+      headline = 'mechanics clean and nothing opposes — neutral-direction take';
+    } else {
+      decision = 'no'; confidence = 'tentative';
+      headline = 'not enough conviction backing this direction';
     }
-    // No positive conviction but mechanics are clean and nothing opposes:
-    // good contract on a neutral / manual-paste backdrop still qualifies.
-    if (goodCount >= 2 && opposedNames.length === 0){
-      var rs2 = ['mechanics clean'];
-      rs2.push(alignedNames.length ? alignedNames.join(' + ') + ' lean ' + (type === 'call' ? 'bullish' : 'bearish') : 'no opposing signals');
-      if (warnings.length) rs2.push(warnings.join('; '));
-      return yes(rs2);
+
+    return {
+      decision: decision,
+      confidence: confidence,
+      headline: headline,
+      hardFails: hardFails,
+      bull: bull,
+      bear: bear,
+      warnings: warnings,
+      score: score,
+      aligned: aligned,
+      goodCount: goodCount,
+      direction: type,
+      // Back-compat shim so the sticky-bar code that reads buy.reasons
+      // still has something to render. Renderer now uses the structured
+      // fields directly via renderBuyPanel().
+      reasons: [headline],
+    };
+  }
+
+  // Scan the loaded chain (state.chains + state.expirations) for a contract
+  // that fixes whichever hard-fail kind is dragging this one down. Returns
+  // null when nothing useful is available — never returns a worse contract.
+  // Suggestion priority: longest-shadow fix first (theta/DTE → longer expiry
+  // wins out over delta or spread tweaks, because pushing expiry usually
+  // fixes the cascading mechanical issues at once).
+  function findAlternative(input, buy){
+    if (!buy || !buy.hardFails || !buy.hardFails.length) return null;
+    if (!state || !state.expirations || !state.expirations.length || !state.chains) return null;
+    if (!input || !input.spot || input.spot <= 0) return null;
+
+    var kinds = buy.hardFails.map(function(f){ return f.kind; });
+    var nowSec = Date.now() / 1000;
+    function rowsFor(expEpoch){
+      var chain = state.chains[expEpoch];
+      if (!chain) return [];
+      return (input.type === 'call' ? chain.c : chain.p) || [];
     }
-    return no('not enough conviction backing this direction');
+    function spreadPctOf(row){
+      if (!row || row.b == null || row.a == null) return null;
+      var mid = (row.b + row.a) / 2;
+      if (mid <= 0) return null;
+      return (row.a - row.b) / mid * 100;
+    }
+    function deltaOf(row, T){
+      if (!row || row.iv == null || !isFinite(row.iv) || row.iv <= 0 || T <= 0) return null;
+      try { var g = greeks(input.type, input.spot, row.s, T, row.iv, RFR); return g ? g.delta : null; }
+      catch (_) { return null; }
+    }
+
+    // 1) Theta / DTE / extrinsic problems → push expiry out to ~45-90 DTE.
+    if (kinds.indexOf('theta') >= 0 || kinds.indexOf('dte') >= 0 || kinds.indexOf('extrinsic') >= 0){
+      var bestExp = null, bestExpDist = Infinity;
+      for (var i = 0; i < state.expirations.length; i++){
+        var exp = state.expirations[i];
+        var dte = Math.round((exp - nowSec) / 86400);
+        if (dte < 45) continue;
+        var dist = Math.abs(dte - 60);
+        if (dist >= bestExpDist) continue;
+        // Confirm a near-strike exists in the chain so the suggestion is real.
+        var rows = rowsFor(exp);
+        var match = null, bestStrikeDist = Infinity;
+        for (var j = 0; j < rows.length; j++){
+          var d = Math.abs((rows[j].s || 0) - input.strike);
+          if (d < bestStrikeDist){ bestStrikeDist = d; match = rows[j]; }
+        }
+        if (match){
+          bestExp = { expEpoch: exp, dte: dte, row: match };
+          bestExpDist = dist;
+        }
+      }
+      if (bestExp){
+        return {
+          kind: 'expiry',
+          label: 'Push out to the ' + fmtExpiryLabel(bestExp.expEpoch) + ' expiry (~' + bestExp.dte + ' DTE)',
+          why: 'Daily theta on a ' + bestExp.dte + '-DTE contract is a small fraction of the current bleed, and the same-strike slot is in the chain. Buys the thesis room to play out before decay matters.',
+          expEpoch: bestExp.expEpoch,
+        };
+      }
+    }
+
+    // 2) Far-OTM delta → find a near-ATM strike in the same expiry whose
+    //    |delta| sits in the balanced 0.40-0.70 zone with a workable spread.
+    if (kinds.indexOf('delta') >= 0 && input.expEpoch){
+      var T = Math.max(0, (input.expEpoch - nowSec) / (365 * 86400));
+      var rows2 = rowsFor(input.expEpoch);
+      var best = null, bestQuality = -Infinity;
+      for (var k = 0; k < rows2.length; k++){
+        var d2 = deltaOf(rows2[k], T);
+        if (d2 == null) continue;
+        var a = Math.abs(d2);
+        // Reward |delta| in [0.40, 0.70], penalize spread.
+        var deltaQ = (a >= 0.40 && a <= 0.70) ? (1 - Math.abs(a - 0.5) * 2) : -1;
+        var sp = spreadPctOf(rows2[k]);
+        var spQ = sp != null ? Math.max(0, 1 - sp / 15) : 0;
+        var q = deltaQ + 0.3 * spQ;
+        if (q > bestQuality){ bestQuality = q; best = { row: rows2[k], delta: d2 }; }
+      }
+      if (best && best.row && Math.abs(best.delta) >= 0.40){
+        return {
+          kind: 'strike',
+          label: 'Try the $' + fmt(best.row.s) + ' strike (~' + best.delta.toFixed(2) + ' delta)',
+          why: 'Sits in the balanced 0.40–0.70 delta zone — the contract moves close to 1-for-1 with the stock\\'s percentage move instead of needing an outsized rally to print.',
+          expEpoch: input.expEpoch,
+          strike: best.row.s,
+        };
+      }
+    }
+
+    // 3) Wide spread → find the tightest-spread strike near ATM in the same
+    //    expiry. We deliberately limit to within ~10% of spot so the
+    //    suggestion stays a real alternative, not a deep-ITM dodge.
+    if (kinds.indexOf('spread') >= 0 && input.expEpoch){
+      var rows3 = rowsFor(input.expEpoch);
+      var bestSp = null, bestSpScore = Infinity;
+      for (var n = 0; n < rows3.length; n++){
+        var sp3 = spreadPctOf(rows3[n]);
+        if (sp3 == null || sp3 > 10) continue;
+        var moneyDist = Math.abs((rows3[n].s || 0) - input.spot) / input.spot;
+        if (moneyDist > 0.15) continue;
+        var score3 = sp3 + moneyDist * 50; // prefer tighter + closer-to-ATM
+        if (score3 < bestSpScore){ bestSpScore = score3; bestSp = { row: rows3[n], sp: sp3 }; }
+      }
+      if (bestSp){
+        return {
+          kind: 'strike',
+          label: 'Try the $' + fmt(bestSp.row.s) + ' strike (~' + bestSp.sp.toFixed(1) + '% spread)',
+          why: 'Tighter bid/ask leaves more of the move in your pocket instead of paying it to the market maker on round-trip.',
+          expEpoch: input.expEpoch,
+          strike: bestSp.row.s,
+        };
+      }
+    }
+
+    return null;
   }
 
   var TIPS = {
@@ -1065,12 +1277,125 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div><div class="opt-row-value">' + value + (sub ? ' <span class="opt-row-sub">' + sub + '</span>' : '') + '</div></div>';
   }
   function gradeChip(g){ return '<span class="opt-grade ' + g.cls + '">' + g.label + '</span>'; }
-  function verdictExplainer(cls){
-    var msg;
-    if (cls === 'good') msg = 'Clean contract. Spread is tight, delta is balanced, theta is manageable. The mechanics are working with you — the rest is direction, sizing, and timing. Cross-check it against the technical signals and news take below before you commit.';
-    else if (cls === 'bad') msg = 'Skip or rework. Wide spread or far-OTM delta or heavy theta will eat your edge before the trade plays out. Look for a tighter strike, a more liquid expiry, or a different ticker. If you still like the direction, the manual grader below lets you stress-test alternatives quickly.';
-    else msg = 'Workable but not ideal. Read the chip notes below — usually one of spread, delta, or theta is asking you to compromise. Decide whether that trade-off is worth it. The technicals and news take can help break the tie when the mechanics alone are inconclusive.';
-    return '<div class="opt-explain ' + cls + '"><b>What this means:</b> ' + msg + '</div>';
+  // Reconcile mechanical verdict (spread/delta/theta count) with hard-fail
+  // signals. A hard fail (bleeding theta, far-OTM delta, wide spread, ≤3 DTE,
+  // 80%-extrinsic-under-14d) forces "Poor" regardless of the count, so the
+  // verdict can no longer say "Mixed" while the buy chip says NO — that
+  // contradiction was confusing users.
+  function reconcileVerdict(baseVerdict, buy){
+    if (buy && buy.hardFails && buy.hardFails.length){
+      return {
+        label: buy.hardFails.length === 1
+          ? 'Poor contract — ' + buy.hardFails[0].label.toLowerCase()
+          : 'Poor contract — ' + buy.hardFails.length + ' deal-breakers',
+        cls: 'bad',
+        forced: true,
+      };
+    }
+    return baseVerdict;
+  }
+  // Title-case a confidence string for chip display.
+  function confidenceLabel(c){
+    if (!c) return '';
+    return c.charAt(0).toUpperCase() + c.slice(1) + ' conviction';
+  }
+  // Render the rich reasoning panel: badge + headline + structured lists
+  // (hard fails, what's working, what's against you, soft warnings) +
+  // optional "Try this instead" suggestion. Replaces the old one-line
+  // opt-buy block that bailed on the first hard fail.
+  function renderBuyPanel(buy, alt){
+    var dirLabel = buy.direction === 'call' ? 'calls' : 'puts';
+    var badgeText = buy.decision === 'yes' ? 'YES' : 'NO';
+    var headlineMain = buy.headline || (buy.decision === 'yes' ? 'Take the trade' : 'Skip');
+    var headlineSub = confidenceLabel(buy.confidence);
+    // Counts strip — quick read of how many signals stack each way, even
+    // before the user expands the lists.
+    var summaryBits = [];
+    if (buy.hardFails && buy.hardFails.length) summaryBits.push('<span class="opt-buy-stat bad">' + buy.hardFails.length + ' hard fail' + (buy.hardFails.length === 1 ? '' : 's') + '</span>');
+    var bullCount = (buy.bull || []).length;
+    var bearCount = (buy.bear || []).length;
+    if (bullCount) summaryBits.push('<span class="opt-buy-stat good">' + bullCount + ' bullish</span>');
+    if (bearCount) summaryBits.push('<span class="opt-buy-stat bad">' + bearCount + ' bearish</span>');
+    if (buy.aligned != null) summaryBits.push('<span class="opt-buy-stat ' + (buy.aligned > 0 ? 'good' : buy.aligned < 0 ? 'bad' : 'fair') + '">aligned score ' + (buy.aligned > 0 ? '+' : '') + buy.aligned + '</span>');
+
+    function ulFromSignals(signals){
+      return signals.map(function(s){
+        return '<li><b>' + escapeHtml(s.name) + '</b> ' +
+          (s.weight ? '<span class="opt-buy-weight">+' + s.weight + '</span>' : '') +
+          ' — ' + escapeHtml(s.why) + '</li>';
+      }).join('');
+    }
+    function ulFromFails(fails){
+      return fails.map(function(f){
+        return '<li><b>' + escapeHtml(f.label) + '</b> — ' + escapeHtml(f.why) + '</li>';
+      }).join('');
+    }
+    function ulFromWarnings(ws){
+      return ws.map(function(w){ return '<li>' + escapeHtml(w) + '</li>'; }).join('');
+    }
+
+    var sections = '';
+    if (buy.hardFails && buy.hardFails.length){
+      sections += '<div class="opt-buy-section opt-buy-fails">' +
+        '<div class="opt-buy-section-title">Why NO — hard fails</div>' +
+        '<ul>' + ulFromFails(buy.hardFails) + '</ul>' +
+      '</div>';
+    }
+    if (buy.bull && buy.bull.length){
+      var bullTitle = buy.direction === 'call' ? "What's pulling for the call" : "What's pulling against the put";
+      sections += '<div class="opt-buy-section opt-buy-pros">' +
+        '<div class="opt-buy-section-title">' + bullTitle + '</div>' +
+        '<ul>' + ulFromSignals(buy.bull) + '</ul>' +
+      '</div>';
+    }
+    if (buy.bear && buy.bear.length){
+      var bearTitle = buy.direction === 'call' ? "What's pulling against the call" : "What's pulling for the put";
+      sections += '<div class="opt-buy-section opt-buy-cons">' +
+        '<div class="opt-buy-section-title">' + bearTitle + '</div>' +
+        '<ul>' + ulFromSignals(buy.bear) + '</ul>' +
+      '</div>';
+    }
+    if (buy.warnings && buy.warnings.length){
+      sections += '<div class="opt-buy-section opt-buy-warn">' +
+        '<div class="opt-buy-section-title">Soft warnings</div>' +
+        '<ul>' + ulFromWarnings(buy.warnings) + '</ul>' +
+      '</div>';
+    }
+    if (!sections){
+      sections = '<div class="opt-buy-section"><div class="opt-buy-section-title">Signals</div>' +
+        '<p class="opt-buy-empty">No directional signals attached for this ticker. The verdict rests on mechanics alone — cross-check the news + technicals tabs before sizing in.</p>' +
+      '</div>';
+    }
+
+    var altBlock = '';
+    if (alt){
+      var btnData = '';
+      if (alt.expEpoch) btnData += ' data-alt-exp="' + alt.expEpoch + '"';
+      if (alt.strike != null) btnData += ' data-alt-strike="' + alt.strike + '"';
+      altBlock = '<div class="opt-buy-suggestion">' +
+        '<div class="opt-buy-suggestion-title">Try this instead</div>' +
+        '<div class="opt-buy-suggestion-action">' + escapeHtml(alt.label) + '</div>' +
+        '<div class="opt-buy-suggestion-why">' + escapeHtml(alt.why) + '</div>' +
+        '<button type="button" class="opt-buy-suggestion-btn"' + btnData + '>Switch to this contract</button>' +
+      '</div>';
+    } else if (buy.decision === 'no' && buy.hardFails && buy.hardFails.length){
+      altBlock = '<div class="opt-buy-suggestion neutral">' +
+        '<div class="opt-buy-suggestion-title">No clean alternative in this chain</div>' +
+        '<div class="opt-buy-suggestion-why">Every nearby strike + expiry hits the same constraints. Consider a different ticker, or wait for the news / technical setup to improve.</div>' +
+      '</div>';
+    }
+
+    return '<div class="opt-buy ' + buy.decision + '" id="opt-buy-main" role="status">' +
+      '<div class="opt-buy-head">' +
+        '<span class="opt-buy-badge">' + badgeText + '</span>' +
+        '<div class="opt-buy-headline">' +
+          '<div class="opt-buy-headline-main">' + escapeHtml(headlineMain) + '</div>' +
+          (headlineSub ? '<div class="opt-buy-headline-sub">' + escapeHtml(headlineSub) + ' · for ' + dirLabel + '</div>' : '') +
+        '</div>' +
+      '</div>' +
+      (summaryBits.length ? '<div class="opt-buy-stats">' + summaryBits.join('') + '</div>' : '') +
+      '<div class="opt-buy-sections">' + sections + altBlock + '</div>' +
+    '</div>';
   }
   function newsTakeHtml(news, ticker, nudged){
     if (!news || !news.paragraph) return '';
@@ -1409,7 +1734,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var dGrade = g ? gradeDelta(g.delta) : { label:'—', cls:'fair', note:'delta unavailable — IV missing' };
     var tGrade = g ? gradeTheta(g.thetaDay, mid) : { label:'—', cls:'fair', note:'theta unavailable — IV missing' };
     var baseVerdict = overallVerdict([sGrade, dGrade, tGrade]);
-    var verdict = applyNewsNudge(baseVerdict, input.news);
+    var nudgedVerdict = applyNewsNudge(baseVerdict, input.news);
 
     // Derived contract metrics. Intrinsic = how much of the premium is
     // already in-the-money cash. Time value = whatever is left, i.e. what
@@ -1440,15 +1765,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       news: input.news, technicals: input.technicals, fundamentals: input.fundamentals,
       symbol: input.ticker || input.symbol,
     });
+    // Hard fails reconcile the mechanical verdict so the headline matches
+    // the buy chip (no more "Mixed — proceed with caution" sitting next to
+    // a NO badge with no explanation of the contradiction).
+    var verdict = reconcileVerdict(nudgedVerdict, buy);
+    // Only suggest alternatives from a real chain (chain-fed input). Manual
+    // pastes don't have other strikes to compare against.
+    var alt = (input.source === 'chain') ? findAlternative(input, buy) : null;
 
     var html = '';
-    html += '<div class="opt-buy ' + buy.decision + '" id="opt-buy-main" role="status">' +
-      '<span class="opt-buy-badge">' + (buy.decision === 'yes' ? 'YES' : 'NO') + '</span>' +
-      '<span class="opt-buy-reason">' + escapeHtml(buy.reasons.join(' · ')) + '</span>' +
-    '</div>';
+    html += renderBuyPanel(buy, alt);
     html += '<div class="opt-verdict ' + verdict.cls + '" id="opt-verdict-main">' + verdict.label + '</div>';
-    html += verdictExplainer(verdict.cls);
-    if (verdict.nudged && input.news && input.news.sentiment){
+    if (nudgedVerdict.nudged && input.news && input.news.sentiment && !verdict.forced){
       var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
@@ -5007,6 +5335,50 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             } else {
               try { window.prompt('Copy this link', url); done(true); } catch (_){ done(false); }
             }
+            return;
+          }
+          // "Switch to this contract" — re-target the chain dropdowns to the
+          // alternative findAlternative() surfaced (longer expiry, better
+          // strike, etc.), then let the normal evaluate flow regrade.
+          var altBtn = ev.target.closest && ev.target.closest('.opt-buy-suggestion-btn');
+          if (altBtn){
+            var altExp = altBtn.getAttribute('data-alt-exp');
+            var altStrike = altBtn.getAttribute('data-alt-strike');
+            if (altExp){
+              var expSel2 = $('opt-expiry');
+              if (expSel2){ expSel2.value = altExp; }
+              state.currentExp = Number(altExp);
+              populateStrikes();
+            }
+            if (altStrike != null && altStrike !== ''){
+              // Strikes are keyed by index in the dropdown — find the matching
+              // price and select it. Falls back to ATM if no exact match.
+              var type = getOptType();
+              var chain = state.chains[state.currentExp];
+              if (chain){
+                var rows = (type === 'call' ? chain.c : chain.p) || [];
+                var target = Number(altStrike);
+                var bestIdx2 = -1, bestD2 = Infinity;
+                for (var i = 0; i < rows.length; i++){
+                  var d2 = Math.abs((rows[i].s || 0) - target);
+                  if (d2 < bestD2){ bestD2 = d2; bestIdx2 = i; }
+                }
+                if (bestIdx2 >= 0){
+                  var strikeSel2 = $('opt-strike');
+                  if (strikeSel2) strikeSel2.selectedIndex = bestIdx2;
+                }
+              }
+            }
+            scheduleEvaluate();
+            pushUrlState();
+            if (state.symbol && state.currentExp) refreshLiveChain(state.symbol, state.currentExp);
+            // Scroll the result panel into view so the user sees the regrade
+            // without a long thumb-scroll on mobile.
+            var resultEl = $('opt-eval-result');
+            if (resultEl && typeof resultEl.scrollIntoView === 'function'){
+              try { resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_){}
+            }
+            return;
           }
         });
       }

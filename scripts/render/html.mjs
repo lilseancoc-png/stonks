@@ -276,14 +276,26 @@ function optionEvalSection() {
     <details class="opt-explainer" id="opt-grade-explainer">
       <summary>How is the grade computed?</summary>
       <div class="opt-explainer-body">
-        <p>Each contract picks up a <b>Spread</b>, <b>Delta</b>, and <b>Theta</b> grade, then the overall verdict aggregates them:</p>
+        <p>The verdict you see has two halves working together &mdash; a <b>YES / NO buy panel</b> that walks every signal we have, and a short <b>mechanical verdict chip</b> that grades just the contract structure (spread / delta / theta). The panel is the one to read carefully; the chip is a quick mechanical read.</p>
+        <h4>YES / NO buy panel</h4>
+        <p>This is the one that aims at profitable trades. It collects <b>every</b> reason in play &mdash; not just the first one to break &mdash; and lays them out so you can weigh the full picture:</p>
         <ul>
-          <li>2+ bad &rarr; <b>Poor contract</b></li>
-          <li>1 bad &rarr; <b>Mixed &mdash; proceed with caution</b></li>
-          <li>2+ good &rarr; <b>Good contract</b></li>
+          <li><b>Hard fails</b> &mdash; mechanical deal-breakers (wide spread, far-OTM delta, bleeding theta, &le;3 DTE, &gt;80% time value with &lt;14 DTE). Any one forces NO and overrides the mechanical verdict to Poor &mdash; no more &ldquo;Mixed&rdquo; sitting next to a NO badge.</li>
+          <li><b>What&rsquo;s pulling for / against</b> &mdash; each signal in the stack listed with its weight: news (&plusmn;2), RSI / MACD / volume conviction (&plusmn;1 each), fundamentals verdict (&plusmn;1), macro backdrop (&plusmn;1). The aligned score is the sum &times; direction (+1 for calls, &minus;1 for puts).</li>
+          <li><b>Soft warnings</b> &mdash; the 30-DTE theta-acceleration penalty and similar nudges that don&rsquo;t kill the trade but you should know about.</li>
+          <li><b>Try this instead</b> &mdash; when NO is driven by a hard fail and the chain has a cleaner alternative, the panel surfaces it: usually a longer expiry (to defuse theta / DTE crunch) or a closer-to-ATM strike (to fix far-OTM delta / wide spread). Click the button to switch the chain dropdowns to that contract and regrade.</li>
+        </ul>
+        <p><b>Confidence</b> rates how decisive the call is: <em>Strong</em> (aligned score &ge;+3 or two-plus hard fails), <em>Moderate</em> (aligned score &ge;+2), <em>Tentative</em> (clean mechanics, no opposing signals, but no positive conviction either). Take Tentative YES as a green light to consider, not to size in heavy.</p>
+        <h4>Mechanical verdict chip</h4>
+        <p>A quick read of just spread + delta + theta:</p>
+        <ul>
+          <li>1+ hard fail &rarr; <b>Poor contract</b> (forced by the buy panel)</li>
+          <li>2+ bad grades &rarr; <b>Poor contract</b></li>
+          <li>1 bad grade &rarr; <b>Mixed &mdash; proceed with caution</b></li>
+          <li>2+ good grades &rarr; <b>Good contract</b></li>
           <li>otherwise &rarr; <b>Acceptable</b></li>
         </ul>
-        <p>A clear <b>news tailwind</b> or <b>headwind</b> can nudge an <em>Acceptable</em> verdict to Good or Poor based on the AI-summarized headline sentiment.</p>
+        <p>A clear <b>news tailwind</b> or <b>headwind</b> can nudge an <em>Acceptable</em> verdict to Good or Poor based on the AI-summarized headline sentiment (but only when no hard fails are in play).</p>
         <h4>Per-metric thresholds</h4>
         <ul>
           <li><b>Spread:</b> Tight (&le;5% of mid), Moderate (5&ndash;15%), Wide (&gt;15%)</li>
@@ -292,14 +304,6 @@ function optionEvalSection() {
           <li><b>Liquidity (open interest):</b> Thin (&lt;10), Light (&lt;100), Liquid (&ge;100)</li>
           <li><b>30d realized vol:</b> Calm (bottom 30% of this name&rsquo;s own history), Normal, Elevated (top 30%)</li>
         </ul>
-        <h4>YES / NO buy badge</h4>
-        <p>The binary badge is independent of the Good/Mixed/Poor verdict. It falls to <b>NO</b> immediately for any of these mechanical disqualifiers:</p>
-        <ul>
-          <li>Wide spread, Far-OTM delta, or Bleeding theta</li>
-          <li>&le;3 days to expiry (gamma and theta are extreme)</li>
-          <li>Premium that is &gt;80% time-value with &lt;14 days to expiry</li>
-        </ul>
-        <p>Otherwise it scores <b>news</b> (&plusmn;2), <b>RSI</b> + <b>MACD</b> + <b>volume conviction</b> (&plusmn;1 each), and <b>fundamentals</b> verdict (&plusmn;1). The score is multiplied by the option direction (+1 for calls, &minus;1 for puts). Inside <b>30 DTE</b> the score takes a &minus;1 penalty &mdash; not a hard fail, but theta accelerates fast in the last month. It clears to <b>YES</b> when either: aligned score &ge;+2 with no opposing signals, or two &ldquo;good&rdquo; mechanical grades with nothing opposing the direction.</p>
         <h4>Volume conviction</h4>
         <p>Today&rsquo;s daily volume vs the trailing 20-day average, paired with today&rsquo;s 1-day price move, sorts the print into one of four buckets:</p>
         <ul>
