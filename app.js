@@ -39,7 +39,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03585;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
@@ -586,7 +586,17 @@
   }
 
   // --- Grading ------------------------------------------------------------
-  function gradeSpread(spreadPct){
+  // Spread grade combines % of mid with an absolute-cents floor so cheap
+  // contracts don't get unfairly punished. A 1-cent gap on a $0.10 contract
+  // is 10% (would flag "Moderate" on % alone) — but in absolute terms it's
+  // a penny, which fills fine. Conversely a 5% spread on a $5 contract is
+  // still tight at $0.25. The hierarchy: any spread $0.02 or under is Tight
+  // regardless of %; $0.05 or under is Tight if % is at most 15% (cheap
+  // contract tolerance); otherwise fall through to the standard 5/15%
+  // percentage bands.
+  function gradeSpread(spreadPct, spreadAbs){
+    if (spreadAbs != null && spreadAbs <= 0.02) return { label:'Tight', cls:'good', note:'1–2 cent spread — fills fine even on cheap premium' };
+    if (spreadAbs != null && spreadAbs <= 0.05 && spreadPct <= 15) return { label:'Tight', cls:'good', note:'a few cents wide — workable on a low-priced contract' };
     if (spreadPct <= 5)  return { label:'Tight',    cls:'good', note:'narrow spread — easy fills' };
     if (spreadPct <= 15) return { label:'Moderate', cls:'fair', note:'spread is workable but costs you on entry/exit' };
     return { label:'Wide', cls:'bad', note:'wide spread — illiquid, expect slippage' };
@@ -640,6 +650,13 @@
   function gradeTheta(thetaDay, mid){
     if (mid <= 0 || thetaDay == null) return { label:'—', cls:'fair', note:'theta unavailable' };
     var bleed = Math.abs(thetaDay) / mid * 100;
+    // Cheap-contract carve-out: a fraction of a cent of decay per day on a
+    // sub-$0.10 contract reads as a huge percentage even when the absolute
+    // bleed is trivial — that's just how short-dated OTM premium behaves,
+    // not a real disqualifier. Cap the grade at 'Normal' below this floor.
+    if (mid < 0.10) {
+      return { label:'Normal decay', cls:'fair', note:'~' + bleed.toFixed(2) + '% / day — cheap-contract floor applied (mid &lt; $0.10), absolute bleed is just pennies' };
+    }
     if (bleed < 1) return { label:'Slow decay',   cls:'good', note:'~' + bleed.toFixed(2) + '% / day — plenty of runway' };
     if (bleed < 3) return { label:'Normal decay', cls:'fair', note:'~' + bleed.toFixed(2) + '% / day — standard time pressure' };
     return { label:'Bleeding', cls:'bad', note:'~' + bleed.toFixed(2) + '% / day — heavy time decay' };
@@ -1120,12 +1137,13 @@
   // Suggestion priority: longest-shadow fix first (theta/DTE → longer expiry
   // wins out over delta or spread tweaks, because pushing expiry usually
   // fixes the cascading mechanical issues at once).
-  function findAlternative(input, buy){
+  function findAlternative(input, buy, current){
     if (!buy || !buy.hardFails || !buy.hardFails.length) return null;
     if (!state || !state.expirations || !state.expirations.length || !state.chains) return null;
     if (!input || !input.spot || input.spot <= 0) return null;
 
     var kinds = buy.hardFails.map(function(f){ return f.kind; });
+    var orig = current || {};
     var nowSec = Date.now() / 1000;
     function rowsFor(expEpoch){
       var chain = state.chains[expEpoch];
@@ -1166,11 +1184,24 @@
         }
       }
       if (bestExp){
+        var newRowExp = bestExp.row;
+        var Texp = Math.max(0, (bestExp.expEpoch - nowSec) / (365 * 86400));
+        var newDeltaExp = deltaOf(newRowExp, Texp);
+        var newSpExp = spreadPctOf(newRowExp);
         return {
           kind: 'expiry',
           label: 'Push out to the ' + fmtExpiryLabel(bestExp.expEpoch) + ' expiry (~' + bestExp.dte + ' DTE)',
           why: 'Daily theta on a ' + bestExp.dte + '-DTE contract is a small fraction of the current bleed, and the same-strike slot is in the chain. Buys the thesis room to play out before decay matters.',
           expEpoch: bestExp.expEpoch,
+          strike: newRowExp ? newRowExp.s : null,
+          newDelta: newDeltaExp,
+          newSpreadPct: newSpExp,
+          origDelta: orig.delta != null ? orig.delta : null,
+          origSpreadPct: orig.spreadPct != null ? orig.spreadPct : null,
+          origStrike: orig.strike != null ? orig.strike : null,
+          origDte: orig.dte != null ? orig.dte : null,
+          newDte: bestExp.dte,
+          failingKind: 'theta',
         };
       }
     }
@@ -1199,6 +1230,12 @@
           why: 'Sits in the balanced 0.40–0.70 delta zone — the contract moves close to 1-for-1 with the stock\'s percentage move instead of needing an outsized rally to print.',
           expEpoch: input.expEpoch,
           strike: best.row.s,
+          newDelta: best.delta,
+          newSpreadPct: spreadPctOf(best.row),
+          origDelta: orig.delta != null ? orig.delta : null,
+          origSpreadPct: orig.spreadPct != null ? orig.spreadPct : null,
+          origStrike: orig.strike != null ? orig.strike : null,
+          failingKind: 'delta',
         };
       }
     }
@@ -1218,12 +1255,20 @@
         if (score3 < bestSpScore){ bestSpScore = score3; bestSp = { row: rows3[n], sp: sp3 }; }
       }
       if (bestSp){
+        var Tsp = Math.max(0, (input.expEpoch - nowSec) / (365 * 86400));
+        var newDeltaSp = deltaOf(bestSp.row, Tsp);
         return {
           kind: 'strike',
           label: 'Try the $' + fmt(bestSp.row.s) + ' strike (~' + bestSp.sp.toFixed(1) + '% spread)',
           why: 'Tighter bid/ask leaves more of the move in your pocket instead of paying it to the market maker on round-trip.',
           expEpoch: input.expEpoch,
           strike: bestSp.row.s,
+          newDelta: newDeltaSp,
+          newSpreadPct: bestSp.sp,
+          origDelta: orig.delta != null ? orig.delta : null,
+          origSpreadPct: orig.spreadPct != null ? orig.spreadPct : null,
+          origStrike: orig.strike != null ? orig.strike : null,
+          failingKind: 'spread',
         };
       }
     }
@@ -1354,9 +1399,50 @@
       var btnData = '';
       if (alt.expEpoch) btnData += ' data-alt-exp="' + alt.expEpoch + '"';
       if (alt.strike != null) btnData += ' data-alt-strike="' + alt.strike + '"';
+      // Side-by-side comparison row — original vs. suggested delta and (when
+      // spread was the failing signal) spread %. So the user sees the
+      // tradeoff at a glance instead of having to mentally diff the two
+      // contracts.
+      var compareRows = [];
+      function fmtDelta(d){ return d == null ? '—' : 'Δ ' + d.toFixed(2); }
+      function fmtSpreadPct(s){ return s == null ? '—' : s.toFixed(1) + '%'; }
+      if (alt.origDelta != null || alt.newDelta != null){
+        compareRows.push(
+          '<div class="opt-buy-compare-row">' +
+            '<span class="opt-buy-compare-label">Delta</span>' +
+            '<span class="opt-buy-compare-from">' + escapeHtml(fmtDelta(alt.origDelta)) + '</span>' +
+            '<span class="opt-buy-compare-arrow" aria-hidden="true">→</span>' +
+            '<span class="opt-buy-compare-to">' + escapeHtml(fmtDelta(alt.newDelta)) + '</span>' +
+          '</div>'
+        );
+      }
+      if (alt.failingKind === 'spread' && (alt.origSpreadPct != null || alt.newSpreadPct != null)){
+        compareRows.push(
+          '<div class="opt-buy-compare-row">' +
+            '<span class="opt-buy-compare-label">Spread</span>' +
+            '<span class="opt-buy-compare-from">' + escapeHtml(fmtSpreadPct(alt.origSpreadPct)) + '</span>' +
+            '<span class="opt-buy-compare-arrow" aria-hidden="true">→</span>' +
+            '<span class="opt-buy-compare-to">' + escapeHtml(fmtSpreadPct(alt.newSpreadPct)) + '</span>' +
+          '</div>'
+        );
+      }
+      if (alt.failingKind === 'theta' && alt.origDte != null && alt.newDte != null){
+        compareRows.push(
+          '<div class="opt-buy-compare-row">' +
+            '<span class="opt-buy-compare-label">DTE</span>' +
+            '<span class="opt-buy-compare-from">' + alt.origDte + 'd</span>' +
+            '<span class="opt-buy-compare-arrow" aria-hidden="true">→</span>' +
+            '<span class="opt-buy-compare-to">' + alt.newDte + 'd</span>' +
+          '</div>'
+        );
+      }
+      var compareBlock = compareRows.length
+        ? '<div class="opt-buy-compare">' + compareRows.join('') + '</div>'
+        : '';
       altBlock = '<div class="opt-buy-suggestion">' +
         '<div class="opt-buy-suggestion-title">Try this instead</div>' +
         '<div class="opt-buy-suggestion-action">' + escapeHtml(alt.label) + '</div>' +
+        compareBlock +
         '<div class="opt-buy-suggestion-why">' + escapeHtml(alt.why) + '</div>' +
         '<button type="button" class="opt-buy-suggestion-btn"' + btnData + '>Switch to this contract</button>' +
       '</div>';
@@ -1367,6 +1453,44 @@
       '</div>';
     }
 
+    // Freshness footer: "Graded at HH:MM · data from build X ago". When the
+    // build snapshot is older than 4h AND we're not actively live-polling
+    // (i.e. market is closed), surface a "Re-grade with latest" affordance
+    // that re-fetches the chain on demand. liveLastRefreshAt (when set)
+    // means we're already polling intraday — no stale warning needed.
+    var nowMs = Date.now();
+    var gradedAtMs = nowMs;
+    var gradedAtStr = (new Date(gradedAtMs)).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+    var dataAgeMs = null, dataAgeLabel = null;
+    try {
+      var iso = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.builtAtIso) || '';
+      var builtMs = iso ? Date.parse(iso) : NaN;
+      if (isFinite(builtMs)){
+        dataAgeMs = nowMs - builtMs;
+        var freshSrc = (typeof liveLastRefreshAt !== 'undefined' && liveLastRefreshAt && (nowMs - liveLastRefreshAt) < 10*60*1000)
+          ? 'live' : null;
+        if (freshSrc === 'live'){
+          var secs = Math.max(1, Math.round((nowMs - liveLastRefreshAt) / 1000));
+          dataAgeLabel = 'live chain · last refresh ' + (secs < 60 ? secs + 's ago' : Math.round(secs/60) + 'm ago');
+        } else {
+          var mins = Math.round(dataAgeMs / 60000);
+          if (mins < 60) dataAgeLabel = 'build snapshot · ' + mins + 'm old';
+          else if (mins < 60*36) dataAgeLabel = 'build snapshot · ' + Math.round(mins/60) + 'h old';
+          else dataAgeLabel = 'build snapshot · ' + Math.round(mins/(60*24)) + 'd old';
+        }
+      }
+    } catch (_) {}
+    var stale = dataAgeMs != null && dataAgeMs > 4 * 3600 * 1000 &&
+                !(typeof liveLastRefreshAt !== 'undefined' && liveLastRefreshAt && (nowMs - liveLastRefreshAt) < 10*60*1000);
+    var regradeBtn = stale && buy.direction
+      ? ' <button type="button" class="opt-buy-regrade" id="opt-buy-regrade" title="Re-fetch the latest chain for this ticker and re-grade">Re-grade with latest</button>'
+      : '';
+    var metaLine = '<div class="opt-buy-meta' + (stale ? ' stale' : '') + '">' +
+        '<span>Graded at <b>' + escapeHtml(gradedAtStr) + ' NY</b></span>' +
+        (dataAgeLabel ? '<span class="opt-buy-meta-sep">·</span><span>' + escapeHtml(dataAgeLabel) + '</span>' : '') +
+        regradeBtn +
+      '</div>';
+
     return '<div class="opt-buy ' + buy.decision + '" id="opt-buy-main" role="status">' +
       '<div class="opt-buy-head">' +
         '<span class="opt-buy-badge">' + badgeText + '</span>' +
@@ -1376,13 +1500,16 @@
         '</div>' +
       '</div>' +
       (summaryBits.length ? '<div class="opt-buy-stats">' + summaryBits.join('') + '</div>' : '') +
+      metaLine +
       '<div class="opt-buy-sections">' + sections + altBlock + '</div>' +
     '</div>';
   }
   function newsTakeHtml(news, ticker, nudged){
     if (!news || !news.paragraph) return '';
     var sentimentLabel = ({ bullish:'Bullish', neutral:'Neutral', bearish:'Bearish', uncertain:'Uncertain' })[news.sentiment] || 'Neutral';
-    var heading = (news.fallback ? 'Macro fallback' : 'AI news take') + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
+    var aiTip = '<span class="tip ai-info" tabindex="0" role="button" aria-label="About this AI signal" data-tip="Generated by Google Gemini (model: gemini-2.5-flash-lite). Reads the recent reputable-publisher headlines fetched per ticker each daily refresh and emits this paragraph plus a bullish/neutral/bearish tag.">i</span>';
+    var headLabel = news.fallback ? 'Macro fallback' : ('AI' + aiTip + ' news take');
+    var heading = headLabel + (ticker ? (' · ' + escapeHtml(ticker)) : '') + ' · ' + sentimentLabel;
     var note = nudged ? '<div class="opt-news-note">This news context shifted the verdict from <b>Acceptable</b>.</div>' : '';
     if (news.fallback) {
       note = '<div class="opt-news-note"><b>No readable ticker-specific articles</b> — every recent headline was paywalled or unfetchable. The paragraph above is sector + macro context, not name-specific news. Treat as background, not a catalyst.</div>' + note;
@@ -1712,7 +1839,7 @@
     var g = (T > 0 && iv > 0 && input.spot > 0 && input.strike > 0)
       ? greeks(input.type, input.spot, input.strike, T, iv, RFR) : null;
 
-    var sGrade = spreadPct != null ? gradeSpread(spreadPct) : { label:'—', cls:'fair', note:'no quote' };
+    var sGrade = spreadPct != null ? gradeSpread(spreadPct, spread) : { label:'—', cls:'fair', note:'no quote' };
     var dGrade = g ? gradeDelta(g.delta) : { label:'—', cls:'fair', note:'delta unavailable — IV missing' };
     var tGrade = g ? gradeTheta(g.thetaDay, mid) : { label:'—', cls:'fair', note:'theta unavailable — IV missing' };
     var baseVerdict = overallVerdict([sGrade, dGrade, tGrade]);
@@ -1752,8 +1879,15 @@
     // a NO badge with no explanation of the contradiction).
     var verdict = reconcileVerdict(nudgedVerdict, buy);
     // Only suggest alternatives from a real chain (chain-fed input). Manual
-    // pastes don't have other strikes to compare against.
-    var alt = (input.source === 'chain') ? findAlternative(input, buy) : null;
+    // pastes don't have other strikes to compare against. Pass through the
+    // original contract's delta/spread/strike so the suggestion can render
+    // a "before → after" comparison instead of just stating the new figures.
+    var alt = (input.source === 'chain') ? findAlternative(input, buy, {
+      delta: g ? g.delta : null,
+      spreadPct: spreadPct,
+      strike: input.strike,
+      dte: daysToExpiry,
+    }) : null;
 
     var html = '';
     html += renderBuyPanel(buy, alt);
@@ -1923,7 +2057,7 @@
     }
     var disc = input.source === 'manual'
       ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. You are the data source — only as accurate as the numbers you typed.'
-      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. Quotes are end-of-session as of the build timestamp shown above — for information only, not investment advice.';
+      : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. Quotes are end-of-session as of the build timestamp shown in the footer.';
     html += '<p class="opt-disclaimer">' + disc + '</p>';
     return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '' };
   }
@@ -5025,6 +5159,17 @@
       section.addEventListener('click', function(ev){
         var btn = ev.target.closest && ev.target.closest('.opt-pin-btn');
         if (btn) pinCurrentGrade(btn);
+        var regrade = ev.target.closest && ev.target.closest('.opt-buy-regrade');
+        if (regrade){
+          regrade.disabled = true;
+          regrade.textContent = 'Refreshing…';
+          if (state.symbol && state.currentExp){
+            refreshLiveChain(state.symbol, state.currentExp);
+            setTimeout(function(){ evaluate(); }, 600);
+          } else {
+            evaluate();
+          }
+        }
       });
     }
     var manualSection = document.getElementById('opt-manual-section');

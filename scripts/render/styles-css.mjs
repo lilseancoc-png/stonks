@@ -710,6 +710,36 @@ main {
   gap: var(--s-4);
 }
 
+/* Landing sections — group the cards into Find ideas / Research / Act
+   so the tab strip's 13 destinations don't dump on the user as a flat
+   list. Each section has a short eyebrow + sub explaining the cluster. */
+.landing-section {
+  max-width: var(--w-content);
+  margin: 0 auto var(--s-5);
+  padding: 0;
+}
+.landing-section-head {
+  padding: 0 var(--s-1);
+  margin: 0 0 var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.landing-section-title {
+  margin: 0;
+  font: 700 var(--fs-md)/1.2 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-strong);
+}
+.landing-section-sub {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  line-height: var(--lh-normal);
+}
+.landing-section .landing-grid { margin-bottom: 0; }
+
 .landing-card {
   position: relative;
   display: flex;
@@ -3026,6 +3056,96 @@ main {
 }
 .opt-buy-suggestion-btn:hover { background: color-mix(in srgb, var(--accent) 85%, black); }
 .opt-buy-suggestion-btn:active { transform: translateY(1px); }
+
+/* Side-by-side before/after comparison inside "Try this instead" — the
+   user sees the original delta / spread / DTE next to the suggested
+   contract's, so the tradeoff is one glance instead of two. */
+.opt-buy-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-top: 4px;
+  padding: 6px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 25%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.opt-buy-compare-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.opt-buy-compare-label {
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.opt-buy-compare-from { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 55%, transparent); }
+.opt-buy-compare-arrow { color: var(--accent); font-weight: 700; }
+.opt-buy-compare-to { color: var(--text-strong); font-weight: 600; }
+
+/* Graded-at meta line — shows render time + data source age. The .stale
+   modifier highlights it when the underlying build snapshot has aged past
+   the threshold and a Re-grade affordance is offered. */
+.opt-buy-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+.opt-buy-meta b { color: var(--text); font-weight: 600; }
+.opt-buy-meta-sep { color: var(--hairline); }
+.opt-buy-meta.stale {
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--hairline));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border-radius: var(--r-2);
+}
+.opt-buy-regrade {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--hairline));
+  border-radius: var(--r-1);
+  cursor: pointer;
+  transition: background .12s var(--ease-out), color .12s var(--ease-out);
+}
+.opt-buy-regrade:hover { background: var(--accent); color: #fff; }
+.opt-buy-regrade:disabled { opacity: 0.6; cursor: progress; }
+
+/* Small inline AI-source chip — uses the existing .tip mechanism but
+   renders as a subtle "AI" / "i" pill so the affordance stands out next
+   to plain text. */
+.tip.ai-info {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  min-width: 16px;
+  padding: 0 4px;
+  margin-left: 3px;
+}
+.tip.ai-info:hover, .tip.ai-info:focus-visible, .tip.ai-info.is-open {
+  background: var(--accent);
+  color: #fff;
+}
 @media (max-width: 560px){
   .opt-buy-head { flex-wrap: wrap; }
   .opt-buy-headline-main { font-size: var(--fs-sm); }
@@ -3376,6 +3496,11 @@ main {
 .card-header .csv-export-btn { margin-left: auto; }
 
 /* === Command palette === */
+/* The header trigger is styled to look like a real search input so users
+   actually notice it. Wider on desktop, kbd hint pinned to the right, the
+   placeholder reads "Search ticker, narrative, tab…" so the affordance is
+   obvious without having to click. Collapses to an icon-only button on
+   narrow viewports. */
 .cmd-palette-trigger {
   appearance: none;
   display: inline-flex; align-items: center; gap: 8px;
@@ -3383,23 +3508,35 @@ main {
   border: 1px solid var(--border);
   color: var(--muted);
   font: inherit; font-size: var(--fs-xs); font-weight: 500;
-  padding: 7px 12px;
+  padding: 7px 10px 7px 12px;
+  min-width: 260px;
   border-radius: var(--r-3);
   cursor: pointer;
+  text-align: left;
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .cmd-palette-trigger:hover { color: var(--text-strong); border-color: var(--border-strong); background: var(--surface-3); }
-.cmd-palette-trigger-label { letter-spacing: 0.02em; }
+.cmd-palette-trigger-label {
+  letter-spacing: 0.02em;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .cmd-palette-trigger-kbd {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--muted);
-  padding: 1px 5px; border-radius: 3px;
+  padding: 2px 6px; border-radius: 3px;
   font: 600 10px/1 var(--font-mono, inherit);
+  margin-left: auto;
+}
+@media (max-width: 880px){
+  .cmd-palette-trigger { min-width: 180px; }
 }
 @media (max-width: 640px){
   .cmd-palette-trigger-label, .cmd-palette-trigger-kbd { display: none; }
-  .cmd-palette-trigger { padding: 6px 8px; }
+  .cmd-palette-trigger { padding: 6px 8px; min-width: 0; }
 }
 
 .cmd-palette {
