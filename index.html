@@ -1161,7 +1161,26 @@
       <div class="bonds-live-grid" id="bonds-live-grid">
         <!-- Populated client-side from window.STONKS_MANIFEST.macro -->
       </div>
-      <p class="hint">Yields and DXY are taken from the last daily build; the educational notes below explain how each one moves equities.</p>
+      <p class="hint">Yields and DXY are taken from the last daily build. Each tile shows the 1-day move (basis points for yields, % for DXY) classified against the movement scale below, plus the 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip flags moves that hit the alert thresholds (DXY ±0.6% or 10Y ±10 bps on a daily close).</p>
+    </section>
+
+    <section class="card" id="bonds-scale-card">
+      <header class="card-header">
+        <h2 class="card-title">Movement scale</h2>
+        <span class="card-eyebrow">What counts as a big move</span>
+      </header>
+      <p class="hint">Reference bands for sizing a daily change. Small daily moves are normal market noise; notable / big / very-large moves usually signal a catalyst (CPI, FOMC, jobs report, geopolitical shock) and tend to push equity sentiment within days. Pair with volume and a news catalyst — a big move on low volume is less reliable than the same move on high volume.</p>
+      <table class="bonds-usd-table bonds-scale-table">
+        <thead><tr><th>Asset</th><th><span class="bonds-live-band band-normal">Normal</span></th><th><span class="bonds-live-band band-notable">Notable</span></th><th><span class="bonds-live-band band-big">Big</span></th><th><span class="bonds-live-band band-very-large">Very large</span></th></tr></thead>
+        <tbody>
+          <tr><td>DXY</td><td>0.2–0.4%</td><td>0.5%</td><td>0.7–1.0%</td><td>&gt;1.0%</td></tr>
+          <tr><td>10Y yield</td><td>3–6 bps</td><td>8–10 bps</td><td>10–15 bps</td><td>20+ bps</td></tr>
+          <tr><td>2Y yield</td><td>4–8 bps</td><td>8–12 bps</td><td>12–20 bps</td><td>25+ bps</td></tr>
+          <tr><td>30Y yield</td><td>3–6 bps</td><td>7–9 bps</td><td>10–15 bps</td><td>20+ bps</td></tr>
+        </tbody>
+      </table>
+      <p class="hint"><em>Weekly context.</em> DXY weekly moves of 0.5–1.0% are meaningful; 1.5%+ is a strong trend signal. For the 10Y yield, weekly moves of 20–30 bps are significant and 40+ bps signal a clear regime shift. Sustained DXY moves of 2–3%+ over a month can shift the regime for multinationals and commodities.</p>
+      <p class="hint"><em>Alert defaults.</em> DXY ±0.6% on a daily close, or the 10Y yield ±10 bps on a daily close. Correlate with volume and a catalyst — moves with both behind them tend to follow through.</p>
     </section>
     <section class="card">
       <header class="card-header">

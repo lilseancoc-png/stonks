@@ -6864,13 +6864,45 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // --- Bonds & USD live snapshot ------------------------------------------
+  // Movement bands sourced from the Bonds & USD primer:
+  //   DXY (% change):   normal <0.5, notable 0.5–0.7, big 0.7–1.0, very-large >1.0
+  //   10Y/30Y (bps):    normal <8, notable 8–10, big 10–15, very-large ≥15
+  //   2Y (bps):         normal <8, notable 8–12, big 12–20, very-large ≥20
+  // Alert thresholds (used to flag the tile with a pulsing badge):
+  //   DXY ±0.6% or 10Y ±10 bps on a daily close.
+  function classifyMove(absVal, scale){
+    if (absVal == null || !isFinite(absVal)) return null;
+    var bands = scale === 'dxy'
+      ? [{ lim: 0.5, key: 'normal',  label: 'Normal' },
+         { lim: 0.7, key: 'notable', label: 'Notable' },
+         { lim: 1.0, key: 'big',     label: 'Big' },
+         { lim: Infinity, key: 'very-large', label: 'Very large' }]
+      : scale === '2y'
+      ? [{ lim: 8,  key: 'normal',  label: 'Normal' },
+         { lim: 12, key: 'notable', label: 'Notable' },
+         { lim: 20, key: 'big',     label: 'Big' },
+         { lim: Infinity, key: 'very-large', label: 'Very large' }]
+      : /* 10y / 30y */
+        [{ lim: 8,  key: 'normal',  label: 'Normal' },
+         { lim: 10, key: 'notable', label: 'Notable' },
+         { lim: 15, key: 'big',     label: 'Big' },
+         { lim: Infinity, key: 'very-large', label: 'Very large' }];
+    for (var i=0; i<bands.length; i++){ if (absVal < bands[i].lim) return bands[i]; }
+    return bands[bands.length-1];
+  }
+  function isAlerting(scale, absDaily){
+    if (absDaily == null) return false;
+    if (scale === 'dxy') return absDaily >= 0.6;
+    if (scale === '10y') return absDaily >= 10;
+    return false;
+  }
   function renderBondsLive(){
     var grid = document.getElementById('bonds-live-grid');
     if (!grid) return;
     var m = window.STONKS_MANIFEST || {};
     var macro = m.macro || null;
     var eyebrow = document.getElementById('bonds-live-eyebrow');
-    if (!macro || (!macro.tenY && !macro.dxy)) {
+    if (!macro || (!macro.twoY && !macro.tenY && !macro.thirtyY && !macro.dxy)) {
       grid.innerHTML = '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
       return;
     }
@@ -6880,24 +6912,70 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         eyebrow.textContent = 'as of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
       } catch (_) {}
     }
-    function tile(label, leg, valFmt){
+    function fmtDaily(leg, scale){
+      // Yields → bps. DXY → %. Returns { text, dirClass } or null when missing.
+      if (scale === 'dxy') {
+        if (leg.pctChange1d == null) return null;
+        var p = leg.pctChange1d;
+        return {
+          text: (p >= 0 ? '+' : '') + p.toFixed(2) + '% 1d',
+          dirClass: p > 0 ? 'up' : p < 0 ? 'down' : 'flat',
+        };
+      }
+      if (leg.bpsChange1d == null) return null;
+      var b = leg.bpsChange1d;
+      return {
+        text: (b >= 0 ? '+' : '') + b.toFixed(1) + ' bps 1d',
+        dirClass: b > 0 ? 'up' : b < 0 ? 'down' : 'flat',
+      };
+    }
+    function fmtWeekly(leg){
+      if (leg.pctChange5d == null && leg.change5d == null) return null;
+      var pct = leg.pctChange5d != null ? leg.pctChange5d : leg.change5d;
+      return {
+        text: (pct >= 0 ? '+' : '') + pct.toFixed(2) + '% 5d (' + (leg.trend || 'flat') + ')',
+        dirClass: pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat',
+      };
+    }
+    var prev = macro.previousClose || null;
+    function tile(label, leg, scale, key, valFmt){
       if (!leg || leg.value == null) return '';
-      var val = valFmt(leg.value);
-      var chgCls = leg.change5d == null ? 'flat' : (leg.change5d > 0 ? 'up' : leg.change5d < 0 ? 'down' : 'flat');
-      var chg = leg.change5d != null
-        ? (leg.change5d >= 0 ? '+' : '') + leg.change5d.toFixed(2) + '% 5d (' + (leg.trend || 'flat') + ')'
+      var daily = fmtDaily(leg, scale);
+      var weekly = fmtWeekly(leg);
+      var absDaily = scale === 'dxy'
+        ? (leg.pctChange1d != null ? Math.abs(leg.pctChange1d) : null)
+        : (leg.bpsChange1d != null ? Math.abs(leg.bpsChange1d) : null);
+      var band = classifyMove(absDaily, scale);
+      var alerting = isAlerting(scale, absDaily);
+      var badge = band
+        ? '<span class="bonds-live-band band-' + band.key + '">' + escapeHtml(band.label) + '</span>'
         : '';
-      return '<div class="bonds-live-tile">' +
-        '<span class="bonds-live-label">' + escapeHtml(label) + '</span>' +
-        '<span class="bonds-live-value">' + escapeHtml(val) + '</span>' +
-        (chg ? '<span class="bonds-live-change ' + chgCls + '">' + escapeHtml(chg) + '</span>' : '') +
+      var alertChip = alerting
+        ? '<span class="bonds-live-alert" title="Alert threshold reached">!</span>'
+        : '';
+      var prevLine = '';
+      if (prev && prev[key] != null && prev.date) {
+        prevLine = '<span class="bonds-live-prev" title="Previous EOD close from data/macro-history.json">Prev ' +
+          escapeHtml(prev.date) + ': ' + escapeHtml(valFmt(prev[key])) +
+        '</span>';
+      }
+      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
+        '<div class="bonds-live-tile-head">' +
+          '<span class="bonds-live-label">' + escapeHtml(label) + '</span>' +
+          alertChip +
+        '</div>' +
+        '<span class="bonds-live-value">' + escapeHtml(valFmt(leg.value)) + '</span>' +
+        (daily ? '<span class="bonds-live-change ' + daily.dirClass + '">' + escapeHtml(daily.text) + '</span>' : '') +
+        (badge ? '<div class="bonds-live-band-row">' + badge + '</div>' : '') +
+        (weekly ? '<span class="bonds-live-change bonds-live-change--sub ' + weekly.dirClass + '">' + escapeHtml(weekly.text) + '</span>' : '') +
+        prevLine +
       '</div>';
     }
     var html = '';
-    html += tile('2Y yield', macro.twoY, function(v){ return v.toFixed(2) + '%'; });
-    html += tile('10Y yield', macro.tenY, function(v){ return v.toFixed(2) + '%'; });
-    html += tile('30Y yield', macro.thirtyY, function(v){ return v.toFixed(2) + '%'; });
-    html += tile('DXY', macro.dxy, function(v){ return v.toFixed(2); });
+    html += tile('2Y yield',  macro.twoY,    '2y',  'twoY',    function(v){ return v.toFixed(2) + '%'; });
+    html += tile('10Y yield', macro.tenY,    '10y', 'tenY',    function(v){ return v.toFixed(2) + '%'; });
+    html += tile('30Y yield', macro.thirtyY, '30y', 'thirtyY', function(v){ return v.toFixed(2) + '%'; });
+    html += tile('DXY',       macro.dxy,     'dxy', 'dxy',     function(v){ return v.toFixed(2); });
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
   }
 
