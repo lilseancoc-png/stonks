@@ -4462,7 +4462,7 @@ main { padding-top: var(--s-2); }
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  min-width: 520px;
+  min-width: 680px;
 }
 .f13-table th, .f13-table td {
   padding: 7px 10px;

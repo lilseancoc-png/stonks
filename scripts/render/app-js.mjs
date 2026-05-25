@@ -5944,7 +5944,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (firmsWithData.length){
         html += '<div class="f13-block">' +
           '<h3 class="f13-block-title">Per-firm top ' + 20 + ' most bought &amp; most sold</h3>' +
-          '<p class="f13-note">Each firm&rsquo;s 20 largest position increases and decreases this quarter. &Delta; Value is the dollar swing in each position; &Delta; Shares shows direction by share count (negative = trimmed/exited).</p>';
+          '<p class="f13-note">&Delta; Value mixes two things, so we split it: <b>Added</b> = shares actually bought/sold this quarter, priced at the quarter-end close; <b>Drift</b> = mark-to-market gain/loss on the shares the firm already held going in. Added + Drift = &Delta; Value. <b>Now</b> is the firm&rsquo;s current $-position size.</p>';
+        // Decompose Δ Value into (Added, Drift) using each row's reported
+        // value+shares from the two quarter-ends. Cleanly handles new
+        // positions (Drift=0, full Added) and exits (Drift=0, all unwind
+        // priced at the prior quarter's price). Returns nulls when the
+        // bake hasn't supplied both quarters' fields (the daily build
+        // adds them; older data still in cache renders "—").
+        function f13Breakdown(h){
+          if (h.valueNow === undefined || h.valuePrior === undefined) {
+            return { added: null, drift: null };
+          }
+          var vNow = Number(h.valueNow) || 0;
+          var vPri = Number(h.valuePrior) || 0;
+          var sNow = (h.sharesNow != null && isFinite(h.sharesNow)) ? Number(h.sharesNow) : null;
+          var sPri = (h.sharesPrior != null && isFinite(h.sharesPrior)) ? Number(h.sharesPrior) : null;
+          if (h.isNew || sPri === null || sPri === 0) {
+            return { added: vNow, drift: 0 };
+          }
+          if (h.isExit || sNow === null || sNow === 0) {
+            return { added: -vPri, drift: 0 };
+          }
+          var pPri = vPri / sPri;
+          var pNow = vNow / sNow;
+          if (!isFinite(pPri) || !isFinite(pNow)) return { added: null, drift: null };
+          return { added: (sNow - sPri) * pNow, drift: sPri * (pNow - pPri) };
+        }
         firmsWithData.forEach(function(firmKey, i){
           var f = d.perFirm[firmKey];
           var firstOpen = i === 0 ? ' open' : '';
@@ -5957,9 +5982,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
               var av = Math.abs(rows[k].valueChange || 0);
               if (av > maxAbs) maxAbs = av;
             }
+            var flowHeader = side === 'buy' ? 'Added' : 'Removed';
             return '<div class="f13-table-scroll"><table class="f13-table">' +
               '<thead><tr>' +
                 '<th>#</th><th>Ticker</th><th>Issuer</th>' +
+                '<th>' + flowHeader + '</th><th>Drift</th>' +
                 '<th>Δ Value</th><th>Δ Shares</th><th>' + (side === 'buy' ? 'Now' : 'Prior') + '</th>' +
               '</tr></thead>' +
               '<tbody>' +
@@ -5969,10 +5996,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
                 var posCell = side === 'buy'
                   ? fmtBigDollarsF13(h.valueNow) + (h.isNew ? ' <span class="f13-tag-new">NEW</span>' : '')
                   : fmtBigDollarsF13(h.valuePrior) + (h.isExit ? ' <span class="f13-tag-exit">EXIT</span>' : '');
+                var bk = f13Breakdown(h);
+                var addedCell = bk.added == null ? '—' : fmtSignedDollarsF13(bk.added);
+                var driftCell = bk.drift == null ? '—' : fmtSignedDollarsF13(bk.drift);
                 return '<tr>' +
                   '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
                   '<td class="f13-tkr"><span>' + escapeHtml(tickerOrFallback(h)) + '</span></td>' +
                   '<td><span>' + escapeHtml(decodeIssuerName(h.name) || '') + '</span></td>' +
+                  '<td class="f13-num"><span>' + escapeHtml(addedCell) + '</span></td>' +
+                  '<td class="f13-num f13-muted"><span>' + escapeHtml(driftCell) + '</span></td>' +
                   '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(h.valueChange)) + '</span></td>' +
                   '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(h.shareChange)) + '</span></td>' +
                   '<td class="f13-num f13-muted"><span>' + posCell + '</span></td>' +
