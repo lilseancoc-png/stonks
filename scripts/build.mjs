@@ -1391,6 +1391,29 @@ function formatMemberName(raw) {
   return tokens.join(" ");
 }
 
+// Member-name patterns indicating a geographic disaggregation. Apple (and
+// a handful of retailers / semis) report their reportable operating
+// segments on `StatementBusinessSegmentsAxis` using geographic regions
+// (Americas, Europe, Greater China, Japan, Rest of Asia Pacific). Without
+// this guard the "Revenue by Segment" donut duplicates the "Revenue by
+// Region" donut and the actual product breakdown (iPhone/Mac/iPad/...)
+// never gets shown. When a candidate product-axis breakdown matches this
+// vocabulary we demote it and try the next axis in PRODUCT_AXES_PRIORITY
+// (typically srt:ProductOrServiceAxis, which carries the real product
+// lines).
+const GEOGRAPHIC_MEMBER_RE = /\b(?:Americas?|Europe|European|Asia|Asian|Pacific|EMEA|APAC|ASEAN|ANZ|MENA|Worldwide|International|Domestic|Foreign|Overseas|Country|Countries|Geograph(?:y|ic|ical)|Region|Regional|Continent|North|South|Latin|Central|Greater|Mainland|Rest|Other|United States|US|U\.S\.|USA|United Kingdom|UK|U\.K\.|Britain|British|China|Chinese|Japan|Japanese|Germany|German|France|French|Canada|Canadian|Mexico|Mexican|Brazil|Brazilian|India|Indian|Australia|Korea|Korean|Italy|Italian|Spain|Spanish|Netherlands|Switzerland|Sweden|Swedish|Norway|Norwegian|Denmark|Danish|Finland|Finnish|Belgium|Ireland|Irish|Russia|Russian|Israel|Israeli|Singapore|Taiwan|Taiwanese|Vietnam|Thailand|Indonesia|Malaysia|Philippines|Saudi|Egypt|Turkey|Turkish|Poland|Polish|Austria|Portugal|Portuguese|Argentina|Chile|Chilean|Colombia|Peru|Nigeria|Kenya|Pakistan|Bangladesh|UAE|Qatar|Kuwait|Romania|Hungary|Hungarian|Czech|Slovak|Croatia|Bulgaria|Greece|Greek|Ukraine|Hong Kong)\b/i;
+
+function looksGeographic(memberNames) {
+  if (!memberNames || memberNames.length < 2) return false;
+  let hits = 0;
+  for (const name of memberNames) {
+    if (GEOGRAPHIC_MEMBER_RE.test(name)) hits++;
+  }
+  // Require a clear majority — a single "International" member shouldn't
+  // veto a real product breakdown that happens to include it.
+  return hits / memberNames.length >= 0.6;
+}
+
 function parseXbrlRevenueFacts(xml) {
   // contextId → { dims: [{axis, member}], periodStart, periodEnd }
   const contexts = new Map();
@@ -1707,12 +1730,26 @@ function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
   return out;
 }
 
-function pickBestAxisBreakdown(facts, contexts, priorityList, totalRevenue) {
+function pickBestAxisBreakdown(facts, contexts, priorityList, totalRevenue, opts = {}) {
+  // When the caller wants to avoid geographic-looking breakdowns in the
+  // product slot (Apple's reportable segments ARE the five geographies),
+  // keep the first geographic match as a last-resort fallback and prefer
+  // any later non-geographic axis (typically `srt:ProductOrServiceAxis`,
+  // which carries the real product lines). If no later axis succeeds we
+  // still return the demoted match — companies like Walmart genuinely
+  // report geography-as-segments and have no separate product axis, and
+  // showing Walmart US / International / Sam's Club is better than nothing.
+  let demoted = null;
   for (const axis of priorityList) {
     const result = extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue);
-    if (result && result.size >= 2) return result;
+    if (!result || result.size < 2) continue;
+    if (opts.rejectGeographic && looksGeographic([...result.keys()])) {
+      if (!demoted) demoted = result;
+      continue;
+    }
+    return result;
   }
-  return null;
+  return demoted;
 }
 
 function consolidateSegments(segMap) {
@@ -1740,7 +1777,7 @@ function consolidateSegments(segMap) {
 // 10-K hasn't been refiled. Bump when modifying axis priority, rollup
 // detection, member-name formatting, or anything else that affects
 // `product` / `geographic` output for the SAME source filing.
-const SEGMENT_PARSER_VERSION = 10;
+const SEGMENT_PARSER_VERSION = 11;
 
 export async function fetchRevenueSegments(symbol) {
   if (SECTORS[symbol] === "ETF") return null;
@@ -1797,7 +1834,7 @@ export async function fetchRevenueSegments(symbol) {
   }
 
   const totalRevenue = findTotalRevenue(parsed.facts, parsed.contexts);
-  const productMap = pickBestAxisBreakdown(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, totalRevenue);
+  const productMap = pickBestAxisBreakdown(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, totalRevenue, { rejectGeographic: true });
   const geoMap = pickBestAxisBreakdown(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, totalRevenue);
   const product = consolidateSegments(productMap);
   const geographic = consolidateSegments(geoMap);
