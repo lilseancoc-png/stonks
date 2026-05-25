@@ -69,6 +69,8 @@ export const TICKERS = [
   "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
   "MRVL", "PLAB", "AMAT", "AMKR", "MU", "BE", "OKLO", "SNDK", "GLW",
   "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM",
+  // Space — satellite, lunar lander, in-space mfg, thermal mgmt
+  "LUNR", "PL", "BKSY", "RDW", "KULR",
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
@@ -136,6 +138,7 @@ export const SECTORS = {
   COIN: "Crypto", PLTR: "Software", SHOP: "Software",
   GME: "Meme", AMC: "Meme",
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
+  LUNR: "Space", PL: "Space", BKSY: "Space", RDW: "Space", KULR: "Space",
 };
 
 // Taxonomy — the sectors and sub-industries the narratives card paints.
@@ -314,6 +317,11 @@ export const INDUSTRY_OF_TICKER = {
   GD: "Aerospace & Defense",
   RKLB: "Aerospace & Defense",
   ASTS: "Aerospace & Defense",
+  LUNR: "Aerospace & Defense",
+  PL: "Aerospace & Defense",
+  BKSY: "Aerospace & Defense",
+  RDW: "Aerospace & Defense",
+  KULR: "Electrical Equipment & Parts",
   FDX: "Integrated Freight & Logistics",
   UPS: "Integrated Freight & Logistics",
   CAT: "Farm & Heavy Construction Machinery",
