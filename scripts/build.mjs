@@ -4417,36 +4417,42 @@ function pickHistoricalClose(history, daysAgo) {
 
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
 
-// Convert a meeting (YYYY-MM-DD) into the Yahoo ZQ contract symbol for
-// the month the meeting falls in. Yahoo accepts "ZQM26.CBT" style
-// symbols.
-function zqSymbolForMeeting(meetingDateStr) {
-  const y = Number(meetingDateStr.slice(0, 4));
-  const m = Number(meetingDateStr.slice(5, 7)) - 1;
+// Convert a "YYYY-MM" key into the Yahoo ZQ contract symbol for that
+// month. Yahoo accepts "ZQM26.CBT" style symbols.
+function zqSymbolForMonthKey(yyyymm) {
+  const y = Number(yyyymm.slice(0, 4));
+  const m = Number(yyyymm.slice(5, 7)) - 1;
   return `ZQ${CME_MONTH_CODES[m]}${String(y).slice(-2)}.CBT`;
 }
 
-// Given the current effective Fed Funds rate, an upcoming meeting date,
-// and the settle price of the ZQ contract for the meeting's month,
-// derive the implied post-meeting rate and convert the delta to
-// hike/hold/cut probabilities.
-function probabilitiesFromZq(currentRate, meetingDateStr, zqPrice) {
-  if (!Number.isFinite(currentRate) || !Number.isFinite(zqPrice)) return null;
+// "2026-07" → "2026-08", "2026-12" → "2027-01".
+function addMonthKey(yyyymm) {
+  let y = Number(yyyymm.slice(0, 4));
+  let m = Number(yyyymm.slice(5, 7)) + 1;
+  if (m > 12) { m = 1; y += 1; }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+// Number of post-meeting calendar days in the meeting's own month.
+// Used to decide whether the meeting-month contract is a reliable source
+// (mid-month meeting: many post days, low noise amplification) or whether
+// we should switch to the next-month contract (late-month meeting: very
+// few post days, tiny ZQ noise blows up the implied post-rate).
+function postMeetingDaysInMonth(meetingDateStr) {
   const y = Number(meetingDateStr.slice(0, 4));
   const mIdx = Number(meetingDateStr.slice(5, 7)) - 1;
   const meetingDay = Number(meetingDateStr.slice(8, 10));
   const daysInMonth = new Date(Date.UTC(y, mIdx + 1, 0)).getUTCDate();
-  // FOMC decisions take effect at end-of-day on the decision day, so
-  // the new rate applies from meetingDay+1 through month end. Edge case:
-  // if the meeting is on the last day of the month, there are zero days
-  // at the new rate and we can't infer the post-meeting rate from this
-  // contract — fall back to the next-month contract via the caller.
-  const daysAtPreRate = meetingDay;
-  const daysAtPostRate = daysInMonth - meetingDay;
-  if (daysAtPostRate <= 0) return null;
-  const impliedAvg = 100 - zqPrice;
-  const impliedPost = (impliedAvg * daysInMonth - currentRate * daysAtPreRate) / daysAtPostRate;
-  const delta = impliedPost - currentRate;
+  return { meetingDay, daysInMonth, postDays: daysInMonth - meetingDay };
+}
+
+// Convert a (pre-rate, post-rate) delta into the canonical CME hike/hold/cut
+// triple. Assumes a 25bp policy step (the FOMC's standard increment) and
+// linearly interpolates probability between adjacent quantized outcomes:
+//   delta ∈ [0, +25bp]    → P(hike) = delta / 25bp,  P(hold) = 1 − that
+//   delta ∈ [-25bp, 0]    → P(cut)  = |delta| / 25bp, P(hold) = 1 − that
+//   |delta| > 25bp        → P(any-move) saturates at 100% (size info lost)
+function probsFromDelta(delta) {
   let hike = 0, cut = 0;
   if (delta > 0) hike = clamp01(delta / 0.25);
   else if (delta < 0) cut = clamp01(-delta / 0.25);
@@ -4465,43 +4471,116 @@ const FEDWATCH_LOOKBACKS = [
   ["month", 30],
 ];
 
+// Preferred FedWatch source: the *next* month's ZQ contract. Its average
+// price ≈ the post-this-meeting rate, with no leverage. When the next
+// month has no FOMC meeting it's an exact read; when it does, the bias
+// is ~(next_meeting_day / days_in_next_month) × Δ-at-next-meeting, which
+// the FOMC schedule naturally keeps small (back-to-back-month meetings
+// tend to fall late in their month). The meeting-month-own contract is
+// only used as a fallback because its inversion amplifies ZQ noise by
+// ~days_in_month / post_days — a factor of 2-3× for mid-month meetings
+// and >10× for late-month ones (which is what produced the bogus
+// "100% hike" we saw before).
+
 export async function fetchFedwatchSnapshot(meetingDates, currentRate) {
   if (!Number.isFinite(currentRate)) {
     console.log("    ⚠ FedWatch snapshot skipped — no current Fed Funds rate to anchor against.");
     return {};
   }
-  const out = {};
-  // Only the nearest-meeting contract can fall back to ZQ=F (continuous
-  // front-month) — for far-dated meetings ZQ=F is the wrong contract.
-  const frontMonthDate = meetingDates[0]?.date;
-  await Promise.all(meetingDates.map(async (m) => {
-    const sym = zqSymbolForMeeting(m.date);
-    const fallback = m.date === frontMonthDate ? "ZQ=F" : null;
-    // One chart fetch per meeting covers all four lookback buckets — we
-    // pick the daily close on or before each target date and compute the
-    // implied hike/hold/cut from that close. This makes the Now / 1d /
-    // 1w / 1m view populate immediately from a single build instead of
-    // requiring weeks of accumulated history.
-    const history = await fetchYahooFutureHistory(sym, fallback);
-    if (!history.length) {
-      console.log(`    ⚠ FedWatch ${m.date} (${sym}): no ZQ history`);
-      return;
-    }
-    const buckets = { now: null, day: null, week: null, month: null };
-    for (const [label, days] of FEDWATCH_LOOKBACKS) {
-      const row = pickHistoricalClose(history, days);
-      if (!row) continue;
-      const probs = probabilitiesFromZq(currentRate, m.date, row.close);
-      if (probs) buckets[label] = probs;
-    }
-    if (!buckets.now) {
-      console.log(`    ⚠ FedWatch ${m.date} (${sym}): couldn't derive a 'now' probability from latest close (likely end-of-month meeting)`);
-      return;
-    }
-    const n = buckets.now;
-    console.log(`    · FedWatch ${m.date} (${sym}): now hike=${(n.hike * 100).toFixed(0)}% hold=${(n.hold * 100).toFixed(0)}% cut=${(n.cut * 100).toFixed(0)}% (${Object.values(buckets).filter(Boolean).length}/4 buckets)`);
-    out[m.date] = buckets;
+  const meetings = [...meetingDates].sort((a, b) => a.date.localeCompare(b.date));
+  if (!meetings.length) return {};
+
+  // Two-step fetch plan:
+  //   1) Collect every (meeting-month, next-month) pair we might need.
+  //      Dedupe — adjacent meetings often share contract months.
+  //   2) Fetch each month's ZQ history once. Each fetch covers all four
+  //      lookback buckets (Now / 1d / 1w / 1m) via pickHistoricalClose.
+  // Only the front-month (nearest upcoming) can fall back to ZQ=F
+  // (continuous), since ZQ=F is wrong for any further-out contract.
+  const frontMonthKey = meetings[0].date.slice(0, 7);
+  const monthKeys = new Set();
+  for (const m of meetings) {
+    const monthKey = m.date.slice(0, 7);
+    monthKeys.add(monthKey);
+    monthKeys.add(addMonthKey(monthKey));
+  }
+  const historyByMonth = {};
+  await Promise.all([...monthKeys].map(async (mk) => {
+    const sym = zqSymbolForMonthKey(mk);
+    const fallback = mk === frontMonthKey ? "ZQ=F" : null;
+    historyByMonth[mk] = await fetchYahooFutureHistory(sym, fallback);
   }));
+
+  // For every meeting, prepare empty bucket placeholders. We'll fill them
+  // by walking meetings chronologically per lookback bucket so the
+  // pre-rate chain stays consistent within each historical snapshot.
+  const out = {};
+  for (const m of meetings) {
+    out[m.date] = { now: null, day: null, week: null, month: null };
+  }
+
+  // CME FedWatch's core insight: for each FOMC meeting, the ZQ contract
+  // for the meeting's month settles at the average daily Fed Funds rate
+  // over that month. With a known pre-meeting rate we can back out the
+  // implied post-meeting rate. The current code's bug was using today's
+  // effective rate as the pre-rate for *every* meeting — that only holds
+  // for the first one. For each subsequent meeting the pre-rate is the
+  // implied post-rate of the previous meeting (whatever the market is
+  // pricing). We chain forward through the schedule per lookback bucket.
+  for (const [label, days] of FEDWATCH_LOOKBACKS) {
+    let preRate = currentRate;
+    for (const m of meetings) {
+      const monthKey = m.date.slice(0, 7);
+      const { meetingDay, daysInMonth, postDays } = postMeetingDaysInMonth(m.date);
+      let postRate = null;
+      let source = null;
+
+      const nextMonthKey = addMonthKey(monthKey);
+      const nextHistory = historyByMonth[nextMonthKey];
+      const thisHistory = historyByMonth[monthKey];
+
+      // Primary path: next month's contract as a direct post-rate read.
+      if (nextHistory && nextHistory.length) {
+        const row = pickHistoricalClose(nextHistory, days);
+        if (row) {
+          postRate = 100 - row.close;
+          source = nextMonthKey + "(next)";
+        }
+      }
+
+      // Fallback: next-month data missing (typical when the contract is
+      // too far out and Yahoo doesn't list daily history yet). Invert
+      // the meeting-month's own contract using the chained pre-rate.
+      if (postRate == null && thisHistory && thisHistory.length && postDays > 0) {
+        const row = pickHistoricalClose(thisHistory, days);
+        if (row) {
+          const impliedAvg = 100 - row.close;
+          postRate = (impliedAvg * daysInMonth - preRate * meetingDay) / postDays;
+          source = monthKey + "(this,fallback)";
+        }
+      }
+
+      if (postRate == null || !Number.isFinite(postRate)) {
+        // Chain is broken; downstream meetings in this lookback bucket
+        // can't be computed without a known pre-rate. Stop here.
+        break;
+      }
+
+      const delta = postRate - preRate;
+      out[m.date][label] = probsFromDelta(delta);
+      if (label === "now") {
+        const p = out[m.date][label];
+        console.log(`    · FedWatch ${m.date} via ${source}: pre=${preRate.toFixed(3)}% post=${postRate.toFixed(3)}% Δ=${(delta * 100).toFixed(1)}bp → hike=${(p.hike * 100).toFixed(0)}% hold=${(p.hold * 100).toFixed(0)}% cut=${(p.cut * 100).toFixed(0)}%`);
+      }
+      preRate = postRate; // chain forward
+    }
+  }
+
+  // Strip meetings where we couldn't compute a "now" bucket — UI treats
+  // null buckets gracefully but no point shipping all-null entries.
+  for (const date of Object.keys(out)) {
+    if (!out[date].now) delete out[date];
+  }
   return out;
 }
 
