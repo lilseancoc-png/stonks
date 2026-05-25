@@ -1391,12 +1391,49 @@ async function fetchEdgarXbrlInstance(cik, accession, symbol) {
   }
 }
 
+// Brand names that lose their proper casing when the camelCase tokenizer
+// splits them. Apple files tags like `aapl:IPhoneMember` which tokenize into
+// "I Phone"; restore the brand casing after tokenization.
+const BRAND_CASING_OVERRIDES = new Map([
+  ["i phone", "iPhone"],
+  ["i pad", "iPad"],
+  ["i mac", "iMac"],
+  ["i pod", "iPod"],
+  ["i tunes", "iTunes"],
+  ["i cloud", "iCloud"],
+  ["air pods", "AirPods"],
+  ["mac os", "macOS"],
+  ["i os", "iOS"],
+  ["i pad os", "iPadOS"],
+  ["watch os", "watchOS"],
+  ["tv os", "tvOS"],
+  ["mac book", "MacBook"],
+  ["apple tv", "Apple TV"],
+  ["apple watch", "Apple Watch"],
+]);
+
+// XBRL tags that don't camelCase cleanly because they contain conjunctions
+// (e.g. Apple's `WearablesHomeandAccessoriesMember` — lowercase "and"
+// breaks the tokenizer). Key is the tokenized lowercase form; value is the
+// human-readable label.
+const KNOWN_PHRASE_LABELS = new Map([
+  ["wearables homeand accessories", "Wearables, Home & Accessories"],
+  ["home and accessories", "Home & Accessories"],
+]);
+
 function formatMemberName(raw) {
   let name = raw.includes(":") ? raw.split(":").pop() : raw;
   name = name.replace(/Member$/, "").replace(/Segment$/, "").replace(/ProductLine$/, "");
   const tokens = name.match(/[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+/g);
   if (!tokens) return name;
-  return tokens.join(" ");
+  let joined = tokens.join(" ");
+  const lower = joined.toLowerCase();
+  if (KNOWN_PHRASE_LABELS.has(lower)) return KNOWN_PHRASE_LABELS.get(lower);
+  for (const [pattern, replacement] of BRAND_CASING_OVERRIDES) {
+    const re = new RegExp("\\b" + pattern.replace(/\s+/g, "\\s+") + "\\b", "gi");
+    joined = joined.replace(re, replacement);
+  }
+  return joined;
 }
 
 // Member-name patterns indicating a geographic disaggregation. Apple (and
@@ -1785,7 +1822,7 @@ function consolidateSegments(segMap) {
 // 10-K hasn't been refiled. Bump when modifying axis priority, rollup
 // detection, member-name formatting, or anything else that affects
 // `product` / `geographic` output for the SAME source filing.
-const SEGMENT_PARSER_VERSION = 11;
+const SEGMENT_PARSER_VERSION = 12;
 
 export async function fetchRevenueSegments(symbol) {
   if (SECTORS[symbol] === "ETF") return null;
@@ -2058,12 +2095,16 @@ async function fetchMacroBackdrop() {
       return null;
     }
   }
-  const [tenY, dxy] = await Promise.all([
+  const [tenY, thirtyY, dxy] = await Promise.all([
     fetchLeg("^TNX", "10Y yield"),
+    fetchLeg("^TYX", "30Y yield"),
     fetchLeg("DX-Y.NYB", "DXY"),
   ]);
-  if (!tenY && !dxy) return null;
-  return { tenY, dxy, asOf: new Date().toISOString() };
+  if (!tenY && !thirtyY && !dxy) return null;
+  // Yahoo doesn't expose a clean 2Y yield ticker; the Bonds & USD live tile
+  // simply omits the 2Y column when twoY is absent. Add it here if a
+  // reliable source emerges later.
+  return { tenY, thirtyY, dxy, asOf: new Date().toISOString() };
 }
 
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
@@ -2833,6 +2874,21 @@ export function titleCaseIssuer(raw) {
   }).join(" ");
 }
 
+// 13F infoTable XML stores ampersands as `&amp;` (and occasionally `&apos;`,
+// `&quot;`, numeric refs). Without decoding, names like "S&P 500 ETF" end up
+// stored as "S&amp;P 500 ETF" in the JSON, then escapeHtml double-encodes
+// at render time and the visible page shows literal `&amp;`.
+function decodeXmlEntities(s) {
+  return String(s || "")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
 export function parseEdgar13FXml(xml) {
   // Strip XML namespaces so a single regex set works across schema
   // versions (the 13F XSD has been re-namespaced multiple times).
@@ -2851,7 +2907,7 @@ export function parseEdgar13FXml(xml) {
     const shares = Number(String(sharesRaw || "").trim());
     if (!Number.isFinite(value)) continue;
     out.push({
-      name: titleCaseIssuer(name.trim()),
+      name: titleCaseIssuer(decodeXmlEntities(name).trim()),
       cusip: cusip.trim(),
       value,
       shares: Number.isFinite(shares) ? shares : null,
@@ -2885,22 +2941,57 @@ function normalize13FValueUnits(holdings) {
 // We also cap total batches so unauth throttling can't blow past the
 // 180s buildPerFirm13FHoldings budget; remaining CUSIPs fall through.
 const OPENFIGI_MAX_BATCHES_UNAUTH = 50; // ~50 × 2.5s = 125s
+// Popular international ADR CUSIPs that OpenFIGI's free tier consistently
+// drops (it favors US-listed issues first, and large 13F snapshots blow past
+// the 25 req/min unauth cap). Hardcode the most-cited ones so 13F tables
+// don't show "—" tickers for marquee holdings.
+const F13_CUSIP_TICKER_OVERRIDES = new Map([
+  ["N07059210", "ASML"],   // ASML Holding NV
+  ["G3643J108", "FLUT"],   // Flutter Entertainment PLC
+  ["G0750C108", "AZN"],    // AstraZeneca PLC
+  ["G3R28T108", "FERG"],   // Ferguson PLC
+  ["G63931119", "FERG"],   // Ferguson Enterprises
+  ["G0179K117", "ARM"],    // Arm Holdings PLC
+  ["879382208", "TSM"],    // Taiwan Semiconductor (TSMC) ADR
+  ["89352H106", "TM"],     // Toyota Motor ADR
+  ["46625H100", "JPM"],    // JPMorgan Chase
+  ["G16962105", "SHOP"],   // Shopify
+  ["63938C108", "NVO"],    // Novo Nordisk
+  ["64110W102", "NTES"],   // NetEase
+  ["G4824B107", "ICLR"],   // ICON PLC
+  ["G6242C105", "MFG"],    // Mizuho Financial
+  ["G53983106", "LIN"],    // Linde PLC
+  ["H43441164", "RHHBY"],  // Roche
+  ["F5654L114", "DASTY"],  // Dassault
+  ["55903V109", "BABA"],   // Alibaba ADR
+  ["G0259H108", "ACN"],    // Accenture PLC
+]);
+
 async function fetchOpenFigiCusipMap(cusips) {
   const out = new Map();
   const unique = [...new Set(cusips.filter(Boolean))];
   if (!unique.length) return out;
+  // Pre-seed the overrides so they're already mapped before any network call.
+  for (const cusip of unique) {
+    if (F13_CUSIP_TICKER_OVERRIDES.has(cusip)) {
+      out.set(cusip, F13_CUSIP_TICKER_OVERRIDES.get(cusip));
+    }
+  }
+  // Don't waste OpenFIGI quota on CUSIPs we already have.
+  const toFetch = unique.filter((c) => !out.has(c));
+  if (!toFetch.length) return out;
   const hasKey = !!process.env.OPENFIGI_API_KEY;
   const chunkSize = hasKey ? 100 : 10;
   const maxBatches = hasKey ? Infinity : OPENFIGI_MAX_BATCHES_UNAUTH;
   let batchesDone = 0;
-  for (let i = 0; i < unique.length; i += chunkSize) {
+  for (let i = 0; i < toFetch.length; i += chunkSize) {
     if (batchesDone >= maxBatches) {
-      const skipped = unique.length - i;
+      const skipped = toFetch.length - i;
       console.log(`    ⚠ OpenFIGI batch budget exhausted — skipping ${skipped} CUSIPs (set OPENFIGI_API_KEY to map more)`);
       break;
     }
     batchesDone++;
-    const chunk = unique.slice(i, i + chunkSize);
+    const chunk = toFetch.slice(i, i + chunkSize);
     try {
       const headers = {
         "content-type": "application/json",
@@ -2930,7 +3021,7 @@ async function fetchOpenFigiCusipMap(cusips) {
       console.log(`    ⚠ OpenFIGI batch ${i / chunkSize + 1} failed: ${err.message}`);
     }
     // Throttle between batches to stay under 25 req/min unauthenticated.
-    if (i + chunkSize < unique.length && !process.env.OPENFIGI_API_KEY) {
+    if (i + chunkSize < toFetch.length && !process.env.OPENFIGI_API_KEY) {
       await new Promise((r) => setTimeout(r, 2500));
     }
   }
@@ -7326,6 +7417,12 @@ async function main() {
     fearGreed,
     macro: macroBackdrop,
   });
+  // Persist macro to disk so regen-static.mjs can reuse it without re-hitting
+  // Yahoo. Without this the Bonds & USD live tile + Home card go blank
+  // whenever only the renderers (not the data pipeline) get regenerated.
+  if (macroBackdrop) {
+    await writeFile(resolve(DATA_DIR, "macro.json"), JSON.stringify(macroBackdrop, null, 2), "utf8");
+  }
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });
   await mkdir(dirname(OUT), { recursive: true });

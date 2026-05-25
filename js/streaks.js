@@ -125,9 +125,13 @@ function entry(t, sectors) {
   const counterDays = Number(t.current.counterDays || 0);
   const tolBreak = Number(t.current.toleranceBreakPct || 1.5);
   const counterBreak = Number(t.current.counterDaysBreak || 4);
-  const toleranceBadge = (tol > 0 || counterDays > 0)
-    ? `<span class="streaks-tol streaks-tol-counter" title="Counter-day tolerance used / break point · consecutive counter days / break">tol ${tol.toFixed(2)}% / ${tolBreak.toFixed(1)}% · ${counterDays}/${counterBreak}d</span>`
-    : "";
+  // Always show the badge so the row layout is consistent. When the streak
+  // hasn't absorbed any counter days yet we mark it "clean" with a muted
+  // variant — same width, but visually quieter so the reader knows nothing
+  // is in the bank.
+  const isCounted = tol > 0 || counterDays > 0;
+  const badgeCls = isCounted ? "streaks-tol streaks-tol-counter" : "streaks-tol streaks-tol-clean";
+  const toleranceBadge = `<span class="${badgeCls}" title="Counter-day tolerance used / break point · consecutive counter days / break">tol ${tol.toFixed(2)}% / ${tolBreak.toFixed(1)}% · ${counterDays}/${counterBreak}d</span>`;
   // Streak-length bar: visualises how deep the run is relative to a
   // 10-day "very long streak" reference. Anything longer pegs full.
   const lengthPct = Math.min(100, (Number(t.current.days) || 0) * 10);

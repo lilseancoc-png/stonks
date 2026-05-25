@@ -2104,6 +2104,24 @@ main {
   outline: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
   outline-offset: -1px;
 }
+.flow-grade-btn {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  transition: background .12s ease, border-color .12s ease;
+  white-space: nowrap;
+}
+.flow-grade-btn:hover {
+  background: color-mix(in srgb, var(--accent-soft) 65%, var(--accent) 18%);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
 .flow-empty {
   color: var(--muted);
   font-size: var(--fs-sm);
@@ -2573,6 +2591,13 @@ main {
 .opt-fund-eh-fwdmark.down { stroke: var(--neg); }
 .opt-fund-eh-est {
   fill: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+.opt-fund-eh-est-badge {
+  fill: var(--muted);
+  font: 700 7px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 .opt-fund-eh-end {
   stroke: none;
@@ -4219,7 +4244,9 @@ main { padding-top: var(--s-2); }
 }
 .cal-report-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Cells span the grid evenly; the renderer drops empty Consensus/Forecast
+     so the column count adapts (typically 2–4 depending on data). */
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 6px;
 }
 .cal-report-cell {
@@ -5073,6 +5100,7 @@ main { padding-top: var(--s-2); }
   margin-left: var(--s-2);
 }
 .streaks-tol-counter { color: var(--neg); }
+.streaks-tol-clean { opacity: 0.45; }
 
 .tickers-grid {
   display: grid;
@@ -5149,6 +5177,58 @@ main { padding-top: var(--s-2); }
   letter-spacing: var(--ls-caps);
   font-weight: 600;
 }
+.ticker-spot {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ticker-spot:empty { display: none; }
+.tickers-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: var(--s-2) 0 var(--s-3);
+}
+.tickers-search-wrap { display: flex; }
+.tickers-search {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.tickers-search:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.tickers-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.tickers-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.tickers-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.tickers-chip.is-active {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent-strong);
+}
+.tickers-chip-count {
+  font-size: 10px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+.ticker-card[hidden] { display: none; }
 
 /* ============================================================================
  * Mobile responsive layer
@@ -5899,6 +5979,44 @@ main { padding-top: var(--s-2); }
   line-height: 1.55;
 }
 .bonds-usd-list li { margin-bottom: var(--s-1, 4px); }
+.bonds-live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--s-3);
+  margin: var(--s-3) 0;
+}
+.bonds-live-tile {
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bonds-live-label {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bonds-live-value {
+  font: 700 22px/1.1 var(--font-mono);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.bonds-live-change {
+  font: 600 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.bonds-live-change.up { color: var(--pos); }
+.bonds-live-change.down { color: var(--neg); }
+.bonds-live-change.flat { color: var(--muted); }
+.bonds-live-empty {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  padding: var(--s-2) 0;
+}
 .fng-root { display: flex; flex-direction: column; gap: var(--s-5); }
 .fng-headline {
   display: grid;

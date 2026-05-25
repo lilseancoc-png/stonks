@@ -17,18 +17,36 @@ function tickersSection({ symbols, sectors, industries }) {
     const sec = sectors[sym] || "";
     const ind = industries[sym] || "";
     const subtitle = [sec, ind].filter(Boolean).join(" · ");
-    return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}">
+    return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}" data-sector="${htmlEscape(sec)}">
       <span class="ticker-sym">${htmlEscape(sym)}</span>
+      <span class="ticker-spot" data-spot-for="${htmlEscape(sym)}"></span>
       ${subtitle ? `<span class="ticker-sector">${htmlEscape(subtitle)}</span>` : ""}
     </a>`;
   }).join("");
+  // Unique sectors for the filter chips. Sort by occurrence count so the
+  // densest sectors come first — matches how the user is likely to scan.
+  const sectorCounts = {};
+  sorted.forEach((sym) => { const sec = sectors[sym] || ""; if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1; });
+  const sectorChips = Object.keys(sectorCounts)
+    .sort((a, b) => sectorCounts[b] - sectorCounts[a])
+    .map((sec) => `<button type="button" class="tickers-chip" data-tickers-sector="${htmlEscape(sec)}">${htmlEscape(sec)} <span class="tickers-chip-count">${sectorCounts[sec]}</span></button>`)
+    .join("");
   return `<section class="card" id="tickers-section">
     <header class="card-header">
       <h2 class="card-title">All supported tickers</h2>
-      <span class="card-eyebrow">${sorted.length} symbols</span>
+      <span class="card-eyebrow"><span id="tickers-visible-count">${sorted.length}</span> / ${sorted.length} symbols</span>
     </header>
     <p class="hint">Every ticker the site tracks. Click any card to grade options on it.</p>
-    <div class="tickers-grid">${cards}</div>
+    <div class="tickers-controls">
+      <div class="tickers-search-wrap">
+        <input type="search" id="tickers-search" class="tickers-search" placeholder="Search ticker…" autocomplete="off" />
+      </div>
+      <div class="tickers-chips" id="tickers-chips">
+        <button type="button" class="tickers-chip is-active" data-tickers-sector="">All <span class="tickers-chip-count">${sorted.length}</span></button>
+        ${sectorChips}
+      </div>
+    </div>
+    <div class="tickers-grid" id="tickers-grid">${cards}</div>
   </section>`;
 }
 
@@ -512,7 +530,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-picks">Today</div>
-          <div class="landing-card-sub">highest conviction</div>
+          <div class="landing-card-sub" id="land-sub-picks">highest conviction</div>
           <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
         </button>
         <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
@@ -538,8 +556,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-eyebrow">Calendar</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat">30d</div>
-          <div class="landing-card-sub">earnings + macro</div>
+          <div class="landing-card-stat" id="land-stat-calendar">30d</div>
+          <div class="landing-card-sub" id="land-sub-calendar">earnings + macro</div>
           <p class="landing-card-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, JOLTS), FOMC dates, FedWatch probabilities.</p>
         </button>
       </div>
@@ -564,8 +582,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-eyebrow">13F filings</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat">Q</div>
-          <div class="landing-card-sub">institutional holdings</div>
+          <div class="landing-card-stat" id="land-stat-f13">Q</div>
+          <div class="landing-card-sub" id="land-sub-f13">institutional holdings</div>
           <p class="landing-card-desc">Quarterly snapshot of the largest 13F filers — top positions, biggest aggregate holdings, rotation themes.</p>
         </button>
         <button type="button" class="landing-card" data-go="fear-greed" aria-label="View Fear and Greed">
@@ -573,8 +591,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-eyebrow">Fear &amp; Greed</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat">0–100</div>
-          <div class="landing-card-sub">CNN sentiment gauge</div>
+          <div class="landing-card-stat" id="land-stat-fg">0–100</div>
+          <div class="landing-card-sub" id="land-sub-fg">CNN sentiment gauge</div>
           <p class="landing-card-desc">The 7-indicator equity-market sentiment index — extreme fear has historically preceded rebounds.</p>
         </button>
         <button type="button" class="landing-card" data-go="streaks" aria-label="View green/red streaks">
@@ -582,8 +600,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-eyebrow">Streaks</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat">G/R</div>
-          <div class="landing-card-sub">daily runs</div>
+          <div class="landing-card-stat" id="land-stat-streaks">G/R</div>
+          <div class="landing-card-sub" id="land-sub-streaks">daily runs</div>
           <p class="landing-card-desc">Current green or red daily-close streaks for every ticker, with counter-day tolerance bank.</p>
         </button>
         <button type="button" class="landing-card" data-go="bonds-usd" aria-label="Read bonds and USD primer">
@@ -591,8 +609,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-eyebrow">Bonds &amp; USD</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat">2Y/10Y/30Y</div>
-          <div class="landing-card-sub">yields + DXY primer</div>
+          <div class="landing-card-stat" id="land-stat-bonds">10Y / DXY</div>
+          <div class="landing-card-sub" id="land-sub-bonds">yields + dollar</div>
           <p class="landing-card-desc">How Treasury yields and the dollar shape equity behavior — risk-on / risk-off, exporters, commodities.</p>
         </button>
       </div>
@@ -665,6 +683,16 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </section>
   </div>
   <div class="page-pane" id="page-pane-bonds-usd" role="tabpanel" aria-labelledby="page-tab-bonds-usd" hidden>
+    <section class="card" id="bonds-live-card">
+      <header class="card-header">
+        <h2 class="card-title">Live snapshot</h2>
+        <span class="card-eyebrow" id="bonds-live-eyebrow">as of last build</span>
+      </header>
+      <div class="bonds-live-grid" id="bonds-live-grid">
+        <!-- Populated client-side from window.STONKS_MANIFEST.macro -->
+      </div>
+      <p class="hint">Yields and DXY are taken from the last daily build; the educational notes below explain how each one moves equities.</p>
+    </section>
     <section class="card">
       <header class="card-header">
         <h2 class="card-title">Bonds, Treasury yields &amp; the US dollar</h2>

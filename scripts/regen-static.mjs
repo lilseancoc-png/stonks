@@ -25,6 +25,12 @@ try {
   fearGreed = JSON.parse(fngRaw);
 } catch {}
 
+let macro = null;
+try {
+  const macroRaw = await readFile(resolve(DATA_DIR, "macro.json"), "utf8");
+  macro = JSON.parse(macroRaw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 const symbols = files
   .filter((f) => /^[A-Z]+\.json$/.test(f))
@@ -67,6 +73,7 @@ const html = renderHtml({
   unusual,
   spots,
   fearGreed,
+  macro,
 });
 const css = renderStylesCss();
 const js = renderAppJs();
