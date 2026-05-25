@@ -206,7 +206,7 @@
     <p class="hint">Every ticker the site tracks. Click any card to grade options on it.</p>
     <div class="tickers-controls">
       <div class="tickers-search-wrap">
-        <input type="search" id="tickers-search" class="tickers-search" placeholder="Search ticker…" autocomplete="off" />
+        <input type="search" id="tickers-search" class="tickers-search" placeholder="Search ticker…" autocomplete="off" aria-label="Search tickers" />
       </div>
       <div class="tickers-chips" id="tickers-chips">
         <button type="button" class="tickers-chip is-active" data-tickers-sector="">All <span class="tickers-chip-count">125</span></button>
@@ -858,6 +858,7 @@
         <input type="text" id="symbol-input" role="combobox"
                aria-expanded="false" aria-controls="symbol-listbox"
                aria-autocomplete="list"
+               aria-label="Search ticker or sector to grade a contract"
                placeholder="Search ticker or sector…"
                autocomplete="off" spellcheck="false">
         <button type="button" class="combo-clear" id="symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
@@ -1071,6 +1072,7 @@
         <input type="text" id="strat-symbol-input" role="combobox"
                aria-expanded="false" aria-controls="strat-symbol-listbox"
                aria-autocomplete="list"
+               aria-label="Search ticker or sector for strategies"
                placeholder="Search ticker or sector…"
                autocomplete="off" spellcheck="false">
         <button type="button" class="combo-clear" id="strat-symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
@@ -1351,7 +1353,7 @@
     <h2 id="cmd-palette-title" class="cmd-palette-srtitle">Command palette</h2>
     <div class="cmd-palette-input-wrap">
       <svg class="cmd-palette-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input type="text" id="cmd-palette-input" placeholder="Jump to ticker, narrative, or tab…" autocomplete="off" spellcheck="false" aria-controls="cmd-palette-results" aria-expanded="true" />
+      <input type="text" id="cmd-palette-input" placeholder="Jump to ticker, narrative, or tab…" autocomplete="off" spellcheck="false" aria-label="Jump to ticker, narrative, or tab" aria-controls="cmd-palette-results" aria-expanded="true" />
       <kbd class="cmd-palette-kbd">esc</kbd>
     </div>
     <ul id="cmd-palette-results" class="cmd-palette-results" role="listbox" aria-label="Command palette results"></ul>

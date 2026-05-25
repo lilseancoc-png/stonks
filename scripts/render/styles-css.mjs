@@ -517,15 +517,19 @@ main {
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
-  /* When the strip overflows horizontally, fade the trailing edge so
-     users see there's more to scroll. Pure CSS, no JS hooks. */
+  /* When the strip overflows horizontally, fade both edges so users see
+     there's more to scroll on either side. The previous version only faded
+     the right edge — but once you scroll, the right side is no longer the
+     "hidden" one. Fading both is pure-CSS and works without JS hooks. */
   mask-image: linear-gradient(to right,
-    black 0,
-    black calc(100% - 24px),
+    transparent 0,
+    black 32px,
+    black calc(100% - 32px),
     transparent 100%);
   -webkit-mask-image: linear-gradient(to right,
-    black 0,
-    black calc(100% - 24px),
+    transparent 0,
+    black 32px,
+    black calc(100% - 32px),
     transparent 100%);
 }
 .page-tabs::-webkit-scrollbar { display: none; }
@@ -1177,6 +1181,65 @@ main {
   content: "·";
   margin-right: 6px;
   color: var(--muted);
+}
+/* Collapsible watchlist strip — one row per industry, with the tickers
+   as compact chips. Replaces a stack of identical "no single narrative
+   driving X — these names are in scope" cards. */
+.narr-watchlists {
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.narr-watchlists > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.narr-watchlists > summary::-webkit-details-marker { display: none; }
+.narr-watchlists-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+}
+.narr-watchlists-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--muted);
+}
+.narr-watchlists-body {
+  margin-top: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.narr-watchlist-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding-bottom: var(--s-2);
+  border-bottom: 1px dashed var(--hairline);
+}
+.narr-watchlist-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.narr-watchlist-ind {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+  min-width: 160px;
+}
+.narr-watchlist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .narr-list { display: flex; flex-direction: column; gap: var(--s-3); }
 .narr-list:empty { display: none; }
@@ -3491,6 +3554,16 @@ main {
 .opt-exec-card.opt-exec-pos::before  { background: var(--pos); }
 .opt-exec-card.opt-exec-warn::before { background: var(--warn); }
 .opt-exec-card.opt-exec-fair::before { background: var(--muted); }
+.opt-exec-card.opt-exec-muted::before { background: var(--hairline); opacity: 0.55; }
+/* Demoted Execute-now card — shown when the contract above has hard fails.
+   Lower contrast so the green/red verdict above stays the headline; the
+   chart read is still visible but doesn't compete for the eye. */
+.opt-exec-card.opt-exec-demoted {
+  background: var(--surface-1);
+  box-shadow: none;
+  opacity: 0.82;
+}
+.opt-exec-card.opt-exec-demoted .opt-exec-subtitle { font-weight: 600; }
 .opt-exec-head {
   display: flex; align-items: center; gap: var(--s-3);
   margin-bottom: var(--s-2);
@@ -3516,6 +3589,12 @@ main {
   color: var(--muted);
   background: var(--surface-3);
   border-color: var(--hairline);
+}
+.opt-exec-verdict-muted {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--hairline);
+  font-weight: 600;
 }
 .opt-exec-headline { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .opt-exec-title {
@@ -4956,6 +5035,44 @@ main { padding-top: var(--s-2); }
   background: color-mix(in srgb, var(--neg) 8%, var(--surface));
 }
 .pick-driver-narrative { font-weight: 600; }
+
+/* Grouped driver rows — "For" (signals aligned with this pick's side) and
+   "Against" (signals pulling the other way). Stacks vertically; the label
+   chip sits inline at the start of each row so the eye groups chips by
+   stance instead of treating a bullish chip next to a bearish chip as the
+   same kind of evidence. */
+.pick-drivers-grouped {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.pick-drivers-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.pick-drivers-label {
+  font: 700 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  color: var(--muted);
+  background: var(--surface-3);
+  border: 1px solid var(--hairline);
+  margin-right: 2px;
+}
+.pick-drivers-for .pick-drivers-label {
+  color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 10%, transparent);
+  border-color: color-mix(in srgb, var(--pos) 35%, var(--hairline));
+}
+.pick-drivers-against .pick-drivers-label {
+  color: var(--neg);
+  background: color-mix(in srgb, var(--neg) 10%, transparent);
+  border-color: color-mix(in srgb, var(--neg) 35%, var(--hairline));
+}
 
 /* Suggested contract block — strike/expiry, quote, Greeks, breakeven, and
    a one-click jump into the grader pre-filled with the recommendation. */
