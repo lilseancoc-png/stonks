@@ -1301,15 +1301,25 @@ const GEOGRAPHIC_AXES_PRIORITY = [
 ];
 
 // Rollups are detected automatically by total-reconciliation against the
-// company's no-segment annual revenue (see findTotalRevenue) — no static
-// member lists needed. Some companies report both a category rollup
+// company's no-segment period revenue (see findTotalRevenueForPeriod) — no
+// static member lists needed. Some companies report both a category rollup
 // (e.g. NVDA "Data Center") AND its components on the same axis; the
 // reconciliation pass drops the rollup once the sum exceeds the truth.
 
 let _edgarLogCount = 0;
 
-async function fetchLatestAnnualFiling(cik, symbol) {
+// Returns the most recent periodic filings sorted by filingDate descending.
+// `forms` is the set of form types to include — 10-K/10-Q for US-GAAP filers,
+// 20-F/6-K for foreign private issuers. /A amendments are deprioritized
+// (kept only after their original counterparts) since they're often
+// cover-page / signature corrections with a stub instance document and no
+// revenue facts (e.g. TSLA's 10-K/A at ~6 KB). `limit` caps the returned
+// list — we typically want the 2-3 most recent to extract current quarter +
+// previous quarter segment data.
+async function fetchRecentFilings(cik, symbol, forms, limit = 3) {
   const url = `https://data.sec.gov/submissions/CIK${cik}.json`;
+  const formSet = new Set(forms);
+  const amendmentForms = new Set(forms.map((f) => `${f}/A`));
   try {
     const res = await fetch(url, {
       headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
@@ -1320,19 +1330,13 @@ async function fetchLatestAnnualFiling(cik, symbol) {
         console.log(`    ⚠ EDGAR ${symbol} submissions HTTP ${res.status}`);
         _edgarLogCount++;
       }
-      return null;
+      return [];
     }
     const data = await res.json();
     const recent = data?.filings?.recent;
-    if (!Array.isArray(recent?.form)) return null;
-    // Prefer the original annual report over /A amendments. Amendments are
-    // often just cover-page or signature corrections with a tiny instance
-    // document and no revenue facts (e.g. TSLA's recent 10-K/A is ~6 KB).
-    // 10-K covers US-GAAP filers; 20-F covers foreign private issuers
-    // (NVO/ASML/TSM/BABA/SPOT/UBS/TSEM in this universe), which mostly
-    // file IFRS XBRL.
-    let original = null;
-    let amendment = null;
+    if (!Array.isArray(recent?.form)) return [];
+    const originals = [];
+    const amendments = [];
     for (let i = 0; i < recent.form.length; i++) {
       const form = recent.form[i];
       const entry = {
@@ -1341,16 +1345,22 @@ async function fetchLatestAnnualFiling(cik, symbol) {
         filingDate: recent.filingDate[i],
         form,
       };
-      if ((form === "10-K" || form === "20-F") && !original) original = entry;
-      else if ((form === "10-K/A" || form === "20-F/A") && !amendment) amendment = entry;
+      if (formSet.has(form)) originals.push(entry);
+      else if (amendmentForms.has(form)) amendments.push(entry);
     }
-    return original || amendment || null;
+    // The `recent` arrays are already chronological-descending in EDGAR
+    // submissions JSON, but sort defensively. Originals first, then any
+    // amendments that didn't have an original counterpart in the window.
+    const sortDesc = (a, b) => (a.filingDate < b.filingDate ? 1 : a.filingDate > b.filingDate ? -1 : 0);
+    originals.sort(sortDesc);
+    amendments.sort(sortDesc);
+    return [...originals, ...amendments].slice(0, limit);
   } catch (err) {
     if (_edgarLogCount < 5) {
       console.log(`    ⚠ EDGAR ${symbol} submissions ${err.message}`);
       _edgarLogCount++;
     }
-    return null;
+    return [];
   }
 }
 
@@ -1541,25 +1551,41 @@ function parseXbrlRevenueFacts(xml) {
   return { contexts, facts };
 }
 
-function isAnnualPeriod(ctx) {
-  if (!ctx?.periodStart || !ctx?.periodEnd) return false;
+function periodDays(ctx) {
+  if (!ctx?.periodStart || !ctx?.periodEnd) return null;
   const start = new Date(ctx.periodStart).getTime();
   const end = new Date(ctx.periodEnd).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
-  const days = (end - start) / 86400000;
-  return days >= 350 && days <= 380;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return (end - start) / 86400000;
 }
 
-function findTotalRevenue(facts, contexts) {
-  // The company's true annual revenue, used to detect rollups. Prefer
+function isAnnualPeriod(ctx) {
+  const d = periodDays(ctx);
+  return d !== null && d >= 350 && d <= 380;
+}
+
+// 13-week quarter ≈ 91 days. Apple's 13-week fiscal quarters drift to
+// 84-98 depending on calendar alignment; calendar-quarter filers land
+// at 89-92. The 80-100 range covers both without bleeding into 6-month
+// half-year periods.
+function isQuarterlyPeriod(ctx) {
+  const d = periodDays(ctx);
+  return d !== null && d >= 80 && d <= 100;
+}
+
+function findTotalRevenueForPeriod(facts, contexts, periodEnd, periodPredicate) {
+  // The company's true period revenue, used to detect rollups. Prefer
   // facts with NO segment dimensions; fall back to the
   // ConsolidationItemsAxis:OperatingSegmentsMember total (commonly used
-  // when no segment-less fact exists, e.g. NVDA).
+  // when no segment-less fact exists, e.g. NVDA). Matched to a specific
+  // periodEnd so quarterly extraction reconciles against the quarter's
+  // total, not the YTD total.
   let noSeg = 0;
   let consolidated = 0;
   for (const f of facts) {
     const ctx = contexts.get(f.contextRef);
-    if (!ctx || !isAnnualPeriod(ctx)) continue;
+    if (!ctx || ctx.periodEnd !== periodEnd) continue;
+    if (!periodPredicate(ctx)) continue;
     const v = Math.abs(f.value);
     if (!Number.isFinite(v) || v <= 0) continue;
     if (ctx.dims.length === 0) {
@@ -1696,7 +1722,14 @@ function isSegmentMarkerDim(dim) {
   );
 }
 
-function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
+// Returns a Map<periodEnd, Map<memberName, value>> — every eligible period
+// gets its own segment breakdown so callers can pick the current quarter,
+// the previous quarter, or compare across periods. Period eligibility is
+// controlled by `periodPredicate` (isAnnualPeriod / isQuarterlyPeriod).
+// `totalsByPeriod` is a Map<periodEnd, totalRevenue> used for per-period
+// rollup reconciliation — quarterly totals differ from YTD totals, so
+// matching is per-period rather than against a single annual baseline.
+function extractAxisBreakdownByPeriod(facts, contexts, axis, periodPredicate, totalsByPeriod) {
   // Three candidate sources, in order of safety:
   //
   //   1. Pure 1-dim contexts on the target axis (always safe).
@@ -1718,23 +1751,15 @@ function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
   const crossCutCandidates = [];  // source 3 candidates, pending filter
   for (const f of facts) {
     const ctx = contexts.get(f.contextRef);
-    if (!ctx || !isAnnualPeriod(ctx)) continue;
+    if (!ctx || !periodPredicate(ctx)) continue;
     const targetDims = ctx.dims.filter((d) => d.axis === axis);
     if (targetDims.length !== 1) continue;
     const others = ctx.dims.filter((d) => d.axis !== axis);
     if (others.length === 0) {
-      // Pure 1-dim context on the target axis.
       primary.push({ member: targetDims[0].member, value: Math.abs(f.value), periodEnd: ctx.periodEnd });
     } else if (others.every(isSegmentMarkerDim)) {
-      // Target axis plus only marker companion dims (any count) — strip
-      // the markers and treat as 1-dim. Handles QCOM/AMD/INTC (2-dim with
-      // ConsolidationItems marker) and SHOP (3-dim with two
-      // ConcentrationRisk markers).
       primary.push({ member: targetDims[0].member, value: Math.abs(f.value), periodEnd: ctx.periodEnd });
     } else if (ctx.dims.length === 2) {
-      // 2-dim cross-cut with a non-marker companion. Held aside for the
-      // collapsed-cross-cut fallback (only used if `primary` came up
-      // short).
       const companion = others[0];
       crossCutCandidates.push({
         member: targetDims[0].member,
@@ -1749,11 +1774,22 @@ function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
   // Cross-cut fallback only kicks in if the primary sources came up empty
   // (or with too few members). Group by companion axis and only keep
   // groups where the companion has a SINGLE distinct member — those are
-  // safe to collapse into a target-axis-only breakdown.
-  let candidates = primary;
-  if (primary.length === 0 || new Set(primary.map((c) => c.member)).size < 2) {
+  // safe to collapse into a target-axis-only breakdown. Apply per-period:
+  // some companies (NFLX) report cross-cuts in both 10-Q and 10-K, others
+  // report different structures across filings.
+  const byPeriodRaw = new Map();
+  const allPrimaryEnds = new Set(primary.map((c) => c.periodEnd));
+  for (const end of allPrimaryEnds) {
+    byPeriodRaw.set(end, primary.filter((c) => c.periodEnd === end));
+  }
+  // For periods where primary is empty or thin, try the cross-cut fallback.
+  const crossEnds = new Set(crossCutCandidates.map((c) => c.periodEnd));
+  for (const end of crossEnds) {
+    const existing = byPeriodRaw.get(end) || [];
+    if (existing.length && new Set(existing.map((c) => c.member)).size >= 2) continue;
+    const rowsAtEnd = crossCutCandidates.filter((c) => c.periodEnd === end);
     const byCompanionAxis = new Map();
-    for (const c of crossCutCandidates) {
+    for (const c of rowsAtEnd) {
       if (!byCompanionAxis.has(c.companionAxis)) byCompanionAxis.set(c.companionAxis, []);
       byCompanionAxis.get(c.companionAxis).push(c);
     }
@@ -1761,40 +1797,57 @@ function extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue) {
       const companionMembers = new Set(rows.map((r) => r.companionMember));
       if (companionMembers.size !== 1) continue;
       if (new Set(rows.map((r) => r.member)).size < 2) continue;
-      // Found a safe collapsed cross-cut; prefer it over the thin primary
-      // pool (if any) since it has more members.
-      candidates = rows.map(({ member, value, periodEnd }) => ({ member, value, periodEnd }));
+      byPeriodRaw.set(end, rows.map(({ member, value, periodEnd }) => ({ member, value, periodEnd })));
       break;
     }
   }
-  if (!candidates.length) return null;
 
-  const latestEnd = [...new Set(candidates.map((c) => c.periodEnd))].sort().pop();
-  const rows = candidates.filter((c) => c.periodEnd === latestEnd);
-
-  // A member can repeat across multiple revenue concepts — keep the larger.
-  const byMember = new Map();
-  for (const r of rows) {
-    const prev = byMember.get(r.member) || 0;
-    if (r.value > prev) byMember.set(r.member, r.value);
-  }
-
-  // Drop rollups by reconciling against the company's true total revenue.
-  let reconciled = reconcileToTotal(byMember, totalRevenue);
-  // Then drop any generic-name member that still dominates the total —
-  // those are catch-all rollups that mix granularity with the rest of the
-  // axis (LLY's `ProductMember` paired with specific drug names).
-  reconciled = dropGenericRollups(reconciled, totalRevenue);
+  if (!byPeriodRaw.size) return null;
 
   const out = new Map();
-  for (const [k, v] of reconciled) {
-    if (!Number.isFinite(v) || v <= 0) continue;
-    out.set(formatMemberName(k), v);
+  for (const [periodEnd, rows] of byPeriodRaw) {
+    // A member can repeat across multiple revenue concepts — keep the larger.
+    const byMember = new Map();
+    for (const r of rows) {
+      const prev = byMember.get(r.member) || 0;
+      if (r.value > prev) byMember.set(r.member, r.value);
+    }
+    const totalRevenue = totalsByPeriod ? totalsByPeriod.get(periodEnd) : null;
+    let reconciled = reconcileToTotal(byMember, totalRevenue);
+    reconciled = dropGenericRollups(reconciled, totalRevenue);
+    const periodMap = new Map();
+    for (const [k, v] of reconciled) {
+      if (!Number.isFinite(v) || v <= 0) continue;
+      periodMap.set(formatMemberName(k), v);
+    }
+    if (periodMap.size) out.set(periodEnd, periodMap);
+  }
+  return out.size ? out : null;
+}
+
+// Builds Map<periodEnd, totalRevenue> for every period matching the
+// predicate — needed for per-period rollup reconciliation in
+// extractAxisBreakdownByPeriod.
+function buildTotalsByPeriod(facts, contexts, periodPredicate) {
+  const ends = new Set();
+  for (const f of facts) {
+    const ctx = contexts.get(f.contextRef);
+    if (ctx && periodPredicate(ctx)) ends.add(ctx.periodEnd);
+  }
+  const out = new Map();
+  for (const end of ends) {
+    const total = findTotalRevenueForPeriod(facts, contexts, end, periodPredicate);
+    if (total) out.set(end, total);
   }
   return out;
 }
 
-function pickBestAxisBreakdown(facts, contexts, priorityList, totalRevenue, opts = {}) {
+// Per-period variant: picks the best axis for each period independently.
+// Within a single XBRL instance the axis priority winner is normally
+// stable across periods (a 10-Q reports the same product breakdown for
+// both current quarter and YTD), so the same axis usually wins per period.
+// Returns Map<periodEnd, Map<memberName, value>> or null.
+function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPredicate, totalsByPeriod, opts = {}) {
   // When the caller wants to avoid geographic-looking breakdowns in the
   // product slot (Apple's reportable segments ARE the five geographies),
   // keep the first geographic match as a last-resort fallback and prefer
@@ -1805,9 +1858,17 @@ function pickBestAxisBreakdown(facts, contexts, priorityList, totalRevenue, opts
   // showing Walmart US / International / Sam's Club is better than nothing.
   let demoted = null;
   for (const axis of priorityList) {
-    const result = extractSingleAxisBreakdown(facts, contexts, axis, totalRevenue);
-    if (!result || result.size < 2) continue;
-    if (opts.rejectGeographic && looksGeographic([...result.keys()])) {
+    const result = extractAxisBreakdownByPeriod(facts, contexts, axis, periodPredicate, totalsByPeriod);
+    if (!result || result.size === 0) continue;
+    // Validate: at least one period should yield ≥2 members.
+    let hasValidPeriod = false;
+    let allGeographic = true;
+    for (const [, periodMap] of result) {
+      if (periodMap.size >= 2) hasValidPeriod = true;
+      if (!looksGeographic([...periodMap.keys()])) allGeographic = false;
+    }
+    if (!hasValidPeriod) continue;
+    if (opts.rejectGeographic && allGeographic) {
       if (!demoted) demoted = result;
       continue;
     }
@@ -1816,32 +1877,70 @@ function pickBestAxisBreakdown(facts, contexts, priorityList, totalRevenue, opts
   return demoted;
 }
 
-function consolidateSegments(segMap) {
-  if (!segMap || segMap.size === 0) return null;
-  const entries = [...segMap.entries()]
+// Bumped whenever the XBRL parser changes shape — forces a re-parse of
+// previously-cached accessions on the next bake even if the underlying
+// 10-K hasn't been refiled. Bump when modifying axis priority, rollup
+// detection, member-name formatting, or anything else that affects
+// `product` / `geographic` output for the SAME source filing.
+//   v13: QoQ comparison. Stores current + previous period breakdowns
+//        with per-slice $ and % delta. Falls back to YoY annual when
+//        two quarterly periods aren't available (foreign filers, etc).
+const SEGMENT_PARSER_VERSION = 13;
+
+// Forms we'll try to extract segment data from. 10-K + 10-Q cover
+// US-GAAP filers; 20-F + 6-K cover foreign private issuers (NVO, ASML,
+// TSM, BABA, SPOT, UBS, TSEM in this universe). 6-Ks rarely include
+// segment XBRL but they're cheap to skip when empty.
+const SEGMENT_FILING_FORMS = ["10-K", "10-Q", "20-F", "6-K"];
+
+// Merge segment maps across multiple XBRL instances. Two filings may
+// report the same period (Q3 shows up as "current" in the Q3 10-Q and
+// again as "prior-year comparative" in the next year's Q3 10-Q); prefer
+// the value from the most recently filed report, which carries any
+// restatements made in the meantime.
+function mergeBreakdownsByPeriod(target, source, sourceFilingDate, periodSources) {
+  if (!source) return;
+  for (const [periodEnd, periodMap] of source) {
+    const existing = periodSources.get(periodEnd);
+    if (existing && existing > sourceFilingDate) continue;
+    target.set(periodEnd, periodMap);
+    periodSources.set(periodEnd, sourceFilingDate);
+  }
+}
+
+function buildSegmentSlices(currentMap, previousMap) {
+  if (!currentMap) return null;
+  const entries = [...currentMap.entries()]
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value);
   const total = entries.reduce((s, e) => s + e.value, 0);
   if (!total) return null;
   const significant = [];
   let otherSum = 0;
+  let otherPrevSum = 0;
+  const prev = previousMap || new Map();
   for (const e of entries) {
+    const prevValue = prev.get(e.name);
     if (significant.length < 8 && e.value / total >= 0.02) {
-      significant.push(e);
+      significant.push({
+        name: e.name,
+        value: e.value,
+        previousValue: Number.isFinite(prevValue) && prevValue > 0 ? prevValue : null,
+      });
     } else {
       otherSum += e.value;
+      if (Number.isFinite(prevValue) && prevValue > 0) otherPrevSum += prevValue;
     }
   }
-  if (otherSum > 0) significant.push({ name: "Other", value: otherSum });
+  if (otherSum > 0) {
+    significant.push({
+      name: "Other",
+      value: otherSum,
+      previousValue: otherPrevSum > 0 ? otherPrevSum : null,
+    });
+  }
   return significant;
 }
-
-// Bumped whenever the XBRL parser changes shape — forces a re-parse of
-// previously-cached accessions on the next bake even if the underlying
-// 10-K hasn't been refiled. Bump when modifying axis priority, rollup
-// detection, member-name formatting, or anything else that affects
-// `product` / `geographic` output for the SAME source filing.
-const SEGMENT_PARSER_VERSION = 12;
 
 export async function fetchRevenueSegments(symbol) {
   if (SECTORS[symbol] === "ETF") return null;
@@ -1858,10 +1957,7 @@ export async function fetchRevenueSegments(symbol) {
   if (cacheValid && cached.fetchedDate === today) return cached;
 
   // Transient SEC failures (5xx, timeouts, rate limits) must NOT wipe
-  // previously-good segment data. `writeChainFiles` regenerates every
-  // per-ticker JSON each bake, so returning null here would erase the
-  // donut chart from the UI until the next successful bake. Always
-  // fall back to the cached value when network or parsing fails.
+  // previously-good segment data. Always fall back to cached on errors.
   const fallback = () => (cacheValid ? cached : null);
 
   const cikMap = await fetchCikMap();
@@ -1869,79 +1965,224 @@ export async function fetchRevenueSegments(symbol) {
   const cik = cikMap.get(symbol);
   if (!cik) return fallback();
 
-  const filing = await fetchLatestAnnualFiling(cik, symbol);
-  if (!filing) return fallback();
+  const filings = await fetchRecentFilings(cik, symbol, SEGMENT_FILING_FORMS, 3);
+  if (!filings.length) return fallback();
 
-  // 10-Ks file once a year but the bake runs ~3x/day. If we've already
-  // parsed this exact accession with the current parser, skip the
-  // ~10 MB XBRL re-download and just bump fetchedDate.
-  if (cacheValid && cached.accession === filing.accession) {
+  // Skip the XBRL re-download when the same filing set has already been
+  // parsed today. The bake runs ~3x/day but new 10-Q/10-K filings only
+  // drop quarterly, so most bakes hit this path.
+  const targetAccessions = filings.map((f) => f.accession).join("|");
+  if (cacheValid && cached.sourceAccessions === targetAccessions) {
     return { ...cached, fetchedDate: today };
   }
 
-  const xml = await fetchEdgarXbrlInstance(cik, filing.accession, symbol);
-  if (!xml) return fallback();
-
-  let parsed;
-  try {
-    parsed = parseXbrlRevenueFacts(xml);
-  } catch (err) {
-    console.log(`    ⚠ ${symbol} XBRL parse failed: ${err.message}`);
-    return fallback();
-  }
-  if (!parsed || !parsed.facts.length) {
-    if (_edgarLogCount < 5) {
-      console.log(`    [edgar] ${symbol} no revenue facts in XBRL instance`);
-      _edgarLogCount++;
+  // Fetch and parse each XBRL instance. Filings the SEC fails on get
+  // skipped silently — having 2 of 3 still gives us comparison data.
+  const parsedFilings = [];
+  for (const filing of filings) {
+    const xml = await fetchEdgarXbrlInstance(cik, filing.accession, symbol);
+    if (!xml) continue;
+    let parsed;
+    try {
+      parsed = parseXbrlRevenueFacts(xml);
+    } catch (err) {
+      console.log(`    ⚠ ${symbol} XBRL parse failed (${filing.accession}): ${err.message}`);
+      continue;
     }
-    return fallback();
+    if (!parsed || !parsed.facts.length) continue;
+    parsedFilings.push({ filing, parsed });
+  }
+  if (!parsedFilings.length) return fallback();
+
+  // Build per-period maps for quarterly and annual breakdowns separately,
+  // merging across filings. A later filing's value for a given periodEnd
+  // overrides an earlier one (newer filings may carry restated numbers).
+  const productByPeriodQ = new Map();
+  const geoByPeriodQ = new Map();
+  const productByPeriodA = new Map();
+  const geoByPeriodA = new Map();
+  const periodSourcesProductQ = new Map();
+  const periodSourcesGeoQ = new Map();
+  const periodSourcesProductA = new Map();
+  const periodSourcesGeoA = new Map();
+  // Separate meta per period type — same periodEnd can correspond to a
+  // 3-month quarter context AND a 6/9-month YTD context AND an annual
+  // context in the same filing. The wrong one would corrupt the displayed
+  // day count.
+  const periodMetaQ = new Map();
+  const periodMetaA = new Map();
+
+  for (const { filing, parsed } of parsedFilings) {
+    const totalsQ = buildTotalsByPeriod(parsed.facts, parsed.contexts, isQuarterlyPeriod);
+    const totalsA = buildTotalsByPeriod(parsed.facts, parsed.contexts, isAnnualPeriod);
+    const prodQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isQuarterlyPeriod, totalsQ, { rejectGeographic: true });
+    const geoQ = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isQuarterlyPeriod, totalsQ);
+    const prodA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, isAnnualPeriod, totalsA, { rejectGeographic: true });
+    const geoA = pickBestAxisBreakdownByPeriod(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, isAnnualPeriod, totalsA);
+    mergeBreakdownsByPeriod(productByPeriodQ, prodQ, filing.filingDate, periodSourcesProductQ);
+    mergeBreakdownsByPeriod(geoByPeriodQ, geoQ, filing.filingDate, periodSourcesGeoQ);
+    mergeBreakdownsByPeriod(productByPeriodA, prodA, filing.filingDate, periodSourcesProductA);
+    mergeBreakdownsByPeriod(geoByPeriodA, geoA, filing.filingDate, periodSourcesGeoA);
+    for (const [, ctx] of parsed.contexts) {
+      if (!ctx.periodEnd) continue;
+      const days = periodDays(ctx);
+      if (days == null) continue;
+      const rounded = Math.round(days);
+      if (isQuarterlyPeriod(ctx) && !periodMetaQ.has(ctx.periodEnd)) {
+        periodMetaQ.set(ctx.periodEnd, { periodStart: ctx.periodStart, days: rounded });
+      }
+      if (isAnnualPeriod(ctx) && !periodMetaA.has(ctx.periodEnd)) {
+        periodMetaA.set(ctx.periodEnd, { periodStart: ctx.periodStart, days: rounded });
+      }
+    }
   }
 
-  const totalRevenue = findTotalRevenue(parsed.facts, parsed.contexts);
-  const productMap = pickBestAxisBreakdown(parsed.facts, parsed.contexts, PRODUCT_AXES_PRIORITY, totalRevenue, { rejectGeographic: true });
-  const geoMap = pickBestAxisBreakdown(parsed.facts, parsed.contexts, GEOGRAPHIC_AXES_PRIORITY, totalRevenue);
-  const product = consolidateSegments(productMap);
-  const geographic = consolidateSegments(geoMap);
+  // Pick the current (most recent) period plus the most sensible "prior"
+  // period to compare against. Preference order:
+  //   1. True QoQ: ~90 days back (80-100 day window) — quarterly companies
+  //      whose immediately prior 10-Q is in our window.
+  //   2. YoY-quarter: ~365 days back (340-385 day window) — works when the
+  //      immediately prior quarter only lives in the 10-K (which doesn't
+  //      disaggregate Q4 as a standalone fact). The current 10-Q's
+  //      comparative prior-year-same-quarter data always provides this.
+  //   3. Annual YoY: similar logic — pick the period closest to 365 days
+  //      back (350-380 day annual window) since callers also pass us
+  //      annual maps.
+  //   4. Fallback to next-most-recent period.
+  // Returning a 6-month-back period as "prior" would silently mislabel a
+  // half-year delta as QoQ — explicitly disallow that.
+  function pickTwoLatest(periodMap) {
+    if (!periodMap || periodMap.size === 0) return null;
+    const sortedEnds = [...periodMap.keys()].sort();
+    const cur = sortedEnds[sortedEnds.length - 1];
+    if (sortedEnds.length < 2) {
+      return { current: periodMap.get(cur), previous: null, currentEnd: cur, previousEnd: null };
+    }
+    const curMs = new Date(cur).getTime();
+    const candidates = sortedEnds.slice(0, -1).map((end) => ({
+      end,
+      days: (curMs - new Date(end).getTime()) / 86400000,
+    }));
+    const qoq = candidates.filter((c) => c.days >= 80 && c.days <= 100);
+    const yoyQ = candidates.filter((c) => c.days >= 340 && c.days <= 385);
+    const yoyA = candidates.filter((c) => c.days >= 350 && c.days <= 380);
+    let prevEnd = null;
+    if (qoq.length) {
+      qoq.sort((a, b) => Math.abs(a.days - 91) - Math.abs(b.days - 91));
+      prevEnd = qoq[0].end;
+    } else if (yoyQ.length) {
+      yoyQ.sort((a, b) => Math.abs(a.days - 365) - Math.abs(b.days - 365));
+      prevEnd = yoyQ[0].end;
+    } else if (yoyA.length) {
+      yoyA.sort((a, b) => Math.abs(a.days - 365) - Math.abs(b.days - 365));
+      prevEnd = yoyA[0].end;
+    }
+    return {
+      current: periodMap.get(cur),
+      previous: prevEnd ? periodMap.get(prevEnd) : null,
+      currentEnd: cur,
+      previousEnd: prevEnd,
+    };
+  }
 
-  if (!product && !geographic) {
+  function periodLabel(endIso, type) {
+    if (!endIso) return null;
+    const d = new Date(endIso);
+    if (Number.isNaN(d.getTime())) return endIso;
+    if (type === "annual") {
+      return `FY ${d.getUTCFullYear()}`;
+    }
+    // Calendar-quarter labels are simpler than tracking each issuer's
+    // fiscal year end. Apple's fiscal Q2 (ending late March) renders as
+    // calendar "Q1 2026" — users reading "this Q vs last Q" think in
+    // calendar quarters anyway, and the period end date is also shown.
+    const m = d.getUTCMonth();
+    const q = Math.floor(m / 3) + 1;
+    return `Q${q} ${d.getUTCFullYear()}`;
+  }
+
+  // Per-axis selection: pick quarterly if 2+ distinct quarterly periods
+  // exist for that axis; otherwise fall back to annual. Companies often
+  // disclose product breakdowns quarterly while reserving geographic
+  // breakdowns for annual 10-Ks (Apple's pattern), so each axis picks
+  // its own period type independently.
+  function pickAxis(quarterlyMap, annualMap) {
+    const useQuarterly = quarterlyMap.size >= 2;
+    const map = useQuarterly ? quarterlyMap : annualMap;
+    const meta = useQuarterly ? periodMetaQ : periodMetaA;
+    const type = useQuarterly ? "quarter" : "annual";
+    const pick = pickTwoLatest(map);
+    if (!pick) return null;
+    const slices = buildSegmentSlices(pick.current, pick.previous);
+    if (!slices) return null;
+    return {
+      slices,
+      periodType: type,
+      currentPeriod: pick.currentEnd ? {
+        endDate: pick.currentEnd,
+        label: periodLabel(pick.currentEnd, type),
+        days: meta.get(pick.currentEnd)?.days || null,
+      } : null,
+      previousPeriod: pick.previousEnd ? {
+        endDate: pick.previousEnd,
+        label: periodLabel(pick.previousEnd, type),
+        days: meta.get(pick.previousEnd)?.days || null,
+      } : null,
+    };
+  }
+
+  const productAxis = pickAxis(productByPeriodQ, productByPeriodA);
+  const geographicAxis = pickAxis(geoByPeriodQ, geoByPeriodA);
+
+  if (!productAxis && !geographicAxis) {
     if (_edgarLogCount < 5) {
       console.log(
-        `    [edgar] ${symbol} ${parsed.facts.length} revenue facts, but no product/geo axes (accession ${filing.accession})`
+        `    [edgar] ${symbol} no product/geo axes across ${parsedFilings.length} filings (latest accession ${filings[0].accession})`
       );
       _edgarLogCount++;
     }
     return fallback();
   }
 
-  // Pick the dominant currency among annual revenue facts. Almost every
-  // filing reports in a single currency (NVO=DKK, ASML=EUR, MSFT=USD);
-  // tallying gives us a safe default when stray contexts in other units
-  // sneak in.
+  // Resolve a representative currency from all parsed facts (dominant ISO).
   const currencyCounts = new Map();
-  for (const f of parsed.facts) {
-    if (!f.currency) continue;
-    currencyCounts.set(f.currency, (currencyCounts.get(f.currency) || 0) + 1);
+  for (const { parsed } of parsedFilings) {
+    for (const f of parsed.facts) {
+      if (!f.currency) continue;
+      currencyCounts.set(f.currency, (currencyCounts.get(f.currency) || 0) + 1);
+    }
   }
-  let currency = null;
-  let bestCount = 0;
-  for (const [cur, cnt] of currencyCounts) {
-    if (cnt > bestCount) { bestCount = cnt; currency = cur; }
+  let cur = null;
+  let curBest = 0;
+  for (const [c, n] of currencyCounts) {
+    if (n > curBest) { curBest = n; cur = c; }
   }
 
   if (_edgarLogCount < 5) {
-    console.log(
-      `    [edgar] ${symbol} ✓ product=${product?.length || 0} geo=${geographic?.length || 0} cur=${currency || "?"} accession=${filing.accession}`
-    );
+    const pSum = productAxis ? `${productAxis.periodType}:${productAxis.slices.length} (${productAxis.currentPeriod?.endDate}↔${productAxis.previousPeriod?.endDate || "—"})` : "—";
+    const gSum = geographicAxis ? `${geographicAxis.periodType}:${geographicAxis.slices.length} (${geographicAxis.currentPeriod?.endDate}↔${geographicAxis.previousPeriod?.endDate || "—"})` : "—";
+    console.log(`    [edgar] ${symbol} ✓ product=${pSum} geo=${gSum} cur=${cur || "?"}`);
     _edgarLogCount++;
   }
 
   return {
-    product,
-    geographic,
-    currency,
+    product: productAxis?.slices || null,
+    geographic: geographicAxis?.slices || null,
+    productPeriod: productAxis ? {
+      periodType: productAxis.periodType,
+      currentPeriod: productAxis.currentPeriod,
+      previousPeriod: productAxis.previousPeriod,
+    } : null,
+    geographicPeriod: geographicAxis ? {
+      periodType: geographicAxis.periodType,
+      currentPeriod: geographicAxis.currentPeriod,
+      previousPeriod: geographicAxis.previousPeriod,
+    } : null,
+    currency: cur,
     fetchedDate: today,
-    accession: filing.accession,
-    filingDate: filing.filingDate,
+    sourceAccessions: targetAccessions,
+    accession: filings[0].accession,
+    filingDate: filings[0].filingDate,
     parserVersion: SEGMENT_PARSER_VERSION,
   };
 }

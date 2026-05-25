@@ -3323,6 +3323,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return s;
   }
 
+  // Format a signed delta with sign prefix and big-dollar suffix. Returns
+  // null when delta is null/NaN. Zero shows as "$0" with no sign.
+  function fmtSignedBig(delta, fmtBig){
+    if (delta == null || !isFinite(delta)) return null;
+    var abs = Math.abs(delta);
+    var s = fmtBig(abs);
+    if (s == null) return null;
+    if (delta > 0) return '+' + s;
+    if (delta < 0) return '−' + s;
+    return s;
+  }
+  function fmtSignedPct(pct){
+    if (pct == null || !isFinite(pct)) return null;
+    var v = pct * 100;
+    var fixed = Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1);
+    if (v > 0) return '+' + fixed + '%';
+    if (v < 0) return '−' + Math.abs(v).toFixed(Math.abs(v) >= 100 ? 0 : 1) + '%';
+    return '0%';
+  }
+  function deltaTone(delta){
+    if (delta == null || !isFinite(delta) || delta === 0) return 'flat';
+    return delta > 0 ? 'up' : 'down';
+  }
+
   function renderDonutChart(opts){
     var box = $(opts.boxId);
     if (!box) return;
@@ -3366,27 +3390,73 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
     var fmtBig = opts.formatValue || fmtBigDollars;
     var centerLabel = fmtBig(total);
+
+    // Whole-donut delta header — sum of all previousValues we have, so the
+    // top of the chart anchors the comparison in one number.
+    var prevTotal = 0;
+    var prevTotalHits = 0;
+    for (var pi = 0; pi < slices.length; pi++){
+      var pv = slices[pi].previousValue;
+      if (pv != null && isFinite(pv) && pv > 0){ prevTotal += pv; prevTotalHits++; }
+    }
+    var hasComparison = prevTotalHits > 0;
+    var totalDelta = hasComparison ? (total - prevTotal) : null;
+    var totalPct = hasComparison && prevTotal > 0 ? (totalDelta / prevTotal) : null;
+
     var svg = '<svg class="opt-fund-seg-svg" viewBox="0 0 ' + W + ' ' + W + '" width="180" height="180">' +
       paths +
       '<text class="opt-fund-seg-center" x="' + CX + '" y="' + (CY - 2) + '" dominant-baseline="auto">' + escapeHtml(centerLabel) + '</text>' +
       '<text class="opt-fund-seg-center-sub" x="' + CX + '" y="' + (CY + 12) + '" dominant-baseline="auto">Total</text>' +
       '</svg>';
 
+    var subtitle = '';
+    if (opts.subtitle){
+      subtitle += '<div class="opt-fund-seg-sub">' + escapeHtml(opts.subtitle) + '</div>';
+    }
+    if (hasComparison){
+      var dollarStr = fmtSignedBig(totalDelta, fmtBig);
+      var pctStr = fmtSignedPct(totalPct);
+      var parts = [];
+      if (dollarStr) parts.push(dollarStr);
+      if (pctStr) parts.push('(' + pctStr + ')');
+      if (parts.length){
+        subtitle += '<div class="opt-fund-seg-headline tone-' + deltaTone(totalDelta) + '">' +
+          escapeHtml(parts.join(' ')) + '</div>';
+      }
+    }
+
     var legend = '<div class="opt-fund-seg-legend">';
     for (var j = 0; j < slices.length; j++){
       var pct = ((slices[j].value / total) * 100).toFixed(1);
       var lCol = SEG_COLORS[j % SEG_COLORS.length];
+      var prev = slices[j].previousValue;
+      var hasPrev = prev != null && isFinite(prev) && prev > 0;
+      var dPct = hasPrev ? ((slices[j].value - prev) / prev) : null;
+      var deltaHtml = '';
+      if (hasPrev){
+        var ps = fmtSignedPct(dPct);
+        if (ps != null){
+          deltaHtml = '<span class="opt-fund-seg-leg-delta tone-' + deltaTone(slices[j].value - prev) + '">' +
+            escapeHtml(ps) + '</span>';
+        }
+      } else if (hasComparison){
+        deltaHtml = '<span class="opt-fund-seg-leg-delta tone-new" title="No matching prior-period segment">NEW</span>';
+      }
       legend += '<div class="opt-fund-seg-leg-item" data-idx="' + j + '">' +
         '<span class="opt-fund-seg-leg-dot" style="background:' + lCol + '"></span>' +
         '<span>' + escapeHtml(prettifySegmentName(slices[j].name)) + '</span>' +
         '<span class="opt-fund-seg-leg-pct">' + pct + '%</span>' +
+        deltaHtml +
       '</div>';
     }
     legend += '</div>';
 
     var tip = '<div class="opt-fund-seg-tip" hidden></div>';
 
-    box.innerHTML = '<div class="opt-fund-seg-title">' + escapeHtml(opts.title) + '</div>' + tip + svg + legend;
+    box.innerHTML =
+      '<div class="opt-fund-seg-title">' + escapeHtml(opts.title) + '</div>' +
+      subtitle +
+      tip + svg + legend;
 
     var tipEl = box.querySelector('.opt-fund-seg-tip');
     var svgEl = box.querySelector('svg');
@@ -3405,8 +3475,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
       var sl = slices[idx];
       var pctStr = ((sl.value / total) * 100).toFixed(1) + '%';
-      tipEl.innerHTML = '<span class="opt-fund-seg-tip-name">' + escapeHtml(prettifySegmentName(sl.name)) + '</span>' +
-        '<span class="opt-fund-seg-tip-val">' + fmtBig(sl.value) + ' (' + pctStr + ')</span>';
+      var name = '<span class="opt-fund-seg-tip-name">' + escapeHtml(prettifySegmentName(sl.name)) + '</span>';
+      var lines = '<div class="opt-fund-seg-tip-row"><span class="opt-fund-seg-tip-k">Current</span>' +
+        '<span class="opt-fund-seg-tip-val">' + escapeHtml(fmtBig(sl.value) + ' (' + pctStr + ')') + '</span></div>';
+      var prevV = sl.previousValue;
+      if (prevV != null && isFinite(prevV) && prevV > 0){
+        var delta = sl.value - prevV;
+        var dpct = delta / prevV;
+        var dStr = fmtSignedBig(delta, fmtBig);
+        var ppStr = fmtSignedPct(dpct);
+        lines += '<div class="opt-fund-seg-tip-row"><span class="opt-fund-seg-tip-k">Prior</span>' +
+          '<span class="opt-fund-seg-tip-val">' + escapeHtml(fmtBig(prevV)) + '</span></div>';
+        lines += '<div class="opt-fund-seg-tip-row tone-' + deltaTone(delta) + '">' +
+          '<span class="opt-fund-seg-tip-k">Δ</span>' +
+          '<span class="opt-fund-seg-tip-val">' + escapeHtml((dStr || '') + (ppStr ? '  ' + ppStr : '')) + '</span></div>';
+      } else if (hasComparison){
+        lines += '<div class="opt-fund-seg-tip-row tone-new">' +
+          '<span class="opt-fund-seg-tip-k">Prior</span>' +
+          '<span class="opt-fund-seg-tip-val">— (new segment)</span></div>';
+      }
+      tipEl.innerHTML = name + lines;
       tipEl.hidden = false;
     }
     function unhighlight(){
@@ -3440,15 +3528,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var cur = seg.currency || 'USD';
     var fmtVal = function(v){ return fmtBigCurrency(v, cur); };
+
+    // Per-axis subtitle. Product and geography may be drawn from different
+    // period types — e.g. quarterly product (from a 10-Q) paired with
+    // annual geography (because the 10-Q omits regional disaggregation
+    // and we fall back to the latest 10-K).
+    function subFor(periodMeta){
+      if (!periodMeta) return null;
+      var c = periodMeta.currentPeriod && periodMeta.currentPeriod.label;
+      var p = periodMeta.previousPeriod && periodMeta.previousPeriod.label;
+      if (c && p) return c + ' vs ' + p;
+      if (c) return c;
+      return null;
+    }
+
     renderDonutChart({
       boxId: 'opt-fund-seg-product',
       title: 'Revenue by segment',
+      subtitle: subFor(seg.productPeriod),
       slices: seg.product || null,
       formatValue: fmtVal,
     });
     renderDonutChart({
       boxId: 'opt-fund-seg-geo',
       title: 'Revenue by region',
+      subtitle: subFor(seg.geographicPeriod),
       slices: seg.geographic || null,
       formatValue: fmtVal,
     });

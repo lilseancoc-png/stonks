@@ -2661,8 +2661,22 @@ main {
 .opt-fund-seg-title {
   font-size: 10px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--muted); margin-bottom: var(--s-2);
+  color: var(--muted); margin-bottom: var(--s-1);
 }
+.opt-fund-seg-sub {
+  font-size: 10px; color: var(--muted);
+  margin-bottom: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.opt-fund-seg-headline {
+  font-size: 12px; font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: var(--s-2);
+}
+.opt-fund-seg-headline.tone-up { color: var(--pos); }
+.opt-fund-seg-headline.tone-down { color: var(--neg); }
+.opt-fund-seg-headline.tone-flat { color: var(--muted); }
 .opt-fund-seg-svg {
   display: block; margin: 0 auto;
 }
@@ -2703,9 +2717,19 @@ main {
   color: var(--muted); font-family: var(--font-mono); font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
+.opt-fund-seg-leg-delta {
+  font-family: var(--font-mono); font-size: 10px;
+  font-variant-numeric: tabular-nums; font-weight: 700;
+  padding: 1px 5px; border-radius: 999px;
+  letter-spacing: 0.01em;
+}
+.opt-fund-seg-leg-delta.tone-up   { color: var(--pos); background: var(--pos-soft); }
+.opt-fund-seg-leg-delta.tone-down { color: var(--neg); background: var(--neg-soft); }
+.opt-fund-seg-leg-delta.tone-flat { color: var(--muted); background: var(--surface-2); }
+.opt-fund-seg-leg-delta.tone-new  { color: var(--muted-strong); background: var(--surface-2); font-weight: 600; }
 .opt-fund-seg-tip {
   position: absolute; top: var(--s-3); right: var(--s-3);
-  padding: 4px 8px;
+  padding: 6px 9px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
@@ -2713,12 +2737,28 @@ main {
   pointer-events: none; z-index: 2;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 130px;
 }
-.opt-fund-seg-tip-name { color: var(--muted); font-weight: 600; }
+.opt-fund-seg-tip-name { color: var(--text-strong); font-weight: 700; }
+.opt-fund-seg-tip-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px;
+}
+.opt-fund-seg-tip-k {
+  color: var(--muted); font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
 .opt-fund-seg-tip-val {
   color: var(--text-strong); font-weight: 700;
-  font-family: var(--font-mono); margin-left: 4px;
+  font-family: var(--font-mono);
 }
+.opt-fund-seg-tip-row.tone-up .opt-fund-seg-tip-val,
+.opt-fund-seg-tip-row.tone-up .opt-fund-seg-tip-k { color: var(--pos); }
+.opt-fund-seg-tip-row.tone-down .opt-fund-seg-tip-val,
+.opt-fund-seg-tip-row.tone-down .opt-fund-seg-tip-k { color: var(--neg); }
+.opt-fund-seg-tip-row.tone-new .opt-fund-seg-tip-val,
+.opt-fund-seg-tip-row.tone-new .opt-fund-seg-tip-k { color: var(--muted-strong); }
 
 /* === Retail sentiment gauge === */
 .opt-social {
