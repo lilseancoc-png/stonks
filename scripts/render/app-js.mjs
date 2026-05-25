@@ -1458,42 +1458,71 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       buy: buy,
     });
     html += '<div class="opt-contract">' + (input.label || '') + ' · spot $' + fmt(input.spot) + ' · ' + daysToExpiry + ' day' + (daysToExpiry === 1 ? '' : 's') + ' to expiry</div>';
-    html += '<div class="opt-grid">';
     var hasQuote = (bid != null && ask != null && (bid + ask) > 0);
     var bidAskStr = hasQuote
       ? '$' + fmt(bid) + ' / $' + fmt(ask)
       : (input.last > 0 ? '— / — · last $' + fmt(input.last) : '— / —');
-    html += row('Bid / Ask', bidAskStr);
-    html += row('Mid', mid != null ? '$' + fmt(mid) : '—');
-    html += row('Spread', spread != null ? ('$' + fmt(spread) + ' (' + fmtPct(spreadPct) + ')') : '—', gradeChip(sGrade), TIPS.spread);
-    html += row('Intrinsic value', intrinsic != null ? '$' + fmt(intrinsic) : '—', '', TIPS.intrinsic);
-    html += row('Time value', extrinsic != null ? '$' + fmt(extrinsic) : '—', mid > 0 && extrinsic != null ? '<span class="opt-row-mute">' + fmtPct(extrinsic / mid * 100) + ' of mid</span>' : '', TIPS.extrinsic);
-    html += row('Breakeven at expiry', breakeven != null ? '$' + fmt(breakeven) : '—', input.spot > 0 && breakeven != null ? '<span class="opt-row-mute">' + (((breakeven - input.spot) / input.spot * 100) >= 0 ? '+' : '') + ((breakeven - input.spot) / input.spot * 100).toFixed(2) + '% from spot</span>' : '', TIPS.breakeven);
-    html += row('Moneyness', moneynessPct != null ? ((moneynessPct >= 0 ? '+' : '') + moneynessPct.toFixed(2) + '%') : '—', '', TIPS.moneyness);
+    var lGrade = gradeLiquidity(input.oi);
     var earn = computeEarningsContext(input.fundamentals, input.spot, iv, input.expEpoch);
+    var volRegime = input.technicals && input.technicals.volRegime;
+    var vGrade = volRegime ? gradeVolRegime(volRegime.rv30Pctile) : null;
+
+    // Group metrics into labeled sections so each column is a coherent
+    // category instead of a flat 18-row table where the last column trails
+    // off with a lonely VOLUME cell. Order within a section is "biggest
+    // signal first": quote/spread → intrinsic/extrinsic split →
+    // greeks → schedule context.
+    function section(title, rows){
+      var inner = '';
+      for (var i = 0; i < rows.length; i++) inner += rows[i];
+      if (!inner) return '';
+      return '<section class="opt-section">' +
+        '<h4 class="opt-section-title">' + title + '</h4>' +
+        '<div class="opt-section-rows">' + inner + '</div>' +
+      '</section>';
+    }
+
+    var quoteRows = [
+      row('Bid / Ask', bidAskStr),
+      row('Mid', mid != null ? '$' + fmt(mid) : '—'),
+      row('Spread', spread != null ? ('$' + fmt(spread) + ' (' + fmtPct(spreadPct) + ')') : '—', gradeChip(sGrade), TIPS.spread),
+      row('Volume', input.volume != null ? String(input.volume) : '—'),
+      row('Open interest', input.oi != null ? String(input.oi) : '—', lGrade ? gradeChip(lGrade) : ''),
+    ];
+    var valueRows = [
+      row('Intrinsic value', intrinsic != null ? '$' + fmt(intrinsic) : '—', '', TIPS.intrinsic),
+      row('Time value', extrinsic != null ? '$' + fmt(extrinsic) : '—', mid > 0 && extrinsic != null ? '<span class="opt-row-mute">' + fmtPct(extrinsic / mid * 100) + ' of mid</span>' : '', TIPS.extrinsic),
+      row('Breakeven at expiry', breakeven != null ? '$' + fmt(breakeven) : '—', input.spot > 0 && breakeven != null ? '<span class="opt-row-mute">' + (((breakeven - input.spot) / input.spot * 100) >= 0 ? '+' : '') + ((breakeven - input.spot) / input.spot * 100).toFixed(2) + '% from spot</span>' : '', TIPS.breakeven),
+      row('Moneyness', moneynessPct != null ? ((moneynessPct >= 0 ? '+' : '') + moneynessPct.toFixed(2) + '%') : '—', '', TIPS.moneyness),
+      row('Prob. ITM (≈ |delta|)', probITM != null ? probITM.toFixed(1) + '%' : '—', '', TIPS.probITM),
+    ];
+    var greeksRows = [
+      row('Delta', g ? fmt(g.delta, 3) : '—', g ? gradeChip(dGrade) : '', TIPS.delta),
+      row('Theta / day', g ? '$' + fmt(g.thetaDay, 3) : '—', g ? gradeChip(tGrade) : '', TIPS.theta),
+      row('Gamma', g ? fmt(g.gamma, 4) : '—', '', TIPS.gamma),
+      row('Vega (per 1 vol pt)', g ? '$' + fmt(g.vega, 3) : '—', '', TIPS.vega),
+      row('IV', iv != null ? fmtPct(iv*100) : '—', '', TIPS.iv),
+    ];
+    if (volRegime && vGrade){
+      var rvLabel = (volRegime.rv30*100).toFixed(0) + '% · P' + volRegime.rv30Pctile;
+      greeksRows.push(row('30d realized vol', rvLabel, gradeChip(vGrade), 'Annualized 30-day realized volatility for this ticker, with its percentile against the rolling 30-day RV across the available daily history. A proxy for whether this name is running hotter or quieter than usual.'));
+    }
+    var scheduleRows = [];
     if (earn){
       var earnLabel = earn.dateIso + ' · ' + earn.daysToEarnings + ' day' + (earn.daysToEarnings === 1 ? '' : 's');
       var earnSub = earn.withinExpiry ? '<span class="opt-row-mute">before expiry</span>' : '<span class="opt-row-mute">after expiry</span>';
-      html += row('Next earnings', earnLabel, earnSub, 'Yahoo-reported next earnings release date. If earnings falls before this contract’s expiry, the chain’s IV is likely elevated to embed the move.');
+      scheduleRows.push(row('Next earnings', earnLabel, earnSub, 'Yahoo-reported next earnings release date. If earnings falls before this contract’s expiry, the chain’s IV is likely elevated to embed the move.'));
       if (earn.expectedMoveAbs != null){
-        html += row('Expected move by earnings', '±$' + fmt(earn.expectedMoveAbs), '<span class="opt-row-mute">±' + earn.expectedMovePct.toFixed(2) + '% of spot</span>', 'Spot × IV × √(daysToEarnings/365). A volatility-implied estimate of how far the underlying could move by the print — the actual reaction often surprises in either direction.');
+        scheduleRows.push(row('Expected move by earnings', '±$' + fmt(earn.expectedMoveAbs), '<span class="opt-row-mute">±' + earn.expectedMovePct.toFixed(2) + '% of spot</span>', 'Spot × IV × √(daysToEarnings/365). A volatility-implied estimate of how far the underlying could move by the print — the actual reaction often surprises in either direction.'));
       }
     }
-    html += row('IV', iv != null ? fmtPct(iv*100) : '—', '', TIPS.iv);
-    var volRegime = input.technicals && input.technicals.volRegime;
-    var vGrade = volRegime ? gradeVolRegime(volRegime.rv30Pctile) : null;
-    if (volRegime && vGrade){
-      var rvLabel = (volRegime.rv30*100).toFixed(0) + '% · P' + volRegime.rv30Pctile;
-      html += row('30d realized vol', rvLabel, gradeChip(vGrade), 'Annualized 30-day realized volatility for this ticker, with its percentile against the rolling 30-day RV across the available daily history. A proxy for whether this name is running hotter or quieter than usual.');
-    }
-    html += row('Delta', g ? fmt(g.delta, 3) : '—', g ? gradeChip(dGrade) : '', TIPS.delta);
-    html += row('Prob. ITM (≈ |delta|)', probITM != null ? probITM.toFixed(1) + '%' : '—', '', TIPS.probITM);
-    html += row('Theta / day', g ? '$' + fmt(g.thetaDay, 3) : '—', g ? gradeChip(tGrade) : '', TIPS.theta);
-    html += row('Gamma', g ? fmt(g.gamma, 4) : '—', '', TIPS.gamma);
-    html += row('Vega (per 1 vol pt)', g ? '$' + fmt(g.vega, 3) : '—', '', TIPS.vega);
-    var lGrade = gradeLiquidity(input.oi);
-    html += row('Open interest', input.oi != null ? String(input.oi) : '—', lGrade ? gradeChip(lGrade) : '');
-    html += row('Volume', input.volume != null ? String(input.volume) : '—');
+    scheduleRows.push(row('Days to expiry', String(daysToExpiry), '', 'Calendar days between now and the contract\\'s expiration. Drives theta and gamma — under a week, both go nonlinear.'));
+
+    html += '<div class="opt-grid">';
+    html += section('Quote &amp; liquidity', quoteRows);
+    html += section('Value', valueRows);
+    html += section('Greeks &amp; vol', greeksRows);
+    html += section('Schedule', scheduleRows);
     html += '</div>';
     html += '<ul class="opt-notes">';
     html += '<li><b>Spread:</b> ' + sGrade.note + '.</li>';
