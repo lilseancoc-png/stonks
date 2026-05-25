@@ -1746,7 +1746,7 @@
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','calendar','flow','volume','grade','streaks','fear-greed','f13','bonds-usd','portfolio'];
+    var valid = ['home','tickers','narratives','picks','calendar','flow','volume','grade','strategies','streaks','fear-greed','f13','bonds-usd','portfolio'];
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -1795,6 +1795,7 @@
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
       if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
+      if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -4371,6 +4372,1033 @@
         renderVolumeFlags();
       });
     }
+  }
+
+  // --- Strategies tab -----------------------------------------------------
+  // Multi-leg options strategy builder. Pure client-side: fetchChain() is
+  // shared with the Grade tab so re-picking a ticker is free. ncdf() and
+  // RFR are reused from the BS pricer above for calendar-spread pricing
+  // (the far leg still has time value at the near expiry).
+  var stratState = {
+    inited: false,
+    loading: false,
+    symbol: null,
+    spot: null,
+    expirations: [],
+    chains: {},
+    technicals: null,
+    ivPctile: null,
+    ivLabel: null,
+    legs: [],
+    strategyId: null,
+    nextLegId: 1,
+  };
+
+  function stratFmtDate(epochSec){
+    if (!epochSec) return '';
+    var d = new Date(epochSec * 1000);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function stratDte(epochSec){
+    if (!epochSec) return null;
+    return Math.max(0, Math.round((epochSec * 1000 - Date.now()) / 86400000));
+  }
+  function stratBsPrice(type, S, K, T, sigma, r){
+    if (!(S>0 && K>0 && sigma>0)) return null;
+    if (T <= 0) return type === 'call' ? Math.max(0, S-K) : Math.max(0, K-S);
+    var sqrtT = Math.sqrt(T);
+    var d1 = (Math.log(S/K) + (r + 0.5*sigma*sigma)*T) / (sigma*sqrtT);
+    var d2 = d1 - sigma*sqrtT;
+    if (type === 'call') return S*ncdf(d1) - K*Math.exp(-r*T)*ncdf(d2);
+    return K*Math.exp(-r*T)*ncdf(-d2) - S*ncdf(-d1);
+  }
+  function stratChainSide(expSec, type){
+    var ch = stratState.chains[expSec]; if (!ch) return null;
+    return type === 'call' ? (ch.c || []) : (ch.p || []);
+  }
+  function stratLookupRow(expSec, type, strike){
+    var rows = stratChainSide(expSec, type) || [];
+    for (var i=0; i<rows.length; i++){
+      if (rows[i] && rows[i].s === strike) return rows[i];
+    }
+    return null;
+  }
+  function stratStrikeOptions(expSec, type){
+    var rows = stratChainSide(expSec, type) || [];
+    var out = [];
+    for (var i=0; i<rows.length; i++){
+      if (rows[i] && rows[i].s != null) out.push(rows[i].s);
+    }
+    out.sort(function(a,b){ return a-b; });
+    return out;
+  }
+
+  // Strategy templates. Each build(c) returns leg objects ready to splice
+  // into stratState.legs. The c argument is a context with .spot, .expNear,
+  // .expFar, and pre-picked strike anchors (atmCall/Put + nearest OTM/ITM
+  // offsets in the chain) so templates don't have to walk the chain
+  // themselves.
+  var STRAT_TEMPLATES = [
+    { id:'long-call', name:'Long Call', group:'directional', bias:'bull',
+      label:'Outright bullish',
+      help:'Buy a single call. Unlimited upside, risk capped at premium paid.',
+      build:function(c){ return [{ side:'buy', type:'call', expSec:c.expNear, strike:c.atmCall, qty:1 }]; }},
+    { id:'long-put', name:'Long Put', group:'directional', bias:'bear',
+      label:'Outright bearish',
+      help:'Buy a single put. Risk capped at premium, gains on a drop.',
+      build:function(c){ return [{ side:'buy', type:'put', expSec:c.expNear, strike:c.atmPut, qty:1 }]; }},
+    { id:'bull-call-spread', name:'Bull Call Spread', group:'directional', bias:'bull',
+      label:'Cheap bullish spread',
+      help:'Buy lower-strike call, sell higher-strike. Caps upside but lowers cost.',
+      build:function(c){ return [
+        { side:'buy',  type:'call', expSec:c.expNear, strike:c.atmCall,     qty:1 },
+        { side:'sell', type:'call', expSec:c.expNear, strike:c.otmCallNext, qty:1 },
+      ]; }},
+    { id:'bear-put-spread', name:'Bear Put Spread', group:'directional', bias:'bear',
+      label:'Cheap bearish spread',
+      help:'Buy higher-strike put, sell lower-strike. Caps profit but lowers cost.',
+      build:function(c){ return [
+        { side:'buy',  type:'put', expSec:c.expNear, strike:c.atmPut,      qty:1 },
+        { side:'sell', type:'put', expSec:c.expNear, strike:c.otmPutNext,  qty:1 },
+      ]; }},
+    { id:'bull-put-spread', name:'Bull Put Spread', group:'income', bias:'bull',
+      label:'Bullish credit spread',
+      help:'Sell higher-strike put, buy lower-strike. Collect a credit if spot stays above the short strike.',
+      build:function(c){ return [
+        { side:'sell', type:'put', expSec:c.expNear, strike:c.atmPut,     qty:1 },
+        { side:'buy',  type:'put', expSec:c.expNear, strike:c.otmPutNext, qty:1 },
+      ]; }},
+    { id:'bear-call-spread', name:'Bear Call Spread', group:'income', bias:'bear',
+      label:'Bearish credit spread',
+      help:'Sell lower-strike call, buy higher-strike. Collect a credit if spot stays below the short strike.',
+      build:function(c){ return [
+        { side:'sell', type:'call', expSec:c.expNear, strike:c.atmCall,     qty:1 },
+        { side:'buy',  type:'call', expSec:c.expNear, strike:c.otmCallNext, qty:1 },
+      ]; }},
+    { id:'long-straddle', name:'Long Straddle', group:'volatility', bias:'volLong',
+      label:'Big-move bet',
+      help:'Buy an ATM call and an ATM put. Profits on a large move either way.',
+      build:function(c){ return [
+        { side:'buy', type:'call', expSec:c.expNear, strike:c.atmCall, qty:1 },
+        { side:'buy', type:'put',  expSec:c.expNear, strike:c.atmPut,  qty:1 },
+      ]; }},
+    { id:'long-strangle', name:'Long Strangle', group:'volatility', bias:'volLong',
+      label:'Cheaper big-move bet',
+      help:'Buy an OTM call and an OTM put. Lower cost than a straddle but needs a bigger move.',
+      build:function(c){ return [
+        { side:'buy', type:'call', expSec:c.expNear, strike:c.otmCallNext, qty:1 },
+        { side:'buy', type:'put',  expSec:c.expNear, strike:c.otmPutNext,  qty:1 },
+      ]; }},
+    { id:'short-straddle', name:'Short Straddle', group:'volatility', bias:'volShort',
+      label:'Range + IV crush',
+      help:'Sell an ATM call and an ATM put. Profits if spot stays near strike. Unbounded risk if it moves.',
+      build:function(c){ return [
+        { side:'sell', type:'call', expSec:c.expNear, strike:c.atmCall, qty:1 },
+        { side:'sell', type:'put',  expSec:c.expNear, strike:c.atmPut,  qty:1 },
+      ]; }},
+    { id:'iron-condor', name:'Iron Condor', group:'neutral', bias:'volShort',
+      label:'Sideways income',
+      help:'Sell a call spread above + put spread below. Collect a credit if spot stays in the range.',
+      build:function(c){ return [
+        { side:'sell', type:'put',  expSec:c.expNear, strike:c.otmPutNext,  qty:1 },
+        { side:'buy',  type:'put',  expSec:c.expNear, strike:c.otmPutFar,   qty:1 },
+        { side:'sell', type:'call', expSec:c.expNear, strike:c.otmCallNext, qty:1 },
+        { side:'buy',  type:'call', expSec:c.expNear, strike:c.otmCallFar,  qty:1 },
+      ]; }},
+    { id:'butterfly-call', name:'Long Call Butterfly', group:'neutral', bias:'volShort',
+      label:'Pinpoint target',
+      help:'Buy 1 ITM call, sell 2 ATM calls, buy 1 OTM call. Max profit if spot pins the middle strike.',
+      build:function(c){ return [
+        { side:'buy',  type:'call', expSec:c.expNear, strike:c.itmCallNext, qty:1 },
+        { side:'sell', type:'call', expSec:c.expNear, strike:c.atmCall,     qty:2 },
+        { side:'buy',  type:'call', expSec:c.expNear, strike:c.otmCallNext, qty:1 },
+      ]; }},
+    { id:'calendar-call', name:'Calendar Spread (Call)', group:'neutral', bias:'neutral',
+      label:'Time-decay play',
+      help:'Sell a near-term ATM call, buy a longer-term ATM call at the same strike. Profits from faster decay on the short leg.',
+      build:function(c){ return [
+        { side:'sell', type:'call', expSec:c.expNear,             strike:c.atmCall, qty:1 },
+        { side:'buy',  type:'call', expSec:c.expFar || c.expNear, strike:c.atmCall, qty:1 },
+      ]; }},
+  ];
+
+  function stratTemplateContext(){
+    var spot = stratState.spot;
+    var exps = stratState.expirations;
+    if (!(spot > 0) || !exps.length) return null;
+    var expNear = exps[0];
+    var expFar  = exps.length > 1 ? exps[1] : null;
+    var callStrikes = stratStrikeOptions(expNear, 'call');
+    var putStrikes  = stratStrikeOptions(expNear, 'put');
+    if (!callStrikes.length || !putStrikes.length) return null;
+    function pickNearest(arr, target){
+      var best = arr[0], bestDist = Math.abs(arr[0] - target);
+      for (var i=1; i<arr.length; i++){
+        var d = Math.abs(arr[i] - target);
+        if (d < bestDist){ best = arr[i]; bestDist = d; }
+      }
+      return best;
+    }
+    function pickOffset(arr, anchor, n){
+      var idx = arr.indexOf(anchor);
+      if (idx < 0) idx = 0;
+      var next = Math.max(0, Math.min(arr.length - 1, idx + n));
+      return arr[next];
+    }
+    var atmCall = pickNearest(callStrikes, spot);
+    var atmPut  = pickNearest(putStrikes,  spot);
+    return {
+      spot: spot,
+      expNear: expNear,
+      expFar: expFar,
+      atmCall: atmCall,
+      atmPut:  atmPut,
+      otmCallNext: pickOffset(callStrikes, atmCall, +1),
+      otmCallFar:  pickOffset(callStrikes, atmCall, +2),
+      otmPutNext:  pickOffset(putStrikes,  atmPut,  -1),
+      otmPutFar:   pickOffset(putStrikes,  atmPut,  -2),
+      itmCallNext: pickOffset(callStrikes, atmCall, -1),
+      itmPutNext:  pickOffset(putStrikes,  atmPut,  +1),
+    };
+  }
+
+  function stratApplyTemplate(id){
+    var tpl = null;
+    for (var i=0; i<STRAT_TEMPLATES.length; i++) if (STRAT_TEMPLATES[i].id === id) { tpl = STRAT_TEMPLATES[i]; break; }
+    if (!tpl) return;
+    var ctx = stratTemplateContext();
+    if (!ctx) return;
+    var legs = tpl.build(ctx);
+    stratState.strategyId = id;
+    stratState.legs = legs.map(function(L){
+      return { id: stratState.nextLegId++, side: L.side, type: L.type, expSec: L.expSec, strike: L.strike, qty: L.qty };
+    });
+    stratRenderAll();
+  }
+
+  function stratAddCustomLeg(){
+    var ctx = stratTemplateContext();
+    if (!ctx) return;
+    stratState.legs.push({ id: stratState.nextLegId++, side: 'buy', type: 'call', expSec: ctx.expNear, strike: ctx.atmCall, qty: 1 });
+    // Adding a leg after a template was applied means we've drifted — mark
+    // as custom so the score doesn't keep using the template's hard-coded
+    // bias label.
+    stratState.strategyId = null;
+    stratRenderAll();
+  }
+
+  function stratClearAll(){
+    stratState.legs = [];
+    stratState.strategyId = null;
+    stratRenderAll();
+  }
+
+  // --- Per-leg pricing + net greeks --------------------------------------
+  // Walks every leg, attaches the matching chain row + computed BS greeks,
+  // and aggregates net cost + greeks. Legs whose strike isn't in the chain
+  // for their expiry/type produce a stub row so the UI can still show them
+  // (greyed out) without crashing on null lookups.
+  function stratEnrichLegs(){
+    var spot = stratState.spot;
+    var nowSec = Date.now() / 1000;
+    var enriched = [];
+    var netCostPerShare = 0;
+    var netGreeks = { delta: 0, gamma: 0, theta: 0, vega: 0 };
+    var oiSamples = [];
+    for (var i=0; i<stratState.legs.length; i++){
+      var L = stratState.legs[i];
+      var row = stratLookupRow(L.expSec, L.type, L.strike);
+      var sign = L.side === 'buy' ? 1 : -1;
+      var qty = Math.max(1, parseInt(L.qty, 10) || 1);
+      var mid = null, bid = null, ask = null, iv = null, oi = null, vol = null;
+      var g = null;
+      if (row){
+        bid = row.b; ask = row.a; iv = row.iv; oi = row.oi; vol = row.v;
+        if (bid != null && ask != null) mid = (bid + ask) / 2;
+        else if (row.l != null) mid = row.l;
+        var T = Math.max(0, (L.expSec - nowSec) / (365*86400));
+        if (iv != null && T > 0){
+          g = greeks(L.type, spot, L.strike, T, iv, RFR);
+        }
+      }
+      if (mid != null) netCostPerShare += sign * qty * mid;
+      if (g){
+        netGreeks.delta += sign * qty * g.delta;
+        netGreeks.gamma += sign * qty * g.gamma;
+        netGreeks.theta += sign * qty * g.thetaDay;
+        netGreeks.vega  += sign * qty * g.vega;
+      }
+      if (oi != null && isFinite(oi)) oiSamples.push(oi);
+      enriched.push({ leg: L, row: row, mid: mid, bid: bid, ask: ask, iv: iv, oi: oi, vol: vol, greeks: g, sign: sign, qty: qty });
+    }
+    var avgOi = oiSamples.length ? (oiSamples.reduce(function(a,b){return a+b;},0) / oiSamples.length) : 0;
+    return { legs: enriched, netCostPerShare: netCostPerShare, netGreeks: netGreeks, avgOi: avgOi };
+  }
+
+  // Per-leg payoff at evaluation spot S, evaluated at the *near* expiration
+  // (the first leg to expire). Legs that expire later still have time value
+  // and are repriced with Black-Scholes using their chain IV.
+  function stratLegValueAt(legEnr, S, evalSec){
+    var L = legEnr.leg;
+    if (!legEnr.row) return 0;
+    if (L.expSec <= evalSec){
+      return L.type === 'call' ? Math.max(0, S - L.strike) : Math.max(0, L.strike - S);
+    }
+    var T = Math.max(0, (L.expSec - evalSec) / (365*86400));
+    var sigma = legEnr.iv || 0.3;
+    var price = stratBsPrice(L.type, S, L.strike, T, sigma, RFR);
+    return price == null ? 0 : price;
+  }
+  function stratPayoffAt(enriched, S){
+    var evalSec = stratNearestExpSec(enriched);
+    var total = -enriched.netCostPerShare; // entry cost is negative when we paid (debit), positive when we collected (credit)
+    for (var i=0; i<enriched.legs.length; i++){
+      var L = enriched.legs[i];
+      total += L.sign * L.qty * stratLegValueAt(L, S, evalSec);
+    }
+    return total;
+  }
+  function stratNearestExpSec(enriched){
+    var best = Infinity;
+    for (var i=0; i<enriched.legs.length; i++){
+      var e = enriched.legs[i].leg.expSec;
+      if (e != null && e < best) best = e;
+    }
+    return isFinite(best) ? best : (Date.now() / 1000);
+  }
+
+  // Sweep payoff over a ±25% band around spot (101 samples), find max/min
+  // and breakeven crossings. Flags unlimited gain/loss when the net call
+  // count at the high tail or net put count at the low tail leaves one
+  // side open. Returns dollars per contract × 100.
+  function stratSweepPayoff(enriched){
+    var spot = stratState.spot;
+    if (!(spot > 0) || !enriched.legs.length) return null;
+    var N = 101;
+    var lo = spot * 0.5;
+    var hi = spot * 1.5;
+    var xs = new Array(N);
+    var ys = new Array(N);
+    var max = -Infinity, min = Infinity, atSpot = null;
+    for (var i=0; i<N; i++){
+      var S = lo + (hi - lo) * (i / (N - 1));
+      var P = stratPayoffAt(enriched, S) * 100;
+      xs[i] = S; ys[i] = P;
+      if (P > max) max = P;
+      if (P < min) min = P;
+      if (Math.abs(S - spot) < (hi - lo) / N) atSpot = P;
+    }
+    if (atSpot == null) atSpot = stratPayoffAt(enriched, spot) * 100;
+    // Breakeven crossings (linear interpolation between sign-flipping samples).
+    var breakevens = [];
+    for (var j=1; j<N; j++){
+      var y0 = ys[j-1], y1 = ys[j];
+      if ((y0 <= 0 && y1 >= 0) || (y0 >= 0 && y1 <= 0)){
+        if (y0 === y1) continue;
+        var t = -y0 / (y1 - y0);
+        breakevens.push(xs[j-1] + t * (xs[j] - xs[j-1]));
+      }
+    }
+    // Slopes at the tails for unlimited-flag detection.
+    var callNet = 0, putNet = 0;
+    for (var k=0; k<enriched.legs.length; k++){
+      var leg = enriched.legs[k];
+      var s = leg.sign * leg.qty;
+      if (leg.leg.type === 'call') callNet += s; else putNet += s;
+    }
+    var unlimitedGainUp   = callNet > 0;
+    var unlimitedLossUp   = callNet < 0;
+    var unboundedGainDown = putNet  > 0;  // bounded at S=0 but very large
+    var unboundedLossDown = putNet  < 0;
+    return {
+      xs: xs, ys: ys, max: max, min: min, atSpot: atSpot,
+      breakevens: breakevens,
+      unlimitedGainUp: unlimitedGainUp,
+      unlimitedLossUp: unlimitedLossUp,
+      unboundedGainDown: unboundedGainDown,
+      unboundedLossDown: unboundedLossDown,
+      lo: lo, hi: hi,
+    };
+  }
+
+  function stratStrategyMeta(){
+    if (!stratState.strategyId) return null;
+    for (var i=0; i<STRAT_TEMPLATES.length; i++){
+      if (STRAT_TEMPLATES[i].id === stratState.strategyId) return STRAT_TEMPLATES[i];
+    }
+    return null;
+  }
+
+  function stratInferBias(enriched){
+    var meta = stratStrategyMeta();
+    if (meta) return meta.bias;
+    var d = enriched.netGreeks.delta;
+    if (d > 0.3) return 'bull';
+    if (d < -0.3) return 'bear';
+    var vega = enriched.netGreeks.vega;
+    if (vega > 0.3) return 'volLong';
+    if (vega < -0.3) return 'volShort';
+    return 'neutral';
+  }
+
+  function stratBiasLabel(bias){
+    switch (bias){
+      case 'bull': return 'Bullish';
+      case 'bear': return 'Bearish';
+      case 'volLong': return 'Long volatility';
+      case 'volShort': return 'Short volatility';
+      case 'neutral': return 'Neutral';
+      default: return '';
+    }
+  }
+
+  // --- Strategy Score ----------------------------------------------------
+  // 0-100 across four buckets: directional fit (40), IV alignment (30),
+  // risk/reward (20), liquidity (10). Each bucket clamps independently so
+  // a thin chain can't drag a good structural setup below D.
+  function stratScore(enriched, sweep){
+    var bias = stratInferBias(enriched);
+    var tech = stratState.technicals;
+    var parts = [];
+
+    // 1) Directional fit — only meaningful for bull/bear. Vol/neutral
+    // strategies get a base score so they aren't penalised for ignoring
+    // RSI/MACD.
+    var directional = 20;
+    if (bias === 'bull' || bias === 'bear'){
+      var s = 20;
+      var aligned = bias === 'bull' ? 1 : -1;
+      if (tech && tech.rsi != null){
+        var rsi = tech.rsi;
+        if (aligned > 0) s += rsi >= 55 ? 10 : rsi <= 45 ? -10 : 0;
+        else             s += rsi <= 45 ? 10 : rsi >= 55 ? -10 : 0;
+      }
+      if (tech && tech.macd && tech.macd.hist != null){
+        var hist = tech.macd.hist;
+        if (aligned > 0) s += hist > 0 ? 10 : hist < 0 ? -10 : 0;
+        else             s += hist < 0 ? 10 : hist > 0 ? -10 : 0;
+      }
+      directional = Math.max(0, Math.min(40, s));
+    } else if (bias === 'volLong' || bias === 'volShort' || bias === 'neutral'){
+      // Use volume conviction as a tiebreaker — heavy + indecisive volume
+      // (range-bound print) favours short-vol/neutral; weak conviction
+      // favours long-vol (waiting for a break).
+      directional = 22;
+      if (tech && tech.volume){
+        var conv = tech.volume.conviction;
+        if (bias === 'volShort' && (conv === 'indecision' || conv === 'none')) directional = 30;
+        else if (bias === 'volLong' && (conv === 'strong' || conv === 'weak')) directional = 28;
+        else if (bias === 'neutral' && conv === 'indecision') directional = 28;
+      }
+    }
+    parts.push({ key:'dir', label:'Directional fit', value: directional, max: 40,
+      note: bias === 'bull' ? 'matches RSI/MACD tilt'
+          : bias === 'bear' ? 'matches RSI/MACD tilt'
+          : 'volume-conviction read' });
+
+    // 2) IV alignment — long-vega wants low IV rank, short-vega wants high.
+    // Directional spreads (debit) live in the middle band.
+    var iv = stratState.ivPctile;
+    var volScore = 15;
+    var volNote = 'IV rank unavailable';
+    if (iv != null){
+      if (bias === 'volLong'){
+        volScore = iv <= 30 ? 30 : iv <= 50 ? 22 : iv <= 70 ? 12 : 5;
+        volNote = 'long vega — IV rank ' + iv.toFixed(0) + (iv <= 30 ? '% (cheap)' : iv >= 70 ? '% (rich, vol exposure expensive)' : '% (neutral)');
+      } else if (bias === 'volShort'){
+        volScore = iv >= 70 ? 30 : iv >= 50 ? 22 : iv >= 30 ? 12 : 5;
+        volNote = 'short vega — IV rank ' + iv.toFixed(0) + (iv >= 70 ? '% (rich, premium to harvest)' : iv <= 30 ? '% (cheap, thin credit)' : '% (neutral)');
+      } else {
+        volScore = (iv >= 30 && iv <= 70) ? 22 : (iv < 30 ? 18 : 12);
+        volNote = 'directional — IV rank ' + iv.toFixed(0) + '%';
+      }
+    }
+    parts.push({ key:'iv', label:'IV alignment', value: volScore, max: 30, note: volNote });
+
+    // 3) Risk:reward — pulled from sweep. Unlimited risk halves the score.
+    var rrScore = 10;
+    var rrNote = '';
+    if (sweep){
+      var maxGain = sweep.unlimitedGainUp ? Infinity : sweep.max;
+      var maxLoss = sweep.unlimitedLossUp ? -Infinity : sweep.min;
+      var gain = isFinite(maxGain) ? Math.max(0, maxGain) : null;
+      var loss = isFinite(maxLoss) ? Math.max(0, -maxLoss) : null;
+      if (sweep.unlimitedLossUp || sweep.unboundedLossDown){
+        rrScore = 4;
+        rrNote = 'naked leg — unbounded loss';
+      } else if (gain == null && loss != null){
+        // Unlimited gain, capped loss — long call / long strangle territory.
+        rrScore = 17;
+        rrNote = 'capped downside, unbounded upside';
+      } else if (gain != null && loss != null && loss > 0){
+        var rr = gain / loss;
+        if (rr >= 3) rrScore = 20;
+        else if (rr >= 2) rrScore = 17;
+        else if (rr >= 1) rrScore = 13;
+        else if (rr >= 0.5) rrScore = 8;
+        else rrScore = 4;
+        rrNote = rr.toFixed(2) + ':1 max gain : max loss';
+      } else if (gain != null && (loss == null || loss === 0)){
+        rrScore = 18;
+        rrNote = 'asymmetric — no loss in sampled band';
+      }
+    }
+    parts.push({ key:'rr', label:'Risk / reward', value: rrScore, max: 20, note: rrNote });
+
+    // 4) Liquidity — average OI across legs.
+    var oi = enriched.avgOi;
+    var liqScore = 0;
+    var liqNote = 'avg OI ' + Math.round(oi);
+    if (oi >= 1000) liqScore = 10;
+    else if (oi >= 500) liqScore = 7;
+    else if (oi >= 100) liqScore = 4;
+    else if (oi >= 10)  liqScore = 2;
+    parts.push({ key:'liq', label:'Liquidity', value: liqScore, max: 10, note: liqNote });
+
+    var total = parts.reduce(function(a, p){ return a + p.value; }, 0);
+    var grade =
+      total >= 90 ? 'A+' :
+      total >= 80 ? 'A' :
+      total >= 70 ? 'B' :
+      total >= 60 ? 'C' :
+                    'D';
+    return { score: Math.round(total), grade: grade, parts: parts, bias: bias };
+  }
+
+  // --- Render: leg rows --------------------------------------------------
+  function stratLegRowHtml(legEnr){
+    var L = legEnr.leg;
+    var dte = stratDte(L.expSec);
+    var sideCls = L.side === 'buy' ? 'is-buy' : 'is-sell';
+    var typeCls = L.type === 'call' ? 'is-call' : 'is-put';
+    // Expiry options (all available expirations for this ticker).
+    var expHtml = '';
+    for (var i=0; i<stratState.expirations.length; i++){
+      var e = stratState.expirations[i];
+      expHtml += '<option value="' + e + '"' + (e === L.expSec ? ' selected' : '') + '>'
+        + stratFmtDate(e) + ' · ' + stratDte(e) + 'd</option>';
+    }
+    // Strike options (filtered to the rows that exist for this expiry+type).
+    var strikes = stratStrikeOptions(L.expSec, L.type);
+    var strikeHtml = '';
+    if (!strikes.length){
+      strikeHtml = '<option value="">— no strikes —</option>';
+    } else {
+      var hasStrike = strikes.indexOf(L.strike) >= 0;
+      if (!hasStrike) strikeHtml += '<option value="' + L.strike + '" selected>' + fmtMoney(L.strike) + ' (off-chain)</option>';
+      for (var k=0; k<strikes.length; k++){
+        var s = strikes[k];
+        strikeHtml += '<option value="' + s + '"' + (s === L.strike && hasStrike ? ' selected' : '') + '>' + fmtMoney(s) + '</option>';
+      }
+    }
+    // Live detail strip.
+    var row = legEnr.row;
+    var detail = '';
+    if (!row){
+      detail = '<span class="strat-leg-warn">no chain row at this strike</span>';
+    } else {
+      var midStr = legEnr.mid != null ? fmtMoney(legEnr.mid) : '—';
+      var bidStr = legEnr.bid != null ? fmtMoney(legEnr.bid) : '—';
+      var askStr = legEnr.ask != null ? fmtMoney(legEnr.ask) : '—';
+      var ivStr = legEnr.iv != null ? (legEnr.iv * 100).toFixed(1) + '%' : '—';
+      var dStr = legEnr.greeks ? legEnr.greeks.delta.toFixed(2) : '—';
+      var tStr = legEnr.greeks ? legEnr.greeks.thetaDay.toFixed(3) : '—';
+      var oiStr = legEnr.oi != null ? Number(legEnr.oi).toLocaleString() : '—';
+      detail =
+        '<span>bid ' + bidStr + ' · ask ' + askStr + ' · <b>mid ' + midStr + '</b></span>' +
+        '<span>IV ' + ivStr + ' · Δ ' + dStr + ' · Θ ' + tStr + '</span>' +
+        '<span>OI ' + oiStr + '</span>';
+    }
+    var costSign = L.side === 'buy' ? '−' : '+';
+    var legCost = (legEnr.mid != null) ? (legEnr.mid * legEnr.qty * 100) : null;
+    var legCostStr = legCost != null
+      ? '<span class="strat-leg-cost ' + (L.side === 'buy' ? 'is-debit' : 'is-credit') + '">' + costSign + fmtMoney(Math.abs(legCost)) + '</span>'
+      : '';
+    return ''
+      + '<div class="strat-leg ' + sideCls + ' ' + typeCls + '" data-leg-id="' + L.id + '" role="listitem">'
+      +   '<div class="strat-leg-grid">'
+      +     '<div class="strat-leg-toggle strat-leg-side" role="radiogroup" aria-label="Side">'
+      +       '<button type="button" data-leg-action="side" data-leg-val="buy"  class="' + (L.side === 'buy' ? 'is-on' : '') + '">Buy</button>'
+      +       '<button type="button" data-leg-action="side" data-leg-val="sell" class="' + (L.side === 'sell' ? 'is-on' : '') + '">Sell</button>'
+      +     '</div>'
+      +     '<div class="strat-leg-toggle strat-leg-type" role="radiogroup" aria-label="Option type">'
+      +       '<button type="button" data-leg-action="type" data-leg-val="call" class="' + (L.type === 'call' ? 'is-on' : '') + '">Call</button>'
+      +       '<button type="button" data-leg-action="type" data-leg-val="put"  class="' + (L.type === 'put' ? 'is-on' : '') + '">Put</button>'
+      +     '</div>'
+      +     '<label class="strat-leg-field">'
+      +       '<span class="strat-leg-flabel">Expiry</span>'
+      +       '<select data-leg-action="expiry">' + expHtml + '</select>'
+      +     '</label>'
+      +     '<label class="strat-leg-field">'
+      +       '<span class="strat-leg-flabel">Strike</span>'
+      +       '<select data-leg-action="strike">' + strikeHtml + '</select>'
+      +     '</label>'
+      +     '<label class="strat-leg-field strat-leg-qty">'
+      +       '<span class="strat-leg-flabel">Qty</span>'
+      +       '<input type="number" min="1" max="50" value="' + L.qty + '" data-leg-action="qty">'
+      +     '</label>'
+      +     '<button type="button" class="strat-leg-remove" data-leg-action="remove" aria-label="Remove leg">×</button>'
+      +   '</div>'
+      +   '<div class="strat-leg-detail">'
+      +     detail
+      +     legCostStr
+      +     (dte != null ? '<span class="strat-leg-dte">' + dte + ' DTE</span>' : '')
+      +   '</div>'
+      + '</div>';
+  }
+
+  function stratRenderLegs(enriched){
+    var box = $('strat-legs');
+    var list = $('strat-legs-list');
+    var counter = $('strat-leg-count');
+    if (!box || !list || !counter) return;
+    if (!stratState.symbol){
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    counter.textContent = '· ' + stratState.legs.length + (stratState.legs.length === 1 ? ' leg' : ' legs');
+    if (!stratState.legs.length){
+      list.innerHTML = '<div class="strat-legs-empty">Pick a template above or click <b>+ Add leg</b> to start building.</div>';
+      return;
+    }
+    var html = '';
+    for (var i=0; i<enriched.legs.length; i++){
+      html += stratLegRowHtml(enriched.legs[i]);
+    }
+    list.innerHTML = html;
+  }
+
+  // --- Render: payoff SVG ------------------------------------------------
+  function stratPayoffSvg(sweep){
+    if (!sweep || !sweep.xs.length) return '';
+    var W = 520, H = 220, PAD_L = 44, PAD_R = 16, PAD_T = 18, PAD_B = 30;
+    var xs = sweep.xs, ys = sweep.ys;
+    var xMin = xs[0], xMax = xs[xs.length - 1];
+    var yMin = sweep.min, yMax = sweep.max;
+    // Symmetric padding so the zero line stays visible even when one tail
+    // dominates the range.
+    var span = Math.max(Math.abs(yMin), Math.abs(yMax), 1);
+    var yLo = -span * 1.1, yHi = span * 1.1;
+    var sx = function(x){ return PAD_L + (x - xMin) / (xMax - xMin) * (W - PAD_L - PAD_R); };
+    var sy = function(y){ return PAD_T + (1 - (y - yLo) / (yHi - yLo)) * (H - PAD_T - PAD_B); };
+    // Profit/loss areas as separate clipped fills (above zero green, below red).
+    var zeroY = sy(0);
+    var areaTopPath = 'M ' + sx(xs[0]) + ' ' + zeroY;
+    var areaBotPath = 'M ' + sx(xs[0]) + ' ' + zeroY;
+    for (var i=0; i<xs.length; i++){
+      var X = sx(xs[i]);
+      var Y = sy(ys[i]);
+      var YProfit = Math.min(Y, zeroY);
+      var YLoss   = Math.max(Y, zeroY);
+      areaTopPath += ' L ' + X.toFixed(1) + ' ' + YProfit.toFixed(1);
+      areaBotPath += ' L ' + X.toFixed(1) + ' ' + YLoss.toFixed(1);
+    }
+    areaTopPath += ' L ' + sx(xs[xs.length-1]) + ' ' + zeroY + ' Z';
+    areaBotPath += ' L ' + sx(xs[xs.length-1]) + ' ' + zeroY + ' Z';
+    var line = '';
+    for (var j=0; j<xs.length; j++){
+      line += (j === 0 ? 'M' : ' L') + sx(xs[j]).toFixed(1) + ' ' + sy(ys[j]).toFixed(1);
+    }
+    // Spot marker.
+    var spot = stratState.spot;
+    var spotLine = '';
+    if (spot != null && spot >= xMin && spot <= xMax){
+      spotLine = '<line class="strat-payoff-spot" x1="' + sx(spot).toFixed(1) + '" y1="' + PAD_T + '" x2="' + sx(spot).toFixed(1) + '" y2="' + (H - PAD_B) + '"></line>';
+    }
+    // Breakeven markers.
+    var beHtml = '';
+    for (var k=0; k<sweep.breakevens.length; k++){
+      var bx = sx(sweep.breakevens[k]).toFixed(1);
+      beHtml += '<line class="strat-payoff-be" x1="' + bx + '" y1="' + PAD_T + '" x2="' + bx + '" y2="' + (H - PAD_B) + '"></line>';
+    }
+    // Axis labels.
+    var xLabels =
+      '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="start">' + fmtMoney(xMin) + '</text>' +
+      (spot != null ? '<text x="' + sx(spot).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl strat-payoff-spot-lbl" text-anchor="middle">spot ' + fmtMoney(spot) + '</text>' : '') +
+      '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 10) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(xMax) + '</text>';
+    var yLabels =
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + (yHi >= 0 ? '+' : '') + fmtMoney(yHi) + '</text>' +
+      '<text x="' + (PAD_L - 6) + '" y="' + (zeroY + 4) + '" class="strat-payoff-axislbl" text-anchor="end">$0</text>' +
+      '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(yLo) + '</text>';
+    return '<svg class="strat-payoff-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Strategy P/L at expiration">'
+      + '<line class="strat-payoff-zero" x1="' + PAD_L + '" y1="' + zeroY + '" x2="' + (W - PAD_R) + '" y2="' + zeroY + '"></line>'
+      + '<path class="strat-payoff-area strat-payoff-area-profit" d="' + areaTopPath + '"></path>'
+      + '<path class="strat-payoff-area strat-payoff-area-loss" d="' + areaBotPath + '"></path>'
+      + spotLine
+      + beHtml
+      + '<path class="strat-payoff-line" d="' + line + '"></path>'
+      + xLabels + yLabels
+      + '</svg>';
+  }
+
+  // --- Render: summary + greeks + score ----------------------------------
+  function stratFmtSigned(n){ if (n == null || !isFinite(n)) return '—'; return (n >= 0 ? '+' : '−') + '$' + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0}); }
+
+  function stratRenderSummary(enriched, sweep){
+    var box = $('strat-summary'); if (!box) return;
+    if (!enriched.legs.length){ box.innerHTML = ''; return; }
+    var netCost = enriched.netCostPerShare * 100;
+    var costLabel = netCost >= 0 ? 'Net debit' : 'Net credit';
+    var costCls   = netCost >= 0 ? 'is-debit' : 'is-credit';
+    var maxGain, maxLoss;
+    if (sweep){
+      maxGain = sweep.unlimitedGainUp ? '<span class="strat-summary-unlim">unlimited</span>' : stratFmtSigned(sweep.max);
+      maxLoss = sweep.unlimitedLossUp || sweep.unboundedLossDown ? '<span class="strat-summary-unlim is-loss">unlimited</span>' : stratFmtSigned(sweep.min);
+    } else {
+      maxGain = '—'; maxLoss = '—';
+    }
+    var beStr = '—';
+    if (sweep && sweep.breakevens.length){
+      beStr = sweep.breakevens.map(function(b){ return fmtMoney(b); }).join(' · ');
+    }
+    box.innerHTML =
+      '<div class="strat-summary-grid">'
+      + '<div class="strat-summary-cell"><div class="strat-summary-label">' + costLabel + '</div><div class="strat-summary-val ' + costCls + '">' + stratFmtSigned(-netCost) + '</div></div>'
+      + '<div class="strat-summary-cell"><div class="strat-summary-label">Max gain</div><div class="strat-summary-val is-profit">' + maxGain + '</div></div>'
+      + '<div class="strat-summary-cell"><div class="strat-summary-label">Max loss</div><div class="strat-summary-val is-loss">' + maxLoss + '</div></div>'
+      + '<div class="strat-summary-cell"><div class="strat-summary-label">Breakeven</div><div class="strat-summary-val">' + beStr + '</div></div>'
+      + '</div>';
+  }
+
+  function stratRenderGreeks(enriched){
+    var box = $('strat-greeks'); if (!box) return;
+    if (!enriched.legs.length){ box.innerHTML = ''; return; }
+    var g = enriched.netGreeks;
+    function cell(label, value, tip){
+      return '<div class="strat-greek-cell" title="' + tip + '"><div class="strat-greek-label">' + label + '</div><div class="strat-greek-val">' + value + '</div></div>';
+    }
+    box.innerHTML =
+      cell('Delta', g.delta.toFixed(2), 'Net change in strategy value per $1 move in the underlying.') +
+      cell('Gamma', g.gamma.toFixed(3), 'Rate of change of delta per $1 move.') +
+      cell('Theta', g.theta.toFixed(2), 'Daily $ decay (per share — multiply by 100 for per-contract).') +
+      cell('Vega',  g.vega.toFixed(2),  'Change in value per 1 vol-point move in IV.');
+  }
+
+  function stratRenderScore(enriched, sweep){
+    var wrap = $('strat-score-wrap');
+    var chip = $('strat-score-chip');
+    var ex = $('strat-score-explain');
+    var biasEl = $('strat-bias');
+    var nameEl = $('strat-name');
+    if (!wrap || !chip) return;
+    if (!enriched.legs.length){
+      wrap.hidden = true;
+      if (ex) { ex.hidden = true; ex.innerHTML = ''; }
+      if (biasEl) biasEl.textContent = '';
+      if (nameEl) nameEl.textContent = 'Custom strategy';
+      return;
+    }
+    var sc = stratScore(enriched, sweep);
+    var grade = sc.grade;
+    var meta = stratStrategyMeta();
+    if (nameEl) nameEl.textContent = meta ? meta.name : 'Custom strategy';
+    if (biasEl) biasEl.textContent = stratBiasLabel(sc.bias);
+    wrap.hidden = false;
+    chip.textContent = grade + ' · ' + sc.score;
+    chip.className = 'strat-score-chip strat-grade-' + grade.replace('+','plus').toLowerCase();
+    if (ex){
+      var parts = sc.parts.map(function(p){
+        return '<li><span class="strat-score-part-label">' + p.label + '</span>'
+          + '<span class="strat-score-part-bar"><span style="width:' + (p.max ? (p.value/p.max*100) : 0) + '%"></span></span>'
+          + '<span class="strat-score-part-val">' + p.value + '/' + p.max + '</span>'
+          + (p.note ? '<span class="strat-score-part-note">' + escapeHtml(p.note) + '</span>' : '')
+          + '</li>';
+      }).join('');
+      ex.innerHTML = '<ul class="strat-score-parts">' + parts + '</ul>';
+      ex.hidden = false;
+    }
+  }
+
+  function stratRenderTickerMeta(){
+    var box = $('strat-ticker-meta'); if (!box) return;
+    if (!stratState.symbol){ box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    var parts = [];
+    parts.push('<span class="strat-meta-sym">' + escapeHtml(stratState.symbol) + '</span>');
+    if (stratState.spot != null) parts.push('<span>spot ' + fmtMoney(stratState.spot) + '</span>');
+    var t = stratState.technicals;
+    if (t && t.rsi != null) parts.push('<span>RSI ' + t.rsi.toFixed(1) + '</span>');
+    if (t && t.macd && t.macd.hist != null) parts.push('<span>MACD ' + (t.macd.hist >= 0 ? '+' : '') + t.macd.hist.toFixed(3) + '</span>');
+    if (stratState.ivLabel) parts.push('<span>IV rank ' + stratState.ivLabel + '</span>');
+    box.innerHTML = parts.join(' · ');
+  }
+
+  function stratRenderTemplates(){
+    var groups = {
+      directional: $('strat-tpl-directional'),
+      volatility:  $('strat-tpl-volatility'),
+      neutral:     $('strat-tpl-neutral'),
+      income:      $('strat-tpl-income'),
+    };
+    var anyBox = groups.directional;
+    if (!anyBox) return;
+    var hasTicker = !!stratState.symbol && stratState.expirations.length > 0;
+    var wrap = $('strat-templates');
+    if (wrap) wrap.hidden = !hasTicker;
+    if (!hasTicker) return;
+    for (var key in groups){ if (groups[key]) groups[key].innerHTML = ''; }
+    for (var i=0; i<STRAT_TEMPLATES.length; i++){
+      var t = STRAT_TEMPLATES[i];
+      var box = groups[t.group]; if (!box) continue;
+      var active = stratState.strategyId === t.id ? ' is-on' : '';
+      box.innerHTML += '<button type="button" class="strat-tpl-chip' + active + '" data-strat-tpl="' + t.id + '" title="' + escapeHtml(t.help) + '">'
+        + '<span class="strat-tpl-chip-name">' + escapeHtml(t.name) + '</span>'
+        + '<span class="strat-tpl-chip-label">' + escapeHtml(t.label) + '</span>'
+        + '</button>';
+    }
+  }
+
+  function stratRenderAll(){
+    var resultsBox = $('strat-results');
+    var clearBtn = $('strat-clear');
+    if (clearBtn) clearBtn.hidden = stratState.legs.length === 0;
+    stratRenderTemplates();
+    if (!stratState.legs.length){
+      stratRenderLegs({ legs: [] });
+      if (resultsBox) resultsBox.hidden = true;
+      stratRenderScore({ legs: [] }, null);
+      stratRenderTickerMeta();
+      return;
+    }
+    var enriched = stratEnrichLegs();
+    var sweep = stratSweepPayoff(enriched);
+    stratRenderTickerMeta();
+    stratRenderLegs(enriched);
+    if (resultsBox) resultsBox.hidden = false;
+    stratRenderSummary(enriched, sweep);
+    stratRenderGreeks(enriched);
+    var payoffBox = $('strat-payoff'); if (payoffBox) payoffBox.innerHTML = sweep ? stratPayoffSvg(sweep) : '';
+    stratRenderScore(enriched, sweep);
+  }
+
+  // --- IV rank for the score --------------------------------------------
+  // Pulls the per-ticker IV history file the IV tab already uses and
+  // computes today's percentile rank from the ATM IV at the nearest
+  // expiration. Quietly skips when history is too thin (<60 days).
+  function stratRefreshIvRank(symbol){
+    stratState.ivPctile = null;
+    stratState.ivLabel = null;
+    if (!symbol) return Promise.resolve();
+    return fetchIvHistory(symbol).then(function(entries){
+      if (stratState.symbol !== symbol) return;
+      if (!stratState.expirations.length) return;
+      // ATM IV at the near-30d expiration (matches the IV-rank methodology
+      // used by the Grade tab).
+      var pts = [];
+      for (var i=0; i<stratState.expirations.length; i++){
+        var e = stratState.expirations[i];
+        var iv = atmIvForExpiration(stratState.chains[e], stratState.spot);
+        if (iv != null) pts.push({ expSec: e, dte: stratDte(e), iv: iv });
+      }
+      if (!pts.length) return;
+      var pick = pts.reduce(function(best, p){ return Math.abs(p.dte - 30) < Math.abs(best.dte - 30) ? p : best; });
+      var rank = computeIvRank(entries, pick.iv);
+      if (rank && rank.ready){
+        stratState.ivPctile = rank.percentile;
+        stratState.ivLabel = rank.percentile.toFixed(0) + '%';
+      }
+    }).catch(function(){ /* silently degrade — score uses the neutral fallback */ });
+  }
+
+  // --- Load chain for a ticker -------------------------------------------
+  function stratLoadSymbol(symbol){
+    if (!symbol || !SYMBOLS || SYMBOLS.indexOf(symbol) < 0){
+      setStatus('strat-status', symbol ? ('Unknown ticker: ' + symbol) : '', symbol ? 'err' : '');
+      return;
+    }
+    stratState.loading = true;
+    setStatus('strat-status', 'Loading ' + symbol + ' chain…', 'loading');
+    fetchChain(symbol).then(function(entry){
+      stratState.loading = false;
+      stratState.symbol = symbol;
+      stratState.spot = entry.spot;
+      stratState.expirations = (entry.expirations || []).slice();
+      stratState.chains = entry.chains || {};
+      stratState.technicals = entry.technicals || null;
+      stratState.legs = [];
+      stratState.strategyId = null;
+      setStatus('strat-status', symbol + ' · spot ' + fmtMoney(stratState.spot) + ' · ' + stratState.expirations.length + ' expirations', 'ok');
+      stratRenderAll();
+      stratRefreshIvRank(symbol).then(function(){
+        stratRenderTickerMeta();
+        if (stratState.legs.length) stratRenderAll();
+      });
+    }).catch(function(err){
+      stratState.loading = false;
+      setStatus('strat-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
+    });
+  }
+
+  // --- Combobox (lightweight) --------------------------------------------
+  // Mirrors the symbol-search behaviour of the Grade combobox but skips
+  // the keyboard-nav + sector-rank niceties — the Strategies tab is a
+  // builder, the picker just needs to commit a symbol. Click + Enter +
+  // Escape only.
+  var stratCombo = {
+    input: null, listbox: null, items: [],
+    init: function(){
+      this.input = $('strat-symbol-input');
+      this.listbox = $('strat-symbol-listbox');
+      if (!this.input || !this.listbox) return;
+      var self = this;
+      this.input.addEventListener('input', function(){ self.filter(); });
+      this.input.addEventListener('focus', function(){ self.filter(); });
+      this.input.addEventListener('blur', function(){ setTimeout(function(){ self.close(); }, 120); });
+      this.input.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' && self.items.length === 1){ e.preventDefault(); self.commit(self.items[0]); }
+        else if (e.key === 'Escape') self.close();
+      });
+      var clear = $('strat-symbol-clear');
+      if (clear) clear.addEventListener('mousedown', function(e){
+        e.preventDefault(); self.input.value = ''; self.input.focus(); self.filter();
+      });
+      this.listbox.addEventListener('mousedown', function(e){
+        var li = e.target.closest && e.target.closest('li[data-sym]');
+        if (!li) return;
+        e.preventDefault();
+        self.commit(li.getAttribute('data-sym'));
+      });
+      var box = $('strat-symbol-combo');
+      document.addEventListener('pointerdown', function(e){
+        if (self.listbox.hidden) return;
+        if (box && box.contains(e.target)) return;
+        self.close();
+      });
+    },
+    filter: function(){
+      var q = (this.input.value || '').trim().toUpperCase();
+      var matches;
+      if (!q) matches = SYMBOLS.slice(0, 50);
+      else {
+        var prefix = [], contains = [];
+        for (var i=0; i<SYMBOLS.length; i++){
+          var s = SYMBOLS[i];
+          if (s.indexOf(q) === 0) prefix.push(s);
+          else if (s.indexOf(q) >= 0) contains.push(s);
+        }
+        matches = prefix.concat(contains).slice(0, 50);
+      }
+      this.items = matches;
+      if (!matches.length){
+        this.listbox.innerHTML = '<li class="combo-empty">No matches</li>';
+      } else {
+        var html = '';
+        for (var k=0; k<matches.length; k++){
+          var sym = matches[k];
+          var sec = SECTORS[sym] || '';
+          var spot = SPOTS[sym];
+          html += '<li role="option" data-sym="' + sym + '">'
+            + '<span class="combo-sym">' + sym + '</span>'
+            + '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>'
+            + '<span class="combo-sector">' + escapeHtml(sec) + '</span>'
+            + '</li>';
+        }
+        this.listbox.innerHTML = html;
+      }
+      this.listbox.hidden = false;
+      this.input.setAttribute('aria-expanded', 'true');
+    },
+    close: function(){
+      this.listbox.hidden = true;
+      this.input.setAttribute('aria-expanded', 'false');
+    },
+    commit: function(sym){
+      if (!sym) return;
+      this.input.value = sym;
+      this.close();
+      stratLoadSymbol(sym);
+    },
+  };
+
+  // --- Event delegation for legs + templates ------------------------------
+  function stratBindControls(){
+    var tpls = $('strat-templates');
+    if (tpls){
+      tpls.addEventListener('click', function(e){
+        var btn = e.target.closest && e.target.closest('[data-strat-tpl]');
+        if (!btn) return;
+        stratApplyTemplate(btn.getAttribute('data-strat-tpl'));
+      });
+    }
+    var legsList = $('strat-legs-list');
+    if (legsList){
+      legsList.addEventListener('click', function(e){
+        var btn = e.target.closest && e.target.closest('[data-leg-action]');
+        if (!btn) return;
+        var legEl = btn.closest('.strat-leg'); if (!legEl) return;
+        var id = parseInt(legEl.getAttribute('data-leg-id'), 10);
+        var leg = stratState.legs.find(function(L){ return L.id === id; });
+        if (!leg) return;
+        var action = btn.getAttribute('data-leg-action');
+        if (action === 'remove'){
+          stratState.legs = stratState.legs.filter(function(L){ return L.id !== id; });
+          stratState.strategyId = null;
+          stratRenderAll();
+        } else if (action === 'side'){
+          leg.side = btn.getAttribute('data-leg-val');
+          stratState.strategyId = null;
+          stratRenderAll();
+        } else if (action === 'type'){
+          leg.type = btn.getAttribute('data-leg-val');
+          // Snap to nearest available strike in the new chain side.
+          var strikes = stratStrikeOptions(leg.expSec, leg.type);
+          if (strikes.length && strikes.indexOf(leg.strike) < 0){
+            var spot = stratState.spot || leg.strike;
+            var best = strikes[0], bestD = Math.abs(strikes[0] - spot);
+            for (var i=1; i<strikes.length; i++){
+              var d = Math.abs(strikes[i] - spot);
+              if (d < bestD){ best = strikes[i]; bestD = d; }
+            }
+            leg.strike = best;
+          }
+          stratState.strategyId = null;
+          stratRenderAll();
+        }
+      });
+      legsList.addEventListener('change', function(e){
+        var ctrl = e.target;
+        var action = ctrl.getAttribute && ctrl.getAttribute('data-leg-action');
+        if (!action) return;
+        var legEl = ctrl.closest('.strat-leg'); if (!legEl) return;
+        var id = parseInt(legEl.getAttribute('data-leg-id'), 10);
+        var leg = stratState.legs.find(function(L){ return L.id === id; });
+        if (!leg) return;
+        if (action === 'expiry'){
+          leg.expSec = parseInt(ctrl.value, 10);
+          // Re-snap strike to nearest in the new expiry's chain side.
+          var strikes = stratStrikeOptions(leg.expSec, leg.type);
+          if (strikes.length && strikes.indexOf(leg.strike) < 0){
+            var spot = stratState.spot || leg.strike;
+            var best = strikes[0], bestD = Math.abs(strikes[0] - spot);
+            for (var i=1; i<strikes.length; i++){
+              var d = Math.abs(strikes[i] - spot);
+              if (d < bestD){ best = strikes[i]; bestD = d; }
+            }
+            leg.strike = best;
+          }
+        } else if (action === 'strike'){
+          var v = parseFloat(ctrl.value); if (isFinite(v)) leg.strike = v;
+        } else if (action === 'qty'){
+          var q = Math.max(1, Math.min(50, parseInt(ctrl.value, 10) || 1));
+          leg.qty = q;
+        }
+        stratState.strategyId = null;
+        stratRenderAll();
+      });
+    }
+    var addBtn = $('strat-add-leg');
+    if (addBtn) addBtn.addEventListener('click', stratAddCustomLeg);
+    var clearBtn = $('strat-clear');
+    if (clearBtn) clearBtn.addEventListener('click', stratClearAll);
+  }
+
+  function initStrategies(){
+    if (stratState.inited) return;
+    stratState.inited = true;
+    stratCombo.init();
+    stratBindControls();
+    stratRenderTemplates();
   }
 
   // --- Calendar tab -------------------------------------------------------

@@ -427,6 +427,94 @@ function optionEvalSection() {
   </section>`;
 }
 
+function strategiesSection() {
+  // Multi-leg options strategy builder. The card shell is static; everything
+  // inside #strat-templates, #strat-legs-list, #strat-results is populated
+  // by the Strategies module in app-js.mjs once a ticker is picked. Chains
+  // and technicals are loaded via the same fetchChain() helper Grade uses
+  // — no new data files.
+  return `<section class="card strat-card" id="strat-section">
+    <header class="card-header">
+      <h2 class="card-title">Options strategies</h2>
+      <span class="card-eyebrow" id="strat-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Build multi-leg strategies — buy or sell calls and puts together. Pick a template or compose by hand, and we'll add up the greeks, sketch the expiration payoff, and score the structure against this ticker's technicals + IV rank.</p>
+    <div class="strat-controls">
+      <div class="combo" id="strat-symbol-combo">
+        <input type="text" id="strat-symbol-input" role="combobox"
+               aria-expanded="false" aria-controls="strat-symbol-listbox"
+               aria-autocomplete="list"
+               placeholder="Search ticker or sector…"
+               autocomplete="off" spellcheck="false">
+        <button type="button" class="combo-clear" id="strat-symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
+        <ul id="strat-symbol-listbox" role="listbox" hidden></ul>
+      </div>
+      <button type="button" class="strat-btn-ghost" id="strat-clear" hidden>Clear strategy</button>
+    </div>
+    <div id="strat-status" class="opt-status" role="status"></div>
+    <div id="strat-ticker-meta" class="strat-ticker-meta" hidden aria-live="polite"></div>
+    <div id="strat-templates" class="strat-templates" hidden>
+      <h3 class="strat-section-title">Strategy templates</h3>
+      <div class="strat-tpl-groups">
+        <div class="strat-tpl-group">
+          <div class="strat-tpl-group-head">Directional</div>
+          <div class="strat-tpl-chips" id="strat-tpl-directional"></div>
+        </div>
+        <div class="strat-tpl-group">
+          <div class="strat-tpl-group-head">Volatility</div>
+          <div class="strat-tpl-chips" id="strat-tpl-volatility"></div>
+        </div>
+        <div class="strat-tpl-group">
+          <div class="strat-tpl-group-head">Range &amp; neutral</div>
+          <div class="strat-tpl-chips" id="strat-tpl-neutral"></div>
+        </div>
+        <div class="strat-tpl-group">
+          <div class="strat-tpl-group-head">Income</div>
+          <div class="strat-tpl-chips" id="strat-tpl-income"></div>
+        </div>
+      </div>
+      <p class="strat-tpl-foot">Templates auto-populate the legs below using strikes nearest ATM and the nearest expiration. Tweak any leg afterwards.</p>
+    </div>
+    <div id="strat-legs" class="strat-legs" hidden>
+      <header class="strat-legs-head">
+        <h3 class="strat-section-title">Legs <span class="strat-leg-counter" id="strat-leg-count">0</span></h3>
+        <div class="strat-legs-actions">
+          <button type="button" class="strat-btn-ghost" id="strat-add-leg">+ Add leg</button>
+        </div>
+      </header>
+      <div id="strat-legs-list" class="strat-legs-list" role="list"></div>
+    </div>
+    <div id="strat-results" class="strat-results" hidden>
+      <header class="strat-results-head">
+        <div class="strat-results-head-left">
+          <h3 class="strat-section-title" id="strat-name">Custom strategy</h3>
+          <span class="strat-bias" id="strat-bias"></span>
+        </div>
+        <div class="strat-score-wrap" id="strat-score-wrap" hidden>
+          <span class="strat-score-label">Strategy score</span>
+          <span class="strat-score-chip" id="strat-score-chip"></span>
+        </div>
+      </header>
+      <div id="strat-summary" class="strat-summary"></div>
+      <div class="strat-results-body">
+        <div class="strat-payoff-wrap">
+          <div class="strat-payoff-head">
+            <div class="strat-payoff-title">Payoff at expiration</div>
+            <div class="strat-payoff-axis" id="strat-payoff-axis"></div>
+          </div>
+          <div id="strat-payoff" class="strat-payoff"></div>
+        </div>
+        <div class="strat-greeks-wrap">
+          <div class="strat-greeks-title">Net greeks</div>
+          <div id="strat-greeks" class="strat-greeks"></div>
+          <div class="strat-score-explain" id="strat-score-explain" hidden></div>
+        </div>
+      </div>
+      <p class="strat-foot">Payoff is plotted at the nearest leg's expiration. For calendar spreads the far leg is repriced with Black-Scholes at that instant using its chain IV. Max gain / loss labelled "unlimited" when a naked leg leaves one side open.</p>
+    </div>
+  </section>`;
+}
+
 export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
@@ -536,6 +624,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="strategies" aria-selected="false" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="bonds-usd" aria-selected="false" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
@@ -694,6 +783,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
+  </div>
+  <div class="page-pane" id="page-pane-strategies" role="tabpanel" aria-labelledby="page-tab-strategies" hidden>
+  ${strategiesSection()}
   </div>
   <div class="page-pane" id="page-pane-streaks" role="tabpanel" aria-labelledby="page-tab-streaks" hidden>
     <section class="card" id="streaks-section">
