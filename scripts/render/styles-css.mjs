@@ -2933,9 +2933,29 @@ main {
 .opt-contract b, .opt-contract strong { color: var(--text); font-weight: 600; }
 .opt-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0 var(--s-5);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s-4) var(--s-5);
   margin: var(--s-3) 0;
+  align-items: start;
+}
+.opt-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.opt-section-title {
+  margin: 0 0 4px;
+  padding: 0 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hairline);
+}
+.opt-section-rows {
+  display: flex;
+  flex-direction: column;
 }
 .opt-row {
   display: flex; justify-content: space-between; align-items: baseline;
@@ -2947,6 +2967,7 @@ main {
   transition: background .12s var(--ease-out);
 }
 .opt-row:hover { background: color-mix(in srgb, var(--accent) 3%, transparent); }
+.opt-section-rows .opt-row:last-child { border-bottom: none; }
 .opt-row:last-child { border-bottom: none; }
 .opt-row-label {
   color: var(--muted);
@@ -3499,7 +3520,6 @@ body.cmd-palette-open { overflow: hidden; }
    between rows is enough; the top edge picks up the surrounding card border
    already, so a redundant border-top is just visual clutter. */
 .opt-grid {
-  gap: 0 var(--s-5);
   margin-top: var(--s-3);
 }
 .opt-row {
