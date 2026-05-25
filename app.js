@@ -3005,15 +3005,20 @@
         var xi = xFor(history.length + j);
         var yi = yFor(p.value);
         var label = fmtQuarterLabel(p.date, p.period, fyeMonth);
-        var anchor = (j === forward.length - 1) ? 'end' : 'middle';
-        var lx = anchor === 'end' ? (xi + colW / 2 - 2) : xi;
+        var isLast = j === forward.length - 1;
         fwdDots += '<circle class="opt-fund-eh-fwdmark ' + trendDir + '" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="3.5"><title>' +
           escapeHtml(label) + ' estimate · ' + escapeHtml(fmt(p.value)) + '</title></circle>';
         // Tiny "EST" badge floats above the forward dot so estimates stand
         // out from historical actuals at a glance (previously only the
         // dashed line + hollow dot signaled this).
         fwdDots += '<text class="opt-fund-eh-est-badge" x="' + xi.toFixed(2) + '" y="' + (yi - 8).toFixed(2) + '" text-anchor="middle">EST</text>';
-        fwdLabels += '<text class="opt-fund-eh-axis fwd" x="' + lx.toFixed(2) + '" y="' + (H - 8) + '" text-anchor="' + anchor + '">' + escapeHtml(label) + ' est</text>';
+        // Only label the rightmost forward point on the axis. Labels for
+        // intermediate forward quarters collide with each other at the
+        // narrow per-column width (see "Q2 '27 estQ3 '27 est" mash-up).
+        if (isLast){
+          var lx = xi + colW / 2 - 2;
+          fwdLabels += '<text class="opt-fund-eh-axis fwd" x="' + lx.toFixed(2) + '" y="' + (H - 8) + '" text-anchor="end">' + escapeHtml(label) + ' est</text>';
+        }
       });
     }
 
