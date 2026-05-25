@@ -3266,6 +3266,17 @@ export function parseEdgar13FXml(xml) {
     const sharesType = (block.match(/<sshPrnamtType[^>]*>([\s\S]*?)<\/sshPrnamtType>/) || [])[1];
     const putCall = (block.match(/<putCall[^>]*>([\s\S]*?)<\/putCall>/) || [])[1];
     if (!name || !cusip) continue;
+    // Filter out bonds and other principal-amount holdings — the 13F XSD
+    // uses sshPrnamtType=SH for shares and PRN for principal amount (bonds /
+    // notes). The page promises an equities-focused view, so PRN rows leak
+    // entries like "WDC 3 11/15/28 — Western Digital convertible notes" into
+    // the most-bought tables. Skip them at parse time.
+    const sType = (sharesType || "").trim().toUpperCase();
+    if (sType && sType !== "SH") continue;
+    // Also skip option holdings (putCall present) — these are derivatives
+    // disclosures, not the underlying equity position. The 13F intro promises
+    // we exclude options details too.
+    if (putCall && putCall.trim()) continue;
     const value = Number(String(valueRaw || "").trim());
     const shares = Number(String(sharesRaw || "").trim());
     if (!Number.isFinite(value)) continue;
@@ -3274,7 +3285,7 @@ export function parseEdgar13FXml(xml) {
       cusip: cusip.trim(),
       value,
       shares: Number.isFinite(shares) ? shares : null,
-      sharesType: (sharesType || "").trim() || null,
+      sharesType: sType || null,
       putCall: (putCall || "").trim() || null,
     });
   }
@@ -3362,7 +3373,16 @@ async function fetchOpenFigiCusipMap(cusips) {
       if (!Array.isArray(json)) continue;
       for (let j = 0; j < json.length; j++) {
         const entry = json[j];
-        const ticker = entry?.data?.[0]?.ticker;
+        // OpenFIGI returns multiple records per CUSIP — bonds, common stock,
+        // ADRs, etc. Prefer "Common Stock" / "Depositary Receipt" matches
+        // over bond mappings; otherwise a corporate-bond CUSIP can come back
+        // with a debt-instrument ticker like "DWD" that looks like an equity.
+        const records = Array.isArray(entry?.data) ? entry.data : [];
+        const preferred = records.find((r) => {
+          const t = (r?.securityType || r?.securityType2 || "").toLowerCase();
+          return t.includes("common stock") || t.includes("depositary receipt") || t === "adr" || t.includes("etp");
+        });
+        const ticker = (preferred && preferred.ticker) || records[0]?.ticker;
         if (ticker) out.set(chunk[j], ticker);
       }
     } catch (err) {
@@ -5981,7 +6001,19 @@ async function fetchMacroHeadlines() {
   });
   const cutoffMs = Date.now() - 14 * 86400000;
   const fresh = all.filter((it) => !it.publishedAt || Date.parse(it.publishedAt) >= cutoffMs);
-  return fresh.slice(0, MACRO_TOTAL_CAP);
+  // MarketWatch / CNBC Top Stories feeds are general business-news firehoses
+  // and routinely include personal-finance fluff ("I'm 67, my CPA says…",
+  // "Inherited a house and now what?") that have nothing to do with what's
+  // moving markets. Score each item: keep ones whose title/description hit a
+  // macro-relevant keyword and aren't obvious personal-finance Q&A.
+  const MACRO_KEYWORDS = /\b(cpi|inflation|deflation|fed|fomc|powell|rate(?:\s+hike|\s+cut|\s+decision)?|interest rate|treasury|yield|bond|10-year|2-year|nonfarm|jobs report|jobless|payroll|unemployment|gdp|recession|tariff|trade war|opec|oil price|crude|brent|wti|dollar|usd|dxy|gold|copper|sentiment|consumer confidence|retail sales|housing starts|pmi|ism|durable goods|ppi|earnings season|s&p ?500|nasdaq|dow jones|stocks?|equities|bear market|bull market|rally|sell-?off|china|tariffs|sanctions|war|geopolit|stimulus|debt ceiling|deficit|treasury|congress|white house|election|biden|trump|harris)\b/i;
+  const PERSONAL_FINANCE_BLOCKLIST = /\b(my (?:husband|wife|son|daughter|kids?|family|aunt|uncle|grandkids?|grandchildren|inheritance|trust|cpa|attorney|spouse|partner)|i'?m \d{2}|inherited|my (?:401k|ira|roth)|should i (?:sell|buy|invest|retire)|family trust|estate planning|how do i (?:protect|leave|pass on)|advice column|moneyist|dear moneyist|how should i invest)\b/i;
+  const filtered = fresh.filter((it) => {
+    const haystack = `${it.title || ""} ${it.description || ""}`;
+    if (PERSONAL_FINANCE_BLOCKLIST.test(haystack)) return false;
+    return MACRO_KEYWORDS.test(haystack);
+  });
+  return filtered.slice(0, MACRO_TOTAL_CAP);
 }
 
 // Yahoo Finance publishes a per-ticker RSS feed that returns pre-summarized
@@ -6530,7 +6562,29 @@ async function fetchStocktwitsSentiment(symbol) {
     const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
     const body = await res.json();
-    const messages = Array.isArray(body?.messages) ? body.messages.slice(0, STOCKTWITS_MAX_MESSAGES) : [];
+    const messagesRaw = Array.isArray(body?.messages) ? body.messages.slice(0, STOCKTWITS_MAX_MESSAGES) : [];
+    if (!messagesRaw.length) return null;
+    // Filter cross-ticker spam: messages tagged with $SYM but whose body is
+    // a 4+-cashtag broadcast or doesn't reference SYM at all are noise. The
+    // stream endpoint returns anything tagged with the symbol — including
+    // posters who staple every meme ticker onto every post.
+    const upSym = String(symbol || "").toUpperCase();
+    const messages = messagesRaw.filter((m) => {
+      const text = String(m?.body || "");
+      if (!text) return true; // can't judge — keep so counts aren't biased
+      // Count cashtags in the body. 4+ = multi-symbol spam.
+      const cashtags = text.match(/\$[A-Z][A-Z0-9.]{0,5}\b/g) || [];
+      if (cashtags.length >= 4) return false;
+      // If multiple cashtags are present, the primary subject must be SYM.
+      // Treat "primary" as appearing in the first 80 chars OR being the most-
+      // mentioned ticker.
+      if (cashtags.length >= 2) {
+        const head = text.slice(0, 80).toUpperCase();
+        const symInHead = head.includes("$" + upSym);
+        if (!symInHead) return false;
+      }
+      return true;
+    });
     if (!messages.length) return null;
     let bull = 0, bear = 0, neutral = 0;
     let oldestMs = Infinity, newestMs = -Infinity;

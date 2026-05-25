@@ -168,21 +168,53 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // --- Freshness banner ---------------------------------------------------
-  function renderFreshness(){
+  // The banner has two modes:
+  //   1. Default — shows the daily-build age ("Refreshed 2 hours ago").
+  //   2. Per-tab — when the active tab has its own fresher data source
+  //      (Unusual flow + Volume run hourly, etc.), show that source's
+  //      timestamp instead so the banner isn't lying about how recent the
+  //      data on screen is.
+  // selectTab() calls renderFreshness(tabId) on each switch.
+  function freshnessRelLabel(h){
+    if (h < 1) { var m = Math.max(1, Math.round(h*60)); return m + ' minute' + (m===1?'':'s') + ' ago'; }
+    if (h < 36) { var hh = Math.round(h); return hh + ' hour' + (hh===1?'':'s') + ' ago'; }
+    var d = Math.round(h/24); return d + ' day' + (d===1?'':'s') + ' ago';
+  }
+  function tabFreshnessOverride(tab){
+    // Return {iso, label} when a tab has its own freshness signal worth
+    // surfacing, else null (use the default daily-build timestamp).
+    if (tab === 'flow' && UNUSUAL && UNUSUAL.scannedAt) {
+      return { iso: UNUSUAL.scannedAt, label: 'hourly unusual-flow scan' };
+    }
+    if (tab === 'volume' && MANIFEST.volumeFlags && MANIFEST.volumeFlags.scannedAt) {
+      return { iso: MANIFEST.volumeFlags.scannedAt, label: 'hourly volume/S-R scan' };
+    }
+    if (tab === 'fear-greed' && MANIFEST.fearGreed && MANIFEST.fearGreed.asOf) {
+      return { iso: MANIFEST.fearGreed.asOf, label: 'CNN Fear & Greed snapshot' };
+    }
+    if (tab === 'bonds-usd' && MANIFEST.macro && MANIFEST.macro.asOf) {
+      return { iso: MANIFEST.macro.asOf, label: 'Treasury yields + DXY snapshot' };
+    }
+    return null;
+  }
+  function renderFreshness(activeTab){
     var banner = $('freshness-banner');
     var bannerText = $('freshness-text');
     if (!banner || !bannerText) return;
-    var iso = banner.getAttribute('data-built-at');
-    var built = iso ? new Date(iso) : null;
-    if (!built || isNaN(built.getTime())) return;
-    var ageH = (Date.now() - built.getTime()) / 3600000;
-    function rel(h){
-      if (h < 1) { var m = Math.max(1, Math.round(h*60)); return m + ' minute' + (m===1?'':'s') + ' ago'; }
-      if (h < 36) { var hh = Math.round(h); return hh + ' hour' + (hh===1?'':'s') + ' ago'; }
-      var d = Math.round(h/24); return d + ' day' + (d===1?'':'s') + ' ago';
-    }
-    var dateLabel = built.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'America/New_York' });
+    var override = activeTab ? tabFreshnessOverride(activeTab) : null;
+    var iso = override ? override.iso : banner.getAttribute('data-built-at');
+    var when = iso ? new Date(iso) : null;
+    if (!when || isNaN(when.getTime())) return;
+    var ageH = (Date.now() - when.getTime()) / 3600000;
+    var dateLabel = when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'America/New_York' });
     banner.classList.remove('warn','bad');
+    if (override) {
+      // Per-tab override — show the source label, never escalate to the
+      // bad/warn states (those track the daily build, not this signal).
+      bannerText.innerHTML = 'Updated ' + freshnessRelLabel(ageH) +
+        ' <span class="freshness-detail">· ' + override.label + '</span>';
+      return;
+    }
     if (ageH > 24*7) {
       banner.classList.add('bad');
       bannerText.innerHTML = 'Very stale — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
@@ -190,7 +222,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       banner.classList.add('warn');
       bannerText.innerHTML = 'Stale data — last refreshed ' + dateLabel + '. <span class="freshness-detail">Verify quotes on your broker before trading.</span>';
     } else {
-      bannerText.innerHTML = 'Refreshed ' + rel(ageH) + ' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
+      bannerText.innerHTML = 'Refreshed ' + freshnessRelLabel(ageH) + ' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
     }
   }
 
@@ -875,10 +907,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // sideways range = wait, etc. Direction-aware — flips for puts.
   function buildExecuteNowCard(ctx){
     var input = ctx.input || {};
+    var buy = ctx.buy || null;
     var tech = input.technicals || null;
     var type = input.type;
     var spot = input.spot;
     if (!tech || !(spot > 0)) return '';
+    // When the contract itself has deal-breakers (far-OTM delta, 0 DTE,
+    // all-premium, etc.), a green "EXECUTE" badge on this card visually
+    // contradicts the red NO verdict above. The entry-timing read is still
+    // useful — beginners want to know what the chart is doing — but it
+    // shouldn't compete with the headline. Render a compact, muted version
+    // that reframes the question as "what's the chart doing?" without the
+    // EXECUTE / AVOID stamp.
+    var contractIsBroken = !!(buy && buy.hardFails && buy.hardFails.length > 0);
     var dir = type === 'call' ? 1 : -1;
     var dirLabel = type === 'call' ? 'calls' : 'puts';
 
@@ -1108,15 +1149,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</ul>' +
     '</div>';
 
-    return '<div class="opt-exec-card opt-exec-' + vCls + '" id="opt-exec-card">' +
+    // When the contract is broken, neutralize the verdict label/color so
+    // it can't be mistaken for a buy signal. The chart read still appears
+    // below so the user can see what the structure is doing.
+    var renderedVerdict = contractIsBroken ? 'CHART READ' : verdict;
+    var renderedCls = contractIsBroken ? 'muted' : vCls;
+    var titleText = contractIsBroken ? 'What\\'s the chart doing?' : 'Execute now?';
+    var footText = contractIsBroken
+      ? 'Entry timing is informational only — the contract above has deal-breakers. Fix the contract first.'
+      : 'Trade the structure, not emotions — wait for confirmation.';
+
+    return '<div class="opt-exec-card opt-exec-' + renderedCls + (contractIsBroken ? ' opt-exec-demoted' : '') + '" id="opt-exec-card">' +
       '<div class="opt-exec-head">' +
-        '<span class="opt-exec-verdict opt-exec-verdict-' + vCls + '">' + verdict + '</span>' +
+        '<span class="opt-exec-verdict opt-exec-verdict-' + renderedCls + '">' + renderedVerdict + '</span>' +
         '<div class="opt-exec-headline">' +
-          '<div class="opt-exec-title">Execute now?' + tipChip(STRUCTURE_TIP) + '</div>' +
+          '<div class="opt-exec-title">' + titleText + tipChip(STRUCTURE_TIP) + '</div>' +
           '<div class="opt-exec-subtitle">' + escapeHtml(vHeadline) + '</div>' +
         '</div>' +
       '</div>' +
-      explainerExec +
+      (contractIsBroken ? '' : explainerExec) +
       '<div class="opt-exec-meta">' + metaLine + '</div>' +
       '<div class="opt-exec-body">' + escapeHtml(vBody) + '</div>' +
       (prosHtml
@@ -1131,7 +1182,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<ul class="opt-exec-list">' + consHtml + '</ul>' +
           '</div>'
         : '') +
-      '<div class="opt-exec-foot">Trade the structure, not emotions — wait for confirmation.</div>' +
+      '<div class="opt-exec-foot">' + escapeHtml(footText) + '</div>' +
     '</div>';
   }
 
@@ -2139,6 +2190,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
     var valid = ['home','tickers','narratives','picks','calendar','flow','volume','grade','strategies','streaks','fear-greed','f13','bonds-usd','portfolio'];
+    // Friendly aliases so deep-links people might guess work too.
+    // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
+    // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
+    // home, which made shared URLs look broken.
+    var TAB_ALIASES = {
+      unusual: 'flow', 'unusual-flow': 'flow',
+      fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
+      '13f': 'f13', '13f-filings': 'f13',
+      bonds: 'bonds-usd', usd: 'bonds-usd',
+      pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
+      ticker: 'tickers',
+    };
+    function resolveTab(t){
+      if (!t) return null;
+      var key = String(t).toLowerCase();
+      if (valid.indexOf(key) >= 0) return key;
+      var aliased = TAB_ALIASES[key];
+      return aliased && valid.indexOf(aliased) >= 0 ? aliased : null;
+    }
     // Active-tab indicator: a 2px accent bar that slides between tabs.
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
@@ -2180,6 +2250,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (pane) pane.hidden = !sel;
       });
       syncTabToUrl(name);
+      // Re-render the freshness banner for the active tab so Unusual flow /
+      // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
+      // instead of the daily build's "2 hours ago" which can be misleading.
+      try { renderFreshness(name); } catch (_) {}
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
       if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -2240,8 +2314,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var initialTab = 'home';
     try {
       var params = new URLSearchParams(window.location.search);
-      var qTab = params.get('tab');
-      if (qTab && valid.indexOf(qTab) >= 0) {
+      var qTab = resolveTab(params.get('tab'));
+      if (qTab) {
         initialTab = qTab;
       } else if (params.get('s')) {
         initialTab = 'grade';
@@ -2252,7 +2326,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     window.addEventListener('popstate', function(){
       try {
         var p = new URLSearchParams(window.location.search);
-        var t = p.get('tab') || (p.get('s') ? 'grade' : 'home');
+        var t = resolveTab(p.get('tab')) || (p.get('s') ? 'grade' : 'home');
         if (valid.indexOf(t) >= 0) selectTab(t);
       } catch (_) {}
     });
@@ -2397,7 +2471,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
-    html += buildExecuteNowCard({ input: input });
+    html += buildExecuteNowCard({ input: input, buy: buy });
     html += buildRecommendationCard({
       input: input, sGrade: sGrade, dGrade: dGrade, tGrade: tGrade,
       daysToExpiry: daysToExpiry, extrinsicRatio: extrinsicRatio, mid: mid,
@@ -2730,7 +2804,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       state.fundamentals = entry.fundamentals || null;
       state.social = entry.social || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
-      state.currentExp = state.expirations[0];
+      // Default to the first expiration with at least 7 DTE so users don't
+      // land on a 0-DTE contract that auto-fails every grader (expiry crisis,
+      // all-premium, heavy theta). Fall back to whatever's available if every
+      // listed expiry is sooner than 7 days.
+      var nowSec = Math.floor(Date.now() / 1000);
+      var minDteSec = 7 * 86400;
+      var defaultExp = state.expirations.find(function(e){ return (e - nowSec) >= minDteSec; });
+      state.currentExp = defaultExp != null ? defaultExp : state.expirations[0];
       populateExpiry();
       $('opt-expiry').value = String(state.currentExp);
       populateStrikes();
@@ -4199,18 +4280,44 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var html = sectorOverviewHtml(ACTIVE_SECTOR, overview) +
       '<div class="narr-industries">';
     var rank = 0;
+    // Pool every watchlist (autogenerated, low-conviction "we're watching X")
+    // narrative in the sector into one collapsible row at the end. They use
+    // the same boilerplate copy — stacking them as full cards eats a lot of
+    // vertical space without telling the user anything they couldn't read
+    // from a one-line summary.
+    var sectorWatchlists = [];
     for (var w=0; w<withN.length; w++){
       var ind2 = withN[w];
-      var arr = sectorNarratives[ind2] || [];
+      var arrAll = sectorNarratives[ind2] || [];
+      var arrReal = arrAll.filter(function(n){ return !n.autogenerated; });
+      var arrWatch = arrAll.filter(function(n){ return !!n.autogenerated; });
+      sectorWatchlists = sectorWatchlists.concat(arrWatch);
+      if (!arrReal.length) continue;
       html += '<section class="narr-industry has-narratives" aria-label="' + escapeHtml(ind2) + '">' +
         '<header class="narr-industry-head">' +
           '<h3 class="narr-industry-name">' + escapeHtml(ind2) + '</h3>' +
-          '<span class="narr-industry-count">' + arr.length + ' narrative' + (arr.length === 1 ? '' : 's') + '</span>' +
+          '<span class="narr-industry-count">' + arrReal.length + ' narrative' + (arrReal.length === 1 ? '' : 's') + '</span>' +
         '</header>' +
         '<div class="narr-industry-list" role="list">' +
-        arr.map(function(n){ rank += 1; return narrativeCardHtml(n, rank); }).join('') +
+        arrReal.map(function(n){ rank += 1; return narrativeCardHtml(n, rank); }).join('') +
         '</div>' +
       '</section>';
+    }
+    if (sectorWatchlists.length){
+      var totalNames = sectorWatchlists.reduce(function(acc, n){ return acc + (n.longs ? n.longs.length : 0); }, 0);
+      var allChips = sectorWatchlists.map(function(n){
+        var indLabel = '<span class="narr-watchlist-ind">' + escapeHtml(n.industry || '') + '</span>';
+        var chips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
+        return '<div class="narr-watchlist-row">' + indLabel + '<div class="narr-watchlist-chips">' + chips + '</div></div>';
+      }).join('');
+      html += '<details class="narr-watchlists">' +
+        '<summary>' +
+          '<span class="narr-watchlists-label">Watchlist</span>' +
+          '<span class="narr-watchlists-count">' + sectorWatchlists.length + ' industr' + (sectorWatchlists.length === 1 ? 'y' : 'ies') +
+            ' · ' + totalNames + ' name' + (totalNames === 1 ? '' : 's') + ' watching for a catalyst</span>' +
+        '</summary>' +
+        '<div class="narr-watchlists-body">' + allChips + '</div>' +
+      '</details>';
     }
     if (empties.length){
       html += '<details class="narr-empties"><summary>' +
@@ -6738,6 +6845,41 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       escapeHtml(d.text || '') +
     '</span>';
   }
+  // Group driver chips into FOR / AGAINST relative to the pick's side. A
+  // bullish driver (weight > 0) supports a CALL pick but argues against a PUT;
+  // a bearish driver (weight < 0) does the opposite. The chips themselves
+  // still color by sign (bullish = green, bearish = red) so colors stay
+  // semantically consistent across the site, but they're sorted under
+  // explicit "for / against" headings so a CALL card with a "MACD bearish"
+  // chip no longer reads as self-contradictory.
+  function pickDriversByStance(drivers, side){
+    var dir = side === 'put' ? -1 : 1;
+    var fors = [], againsts = [], neutrals = [];
+    for (var i = 0; i < drivers.length; i++){
+      var d = drivers[i];
+      var w = (d && d.weight) || 0;
+      if (w === 0) { neutrals.push(d); continue; }
+      var aligned = (w > 0 ? 1 : -1) === dir;
+      (aligned ? fors : againsts).push(d);
+    }
+    return { fors: fors, againsts: againsts, neutrals: neutrals };
+  }
+  function pickDriversHtml(drivers, side){
+    if (!drivers || !drivers.length) return '';
+    var grouped = pickDriversByStance(drivers, side);
+    var parts = [];
+    function section(label, list, cls){
+      if (!list.length) return;
+      parts.push('<div class="pick-drivers-row pick-drivers-' + cls + '">' +
+        '<span class="pick-drivers-label">' + label + '</span>' +
+        list.map(pickDriverChip).join('') +
+      '</div>');
+    }
+    section('For', grouped.fors, 'for');
+    section('Against', grouped.againsts, 'against');
+    if (grouped.neutrals.length) section('Context', grouped.neutrals, 'context');
+    return parts.join('');
+  }
   function pickSideClass(side){ return side === 'put' ? 'put' : 'call'; }
   // Plain-English explainer panel — translates the suggested contract into
   // beginner-friendly terms (cost, win condition, daily time decay, rough
@@ -6966,7 +7108,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
           '</span>'
         : '';
-      var drivers = (p.drivers || []).slice(0, 5).map(pickDriverChip).join('');
+      var driversList = (p.drivers || []).slice(0, 6);
+      var drivers = pickDriversHtml(driversList, p.side);
       var contractHtml = pickContractHtml(p);
       // Trim the bulleted detail off the thesis when we have driver chips —
       // they restate it verbatim. Keep just the lead-in ("Bullish setup on
@@ -6987,7 +7130,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             streakHtml +
           '</div>' +
           '<p class="pick-thesis">' + escapeHtml(thesisText) + '</p>' +
-          (drivers ? '<div class="pick-drivers">' + drivers + '</div>' : '') +
+          (drivers ? '<div class="pick-drivers pick-drivers-grouped">' + drivers + '</div>' : '') +
           contractHtml +
         '</div>' +
         '<div class="pick-conviction" aria-label="Conviction score"' +
