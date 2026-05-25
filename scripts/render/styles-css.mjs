@@ -6215,30 +6215,6 @@ main { padding-top: var(--s-2); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Page-tab hover indicator — show a faint accent underline preview when
-   the user mouses over an inactive tab, separate from the solid active
-   bar. Reuses the existing border-bottom slot. */
-.page-tab {
-  position: relative;
-}
-.page-tab:not([aria-selected="true"])::before {
-  content: "";
-  position: absolute;
-  left: 12px; right: 12px;
-  bottom: -1px;
-  height: 2px;
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
-  border-radius: 2px;
-  transform: scaleX(0);
-  transform-origin: center;
-  transition: transform .22s var(--ease-out);
-  pointer-events: none;
-  opacity: 0.55;
-}
-.page-tab:not([aria-selected="true"]):hover::before {
-  transform: scaleX(0.7);
-}
-
 /* Landing-card arrow — currently slides right on hover; add a tiny
    scale so the affordance reads stronger. */
 .landing-card:hover .landing-card-arrow {
