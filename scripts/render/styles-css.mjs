@@ -3437,6 +3437,112 @@ main {
 @media (max-width: 560px){
   .opt-rec-block { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* "Execute now?" entry-timing card. Sits between the verdict chip and the
+   Recommendation breakdown. Three states (pos = EXECUTE, fair = WAIT,
+   warn = AVOID) drive both the left rail color and the verdict pill. */
+.opt-exec-card {
+  position: relative;
+  margin: var(--s-3) 0;
+  padding: var(--s-4) var(--s-5);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  font-size: var(--fs-sm); line-height: 1.5;
+  box-shadow: var(--elev-1);
+}
+.opt-exec-card::before {
+  content: "";
+  position: absolute;
+  inset: var(--s-3) auto var(--s-3) 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.opt-exec-card.opt-exec-pos::before  { background: var(--pos); }
+.opt-exec-card.opt-exec-warn::before { background: var(--warn); }
+.opt-exec-card.opt-exec-fair::before { background: var(--muted); }
+.opt-exec-head {
+  display: flex; align-items: center; gap: var(--s-3);
+  margin-bottom: var(--s-2);
+}
+.opt-exec-verdict {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 84px; padding: 6px 10px;
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm); font-weight: 800; letter-spacing: 0.08em;
+  border: 1px solid transparent;
+}
+.opt-exec-verdict-pos {
+  color: var(--pos);
+  background: var(--pos-soft);
+  border-color: color-mix(in srgb, var(--pos) 45%, transparent);
+}
+.opt-exec-verdict-warn {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+.opt-exec-verdict-fair {
+  color: var(--muted);
+  background: var(--surface-3);
+  border-color: var(--hairline);
+}
+.opt-exec-headline { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.opt-exec-title {
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted); font-weight: 600;
+}
+.opt-exec-subtitle {
+  font-size: var(--fs-md); font-weight: 700; color: var(--text);
+  line-height: 1.3;
+}
+.opt-exec-meta {
+  margin-bottom: var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.opt-exec-body { color: var(--text); margin-bottom: var(--s-3); }
+.opt-exec-section { margin-top: var(--s-2); }
+.opt-exec-section-title {
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.10em;
+  color: var(--muted); font-weight: 600;
+  margin-bottom: 4px;
+}
+.opt-exec-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.opt-exec-list li {
+  padding: 6px 8px;
+  background: var(--surface-3);
+  border-radius: var(--r-2);
+  font-size: 12.5px; line-height: 1.45;
+  color: var(--text);
+}
+.opt-exec-tag {
+  display: inline-block; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  margin-right: 6px; vertical-align: middle;
+  border: 1px solid transparent;
+}
+.opt-exec-tag.pos  { color: var(--pos);  background: var(--pos-soft);  border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-exec-tag.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-exec-foot {
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
+  border-top: 1px dashed var(--hairline);
+  font-size: 11.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+@media (max-width: 560px){
+  .opt-exec-head { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+  .opt-exec-verdict { min-width: 0; }
+}
+
 .opt-actions {
   display: flex; flex-wrap: wrap; gap: var(--s-2);
   margin: var(--s-4) 0 var(--s-2);
