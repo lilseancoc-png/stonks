@@ -3035,21 +3035,6 @@ export function parseEdgar13FXml(xml) {
   return out;
 }
 
-// SEC's 13F schema reported `value` in thousands of dollars through Q3
-// 2022; the 2022 amendment switched to actual dollars starting Q1 2023
-// filings. Both forms still occur in EDGAR. Detect by magnitude: if the
-// total across all holdings is below $10T it's almost certainly the
-// thousands-of-dollars schema (the largest 13F filer in the world is
-// ~$5.7T) and we multiply by 1000 to normalize to actual dollars.
-function normalize13FValueUnits(holdings) {
-  if (!holdings.length) return holdings;
-  const total = holdings.reduce((s, h) => s + h.value, 0);
-  if (total < 10e12) {
-    return holdings.map((h) => ({ ...h, value: h.value * 1000 }));
-  }
-  return holdings;
-}
-
 // OpenFIGI CUSIP → ticker mapping. Free tier (no key): 25 req/min, max
 // 10 jobs per request — anything larger comes back as 413. Paid tier
 // (OPENFIGI_API_KEY set): higher rate limit, 100 jobs per request.
@@ -3251,12 +3236,10 @@ export async function buildPerFirm13FHoldings() {
           return { firm: f.firm, cik: f.cik, latest: null, prior: null, latestHoldings: [], priorHoldings: [] };
         }
         const [latest, prior] = filings;
-        const latestRaw = await fetchEdgar13FHoldings(f.cik, latest);
-        const latestHoldings = normalize13FValueUnits(latestRaw);
+        const latestHoldings = await fetchEdgar13FHoldings(f.cik, latest);
         let priorHoldings = [];
         if (prior) {
-          const priorRaw = await fetchEdgar13FHoldings(f.cik, prior);
-          priorHoldings = normalize13FValueUnits(priorRaw);
+          priorHoldings = await fetchEdgar13FHoldings(f.cik, prior);
         }
         return { firm: f.firm, cik: f.cik, latest, prior, latestHoldings, priorHoldings };
       })(),
