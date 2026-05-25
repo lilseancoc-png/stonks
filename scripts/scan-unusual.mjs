@@ -34,6 +34,11 @@ import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
 import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState } from "./build.mjs";
+import {
+  evaluateTicker as evaluateVolumeFlag,
+  etDateKey as volEtDateKey,
+  etMinutesSinceOpen,
+} from "../lib/volume-flags.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -84,6 +89,16 @@ const AI_FLOW_RETRY_BACKOFF_MS = [2000, 6000, 15000];
 const FETCH_RETRIES = 3;
 const FETCH_BACKOFF_MS = [1000, 3000, 8000];
 const EXCLUDE_FROM_SCAN = new Set([]);
+
+// Intraday volume + S/R break tracker — piggy-backs on the same options()
+// fetch we already do per ticker (the response includes the underlying
+// quote, which has regularMarketVolume / regularMarketPreviousClose).
+// volume-flags.json is today's flagged tickers (merged across same-session
+// scans, like unusual.json). volume-history.json is per-ticker cumulative
+// volume snapshots used by the next scan to compute hour-over-hour deltas.
+const VOLUME_FLAGS_FILE = "volume-flags.json";
+const VOLUME_HISTORY_FILE = "volume-history.json";
+const VOLUME_HISTORY_MAX_SNAPSHOTS = 10;
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ["yahooSurvey"],
@@ -345,6 +360,11 @@ async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
     null;
   if (spot == null) return null;
   const marketState = first.quote?.marketState ?? null;
+  // Underlying-level data piggy-backed from the same fetch — used by the
+  // intraday volume + S/R break pass downstream so we don't pay an extra
+  // Yahoo round-trip per ticker.
+  const cumVol = first.quote?.regularMarketVolume ?? null;
+  const prevClose = first.quote?.regularMarketPreviousClose ?? null;
   const minK = spot * (1 - STRIKE_BAND);
   const maxK = spot * (1 + STRIKE_BAND);
   const inBand = (c) => c.strike != null && c.strike >= minK && c.strike <= maxK;
@@ -389,7 +409,7 @@ async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
 
   const hits = candidates.filter((c) => c.flagged);
   hits.sort((a, b) => (b.deltaVol ?? 0) - (a.deltaVol ?? 0));
-  return { symbol, spot, marketState, hits, candidates };
+  return { symbol, spot, marketState, cumVol, prevClose, hits, candidates };
 }
 
 // ---------------------------------------------------------------------------
@@ -638,6 +658,275 @@ async function writeFlowExplanations(cache) {
   await writeFile(resolve(DATA_DIR, FLOW_EXPLANATIONS_FILE), json, "utf8");
 }
 
+// ---------------------------------------------------------------------------
+// Intraday volume + S/R break tracker
+// ---------------------------------------------------------------------------
+
+// Reads avg20 daily vol + 20D support/resistance from the per-ticker JSON
+// baked by scripts/build.mjs. Returns null when the file is missing or the
+// expected fields aren't present — caller treats that as "skip this ticker."
+async function loadTickerTechnicals(symbol) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
+    const j = JSON.parse(raw);
+    const t = j?.technicals;
+    if (!t) return null;
+    return {
+      avg20: t.volume?.avg20 ?? null,
+      sr: t.sr ? { s20: t.sr.s20 ?? null, r20: t.sr.r20 ?? null } : null,
+      // asOfClose is the most recent regular-session close baked into the
+      // per-ticker data. We prefer the live quote's regularMarketPreviousClose,
+      // but fall back to this when Yahoo omits it (rare).
+      asOfClose: t.asOfClose ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadVolumeHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, VOLUME_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.snapshots)) return parsed;
+  } catch {}
+  return { snapshots: [] };
+}
+
+async function loadVolumeFlags() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, VOLUME_FLAGS_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.tickers)) return parsed;
+  } catch {}
+  return null;
+}
+
+// Build a lookup of the most recent same-session snapshot per symbol.
+// "Same session" = the snapshot's ET calendar date equals `todayKey`.
+// Without this gate we'd diff today's cumulative volume against yesterday's
+// end-of-day total and produce nonsense deltas at the first scan of the day.
+function buildVolPrevSnapLookup(history, todayKey) {
+  const map = new Map();
+  for (const snap of history.snapshots || []) {
+    if (snap.etDate !== todayKey) continue;
+    for (const t of snap.tickers || []) {
+      if (!t.symbol) continue;
+      const prior = map.get(t.symbol);
+      if (!prior || (snap.etMin ?? -1) > (prior.etMin ?? -1)) {
+        map.set(t.symbol, {
+          etDate: snap.etDate,
+          etMin: snap.etMin,
+          spot: t.spot,
+          cumVol: t.cumVol,
+        });
+      }
+    }
+  }
+  return map;
+}
+
+// Same-session merge: a ticker flagged at 10:30-11:30 should still appear at
+// 14:30 even though the current bucket is 13:30-14:30. We bucket by symbol,
+// then dedupe rows by hourly.bucketLabel — a new scan in the same bucket
+// replaces the old row; a new scan in a fresh bucket appends. EOD + srBreak
+// take the latest scan's value.
+function mergeVolumeFlagRows(prior, fresh) {
+  const map = new Map();
+  function ingest(row, fromNew) {
+    if (!row || !row.symbol) return;
+    const existing = map.get(row.symbol);
+    if (!existing) {
+      map.set(row.symbol, {
+        symbol: row.symbol,
+        spot: row.spot,
+        avg20: row.avg20,
+        bucketHits: Array.isArray(row.bucketHits) ? row.bucketHits.slice() : [],
+        eod: row.eod ?? null,
+        scannedAt: row.scannedAt,
+      });
+      return;
+    }
+    if (fromNew) {
+      existing.spot = row.spot;
+      existing.avg20 = row.avg20 ?? existing.avg20;
+      existing.scannedAt = row.scannedAt;
+      if (row.eod) existing.eod = row.eod;
+    }
+    const incoming = Array.isArray(row.bucketHits) ? row.bucketHits : [];
+    for (const hit of incoming) {
+      if (!hit?.bucketLabel) continue;
+      const ix = existing.bucketHits.findIndex(
+        (h) => h.bucketLabel === hit.bucketLabel,
+      );
+      if (ix >= 0) {
+        if (fromNew) existing.bucketHits[ix] = hit;
+      } else {
+        existing.bucketHits.push(hit);
+      }
+    }
+  }
+  for (const r of prior || []) ingest(r, false);
+  for (const r of fresh || []) ingest(r, true);
+  // Sort buckets within each symbol chronologically by bucketLabel start.
+  const sortByBucket = (a, b) => bucketStartMin(a.bucketLabel) - bucketStartMin(b.bucketLabel);
+  const out = [];
+  for (const v of map.values()) {
+    v.bucketHits.sort(sortByBucket);
+    out.push(v);
+  }
+  return out;
+}
+
+// Parses "HH:MM-HH:MM" → start minute past 9:30, for stable sort order.
+function bucketStartMin(label) {
+  if (!label) return Infinity;
+  const m = /^(\d{1,2}):(\d{2})/.exec(label);
+  if (!m) return Infinity;
+  return (parseInt(m[1], 10) - 9) * 60 + (parseInt(m[2], 10) - 30);
+}
+
+// Build one ticker's flag row from the evaluator output, only keeping
+// material flag fields. Returns null when nothing is worth surfacing.
+function buildFlagRow(symbol, evalOut, scannedAt) {
+  if (!evalOut) return null;
+  const hits = [];
+  if (evalOut.hourly?.flagged || evalOut.srBreak) {
+    hits.push({
+      bucketLabel: evalOut.hourly?.bucketLabel ?? null,
+      actualHourVol: evalOut.hourly?.actualHourVol ?? null,
+      expectedHourVol: evalOut.hourly?.expectedHourVol ?? null,
+      volRatio: evalOut.hourly?.volRatio ?? null,
+      priceMovePct: evalOut.hourly?.priceMovePct ?? null,
+      hourlyFlagged: !!evalOut.hourly?.flagged,
+      moveClass: evalOut.moveClass ?? null,
+      srBreak: evalOut.srBreak ?? null,
+      scannedAt,
+    });
+  }
+  const eodFlagged = evalOut.eod?.flagged;
+  if (!hits.length && !eodFlagged) return null;
+  return {
+    symbol,
+    spot: evalOut.spot,
+    avg20: evalOut.avg20,
+    bucketHits: hits,
+    eod: evalOut.eod ?? null,
+    scannedAt,
+  };
+}
+
+async function runVolumePass({
+  perTickerResults,
+  scannedAt,
+  marketState,
+  nowDate,
+}) {
+  const todayKey = volEtDateKey(nowDate);
+  const etMin = etMinutesSinceOpen(nowDate);
+  const history = await loadVolumeHistory();
+  const prevLookup = buildVolPrevSnapLookup(history, todayKey);
+
+  const freshRows = [];
+  const snapshotTickers = [];
+
+  for (const r of perTickerResults) {
+    if (!r || !r.symbol) continue;
+    // Always record a snapshot so the next scan has hour-over-hour deltas.
+    if (r.cumVol != null && r.spot != null) {
+      snapshotTickers.push({
+        symbol: r.symbol,
+        spot: r.spot,
+        cumVol: r.cumVol,
+      });
+    }
+    const tech = await loadTickerTechnicals(r.symbol);
+    if (!tech || tech.avg20 == null) continue;
+    const prevClose = r.prevClose ?? tech.asOfClose ?? null;
+    const prev = prevLookup.get(r.symbol);
+    const evalOut = evaluateVolumeFlag({
+      now: nowDate,
+      spot: r.spot,
+      cumVol: r.cumVol,
+      prevClose,
+      avg20: tech.avg20,
+      sr: tech.sr,
+      prev,
+    });
+    const row = buildFlagRow(r.symbol, evalOut, scannedAt);
+    if (row) freshRows.push(row);
+  }
+
+  // Merge with this session's prior file so earlier-bucket hits stay visible.
+  const prior = await loadVolumeFlags();
+  const priorKey = prior ? prior.etDate : null;
+  const sameSession = priorKey && todayKey && priorKey === todayKey;
+  const merged = sameSession
+    ? mergeVolumeFlagRows(prior.tickers, freshRows)
+    : freshRows;
+
+  // Sort tickers by "most interesting" — hourly volRatio descending, then EOD ratio.
+  function topRatio(row) {
+    let best = 0;
+    for (const h of row.bucketHits || []) {
+      if (h.volRatio != null && h.volRatio > best) best = h.volRatio;
+    }
+    if (row.eod?.ratio != null && row.eod.ratio > best) best = row.eod.ratio;
+    return best;
+  }
+  merged.sort((a, b) => topRatio(b) - topRatio(a));
+
+  const summary = {
+    tickerCount: merged.length,
+    hourlyFlagCount: 0,
+    eodFlagCount: 0,
+    srBreakCount: 0,
+  };
+  for (const row of merged) {
+    let countedHourly = false;
+    for (const h of row.bucketHits || []) {
+      if (h.hourlyFlagged && !countedHourly) {
+        summary.hourlyFlagCount++;
+        countedHourly = true;
+      }
+      if (h.srBreak) summary.srBreakCount++;
+    }
+    if (row.eod?.flagged) summary.eodFlagCount++;
+  }
+
+  const payload = {
+    scannedAt,
+    etDate: todayKey,
+    etMin,
+    marketState: marketState || null,
+    summary,
+    tickers: merged,
+  };
+
+  await mkdir(DATA_DIR, { recursive: true });
+  const outPath = resolve(DATA_DIR, VOLUME_FLAGS_FILE);
+  await writeFile(outPath, JSON.stringify(payload), "utf8");
+  console.log(
+    `wrote ${outPath} — ${merged.length} ticker${merged.length === 1 ? "" : "s"}, ` +
+      `${summary.hourlyFlagCount} hourly, ${summary.eodFlagCount} EOD, ${summary.srBreakCount} S/R break${summary.srBreakCount === 1 ? "" : "s"}` +
+      (sameSession ? " (merged with earlier today)" : prior ? " (new session — reset)" : ""),
+  );
+
+  // Append this scan's snapshot to history, cap retention.
+  history.snapshots.push({
+    scannedAt,
+    etDate: todayKey,
+    etMin,
+    tickers: snapshotTickers,
+  });
+  history.snapshots = history.snapshots.slice(-VOLUME_HISTORY_MAX_SNAPSHOTS);
+  const historyPath = resolve(DATA_DIR, VOLUME_HISTORY_FILE);
+  await writeFile(historyPath, JSON.stringify(history), "utf8");
+  console.log(
+    `wrote ${historyPath} — ${history.snapshots.length}/${VOLUME_HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"}, ${snapshotTickers.length} tickers in this snapshot`,
+  );
+}
+
 async function main() {
   const scannedAt = new Date().toISOString();
   const nowMs = Date.now();
@@ -658,6 +947,10 @@ async function main() {
   );
   const tickerRows = [];
   const allCandidates = [];
+  // Underlying-level scan results for the volume + S/R break pass. Populated
+  // for every ticker we successfully fetched, regardless of whether any
+  // options-flow hits were flagged.
+  const volumeScanResults = [];
   let firstMarketState = null;
   let scannedCount = 0;
   let failedCount = 0;
@@ -672,6 +965,12 @@ async function main() {
       }
       scannedCount++;
       if (!firstMarketState && result.marketState) firstMarketState = result.marketState;
+      volumeScanResults.push({
+        symbol: result.symbol,
+        spot: result.spot,
+        cumVol: result.cumVol,
+        prevClose: result.prevClose,
+      });
       for (const c of result.candidates) {
         if ((c.vol ?? 0) >= HISTORY_MIN_VOL) allCandidates.push(c);
       }
@@ -804,6 +1103,25 @@ async function main() {
   if (flowCache) {
     await writeFlowExplanations(flowCache);
   }
+
+  // Intraday volume + S/R break pass — reuses the cumVol / spot / prevClose
+  // already pulled from each ticker's options() response above. Writes
+  // data/volume-flags.json (today's flagged tickers, merged across same-
+  // session scans) and data/volume-history.json (rolling snapshots used by
+  // the next scan to compute hour-over-hour deltas). Independent of the
+  // unusual-options-flow output — never throws back into the main flow so
+  // one bad ticker's per-ticker JSON read can't kill the whole scan.
+  try {
+    await runVolumePass({
+      perTickerResults: volumeScanResults,
+      scannedAt,
+      marketState: firstMarketState,
+      nowDate: new Date(scannedAt),
+    });
+  } catch (err) {
+    console.log(`volume pass failed: ${err.message}`);
+  }
+
   await writeAiUsageState();
 }
 
