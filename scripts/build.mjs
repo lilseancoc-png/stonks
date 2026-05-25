@@ -2027,6 +2027,67 @@ export const FALLBACK_RISK_FREE_RATE = 0.045;
 const RFR_CACHE_MAX_DAYS = 14;
 const RFR_HISTORY_FILE = "rfr-history.json";
 
+// Persistent rolling log of macro snapshots (yields + DXY). Each entry is
+// keyed by the ET-local capture date so the EOD daily-build slot (17:00 ET)
+// is the authoritative end-of-day close for that date. Mid-day builds
+// (09:00, 12:00 ET) refresh the same-date entry in place — last-write-wins —
+// so the 17:00 capture lands on top by close. Used to surface a "prev close"
+// reference on each tile that survives a Yahoo chart flake.
+const MACRO_HISTORY_FILE = "macro-history.json";
+const MACRO_HISTORY_MAX_ENTRIES = 90;
+
+function etDateKey(d = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "numeric",
+  }).format(d);
+}
+
+// Read macro-history.json BEFORE writeChainFiles wipes data/. Returns an
+// object of shape { entries: [{ date, asOf, twoY, tenY, thirtyY, dxy }, ...] }
+// sorted oldest→newest. Missing / unreadable file → empty entries.
+async function readMacroHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, MACRO_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.entries)) {
+      return { entries: parsed.entries.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))) };
+    }
+  } catch (_) { /* missing or unreadable */ }
+  return { entries: [] };
+}
+
+// Build the next history record by upserting today's ET-date entry. Returns
+// { history, previousClose } where previousClose is the prior-day entry (or
+// the most recent entry before today's date — handles weekends / holidays).
+function upsertMacroHistory(prevHistory, macroBackdrop) {
+  const entries = (prevHistory?.entries || []).slice();
+  const today = etDateKey();
+  const todayEntry = {
+    date: today,
+    asOf: macroBackdrop?.asOf || new Date().toISOString(),
+    twoY:    macroBackdrop?.twoY    && macroBackdrop.twoY.value    != null ? macroBackdrop.twoY.value    : null,
+    tenY:    macroBackdrop?.tenY    && macroBackdrop.tenY.value    != null ? macroBackdrop.tenY.value    : null,
+    thirtyY: macroBackdrop?.thirtyY && macroBackdrop.thirtyY.value != null ? macroBackdrop.thirtyY.value : null,
+    dxy:     macroBackdrop?.dxy     && macroBackdrop.dxy.value     != null ? macroBackdrop.dxy.value     : null,
+  };
+  const existingIdx = entries.findIndex((e) => e.date === today);
+  if (existingIdx >= 0) entries[existingIdx] = todayEntry;
+  else entries.push(todayEntry);
+  entries.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  // Most recent entry strictly before today's ET date.
+  const prior = entries.filter((e) => e.date < today).pop() || null;
+  const trimmed = entries.length > MACRO_HISTORY_MAX_ENTRIES
+    ? entries.slice(-MACRO_HISTORY_MAX_ENTRIES)
+    : entries;
+  return { history: { entries: trimmed }, previousClose: prior };
+}
+
+async function writeMacroHistory(history) {
+  if (!history || !Array.isArray(history.entries)) return;
+  await writeFile(resolve(DATA_DIR, MACRO_HISTORY_FILE), JSON.stringify(history, null, 2), "utf8");
+}
+
 // Read the persisted last-good ^IRX reading. Must be called BEFORE
 // writeChainFiles wipes data/, since the file lives in data/. The
 // payload is `{ rate, asOf, capturedAt }` — same shape as the Fed Funds
@@ -2079,51 +2140,88 @@ async function fetchRiskFreeRate(cachedRfr = null) {
   return { rate: FALLBACK_RISK_FREE_RATE, asOf: todayIso, source: "fallback" };
 }
 
-// Macro backdrop — pulls 10Y Treasury yield (^TNX) and the US Dollar Index
-// (DX-Y.NYB) plus 5-trading-day history so the Grade tab can frame each
-// contract against the prevailing yields + dollar trend. Source for the
-// rules wired into shouldBuy/buildRecommendationCard: bonds_and_usd primer
-// in the Bonds & USD tab. Graceful degradation: if either fetch fails, the
-// missing leg is set to null and the recommendation card omits that line.
+// Macro backdrop — pulls 2Y (^UST2YR / fallback ^FVX), 10Y (^TNX), 30Y (^TYX)
+// Treasury yields and the US Dollar Index (DX-Y.NYB) plus 1- and ~5-trading-day
+// history so the Bonds & USD tab can frame today's move against typical
+// movement bands (Normal / Notable / Big / Very Large) and the Grade tab can
+// frame each contract against the prevailing yields + dollar trend.
+//
+// Per leg we expose:
+//   value         — latest close
+//   prior1d       — prior-session close
+//   prior5d       — close ~5 trading days back
+//   pctChange1d   — % change vs. prior1d (used for DXY scale)
+//   pctChange5d   — % change vs. prior5d (legacy: also returned as change5d)
+//   bpsChange1d   — yield-only, (value - prior1d) * 100 (basis points)
+//   bpsChange5d   — yield-only, (value - prior5d) * 100
+//   trend         — 5d trend bucket ("rising" / "falling" / "flat")
+//
+// Source for the rules wired into shouldBuy/buildRecommendationCard:
+// bonds_and_usd primer in the Bonds & USD tab. Graceful degradation: if any
+// leg fails, it is set to null and downstream code omits that line.
 async function fetchMacroBackdrop() {
-  async function fetchLeg(symbol, label) {
+  async function fetchLeg(symbol, label, { isYield = false } = {}) {
     try {
       const q = await yahooFinance.quote(symbol);
       const value = q?.regularMarketPrice;
       if (typeof value !== "number" || !isFinite(value)) return null;
-      // 7 calendar days back gives us ~5 trading sessions.
+      // 10 calendar days back covers a holiday-shortened 5-session window
+      // plus the prior trading day.
       const end = new Date();
-      const start = new Date(end.getTime() - 10 * 86400000);
-      let prior = null;
+      const start = new Date(end.getTime() - 14 * 86400000);
+      let prior1d = null;
+      let prior5d = null;
       try {
         const hist = await yahooFinance.chart(symbol, { period1: start, period2: end, interval: "1d" });
-        const quotes = (hist && hist.quotes) || [];
-        // Use the close from ~5 trading days ago (or the earliest available).
-        const pick = quotes.length >= 6 ? quotes[quotes.length - 6] : quotes[0];
-        if (pick && typeof pick.close === "number" && isFinite(pick.close)) prior = pick.close;
+        const quotes = ((hist && hist.quotes) || []).filter((r) => r && typeof r.close === "number" && isFinite(r.close));
+        if (quotes.length >= 2) prior1d = quotes[quotes.length - 2].close;
+        const fivePick = quotes.length >= 6 ? quotes[quotes.length - 6] : quotes[0];
+        if (fivePick) prior5d = fivePick.close;
       } catch (_) { /* history optional — value alone is still useful */ }
-      const change5d = prior != null && prior > 0 ? ((value - prior) / prior) * 100 : null;
-      const trend = change5d == null ? "flat"
-        : change5d >= 0.5 ? "rising"
-        : change5d <= -0.5 ? "falling"
+      const pctChange1d = prior1d != null && prior1d > 0 ? ((value - prior1d) / prior1d) * 100 : null;
+      const pctChange5d = prior5d != null && prior5d > 0 ? ((value - prior5d) / prior5d) * 100 : null;
+      const bpsChange1d = isYield && prior1d != null ? (value - prior1d) * 100 : null;
+      const bpsChange5d = isYield && prior5d != null ? (value - prior5d) * 100 : null;
+      const trend = pctChange5d == null ? "flat"
+        : pctChange5d >= 0.5 ? "rising"
+        : pctChange5d <= -0.5 ? "falling"
         : "flat";
-      console.log(`Macro ${label} (${symbol}): ${value.toFixed(2)}${change5d != null ? ` · 5d ${change5d >= 0 ? '+' : ''}${change5d.toFixed(2)}% (${trend})` : ""}`);
-      return { value, prior, change5d, trend };
+      const dayPart = pctChange1d != null
+        ? ` · 1d ${pctChange1d >= 0 ? "+" : ""}${pctChange1d.toFixed(2)}%${bpsChange1d != null ? ` (${bpsChange1d >= 0 ? "+" : ""}${bpsChange1d.toFixed(1)} bps)` : ""}`
+        : "";
+      const weekPart = pctChange5d != null
+        ? ` · 5d ${pctChange5d >= 0 ? "+" : ""}${pctChange5d.toFixed(2)}% (${trend})`
+        : "";
+      console.log(`Macro ${label} (${symbol}): ${value.toFixed(2)}${dayPart}${weekPart}`);
+      return {
+        value,
+        prior: prior5d, // legacy alias — keep until callers migrate
+        prior1d,
+        prior5d,
+        change5d: pctChange5d, // legacy field used by app.js + fallback news take
+        pctChange1d,
+        pctChange5d,
+        bpsChange1d,
+        bpsChange5d,
+        trend,
+      };
     } catch (err) {
       console.warn(`Macro ${label} fetch failed (${symbol}): ${err.message}`);
       return null;
     }
   }
-  const [tenY, thirtyY, dxy] = await Promise.all([
-    fetchLeg("^TNX", "10Y yield"),
-    fetchLeg("^TYX", "30Y yield"),
+  // Yahoo doesn't expose a stable 2Y yield ticker for everyone — ^UST2YR is
+  // the canonical one but is sometimes restricted; ^FVX (5Y) is a poor proxy
+  // so we just leave twoY null if ^UST2YR is unavailable. The Bonds & USD
+  // live grid simply omits the 2Y tile when twoY is absent.
+  const [twoY, tenY, thirtyY, dxy] = await Promise.all([
+    fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
+    fetchLeg("^TNX", "10Y yield", { isYield: true }),
+    fetchLeg("^TYX", "30Y yield", { isYield: true }),
     fetchLeg("DX-Y.NYB", "DXY"),
   ]);
-  if (!tenY && !thirtyY && !dxy) return null;
-  // Yahoo doesn't expose a clean 2Y yield ticker; the Bonds & USD live tile
-  // simply omits the 2Y column when twoY is absent. Add it here if a
-  // reliable source emerges later.
-  return { tenY, thirtyY, dxy, asOf: new Date().toISOString() };
+  if (!twoY && !tenY && !thirtyY && !dxy) return null;
+  return { twoY, tenY, thirtyY, dxy, asOf: new Date().toISOString() };
 }
 
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
@@ -7394,6 +7492,23 @@ async function main() {
   // can quote live macro values instead of returning an empty take.
   console.log("Fetching macro backdrop (10Y yield + DXY)…");
   const macroBackdrop = await fetchMacroBackdrop();
+  // Read the rolling macro history BEFORE writeChainFiles wipes data/. The
+  // 17:00 ET daily slot is the authoritative end-of-day close — at that
+  // capture we overwrite today's entry with the EOD print and the prior-day
+  // entry is yesterday's EOD close, giving us a clean day-over-day delta
+  // even if Yahoo's intraday `prior1d` lookup flakes.
+  const macroHistoryPrev = await readMacroHistory();
+  let macroHistoryNext = macroHistoryPrev;
+  if (macroBackdrop) {
+    const { history, previousClose } = upsertMacroHistory(macroHistoryPrev, macroBackdrop);
+    macroHistoryNext = history;
+    if (previousClose) {
+      macroBackdrop.previousClose = previousClose;
+      console.log(`Macro prev close (${previousClose.date}): ${
+        ["twoY","tenY","thirtyY","dxy"].map((k) => previousClose[k] != null ? `${k}=${previousClose[k]}` : null).filter(Boolean).join(", ")
+      }`);
+    }
+  }
   if (AI_COMBINED) {
     await attachTickerJudgments(chains, macroBackdrop);
   } else {
@@ -7464,12 +7579,6 @@ async function main() {
     macro: macroBackdrop,
     volumeFlags,
   });
-  // Persist macro to disk so regen-static.mjs can reuse it without re-hitting
-  // Yahoo. Without this the Bonds & USD live tile + Home card go blank
-  // whenever only the renderers (not the data pipeline) get regenerated.
-  if (macroBackdrop) {
-    await writeFile(resolve(DATA_DIR, "macro.json"), JSON.stringify(macroBackdrop, null, 2), "utf8");
-  }
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });
   await mkdir(dirname(OUT), { recursive: true });
@@ -7477,6 +7586,19 @@ async function main() {
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
   const totalChainBytes = await writeChainFiles(chains);
+  // Persist macro to disk AFTER writeChainFiles — that call wipes data/
+  // wholesale, so writing macro.json before it deletes our snapshot
+  // immediately (confirmed in git history: chore: daily refresh 2026-05-25
+  // committed a `deleted file` for data/macro.json). regen-static.mjs reads
+  // this file directly, so without it the Bonds & USD live tile and the
+  // home card go blank between full builds.
+  if (macroBackdrop) {
+    await writeFile(resolve(DATA_DIR, "macro.json"), JSON.stringify(macroBackdrop, null, 2), "utf8");
+  }
+  // Rolling EOD macro history. Always rewritten so prior days survive the
+  // data/ wipe, even when today's fetch fails (we just don't upsert today).
+  await writeMacroHistory(macroHistoryNext);
+  console.log(`wrote data/${MACRO_HISTORY_FILE} — ${macroHistoryNext.entries.length} daily snapshots`);
   // Persist today's ^IRX so a future Yahoo flake can fall back to it.
   // We only refresh on a 'fresh' read — keeping a stale cache from
   // overwriting itself with the same stale data lets the age-out at

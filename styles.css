@@ -6012,6 +6012,76 @@ main { padding-top: var(--s-2); }
 .bonds-live-change.up { color: var(--pos); }
 .bonds-live-change.down { color: var(--neg); }
 .bonds-live-change.flat { color: var(--muted); }
+.bonds-live-change--sub { font-size: 11px; opacity: 0.85; }
+.bonds-live-tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.bonds-live-band-row { display: flex; }
+.bonds-live-band {
+  display: inline-block;
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: var(--r-1, 4px);
+  border: 1px solid transparent;
+}
+.bonds-live-band.band-normal {
+  color: var(--muted);
+  background: var(--surface-2, rgba(127,127,127,0.08));
+  border-color: var(--hairline, rgba(127,127,127,0.2));
+}
+.bonds-live-band.band-notable {
+  color: #8a6d00;
+  background: rgba(234, 179, 8, 0.16);
+  border-color: rgba(234, 179, 8, 0.4);
+}
+.bonds-live-band.band-big {
+  color: #a04400;
+  background: rgba(234, 88, 12, 0.18);
+  border-color: rgba(234, 88, 12, 0.45);
+}
+.bonds-live-band.band-very-large {
+  color: #fff;
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+:root[data-theme="dark"] .bonds-live-band.band-notable {
+  color: #fcd34d;
+  background: rgba(234, 179, 8, 0.18);
+  border-color: rgba(234, 179, 8, 0.55);
+}
+:root[data-theme="dark"] .bonds-live-band.band-big {
+  color: #fdba74;
+  background: rgba(234, 88, 12, 0.22);
+  border-color: rgba(234, 88, 12, 0.6);
+}
+.bonds-live-tile.is-alerting {
+  border-color: rgba(185, 28, 28, 0.65);
+  box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.25);
+}
+.bonds-live-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #b91c1c;
+  color: #fff;
+  font: 700 10px/1 var(--font-mono);
+}
+.bonds-scale-table th { vertical-align: middle; }
+.bonds-scale-table .bonds-live-band { letter-spacing: 0.04em; }
+.bonds-live-prev {
+  font: 500 11px/1.2 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  margin-top: 2px;
+}
 .bonds-live-empty {
   color: var(--muted);
   font-size: var(--fs-sm);
