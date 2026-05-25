@@ -1,0 +1,6 @@
+{
+  "tenY": { "value": 4.56, "prior": 4.60, "change5d": -0.81, "trend": "falling" },
+  "thirtyY": { "value": 4.78, "prior": 4.82, "change5d": -0.61, "trend": "falling" },
+  "dxy": { "value": 99.03, "prior": 99.30, "change5d": -0.27, "trend": "flat" },
+  "asOf": "2026-05-25T04:49:25.456Z"
+}

@@ -412,6 +412,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     p.set('t', getOptType());
     return window.location.origin + window.location.pathname + '?' + p.toString();
   }
+  function syncDocTitleToContract(){
+    // Reflect the currently-selected contract in <title> so browser tabs,
+    // bookmarks, and shared links read meaningfully ("AAPL $310 CALL ·
+    // stonks" beats "stonks · Option Contract Rater" 119× over).
+    try {
+      var base = 'stonks · Option Contract Rater';
+      if (!state.symbol) { document.title = base; return; }
+      var bits = [state.symbol];
+      var c = findContract();
+      if (c && c.s != null) bits.push('$' + c.s);
+      bits.push((getOptType() || 'call').toUpperCase());
+      document.title = bits.join(' ') + ' · stonks';
+    } catch (_) {}
+  }
   function pushUrlState(){
     if (suppressUrlWrite) return;
     if (!state.symbol) return;
@@ -419,6 +433,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var url = buildShareUrl();
       window.history.replaceState(null, '', url);
     } catch (_) {}
+    syncDocTitleToContract();
   }
   function applyPendingUrlState(){
     if (!pendingUrlState) return;
@@ -1763,6 +1778,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       tabsStrip.style.setProperty('--ind-x', x + 'px');
       tabsStrip.style.setProperty('--ind-w', String(w));
     }
+    function syncTabToUrl(name){
+      // Mirror the active tab into ?tab= so bookmarks / back-forward / shares
+      // resume on the same view. Home gets the param stripped — the bare URL
+      // is the canonical landing state. We don't touch other query params (s/
+      // exp/k/t for Grade, etc.) so deep-links into a specific contract still
+      // work alongside the tab param.
+      try {
+        var url = new URL(window.location.href);
+        if (name === 'home') url.searchParams.delete('tab');
+        else url.searchParams.set('tab', name);
+        var next = url.pathname + (url.search || '') + (url.hash || '');
+        if (next !== window.location.pathname + window.location.search + window.location.hash) {
+          history.replaceState(null, '', next);
+        }
+      } catch (_) {}
+    }
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -1774,11 +1805,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var pane = paneId ? document.getElementById(paneId) : null;
         if (pane) pane.hidden = !sel;
       });
+      syncTabToUrl(name);
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
       if (name === 'f13' && typeof loadF13 === 'function') loadF13();
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
+      if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -1827,23 +1860,100 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
       });
     }
-    // Always land on Home — explicit user navigation, no sticky last-tab.
-    // (selectTab still writes localStorage so other features can read it.)
-    selectTab('home');
-    // Populate runtime stats on the landing cards from the inlined manifest.
+    // Determine initial tab. Priority:
+    //   1. ?tab= query param (shareable deep-link)
+    //   2. ?s= param means a contract is selected — land on Grade
+    //   3. Default to Home (explicit user navigation, no sticky last-tab).
+    var initialTab = 'home';
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var qTab = params.get('tab');
+      if (qTab && valid.indexOf(qTab) >= 0) {
+        initialTab = qTab;
+      } else if (params.get('s')) {
+        initialTab = 'grade';
+      }
+    } catch (_) {}
+    selectTab(initialTab);
+    // Honor browser back/forward when the URL's ?tab= changes.
+    window.addEventListener('popstate', function(){
+      try {
+        var p = new URLSearchParams(window.location.search);
+        var t = p.get('tab') || (p.get('s') ? 'grade' : 'home');
+        if (valid.indexOf(t) >= 0) selectTab(t);
+      } catch (_) {}
+    });
+    // Populate runtime stats on the landing cards from the inlined manifest
+    // and from data files fetched once on page-load. Everything degrades to
+    // the original static label if any source is missing or fails to fetch.
     try {
       var m = window.STONKS_MANIFEST || {};
-      var statNar = document.getElementById('land-stat-narratives');
-      if (statNar) {
-        var nCount = (m.sectorOverviews ? Object.keys(m.sectorOverviews).length : 0)
-                  || (Array.isArray(m.narratives) ? m.narratives.length : 0);
-        if (nCount) statNar.textContent = String(nCount);
+      var setText = function(id, text){
+        var el = document.getElementById(id);
+        if (el && text != null && text !== '') el.textContent = String(text);
+      };
+      // Narratives — count of sector overviews (inlined).
+      var nCount = (m.sectorOverviews ? Object.keys(m.sectorOverviews).length : 0)
+                || (Array.isArray(m.narratives) ? m.narratives.length : 0);
+      if (nCount) setText('land-stat-narratives', String(nCount));
+
+      // Unusual flow — total contracts flagged (inlined).
+      var fCount = m.unusual && m.unusual.summary && (m.unusual.summary.contractCount || m.unusual.summary.tickerCount);
+      if (typeof fCount === 'number' && fCount >= 0) setText('land-stat-flow', String(fCount));
+
+      // Fear & Greed — current score + band (inlined).
+      var fg = m.fearGreed || null;
+      var fgScore = fg ? (fg.score != null ? fg.score : fg.now) : null;
+      if (fgScore != null) {
+        setText('land-stat-fg', Math.round(Number(fgScore)));
+        try {
+          if (typeof fngBandLabel === 'function' && typeof fngBandFromScore === 'function') {
+            setText('land-sub-fg', fngBandLabel(fngBandFromScore(Number(fgScore))));
+          }
+        } catch (_) {}
       }
-      var statFlow = document.getElementById('land-stat-flow');
-      if (statFlow) {
-        var fCount = m.unusual && m.unusual.summary && (m.unusual.summary.contractCount || m.unusual.summary.tickerCount);
-        if (typeof fCount === 'number' && fCount >= 0) statFlow.textContent = String(fCount);
+
+      // Bonds & USD — current 10Y yield + DXY (inlined via macro).
+      var macro = m.macro || null;
+      if (macro) {
+        var bits = [];
+        if (macro.tenY && macro.tenY.value != null) bits.push('10Y ' + Number(macro.tenY.value).toFixed(2) + '%');
+        if (macro.dxy && macro.dxy.value != null) bits.push('DXY ' + Number(macro.dxy.value).toFixed(1));
+        if (bits.length) setText('land-stat-bonds', bits.join(' · '));
       }
+
+      // Picks count — async fetch the small picks.json.
+      fetch('data/picks.json', { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          if (!j || !Array.isArray(j.picks)) return;
+          setText('land-stat-picks', j.picks.length);
+          setText('land-sub-picks', j.picks.length === 1 ? 'pick today' : 'picks today');
+        })
+        .catch(function(){});
+
+      // 13F period — async fetch (tiny header read).
+      fetch('data/13f.json', { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          if (!j) return;
+          if (j.period) setText('land-stat-f13', j.period);
+          if (j.periodEnd) setText('land-sub-f13', 'period end ' + j.periodEnd);
+        })
+        .catch(function(){});
+
+      // Streaks — async fetch and show the green/red split (≥2-day runs).
+      fetch('data/streaks.json', { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          if (!j || !Array.isArray(j.tickers)) return;
+          var flagged = j.tickers.filter(function(t){ return t && t.current && (t.current.days|0) >= 2; });
+          var g = flagged.filter(function(t){ return t.current.color === 'green'; }).length;
+          var rd = flagged.filter(function(t){ return t.current.color === 'red'; }).length;
+          setText('land-stat-streaks', g + '↑ / ' + rd + '↓');
+          setText('land-sub-streaks', 'active runs (≥2d)');
+        })
+        .catch(function(){});
     } catch (_) {}
   }
 
@@ -2918,6 +3028,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var lx = anchor === 'end' ? (xi + colW / 2 - 2) : xi;
         fwdDots += '<circle class="opt-fund-eh-fwdmark ' + trendDir + '" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="3.5"><title>' +
           escapeHtml(label) + ' estimate · ' + escapeHtml(fmt(p.value)) + '</title></circle>';
+        // Tiny "EST" badge floats above the forward dot so estimates stand
+        // out from historical actuals at a glance (previously only the
+        // dashed line + hollow dot signaled this).
+        fwdDots += '<text class="opt-fund-eh-est-badge" x="' + xi.toFixed(2) + '" y="' + (yi - 8).toFixed(2) + '" text-anchor="middle">EST</text>';
         fwdLabels += '<text class="opt-fund-eh-axis fwd" x="' + lx.toFixed(2) + '" y="' + (H - 8) + '" text-anchor="' + anchor + '">' + escapeHtml(label) + ' est</text>';
       });
     }
@@ -3103,6 +3217,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
   var SEG_COLORS = ['#5b8def','#1ec773','#f59e0b','#f43f5e','#a78bfa','#14b8a6','#f97316','#6b7280','#ec4899'];
 
+  // Mirror of build.mjs cleanup for previously-cached segment labels that
+  // were tokenized before BRAND_CASING_OVERRIDES landed in the parser.
+  // Lets the fix appear instantly without waiting on the next bake.
+  var SEG_LABEL_PHRASES = [
+    ['wearables homeand accessories', 'Wearables, Home & Accessories'],
+    ['home and accessories', 'Home & Accessories'],
+  ];
+  var SEG_BRAND_PATTERNS = [
+    [/\bI Phone\b/g, 'iPhone'], [/\bI Pad\b/g, 'iPad'],
+    [/\bI Mac\b/g, 'iMac'],     [/\bI Pod\b/g, 'iPod'],
+    [/\bI Tunes\b/g, 'iTunes'], [/\bI Cloud\b/g, 'iCloud'],
+    [/\bAir Pods\b/g, 'AirPods'], [/\bMac Os\b/g, 'macOS'],
+    [/\bI Os\b/g, 'iOS'], [/\bMac Book\b/g, 'MacBook'],
+  ];
+  function prettifySegmentName(name){
+    if (!name) return name;
+    var s = String(name);
+    var lower = s.toLowerCase();
+    for (var i = 0; i < SEG_LABEL_PHRASES.length; i++){
+      if (lower === SEG_LABEL_PHRASES[i][0]) return SEG_LABEL_PHRASES[i][1];
+    }
+    for (var j = 0; j < SEG_BRAND_PATTERNS.length; j++){
+      s = s.replace(SEG_BRAND_PATTERNS[j][0], SEG_BRAND_PATTERNS[j][1]);
+    }
+    return s;
+  }
+
   function renderDonutChart(opts){
     var box = $(opts.boxId);
     if (!box) return;
@@ -3158,7 +3299,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var lCol = SEG_COLORS[j % SEG_COLORS.length];
       legend += '<div class="opt-fund-seg-leg-item" data-idx="' + j + '">' +
         '<span class="opt-fund-seg-leg-dot" style="background:' + lCol + '"></span>' +
-        '<span>' + escapeHtml(slices[j].name) + '</span>' +
+        '<span>' + escapeHtml(prettifySegmentName(slices[j].name)) + '</span>' +
         '<span class="opt-fund-seg-leg-pct">' + pct + '%</span>' +
       '</div>';
     }
@@ -3185,7 +3326,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
       var sl = slices[idx];
       var pctStr = ((sl.value / total) * 100).toFixed(1) + '%';
-      tipEl.innerHTML = '<span class="opt-fund-seg-tip-name">' + escapeHtml(sl.name) + '</span>' +
+      tipEl.innerHTML = '<span class="opt-fund-seg-tip-name">' + escapeHtml(prettifySegmentName(sl.name)) + '</span>' +
         '<span class="opt-fund-seg-tip-val">' + fmtBig(sl.value) + ' (' + pctStr + ')</span>';
       tipEl.hidden = false;
     }
@@ -3770,7 +3911,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return s + ' ET';
     } catch (_) { return ''; }
   }
-  function flowContractHtml(c){
+  function flowContractHtml(c, symbol){
     // All user-visible strings flow through escapeHtml because c.* comes
     // from a baked JSON feed that, while trusted today, would otherwise be
     // a one-line path to XSS if the daily build ever included raw input.
@@ -3804,6 +3945,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       tipPrem + tipTape + tipRepeat;
     var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
     var wrapClass = 'flow-contract' + (c.note ? ' has-note' : '');
+    // Build a Grade-this-contract link if we have enough state.
+    // Symbol comes from the parent row; expSec/strike/side come from c.
+    var gradeBtn = '';
+    if (symbol && c.expSec && c.strike != null && c.side){
+      var params = 's=' + encodeURIComponent(symbol) +
+        '&exp=' + Number(c.expSec) +
+        '&k=' + Number(c.strike) +
+        '&t=' + (c.side === 'put' ? 'put' : 'call') +
+        '&tab=grade';
+      gradeBtn = '<a class="flow-grade-btn" href="?' + params + '" title="Grade this contract">Grade →</a>';
+    }
     return '<div class="' + wrapClass + '">' +
       '<div class="flow-chip ' + sideClass + ' tier-' + tier + (repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + escapeHtml(title) + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
@@ -3820,6 +3972,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       premTag +
       tapeTag +
       repeatTag +
+      gradeBtn +
       '</div>' +
       noteHtml +
     '</div>';
@@ -3953,7 +4106,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
         '<div class="' + contractsCls + '"' + (collapsed ? ' hidden' : '') + '>' +
-          t.contracts.map(flowContractHtml).join('') +
+          t.contracts.map(function(c){ return flowContractHtml(c, t.symbol); }).join('') +
         '</div>' +
       '</article>';
     }).join('');
@@ -4098,13 +4251,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function renderReportChip(e){
     var fmt = function(v){ return (v == null || v === '') ? '—' : String(v); };
-    var grid =
-      '<div class="cal-report-grid">' +
-        '<div class="cal-report-cell"><span class="cal-report-label">Actual</span><span class="cal-report-val">' + escapeHtml(fmt(e.actual)) + '</span></div>' +
-        '<div class="cal-report-cell"><span class="cal-report-label">Previous</span><span class="cal-report-val">' + escapeHtml(fmt(e.previous)) + '</span></div>' +
-        '<div class="cal-report-cell"><span class="cal-report-label">Consensus</span><span class="cal-report-val">' + escapeHtml(fmt(e.consensus)) + '</span></div>' +
-        '<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>' +
-      '</div>';
+    var has = function(v){ return v != null && v !== ''; };
+    // Only show columns that actually have data — neither FRED nor BLS
+    // returns Consensus/Forecast for most macro series, and a row of "—"s
+    // makes the grid read as broken. Always show Actual + Previous so the
+    // layout has a baseline shape.
+    var cells = [];
+    cells.push('<div class="cal-report-cell"><span class="cal-report-label">Actual</span><span class="cal-report-val">' + escapeHtml(fmt(e.actual)) + '</span></div>');
+    cells.push('<div class="cal-report-cell"><span class="cal-report-label">Previous</span><span class="cal-report-val">' + escapeHtml(fmt(e.previous)) + '</span></div>');
+    if (has(e.consensus)) cells.push('<div class="cal-report-cell"><span class="cal-report-label">Consensus</span><span class="cal-report-val">' + escapeHtml(fmt(e.consensus)) + '</span></div>');
+    if (has(e.forecast)) cells.push('<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>');
+    var grid = '<div class="cal-report-grid">' + cells.join('') + '</div>';
     var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
     // Stale tag: writeCalendarFile carries forward in-window report rows
     // from the prior calendar.json when FRED + BLS both come back empty
@@ -4328,6 +4485,35 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         renderF13();
       });
   }
+  // Backward-compat CUSIP overrides for older 13F snapshots where the
+  // ticker is missing because OpenFIGI's free-tier budget was exhausted.
+  // Keep small and synced with F13_CUSIP_TICKER_OVERRIDES in build.mjs.
+  var F13_CUSIP_FALLBACK = {
+    'N07059210': 'ASML', 'G3643J108': 'FLUT', 'G0750C108': 'AZN',
+    'G3R28T108': 'FERG', 'G63931119': 'FERG', 'G0179K117': 'ARM',
+    '879382208': 'TSM', '89352H106': 'TM', '46625H100': 'JPM',
+    'G16962105': 'SHOP', '63938C108': 'NVO', '64110W102': 'NTES',
+    'G4824B107': 'ICLR', 'G53983106': 'LIN', '55903V109': 'BABA',
+    'G0259H108': 'ACN',
+  };
+  function tickerOrFallback(row){
+    if (row && row.ticker) return row.ticker;
+    if (row && row.cusip && F13_CUSIP_FALLBACK[row.cusip]) return F13_CUSIP_FALLBACK[row.cusip];
+    return '—';
+  }
+
+  // Older 13F snapshots stored issuer names with raw XML entities (e.g.
+  // "S&amp;P 500"); decode at render time so they don't render literally.
+  // New bakes write decoded names — this is here only for backward compat.
+  function decodeIssuerName(name){
+    if (!name) return name;
+    return String(name)
+      .replace(/&#(\d+);/g, function(_, n){ return String.fromCodePoint(Number(n)); })
+      .replace(/&#x([0-9a-fA-F]+);/g, function(_, n){ return String.fromCodePoint(parseInt(n, 16)); })
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  }
+
   function renderF13(){
     var root = $('f13-root');
     var empty = $('f13-empty');
@@ -4429,8 +4615,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           var firmsTitle = Array.isArray(r.sampleFirms) ? r.sampleFirms.join(' · ') : '';
           return '<tr>' +
             '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
-            '<td class="f13-tkr"><span>' + escapeHtml(r.ticker || '—') + '</span></td>' +
-            '<td><span>' + escapeHtml(r.name || '') + '</span></td>' +
+            '<td class="f13-tkr"><span>' + escapeHtml(tickerOrFallback(r)) + '</span></td>' +
+            '<td><span>' + escapeHtml(decodeIssuerName(r.name) || '') + '</span></td>' +
             '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(r.valueChange)) + '</span></td>' +
             '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(r.shareChange)) + '</span></td>' +
             '<td class="f13-num f13-muted" title="' + escapeHtml(firmsTitle) + '"><span>' + (r.firmCount || 1) + '</span></td>' +
@@ -4493,8 +4679,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
                   : fmtBigDollarsF13(h.valuePrior) + (h.isExit ? ' <span class="f13-tag-exit">EXIT</span>' : '');
                 return '<tr>' +
                   '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
-                  '<td class="f13-tkr"><span>' + escapeHtml(h.ticker || '—') + '</span></td>' +
-                  '<td><span>' + escapeHtml(h.name || '') + '</span></td>' +
+                  '<td class="f13-tkr"><span>' + escapeHtml(tickerOrFallback(h)) + '</span></td>' +
+                  '<td><span>' + escapeHtml(decodeIssuerName(h.name) || '') + '</span></td>' +
                   '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(h.valueChange)) + '</span></td>' +
                   '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(h.shareChange)) + '</span></td>' +
                   '<td class="f13-num f13-muted"><span>' + posCell + '</span></td>' +
@@ -4639,9 +4825,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var needle = '<line class="fng-needle" x1="' + cx + '" y1="' + cy + '" x2="' + nEnd[0].toFixed(2) + '" y2="' + nEnd[1].toFixed(2) + '" />' +
       '<circle class="fng-needle-hub" cx="' + cx + '" cy="' + cy + '" r="6" />';
     var band = fngBandFromScore(s);
-    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 130" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
+    // Text sits BELOW the hub (y=138) so the needle never bisects it.
+    // viewBox extended to 150 to make room.
+    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 150" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
       arcs + needle +
-      '<text class="fng-gauge-num" x="' + cx + '" y="105" text-anchor="middle">' + Math.round(s) + '</text>' +
+      '<text class="fng-gauge-num" x="' + cx + '" y="138" text-anchor="middle">' + Math.round(s) + '</text>' +
     '</svg>';
   }
   function fngSparkline(points){
@@ -4965,6 +5153,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : '';
       var drivers = (p.drivers || []).slice(0, 5).map(pickDriverChip).join('');
       var contractHtml = pickContractHtml(p);
+      // Trim the bulleted detail off the thesis when we have driver chips —
+      // they restate it verbatim. Keep just the lead-in ("Bullish setup on
+      // PLTR") so the article still has a natural-language summary line.
+      var thesisText = String(p.thesis || '');
+      if (drivers && thesisText) {
+        var colonIdx = thesisText.indexOf(': ');
+        if (colonIdx > 0) thesisText = thesisText.slice(0, colonIdx);
+      }
       return '<article class="pick-card ' + sideCls + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
         '<div class="pick-rank">#' + (idx + 1) + '</div>' +
         '<div class="pick-main">' +
@@ -4975,7 +5171,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
             streakHtml +
           '</div>' +
-          '<p class="pick-thesis">' + escapeHtml(p.thesis) + '</p>' +
+          '<p class="pick-thesis">' + escapeHtml(thesisText) + '</p>' +
           (drivers ? '<div class="pick-drivers">' + drivers + '</div>' : '') +
           contractHtml +
         '</div>' +
@@ -5450,12 +5646,105 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (trigger){ trigger.addEventListener('click', open); }
   }
 
+  // --- Bonds & USD live snapshot ------------------------------------------
+  function renderBondsLive(){
+    var grid = document.getElementById('bonds-live-grid');
+    if (!grid) return;
+    var m = window.STONKS_MANIFEST || {};
+    var macro = m.macro || null;
+    var eyebrow = document.getElementById('bonds-live-eyebrow');
+    if (!macro || (!macro.tenY && !macro.dxy)) {
+      grid.innerHTML = '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
+      return;
+    }
+    if (eyebrow && macro.asOf) {
+      try {
+        var d = new Date(macro.asOf);
+        eyebrow.textContent = 'as of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+      } catch (_) {}
+    }
+    function tile(label, leg, valFmt){
+      if (!leg || leg.value == null) return '';
+      var val = valFmt(leg.value);
+      var chgCls = leg.change5d == null ? 'flat' : (leg.change5d > 0 ? 'up' : leg.change5d < 0 ? 'down' : 'flat');
+      var chg = leg.change5d != null
+        ? (leg.change5d >= 0 ? '+' : '') + leg.change5d.toFixed(2) + '% 5d (' + (leg.trend || 'flat') + ')'
+        : '';
+      return '<div class="bonds-live-tile">' +
+        '<span class="bonds-live-label">' + escapeHtml(label) + '</span>' +
+        '<span class="bonds-live-value">' + escapeHtml(val) + '</span>' +
+        (chg ? '<span class="bonds-live-change ' + chgCls + '">' + escapeHtml(chg) + '</span>' : '') +
+      '</div>';
+    }
+    var html = '';
+    html += tile('2Y yield', macro.twoY, function(v){ return v.toFixed(2) + '%'; });
+    html += tile('10Y yield', macro.tenY, function(v){ return v.toFixed(2) + '%'; });
+    html += tile('30Y yield', macro.thirtyY, function(v){ return v.toFixed(2) + '%'; });
+    html += tile('DXY', macro.dxy, function(v){ return v.toFixed(2); });
+    grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
+  }
+
+  // --- Tickers landing grid (filter + spot prices) ------------------------
+  function setupTickersGrid(){
+    var grid = document.getElementById('tickers-grid');
+    if (!grid) return;
+    var search = document.getElementById('tickers-search');
+    var chips = document.getElementById('tickers-chips');
+    var visibleCount = document.getElementById('tickers-visible-count');
+    var cards = Array.prototype.slice.call(grid.querySelectorAll('.ticker-card'));
+    // Populate spot prices from the inlined manifest. The spots map is
+    // {sym: priceNumber}, baked at build time, so cards paint immediately
+    // with no extra network round-trip.
+    var spots = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.spots) || {};
+    cards.forEach(function(card){
+      var sym = card.getAttribute('data-ticker');
+      var spot = spots[sym];
+      if (typeof spot === 'number' && isFinite(spot) && spot > 0) {
+        var slot = card.querySelector('[data-spot-for="' + sym + '"]');
+        if (slot) slot.textContent = '$' + spot.toFixed(spot >= 100 ? 0 : 2);
+      }
+    });
+    var state = { query: '', sector: '' };
+    function applyFilter(){
+      var q = state.query.trim().toUpperCase();
+      var sec = state.sector;
+      var shown = 0;
+      cards.forEach(function(card){
+        var sym = (card.getAttribute('data-ticker') || '').toUpperCase();
+        var cardSec = card.getAttribute('data-sector') || '';
+        var matchQ = !q || sym.indexOf(q) !== -1;
+        var matchS = !sec || cardSec === sec;
+        var show = matchQ && matchS;
+        card.hidden = !show;
+        if (show) shown++;
+      });
+      if (visibleCount) visibleCount.textContent = String(shown);
+    }
+    if (search) {
+      search.addEventListener('input', function(){
+        state.query = search.value || '';
+        applyFilter();
+      });
+    }
+    if (chips) {
+      chips.addEventListener('click', function(ev){
+        var btn = ev.target && ev.target.closest ? ev.target.closest('.tickers-chip') : null;
+        if (!btn) return;
+        ev.preventDefault();
+        state.sector = btn.getAttribute('data-tickers-sector') || '';
+        chips.querySelectorAll('.tickers-chip').forEach(function(b){ b.classList.toggle('is-active', b === btn); });
+        applyFilter();
+      });
+    }
+  }
+
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
     bindThemeToggle();
     bindPageTabs();
     bindTabs();
+    setupTickersGrid();
     combo.init();
     renderNarratives();
     renderUnusualFlow();
