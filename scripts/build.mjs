@@ -52,7 +52,7 @@ export const TICKERS = [
   "SPY", "QQQ", "IWM", "SMH", "UVXY",
   "TLT", "USO", "GLD", "SLV", "KWEB", "EWY",
   // Mega-caps
-  "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
+  "AAPL", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
   "TSM", "AVGO", "ORCL", "NFLX",
   // Financials / payments / pharma / retail
   "JPM", "V", "MA", "LLY", "WMT", "COST",
@@ -1113,6 +1113,19 @@ async function fetchFundamentals(symbol) {
     .filter((n) => n.rev != null)
     .map((n) => ({ date: n.date, period: n.period, value: n.rev }));
 
+  // Fiscal year-end month (1–12) — lets the renderer label quarters by the
+  // company's fiscal calendar instead of the calendar quarter that happens
+  // to contain the period-end date. Without this, AAPL's quarter ending
+  // March (its fiscal Q2) would show as "Q1" (calendar). Prefer
+  // lastFiscalYearEnd; fall back to nextFiscalYearEnd. Null = renderer uses
+  // calendar quarter labels (no change from prior behavior).
+  const fiscalYearEndIso = isoDate(ks.lastFiscalYearEnd) || isoDate(ks.nextFiscalYearEnd);
+  let fiscalYearEndMonth = null;
+  if (fiscalYearEndIso) {
+    const m = Number(fiscalYearEndIso.slice(5, 7));
+    if (m >= 1 && m <= 12) fiscalYearEndMonth = m;
+  }
+
   return {
     // Prefer longName: Yahoo caps shortName at ~30 chars, which truncates
     // names like "Taiwan Semiconductor Manufacturing Company Limited" mid-word
@@ -1165,6 +1178,7 @@ async function fetchFundamentals(symbol) {
     netMarginHistory,
     epsForwardEstimates,
     revenueForwardEstimates,
+    fiscalYearEndMonth,
     nextEarningsDate: nextEarnings,
     nextEarningsSession,
     growthEstimateCurQ: tq ? pct(tq.growth) : null,

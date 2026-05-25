@@ -2311,12 +2311,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return d;
   }
 
-  function fmtQuarterLabel(date, period){
+  function fmtQuarterLabel(date, period, fyeMonth){
     if (date){
       var d = new Date(date);
       if (!isNaN(d.getTime())){
+        var m = d.getUTCMonth() + 1; // 1–12
+        var y = d.getUTCFullYear();
+        // Fiscal calendar: a period ending in month X belongs to the fiscal
+        // year that ends in fyeMonth (1–12). Months after fyeMonth roll
+        // into the NEXT fiscal year (e.g. AAPL Oct–Dec 2025 → FY26 Q1).
+        // Without fyeMonth we fall back to calendar quarters — preserves
+        // legacy behavior for tickers whose fundamentals payload lacks it.
+        if (fyeMonth >= 1 && fyeMonth <= 12){
+          var fy, pos;
+          if (m > fyeMonth){ fy = y + 1; pos = m - fyeMonth - 1; }
+          else { fy = y; pos = m + 12 - fyeMonth - 1; }
+          var fq = Math.floor(pos / 3) + 1;
+          return 'Q' + fq + " '" + String(fy).slice(2);
+        }
         var q = Math.floor(d.getUTCMonth() / 3) + 1;
-        return 'Q' + q + " '" + String(d.getUTCFullYear()).slice(2);
+        return 'Q' + q + " '" + String(y).slice(2);
       }
     }
     return period || '';
@@ -2328,6 +2342,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var history = Array.isArray(opts.points) ? opts.points.slice() : [];
     var forward = Array.isArray(opts.forwardPoints) ? opts.forwardPoints.slice() : [];
     var secondary = Array.isArray(opts.secondaryPoints) ? opts.secondaryPoints : null;
+    var fyeMonth = (typeof opts.fiscalYearEndMonth === 'number') ? opts.fiscalYearEndMonth : null;
     if (history.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
     // Yahoo's earningsTrend ships a "+1y" estimate alongside "+1q". On a
     // chart of quarterly history the +1y point is 12–18 months past the
@@ -2407,7 +2422,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       forward.forEach(function(p, j){
         var xi = xFor(history.length + j);
         var yi = yFor(p.value);
-        var label = fmtQuarterLabel(p.date, p.period);
+        var label = fmtQuarterLabel(p.date, p.period, fyeMonth);
         var anchor = (j === forward.length - 1) ? 'end' : 'middle';
         var lx = anchor === 'end' ? (xi + colW / 2 - 2) : xi;
         fwdDots += '<circle class="opt-fund-eh-fwdmark ' + trendDir + '" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="3.5"><title>' +
@@ -2443,11 +2458,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var xLabels = '';
     if (history.length){
       xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(0).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="start">' +
-        escapeHtml(fmtQuarterLabel(history[0].date, history[0].period)) + '</text>';
+        escapeHtml(fmtQuarterLabel(history[0].date, history[0].period, fyeMonth)) + '</text>';
       if (!forward.length){
         var lastI = history.length - 1;
         xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(lastI).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="end">' +
-          escapeHtml(fmtQuarterLabel(history[lastI].date, history[lastI].period)) + '</text>';
+          escapeHtml(fmtQuarterLabel(history[lastI].date, history[lastI].period, fyeMonth)) + '</text>';
       }
     }
 
@@ -2456,7 +2471,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     all.forEach(function(p, i){
       var x = xFor(i);
       var isFwd = i >= history.length;
-      var label = fmtQuarterLabel(p.date, p.period);
+      var label = fmtQuarterLabel(p.date, p.period, fyeMonth);
       var valStr = fmt(p.value);
       hovers += '<rect class="opt-fund-eh-hit" x="' + (x - colW / 2).toFixed(2) + '" y="' + padT + '" width="' + colW.toFixed(2) + '" height="' + plotH + '"' +
         ' data-x="' + x.toFixed(2) + '" data-y="' + yFor(p.value).toFixed(2) + '"' +
@@ -2557,35 +2572,41 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       secondaryPoints: rows.map(function(q){ return q.epsEstimate; }),
       forwardPoints: (f && Array.isArray(f.epsForwardEstimates)) ? f.epsForwardEstimates : [],
       formatValue: function(v){ return v.toFixed(2); },
+      fiscalYearEndMonth: f && f.fiscalYearEndMonth,
     });
   }
 
   function renderFundamentalHistoryCharts(){
     var f = state.fundamentals || {};
+    var fye = f.fiscalYearEndMonth;
     renderHistoryChart({
       boxId: 'opt-fund-revenue-history',
       title: 'Revenue',
       points: f.revenueHistory || [],
       forwardPoints: f.revenueForwardEstimates || [],
       formatValue: fmtBigDollars,
+      fiscalYearEndMonth: fye,
     });
     renderHistoryChart({
       boxId: 'opt-fund-gross-profit-history',
       title: 'Gross profit',
       points: f.grossProfitHistory || [],
       formatValue: fmtBigDollars,
+      fiscalYearEndMonth: fye,
     });
     renderHistoryChart({
       boxId: 'opt-fund-net-income-history',
       title: 'Net income',
       points: f.netIncomeHistory || [],
       formatValue: fmtBigDollars,
+      fiscalYearEndMonth: fye,
     });
     renderHistoryChart({
       boxId: 'opt-fund-net-margin-history',
       title: 'Net margin',
       points: f.netMarginHistory || [],
       formatValue: function(v){ return v.toFixed(1) + '%'; },
+      fiscalYearEndMonth: fye,
     });
   }
 
