@@ -1103,8 +1103,17 @@ async function fetchFundamentals(symbol) {
     .filter((q) => q.netMargin != null)
     .map((q) => ({ date: q.date, value: q.netMargin }));
 
-  // Forward estimates (next quarter + next year) from earningsTrend.
-  // Each trend entry has earningsEstimate.avg (EPS) and revenueEstimate.avg (revenue).
+  // Forward estimates from earningsTrend. Each entry has earningsEstimate.avg
+  // (EPS) and revenueEstimate.avg (revenue). We include three buckets:
+  //   0q  — the current in-progress quarter (not yet reported)
+  //   +1q — one quarter after that
+  //   +1y — the next full fiscal year
+  // 0q matters because without it the chart jumps from the last reported
+  // quarter straight to +1q, skipping a quarter (e.g. AAPL last reported FY26
+  // Q2 with +1q = FY26 Q4 → no FY26 Q3 dot). 0q is gated on endDate > the
+  // latest historical date for each series so a freshly stale trend payload
+  // (Yahoo hasn't rolled "0q" forward after a print) can't duplicate a
+  // quarter already shown as actual.
   const fwd = (node, period) => {
     if (!node) return null;
     const eps = num(node?.earningsEstimate?.avg);
@@ -1113,12 +1122,22 @@ async function fetchFundamentals(symbol) {
     if (eps == null && rev == null) return null;
     return { date, period, eps, rev };
   };
-  const fwdNodes = [fwd(tq1, "+1q"), fwd(ty1, "+1y")].filter(Boolean);
-  const epsForwardEstimates = fwdNodes
-    .filter((n) => n.eps != null)
+  const lastEpsHistDate = earningsHistory.length
+    ? earningsHistory[earningsHistory.length - 1].date
+    : null;
+  const lastRevHistDate = revenueHistory.length
+    ? revenueHistory[revenueHistory.length - 1].date
+    : null;
+  const tq0 = fwd(tq, "0q");
+  const tq1Node = fwd(tq1, "+1q");
+  const ty1Node = fwd(ty1, "+1y");
+  const afterEps = (n) => !lastEpsHistDate || (n?.date && n.date > lastEpsHistDate);
+  const afterRev = (n) => !lastRevHistDate || (n?.date && n.date > lastRevHistDate);
+  const epsForwardEstimates = [tq0, tq1Node, ty1Node]
+    .filter((n) => n && n.eps != null && afterEps(n))
     .map((n) => ({ date: n.date, period: n.period, value: n.eps }));
-  const revenueForwardEstimates = fwdNodes
-    .filter((n) => n.rev != null)
+  const revenueForwardEstimates = [tq0, tq1Node, ty1Node]
+    .filter((n) => n && n.rev != null && afterRev(n))
     .map((n) => ({ date: n.date, period: n.period, value: n.rev }));
 
   // Fiscal year-end month (1–12) — lets the renderer label quarters by the
