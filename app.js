@@ -39,7 +39,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03585;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
@@ -846,6 +846,246 @@
       block('Fundamentals', fundamentals) +
       block('Mechanics', mechanics) +
       (actionLine ? '<div class="opt-rec-action ' + (ctx.buy && ctx.buy.decision === 'yes' ? 'yes' : 'no') + '">' + actionLine + '</div>' : '') +
+    '</div>';
+  }
+
+  // "Execute now?" — entry-timing card. The Recommendation breakdown above
+  // grades the CONTRACT (is this strike/expiry/spread worth owning?); this
+  // card grades the MOMENT (is right now a good time to click buy?). The
+  // logic mirrors the 1H K-line buy/sell flow playbook: breakout above
+  // resistance + volume = execute, rally fails at resistance = avoid,
+  // sideways range = wait, etc. Direction-aware — flips for puts.
+  function buildExecuteNowCard(ctx){
+    var input = ctx.input || {};
+    var tech = input.technicals || null;
+    var type = input.type;
+    var spot = input.spot;
+    if (!tech || !(spot > 0)) return '';
+    var dir = type === 'call' ? 1 : -1;
+    var dirLabel = type === 'call' ? 'calls' : 'puts';
+
+    // Prefer the live intraday %change (from /api/quote) over the baked
+    // priceMove1dPct (last close vs prior close, frozen at bake time).
+    // During RTH the live number is what actually reflects "today's move".
+    var sym = input.ticker || input.symbol || state.symbol || null;
+    var live = (sym && LIVE_CACHE[sym]) ? LIVE_CACHE[sym].q : null;
+    var liveChgPct = (live && live.changePct != null && isFinite(live.changePct)) ? live.changePct : null;
+    var bakedMove = tech.volume ? tech.volume.priceMove1dPct : null;
+    var todayMovePct = liveChgPct != null ? liveChgPct : bakedMove;
+    var moveSrc = liveChgPct != null ? 'live' : 'last close';
+
+    var rsi = tech.rsi;
+    var macd = tech.macd;
+    var vol = tech.volume || {};
+    var rvol = vol.rvol;
+    var sr = tech.sr || {};
+    var r20 = sr.r20, s20 = sr.s20;
+
+    function signedPct(p){
+      if (p == null || !isFinite(p)) return '—';
+      return (p >= 0 ? '+' : '') + p.toFixed(2) + '%';
+    }
+
+    // Aligned move = positive when underlying is moving in the contract's
+    // favored direction (up for calls, down for puts).
+    var alignedMove = todayMovePct != null ? todayMovePct * dir : null;
+    var volSurge = rvol != null && rvol >= 1.5;
+    var volSoft  = rvol != null && rvol >= 1.0 && rvol < 1.5;
+    var volQuiet = rvol != null && rvol < 0.7;
+
+    // Position relative to 20-day S/R. "Near" = within 2% of the level.
+    var aboveR20 = (r20 != null && spot > r20);
+    var belowS20 = (s20 != null && spot < s20);
+    var nearR20  = (r20 != null && spot <= r20 && (r20 - spot) / spot <= 0.02);
+    var nearS20  = (s20 != null && spot >= s20 && (spot - s20) / spot <= 0.02);
+
+    var breakoutAligned = dir > 0 ? aboveR20 : belowS20;
+    var breakoutAgainst = dir > 0 ? belowS20 : aboveR20;
+
+    var rsiBullish    = rsi != null && rsi >= 55 && rsi < 80;
+    var rsiBearish    = rsi != null && rsi <= 45 && rsi > 20;
+    var rsiOverbought = rsi != null && rsi >= 80;
+    var rsiOversold   = rsi != null && rsi <= 20;
+    var macdBullish   = macd && macd.hist > 0;
+    var macdBearish   = macd && macd.hist < 0;
+    var momentumAligned = dir > 0 ? (rsiBullish && macdBullish) : (rsiBearish && macdBearish);
+
+    // Sideways range — coiled inside S20..R20 with mid-band RSI and a
+    // near-flat MACD histogram. Maps to the "Watching..." pattern in the
+    // playbook: don\'t enter until structure breaks.
+    var sideways = (
+      r20 != null && s20 != null && spot >= s20 && spot <= r20 &&
+      rsi != null && rsi > 40 && rsi < 60 &&
+      macd && Math.abs(macd.hist) < 0.15 * Math.max(0.5, Math.abs(macd.signal || 1))
+    );
+
+    var pros = [], cons = [];
+
+    // -- Buy-flow / Sell-flow PROS --
+    if (breakoutAligned && volSurge && alignedMove != null && alignedMove > 0.3) {
+      pros.push({ tag: 'Breakout + volume', strong: true, text:
+        (dir > 0
+          ? 'Spot broke above 20D resistance $' + fmt(r20)
+          : 'Spot broke below 20D support $' + fmt(s20)
+        ) + ' on ' + rvol.toFixed(2) + 'x volume with ' + signedPct(todayMovePct) +
+        ' move today — classic confirmation; the playbook says enter on this kind of move.'
+      });
+    } else if (breakoutAligned && (volSurge || volSoft)) {
+      pros.push({ tag: dir > 0 ? 'Above 20D resistance' : 'Below 20D support', strong: true, text:
+        (dir > 0
+          ? 'Spot is above the 20D ceiling ($' + fmt(r20) + ')'
+          : 'Spot is below the 20D floor ($' + fmt(s20) + ')'
+        ) + ' on ' + rvol.toFixed(2) + 'x volume — breakout intact; watching for follow-through.'
+      });
+    } else if (breakoutAligned) {
+      cons.push({ tag: dir > 0 ? 'Breakout, light volume' : 'Breakdown, light volume', strong: false, text:
+        (dir > 0
+          ? 'Spot is above 20D resistance ($' + fmt(r20) + ')'
+          : 'Spot is below 20D support ($' + fmt(s20) + ')'
+        ) + ' but volume is ' + (rvol != null ? rvol.toFixed(2) + 'x' : 'thin') +
+        ' — a breakout without conviction often fakes back into the range.'
+      });
+    }
+
+    if (momentumAligned && !sideways) {
+      pros.push({ tag: dir > 0 ? 'Trend up' : 'Trend down', strong: true, text:
+        'RSI ' + (rsi != null ? rsi.toFixed(0) : '—') + ' + MACD ' + (dir > 0 ? 'bullish' : 'bearish') +
+        ' — the trend is intact for ' + dirLabel + '.'
+      });
+    }
+
+    // Pullback-holds-support / bounce-fails-resistance setups from the playbook.
+    if (dir > 0 && nearS20 && rsi != null && rsi >= 45 && macdBullish && alignedMove != null && alignedMove >= 0) {
+      pros.push({ tag: 'Pullback to support', strong: true, text:
+        'Spot pulled back to 20D support $' + fmt(s20) + ' and momentum is still bullish — buyers stepping in again.'
+      });
+    }
+    if (dir < 0 && nearR20 && rsi != null && rsi <= 55 && macdBearish && alignedMove != null && alignedMove >= 0) {
+      pros.push({ tag: 'Bounce fails resistance', strong: true, text:
+        'Spot rallied to 20D resistance $' + fmt(r20) + ' and is rolling over — sellers defending the level.'
+      });
+    }
+
+    // -- Sell-flow CONS (against this contract\'s direction) --
+    if (breakoutAgainst) {
+      cons.push({ tag: dir > 0 ? 'Broke 20D support' : 'Broke 20D resistance', strong: true, text:
+        (dir > 0
+          ? 'Spot is below 20D support $' + fmt(s20) + ' — breakdown is live; that is the wrong side for calls.'
+          : 'Spot is above 20D resistance $' + fmt(r20) + ' — breakout is live; that is the wrong side for puts.')
+      });
+    }
+    if (dir > 0 && nearR20 && alignedMove != null && alignedMove < -0.3) {
+      cons.push({ tag: 'Rally fails at resistance', strong: true, text:
+        'Spot rolled over near 20D resistance $' + fmt(r20) + ' today (' + signedPct(todayMovePct) +
+        ') — rejected, not breaking out.'
+      });
+    }
+    if (dir < 0 && nearS20 && alignedMove != null && alignedMove < -0.3) {
+      cons.push({ tag: 'Bounce fails to reclaim', strong: true, text:
+        'Spot cannot reclaim 20D support $' + fmt(s20) + ' (' + signedPct(todayMovePct) +
+        ' today) — failed bounce; downtrend intact.'
+      });
+    }
+    if (!breakoutAligned && !sideways) {
+      var againstBits = [];
+      if (dir > 0 && rsiBearish) againstBits.push('RSI ' + rsi.toFixed(0) + ' bearish');
+      if (dir < 0 && rsiBullish) againstBits.push('RSI ' + rsi.toFixed(0) + ' bullish');
+      if (dir > 0 && macdBearish) againstBits.push('MACD bearish');
+      if (dir < 0 && macdBullish) againstBits.push('MACD bullish');
+      if (againstBits.length >= 2) {
+        cons.push({ tag: 'Momentum against', strong: true, text:
+          againstBits.join(' + ') + ' — entering ' + dirLabel + ' here is fighting the tape.'
+        });
+      } else if (againstBits.length === 1) {
+        cons.push({ tag: 'Momentum mixed', strong: false, text:
+          againstBits[0] + ' — not a hard stop, but the trend is not helping ' + dirLabel + '.'
+        });
+      }
+    }
+    if (dir > 0 && rsiOverbought) {
+      cons.push({ tag: 'Overbought', strong: false, text:
+        'RSI ' + rsi.toFixed(0) + ' — stretched; chasing the breakout here is buying late.'
+      });
+    }
+    if (dir < 0 && rsiOversold) {
+      cons.push({ tag: 'Oversold', strong: false, text:
+        'RSI ' + rsi.toFixed(0) + ' — washed out; new puts here are chasing the move.'
+      });
+    }
+    if (volQuiet && !breakoutAligned && !sideways) {
+      cons.push({ tag: 'Thin volume', strong: false, text:
+        'Volume is ' + rvol.toFixed(2) + 'x average — no conviction either way; moves on quiet tape mean less.'
+      });
+    }
+
+    // Verdict — collapse signals into EXECUTE / WAIT / AVOID.
+    var hasStrongPro = pros.some(function(p){ return p.strong; });
+    var hasStrongCon = cons.some(function(c){ return c.strong; });
+    var verdict, vCls, vHeadline, vBody;
+    if (sideways) {
+      verdict = 'WAIT'; vCls = 'fair';
+      vHeadline = 'Sideways range — watch, do not chase';
+      vBody = 'Price is coiled inside the recent range with mid-band RSI and a flat MACD. The playbook says wait for a clean break with volume before entering — there is no structure to trade yet.';
+    } else if (hasStrongCon && !hasStrongPro) {
+      verdict = 'AVOID'; vCls = 'warn';
+      vHeadline = 'Structure is against ' + dirLabel + ' right now';
+      vBody = 'The live pattern is the opposite of what we want: ' +
+        (dir > 0 ? 'breakdown or failed rally' : 'breakout or failed bounce') +
+        '. Hold off — the structure has to flip before this is a clean entry.';
+    } else if (hasStrongPro && !hasStrongCon) {
+      verdict = 'EXECUTE'; vCls = 'pos';
+      vHeadline = 'Structure favors ' + dirLabel + ' — entry timing is good';
+      vBody = (dir > 0 ? 'Buy-flow' : 'Sell-flow') + ' pattern is live: ' +
+        pros[0].tag.toLowerCase() + '. Trade the structure — enter on this move and let the trend run.';
+    } else if (hasStrongPro && hasStrongCon) {
+      verdict = 'WAIT'; vCls = 'fair';
+      vHeadline = 'Mixed signals — let the next bar confirm';
+      vBody = 'Some structure is firing for ' + dirLabel + ' but other signals are pushing back. Wait for confirmation — trade the structure, not the emotion.';
+    } else {
+      verdict = 'WAIT'; vCls = 'fair';
+      vHeadline = 'No clean setup yet';
+      vBody = 'Neither a breakout nor a breakdown is firing. Watch for ' + (dir > 0
+        ? 'spot to clear $' + (r20 != null ? fmt(r20) : 'resistance') + ' with volume'
+        : 'spot to lose $' + (s20 != null ? fmt(s20) : 'support') + ' with volume'
+      ) + ' before entering.';
+    }
+
+    function renderItem(it, kind){
+      return '<li><span class="opt-exec-tag ' + kind + '">' + escapeHtml(it.tag) + '</span> ' + escapeHtml(it.text) + '</li>';
+    }
+    var prosHtml = pros.map(function(p){ return renderItem(p, 'pos'); }).join('');
+    var consHtml = cons.map(function(c){ return renderItem(c, 'warn'); }).join('');
+
+    var metaBits = ['Spot $' + fmt(spot)];
+    if (todayMovePct != null) metaBits.push(signedPct(todayMovePct) + ' today (' + moveSrc + ')');
+    if (rvol != null) metaBits.push(rvol.toFixed(2) + 'x avg volume');
+    if (r20 != null) metaBits.push('R20 $' + fmt(r20));
+    if (s20 != null) metaBits.push('S20 $' + fmt(s20));
+    var metaLine = metaBits.join(' · ');
+
+    return '<div class="opt-exec-card opt-exec-' + vCls + '" id="opt-exec-card">' +
+      '<div class="opt-exec-head">' +
+        '<span class="opt-exec-verdict opt-exec-verdict-' + vCls + '">' + verdict + '</span>' +
+        '<div class="opt-exec-headline">' +
+          '<div class="opt-exec-title">Execute now?</div>' +
+          '<div class="opt-exec-subtitle">' + escapeHtml(vHeadline) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="opt-exec-meta">' + escapeHtml(metaLine) + '</div>' +
+      '<div class="opt-exec-body">' + escapeHtml(vBody) + '</div>' +
+      (prosHtml
+        ? '<div class="opt-exec-section">' +
+            '<div class="opt-exec-section-title">' + (dir > 0 ? 'Buy-flow signals' : 'Sell-flow signals') + '</div>' +
+            '<ul class="opt-exec-list">' + prosHtml + '</ul>' +
+          '</div>'
+        : '') +
+      (consHtml
+        ? '<div class="opt-exec-section">' +
+            '<div class="opt-exec-section-title">' + (dir > 0 ? 'Sell-flow signals (against)' : 'Buy-flow signals (against)') + '</div>' +
+            '<ul class="opt-exec-list">' + consHtml + '</ul>' +
+          '</div>'
+        : '') +
+      '<div class="opt-exec-foot">Trade the structure, not emotions — wait for confirmation.</div>' +
     '</div>';
   }
 
@@ -2080,6 +2320,7 @@
       var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
+    html += buildExecuteNowCard({ input: input });
     html += buildRecommendationCard({
       input: input, sGrade: sGrade, dGrade: dGrade, tGrade: tGrade,
       daysToExpiry: daysToExpiry, extrinsicRatio: extrinsicRatio, mid: mid,
