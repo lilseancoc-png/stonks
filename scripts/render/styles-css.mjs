@@ -4586,6 +4586,7 @@ main { padding-top: var(--s-2); }
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 .f13-flow-buy { border-left: 3px solid var(--pos); }
 .f13-flow-sell { border-left: 3px solid var(--neg); }
