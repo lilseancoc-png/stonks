@@ -39,7 +39,7 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03585;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
@@ -6662,6 +6662,76 @@
     '</span>';
   }
   function pickSideClass(side){ return side === 'put' ? 'put' : 'call'; }
+  // Plain-English explainer panel — translates the suggested contract into
+  // beginner-friendly terms (cost, win condition, daily time decay, rough
+  // odds). The technical Greek/IV row above this panel still ships for
+  // anyone who wants it; this one exists so a first-time visitor can read
+  // a pick without knowing what delta or theta means.
+  function pickPlainEnglish(p, c){
+    if (!c) return '';
+    var symbol = p && p.symbol ? String(p.symbol) : '';
+    var isPut = p && p.side === 'put';
+    var sideWord = isPut ? 'put' : 'call';
+    var dirWord = isPut ? 'closes below' : 'closes above';
+    var bullets = '';
+    // Cost line — premium per contract is the max loss for a long option.
+    var prem = (c.mid != null && isFinite(c.mid)) ? Number(c.mid)
+             : (c.last != null && isFinite(c.last)) ? Number(c.last)
+             : (c.bid != null && c.ask != null && isFinite(c.bid) && isFinite(c.ask)) ? (Number(c.bid) + Number(c.ask)) / 2
+             : null;
+    var dollarsPerContract = prem != null ? prem * 100 : null;
+    if (dollarsPerContract != null){
+      bullets += '<li><b>Buy 1 contract for ~$' + dollarsPerContract.toFixed(0) +
+        '</b> (each ' + sideWord + ' controls 100 shares of ' + escapeHtml(symbol) +
+        '). That premium is the most you can lose.</li>';
+    }
+    // Win condition.
+    if (c.breakeven != null && c.expiryLabel){
+      var bePctTxt = '';
+      if (c.breakevenMovePct != null && isFinite(c.breakevenMovePct)){
+        var m = Number(c.breakevenMovePct);
+        bePctTxt = ' (' + (m >= 0 ? '+' : '') + m.toFixed(1) + '% from today)';
+      }
+      var dteStr = (c.dte != null && isFinite(c.dte)) ? ' — ' + c.dte + ' days away' : '';
+      bullets += '<li><b>You make money if</b> ' + escapeHtml(symbol) + ' ' +
+        dirWord + ' <b>$' + Number(c.breakeven).toFixed(2) + '</b>' + bePctTxt +
+        ' by ' + escapeHtml(c.expiryLabel) + escapeHtml(dteStr) + '.</li>';
+    }
+    // Market expectation line — frames the move-needed vs. priced-in move.
+    if (c.breakevenMovePct != null && c.expectedMovePct != null &&
+        isFinite(c.breakevenMovePct) && isFinite(c.expectedMovePct)){
+      var req = Math.abs(Number(c.breakevenMovePct));
+      var exp = Math.abs(Number(c.expectedMovePct));
+      var verdict;
+      if (req <= exp * 0.7) verdict = 'comfortably inside that range — the chain isn’t asking you to bet on an outlier move';
+      else if (req <= exp) verdict = 'right at the edge of what the chain is pricing — needs the move to actually happen, not just a wobble';
+      else verdict = 'bigger than what the chain is pricing — you need an above-average move for this to pay';
+      bullets += '<li><b>How big a move?</b> The options market is already pricing a ±' +
+        exp.toFixed(1) + '% swing by then. You need ' +
+        (req >= 0 ? '' : '') + req.toFixed(1) + '%, ' + verdict + '.</li>';
+    }
+    // Daily time decay — applies to long options. theta is negative for
+    // longs; show absolute dollars/day.
+    if (c.thetaDay != null && isFinite(c.thetaDay)){
+      var perDay = Math.abs(Number(c.thetaDay)) * 100;
+      if (perDay >= 1){
+        bullets += '<li><b>Daily holding cost:</b> roughly <b>$' + perDay.toFixed(0) +
+          ' a day</b> evaporates from the contract just from time passing, even if ' +
+          escapeHtml(symbol) + ' doesn’t move. (Less when the stock is moving your way, more if it goes against you.)</li>';
+      }
+    }
+    // Implied odds — |delta| as the standard rough proxy for prob-ITM.
+    if (c.delta != null && isFinite(c.delta)){
+      var pct = Math.abs(Number(c.delta)) * 100;
+      bullets += '<li><b>Implied odds:</b> the chain prices roughly <b>' + pct.toFixed(0) +
+        '%</b> odds this finishes in profit. Treat that as a sanity check, not a guarantee.</li>';
+    }
+    if (!bullets) return '';
+    return '<div class="pick-plain">' +
+      '<div class="pick-plain-head">In plain English</div>' +
+      '<ul class="pick-plain-list">' + bullets + '</ul>' +
+    '</div>';
+  }
   // Build a contract block — the recommended strike/expiry the daily build
   // picked for this signal stack. Returns '' if no contract was attached
   // (older builds, or signals too weak for a confident strike pick).
@@ -6679,10 +6749,20 @@
     } else if (c.last != null){
       quote = 'last $' + Number(c.last).toFixed(2);
     }
+    // Greek row — show the symbols with hover tooltips so non-traders
+    // can mouse over Δ / Θ / IV and get the plain-English meaning
+    // without us bloating the visible label. Each span carries title=
+    // (browser native), readable on hover and long-press on mobile.
     var greeks = [];
-    if (c.delta != null && isFinite(c.delta)) greeks.push('Δ ' + Number(c.delta).toFixed(2));
-    if (c.thetaDay != null && isFinite(c.thetaDay)) greeks.push('Θ $' + Number(c.thetaDay).toFixed(2) + '/day');
-    if (c.iv != null && isFinite(c.iv)) greeks.push('IV ' + (Number(c.iv) * 100).toFixed(0) + '%');
+    if (c.delta != null && isFinite(c.delta)) {
+      greeks.push('<span title="Delta — ' + escapeHtml(TIPS.delta) + '">Δ ' + Number(c.delta).toFixed(2) + '</span>');
+    }
+    if (c.thetaDay != null && isFinite(c.thetaDay)) {
+      greeks.push('<span title="Theta — ' + escapeHtml(TIPS.theta) + '">Θ $' + Number(c.thetaDay).toFixed(2) + '/day</span>');
+    }
+    if (c.iv != null && isFinite(c.iv)) {
+      greeks.push('<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '">IV ' + (Number(c.iv) * 100).toFixed(0) + '%</span>');
+    }
     var breakeven = '';
     if (c.breakeven != null){
       breakeven = 'Breakeven $' + Number(c.breakeven).toFixed(2);
@@ -6715,20 +6795,25 @@
     var qChips = '';
     var q = c.contractQuality;
     if (q && q.spread){
-      function chip(label, g){
+      // tipText turns the cryptic Greek-letter chip into something a
+      // beginner can decode on hover: explains the concept (from TIPS)
+      // and the current verdict ("Tight", "Balanced", "Calm", …).
+      function chip(label, g, tipText){
         if (!g) return '';
-        return '<span class="pick-qchip pick-qchip-' + escapeHtml(g.cls) + '" title="' + escapeHtml(label) + '">' +
+        var t = tipText ? (tipText + ' Current: ' + g.label + '.') : label;
+        return '<span class="pick-qchip pick-qchip-' + escapeHtml(g.cls) + '" title="' + escapeHtml(t) + '">' +
           '<span class="pick-qchip-label">' + escapeHtml(label) + '</span>' +
           '<span class="pick-qchip-val">' + escapeHtml(g.label) + '</span>' +
         '</span>';
       }
+      var liqTip = 'Liquidity — number of contracts already held open. Lots of open interest = orders fill at the quoted price; thin = wider effective spread and slow fills.';
       qChips =
         '<div class="pick-contract-quality">' +
-          chip('Spread', q.spread) +
-          chip('Liq', q.oi) +
-          chip('Δ', q.delta) +
-          chip('Θ', q.theta) +
-          (q.iv ? chip('IV', q.iv) : '') +
+          chip('Spread', q.spread, 'Bid/ask spread — ' + TIPS.spread) +
+          chip('Liq', q.oi, liqTip) +
+          chip('Δ', q.delta, 'Delta — ' + TIPS.delta) +
+          chip('Θ', q.theta, 'Theta — ' + TIPS.theta) +
+          (q.iv ? chip('IV', q.iv, 'Implied volatility — ' + TIPS.iv) : '') +
         '</div>';
     }
     var earningsBadge = c.earningsInWindow
@@ -6740,6 +6825,7 @@
       ' data-pick-exp="' + escapeHtml(String(c.expiry || '')) + '"' +
       ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"';
     var overall = (q && q.overall) ? ' pick-contract-overall-' + escapeHtml(q.overall) : '';
+    var plain = pickPlainEnglish(p, c);
     return '<div class="pick-contract' + overall + '">' +
       '<div class="pick-contract-head">' +
         '<span class="pick-contract-label">Suggested ' + sideLabel + '</span>' +
@@ -6747,11 +6833,12 @@
         earningsBadge +
       '</div>' +
       (quote ? '<div class="pick-contract-quote">' + escapeHtml(quote) + '</div>' : '') +
-      (greeks.length ? '<div class="pick-contract-greeks">' + escapeHtml(greeks.join(' · ')) + '</div>' : '') +
+      (greeks.length ? '<div class="pick-contract-greeks">' + greeks.join(' · ') + '</div>' : '') +
       (breakeven ? '<div class="pick-contract-be">' + escapeHtml(breakeven) + '</div>' : '') +
       rr +
       qChips +
       (liq ? '<div class="pick-contract-meta">' + liq + '</div>' : '') +
+      plain +
       '<button type="button" class="pick-contract-grade"' + btnAttrs + '>Grade this contract →</button>' +
     '</div>';
   }
@@ -6826,7 +6913,9 @@
           (drivers ? '<div class="pick-drivers">' + drivers + '</div>' : '') +
           contractHtml +
         '</div>' +
-        '<div class="pick-conviction" aria-label="Conviction score" style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
+        '<div class="pick-conviction" aria-label="Conviction score"' +
+          ' title="Conviction = how many independent signals (news, narrative, fundamentals, momentum, analyst targets, social, volume, support/resistance) all point the same direction for this ticker. Higher = more agreement. Typical range 3–12."' +
+          ' style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
           '<div class="pick-conv-label">Conv</div>' +
           '<div class="pick-conv-value">' + p.conviction + '</div>' +
           '<div class="pick-conv-bar"><span class="pick-conv-fill"></span></div>' +

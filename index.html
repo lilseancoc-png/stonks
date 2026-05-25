@@ -738,6 +738,16 @@
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
     <p class="hint">The ten highest-conviction tickers to trade options on right now, scored by fusing every signal the daily build already produces: active narratives this ticker rides, news sentiment, fundamentals verdict, RSI extremes, MACD direction, and the current daily streak. Each pick is tagged with the side (call or put) the signal stack points to and a thesis enumerating the drivers.</p>
+    <details class="picks-howto">
+      <summary>New to options? How to read a pick &rarr;</summary>
+      <div class="picks-howto-body">
+        <p><b>CALL vs PUT.</b> CALL = the signal stack thinks the stock goes up; PUT = thinks it goes down. The "Suggested CALL/PUT" block names a specific contract (strike + expiry) that fits the bet.</p>
+        <p><b>Conviction (right edge).</b> Number of independent signals lined up the same direction &mdash; news, fundamentals, momentum, analyst targets, social, volume, support/resistance. A pick with conv 12 means twelve signals agree; conv 5 is the floor we publish. Higher is more agreement, not bigger payoff.</p>
+        <p><b>Driver chips.</b> Each chip is one of those signals, color-coded green (helps the trade) or red (works against). Click into a ticker to see how each signal was scored.</p>
+        <p><b>Suggested contract.</b> The strike, expiry, and quoted price the build picked as the cleanest expression of the thesis. Hover Δ / Θ / IV for what they mean &mdash; or just read the <b>"In plain English"</b> panel underneath, which translates everything into beginner terms: cost, win condition, daily holding cost, rough odds.</p>
+        <p><b>Risk.</b> Buying a call or put can lose <i>at most</i> the premium you pay &mdash; but it can lose all of it if the stock doesn&rsquo;t move enough in your direction before expiry. None of this is financial advice; the picks are a starting watchlist, not a recommendation to trade.</p>
+      </div>
+    </details>
     <div id="picks-root" class="picks-root">Loading top picks…</div>
     <div id="picks-empty" class="picks-empty" hidden>No high-conviction picks in this build — every ticker scored below the minimum.</div>
     <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Conviction is the absolute signal score (typically 3-12); higher means more independent signals lined up the same direction.</p>

@@ -5103,6 +5103,105 @@ main { padding-top: var(--s-2); }
   }
 }
 
+/* "In plain English" explainer block — translates the Greek/IV row above
+   into beginner-friendly bullets. Subtle bordered panel, mono digits, so
+   it reads as a sibling of the contract block rather than a callout. */
+.pick-plain {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: var(--r-2);
+}
+.pick-plain-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.pick-plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pick-plain-list li {
+  font: 400 12px/1.5 var(--font-sans);
+  color: var(--text);
+  padding-left: 14px;
+  position: relative;
+}
+.pick-plain-list li::before {
+  content: "›";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+.pick-plain-list b {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.pick-card.call .pick-plain {
+  background: color-mix(in srgb, var(--pos) 4%, var(--surface));
+  border-color: color-mix(in srgb, var(--pos) 20%, var(--border));
+}
+.pick-card.put .pick-plain {
+  background: color-mix(in srgb, var(--neg) 4%, var(--surface));
+  border-color: color-mix(in srgb, var(--neg) 20%, var(--border));
+}
+
+/* "How to read a pick" collapsible — sits between the section hint and
+   the cards. Closed by default so the section stays tight for return
+   visitors; opening it shows the layout legend for first-time readers. */
+.picks-howto {
+  margin: var(--s-2) 0 var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text);
+}
+.picks-howto > summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font: 600 12px/1.2 var(--font-sans);
+  color: var(--muted-strong);
+  list-style: none;
+  user-select: none;
+  border-radius: var(--r-2);
+  transition: color .12s var(--ease-out), background .12s var(--ease-out);
+}
+.picks-howto > summary::-webkit-details-marker { display: none; }
+.picks-howto > summary:hover {
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.picks-howto[open] > summary {
+  color: var(--text-strong);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-2) var(--r-2) 0 0;
+}
+.picks-howto-body {
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.picks-howto-body p {
+  margin: 0;
+  line-height: 1.55;
+  color: var(--text);
+}
+.picks-howto-body b {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
 /* === Streaks tab === */
 .streaks-root { margin-top: var(--s-3); }
 .streaks-cols {
