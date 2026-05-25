@@ -1638,9 +1638,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     pts.sort(function(a, b){ return a.dte - b.dte; });
     return pts;
   }
+  var IV_TERM_LAYOUT = { W: 360, H: 110 };
   function termStructureSvg(points){
     if (!points.length) return '<div class="opt-iv-empty">No usable IV in the loaded chain.</div>';
-    var W = 360, H = 110, PAD_L = 36, PAD_R = 8, PAD_T = 8, PAD_B = 22;
+    var W = IV_TERM_LAYOUT.W, H = IV_TERM_LAYOUT.H, PAD_L = 36, PAD_R = 8, PAD_T = 8, PAD_B = 22;
     var minIv = Infinity, maxIv = -Infinity;
     for (var i=0; i<points.length; i++){
       if (points[i].iv < minIv) minIv = points[i].iv;
@@ -1653,9 +1654,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (xMax === xMin) xMax = xMin + 1;
     var sx = function(d){ return PAD_L + (d - xMin) / (xMax - xMin) * (W - PAD_L - PAD_R); };
     var sy = function(iv){ return PAD_T + (1 - (iv - y0) / (y1 - y0)) * (H - PAD_T - PAD_B); };
-    var path = points.map(function(p, idx){ return (idx === 0 ? 'M' : 'L') + sx(p.dte).toFixed(1) + ' ' + sy(p.iv).toFixed(1); }).join(' ');
+    // Cache screen coords on each point so attachIvHover can look up the
+    // nearest point without redoing scale math.
+    for (var j=0; j<points.length; j++){
+      points[j].x = sx(points[j].dte);
+      points[j].y = sy(points[j].iv);
+    }
+    var path = points.map(function(p, idx){ return (idx === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(' ');
     var dots = points.map(function(p){
-      return '<circle cx="' + sx(p.dte).toFixed(1) + '" cy="' + sy(p.iv).toFixed(1) + '" r="2.5" />';
+      return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="2.5" />';
     }).join('');
     // Y-axis labels: just the min and max IV so the chart stays legible.
     var yLabels =
@@ -1665,11 +1672,78 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var xLabels =
       '<text x="' + sx(xMin).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="start">' + xMin + 'd</text>' +
       '<text x="' + sx(xMax).toFixed(1) + '" y="' + (H - 4) + '" class="opt-iv-axis" text-anchor="end">' + xMax + 'd</text>';
+    // Hover scaffolding: a transparent rect that catches mousemove anywhere
+    // in the SVG (so empty gaps still trigger the handler), plus a hidden
+    // overlay group the handler positions on top of the nearest point.
+    var hitArea = '<rect class="opt-iv-hit" x="0" y="0" width="' + W + '" height="' + H + '" />';
+    var hoverOverlay =
+      '<g class="opt-iv-hover" style="display:none">' +
+        '<line class="opt-iv-hover-line" x1="0" y1="' + PAD_T + '" x2="0" y2="' + (H - PAD_B) + '" />' +
+        '<circle class="opt-iv-hover-dot" cx="0" cy="0" r="3.5" />' +
+        '<text class="opt-iv-hover-label" x="0" y="0"></text>' +
+      '</g>';
     return '<svg class="opt-iv-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="IV term structure">' +
+      hitArea +
       '<path d="' + path + '" class="opt-iv-line" fill="none" pathLength="1" />' +
       '<g class="opt-iv-dots">' + dots + '</g>' +
       yLabels + xLabels +
+      hoverOverlay +
     '</svg>';
+  }
+  function attachIvHover(box, points){
+    if (!points || !points.length) return;
+    var svg = box.querySelector('svg.opt-iv-svg');
+    if (!svg) return;
+    var hover = svg.querySelector('.opt-iv-hover');
+    var line = svg.querySelector('.opt-iv-hover-line');
+    var dot = svg.querySelector('.opt-iv-hover-dot');
+    var label = svg.querySelector('.opt-iv-hover-label');
+    if (!hover || !line || !dot || !label) return;
+    var W = IV_TERM_LAYOUT.W;
+    function fmtExp(epochSec){
+      if (!epochSec) return '';
+      var d = new Date(epochSec * 1000);
+      return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
+    }
+    function pointerViewX(clientX){
+      var rect = svg.getBoundingClientRect();
+      if (!rect.width) return 0;
+      return (clientX - rect.left) / rect.width * W;
+    }
+    function nearest(vx){
+      var best = points[0], bestD = Math.abs(points[0].x - vx);
+      for (var i=1; i<points.length; i++){
+        var d = Math.abs(points[i].x - vx);
+        if (d < bestD){ best = points[i]; bestD = d; }
+      }
+      return best;
+    }
+    function show(clientX){
+      var p = nearest(pointerViewX(clientX));
+      hover.style.display = '';
+      var xs = p.x.toFixed(1), ys = p.y.toFixed(1);
+      line.setAttribute('x1', xs); line.setAttribute('x2', xs);
+      dot.setAttribute('cx', xs); dot.setAttribute('cy', ys);
+      var exp = fmtExp(p.expSec);
+      var txt = (exp ? exp + ' · ' : '') + p.dte + 'd · ' + (p.iv * 100).toFixed(1) + '%';
+      // Flip the label to the left of the dot once we cross the right
+      // ~40% of the chart, so longer text doesn't run off the edge.
+      var anchorRight = p.x > W * 0.6;
+      label.setAttribute('text-anchor', anchorRight ? 'end' : 'start');
+      label.setAttribute('x', (anchorRight ? p.x - 6 : p.x + 6).toFixed(1));
+      label.setAttribute('y', Math.max(12, p.y - 6).toFixed(1));
+      label.textContent = txt;
+    }
+    function hide(){ hover.style.display = 'none'; }
+    svg.addEventListener('mousemove', function(e){ show(e.clientX); });
+    svg.addEventListener('mouseleave', hide);
+    svg.addEventListener('touchstart', function(e){
+      if (e.touches && e.touches[0]) show(e.touches[0].clientX);
+    }, { passive: true });
+    svg.addEventListener('touchmove', function(e){
+      if (e.touches && e.touches[0]) show(e.touches[0].clientX);
+    }, { passive: true });
+    svg.addEventListener('touchend', hide);
   }
   function computeIvRank(history, today){
     if (!history || !history.length) return null;
@@ -1709,6 +1783,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     section.hidden = false;
     var points = computeTermStructure();
     termBox.innerHTML = termStructureSvg(points);
+    attachIvHover(termBox, points);
     var todayIv = points.length ? atmIvForExpiration(
       state.chains[points.reduce(function(best, p){
         return Math.abs(p.dte - 30) < Math.abs(best.dte - 30) ? p : best;
