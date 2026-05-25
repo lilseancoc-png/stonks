@@ -1751,14 +1751,14 @@
     // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
     // single 1px-wide bar to the right size + position. We measure
     // here from layout so it survives font swaps + viewport resizes.
+    // offsetLeft is relative to the strip's content origin, and the
+    // ::before pseudo lives inside that same scrollable box — so it
+    // scrolls with the content automatically. Subtracting scrollLeft
+    // would double-count the scroll and make the bar drift sideways.
     function positionIndicator(activeBtn){
       if (!tabsStrip || !activeBtn) return;
-      var rectBtn = activeBtn.getBoundingClientRect();
-      var rectStrip = tabsStrip.getBoundingClientRect();
-      var x = (activeBtn.offsetLeft - tabsStrip.scrollLeft);
-      var w = rectBtn.width;
-      tabsStrip.style.setProperty('--ind-x', x + 'px');
-      tabsStrip.style.setProperty('--ind-w', String(w));
+      tabsStrip.style.setProperty('--ind-x', activeBtn.offsetLeft + 'px');
+      tabsStrip.style.setProperty('--ind-w', String(activeBtn.offsetWidth));
     }
     function syncTabToUrl(name){
       // Mirror the active tab into ?tab= so bookmarks / back-forward / shares
@@ -1814,12 +1814,9 @@
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
     });
     // Recompute indicator on resize + font-load so it doesn't drift.
-    if (tabsStrip) {
-      tabsStrip.addEventListener('scroll', function(){
-        var active = tabsStrip.querySelector('.page-tab[aria-selected="true"]');
-        if (active) positionIndicator(active);
-      }, { passive: true });
-    }
+    // No scroll listener — the ::before pseudo is inside the scrolling
+    // container and tracks the content automatically; recomputing on
+    // scroll fights the in-flight CSS transition and visibly glitches.
     window.addEventListener('resize', function(){
       var active = document.querySelector('.page-tab[aria-selected="true"]');
       if (active) positionIndicator(active);
