@@ -21,6 +21,15 @@ for (const row of streaksFile.tickers || []) {
   if (row && row.symbol) streaksMap[row.symbol] = row;
 }
 
+// The unusual-flow scanner writes data/unusual.json hourly. Picks use it
+// for the "unusual flow" signal — but the file is optional, so a missing
+// or stale read just skips that one driver.
+let unusualPayload = null;
+try {
+  const raw = await readFile(resolve(DATA_DIR, "unusual.json"), "utf8");
+  unusualPayload = JSON.parse(raw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 const symbols = files
   .filter((f) => /^[A-Z]+\.json$/.test(f))
@@ -36,7 +45,7 @@ for (const sym of symbols) {
   } catch {}
 }
 
-const picks = buildTopPicks(chains, narratives, streaksMap);
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload);
 const out = {
   builtAtIso: new Date().toISOString(),
   minConviction: 3,

@@ -4954,7 +4954,35 @@ function earningsInsideWindow(earningsIso, expSec) {
   return earningsSec >= nowSec && earningsSec <= expSec;
 }
 
-function scoreTicker(sym, data, narratives, streakRow) {
+// Map a ticker -> aggregated unusual-flow direction from the latest hourly
+// scan. Returns { netCalls, netPuts, premium, sample } for tickers present
+// in the scan, or null otherwise. "net" counts contracts where the tape is
+// "abv" (lifted offer = aggressive buy) on the directional side, minus
+// "blw" prints (sold into bid = aggressive sell) on the same side.
+function summarizeUnusualForSym(sym, unusualPayload) {
+  if (!unusualPayload || !Array.isArray(unusualPayload.tickers)) return null;
+  const row = unusualPayload.tickers.find((t) => t?.symbol === sym);
+  if (!row || !Array.isArray(row.contracts) || !row.contracts.length) return null;
+  let bullPrem = 0, bearPrem = 0;
+  let bullCt = 0, bearCt = 0;
+  let topSample = null;
+  let topMag = 0;
+  for (const c of row.contracts) {
+    const side = c.side;
+    const prem = Number(c.premium) || 0;
+    const tape = c.tape; // 'abv' (aggressive buy) | 'blw' (aggressive sell)
+    // Aggressive call buys + aggressive put sells = bullish flow.
+    // Aggressive put buys + aggressive call sells = bearish flow.
+    const isBull = (side === "call" && tape === "abv") || (side === "put" && tape === "blw");
+    const isBear = (side === "put" && tape === "abv") || (side === "call" && tape === "blw");
+    if (isBull) { bullPrem += prem; bullCt += 1; }
+    else if (isBear) { bearPrem += prem; bearCt += 1; }
+    if (prem > topMag) { topMag = prem; topSample = c; }
+  }
+  return { bullPrem, bearPrem, bullCt, bearCt, topSample };
+}
+
+function scoreTicker(sym, data, narratives, streakRow, unusualPayload) {
   // Each signal contributes a signed integer to `score`. Positive = bullish
   // (suggests calls), negative = bearish (suggests puts). Drivers carries
   // a human-readable bullet per signal so the thesis can list them in order
@@ -5009,6 +5037,104 @@ function scoreTicker(sym, data, narratives, streakRow) {
     }
   }
 
+  // --- Volume conviction (rvol × today's price move) --------------------
+  // The single most important confirmation signal — directional moves on
+  // ≥1.5x average volume tend to follow through; the same move on dry
+  // volume is noise. Volume drying up alongside a price move suggests
+  // exhaustion in the opposite direction.
+  const vol = data?.technicals?.volume;
+  if (vol && vol.rvol != null && isFinite(vol.rvol) && vol.priceMove1dPct != null) {
+    const rvol = Number(vol.rvol);
+    const mv = Number(vol.priceMove1dPct);
+    if (rvol >= 1.5 && Math.abs(mv) >= 1.0) {
+      const w = mv > 0 ? 2 : -2;
+      score += w;
+      drivers.push({
+        tag: "volume",
+        weight: w,
+        text: `${mv > 0 ? "up" : "down"} ${Math.abs(mv).toFixed(1)}% on ${rvol.toFixed(1)}x volume`,
+      });
+    } else if (rvol >= 1.2 && Math.abs(mv) >= 0.5) {
+      const w = mv > 0 ? 1 : -1;
+      score += w;
+      drivers.push({
+        tag: "volume",
+        weight: w,
+        text: `${mv > 0 ? "+" : ""}${mv.toFixed(1)}% on ${rvol.toFixed(1)}x volume`,
+      });
+    } else if (rvol < 0.6 && Math.abs(mv) >= 0.8) {
+      // Move on dry volume → fading the move (light penalty against the
+      // direction). E.g., a +1% pop on 0.4x volume is unconvincing.
+      const w = mv > 0 ? -1 : 1;
+      score += w;
+      drivers.push({
+        tag: "volume",
+        weight: w,
+        text: `${mv > 0 ? "+" : ""}${mv.toFixed(1)}% on light ${rvol.toFixed(1)}x volume (unconfirmed)`,
+      });
+    }
+  }
+
+  // --- Support / resistance proximity -----------------------------------
+  // Spot bouncing off 20-day support is a high-probability long setup;
+  // running into 20-day resistance is a high-probability fade. Use a 3%
+  // proximity band so the signal triggers when price is "at" the level
+  // rather than requiring an exact touch.
+  const spot = data?.spot;
+  const sr = data?.technicals?.sr;
+  if (spot > 0 && sr) {
+    const s20 = Number(sr.s20);
+    const r20 = Number(sr.r20);
+    if (isFinite(r20) && r20 > 0) {
+      const distR = (r20 - spot) / spot;
+      if (distR >= -0.02 && distR <= 0.03) {
+        // At-or-just-below 20d resistance — fade risk
+        score -= 1;
+        drivers.push({ tag: "sr", weight: -1, text: `at 20d resistance ($${r20.toFixed(2)})` });
+      } else if (distR < -0.02 && distR >= -0.06) {
+        // Just broke above resistance — breakout follow-through bias
+        score += 1;
+        drivers.push({ tag: "sr", weight: 1, text: `broke 20d resistance ($${r20.toFixed(2)})` });
+      }
+    }
+    if (isFinite(s20) && s20 > 0) {
+      const distS = (spot - s20) / spot;
+      if (distS >= -0.02 && distS <= 0.03) {
+        // At-or-just-above 20d support — bounce setup
+        score += 1;
+        drivers.push({ tag: "sr", weight: 1, text: `at 20d support ($${s20.toFixed(2)})` });
+      } else if (distS < -0.02 && distS >= -0.06) {
+        // Broke below support — breakdown follow-through bias
+        score -= 1;
+        drivers.push({ tag: "sr", weight: -1, text: `broke 20d support ($${s20.toFixed(2)})` });
+      }
+    }
+  }
+
+  // --- Analyst targets ---------------------------------------------------
+  // Mean target vs spot is a slow-moving but well-anchored directional
+  // cue. Only count when there are ≥5 analysts so single-firm outliers
+  // don't swing the signal.
+  const fund = data?.fundamentals;
+  const targetMean = fund?.targetMeanPrice;
+  const nAnalysts = fund?.numberOfAnalystOpinions;
+  if (spot > 0 && targetMean > 0 && nAnalysts >= 5) {
+    const upsidePct = (targetMean - spot) / spot;
+    if (upsidePct >= 0.25) {
+      score += 2;
+      drivers.push({ tag: "analyst", weight: 2, text: `${nAnalysts} analyst target +${(upsidePct * 100).toFixed(0)}% upside` });
+    } else if (upsidePct >= 0.10) {
+      score += 1;
+      drivers.push({ tag: "analyst", weight: 1, text: `${nAnalysts} analyst target +${(upsidePct * 100).toFixed(0)}% upside` });
+    } else if (upsidePct <= -0.20) {
+      score -= 2;
+      drivers.push({ tag: "analyst", weight: -2, text: `${nAnalysts} analyst target ${(upsidePct * 100).toFixed(0)}% downside` });
+    } else if (upsidePct <= -0.10) {
+      score -= 1;
+      drivers.push({ tag: "analyst", weight: -1, text: `${nAnalysts} analyst target ${(upsidePct * 100).toFixed(0)}% downside` });
+    }
+  }
+
   // --- Streak ------------------------------------------------------------
   if (streakRow?.current) {
     const c = streakRow.current;
@@ -5056,6 +5182,70 @@ function scoreTicker(sym, data, narratives, streakRow) {
     });
   }
 
+  // --- Unusual options flow ---------------------------------------------
+  // Big directional premium printing in the chain is information the
+  // narratives/news pipeline doesn't capture in real time. Weight by net
+  // premium so a $20M call sweep beats a $200k put scrape.
+  const flow = summarizeUnusualForSym(sym, unusualPayload);
+  if (flow) {
+    const netPrem = flow.bullPrem - flow.bearPrem;
+    const absPrem = Math.abs(netPrem);
+    if (absPrem >= 5_000_000) {
+      const w = netPrem > 0 ? 2 : -2;
+      score += w;
+      drivers.push({
+        tag: "flow",
+        weight: w,
+        text: `unusual ${netPrem > 0 ? "bullish" : "bearish"} flow ($${(absPrem / 1e6).toFixed(1)}M net)`,
+      });
+    } else if (absPrem >= 1_000_000) {
+      const w = netPrem > 0 ? 1 : -1;
+      score += w;
+      drivers.push({
+        tag: "flow",
+        weight: w,
+        text: `unusual ${netPrem > 0 ? "bullish" : "bearish"} flow ($${(absPrem / 1e6).toFixed(1)}M net)`,
+      });
+    }
+  }
+
+  // --- Social sentiment (Stocktwits) -------------------------------------
+  // Crowd sentiment is noisy but extreme tilts are useful as a
+  // contrarian *and* confirmation signal depending on context. Keep
+  // small (±1), and require non-trivial message volume so a single
+  // bullish post doesn't swing the score.
+  const soc = data?.social;
+  if (soc && soc.msgCount24h >= 5) {
+    const net = (Number(soc.bullishPct) || 0) - (Number(soc.bearishPct) || 0);
+    if (net >= 35) {
+      score += 1;
+      drivers.push({ tag: "social", weight: 1, text: `social ${net.toFixed(0)}% net bullish` });
+    } else if (net <= -35) {
+      score -= 1;
+      drivers.push({ tag: "social", weight: -1, text: `social ${Math.abs(net).toFixed(0)}% net bearish` });
+    }
+  }
+
+  // --- Short squeeze potential ------------------------------------------
+  // High short interest combined with an existing uptrend (green streak
+  // or bullish score so far) raises squeeze odds. The reverse — high
+  // short interest + downtrend — is just "shorts winning" and not a
+  // separate signal, so we only add the asymmetric long side here.
+  // Yahoo returns shortPercentOfFloat already in percent units (e.g.,
+  // 4.26 = 4.26%), so thresholds here are in percent — not fraction.
+  const shortPct = fund?.shortPercentOfFloat;
+  if (shortPct != null && shortPct >= 15 && score > 0) {
+    const greenStreak = streakRow?.current?.color === "green" && streakRow.current.days >= 2;
+    if (shortPct >= 25 || greenStreak) {
+      score += 1;
+      drivers.push({
+        tag: "squeeze",
+        weight: 1,
+        text: `${shortPct.toFixed(0)}% of float short — squeeze risk`,
+      });
+    }
+  }
+
   // --- Directional alignment penalty -------------------------------------
   // If positive and negative drivers both contribute material weight,
   // signals are mixed and the absolute score overstates conviction.
@@ -5063,7 +5253,12 @@ function scoreTicker(sym, data, narratives, streakRow) {
   // genuinely-aligned picks rank above conflicted ones.
   const posWeight = drivers.filter((d) => d.weight > 0).reduce((s, d) => s + d.weight, 0);
   const negWeight = drivers.filter((d) => d.weight < 0).reduce((s, d) => s + Math.abs(d.weight), 0);
-  if (posWeight >= 2 && negWeight >= 2) {
+  // Heavier penalty when both sides are very material (≥4 each).
+  if (posWeight >= 4 && negWeight >= 4) {
+    const sign = score >= 0 ? -2 : 2;
+    score += sign;
+    drivers.push({ tag: "alignment", weight: sign, text: "heavily mixed signals" });
+  } else if (posWeight >= 2 && negWeight >= 2) {
     const sign = score >= 0 ? -1 : 1;
     score += sign;
     drivers.push({ tag: "alignment", weight: sign, text: "mixed signals (alignment penalty)" });
@@ -5191,8 +5386,11 @@ function pickContractForPick(side, data) {
   if (!candidates.length) return null;
 
   // Composite quality score — lower is better.
-  // Weighted: delta-distance (0.40), DTE-fit (0.20), spread (0.15),
-  // liquidity (0.10), risk/reward (0.15). Each subterm in [0, 1].
+  // Weighted: delta-distance (0.34), DTE-fit (0.18), spread (0.13),
+  // OI depth (0.07), daily volume (0.08), risk/reward (0.20). Each
+  // subterm in [0, 1]. Volume is split out from OI on purpose: OI is
+  // resting depth, daily volume is freshness — a contract that traded
+  // today is a much better fill than the same OI sitting stale.
   function dteFitPenalty(dte) {
     if (dte >= PICKS_IDEAL_DTE_LO && dte <= PICKS_IDEAL_DTE_HI) return 0;
     if (dte < PICKS_IDEAL_DTE_LO) {
@@ -5200,12 +5398,20 @@ function pickContractForPick(side, data) {
     }
     return (dte - PICKS_IDEAL_DTE_HI) / (PICKS_MAX_DTE - PICKS_IDEAL_DTE_HI);
   }
-  function liquidityPenalty(oi) {
+  function oiPenalty(oi) {
     if (oi >= 1000) return 0;
     if (oi >= 500) return 0.10;
     if (oi >= 200) return 0.25;
     if (oi >= 100) return 0.50;
     return 0.75;
+  }
+  function volumePenalty(v) {
+    if (!isFinite(v) || v == null) return 0.85;
+    if (v >= 500) return 0;
+    if (v >= 200) return 0.10;
+    if (v >= 50) return 0.30;
+    if (v >= 10) return 0.55;
+    return 0.85;
   }
   function rrPenalty(reqMovePct, expMovePct) {
     if (expMovePct == null || expMovePct <= 0) return 0.50;
@@ -5223,14 +5429,16 @@ function pickContractForPick(side, data) {
     const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.20);
     const dtePen = Math.min(1, dteFitPenalty(c.dte));
     const spreadPen = Math.min(1, c.spreadPct / PICKS_MAX_SPREAD_PCT);
-    const liqPen = Math.min(1, liquidityPenalty(c.oi));
+    const oiPen = Math.min(1, oiPenalty(c.oi));
+    const volPen = Math.min(1, volumePenalty(c.row.v || 0));
     const rrPen = rrPenalty(c.reqMovePct, c.expMovePct);
     let composite =
-      deltaPen * 0.40 +
-      dtePen * 0.20 +
-      spreadPen * 0.15 +
-      liqPen * 0.10 +
-      rrPen * 0.15;
+      deltaPen * 0.34 +
+      dtePen * 0.18 +
+      spreadPen * 0.13 +
+      oiPen * 0.07 +
+      volPen * 0.08 +
+      rrPen * 0.20;
     // If earnings fall inside the contract window, nudge against —
     // not a reject (earnings can be a catalyst) but a tie-break in
     // favor of a clean expiry when one exists.
@@ -5288,7 +5496,7 @@ function pickContractForPick(side, data) {
   };
 }
 
-export function buildTopPicks(chains, narratives, streaksMap = null) {
+export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
   const ranked = [];
   for (const [sym, data] of Object.entries(chains)) {
     // Prefer the precomputed streak map when available (offline regen
@@ -5297,7 +5505,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null) {
     const streakRow = streaksMap && streaksMap[sym]
       ? streaksMap[sym]
       : computeStreakForTicker(sym, data._bars);
-    const { score, drivers } = scoreTicker(sym, data, narratives, streakRow);
+    const { score, drivers } = scoreTicker(sym, data, narratives, streakRow, unusualPayload);
     if (Math.abs(score) < PICKS_MIN_CONVICTION) continue;
     ranked.push({ sym, data, score, drivers, streakRow });
   }
@@ -5353,8 +5561,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null) {
   return out;
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso) {
-  const picks = buildTopPicks(chains, narratives);
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null) {
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
   // Preserve last-good picks when this run produces zero. The 9 ET cron
   // fires before the bell, so Yahoo returns bid=0 / ask=0 for nearly every
@@ -8073,7 +8281,7 @@ async function main() {
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Persist AI usage now (rather than at the very end) so a hang/timeout in
   // the slow EDGAR fetch below can't leave data/ai-usage.json missing —
