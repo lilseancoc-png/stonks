@@ -181,6 +181,35 @@ function unusualFlowSection() {
   </section>`;
 }
 
+function volumeFlagsSection() {
+  // Card shell only — the per-ticker rows render client-side from
+  // MANIFEST.volumeFlags (populated by scripts/scan-unusual.mjs's volume
+  // pass). See lib/volume-flags.mjs for the flag classification rules.
+  return `<section class="card vol-card" id="vol-section">
+    <header class="card-header">
+      <h2 class="card-title">Volume &amp; S/R breaks</h2>
+      <span class="card-eyebrow" id="vol-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Hourly volume vs the U-shaped 25/14/11/11/14/25% intraday distribution: tickers trading at <strong>≥1.2×</strong> their expected hour-bucket volume are flagged. At/after 16:00 ET, full-day volume <strong>≥1.3×</strong> the 20D average flags as EOD. When spot crosses the 20D support or resistance line, the break is confirmed against the same hour's vol ratio — Strong Alert (≥1.3×), Watch (0.8–1.3×), or Likely Fakeout (&lt;0.8×).</p>
+    <div class="vol-controls" role="toolbar" aria-label="Filter volume flags">
+      <label class="vol-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="vol-search-input" placeholder="Search ticker (e.g. NVDA, TSLA)" autocomplete="off" spellcheck="false" />
+        <button type="button" id="vol-search-clear" class="vol-search-clear" aria-label="Clear search" hidden>&times;</button>
+      </label>
+      <div class="vol-filter" role="radiogroup" aria-label="Filter by flag type">
+        <button type="button" class="vol-pill is-on" data-vol-filter="all" role="radio" aria-checked="true">All</button>
+        <button type="button" class="vol-pill" data-vol-filter="hourly" role="radio" aria-checked="false">Hourly</button>
+        <button type="button" class="vol-pill" data-vol-filter="sr" role="radio" aria-checked="false">S/R breaks</button>
+        <button type="button" class="vol-pill" data-vol-filter="eod" role="radio" aria-checked="false">EOD</button>
+      </div>
+    </div>
+    <div id="vol-list" class="vol-list" role="list"></div>
+    <div id="vol-empty" class="vol-empty" hidden>No volume or S/R-break flags in the latest scan.</div>
+    <div id="vol-no-results" class="vol-empty" hidden>No tickers match these filters.</div>
+  </section>`;
+}
+
 function optionEvalSection() {
   // The ticker combobox + segmented call/put control + chain selects all
   // bind live in app.js — picking a ticker auto-loads its chain and any
@@ -398,7 +427,7 @@ function optionEvalSection() {
   </section>`;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -436,6 +465,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     spots,
     fearGreed: fearGreed || null,
     macro: macro || null,
+    volumeFlags: volumeFlags || null,
   }).replace(/<\/script>/gi, "<\\/script>");
   // Browser Supabase config — anon key is safe to ship publicly (RLS does
   // the actual access control). Service-role key stays server-side only.
@@ -504,6 +534,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
@@ -657,6 +688,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
   ${unusualFlowSection()}
+  </div>
+  <div class="page-pane" id="page-pane-volume" role="tabpanel" aria-labelledby="page-tab-volume" hidden>
+  ${volumeFlagsSection()}
   </div>
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
