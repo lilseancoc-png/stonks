@@ -3371,7 +3371,7 @@ main {
 .opt-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--s-4) var(--s-5);
+  gap: var(--s-3);
   margin: var(--s-3) 0;
   align-items: start;
 }
@@ -3379,15 +3379,23 @@ main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  padding: 10px 12px 4px;
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  transition: border-color .15s var(--ease-out);
+}
+.opt-section:hover {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--hairline));
 }
 .opt-section-title {
   margin: 0 0 4px;
-  padding: 0 0 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  padding: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text);
   border-bottom: 1px solid var(--hairline);
 }
 .opt-section-rows {
@@ -3397,26 +3405,32 @@ main {
 .opt-row {
   display: flex; justify-content: space-between; align-items: baseline;
   gap: var(--s-3);
-  padding: 9px 2px;
-  border-bottom: 1px solid var(--hairline);
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 60%, transparent);
   border-radius: 0;
   font-size: var(--fs-md);
   transition: background .12s var(--ease-out);
 }
-.opt-row:hover { background: color-mix(in srgb, var(--accent) 3%, transparent); }
+.opt-row:hover {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  margin: 0 -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-radius: var(--r-1);
+}
 .opt-section-rows .opt-row:last-child { border-bottom: none; }
 .opt-row:last-child { border-bottom: none; }
 .opt-row-label {
   color: var(--muted);
-  font-size: var(--fs-xs);
-  text-transform: uppercase; letter-spacing: 0.10em;
-  font-weight: 500;
+  font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600;
   flex: 0 1 auto;
   min-width: 0;
 }
 .opt-row-value {
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-strong);
   text-align: right;
   display: inline-flex;
@@ -3424,6 +3438,7 @@ main {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 4px;
+  font-size: 14px;
 }
 .opt-row-sub { font-weight: 400; margin-left: 6px; color: var(--muted); font-size: var(--fs-sm); }
 .opt-grade {
@@ -3480,19 +3495,34 @@ main {
   border-radius: 1px;
 }
 .opt-rec-title {
-  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.12em;
-  color: var(--muted); margin-bottom: var(--s-3); font-weight: 600;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--text); margin-bottom: var(--s-3); font-weight: 700;
 }
 .opt-rec-block {
-  margin-bottom: var(--s-2);
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--hairline) 80%, transparent);
   display: grid; grid-template-columns: 110px 1fr;
   gap: var(--s-3);
-  align-items: baseline;
+  align-items: start;
+}
+.opt-rec-block:last-of-type {
+  border-bottom: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 .opt-rec-label {
-  font-size: var(--fs-xs);
+  font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.10em;
-  color: var(--muted); font-weight: 500;
+  color: var(--muted); font-weight: 700;
+  align-self: flex-start;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  display: inline-block;
+  width: fit-content;
+  letter-spacing: 0.08em;
 }
 .opt-rec-body { color: var(--text); }
 .opt-rec-muted { color: var(--muted); font-style: italic; }
@@ -4923,7 +4953,7 @@ main { padding-top: var(--s-2); }
 }
 .pick-card {
   display: grid;
-  grid-template-columns: 44px 1fr 64px;
+  grid-template-columns: 56px 1fr 80px;
   gap: var(--s-3);
   padding: var(--s-3);
   border: 1px solid var(--border);
@@ -4938,13 +4968,39 @@ main { padding-top: var(--s-2); }
 .pick-card:hover {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
+/* The #1 leader card carries an extra hint of side-color glow so the
+   top pick is unmistakable at a glance. */
+.pick-card.pick-card-leader {
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+}
+.pick-card-leader.call { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pos) 18%, transparent); }
+.pick-card-leader.put  { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neg) 18%, transparent); }
+
 .pick-rank {
-  font: 700 18px/1 var(--font-mono);
-  color: var(--muted);
-  letter-spacing: -.02em;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 1px;
   align-self: center;
   text-align: center;
+  color: var(--muted);
+  letter-spacing: -.02em;
 }
+.pick-rank-hash {
+  font: 600 13px/1 var(--font-mono);
+  opacity: .55;
+}
+.pick-rank-num {
+  font: 700 26px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.pick-card.call .pick-rank { color: color-mix(in srgb, var(--pos) 70%, var(--muted)); }
+.pick-card.put  .pick-rank { color: color-mix(in srgb, var(--neg) 70%, var(--muted)); }
+.pick-card.call .pick-rank-top1 { color: var(--pos); }
+.pick-card.put  .pick-rank-top1 { color: var(--neg); }
+.pick-rank-top1 .pick-rank-num { font-size: 30px; }
+.pick-rank-top2 .pick-rank-num,
+.pick-rank-top3 .pick-rank-num { font-size: 28px; }
 .pick-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pick-head {
   display: flex;
@@ -5106,16 +5162,80 @@ main { padding-top: var(--s-2); }
   font-variant-numeric: tabular-nums;
   letter-spacing: -.01em;
 }
-.pick-contract-quote,
-.pick-contract-greeks,
-.pick-contract-be,
 .pick-contract-meta {
-  font: 500 12px/1.4 var(--font-mono);
+  font: 500 11px/1.4 var(--font-mono);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stat grid — replaces the dense mono lines (quote, greeks, breakeven) with
+   a labeled three-cell layout so the user can find the price, the breakeven,
+   and the greek summary at a glance. Each stat is a small card with a
+   muted uppercase label, a tabular numeric primary value, and a muted
+   sub-line of context (bid/ask, % to breakeven, etc.). */
+.pick-stat-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+.pick-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  border: 1px solid var(--hairline);
+  min-width: 0;
+}
+.pick-stat-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.pick-stat-value {
+  font: 700 15px/1.1 var(--font-mono);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-stat-sub {
+  font: 500 10px/1.2 var(--font-mono);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-stat-greeks .pick-stat-greek-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: 500 11px/1.2 var(--font-mono);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.pick-contract-be { color: var(--muted-strong); }
-.pick-contract-meta { color: var(--muted); font-size: 11px; }
+.pick-stat-greeks .pick-stat-greek-row > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.pick-stat-greeks .pick-stat-greek-row b {
+  color: var(--muted);
+  font-weight: 600;
+  width: 1.1em;
+  display: inline-block;
+}
+@media (max-width: 640px) {
+  .pick-stat-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .pick-stat-greeks { grid-column: 1 / -1; }
+  .pick-stat-greeks .pick-stat-greek-row { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+}
 .pick-contract-grade {
   align-self: flex-start;
   margin-top: 4px;
@@ -5220,10 +5340,10 @@ main { padding-top: var(--s-2); }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 0;
+  gap: 6px;
+  padding: 6px 4px;
   border-left: 1px solid var(--border);
-  min-width: 50px;
+  min-width: 60px;
 }
 .pick-conv-label {
   font: 600 9px/1 var(--font-mono);
@@ -5232,41 +5352,99 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
 }
 .pick-conv-value {
-  font: 700 18px/1 var(--font-mono);
-  color: var(--text);
+  font: 700 24px/1 var(--font-mono);
+  color: var(--text-strong);
   font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+}
+.pick-conv-max {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--muted);
+  margin-left: 1px;
 }
 .pick-conv-bar {
-  width: 5px;
-  height: 36px;
-  background: var(--surface);
+  width: 36px;
+  height: 6px;
+  background: color-mix(in srgb, var(--text) 8%, var(--surface));
   border-radius: var(--r-pill);
   overflow: hidden;
   position: relative;
-  display: flex;
-  align-items: flex-end;
 }
 .pick-conv-fill {
   display: block;
-  width: 100%;
-  height: var(--pick-conv-pct, 50%);
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  width: var(--pick-conv-pct, 50%);
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
   border-radius: var(--r-pill);
   transition: height .3s var(--ease-out), width .3s var(--ease-out);
 }
-.pick-card.call .pick-conv-fill { background: color-mix(in srgb, var(--pos) 60%, transparent); }
-.pick-card.put .pick-conv-fill { background: color-mix(in srgb, var(--neg) 60%, transparent); }
+.pick-card.call .pick-conv-fill { background: color-mix(in srgb, var(--pos) 75%, transparent); }
+.pick-card.put .pick-conv-fill { background: color-mix(in srgb, var(--neg) 75%, transparent); }
+.pick-card.call .pick-conv-value { color: color-mix(in srgb, var(--pos) 65%, var(--text-strong)); }
+.pick-card.put  .pick-conv-value { color: color-mix(in srgb, var(--neg) 65%, var(--text-strong)); }
+
+/* Summary strip — small chip row above the cards that shows the shape of
+   today's picks (counts of call/put, average conviction, any earnings-window
+   contracts) so the user can read the list's character before scrolling. */
+.picks-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.picks-summary-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.picks-summary-num {
+  font: 700 16px/1 var(--font-mono);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.picks-summary-lbl {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.picks-summary-call {
+  border-color: color-mix(in srgb, var(--pos) 30%, var(--border));
+  background: color-mix(in srgb, var(--pos) 5%, var(--surface));
+}
+.picks-summary-call .picks-summary-num { color: var(--pos); }
+.picks-summary-call .picks-summary-lbl { color: var(--pos); opacity: .8; }
+.picks-summary-put {
+  border-color: color-mix(in srgb, var(--neg) 30%, var(--border));
+  background: color-mix(in srgb, var(--neg) 5%, var(--surface));
+}
+.picks-summary-put .picks-summary-num { color: var(--neg); }
+.picks-summary-put .picks-summary-lbl { color: var(--neg); opacity: .8; }
+.picks-summary-warn {
+  border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
+  background: color-mix(in srgb, var(--warn) 6%, var(--surface));
+}
+.picks-summary-warn .picks-summary-num { color: var(--warn); }
+.picks-summary-warn .picks-summary-lbl { color: var(--warn); opacity: .85; }
 
 /* Mobile: drop the right-side conviction column down to a row beneath
    the thesis. Bar flips horizontal — the same --pick-conv-pct custom
    property now drives width rather than height. */
 @media (max-width: 640px) {
   .pick-card {
-    grid-template-columns: 34px 1fr;
+    grid-template-columns: 44px 1fr;
     gap: var(--s-2);
     padding: 10px;
   }
-  .pick-rank { font-size: 14px; }
+  .pick-rank-num { font-size: 22px; }
+  .pick-rank-top1 .pick-rank-num { font-size: 24px; }
+  .pick-rank-top2 .pick-rank-num,
+  .pick-rank-top3 .pick-rank-num { font-size: 22px; }
   .pick-conviction {
     grid-column: 1 / -1;
     flex-direction: row;
@@ -5281,8 +5459,7 @@ main { padding-top: var(--s-2); }
   .pick-conv-bar {
     flex: 1;
     width: auto;
-    height: 5px;
-    align-items: stretch;
+    height: 6px;
   }
   .pick-conv-fill {
     width: var(--pick-conv-pct, 50%);
@@ -5391,6 +5568,50 @@ main { padding-top: var(--s-2); }
 
 /* === Streaks tab === */
 .streaks-root { margin-top: var(--s-3); }
+
+/* Summary chip strip — sits above the two-column card layout so the user
+   gets a sense of the day's shape (how many tickers are on a run, longest
+   active runs on each side, average cumulative move) before scrolling. */
+.streaks-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: var(--s-3);
+}
+.streaks-summary-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.streaks-summary-num {
+  font: 700 16px/1 var(--font-mono);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.streaks-summary-lbl {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.streaks-summary-bull {
+  border-color: color-mix(in srgb, var(--pos) 30%, var(--border));
+  background: color-mix(in srgb, var(--pos) 5%, var(--surface));
+}
+.streaks-summary-bull .streaks-summary-num { color: var(--pos); }
+.streaks-summary-bull .streaks-summary-lbl { color: var(--pos); opacity: .85; }
+.streaks-summary-bear {
+  border-color: color-mix(in srgb, var(--neg) 30%, var(--border));
+  background: color-mix(in srgb, var(--neg) 5%, var(--surface));
+}
+.streaks-summary-bear .streaks-summary-num { color: var(--neg); }
+.streaks-summary-bear .streaks-summary-lbl { color: var(--neg); opacity: .85; }
+.streaks-summary-best .streaks-summary-num { font-size: 18px; }
+
 .streaks-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -5410,16 +5631,28 @@ main { padding-top: var(--s-2); }
 .streaks-col-bear { color: var(--neg); }
 .streaks-row {
   border: 1px solid var(--border);
+  border-left-width: 3px;
   border-radius: var(--r-3, 10px);
   padding: var(--s-3);
   margin-bottom: var(--s-2);
   background: var(--surface);
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
 }
+.streaks-row-is-green { border-left-color: color-mix(in srgb, var(--pos) 55%, var(--border)); }
+.streaks-row-is-red   { border-left-color: color-mix(in srgb, var(--neg) 55%, var(--border)); }
+.streaks-row:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 2.5%, var(--surface));
+  transform: translateX(2px);
+}
+.streaks-row-is-green:hover { border-left-color: var(--pos); }
+.streaks-row-is-red:hover   { border-left-color: var(--neg); }
+
 .streaks-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s-2);
-  margin-bottom: var(--s-1);
+  margin-bottom: 8px;
 }
 .streaks-dot {
   display: inline-block;
@@ -5438,76 +5671,142 @@ main { padding-top: var(--s-2); }
   background: var(--neg);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--neg) 22%, transparent);
 }
-.streaks-dot.is-flat {
-  background: var(--muted);
-}
-.streaks-row {
-  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
-}
-.streaks-row:hover {
-  border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--accent) 2.5%, var(--surface));
-  transform: translateX(2px);
-}
-.streaks-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin: 6px 0 8px;
-}
-.streaks-bar {
-  display: block;
-  height: 3px;
-  border-radius: var(--r-pill);
-  background: var(--hairline);
-  overflow: hidden;
-  position: relative;
-}
-.streaks-bar::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--w, 0);
-  background: var(--c, var(--accent));
-  border-radius: inherit;
-  transition: width .4s var(--ease-out);
-}
-.streaks-bar-len::after {
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--accent) 40%, transparent),
-    var(--accent));
-}
+.streaks-dot.is-flat { background: var(--muted); }
+
 .streaks-sym {
   font-weight: 700;
-  font-size: 15px;
+  font-size: 16px;
   color: var(--text-strong);
+  letter-spacing: .01em;
 }
 .streaks-sector {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.streaks-days {
-  margin-left: auto;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+/* Stat blocks — the cumulative move and streak-day count are the headline
+   numbers for each card; promote them with a labeled mini-stat layout
+   pinned to the right of the head row. */
+.streaks-stat-block {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  line-height: 1;
+}
+.streaks-stat-block:nth-of-type(1) { margin-left: auto; }
+.streaks-stat-num {
+  font: 700 16px/1 var(--font-mono);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.streaks-stat-unit {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--muted);
+  margin-left: 1px;
+}
+.streaks-stat-lbl {
+  font: 600 8px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
   color: var(--muted);
 }
-.streaks-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-3);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: var(--s-2);
-}
-.streaks-cum { font-weight: 600; }
 .streaks-pos { color: var(--pos); }
 .streaks-neg { color: var(--neg); }
-.streaks-moves { color: var(--text); }
-.streaks-actions { display: flex; }
+
+/* Sparkline — vertical bars, one per day of the streak. Each bar's height
+   is proportional to that day's absolute move (scaled to the largest day
+   in the run), and color reflects direction. Replaces the dense comma
+   list with a single glance read of length + consistency + acceleration. */
+.streaks-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 32px;
+  padding: 2px 0;
+  margin-bottom: 8px;
+}
+.streaks-spark-bar {
+  flex: 1 1 0;
+  min-width: 6px;
+  max-width: 22px;
+  height: var(--h, 25%);
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: .85;
+  transition: opacity .15s var(--ease-out), transform .15s var(--ease-out);
+}
+.streaks-spark-bar:hover { opacity: 1; transform: scaleY(1.05); }
+.streaks-spark-bar.is-pos {
+  background: color-mix(in srgb, var(--pos) 80%, transparent);
+}
+.streaks-spark-bar.is-neg {
+  background: color-mix(in srgb, var(--neg) 80%, transparent);
+}
+.streaks-spark-bar.is-flat {
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+  height: 6px;
+  align-self: center;
+}
+
+/* Tolerance meter — only renders when the streak has eaten into its
+   counter-day bank. Shows the bank-used pct as a tiny progress bar so
+   the reader can eyeball how close the run is to tripping the tripwire. */
+.streaks-tol-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font: 500 11px/1 var(--font-mono);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.streaks-tol-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.streaks-tol-bar {
+  flex: 1;
+  height: 4px;
+  background: color-mix(in srgb, var(--text) 8%, var(--surface));
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.streaks-tol-fill {
+  display: block;
+  height: 100%;
+  width: var(--w, 0%);
+  background: color-mix(in srgb, var(--warn) 70%, transparent);
+  border-radius: var(--r-pill);
+  transition: width .3s var(--ease-out);
+}
+.streaks-tol-val { color: var(--text); }
+.streaks-tol-counter-pill {
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--neg) 12%, transparent);
+  color: var(--neg);
+  font: 600 10px/1.4 var(--font-mono);
+}
+
+/* Footer — last price on one side, grade-jump button on the other. */
+.streaks-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.streaks-last {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.streaks-last b {
+  color: var(--text);
+  font-weight: 600;
+}
 .streaks-btn {
   font-family: inherit;
   font-size: 11px;
@@ -5520,6 +5819,16 @@ main { padding-top: var(--s-2); }
   color: var(--text);
   cursor: pointer;
   transition: border-color .12s var(--ease-out), background .12s var(--ease-out), color .12s var(--ease-out);
+}
+.streaks-row-is-green .streaks-btn:hover {
+  background: color-mix(in srgb, var(--pos) 8%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--pos) 45%, var(--border-strong));
+  color: var(--pos);
+}
+.streaks-row-is-red .streaks-btn:hover {
+  background: color-mix(in srgb, var(--neg) 8%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--neg) 45%, var(--border-strong));
+  color: var(--neg);
 }
 .streaks-btn:hover {
   background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
@@ -5544,17 +5853,6 @@ main { padding-top: var(--s-2); }
   font-size: 11px;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
-.streaks-tol {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  padding: 1px 6px;
-  border: 1px dashed var(--border);
-  border-radius: 999px;
-  margin-left: var(--s-2);
-}
-.streaks-tol-counter { color: var(--neg); }
-.streaks-tol-clean { opacity: 0.45; }
 
 .tickers-grid {
   display: grid;

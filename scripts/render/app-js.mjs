@@ -6959,37 +6959,67 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!c || c.strike == null || !c.expiryLabel) return '';
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     var dteTxt = (c.dte != null) ? ' · ' + c.dte + 'd' : '';
-    var quote = '';
-    if (c.bid != null && c.ask != null){
-      quote = '$' + Number(c.bid).toFixed(2) + ' × $' + Number(c.ask).toFixed(2);
-      if (c.mid != null) quote += ' · mid $' + Number(c.mid).toFixed(2);
-    } else if (c.mid != null){
-      quote = 'mid $' + Number(c.mid).toFixed(2);
-    } else if (c.last != null){
-      quote = 'last $' + Number(c.last).toFixed(2);
+    // Stat grid — replaces the dense mono "$8.45 × $8.60 · mid $8.52 / Δ 0.50
+    // · Θ ... / Breakeven $... (+8.5%)" trio with a 3-column labeled layout
+    // (Premium · Breakeven · Greeks). Each stat carries a primary value, a
+    // muted sub-line of context, and a hover-tip so beginners can mouse over
+    // any label and read the plain-English definition.
+    var stats = '<div class="pick-stat-grid">';
+    var premiumPrimary = '';
+    var premiumSub = '';
+    if (c.mid != null && isFinite(c.mid)) {
+      premiumPrimary = '$' + Number(c.mid).toFixed(2);
+    } else if (c.last != null && isFinite(c.last)) {
+      premiumPrimary = '$' + Number(c.last).toFixed(2);
+    } else if (c.bid != null && c.ask != null) {
+      premiumPrimary = '$' + ((Number(c.bid) + Number(c.ask)) / 2).toFixed(2);
     }
-    // Greek row — show the symbols with hover tooltips so non-traders
-    // can mouse over Δ / Θ / IV and get the plain-English meaning
-    // without us bloating the visible label. Each span carries title=
-    // (browser native), readable on hover and long-press on mobile.
-    var greeks = [];
-    if (c.delta != null && isFinite(c.delta)) {
-      greeks.push('<span title="Delta — ' + escapeHtml(TIPS.delta) + '">Δ ' + Number(c.delta).toFixed(2) + '</span>');
+    if (c.bid != null && c.ask != null) {
+      premiumSub = '$' + Number(c.bid).toFixed(2) + ' × $' + Number(c.ask).toFixed(2);
+    } else if (c.last != null && isFinite(c.last)) {
+      premiumSub = 'last $' + Number(c.last).toFixed(2);
     }
-    if (c.thetaDay != null && isFinite(c.thetaDay)) {
-      greeks.push('<span title="Theta — ' + escapeHtml(TIPS.theta) + '">Θ $' + Number(c.thetaDay).toFixed(2) + '/day</span>');
+    var dollarsContract = '';
+    if (premiumPrimary){
+      var midN = parseFloat(premiumPrimary.slice(1));
+      if (isFinite(midN)) dollarsContract = '$' + (midN * 100).toFixed(0) + ' / contract';
     }
-    if (c.iv != null && isFinite(c.iv)) {
-      greeks.push('<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '">IV ' + (Number(c.iv) * 100).toFixed(0) + '%</span>');
-    }
-    var breakeven = '';
+    stats += '<div class="pick-stat" title="Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.">' +
+      '<div class="pick-stat-label">Premium</div>' +
+      '<div class="pick-stat-value">' + escapeHtml(premiumPrimary || '—') + '</div>' +
+      '<div class="pick-stat-sub">' + escapeHtml(premiumSub || dollarsContract || '') + '</div>' +
+    '</div>';
+    var beVal = '';
+    var beSub = '';
     if (c.breakeven != null){
-      breakeven = 'Breakeven $' + Number(c.breakeven).toFixed(2);
+      beVal = '$' + Number(c.breakeven).toFixed(2);
       if (c.breakevenMovePct != null){
-        var m = Number(c.breakevenMovePct);
-        breakeven += ' (' + (m >= 0 ? '+' : '') + m.toFixed(1) + '%)';
+        var bem = Number(c.breakevenMovePct);
+        beSub = (bem >= 0 ? '+' : '') + bem.toFixed(1) + '% to BE';
       }
     }
+    stats += '<div class="pick-stat" title="Breakeven — the share price the stock must reach by expiry just to recover the premium. Anything past this is profit.">' +
+      '<div class="pick-stat-label">Breakeven</div>' +
+      '<div class="pick-stat-value">' + escapeHtml(beVal || '—') + '</div>' +
+      '<div class="pick-stat-sub">' + escapeHtml(beSub || '') + '</div>' +
+    '</div>';
+    var deltaCell = '';
+    if (c.delta != null && isFinite(c.delta)){
+      deltaCell = '<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + Number(c.delta).toFixed(2) + '</span>';
+    }
+    var thetaCell = '';
+    if (c.thetaDay != null && isFinite(c.thetaDay)){
+      thetaCell = '<span title="Theta — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + Number(c.thetaDay).toFixed(2) + '/d</span>';
+    }
+    var ivCell = '';
+    if (c.iv != null && isFinite(c.iv)){
+      ivCell = '<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (Number(c.iv) * 100).toFixed(0) + '%</span>';
+    }
+    stats += '<div class="pick-stat pick-stat-greeks">' +
+      '<div class="pick-stat-label">Greeks</div>' +
+      '<div class="pick-stat-greek-row">' + [deltaCell, thetaCell, ivCell].filter(Boolean).join('') + '</div>' +
+    '</div>';
+    stats += '</div>';
     // Risk/reward — required breakeven move vs IV-implied 1σ expected
     // move at expiry. <1 means the chain already prices a move that
     // size; >1 means the bet needs more than the market is pricing.
@@ -7051,9 +7081,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + '</span>' +
         earningsBadge +
       '</div>' +
-      (quote ? '<div class="pick-contract-quote">' + escapeHtml(quote) + '</div>' : '') +
-      (greeks.length ? '<div class="pick-contract-greeks">' + greeks.join(' · ') + '</div>' : '') +
-      (breakeven ? '<div class="pick-contract-be">' + escapeHtml(breakeven) + '</div>' : '') +
+      stats +
       rr +
       qChips +
       (liq ? '<div class="pick-contract-meta">' + liq + '</div>' : '') +
@@ -7093,10 +7121,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Conviction bar widths scale to the strongest pick so the visual
     // contrast across the list reflects actual signal-stack depth.
     var maxConv = 0;
+    var callCount = 0, putCount = 0, convSum = 0, convCount = 0;
+    var earningsCount = 0;
     for (var i=0; i<picks.length; i++) {
-      if (picks[i].conviction > maxConv) maxConv = picks[i].conviction;
+      var pp = picks[i];
+      if (pp.conviction > maxConv) maxConv = pp.conviction;
+      if (pp.side === 'put') putCount++; else callCount++;
+      if (pp.conviction != null && isFinite(pp.conviction)) {
+        convSum += pp.conviction; convCount++;
+      }
+      if (pp.contract && pp.contract.earningsInWindow) earningsCount++;
     }
-    root.innerHTML = picks.map(function(p, idx){
+    // Summary strip — gives a one-glance shape of today's list (how many
+    // bullish vs bearish setups, average conviction, any earnings-in-window
+    // contracts) before the user scrolls through ten cards.
+    var avgConv = convCount > 0 ? (convSum / convCount).toFixed(1) : '—';
+    var summary = '<div class="picks-summary">' +
+      '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
+      '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
+      '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
+      '<div class="picks-summary-chip"><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">avg conv</span></div>' +
+      (earningsCount > 0
+        ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
+        : '') +
+    '</div>';
+    root.innerHTML = summary + picks.map(function(p, idx){
       var sideCls = pickSideClass(p.side);
       var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
       var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
@@ -7119,8 +7168,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var colonIdx = thesisText.indexOf(': ');
         if (colonIdx > 0) thesisText = thesisText.slice(0, colonIdx);
       }
-      return '<article class="pick-card ' + sideCls + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
-        '<div class="pick-rank">#' + (idx + 1) + '</div>' +
+      var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
+      return '<article class="pick-card ' + sideCls + (idx === 0 ? ' pick-card-leader' : '') + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+        '<div class="pick-rank' + rankCls + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
         '<div class="pick-main">' +
           '<div class="pick-head">' +
             '<button type="button" class="pick-symbol" data-pick-symbol="' + escapeHtml(p.symbol) + '" title="Open ' + escapeHtml(p.symbol) + ' in the grader">' + escapeHtml(p.symbol) + '</button>' +
@@ -7136,8 +7186,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div class="pick-conviction" aria-label="Conviction score"' +
           ' title="Conviction = how many independent signals (news, narrative, fundamentals, momentum, analyst targets, social, volume, support/resistance) all point the same direction for this ticker. Higher = more agreement. Typical range 3–12."' +
           ' style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
-          '<div class="pick-conv-label">Conv</div>' +
-          '<div class="pick-conv-value">' + p.conviction + '</div>' +
+          '<div class="pick-conv-label">Conviction</div>' +
+          '<div class="pick-conv-value">' + p.conviction + '<span class="pick-conv-max">/' + maxConv + '</span></div>' +
           '<div class="pick-conv-bar"><span class="pick-conv-fill"></span></div>' +
         '</div>' +
       '</article>';

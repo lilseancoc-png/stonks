@@ -78,7 +78,51 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
     eyebrow.textContent = `${greens.length} bullish · ${reds.length} bearish`;
   }
 
+  // Section summary — shows the shape of today's streaks at a glance:
+  // the longest active runs on each side and the average cumulative move
+  // for streaks that made the cut, so the user can read the day's
+  // character before scrolling through ~80 cards.
+  const longestGreen = greens.length ? greens[0] : null;
+  const longestRed = reds.length ? reds[0] : null;
+  const avg = (arr) => arr.length
+    ? (arr.reduce((s, t) => s + Math.abs(t.current.cumulativePct), 0) / arr.length)
+    : 0;
+  const summary = `
+    <div class="streaks-summary">
+      <div class="streaks-summary-chip">
+        <span class="streaks-summary-num">${greens.length + reds.length}</span>
+        <span class="streaks-summary-lbl">on a run</span>
+      </div>
+      <div class="streaks-summary-chip streaks-summary-bull">
+        <span class="streaks-summary-num">${greens.length}</span>
+        <span class="streaks-summary-lbl">bullish</span>
+      </div>
+      <div class="streaks-summary-chip streaks-summary-bear">
+        <span class="streaks-summary-num">${reds.length}</span>
+        <span class="streaks-summary-lbl">bearish</span>
+      </div>
+      ${longestGreen ? `
+        <div class="streaks-summary-chip streaks-summary-best streaks-summary-bull">
+          <span class="streaks-summary-num">${longestGreen.current.days}d</span>
+          <span class="streaks-summary-lbl">longest green · ${escapeHtml(String(longestGreen.symbol).toUpperCase())}</span>
+        </div>` : ""}
+      ${longestRed ? `
+        <div class="streaks-summary-chip streaks-summary-best streaks-summary-bear">
+          <span class="streaks-summary-num">${longestRed.current.days}d</span>
+          <span class="streaks-summary-lbl">longest red · ${escapeHtml(String(longestRed.symbol).toUpperCase())}</span>
+        </div>` : ""}
+      <div class="streaks-summary-chip">
+        <span class="streaks-summary-num">${avg(greens).toFixed(1)}%</span>
+        <span class="streaks-summary-lbl">avg bull cum</span>
+      </div>
+      <div class="streaks-summary-chip">
+        <span class="streaks-summary-num">−${avg(reds).toFixed(1)}%</span>
+        <span class="streaks-summary-lbl">avg bear cum</span>
+      </div>
+    </div>`;
+
   root.innerHTML = `
+    ${summary}
     <div class="streaks-cols">
       <div class="streaks-col">
         <h3 class="streaks-col-title streaks-col-bull">Bullish streaks (≥2 green days)</h3>
@@ -111,52 +155,61 @@ function entry(t, sectors) {
   const sector = sectors[sym] || "";
   // Oldest -> newest reads the way humans say streaks ("+1%, +3%, +5%").
   const moves = (t.history || []).slice(0, t.current.days).reverse();
-  const movesStr = moves.map((m) => fmtPct(m.changePct, 1)).join(", ");
   const cumCls = t.current.color === "green" ? "streaks-pos" : "streaks-neg";
-  // Use a styled circle instead of an emoji — emojis render at different
-  // sizes/colors across platforms and end up dominating the row.
-  const dotCls = t.current.color === "green" ? "is-green" : t.current.color === "red" ? "is-red" : "is-flat";
-  const dot = `<span class="streaks-dot ${dotCls}" aria-hidden="true"></span>`;
-  // Tolerance badge: only show when the streak has absorbed at least one
-  // counter day. Reads "tol 0.50%/1.5% · 1/4d" -- bank used / break point,
-  // consecutive counter days / break point. Helps the reader see how
-  // close the streak is to one of the tripwires firing.
+  const sideCls = t.current.color === "green" ? "is-green" : t.current.color === "red" ? "is-red" : "is-flat";
+  // Sparkline — each day in the streak becomes a vertical bar with height
+  // proportional to the magnitude of its move and colored by direction.
+  // Replaces the comma-separated "+1.0%, +2.0%, ..." text with a single
+  // visual the eye can read at a glance: how long the run is, whether it
+  // accelerated or faded, and whether counter-days punctuate the run.
+  const maxAbs = moves.reduce((m, x) => Math.max(m, Math.abs(Number(x.changePct) || 0)), 0.5);
+  const spark = moves.map((m) => {
+    const v = Number(m.changePct) || 0;
+    const h = Math.max(8, (Math.abs(v) / maxAbs) * 100);
+    const cls = v > 0 ? "is-pos" : v < 0 ? "is-neg" : "is-flat";
+    const title = `${m.date || ""}: ${fmtPct(v, 2)}`;
+    return `<span class="streaks-spark-bar ${cls}" style="--h:${h.toFixed(0)}%" title="${escapeHtml(title)}"></span>`;
+  }).join("");
+  // Tolerance: how much the run has eaten into its counter-day "bank". Only
+  // shown when actually in use (tol > 0 or one or more consecutive counter
+  // days). Clean streaks just hide it — the absence is its own signal.
   const tol = Number(t.current.tolerancePct || 0);
   const counterDays = Number(t.current.counterDays || 0);
   const tolBreak = Number(t.current.toleranceBreakPct || 1.5);
   const counterBreak = Number(t.current.counterDaysBreak || 4);
-  // Always show the badge so the row layout is consistent. When the streak
-  // hasn't absorbed any counter days yet we mark it "clean" with a muted
-  // variant — same width, but visually quieter so the reader knows nothing
-  // is in the bank.
   const isCounted = tol > 0 || counterDays > 0;
-  const badgeCls = isCounted ? "streaks-tol streaks-tol-counter" : "streaks-tol streaks-tol-clean";
-  const toleranceBadge = `<span class="${badgeCls}" title="Counter-day tolerance used / break point · consecutive counter days / break">tol ${tol.toFixed(2)}% / ${tolBreak.toFixed(1)}% · ${counterDays}/${counterBreak}d</span>`;
-  // Streak-length bar: visualises how deep the run is relative to a
-  // 10-day "very long streak" reference. Anything longer pegs full.
-  const lengthPct = Math.min(100, (Number(t.current.days) || 0) * 10);
-  const cumPct = Math.min(100, Math.abs(Number(t.current.cumulativePct) || 0) * 5);
-  const cumColor = t.current.color === "green" ? "var(--pos)" : "var(--neg)";
+  // The bank-used pct is what tells the user how close the streak is to
+  // tripping; render that as a tiny meter on top of the readable label.
+  const bankPct = tolBreak > 0 ? Math.min(100, (tol / tolBreak) * 100) : 0;
+  const counterPct = counterBreak > 0 ? Math.min(100, (counterDays / counterBreak) * 100) : 0;
+  const tolMeter = isCounted ? `
+    <div class="streaks-tol-meter" title="Counter-day tolerance bank: ${tol.toFixed(2)}% used of ${tolBreak.toFixed(1)}% · ${counterDays} of ${counterBreak} counter days">
+      <span class="streaks-tol-label">tol used</span>
+      <span class="streaks-tol-bar"><span class="streaks-tol-fill" style="--w:${bankPct.toFixed(0)}%"></span></span>
+      <span class="streaks-tol-val">${tol.toFixed(2)}% / ${tolBreak.toFixed(1)}%</span>
+      <span class="streaks-tol-counter-pill">${counterDays}/${counterBreak}d</span>
+    </div>` : "";
+
   return `
-    <article class="streaks-row">
+    <article class="streaks-row streaks-row-${sideCls}">
       <div class="streaks-head">
-        ${dot}
+        <span class="streaks-dot ${sideCls}" aria-hidden="true"></span>
         <span class="streaks-sym">${escapeHtml(sym)}</span>
         ${sector ? `<span class="streaks-sector">${escapeHtml(sector)}</span>` : ""}
-        <span class="streaks-days">${t.current.days}d</span>
-        ${toleranceBadge}
+        <span class="streaks-stat-block">
+          <span class="streaks-stat-num ${cumCls}">${fmtPct(t.current.cumulativePct)}</span>
+          <span class="streaks-stat-lbl">cum</span>
+        </span>
+        <span class="streaks-stat-block">
+          <span class="streaks-stat-num">${t.current.days}<span class="streaks-stat-unit">d</span></span>
+          <span class="streaks-stat-lbl">streak</span>
+        </span>
       </div>
-      <div class="streaks-bars" aria-hidden="true">
-        <span class="streaks-bar streaks-bar-len" style="--w:${lengthPct.toFixed(0)}%" title="Streak length (10d = full)"></span>
-        <span class="streaks-bar streaks-bar-cum" style="--w:${cumPct.toFixed(0)}%; --c:${cumColor}" title="Cumulative move magnitude (20% = full)"></span>
-      </div>
-      <div class="streaks-meta">
-        <span class="streaks-cum ${cumCls}">${fmtPct(t.current.cumulativePct)} cum</span>
-        <span class="streaks-moves">${escapeHtml(movesStr)}</span>
-        <span class="streaks-last">last ${escapeHtml(fmtMoney(t.lastClose))}</span>
-      </div>
-      <div class="streaks-actions">
-        <button type="button" class="streaks-btn" data-grade="${escapeHtml(sym)}">Grade ${escapeHtml(sym)}</button>
+      <div class="streaks-spark" aria-hidden="true" title="Daily closes that make up the streak (oldest → newest)">${spark}</div>
+      ${tolMeter}
+      <div class="streaks-foot">
+        <span class="streaks-last">last <b>${escapeHtml(fmtMoney(t.lastClose))}</b></span>
+        <button type="button" class="streaks-btn" data-grade="${escapeHtml(sym)}">Grade ${escapeHtml(sym)} →</button>
       </div>
     </article>`;
 }
