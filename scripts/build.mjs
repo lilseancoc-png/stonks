@@ -8136,6 +8136,40 @@ async function main() {
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
+  // Market backdrop — compact per-index snapshot for the Execute now? card so
+  // the entry-timing read can ask "is the broader tape with us or against
+  // us?". Live moves are overlaid at runtime via /api/quote; the baked
+  // priceMove1dPct is the fallback when the live fetch flakes or the market
+  // is closed. Picks the broad-market ETFs (risk-on/off proxy), the semis
+  // ETF (for tech/semis sector tilt), and UVXY (vol-spike proxy in lieu of
+  // a direct ^VIX feed). All five are in TICKERS already so no extra fetch.
+  const MARKET_BACKDROP_SYMBOLS = ["SPY", "QQQ", "IWM", "SMH", "UVXY"];
+  const marketBackdrop = {};
+  for (const sym of MARKET_BACKDROP_SYMBOLS) {
+    const c = chains[sym];
+    if (!c || !c.technicals) continue;
+    const t = c.technicals;
+    const vol = t.volume || {};
+    marketBackdrop[sym] = {
+      spot: c.spot ?? null,
+      move1dPct: vol.priceMove1dPct ?? null,
+      rsi: t.rsi ?? null,
+      macdHist: t.macd?.hist ?? null,
+      rvol: vol.rvol ?? null,
+      s20: t.sr?.s20 ?? null,
+      r20: t.sr?.r20 ?? null,
+    };
+  }
+  // Next two FOMC dates — used by the Execute card to defer entries when
+  // a rate decision is ≤2 sessions away (Powell pressers routinely whipsaw
+  // multi-percent intraday). Baseline list is good enough for this purpose;
+  // we don't need the live-fetched merge until the calendar pipeline runs.
+  const todayIsoForFomc = new Date().toISOString().slice(0, 10);
+  const nextFomcDates = FOMC_MEETINGS_BASELINE
+    .map((m) => m.date)
+    .filter((d) => d >= todayIsoForFomc)
+    .sort()
+    .slice(0, 2);
   const builtAtIso = new Date().toISOString();
   const html = renderHtml({
     symbols,
@@ -8150,6 +8184,8 @@ async function main() {
     fearGreed,
     macro: macroBackdrop,
     volumeFlags,
+    marketBackdrop,
+    nextFomcDates,
   });
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });
