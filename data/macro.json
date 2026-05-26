@@ -25,18 +25,18 @@
     "trend": "falling"
   },
   "dxy": {
-    "value": 99.147,
+    "value": 99.141,
     "prior": 98.97000122070312,
     "prior1d": 99.31999969482422,
     "prior5d": 98.97000122070312,
-    "change5d": 0.17884083774251275,
-    "pctChange1d": -0.17418414755918346,
-    "pctChange5d": 0.17884083774251275,
+    "change5d": 0.17277839465269182,
+    "pctChange1d": -0.18022522691725448,
+    "pctChange5d": 0.17277839465269182,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "flat"
   },
-  "asOf": "2026-05-26T20:03:02.694Z",
+  "asOf": "2026-05-26T22:36:15.754Z",
   "previousClose": {
     "date": "2026-05-25",
     "asOf": "2026-05-26T01:28:54.326Z",
