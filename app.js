@@ -5308,11 +5308,32 @@
     return out;
   }
   function volBucketHtml(hit){
+    // Scan-missed placeholder: a bucket whose scan slot dropped (cron-job
+    // dispatch missed the hour). Show the expected volume so the user can
+    // see the gap; the actual is unknown.
+    if (hit.scanMissed){
+      var expMissed = fmtVolNum(hit.expectedHourVol);
+      return '<div class="vol-bucket is-scan-missed">' +
+        '<div class="vol-bucket-row">' +
+          '<span class="vol-bucket-label">' + escapeHtml(hit.bucketLabel || '') + '</span>' +
+          '<span class="vol-bucket-vol is-muted">' +
+            'Scan missed · exp ' + expMissed +
+          '</span>' +
+        '</div>' +
+        '<div class="vol-badges">' +
+          '<span class="vol-pill-badge vol-scan-missed">Scan missed</span>' +
+        '</div>' +
+      '</div>';
+    }
     var ratio = hit.volRatio != null ? Number(hit.volRatio).toFixed(2) + 'x' : '—';
     var move = hit.priceMovePct != null
       ? (hit.priceMovePct >= 0 ? '+' : '') + Number(hit.priceMovePct).toFixed(2) + '%'
       : '';
     var moveCls = hit.priceMovePct == null ? '' : (hit.priceMovePct >= 0 ? ' is-up' : ' is-dn');
+    // bucketStartGap > 15 min means a prior hourly scan was missed and this
+    // bucket's actualHourVol absorbs earlier volume — call it out.
+    var startGap = typeof hit.bucketStartGap === 'number' ? hit.bucketStartGap : null;
+    var startGapWarn = startGap != null && startGap > 15;
     var bits = [];
     bits.push(
       '<div class="vol-bucket-row">' +
@@ -5328,6 +5349,14 @@
       badges.push(
         '<span class="vol-pill-badge ' + volConvictionCls(hit.moveClass.conviction) + '">' +
           escapeHtml(hit.moveClass.action || hit.moveClass.conviction) +
+        '</span>',
+      );
+    }
+    if (startGapWarn){
+      badges.push(
+        '<span class="vol-pill-badge vol-scan-gap" ' +
+          'title="Prior bucket-boundary scan missed by ' + startGap + ' min — this row absorbs earlier-bucket volume">' +
+          'Includes ' + startGap + 'm gap' +
         '</span>',
       );
     }

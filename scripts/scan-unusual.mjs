@@ -39,6 +39,8 @@ import {
   etDateKey as volEtDateKey,
   etMinutesSinceOpen,
   bucketForMinute,
+  BUCKETS as VOLUME_BUCKETS,
+  SESSION_CLOSE_MIN,
 } from "../lib/volume-flags.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -731,6 +733,9 @@ function buildVolPrevSnapLookup(history, todayKey) {
 // bucket. For each ticker, picks the latest same-session snapshot whose
 // etMin is at or before the bucket's startMin. Returns null when bucket 1
 // (startMin=0) since every ticker starts at 0 — caller handles that case.
+// The returned entry's etMin lets the caller detect when the bucket-start
+// snapshot was stale (boundary scan was missed) so the resulting actualHourVol
+// can be tagged with the gap size.
 function buildBucketStartLookup(history, todayKey, currentBucket) {
   if (!currentBucket || currentBucket.startMin === 0) return null;
   const map = new Map();
@@ -746,6 +751,35 @@ function buildBucketStartLookup(history, todayKey, currentBucket) {
     }
   }
   return map;
+}
+
+// Tolerance (in minutes) for how stale a bucket-start snapshot can be before
+// we treat the bucket as having a "scan gap". Beyond this, the computed
+// actualHourVol is absorbing volume from earlier missed buckets and the row
+// should be flagged in the UI.
+const BUCKET_START_GAP_TOLERANCE_MIN = 15;
+
+// Returns labels of past buckets (bucket.endMin <= etMin) that have NO
+// snapshot inside them in today's history. Used to inject "scan missed"
+// placeholders so the per-bucket list stays honest when cron-job dispatch
+// drops a slot. The current scan's etMin is implicitly included.
+function detectMissedBuckets(history, todayKey, etMin) {
+  if (etMin == null) return [];
+  const covered = new Set();
+  for (const snap of history.snapshots || []) {
+    if (snap.etDate !== todayKey) continue;
+    if (snap.etMin == null) continue;
+    const b = bucketForMinute(snap.etMin);
+    if (b) covered.add(b.label);
+  }
+  const currentBucket = bucketForMinute(etMin);
+  if (currentBucket) covered.add(currentBucket.label);
+  const missed = [];
+  for (const bucket of VOLUME_BUCKETS) {
+    if (bucket.endMin > etMin) continue;
+    if (!covered.has(bucket.label)) missed.push(bucket.label);
+  }
+  return missed;
 }
 
 // Same-session merge: a ticker flagged at 10:30-11:30 should still appear at
@@ -810,10 +844,20 @@ function bucketStartMin(label) {
 
 // Build one ticker's flag row from the evaluator output, only keeping
 // material flag fields. Returns null when nothing is worth surfacing.
-function buildFlagRow(symbol, evalOut, scannedAt) {
+// `isFinalScan` is true at the closing tick (etMin === SESSION_CLOSE_MIN);
+// when set, we push the bucket hit even if unflagged so it overwrites the
+// prior mid-bucket partial in mergeVolumeFlagRows. `bucketStartGap` is the
+// minutes between the bucket-start snapshot used and the bucket boundary —
+// large gaps mean the actualHourVol absorbed earlier-bucket volume.
+function buildFlagRow(symbol, evalOut, scannedAt, isFinalScan, bucketStartGap) {
   if (!evalOut) return null;
   const hits = [];
-  if (evalOut.hourly?.flagged || evalOut.srBreak) {
+  const hasHourly = !!evalOut.hourly;
+  const shouldPush =
+    evalOut.hourly?.flagged ||
+    evalOut.srBreak ||
+    (isFinalScan && hasHourly);
+  if (shouldPush) {
     hits.push({
       bucketLabel: evalOut.hourly?.bucketLabel ?? null,
       actualHourVol: evalOut.hourly?.actualHourVol ?? null,
@@ -823,6 +867,7 @@ function buildFlagRow(symbol, evalOut, scannedAt) {
       hourlyFlagged: !!evalOut.hourly?.flagged,
       moveClass: evalOut.moveClass ?? null,
       srBreak: evalOut.srBreak ?? null,
+      bucketStartGap: bucketStartGap ?? null,
       scannedAt,
     });
   }
@@ -850,6 +895,7 @@ async function runVolumePass({
   const prevLookup = buildVolPrevSnapLookup(history, todayKey);
   const currentBucket = bucketForMinute(etMin);
   const bucketStartLookup = buildBucketStartLookup(history, todayKey, currentBucket);
+  const isFinalScan = etMin >= SESSION_CLOSE_MIN;
 
   const freshRows = [];
   const snapshotTickers = [];
@@ -869,13 +915,22 @@ async function runVolumePass({
     const prevClose = r.prevClose ?? tech.asOfClose ?? null;
     const prev = prevLookup.get(r.symbol);
     // Bucket 1 always starts at 0; later buckets resolve from history.
+    // bucketStartGap = minutes between the lookup snapshot and the bucket
+    // boundary. Zero means we have a snapshot exactly at the boundary;
+    // anything > BUCKET_START_GAP_TOLERANCE_MIN means a prior hourly scan
+    // was missed and the resulting actualHourVol absorbs earlier volume.
     let bucketStartCumVol = null;
+    let bucketStartGap = null;
     if (currentBucket) {
       if (currentBucket.startMin === 0) {
         bucketStartCumVol = 0;
+        bucketStartGap = 0;
       } else if (bucketStartLookup) {
         const entry = bucketStartLookup.get(r.symbol);
-        bucketStartCumVol = entry?.cumVol ?? null;
+        if (entry) {
+          bucketStartCumVol = entry.cumVol ?? null;
+          bucketStartGap = currentBucket.startMin - (entry.etMin ?? currentBucket.startMin);
+        }
       }
     }
     const evalOut = evaluateVolumeFlag({
@@ -888,7 +943,7 @@ async function runVolumePass({
       prev,
       bucketStartCumVol,
     });
-    const row = buildFlagRow(r.symbol, evalOut, scannedAt);
+    const row = buildFlagRow(r.symbol, evalOut, scannedAt, isFinalScan, bucketStartGap);
     if (row) freshRows.push(row);
   }
 
@@ -899,6 +954,40 @@ async function runVolumePass({
   const merged = sameSession
     ? mergeVolumeFlagRows(prior.tickers, freshRows)
     : freshRows;
+
+  // Inject scan-missed placeholders for past buckets where no scan ran. A
+  // "missed" bucket is one whose endMin <= current etMin and no snapshot
+  // (across today's history + the current scan) falls inside it. Without
+  // these, the per-bucket list can silently omit whole hours when cron-job
+  // dispatch fails — leaving the user wondering why the buckets don't sum
+  // close to the EOD total.
+  const missedBucketLabels = detectMissedBuckets(history, todayKey, etMin);
+  if (missedBucketLabels.length) {
+    for (const row of merged) {
+      const have = new Set((row.bucketHits || []).map((h) => h.bucketLabel));
+      for (const label of missedBucketLabels) {
+        if (have.has(label)) continue;
+        const bucket = VOLUME_BUCKETS.find((b) => b.label === label);
+        if (!bucket) continue;
+        row.bucketHits.push({
+          bucketLabel: label,
+          actualHourVol: null,
+          expectedHourVol: row.avg20 != null ? Math.round(row.avg20 * bucket.frac) : null,
+          volRatio: null,
+          priceMovePct: null,
+          hourlyFlagged: false,
+          moveClass: null,
+          srBreak: null,
+          bucketStartGap: null,
+          scanMissed: true,
+          scannedAt: null,
+        });
+      }
+      row.bucketHits.sort(
+        (a, b) => bucketStartMin(a.bucketLabel) - bucketStartMin(b.bucketLabel),
+      );
+    }
+  }
 
   // Sort tickers by "most interesting" — hourly volRatio descending, then EOD ratio.
   function topRatio(row) {
