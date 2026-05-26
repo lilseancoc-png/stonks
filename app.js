@@ -6619,14 +6619,30 @@
     if (type === 'fed') return 'Fed';
     if (type === 'cpi') return 'CPI / Jobs';
     if (type === 'sec') return 'SEC';
+    if (type === 'catalyst') return 'Catalyst';
     return 'Macro';
+  }
+  // Sub-label for a ticker catalyst chip, shown next to the symbol. Maps the
+  // category enum to a short human tag — keep this synced with the
+  // CATALYST_CATEGORIES enum in scripts/build.mjs.
+  function catalystCategoryLabel(cat){
+    if (cat === 'fda') return 'FDA';
+    if (cat === 'contract') return 'Contract';
+    if (cat === 'launch') return 'Launch';
+    if (cat === 'court') return 'Court';
+    if (cat === 'trial') return 'Trial';
+    if (cat === 'merger') return 'M&A';
+    if (cat === 'investor') return 'Investor day';
+    if (cat === 'guidance') return 'Guidance';
+    return 'Event';
   }
   function calendarTypeMatches(eventType, filter){
     if (filter === 'all') return true;
     if (filter === 'earnings') return eventType === 'earnings';
     if (filter === 'reports') return eventType === 'report';
     if (filter === 'fomc') return eventType === 'fomc';
-    if (filter === 'macro') return eventType !== 'earnings' && eventType !== 'report' && eventType !== 'fomc';
+    if (filter === 'catalysts') return eventType === 'catalyst';
+    if (filter === 'macro') return eventType !== 'earnings' && eventType !== 'report' && eventType !== 'fomc' && eventType !== 'catalyst';
     return true;
   }
   function calendarSessionPill(session){
@@ -6782,7 +6798,8 @@
       var filterLabel = calendarState.type === 'all' ? '' :
         ' · ' + (calendarState.type === 'reports' ? 'Reports' :
                  calendarState.type === 'fomc' ? 'FOMC' :
-                 calendarState.type === 'earnings' ? 'Earnings' : 'Macro');
+                 calendarState.type === 'earnings' ? 'Earnings' :
+                 calendarState.type === 'catalysts' ? 'Catalysts' : 'Macro');
       eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') + filterLabel;
     }
     if (!filtered.length){
@@ -6819,6 +6836,19 @@
           label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span>' +
             calendarSessionPill(e.session) + movePill +
             ' <span class="cal-chip-text">earnings</span>';
+        } else if (e.type === 'catalyst'){
+          // Ticker-specific dated event extracted from article material by
+          // the AI news-take call. Symbol + category tag + plain-English
+          // title. Show a small "low confidence" pill when applicable so
+          // traders know the date may be soft.
+          cls += ' cal-catalyst-' + (e.category || 'other');
+          var confPill = e.confidence === 'low'
+            ? ' <span class="cal-chip-conf" title="Date is approximate — interpreted from a relative phrase like \"next week\" or \"early June\"">soft</span>'
+            : '';
+          label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span> ' +
+            '<span class="cal-chip-tag">' + escapeHtml(catalystCategoryLabel(e.category)) + '</span>' +
+            confPill +
+            ' <span class="cal-chip-text">' + escapeHtml(e.title || 'Catalyst') + '</span>';
         } else {
           label = '<span class="cal-chip-tag">' + escapeHtml(calendarTypeLabel(e.type)) + '</span> ' +
             (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +

@@ -4840,6 +4840,40 @@ main { padding-top: var(--s-2); }
 .cal-macro { border-left-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .cal-fomc { border-left-color: var(--warn); }
 .cal-fomc .cal-chip-tag { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+/* Ticker-specific catalyst chip. Default border / tag color picks up the
+   pos accent; category-specific variants below recolor by event flavor so
+   FDA reads differently from a contract award or a court ruling at a
+   glance. */
+.cal-catalyst { border-left-color: var(--pos); }
+.cal-catalyst .cal-chip-tag { background: color-mix(in srgb, var(--pos) 14%, transparent); color: var(--pos); }
+.cal-catalyst-fda { border-left-color: var(--pos); }
+.cal-catalyst-fda .cal-chip-tag { background: color-mix(in srgb, var(--pos) 16%, transparent); color: var(--pos); }
+.cal-catalyst-contract { border-left-color: var(--accent); }
+.cal-catalyst-contract .cal-chip-tag { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.cal-catalyst-launch { border-left-color: var(--accent); }
+.cal-catalyst-launch .cal-chip-tag { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.cal-catalyst-court { border-left-color: var(--neg); }
+.cal-catalyst-court .cal-chip-tag { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }
+.cal-catalyst-trial { border-left-color: var(--pos); }
+.cal-catalyst-trial .cal-chip-tag { background: color-mix(in srgb, var(--pos) 14%, transparent); color: var(--pos); }
+.cal-catalyst-merger { border-left-color: var(--warn); }
+.cal-catalyst-merger .cal-chip-tag { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+.cal-catalyst-investor { border-left-color: color-mix(in srgb, var(--accent) 75%, var(--border)); }
+.cal-catalyst-investor .cal-chip-tag { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.cal-catalyst-guidance { border-left-color: var(--warn); }
+.cal-catalyst-guidance .cal-chip-tag { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+.cal-catalyst-other { border-left-color: var(--muted); }
+.cal-catalyst-other .cal-chip-tag { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+.cal-chip-conf {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  cursor: help;
+}
 .cal-session {
   font: 600 9px/1 var(--font-mono);
   letter-spacing: .08em;
