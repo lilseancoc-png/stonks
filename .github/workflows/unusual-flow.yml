@@ -4,6 +4,12 @@ name: Unusual options flow
 # the curated ticker universe. Writes data/unusual.json; the commit triggers
 # Vercel's GitHub integration to redeploy the static page with fresh data.
 #
+# Also runs the lightweight heatmap refresh on the same cadence —
+# data/heatmap.json's `ch` and `sp` go stale within a session and the
+# refresh is a single batched Yahoo quote call (no AI), so it piggy-backs
+# cleanly on this workflow's existing market-hours window. One cron
+# schedule, one commit per hour.
+#
 # Scheduling is handled externally by cron-job.org, which POSTs to the
 # workflow_dispatch endpoint hourly from 9:00 to 16:00 America/New_York
 # on weekdays. cron-job.org runs in ET so DST is handled by the service.
@@ -73,6 +79,15 @@ jobs:
           AI_FLOW_MODEL: ${{ vars.AI_FLOW_MODEL }}
         run: node scripts/scan-unusual.mjs
 
+      - name: Refresh heatmap quotes
+        # One batched Yahoo quote call rewrites data/heatmap.json's `ch`
+        # and `sp` with intraday values. Zero AI cost. Reads the prior
+        # file in place — daily.yml is responsible for the initial seed.
+        # Soft-fail if Yahoo flakes: the heatmap stays on the prior
+        # values rather than blocking the unusual-flow commit.
+        continue-on-error: true
+        run: node scripts/refresh-heatmap.mjs
+
       - name: Regenerate static site with fresh unusual flow
         # Rebuilds index.html / app.js / styles.css from the existing data
         # files so the baked MANIFEST.unusual reflects this scan. Without
@@ -114,7 +129,7 @@ jobs:
           # runs (volume-history.json is what the next scan reads to compute
           # hour-over-hour deltas; without it every hour reverts to "first
           # scan of the day" and never flags).
-          STASH_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json index.html app.js styles.css"
+          STASH_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json data/heatmap.json index.html app.js styles.css"
           if [ -f data/flow-explanations.json ]; then
             STASH_PATHS="$STASH_PATHS data/flow-explanations.json"
           fi
@@ -128,7 +143,7 @@ jobs:
           git stash pop
           git add $STASH_PATHS
           if ! git diff --cached --quiet; then
-            git commit -m "chore: unusual flow scan $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "chore: hourly refresh (flow + heatmap) $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           else
             echo "No changes to commit."

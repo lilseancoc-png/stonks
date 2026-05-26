@@ -2435,7 +2435,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabs = document.querySelectorAll('.page-tab');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','calendar','flow','volume','grade','strategies','streaks','fear-greed','f13','bonds-usd','portfolio'];
+    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','grade','strategies','streaks','fear-greed','f13','bonds-usd','portfolio'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -2502,6 +2502,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       try { renderFreshness(name); } catch (_) {}
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+      if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
+      // Pause heatmap live polling when navigating away — don't burn
+      // /api/quotes on a tab the user isn't looking at.
+      if (name !== 'heatmap' && typeof stopHeatmapLivePolling === 'function') stopHeatmapLivePolling(false);
       if (name === 'f13' && typeof loadF13 === 'function') loadF13();
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
@@ -7445,6 +7449,470 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</section>';
     root.dataset.painted = '1';
     fngRendered = true;
+  }
+
+  // --- Heatmap tab --------------------------------------------------------
+  // Finviz-style market map. Tiles sized by market cap, colored by today's
+  // % change. Data is baked into data/heatmap.json at build time and the
+  // live overlay (opt-in checkbox) polls /api/quotes to recolor while the
+  // market is open. ETFs are excluded — heatmap.json itself filters them.
+  var heatmapState = {
+    data: null,
+    loading: false,
+    groupBy: 'sector',
+    live: false,
+    livePollTimer: null,
+    liveOverlay: {},   // symbol -> { ch, sp, marketState, prevSpot }
+    bound: false,
+    lastRect: null,
+  };
+  // Saturation maxes out at ±3% — anything beyond that pegs to the deepest
+  // red or green. Mirrors how Finviz handles outliers (they don't keep
+  // brightening forever, otherwise a single -8% blowup makes every other
+  // negative tile look gray by comparison).
+  var HEATMAP_PCT_SAT = 3;
+  // Below this height in px we hide the % line and shrink the symbol so
+  // 100KB-marketcap tickers don't render as illegible noise.
+  var HEATMAP_TINY_PX = 36;
+
+  function loadHeatmap(){
+    bindHeatmapControls();
+    if (heatmapState.data) { renderHeatmap(); return; }
+    if (heatmapState.loading) return;
+    heatmapState.loading = true;
+    var root = $('heatmap-root');
+    if (root) root.textContent = 'Loading heatmap…';
+    fetch('data/heatmap.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        var tickers = (json && Array.isArray(json.tickers)) ? json.tickers : [];
+        heatmapState.data = { builtAtIso: json && json.builtAtIso, tickers: tickers };
+        heatmapState.loading = false;
+        renderHeatmap();
+      })
+      .catch(function(){
+        heatmapState.data = { tickers: [], loadError: true };
+        heatmapState.loading = false;
+        renderHeatmap();
+      });
+  }
+
+  function bindHeatmapControls(){
+    if (heatmapState.bound) return;
+    var groupSel = $('heatmap-group-select');
+    if (groupSel){
+      groupSel.value = heatmapState.groupBy;
+      groupSel.addEventListener('change', function(){
+        heatmapState.groupBy = groupSel.value === 'industry' ? 'industry' : 'sector';
+        renderHeatmap();
+      });
+    }
+    var liveToggle = $('heatmap-live-toggle');
+    if (liveToggle){
+      liveToggle.checked = heatmapState.live;
+      liveToggle.addEventListener('change', function(){
+        heatmapState.live = !!liveToggle.checked;
+        if (heatmapState.live) startHeatmapLivePolling();
+        else stopHeatmapLivePolling(true);
+      });
+    }
+    // Recompute layout on resize so tiles stay tiled — the squarified rects
+    // are stored as % of container so they survive a resize naturally, but
+    // .is-tiny / font-sizing is computed against the current pixel height.
+    window.addEventListener('resize', function(){
+      if (!heatmapState.data) return;
+      var pane = document.getElementById('page-pane-heatmap');
+      if (pane && pane.hidden) return;
+      renderHeatmap();
+    });
+    document.addEventListener('visibilitychange', function(){
+      if (!heatmapState.live) return;
+      if (document.hidden) stopHeatmapLivePolling(false);
+      else startHeatmapLivePolling();
+    });
+    heatmapState.bound = true;
+  }
+
+  // Squarified treemap (Bruls 2000). values must be desc-sorted by .value.
+  // Returns one rect per input { ...item, x, y, w, h } in absolute units
+  // of the input rect.
+  function heatmapSquarify(items, x0, y0, w0, h0){
+    var out = [];
+    function step(remaining, x, y, w, h){
+      if (!remaining.length || w <= 0 || h <= 0) return;
+      if (remaining.length === 1){
+        out.push(Object.assign({}, remaining[0], { x: x, y: y, w: w, h: h }));
+        return;
+      }
+      var totalVal = 0;
+      for (var i = 0; i < remaining.length; i++) totalVal += remaining[i].value;
+      if (totalVal <= 0) return;
+      var scale = (w * h) / totalVal;
+      var shortSide = Math.min(w, h);
+      var row = [];
+      var rowArea = 0;
+      var bestWorst = Infinity;
+      var idx = 0;
+      while (idx < remaining.length){
+        var cand = remaining[idx];
+        var candArea = cand.value * scale;
+        var newArea = rowArea + candArea;
+        var minA = candArea, maxA = candArea;
+        for (var k = 0; k < row.length; k++){
+          var ra = row[k].value * scale;
+          if (ra < minA) minA = ra;
+          if (ra > maxA) maxA = ra;
+        }
+        var s2 = shortSide * shortSide;
+        var a2 = newArea * newArea;
+        var newWorst = Math.max((s2 * maxA) / a2, a2 / (s2 * minA));
+        if (row.length === 0 || newWorst <= bestWorst){
+          row.push(cand);
+          rowArea = newArea;
+          bestWorst = newWorst;
+          idx++;
+        } else {
+          break;
+        }
+      }
+      var stripThickness = rowArea / shortSide;
+      var pos = 0;
+      var j;
+      if (w >= h){
+        for (j = 0; j < row.length; j++){
+          var ih = (row[j].value * scale) / stripThickness;
+          out.push(Object.assign({}, row[j], { x: x, y: y + pos, w: stripThickness, h: ih }));
+          pos += ih;
+        }
+        step(remaining.slice(idx), x + stripThickness, y, w - stripThickness, h);
+      } else {
+        for (j = 0; j < row.length; j++){
+          var iw = (row[j].value * scale) / stripThickness;
+          out.push(Object.assign({}, row[j], { x: x + pos, y: y, w: iw, h: stripThickness }));
+          pos += iw;
+        }
+        step(remaining.slice(idx), x, y + stripThickness, w, h - stripThickness);
+      }
+    }
+    step(items.slice(), x0, y0, w0, h0);
+    return out;
+  }
+
+  function heatmapColorParts(pct){
+    if (pct == null || !isFinite(pct)){
+      return { dir: 'zero', intensity: 0 };
+    }
+    var sat = HEATMAP_PCT_SAT;
+    var clipped = Math.max(-sat, Math.min(sat, pct));
+    if (clipped > 0) return { dir: 'pos', intensity: clipped / sat };
+    if (clipped < 0) return { dir: 'neg', intensity: -clipped / sat };
+    return { dir: 'zero', intensity: 0 };
+  }
+
+  function heatmapFmtBigDollars(n){
+    if (n == null || !isFinite(n)) return '—';
+    var abs = Math.abs(n);
+    if (abs >= 1e12) return '$' + (n / 1e12).toFixed(2) + 'T';
+    if (abs >= 1e9)  return '$' + (n / 1e9).toFixed(2) + 'B';
+    if (abs >= 1e6)  return '$' + (n / 1e6).toFixed(1) + 'M';
+    return '$' + Math.round(n).toLocaleString();
+  }
+  function heatmapFmtPct(p){
+    if (p == null || !isFinite(p)) return '—';
+    var sign = p > 0 ? '+' : '';
+    return sign + p.toFixed(2) + '%';
+  }
+
+  function renderHeatmap(){
+    var root = $('heatmap-root');
+    if (!root) return;
+    var eyebrow = $('heatmap-eyebrow');
+    var data = heatmapState.data;
+    if (!data){ root.textContent = 'Loading heatmap…'; return; }
+    if (data.loadError){
+      root.classList.add('is-empty');
+      root.textContent = 'Heatmap data unavailable — try reloading.';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    var tickers = Array.isArray(data.tickers) ? data.tickers : [];
+    if (!tickers.length){
+      root.classList.add('is-empty');
+      root.textContent = 'No tickers to plot yet — the next daily build will populate this view.';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    root.classList.remove('is-empty');
+
+    // Group by selected key. Within each group, sort descending by market
+    // cap so the squarified layout produces predictable, biggest-first
+    // strips. Group order is also descending by sum-market-cap so the
+    // dominant sectors land in the upper-left.
+    var groupKey = heatmapState.groupBy === 'industry' ? 'i' : 's';
+    var groupMap = {};
+    for (var i = 0; i < tickers.length; i++){
+      var t = tickers[i];
+      var key = t[groupKey] || (groupKey === 'i' ? (t.s || 'Other') : 'Other');
+      if (!groupMap[key]) groupMap[key] = { name: key, items: [], total: 0 };
+      groupMap[key].items.push(t);
+      groupMap[key].total += t.mc;
+    }
+    var groups = Object.keys(groupMap).map(function(k){
+      return { name: k, value: groupMap[k].total, items: groupMap[k].items };
+    }).sort(function(a, b){ return b.value - a.value; });
+
+    // Container is 100% x 100% — we operate in % units.
+    var groupRects = heatmapSquarify(groups, 0, 0, 100, 100);
+
+    // For each group rect, run a nested squarified layout on its tickers,
+    // remapping the inner % units to the parent rect.
+    var html = '';
+    var rootHeight = root.clientHeight || 600;
+    for (var g = 0; g < groupRects.length; g++){
+      var gr = groupRects[g];
+      var items = gr.items.slice().sort(function(a, b){ return b.mc - a.mc; });
+      var inner = items.map(function(it){ return Object.assign({}, it, { value: it.mc }); });
+      // Reserve ~13px at the top for the sector label, capped at 8% of
+      // the sector's own height (anything more eats too much of a small
+      // sector). Sectors shorter than 48px hide the label entirely —
+      // it'd be unreadable anyway.
+      var sectorPxH = rootHeight * gr.h / 100;
+      var showLabel = sectorPxH >= 48;
+      var labelPad = showLabel ? Math.min(8, 13 / sectorPxH * 100) : 0;
+      if (!isFinite(labelPad) || labelPad < 0) labelPad = 0;
+      var innerY = labelPad;
+      var innerH = Math.max(0, 100 - labelPad);
+      var innerRects = heatmapSquarify(inner, 0, innerY, 100, innerH);
+
+      html += '<div class="heatmap-sector" style="' +
+        '--x:' + gr.x.toFixed(3) + ';' +
+        '--y:' + gr.y.toFixed(3) + ';' +
+        '--w:' + gr.w.toFixed(3) + ';' +
+        '--h:' + gr.h.toFixed(3) + ';' +
+      '">';
+      if (showLabel) html += '<div class="heatmap-sector-label">' + escapeHtml(gr.name) + '</div>';
+
+      var rootW = root.clientWidth || 1000;
+      for (var k = 0; k < innerRects.length; k++){
+        var rect = innerRects[k];
+        // Tiles are children of .heatmap-sector and use sector-local %
+        // coords directly, so we only need pixel sizes for tiny-tile +
+        // font-size decisions.
+        var pxH = rootHeight * gr.h / 100 * rect.h / 100;
+        var pxW = rootW * gr.w / 100 * rect.w / 100;
+        var tinyCls = (pxH < HEATMAP_TINY_PX || pxW < 36) ? ' is-tiny' : '';
+        var ch = rect.ch;
+        var color = heatmapColorParts(ch);
+        // Font sizing scales with tile dimensions so big sectors stay
+        // legible without making tiny ones blow out their box.
+        var symSize = Math.min(28, Math.max(9, Math.round(Math.min(pxH * 0.42, pxW * 0.22))));
+        var pctSize = Math.max(9, Math.round(symSize * 0.72));
+        html +=
+          '<button type="button" class="heatmap-tile' + tinyCls + '" ' +
+            'data-sym="' + escapeHtml(rect.t) + '" ' +
+            'data-name="' + escapeHtml(rect.n || rect.t) + '" ' +
+            'data-mc="' + rect.mc + '" ' +
+            'data-ch="' + ch + '" ' +
+            'data-sp="' + (rect.sp != null ? rect.sp : '') + '" ' +
+            'data-sec="' + escapeHtml(rect.s || '') + '" ' +
+            'data-ind="' + escapeHtml(rect.i || '') + '" ' +
+            'data-dir="' + color.dir + '" ' +
+            'style="' +
+              '--x:' + rect.x.toFixed(3) + ';' +
+              '--y:' + rect.y.toFixed(3) + ';' +
+              '--w:' + rect.w.toFixed(3) + ';' +
+              '--h:' + rect.h.toFixed(3) + ';' +
+              '--hm-intensity:' + color.intensity.toFixed(3) + ';' +
+              '--hm-sym-size:' + symSize + 'px;' +
+              '--hm-pct-size:' + pctSize + 'px;' +
+            '" ' +
+            'aria-label="' + escapeHtml(rect.t + ', ' + heatmapFmtPct(ch)) + '">' +
+            '<span class="heatmap-tile-sym">' + escapeHtml(rect.t) + '</span>' +
+            '<span class="heatmap-tile-pct">' + escapeHtml(heatmapFmtPct(ch)) + '</span>' +
+          '</button>';
+      }
+      html += '</div>';
+    }
+
+    // Tooltip element lives at the end so it overlays everything.
+    html += '<div class="heatmap-tooltip" id="heatmap-tooltip" hidden></div>';
+
+    root.innerHTML = html;
+    bindHeatmapTileEvents(root);
+
+    if (eyebrow){
+      // Prefer refreshedAtIso when the hourly refresh has run — its
+      // freshness is what makes the heatmap useful intraday. Fall back
+      // to builtAtIso for builds that pre-date the hourly pipeline.
+      var iso = data.refreshedAtIso || data.builtAtIso || '';
+      var when = iso ? new Date(iso) : null;
+      var ageLabel = '';
+      if (when && !isNaN(when.getTime())){
+        var ageMin = Math.max(0, Math.round((Date.now() - when.getTime()) / 60000));
+        if (ageMin < 1) ageLabel = 'just now';
+        else if (ageMin < 60) ageLabel = ageMin + ' min ago';
+        else if (ageMin < 24 * 60) ageLabel = Math.round(ageMin / 60) + ' h ago';
+        else ageLabel = Math.round(ageMin / 60 / 24) + ' d ago';
+      }
+      var mkt = data.marketState ? ' · ' + data.marketState : '';
+      eyebrow.textContent =
+        tickers.length + ' tickers · refreshed ' + (ageLabel || '—') + mkt;
+    }
+    // If live mode was toggled before render finished, kick it now so the
+    // freshly-rendered tiles get their first live overlay pass.
+    if (heatmapState.live && !heatmapState.livePollTimer) startHeatmapLivePolling();
+    // If we already have cached live data, re-apply it on top of the
+    // freshly-rendered tiles (otherwise toggling group-by would discard
+    // a long-running live overlay).
+    applyHeatmapLiveOverlay();
+  }
+
+  function bindHeatmapTileEvents(root){
+    var tooltip = $('heatmap-tooltip');
+    function onClick(ev){
+      var btn = ev.target && ev.target.closest && ev.target.closest('.heatmap-tile');
+      if (!btn) return;
+      var sym = btn.getAttribute('data-sym');
+      if (!sym) return;
+      var tab = document.querySelector('[data-page-tab="tickers"]');
+      if (tab) tab.click();
+      // Defer the commit so the tickers pane is visible (the symbol-input
+      // sits inside it; combo.commit reads input.value).
+      setTimeout(function(){ if (combo && typeof combo.commit === 'function') combo.commit(sym); }, 0);
+    }
+    function onMove(ev){
+      var btn = ev.target && ev.target.closest && ev.target.closest('.heatmap-tile');
+      if (!btn || !tooltip){ if (tooltip) tooltip.hidden = true; return; }
+      var sym = btn.getAttribute('data-sym');
+      var name = btn.getAttribute('data-name') || sym;
+      var mc = Number(btn.getAttribute('data-mc'));
+      var ch = Number(btn.getAttribute('data-ch'));
+      var sp = Number(btn.getAttribute('data-sp'));
+      var sec = btn.getAttribute('data-sec') || '';
+      var ind = btn.getAttribute('data-ind') || '';
+      var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
+      var rows = '';
+      rows += '<div class="heatmap-tooltip-row"><span>Change</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
+      if (isFinite(sp) && sp > 0) rows += '<div class="heatmap-tooltip-row"><span>Spot</span><span>' + escapeHtml(fmtMoney(sp)) + '</span></div>';
+      if (isFinite(mc) && mc > 0) rows += '<div class="heatmap-tooltip-row"><span>Market cap</span><span>' + escapeHtml(heatmapFmtBigDollars(mc)) + '</span></div>';
+      if (sec) rows += '<div class="heatmap-tooltip-row"><span>Sector</span><span>' + escapeHtml(sec) + '</span></div>';
+      if (ind && ind !== sec) rows += '<div class="heatmap-tooltip-row"><span>Industry</span><span>' + escapeHtml(ind) + '</span></div>';
+      tooltip.innerHTML =
+        '<div class="heatmap-tooltip-head">' + escapeHtml(sym) + '</div>' +
+        (name && name !== sym ? '<div class="heatmap-tooltip-name">' + escapeHtml(name) + '</div>' : '') +
+        rows;
+      var rootRect = root.getBoundingClientRect();
+      var tipW = 240, tipH = 120;
+      var x = ev.clientX - rootRect.left + 14;
+      var y = ev.clientY - rootRect.top + 14;
+      if (x + tipW > rootRect.width) x = ev.clientX - rootRect.left - tipW - 12;
+      if (y + tipH > rootRect.height) y = ev.clientY - rootRect.top - tipH - 12;
+      if (x < 0) x = 4;
+      if (y < 0) y = 4;
+      tooltip.style.setProperty('--tip-x', x + 'px');
+      tooltip.style.setProperty('--tip-y', y + 'px');
+      tooltip.hidden = false;
+    }
+    function onLeave(){ if (tooltip) tooltip.hidden = true; }
+    root.addEventListener('click', onClick);
+    root.addEventListener('mousemove', onMove);
+    root.addEventListener('mouseleave', onLeave);
+  }
+
+  // Live overlay polling — only runs while the heatmap tab is the active
+  // page tab AND the user has toggled live mode on. /api/quotes batches
+  // up to 150 symbols per request so the whole curated list lands in one
+  // round trip. Drops back to baked colors silently on a network error.
+  function startHeatmapLivePolling(){
+    if (!heatmapState.live) return;
+    if (heatmapState.livePollTimer) return;
+    var pane = document.getElementById('page-pane-heatmap');
+    if (!pane || pane.hidden) return;
+    pollHeatmapLiveOnce();
+    heatmapState.livePollTimer = setInterval(pollHeatmapLiveOnce, 30000);
+  }
+  function stopHeatmapLivePolling(clearOverlay){
+    if (heatmapState.livePollTimer){
+      clearInterval(heatmapState.livePollTimer);
+      heatmapState.livePollTimer = null;
+    }
+    if (clearOverlay){
+      heatmapState.liveOverlay = {};
+      var stateEl = $('heatmap-live-state');
+      if (stateEl){ stateEl.className = 'heatmap-live-state'; stateEl.textContent = ''; }
+      // Restore baked colors.
+      if (heatmapState.data) renderHeatmap();
+    }
+  }
+  function pollHeatmapLiveOnce(){
+    var data = heatmapState.data;
+    if (!data || !Array.isArray(data.tickers) || !data.tickers.length){
+      stopHeatmapLivePolling(false);
+      return;
+    }
+    var stateEl = $('heatmap-live-state');
+    var syms = data.tickers.map(function(t){ return t.t; });
+    var url = 'api/quotes?symbols=' + encodeURIComponent(syms.join(','));
+    fetch(url, { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
+        var overlay = {};
+        var marketState = null;
+        for (var i = 0; i < quotes.length; i++){
+          var q = quotes[i];
+          if (!q || !q.symbol || q.changePct == null) continue;
+          var prev = heatmapState.liveOverlay[q.symbol];
+          overlay[q.symbol] = {
+            ch: Math.round(Number(q.changePct) * 100) / 100,
+            sp: q.spot,
+            marketState: q.marketState,
+            prevSpot: prev ? prev.sp : null,
+          };
+          if (!marketState && q.marketState) marketState = q.marketState;
+        }
+        heatmapState.liveOverlay = overlay;
+        applyHeatmapLiveOverlay();
+        if (stateEl){
+          stateEl.className = 'heatmap-live-state is-live';
+          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        }
+      })
+      .catch(function(){
+        if (stateEl){
+          stateEl.className = 'heatmap-live-state is-error';
+          stateEl.textContent = 'Live unavailable — showing baked close';
+        }
+      });
+  }
+  function applyHeatmapLiveOverlay(){
+    var overlay = heatmapState.liveOverlay || {};
+    var root = $('heatmap-root');
+    if (!root) return;
+    var tiles = root.querySelectorAll('.heatmap-tile');
+    for (var i = 0; i < tiles.length; i++){
+      var tile = tiles[i];
+      var sym = tile.getAttribute('data-sym');
+      if (!sym) continue;
+      var live = overlay[sym];
+      tile.classList.remove('is-live-up');
+      tile.classList.remove('is-live-down');
+      if (!live) continue;
+      var ch = live.ch;
+      var color = heatmapColorParts(ch);
+      tile.setAttribute('data-dir', color.dir);
+      tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
+      tile.setAttribute('data-ch', ch);
+      if (live.sp != null) tile.setAttribute('data-sp', live.sp);
+      var pctEl = tile.querySelector('.heatmap-tile-pct');
+      if (pctEl) pctEl.textContent = heatmapFmtPct(ch);
+      // Flash a subtle outline when the spot ticked since the last poll
+      // so the user can see motion even on small tiles. Cleared on the
+      // next poll cycle.
+      if (live.prevSpot != null && live.sp != null && live.sp !== live.prevSpot){
+        tile.classList.add(live.sp > live.prevSpot ? 'is-live-up' : 'is-live-down');
+      }
+    }
   }
 
   // --- Top picks tab ------------------------------------------------------

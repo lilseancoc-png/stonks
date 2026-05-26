@@ -663,6 +663,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="heatmap" aria-selected="false" aria-controls="page-pane-heatmap" id="page-tab-heatmap">Heatmap</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
@@ -814,6 +815,35 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
   ${topPicksSection()}
+  </div>
+  <div class="page-pane" id="page-pane-heatmap" role="tabpanel" aria-labelledby="page-tab-heatmap" hidden>
+    <section class="card" id="heatmap-section">
+      <header class="card-header">
+        <h2 class="card-title">Market heatmap</h2>
+        <span class="card-eyebrow" id="heatmap-eyebrow" aria-live="polite"></span>
+      </header>
+      <p class="hint">A Finviz-style market map of our curated tickers. Each tile is sized by market cap and colored by today's % change — deeper green for bigger gainers, deeper red for bigger losers. Grouped by sector. Click a tile to jump to that ticker. ETFs are surfaced on the Bonds &amp; USD tab.</p>
+      <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
+        <label class="heatmap-control">
+          <span class="heatmap-control-label">Group by</span>
+          <select id="heatmap-group-select" aria-label="Group heatmap by">
+            <option value="sector">Sector</option>
+            <option value="industry">Industry</option>
+          </select>
+        </label>
+        <label class="heatmap-control heatmap-live-toggle">
+          <input type="checkbox" id="heatmap-live-toggle" />
+          <span class="heatmap-control-label">Live overlay</span>
+        </label>
+        <span class="heatmap-live-state" id="heatmap-live-state" aria-live="polite"></span>
+      </div>
+      <div id="heatmap-root" class="heatmap-root">Loading heatmap…</div>
+      <div class="heatmap-legend" aria-hidden="true">
+        <span class="heatmap-legend-label">−3%</span>
+        <span class="heatmap-legend-bar"></span>
+        <span class="heatmap-legend-label">+3%</span>
+      </div>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
   ${calendarSection()}

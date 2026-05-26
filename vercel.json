@@ -7,6 +7,9 @@
     "api/quote.js": {
       "maxDuration": 10
     },
+    "api/quotes.js": {
+      "maxDuration": 15
+    },
     "api/chain.js": {
       "maxDuration": 10
     },
@@ -23,6 +26,12 @@
   "headers": [
     {
       "source": "/data/unusual(.*)\\.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=60, s-maxage=60, stale-while-revalidate=3600" }
+      ]
+    },
+    {
+      "source": "/data/heatmap\\.json",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=60, s-maxage=60, stale-while-revalidate=3600" }
       ]
