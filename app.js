@@ -5084,17 +5084,32 @@
       if (q && sym.indexOf(q) === -1) return;
       if (!contracts.length) return;
       var topDelta = contracts.reduce(function(acc, c){ return Math.max(acc, c.deltaVol || 0); }, 0);
+      var totalVol = contracts.reduce(function(acc, c){ return acc + (c.vol || 0); }, 0);
+      var totalPremium = contracts.reduce(function(acc, c){ return acc + (c.premium || 0); }, 0);
+      var topRepeat = contracts.reduce(function(acc, c){ return Math.max(acc, c.repeatCount || 0); }, 0);
       out.push({
         symbol: t.symbol,
         spot: t.spot,
         contracts: contracts,
         topDelta: topDelta,
+        totalVol: totalVol,
+        totalPremium: totalPremium,
+        topRepeat: topRepeat,
       });
     });
     if (flowState.sort === 'delta'){
       out.sort(function(a, b){ return (b.topDelta || 0) - (a.topDelta || 0); });
     } else if (flowState.sort === 'contracts'){
       out.sort(function(a, b){ return b.contracts.length - a.contracts.length; });
+    } else if (flowState.sort === 'volume'){
+      out.sort(function(a, b){ return (b.totalVol || 0) - (a.totalVol || 0); });
+    } else if (flowState.sort === 'premium'){
+      out.sort(function(a, b){ return (b.totalPremium || 0) - (a.totalPremium || 0); });
+    } else if (flowState.sort === 'repeats'){
+      out.sort(function(a, b){
+        var diff = (b.topRepeat || 0) - (a.topRepeat || 0);
+        return diff !== 0 ? diff : (b.topDelta || 0) - (a.topDelta || 0);
+      });
     } else if (flowState.sort === 'alpha'){
       out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
     }
@@ -5270,7 +5285,8 @@
   // (populated by the volume pass in scripts/scan-unusual.mjs). See
   // lib/volume-flags.mjs for the flag classification rules.
   var VOLUME_FLAGS = MANIFEST.volumeFlags || null;
-  var volState = { search: '', filter: 'all' };
+  var volState = { search: '', filter: 'all', sort: 'ratio' };
+  var VOL_SR_RANK = { 'Strong Alert': 3, 'Watch': 2, 'Likely Fakeout': 1 };
 
   function fmtVolNum(n){
     if (n == null || !isFinite(n)) return '—';
@@ -5304,6 +5320,63 @@
       if (volState.filter === 'eod' && !hasEod) continue;
       if (volState.filter === 'all' && !hasHourly && !hasSr && !hasEod) continue;
       out.push(t);
+    }
+    function topRatio(t){
+      var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+      var m = 0;
+      for (var i = 0; i < buckets.length; i++){
+        var r = buckets[i] && buckets[i].volRatio;
+        if (r != null && isFinite(r) && r > m) m = r;
+      }
+      return m;
+    }
+    function topSrRank(t){
+      var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+      var m = 0;
+      for (var i = 0; i < buckets.length; i++){
+        var sr = buckets[i] && buckets[i].srBreak;
+        if (sr && sr.conviction){
+          var r = VOL_SR_RANK[sr.conviction] || 0;
+          if (r > m) m = r;
+        }
+      }
+      return m;
+    }
+    function maxAbsMove(t){
+      var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+      var m = (t.eod && t.eod.dayMovePct != null) ? Math.abs(Number(t.eod.dayMovePct)) : 0;
+      for (var i = 0; i < buckets.length; i++){
+        var p = buckets[i] && buckets[i].priceMovePct;
+        if (p != null && isFinite(p)){
+          var a = Math.abs(Number(p));
+          if (a > m) m = a;
+        }
+      }
+      return m;
+    }
+    if (volState.sort === 'ratio'){
+      out.sort(function(a, b){ return topRatio(b) - topRatio(a); });
+    } else if (volState.sort === 'eod'){
+      out.sort(function(a, b){
+        var ea = (a.eod && a.eod.ratio != null) ? Number(a.eod.ratio) : -1;
+        var eb = (b.eod && b.eod.ratio != null) ? Number(b.eod.ratio) : -1;
+        return eb - ea;
+      });
+    } else if (volState.sort === 'dayvol'){
+      out.sort(function(a, b){
+        var va = (a.eod && a.eod.dayVol != null) ? Number(a.eod.dayVol) : -1;
+        var vb = (b.eod && b.eod.dayVol != null) ? Number(b.eod.dayVol) : -1;
+        return vb - va;
+      });
+    } else if (volState.sort === 'move'){
+      out.sort(function(a, b){ return maxAbsMove(b) - maxAbsMove(a); });
+    } else if (volState.sort === 'sr'){
+      out.sort(function(a, b){
+        var diff = topSrRank(b) - topSrRank(a);
+        return diff !== 0 ? diff : topRatio(b) - topRatio(a);
+      });
+    } else if (volState.sort === 'alpha'){
+      out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
     }
     return out;
   }
@@ -5474,6 +5547,14 @@
           p.classList.toggle('is-on', on);
           p.setAttribute('aria-checked', on ? 'true' : 'false');
         });
+        renderVolumeFlags();
+      });
+    }
+    var sortSel = $('vol-sort-select');
+    if (sortSel){
+      sortSel.value = volState.sort;
+      sortSel.addEventListener('change', function(){
+        volState.sort = sortSel.value || 'ratio';
         renderVolumeFlags();
       });
     }
@@ -7318,7 +7399,7 @@
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
   // to refresh.
-  var picksState = { data: null, loading: false };
+  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false };
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
@@ -7588,7 +7669,79 @@
       '<button type="button" class="pick-contract-grade"' + btnAttrs + '>Grade this contract →</button>' +
     '</div>';
   }
+  function pickPremium(p){
+    var c = p && p.contract;
+    if (!c) return null;
+    if (c.mid != null && isFinite(c.mid)) return Number(c.mid);
+    if (c.last != null && isFinite(c.last)) return Number(c.last);
+    if (c.bid != null && c.ask != null && isFinite(c.bid) && isFinite(c.ask)) return (Number(c.bid) + Number(c.ask)) / 2;
+    return null;
+  }
+  function sortPicks(picks, sort){
+    var arr = picks.slice();
+    // Stable secondary sort: keep original order (conviction desc) when keys tie.
+    arr.forEach(function(p, i){ p.__origIdx = i; });
+    function tiebreak(a, b){ return a.__origIdx - b.__origIdx; }
+    function nullsLast(v){ return (v == null || !isFinite(v)) ? Infinity : v; }
+    function nullsLastNeg(v){ return (v == null || !isFinite(v)) ? -Infinity : v; }
+    if (sort === 'alpha'){
+      arr.sort(function(a, b){
+        var cmp = String(a.symbol || '').localeCompare(String(b.symbol || ''));
+        return cmp || tiebreak(a, b);
+      });
+    } else if (sort === 'sector'){
+      arr.sort(function(a, b){
+        var sa = String(a.sector || 'zzz').toLowerCase();
+        var sb = String(b.sector || 'zzz').toLowerCase();
+        var cmp = sa.localeCompare(sb);
+        return cmp || tiebreak(a, b);
+      });
+    } else if (sort === 'side'){
+      arr.sort(function(a, b){
+        var ra = a.side === 'put' ? 1 : 0;
+        var rb = b.side === 'put' ? 1 : 0;
+        var cmp = ra - rb;
+        return cmp || tiebreak(a, b);
+      });
+    } else if (sort === 'dte'){
+      arr.sort(function(a, b){
+        var da = nullsLast(a.contract && a.contract.dte);
+        var db = nullsLast(b.contract && b.contract.dte);
+        var cmp = da - db;
+        return cmp || tiebreak(a, b);
+      });
+    } else if (sort === 'breakeven'){
+      arr.sort(function(a, b){
+        var va = nullsLast(Math.abs(a.contract && a.contract.breakevenMovePct));
+        var vb = nullsLast(Math.abs(b.contract && b.contract.breakevenMovePct));
+        var cmp = va - vb;
+        return cmp || tiebreak(a, b);
+      });
+    } else if (sort === 'premium'){
+      arr.sort(function(a, b){
+        var va = nullsLast(pickPremium(a));
+        var vb = nullsLast(pickPremium(b));
+        var cmp = va - vb;
+        return cmp || tiebreak(a, b);
+      });
+    }
+    arr.forEach(function(p){ delete p.__origIdx; });
+    void nullsLastNeg;
+    return arr;
+  }
+  function bindPicksControls(){
+    if (picksState.sortBound) return;
+    var sel = $('picks-sort-select');
+    if (!sel) return;
+    picksState.sortBound = true;
+    sel.value = picksState.sort;
+    sel.addEventListener('change', function(){
+      picksState.sort = sel.value || 'conviction';
+      renderPicks();
+    });
+  }
   function renderPicks(){
+    bindPicksControls();
     var root = $('picks-root');
     var empty = $('picks-empty');
     var eyebrow = $('picks-eyebrow');
@@ -7602,7 +7755,8 @@
       return;
     }
     var data = picksState.data || { picks: [] };
-    var picks = Array.isArray(data.picks) ? data.picks : [];
+    var picksRaw = Array.isArray(data.picks) ? data.picks : [];
+    var picks = sortPicks(picksRaw, picksState.sort);
     if (eyebrow){
       eyebrow.textContent = picks.length + ' pick' + (picks.length === 1 ? '' : 's') + ' · rebuilt with each daily refresh';
     }
@@ -7967,7 +8121,8 @@
     if (picksBtn){
       picksBtn.addEventListener('click', function(){
         var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
-        var picks = Array.isArray(data.picks) ? data.picks : [];
+        var picksRaw = Array.isArray(data.picks) ? data.picks : [];
+        var picks = sortPicks(picksRaw, picksState.sort);
         var rows = picks.map(function(p){
           var c = p.contract || {};
           return {

@@ -5671,6 +5671,68 @@ main { padding-top: var(--s-2); }
 .pick-card.call .pick-conv-value { color: color-mix(in srgb, var(--pos) 65%, var(--text-strong)); }
 .pick-card.put  .pick-conv-value { color: color-mix(in srgb, var(--neg) 65%, var(--text-strong)); }
 
+/* Controls bar above the picks list — currently just a sort dropdown. */
+.picks-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+  margin: 0 0 12px;
+}
+.picks-sort,
+.streaks-sort,
+.vol-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.picks-sort-label,
+.streaks-sort-label,
+.vol-sort-label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.picks-sort select,
+.streaks-sort select,
+.vol-sort select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.picks-sort select:focus-visible,
+.streaks-sort select:focus-visible,
+.vol-sort select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+.vol-sort { margin-left: auto; }
+@media (max-width: 640px){
+  .vol-sort { margin-left: 0; }
+  .picks-sort-label,
+  .streaks-sort-label,
+  .vol-sort-label { display: none; }
+}
+
+/* Streaks controls row — sort selector sits just above the two-column
+   bullish/bearish grid. */
+.streaks-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+  margin: 0 0 12px;
+}
+
 /* Summary strip — small chip row above the cards that shows the shape of
    today's picks (counts of call/put, average conviction, any earnings-window
    contracts) so the user can read the list's character before scrolling. */
