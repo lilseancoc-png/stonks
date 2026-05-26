@@ -1335,6 +1335,23 @@ main {
 }
 .narr-chip.long  { border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
 .narr-chip.short { border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+/* Clickable ticker chips inside narrative cards — they're rendered as
+   buttons whenever the symbol is in our curated list so users can jump
+   straight to the Grade tab from the thesis. */
+button.narr-chip {
+  font: inherit;
+  cursor: pointer;
+  letter-spacing: inherit;
+  transition: background .12s var(--ease-out), border-color .12s var(--ease-out), transform .12s var(--ease-out);
+}
+button.narr-chip:hover {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  transform: translateY(-1px);
+}
+button.narr-chip.long:hover  { border-color: color-mix(in srgb, var(--pos) 60%, transparent); }
+button.narr-chip.short:hover { border-color: color-mix(in srgb, var(--neg) 60%, transparent); }
+button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .narr-ended { margin-top: var(--s-4); }
 .narr-ended:empty { display: none; }
 .narr-ended-head {
@@ -1432,7 +1449,10 @@ main {
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .narr-strength-fill.mid { background: var(--accent); opacity: 0.85; }
-.narr-strength-fill.lo  { background: var(--warn); opacity: 0.8; }
+.narr-strength-fill.lo  {
+  background: color-mix(in srgb, var(--muted) 65%, var(--border-strong));
+  opacity: 0.9;
+}
 .narr-strength-num {
   font-family: var(--font-mono);
   font-size: 11px; font-weight: 700;
@@ -1440,6 +1460,33 @@ main {
   color: var(--muted);
   min-width: 28px; text-align: right;
 }
+/* Strength momentum — change vs the most recent prior narrative snapshot.
+   Lazy-fetched from data/trends-history.json once the Narratives tab is
+   open; shows ▲+5 / ▼-3 next to the strength number. Color-coded by sign. */
+.narr-delta {
+  font-family: var(--font-mono);
+  font-size: 10px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  line-height: 1.4;
+  min-width: 36px; text-align: center;
+}
+.narr-delta.up {
+  color: var(--pos);
+  border-color: color-mix(in srgb, var(--pos) 35%, transparent);
+  background: var(--pos-soft);
+}
+.narr-delta.down {
+  color: var(--neg);
+  border-color: color-mix(in srgb, var(--neg) 35%, transparent);
+  background: var(--neg-soft);
+}
+.narr-delta.flat { opacity: 0.6; }
 /* Red-flag / watch-for panel — the catalysts that would FLIP this narrative.
    Used by both the per-narrative card and the sector overview banner. Styled
    as a "danger watchlist" with a warm accent border so it visually pops vs.
@@ -1616,6 +1663,201 @@ main {
   white-space: nowrap;
 }
 .narr-macro-title { color: var(--text); }
+
+/* Macro shell — top-3 pill strip + collapsed full list. Replaces the
+   purely-collapsed details so the user can see the freshest macro hits
+   without clicking. */
+.narr-macro-shell {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  display: flex; flex-direction: column; gap: var(--s-2);
+}
+.narr-macro-bar {
+  display: flex; align-items: baseline; gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.narr-macro-pills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+@media (max-width: 720px) { .narr-macro-pills { grid-template-columns: 1fr; } }
+.narr-macro-pill {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  cursor: default;
+  text-decoration: none;
+  min-width: 0;
+}
+.narr-macro-pill-date {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.narr-macro-pill-pub {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--accent-strong);
+}
+.narr-macro-pill-title {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.narr-macro-shell .narr-macro-details {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  border-top: 1px dashed var(--hairline);
+  border-radius: 0;
+  padding-top: var(--s-2);
+}
+.narr-macro-shell .narr-macro-details > summary {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.narr-macro-shell .narr-macro-details > summary::after {
+  content: '+';
+}
+.narr-macro-shell .narr-macro-details[open] > summary::after { content: '−'; }
+
+/* Confidence — replaces the "Conf · High" text tag with a 3-dot indicator
+   that visually mirrors signal-strength rows used elsewhere in the app. */
+.narr-conf {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.narr-conf-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.narr-conf-dots {
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.narr-conf-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  display: inline-block;
+}
+.narr-conf-dot.is-on { background: var(--accent-strong); }
+
+/* Fresh badge — narratives whose first detection is today's build. */
+.narr-tag.fresh {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.narr.is-fresh .narr-accent {
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Sector tab stance dot — color-keyed to sectorOverviews[sec].stance so
+   users read the top-down view (bullish / bearish / mixed) per sector at
+   a glance, without clicking each tab. */
+.narr-tab-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  flex: 0 0 auto;
+}
+.narr-tab-dot.is-bullish { background: var(--pos); box-shadow: 0 0 4px color-mix(in srgb, var(--pos) 40%, transparent); }
+.narr-tab-dot.is-bearish { background: var(--neg); box-shadow: 0 0 4px color-mix(in srgb, var(--neg) 40%, transparent); }
+.narr-tab-dot.is-mixed   { background: var(--warn); box-shadow: 0 0 4px color-mix(in srgb, var(--warn) 40%, transparent); }
+
+/* Sector rollup strip — bullish/bearish split, building count, fresh count,
+   plus the tickers driving the sector (most-frequently-cited across narratives).
+   Sits between the stance pill and the strength bar in the overview banner. */
+.narr-sec-stats {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.narr-sec-stat strong {
+  color: var(--text);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-right: 3px;
+}
+.narr-sec-stat.is-pos strong   { color: var(--pos); }
+.narr-sec-stat.is-neg strong   { color: var(--neg); }
+.narr-sec-stat.is-warn strong  { color: var(--warn); }
+.narr-sec-stat.is-accent strong{ color: var(--accent-strong); }
+.narr-sec-stat-sep {
+  color: var(--border-strong);
+  margin: 0 1px;
+}
+.narr-sec-drivers {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--s-1);
+}
+.narr-sec-drivers-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.narr-sec-driver-list {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  align-items: center;
+}
+.narr-sec-driver-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  margin-right: 4px;
+  margin-left: -2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Source compactness — wrap overflow titles and tuck overflow entries
+   behind a "+N more" toggle so the source list doesn't dominate the card
+   when a narrative has 5+ citations. */
+.narr-sources-more {
+  margin-top: 4px;
+}
+.narr-sources-more > summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 0;
+}
+.narr-sources-more > summary::-webkit-details-marker { display: none; }
+.narr-sources-more > summary:hover { color: var(--text); }
+.narr-sources-more[open] > summary::before { content: '− '; }
+.narr-sources-more:not([open]) > summary::before { content: '+ '; }
+.narr-sources-more > .narr-sources-list { margin-top: 4px; }
+.narr-source-title { word-break: break-word; }
 
 /* === Option eval card === */
 .opt-controls {
