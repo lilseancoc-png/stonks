@@ -2774,8 +2774,11 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   }
 
   // Ticker-specific catalysts (FDA dates, contract decisions, product launches,
-  // court rulings, M&A close dates, investor days, …) extracted by the
-  // per-ticker Gemini news-take call from supplied article material. Each is
+  // court rulings, M&A close dates, investor days, major dev conferences like
+  // WWDC/GTC/Build/I/O, …) extracted by the per-ticker Gemini news-take call.
+  // Source is either the supplied article material OR the model's background
+  // knowledge of widely-known publicly-announced corporate events — see the
+  // CATALYSTS FIELD section of COMBINED_SYSTEM_PROMPT for guardrails. Each is
   // already date-grounded and category-tagged; we only re-apply the window
   // filter here in case a stored catalyst has aged out since the last build.
   for (const [sym, data] of Object.entries(chains)) {
@@ -2795,7 +2798,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
         title,
         category,
         confidence: c.confidence || "medium",
-        source: "AI · article-grounded",
+        source: "AI",
       });
     }
   }
@@ -7040,16 +7043,22 @@ FUNDAMENTALS FIELD — {verdict, summary, earningsRecap, positives, negatives}. 
 - earningsRecap: one sentence covering the last-reported quarter EPS vs estimate (beat / miss / in line) and the next confirmed earnings date if the snapshot provides one. Empty string if no earnings data.
 - positives / negatives: 3-5 items each. Each item is a single sentence citing the metric that drove it (e.g. "Profit margin 28% — best-in-class for the sector", "Forward P/E 45x vs trailing 30x — priced for substantial growth"). If the snapshot only supports fewer, return fewer — do not pad. Only use numbers actually supplied; never invent figures.
 
-CATALYSTS FIELD — array of upcoming, ticker-specific, date-anchored events drawn EXCLUSIVELY from the supplied article material. This is the trader's heads-up calendar for catalysts that move the underlying. Each item is {date, title, category, confidence}.
-- ONLY include an event if the article material (title, body, publisher) explicitly states or strongly implies the event is scheduled for a specific date or window. Examples that qualify: "FDA PDUFA date set for June 14", "NASA contract decision expected May 26", "Investor day on May 28", "court ruling in patent suit due in early June", "Boeing deliveries resume next week", "shareholder vote on the merger scheduled June 3", "product launch event on May 30".
-- DO NOT fabricate dates from your training-data knowledge. If the supplied articles do not mention a specific upcoming date or window, return an empty array — silence beats invention. NEVER manufacture a catalyst to fill the slot.
+CATALYSTS FIELD — array of upcoming, ticker-specific, date-anchored corporate events that move the underlying. Each item is {date, title, category, confidence}.
+
+TWO ALLOWED SOURCES for a catalyst — both must clear the HARD GUARDRAILS below.
+  (a) ARTICLE MATERIAL. The supplied headlines/bodies explicitly state or strongly imply the event is scheduled for a specific date or window. Examples that qualify: "FDA PDUFA date set for June 14", "NASA contract decision expected May 26", "Investor day on May 28", "court ruling in patent suit due in early June", "shareholder vote on the merger scheduled June 3", "product launch event on May 30".
+  (b) BACKGROUND KNOWLEDGE for WIDELY-KNOWN, PUBLICLY-ANNOUNCED, RECURRING-OR-SCHEDULED corporate events that you remember from training data with HIGH CONFIDENCE in the specific date. Qualifying examples: major annual developer/customer conferences with publicly-announced dates (Apple WWDC, NVIDIA GTC, Microsoft Build / Ignite, Google I/O, Meta Connect, AWS re:Invent, Salesforce Dreamforce, Oracle CloudWorld, Adobe MAX, Snowflake Summit), well-publicized product launch events on the corporate calendar (Apple's September iPhone event, Tesla AI Day / Robotaxi events, etc.), scheduled investor days / analyst days / capital markets days, regulator-published PDUFA dates, scheduled M&A vote / close dates that are matter of public record. The event MUST be one you have specific calendar knowledge of for the YEAR in question — not just "this is an annual event that usually happens around X." If you don't remember the specific dates with confidence for THIS year, SKIP IT.
+
+HARD GUARDRAILS (apply to both sources):
+- NEVER invent a date. If you do not remember a specific scheduled date (or 1-2 day window) for the event in the relevant year, do not include it. "Probably sometime in June" / "usually happens in early summer" is NOT good enough — skip it.
+- Confidence "high" only when you are certain of an exact date or 2-3 day window. Use "medium" only when you remember the rough week. Drop "low" items unless they are unusually material.
 - DO NOT include the next earnings date — earnings already get their own dedicated calendar entry from a separate data source. Skip any "next earnings" / "Q? earnings on …" mentions.
 - DO NOT include broad macro events (FOMC, CPI, NFP, jobs report, Fed meetings) — those have their own dedicated calendar entries. Catalysts are TICKER-SPECIFIC corporate events.
 - date: ABSOLUTE date in "YYYY-MM-DD" format. If the article gives a relative phrase ("next Tuesday", "later this month", "Q3"), convert it to an absolute date using the article's published date as the reference point and the supplied "Today's date" anchor. If you cannot pin it to a specific calendar day within 1-2 days of confidence, SKIP the event — do not emit a vague range.
 - Only emit events whose date falls between "Today's date" and 30 days forward. Drop anything farther out or already in the past.
 - title: 2-8 word plain-English label. Example: "FDA PDUFA decision on drug X", "NASA lunar lander contract award", "Q2 product launch event", "Antitrust ruling expected", "Shareholder vote on merger". Be concrete — name the specific event, not "important news".
-- category: must be exactly one of "fda" (PDUFA dates, advisory committee votes, trial readouts), "contract" (government / large customer contract awards, supply deals), "launch" (product launches, model unveilings, store openings, vehicle deliveries starting), "court" (rulings, verdicts, antitrust decisions, settlements), "trial" (clinical trial data readouts that aren't PDUFA), "merger" (M&A close dates, shareholder votes, regulatory approval deadlines), "investor" (investor day, analyst day, capital markets day, AI day), "guidance" (pre-announced guidance update, preliminary results), or "other" (anything else date-anchored that doesn't fit above).
-- confidence: "high" if the date is explicitly stated in the article body or title with a concrete day. "medium" if the date is stated but as a window ("week of June 5", "early June") and you picked a representative day. "low" if you had to do meaningful interpretation. Drop "low" items unless they are unusually material — quality beats quantity.
+- category: must be exactly one of "fda" (PDUFA dates, advisory committee votes, trial readouts), "contract" (government / large customer contract awards, supply deals), "launch" (product launches, model unveilings, store openings, vehicle deliveries starting, major developer/customer conferences like WWDC / GTC / Build / I/O / Connect / re:Invent / Dreamforce / MAX where new products and features are unveiled), "court" (rulings, verdicts, antitrust decisions, settlements), "trial" (clinical trial data readouts that aren't PDUFA), "merger" (M&A close dates, shareholder votes, regulatory approval deadlines), "investor" (investor day, analyst day, capital markets day, AI day), "guidance" (pre-announced guidance update, preliminary results), or "other" (anything else date-anchored that doesn't fit above).
+- confidence: "high" if you know the exact date (whether stated in the article OR remembered from background knowledge with high certainty). "medium" if you know the date as a window ("week of June 5", "early June") and picked a representative day. "low" if you had to do meaningful interpretation. Drop "low" items unless they are unusually material — quality beats quantity.
 - Max 3 catalysts per ticker. Pick the most material if more qualify.
 
 GENERAL RULES.
@@ -7111,7 +7120,20 @@ User input (abridged):
 Expected output:
 {"news":{"paragraph":"MIDX delivered an in-line quarter and reiterated existing guidance — no surprises in either direction. With no fresh catalyst on the tape, price action is likely to track the broader sector. Traders should weigh near-term IV alongside any sector-level rotation.","sentiment":"neutral"},"fundamentals":{"verdict":"mixed","summary":"Steady, modestly growing business with a reasonable multiple.","earningsRecap":"In-line quarter; no next date supplied.","positives":["Forward P/E 14x — undemanding for a profitable name.","Profit margin 11% — consistent if unspectacular.","Debt/Equity 0.6 — leverage is contained."],"negatives":["Revenue growth 4% YoY — barely above inflation, limits multiple expansion.","No visible catalyst to break the range."]},"catalysts":[]}
 
-Example 5 — Small-cap with binary near-term event (catalyst-driven name).
+Example 5 — Background-knowledge source: a major annual conference NOT mentioned in the supplied headlines but on the publicly-announced corporate calendar.
+User input (abridged):
+  Today's date: 2026-05-26
+  Ticker: AAPL
+  Spot price: $200.00
+  Recent headlines:
+    1. [2026-05-26] (Reuters) Apple Services revenue continues to outpace hardware in latest analyst note
+    2. [2026-05-24] (Bloomberg) Apple AI strategy faces scrutiny as iPhone refresh cycle slows
+  Fundamentals snapshot:
+    Trailing P/E: 31, Forward P/E: 28, Revenue growth YoY: 7%
+Expected output:
+{"news":{"paragraph":"Apple's Services strength is the bright spot heading into the next earnings cycle, with hardware growth softer and AI strategy questions hanging over the iPhone refresh narrative. The setup is mixed: services keep compounding, but hardware needs a catalyst to re-rate. Traders should weigh whether the upcoming developer event resets expectations.","sentiment":"neutral"},"fundamentals":{"verdict":"strong","summary":"Premium franchise with deep services moat and durable cash generation.","earningsRecap":"Services growth offset hardware softness last quarter.","positives":["Services revenue compounding at high margins.","Premium multiple supported by capital-return program.","Forward P/E 28x vs trailing 31x — multiple compresses on growth."],"negatives":["Hardware revenue growth has stalled.","AI narrative trails peers, pressuring premium multiple."]},"catalysts":[{"date":"2026-06-08","title":"WWDC 2026 developer conference keynote","category":"launch","confidence":"high"}]}
+
+Example 6 — Small-cap with binary near-term event (catalyst-driven name).
 User input (abridged):
   Today's date: 2026-05-26
   Ticker: LCAT
