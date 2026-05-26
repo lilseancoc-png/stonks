@@ -23,6 +23,15 @@ function fmtMoney(n) {
   return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtShortDate(iso) {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  if (!m) return String(iso);
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" });
+}
+
 function dataUrl() {
   const v = window.STONKS_MANIFEST?.builtAtIso || Date.now().toString();
   return `data/streaks.json?v=${encodeURIComponent(v)}`;
@@ -167,8 +176,16 @@ function entry(t, sectors) {
     const v = Number(m.changePct) || 0;
     const h = Math.max(8, (Math.abs(v) / maxAbs) * 100);
     const cls = v > 0 ? "is-pos" : v < 0 ? "is-neg" : "is-flat";
-    const title = `${m.date || ""}: ${fmtPct(v, 2)}`;
-    return `<span class="streaks-spark-bar ${cls}" style="--h:${h.toFixed(0)}%" title="${escapeHtml(title)}"></span>`;
+    const close = Number(m.close);
+    const prevClose = isFinite(close) && (1 + v / 100) !== 0 ? close / (1 + v / 100) : null;
+    const dollarChg = isFinite(close) && prevClose != null ? close - prevClose : null;
+    const dateLabel = m.date ? fmtShortDate(m.date) : "";
+    const closeLabel = isFinite(close) ? fmtMoney(close) : "—";
+    const dollarLabel = dollarChg != null
+      ? (dollarChg >= 0 ? "+" : "−") + "$" + Math.abs(dollarChg).toFixed(2)
+      : null;
+    const tip = `${dateLabel} · close ${closeLabel}${dollarLabel ? " · " + dollarLabel : ""} · ${fmtPct(v, 2)}`;
+    return `<span class="streaks-spark-bar ${cls}" style="--h:${h.toFixed(0)}%" data-tip="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}"></span>`;
   }).join("");
   // Tolerance: how much the run has eaten into its counter-day "bank". Only
   // shown when actually in use (tol > 0 or one or more consecutive counter
