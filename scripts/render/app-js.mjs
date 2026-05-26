@@ -453,6 +453,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var c = findContract();
     if (c && c.s != null) p.set('k', String(c.s));
     p.set('t', getOptType());
+    // Preserve ?tab= so a contract URL shared from Heatmap (or any non-Grade
+    // view) round-trips back to that tab on reload — otherwise pushUrlState
+    // overwrites the URL with just s/exp/k/t and the tab param is lost.
+    try {
+      var existingTab = new URLSearchParams(window.location.search).get('tab');
+      if (existingTab) p.set('tab', existingTab);
+    } catch (_) {}
     return window.location.origin + window.location.pathname + '?' + p.toString();
   }
   function syncDocTitleToContract(){
@@ -7474,6 +7481,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Below this height in px we hide the % line and shrink the symbol so
   // 100KB-marketcap tickers don't render as illegible noise.
   var HEATMAP_TINY_PX = 36;
+  // Below either of these we hide the symbol too — a 10px label in a 6px-tall
+  // tile just renders as half-clipped pixels that look like graphical glitches.
+  var HEATMAP_MICRO_H = 16;
+  var HEATMAP_MICRO_W = 22;
+  // Pixel height reserved for the sector label inside .heatmap-sector. Matches
+  // the CSS (10px font, 1.2 line-height, 1px top offset) — used to push inner
+  // tiles below the label so they never overlap it on short sectors.
+  var HEATMAP_LABEL_PX = 14;
 
   function loadHeatmap(){
     bindHeatmapControls();
@@ -7672,13 +7687,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var gr = groupRects[g];
       var items = gr.items.slice().sort(function(a, b){ return b.mc - a.mc; });
       var inner = items.map(function(it){ return Object.assign({}, it, { value: it.mc }); });
-      // Reserve ~13px at the top for the sector label, capped at 8% of
-      // the sector's own height (anything more eats too much of a small
-      // sector). Sectors shorter than 48px hide the label entirely —
-      // it'd be unreadable anyway.
+      // Reserve HEATMAP_LABEL_PX at the top for the sector label so tiles
+      // don't slide up under it on short sectors. Sectors shorter than 48px
+      // hide the label entirely — it'd be unreadable anyway. The earlier
+      // 8% cap was the bug: on a 130px sector that's only ~10px reserved,
+      // less than the label's actual line-height, so the first row of tiles
+      // visibly overlapped the label.
       var sectorPxH = rootHeight * gr.h / 100;
       var showLabel = sectorPxH >= 48;
-      var labelPad = showLabel ? Math.min(8, 13 / sectorPxH * 100) : 0;
+      var labelPad = showLabel ? (HEATMAP_LABEL_PX / sectorPxH * 100) : 0;
       if (!isFinite(labelPad) || labelPad < 0) labelPad = 0;
       var innerY = labelPad;
       var innerH = Math.max(0, 100 - labelPad);
@@ -7700,7 +7717,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         // font-size decisions.
         var pxH = rootHeight * gr.h / 100 * rect.h / 100;
         var pxW = rootW * gr.w / 100 * rect.w / 100;
-        var tinyCls = (pxH < HEATMAP_TINY_PX || pxW < 36) ? ' is-tiny' : '';
+        var isMicro = pxH < HEATMAP_MICRO_H || pxW < HEATMAP_MICRO_W;
+        var tinyCls = isMicro ? ' is-tiny is-micro' :
+                       (pxH < HEATMAP_TINY_PX || pxW < 36) ? ' is-tiny' : '';
         var ch = rect.ch;
         var color = heatmapColorParts(ch);
         // Font sizing scales with tile dimensions so big sectors stay
@@ -9140,8 +9159,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var initial = parseUrlState();
     if (initial && initial.sym && SYMBOLS.indexOf(initial.sym) !== -1){
       pendingUrlState = initial;
-      var pageGradeTab = document.querySelector('[data-page-tab="grade"]');
-      if (pageGradeTab) pageGradeTab.click();
+      // Default to landing on Grade, but a shared link like ?s=AAPL&tab=heatmap
+      // explicitly asks for another tab — honor that and just load the contract
+      // in the background so it's ready when the user switches over.
+      var urlTab = null;
+      try { urlTab = new URLSearchParams(window.location.search).get('tab'); } catch (_) {}
+      if (!urlTab) {
+        var pageGradeTab = document.querySelector('[data-page-tab="grade"]');
+        if (pageGradeTab) pageGradeTab.click();
+      }
       combo.commit(initial.sym);
     }
   }

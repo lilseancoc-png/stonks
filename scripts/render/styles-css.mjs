@@ -8678,6 +8678,12 @@ html::-webkit-scrollbar-thumb:hover {
 /* Hide the % line on tiny tiles where it'd just be visual noise. */
 .heatmap-tile.is-tiny .heatmap-tile-pct { display: none; }
 .heatmap-tile.is-tiny .heatmap-tile-sym { font-size: 10px; }
+/* Micro tiles are too small (<16px tall or <22px wide) to render any text
+   legibly — a 10px symbol in a 6px box just looks like a graphical glitch.
+   Drop to a bare colored square. */
+.heatmap-tile.is-micro .heatmap-tile-sym,
+.heatmap-tile.is-micro .heatmap-tile-pct { display: none; }
+.heatmap-tile.is-micro { padding: 0; }
 
 /* Divergent red → gray → green color scale. The renderer sets --hm-c on
    each tile (0 = -3% or worse, 0.5 = flat, 1 = +3% or better). We use
