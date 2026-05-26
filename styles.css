@@ -7827,6 +7827,18 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--dn);
   border-color: color-mix(in srgb, var(--dn) 45%, transparent);
 }
+.vol-bucket.is-scan-missed { opacity: 0.7; }
+.vol-bucket-vol.is-muted {
+  color: var(--text-3);
+  font-style: italic;
+}
+.vol-pill-badge.vol-scan-missed,
+.vol-pill-badge.vol-scan-gap {
+  background: color-mix(in srgb, var(--text-3) 18%, var(--surface-2));
+  color: var(--text-2);
+  border-color: var(--border-strong);
+  border-style: dashed;
+}
 
 .vol-eod {
   display: flex;
