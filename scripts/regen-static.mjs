@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage } from "./build.mjs";
+import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage, FOMC_MEETINGS_BASELINE } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -44,13 +44,39 @@ const symbols = files
   .sort();
 
 const spots = {};
+// Market backdrop is reconstructed from the existing per-ticker JSON so the
+// regen path matches build.mjs's main() — keeps the Execute now? card from
+// going blank between full bakes. SPY/QQQ/IWM/SMH/UVXY are always in
+// TICKERS, but tolerate missing entries so a partial data/ dir still works.
+const MARKET_BACKDROP_SYMBOLS = ["SPY", "QQQ", "IWM", "SMH", "UVXY"];
+const marketBackdrop = {};
 for (const sym of symbols) {
   try {
     const raw = await readFile(resolve(DATA_DIR, sym + ".json"), "utf8");
     const j = JSON.parse(raw);
     if (j && typeof j.spot === "number") spots[sym] = j.spot;
+    if (MARKET_BACKDROP_SYMBOLS.includes(sym) && j && j.technicals) {
+      const t = j.technicals;
+      const vol = t.volume || {};
+      marketBackdrop[sym] = {
+        spot: j.spot ?? null,
+        move1dPct: vol.priceMove1dPct ?? null,
+        rsi: t.rsi ?? null,
+        macdHist: t.macd?.hist ?? null,
+        rvol: vol.rvol ?? null,
+        s20: t.sr?.s20 ?? null,
+        r20: t.sr?.r20 ?? null,
+      };
+    }
   } catch {}
 }
+
+const todayIsoForFomc = new Date().toISOString().slice(0, 10);
+const nextFomcDates = FOMC_MEETINGS_BASELINE
+  .map((m) => m.date)
+  .filter((d) => d >= todayIsoForFomc)
+  .sort()
+  .slice(0, 2);
 
 const builtAtIso = trends.builtAtIso || new Date().toISOString();
 const builtAt = new Intl.DateTimeFormat("en-US", {
@@ -81,6 +107,8 @@ const html = renderHtml({
   fearGreed,
   macro,
   volumeFlags,
+  marketBackdrop,
+  nextFomcDates,
 });
 const css = renderStylesCss();
 const js = renderAppJs();

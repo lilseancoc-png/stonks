@@ -527,7 +527,7 @@ function strategiesSection() {
   </section>`;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [] }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -566,6 +566,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     fearGreed: fearGreed || null,
     macro: macro || null,
     volumeFlags: volumeFlags || null,
+    marketBackdrop: marketBackdrop || null,
+    nextFomcDates: Array.isArray(nextFomcDates) ? nextFomcDates : [],
   }).replace(/<\/script>/gi, "<\\/script>");
   // Browser Supabase config — anon key is safe to ship publicly (RLS does
   // the actual access control). Service-role key stays server-side only.

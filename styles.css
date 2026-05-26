@@ -3642,6 +3642,51 @@ main {
 }
 .opt-exec-meta-sep { color: var(--hairline); margin: 0 2px; }
 
+/* Market backdrop strip — compact row of live index moves (SPY/QQQ/IWM/SMH/
+   UVXY). Coloured pills so the user can read tape direction at a glance:
+   green = up, red = down, neutral = ~flat. Sits between the local meta
+   strip and the verdict body. */
+.opt-exec-backdrop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 var(--s-3);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--surface-3) 80%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.opt-exec-bd-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.opt-exec-bd-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.opt-exec-bd-pill b {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+.opt-exec-bd-pill.up   { color: var(--pos);  background: var(--pos-soft);  border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-exec-bd-pill.down { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-exec-bd-pill.flat { color: var(--muted); background: var(--surface-2); border-color: var(--hairline); }
+
 /* Plain-English primer for the Execute-now card. Spells out
    EXECUTE / WAIT / AVOID with everyday-language definitions so beginners
    understand this card grades the MOMENT (entry timing), not the contract. */

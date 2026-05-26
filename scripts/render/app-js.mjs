@@ -46,6 +46,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // recommendation card and shouldBuy() to add a small macro nudge in line
   // with the Bonds & USD primer.
   var MACRO = (MANIFEST.macro && typeof MANIFEST.macro === 'object') ? MANIFEST.macro : null;
+  // Market backdrop — per-index snapshot (SPY/QQQ/IWM/SMH/UVXY) baked at
+  // build time. Each entry is { spot, move1dPct, rsi, macdHist, rvol, s20,
+  // r20 }. The Execute now? card overlays live moves from /api/quote at
+  // runtime so during RTH the backdrop reflects today's actual tape, not
+  // yesterday's close. See buildExecuteNowCard().
+  var MARKET_BACKDROP = (MANIFEST.marketBackdrop && typeof MANIFEST.marketBackdrop === 'object') ? MANIFEST.marketBackdrop : {};
+  var MARKET_BACKDROP_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'SMH', 'UVXY'];
+  // Next 1–2 FOMC dates (YYYY-MM-DD). Drives the "rate decision imminent"
+  // caveat in the Execute card — a Powell presser ≤2 sessions out routinely
+  // whipsaws multi-percent intraday, so structure-based entries should defer.
+  var NEXT_FOMC_DATES = Array.isArray(MANIFEST.nextFomcDates) ? MANIFEST.nextFomcDates : [];
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
     var m = {};
@@ -1077,11 +1088,215 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
     }
 
+    // --- Market backdrop --------------------------------------------------
+    // Single names rarely fight the tape — high-beta stocks correlate ~0.6+
+    // with SPY/QQQ intraday. So a clean local breakout on a day when SPY,
+    // QQQ, IWM are all red is much more likely to fail than the same setup
+    // on a green day. Read live moves from /api/quote (warmed by
+    // prefetchMarketBackdrop on ticker selection); fall back to the baked
+    // last-close move when the cache isn't populated yet.
+    function readBackdropMove(s){
+      var lv = LIVE_CACHE[s] && LIVE_CACHE[s].q;
+      if (lv && lv.changePct != null && isFinite(lv.changePct)) {
+        return { pct: lv.changePct, src: 'live' };
+      }
+      var bk = MARKET_BACKDROP[s];
+      if (bk && bk.move1dPct != null && isFinite(bk.move1dPct)) {
+        return { pct: bk.move1dPct, src: 'last close' };
+      }
+      return null;
+    }
+    var backdropMoves = {};
+    for (var bi = 0; bi < MARKET_BACKDROP_SYMBOLS.length; bi++){
+      var bSym = MARKET_BACKDROP_SYMBOLS[bi];
+      // Skip self-reference when the user is grading SPY/QQQ/etc. directly.
+      if (bSym === sym) continue;
+      var bMv = readBackdropMove(bSym);
+      if (bMv) backdropMoves[bSym] = bMv;
+    }
+    var spyMove  = backdropMoves.SPY  ? backdropMoves.SPY.pct  : null;
+    var qqqMove  = backdropMoves.QQQ  ? backdropMoves.QQQ.pct  : null;
+    var iwmMove  = backdropMoves.IWM  ? backdropMoves.IWM.pct  : null;
+    var smhMove  = backdropMoves.SMH  ? backdropMoves.SMH.pct  : null;
+    var uvxyMove = backdropMoves.UVXY ? backdropMoves.UVXY.pct : null;
+
+    var breadthSamples = [];
+    if (spyMove != null) breadthSamples.push(spyMove);
+    if (qqqMove != null) breadthSamples.push(qqqMove);
+    if (iwmMove != null) breadthSamples.push(iwmMove);
+    var breadthMean = breadthSamples.length
+      ? breadthSamples.reduce(function(s, v){ return s + v; }, 0) / breadthSamples.length
+      : null;
+    var breadthPos = breadthSamples.filter(function(v){ return v > 0.1; }).length;
+    var breadthNeg = breadthSamples.filter(function(v){ return v < -0.1; }).length;
+    var riskOn  = breadthMean != null && breadthMean >  0.3 && breadthPos >= 2;
+    var riskOff = breadthMean != null && breadthMean < -0.3 && breadthNeg >= 2;
+
+    if (breadthSamples.length >= 2){
+      var breadthSummary = 'SPY ' + (spyMove != null ? signedPct(spyMove) : '—') +
+        ', QQQ ' + (qqqMove != null ? signedPct(qqqMove) : '—') +
+        (iwmMove != null ? ', IWM ' + signedPct(iwmMove) : '');
+      if ((dir > 0 && riskOn) || (dir < 0 && riskOff)) {
+        pros.push({ tag: 'Market backdrop', strong: true, text:
+          'Broader tape is ' + (riskOn ? 'risk-on' : 'risk-off') + ' today (' + breadthSummary +
+          ') — high-beta names usually follow the index, and the tape is with ' + dirLabel + '.'
+        });
+      } else if ((dir > 0 && riskOff) || (dir < 0 && riskOn)) {
+        cons.push({ tag: 'Market backdrop', strong: true, text:
+          'Broader tape is ' + (riskOn ? 'risk-on' : 'risk-off') + ' today (' + breadthSummary +
+          ') — high-beta names usually follow the index, so this is fighting the tape.'
+        });
+      } else if (breadthMean != null && Math.abs(breadthMean) > 0.15) {
+        var leanWith = (breadthMean * dir) > 0;
+        (leanWith ? pros : cons).push({ tag: 'Market lean', strong: false, text:
+          'Indexes are mixed but lean ' + (breadthMean > 0 ? 'green' : 'red') +
+          ' (avg ' + signedPct(breadthMean) + ') — small ' +
+          (leanWith ? 'tailwind' : 'headwind') + ' for ' + dirLabel + '.'
+        });
+      }
+    }
+
+    // --- Volatility / risk tone (UVXY as a directional VIX proxy) ---------
+    // UVXY is 1.5x VIX short-term futures — moves in the same direction as
+    // VIX, just amplified. A ≥5% UVXY day is a meaningful vol spike (risk-
+    // off); a ≤-5% day is a vol crush (risk-on resumption). Calls bought
+    // into a fear spike usually get IV-crushed when the panic fades, even
+    // if direction was right; same setup is fine for puts.
+    if (uvxyMove != null) {
+      if (uvxyMove >= 5) {
+        if (dir > 0) {
+          cons.push({ tag: 'Vol spike', strong: true, text:
+            'UVXY ' + signedPct(uvxyMove) + ' (VIX proxy spiking) — calls bought into a fear move usually get IV-crushed when the panic fades; direction can be right and the trade still lose money.'
+          });
+        } else {
+          pros.push({ tag: 'Vol spike', strong: false, text:
+            'UVXY ' + signedPct(uvxyMove) + ' (VIX proxy spiking) — the bid in protection confirms what puts feed on.'
+          });
+        }
+      } else if (uvxyMove <= -5) {
+        if (dir > 0) {
+          pros.push({ tag: 'Vol crush', strong: false, text:
+            'UVXY ' + signedPct(uvxyMove) + ' (VIX proxy unwinding) — risk-on resumption, IV-friendly for calls.'
+          });
+        } else {
+          cons.push({ tag: 'Vol crush', strong: true, text:
+            'UVXY ' + signedPct(uvxyMove) + ' (VIX proxy collapsing) — new puts pay full IV while the underlying drifts back up.'
+          });
+        }
+      }
+    }
+
+    // --- Sector ETF tilt — semis basket via SMH ---------------------------
+    // Only meaningful when divergent from SPY (e.g. SPY flat but SMH +1.5%
+    // is a strong tape for NVDA/AMD/AVGO calls). For non-semis sectors the
+    // broader SPY/QQQ backdrop above already covers it.
+    var symSector = SECTORS[sym] || null;
+    if (symSector === 'Semis' && smhMove != null) {
+      var smhAligned = smhMove * dir;
+      if (smhAligned >= 0.6) {
+        pros.push({ tag: 'Semis tape', strong: false, text:
+          'SMH ' + signedPct(smhMove) + ' — the semis basket is moving with you; sector tape confirms.'
+        });
+      } else if (smhAligned <= -0.6) {
+        cons.push({ tag: 'Semis tape', strong: false, text:
+          'SMH ' + signedPct(smhMove) + ' — the semis basket is going the other way; sector tape is a headwind even if structure looks clean.'
+        });
+      }
+    }
+
+    // --- Catalyst proximity — earnings + FOMC -----------------------------
+    // Scheduled events override structure: a clean breakout pattern means
+    // little when an earnings print or Powell presser ≤2 sessions out is
+    // about to repaint the chart. Earnings ≤1d also brings IV-crush risk
+    // that can lose money even when direction is right.
+    var fund = input.fundamentals || null;
+    var daysToEarnings = null;
+    if (fund && fund.nextEarningsDate){
+      var earnDt = new Date(fund.nextEarningsDate + 'T16:00:00Z');
+      if (!isNaN(earnDt.getTime())){
+        var dRaw = (earnDt.getTime() - Date.now()) / 86400000;
+        if (dRaw >= -1) daysToEarnings = Math.max(0, Math.round(dRaw));
+      }
+    }
+    var daysToFomc = null;
+    var todayIso = new Date().toISOString().slice(0, 10);
+    for (var fi = 0; fi < NEXT_FOMC_DATES.length; fi++){
+      var fd = NEXT_FOMC_DATES[fi];
+      if (!fd || fd < todayIso) continue;
+      var dms = Date.UTC(Number(fd.slice(0,4)), Number(fd.slice(5,7))-1, Number(fd.slice(8,10)));
+      var todayMs2 = Date.UTC(Number(todayIso.slice(0,4)), Number(todayIso.slice(5,7))-1, Number(todayIso.slice(8,10)));
+      daysToFomc = Math.round((dms - todayMs2) / 86400000);
+      break;
+    }
+    var catalystImminent = false;
+    if (daysToEarnings != null && daysToEarnings <= 1){
+      catalystImminent = true;
+      cons.push({ tag: 'Earnings imminent', strong: true, text:
+        'Earnings ' + (daysToEarnings === 0 ? 'today' : 'tomorrow') +
+        ' — IV crush on the next print typically wipes out single-day moves regardless of direction. Wait for the dust to settle.'
+      });
+    } else if (daysToEarnings != null && daysToEarnings === 2){
+      cons.push({ tag: 'Earnings ≤2d', strong: false, text:
+        'Earnings in 2 days — premium is already running hot into the print; new entries usually get IV-crushed even on a beat.'
+      });
+    }
+    if (daysToFomc != null && daysToFomc <= 1){
+      catalystImminent = true;
+      cons.push({ tag: 'FOMC ≤1d', strong: true, text:
+        'FOMC decision ' + (daysToFomc === 0 ? 'today' : 'tomorrow') +
+        ' — Powell pressers routinely whipsaw multi-percent intraday. Defer until after the dot plot lands.'
+      });
+    } else if (daysToFomc != null && daysToFomc === 2){
+      cons.push({ tag: 'FOMC ≤2d', strong: false, text:
+        'FOMC decision in 2 days — index vol typically expands into the meeting; structure reads degrade as positioning resets.'
+      });
+    }
+
+    // --- Time-of-day caveats — lunchtime chop + closing-hour FOMO ---------
+    // ET-relative. Bare new Date() returns local-machine clock; Intl gives
+    // us America/New_York consistently. Only flag during RTH on weekdays —
+    // outside that window the user is reading frozen data anyway.
+    var etHour = null, etDow = null;
+    try {
+      var partsTime = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit'
+      }).formatToParts(new Date());
+      var hh = 0, mm = 0;
+      for (var pi = 0; pi < partsTime.length; pi++){
+        if (partsTime[pi].type === 'hour') hh = parseInt(partsTime[pi].value, 10);
+        else if (partsTime[pi].type === 'minute') mm = parseInt(partsTime[pi].value, 10);
+      }
+      etHour = hh + mm / 60;
+      var dowStr = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', weekday: 'short'
+      }).format(new Date());
+      etDow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(dowStr);
+    } catch (e) {}
+    var isRth = etDow != null && etDow >= 1 && etDow <= 5 &&
+                etHour != null && etHour >= 9.5 && etHour < 16;
+    if (isRth && etHour >= 11.5 && etHour < 14){
+      cons.push({ tag: 'Lunchtime chop', strong: false, text:
+        'Mid-session window (11:30–14:00 ET) — volume thins out, breakouts fail more, signals are less reliable. Let a few bars confirm before chasing.'
+      });
+    } else if (isRth && etHour >= 15.5){
+      cons.push({ tag: 'Closing-hour risk', strong: false, text:
+        'Final 30 min — moves can be MOC-driven rather than directional. Entering a breakout this late also carries overnight gap risk.'
+      });
+    }
+
     // Verdict — collapse signals into EXECUTE / WAIT / AVOID.
     var hasStrongPro = pros.some(function(p){ return p.strong; });
     var hasStrongCon = cons.some(function(c){ return c.strong; });
     var verdict, vCls, vHeadline, vBody;
-    if (sideways) {
+    if (catalystImminent) {
+      // Scheduled events override every chart pattern. AVOID would imply
+      // "fight the tape now"; the right framing is "defer, then re-read".
+      verdict = 'WAIT'; vCls = 'fair';
+      vHeadline = (daysToEarnings != null && daysToEarnings <= 1)
+        ? 'Earnings ' + (daysToEarnings === 0 ? 'today' : 'tomorrow') + ' — defer entry'
+        : 'FOMC ' + (daysToFomc === 0 ? 'today' : 'tomorrow') + ' — defer entry';
+      vBody = 'A scheduled event lands inside the next session. The chart pattern means little compared to the pending news — and the IV crush around the print can lose money even when direction is right. Wait for the catalyst to clear, then re-read structure.';
+    } else if (sideways) {
       verdict = 'WAIT'; vCls = 'fair';
       vHeadline = 'Sideways range — watch, do not chase';
       vBody = 'Price is coiled inside the recent range with mid-band RSI and a flat MACD. The playbook says wait for a clean break with volume before entering — there is no structure to trade yet.';
@@ -1127,6 +1342,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (s20 != null) metaBits.push('<span>S20' + tipChip(S20_TIP) + ' $' + fmt(s20) + '</span>');
     var metaLine = metaBits.join(' <span class="opt-exec-meta-sep">·</span> ');
 
+    // Market backdrop strip — compact row of live index moves so the user
+    // can see SPY/QQQ/IWM/SMH/UVXY at a glance without scrolling to the
+    // home tab. UVXY is labelled "VIX·UVXY" so it reads as the vol gauge
+    // beginners expect, while remaining accurate about what's fetched.
+    var BACKDROP_TIP = 'Broader market context. Single names rarely fight the tape — SPY/QQQ/IWM tell you whether high-beta stocks have the index with them today. UVXY tracks VIX-style vol: spiking = risk-off, collapsing = risk-on.';
+    var backdropOrder = ['SPY', 'QQQ', 'IWM', 'SMH', 'UVXY'];
+    var backdropPills = [];
+    for (var bdi = 0; bdi < backdropOrder.length; bdi++){
+      var bdS = backdropOrder[bdi];
+      var bdM = backdropMoves[bdS];
+      if (!bdM) continue;
+      var bdCls = bdM.pct >= 0.1 ? 'up' : (bdM.pct <= -0.1 ? 'down' : 'flat');
+      var bdLabel = bdS === 'UVXY' ? 'VIX·UVXY' : bdS;
+      backdropPills.push(
+        '<span class="opt-exec-bd-pill ' + bdCls + '">' +
+          '<b>' + escapeHtml(bdLabel) + '</b> ' + escapeHtml(signedPct(bdM.pct)) +
+        '</span>'
+      );
+    }
+    var backdropStripHtml = backdropPills.length
+      ? '<div class="opt-exec-backdrop">' +
+          '<span class="opt-exec-bd-label">Market backdrop' + tipChip(BACKDROP_TIP) + '</span>' +
+          backdropPills.join('') +
+        '</div>'
+      : '';
+
     // Plain-English primer for the Execute-now card. Beginners coming
     // straight from the verdict above need to know this isn't a re-grade
     // of the contract — it's a read of the live chart pattern. Spells out
@@ -1141,11 +1382,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var explainerExec = '<div class="opt-exec-explainer">' +
       '<div class="opt-exec-explainer-title">In plain English</div>' +
       '<p>Even if the contract looks fine on paper, is right <em>now</em> a good moment to click buy? ' +
-      'This card reads the <b>live chart</b> for a familiar pattern and gives one of three verdicts:</p>' +
+      'This card reads the <b>live chart</b>, the <b>broader market</b> (SPY/QQQ/IWM and the VIX), and any <b>imminent catalysts</b> (earnings, FOMC) to give one of three verdicts:</p>' +
       '<ul class="opt-exec-explainer-list">' +
-        '<li><span class="opt-exec-explainer-tag pos">EXECUTE</span> price is breaking out of its range with conviction (volume + momentum lined up) — the pattern says enter on this move.</li>' +
-        '<li><span class="opt-exec-explainer-tag fair">WAIT</span> nothing is firing yet — price is drifting sideways or signals are mixed. Sit on hands until the next bar clears it up.</li>' +
-        '<li><span class="opt-exec-explainer-tag warn">AVOID</span> the chart is doing the opposite of what this trade needs — entering here is fighting the tape.</li>' +
+        '<li><span class="opt-exec-explainer-tag pos">EXECUTE</span> price is breaking out with conviction (volume + momentum lined up) <em>and</em> the broader tape is with you — the pattern says enter on this move.</li>' +
+        '<li><span class="opt-exec-explainer-tag fair">WAIT</span> signals are mixed, the tape is choppy, or a scheduled event (earnings / FOMC) is about to repaint the chart. Sit on hands until things clear up.</li>' +
+        '<li><span class="opt-exec-explainer-tag warn">AVOID</span> the chart and the tape are both doing the opposite of what this trade needs — entering here is fighting the market.</li>' +
       '</ul>' +
     '</div>';
 
@@ -1169,6 +1410,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>' +
       (contractIsBroken ? '' : explainerExec) +
       '<div class="opt-exec-meta">' + metaLine + '</div>' +
+      backdropStripHtml +
       '<div class="opt-exec-body">' + escapeHtml(vBody) + '</div>' +
       (prosHtml
         ? '<div class="opt-exec-section">' +
@@ -2831,6 +3073,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // usable with baked data; live just updates spot / Greeks / ATM pick
       // when it arrives. Quietly no-ops if the endpoint or market is closed.
       refreshLiveQuote(symbol);
+      // Warm the market-backdrop cache so the Execute now? card can read
+      // today's SPY/QQQ/IWM/UVXY moves without firing a fetch inline. Each
+      // call is 30s-cached so re-picking tickers doesn't re-hit Yahoo.
+      prefetchMarketBackdrop();
     }).catch(function(err){
       setStatus('opt-eval-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
     });
@@ -2899,6 +3145,38 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (state.symbol !== symbol) return;
         if (box){ box.hidden = true; box.innerHTML = ''; }
       });
+  }
+  // Silent variant of refreshLiveQuote — same /api/quote call + LIVE_CACHE
+  // write, but no DOM side effects. Used to warm the cache for index symbols
+  // (SPY/QQQ/IWM/SMH/UVXY) so the Execute now? card can read today's broad-
+  // market move without firing a fetch inline during render. Each in-flight
+  // call is tracked so we don't stack duplicates when the user re-picks a
+  // ticker rapidly.
+  var INDEX_FETCH_IN_FLIGHT = Object.create(null);
+  function fetchLiveQuoteSilent(symbol){
+    if (!symbol) return;
+    var cached = LIVE_CACHE[symbol];
+    if (cached && (Date.now() - cached.at) < LIVE_TTL_MS) return;
+    if (INDEX_FETCH_IN_FLIGHT[symbol]) return;
+    INDEX_FETCH_IN_FLIGHT[symbol] = true;
+    fetch('/api/quote?symbol=' + encodeURIComponent(symbol), { cache: 'no-store' })
+      .then(function(resp){ if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
+      .then(function(q){
+        INDEX_FETCH_IN_FLIGHT[symbol] = false;
+        if (!q || q.spot == null) return;
+        LIVE_CACHE[symbol] = { q: q, at: Date.now() };
+        // Re-render the Execute card if the active ticker's card is on
+        // screen — the backdrop strip needs the new number.
+        if (state.symbol && $('opt-exec-card')) {
+          try { evaluate(); } catch (e) {}
+        }
+      })
+      .catch(function(){ INDEX_FETCH_IN_FLIGHT[symbol] = false; });
+  }
+  function prefetchMarketBackdrop(){
+    for (var i = 0; i < MARKET_BACKDROP_SYMBOLS.length; i++){
+      fetchLiveQuoteSilent(MARKET_BACKDROP_SYMBOLS[i]);
+    }
   }
   function applyLiveQuote(symbol, q){
     renderLiveQuote(symbol, q);
