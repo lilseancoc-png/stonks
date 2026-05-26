@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage, FOMC_MEETINGS_BASELINE } from "./build.mjs";
+import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage, FOMC_MEETINGS_BASELINE, buildHeatmapPayload } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -50,11 +50,17 @@ const spots = {};
 // TICKERS, but tolerate missing entries so a partial data/ dir still works.
 const MARKET_BACKDROP_SYMBOLS = ["SPY", "QQQ", "IWM", "SMH", "UVXY"];
 const marketBackdrop = {};
+// Heatmap payload also gets rebuilt from the same per-ticker JSONs so a
+// regen pass produces a usable data/heatmap.json without re-hitting Yahoo.
+// We stash each parsed JSON under chainsForHeatmap so buildHeatmapPayload
+// can consume it with the same shape the live bake uses.
+const chainsForHeatmap = {};
 for (const sym of symbols) {
   try {
     const raw = await readFile(resolve(DATA_DIR, sym + ".json"), "utf8");
     const j = JSON.parse(raw);
     if (j && typeof j.spot === "number") spots[sym] = j.spot;
+    if (j) chainsForHeatmap[sym] = j;
     if (MARKET_BACKDROP_SYMBOLS.includes(sym) && j && j.technicals) {
       const t = j.technicals;
       const vol = t.volume || {};
@@ -117,8 +123,26 @@ await writeFile(resolve(ROOT, "index.html"), html, "utf8");
 await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
 await writeFile(resolve(ROOT, "app.js"), js, "utf8");
 
+// heatmap.json is hourly-refreshed by scripts/refresh-heatmap.mjs via
+// .github/workflows/heatmap.yml — it carries fresher `ch`/`sp` than the
+// per-ticker JSONs we'd rebuild from here. Only seed it from per-ticker
+// JSONs if the file is genuinely missing (first regen after a wipe,
+// developer running this standalone before any bake). When it already
+// exists, leave the hourly-refreshed values alone.
+let heatmapNote;
+try {
+  await readFile(resolve(DATA_DIR, "heatmap.json"), "utf8");
+  heatmapNote = "data/heatmap.json preserved (hourly-refreshed)";
+} catch {
+  const heatmapPayload = buildHeatmapPayload(chainsForHeatmap, builtAtIso);
+  const heatmapJson = JSON.stringify(heatmapPayload);
+  await writeFile(resolve(DATA_DIR, "heatmap.json"), heatmapJson, "utf8");
+  heatmapNote = `data/heatmap.json (${heatmapPayload.tickers.length} tickers, seeded)`;
+}
+
 console.log(
   `Regenerated index.html (${(html.length / 1024).toFixed(1)} KB), ` +
     `styles.css (${(css.length / 1024).toFixed(1)} KB), ` +
-    `app.js (${(js.length / 1024).toFixed(1)} KB).`,
+    `app.js (${(js.length / 1024).toFixed(1)} KB), ` +
+    `${heatmapNote}.`,
 );

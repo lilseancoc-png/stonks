@@ -5639,6 +5639,46 @@ async function writeStreaksFile(chains, builtAtIso) {
   return { bytes: json.length, count: tickers.length };
 }
 
+// Finviz-style market-map data. One row per non-ETF curated ticker, with
+// the four fields the treemap needs: sector grouping (from the SECTORS map,
+// which is curated so "Mega-cap tech" / "Semis" / "Software" stay
+// readable rather than collapsing into Yahoo's coarse "Technology"),
+// industry (for the optional sub-grouping), market cap (tile size), and
+// 1-day % move (tile color). ETFs are deliberately excluded — they have
+// no marketCap from Yahoo and we surface them separately on the Bonds &
+// USD tab and the market backdrop card.
+export function buildHeatmapPayload(chains, builtAtIso) {
+  const tickers = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    const sector = SECTORS[sym];
+    if (!sector || sector === "ETF") continue;
+    const f = data?.fundamentals || {};
+    const mc = Number(f.marketCap);
+    const ch = Number(data?.technicals?.volume?.priceMove1dPct);
+    if (!isFinite(mc) || mc <= 0) continue;
+    if (!isFinite(ch)) continue;
+    tickers.push({
+      t: sym,
+      n: f.name || sym,
+      s: sector,
+      i: INDUSTRY_OF_TICKER[sym] || f.industry || null,
+      mc,
+      ch: Math.round(ch * 100) / 100,
+      sp: data.spot ?? null,
+    });
+  }
+  // Largest market caps first — treemap layout depends on a descending sort.
+  tickers.sort((a, b) => b.mc - a.mc);
+  return { builtAtIso, tickers };
+}
+
+async function writeHeatmapFile(chains, builtAtIso) {
+  const payload = buildHeatmapPayload(chains, builtAtIso);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "heatmap.json"), json, "utf8");
+  return { bytes: json.length, count: payload.tickers.length };
+}
+
 // News-aware AI take per ticker. Runs after chains are fetched. The model
 // sees recent headlines + spot price and returns a one-paragraph plain-English
 // read plus a sentiment tag the runtime uses to nudge a borderline (Fair)
@@ -8226,6 +8266,8 @@ async function main() {
   }
   const streaksInfo = await writeStreaksFile(chains, builtAtIso);
   console.log(`wrote data/streaks.json — ${streaksInfo.count} tickers, ${streaksInfo.bytes} bytes`);
+  const heatmapInfo = await writeHeatmapFile(chains, builtAtIso);
+  console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes`);
   await writeTrendFiles({
     narratives: trends.narratives,
     sectorOverviews: trends.sectorOverviews || {},

@@ -8500,5 +8500,241 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--text-3);
   font-size: 0.78rem;
 }
+
+/* ---------------- Heatmap (Finviz-style market map) ----------------------
+   Treemap rendered as absolutely-positioned tiles inside .heatmap-root.
+   The layout JS sets each tile's --x/--y/--w/--h custom props as
+   percentages; CSS just turns them into left/top/width/height. Color is
+   driven by --hm-c (a 0..1 number where 0 = max-red, 0.5 = neutral, 1 =
+   max-green) via a divergent red→gray→green gradient blend. */
+.heatmap-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+  margin: 0 0 12px;
+}
+.heatmap-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--muted-strong);
+}
+.heatmap-control-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.heatmap-control select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 6px 10px;
+  font: inherit;
+}
+.heatmap-live-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.heatmap-live-toggle input { accent-color: var(--accent); }
+.heatmap-live-state {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-left: auto;
+}
+.heatmap-live-state.is-live { color: var(--accent); }
+.heatmap-live-state.is-error { color: var(--neg); }
+
+.heatmap-root {
+  position: relative;
+  width: 100%;
+  height: 78vh;
+  min-height: 520px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+.heatmap-root.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: var(--s-3);
+  text-align: center;
+}
+
+.heatmap-sector {
+  position: absolute;
+  left: calc(var(--x, 0) * 1%);
+  top: calc(var(--y, 0) * 1%);
+  width: calc(var(--w, 0) * 1%);
+  height: calc(var(--h, 0) * 1%);
+  border: 1px solid var(--surface-3);
+  background: var(--surface);
+  box-sizing: border-box;
+}
+.heatmap-sector-label {
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  right: 4px;
+  font: 600 10px/1.2 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.heatmap-tile {
+  position: absolute;
+  left: calc(var(--x, 0) * 1%);
+  top: calc(var(--y, 0) * 1%);
+  width: calc(var(--w, 0) * 1%);
+  height: calc(var(--h, 0) * 1%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  background: var(--hm-bg, var(--surface-2));
+  color: var(--hm-fg, #fff);
+  font: 700 12px/1 var(--font-mono);
+  letter-spacing: .02em;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.heatmap-tile:hover {
+  filter: brightness(1.12);
+  z-index: 2;
+}
+.heatmap-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 3;
+}
+.heatmap-tile-sym {
+  font: 700 var(--hm-sym-size, 14px)/1 var(--font-mono);
+  letter-spacing: .02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.heatmap-tile-pct {
+  font: 500 var(--hm-pct-size, 11px)/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  opacity: .92;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* Hide the % line on tiny tiles where it'd just be visual noise. */
+.heatmap-tile.is-tiny .heatmap-tile-pct { display: none; }
+.heatmap-tile.is-tiny .heatmap-tile-sym { font-size: 10px; }
+
+/* Divergent red → gray → green color scale. The renderer sets --hm-c on
+   each tile (0 = -3% or worse, 0.5 = flat, 1 = +3% or better). We use
+   color-mix to blend toward the surface color at the midpoint so flat
+   tickers stay readable against the dark canvas instead of going neon. */
+.heatmap-tile {
+  --hm-neg: #d33848;
+  --hm-pos: #1ec773;
+  --hm-neutral: #2a2f38;
+}
+.heatmap-tile[data-dir="neg"] {
+  background: color-mix(in srgb, var(--hm-neg) calc(var(--hm-intensity, 0) * 100%), var(--hm-neutral));
+}
+.heatmap-tile[data-dir="pos"] {
+  background: color-mix(in srgb, var(--hm-pos) calc(var(--hm-intensity, 0) * 100%), var(--hm-neutral));
+}
+.heatmap-tile[data-dir="zero"] { background: var(--hm-neutral); }
+
+.heatmap-tile.is-live-up { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.heatmap-tile.is-live-down { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neg) 55%, transparent); }
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.heatmap-legend-bar {
+  flex: 0 0 220px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #d33848 0%, #2a2f38 50%, #1ec773 100%);
+  border: 1px solid var(--border);
+}
+.heatmap-legend-label {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Floating tooltip — positioned via JS using --tip-x / --tip-y (px). */
+.heatmap-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(var(--tip-x, 0), var(--tip-y, 0));
+  pointer-events: none;
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+  max-width: 240px;
+}
+.heatmap-tooltip[hidden] { display: none; }
+.heatmap-tooltip-head {
+  font: 700 12px/1.2 var(--font-mono);
+  color: var(--text-strong);
+  letter-spacing: .02em;
+  margin-bottom: 2px;
+}
+.heatmap-tooltip-name {
+  color: var(--muted-strong);
+  font-size: 0.74rem;
+  margin-bottom: 6px;
+}
+.heatmap-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.heatmap-tooltip-row span:first-child { color: var(--muted); }
+.heatmap-tooltip-row span:last-child {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.heatmap-tooltip-pct-pos { color: var(--pos); }
+.heatmap-tooltip-pct-neg { color: var(--neg); }
+
+@media (max-width: 640px) {
+  .heatmap-root {
+    height: 60vh;
+    min-height: 380px;
+  }
+  .heatmap-legend-bar { flex-basis: 140px; }
+}
 `;
 }
