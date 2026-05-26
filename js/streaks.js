@@ -52,25 +52,71 @@ function streaksSkeleton() {
   return `<div class="streaks-cols">${col(3)}${col(3)}</div>`;
 }
 
+const streaksState = {
+  sort: "streak",
+  data: null,
+  sortBound: false,
+};
+
 async function loadStreaks() {
   const root = $("streaks-root");
   const footer = $("streaks-footer");
   const eyebrow = $("streaks-eyebrow");
   if (!root) return;
+  bindStreaksControls();
   root.innerHTML = streaksSkeleton();
   try {
     const r = await fetch(dataUrl(), { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const json = await r.json();
+    streaksState.data = json;
     render(root, footer, eyebrow, json);
   } catch (err) {
     root.innerHTML = `<p class="streaks-empty">Couldn't load streaks (${escapeHtml(err.message || err)}).</p>`;
   }
 }
 
-function sortKey(a, b) {
-  if (b.current.days !== a.current.days) return b.current.days - a.current.days;
-  return Math.abs(b.current.cumulativePct) - Math.abs(a.current.cumulativePct);
+function bindStreaksControls() {
+  if (streaksState.sortBound) return;
+  const sel = $("streaks-sort-select");
+  if (!sel) return;
+  streaksState.sortBound = true;
+  sel.value = streaksState.sort;
+  sel.addEventListener("change", () => {
+    streaksState.sort = sel.value || "streak";
+    if (streaksState.data) {
+      render($("streaks-root"), $("streaks-footer"), $("streaks-eyebrow"), streaksState.data);
+    }
+  });
+}
+
+function makeSorter(mode) {
+  // Each column is filtered to one direction first, so secondary tiebreakers
+  // can stay direction-agnostic (we just compare magnitudes).
+  if (mode === "alpha") {
+    return (a, b) => String(a.symbol || "").localeCompare(String(b.symbol || ""));
+  }
+  if (mode === "cum") {
+    return (a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0)
+      || (b.current.days || 0) - (a.current.days || 0);
+  }
+  if (mode === "last") {
+    return (a, b) => (Number(b.lastClose) || 0) - (Number(a.lastClose) || 0);
+  }
+  if (mode === "tol") {
+    // "Tolerance bank used" — bigger value = streak closer to breaking.
+    const bank = (t) => {
+      const tol = Number(t.current.tolerancePct || 0);
+      const tolBreak = Number(t.current.toleranceBreakPct || 1.5);
+      return tolBreak > 0 ? tol / tolBreak : 0;
+    };
+    return (a, b) => bank(b) - bank(a)
+      || (b.current.counterDays || 0) - (a.current.counterDays || 0)
+      || (b.current.days || 0) - (a.current.days || 0);
+  }
+  // Default: streak length, then cumulative magnitude.
+  return (a, b) => (b.current.days || 0) - (a.current.days || 0)
+    || Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0);
 }
 
 function render(root, footer, eyebrow, { builtAtIso, tickers }) {
@@ -80,8 +126,9 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   }
   const sectors = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.sectors) || {};
   const flagged = tickers.filter((t) => t?.current?.days >= 2);
-  const greens = flagged.filter((t) => t.current.color === "green").sort(sortKey);
-  const reds = flagged.filter((t) => t.current.color === "red").sort(sortKey);
+  const sorter = makeSorter(streaksState.sort);
+  const greens = flagged.filter((t) => t.current.color === "green").sort(sorter);
+  const reds = flagged.filter((t) => t.current.color === "red").sort(sorter);
 
   if (eyebrow) {
     eyebrow.textContent = `${greens.length} bullish · ${reds.length} bearish`;
@@ -90,9 +137,12 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   // Section summary — shows the shape of today's streaks at a glance:
   // the longest active runs on each side and the average cumulative move
   // for streaks that made the cut, so the user can read the day's
-  // character before scrolling through ~80 cards.
-  const longestGreen = greens.length ? greens[0] : null;
-  const longestRed = reds.length ? reds[0] : null;
+  // character before scrolling through ~80 cards. "Longest" is independent
+  // of the column sort so the summary stays meaningful when sorted by
+  // e.g. cumulative move or alpha.
+  const byLongest = makeSorter("streak");
+  const longestGreen = greens.length ? greens.slice().sort(byLongest)[0] : null;
+  const longestRed = reds.length ? reds.slice().sort(byLongest)[0] : null;
   const avg = (arr) => arr.length
     ? (arr.reduce((s, t) => s + Math.abs(t.current.cumulativePct), 0) / arr.length)
     : 0;

@@ -90,6 +90,20 @@ function topPicksSection() {
         <p><b>Risk.</b> Buying a call or put can lose <i>at most</i> the premium you pay &mdash; but it can lose all of it if the stock doesn&rsquo;t move enough in your direction before expiry. None of this is financial advice; the picks are a starting watchlist, not a recommendation to trade.</p>
       </div>
     </details>
+    <div class="picks-controls" role="toolbar" aria-label="Sort top picks">
+      <label class="picks-sort">
+        <span class="picks-sort-label">Sort</span>
+        <select id="picks-sort-select" aria-label="Sort top picks">
+          <option value="conviction">Highest conviction</option>
+          <option value="alpha">A → Z</option>
+          <option value="sector">Sector</option>
+          <option value="side">Side (calls first)</option>
+          <option value="dte">Soonest expiry</option>
+          <option value="breakeven">Smallest move to breakeven</option>
+          <option value="premium">Cheapest premium</option>
+        </select>
+      </label>
+    </div>
     <div id="picks-root" class="picks-root">Loading top picks…</div>
     <div id="picks-empty" class="picks-empty" hidden>No high-conviction picks in this build — every ticker scored below the minimum.</div>
     <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Conviction is the absolute signal score (typically 3-12); higher means more independent signals lined up the same direction.</p>
@@ -178,6 +192,9 @@ function unusualFlowSection() {
           <select id="flow-sort-select" aria-label="Sort">
             <option value="delta">Biggest hourly delta</option>
             <option value="contracts">Most contracts</option>
+            <option value="volume">Most total volume</option>
+            <option value="premium">Biggest premium</option>
+            <option value="repeats">Most 🔥 repeats</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>
@@ -213,6 +230,17 @@ function volumeFlagsSection() {
         <button type="button" class="vol-pill" data-vol-filter="sr" role="radio" aria-checked="false">S/R breaks</button>
         <button type="button" class="vol-pill" data-vol-filter="eod" role="radio" aria-checked="false">EOD</button>
       </div>
+      <label class="vol-sort">
+        <span class="vol-sort-label">Sort</span>
+        <select id="vol-sort-select" aria-label="Sort volume flags">
+          <option value="ratio">Hottest hour ratio</option>
+          <option value="eod">EOD day ratio</option>
+          <option value="dayvol">Day volume</option>
+          <option value="move">Largest day move</option>
+          <option value="sr">S/R break conviction</option>
+          <option value="alpha">A → Z</option>
+        </select>
+      </label>
     </div>
     <div id="vol-list" class="vol-list" role="list"></div>
     <div id="vol-empty" class="vol-empty" hidden>No volume or S/R-break flags in the latest scan.</div>
@@ -808,6 +836,18 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
       </header>
       <p class="hint">Each ticker's current run of green or red daily closes. Streaks of 2+ days survive small counter days (a "tolerance bank" up to 1.5% cumulative, or up to 3 counter days in a row); a single counter day greater than 1.2%, hitting the 1.5% bank, or 4 counter days in a row breaks the run. Same-direction days heal the bank back to zero.</p>
+      <div class="streaks-controls" role="toolbar" aria-label="Sort streaks">
+        <label class="streaks-sort">
+          <span class="streaks-sort-label">Sort</span>
+          <select id="streaks-sort-select" aria-label="Sort streaks">
+            <option value="streak">Longest streak</option>
+            <option value="cum">Biggest cumulative move</option>
+            <option value="last">Last close</option>
+            <option value="tol">Tolerance bank used</option>
+            <option value="alpha">A → Z</option>
+          </select>
+        </label>
+      </div>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <div id="streaks-footer" class="streaks-footer"></div>
     </section>
