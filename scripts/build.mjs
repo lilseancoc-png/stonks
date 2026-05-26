@@ -68,7 +68,7 @@ export const TICKERS = [
   "TWLO", "LOW", "SBUX", "EL", "ANET", "TXN", "INTC", "SMCI", "NVO",
   "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
   "MRVL", "PLAB", "AMAT", "AMKR", "MU", "BE", "OKLO", "SNDK", "GLW",
-  "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM",
+  "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM", "DRAM",
   // Space — satellite, lunar lander, in-space mfg, thermal mgmt
   "LUNR", "PL", "BKSY", "RDW", "KULR",
 ];
@@ -279,6 +279,7 @@ export const INDUSTRY_OF_TICKER = {
   AAOI: "Semiconductors",
   LITE: "Semiconductors",
   STX: "Semiconductors",
+  DRAM: "Semiconductors",
   // --- Technology · Semiconductor Equipment & Materials ---
   AMAT: "Semiconductor Equipment & Materials",
   LRCX: "Semiconductor Equipment & Materials",
