@@ -38,6 +38,7 @@ import {
   evaluateTicker as evaluateVolumeFlag,
   etDateKey as volEtDateKey,
   etMinutesSinceOpen,
+  bucketForMinute,
 } from "../lib/volume-flags.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -726,6 +727,27 @@ function buildVolPrevSnapLookup(history, todayKey) {
   return map;
 }
 
+// Build a lookup of cumulative volume at the start of the current hour
+// bucket. For each ticker, picks the latest same-session snapshot whose
+// etMin is at or before the bucket's startMin. Returns null when bucket 1
+// (startMin=0) since every ticker starts at 0 — caller handles that case.
+function buildBucketStartLookup(history, todayKey, currentBucket) {
+  if (!currentBucket || currentBucket.startMin === 0) return null;
+  const map = new Map();
+  for (const snap of history.snapshots || []) {
+    if (snap.etDate !== todayKey) continue;
+    if (snap.etMin == null || snap.etMin > currentBucket.startMin) continue;
+    for (const t of snap.tickers || []) {
+      if (!t.symbol || t.cumVol == null) continue;
+      const prior = map.get(t.symbol);
+      if (!prior || snap.etMin > prior.etMin) {
+        map.set(t.symbol, { etMin: snap.etMin, cumVol: t.cumVol });
+      }
+    }
+  }
+  return map;
+}
+
 // Same-session merge: a ticker flagged at 10:30-11:30 should still appear at
 // 14:30 even though the current bucket is 13:30-14:30. We bucket by symbol,
 // then dedupe rows by hourly.bucketLabel — a new scan in the same bucket
@@ -826,6 +848,8 @@ async function runVolumePass({
   const etMin = etMinutesSinceOpen(nowDate);
   const history = await loadVolumeHistory();
   const prevLookup = buildVolPrevSnapLookup(history, todayKey);
+  const currentBucket = bucketForMinute(etMin);
+  const bucketStartLookup = buildBucketStartLookup(history, todayKey, currentBucket);
 
   const freshRows = [];
   const snapshotTickers = [];
@@ -844,6 +868,16 @@ async function runVolumePass({
     if (!tech || tech.avg20 == null) continue;
     const prevClose = r.prevClose ?? tech.asOfClose ?? null;
     const prev = prevLookup.get(r.symbol);
+    // Bucket 1 always starts at 0; later buckets resolve from history.
+    let bucketStartCumVol = null;
+    if (currentBucket) {
+      if (currentBucket.startMin === 0) {
+        bucketStartCumVol = 0;
+      } else if (bucketStartLookup) {
+        const entry = bucketStartLookup.get(r.symbol);
+        bucketStartCumVol = entry?.cumVol ?? null;
+      }
+    }
     const evalOut = evaluateVolumeFlag({
       now: nowDate,
       spot: r.spot,
@@ -852,6 +886,7 @@ async function runVolumePass({
       avg20: tech.avg20,
       sr: tech.sr,
       prev,
+      bucketStartCumVol,
     });
     const row = buildFlagRow(r.symbol, evalOut, scannedAt);
     if (row) freshRows.push(row);
