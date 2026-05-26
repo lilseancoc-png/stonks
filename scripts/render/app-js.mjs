@@ -4309,9 +4309,67 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // --- Narratives ---------------------------------------------------------
+  // Prior-snapshot strength map for the momentum indicator on each narrative.
+  // null = not loaded yet; {} = loaded but empty; { name: prevStrength } once
+  // populated. Lazy-fetched the first time the Narratives tab paints so we
+  // don't block first paint on a ~250 KB history file.
+  var NARR_PREV_STRENGTH = null;
+  var NARR_PREV_LOADING = false;
+  function loadPrevStrengths(onReady){
+    if (NARR_PREV_STRENGTH || NARR_PREV_LOADING) {
+      if (NARR_PREV_STRENGTH && onReady) onReady();
+      return;
+    }
+    NARR_PREV_LOADING = true;
+    fetch('data/trends-history.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(h){
+        var map = {};
+        if (h && Array.isArray(h.snapshots)) {
+          // Today's snapshot sits at index 0 — use the most recent prior
+          // snapshot whose date differs from today's narrative build. Falls
+          // back to index 1 when the date field is missing.
+          var today = (h.builtAtIso || '').slice(0, 10);
+          var prev = null;
+          for (var i=0; i<h.snapshots.length; i++){
+            var snap = h.snapshots[i];
+            if (snap && snap.date && snap.date !== today) { prev = snap; break; }
+            if (!snap.date && i > 0) { prev = snap; break; }
+          }
+          if (prev && Array.isArray(prev.narratives)){
+            for (var j=0; j<prev.narratives.length; j++){
+              var pn = prev.narratives[j];
+              if (pn && pn.name && typeof pn.strength === 'number') {
+                map[pn.name] = pn.strength | 0;
+              }
+            }
+          }
+        }
+        NARR_PREV_STRENGTH = map;
+        NARR_PREV_LOADING = false;
+        if (onReady) onReady();
+      })
+      .catch(function(){
+        NARR_PREV_STRENGTH = {};
+        NARR_PREV_LOADING = false;
+      });
+  }
+  function strengthDeltaFor(name){
+    if (!NARR_PREV_STRENGTH || !name) return null;
+    if (!(name in NARR_PREV_STRENGTH)) return null;
+    return NARR_PREV_STRENGTH[name];
+  }
   function tickerChipHtml(sym, side){
     var sec = SECTORS[sym] || '';
     var titleAttr = sec ? ' title="' + escapeHtml(sec) + '"' : '';
+    // Render as a button when we recognize the symbol so the user can jump to
+    // the Grade tab from anywhere a chip appears. Unknown symbols (the AI can
+    // mention OTC names not on our list) stay as plain spans.
+    var known = SYMBOLS.indexOf(sym) >= 0;
+    if (known) {
+      return '<button type="button" class="narr-chip ' + side + ' is-clickable"' + titleAttr +
+        ' data-narr-symbol="' + escapeHtml(sym) + '">' + escapeHtml(sym) + '</button>';
+    }
     return '<span class="narr-chip ' + side + '"' + titleAttr + '>' + escapeHtml(sym) + '</span>';
   }
   function narrLifeLabel(n){
@@ -4325,12 +4383,44 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function narrTimeframeLabel(tf){
     return ({ immediate:'This week', 'near-term':'1-4 wks', 'medium-term':'1-3 mo', 'long-term':'3+ mo' })[tf] || 'Near-term';
   }
-  function strengthBarHtml(strength){
+  function confidenceDotsHtml(conf){
+    var level = conf === 'high' ? 3 : conf === 'low' ? 1 : 2;
+    var label = conf === 'high' ? 'High' : conf === 'low' ? 'Low' : 'Medium';
+    var dots = '';
+    for (var i=1; i<=3; i++){
+      dots += '<span class="narr-conf-dot' + (i <= level ? ' is-on' : '') + '"></span>';
+    }
+    return '<span class="narr-conf" title="Confidence: ' + label + '" aria-label="Confidence: ' + label + '">' +
+      '<span class="narr-conf-label">CONF</span>' +
+      '<span class="narr-conf-dots">' + dots + '</span>' +
+    '</span>';
+  }
+  function strengthDeltaHtml(name){
+    var prev = strengthDeltaFor(name);
+    if (prev == null) return '';
+    // Find current strength by name (cheap — narratives list is ~50 items).
+    var cur = null;
+    for (var i=0; i<NARRATIVES.length; i++){
+      if (NARRATIVES[i].name === name) { cur = NARRATIVES[i].strength | 0; break; }
+    }
+    if (cur == null) return '';
+    var d = cur - prev;
+    if (!d) return '<span class="narr-delta flat" title="Unchanged vs yesterday">·0</span>';
+    var sign = d > 0 ? '+' : '';
+    var dir = d > 0 ? 'up' : 'down';
+    var arrow = d > 0 ? '▲' : '▼';
+    return '<span class="narr-delta ' + dir + '" title="Strength change vs yesterday (' + prev + ' → ' + cur + ')">' +
+      arrow + sign + d +
+    '</span>';
+  }
+  function strengthBarHtml(strength, name){
     var s = Math.max(0, Math.min(100, strength | 0));
     var tier = s >= 75 ? 'hi' : s >= 45 ? 'mid' : 'lo';
+    var delta = name ? strengthDeltaHtml(name) : '';
     return '<div class="narr-strength" title="Strength ' + s + ' / 100">' +
       '<div class="narr-strength-track"><div class="narr-strength-fill ' + tier + '" style="width:' + s + '%"></div></div>' +
       '<span class="narr-strength-num">' + s + '</span>' +
+      delta +
     '</div>';
   }
   function watchForItems(n){
@@ -4371,7 +4461,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function narrativeSourcesHtml(n){
     if (!Array.isArray(n.sources) || !n.sources.length) return '';
-    var items = n.sources.map(function(s){
+    var renderItem = function(s){
       var pub = escapeHtml(String(s.publisher || ''));
       var title = escapeHtml(String(s.title || ''));
       var date = escapeHtml(fmtSrcDate(s.date));
@@ -4380,17 +4470,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="narr-source-title">' + title + '</span>' +
         (date ? '<span class="narr-source-date">' + date + '</span>' : '') +
       '</li>';
-    }).join('');
+    };
+    var visible = n.sources.slice(0, 3);
+    var hidden = n.sources.slice(3);
+    var visibleItems = visible.map(renderItem).join('');
+    if (!hidden.length){
+      return '<div class="narr-sources">' +
+        '<span class="narr-sources-label">Sources · ' + n.sources.length + '</span>' +
+        '<ul class="narr-sources-list">' + visibleItems + '</ul>' +
+      '</div>';
+    }
+    var hiddenItems = hidden.map(renderItem).join('');
     return '<div class="narr-sources">' +
-      '<span class="narr-sources-label">Sources</span>' +
-      '<ul class="narr-sources-list">' + items + '</ul>' +
+      '<span class="narr-sources-label">Sources · ' + n.sources.length + '</span>' +
+      '<ul class="narr-sources-list">' + visibleItems + '</ul>' +
+      '<details class="narr-sources-more">' +
+        '<summary>+' + hidden.length + ' more</summary>' +
+        '<ul class="narr-sources-list">' + hiddenItems + '</ul>' +
+      '</details>' +
     '</div>';
   }
   function narrativeCardHtml(n, rankInSector){
     var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
     var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
     var tf = n.timeframe || 'near-term';
-    var confLabel = ({ high:'High', medium:'Medium', low:'Low' })[n.confidence] || 'Medium';
     var longChips = (n.longs || []).map(function(t){ return tickerChipHtml(t, 'long'); }).join('');
     var shortChips = (n.shorts || []).map(function(t){ return tickerChipHtml(t, 'short'); }).join('');
     var longRow = longChips ? '<div class="narr-side-row long"><span class="narr-side-label">Long</span>' + longChips + '</div>' : '';
@@ -4410,7 +4513,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       staleTag = '<span class="narr-tag stale" title="Today\\'s extraction failed — showing the last successful narrative">Stale' + staleAge + '</span>';
     }
-    return '<article class="narr' + (n.stale ? ' is-stale' : '') + '" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
+    // Fresh-today badge: shown when a narrative first appeared today (or is
+    // brand-new vs. the prior snapshot). Helps surface emerging themes that
+    // otherwise blend in with the established list.
+    var isFresh = !n.stale && (n.daysRunning | 0) <= 1;
+    var freshTag = isFresh ? '<span class="narr-tag fresh" title="First detected in today\\'s build">Fresh</span>' : '';
+    return '<article class="narr' + (n.stale ? ' is-stale' : '') + (isFresh ? ' is-fresh' : '') + '" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
       '<span class="narr-accent" aria-hidden="true"></span>' +
       '<header class="narr-head">' +
         (rankInSector ? '<span class="narr-rank" aria-label="Rank">#' + rankInSector + '</span>' : '') +
@@ -4418,11 +4526,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="narr-tag sent ' + sent + '">' + (sent === 'bullish' ? 'Bullish' : 'Bearish') + '</span>' +
         '<span class="narr-tag status ' + status + '">' + narrStatusLabel(status) + '</span>' +
         '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
-        '<span class="narr-tag conf">Conf · ' + confLabel + '</span>' +
+        confidenceDotsHtml(n.confidence) +
+        freshTag +
         staleTag +
         '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
       '</header>' +
-      strengthBarHtml(n.strength) +
+      strengthBarHtml(n.strength, n.name) +
       '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
       longRow + shortRow +
       watchForHtml(n) +
@@ -4430,17 +4539,71 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       narrativeSourcesHtml(n) +
     '</article>';
   }
+  // Roll-up stats for the active sector: total narratives (excluding the
+  // autogenerated watchlist filler), bullish/bearish split, and the most
+  // common driver tickers across the sector's narratives. Surfaces the data
+  // that's already in NARRATIVES without making the user scroll the cards.
+  function sectorRollup(sectorGrouped){
+    var rollup = { total: 0, bullish: 0, bearish: 0, building: 0, fresh: 0, topTickers: [] };
+    if (!sectorGrouped) return rollup;
+    var freq = {};
+    for (var ind in sectorGrouped){
+      var arr = sectorGrouped[ind] || [];
+      for (var i=0; i<arr.length; i++){
+        var n = arr[i];
+        if (n.autogenerated) continue;
+        rollup.total += 1;
+        if (n.sentiment === 'bearish') rollup.bearish += 1; else rollup.bullish += 1;
+        if (n.status === 'building') rollup.building += 1;
+        if ((n.daysRunning | 0) <= 1 && !n.stale) rollup.fresh += 1;
+        var picks = (n.longs || []).concat(n.shorts || []);
+        for (var p=0; p<picks.length; p++){
+          var sym = picks[p];
+          if (!sym) continue;
+          freq[sym] = (freq[sym] || 0) + 1;
+        }
+      }
+    }
+    rollup.topTickers = Object.keys(freq)
+      .map(function(s){ return { sym: s, n: freq[s] }; })
+      .sort(function(a, b){ return b.n - a.n || a.sym.localeCompare(b.sym); })
+      .slice(0, 6)
+      .filter(function(t){ return t.n >= 2; });
+    return rollup;
+  }
+  function sectorStatsHtml(rollup){
+    if (!rollup || !rollup.total) return '';
+    var parts = [];
+    parts.push('<span class="narr-sec-stat"><strong>' + rollup.total + '</strong> active</span>');
+    if (rollup.bullish) parts.push('<span class="narr-sec-stat is-pos"><strong>' + rollup.bullish + '</strong> bullish</span>');
+    if (rollup.bearish) parts.push('<span class="narr-sec-stat is-neg"><strong>' + rollup.bearish + '</strong> bearish</span>');
+    if (rollup.building) parts.push('<span class="narr-sec-stat is-warn"><strong>' + rollup.building + '</strong> building</span>');
+    if (rollup.fresh) parts.push('<span class="narr-sec-stat is-accent"><strong>' + rollup.fresh + '</strong> fresh</span>');
+    var statsRow = '<div class="narr-sec-stats">' + parts.join('<span class="narr-sec-stat-sep">·</span>') + '</div>';
+    if (!rollup.topTickers.length) return statsRow;
+    var chips = rollup.topTickers.map(function(t){
+      return tickerChipHtml(t.sym, 'long') + '<span class="narr-sec-driver-count">×' + t.n + '</span>';
+    }).join('');
+    var driversRow = '<div class="narr-sec-drivers">' +
+      '<span class="narr-sec-drivers-label">Driving</span>' +
+      '<div class="narr-sec-driver-list">' + chips + '</div>' +
+    '</div>';
+    return statsRow + driversRow;
+  }
   // Sector-overview banner — the top-down story for the active sector. Sits
   // above the sub-industry narrative blocks. Shows stance (bullish / bearish /
   // mixed), a thesis paragraph, a strength bar, and a watch-for panel of
   // red-flag catalysts that would flip the sector view.
-  function sectorOverviewHtml(sector, overview){
+  function sectorOverviewHtml(sector, overview, sectorGrouped){
+    var rollup = sectorRollup(sectorGrouped);
+    var statsHtml = sectorStatsHtml(rollup);
     if (!overview || !overview.thesis) {
       return '<section class="narr-sector-overview is-empty" data-stance="neutral">' +
         '<header class="narr-sector-overview-head">' +
           '<span class="narr-sector-overview-eyebrow">Sector overview</span>' +
           '<h3 class="narr-sector-overview-title">' + escapeHtml(sector) + '</h3>' +
         '</header>' +
+        statsHtml +
         '<p class="narr-sector-overview-thesis muted">No top-down view recorded for this build.</p>' +
       '</section>';
     }
@@ -4469,6 +4632,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="narr-sector-overview-stance ' + stance + '">' + stanceLabel + '</span>' +
         staleTag +
       '</header>' +
+      statsHtml +
       strengthHtml +
       '<p class="narr-sector-overview-thesis">' + escapeHtml(overview.thesis) + '</p>' +
       watchHtml +
@@ -4512,9 +4676,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var total = 0;
       for (var k in industries) total += industries[k].length;
       var isActive = sec === ACTIVE_SECTOR;
+      // Sector stance dot — color-coded from the sector-overview view so the
+      // user can read the macro stance per tab without clicking through.
+      var ov = SECTOR_OVERVIEWS[sec];
+      var stance = ov && ['bullish','bearish','mixed'].indexOf(ov.stance) >= 0 ? ov.stance : '';
+      var dot = stance
+        ? '<span class="narr-tab-dot is-' + stance + '" title="Sector view: ' + stance + '"></span>'
+        : '<span class="narr-tab-dot" aria-hidden="true"></span>';
       return '<button type="button" class="narr-tab' + (isActive ? ' is-active' : '') + '"' +
         ' role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '"' +
         ' data-sector="' + escapeHtml(sec) + '">' +
+        dot +
         '<span class="narr-tab-name">' + escapeHtml(sec) + '</span>' +
         '<span class="narr-tab-count">' + total + '</span>' +
         '</button>';
@@ -4555,7 +4727,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (industries.indexOf(key) < 0) withN.push(key);
     }
     var overview = SECTOR_OVERVIEWS[ACTIVE_SECTOR] || null;
-    var html = sectorOverviewHtml(ACTIVE_SECTOR, overview) +
+    var html = sectorOverviewHtml(ACTIVE_SECTOR, overview, sectorNarratives) +
       '<div class="narr-industries">';
     var rank = 0;
     // Pool every watchlist (autogenerated, low-conviction "we're watching X")
@@ -4608,6 +4780,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     html += '</div>';
     panel.innerHTML = html;
+    // Wire ticker chips inside the panel to open Grade for the clicked symbol.
+    // Mirrors the pattern used by pick-card data-pick-symbol buttons so the
+    // landing path through pendingUrlState + combo.commit stays consistent.
+    panel.querySelectorAll('[data-narr-symbol]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var sym = btn.getAttribute('data-narr-symbol');
+        if (!sym || SYMBOLS.indexOf(sym) === -1) return;
+        pendingUrlState = { sym: sym, k: null, exp: null, t: null };
+        var gradeTab = document.querySelector('[data-page-tab="grade"]');
+        if (gradeTab) gradeTab.click();
+        try { combo.commit(sym); } catch (_){}
+      });
+    });
   }
   function renderNarratives(){
     var empty = $('narratives-empty');
@@ -4652,6 +4837,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       renderNarrativeTabs(grouped);
       renderActiveSectorPanel(grouped);
+      // Lazy-fetch the prior snapshot from trends-history.json so we can
+      // overlay strength momentum (▲+5 / ▼-3) on each card. First paint
+      // doesn't wait — when the fetch resolves we re-render the panel so the
+      // deltas appear in place. No-op once already loaded.
+      loadPrevStrengths(function(){
+        renderActiveSectorPanel(grouped);
+      });
     }
     if (ended){
       if (RECENTLY_ENDED.length){
@@ -4675,22 +4867,40 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var macro = $('narratives-macro');
     if (macro){
       if (MACRO_HEADLINES.length){
-        // Show the top 8 freshest macro hits so users can see what the
-        // narrative engine just looked at. Collapsed by default — it's
-        // context, not the headline UI.
-        macro.innerHTML = '<details class="narr-macro-details">' +
-          '<summary><span class="narr-macro-head">Macro signal feed</span>' +
-          '<span class="narr-macro-meta">' + MACRO_HEADLINES.length + ' headlines · Fed · BLS · Treasury · SEC · MarketWatch · CNBC</span></summary>' +
-          '<ul class="narr-macro-list">' +
-          MACRO_HEADLINES.slice(0, 12).map(function(h){
-            var date = h.publishedAt ? h.publishedAt.slice(0, 10) : '';
-            return '<li>' +
-              (date ? '<span class="narr-macro-date">' + escapeHtml(date) + '</span>' : '') +
-              '<span class="narr-macro-pub">' + escapeHtml(h.publisher || 'source') + '</span>' +
-              '<span class="narr-macro-title">' + escapeHtml(h.title || '') + '</span>' +
-            '</li>';
+        // Top 3 surface inline as a horizontal strip so the user can see what
+        // the narrative engine is reacting to without expanding. The rest sit
+        // in the collapsed details for full context.
+        var renderMacroLi = function(h){
+          var date = h.publishedAt ? h.publishedAt.slice(0, 10) : '';
+          return '<li>' +
+            (date ? '<span class="narr-macro-date">' + escapeHtml(date) + '</span>' : '') +
+            '<span class="narr-macro-pub">' + escapeHtml(h.publisher || 'source') + '</span>' +
+            '<span class="narr-macro-title">' + escapeHtml(h.title || '') + '</span>' +
+          '</li>';
+        };
+        var topThree = MACRO_HEADLINES.slice(0, 3);
+        var rest = MACRO_HEADLINES.slice(3, 12);
+        var pillRow = '<div class="narr-macro-pills">' +
+          topThree.map(function(h){
+            var date = h.publishedAt ? h.publishedAt.slice(5, 10) : '';
+            return '<a class="narr-macro-pill" title="' + escapeHtml(h.title || '') + '">' +
+              (date ? '<span class="narr-macro-pill-date">' + escapeHtml(date) + '</span>' : '') +
+              '<span class="narr-macro-pill-pub">' + escapeHtml(h.publisher || 'source') + '</span>' +
+              '<span class="narr-macro-pill-title">' + escapeHtml(h.title || '') + '</span>' +
+            '</a>';
           }).join('') +
-          '</ul></details>';
+        '</div>';
+        var fullList = '<ul class="narr-macro-list">' +
+          MACRO_HEADLINES.slice(0, 12).map(renderMacroLi).join('') +
+        '</ul>';
+        macro.innerHTML = '<div class="narr-macro-shell">' +
+          '<div class="narr-macro-bar">' +
+            '<span class="narr-macro-head">Macro signal feed</span>' +
+            '<span class="narr-macro-meta">' + MACRO_HEADLINES.length + ' headlines · Fed · BLS · Treasury · SEC · MarketWatch · CNBC</span>' +
+          '</div>' +
+          pillRow +
+          (rest.length ? '<details class="narr-macro-details"><summary>Show all ' + MACRO_HEADLINES.length + ' headlines</summary>' + fullList + '</details>' : '') +
+        '</div>';
       } else {
         macro.innerHTML = '';
       }
