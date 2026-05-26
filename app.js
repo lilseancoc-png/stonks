@@ -702,6 +702,7 @@
     var a = Math.abs(delta);
     if (a >= 0.40 && a <= 0.70) return { label:'Balanced',     cls:'good', note:'good directional sensitivity without paying full intrinsic' };
     if (a >= 0.30 && a < 0.40)  return { label:'Slightly OTM', cls:'fair', note:'cheaper but needs a real move to pay' };
+    if (a >= 0.15 && a < 0.30)  return { label:'OTM',          cls:'fair', note:'needs a sizeable move — leverage in your favor, probability against' };
     if (a > 0.70)               return { label:'Deep ITM',     cls:'fair', note:'moves nearly 1:1 with the stock — limited leverage' };
     return { label:'Far OTM', cls:'bad', note:'lottery ticket — most likely expires worthless' };
   }
@@ -727,11 +728,14 @@
     if (good >= 2) return { label:'Good contract', cls:'good' };
     return { label:'Acceptable', cls:'fair' };
   }
-  function applyNewsNudge(verdict, news){
+  function applyNewsNudge(verdict, news, type){
     if (!news || !news.sentiment) return verdict;
     if (verdict.cls !== 'fair') return verdict;
-    if (news.sentiment === 'bullish') return { label:'Good contract · news tailwind', cls:'good', nudged:true };
-    if (news.sentiment === 'bearish') return { label:'Poor contract · news headwind', cls:'bad', nudged:true };
+    var dir = type === 'put' ? -1 : 1;
+    var sentScore = news.sentiment === 'bullish' ? 1 : news.sentiment === 'bearish' ? -1 : 0;
+    var aligned = sentScore * dir;
+    if (aligned > 0) return { label:'Good contract · news tailwind', cls:'good', nudged:true };
+    if (aligned < 0) return { label:'Poor contract · news headwind', cls:'bad', nudged:true };
     return verdict;
   }
   // Structured recommendation panel — pulls together the same inputs
@@ -2642,7 +2646,7 @@
     var dGrade = g ? gradeDelta(g.delta) : { label:'—', cls:'fair', note:'delta unavailable — IV missing' };
     var tGrade = g ? gradeTheta(g.thetaDay, mid) : { label:'—', cls:'fair', note:'theta unavailable — IV missing' };
     var baseVerdict = overallVerdict([sGrade, dGrade, tGrade]);
-    var nudgedVerdict = applyNewsNudge(baseVerdict, input.news);
+    var nudgedVerdict = applyNewsNudge(baseVerdict, input.news, input.type);
 
     // Derived contract metrics. Intrinsic = how much of the premium is
     // already in-the-money cash. Time value = whatever is left, i.e. what
