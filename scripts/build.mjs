@@ -4935,7 +4935,8 @@ function gradeDelta(absDelta) {
   if (absDelta == null || !isFinite(absDelta)) return { cls: "fair", label: "—" };
   if (absDelta >= 0.40 && absDelta <= 0.55) return { cls: "good", label: "Balanced" };
   if (absDelta >= 0.30 && absDelta <= 0.65) return { cls: "fair", label: "Skewed" };
-  if (absDelta < 0.30) return { cls: "bad", label: "Far OTM" };
+  if (absDelta >= 0.15 && absDelta < 0.30) return { cls: "fair", label: "OTM" };
+  if (absDelta < 0.15) return { cls: "bad", label: "Far OTM" };
   return { cls: "bad", label: "Deep ITM" };
 }
 function gradeTheta(thetaDay, mid) {
