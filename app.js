@@ -5009,15 +5009,20 @@
       var sinceTxt = c.firstSeen ? ' since ' + fmtRepeatSince(c.firstSeen) : '';
       repeatTag = '<span class="flow-repeat" title="' + escapeHtml('Flagged ' + repeatCount + ' times in the last 5 trading days' + sinceTxt) + '">🔥 ×' + repeatCount + '</span>';
     }
+    var flaggedLbl = fmtFlaggedTime(c.firstSeen);
+    var flaggedTag = flaggedLbl
+      ? '<span class="flow-flagged" title="' + escapeHtml('First flagged unusual at ' + flaggedLbl + ' ET') + '">⚑ ' + escapeHtml(flaggedLbl) + '</span>'
+      : '';
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
     var tipRepeat = repeatCount >= 2 ? ' · flagged ' + repeatCount + 'x in last 5 trading days' : '';
+    var tipFlagged = flaggedLbl ? ' · flagged ' + flaggedLbl + ' ET' : '';
     var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
       (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
       tipPrev +
       (c.last != null ? ' · last $' + Number(c.last) : '') +
-      tipPrem + tipTape + tipRepeat;
+      tipPrem + tipTape + tipRepeat + tipFlagged;
     var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
     var wrapClass = 'flow-contract' + (c.note ? ' has-note' : '');
     // Build a Grade-this-contract link if we have enough state.
@@ -5046,6 +5051,7 @@
       '<span class="flow-delta">' + escapeHtml(deltaStr) + '/hr</span>' +
       premTag +
       tapeTag +
+      flaggedTag +
       repeatTag +
       gradeBtn +
       '</div>' +
@@ -5060,6 +5066,36 @@
         timeZone: 'America/New_York',
         month: 'short',
         day: 'numeric',
+      }).format(d);
+    } catch (_) { return ''; }
+  }
+  // Compact label for when our scanner first flagged a contract as unusual.
+  // Yahoo doesn't surface per-trade tape, so this is the closest signal to
+  // "when did this show up" — same-day shows just the hour; older shows the date.
+  function fmtFlaggedTime(iso){
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      var nowParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).formatToParts(new Date());
+      var thenParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).formatToParts(d);
+      function ymd(parts){
+        var o = {};
+        for (var i=0;i<parts.length;i++){ o[parts[i].type] = parts[i].value; }
+        return o.year + '-' + o.month + '-' + o.day;
+      }
+      var sameDay = ymd(nowParts) === ymd(thenParts);
+      if (sameDay){
+        return new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true,
+        }).format(d);
+      }
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true,
       }).format(d);
     } catch (_) { return ''; }
   }
