@@ -79,15 +79,16 @@ function topPicksSection() {
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
-    <p class="hint">The ten highest-conviction tickers to trade options on right now, scored by fusing every signal the daily build already produces: active narratives this ticker rides, news sentiment, fundamentals verdict, RSI extremes, MACD direction, and the current daily streak. Each pick is tagged with the side (call or put) the signal stack points to and a thesis enumerating the drivers.</p>
+    <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+12 or higher</b> Strong Call, <b>+7&nbsp;to&nbsp;+11</b> Call, <b>-6 to +6</b> No Trade (skipped), <b>-7 to -11</b> Put, <b>-12 or lower</b> Strong Put. Each card shows the score breakdown on the side so you can see exactly why a ticker landed where it did, plus how it stacks up against same-sector peers.</p>
     <details class="picks-howto">
-      <summary>New to options? How to read a pick &rarr;</summary>
+      <summary>How the 4-pillar score works &rarr;</summary>
       <div class="picks-howto-body">
-        <p><b>CALL vs PUT.</b> CALL = the signal stack thinks the stock goes up; PUT = thinks it goes down. The "Suggested CALL/PUT" block names a specific contract (strike + expiry) that fits the bet.</p>
-        <p><b>Conviction (right edge).</b> Number of independent signals lined up the same direction &mdash; news, fundamentals, momentum, analyst targets, social, volume, support/resistance. A pick with conv 12 means twelve signals agree; conv 5 is the floor we publish. Higher is more agreement, not bigger payoff.</p>
-        <p><b>Driver chips.</b> Each chip is one of those signals, color-coded green (helps the trade) or red (works against). Click into a ticker to see how each signal was scored.</p>
-        <p><b>Suggested contract.</b> The strike, expiry, and quoted price the build picked as the cleanest expression of the thesis. Hover Δ / Θ / IV for what they mean &mdash; or just read the <b>"In plain English"</b> panel underneath, which translates everything into beginner terms: cost, win condition, daily holding cost, rough odds.</p>
-        <p><b>Risk.</b> Buying a call or put can lose <i>at most</i> the premium you pay &mdash; but it can lose all of it if the stock doesn&rsquo;t move enough in your direction before expiry. None of this is financial advice; the picks are a starting watchlist, not a recommendation to trade.</p>
+        <p><b>Fundamentals.</b> Earnings surprise &plusmn;3, EPS growth YoY &plusmn;2, revenue growth YoY &plusmn;2, analyst price target &plusmn;2, P/E vs sector median &plusmn;1, guidance &plusmn;2, lost major contract 0/-3.</p>
+        <p><b>Technicals.</b> RSI 14 &plusmn;2, MACD &plusmn;2, current streak &plusmn;1, broke 20d support/resistance &plusmn;2, 52-week high/low proximity &plusmn;1.</p>
+        <p><b>Mechanicals.</b> Unusual flow (call vs put premium) &plusmn;2, open interest call/put ratio &plusmn;1, short interest &gt;15% +1, unusual volume &plusmn;2.</p>
+        <p><b>Narrative.</b> Positive catalyst +3/0, sector tailwind/headwind &plusmn;2, social sentiment &plusmn;1, media coverage surge &plusmn;1, negative catalyst 0/-3.</p>
+        <p><b>Suggested contract criteria.</b> 5-25% OTM, delta 0.20-0.40, IV &lt;200%, &ge;14 days to expiry, premium &le;$35/share (&le;$3,500 / contract), tight spread, liquid. The "In plain English" panel under each contract translates the bet into beginner terms.</p>
+        <p><b>Risk.</b> Buying a call or put can lose <i>at most</i> the premium you pay &mdash; but can lose all of it if the stock doesn&rsquo;t move enough in your direction before expiry. None of this is financial advice; the picks are a starting watchlist, not a recommendation to trade.</p>
       </div>
     </details>
     <div class="picks-controls" role="toolbar" aria-label="Sort top picks">
@@ -105,8 +106,8 @@ function topPicksSection() {
       </label>
     </div>
     <div id="picks-root" class="picks-root">Loading top picks…</div>
-    <div id="picks-empty" class="picks-empty" hidden>No high-conviction picks in this build — every ticker scored below the minimum.</div>
-    <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Conviction is the absolute signal score (typically 3-12); higher means more independent signals lined up the same direction.</p>
+    <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-6 to +6).</div>
+    <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;7 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
   </section>`;
 }
 

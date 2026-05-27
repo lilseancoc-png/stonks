@@ -5286,7 +5286,7 @@ main { padding-top: var(--s-2); }
 }
 .pick-card {
   display: grid;
-  grid-template-columns: 56px 1fr 80px;
+  grid-template-columns: 48px minmax(0, 1fr) 280px;
   gap: var(--s-3);
   padding: var(--s-3);
   border: 1px solid var(--border);
@@ -5827,12 +5827,11 @@ main { padding-top: var(--s-2); }
 .picks-summary-warn .picks-summary-num { color: var(--warn); }
 .picks-summary-warn .picks-summary-lbl { color: var(--warn); opacity: .85; }
 
-/* Mobile: drop the right-side conviction column down to a row beneath
-   the thesis. Bar flips horizontal — the same --pick-conv-pct custom
-   property now drives width rather than height. */
-@media (max-width: 640px) {
+/* Mobile: drop the right-side pillars panel down to a row beneath
+   the main content so we can keep the breakdown visible on narrow viewports. */
+@media (max-width: 860px) {
   .pick-card {
-    grid-template-columns: 44px 1fr;
+    grid-template-columns: 44px minmax(0, 1fr);
     gap: var(--s-2);
     padding: 10px;
   }
@@ -5840,27 +5839,270 @@ main { padding-top: var(--s-2); }
   .pick-rank-top1 .pick-rank-num { font-size: 24px; }
   .pick-rank-top2 .pick-rank-num,
   .pick-rank-top3 .pick-rank-num { font-size: 22px; }
-  .pick-conviction {
+  .pick-pillars-panel {
     grid-column: 1 / -1;
-    flex-direction: row;
     border-left: 0;
     border-top: 1px solid var(--border);
-    padding-top: 8px;
-    gap: 10px;
-    justify-content: flex-start;
-    min-width: 0;
-    align-items: center;
-  }
-  .pick-conv-bar {
-    flex: 1;
-    width: auto;
-    height: 6px;
-  }
-  .pick-conv-fill {
-    width: var(--pick-conv-pct, 50%);
-    height: 100%;
+    padding-left: 0;
+    padding-top: 10px;
+    margin-top: 4px;
   }
 }
+
+/* --- 4-pillar tier banner -----------------------------------------------
+   Sits directly under the head row and dominates the card. Each tier gets
+   its own color and intensity so the user knows at a glance whether this
+   pick is Strong Call / Call / Put / Strong Put. */
+.pick-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface) 90%, var(--muted) 10%);
+  border: 1px solid var(--border);
+}
+.pick-tier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.pick-tier-label {
+  font: 700 14px/1 var(--font-sans);
+  letter-spacing: .02em;
+  color: var(--text-strong);
+}
+.pick-tier-score {
+  font: 700 18px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+  margin-left: auto;
+}
+.pick-tier-sub {
+  display: flex;
+  gap: 10px;
+  font: 500 10px/1.2 var(--font-mono);
+  letter-spacing: .04em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.pick-tier-conv::after {
+  content: " ·";
+  margin-left: 4px;
+  opacity: .4;
+}
+.pick-tier-strong-call {
+  background: color-mix(in srgb, var(--pos) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--pos) 45%, var(--border));
+}
+.pick-tier-strong-call .pick-tier-label,
+.pick-tier-strong-call .pick-tier-score { color: var(--pos); }
+.pick-tier-call {
+  background: color-mix(in srgb, var(--pos) 6%, var(--surface));
+  border-color: color-mix(in srgb, var(--pos) 30%, var(--border));
+}
+.pick-tier-call .pick-tier-label,
+.pick-tier-call .pick-tier-score { color: color-mix(in srgb, var(--pos) 80%, var(--text-strong)); }
+.pick-tier-strong-put {
+  background: color-mix(in srgb, var(--neg) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--neg) 45%, var(--border));
+}
+.pick-tier-strong-put .pick-tier-label,
+.pick-tier-strong-put .pick-tier-score { color: var(--neg); }
+.pick-tier-put {
+  background: color-mix(in srgb, var(--neg) 6%, var(--surface));
+  border-color: color-mix(in srgb, var(--neg) 30%, var(--border));
+}
+.pick-tier-put .pick-tier-label,
+.pick-tier-put .pick-tier-score { color: color-mix(in srgb, var(--neg) 80%, var(--text-strong)); }
+.pick-tier-no-trade {
+  background: color-mix(in srgb, var(--muted) 8%, var(--surface));
+  border-color: var(--border);
+}
+
+/* --- Plain-English analysis paragraph -- */
+.pick-analysis {
+  margin: 4px 0 4px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+  font: 400 12px/1.55 var(--font-sans);
+  color: var(--text);
+}
+
+/* --- Sector-peer comparison -------------------------------------------- */
+.pick-peers {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.pick-peers-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.pick-peer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pick-peer {
+  display: grid;
+  grid-template-columns: 70px 50px 1fr;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+  font: 500 12px/1.3 var(--font-sans);
+}
+.pick-peer-sym {
+  font: 700 12px/1 var(--font-mono);
+  color: var(--text-strong);
+  letter-spacing: .02em;
+}
+.pick-peer-score {
+  font: 600 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text);
+}
+.pick-peer-tier {
+  font: 500 11px/1 var(--font-sans);
+  color: var(--muted);
+}
+.pick-peer.pick-peer-strong-call,
+.pick-peer.pick-peer-call {
+  background: color-mix(in srgb, var(--pos) 6%, var(--surface-2));
+}
+.pick-peer.pick-peer-strong-call .pick-peer-score,
+.pick-peer.pick-peer-call .pick-peer-score { color: var(--pos); }
+.pick-peer.pick-peer-strong-put,
+.pick-peer.pick-peer-put {
+  background: color-mix(in srgb, var(--neg) 6%, var(--surface-2));
+}
+.pick-peer.pick-peer-strong-put .pick-peer-score,
+.pick-peer.pick-peer-put .pick-peer-score { color: var(--neg); }
+.pick-peer.pick-peer-no-trade .pick-peer-score { color: var(--muted); }
+
+/* --- 4-pillar side panel (score breakdown) ----------------------------- */
+.pick-pillars-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: var(--s-3);
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+.pick-pillars-bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.pick-pillars-title {
+  font: 700 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.pick-pillars-total {
+  font: 700 18px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.pick-pillar {
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  overflow: hidden;
+}
+.pick-pillar > summary.pick-pillar-head {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background .12s var(--ease-out);
+}
+.pick-pillar > summary.pick-pillar-head::-webkit-details-marker { display: none; }
+.pick-pillar > summary.pick-pillar-head:hover {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.pick-pillar[open] > summary.pick-pillar-head {
+  border-bottom: 1px solid var(--border);
+}
+.pick-pillar-name {
+  font: 600 12px/1 var(--font-sans);
+  color: var(--text-strong);
+}
+.pick-pillar-score {
+  font: 700 13px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.pick-pillar-signals {
+  list-style: none;
+  margin: 0;
+  padding: 6px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pillar-signal {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: baseline;
+  padding: 2px 0;
+  border-radius: var(--r-1);
+}
+.pillar-signal-label {
+  font: 500 11px/1.3 var(--font-sans);
+  color: var(--text);
+}
+.pillar-signal-score {
+  font: 700 11px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.pillar-signal-value {
+  font: 500 10px/1.2 var(--font-mono);
+  color: var(--muted);
+  grid-column: 1 / -1;
+}
+.pillar-signal-note {
+  font: 400 10px/1.3 var(--font-sans);
+  color: var(--muted);
+  grid-column: 1 / -1;
+  opacity: .8;
+}
+.pillar-signal.sig-pos .pillar-signal-score { color: var(--pos); }
+.pillar-signal.sig-neg .pillar-signal-score { color: var(--neg); }
+.pillar-signal.sig-zero .pillar-signal-score { color: var(--muted); opacity: .7; }
+.pillar-signal-nodata {
+  opacity: .55;
+}
+.pillar-signal-nodata .pillar-signal-label::after {
+  content: " · no data";
+  font-style: italic;
+  color: var(--muted);
+}
+/* Sign-coded helpers used by other elements (analysis, peers, totals). */
+.sig-pos { color: var(--pos); }
+.sig-neg { color: var(--neg); }
+.sig-zero { color: var(--muted); }
 
 /* "In plain English" explainer block — translates the Greek/IV row above
    into beginner-friendly bullets. Subtle bordered panel, mono digits, so
