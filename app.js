@@ -182,6 +182,14 @@
     if (tab === 'volume' && MANIFEST.volumeFlags && MANIFEST.volumeFlags.scannedAt) {
       return { iso: MANIFEST.volumeFlags.scannedAt, label: 'hourly volume/S-R scan' };
     }
+    if (tab === 'oi' && MANIFEST.oi && MANIFEST.oi.scannedAt) {
+      var oiLabel = MANIFEST.oi.scanType === 'premarket'
+        ? 'pre-market OI scan'
+        : MANIFEST.oi.scanType === 'eod'
+        ? 'EOD OI scan'
+        : 'OI scan';
+      return { iso: MANIFEST.oi.scannedAt, label: oiLabel };
+    }
     if (tab === 'fear-greed' && MANIFEST.fearGreed && MANIFEST.fearGreed.asOf) {
       return { iso: MANIFEST.fearGreed.asOf, label: 'CNN Fear & Greed snapshot' };
     }
@@ -2500,6 +2508,7 @@
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
       if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
+      if (name === 'oi' && typeof renderOI === 'function') renderOI();
       if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
@@ -5624,6 +5633,316 @@
       sortSel.addEventListener('change', function(){
         volState.sort = sortSel.value || 'ratio';
         renderVolumeFlags();
+      });
+    }
+  }
+
+  // --- Gamma OI tab -------------------------------------------------------
+  // Near-term open-interest tracker. Twice-daily scan (pre-market + EOD)
+  // of front 2 expirations. Data lives at MANIFEST.oi (populated by
+  // scripts/scan-oi.mjs). For each ticker we render a collapsible row
+  // with the gamma squeeze score, call/put walls, C/P ratio, and the top
+  // 12 OI strikes with ΔOI day-over-day vs the prior trading day's
+  // snapshot.
+  var OI = MANIFEST.oi || null;
+  var oiState = { search: '', flaggedOnly: false, sort: 'score', perRowCollapsed: {}, allCollapsed: true };
+
+  function fmtOiNum(n){
+    if (n == null || !isFinite(n)) return '—';
+    var v = Number(n);
+    if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+    return String(Math.round(v));
+  }
+  function fmtOiPct(p, signed){
+    if (p == null || !isFinite(p)) return '—';
+    var v = Number(p) * 100;
+    var prefix = signed && v > 0 ? '+' : '';
+    return prefix + v.toFixed(1) + '%';
+  }
+  function fmtOiStrike(s){
+    if (s == null) return '—';
+    var n = Number(s);
+    if (!isFinite(n)) return '—';
+    return '$' + (n >= 1000 ? n.toFixed(0) : n.toFixed(2).replace(/.00$/, ''));
+  }
+  function fmtOiExpiry(epochSec){
+    if (!epochSec) return '';
+    var d = new Date(Number(epochSec) * 1000);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function oiDte(epochSec){
+    if (!epochSec) return null;
+    return Math.max(0, Math.round((Number(epochSec) * 1000 - Date.now()) / 86400000));
+  }
+  function oiScoreTier(score){
+    if (score >= 5) return 'tier-5';
+    if (score >= 4) return 'tier-4';
+    if (score >= 3) return 'tier-3';
+    if (score >= 2) return 'tier-2';
+    return 'tier-1';
+  }
+
+  function filteredOiTickers(){
+    var list = (OI && Array.isArray(OI.tickers)) ? OI.tickers.slice() : [];
+    var q = (oiState.search || '').trim().toUpperCase();
+    var out = [];
+    for (var i = 0; i < list.length; i++){
+      var t = list[i];
+      if (!t || !t.symbol) continue;
+      if (q && String(t.symbol).toUpperCase().indexOf(q) < 0) continue;
+      if (oiState.flaggedOnly && !t.flagged) continue;
+      out.push(t);
+    }
+    if (oiState.sort === 'score'){
+      out.sort(function(a, b){
+        if (a.flagged !== b.flagged) return a.flagged ? -1 : 1;
+        if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+        return ((b.callOiTotal||0) + (b.putOiTotal||0)) - ((a.callOiTotal||0) + (a.putOiTotal||0));
+      });
+    } else if (oiState.sort === 'oi'){
+      out.sort(function(a, b){
+        return ((b.callOiTotal||0) + (b.putOiTotal||0)) - ((a.callOiTotal||0) + (a.putOiTotal||0));
+      });
+    } else if (oiState.sort === 'cp'){
+      out.sort(function(a, b){
+        var ar = (a.cpRatio == null) ? -1 : Number(a.cpRatio);
+        var br = (b.cpRatio == null) ? -1 : Number(b.cpRatio);
+        return br - ar;
+      });
+    } else if (oiState.sort === 'delta'){
+      function topDeltaPct(t){
+        var strikes = Array.isArray(t.strikes) ? t.strikes : [];
+        var m = -Infinity;
+        for (var i = 0; i < strikes.length; i++){
+          var p = strikes[i].oiDeltaPct;
+          if (p != null && isFinite(p) && p > m) m = p;
+        }
+        return m === -Infinity ? -1 : m;
+      }
+      out.sort(function(a, b){ return topDeltaPct(b) - topDeltaPct(a); });
+    } else if (oiState.sort === 'alpha'){
+      out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
+    }
+    return out;
+  }
+
+  function oiReasonChipsHtml(reasons){
+    if (!Array.isArray(reasons) || !reasons.length) return '';
+    return '<div class="oi-reasons">' + reasons.map(function(r){
+      return '<span class="oi-reason oi-reason-' + escapeHtml(r.rule || '') + '" title="Gamma squeeze rule fired">' +
+        '<span class="oi-reason-tick" aria-hidden="true">✓</span>' +
+        escapeHtml(r.label || '') +
+      '</span>';
+    }).join('') + '</div>';
+  }
+
+  function oiStrikeRowHtml(s){
+    var sideCls = s.side === 'call' ? 'is-call' : 'is-put';
+    var sideLabel = s.side === 'call' ? 'C' : 'P';
+    var dte = oiDte(s.expSec);
+    var deltaPct = s.oiDeltaPct;
+    var deltaCls = '';
+    if (deltaPct != null) deltaCls = deltaPct >= 0 ? ' is-up' : ' is-dn';
+    var deltaTxt = deltaPct != null ? fmtOiPct(deltaPct, true) : '—';
+    var deltaAbs = s.oiDelta != null ? (s.oiDelta >= 0 ? '+' : '') + fmtOiNum(s.oiDelta) : '';
+    var fromSpotTxt = s.fromSpotPct != null ? fmtOiPct(s.fromSpotPct, true) : '—';
+    var volOiTxt = s.volOiRatio != null ? Number(s.volOiRatio).toFixed(2) + 'x' : '—';
+    var chips = [];
+    if (s.flagOiBig) chips.push('<span class="oi-chip oi-chip-big" title="OI &gt; 1000">OI 1K+</span>');
+    if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="ΔOI ≥ +100% — very aggressive new buying">ΔOI +100%+</span>');
+    else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="ΔOI ≥ +30% — new buying">ΔOI +30%+</span>');
+    var volOiHot = s.volOiRatio != null && Number(s.volOiRatio) >= 1.5;
+    if (volOiHot) chips.push('<span class="oi-chip oi-chip-volhot" title="Vol &gt; 1.5× OI — likely new positions opening today">Vol&gt;&gt;OI</span>');
+    var chipsHtml = chips.length ? '<span class="oi-strike-chips">' + chips.join('') + '</span>' : '';
+    return '<tr class="oi-strike-row ' + sideCls + '">' +
+      '<td class="oi-cell-side"><span class="oi-side-pill ' + sideCls + '">' + sideLabel + '</span></td>' +
+      '<td class="oi-cell-strike">' + fmtOiStrike(s.strike) + '</td>' +
+      '<td class="oi-cell-exp">' + escapeHtml(fmtOiExpiry(s.expSec)) + (dte != null ? ' <span class="oi-dte">' + dte + 'd</span>' : '') + '</td>' +
+      '<td class="oi-cell-oi">' + fmtOiNum(s.oi) + '</td>' +
+      '<td class="oi-cell-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot">' +
+        deltaTxt + (deltaAbs ? ' <span class="oi-delta-abs">(' + deltaAbs + ')</span>' : '') +
+      '</td>' +
+      '<td class="oi-cell-vol">' + fmtOiNum(s.vol) + '</td>' +
+      '<td class="oi-cell-volratio">' + volOiTxt + '</td>' +
+      '<td class="oi-cell-spot">' + fromSpotTxt + '</td>' +
+      '<td class="oi-cell-chips">' + chipsHtml + '</td>' +
+    '</tr>';
+  }
+
+  function oiIsRowCollapsed(symbol){
+    if (Object.prototype.hasOwnProperty.call(oiState.perRowCollapsed, symbol)){
+      return !!oiState.perRowCollapsed[symbol];
+    }
+    return oiState.allCollapsed;
+  }
+  function oiTickerRowHtml(t){
+    var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+    var score = t.score || 0;
+    var tier = oiScoreTier(score);
+    var collapsed = oiIsRowCollapsed(t.symbol);
+    var cw = t.callWall;
+    var pw = t.putWall;
+    var cwHtml = cw
+      ? '<span class="oi-wall oi-wall-call" title="Highest call OI strike — potential resistance / gamma wall">Call wall ' + fmtOiStrike(cw.strike) + ' · ' + fmtOiNum(cw.oi) + '</span>'
+      : '';
+    var pwHtml = pw
+      ? '<span class="oi-wall oi-wall-put" title="Highest put OI strike — potential support">Put wall ' + fmtOiStrike(pw.strike) + ' · ' + fmtOiNum(pw.oi) + '</span>'
+      : '';
+    var cpHtml = t.cpRatio != null
+      ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
+      : '';
+    var strikes = Array.isArray(t.strikes) ? t.strikes : [];
+    var tableHtml = '';
+    if (strikes.length){
+      tableHtml = '<div class="oi-table-wrap"><table class="oi-table"><thead><tr>' +
+        '<th class="oi-th-side">Side</th>' +
+        '<th class="oi-th-strike">Strike</th>' +
+        '<th class="oi-th-exp">Exp</th>' +
+        '<th class="oi-th-oi">OI</th>' +
+        '<th class="oi-th-delta" title="Change in OI vs the prior trading day">ΔOI</th>' +
+        '<th class="oi-th-vol">Vol today</th>' +
+        '<th class="oi-th-volratio" title="Today\'s volume ÷ open interest. &gt; 1.5× = likely new positions">Vol/OI</th>' +
+        '<th class="oi-th-spot" title="Strike\'s % distance from spot (positive = OTM)">% from spot</th>' +
+        '<th class="oi-th-chips">Flags</th>' +
+      '</tr></thead><tbody>' +
+        strikes.map(oiStrikeRowHtml).join('') +
+      '</tbody></table></div>';
+    }
+    var scoreBadge =
+      '<span class="oi-score ' + tier + (t.flagged ? ' is-flagged' : '') + '" ' +
+        'title="Gamma Squeeze Score (0-5). 4-5 = strong potential setup.">' +
+        'Score ' + score + '/5' +
+        (t.flagged ? ' · ⚠' : '') +
+      '</span>';
+    var summaryBits = [cwHtml, pwHtml, cpHtml].filter(Boolean).join('');
+    return '<article class="oi-row ' + tier + (collapsed ? ' is-collapsed' : '') + (t.flagged ? ' is-flagged' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
+      '<button type="button" class="oi-row-head" aria-expanded="' + (!collapsed) + '" data-oi-toggle="' + escapeHtml(t.symbol) + '">' +
+        '<svg class="oi-row-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>' +
+        '<span class="oi-symbol">' + escapeHtml(t.symbol) + '</span>' +
+        (spot ? '<span class="oi-spot">' + spot + '</span>' : '') +
+        scoreBadge +
+        '<span class="oi-summary-bits">' + summaryBits + '</span>' +
+      '</button>' +
+      '<div class="oi-body-row"' + (collapsed ? ' hidden' : '') + '>' +
+        oiReasonChipsHtml(t.reasons) +
+        tableHtml +
+      '</div>' +
+    '</article>';
+  }
+
+  function renderOI(){
+    var list = $('oi-list');
+    var empty = $('oi-empty');
+    var noResults = $('oi-no-results');
+    var eyebrow = $('oi-eyebrow');
+    if (!list) return;
+    var allTickers = (OI && Array.isArray(OI.tickers)) ? OI.tickers : [];
+    if (eyebrow){
+      if (OI && OI.summary){
+        var parts = [];
+        if (OI.summary.tickerCount) parts.push(OI.summary.tickerCount + ' ticker' + (OI.summary.tickerCount === 1 ? '' : 's'));
+        if (OI.summary.flaggedCount) parts.push(OI.summary.flaggedCount + ' flagged');
+        var scanLabel = OI.scanType === 'premarket' ? 'pre-market' : (OI.scanType === 'eod' ? 'EOD' : 'manual');
+        var when = fmtScannedAt(OI.scannedAt);
+        if (when) parts.push(scanLabel + ' scan · ' + when);
+        if (!OI.summary.hadBaseline) parts.push('no ΔOI baseline yet');
+        eyebrow.textContent = parts.join(' · ');
+      } else if (OI && OI.scannedAt){
+        var when2 = fmtScannedAt(OI.scannedAt);
+        eyebrow.textContent = when2 ? 'scanned ' + when2 : '';
+      } else {
+        eyebrow.textContent = '';
+      }
+    }
+    if (!allTickers.length){
+      list.innerHTML = '';
+      if (noResults) noResults.hidden = true;
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = OI
+          ? 'No tickers carried OI in the latest scan.'
+          : 'Waiting for the first OI scan to land.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    var tickers = filteredOiTickers();
+    if (!tickers.length){
+      list.innerHTML = '';
+      if (noResults){
+        noResults.hidden = false;
+        noResults.textContent = 'No tickers match these filters.';
+      }
+      return;
+    }
+    if (noResults) noResults.hidden = true;
+    list.innerHTML = tickers.map(oiTickerRowHtml).join('');
+  }
+
+  function bindOIControls(){
+    var search = $('oi-search-input');
+    var clear = $('oi-search-clear');
+    if (search){
+      search.addEventListener('input', function(){
+        oiState.search = search.value || '';
+        if (clear) clear.hidden = !oiState.search;
+        renderOI();
+      });
+    }
+    if (clear){
+      clear.addEventListener('click', function(){
+        if (search){ search.value = ''; search.focus(); }
+        oiState.search = '';
+        clear.hidden = true;
+        renderOI();
+      });
+    }
+    var flaggedToggle = $('oi-flagged-only');
+    if (flaggedToggle){
+      flaggedToggle.addEventListener('change', function(){
+        oiState.flaggedOnly = !!flaggedToggle.checked;
+        renderOI();
+      });
+    }
+    var sortSel = $('oi-sort-select');
+    if (sortSel){
+      sortSel.value = oiState.sort;
+      sortSel.addEventListener('change', function(){
+        oiState.sort = sortSel.value || 'score';
+        renderOI();
+      });
+    }
+    var expandBtn = $('oi-expand-toggle');
+    if (expandBtn){
+      expandBtn.addEventListener('click', function(){
+        oiState.allCollapsed = !oiState.allCollapsed;
+        oiState.perRowCollapsed = {};
+        expandBtn.setAttribute('aria-pressed', oiState.allCollapsed ? 'false' : 'true');
+        expandBtn.textContent = oiState.allCollapsed ? 'Expand all' : 'Collapse all';
+        renderOI();
+      });
+    }
+    var listEl = $('oi-list');
+    if (listEl){
+      listEl.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('[data-oi-toggle]');
+        if (!btn) return;
+        var sym = btn.getAttribute('data-oi-toggle');
+        if (!sym) return;
+        oiState.perRowCollapsed[sym] = !oiIsRowCollapsed(sym);
+        renderOI();
+      });
+    }
+    var collapseBtn = $('oi-collapse');
+    var body = $('oi-body');
+    if (collapseBtn && body){
+      collapseBtn.addEventListener('click', function(){
+        var expanded = collapseBtn.getAttribute('aria-expanded') !== 'false';
+        var next = !expanded;
+        collapseBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+        body.hidden = !next;
       });
     }
   }
@@ -8853,6 +9172,7 @@
       ['picks', 'Top picks'],
       ['calendar', 'Calendar'],
       ['flow', 'Unusual flow'],
+      ['oi', 'Gamma OI'],
       ['grade', 'Grade a contract'],
       ['streaks', 'Streaks'],
       ['fear-greed', 'Fear & Greed'],
@@ -9183,6 +9503,8 @@
     bindFlowControls();
     renderVolumeFlags();
     bindVolumeControls();
+    renderOI();
+    bindOIControls();
     bindCalendarControls();
     bindCsvExports();
     bindCmdPalette();

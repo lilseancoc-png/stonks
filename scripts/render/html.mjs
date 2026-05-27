@@ -209,6 +209,49 @@ function unusualFlowSection() {
   </section>`;
 }
 
+function oiTrackerSection() {
+  // Card shell only — per-ticker rows render client-side from
+  // MANIFEST.oi (populated by scripts/scan-oi.mjs). Twice-daily scan,
+  // front 2 expirations (this week + next week).
+  return `<section class="card oi-card" id="oi-section">
+    <header class="card-header oi-card-header">
+      <button type="button" id="oi-collapse" class="oi-collapse-btn" aria-expanded="true" aria-controls="oi-body" title="Collapse section">
+        <svg class="oi-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        <h2 class="card-title">Near-term OI &amp; gamma squeeze</h2>
+      </button>
+      <span class="card-eyebrow" id="oi-eyebrow" aria-live="polite"></span>
+    </header>
+    <div id="oi-body" class="oi-body">
+      <p class="hint">Top 12 highest open-interest strikes (calls + puts) across this week's and next week's expirations. Each ticker carries a <strong>Gamma Squeeze Score</strong> (0–5): heavy near-the-money call OI · C/P ratio ≥ 2:1 · call wall Vol/OI ≥ 1.5× · spot within 10% of the call wall · aggressive ask-side call flow today. A score of <strong>4–5</strong> flags a potential setup. Strikes with <strong>OI &gt; 1000</strong> get a chip; ΔOI day-over-day chips fire at <strong>+30%</strong> (new buying) and <strong>+100%</strong> (very aggressive). Twice-daily scan: pre-market (~08:30 ET) and EOD (~19:00 ET).</p>
+      <div class="oi-controls" role="toolbar" aria-label="Filter OI tracker">
+        <label class="oi-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="oi-search-input" placeholder="Search ticker (e.g. NVDA, TSLA)" autocomplete="off" spellcheck="false" />
+          <button type="button" id="oi-search-clear" class="oi-search-clear" aria-label="Clear search" hidden>&times;</button>
+        </label>
+        <label class="oi-toggle">
+          <input type="checkbox" id="oi-flagged-only" />
+          <span>Flagged only (score ≥ 4)</span>
+        </label>
+        <label class="oi-sort">
+          <span class="oi-sort-label">Sort</span>
+          <select id="oi-sort-select" aria-label="Sort">
+            <option value="score">Gamma score</option>
+            <option value="oi">Total OI</option>
+            <option value="cp">Highest C/P ratio</option>
+            <option value="delta">Biggest ΔOI %</option>
+            <option value="alpha">A → Z</option>
+          </select>
+        </label>
+        <button type="button" id="oi-expand-toggle" class="oi-action-btn" aria-pressed="false">Expand all</button>
+      </div>
+      <div id="oi-list" class="oi-list" role="list"></div>
+      <div id="oi-empty" class="oi-empty" hidden>Waiting for the first OI scan to land.</div>
+      <div id="oi-no-results" class="oi-empty" hidden>No tickers match these filters.</div>
+    </div>
+  </section>`;
+}
+
 function volumeFlagsSection() {
   // Card shell only — the per-ticker rows render client-side from
   // MANIFEST.volumeFlags (populated by scripts/scan-unusual.mjs's volume
@@ -557,7 +600,7 @@ function strategiesSection() {
   </section>`;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [] }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [], oi = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -598,6 +641,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     volumeFlags: volumeFlags || null,
     marketBackdrop: marketBackdrop || null,
     nextFomcDates: Array.isArray(nextFomcDates) ? nextFomcDates : [],
+    oi: oi || null,
   }).replace(/<\/script>/gi, "<\\/script>");
   // Browser Supabase config — anon key is safe to ship publicly (RLS does
   // the actual access control). Service-role key stays server-side only.
@@ -668,6 +712,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="oi" aria-selected="false" aria-controls="page-pane-oi" id="page-tab-oi">Gamma OI</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="strategies" aria-selected="false" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
@@ -855,6 +900,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-volume" role="tabpanel" aria-labelledby="page-tab-volume" hidden>
   ${volumeFlagsSection()}
+  </div>
+  <div class="page-pane" id="page-pane-oi" role="tabpanel" aria-labelledby="page-tab-oi" hidden>
+  ${oiTrackerSection()}
   </div>
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
