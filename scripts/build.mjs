@@ -5704,6 +5704,20 @@ export function buildHeatmapPayload(chains, builtAtIso) {
 
 async function writeHeatmapFile(chains, builtAtIso) {
   const payload = buildHeatmapPayload(chains, builtAtIso);
+  // The hourly refresh (scripts/refresh-heatmap.mjs) attaches an `eodSummary`
+  // after market close. The daily build runs ~3×/day with a wipe-and-rewrite
+  // pattern, so without preservation a daily build that fires after the
+  // close (or first thing the next morning) would erase the recap before
+  // anyone sees it. Carry it forward when it's still for the current ET
+  // trading day; let it drop on stale dates.
+  try {
+    const priorRaw = await readFile(resolve(DATA_DIR, "heatmap.json"), "utf8");
+    const prior = JSON.parse(priorRaw);
+    const eod = prior?.eodSummary;
+    if (eod && eod.date && eod.date === etDateKey()) {
+      payload.eodSummary = eod;
+    }
+  } catch (_) { /* no prior file or unreadable — first build, skip */ }
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "heatmap.json"), json, "utf8");
   return { bytes: json.length, count: payload.tickers.length };
