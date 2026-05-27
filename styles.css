@@ -2405,6 +2405,17 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 22%, transparent);
 }
+.flow-flagged {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-3) 60%, transparent);
+  white-space: nowrap;
+}
 .flow-chip.is-repeat {
   outline: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
   outline-offset: -1px;
