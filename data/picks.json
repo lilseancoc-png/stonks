@@ -1,1 +1,3648 @@
-{"builtAtIso":"2026-05-27T20:05:15.423Z","minConviction":7,"picks":[{"symbol":"META","side":"call","total":24,"score":24,"conviction":24,"compositeScore":22.152,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":12,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":3,"value":"+56.8%","note":"2026-03-31 — actual 10.44 vs est 6.65872","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":2,"value":"+62.4%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":2,"value":"+33.1%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":2,"value":"+30% to $826.60","note":"58 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":1,"value":"23.1","note":"78% of sector median — discount","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+8.5%","note":"+8.5% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":3,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"56.9","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"1.55","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":1,"value":"5d green","note":"+5.3% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":0,"value":null,"note":"between S/R levels","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"42% of range","note":"range $520.26–$796.25","available":true}]},"mechanicals":{"score":2,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":-1,"value":"-$1.0M net","note":"bull $0.0M vs bear $1.0M","available":true},{"key":"oi","label":"Open Interest (C/P)","score":1,"value":"1.83x C/P","note":"128,728 calls vs 70,260 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"1.3%","note":"1.3% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":2,"value":"1.23x","note":"1.23x volume on +3.7% move","available":true}]},"narrative":{"score":7,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"Internet Content & Information Watchlist\" (str 75)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":1,"value":"+46% net","note":"+46% net (672 msgs/24h)","available":true},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on META: Earnings Surprise (+56.8%) — 2026-03-31 — actual 10.44 vs est 6.65872; Positive Catalyst (bullish) — news sentiment bullish; EPS Growth YoY (+62.4%); Revenue Growth YoY (+33.1%); Analyst Price Target (+30% to $826.60) — 58 analysts; Guidance (+8.5%) — +8.5% FY EPS growth est — in line/raised proxy; MACD (1.55) — line above signal — bullish; Unusual Volume (1.23x) — 1.23x volume on +3.7% move.","drivers":[{"tag":"fundamentals","weight":3,"text":"Earnings Surprise (+56.8%) — 2026-03-31 — actual 10.44 vs est 6.65872"},{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"EPS Growth YoY (+62.4%)"},{"tag":"fundamentals","weight":2,"text":"Revenue Growth YoY (+33.1%)"},{"tag":"fundamentals","weight":2,"text":"Analyst Price Target (+30% to $826.60) — 58 analysts"},{"tag":"fundamentals","weight":2,"text":"Guidance (+8.5%) — +8.5% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (1.55) — line above signal — bullish"},{"tag":"mechanicals","weight":2,"text":"Unusual Volume (1.23x) — 1.23x volume on +3.7% move"}],"spot":635.255,"sector":"Communication Services","sentiment":"bullish","fundamentalsVerdict":"strong","rsi":56.86,"ivPctile":33,"streak":{"color":"green","days":5,"cumulativePct":5.347209027427432},"peers":[{"symbol":"SPOT","total":17,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"GOOGL","total":15,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"RDDT","total":15,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"APP","total":15,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"NFLX","total":10,"side":"call","tier":"call","label":"Call"}],"contract":{"strike":690,"expiry":1784246400,"expiryLabel":"Jul 16 '26","dte":50,"bid":15,"ask":15.2,"mid":15.1,"last":15.06,"iv":0.363,"oi":1409,"volume":3782,"delta":0.308,"thetaDay":-0.3221,"breakeven":705.1,"breakevenMovePct":10.99,"expectedMovePct":13.46,"rrRatio":0.82,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":8.62,"contractQuality":{"spread":{"cls":"good","label":"Tight"},"oi":{"cls":"good","label":"Liquid"},"delta":{"cls":"fair","label":"Skewed"},"theta":{"cls":"fair","label":"Normal"},"iv":{"cls":"good","label":"Calm"},"overall":"fair"},"qualityScore":0.923},"analysis":"META scores +24 — a Strong Call recommendation. The bullish read is led by Fundamentals (+12), reinforced by Narrative (+7). Within Communication Services, META (+24) ranks above SPOT (+17) — the same direction at lower conviction, which is why we'd take META calls over SPOT. The suggested calls sit ~8.6% OTM with 50d to expiry, delta 0.31, mid $15.10 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"SMCI","side":"call","total":21,"score":21,"conviction":21,"compositeScore":17.85,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":10,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":3,"value":"+34.5%","note":"2026-03-31 — actual 0.84 vs est 0.62451","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":2,"value":"+326.0%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":2,"value":"+122.7%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":0,"value":"-3% to $37.13","note":"16 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":1,"value":"20.1","note":"38% of sector median — discount","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+26.0%","note":"+26.0% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":2,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"69.4","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"0.49","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":1,"value":"5d green","note":"+23.0% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":-1,"value":"±1.6% to R","note":"at 20d resistance $38.81","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"44% of range","note":"range $19.48–$62.36","available":true}]},"mechanicals":{"score":2,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":1,"value":"2.09x C/P","note":"402,211 calls vs 192,417 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":1,"value":"17.9%","note":"17.9% of float short — squeeze risk","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.90x","note":"0.90x vs 20D avg","available":true}]},"narrative":{"score":7,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"AI-Optimized Server Demand\" (str 85)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":1,"value":"+62% net","note":"+62% net (696 msgs/24h)","available":true},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on SMCI: Earnings Surprise (+34.5%) — 2026-03-31 — actual 0.84 vs est 0.62451; Positive Catalyst (bullish) — news sentiment bullish; EPS Growth YoY (+326.0%); Revenue Growth YoY (+122.7%); Guidance (+26.0%) — +26.0% FY EPS growth est — in line/raised proxy; MACD (0.49) — line above signal — bullish; Sector Narrative (tailwind) — rides \"AI-Optimized Server Demand\" (str 85); P/E vs Sector (20.1) — 38% of sector median — discount.","drivers":[{"tag":"fundamentals","weight":3,"text":"Earnings Surprise (+34.5%) — 2026-03-31 — actual 0.84 vs est 0.62451"},{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"EPS Growth YoY (+326.0%)"},{"tag":"fundamentals","weight":2,"text":"Revenue Growth YoY (+122.7%)"},{"tag":"fundamentals","weight":2,"text":"Guidance (+26.0%) — +26.0% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (0.49) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"AI-Optimized Server Demand\" (str 85)"},{"tag":"fundamentals","weight":1,"text":"P/E vs Sector (20.1) — 38% of sector median — discount"}],"spot":38.19,"sector":"Technology","sentiment":"bullish","fundamentalsVerdict":"mixed","rsi":69.4,"ivPctile":68,"streak":{"color":"green","days":5,"cumulativePct":23.035518810970082},"peers":[{"symbol":"AMAT","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"TSEM","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"IBM","total":17,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"FIG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"DDOG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"}],"contract":{"strike":47,"expiry":1784246400,"expiryLabel":"Jul 16 '26","dte":50,"bid":1.86,"ask":1.97,"mid":1.92,"last":1.9,"iv":0.812,"oi":342,"volume":31,"delta":0.302,"thetaDay":-0.0412,"breakeven":48.91,"breakevenMovePct":28.08,"expectedMovePct":30.1,"rrRatio":0.93,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":23.07,"contractQuality":{"spread":{"cls":"good","label":"Tight"},"oi":{"cls":"fair","label":"Light"},"delta":{"cls":"fair","label":"Skewed"},"theta":{"cls":"fair","label":"Normal"},"iv":{"cls":"fair","label":"Normal"},"overall":"fair"},"qualityScore":0.85},"analysis":"SMCI scores +21 — a Strong Call recommendation. The bullish read is led by Fundamentals (+10), reinforced by Narrative (+7). Within Technology, SMCI (+21) ranks above AMAT (+18) — the same direction at lower conviction, which is why we'd take SMCI calls over AMAT. The suggested calls sit ~23.1% OTM with 50d to expiry, delta 0.30, mid $1.92 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"IBM","side":"call","total":17,"score":17,"conviction":17,"compositeScore":15.147,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":7,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":2,"value":"+5.5%","note":"2026-03-31 — actual 1.91 vs est 1.81123","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":1,"value":"+14.2%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":1,"value":"+9.5%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":0,"value":"+9% to $277.68","note":"20 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":1,"value":"22.6","note":"43% of sector median — discount","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+7.2%","note":"+7.2% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":2,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"65.5","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"4.53","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":0,"value":"1d green","note":"+1.9% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":0,"value":null,"note":"between S/R levels","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"38% of range","note":"range $212.34–$324.90","available":true}]},"mechanicals":{"score":1,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":1,"value":"1.85x C/P","note":"93,653 calls vs 50,734 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"2.7%","note":"2.7% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.99x","note":"0.99x vs 20D avg","available":true}]},"narrative":{"score":7,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"AI Software & Cloud Adoption\" (str 80)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":1,"value":"+38% net","note":"+38% net (110.7929044667664 msgs/24h)","available":true},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on IBM: Positive Catalyst (bullish) — news sentiment bullish; Earnings Surprise (+5.5%) — 2026-03-31 — actual 1.91 vs est 1.81123; Guidance (+7.2%) — +7.2% FY EPS growth est — in line/raised proxy; MACD (4.53) — line above signal — bullish; Sector Narrative (tailwind) — rides \"AI Software & Cloud Adoption\" (str 80); EPS Growth YoY (+14.2%); Revenue Growth YoY (+9.5%); P/E vs Sector (22.6) — 43% of sector median — discount.","drivers":[{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"Earnings Surprise (+5.5%) — 2026-03-31 — actual 1.91 vs est 1.81123"},{"tag":"fundamentals","weight":2,"text":"Guidance (+7.2%) — +7.2% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (4.53) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"AI Software & Cloud Adoption\" (str 80)"},{"tag":"fundamentals","weight":1,"text":"EPS Growth YoY (+14.2%)"},{"tag":"fundamentals","weight":1,"text":"Revenue Growth YoY (+9.5%)"},{"tag":"fundamentals","weight":1,"text":"P/E vs Sector (22.6) — 43% of sector median — discount"}],"spot":255.33,"sector":"Technology","sentiment":"bullish","fundamentalsVerdict":"strong","rsi":65.5,"ivPctile":73,"streak":{"color":"green","days":1,"cumulativePct":1.8508912778573785},"peers":[{"symbol":"SMCI","total":21,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"AMAT","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"TSEM","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"FIG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"DDOG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"}],"contract":{"strike":280,"expiry":1784246400,"expiryLabel":"Jul 16 '26","dte":50,"bid":6.8,"ask":7.05,"mid":6.92,"last":7,"iv":0.4111,"oi":3576,"volume":1454,"delta":0.313,"thetaDay":-0.1463,"breakeven":286.93,"breakevenMovePct":12.37,"expectedMovePct":15.24,"rrRatio":0.81,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":9.66,"contractQuality":{"spread":{"cls":"good","label":"Tight"},"oi":{"cls":"good","label":"Liquid"},"delta":{"cls":"fair","label":"Skewed"},"theta":{"cls":"fair","label":"Normal"},"iv":{"cls":"bad","label":"Elevated"},"overall":"fair"},"qualityScore":0.891},"analysis":"IBM scores +17 — a Strong Call recommendation. The bullish read is led by Fundamentals (+7), reinforced by Narrative (+7). Within Technology, IBM (+17) ranks above SMCI (+21) — the same direction at lower conviction, which is why we'd take IBM calls over SMCI. The suggested calls sit ~9.7% OTM with 50d to expiry, delta 0.31, mid $6.92 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"VST","side":"call","total":18,"score":18,"conviction":18,"compositeScore":14.922,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":9,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":3,"value":"+53.3%","note":"2026-03-31 — actual 2.87 vs est 1.8715","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":0,"value":null,"note":"no growth data","available":false},{"key":"revGrowth","label":"Revenue Growth YoY","score":2,"value":"+43.4%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":2,"value":"+41% to $225.29","note":"17 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":0,"value":"26.8","note":"100% of sector median (26.8 vs 26.8)","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+80.3%","note":"+80.3% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":2,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"56.7","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"2.01","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":0,"value":"1d red","note":"-2.7% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":0,"value":null,"note":"between S/R levels","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"32% of range","note":"range $132.66–$219.82","available":true}]},"mechanicals":{"score":0,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":0,"value":"1.22x C/P","note":"82,338 calls vs 67,461 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"4.3%","note":"4.3% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.72x","note":"0.72x vs 20D avg","available":true}]},"narrative":{"score":7,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"Utilities - Independent Power Producers Watchlist\" (str 55)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":1,"value":"+46% net","note":"+46% net (20.42156622742966 msgs/24h)","available":true},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on VST: Earnings Surprise (+53.3%) — 2026-03-31 — actual 2.87 vs est 1.8715; Positive Catalyst (bullish) — news sentiment bullish; Revenue Growth YoY (+43.4%); Analyst Price Target (+41% to $225.29) — 17 analysts; Guidance (+80.3%) — +80.3% FY EPS growth est — in line/raised proxy; MACD (2.01) — line above signal — bullish; Sector Narrative (tailwind) — rides \"Utilities - Independent Power Producers Watchlist\" (str 55); Social Sentiment (+46% net) — +46% net (20.42156622742966 msgs/24h).","drivers":[{"tag":"fundamentals","weight":3,"text":"Earnings Surprise (+53.3%) — 2026-03-31 — actual 2.87 vs est 1.8715"},{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"Revenue Growth YoY (+43.4%)"},{"tag":"fundamentals","weight":2,"text":"Analyst Price Target (+41% to $225.29) — 17 analysts"},{"tag":"fundamentals","weight":2,"text":"Guidance (+80.3%) — +80.3% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (2.01) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"Utilities - Independent Power Producers Watchlist\" (str 55)"},{"tag":"narrative","weight":1,"text":"Social Sentiment (+46% net) — +46% net (20.42156622742966 msgs/24h)"}],"spot":160.12,"sector":"Utilities","sentiment":"bullish","fundamentalsVerdict":"mixed","rsi":56.66,"ivPctile":40,"streak":{"color":"red","days":1,"cumulativePct":-2.698105558627837},"peers":[{"symbol":"OKLO","total":9,"side":"call","tier":"call","label":"Call"}],"contract":{"strike":185,"expiry":1784246400,"expiryLabel":"Jul 16 '26","dte":50,"bid":4.7,"ask":4.8,"mid":4.75,"last":4.7,"iv":0.5313,"oi":1272,"volume":195,"delta":0.273,"thetaDay":-0.1093,"breakeven":189.75,"breakevenMovePct":18.5,"expectedMovePct":19.69,"rrRatio":0.94,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":15.54,"contractQuality":{"spread":{"cls":"good","label":"Tight"},"oi":{"cls":"good","label":"Liquid"},"delta":{"cls":"fair","label":"OTM"},"theta":{"cls":"fair","label":"Normal"},"iv":{"cls":"fair","label":"Normal"},"overall":"fair"},"qualityScore":0.829},"analysis":"VST scores +18 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+7). Within Utilities, VST (+18) ranks above OKLO (+9) — the same direction at lower conviction, which is why we'd take VST calls over OKLO. The suggested calls sit ~15.5% OTM with 50d to expiry, delta 0.27, mid $4.75 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"LLY","side":"call","total":18,"score":18,"conviction":18,"compositeScore":14.724,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":10,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":3,"value":"+25.9%","note":"2026-03-31 — actual 8.55 vs est 6.79114","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":2,"value":"+169.9%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":2,"value":"+55.5%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":1,"value":"+12% to $1215.10","note":"29 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":0,"value":"38.6","note":"183% of sector median (38.6 vs 21.1)","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+49.4%","note":"+49.4% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":1,"signals":[{"key":"rsi","label":"RSI 14","score":-2,"value":"70.8","note":"overbought","available":true},{"key":"macd","label":"MACD","score":2,"value":"9.61","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":1,"value":"4d green","note":"+6.3% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":-1,"value":"±0.8% to R","note":"at 20d resistance $1093.00","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":1,"value":"90% of range","note":"4.6% below 52w high — strength","available":true}]},"mechanicals":{"score":0,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":0,"value":"0.90x C/P","note":"54,235 calls vs 60,407 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"0.9%","note":"0.9% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.56x","note":"0.56x vs 20D avg","available":true}]},"narrative":{"score":7,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"GLP-1 Obesity Wave\" (str 85)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":1,"value":"+45% net","note":"+45% net (24.083013417461704 msgs/24h)","available":true},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on LLY: Earnings Surprise (+25.9%) — 2026-03-31 — actual 8.55 vs est 6.79114; Positive Catalyst (bullish) — news sentiment bullish; EPS Growth YoY (+169.9%); Revenue Growth YoY (+55.5%); Guidance (+49.4%) — +49.4% FY EPS growth est — in line/raised proxy; RSI 14 (70.8) — overbought; MACD (9.61) — line above signal — bullish; Sector Narrative (tailwind) — rides \"GLP-1 Obesity Wave\" (str 85).","drivers":[{"tag":"fundamentals","weight":3,"text":"Earnings Surprise (+25.9%) — 2026-03-31 — actual 8.55 vs est 6.79114"},{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"EPS Growth YoY (+169.9%)"},{"tag":"fundamentals","weight":2,"text":"Revenue Growth YoY (+55.5%)"},{"tag":"fundamentals","weight":2,"text":"Guidance (+49.4%) — +49.4% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":-2,"text":"RSI 14 (70.8) — overbought"},{"tag":"technicals","weight":2,"text":"MACD (9.61) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"GLP-1 Obesity Wave\" (str 85)"}],"spot":1084.23,"sector":"Healthcare","sentiment":"bullish","fundamentalsVerdict":"strong","rsi":70.83,"ivPctile":64,"streak":{"color":"green","days":4,"cumulativePct":6.283525482961256},"peers":[{"symbol":"NVO","total":5,"side":null,"tier":"no-trade","label":"No Trade"},{"symbol":"BSX","total":4,"side":null,"tier":"no-trade","label":"No Trade"},{"symbol":"CI","total":3,"side":null,"tier":"no-trade","label":"No Trade"},{"symbol":"UNH","total":2,"side":null,"tier":"no-trade","label":"No Trade"},{"symbol":"HIMS","total":2,"side":null,"tier":"no-trade","label":"No Trade"}],"contract":{"strike":1180,"expiry":1784246400,"expiryLabel":"Jul 16 '26","dte":50,"bid":20.8,"ask":23,"mid":21.9,"last":21.9,"iv":0.346,"oi":234,"volume":185,"delta":0.292,"thetaDay":-0.5122,"breakeven":1201.9,"breakevenMovePct":10.85,"expectedMovePct":12.83,"rrRatio":0.85,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":8.83,"contractQuality":{"spread":{"cls":"fair","label":"OK"},"oi":{"cls":"fair","label":"Light"},"delta":{"cls":"fair","label":"OTM"},"theta":{"cls":"fair","label":"Normal"},"iv":{"cls":"fair","label":"Normal"},"overall":"fair"},"qualityScore":0.818},"analysis":"LLY scores +18 — a Strong Call recommendation. The bullish read is led by Fundamentals (+10), reinforced by Narrative (+7). Within Healthcare, LLY (+18) ranks above NVO (+5) — the same direction at lower conviction, which is why we'd take LLY calls over NVO. The suggested calls sit ~8.8% OTM with 50d to expiry, delta 0.29, mid $21.90 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"AMAT","side":"call","total":18,"score":18,"conviction":18,"compositeScore":13.518,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":9,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":2,"value":"+6.5%","note":"2026-04-30 — actual 2.86 vs est 2.68545","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":2,"value":"+33.5%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":1,"value":"+11.4%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":1,"value":"+14% to $510.77","note":"35 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":1,"value":"42.1","note":"79% of sector median — discount","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+30.1%","note":"+30.1% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":3,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"61.4","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"0.69","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":0,"value":"1d red","note":"-1.5% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":0,"value":null,"note":"between S/R levels","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":1,"value":"95% of range","note":"3.2% below 52w high — strength","available":true}]},"mechanicals":{"score":0,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":0,"value":"1.26x C/P","note":"64,836 calls vs 51,391 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"2.0%","note":"2.0% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.61x","note":"0.61x vs 20D avg","available":true}]},"narrative":{"score":6,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"Semiconductor Equipment & Materials Buildout\" (str 70)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":0,"value":null,"note":"insufficient social messages","available":false},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on AMAT: Positive Catalyst (bullish) — news sentiment bullish; Earnings Surprise (+6.5%) — 2026-04-30 — actual 2.86 vs est 2.68545; EPS Growth YoY (+33.5%); Guidance (+30.1%) — +30.1% FY EPS growth est — in line/raised proxy; MACD (0.69) — line above signal — bullish; Sector Narrative (tailwind) — rides \"Semiconductor Equipment & Materials Buildout\" (str 70); Revenue Growth YoY (+11.4%); Analyst Price Target (+14% to $510.77) — 35 analysts.","drivers":[{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"Earnings Surprise (+6.5%) — 2026-04-30 — actual 2.86 vs est 2.68545"},{"tag":"fundamentals","weight":2,"text":"EPS Growth YoY (+33.5%)"},{"tag":"fundamentals","weight":2,"text":"Guidance (+30.1%) — +30.1% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (0.69) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"Semiconductor Equipment & Materials Buildout\" (str 70)"},{"tag":"fundamentals","weight":1,"text":"Revenue Growth YoY (+11.4%)"},{"tag":"fundamentals","weight":1,"text":"Analyst Price Target (+14% to $510.77) — 35 analysts"}],"spot":448.25,"sector":"Technology","sentiment":"bullish","fundamentalsVerdict":"strong","rsi":61.35,"ivPctile":42,"streak":{"color":"red","days":1,"cumulativePct":-1.4596967254973152},"peers":[{"symbol":"SMCI","total":21,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"TSEM","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"IBM","total":17,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"FIG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"DDOG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"}],"contract":{"strike":490,"expiry":1781740800,"expiryLabel":"Jun 17 '26","dte":21,"bid":10.45,"ask":11.55,"mid":11,"last":11.22,"iv":0.5728,"oi":7343,"volume":39,"delta":0.288,"thetaDay":-0.5136,"breakeven":501,"breakevenMovePct":11.77,"expectedMovePct":13.79,"rrRatio":0.85,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":9.31,"contractQuality":{"spread":{"cls":"fair","label":"OK"},"oi":{"cls":"good","label":"Liquid"},"delta":{"cls":"fair","label":"OTM"},"theta":{"cls":"bad","label":"Bleeding"},"iv":{"cls":"fair","label":"Normal"},"overall":"bad"},"qualityScore":0.751},"analysis":"AMAT scores +18 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+6). Within Technology, AMAT (+18) ranks above SMCI (+21) — the same direction at lower conviction, which is why we'd take AMAT calls over SMCI. The suggested calls sit ~9.3% OTM with 21d to expiry, delta 0.29, mid $11.00 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"SPOT","side":"call","total":17,"score":17,"conviction":17,"compositeScore":13.396,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":9,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":3,"value":"+18.0%","note":"2026-03-31 — actual 3.45 vs est 2.92387","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":2,"value":"+222.4%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":1,"value":"+8.2%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":1,"value":"+18% to $606.16","note":"39 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":0,"value":"34.2","note":"115% of sector median (34.2 vs 29.7)","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+22.4%","note":"+22.4% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":2,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"62.8","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"12.68","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":0,"value":"1d red","note":"-3.2% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":0,"value":null,"note":"between S/R levels","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"28% of range","note":"range $405.00–$785.00","available":true}]},"mechanicals":{"score":0,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":0,"value":"1.01x C/P","note":"30,583 calls vs 30,304 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"4.5%","note":"4.5% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.55x","note":"0.55x vs 20D avg","available":true}]},"narrative":{"score":6,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"Entertainment Content Expansion\" (str 60)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":0,"value":"+0% net","note":"+0% net (5.677680163695568 msgs/24h)","available":true},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on SPOT: Earnings Surprise (+18.0%) — 2026-03-31 — actual 3.45 vs est 2.92387; Positive Catalyst (bullish) — news sentiment bullish; EPS Growth YoY (+222.4%); Guidance (+22.4%) — +22.4% FY EPS growth est — in line/raised proxy; MACD (12.68) — line above signal — bullish; Sector Narrative (tailwind) — rides \"Entertainment Content Expansion\" (str 60); Revenue Growth YoY (+8.2%); Analyst Price Target (+18% to $606.16) — 39 analysts.","drivers":[{"tag":"fundamentals","weight":3,"text":"Earnings Surprise (+18.0%) — 2026-03-31 — actual 3.45 vs est 2.92387"},{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"EPS Growth YoY (+222.4%)"},{"tag":"fundamentals","weight":2,"text":"Guidance (+22.4%) — +22.4% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (12.68) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"Entertainment Content Expansion\" (str 60)"},{"tag":"fundamentals","weight":1,"text":"Revenue Growth YoY (+8.2%)"},{"tag":"fundamentals","weight":1,"text":"Analyst Price Target (+18% to $606.16) — 39 analysts"}],"spot":512.84,"sector":"Communication Services","sentiment":"bullish","fundamentalsVerdict":"strong","rsi":62.77,"ivPctile":75,"streak":{"color":"red","days":1,"cumulativePct":-3.184760419363622},"peers":[{"symbol":"META","total":24,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"GOOGL","total":15,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"RDDT","total":15,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"APP","total":15,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"NFLX","total":10,"side":"call","tier":"call","label":"Call"}],"contract":{"strike":550,"expiry":1781740800,"expiryLabel":"Jun 17 '26","dte":21,"bid":11.05,"ask":12,"mid":11.53,"last":11.7,"iv":0.4993,"oi":548,"volume":146,"delta":0.308,"thetaDay":-0.531,"breakeven":561.52,"breakevenMovePct":9.49,"expectedMovePct":12.02,"rrRatio":0.79,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":7.25,"contractQuality":{"spread":{"cls":"fair","label":"OK"},"oi":{"cls":"good","label":"Liquid"},"delta":{"cls":"fair","label":"Skewed"},"theta":{"cls":"bad","label":"Bleeding"},"iv":{"cls":"bad","label":"Elevated"},"overall":"bad"},"qualityScore":0.788},"analysis":"SPOT scores +17 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+6). Within Communication Services, SPOT (+17) ranks above META (+24) — the same direction at lower conviction, which is why we'd take SPOT calls over META. The suggested calls sit ~7.3% OTM with 21d to expiry, delta 0.31, mid $11.53 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"TSEM","side":"call","total":18,"score":18,"conviction":18,"compositeScore":13.32,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":9,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":3,"value":"+15.7%","note":"2026-03-31 — actual 0.65 vs est 0.562","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":2,"value":"+62.9%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":1,"value":"+15.5%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":1,"value":"+13% to $313.83","note":"6 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":0,"value":"128.0","note":"241% of sector median (128.0 vs 53.0)","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+45.9%","note":"+45.9% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":2,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"63.9","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"2.69","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":0,"value":"1d red","note":"-3.7% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":0,"value":null,"note":"between S/R levels","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"91% of range","note":"range $37.48–$302.86","available":true}]},"mechanicals":{"score":1,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":1,"value":"1.55x C/P","note":"42,294 calls vs 27,359 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"2.7%","note":"2.7% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.59x","note":"0.59x vs 20D avg","available":true}]},"narrative":{"score":6,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"AI Infrastructure Buildout\" (str 95)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":0,"value":null,"note":"insufficient social messages","available":false},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on TSEM: Earnings Surprise (+15.7%) — 2026-03-31 — actual 0.65 vs est 0.562; Positive Catalyst (bullish) — news sentiment bullish; EPS Growth YoY (+62.9%); Guidance (+45.9%) — +45.9% FY EPS growth est — in line/raised proxy; MACD (2.69) — line above signal — bullish; Sector Narrative (tailwind) — rides \"AI Infrastructure Buildout\" (str 95); Revenue Growth YoY (+15.5%); Analyst Price Target (+13% to $313.83) — 6 analysts.","drivers":[{"tag":"fundamentals","weight":3,"text":"Earnings Surprise (+15.7%) — 2026-03-31 — actual 0.65 vs est 0.562"},{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"EPS Growth YoY (+62.9%)"},{"tag":"fundamentals","weight":2,"text":"Guidance (+45.9%) — +45.9% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (2.69) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"AI Infrastructure Buildout\" (str 95)"},{"tag":"fundamentals","weight":1,"text":"Revenue Growth YoY (+15.5%)"},{"tag":"fundamentals","weight":1,"text":"Analyst Price Target (+13% to $313.83) — 6 analysts"}],"spot":277.79,"sector":"Technology","sentiment":"bullish","fundamentalsVerdict":"mixed","rsi":63.85,"ivPctile":91,"streak":{"color":"red","days":1,"cumulativePct":-3.7223132013355262},"peers":[{"symbol":"SMCI","total":21,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"AMAT","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"IBM","total":17,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"FIG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"DDOG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"}],"contract":{"strike":320,"expiry":1781740800,"expiryLabel":"Jun 17 '26","dte":21,"bid":10,"ask":11.7,"mid":10.85,"last":11,"iv":0.9,"oi":1064,"volume":11,"delta":0.297,"thetaDay":-0.5015,"breakeven":330.85,"breakevenMovePct":19.1,"expectedMovePct":21.67,"rrRatio":0.88,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":15.19,"contractQuality":{"spread":{"cls":"bad","label":"Wide"},"oi":{"cls":"good","label":"Liquid"},"delta":{"cls":"fair","label":"OTM"},"theta":{"cls":"bad","label":"Bleeding"},"iv":{"cls":"bad","label":"Elevated"},"overall":"bad"},"qualityScore":0.74},"analysis":"TSEM scores +18 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+6). Within Technology, TSEM (+18) ranks above SMCI (+21) — the same direction at lower conviction, which is why we'd take TSEM calls over SMCI. The suggested calls sit ~15.2% OTM with 21d to expiry, delta 0.30, mid $10.85 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"GD","side":"call","total":17,"score":17,"conviction":17,"compositeScore":12.104,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":7,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":2,"value":"+11.1%","note":"2026-03-31 — actual 4.1 vs est 3.69159","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":1,"value":"+12.0%","note":"","available":true},{"key":"revGrowth","label":"Revenue Growth YoY","score":1,"value":"+10.3%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":1,"value":"+14% to $392.22","note":"21 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":0,"value":"21.6","note":"98% of sector median (21.6 vs 22.0)","available":true},{"key":"guidance","label":"Guidance","score":2,"value":"+7.7%","note":"+7.7% FY EPS growth est — in line/raised proxy","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":4,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"52.1","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"0.28","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":1,"value":"3d green","note":"+1.2% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":1,"value":"±2.8% to S","note":"at 20d support $333.29","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"73% of range","note":"range $268.10–$369.70","available":true}]},"mechanicals":{"score":0,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":0,"value":"1.38x C/P","note":"5,102 calls vs 3,705 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":0,"value":"1.1%","note":"1.1% of float short — below squeeze threshold","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.39x","note":"0.39x vs 20D avg","available":true}]},"narrative":{"score":6,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":2,"value":"tailwind","note":"rides \"Aerospace & Defense Spending\" (str 80)","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":0,"value":null,"note":"insufficient social messages","available":false},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on GD: Positive Catalyst (bullish) — news sentiment bullish; Earnings Surprise (+11.1%) — 2026-03-31 — actual 4.1 vs est 3.69159; Guidance (+7.7%) — +7.7% FY EPS growth est — in line/raised proxy; MACD (0.28) — line above signal — bullish; Sector Narrative (tailwind) — rides \"Aerospace & Defense Spending\" (str 80); EPS Growth YoY (+12.0%); Revenue Growth YoY (+10.3%); Analyst Price Target (+14% to $392.22) — 21 analysts.","drivers":[{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"Earnings Surprise (+11.1%) — 2026-03-31 — actual 4.1 vs est 3.69159"},{"tag":"fundamentals","weight":2,"text":"Guidance (+7.7%) — +7.7% FY EPS growth est — in line/raised proxy"},{"tag":"technicals","weight":2,"text":"MACD (0.28) — line above signal — bullish"},{"tag":"narrative","weight":2,"text":"Sector Narrative (tailwind) — rides \"Aerospace & Defense Spending\" (str 80)"},{"tag":"fundamentals","weight":1,"text":"EPS Growth YoY (+12.0%)"},{"tag":"fundamentals","weight":1,"text":"Revenue Growth YoY (+10.3%)"},{"tag":"fundamentals","weight":1,"text":"Analyst Price Target (+14% to $392.22) — 21 analysts"}],"spot":342.715,"sector":"Industrials","sentiment":"bullish","fundamentalsVerdict":"strong","rsi":52.08,"ivPctile":81,"streak":{"color":"green","days":3,"cumulativePct":1.1859095335738918},"peers":[{"symbol":"RDW","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"FDX","total":16,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"LUNR","total":16,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"RKLB","total":12,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"CAT","total":8,"side":"call","tier":"call","label":"Call"}],"contract":{"strike":360,"expiry":1784246400,"expiryLabel":"Jul 16 '26","dte":50,"bid":5,"ask":5.7,"mid":5.35,"last":5.5,"iv":0.2361,"oi":243,"volume":33,"delta":0.327,"thetaDay":-0.121,"breakeven":365.35,"breakevenMovePct":6.6,"expectedMovePct":8.75,"rrRatio":0.75,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":5.04,"contractQuality":{"spread":{"cls":"fair","label":"OK"},"oi":{"cls":"fair","label":"Light"},"delta":{"cls":"fair","label":"Skewed"},"theta":{"cls":"fair","label":"Normal"},"iv":{"cls":"bad","label":"Elevated"},"overall":"fair"},"qualityScore":0.712},"analysis":"GD scores +17 — a Strong Call recommendation. The bullish read is led by Fundamentals (+7), reinforced by Narrative (+6). Within Industrials, GD (+17) ranks above RDW (+18) — the same direction at lower conviction, which is why we'd take GD calls over RDW. The suggested calls sit ~5.0% OTM with 50d to expiry, delta 0.33, mid $5.35 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."},{"symbol":"FIG","side":"call","total":16,"score":16,"conviction":16,"compositeScore":12.064,"recommendation":{"tier":"strong-call","label":"Strong Call","side":"call","conviction":"Very High","sizing":"Full size"},"pillars":{"fundamentals":{"score":7,"signals":[{"key":"earningsSurprise","label":"Earnings Surprise","score":3,"value":"+61.0%","note":"2026-03-31 — actual 0.1 vs est 0.06212","available":true},{"key":"epsGrowth","label":"EPS Growth YoY","score":0,"value":null,"note":"no growth data","available":false},{"key":"revGrowth","label":"Revenue Growth YoY","score":2,"value":"+46.1%","note":"","available":true},{"key":"analystTarget","label":"Analyst Price Target","score":2,"value":"+73% to $36.88","note":"8 analysts","available":true},{"key":"peVsSector","label":"P/E vs Sector","score":0,"value":null,"note":"no P/E or sector median","available":false},{"key":"guidance","label":"Guidance","score":0,"value":"-8.4%","note":"-8.4% FY EPS growth est — soft but not cut","available":true},{"key":"contractLoss","label":"Lost Major Contract","score":0,"value":null,"note":"no structured contract-loss data — manual check","available":false}]},"technicals":{"score":2,"signals":[{"key":"rsi","label":"RSI 14","score":0,"value":"51.6","note":"neutral range","available":true},{"key":"macd","label":"MACD","score":2,"value":"0.21","note":"line above signal — bullish","available":true},{"key":"streak","label":"Streak","score":0,"value":"2d red","note":"-6.1% cumulative","available":true},{"key":"sr","label":"Support/Resistance","score":0,"value":null,"note":"between S/R levels","available":true},{"key":"fiftyTwoWeek","label":"52-Week High/Low","score":0,"value":"4% of range","note":"range $16.60–$142.92","available":true}]},"mechanicals":{"score":2,"signals":[{"key":"unusualFlow","label":"Unusual Flow","score":0,"value":null,"note":"no unusual flow today","available":false},{"key":"oi","label":"Open Interest (C/P)","score":1,"value":"1.62x C/P","note":"89,518 calls vs 55,413 puts","available":true},{"key":"shortInterest","label":"Short Interest %","score":1,"value":"30.7%","note":"30.7% of float short — squeeze risk","available":true},{"key":"unusualVolume","label":"Unusual Volume","score":0,"value":"0.69x","note":"0.69x vs 20D avg","available":true}]},"narrative":{"score":5,"signals":[{"key":"positiveCatalyst","label":"Positive Catalyst","score":3,"value":"bullish","note":"news sentiment bullish","available":true},{"key":"sectorNarrative","label":"Sector Narrative","score":0,"value":null,"note":"ticker not in any active narrative","available":true},{"key":"socialSentiment","label":"Social Sentiment","score":1,"value":"+53% net","note":"+53% net (127.45869394177812 msgs/24h)","available":true},{"key":"media","label":"Media Coverage","score":1,"value":"5 headlines","note":"5 headlines with bullish tilt","available":true},{"key":"negativeCatalyst","label":"Negative Catalyst","score":0,"value":null,"note":"no negative catalyst flagged","available":true}]}},"thesis":"Bullish setup on FIG: Earnings Surprise (+61.0%) — 2026-03-31 — actual 0.1 vs est 0.06212; Positive Catalyst (bullish) — news sentiment bullish; Revenue Growth YoY (+46.1%); Analyst Price Target (+73% to $36.88) — 8 analysts; MACD (0.21) — line above signal — bullish; Open Interest (C/P) (1.62x C/P) — 89,518 calls vs 55,413 puts; Short Interest % (30.7%) — 30.7% of float short — squeeze risk; Social Sentiment (+53% net) — +53% net (127.45869394177812 msgs/24h).","drivers":[{"tag":"fundamentals","weight":3,"text":"Earnings Surprise (+61.0%) — 2026-03-31 — actual 0.1 vs est 0.06212"},{"tag":"narrative","weight":3,"text":"Positive Catalyst (bullish) — news sentiment bullish"},{"tag":"fundamentals","weight":2,"text":"Revenue Growth YoY (+46.1%)"},{"tag":"fundamentals","weight":2,"text":"Analyst Price Target (+73% to $36.88) — 8 analysts"},{"tag":"technicals","weight":2,"text":"MACD (0.21) — line above signal — bullish"},{"tag":"mechanicals","weight":1,"text":"Open Interest (C/P) (1.62x C/P) — 89,518 calls vs 55,413 puts"},{"tag":"mechanicals","weight":1,"text":"Short Interest % (30.7%) — 30.7% of float short — squeeze risk"},{"tag":"narrative","weight":1,"text":"Social Sentiment (+53% net) — +53% net (127.45869394177812 msgs/24h)"}],"spot":21.355,"sector":"Technology","sentiment":"bullish","fundamentalsVerdict":"mixed","rsi":51.58,"ivPctile":68,"streak":{"color":"red","days":2,"cumulativePct":-6.057517178458811},"peers":[{"symbol":"SMCI","total":21,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"AMAT","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"TSEM","total":18,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"IBM","total":17,"side":"call","tier":"strong-call","label":"Strong Call"},{"symbol":"DDOG","total":16,"side":"call","tier":"strong-call","label":"Strong Call"}],"contract":{"strike":24,"expiry":1781740800,"expiryLabel":"Jun 17 '26","dte":21,"bid":0.77,"ask":0.86,"mid":0.81,"last":0.81,"iv":0.8145,"oi":202,"volume":239,"delta":0.314,"thetaDay":-0.0359,"breakeven":24.82,"breakevenMovePct":16.2,"expectedMovePct":19.61,"rrRatio":0.83,"extrinsicRatio":1,"earningsInWindow":false,"otmPct":12.39,"contractQuality":{"spread":{"cls":"fair","label":"OK"},"oi":{"cls":"fair","label":"Light"},"delta":{"cls":"fair","label":"Skewed"},"theta":{"cls":"bad","label":"Bleeding"},"iv":{"cls":"fair","label":"Normal"},"overall":"bad"},"qualityScore":0.754},"analysis":"FIG scores +16 — a Strong Call recommendation. The bullish read is led by Fundamentals (+7), reinforced by Narrative (+5). Within Technology, FIG (+16) ranks above SMCI (+21) — the same direction at lower conviction, which is why we'd take FIG calls over SMCI. The suggested calls sit ~12.4% OTM with 21d to expiry, delta 0.31, mid $0.81 — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria."}]}
+{
+  "builtAtIso": "2026-05-27T23:21:50.629Z",
+  "minConviction": 9,
+  "picks": [
+    {
+      "symbol": "SMCI",
+      "side": "call",
+      "total": 20,
+      "score": 20,
+      "conviction": 20,
+      "compositeScore": 17.66,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 9,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 3,
+              "value": "+34.5%",
+              "note": "2026-03-31 — actual 0.84 vs est 0.62451",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+326.0%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+122.7%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 0,
+              "value": "-3% to $37.13",
+              "note": "16 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 1,
+              "value": "20.1",
+              "note": "38% of sector median — discount",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 3,
+              "value": "+26.0%",
+              "note": "+26.0% FY EPS growth est — raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 2,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "69.4",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "0.49",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 2,
+              "value": "5d green",
+              "note": "+23.0% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": -1,
+              "value": "±1.6% to R",
+              "note": "at 20d resistance $38.81",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "44% of range",
+              "note": "range $19.48–$62.36",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.90x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": 2,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 1,
+              "value": "2.09x C/P",
+              "note": "402,211 calls vs 192,417 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": 1,
+              "value": "17.9%",
+              "note": "17.9% of float short — squeeze risk",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.90x",
+              "note": "0.90x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"AI-Optimized Server Demand\" (str 85)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 1,
+              "value": "+62% net",
+              "note": "+62% net (696 msgs/24h)",
+              "available": true
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on SMCI: Earnings Surprise (+34.5%) — 2026-03-31 — actual 0.84 vs est 0.62451; Guidance (+26.0%) — +26.0% FY EPS growth est — raised proxy; Positive Catalyst (bullish) — news sentiment bullish; Streak (5d green) — +23.0% cumulative; Sector Narrative (tailwind) — rides \"AI-Optimized Server Demand\" (str 85); EPS Growth YoY (+326.0%); Revenue Growth YoY (+122.7%); P/E vs Sector (20.1) — 38% of sector median — discount.",
+      "drivers": [
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Earnings Surprise (+34.5%) — 2026-03-31 — actual 0.84 vs est 0.62451"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Guidance (+26.0%) — +26.0% FY EPS growth est — raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "technicals",
+          "weight": 2,
+          "text": "Streak (5d green) — +23.0% cumulative"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"AI-Optimized Server Demand\" (str 85)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+326.0%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+122.7%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "P/E vs Sector (20.1) — 38% of sector median — discount"
+        }
+      ],
+      "spot": 38.19,
+      "sector": "Technology",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "mixed",
+      "rsi": 69.4,
+      "ivPctile": 68,
+      "streak": {
+        "color": "green",
+        "days": 5,
+        "cumulativePct": 23.035518810970082
+      },
+      "peers": [
+        {
+          "symbol": "TSEM",
+          "total": 16,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "ACN",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "IBM",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "NXPI",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "AMAT",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        }
+      ],
+      "contract": {
+        "strike": 45,
+        "expiry": 1782432000,
+        "expiryLabel": "Jun 25 '26",
+        "dte": 29,
+        "bid": 1.38,
+        "ask": 1.5,
+        "mid": 1.44,
+        "last": 1.45,
+        "iv": 0.8193,
+        "oi": 1068,
+        "volume": 397,
+        "delta": 0.281,
+        "thetaDay": -0.0524,
+        "breakeven": 46.44,
+        "breakevenMovePct": 21.6,
+        "expectedMovePct": 23.11,
+        "rrRatio": 0.93,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 17.83,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "bad",
+            "label": "Bleeding"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "bad"
+        },
+        "qualityScore": 0.883
+      },
+      "analysis": "SMCI scores +20 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+7). Within Technology, SMCI (+20) ranks above TSEM (+16) — the same direction at lower conviction, which is why we'd take SMCI calls over TSEM. The suggested calls sit ~17.8% OTM with 29d to expiry, delta 0.28, mid $1.44 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "META",
+      "side": "call",
+      "total": 18,
+      "score": 18,
+      "conviction": 18,
+      "compositeScore": 16.668,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 9,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 3,
+              "value": "+56.8%",
+              "note": "2026-03-31 — actual 10.44 vs est 6.65872",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+62.4%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+33.1%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+30% to $826.60",
+              "note": "58 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 1,
+              "value": "23.1",
+              "note": "78% of sector median — discount",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 2,
+              "value": "+8.5%",
+              "note": "+8.5% FY EPS growth est — in line/raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 3,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "56.9",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "1.55",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 2,
+              "value": "5d green",
+              "note": "+5.3% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 0,
+              "value": null,
+              "note": "between S/R levels",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "42% of range",
+              "note": "range $520.26–$796.25",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "1.23x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": -1,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": -1,
+              "value": "-$1.0M net",
+              "note": "bull $0.0M vs bear $1.0M",
+              "available": true
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 1,
+              "value": "1.83x C/P",
+              "note": "128,728 calls vs 70,260 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": -1,
+              "value": "1.3%",
+              "note": "1.3% of float short — complacent positioning",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "1.23x",
+              "note": "1.23x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"Internet Content & Information Watchlist\" (str 75)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 1,
+              "value": "+46% net",
+              "note": "+46% net (672 msgs/24h)",
+              "available": true
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on META: Earnings Surprise (+56.8%) — 2026-03-31 — actual 10.44 vs est 6.65872; Positive Catalyst (bullish) — news sentiment bullish; Guidance (+8.5%) — +8.5% FY EPS growth est — in line/raised proxy; Streak (5d green) — +5.3% cumulative; Sector Narrative (tailwind) — rides \"Internet Content & Information Watchlist\" (str 75); EPS Growth YoY (+62.4%); Revenue Growth YoY (+33.1%); Analyst Price Target (+30% to $826.60) — 58 analysts.",
+      "drivers": [
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Earnings Surprise (+56.8%) — 2026-03-31 — actual 10.44 vs est 6.65872"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "Guidance (+8.5%) — +8.5% FY EPS growth est — in line/raised proxy"
+        },
+        {
+          "tag": "technicals",
+          "weight": 2,
+          "text": "Streak (5d green) — +5.3% cumulative"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"Internet Content & Information Watchlist\" (str 75)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+62.4%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+33.1%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+30% to $826.60) — 58 analysts"
+        }
+      ],
+      "spot": 635.255,
+      "sector": "Communication Services",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 56.86,
+      "ivPctile": 33,
+      "streak": {
+        "color": "green",
+        "days": 5,
+        "cumulativePct": 5.347209027427432
+      },
+      "peers": [
+        {
+          "symbol": "SPOT",
+          "total": 16,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "APP",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "GOOGL",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "RDDT",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "NFLX",
+          "total": 4,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        }
+      ],
+      "contract": {
+        "strike": 700,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 13.05,
+        "ask": 13.5,
+        "mid": 13.28,
+        "last": 13,
+        "iv": 0.3712,
+        "oi": 9426,
+        "volume": 5500,
+        "delta": 0.277,
+        "thetaDay": -0.3121,
+        "breakeven": 713.27,
+        "breakevenMovePct": 12.28,
+        "expectedMovePct": 13.74,
+        "rrRatio": 0.89,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 10.19,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "good",
+            "label": "Calm"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.926
+      },
+      "analysis": "META scores +18 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+7). Within Communication Services, META (+18) ranks above SPOT (+16) — the same direction at lower conviction, which is why we'd take META calls over SPOT. The suggested calls sit ~10.2% OTM with 50d to expiry, delta 0.28, mid $13.28 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "VST",
+      "side": "call",
+      "total": 16,
+      "score": 16,
+      "conviction": 16,
+      "compositeScore": 14.4,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 8,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 3,
+              "value": "+53.3%",
+              "note": "2026-03-31 — actual 2.87 vs est 1.8715",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 0,
+              "value": null,
+              "note": "no growth data",
+              "available": false
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+43.4%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+41% to $225.29",
+              "note": "17 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 0,
+              "value": "26.8",
+              "note": "100% of sector median (26.8 vs 26.8)",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 3,
+              "value": "+80.3%",
+              "note": "+80.3% FY EPS growth est — raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 1,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "56.7",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "2.01",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 0,
+              "value": "1d red",
+              "note": "-2.7% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 0,
+              "value": null,
+              "note": "between S/R levels",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "32% of range",
+              "note": "range $132.66–$219.82",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.72x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": 0,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 0,
+              "value": "1.22x C/P",
+              "note": "82,338 calls vs 67,461 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": 0,
+              "value": "4.3%",
+              "note": "4.3% of float short — neutral band",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.72x",
+              "note": "0.72x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"Utilities - Independent Power Producers Watchlist\" (str 55)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 1,
+              "value": "+46% net",
+              "note": "+46% net (20.42156622742966 msgs/24h)",
+              "available": true
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on VST: Earnings Surprise (+53.3%) — 2026-03-31 — actual 2.87 vs est 1.8715; Guidance (+80.3%) — +80.3% FY EPS growth est — raised proxy; Positive Catalyst (bullish) — news sentiment bullish; Sector Narrative (tailwind) — rides \"Utilities - Independent Power Producers Watchlist\" (str 55); Revenue Growth YoY (+43.4%); Analyst Price Target (+41% to $225.29) — 17 analysts; MACD (2.01) — line above signal — bullish; Social Sentiment (+46% net) — +46% net (20.42156622742966 msgs/24h).",
+      "drivers": [
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Earnings Surprise (+53.3%) — 2026-03-31 — actual 2.87 vs est 1.8715"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Guidance (+80.3%) — +80.3% FY EPS growth est — raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"Utilities - Independent Power Producers Watchlist\" (str 55)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+43.4%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+41% to $225.29) — 17 analysts"
+        },
+        {
+          "tag": "technicals",
+          "weight": 1,
+          "text": "MACD (2.01) — line above signal — bullish"
+        },
+        {
+          "tag": "narrative",
+          "weight": 1,
+          "text": "Social Sentiment (+46% net) — +46% net (20.42156622742966 msgs/24h)"
+        }
+      ],
+      "spot": 160.12,
+      "sector": "Utilities",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "mixed",
+      "rsi": 56.66,
+      "ivPctile": 40,
+      "streak": {
+        "color": "red",
+        "days": 1,
+        "cumulativePct": -2.698105558627837
+      },
+      "peers": [
+        {
+          "symbol": "OKLO",
+          "total": 9,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        }
+      ],
+      "contract": {
+        "strike": 185,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 4.7,
+        "ask": 4.8,
+        "mid": 4.75,
+        "last": 4.7,
+        "iv": 0.5313,
+        "oi": 1272,
+        "volume": 195,
+        "delta": 0.273,
+        "thetaDay": -0.1094,
+        "breakeven": 189.75,
+        "breakevenMovePct": 18.5,
+        "expectedMovePct": 19.67,
+        "rrRatio": 0.94,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 15.54,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.9
+      },
+      "analysis": "VST scores +16 — a Strong Call recommendation. The bullish read is led by Fundamentals (+8), reinforced by Narrative (+7). Within Utilities, VST (+16) ranks above OKLO (+9) — the same direction at lower conviction, which is why we'd take VST calls over OKLO. The suggested calls sit ~15.5% OTM with 50d to expiry, delta 0.27, mid $4.75 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "IBM",
+      "side": "call",
+      "total": 15,
+      "score": 15,
+      "conviction": 15,
+      "compositeScore": 13.155,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 2,
+              "value": "+5.5%",
+              "note": "2026-03-31 — actual 1.91 vs est 1.81123",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+14.2%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+9.5%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 0,
+              "value": "+9% to $277.68",
+              "note": "20 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 1,
+              "value": "22.6",
+              "note": "43% of sector median — discount",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 2,
+              "value": "+7.2%",
+              "note": "+7.2% FY EPS growth est — in line/raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 1,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "65.5",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "4.53",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 0,
+              "value": "1d green",
+              "note": "+1.9% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 0,
+              "value": null,
+              "note": "between S/R levels",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "38% of range",
+              "note": "range $212.34–$324.90",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.99x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": 0,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 1,
+              "value": "1.85x C/P",
+              "note": "93,653 calls vs 50,734 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": -1,
+              "value": "2.7%",
+              "note": "2.7% of float short — complacent positioning",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.99x",
+              "note": "0.99x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"AI Software & Cloud Adoption\" (str 80)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 1,
+              "value": "+38% net",
+              "note": "+38% net (110.7929044667664 msgs/24h)",
+              "available": true
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on IBM: Positive Catalyst (bullish) — news sentiment bullish; Earnings Surprise (+5.5%) — 2026-03-31 — actual 1.91 vs est 1.81123; Guidance (+7.2%) — +7.2% FY EPS growth est — in line/raised proxy; Sector Narrative (tailwind) — rides \"AI Software & Cloud Adoption\" (str 80); EPS Growth YoY (+14.2%); Revenue Growth YoY (+9.5%); P/E vs Sector (22.6) — 43% of sector median — discount; MACD (4.53) — line above signal — bullish.",
+      "drivers": [
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "Earnings Surprise (+5.5%) — 2026-03-31 — actual 1.91 vs est 1.81123"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "Guidance (+7.2%) — +7.2% FY EPS growth est — in line/raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"AI Software & Cloud Adoption\" (str 80)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+14.2%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+9.5%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "P/E vs Sector (22.6) — 43% of sector median — discount"
+        },
+        {
+          "tag": "technicals",
+          "weight": 1,
+          "text": "MACD (4.53) — line above signal — bullish"
+        }
+      ],
+      "spot": 255.33,
+      "sector": "Technology",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 65.5,
+      "ivPctile": 73,
+      "streak": {
+        "color": "green",
+        "days": 1,
+        "cumulativePct": 1.8508912778573785
+      },
+      "peers": [
+        {
+          "symbol": "SMCI",
+          "total": 20,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "TSEM",
+          "total": 16,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "ACN",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "NXPI",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "AMAT",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        }
+      ],
+      "contract": {
+        "strike": 285,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 5.65,
+        "ask": 6,
+        "mid": 5.83,
+        "last": 5.85,
+        "iv": 0.4147,
+        "oi": 1595,
+        "volume": 87,
+        "delta": 0.274,
+        "thetaDay": -0.1385,
+        "breakeven": 290.82,
+        "breakevenMovePct": 13.9,
+        "expectedMovePct": 15.35,
+        "rrRatio": 0.91,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 11.62,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.877
+      },
+      "analysis": "IBM scores +15 — a Strong Call recommendation. The bullish read is led by Fundamentals (+7), reinforced by Narrative (+7). Within Technology, IBM (+15) ranks above SMCI (+20) — the same direction at lower conviction, which is why we'd take IBM calls over SMCI. The suggested calls sit ~11.6% OTM with 50d to expiry, delta 0.27, mid $5.83 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "SPOT",
+      "side": "call",
+      "total": 16,
+      "score": 16,
+      "conviction": 16,
+      "compositeScore": 12.704,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 9,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 3,
+              "value": "+18.0%",
+              "note": "2026-03-31 — actual 3.45 vs est 2.92387",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+222.4%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+8.2%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+18% to $606.16",
+              "note": "39 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 0,
+              "value": "34.2",
+              "note": "115% of sector median (34.2 vs 29.7)",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 3,
+              "value": "+22.4%",
+              "note": "+22.4% FY EPS growth est — raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 1,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "62.8",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "12.68",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 0,
+              "value": "1d red",
+              "note": "-3.2% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 0,
+              "value": null,
+              "note": "between S/R levels",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "28% of range",
+              "note": "range $405.00–$785.00",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.55x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": 0,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 0,
+              "value": "1.01x C/P",
+              "note": "30,583 calls vs 30,304 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": 0,
+              "value": "4.5%",
+              "note": "4.5% of float short — neutral band",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.55x",
+              "note": "0.55x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 6,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"Entertainment Content Expansion\" (str 60)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 0,
+              "value": "+0% net",
+              "note": "+0% net (5.677680163695568 msgs/24h)",
+              "available": true
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on SPOT: Earnings Surprise (+18.0%) — 2026-03-31 — actual 3.45 vs est 2.92387; Guidance (+22.4%) — +22.4% FY EPS growth est — raised proxy; Positive Catalyst (bullish) — news sentiment bullish; Sector Narrative (tailwind) — rides \"Entertainment Content Expansion\" (str 60); EPS Growth YoY (+222.4%); Revenue Growth YoY (+8.2%); Analyst Price Target (+18% to $606.16) — 39 analysts; MACD (12.68) — line above signal — bullish.",
+      "drivers": [
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Earnings Surprise (+18.0%) — 2026-03-31 — actual 3.45 vs est 2.92387"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Guidance (+22.4%) — +22.4% FY EPS growth est — raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"Entertainment Content Expansion\" (str 60)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+222.4%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+8.2%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+18% to $606.16) — 39 analysts"
+        },
+        {
+          "tag": "technicals",
+          "weight": 1,
+          "text": "MACD (12.68) — line above signal — bullish"
+        }
+      ],
+      "spot": 512.84,
+      "sector": "Communication Services",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 62.77,
+      "ivPctile": 75,
+      "streak": {
+        "color": "red",
+        "days": 1,
+        "cumulativePct": -3.184760419363622
+      },
+      "peers": [
+        {
+          "symbol": "META",
+          "total": 18,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "APP",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "GOOGL",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "RDDT",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "NFLX",
+          "total": 4,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        }
+      ],
+      "contract": {
+        "strike": 580,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 13.35,
+        "ask": 14.4,
+        "mid": 13.88,
+        "last": 14.1,
+        "iv": 0.4771,
+        "oi": 111,
+        "volume": 4,
+        "delta": 0.283,
+        "thetaDay": -0.3226,
+        "breakeven": 593.88,
+        "breakevenMovePct": 15.8,
+        "expectedMovePct": 17.66,
+        "rrRatio": 0.89,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 13.1,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.794
+      },
+      "analysis": "SPOT scores +16 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+6). Within Communication Services, SPOT (+16) ranks above META (+18) — the same direction at lower conviction, which is why we'd take SPOT calls over META. The suggested calls sit ~13.1% OTM with 50d to expiry, delta 0.28, mid $13.88 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "LLY",
+      "side": "call",
+      "total": 15,
+      "score": 15,
+      "conviction": 15,
+      "compositeScore": 12.195,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 9,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 3,
+              "value": "+25.9%",
+              "note": "2026-03-31 — actual 8.55 vs est 6.79114",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+169.9%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+55.5%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+12% to $1215.10",
+              "note": "29 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 0,
+              "value": "38.6",
+              "note": "183% of sector median (38.6 vs 21.1)",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 3,
+              "value": "+49.4%",
+              "note": "+49.4% FY EPS growth est — raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 0,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": -1,
+              "value": "70.8",
+              "note": "overbought",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "9.61",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 2,
+              "value": "4d green",
+              "note": "+6.3% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": -1,
+              "value": "±0.8% to R",
+              "note": "at 20d resistance $1093.00",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": -1,
+              "value": "90% of range",
+              "note": "4.6% below 52w high — extended / fade risk",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.56x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": -1,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 0,
+              "value": "0.90x C/P",
+              "note": "54,235 calls vs 60,407 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": -1,
+              "value": "0.9%",
+              "note": "0.9% of float short — complacent positioning",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.56x",
+              "note": "0.56x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"GLP-1 Obesity Wave\" (str 85)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 1,
+              "value": "+45% net",
+              "note": "+45% net (24.083013417461704 msgs/24h)",
+              "available": true
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on LLY: Earnings Surprise (+25.9%) — 2026-03-31 — actual 8.55 vs est 6.79114; Guidance (+49.4%) — +49.4% FY EPS growth est — raised proxy; Positive Catalyst (bullish) — news sentiment bullish; Streak (4d green) — +6.3% cumulative; Sector Narrative (tailwind) — rides \"GLP-1 Obesity Wave\" (str 85); EPS Growth YoY (+169.9%); Revenue Growth YoY (+55.5%); Analyst Price Target (+12% to $1215.10) — 29 analysts.",
+      "drivers": [
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Earnings Surprise (+25.9%) — 2026-03-31 — actual 8.55 vs est 6.79114"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Guidance (+49.4%) — +49.4% FY EPS growth est — raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "technicals",
+          "weight": 2,
+          "text": "Streak (4d green) — +6.3% cumulative"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"GLP-1 Obesity Wave\" (str 85)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+169.9%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+55.5%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+12% to $1215.10) — 29 analysts"
+        }
+      ],
+      "spot": 1084.23,
+      "sector": "Healthcare",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 70.83,
+      "ivPctile": 64,
+      "streak": {
+        "color": "green",
+        "days": 4,
+        "cumulativePct": 6.283525482961256
+      },
+      "peers": [
+        {
+          "symbol": "BSX",
+          "total": 4,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        },
+        {
+          "symbol": "CI",
+          "total": 4,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        },
+        {
+          "symbol": "HIMS",
+          "total": 3,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        },
+        {
+          "symbol": "UNH",
+          "total": 2,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        },
+        {
+          "symbol": "NVO",
+          "total": -1,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        }
+      ],
+      "contract": {
+        "strike": 1180,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 20.8,
+        "ask": 23,
+        "mid": 21.9,
+        "last": 21.9,
+        "iv": 0.346,
+        "oi": 234,
+        "volume": 185,
+        "delta": 0.292,
+        "thetaDay": -0.5125,
+        "breakeven": 1201.9,
+        "breakevenMovePct": 10.85,
+        "expectedMovePct": 12.81,
+        "rrRatio": 0.85,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 8.83,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.813
+      },
+      "analysis": "LLY scores +15 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+7). Within Healthcare, LLY (+15) ranks above BSX (+4) — the same direction at lower conviction, which is why we'd take LLY calls over BSX. The suggested calls sit ~8.8% OTM with 50d to expiry, delta 0.29, mid $21.90 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "C",
+      "side": "call",
+      "total": 15,
+      "score": 15,
+      "conviction": 15,
+      "compositeScore": 11.715,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 9,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 3,
+              "value": "+17.9%",
+              "note": "2026-03-31 — actual 3.0614 vs est 2.59629",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+56.1%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+15.9%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+17% to $146.93",
+              "note": "21 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 0,
+              "value": "15.5",
+              "note": "85% of sector median (15.5 vs 18.3)",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 3,
+              "value": "+44.0%",
+              "note": "+44.0% FY EPS growth est — raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 1,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "51.2",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": -1,
+              "value": "-0.24",
+              "note": "line below signal — bearish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 2,
+              "value": "5d green",
+              "note": "+4.5% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 0,
+              "value": null,
+              "note": "between S/R levels",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "84% of range",
+              "note": "range $74.30–$135.29",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.61x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": -1,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 0,
+              "value": "0.89x C/P",
+              "note": "172,182 calls vs 194,346 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": -1,
+              "value": "0.0%",
+              "note": "0.0% of float short — complacent positioning",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.61x",
+              "note": "0.61x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 6,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"Banks - Diversified Watchlist\" (str 50)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 0,
+              "value": null,
+              "note": "insufficient social messages",
+              "available": false
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on C: Earnings Surprise (+17.9%) — 2026-03-31 — actual 3.0614 vs est 2.59629; Guidance (+44.0%) — +44.0% FY EPS growth est — raised proxy; Positive Catalyst (bullish) — news sentiment bullish; Streak (5d green) — +4.5% cumulative; Sector Narrative (tailwind) — rides \"Banks - Diversified Watchlist\" (str 50); EPS Growth YoY (+56.1%); Revenue Growth YoY (+15.9%); Analyst Price Target (+17% to $146.93) — 21 analysts.",
+      "drivers": [
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Earnings Surprise (+17.9%) — 2026-03-31 — actual 3.0614 vs est 2.59629"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Guidance (+44.0%) — +44.0% FY EPS growth est — raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "technicals",
+          "weight": 2,
+          "text": "Streak (5d green) — +4.5% cumulative"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"Banks - Diversified Watchlist\" (str 50)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+56.1%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+15.9%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+17% to $146.93) — 21 analysts"
+        }
+      ],
+      "spot": 125.345,
+      "sector": "Financial Services",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 51.22,
+      "ivPctile": 21,
+      "streak": {
+        "color": "green",
+        "days": 5,
+        "cumulativePct": 4.480072828419566
+      },
+      "peers": [
+        {
+          "symbol": "BAC",
+          "total": 13,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "V",
+          "total": 11,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "BX",
+          "total": 9,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "APO",
+          "total": 8,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        },
+        {
+          "symbol": "MA",
+          "total": 7,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        }
+      ],
+      "contract": {
+        "strike": 135,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 2.6,
+        "ask": 2.67,
+        "mid": 2.63,
+        "last": 2.62,
+        "iv": 0.3251,
+        "oi": 4026,
+        "volume": 123,
+        "delta": 0.307,
+        "thetaDay": -0.0574,
+        "breakeven": 137.63,
+        "breakevenMovePct": 9.8,
+        "expectedMovePct": 12.03,
+        "rrRatio": 0.81,
+        "extrinsicRatio": 1,
+        "earningsInWindow": true,
+        "otmPct": 7.7,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "Skewed"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "good",
+            "label": "Calm"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.781
+      },
+      "analysis": "C scores +15 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+6). Within Financial Services, C (+15) ranks above BAC (+13) — the same direction at lower conviction, which is why we'd take C calls over BAC. The suggested calls sit ~7.7% OTM with 50d to expiry, delta 0.31, mid $2.63 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "TSEM",
+      "side": "call",
+      "total": 16,
+      "score": 16,
+      "conviction": 16,
+      "compositeScore": 11.248,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 9,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 3,
+              "value": "+15.7%",
+              "note": "2026-03-31 — actual 0.65 vs est 0.562",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+62.9%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+15.5%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+13% to $313.83",
+              "note": "6 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 0,
+              "value": "128.0",
+              "note": "241% of sector median (128.0 vs 53.0)",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 3,
+              "value": "+45.9%",
+              "note": "+45.9% FY EPS growth est — raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 1,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "63.9",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "2.69",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 0,
+              "value": "1d red",
+              "note": "-3.7% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 0,
+              "value": null,
+              "note": "between S/R levels",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "91% of range",
+              "note": "range $37.48–$302.86",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.59x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": 0,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 1,
+              "value": "1.55x C/P",
+              "note": "42,294 calls vs 27,359 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": -1,
+              "value": "2.7%",
+              "note": "2.7% of float short — complacent positioning",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.59x",
+              "note": "0.59x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 6,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"AI Infrastructure Buildout\" (str 95)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 0,
+              "value": null,
+              "note": "insufficient social messages",
+              "available": false
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on TSEM: Earnings Surprise (+15.7%) — 2026-03-31 — actual 0.65 vs est 0.562; Guidance (+45.9%) — +45.9% FY EPS growth est — raised proxy; Positive Catalyst (bullish) — news sentiment bullish; Sector Narrative (tailwind) — rides \"AI Infrastructure Buildout\" (str 95); EPS Growth YoY (+62.9%); Revenue Growth YoY (+15.5%); Analyst Price Target (+13% to $313.83) — 6 analysts; MACD (2.69) — line above signal — bullish.",
+      "drivers": [
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Earnings Surprise (+15.7%) — 2026-03-31 — actual 0.65 vs est 0.562"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 3,
+          "text": "Guidance (+45.9%) — +45.9% FY EPS growth est — raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"AI Infrastructure Buildout\" (str 95)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+62.9%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+15.5%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+13% to $313.83) — 6 analysts"
+        },
+        {
+          "tag": "technicals",
+          "weight": 1,
+          "text": "MACD (2.69) — line above signal — bullish"
+        }
+      ],
+      "spot": 277.79,
+      "sector": "Technology",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "mixed",
+      "rsi": 63.85,
+      "ivPctile": 91,
+      "streak": {
+        "color": "red",
+        "days": 1,
+        "cumulativePct": -3.7223132013355262
+      },
+      "peers": [
+        {
+          "symbol": "SMCI",
+          "total": 20,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "ACN",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "IBM",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "NXPI",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "AMAT",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        }
+      ],
+      "contract": {
+        "strike": 320,
+        "expiry": 1781740800,
+        "expiryLabel": "Jun 17 '26",
+        "dte": 21,
+        "bid": 10,
+        "ask": 11.7,
+        "mid": 10.85,
+        "last": 11,
+        "iv": 0.9,
+        "oi": 1064,
+        "volume": 11,
+        "delta": 0.296,
+        "thetaDay": -0.5024,
+        "breakeven": 330.85,
+        "breakevenMovePct": 19.1,
+        "expectedMovePct": 21.6,
+        "rrRatio": 0.88,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 15.19,
+        "contractQuality": {
+          "spread": {
+            "cls": "bad",
+            "label": "Wide"
+          },
+          "oi": {
+            "cls": "good",
+            "label": "Liquid"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "bad",
+            "label": "Bleeding"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "bad"
+        },
+        "qualityScore": 0.703
+      },
+      "analysis": "TSEM scores +16 — a Strong Call recommendation. The bullish read is led by Fundamentals (+9), reinforced by Narrative (+6). Within Technology, TSEM (+16) ranks above SMCI (+20) — the same direction at lower conviction, which is why we'd take TSEM calls over SMCI. The suggested calls sit ~15.2% OTM with 21d to expiry, delta 0.30, mid $10.85 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "GD",
+      "side": "call",
+      "total": 16,
+      "score": 16,
+      "conviction": 16,
+      "compositeScore": 10.752,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 2,
+              "value": "+11.1%",
+              "note": "2026-03-31 — actual 4.1 vs est 3.69159",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 1,
+              "value": "+12.0%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+10.3%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+14% to $392.22",
+              "note": "21 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 0,
+              "value": "21.6",
+              "note": "98% of sector median (21.6 vs 22.0)",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 2,
+              "value": "+7.7%",
+              "note": "+7.7% FY EPS growth est — in line/raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 4,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "52.1",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "0.28",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 2,
+              "value": "3d green",
+              "note": "+1.2% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 1,
+              "value": "±2.8% to S",
+              "note": "at 20d support $333.29",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "73% of range",
+              "note": "range $268.10–$369.70",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.39x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": -1,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 0,
+              "value": "1.38x C/P",
+              "note": "5,102 calls vs 3,705 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": -1,
+              "value": "1.1%",
+              "note": "1.1% of float short — complacent positioning",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.39x",
+              "note": "0.39x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 6,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"Aerospace & Defense Spending\" (str 80)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 0,
+              "value": null,
+              "note": "insufficient social messages",
+              "available": false
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on GD: Positive Catalyst (bullish) — news sentiment bullish; Earnings Surprise (+11.1%) — 2026-03-31 — actual 4.1 vs est 3.69159; Guidance (+7.7%) — +7.7% FY EPS growth est — in line/raised proxy; Streak (3d green) — +1.2% cumulative; Sector Narrative (tailwind) — rides \"Aerospace & Defense Spending\" (str 80); EPS Growth YoY (+12.0%); Revenue Growth YoY (+10.3%); Analyst Price Target (+14% to $392.22) — 21 analysts.",
+      "drivers": [
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "Earnings Surprise (+11.1%) — 2026-03-31 — actual 4.1 vs est 3.69159"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "Guidance (+7.7%) — +7.7% FY EPS growth est — in line/raised proxy"
+        },
+        {
+          "tag": "technicals",
+          "weight": 2,
+          "text": "Streak (3d green) — +1.2% cumulative"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"Aerospace & Defense Spending\" (str 80)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "EPS Growth YoY (+12.0%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+10.3%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+14% to $392.22) — 21 analysts"
+        }
+      ],
+      "spot": 342.715,
+      "sector": "Industrials",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 52.08,
+      "ivPctile": 81,
+      "streak": {
+        "color": "green",
+        "days": 3,
+        "cumulativePct": 1.1859095335738918
+      },
+      "peers": [
+        {
+          "symbol": "RDW",
+          "total": 17,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "FDX",
+          "total": 13,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "RKLB",
+          "total": 12,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "LUNR",
+          "total": 11,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        },
+        {
+          "symbol": "BE",
+          "total": 8,
+          "side": null,
+          "tier": "no-trade",
+          "label": "No Trade"
+        }
+      ],
+      "contract": {
+        "strike": 360,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 5,
+        "ask": 5.7,
+        "mid": 5.35,
+        "last": 5.5,
+        "iv": 0.2361,
+        "oi": 243,
+        "volume": 33,
+        "delta": 0.327,
+        "thetaDay": -0.1211,
+        "breakeven": 365.35,
+        "breakevenMovePct": 6.6,
+        "expectedMovePct": 8.74,
+        "rrRatio": 0.76,
+        "extrinsicRatio": 1,
+        "earningsInWindow": false,
+        "otmPct": 5.04,
+        "contractQuality": {
+          "spread": {
+            "cls": "fair",
+            "label": "OK"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "Skewed"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "bad",
+            "label": "Elevated"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.672
+      },
+      "analysis": "GD scores +16 — a Strong Call recommendation. The bullish read is led by Fundamentals (+7), reinforced by Narrative (+6). Within Industrials, GD (+16) ranks above RDW (+17) — the same direction at lower conviction, which is why we'd take GD calls over RDW. The suggested calls sit ~5.0% OTM with 50d to expiry, delta 0.33, mid $5.35 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    },
+    {
+      "symbol": "ACN",
+      "side": "call",
+      "total": 15,
+      "score": 15,
+      "conviction": 15,
+      "compositeScore": 10.575,
+      "recommendation": {
+        "tier": "strong-call",
+        "label": "Strong Call",
+        "side": "call",
+        "conviction": "Very High",
+        "sizing": "Full size"
+      },
+      "pillars": {
+        "fundamentals": {
+          "score": 7,
+          "signals": [
+            {
+              "key": "earningsSurprise",
+              "label": "Earnings Surprise",
+              "score": 2,
+              "value": "+3.3%",
+              "note": "2026-02-28 — actual 2.93 vs est 2.83739",
+              "available": true
+            },
+            {
+              "key": "epsGrowth",
+              "label": "EPS Growth YoY",
+              "score": 0,
+              "value": "+4.0%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "revGrowth",
+              "label": "Revenue Growth YoY",
+              "score": 1,
+              "value": "+8.3%",
+              "note": "",
+              "available": true
+            },
+            {
+              "key": "analystTarget",
+              "label": "Analyst Price Target",
+              "score": 1,
+              "value": "+40% to $247.55",
+              "note": "26 analysts",
+              "available": true
+            },
+            {
+              "key": "peVsSector",
+              "label": "P/E vs Sector",
+              "score": 1,
+              "value": "14.5",
+              "note": "27% of sector median — discount",
+              "available": true
+            },
+            {
+              "key": "guidance",
+              "label": "Guidance",
+              "score": 2,
+              "value": "+7.3%",
+              "note": "+7.3% FY EPS growth est — in line/raised proxy",
+              "available": true
+            },
+            {
+              "key": "majorContract",
+              "label": "Major Contract",
+              "score": 0,
+              "value": null,
+              "note": "no structured contract data — manual check",
+              "available": false
+            }
+          ]
+        },
+        "technicals": {
+          "score": 1,
+          "signals": [
+            {
+              "key": "rsi",
+              "label": "RSI 14",
+              "score": 0,
+              "value": "46.6",
+              "note": "neutral range",
+              "available": true
+            },
+            {
+              "key": "macd",
+              "label": "MACD",
+              "score": 1,
+              "value": "1.46",
+              "note": "line above signal — bullish",
+              "available": true
+            },
+            {
+              "key": "streak",
+              "label": "Streak",
+              "score": 0,
+              "value": "2d red",
+              "note": "-1.6% cumulative",
+              "available": true
+            },
+            {
+              "key": "sr",
+              "label": "Support/Resistance",
+              "score": 0,
+              "value": null,
+              "note": "between S/R levels",
+              "available": true
+            },
+            {
+              "key": "fiftyTwoWeek",
+              "label": "52-Week High/Low",
+              "score": 0,
+              "value": "12% of range",
+              "note": "range $155.82–$321.77",
+              "available": true
+            },
+            {
+              "key": "volConf",
+              "label": "Volume Confirmation",
+              "score": 0,
+              "value": "0.69x",
+              "note": "no S/R breakout to confirm",
+              "available": true
+            }
+          ]
+        },
+        "mechanicals": {
+          "score": 1,
+          "signals": [
+            {
+              "key": "unusualFlow",
+              "label": "Unusual Flow",
+              "score": 0,
+              "value": null,
+              "note": "no unusual flow today",
+              "available": false
+            },
+            {
+              "key": "oi",
+              "label": "Open Interest (C/P)",
+              "score": 1,
+              "value": "1.90x C/P",
+              "note": "37,439 calls vs 19,662 puts",
+              "available": true
+            },
+            {
+              "key": "shortInterest",
+              "label": "Short Interest %",
+              "score": 0,
+              "value": "3.9%",
+              "note": "3.9% of float short — neutral band",
+              "available": true
+            },
+            {
+              "key": "unusualVolume",
+              "label": "Unusual Volume",
+              "score": 0,
+              "value": "0.69x",
+              "note": "0.69x vs 20D avg",
+              "available": true
+            },
+            {
+              "key": "spyFlows",
+              "label": "SPY flows",
+              "score": 0,
+              "value": "-0.02%",
+              "note": "SPY -0.02% today",
+              "available": true
+            }
+          ]
+        },
+        "narrative": {
+          "score": 6,
+          "signals": [
+            {
+              "key": "positiveCatalyst",
+              "label": "Positive Catalyst",
+              "score": 3,
+              "value": "bullish",
+              "note": "news sentiment bullish",
+              "available": true
+            },
+            {
+              "key": "sectorNarrative",
+              "label": "Sector Narrative",
+              "score": 2,
+              "value": "tailwind",
+              "note": "rides \"AI Software & Cloud Adoption\" (str 80)",
+              "available": true
+            },
+            {
+              "key": "socialSentiment",
+              "label": "Social Sentiment",
+              "score": 0,
+              "value": null,
+              "note": "insufficient social messages",
+              "available": false
+            },
+            {
+              "key": "media",
+              "label": "Media Coverage",
+              "score": 1,
+              "value": "5 headlines",
+              "note": "5 headlines with bullish tilt",
+              "available": true
+            },
+            {
+              "key": "negativeCatalyst",
+              "label": "Negative Catalyst",
+              "score": 0,
+              "value": null,
+              "note": "no negative catalyst flagged",
+              "available": true
+            },
+            {
+              "key": "macro",
+              "label": "Macro Tail/Headwinds",
+              "score": 0,
+              "value": null,
+              "note": "no active macro narrative",
+              "available": true
+            }
+          ]
+        }
+      },
+      "thesis": "Bullish setup on ACN: Positive Catalyst (bullish) — news sentiment bullish; Earnings Surprise (+3.3%) — 2026-02-28 — actual 2.93 vs est 2.83739; Guidance (+7.3%) — +7.3% FY EPS growth est — in line/raised proxy; Sector Narrative (tailwind) — rides \"AI Software & Cloud Adoption\" (str 80); Revenue Growth YoY (+8.3%); Analyst Price Target (+40% to $247.55) — 26 analysts; P/E vs Sector (14.5) — 27% of sector median — discount; MACD (1.46) — line above signal — bullish.",
+      "drivers": [
+        {
+          "tag": "narrative",
+          "weight": 3,
+          "text": "Positive Catalyst (bullish) — news sentiment bullish"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "Earnings Surprise (+3.3%) — 2026-02-28 — actual 2.93 vs est 2.83739"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 2,
+          "text": "Guidance (+7.3%) — +7.3% FY EPS growth est — in line/raised proxy"
+        },
+        {
+          "tag": "narrative",
+          "weight": 2,
+          "text": "Sector Narrative (tailwind) — rides \"AI Software & Cloud Adoption\" (str 80)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Revenue Growth YoY (+8.3%)"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "Analyst Price Target (+40% to $247.55) — 26 analysts"
+        },
+        {
+          "tag": "fundamentals",
+          "weight": 1,
+          "text": "P/E vs Sector (14.5) — 27% of sector median — discount"
+        },
+        {
+          "tag": "technicals",
+          "weight": 1,
+          "text": "MACD (1.46) — line above signal — bullish"
+        }
+      ],
+      "spot": 176.38,
+      "sector": "Technology",
+      "sentiment": "bullish",
+      "fundamentalsVerdict": "strong",
+      "rsi": 46.6,
+      "ivPctile": 50,
+      "streak": {
+        "color": "red",
+        "days": 2,
+        "cumulativePct": -1.6000037980316888
+      },
+      "peers": [
+        {
+          "symbol": "SMCI",
+          "total": 20,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "TSEM",
+          "total": 16,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "IBM",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "NXPI",
+          "total": 15,
+          "side": "call",
+          "tier": "strong-call",
+          "label": "Strong Call"
+        },
+        {
+          "symbol": "AMAT",
+          "total": 14,
+          "side": "call",
+          "tier": "call",
+          "label": "Call"
+        }
+      ],
+      "contract": {
+        "strike": 200,
+        "expiry": 1784246400,
+        "expiryLabel": "Jul 16 '26",
+        "dte": 50,
+        "bid": 5.1,
+        "ask": 5.5,
+        "mid": 5.3,
+        "last": 5.37,
+        "iv": 0.5066,
+        "oi": 129,
+        "volume": 8,
+        "delta": 0.293,
+        "thetaDay": -0.1195,
+        "breakeven": 205.3,
+        "breakevenMovePct": 16.4,
+        "expectedMovePct": 18.75,
+        "rrRatio": 0.87,
+        "extrinsicRatio": 1,
+        "earningsInWindow": true,
+        "otmPct": 13.39,
+        "contractQuality": {
+          "spread": {
+            "cls": "good",
+            "label": "Tight"
+          },
+          "oi": {
+            "cls": "fair",
+            "label": "Light"
+          },
+          "delta": {
+            "cls": "fair",
+            "label": "OTM"
+          },
+          "theta": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "iv": {
+            "cls": "fair",
+            "label": "Normal"
+          },
+          "overall": "fair"
+        },
+        "qualityScore": 0.705
+      },
+      "analysis": "ACN scores +15 — a Strong Call recommendation. The bullish read is led by Fundamentals (+7), reinforced by Narrative (+6). Within Technology, ACN (+15) ranks above SMCI (+20) — the same direction at lower conviction, which is why we'd take ACN calls over SMCI. The suggested calls sit ~13.4% OTM with 50d to expiry, delta 0.29, mid $5.30 — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria."
+    }
+  ]
+}
