@@ -4921,24 +4921,28 @@ export function pickFedwatchBuckets(history, meetingDate, nowIso) {
 // ============================================================================
 const PICKS_FILE = "picks.json";
 const PICKS_COUNT = 10;
-const PICKS_MIN_CONVICTION = 3; // skip picks weaker than this
+// 4-pillar scoring uses tiers: ±12 Strong, ±7 directional, otherwise No Trade.
+// Floor at 7 absolute so only actionable picks ship.
+const PICKS_MIN_CONVICTION = 7;
+const PICKS_TIER_STRONG = 12;
 
-// Hard mechanical filters applied to candidate contracts. A pick that
+// Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
 // rather ship fewer picks than recommend a structurally bad one.
-const PICKS_MAX_SPREAD_PCT = 0.18;  // reject wider than 18% bid/ask
+const PICKS_MAX_SPREAD_PCT = 0.18;  // tight bid/ask
 const PICKS_MIN_OI = 50;            // need real two-sided market
-const PICKS_MIN_DTE = 14;           // theta acceleration zone starts ~30d
+const PICKS_MIN_DTE = 14;           // 14d+ per spec
 const PICKS_MAX_DTE = 120;          // beyond ~4mo theta drags too long
 const PICKS_IDEAL_DTE_LO = 30;
 const PICKS_IDEAL_DTE_HI = 60;
-const PICKS_DELTA_MIN = 0.30;       // far OTM lottos rejected
-const PICKS_DELTA_MAX = 0.65;       // too deep ITM = mostly intrinsic
-const PICKS_DELTA_IDEAL = 0.45;
+const PICKS_DELTA_MIN = 0.20;       // OTM band 5-25% lands here
+const PICKS_DELTA_MAX = 0.40;
+const PICKS_DELTA_IDEAL = 0.30;
+const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
+const PICKS_OTM_MAX_PCT = 0.25;     // 25% OTM
+const PICKS_MAX_IV = 2.0;           // 200% IV cap
+const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
 // Required breakeven move vs IV-implied 1σ expected move at expiry.
-// Anything beyond this ratio is asking the underlying to move
-// substantially more than what the chain itself is pricing — a
-// structurally low-probability bet.
 const PICKS_MAX_REQ_MOVE_RATIO = 1.5;
 // Soft penalty when the contract's IV is in the top quintile of the
 // underlying's 30-day realized-vol percentile (buying expensive premium).
@@ -5034,305 +5038,600 @@ function summarizeUnusualForSym(sym, unusualPayload) {
   return { bullPrem, bearPrem, bullCt, bearCt, topSample };
 }
 
-function scoreTicker(sym, data, narratives, streakRow, unusualPayload) {
-  // Each signal contributes a signed integer to `score`. Positive = bullish
-  // (suggests calls), negative = bearish (suggests puts). Drivers carries
-  // a human-readable bullet per signal so the thesis can list them in order
-  // of contribution magnitude.
-  let score = 0;
-  const drivers = [];
+// ----------------------------------------------------------------------------
+// 4-pillar scoring system.
+//
+// Every signal scores in {-3,-2,-1,0,+1,+2,+3}. Signals are grouped into four
+// pillars (Fundamentals, Technicals, Mechanicals, Narrative). Pillar score =
+// sum of its signals. Total score = sum of all four pillar scores.
+//
+// Score → tier mapping (per the spec):
+//   ≥ +12  Strong Call  (Very High conviction, Full size)
+//   +7..+11 Call        (High conviction, Standard size)
+//   -6..+6 No Trade     (Skip — not shipped)
+//   -7..-11 Put         (High conviction, Standard size)
+//   ≤ -12  Strong Put   (Very High conviction, Full size)
+//
+// Each pillar returns a `signals` array where every entry is
+//   { key, label, score, value, note, available }
+// `available: false` (with score 0) means the signal exists in the spec but
+// we don't have clean data to score it yet — surfaced in the UI as "no data".
+// ----------------------------------------------------------------------------
 
-  // --- News sentiment ----------------------------------------------------
-  const sentiment = data?.news?.sentiment;
-  if (sentiment === "bullish") {
-    score += 3;
-    drivers.push({ tag: "news", weight: 3, text: "bullish news sentiment" });
-  } else if (sentiment === "bearish") {
-    score -= 3;
-    drivers.push({ tag: "news", weight: -3, text: "bearish news sentiment" });
+// Build a per-sector trailing-P/E median across the bake's universe. Used by
+// the Fundamentals "P/E vs sector" signal. Skips negative / null P/Es so a
+// loss-making company doesn't drag the median to zero.
+function buildSectorPEMedians(chains) {
+  const bySector = {};
+  for (const [, data] of Object.entries(chains)) {
+    const sec = data?.fundamentals?.sector;
+    const pe = data?.fundamentals?.trailingPE;
+    if (!sec || !isFinite(pe) || pe <= 0) continue;
+    if (!bySector[sec]) bySector[sec] = [];
+    bySector[sec].push(pe);
   }
-
-  // --- Fundamentals verdict ---------------------------------------------
-  const verdict = data?.fundamentals?.judgment?.verdict;
-  if (verdict === "strong") {
-    score += 2;
-    drivers.push({ tag: "fundamentals", weight: 2, text: "strong fundamentals" });
-  } else if (verdict === "weak") {
-    score -= 2;
-    drivers.push({ tag: "fundamentals", weight: -2, text: "weak fundamentals" });
+  const out = {};
+  for (const sec of Object.keys(bySector)) {
+    const arr = bySector[sec].slice().sort((a, b) => a - b);
+    if (!arr.length) continue;
+    out[sec] = arr[Math.floor(arr.length / 2)];
   }
+  return out;
+}
 
-  // --- Technicals: RSI ---------------------------------------------------
-  // Oversold (RSI < 30) can mean bounce setup; overbought (>70) can mean
-  // pullback. Treat as soft signals (±1) since RSI extremes persist in
-  // strong trends.
-  const rsi = data?.technicals?.rsi;
-  if (rsi != null) {
-    if (rsi < 30) {
-      score += 1;
-      drivers.push({ tag: "rsi", weight: 1, text: `RSI ${rsi.toFixed(0)} (oversold)` });
-    } else if (rsi > 70) {
-      score -= 1;
-      drivers.push({ tag: "rsi", weight: -1, text: `RSI ${rsi.toFixed(0)} (overbought)` });
+// Tier the total score into one of five recommendation buckets. The "No Trade"
+// tier still ships its breakdown so the UI can explain why a pick was skipped;
+// buildTopPicks filters before publishing.
+function tierForScore(score) {
+  if (score >= PICKS_TIER_STRONG) {
+    return { tier: "strong-call", label: "Strong Call", side: "call",
+             conviction: "Very High", sizing: "Full size" };
+  }
+  if (score >= PICKS_MIN_CONVICTION) {
+    return { tier: "call", label: "Call", side: "call",
+             conviction: "High", sizing: "Standard size" };
+  }
+  if (score <= -PICKS_TIER_STRONG) {
+    return { tier: "strong-put", label: "Strong Put", side: "put",
+             conviction: "Very High", sizing: "Full size" };
+  }
+  if (score <= -PICKS_MIN_CONVICTION) {
+    return { tier: "put", label: "Put", side: "put",
+             conviction: "High", sizing: "Standard size" };
+  }
+  return { tier: "no-trade", label: "No Trade", side: null,
+           conviction: "—", sizing: "Skip" };
+}
+
+function _sig(key, label, score, opts) {
+  return {
+    key,
+    label,
+    score: score | 0,
+    value: opts && opts.value !== undefined ? opts.value : null,
+    note: opts && opts.note ? opts.note : "",
+    available: opts && opts.available === false ? false : true,
+  };
+}
+
+// ----- Fundamentals pillar --------------------------------------------------
+function scoreFundamentals(data, sectorMedianPE) {
+  const f = data?.fundamentals || {};
+  const signals = [];
+
+  // 1. Earnings Surprise (most-recent quarter): >15% ±3, 5-15% ±2, else 0.
+  // Stale prints (>~180d old) score 0 — the surprise was already absorbed.
+  const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory : [];
+  let surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", 0,
+    { available: false, note: "no recent earnings on file" });
+  if (eh.length) {
+    const recent = eh
+      .filter((r) => r && isFinite(r.surprisePct))
+      .sort((a, b) => (new Date(b.date || 0)) - (new Date(a.date || 0)))[0];
+    if (recent && recent.date) {
+      const daysOld = (Date.now() - new Date(recent.date).getTime()) / 86400000;
+      if (daysOld <= 180) {
+        const sp = Number(recent.surprisePct);
+        let s = 0;
+        if (sp > 15) s = 3;
+        else if (sp > 5) s = 2;
+        else if (sp < -15) s = -3;
+        else if (sp < -5) s = -2;
+        surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", s, {
+          value: `${sp >= 0 ? "+" : ""}${sp.toFixed(1)}%`,
+          note: `${recent.date} — actual ${recent.epsActual} vs est ${recent.epsEstimate}`,
+        });
+      }
     }
   }
+  signals.push(surpriseSignal);
 
-  // --- Technicals: MACD histogram sign ----------------------------------
-  const macdHist = data?.technicals?.macd?.hist;
-  if (macdHist != null && macdHist !== 0) {
-    if (macdHist > 0) {
-      score += 1;
-      drivers.push({ tag: "macd", weight: 1, text: "MACD above signal (bullish)" });
-    } else {
-      score -= 1;
-      drivers.push({ tag: "macd", weight: -1, text: "MACD below signal (bearish)" });
-    }
+  // 2. EPS Growth Trend YoY: >25% +2, 10-25% +1, -10..10 0, -25..-10 -1, <-25% -2.
+  // earningsGrowthYoy is in percent units (e.g., 214.5 = 214.5%).
+  let epsSignal = _sig("epsGrowth", "EPS Growth YoY", 0,
+    { available: false, note: "no growth data" });
+  const eps = f.earningsGrowthYoy;
+  if (eps != null && isFinite(eps)) {
+    let s = 0;
+    if (eps > 25) s = 2;
+    else if (eps > 10) s = 1;
+    else if (eps < -25) s = -2;
+    else if (eps < -10) s = -1;
+    epsSignal = _sig("epsGrowth", "EPS Growth YoY", s, {
+      value: `${eps >= 0 ? "+" : ""}${eps.toFixed(1)}%`,
+    });
   }
+  signals.push(epsSignal);
 
-  // --- Volume conviction (rvol × today's price move) --------------------
-  // The single most important confirmation signal — directional moves on
-  // ≥1.5x average volume tend to follow through; the same move on dry
-  // volume is noise. Volume drying up alongside a price move suggests
-  // exhaustion in the opposite direction.
-  const vol = data?.technicals?.volume;
-  if (vol && vol.rvol != null && isFinite(vol.rvol) && vol.priceMove1dPct != null) {
-    const rvol = Number(vol.rvol);
-    const mv = Number(vol.priceMove1dPct);
-    if (rvol >= 1.5 && Math.abs(mv) >= 1.0) {
-      const w = mv > 0 ? 2 : -2;
-      score += w;
-      drivers.push({
-        tag: "volume",
-        weight: w,
-        text: `${mv > 0 ? "up" : "down"} ${Math.abs(mv).toFixed(1)}% on ${rvol.toFixed(1)}x volume`,
-      });
-    } else if (rvol >= 1.2 && Math.abs(mv) >= 0.5) {
-      const w = mv > 0 ? 1 : -1;
-      score += w;
-      drivers.push({
-        tag: "volume",
-        weight: w,
-        text: `${mv > 0 ? "+" : ""}${mv.toFixed(1)}% on ${rvol.toFixed(1)}x volume`,
-      });
-    } else if (rvol < 0.6 && Math.abs(mv) >= 0.8) {
-      // Move on dry volume → fading the move (light penalty against the
-      // direction). E.g., a +1% pop on 0.4x volume is unconvincing.
-      const w = mv > 0 ? -1 : 1;
-      score += w;
-      drivers.push({
-        tag: "volume",
-        weight: w,
-        text: `${mv > 0 ? "+" : ""}${mv.toFixed(1)}% on light ${rvol.toFixed(1)}x volume (unconfirmed)`,
-      });
-    }
+  // 3. Revenue Growth YoY: same thresholds as EPS but tighter (revenue grows slower).
+  // >20% +2, 8-20% +1, -8..8 0, -20..-8 -1, <-20% -2.
+  let revSignal = _sig("revGrowth", "Revenue Growth YoY", 0,
+    { available: false, note: "no growth data" });
+  const rev = f.revenueGrowthYoy;
+  if (rev != null && isFinite(rev)) {
+    let s = 0;
+    if (rev > 20) s = 2;
+    else if (rev > 8) s = 1;
+    else if (rev < -20) s = -2;
+    else if (rev < -8) s = -1;
+    revSignal = _sig("revGrowth", "Revenue Growth YoY", s, {
+      value: `${rev >= 0 ? "+" : ""}${rev.toFixed(1)}%`,
+    });
   }
+  signals.push(revSignal);
 
-  // --- Support / resistance proximity -----------------------------------
-  // Spot bouncing off 20-day support is a high-probability long setup;
-  // running into 20-day resistance is a high-probability fade. Use a 3%
-  // proximity band so the signal triggers when price is "at" the level
-  // rather than requiring an exact touch.
+  // 4. Analyst Price Target: ≥+25% upside +2, +10..25 +1, -10..-20 -1, ≤-20 -2.
+  // Requires ≥5 analysts so single-firm outliers don't swing the signal.
   const spot = data?.spot;
-  const sr = data?.technicals?.sr;
+  const tgt = f.targetMeanPrice;
+  const nA = f.numberOfAnalystOpinions;
+  let analystSignal = _sig("analystTarget", "Analyst Price Target", 0,
+    { available: false, note: "insufficient analyst coverage" });
+  if (spot > 0 && tgt > 0 && nA >= 5) {
+    const upside = (tgt - spot) / spot;
+    let s = 0;
+    if (upside >= 0.25) s = 2;
+    else if (upside >= 0.10) s = 1;
+    else if (upside <= -0.20) s = -2;
+    else if (upside <= -0.10) s = -1;
+    analystSignal = _sig("analystTarget", "Analyst Price Target", s, {
+      value: `${upside >= 0 ? "+" : ""}${(upside * 100).toFixed(0)}% to $${tgt.toFixed(2)}`,
+      note: `${nA} analysts`,
+    });
+  }
+  signals.push(analystSignal);
+
+  // 5. P/E vs Sector median: discount +1, premium-with-no-growth -1, else 0.
+  const sec = f.sector;
+  const peSelf = f.trailingPE;
+  const peMed = sec && sectorMedianPE ? sectorMedianPE[sec] : null;
+  let peSignal = _sig("peVsSector", "P/E vs Sector", 0,
+    { available: false, note: "no P/E or sector median" });
+  if (peSelf != null && isFinite(peSelf) && peSelf > 0 && peMed != null && isFinite(peMed) && peMed > 0) {
+    const ratio = peSelf / peMed;
+    let s = 0;
+    let note;
+    if (ratio <= 0.80) {
+      s = 1;
+      note = `${(ratio * 100).toFixed(0)}% of sector median — discount`;
+    } else if (ratio >= 1.50 && (!isFinite(eps) || eps < 5)) {
+      s = -1;
+      note = `${(ratio * 100).toFixed(0)}% of sector median — premium without growth`;
+    } else {
+      note = `${(ratio * 100).toFixed(0)}% of sector median (${peSelf.toFixed(1)} vs ${peMed.toFixed(1)})`;
+    }
+    peSignal = _sig("peVsSector", "P/E vs Sector", s, {
+      value: peSelf.toFixed(1),
+      note,
+    });
+  }
+  signals.push(peSignal);
+
+  // 6. Guidance: asymmetric (in-line or raised → +2, lowered → -2). Approximated
+  // from current-FY analyst growth estimate since raw guidance text isn't fetched.
+  let guideSignal = _sig("guidance", "Guidance", 0,
+    { available: false, note: "no guidance estimate available" });
+  const gFY = f.growthEstimateCurY;
+  if (gFY != null && isFinite(gFY)) {
+    let s = 0;
+    let note;
+    if (gFY >= 0) {
+      s = 2;
+      note = `${gFY >= 0 ? "+" : ""}${gFY.toFixed(1)}% FY EPS growth est — in line/raised proxy`;
+    } else if (gFY <= -10) {
+      s = -2;
+      note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
+    } else {
+      note = `${gFY.toFixed(1)}% FY EPS growth est — soft but not cut`;
+    }
+    guideSignal = _sig("guidance", "Guidance", s, {
+      value: `${gFY >= 0 ? "+" : ""}${gFY.toFixed(1)}%`,
+      note,
+    });
+  }
+  signals.push(guideSignal);
+
+  // 7. Lost Major Contract: asymmetric (0 or -3). No structured data — score 0
+  // with "no data" so the row exists in the breakdown for transparency.
+  signals.push(_sig("contractLoss", "Lost Major Contract", 0, {
+    available: false,
+    note: "no structured contract-loss data — manual check",
+  }));
+
+  const score = signals.reduce((sum, s) => sum + s.score, 0);
+  return { score, signals };
+}
+
+// ----- Technicals pillar ----------------------------------------------------
+function scoreTechnicals(data, streakRow) {
+  const t = data?.technicals || {};
+  const f = data?.fundamentals || {};
+  const spot = data?.spot;
+  const signals = [];
+
+  // 1. RSI 14: <35 +2, 35-50 0, 50-70 0, >70 -2.
+  let rsiSignal = _sig("rsi", "RSI 14", 0,
+    { available: false, note: "no RSI computed" });
+  if (t.rsi != null && isFinite(t.rsi)) {
+    let s = 0;
+    if (t.rsi < 35) s = 2;
+    else if (t.rsi > 70) s = -2;
+    rsiSignal = _sig("rsi", "RSI 14", s, {
+      value: t.rsi.toFixed(1),
+      note: t.rsi < 35 ? "oversold" : t.rsi > 70 ? "overbought" : "neutral range",
+    });
+  }
+  signals.push(rsiSignal);
+
+  // 2. MACD: line above signal & hist > 0 +2; line below & hist < 0 -2; mixed 0.
+  let macdSignal = _sig("macd", "MACD", 0,
+    { available: false, note: "no MACD computed" });
+  if (t.macd && t.macd.hist != null && isFinite(t.macd.hist)) {
+    const hist = t.macd.hist;
+    const line = t.macd.line;
+    const sig = t.macd.signal;
+    let s = 0;
+    let note = "histogram flat";
+    if (hist > 0 && (line == null || sig == null || line > sig)) {
+      s = 2;
+      note = "line above signal — bullish";
+    } else if (hist < 0 && (line == null || sig == null || line < sig)) {
+      s = -2;
+      note = "line below signal — bearish";
+    }
+    macdSignal = _sig("macd", "MACD", s, {
+      value: hist.toFixed(2),
+      note,
+    });
+  }
+  signals.push(macdSignal);
+
+  // 3. Streaks: ≥3 day green +1, ≥3 day red -1, else 0.
+  let streakSignal = _sig("streak", "Streak", 0,
+    { available: false, note: "no streak data" });
+  const cur = streakRow && streakRow.current;
+  if (cur) {
+    let s = 0;
+    if (cur.color === "green" && cur.days >= 3) s = 1;
+    else if (cur.color === "red" && cur.days >= 3) s = -1;
+    streakSignal = _sig("streak", "Streak", s, {
+      value: `${cur.days}d ${cur.color}`,
+      note: `${cur.cumulativePct >= 0 ? "+" : ""}${cur.cumulativePct.toFixed(1)}% cumulative`,
+    });
+  }
+  signals.push(streakSignal);
+
+  // 4. Support / Resistance: broke above 20d resistance +2; broke below 20d
+  // support -2; at-resistance -1; at-support +1; else 0. Wider band on
+  // "broke" so the breakout follow-through window has time to play out.
+  let srSignal = _sig("sr", "Support/Resistance", 0,
+    { available: false, note: "no S/R levels" });
+  const sr = t.sr;
   if (spot > 0 && sr) {
     const s20 = Number(sr.s20);
     const r20 = Number(sr.r20);
+    let s = 0;
+    let note = "between S/R levels";
+    let value = null;
     if (isFinite(r20) && r20 > 0) {
       const distR = (r20 - spot) / spot;
-      if (distR >= -0.02 && distR <= 0.03) {
-        // At-or-just-below 20d resistance — fade risk
-        score -= 1;
-        drivers.push({ tag: "sr", weight: -1, text: `at 20d resistance ($${r20.toFixed(2)})` });
-      } else if (distR < -0.02 && distR >= -0.06) {
-        // Just broke above resistance — breakout follow-through bias
-        score += 1;
-        drivers.push({ tag: "sr", weight: 1, text: `broke 20d resistance ($${r20.toFixed(2)})` });
+      if (distR < -0.02 && distR >= -0.08) {
+        s = 2;
+        note = `broke above 20d resistance $${r20.toFixed(2)}`;
+        value = `+${(Math.abs(distR) * 100).toFixed(1)}% past R`;
+      } else if (distR >= -0.02 && distR <= 0.03) {
+        s = -1;
+        note = `at 20d resistance $${r20.toFixed(2)}`;
+        value = `±${(Math.abs(distR) * 100).toFixed(1)}% to R`;
       }
     }
-    if (isFinite(s20) && s20 > 0) {
+    if (s === 0 && isFinite(s20) && s20 > 0) {
       const distS = (spot - s20) / spot;
-      if (distS >= -0.02 && distS <= 0.03) {
-        // At-or-just-above 20d support — bounce setup
-        score += 1;
-        drivers.push({ tag: "sr", weight: 1, text: `at 20d support ($${s20.toFixed(2)})` });
-      } else if (distS < -0.02 && distS >= -0.06) {
-        // Broke below support — breakdown follow-through bias
-        score -= 1;
-        drivers.push({ tag: "sr", weight: -1, text: `broke 20d support ($${s20.toFixed(2)})` });
+      if (distS < -0.02 && distS >= -0.08) {
+        s = -2;
+        note = `broke below 20d support $${s20.toFixed(2)}`;
+        value = `-${(Math.abs(distS) * 100).toFixed(1)}% past S`;
+      } else if (distS >= -0.02 && distS <= 0.03) {
+        s = 1;
+        note = `at 20d support $${s20.toFixed(2)}`;
+        value = `±${(Math.abs(distS) * 100).toFixed(1)}% to S`;
       }
     }
+    srSignal = _sig("sr", "Support/Resistance", s, { value, note });
   }
+  signals.push(srSignal);
 
-  // --- Analyst targets ---------------------------------------------------
-  // Mean target vs spot is a slow-moving but well-anchored directional
-  // cue. Only count when there are ≥5 analysts so single-firm outliers
-  // don't swing the signal.
-  const fund = data?.fundamentals;
-  const targetMean = fund?.targetMeanPrice;
-  const nAnalysts = fund?.numberOfAnalystOpinions;
-  if (spot > 0 && targetMean > 0 && nAnalysts >= 5) {
-    const upsidePct = (targetMean - spot) / spot;
-    if (upsidePct >= 0.25) {
-      score += 2;
-      drivers.push({ tag: "analyst", weight: 2, text: `${nAnalysts} analyst target +${(upsidePct * 100).toFixed(0)}% upside` });
-    } else if (upsidePct >= 0.10) {
-      score += 1;
-      drivers.push({ tag: "analyst", weight: 1, text: `${nAnalysts} analyst target +${(upsidePct * 100).toFixed(0)}% upside` });
-    } else if (upsidePct <= -0.20) {
-      score -= 2;
-      drivers.push({ tag: "analyst", weight: -2, text: `${nAnalysts} analyst target ${(upsidePct * 100).toFixed(0)}% downside` });
-    } else if (upsidePct <= -0.10) {
-      score -= 1;
-      drivers.push({ tag: "analyst", weight: -1, text: `${nAnalysts} analyst target ${(upsidePct * 100).toFixed(0)}% downside` });
+  // 5. 52-week High/Low position: within 5% of 52w high +1; within 5% of low -1.
+  let fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", 0,
+    { available: false, note: "no 52-week range" });
+  const hi = f.fiftyTwoWeekHigh;
+  const lo = f.fiftyTwoWeekLow;
+  if (spot > 0 && hi != null && isFinite(hi) && hi > 0 && lo != null && isFinite(lo) && lo > 0) {
+    const toHi = (hi - spot) / spot;
+    const fromLo = (spot - lo) / spot;
+    let s = 0;
+    let note = `range $${lo.toFixed(2)}–$${hi.toFixed(2)}`;
+    let value = `${(((spot - lo) / (hi - lo)) * 100).toFixed(0)}% of range`;
+    if (toHi >= 0 && toHi <= 0.05) {
+      s = 1;
+      note = `${(toHi * 100).toFixed(1)}% below 52w high — strength`;
+    } else if (fromLo >= 0 && fromLo <= 0.05) {
+      s = -1;
+      note = `${(fromLo * 100).toFixed(1)}% above 52w low — weakness`;
     }
+    fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", s, { value, note });
   }
+  signals.push(fiftyTwoSignal);
 
-  // --- Streak ------------------------------------------------------------
-  if (streakRow?.current) {
-    const c = streakRow.current;
-    if (c.color === "green" && c.days >= 3) {
-      const w = Math.min(3, Math.floor(c.days / 2));
-      score += w;
-      drivers.push({ tag: "streak", weight: w, text: `${c.days}-day green run (+${c.cumulativePct.toFixed(1)}%)` });
-    } else if (c.color === "red" && c.days >= 3) {
-      const w = Math.min(3, Math.floor(c.days / 2));
-      score -= w;
-      drivers.push({ tag: "streak", weight: -w, text: `${c.days}-day red run (${c.cumulativePct.toFixed(1)}%)` });
+  const score = signals.reduce((sum, s) => sum + s.score, 0);
+  return { score, signals };
+}
+
+// Sum near-term call vs put open interest for the OI signal.
+function sumCallPutOI(data) {
+  const chains = data?.chains;
+  if (!chains) return null;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const exps = Object.keys(chains)
+    .map(Number)
+    .filter((e) => e > nowSec)
+    .sort((a, b) => a - b)
+    .slice(0, 4); // nearest 4 expirations
+  if (!exps.length) return null;
+  let callOI = 0, putOI = 0;
+  for (const e of exps) {
+    const ch = chains[e];
+    for (const r of (ch?.c || [])) callOI += Number(r?.oi) || 0;
+    for (const r of (ch?.p || [])) putOI += Number(r?.oi) || 0;
+  }
+  return { callOI, putOI };
+}
+
+// ----- Mechanicals pillar ---------------------------------------------------
+function scoreMechanicals(sym, data, unusualPayload) {
+  const f = data?.fundamentals || {};
+  const t = data?.technicals || {};
+  const signals = [];
+
+  // 1. Unusual Flow: net bullish premium ≥$5M +2, ≥$1M +1, mirrors for bearish.
+  let flowSignal = _sig("unusualFlow", "Unusual Flow", 0,
+    { available: false, note: "no unusual flow today" });
+  const flow = summarizeUnusualForSym(sym, unusualPayload);
+  if (flow) {
+    const net = (flow.bullPrem || 0) - (flow.bearPrem || 0);
+    const abs = Math.abs(net);
+    let s = 0;
+    let note = `bull $${((flow.bullPrem || 0) / 1e6).toFixed(1)}M vs bear $${((flow.bearPrem || 0) / 1e6).toFixed(1)}M`;
+    if (abs >= 5_000_000) s = net > 0 ? 2 : -2;
+    else if (abs >= 1_000_000) s = net > 0 ? 1 : -1;
+    flowSignal = _sig("unusualFlow", "Unusual Flow", s, {
+      value: `${net >= 0 ? "+" : "-"}$${(abs / 1e6).toFixed(1)}M net`,
+      note,
+    });
+  }
+  signals.push(flowSignal);
+
+  // 2. Open Interest call vs put: >1.5x calls +1, >1.5x puts -1, else 0.
+  let oiSignal = _sig("oi", "Open Interest (C/P)", 0,
+    { available: false, note: "no open interest data" });
+  const oi = sumCallPutOI(data);
+  if (oi && (oi.callOI + oi.putOI) > 0) {
+    const denom = Math.max(1, oi.putOI);
+    const ratio = oi.callOI / denom;
+    let s = 0;
+    let note = `${oi.callOI.toLocaleString()} calls vs ${oi.putOI.toLocaleString()} puts`;
+    if (ratio >= 1.5) s = 1;
+    else if (ratio <= 0.67) s = -1;
+    oiSignal = _sig("oi", "Open Interest (C/P)", s, {
+      value: `${ratio.toFixed(2)}x C/P`,
+      note,
+    });
+  }
+  signals.push(oiSignal);
+
+  // 3. Short Interest %: ≥15% of float → +1 (squeeze potential). Asymmetric —
+  // we lack short-interest history to detect "dropping fast" so the bearish
+  // side stays at 0 with a "no trend data" note.
+  let shortSignal = _sig("shortInterest", "Short Interest %", 0,
+    { available: false, note: "no short interest data" });
+  const sp = f.shortPercentOfFloat;
+  if (sp != null && isFinite(sp)) {
+    let s = 0;
+    let note = `${sp.toFixed(1)}% of float short — below squeeze threshold`;
+    if (sp >= 15) {
+      s = 1;
+      note = `${sp.toFixed(1)}% of float short — squeeze risk`;
     }
+    shortSignal = _sig("shortInterest", "Short Interest %", s, {
+      value: `${sp.toFixed(1)}%`,
+      note,
+    });
   }
+  signals.push(shortSignal);
 
-  // --- Narrative alignment -----------------------------------------------
-  // Strongest narrative driver wins for the thesis (avoid listing 5
-  // narratives if the ticker rides many of them). Sum scores from all
-  // matched narratives so a ticker that rides three active stories
-  // outscores one that only rides one. Require strength >= 35 so weak
-  // narratives (below ~1/3 percentile) don't pad the score.
-  let topNarrative = null;
-  let topNarrativeWeight = 0;
+  // 4. Unusual Volume: spec is hourly-vs-20D, but we only have daily rvol.
+  // Approximate: rvol ≥1.2x AND |daily move| ≥0.5% — direction follows price.
+  let uvolSignal = _sig("unusualVolume", "Unusual Volume", 0,
+    { available: false, note: "no relative-volume data" });
+  const vol = t.volume;
+  if (vol && vol.rvol != null && isFinite(vol.rvol) && vol.priceMove1dPct != null && isFinite(vol.priceMove1dPct)) {
+    const rv = Number(vol.rvol);
+    const mv = Number(vol.priceMove1dPct);
+    let s = 0;
+    let note = `${rv.toFixed(2)}x vs 20D avg`;
+    if (rv >= 1.2 && Math.abs(mv) >= 0.5) {
+      s = mv > 0 ? 2 : -2;
+      note = `${rv.toFixed(2)}x volume on ${mv > 0 ? "+" : ""}${mv.toFixed(1)}% move`;
+    }
+    uvolSignal = _sig("unusualVolume", "Unusual Volume", s, {
+      value: `${rv.toFixed(2)}x`,
+      note,
+    });
+  }
+  signals.push(uvolSignal);
+
+  const score = signals.reduce((sum, s) => sum + s.score, 0);
+  return { score, signals };
+}
+
+// ----- Narrative pillar -----------------------------------------------------
+function scoreNarrative(sym, data, narratives) {
+  const signals = [];
+
+  // 1. Positive Catalyst: asymmetric (+3 or 0). Bullish news sentiment hits +3.
+  // Strict cap at +3 even if multiple positive items align.
+  let posCatSignal = _sig("positiveCatalyst", "Positive Catalyst", 0,
+    { available: true, note: "no positive catalyst flagged" });
+  const sent = data?.news?.sentiment;
+  if (sent === "bullish") {
+    posCatSignal = _sig("positiveCatalyst", "Positive Catalyst", 3, {
+      value: "bullish",
+      note: "news sentiment bullish",
+    });
+  }
+  signals.push(posCatSignal);
+
+  // 2. Sector Narrative: rides an active strong narrative (longs +2, shorts -2).
+  // Cross-check the trends.json universe; require strength ≥35.
+  let narSignal = _sig("sectorNarrative", "Sector Narrative", 0,
+    { available: true, note: "ticker not in any active narrative" });
+  let topNarr = null;
+  let topDir = 0;
   for (const n of narratives || []) {
     if (n.status !== "active") continue;
     if ((n.strength || 0) < 35) continue;
-    const inLongs = Array.isArray(n.longs) && n.longs.includes(sym);
-    const inShorts = Array.isArray(n.shorts) && n.shorts.includes(sym);
-    if (!inLongs && !inShorts) continue;
-    // Narrative weight scales with strength (0-100) — strong stories
-    // matter more than weak ones. Cap at ±4 so one narrative can't
-    // dominate the score.
-    const baseWeight = Math.max(1, Math.min(4, Math.round((n.strength || 50) / 25)));
-    const directional = inLongs ? baseWeight : -baseWeight;
-    score += directional;
-    if (Math.abs(directional) > Math.abs(topNarrativeWeight)) {
-      topNarrativeWeight = directional;
-      topNarrative = n;
+    const inL = Array.isArray(n.longs) && n.longs.includes(sym);
+    const inS = Array.isArray(n.shorts) && n.shorts.includes(sym);
+    if (!inL && !inS) continue;
+    const dir = inL ? 1 : -1;
+    if (!topNarr || (n.strength || 0) > (topNarr.strength || 0)) {
+      topNarr = n;
+      topDir = dir;
     }
   }
-  if (topNarrative) {
-    drivers.push({
-      tag: "narrative",
-      weight: topNarrativeWeight,
-      text: `${topNarrativeWeight > 0 ? "rides" : "exposed to"} "${topNarrative.name}" (str ${topNarrative.strength}, day ${topNarrative.daysRunning || 1})`,
+  if (topNarr) {
+    narSignal = _sig("sectorNarrative", "Sector Narrative", topDir * 2, {
+      value: topDir > 0 ? "tailwind" : "headwind",
+      note: `${topDir > 0 ? "rides" : "exposed to"} "${topNarr.name}" (str ${topNarr.strength})`,
     });
   }
+  signals.push(narSignal);
 
-  // --- Unusual options flow ---------------------------------------------
-  // Big directional premium printing in the chain is information the
-  // narratives/news pipeline doesn't capture in real time. Weight by net
-  // premium so a $20M call sweep beats a $200k put scrape.
-  const flow = summarizeUnusualForSym(sym, unusualPayload);
-  if (flow) {
-    const netPrem = flow.bullPrem - flow.bearPrem;
-    const absPrem = Math.abs(netPrem);
-    if (absPrem >= 5_000_000) {
-      const w = netPrem > 0 ? 2 : -2;
-      score += w;
-      drivers.push({
-        tag: "flow",
-        weight: w,
-        text: `unusual ${netPrem > 0 ? "bullish" : "bearish"} flow ($${(absPrem / 1e6).toFixed(1)}M net)`,
-      });
-    } else if (absPrem >= 1_000_000) {
-      const w = netPrem > 0 ? 1 : -1;
-      score += w;
-      drivers.push({
-        tag: "flow",
-        weight: w,
-        text: `unusual ${netPrem > 0 ? "bullish" : "bearish"} flow ($${(absPrem / 1e6).toFixed(1)}M net)`,
-      });
-    }
-  }
-
-  // --- Social sentiment (Stocktwits) -------------------------------------
-  // Crowd sentiment is noisy but extreme tilts are useful as a
-  // contrarian *and* confirmation signal depending on context. Keep
-  // small (±1), and require non-trivial message volume so a single
-  // bullish post doesn't swing the score.
+  // 3. Social Sentiment: net ≥35% bullish +1, ≤-35% net -1, requires ≥5 msgs/24h.
+  let socSignal = _sig("socialSentiment", "Social Sentiment", 0,
+    { available: false, note: "insufficient social messages" });
   const soc = data?.social;
   if (soc && soc.msgCount24h >= 5) {
     const net = (Number(soc.bullishPct) || 0) - (Number(soc.bearishPct) || 0);
-    if (net >= 35) {
-      score += 1;
-      drivers.push({ tag: "social", weight: 1, text: `social ${net.toFixed(0)}% net bullish` });
-    } else if (net <= -35) {
-      score -= 1;
-      drivers.push({ tag: "social", weight: -1, text: `social ${Math.abs(net).toFixed(0)}% net bearish` });
-    }
-  }
-
-  // --- Short squeeze potential ------------------------------------------
-  // High short interest combined with an existing uptrend (green streak
-  // or bullish score so far) raises squeeze odds. The reverse — high
-  // short interest + downtrend — is just "shorts winning" and not a
-  // separate signal, so we only add the asymmetric long side here.
-  // Yahoo returns shortPercentOfFloat already in percent units (e.g.,
-  // 4.26 = 4.26%), so thresholds here are in percent — not fraction.
-  const shortPct = fund?.shortPercentOfFloat;
-  if (shortPct != null && shortPct >= 15 && score > 0) {
-    const greenStreak = streakRow?.current?.color === "green" && streakRow.current.days >= 2;
-    if (shortPct >= 25 || greenStreak) {
-      score += 1;
-      drivers.push({
-        tag: "squeeze",
-        weight: 1,
-        text: `${shortPct.toFixed(0)}% of float short — squeeze risk`,
-      });
-    }
-  }
-
-  // --- Directional alignment penalty -------------------------------------
-  // If positive and negative drivers both contribute material weight,
-  // signals are mixed and the absolute score overstates conviction.
-  // Subtract a point from |score| (in the appropriate direction) so
-  // genuinely-aligned picks rank above conflicted ones.
-  const posWeight = drivers.filter((d) => d.weight > 0).reduce((s, d) => s + d.weight, 0);
-  const negWeight = drivers.filter((d) => d.weight < 0).reduce((s, d) => s + Math.abs(d.weight), 0);
-  // Heavier penalty when both sides are very material (≥4 each).
-  if (posWeight >= 4 && negWeight >= 4) {
-    const sign = score >= 0 ? -2 : 2;
-    score += sign;
-    drivers.push({ tag: "alignment", weight: sign, text: "heavily mixed signals" });
-  } else if (posWeight >= 2 && negWeight >= 2) {
-    const sign = score >= 0 ? -1 : 1;
-    score += sign;
-    drivers.push({ tag: "alignment", weight: sign, text: "mixed signals (alignment penalty)" });
-  }
-
-  // --- IV regime penalty -------------------------------------------------
-  // Buying calls when IV is in the top 30% means paying expensive
-  // premium that needs a bigger move to recoup — same logic in
-  // reverse for puts. Penalty is ±1 against the direction of the bet.
-  const rv30Pctile = data?.technicals?.volRegime?.rv30Pctile;
-  if (rv30Pctile != null && rv30Pctile > PICKS_IV_REGIME_HIGH && score !== 0) {
-    const sign = score >= 0 ? -1 : 1;
-    score += sign;
-    drivers.push({
-      tag: "iv",
-      weight: sign,
-      text: `IV elevated (${rv30Pctile}th %ile) — expensive premium`,
+    let s = 0;
+    let note = `${net >= 0 ? "+" : ""}${net.toFixed(0)}% net (${soc.msgCount24h} msgs/24h)`;
+    if (net >= 35) s = 1;
+    else if (net <= -35) s = -1;
+    socSignal = _sig("socialSentiment", "Social Sentiment", s, {
+      value: `${net >= 0 ? "+" : ""}${net.toFixed(0)}% net`,
+      note,
     });
   }
+  signals.push(socSignal);
 
-  return { score, drivers };
+  // 4. Media: surge of recent coverage. Approximated from headline count and
+  // sentiment polarity since per-ticker headline-volume history isn't tracked.
+  // ≥4 fresh headlines + non-neutral sentiment scores ±1.
+  let mediaSignal = _sig("media", "Media Coverage", 0,
+    { available: true, note: "no media surge detected" });
+  const headlines = data?.news?.headlines;
+  if (Array.isArray(headlines) && headlines.length >= 4 &&
+      (sent === "bullish" || sent === "bearish")) {
+    const s = sent === "bullish" ? 1 : -1;
+    mediaSignal = _sig("media", "Media Coverage", s, {
+      value: `${headlines.length} headlines`,
+      note: `${headlines.length} headlines with ${sent} tilt`,
+    });
+  }
+  signals.push(mediaSignal);
+
+  // 5. Negative Catalyst: asymmetric (-3 or 0). Bearish news sentiment hits -3.
+  let negCatSignal = _sig("negativeCatalyst", "Negative Catalyst", 0,
+    { available: true, note: "no negative catalyst flagged" });
+  if (sent === "bearish") {
+    negCatSignal = _sig("negativeCatalyst", "Negative Catalyst", -3, {
+      value: "bearish",
+      note: "news sentiment bearish",
+    });
+  }
+  signals.push(negCatSignal);
+
+  const score = signals.reduce((sum, s) => sum + s.score, 0);
+  return { score, signals };
 }
+
+// Top-level pillar scoring entry point. Returns the full breakdown plus a
+// flat `drivers` list (top contributors by absolute weight) used by the
+// thesis line and the card driver chips.
+function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE) {
+  const fundamentals = scoreFundamentals(data, sectorMedianPE);
+  const technicals = scoreTechnicals(data, streakRow);
+  const mechanicals = scoreMechanicals(sym, data, unusualPayload);
+  const narrative = scoreNarrative(sym, data, narratives);
+  const total = fundamentals.score + technicals.score + mechanicals.score + narrative.score;
+  const recommendation = tierForScore(total);
+
+  // Top-3 contributing signals per side become the headline drivers.
+  const allSignals = [
+    ...fundamentals.signals.map((s) => ({ ...s, pillar: "fundamentals" })),
+    ...technicals.signals.map((s) => ({ ...s, pillar: "technicals" })),
+    ...mechanicals.signals.map((s) => ({ ...s, pillar: "mechanicals" })),
+    ...narrative.signals.map((s) => ({ ...s, pillar: "narrative" })),
+  ];
+  const drivers = allSignals
+    .filter((s) => s.score !== 0)
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .slice(0, 8)
+    .map((s) => ({
+      tag: s.pillar,
+      weight: s.score,
+      text: `${s.label}${s.value ? ` (${s.value})` : ""}${s.note ? ` — ${s.note}` : ""}`,
+    }));
+
+  return {
+    total,
+    pillars: { fundamentals, technicals, mechanicals, narrative },
+    recommendation,
+    drivers,
+  };
+}
+
+// Legacy shim kept so anything still importing scoreTicker can run during
+// the transition; not used by buildTopPicks anymore.
+function scoreTicker(sym, data, narratives, streakRow, unusualPayload) {
+  const sectorMedianPE = {};
+  const r = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE);
+  return { score: r.total, drivers: r.drivers };
+}
+// Reference so eslint doesn't flag this as unused in case the import path
+// is removed later. Old single-pass scoring lived here before the rewrite.
+void scoreTicker;
+
 
 // Format an expiration epoch (seconds) as a short ET label like "Dec 20 '26".
 // Mirrors fmtExpiryLabel in app.js but emits the year suffix the picks card
@@ -5389,10 +5688,20 @@ function pickContractForPick(side, data) {
     for (const row of rows) {
       if (!row || row.s == null) continue;
       if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
+      // IV cap (200%) — anything north of this is lottery-ticket pricing.
+      if (row.iv > PICKS_MAX_IV) continue;
+      // 5-25% OTM band per the spec. Strike must be away from spot in the
+      // bet's direction by at least 5% but no more than 25%.
+      const otmPct = side === "call"
+        ? (row.s - spot) / spot
+        : (spot - row.s) / spot;
+      if (otmPct < PICKS_OTM_MIN_PCT || otmPct > PICKS_OTM_MAX_PCT) continue;
       // Need a real two-sided quote to be tradeable.
       if (!(row.b > 0 && row.a > 0)) continue;
       const mid = (row.b + row.a) / 2;
       if (!(mid > 0)) continue;
+      // Premium ≤ $35/share keeps the contract under ~$3,500/contract.
+      if (mid > PICKS_MAX_PREMIUM) continue;
       const spreadPct = (row.a - row.b) / mid;
       if (spreadPct > PICKS_MAX_SPREAD_PCT) continue;
       const oi = row.oi || 0;
@@ -5432,6 +5741,7 @@ function pickContractForPick(side, data) {
         expMovePct,
         extrinsicRatio,
         earningsBefore,
+        otmPct,
       });
     }
   }
@@ -5478,7 +5788,9 @@ function pickContractForPick(side, data) {
   let best = null;
   let bestComposite = Infinity;
   for (const c of candidates) {
-    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.20);
+    // Tighter delta window (0.20-0.40) — anchor on 0.30 so the ideal contract
+    // sits squarely in the middle of the band rather than the upper edge.
+    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.10);
     const dtePen = Math.min(1, dteFitPenalty(c.dte));
     const spreadPen = Math.min(1, c.spreadPct / PICKS_MAX_SPREAD_PCT);
     const oiPen = Math.min(1, oiPenalty(c.oi));
@@ -5536,6 +5848,7 @@ function pickContractForPick(side, data) {
     rrRatio: best.expMovePct ? Number((best.reqMovePct / best.expMovePct).toFixed(2)) : null,
     extrinsicRatio: Number(best.extrinsicRatio.toFixed(2)),
     earningsInWindow: !!best.earningsBefore,
+    otmPct: Number((best.otmPct * 100).toFixed(2)),
     contractQuality: {
       spread: spreadGrade,
       oi: oiGrade,
@@ -5548,49 +5861,144 @@ function pickContractForPick(side, data) {
   };
 }
 
+// Plain-English analysis paragraph for a pick — why it scored where it did,
+// what the dominant pillar was, and how it stacks up against same-sector
+// peers. Deterministic (no AI) so the explanation always matches the math.
+function buildPickAnalysis(pick, peers) {
+  const symbol = pick.symbol;
+  const tier = pick.recommendation?.label || "—";
+  const total = pick.total;
+  const side = pick.side;
+  const sectorName = pick.sector || "this sector";
+
+  const pillars = pick.pillars || {};
+  const ranked = [
+    { key: "fundamentals", label: "Fundamentals", score: pillars.fundamentals?.score ?? 0 },
+    { key: "technicals", label: "Technicals", score: pillars.technicals?.score ?? 0 },
+    { key: "mechanicals", label: "Mechanicals", score: pillars.mechanicals?.score ?? 0 },
+    { key: "narrative", label: "Narrative", score: pillars.narrative?.score ?? 0 },
+  ].sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+
+  const top = ranked[0];
+  const second = ranked[1];
+  const lead = `${symbol} scores ${total >= 0 ? "+" : ""}${total} — a ${tier} recommendation. `;
+
+  const topDir = top.score > 0 ? "bullish" : top.score < 0 ? "bearish" : "flat";
+  const pillarLine =
+    top.score === 0
+      ? "Every pillar landed at zero — there is no clear edge here. "
+      : `The ${topDir} read is led by ${top.label} (${top.score >= 0 ? "+" : ""}${top.score})` +
+        (second && second.score !== 0
+          ? `, reinforced by ${second.label} (${second.score >= 0 ? "+" : ""}${second.score}). `
+          : ". ");
+
+  let peerLine = "";
+  if (Array.isArray(peers) && peers.length) {
+    const lower = peers.filter((p) => Math.abs(p.total) < Math.abs(total));
+    const sameSide = peers.filter((p) =>
+      (p.side === side && p.side != null) || (side != null && Math.sign(p.total) === Math.sign(total))
+    );
+    if (sameSide.length) {
+      const next = sameSide[0];
+      peerLine = `Within ${sectorName}, ${symbol} (${total >= 0 ? "+" : ""}${total}) ranks above ${next.symbol} ` +
+        `(${next.total >= 0 ? "+" : ""}${next.total}) — the same direction at lower conviction, which is why we'd take ${symbol} ${side === "call" ? "calls" : "puts"} over ${next.symbol}. `;
+    } else if (lower.length) {
+      const next = lower[0];
+      peerLine = `Within ${sectorName}, ${symbol} (${total >= 0 ? "+" : ""}${total}) outscores ${next.symbol} ` +
+        `(${next.total >= 0 ? "+" : ""}${next.total}) on absolute conviction. `;
+    } else {
+      peerLine = `Same-sector peers carry similar or lower absolute scores — ${symbol} is at the top of ${sectorName} today. `;
+    }
+  }
+
+  let contractLine = "";
+  const c = pick.contract;
+  if (c) {
+    const sideWord = side === "put" ? "puts" : "calls";
+    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria.`;
+  }
+
+  return (lead + pillarLine + peerLine + contractLine).trim();
+}
+
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
-  const ranked = [];
+  const sectorMedianPE = buildSectorPEMedians(chains);
+
+  // First pass: score every ticker with the full 4-pillar breakdown so we
+  // can build the sector index and find peers before we drop anything.
+  const scored = [];
   for (const [sym, data] of Object.entries(chains)) {
-    // Prefer the precomputed streak map when available (offline regen
-    // doesn't have access to the in-memory _bars). Falls back to
-    // computing from data._bars during the full bake.
     const streakRow = streaksMap && streaksMap[sym]
       ? streaksMap[sym]
       : computeStreakForTicker(sym, data._bars);
-    const { score, drivers } = scoreTicker(sym, data, narratives, streakRow, unusualPayload);
-    if (Math.abs(score) < PICKS_MIN_CONVICTION) continue;
-    ranked.push({ sym, data, score, drivers, streakRow });
+    const result = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE);
+    scored.push({
+      sym,
+      data,
+      streakRow,
+      total: result.total,
+      pillars: result.pillars,
+      recommendation: result.recommendation,
+      drivers: result.drivers,
+    });
   }
-  ranked.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
-  // Score more tickers than we ship — some won't have a tradeable
-  // contract and will get dropped at the mechanical-filter stage.
-  const candidates = ranked.slice(0, PICKS_COUNT * 3);
+
+  // Build sector → [{symbol, total, side, tier}, ...] index for peer comparison.
+  const sectorIndex = {};
+  for (const s of scored) {
+    const sec = s.data?.fundamentals?.sector || "—";
+    if (!sectorIndex[sec]) sectorIndex[sec] = [];
+    sectorIndex[sec].push({
+      symbol: s.sym,
+      total: s.total,
+      side: s.recommendation?.side || null,
+      tier: s.recommendation?.tier || "no-trade",
+      label: s.recommendation?.label || "No Trade",
+    });
+  }
+  for (const sec of Object.keys(sectorIndex)) {
+    sectorIndex[sec].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  }
+
+  // Filter to actionable picks (tier ≠ no-trade) and rank by absolute score.
+  const actionable = scored
+    .filter((s) => Math.abs(s.total) >= PICKS_MIN_CONVICTION)
+    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+
+  // Score more candidates than we ship — some won't have a tradeable contract.
+  const candidates = actionable.slice(0, PICKS_COUNT * 3);
   const out = [];
   for (const r of candidates) {
     if (out.length >= PICKS_COUNT) break;
-    const side = r.score > 0 ? "call" : "put";
+    const side = r.recommendation.side;
+    if (!side) continue; // no-trade, shouldn't be here but defend anyway
     const contract = pickContractForPick(side, r.data);
-    if (!contract) continue; // hard-filtered out — drop the pick
-    // Sort drivers by absolute contribution so the thesis lists the
-    // strongest reasons first.
-    const ordered = r.drivers.slice().sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
+    if (!contract) continue;
+
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
-    const reasons = ordered.map((d) => d.text);
+    const reasons = r.drivers.map((d) => d.text);
     const thesis = `${verb} on ${r.sym}: ${reasons.join("; ")}.`;
     const sector = r.data?.fundamentals?.sector || null;
-    out.push({
+
+    // Sector peers: other tickers in the same sector with their pillar totals.
+    // Drop the pick itself; cap at 5 strongest peers (by |total|).
+    const peers = (sectorIndex[sector] || [])
+      .filter((p) => p.symbol !== r.sym)
+      .slice(0, 5);
+
+    const pickPayload = {
       symbol: r.sym,
       side,
-      score: r.score,
-      conviction: Math.abs(r.score),
-      // Composite ranking score = conviction * contract quality.
-      // Surfaced for transparency; the picks array itself is already
-      // ordered by this when re-sorted below.
+      total: r.total,
+      score: r.total,                          // legacy alias
+      conviction: Math.abs(r.total),
       compositeScore: Number(
-        (Math.abs(r.score) * (contract.qualityScore ?? 0.5)).toFixed(3),
+        (Math.abs(r.total) * (contract.qualityScore ?? 0.5)).toFixed(3),
       ),
+      recommendation: r.recommendation,
+      pillars: r.pillars,
       thesis,
-      drivers: ordered,
+      drivers: r.drivers,
       spot: r.data?.spot ?? null,
       sector,
       sentiment: r.data?.news?.sentiment || null,
@@ -5604,11 +6012,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
             cumulativePct: r.streakRow.current.cumulativePct,
           }
         : null,
+      peers,
       contract,
-    });
+    };
+    pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
+    out.push(pickPayload);
   }
-  // Final sort by composite — conviction-only ordering can put a weak
-  // contract above a slightly-lower-conviction pick with a great chain.
   out.sort((a, b) => b.compositeScore - a.compositeScore);
   return out;
 }

@@ -8664,10 +8664,14 @@
       ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"';
     var overall = (q && q.overall) ? ' pick-contract-overall-' + escapeHtml(q.overall) : '';
     var plain = pickPlainEnglish(p, c);
+    var otmTxt = '';
+    if (c.otmPct != null && isFinite(c.otmPct)) {
+      otmTxt = ' · ' + Math.abs(Number(c.otmPct)).toFixed(1) + '% OTM';
+    }
     return '<div class="pick-contract' + overall + '">' +
       '<div class="pick-contract-head">' +
         '<span class="pick-contract-label">Suggested ' + sideLabel + '</span>' +
-        '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + '</span>' +
+        '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt + '</span>' +
         earningsBadge +
       '</div>' +
       stats +
@@ -8749,6 +8753,125 @@
       renderPicks();
     });
   }
+  // Big tier banner — replaces the old conviction bar. The picks.json shape
+  // includes a "recommendation" object with tier/label/conviction/sizing,
+  // along with the integer score. Older payloads fall back gracefully.
+  function pickTierBadge(p){
+    var rec = p && p.recommendation;
+    var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : null);
+    var label = rec && rec.label ? rec.label : (total >= 7 ? 'Call' : total <= -7 ? 'Put' : 'No Trade');
+    var tier = rec && rec.tier ? rec.tier : (total >= 12 ? 'strong-call' : total >= 7 ? 'call' : total <= -12 ? 'strong-put' : total <= -7 ? 'put' : 'no-trade');
+    var conv = rec && rec.conviction ? rec.conviction : '';
+    var size = rec && rec.sizing ? rec.sizing : '';
+    var scoreStr = (total != null) ? ((total >= 0 ? '+' : '') + total) : '—';
+    return '<div class="pick-tier pick-tier-' + escapeHtml(tier) + '">' +
+      '<div class="pick-tier-head">' +
+        '<span class="pick-tier-label">' + escapeHtml(label) + '</span>' +
+        '<span class="pick-tier-score">' + escapeHtml(scoreStr) + '</span>' +
+      '</div>' +
+      (conv || size
+        ? '<div class="pick-tier-sub">' +
+          (conv ? '<span class="pick-tier-conv">' + escapeHtml(conv) + ' conviction</span>' : '') +
+          (size ? '<span class="pick-tier-size">' + escapeHtml(size) + '</span>' : '') +
+          '</div>'
+        : '') +
+    '</div>';
+  }
+
+  // 4-pillar breakdown side panel. Each pillar is a collapsible <details>
+  // showing every signal (including "no data" ones at 0). Sign-coded for
+  // colour: positive contributions tint green, negative tint red, neutral
+  // stay muted. Used as the per-card side panel that answers "why did this
+  // ticker score what it did?".
+  function pickPillarPanel(p){
+    var pillars = p && p.pillars;
+    if (!pillars) return '';
+    var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : 0);
+    var order = ['fundamentals','technicals','mechanicals','narrative'];
+    var nice = {
+      fundamentals: 'Fundamentals',
+      technicals: 'Technicals',
+      mechanicals: 'Mechanicals',
+      narrative: 'Narrative',
+    };
+    function signClass(n){
+      if (n > 0) return 'sig-pos';
+      if (n < 0) return 'sig-neg';
+      return 'sig-zero';
+    }
+    function fmtSignedNum(n){ return (n > 0 ? '+' : '') + n; }
+    var body = '';
+    for (var i=0; i<order.length; i++){
+      var k = order[i];
+      var pil = pillars[k];
+      if (!pil) continue;
+      var pscore = pil.score | 0;
+      var sigList = '';
+      var signals = Array.isArray(pil.signals) ? pil.signals : [];
+      for (var j=0; j<signals.length; j++){
+        var s = signals[j];
+        var sc = (s && s.score) | 0;
+        var avail = s && s.available !== false;
+        var noteTxt = s && s.note ? s.note : (avail ? '' : 'no data');
+        var valTxt = s && s.value != null ? String(s.value) : '';
+        sigList += '<li class="pillar-signal ' + signClass(sc) + (avail ? '' : ' pillar-signal-nodata') + '">' +
+          '<span class="pillar-signal-label">' + escapeHtml(s && s.label || '—') + '</span>' +
+          '<span class="pillar-signal-score">' + escapeHtml(fmtSignedNum(sc)) + '</span>' +
+          (valTxt ? '<span class="pillar-signal-value">' + escapeHtml(valTxt) + '</span>' : '') +
+          (noteTxt ? '<span class="pillar-signal-note">' + escapeHtml(noteTxt) + '</span>' : '') +
+        '</li>';
+      }
+      body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
+        '<summary class="pick-pillar-head">' +
+          '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + '</span>' +
+          '<span class="pick-pillar-score ' + signClass(pscore) + '">' + escapeHtml(fmtSignedNum(pscore)) + '</span>' +
+        '</summary>' +
+        '<ul class="pick-pillar-signals">' + sigList + '</ul>' +
+      '</details>';
+    }
+    return '<aside class="pick-pillars-panel" aria-label="4-pillar score breakdown">' +
+      '<div class="pick-pillars-bar">' +
+        '<span class="pick-pillars-title">Score breakdown</span>' +
+        '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + total) + '</span>' +
+      '</div>' +
+      body +
+    '</aside>';
+  }
+
+  // Same-sector peers — show how the pick stacks up against other tickers
+  // in its sector. Sourced from picks.json's pre-computed peer table so the
+  // browser doesn't have to re-rank every ticker.
+  function pickPeerList(p){
+    var peers = p && p.peers;
+    if (!Array.isArray(peers) || !peers.length) return '';
+    var sec = p.sector ? escapeHtml(p.sector) : 'this sector';
+    var items = '';
+    for (var i=0; i<peers.length; i++){
+      var q = peers[i];
+      var t = q && q.total != null ? q.total : 0;
+      var cls = q && q.tier ? 'pick-peer-' + escapeHtml(q.tier) : 'pick-peer-no-trade';
+      items += '<li class="pick-peer ' + cls + '">' +
+        '<span class="pick-peer-sym">' + escapeHtml(q.symbol || '—') + '</span>' +
+        '<span class="pick-peer-score">' + (t>=0?'+':'') + t + '</span>' +
+        '<span class="pick-peer-tier">' + escapeHtml(q && q.label ? q.label : '—') + '</span>' +
+      '</li>';
+    }
+    return '<div class="pick-peers">' +
+      '<div class="pick-peers-head">vs ' + sec + ' peers</div>' +
+      '<ul class="pick-peer-list">' + items + '</ul>' +
+    '</div>';
+  }
+
+  // Analysis paragraph — pre-rendered server-side so the browser can show
+  // the same explanation regardless of locale/cache state. Falls back to
+  // the legacy thesis line for older payloads.
+  function pickAnalysisBlock(p){
+    var txt = p && p.analysis ? String(p.analysis) : '';
+    if (!txt && p && p.thesis) txt = String(p.thesis);
+    if (!txt) return '';
+    return '<p class="pick-analysis">' + escapeHtml(txt) + '</p>';
+  }
+
   function renderPicks(){
     bindPicksControls();
     var root = $('picks-root');
@@ -8780,29 +8903,29 @@
       return;
     }
     if (empty) empty.hidden = true;
-    // Conviction bar widths scale to the strongest pick so the visual
-    // contrast across the list reflects actual signal-stack depth.
-    var maxConv = 0;
-    var callCount = 0, putCount = 0, convSum = 0, convCount = 0;
+    // Summary chips — one-glance shape of today's list (totals by side and
+    // tier, average score, earnings-in-window risk).
+    var callCount = 0, putCount = 0, strongCount = 0;
+    var scoreSum = 0, scoreCount = 0;
     var earningsCount = 0;
     for (var i=0; i<picks.length; i++) {
       var pp = picks[i];
-      if (pp.conviction > maxConv) maxConv = pp.conviction;
       if (pp.side === 'put') putCount++; else callCount++;
-      if (pp.conviction != null && isFinite(pp.conviction)) {
-        convSum += pp.conviction; convCount++;
-      }
+      var tot = (pp.total != null ? pp.total : pp.score);
+      if (tot != null && isFinite(tot)) { scoreSum += tot; scoreCount++; }
+      var tier = pp.recommendation && pp.recommendation.tier;
+      if (tier === 'strong-call' || tier === 'strong-put') strongCount++;
       if (pp.contract && pp.contract.earningsInWindow) earningsCount++;
     }
-    // Summary strip — gives a one-glance shape of today's list (how many
-    // bullish vs bearish setups, average conviction, any earnings-in-window
-    // contracts) before the user scrolls through ten cards.
-    var avgConv = convCount > 0 ? (convSum / convCount).toFixed(1) : '—';
+    var avgScore = scoreCount > 0 ? (scoreSum / scoreCount).toFixed(1) : '—';
     var summary = '<div class="picks-summary">' +
       '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
       '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
       '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
-      '<div class="picks-summary-chip"><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">avg conv</span></div>' +
+      (strongCount > 0
+        ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 12)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
+        : '') +
+      '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
       (earningsCount > 0
         ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
         : '') +
@@ -8812,26 +8935,20 @@
       var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
       var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
       var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
-      var convPct = maxConv > 0 ? (p.conviction / maxConv) * 100 : 0;
       var streakHtml = p.streak
         ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '">' +
             p.streak.days + 'd ' + (p.streak.color === 'green' ? '▲' : '▼') +
             ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
           '</span>'
         : '';
-      var driversList = (p.drivers || []).slice(0, 6);
-      var drivers = pickDriversHtml(driversList, p.side);
       var contractHtml = pickContractHtml(p);
-      // Trim the bulleted detail off the thesis when we have driver chips —
-      // they restate it verbatim. Keep just the lead-in ("Bullish setup on
-      // PLTR") so the article still has a natural-language summary line.
-      var thesisText = String(p.thesis || '');
-      if (drivers && thesisText) {
-        var colonIdx = thesisText.indexOf(': ');
-        if (colonIdx > 0) thesisText = thesisText.slice(0, colonIdx);
-      }
+      var tierHtml = pickTierBadge(p);
+      var pillarsHtml = pickPillarPanel(p);
+      var peersHtml = pickPeerList(p);
+      var analysisHtml = pickAnalysisBlock(p);
       var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
-      return '<article class="pick-card ' + sideCls + (idx === 0 ? ' pick-card-leader' : '') + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+      var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
+      return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
         '<div class="pick-rank' + rankCls + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
         '<div class="pick-main">' +
           '<div class="pick-head">' +
@@ -8841,17 +8958,12 @@
             '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
             streakHtml +
           '</div>' +
-          '<p class="pick-thesis">' + escapeHtml(thesisText) + '</p>' +
-          (drivers ? '<div class="pick-drivers pick-drivers-grouped">' + drivers + '</div>' : '') +
+          tierHtml +
+          analysisHtml +
           contractHtml +
+          peersHtml +
         '</div>' +
-        '<div class="pick-conviction" aria-label="Conviction score"' +
-          ' title="Conviction = how many independent signals (news, narrative, fundamentals, momentum, analyst targets, social, volume, support/resistance) all point the same direction for this ticker. Higher = more agreement. Typical range 3–12."' +
-          ' style="--pick-conv-pct:' + convPct.toFixed(1) + '%">' +
-          '<div class="pick-conv-label">Conviction</div>' +
-          '<div class="pick-conv-value">' + p.conviction + '<span class="pick-conv-max">/' + maxConv + '</span></div>' +
-          '<div class="pick-conv-bar"><span class="pick-conv-fill"></span></div>' +
-        '</div>' +
+        pillarsHtml +
       '</article>';
     }).join('');
     // Clicking a symbol (or "Grade this contract") jumps to the grader and
@@ -9134,19 +9246,27 @@
         var picks = sortPicks(picksRaw, picksState.sort);
         var rows = picks.map(function(p){
           var c = p.contract || {};
+          var pl = p.pillars || {};
+          var rec = p.recommendation || {};
           return {
             ticker: p.symbol || '',
+            tier: rec.label || '',
             side: p.side || '',
+            total: p.total != null ? p.total : (p.score != null ? p.score : ''),
+            fundamentals: pl.fundamentals && pl.fundamentals.score != null ? pl.fundamentals.score : '',
+            technicals: pl.technicals && pl.technicals.score != null ? pl.technicals.score : '',
+            mechanicals: pl.mechanicals && pl.mechanicals.score != null ? pl.mechanicals.score : '',
+            narrative: pl.narrative && pl.narrative.score != null ? pl.narrative.score : '',
             spot: p.spot != null ? p.spot : '',
             sector: p.sector || '',
-            conviction: p.conviction != null ? p.conviction : '',
             strike: c.strike != null ? c.strike : '',
-            expiry: c.expDate || '',
+            expiry: c.expiryLabel || '',
             dte: c.dte != null ? c.dte : '',
+            otmPct: c.otmPct != null ? c.otmPct : '',
             delta: c.delta != null ? c.delta : '',
+            mid: c.mid != null ? c.mid : '',
             iv: c.iv != null ? c.iv : '',
-            thesis: (p.thesis || '').replace(/\r?\n/g, ' '),
-            drivers: (p.drivers || []).map(function(d){ return typeof d === 'string' ? d : (d && d.label) || ''; }).filter(Boolean).join('; '),
+            analysis: (p.analysis || '').replace(/\r?\n/g, ' '),
           };
         });
         if (!rows.length){
