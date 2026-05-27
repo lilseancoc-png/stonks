@@ -5775,6 +5775,7 @@ const REPUTABLE_PUBLISHERS = [
   "Investor's Place", "TheStreet", "Seeking Alpha", "Yahoo Finance",
   "24/7 Wall St", "GuruFocus", "Simply Wall St", "PYMNTS",
   "GlobeNewswire", "PR Newswire", "Business Wire", "Forbes",
+  "CNN", "CNN Business",
 ];
 
 // Domains that are reliably paywalled / not body-scrapeable. We skip body
@@ -6176,23 +6177,129 @@ async function fetchTickerRssHeadlines(symbol) {
   return items.slice(0, AI_NEWS_COUNT);
 }
 
+// Google News RSS — searches all of Google News for "<TICKER> stock" and
+// returns the top ~20-100 headlines with real publisher attribution. Free,
+// no API key. Complements Yahoo's per-ticker RSS (which labels every item
+// as "Yahoo Finance" regardless of original source); Google News gives us
+// the actual Reuters / Bloomberg / WSJ / CNBC / MarketWatch / Motley Fool /
+// Benzinga / CNN / Seeking Alpha attribution so the AI can weight headlines
+// by source quality and the citation list shows the real publisher.
+//
+// Item shape: title includes " - Publisher" suffix which we strip; <source>
+// tag has the canonical publisher name. The <link> is a news.google.com
+// redirect to the actual article — body-fetch follows redirects so paywall
+// detection still works.
+async function fetchGoogleNewsRssHeadlines(symbol) {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(symbol + " stock")}&hl=en-US&gl=US&ceid=US:en`;
+  let xml;
+  try {
+    const res = await fetchWithTimeout(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    }, RSS_FETCH_TIMEOUT_MS);
+    if (!res.ok) return [];
+    xml = await res.text();
+  } catch (_) {
+    return [];
+  }
+  if (!xml || xml.length < 200) return [];
+
+  const items = [];
+  const itemRegex = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
+  function pull(block, tag) {
+    const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+    const m = block.match(re);
+    if (!m) return "";
+    let v = m[1].trim();
+    const cd = v.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
+    if (cd) v = cd[1];
+    return v;
+  }
+  let m;
+  while ((m = itemRegex.exec(xml)) !== null) {
+    const block = m[1];
+    let title = decodeAndStripHtml(pull(block, "title"));
+    let description = decodeAndStripHtml(pull(block, "description"));
+    const link = pull(block, "link").trim();
+    const pubDateRaw = pull(block, "pubDate").trim();
+    let publisher = decodeAndStripHtml(pull(block, "source"));
+    // Strip the " - Publisher" suffix Google News always appends to titles
+    // so we don't double-print the publisher in the AI prompt.
+    if (publisher) {
+      const suffix = " - " + publisher;
+      if (title.endsWith(suffix)) title = title.slice(0, -suffix.length).trim();
+    } else {
+      const titleMatch = title.match(/\s-\s+([^-]+)$/);
+      if (titleMatch) {
+        publisher = titleMatch[1].trim();
+        title = title.slice(0, title.lastIndexOf(" - ")).trim();
+      }
+    }
+    if (!title) continue;
+    if (description.length > RSS_DESC_MAX_CHARS) {
+      description = description.slice(0, RSS_DESC_MAX_CHARS).trim() + "…";
+    }
+    let publishedAt = null;
+    if (pubDateRaw) {
+      const t = new Date(pubDateRaw);
+      if (!isNaN(t.getTime())) publishedAt = t.toISOString();
+    }
+    items.push({ title, description, link, publisher: publisher || "Google News", publishedAt });
+  }
+  // Google News surfaces SEO farms / promotional blogs too — filter to the
+  // reputable allowlist so the AI doesn't get blog-spam catalysts.
+  const filtered = items.filter((it) => isReputablePublisher(it.publisher));
+  filtered.sort((a, b) => {
+    const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+    const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+    return db - da;
+  });
+  return filtered.slice(0, AI_NEWS_COUNT * 2);
+}
+
 async function fetchTickerHeadlines(symbol) {
-  // PRIMARY: Yahoo per-ticker RSS. Returns title + description for each
-  // item, pre-extracted. We map description → body so downstream code
-  // (generateTickerJudgment / generateNewsTake) sees the same shape it
-  // would see from the HTML-scraping path.
-  const rss = await fetchTickerRssHeadlines(symbol);
-  if (rss.length > 0) {
-    return rss.map((r) => ({
-      title: r.title,
-      publisher: r.publisher,
-      link: r.link,
-      publishedAt: r.publishedAt,
-      // The description IS the body. Empty string when Yahoo gave us only
-      // a title — the AI prompt handles that gracefully (item is still in
-      // the citation list, just without body text to ground a sentence in).
-      body: r.description || "",
-    }));
+  // PRIMARY: hit Yahoo per-ticker RSS and Google News RSS in parallel.
+  // Yahoo is fast and labels everything as "Yahoo Finance"; Google News
+  // gives real publisher attribution (Reuters / Bloomberg / WSJ / CNBC /
+  // MarketWatch / Motley Fool / Benzinga / CNN / Seeking Alpha / …).
+  // Merged result: wider source mix, real attribution, deduped by title.
+  const [yahoo, google] = await Promise.all([
+    fetchTickerRssHeadlines(symbol),
+    fetchGoogleNewsRssHeadlines(symbol),
+  ]);
+  if (yahoo.length > 0 || google.length > 0) {
+    // Dedupe by lowercased title prefix (first 60 chars) — same story
+    // usually shares the lead even when publishers tweak the wording.
+    // Google News goes first so its real-publisher attribution wins over
+    // Yahoo's "Yahoo Finance" relabel when the same story appears in both.
+    const seen = new Set();
+    const merged = [];
+    for (const r of [...google, ...yahoo]) {
+      const key = (r.title || "").toLowerCase().slice(0, 60);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        title: r.title,
+        publisher: r.publisher,
+        link: r.link,
+        publishedAt: r.publishedAt,
+        // Description doubles as body. Empty string when the feed gave us
+        // only a title — the AI prompt handles that gracefully (item is
+        // still in the citation list, just without body text to ground a
+        // sentence in).
+        body: r.description || "",
+      });
+    }
+    merged.sort((a, b) => {
+      const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+      const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+      return db - da;
+    });
+    return merged.slice(0, AI_NEWS_COUNT * 2);
   }
   // SECONDARY: fall back to yahooFinance.search() which returns headlines
   // from a broader publisher set but without description. The downstream
