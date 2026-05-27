@@ -9498,5 +9498,167 @@ html::-webkit-scrollbar-thumb:hover {
   .oi-table { font-size: 0.82em; }
   .oi-table th, .oi-table td { padding: var(--s-1) var(--s-2); }
 }
+
+/* ===================================================================
+   Mobile refinements (final pass)
+   ===================================================================
+   Layered on top of the established mobile blocks higher up in this
+   stylesheet (look for the "Tablet & narrow desktop (<=900px)" /
+   "Phone (<=640px)" sections starting around line 6694). Those already
+   handle the bulk of layout adjustments — padding, table stacking,
+   font sizes, input zoom prevention. THIS block only adds the
+   refinements those blocks don't cover:
+
+     1. tap-highlight suppression (global, dark-UI cosmetic fix)
+     2. hover-state cleanup for touch devices (cards, tiles)
+     3. landing-page polish — hero numerals + card padding at <=560px
+        (the existing 640px block doesn't reach into .landing-*)
+     4. footer + freshness stacking on phones
+     5. safe-area-inset handling for notched / rounded-screen phones
+
+   Anything that overlaps with the existing mobile rules — main /
+   page-sub / page-tabs / site-header padding, .icon-btn sizing,
+   input font-size — is intentionally NOT redefined here so this
+   block doesn't undo the existing per-breakpoint gradient.
+   ------------------------------------------------------------------- */
+
+/* Suppress the iOS Safari double-tap zoom flash on every interactive
+   element. We already handle focus rings via :focus-visible; the
+   default grey/blue tap-highlight just looks like a bug on dark UI. */
+html { -webkit-tap-highlight-color: transparent; }
+
+/* Hover-capable pointers only. Touch devices fire :hover on tap and
+   then strand the hovered state until the next tap elsewhere — for
+   purely cosmetic hover effects (translate/scale, glow halos, soft
+   tint shifts) this reads as a UI bug. The existing @media (hover: none)
+   block around line 6684 handles flow-chip / cal-chip / narr-card /
+   pf-risk-block. This adds the four heaviest remaining offenders:
+   landing-card (transform + glow + arrow slide), pick-card (border
+   shift), heatmap-tile (brightness pump), and the cmd-palette
+   trigger (background swap). */
+@media (hover: none) {
+  .landing-card:hover {
+    transform: none;
+    box-shadow: var(--elev-1);
+    border-color: var(--border);
+    background: var(--surface);
+    background-image: var(--grad-surface);
+  }
+  .landing-card:hover::before { transform: scaleX(0); }
+  .landing-card:hover .landing-card-arrow {
+    color: var(--muted);
+    transform: translateX(0);
+  }
+  .pick-card:hover { border-color: var(--border); }
+  .heatmap-tile:hover { filter: none; }
+  .cmd-palette-trigger:hover {
+    color: var(--muted);
+    border-color: var(--border);
+    background: var(--surface-2);
+  }
+}
+
+/* === Landing page polish (<=560px) ================================
+   The existing 640px block tightens main/header/page-tabs but doesn't
+   touch the home-tab landing hero or the section cards, so those still
+   render with desktop-scale padding and the ~44px hero numerals can
+   wrap mid-digit on a card whose stat is "$200.42". Scale the hero
+   typography, tighten card padding, and reduce vertical rhythm so the
+   home tab fits in one viewport on a 6.1" phone instead of forcing
+   four screenfuls of scroll just to see the section titles. */
+@media (max-width: 560px) {
+  .landing-hero {
+    padding: var(--s-5) var(--s-3) var(--s-4);
+    margin-bottom: var(--s-4);
+  }
+  .landing-hero-title { font-size: var(--fs-xl); }
+  .landing-hero-eyebrow { font-size: 10px; margin-bottom: var(--s-2); }
+  .landing-section { margin-bottom: var(--s-4); }
+  .landing-section-head { padding: 0; }
+  .landing-card {
+    padding: var(--s-3);
+    min-height: 0;
+    gap: var(--s-1);
+  }
+  .landing-card-stat { font-size: 28px; }
+  .landing-card-desc {
+    font-size: var(--fs-xs);
+    padding-top: var(--s-2);
+  }
+  .landing-card-head { margin-bottom: 0; }
+
+  /* Footer — let the legal links + build timestamp stack so neither
+     gets squeezed against the screen edge. The existing footer rule
+     uses flex-wrap which still keeps both rows on the same line at
+     360–420px widths. */
+  .site-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-3);
+    padding: var(--s-4) var(--s-3) var(--s-5);
+  }
+
+  /* Picks — at 480px the rank+content already stack via the 860px
+     rule. Tighten the inner padding so the card isn't mostly empty
+     whitespace at compact widths. */
+  .pick-card {
+    padding: var(--s-2) var(--s-2) var(--s-3);
+    gap: var(--s-2);
+  }
+  .pick-rank-num { font-size: 20px; }
+  .pick-contract { padding: 6px 8px; }
+  .pick-tier { padding: 6px 10px; }
+}
+
+/* === Body overflow protection =====================================
+   Some absolutely-positioned children (tooltips, heatmap tiles using
+   percentage transforms, the ambient radial gradient on body) can
+   briefly extend a pixel or two past the viewport edge and trigger a
+   horizontal scrollbar. overflow-x: clip is the modern way to silently
+   crop without creating a scroll container, which would break
+   position: sticky on the header. (Safari 16+, all other evergreen.) */
+@media (max-width: 560px) {
+  html, body { overflow-x: clip; }
+}
+
+/* === Compact phones (<=380px) =====================================
+   iPhone SE / mini territory. The existing 400px block tightens
+   tickers-grid and per-card padding, but the page chrome (freshness
+   timestamp, header nav cluster, footer) still tries to lay out on
+   one line and clips. Force column stacking on those three rows. */
+@media (max-width: 380px) {
+  .freshness { flex-direction: column; align-items: flex-start; }
+  .site-nav { gap: 4px; }
+  .cmd-palette-trigger { padding: 8px; min-width: 36px; }
+  .site-footer { font-size: 10px; gap: var(--s-2); }
+}
+
+/* === Safe-area handling for notched / rounded phones ==============
+   The header is sticky and the footer is flush to the bottom; both
+   need to respect env(safe-area-inset-*) so content doesn't bleed
+   under the iOS home-indicator pill or the iPhone notch when the
+   browser chrome auto-hides on scroll. Using max() preserves the
+   existing per-breakpoint horizontal padding when the inset is 0
+   (rectangular screens / Android) and only adds extra padding when
+   the inset is non-zero (iPhone X+ / Pixel XL+). */
+@supports (padding: max(0px)) {
+  .site-header {
+    padding-left: max(var(--s-3), env(safe-area-inset-left));
+    padding-right: max(var(--s-3), env(safe-area-inset-right));
+  }
+  main {
+    padding-left: max(var(--s-2), env(safe-area-inset-left));
+    padding-right: max(var(--s-2), env(safe-area-inset-right));
+  }
+  .page-tabs {
+    padding-left: max(var(--s-2), env(safe-area-inset-left));
+    padding-right: max(var(--s-2), env(safe-area-inset-right));
+  }
+  .site-footer {
+    padding-bottom: max(var(--s-5), env(safe-area-inset-bottom));
+    padding-left: max(var(--s-3), env(safe-area-inset-left));
+    padding-right: max(var(--s-3), env(safe-area-inset-right));
+  }
+}
 `;
 }
