@@ -8777,8 +8777,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function pickTierBadge(p){
     var rec = p && p.recommendation;
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : null);
-    var label = rec && rec.label ? rec.label : (total >= 7 ? 'Call' : total <= -7 ? 'Put' : 'No Trade');
-    var tier = rec && rec.tier ? rec.tier : (total >= 12 ? 'strong-call' : total >= 7 ? 'call' : total <= -12 ? 'strong-put' : total <= -7 ? 'put' : 'no-trade');
+    var label = rec && rec.label ? rec.label : (total >= 9 ? 'Call' : total <= -9 ? 'Put' : 'No Trade');
+    var tier = rec && rec.tier ? rec.tier : (total >= 15 ? 'strong-call' : total >= 9 ? 'call' : total <= -15 ? 'strong-put' : total <= -9 ? 'put' : 'no-trade');
     var conv = rec && rec.conviction ? rec.conviction : '';
     var size = rec && rec.sizing ? rec.sizing : '';
     var scoreStr = (total != null) ? ((total >= 0 ? '+' : '') + total) : '—';
@@ -8941,7 +8941,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
       '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
       (strongCount > 0
-        ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 12)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
+        ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 15)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
         : '') +
       '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
       (earningsCount > 0

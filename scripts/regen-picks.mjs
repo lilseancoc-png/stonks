@@ -48,7 +48,7 @@ for (const sym of symbols) {
 const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload);
 const out = {
   builtAtIso: new Date().toISOString(),
-  minConviction: 3,
+  minConviction: 9,
   picks,
 };
 

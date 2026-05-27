@@ -4921,10 +4921,10 @@ export function pickFedwatchBuckets(history, meetingDate, nowIso) {
 // ============================================================================
 const PICKS_FILE = "picks.json";
 const PICKS_COUNT = 10;
-// 4-pillar scoring uses tiers: ±12 Strong, ±7 directional, otherwise No Trade.
-// Floor at 7 absolute so only actionable picks ship.
-const PICKS_MIN_CONVICTION = 7;
-const PICKS_TIER_STRONG = 12;
+// 4-pillar scoring uses tiers: ±15 Strong, ±9 directional, otherwise No Trade.
+// Floor at 9 absolute so only actionable picks ship.
+const PICKS_MIN_CONVICTION = 9;
+const PICKS_TIER_STRONG = 15;
 
 // Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
@@ -4935,9 +4935,9 @@ const PICKS_MIN_DTE = 14;           // 14d+ per spec
 const PICKS_MAX_DTE = 120;          // beyond ~4mo theta drags too long
 const PICKS_IDEAL_DTE_LO = 30;
 const PICKS_IDEAL_DTE_HI = 60;
-const PICKS_DELTA_MIN = 0.20;       // OTM band 5-25% lands here
+const PICKS_DELTA_MIN = 0.15;       // 0.15-0.40 band per spec
 const PICKS_DELTA_MAX = 0.40;
-const PICKS_DELTA_IDEAL = 0.30;
+const PICKS_DELTA_IDEAL = 0.28;     // mid of the 0.15-0.40 band
 const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
 const PICKS_OTM_MAX_PCT = 0.25;     // 25% OTM
 const PICKS_MAX_IV = 2.0;           // 200% IV cap
@@ -5046,11 +5046,11 @@ function summarizeUnusualForSym(sym, unusualPayload) {
 // sum of its signals. Total score = sum of all four pillar scores.
 //
 // Score → tier mapping (per the spec):
-//   ≥ +12  Strong Call  (Very High conviction, Full size)
-//   +7..+11 Call        (High conviction, Standard size)
-//   -6..+6 No Trade     (Skip — not shipped)
-//   -7..-11 Put         (High conviction, Standard size)
-//   ≤ -12  Strong Put   (Very High conviction, Full size)
+//   ≥ +15  Strong Call  (Very High conviction, Full size)
+//   +9..+14 Call        (High conviction, Standard size)
+//   -8..+8 No Trade     (Skip — not shipped)
+//   -9..-14 Put         (High conviction, Standard size)
+//   ≤ -15  Strong Put   (Very High conviction, Full size)
 //
 // Each pillar returns a `signals` array where every entry is
 //   { key, label, score, value, note, available }
@@ -5119,7 +5119,7 @@ function scoreFundamentals(data, sectorMedianPE) {
   const f = data?.fundamentals || {};
   const signals = [];
 
-  // 1. Earnings Surprise (most-recent quarter): >15% ±3, 5-15% ±2, else 0.
+  // 1. Earnings Surprise (most-recent quarter): >15% beat ±3, 1-14% ±2, else 0.
   // Stale prints (>~180d old) score 0 — the surprise was already absorbed.
   const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory : [];
   let surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", 0,
@@ -5134,9 +5134,9 @@ function scoreFundamentals(data, sectorMedianPE) {
         const sp = Number(recent.surprisePct);
         let s = 0;
         if (sp > 15) s = 3;
-        else if (sp > 5) s = 2;
+        else if (sp >= 1) s = 2;
         else if (sp < -15) s = -3;
-        else if (sp < -5) s = -2;
+        else if (sp <= -1) s = -2;
         surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", s, {
           value: `${sp >= 0 ? "+" : ""}${sp.toFixed(1)}%`,
           note: `${recent.date} — actual ${recent.epsActual} vs est ${recent.epsEstimate}`,
@@ -5146,15 +5146,16 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(surpriseSignal);
 
-  // 2. EPS Growth Trend YoY: >25% +2, 10-25% +1, -10..10 0, -25..-10 -1, <-25% -2.
-  // earningsGrowthYoy is in percent units (e.g., 214.5 = 214.5%).
+  // 2. EPS Growth Trend YoY: asymmetric per spec — bullish caps at +1, bearish
+  // at -2 (significant slowdown is worse news than strong growth is good news,
+  // because the latter is usually already priced in). ≥10% +1, -10..-25% -1,
+  // <-25% -2. earningsGrowthYoy is in percent units (e.g., 214.5 = 214.5%).
   let epsSignal = _sig("epsGrowth", "EPS Growth YoY", 0,
     { available: false, note: "no growth data" });
   const eps = f.earningsGrowthYoy;
   if (eps != null && isFinite(eps)) {
     let s = 0;
-    if (eps > 25) s = 2;
-    else if (eps > 10) s = 1;
+    if (eps >= 10) s = 1;
     else if (eps < -25) s = -2;
     else if (eps < -10) s = -1;
     epsSignal = _sig("epsGrowth", "EPS Growth YoY", s, {
@@ -5163,15 +5164,15 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(epsSignal);
 
-  // 3. Revenue Growth YoY: same thresholds as EPS but tighter (revenue grows slower).
-  // >20% +2, 8-20% +1, -8..8 0, -20..-8 -1, <-20% -2.
+  // 3. Revenue Growth YoY: same asymmetric shape as EPS but slightly tighter
+  // (revenue grows slower than earnings can compound). ≥8% +1, -8..-20% -1,
+  // <-20% -2.
   let revSignal = _sig("revGrowth", "Revenue Growth YoY", 0,
     { available: false, note: "no growth data" });
   const rev = f.revenueGrowthYoy;
   if (rev != null && isFinite(rev)) {
     let s = 0;
-    if (rev > 20) s = 2;
-    else if (rev > 8) s = 1;
+    if (rev >= 8) s = 1;
     else if (rev < -20) s = -2;
     else if (rev < -8) s = -1;
     revSignal = _sig("revGrowth", "Revenue Growth YoY", s, {
@@ -5180,7 +5181,8 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(revSignal);
 
-  // 4. Analyst Price Target: ≥+25% upside +2, +10..25 +1, -10..-20 -1, ≤-20 -2.
+  // 4. Analyst Price Target: ±1 only — analyst consensus is a context signal,
+  // not a conviction driver. ≥+10% upside +1, ≤-10% downside -1, else 0.
   // Requires ≥5 analysts so single-firm outliers don't swing the signal.
   const spot = data?.spot;
   const tgt = f.targetMeanPrice;
@@ -5190,9 +5192,7 @@ function scoreFundamentals(data, sectorMedianPE) {
   if (spot > 0 && tgt > 0 && nA >= 5) {
     const upside = (tgt - spot) / spot;
     let s = 0;
-    if (upside >= 0.25) s = 2;
-    else if (upside >= 0.10) s = 1;
-    else if (upside <= -0.20) s = -2;
+    if (upside >= 0.10) s = 1;
     else if (upside <= -0.10) s = -1;
     analystSignal = _sig("analystTarget", "Analyst Price Target", s, {
       value: `${upside >= 0 ? "+" : ""}${(upside * 100).toFixed(0)}% to $${tgt.toFixed(2)}`,
@@ -5227,22 +5227,27 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(peSignal);
 
-  // 6. Guidance: asymmetric (in-line or raised → +2, lowered → -2). Approximated
-  // from current-FY analyst growth estimate since raw guidance text isn't fetched.
+  // 6. Guidance: ±3 with in-line as +2. Approximated from current-FY analyst
+  // growth estimate since raw guidance text isn't fetched. ≥+20% → raised +3,
+  // 0..+20% → in line +2, -10..0% → soft cut -2, ≤-10% → lowered -3.
   let guideSignal = _sig("guidance", "Guidance", 0,
     { available: false, note: "no guidance estimate available" });
   const gFY = f.growthEstimateCurY;
   if (gFY != null && isFinite(gFY)) {
     let s = 0;
     let note;
-    if (gFY >= 0) {
+    if (gFY >= 20) {
+      s = 3;
+      note = `+${gFY.toFixed(1)}% FY EPS growth est — raised proxy`;
+    } else if (gFY >= 0) {
       s = 2;
-      note = `${gFY >= 0 ? "+" : ""}${gFY.toFixed(1)}% FY EPS growth est — in line/raised proxy`;
+      note = `+${gFY.toFixed(1)}% FY EPS growth est — in line/raised proxy`;
     } else if (gFY <= -10) {
-      s = -2;
+      s = -3;
       note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
     } else {
-      note = `${gFY.toFixed(1)}% FY EPS growth est — soft but not cut`;
+      s = -2;
+      note = `${gFY.toFixed(1)}% FY EPS growth est — soft cut`;
     }
     guideSignal = _sig("guidance", "Guidance", s, {
       value: `${gFY >= 0 ? "+" : ""}${gFY.toFixed(1)}%`,
@@ -5251,11 +5256,13 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(guideSignal);
 
-  // 7. Lost Major Contract: asymmetric (0 or -3). No structured data — score 0
-  // with "no data" so the row exists in the breakdown for transparency.
-  signals.push(_sig("contractLoss", "Lost Major Contract", 0, {
+  // 7. Major Contract: +2 if a major contract is announced, -3 if lost. No
+  // structured contract data is fetched — score 0 with "no data" so the row
+  // exists in the breakdown for transparency. (Catalyst-driven contract wins
+  // tend to surface in the Positive Catalyst narrative signal anyway.)
+  signals.push(_sig("majorContract", "Major Contract", 0, {
     available: false,
-    note: "no structured contract-loss data — manual check",
+    note: "no structured contract data — manual check",
   }));
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
@@ -5269,13 +5276,13 @@ function scoreTechnicals(data, streakRow) {
   const spot = data?.spot;
   const signals = [];
 
-  // 1. RSI 14: <35 +2, 35-50 0, 50-70 0, >70 -2.
+  // 1. RSI 14: oversold (<35) +1, overbought (>70) -1, else 0.
   let rsiSignal = _sig("rsi", "RSI 14", 0,
     { available: false, note: "no RSI computed" });
   if (t.rsi != null && isFinite(t.rsi)) {
     let s = 0;
-    if (t.rsi < 35) s = 2;
-    else if (t.rsi > 70) s = -2;
+    if (t.rsi < 35) s = 1;
+    else if (t.rsi > 70) s = -1;
     rsiSignal = _sig("rsi", "RSI 14", s, {
       value: t.rsi.toFixed(1),
       note: t.rsi < 35 ? "oversold" : t.rsi > 70 ? "overbought" : "neutral range",
@@ -5283,7 +5290,7 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(rsiSignal);
 
-  // 2. MACD: line above signal & hist > 0 +2; line below & hist < 0 -2; mixed 0.
+  // 2. MACD: line above signal & hist > 0 +1; line below & hist < 0 -1; mixed 0.
   let macdSignal = _sig("macd", "MACD", 0,
     { available: false, note: "no MACD computed" });
   if (t.macd && t.macd.hist != null && isFinite(t.macd.hist)) {
@@ -5293,10 +5300,10 @@ function scoreTechnicals(data, streakRow) {
     let s = 0;
     let note = "histogram flat";
     if (hist > 0 && (line == null || sig == null || line > sig)) {
-      s = 2;
+      s = 1;
       note = "line above signal — bullish";
     } else if (hist < 0 && (line == null || sig == null || line < sig)) {
-      s = -2;
+      s = -1;
       note = "line below signal — bearish";
     }
     macdSignal = _sig("macd", "MACD", s, {
@@ -5306,14 +5313,16 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(macdSignal);
 
-  // 3. Streaks: ≥3 day green +1, ≥3 day red -1, else 0.
+  // 3. Streaks: ≥3 day green +2, ≥3 day red -2, else 0. Streaks are weighted
+  // heavier than RSI/MACD because a multi-day run reflects sustained
+  // accumulation/distribution rather than a single bar oscillator print.
   let streakSignal = _sig("streak", "Streak", 0,
     { available: false, note: "no streak data" });
   const cur = streakRow && streakRow.current;
   if (cur) {
     let s = 0;
-    if (cur.color === "green" && cur.days >= 3) s = 1;
-    else if (cur.color === "red" && cur.days >= 3) s = -1;
+    if (cur.color === "green" && cur.days >= 3) s = 2;
+    else if (cur.color === "red" && cur.days >= 3) s = -2;
     streakSignal = _sig("streak", "Streak", s, {
       value: `${cur.days}d ${cur.color}`,
       note: `${cur.cumulativePct >= 0 ? "+" : ""}${cur.cumulativePct.toFixed(1)}% cumulative`,
@@ -5361,7 +5370,10 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(srSignal);
 
-  // 5. 52-week High/Low position: within 5% of 52w high +1; within 5% of low -1.
+  // 5. 52-week High/Low position: contrarian. Near 52w high → -1 (exhaustion /
+  // priced for perfection); near 52w low → +1 (oversold / mean-reversion
+  // candidate). Mirrors how options traders fade extension: long calls into
+  // 52w highs underperform vs. long calls bouncing off a 52w low.
   let fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", 0,
     { available: false, note: "no 52-week range" });
   const hi = f.fiftyTwoWeekHigh;
@@ -5373,15 +5385,48 @@ function scoreTechnicals(data, streakRow) {
     let note = `range $${lo.toFixed(2)}–$${hi.toFixed(2)}`;
     let value = `${(((spot - lo) / (hi - lo)) * 100).toFixed(0)}% of range`;
     if (toHi >= 0 && toHi <= 0.05) {
-      s = 1;
-      note = `${(toHi * 100).toFixed(1)}% below 52w high — strength`;
-    } else if (fromLo >= 0 && fromLo <= 0.05) {
       s = -1;
-      note = `${(fromLo * 100).toFixed(1)}% above 52w low — weakness`;
+      note = `${(toHi * 100).toFixed(1)}% below 52w high — extended / fade risk`;
+    } else if (fromLo >= 0 && fromLo <= 0.05) {
+      s = 1;
+      note = `${(fromLo * 100).toFixed(1)}% above 52w low — oversold / bounce candidate`;
     }
     fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", s, { value, note });
   }
   signals.push(fiftyTwoSignal);
+
+  // 6. Volume Confirmation: pairs with the S/R signal. A breakout with
+  // 1.5x+ relative volume scores +1 (move is real); a breakout on weak
+  // volume (<0.8x) scores -1 (likely fakeout). Direction follows the
+  // breakout: confirmed up-break = +1, confirmed down-break = -1, weak
+  // up-break = -1, weak down-break = +1. Without an S/R breakout the
+  // signal stays at 0 — there's nothing to confirm.
+  let volConfSignal = _sig("volConf", "Volume Confirmation", 0,
+    { available: false, note: "no relative-volume data" });
+  const srScoreForConf = srSignal.score | 0;
+  const volForConf = t.volume;
+  if (volForConf && volForConf.rvol != null && isFinite(volForConf.rvol)) {
+    const rv = Number(volForConf.rvol);
+    if (srScoreForConf === 2) { // bullish breakout
+      let s = 0;
+      let note = `${rv.toFixed(2)}x vs 20D — break unconfirmed by volume`;
+      if (rv >= 1.5) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakout confirmed by volume`; }
+      else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakout on weak volume (fakeout risk)`; }
+      volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
+    } else if (srScoreForConf === -2) { // bearish breakdown
+      let s = 0;
+      let note = `${rv.toFixed(2)}x vs 20D — breakdown unconfirmed by volume`;
+      if (rv >= 1.5) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakdown confirmed by volume`; }
+      else if (rv < 0.8) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakdown on weak volume (bounce candidate)`; }
+      volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
+    } else {
+      volConfSignal = _sig("volConf", "Volume Confirmation", 0, {
+        value: `${rv.toFixed(2)}x`,
+        note: "no S/R breakout to confirm",
+      });
+    }
+  }
+  signals.push(volConfSignal);
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
@@ -5408,12 +5453,12 @@ function sumCallPutOI(data) {
 }
 
 // ----- Mechanicals pillar ---------------------------------------------------
-function scoreMechanicals(sym, data, unusualPayload) {
+function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
   const f = data?.fundamentals || {};
   const t = data?.technicals || {};
   const signals = [];
 
-  // 1. Unusual Flow: net bullish premium ≥$5M +2, ≥$1M +1, mirrors for bearish.
+  // 1. Unusual Flow: ±1. Net bullish premium ≥$1M tilts +1, ≥-$1M tilts -1.
   let flowSignal = _sig("unusualFlow", "Unusual Flow", 0,
     { available: false, note: "no unusual flow today" });
   const flow = summarizeUnusualForSym(sym, unusualPayload);
@@ -5422,8 +5467,7 @@ function scoreMechanicals(sym, data, unusualPayload) {
     const abs = Math.abs(net);
     let s = 0;
     let note = `bull $${((flow.bullPrem || 0) / 1e6).toFixed(1)}M vs bear $${((flow.bearPrem || 0) / 1e6).toFixed(1)}M`;
-    if (abs >= 5_000_000) s = net > 0 ? 2 : -2;
-    else if (abs >= 1_000_000) s = net > 0 ? 1 : -1;
+    if (abs >= 1_000_000) s = net > 0 ? 1 : -1;
     flowSignal = _sig("unusualFlow", "Unusual Flow", s, {
       value: `${net >= 0 ? "+" : "-"}$${(abs / 1e6).toFixed(1)}M net`,
       note,
@@ -5449,18 +5493,25 @@ function scoreMechanicals(sym, data, unusualPayload) {
   }
   signals.push(oiSignal);
 
-  // 3. Short Interest %: ≥15% of float → +1 (squeeze potential). Asymmetric —
-  // we lack short-interest history to detect "dropping fast" so the bearish
-  // side stays at 0 with a "no trend data" note.
+  // 3. Short Interest %: ≥15% of float → +1 (squeeze potential); ≤3% → -1
+  // (no skeptics left in the position, or shorts have already covered into
+  // an established downtrend). We lack short-interest history to detect
+  // "dropping fast" so the bearish read is approximated from the low-SI
+  // floor instead.
   let shortSignal = _sig("shortInterest", "Short Interest %", 0,
     { available: false, note: "no short interest data" });
   const sp = f.shortPercentOfFloat;
   if (sp != null && isFinite(sp)) {
     let s = 0;
-    let note = `${sp.toFixed(1)}% of float short — below squeeze threshold`;
+    let note = `${sp.toFixed(1)}% of float short`;
     if (sp >= 15) {
       s = 1;
       note = `${sp.toFixed(1)}% of float short — squeeze risk`;
+    } else if (sp <= 3) {
+      s = -1;
+      note = `${sp.toFixed(1)}% of float short — complacent positioning`;
+    } else {
+      note = `${sp.toFixed(1)}% of float short — neutral band`;
     }
     shortSignal = _sig("shortInterest", "Short Interest %", s, {
       value: `${sp.toFixed(1)}%`,
@@ -5469,8 +5520,9 @@ function scoreMechanicals(sym, data, unusualPayload) {
   }
   signals.push(shortSignal);
 
-  // 4. Unusual Volume: spec is hourly-vs-20D, but we only have daily rvol.
-  // Approximate: rvol ≥1.2x AND |daily move| ≥0.5% — direction follows price.
+  // 4. Unusual Volume: ±1 on rvol ≥1.5x with a directional move. Spec is
+  // hourly-vs-20D, but the daily build only has daily rvol; close-enough
+  // proxy as long as the move's direction follows volume.
   let uvolSignal = _sig("unusualVolume", "Unusual Volume", 0,
     { available: false, note: "no relative-volume data" });
   const vol = t.volume;
@@ -5479,8 +5531,8 @@ function scoreMechanicals(sym, data, unusualPayload) {
     const mv = Number(vol.priceMove1dPct);
     let s = 0;
     let note = `${rv.toFixed(2)}x vs 20D avg`;
-    if (rv >= 1.2 && Math.abs(mv) >= 0.5) {
-      s = mv > 0 ? 2 : -2;
+    if (rv >= 1.5 && Math.abs(mv) >= 0.5) {
+      s = mv > 0 ? 1 : -1;
       note = `${rv.toFixed(2)}x volume on ${mv > 0 ? "+" : ""}${mv.toFixed(1)}% move`;
     }
     uvolSignal = _sig("unusualVolume", "Unusual Volume", s, {
@@ -5489,6 +5541,24 @@ function scoreMechanicals(sym, data, unusualPayload) {
     });
   }
   signals.push(uvolSignal);
+
+  // 5. SPY flows: +1 if SPY is green today, -1 if red. Broad-market direction
+  // is a tide that lifts/sinks most names — even a stand-out individual
+  // setup tends to fight a tape that's going the other way.
+  let spySignal = _sig("spyFlows", "SPY flows", 0,
+    { available: false, note: "no SPY tape data" });
+  const spyMove = marketCtx && marketCtx.spyMove;
+  if (spyMove != null && isFinite(spyMove)) {
+    let s = 0;
+    let note = `SPY ${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}% today`;
+    if (spyMove >= 0.1) { s = 1; note = `SPY ${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}% — risk-on tape`; }
+    else if (spyMove <= -0.1) { s = -1; note = `SPY ${spyMove.toFixed(2)}% — risk-off tape`; }
+    spySignal = _sig("spyFlows", "SPY flows", s, {
+      value: `${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}%`,
+      note,
+    });
+  }
+  signals.push(spySignal);
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
@@ -5581,6 +5651,51 @@ function scoreNarrative(sym, data, narratives) {
   }
   signals.push(negCatSignal);
 
+  // 6. Macro Tail/Headwinds: asymmetric (+1 / -2). Looks for active macro
+  // narratives — tariffs, regulation, sanctions, Fed/rate moves, recession,
+  // CPI/inflation, elections, trade war, debt ceiling, shutdowns, dollar &
+  // treasury moves. Matches on the narrative *name* only (not the thesis)
+  // so a sector narrative that happens to cite "geopolitical tensions" in
+  // its rationale doesn't get re-classified as macro. Precious-metals
+  // sector narratives are skipped because their direction inverts (safe-
+  // haven bullish = risk-off = bearish for the broad equity tape).
+  // Bearish macro narratives weigh more than bullish ones because macro
+  // shocks tend to dominate over individual setups.
+  let macroSignal = _sig("macro", "Macro Tail/Headwinds", 0,
+    { available: true, note: "no active macro narrative" });
+  const MACRO_RE = /\b(tariff|regulat|geopolit|sanction|fomc|rate cut|rate hike|recession|inflation|cpi|election|trade war|debt ceiling|shutdown|dollar|treasury|yield curve)\b/i;
+  // "fed" alone matches "federated", "federal", etc. — only count it when
+  // adjacent to monetary-policy context.
+  const FED_RE = /\b(the fed|fed (?:rate|cut|hike|policy|chair|funds)|federal reserve)\b/i;
+  let macroBull = null;
+  let macroBear = null;
+  for (const n of narratives || []) {
+    if (!n || n.status !== "active") continue;
+    if ((n.strength || 0) < 35) continue;
+    if ((n.sector || "").toLowerCase().includes("precious metal")) continue;
+    const name = `${n.name || ""}`;
+    if (!MACRO_RE.test(name) && !FED_RE.test(name)) continue;
+    if (n.sentiment === "bullish") {
+      if (!macroBull || (n.strength || 0) > (macroBull.strength || 0)) macroBull = n;
+    } else if (n.sentiment === "bearish") {
+      if (!macroBear || (n.strength || 0) > (macroBear.strength || 0)) macroBear = n;
+    }
+  }
+  // Bearish macro dominates when both sides are active — asymmetric weighting
+  // matches how the spec values these (+1 vs -2).
+  if (macroBear) {
+    macroSignal = _sig("macro", "Macro Tail/Headwinds", -2, {
+      value: "headwind",
+      note: `bearish macro: "${macroBear.name}" (str ${macroBear.strength})`,
+    });
+  } else if (macroBull) {
+    macroSignal = _sig("macro", "Macro Tail/Headwinds", 1, {
+      value: "tailwind",
+      note: `bullish macro: "${macroBull.name}" (str ${macroBull.strength})`,
+    });
+  }
+  signals.push(macroSignal);
+
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
 }
@@ -5588,10 +5703,10 @@ function scoreNarrative(sym, data, narratives) {
 // Top-level pillar scoring entry point. Returns the full breakdown plus a
 // flat `drivers` list (top contributors by absolute weight) used by the
 // thesis line and the card driver chips.
-function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE) {
+function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx) {
   const fundamentals = scoreFundamentals(data, sectorMedianPE);
   const technicals = scoreTechnicals(data, streakRow);
-  const mechanicals = scoreMechanicals(sym, data, unusualPayload);
+  const mechanicals = scoreMechanicals(sym, data, unusualPayload, marketCtx);
   const narrative = scoreNarrative(sym, data, narratives);
   const total = fundamentals.score + technicals.score + mechanicals.score + narrative.score;
   const recommendation = tierForScore(total);
@@ -5625,7 +5740,7 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
 // the transition; not used by buildTopPicks anymore.
 function scoreTicker(sym, data, narratives, streakRow, unusualPayload) {
   const sectorMedianPE = {};
-  const r = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE);
+  const r = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, null);
   return { score: r.total, drivers: r.drivers };
 }
 // Reference so eslint doesn't flag this as unused in case the import path
@@ -5788,9 +5903,10 @@ function pickContractForPick(side, data) {
   let best = null;
   let bestComposite = Infinity;
   for (const c of candidates) {
-    // Tighter delta window (0.20-0.40) — anchor on 0.30 so the ideal contract
-    // sits squarely in the middle of the band rather than the upper edge.
-    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.10);
+    // Delta window (0.15-0.40) — anchor on PICKS_DELTA_IDEAL so the ideal
+    // contract sits squarely in the middle of the band rather than the upper
+    // or lower edge.
+    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.12);
     const dtePen = Math.min(1, dteFitPenalty(c.dte));
     const spreadPen = Math.min(1, c.spreadPct / PICKS_MAX_SPREAD_PCT);
     const oiPen = Math.min(1, oiPenalty(c.oi));
@@ -5915,7 +6031,7 @@ function buildPickAnalysis(pick, peers) {
   const c = pick.contract;
   if (c) {
     const sideWord = side === "put" ? "puts" : "calls";
-    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-25% OTM / Δ 0.20-0.40 / ≤$35 premium criteria.`;
+    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria.`;
   }
 
   return (lead + pillarLine + peerLine + contractLine).trim();
@@ -5924,6 +6040,17 @@ function buildPickAnalysis(pick, peers) {
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
   const sectorMedianPE = buildSectorPEMedians(chains);
 
+  // Broad-market direction context for the SPY-flows mechanical signal.
+  // Sourced from SPY's own daily move (already computed by fetchTickerChain).
+  // Missing → mechanicals SPY-flows signal stays at "no data" (score 0).
+  const spyData = chains?.SPY;
+  const spyMove =
+    spyData?.technicals?.volume?.priceMove1dPct != null &&
+    isFinite(spyData.technicals.volume.priceMove1dPct)
+      ? Number(spyData.technicals.volume.priceMove1dPct)
+      : null;
+  const marketCtx = { spyMove };
+
   // First pass: score every ticker with the full 4-pillar breakdown so we
   // can build the sector index and find peers before we drop anything.
   const scored = [];
@@ -5931,7 +6058,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const streakRow = streaksMap && streaksMap[sym]
       ? streaksMap[sym]
       : computeStreakForTicker(sym, data._bars);
-    const result = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE);
+    const result = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx);
     scored.push({
       sym,
       data,
