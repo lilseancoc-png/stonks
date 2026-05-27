@@ -5369,6 +5369,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!c) return '';
     return 'vol-conv-' + String(c).toLowerCase().replace(/[^a-z0-9]+/g, '-');
   }
+  // Direction pill — shown alongside flag badges so the user can see at a
+  // glance whether a "heavy volume" flag leaned bullish or bearish. We
+  // require |move| >= 0.5% so essentially-flat hours don't get labelled.
+  function volDirectionPill(priceMovePct){
+    if (priceMovePct == null) return '';
+    var v = Number(priceMovePct);
+    if (!isFinite(v) || Math.abs(v) < 0.5) return '';
+    var up = v > 0;
+    return '<span class="vol-pill-badge vol-direction-' + (up ? 'up' : 'dn') + '" title="' +
+      (up ? 'Price up on this bucket — bullish lean' : 'Price down on this bucket — bearish lean') +
+      '">' + (up ? 'Bullish' : 'Bearish') + '</span>';
+  }
   function filteredVolTickers(){
     var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
     var q = (volState.search || '').trim().toUpperCase();
@@ -5480,10 +5492,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bits.push(
       '<div class="vol-bucket-row">' +
         '<span class="vol-bucket-label">' + escapeHtml(hit.bucketLabel || '') + '</span>' +
-        '<span class="vol-bucket-vol' + (hit.hourlyFlagged ? ' is-flagged' : '') + '">' +
+        '<span class="vol-bucket-vol' + (hit.hourlyFlagged ? ' is-flagged' : '') +
+          '" title="Actual shares traded in this hour bucket / expected based on the 20D average · ratio (actual ÷ expected)">' +
           'Vol ' + fmtVolNum(hit.actualHourVol) + ' / ' + fmtVolNum(hit.expectedHourVol) + ' · ' + ratio +
         '</span>' +
-        (move ? '<span class="vol-bucket-move' + moveCls + '">' + move + '</span>' : '') +
+        (move ? '<span class="vol-bucket-move' + moveCls + '" title="Price change across this hour bucket">' + move + '</span>' : '') +
       '</div>',
     );
     var badges = [];
@@ -5493,6 +5506,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           escapeHtml(hit.moveClass.action || hit.moveClass.conviction) +
         '</span>',
       );
+      var dirPill = volDirectionPill(hit.priceMovePct);
+      if (dirPill) badges.push(dirPill);
     }
     if (startGapWarn){
       badges.push(
@@ -5568,17 +5583,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ? (t.eod.dayMovePct >= 0 ? '+' : '') + Number(t.eod.dayMovePct).toFixed(2) + '%'
           : '';
         var dayCls = t.eod.dayMovePct == null ? '' : (t.eod.dayMovePct >= 0 ? ' is-up' : ' is-dn');
+        var dayDirPill = volDirectionPill(t.eod.dayMovePct);
         eodHtml = '<div class="vol-eod is-flagged">' +
           '<span class="vol-eod-label">EOD</span>' +
-          '<span class="vol-eod-vol">Day vol ' + fmtVolNum(t.eod.dayVol) + ' / ' + fmtVolNum(t.eod.avg20) + ' · ' + ratio + '</span>' +
-          (dayMove ? '<span class="vol-eod-move' + dayCls + '">' + dayMove + '</span>' : '') +
+          '<span class="vol-eod-vol" title="Full-day volume / 20-day average daily volume · ratio (actual ÷ average)">Day vol ' + fmtVolNum(t.eod.dayVol) + ' / ' + fmtVolNum(t.eod.avg20) + ' · ' + ratio + '</span>' +
+          (dayMove ? '<span class="vol-eod-move' + dayCls + '" title="Price change vs. yesterday\\'s close">' + dayMove + '</span>' : '') +
+          dayDirPill +
         '</div>';
       }
       return '<article class="vol-row" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
         '<header class="vol-row-head">' +
           '<span class="vol-symbol">' + escapeHtml(t.symbol) + '</span>' +
           (spot ? '<span class="vol-spot">' + spot + '</span>' : '') +
-          (t.avg20 != null ? '<span class="vol-avg20">20D avg: ' + fmtVolNum(t.avg20) + '</span>' : '') +
+          (t.avg20 != null ? '<span class="vol-avg20" title="20-day average daily volume — the baseline each row compares against">20D avg: ' + fmtVolNum(t.avg20) + '</span>' : '') +
         '</header>' +
         buckets.map(volBucketHtml).join('') +
         eodHtml +

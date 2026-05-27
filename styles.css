@@ -7976,6 +7976,18 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--dn);
   border-color: color-mix(in srgb, var(--dn) 45%, transparent);
 }
+.vol-pill-badge.vol-direction-up {
+  background: var(--pos-soft);
+  color: var(--pos);
+  border-color: color-mix(in srgb, var(--pos) 45%, transparent);
+}
+.vol-pill-badge.vol-direction-dn {
+  background: var(--neg-soft);
+  color: var(--neg);
+  border-color: color-mix(in srgb, var(--neg) 45%, transparent);
+}
+.vol-card .vol-key-up { color: var(--pos); font-weight: 500; }
+.vol-card .vol-key-dn { color: var(--neg); font-weight: 500; }
 .vol-bucket.is-scan-missed { opacity: 0.7; }
 .vol-bucket-vol.is-muted {
   color: var(--text-3);
