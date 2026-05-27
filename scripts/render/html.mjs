@@ -843,6 +843,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="heatmap-legend-bar"></span>
         <span class="heatmap-legend-label">+3%</span>
       </div>
+      <div id="heatmap-eod-summary" class="heatmap-eod-summary" hidden></div>
     </section>
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>

@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-05-26","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-05-27","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -7483,7 +7483,13 @@
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         var tickers = (json && Array.isArray(json.tickers)) ? json.tickers : [];
-        heatmapState.data = { builtAtIso: json && json.builtAtIso, tickers: tickers };
+        heatmapState.data = {
+          builtAtIso: json && json.builtAtIso,
+          refreshedAtIso: json && json.refreshedAtIso,
+          marketState: json && json.marketState,
+          tickers: tickers,
+          eodSummary: json && json.eodSummary || null,
+        };
         heatmapState.loading = false;
         renderHeatmap();
       })
@@ -7766,6 +7772,116 @@
     // freshly-rendered tiles (otherwise toggling group-by would discard
     // a long-running live overlay).
     applyHeatmapLiveOverlay();
+
+    renderHeatmapEodSummary();
+  }
+
+  function fmtEodPct(p){
+    if (p == null || !isFinite(p)) return '—';
+    return (p >= 0 ? '+' : '') + p.toFixed(2) + '%';
+  }
+
+  function eodDirClass(p){
+    if (p == null || !isFinite(p)) return 'zero';
+    if (p > 0.05) return 'pos';
+    if (p < -0.05) return 'neg';
+    return 'zero';
+  }
+
+  // AI-generated end-of-day recap. Only painted after the close once the
+  // hourly heatmap refresh has stamped today's session into eodSummary.
+  // Before close (or on days the AI step was skipped) the section stays
+  // hidden so it doesn't sit empty.
+  function renderHeatmapEodSummary(){
+    var host = $('heatmap-eod-summary');
+    if (!host) return;
+    var eod = heatmapState.data && heatmapState.data.eodSummary;
+    if (!eod || !Array.isArray(eod.sectors) || !eod.sectors.length){
+      host.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+    host.hidden = false;
+    var generated = '';
+    if (eod.generatedAtIso){
+      var when = new Date(eod.generatedAtIso);
+      if (!isNaN(when.getTime())){
+        generated = when.toLocaleString(undefined, {
+          month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        });
+      }
+    }
+    var stats = eod.stats || {};
+    var tape = '';
+    if (stats.up != null || stats.down != null){
+      tape =
+        '<span class="heatmap-eod-tape">' +
+          '<span class="heatmap-eod-pos">' + (stats.up || 0) + ' up</span>' +
+          ' · ' +
+          '<span class="heatmap-eod-neg">' + (stats.down || 0) + ' down</span>' +
+          (stats.flat ? ' · <span class="heatmap-eod-flat">' + stats.flat + ' flat</span>' : '') +
+          (stats.avgChangeWeighted != null
+            ? ' · cap-weighted ' + escapeHtml(fmtEodPct(stats.avgChangeWeighted))
+            : '') +
+        '</span>';
+    }
+
+    var sectorCards = eod.sectors.map(function(s){
+      var avg = (s.avgChangeWeighted != null ? s.avgChangeWeighted : s.avgChange);
+      var dir = eodDirClass(avg);
+      var leadersHtml = (Array.isArray(s.leaders) ? s.leaders : []).map(function(r){
+        return '<button type="button" class="heatmap-eod-chip pos" data-sym="' +
+          escapeHtml(r.t) + '">' + escapeHtml(r.t) +
+          ' <span>' + escapeHtml(fmtEodPct(r.ch)) + '</span></button>';
+      }).join('');
+      var laggardsHtml = (Array.isArray(s.laggards) ? s.laggards : []).map(function(r){
+        return '<button type="button" class="heatmap-eod-chip neg" data-sym="' +
+          escapeHtml(r.t) + '">' + escapeHtml(r.t) +
+          ' <span>' + escapeHtml(fmtEodPct(r.ch)) + '</span></button>';
+      }).join('');
+      var movers = '';
+      if (leadersHtml || laggardsHtml){
+        movers = '<div class="heatmap-eod-movers">' +
+          (leadersHtml ? '<div class="heatmap-eod-movers-row">' + leadersHtml + '</div>' : '') +
+          (laggardsHtml ? '<div class="heatmap-eod-movers-row">' + laggardsHtml + '</div>' : '') +
+          '</div>';
+      }
+      return '<article class="heatmap-eod-sector" data-dir="' + dir + '">' +
+        '<header class="heatmap-eod-sector-head">' +
+          '<h4 class="heatmap-eod-sector-name">' + escapeHtml(s.name || '—') + '</h4>' +
+          '<span class="heatmap-eod-sector-avg ' + dir + '">' + escapeHtml(fmtEodPct(avg)) + '</span>' +
+        '</header>' +
+        (s.summary ? '<p class="heatmap-eod-sector-text">' + escapeHtml(s.summary) + '</p>' : '') +
+        movers +
+      '</article>';
+    }).join('');
+
+    host.innerHTML =
+      '<header class="heatmap-eod-head">' +
+        '<div class="heatmap-eod-titles">' +
+          '<h3 class="heatmap-eod-title">EOD recap · ' + escapeHtml(eod.date || '') + '</h3>' +
+          (generated ? '<span class="heatmap-eod-stamp">generated ' + escapeHtml(generated) + '</span>' : '') +
+        '</div>' +
+        tape +
+      '</header>' +
+      (eod.headline ? '<p class="heatmap-eod-headline">' + escapeHtml(eod.headline) + '</p>' : '') +
+      '<div class="heatmap-eod-sectors">' + sectorCards + '</div>';
+
+    // Wire the leader/laggard chips to jump to that ticker in the Tickers tab,
+    // mirroring the tile click handler. Chips are buttons so they get focus
+    // semantics for free.
+    var chips = host.querySelectorAll('.heatmap-eod-chip[data-sym]');
+    for (var i = 0; i < chips.length; i++){
+      chips[i].addEventListener('click', function(ev){
+        var sym = ev.currentTarget.getAttribute('data-sym');
+        if (!sym) return;
+        var tab = document.querySelector('[data-page-tab="tickers"]');
+        if (tab) tab.click();
+        setTimeout(function(){
+          if (combo && typeof combo.commit === 'function') combo.commit(sym);
+        }, 0);
+      });
+    }
   }
 
   function bindHeatmapTileEvents(root){

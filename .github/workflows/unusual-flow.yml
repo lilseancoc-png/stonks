@@ -81,10 +81,16 @@ jobs:
 
       - name: Refresh heatmap quotes
         # One batched Yahoo quote call rewrites data/heatmap.json's `ch`
-        # and `sp` with intraday values. Zero AI cost. Reads the prior
-        # file in place — daily.yml is responsible for the initial seed.
-        # Soft-fail if Yahoo flakes: the heatmap stays on the prior
-        # values rather than blocking the unusual-flow commit.
+        # and `sp` with intraday values. After 16:00 ET it also calls
+        # Gemini once to write the EOD per-sector recap (`eodSummary`).
+        # Reads the prior file in place — daily.yml is responsible for
+        # the initial seed. Soft-fail if Yahoo flakes: the heatmap stays
+        # on the prior values rather than blocking the unusual-flow commit.
+        env:
+          # Optional. Without it the post-close EOD recap step is skipped
+          # and the heatmap renders without a summary section.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AI_EOD_MODEL: ${{ vars.AI_EOD_MODEL }}
         continue-on-error: true
         run: node scripts/refresh-heatmap.mjs
 

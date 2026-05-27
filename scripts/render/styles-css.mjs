@@ -8769,12 +8769,141 @@ html::-webkit-scrollbar-thumb:hover {
 .heatmap-tooltip-pct-pos { color: var(--pos); }
 .heatmap-tooltip-pct-neg { color: var(--neg); }
 
+/* ---------------- EOD recap (heatmap) -----------------------------------
+   Painted below the legend once scripts/refresh-heatmap.mjs has stamped an
+   eodSummary onto data/heatmap.json. Headline up top, per-sector cards in
+   a responsive grid below. Leader / laggard chips reuse the tickers tab's
+   navigation handler. */
+.heatmap-eod-summary {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.heatmap-eod-summary[hidden] { display: none; }
+.heatmap-eod-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin-bottom: 6px;
+}
+.heatmap-eod-titles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-right: auto;
+}
+.heatmap-eod-title {
+  margin: 0;
+  font: 700 0.95rem/1.2 var(--font-sans);
+  color: var(--text-strong);
+  letter-spacing: .01em;
+}
+.heatmap-eod-stamp {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.heatmap-eod-tape {
+  font: 600 0.75rem/1.2 var(--font-mono);
+  color: var(--muted-strong);
+}
+.heatmap-eod-pos { color: var(--pos); }
+.heatmap-eod-neg { color: var(--neg); }
+.heatmap-eod-flat { color: var(--muted); }
+.heatmap-eod-headline {
+  margin: 4px 0 14px;
+  font: 600 0.95rem/1.4 var(--font-sans);
+  color: var(--text);
+}
+.heatmap-eod-sectors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--s-3);
+}
+.heatmap-eod-sector {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left-width: 3px;
+}
+.heatmap-eod-sector[data-dir="pos"] { border-left-color: var(--pos); }
+.heatmap-eod-sector[data-dir="neg"] { border-left-color: var(--neg); }
+.heatmap-eod-sector[data-dir="zero"] { border-left-color: var(--border-strong); }
+.heatmap-eod-sector-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.heatmap-eod-sector-name {
+  margin: 0;
+  font: 700 0.85rem/1.2 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-strong);
+}
+.heatmap-eod-sector-avg {
+  font: 700 0.85rem/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.heatmap-eod-sector-avg.pos { color: var(--pos); }
+.heatmap-eod-sector-avg.neg { color: var(--neg); }
+.heatmap-eod-sector-avg.zero { color: var(--muted); }
+.heatmap-eod-sector-text {
+  margin: 0;
+  font: 400 0.85rem/1.5 var(--font-sans);
+  color: var(--text);
+}
+.heatmap-eod-movers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.heatmap-eod-movers-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.heatmap-eod-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font: 600 0.7rem/1 var(--font-mono);
+  color: var(--text);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.heatmap-eod-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+.heatmap-eod-chip.pos { color: var(--pos); }
+.heatmap-eod-chip.neg { color: var(--neg); }
+.heatmap-eod-chip span {
+  color: var(--muted);
+  font-weight: 500;
+}
+.heatmap-eod-chip.pos span { color: color-mix(in srgb, var(--pos) 80%, var(--text)); }
+.heatmap-eod-chip.neg span { color: color-mix(in srgb, var(--neg) 80%, var(--text)); }
+
 @media (max-width: 640px) {
   .heatmap-root {
     height: 60vh;
     min-height: 380px;
   }
   .heatmap-legend-bar { flex-basis: 140px; }
+  .heatmap-eod-sectors { grid-template-columns: 1fr; }
 }
 `;
 }
