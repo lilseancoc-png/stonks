@@ -37,6 +37,12 @@ try {
   volumeFlags = JSON.parse(vfRaw);
 } catch {}
 
+let oi = null;
+try {
+  const oiRaw = await readFile(resolve(DATA_DIR, "oi-tracker.json"), "utf8");
+  oi = JSON.parse(oiRaw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 const symbols = files
   .filter((f) => /^[A-Z]+\.json$/.test(f))
@@ -115,6 +121,7 @@ const html = renderHtml({
   volumeFlags,
   marketBackdrop,
   nextFomcDates,
+  oi,
 });
 const css = renderStylesCss();
 const js = renderAppJs();
