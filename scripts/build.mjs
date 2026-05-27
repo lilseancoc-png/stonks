@@ -8132,6 +8132,12 @@ const UNUSUAL_LOG_FILE = "unusual-log.json";
 // Volume tab keeps showing the latest hourly scan until the next one runs.
 const VOLUME_FLAGS_FILE = "volume-flags.json";
 const VOLUME_HISTORY_FILE = "volume-history.json";
+// Near-term OI scanner outputs (scripts/scan-oi.mjs runs twice daily and
+// writes both). Same preservation pattern as unusual.json — without this
+// the Gamma OI tab goes blank after every daily build and the next OI
+// scan loses its ΔOI baseline.
+const OI_TRACKER_FILE = "oi-tracker.json";
+const OI_HISTORY_FILE = "oi-history.json";
 
 async function loadTrendHistory() {
   try {
@@ -8210,6 +8216,28 @@ async function loadVolumeFlags() {
 async function loadVolumeHistory() {
   try {
     const raw = await readFile(resolve(DATA_DIR, VOLUME_HISTORY_FILE), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// Same preservation pattern again for the twice-daily OI scanner outputs.
+// oi-tracker.json drives the Gamma OI tab's UI; oi-history.json is the
+// rolling ~6-snapshot file scan-oi.mjs uses to compute per-strike ΔOI
+// against yesterday's EOD. Losing either on every daily build would blank
+// the tab and reset the ΔOI baseline.
+async function loadOiTracker() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, OI_TRACKER_FILE), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+async function loadOiHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, OI_HISTORY_FILE), "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -8795,6 +8823,8 @@ async function main() {
   const unusualLog = await loadUnusualLog();
   const volumeFlags = await loadVolumeFlags();
   const volumeHistory = await loadVolumeHistory();
+  const oiTracker = await loadOiTracker();
+  const oiHistory = await loadOiHistory();
   // Fear & Greed history + last-good snapshot live in data/, which
   // writeChainFiles wipes. Load both now and rewrite after the wipe so
   // we keep prior days even if today's CNN fetch fails.
@@ -8884,6 +8914,7 @@ async function main() {
     volumeFlags,
     marketBackdrop,
     nextFomcDates,
+    oi: oiTracker,
   });
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });
@@ -8946,6 +8977,12 @@ async function main() {
   }
   if (volumeHistory) {
     await writeFile(resolve(DATA_DIR, VOLUME_HISTORY_FILE), JSON.stringify(volumeHistory), "utf8");
+  }
+  if (oiTracker) {
+    await writeFile(resolve(DATA_DIR, OI_TRACKER_FILE), JSON.stringify(oiTracker), "utf8");
+  }
+  if (oiHistory) {
+    await writeFile(resolve(DATA_DIR, OI_HISTORY_FILE), JSON.stringify(oiHistory), "utf8");
   }
   const ivHistoryBytes = await writeIvHistory(ivHistory);
   if (ivHistory.size) {
