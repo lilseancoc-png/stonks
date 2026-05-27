@@ -159,8 +159,12 @@ function computeEodSectorStats(tickers) {
     }
     const avg = sorted.length ? sumCh / sorted.length : 0;
     const avgWeighted = sumMc > 0 ? sumWeighted / sumMc : avg;
-    const leaders = sorted.slice(0, EOD_SECTOR_PICKS).map((r) => ({ t: r.t, ch: r.ch }));
-    const laggards = sorted.slice(-EOD_SECTOR_PICKS).reverse().map((r) => ({ t: r.t, ch: r.ch }));
+    // Bucket by sign so a small sector (≤ 2×EOD_SECTOR_PICKS tickers) doesn't
+    // have the same names show up in both rows, and so a slightly-positive
+    // ticker never gets rendered as a red laggard.
+    const leaders = sorted.filter((r) => r.ch > 0).slice(0, EOD_SECTOR_PICKS).map((r) => ({ t: r.t, ch: r.ch }));
+    const negatives = sorted.filter((r) => r.ch < 0);
+    const laggards = negatives.slice(-EOD_SECTOR_PICKS).reverse().map((r) => ({ t: r.t, ch: r.ch }));
     sectors.push({
       name,
       count: sorted.length,
