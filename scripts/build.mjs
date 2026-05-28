@@ -5011,10 +5011,15 @@ function earningsInsideWindow(earningsIso, expSec) {
 }
 
 // Map a ticker -> aggregated unusual-flow direction from the latest hourly
-// scan. Returns { netCalls, netPuts, premium, sample } for tickers present
-// in the scan, or null otherwise. "net" counts contracts where the tape is
-// "abv" (lifted offer = aggressive buy) on the directional side, minus
-// "blw" prints (sold into bid = aggressive sell) on the same side.
+// scan. Tape codes (from scan-unusual.mjs::tapeTag):
+//   "ask" = last printed at/above ask  → aggressive BUY (strong)
+//   "abv" = last above mid              → leaning BUY
+//   "mid" = neutral
+//   "blw" = last below mid              → leaning SELL
+//   "bid" = last printed at/below bid  → aggressive SELL (strong)
+// Bullish flow = aggressive call buying (ask/abv) OR aggressive put selling
+// (bid/blw). Bearish flow = aggressive put buying (ask/abv) OR aggressive
+// call selling (bid/blw). "mid" prints are ambiguous and ignored.
 function summarizeUnusualForSym(sym, unusualPayload) {
   if (!unusualPayload || !Array.isArray(unusualPayload.tickers)) return null;
   const row = unusualPayload.tickers.find((t) => t?.symbol === sym);
@@ -5026,11 +5031,11 @@ function summarizeUnusualForSym(sym, unusualPayload) {
   for (const c of row.contracts) {
     const side = c.side;
     const prem = Number(c.premium) || 0;
-    const tape = c.tape; // 'abv' (aggressive buy) | 'blw' (aggressive sell)
-    // Aggressive call buys + aggressive put sells = bullish flow.
-    // Aggressive put buys + aggressive call sells = bearish flow.
-    const isBull = (side === "call" && tape === "abv") || (side === "put" && tape === "blw");
-    const isBear = (side === "put" && tape === "abv") || (side === "call" && tape === "blw");
+    const tape = c.tape;
+    const buyTape = tape === "ask" || tape === "abv";
+    const sellTape = tape === "bid" || tape === "blw";
+    const isBull = (side === "call" && buyTape) || (side === "put" && sellTape);
+    const isBear = (side === "put" && buyTape) || (side === "call" && sellTape);
     if (isBull) { bullPrem += prem; bullCt += 1; }
     else if (isBear) { bearPrem += prem; bearCt += 1; }
     if (prem > topMag) { topMag = prem; topSample = c; }

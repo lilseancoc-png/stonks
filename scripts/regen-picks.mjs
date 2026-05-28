@@ -52,9 +52,12 @@ const out = {
   picks,
 };
 
+// Match the minified format that build.mjs::writeTopPicksFile uses, so a
+// regen here produces a small, reviewable diff against the workflow-built
+// file rather than reformatting every line.
 await writeFile(
   resolve(DATA_DIR, "picks.json"),
-  JSON.stringify(out, null, 2),
+  JSON.stringify(out),
   "utf8",
 );
 
