@@ -5525,6 +5525,15 @@ main { padding-top: var(--s-2); }
 }
 .pick-streak-green { background: var(--pos-soft); color: var(--pos); }
 .pick-streak-red { background: var(--neg-soft); color: var(--neg); }
+.pick-tenure {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: help;
+}
 .pick-thesis {
   margin: 0;
   font-size: 12px;
