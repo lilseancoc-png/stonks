@@ -15,7 +15,10 @@ create table if not exists public.positions (
   side          text not null check (side in ('call', 'put')),
   expiry        bigint not null,                       -- epoch seconds, matches data/<SYMBOL>.json keys
   strike        numeric not null check (strike > 0),
-  quantity      integer not null check (quantity > 0),
+  -- quantity is the count of contracts still OPEN. A full close zeroes it
+  -- (close_position below) so delete_trade can reverse a SELL by simply
+  -- adding its quantity back. closed_at stays the open/closed source of truth.
+  quantity      integer not null check (quantity >= 0),
   entry_premium numeric not null check (entry_premium >= 0),
   opened_at     timestamptz not null default now(),
   closed_at     timestamptz,
@@ -29,6 +32,15 @@ alter table public.positions add column if not exists closed_at timestamptz;
 update public.positions set opened_at = created_at where opened_at is null;
 alter table public.positions alter column opened_at set not null;
 alter table public.positions alter column opened_at set default now();
+
+-- Relax quantity from > 0 to >= 0 so a full close can zero the open count.
+-- close_position used to leave quantity at its pre-close value (to satisfy the
+-- old > 0 constraint), which made `quantity` mean different things for sold-out
+-- vs still-open positions and broke delete_trade's reversal when trades were
+-- removed out of order. With >= 0 the field is always the true open count.
+-- Idempotent — safe to re-run.
+alter table public.positions drop constraint if exists positions_quantity_check;
+alter table public.positions add constraint positions_quantity_check check (quantity >= 0);
 
 create index if not exists positions_user_id_idx on public.positions (user_id);
 create index if not exists positions_user_expiry_idx on public.positions (user_id, expiry);
@@ -166,10 +178,13 @@ begin
      where positions.id = p_position_id
      returning * into pos;
   else
-    -- Leave quantity at its prior positive value to satisfy the > 0 check
-    -- constraint; closed_at is the source of truth for "open" vs "closed".
+    -- Fully closed: zero the open count and set closed_at. closed_at is the
+    -- open/closed source of truth; zeroing quantity (allowed by the relaxed
+    -- >= 0 constraint) keeps it the true open count so delete_trade can
+    -- reverse a SELL by simply adding its quantity back.
     update public.positions
-       set closed_at = now()
+       set closed_at = now(),
+           quantity = 0
      where positions.id = p_position_id
      returning * into pos;
   end if;
@@ -220,18 +235,19 @@ begin
     raise exception 'position not found' using errcode = 'P0002';
   end if;
 
-  if pos.closed_at is not null then
-    update public.positions
-       set closed_at = null
-     where positions.id = pos.id
-     returning * into pos;
-    v_reopened := true;
-  else
-    update public.positions
-       set quantity = pos.quantity + tr.quantity
-     where positions.id = pos.id
-     returning * into pos;
-  end if;
+  v_reopened := pos.closed_at is not null;
+  -- Reverse the SELL: its contracts return to the open count. Because a full
+  -- close now zeroes quantity (and an archived position keeps its true open
+  -- count), `quantity` is the real open count in every state — so adding the
+  -- deleted trade's quantity back is correct whether the position was
+  -- partially open, fully sold out, or archived, and stays correct when trades
+  -- are deleted out of order. Reopen if it had been closed (setting closed_at
+  -- = null is a no-op when it was already open).
+  update public.positions
+     set quantity = pos.quantity + tr.quantity,
+         closed_at = null
+   where positions.id = pos.id
+   returning * into pos;
 
   delete from public.trades where id = tr.id;
 

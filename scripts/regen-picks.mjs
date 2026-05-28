@@ -31,8 +31,12 @@ try {
 } catch {}
 
 const files = await readdir(DATA_DIR);
+// Match the ticker allowlist shape (lib/yahoo.mjs SYMBOL_RE: leading letter,
+// then letters/digits/dot, ≤6 chars) so dotted/numeric tickers like BRK.B
+// aren't silently dropped. The named data files (unusual.json, 13f.json, …)
+// are lowercase / digit-leading / hyphenated, so none match this pattern.
 const symbols = files
-  .filter((f) => /^[A-Z]+\.json$/.test(f))
+  .filter((f) => /^[A-Z][A-Z0-9.]{0,5}\.json$/.test(f))
   .map((f) => f.replace(/\.json$/, ""))
   .sort();
 

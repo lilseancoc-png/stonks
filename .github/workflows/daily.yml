@@ -109,13 +109,14 @@ jobs:
           # avoids stash/rebase entirely because the daily build wipes and
           # regenerates data/ wholesale — there's nothing local worth
           # merging from the remote, only the new commit base to land on.
-          # Files owned by the hourly unusual-flow scanner. After
-          # reset --mixed the working tree still has whatever build.mjs
-          # preserved from *before* the build started — but the remote
-          # may have a fresher scan committed while we were running.
-          # Restore the remote's copies so we don't clobber them, then
-          # re-run regen-static so the MANIFEST in index.html matches.
-          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/ai-usage.json data/flow-explanations.json"
+          # Files owned by the hourly unusual-flow scanner and the twice-daily
+          # oi-tracker. After reset --mixed the working tree still has whatever
+          # build.mjs preserved from *before* the build started — but the
+          # remote may have a fresher scan / OI snapshot committed while we
+          # were running. Restore the remote's copies so we don't clobber them
+          # (dropping a rolling oi-history snapshot), then re-run regen-static
+          # so the MANIFEST in index.html matches.
+          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/ai-usage.json data/flow-explanations.json data/oi-tracker.json data/oi-history.json"
           for attempt in 1 2 3; do
             git fetch origin "$BRANCH"
             git reset --mixed "origin/$BRANCH"
