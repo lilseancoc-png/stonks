@@ -6161,6 +6161,66 @@ main { padding-top: var(--s-2); }
   font: 700 18px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+/* Composition bar — proportional, sign-colored snapshot of how the four
+   pillars sum into the score. Segment width = share of total |contribution|;
+   the 1-letter code (F/T/M/N) maps each segment to its row below. */
+.pick-pillars-viz {
+  display: flex;
+  gap: 2px;
+  height: 16px;
+  margin: 2px 6px 4px;
+}
+.pp-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3px;
+  border-radius: 2px;
+  font: 700 9px/1 var(--font-mono);
+  color: rgba(8, 10, 14, 0.82);
+  overflow: hidden;
+}
+.pp-seg.sig-pos { background: color-mix(in srgb, var(--pos) 78%, transparent); }
+.pp-seg.sig-neg { background: color-mix(in srgb, var(--neg) 78%, transparent); }
+.pp-seg.sig-zero { background: color-mix(in srgb, var(--muted) 32%, transparent); }
+.pp-seg-l { letter-spacing: .04em; }
+.pick-pillars-viz-cap {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  opacity: .75;
+  margin: 0 6px 8px;
+}
+/* Per-row diverging magnitude bar in each pillar summary. Center line is
+   zero; fill extends right (green) for a positive pillar, left (red) for a
+   negative one. --pill-mag is the half-width set inline (0–50%). */
+.pick-pillar-bar {
+  position: relative;
+  align-self: center;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.pick-pillar-bar::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+.pick-pillar-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--pill-mag, 0%);
+  border-radius: var(--r-pill);
+}
+.pick-pillar-bar.sig-pos i { left: 50%; background: var(--pos); }
+.pick-pillar-bar.sig-neg i { right: 50%; background: var(--neg); }
+.pick-pillar-bar.sig-zero i { display: none; }
 .pick-pillar {
   border: 1px solid var(--border);
   border-radius: var(--r-1);
@@ -6170,8 +6230,8 @@ main { padding-top: var(--s-2); }
 .pick-pillar > summary.pick-pillar-head {
   list-style: none;
   display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
+  grid-template-columns: minmax(0, 1fr) 46px auto;
+  align-items: center;
   gap: 8px;
   padding: 6px 10px;
   cursor: pointer;
