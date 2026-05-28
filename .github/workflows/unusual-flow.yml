@@ -94,13 +94,6 @@ jobs:
         continue-on-error: true
         run: node scripts/refresh-heatmap.mjs
 
-      - name: Regenerate static site with fresh unusual flow
-        # Rebuilds index.html / app.js / styles.css from the existing data
-        # files so the baked MANIFEST.unusual reflects this scan. Without
-        # this, the new unusual.json sits in data/ but the deployed page
-        # keeps showing the previous scan until the next daily build.
-        run: node scripts/regen-static.mjs
-
       - name: Commit refreshed unusual flow
         run: |
           # set -e so a failed rebase / stash pop fails the workflow loudly
@@ -111,35 +104,38 @@ jobs:
           set -euo pipefail
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
-          # Pull before staging so a concurrent push from daily.yml doesn't
-          # cause the rebase below to drop our newly-written scan files.
-          # Stash all three scanner outputs (unusual-log.json was added with
-          # the repeat-conviction feature and must be included or the rebase
-          # will refuse / stash pop will silently lose it). Include the
-          # regenerated static files too so the page reflects this scan.
+          # Pull before staging so a concurrent push from daily.yml /
+          # oi-tracker.yml doesn't cause the rebase below to drop our
+          # newly-written scan files.
+          #
+          # Stash ONLY the scanner's data outputs. index.html / app.js /
+          # styles.css are deliberately NOT stashed and NOT regenerated
+          # pre-stash: when oi-tracker.yml pushes its own regen of those
+          # files between our stash and our pull, the stash-pop hits a
+          # merge conflict on index.html (both sides touched the inlined
+          # MANIFEST). We regenerate them ONCE post-pop so the final
+          # index.html reflects the rebased+popped data state cleanly.
+          #
+          # unusual-log.json was added with the repeat-conviction feature
+          # and must be included or stash pop will silently lose it.
           # flow-explanations.json is the per-contract AI cache and must
-          # persist across hourly runs — without committing it the cache is
-          # effectively dead and every flagged contract re-incurs an AI
-          # call. Guard its inclusion since it only exists when GEMINI_API_KEY
-          # is set (forks / unconfigured deployments will skip the file).
+          # persist across hourly runs — without committing it the cache
+          # is effectively dead. Guard its inclusion since it only exists
+          # when GEMINI_API_KEY is set.
           # ai-usage.json is the shared per-day Gemini budget tracker
-          # (writeAiUsageState in build.mjs). The scanner rewrites it on
-          # every run via loadAiUsageState/writeAiUsageState even when
-          # GEMINI_API_KEY is unset, so it must be stashed too — otherwise
-          # it sits unstaged after `git stash push` and the subsequent
-          # `git pull --rebase` aborts with "cannot pull with rebase: You
-          # have unstaged changes", killing the whole commit step.
+          # (writeAiUsageState in build.mjs); the scanner rewrites it on
+          # every run even when GEMINI_API_KEY is unset, so it must be
+          # stashed too or `git pull --rebase` aborts with "cannot pull
+          # with rebase: You have unstaged changes".
           # volume-flags.json / volume-history.json are produced by the
-          # intraday volume + S/R break pass tacked onto the scanner — they
-          # piggy-back on the same fetch and must be persisted across hourly
-          # runs (volume-history.json is what the next scan reads to compute
-          # hour-over-hour deltas; without it every hour reverts to "first
-          # scan of the day" and never flags).
-          STASH_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json data/heatmap.json index.html app.js styles.css"
+          # intraday volume + S/R break pass tacked onto the scanner —
+          # they must be persisted across hourly runs (volume-history.json
+          # is what the next scan reads to compute hour-over-hour deltas).
+          DATA_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json data/heatmap.json"
           if [ -f data/flow-explanations.json ]; then
-            STASH_PATHS="$STASH_PATHS data/flow-explanations.json"
+            DATA_PATHS="$DATA_PATHS data/flow-explanations.json"
           fi
-          git stash push --include-untracked $STASH_PATHS || true
+          git stash push --include-untracked $DATA_PATHS || true
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
           # Don't swallow stash pop errors — a silent conflict here means
           # the freshly-scanned files get discarded and the job ends green
@@ -147,7 +143,14 @@ jobs:
           # want to surface. The set -e above ensures we exit non-zero on
           # any conflict rather than continuing to the empty commit path.
           git stash pop
-          git add $STASH_PATHS
+          # Regenerate static files NOW, after the rebase + stash pop, so
+          # the inlined MANIFEST reflects whatever just landed on main
+          # plus our fresh scan data. Doing it here instead of pre-stash
+          # eliminates the index.html merge conflict that fires whenever
+          # oi-tracker.yml races us.
+          node scripts/regen-static.mjs
+          STATIC_PATHS="index.html app.js styles.css"
+          git add $DATA_PATHS $STATIC_PATHS
           if ! git diff --cached --quiet; then
             git commit -m "chore: hourly refresh (flow + heatmap) $(date -u +%Y-%m-%dT%H:%MZ)"
             git push

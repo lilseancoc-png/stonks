@@ -81,14 +81,6 @@ jobs:
         # the score, but never writes it.
         run: node scripts/scan-oi.mjs
 
-      - name: Regenerate static site with fresh OI snapshot
-        # Rebuilds index.html / app.js / styles.css from the existing
-        # data files so the baked MANIFEST.oi reflects this scan.
-        # Without this, the new oi-tracker.json sits in data/ but the
-        # deployed page keeps showing the previous scan until the next
-        # daily build.
-        run: node scripts/regen-static.mjs
-
       - name: Commit refreshed OI snapshot
         run: |
           # set -e so a failed rebase / stash pop fails the workflow
@@ -98,17 +90,29 @@ jobs:
           set -euo pipefail
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
-          # Stash the scanner outputs + regenerated static files so a
-          # concurrent push from daily.yml or unusual-flow.yml can be
-          # rebased onto cleanly without dropping our fresh scan.
-          STASH_PATHS="data/oi-tracker.json data/oi-history.json index.html app.js styles.css"
-          git stash push --include-untracked $STASH_PATHS || true
+          # Stash ONLY the scanner's data outputs. index.html / app.js /
+          # styles.css are deliberately NOT stashed and NOT regenerated
+          # pre-stash: when unusual-flow.yml pushes its own regen of
+          # those files between our stash and our pull, the stash-pop
+          # hits a merge conflict on index.html (both sides touched the
+          # inlined MANIFEST). We regenerate them ONCE post-pop so the
+          # final index.html reflects the rebased+popped data state
+          # cleanly.
+          DATA_PATHS="data/oi-tracker.json data/oi-history.json"
+          git stash push --include-untracked $DATA_PATHS || true
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
           # Don't swallow stash pop errors — a silent conflict here
           # means the freshly-scanned files get discarded and the job
           # ends green with nothing committed.
           git stash pop
-          git add $STASH_PATHS
+          # Regenerate static files NOW, after the rebase + stash pop,
+          # so the inlined MANIFEST reflects whatever just landed on
+          # main plus our fresh OI scan. Doing it here instead of
+          # pre-stash eliminates the index.html merge conflict that
+          # fires whenever unusual-flow.yml races us.
+          node scripts/regen-static.mjs
+          STATIC_PATHS="index.html app.js styles.css"
+          git add $DATA_PATHS $STATIC_PATHS
           if ! git diff --cached --quiet; then
             SCAN_LABEL=$(TZ=America/New_York date +%H)
             if [ "$SCAN_LABEL" = "08" ]; then
