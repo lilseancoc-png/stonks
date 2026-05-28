@@ -8161,13 +8161,7 @@
     if (heatmapState.panY > 0) heatmapState.panY = 0;
     if (heatmapState.panY < minY) heatmapState.panY = minY;
   }
-  function applyHeatmapTransform(){
-    var canvas = $('heatmap-canvas');
-    if (!canvas) return;
-    heatmapClampPan();
-    canvas.style.transform =
-      'translate(' + heatmapState.panX.toFixed(2) + 'px,' +
-      heatmapState.panY.toFixed(2) + 'px) scale(' + heatmapState.zoom.toFixed(4) + ')';
+  function updateHeatmapZoomUi(){
     var root = $('heatmap-root');
     if (root) root.classList.toggle('is-zoomed', heatmapState.zoom > 1.001);
     var lbl = $('heatmap-zoom-level');
@@ -8178,6 +8172,24 @@
     if (inBtn) inBtn.disabled = heatmapState.zoom >= HEATMAP_MAX_ZOOM - 0.001;
     var resetBtn = $('heatmap-zoom-reset');
     if (resetBtn) resetBtn.disabled = heatmapState.zoom <= HEATMAP_MIN_ZOOM + 0.001;
+  }
+  // Pan + canvas sizing only — does NOT rebuild tiles. The canvas is sized to
+  // zoom*100% of the root so tiles (laid out as % of the canvas) grow with
+  // zoom, and pan is a translate within the overflow-hidden root. We do NOT
+  // CSS-scale the canvas: a scale() would blur the text and leave small tiles'
+  // labels hidden. Instead renderHeatmap() recomputes font sizes and the
+  // tiny/micro thresholds against the zoomed pixel size, so zooming in
+  // sharpens the text and reveals labels on tiles too small to show at fit.
+  function applyHeatmapView(){
+    var canvas = $('heatmap-canvas');
+    if (!canvas) return;
+    heatmapClampPan();
+    var dim = (heatmapState.zoom * 100).toFixed(3) + '%';
+    canvas.style.width = dim;
+    canvas.style.height = dim;
+    canvas.style.transform =
+      'translate(' + heatmapState.panX.toFixed(2) + 'px,' + heatmapState.panY.toFixed(2) + 'px)';
+    updateHeatmapZoomUi();
   }
   // Zoom toward a focal point (in container px) so the content under the
   // cursor stays put — the natural feel for wheel/button zoom. Omit the
@@ -8192,13 +8204,17 @@
     heatmapState.zoom = newZoom;
     heatmapState.panX = focalX - contentX * newZoom;
     heatmapState.panY = focalY - contentY * newZoom;
-    applyHeatmapTransform();
+    // Re-render (cheap for ~111 tiles) so fonts are re-rasterized crisply at
+    // the new scale and small tiles' labels appear once they clear the
+    // tiny/micro thresholds. renderHeatmap() calls applyHeatmapView() at the
+    // end to size the canvas + apply the focal pan.
+    renderHeatmap();
   }
   function heatmapResetZoom(){
     heatmapState.zoom = 1;
     heatmapState.panX = 0;
     heatmapState.panY = 0;
-    applyHeatmapTransform();
+    renderHeatmap();
   }
   function bindHeatmapZoomControls(){
     var inBtn = $('heatmap-zoom-in');
@@ -8236,7 +8252,7 @@
       if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) d.moved = true;
       heatmapState.panX = d.panX + dx;
       heatmapState.panY = d.panY + dy;
-      applyHeatmapTransform();
+      applyHeatmapView();
     });
     function endPan(ev){
       var d = heatmapState.panDrag;
@@ -8385,7 +8401,12 @@
     // For each group rect, run a nested squarified layout on its tickers,
     // remapping the inner % units to the parent rect.
     var html = '';
-    var rootHeight = root.clientHeight || 600;
+    // Pixel calcs use the *zoomed* canvas size (root size × zoom) so that as
+    // you zoom in, more tiles clear the tiny/micro thresholds (their labels
+    // appear) and fonts are sized — and rasterized — for the on-screen size.
+    var zoom = heatmapState.zoom || 1;
+    var rootHeight = (root.clientHeight || 600) * zoom;
+    var rootW = (root.clientWidth || 1000) * zoom;
     for (var g = 0; g < groupRects.length; g++){
       var gr = groupRects[g];
       var items = gr.items.slice().sort(function(a, b){ return b.mc - a.mc; });
@@ -8412,7 +8433,6 @@
       '">';
       if (showLabel) html += '<div class="heatmap-sector-label">' + escapeHtml(gr.name) + '</div>';
 
-      var rootW = root.clientWidth || 1000;
       for (var k = 0; k < innerRects.length; k++){
         var rect = innerRects[k];
         // Tiles are children of .heatmap-sector and use sector-local %
@@ -8427,7 +8447,7 @@
         var color = heatmapColorParts(ch);
         // Font sizing scales with tile dimensions so big sectors stay
         // legible without making tiny ones blow out their box.
-        var symSize = Math.min(28, Math.max(9, Math.round(Math.min(pxH * 0.42, pxW * 0.22))));
+        var symSize = Math.min(28 * zoom, Math.max(9, Math.round(Math.min(pxH * 0.42, pxW * 0.22))));
         var pctSize = Math.max(9, Math.round(symSize * 0.72));
         html +=
           '<button type="button" class="heatmap-tile' + tinyCls + '" ' +
@@ -8464,7 +8484,7 @@
       '<div class="heatmap-tooltip" id="heatmap-tooltip" hidden></div>';
     bindHeatmapTileEvents(root);
     // Re-apply any preserved zoom/pan on top of the freshly-built tiles.
-    applyHeatmapTransform();
+    applyHeatmapView();
 
     if (eyebrow){
       // Prefer refreshedAtIso when the hourly refresh has run — its
