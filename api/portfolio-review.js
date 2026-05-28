@@ -54,7 +54,7 @@ async function verifyUser(req) {
   const auth = req.headers.authorization || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (!m) return { error: "missing bearer token" };
-  const token = m[1];
+  const token = m[1].trim();
 
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
