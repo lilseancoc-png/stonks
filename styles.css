@@ -576,6 +576,105 @@ main {
 .page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-1); }
 .page-pane[hidden] { display: none; }
 
+/* Grouped tabs (Flow / Macro / Tools) — secondary destinations collapsed
+   behind a dropdown trigger that lives in the same horizontal strip as the
+   primary tabs. Reduces the visible tab count from 16 to 8 without losing
+   any deep-links — cmd-K and ?tab= aliases still target the menu items by
+   their original data-page-tab values. */
+.page-tab-group {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+.page-tab-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.page-tab-caret {
+  flex: 0 0 auto;
+  color: currentColor;
+  opacity: 0.7;
+  transition: transform var(--dur-2) var(--ease-out), opacity var(--dur-1) var(--ease-out);
+}
+.page-tab-trigger:hover .page-tab-caret { opacity: 1; }
+.page-tab-trigger[aria-expanded="true"] .page-tab-caret { transform: rotate(180deg); opacity: 1; }
+/* When the currently active tab lives inside this group, paint the trigger
+   the same way an active top-level page-tab would render. Mirrors the
+   .page-tab[aria-selected="true"] rule without colliding with aria semantics
+   (the trigger is a menu button, not a tab). */
+.page-tab-group[data-active="true"] .page-tab-trigger {
+  color: var(--text-strong);
+  border-bottom-color: var(--accent);
+}
+.page-tab-group[data-active="true"] .page-tab-trigger::after {
+  content: "";
+  position: absolute;
+  inset: auto 12px -1px 12px;
+  height: 6px;
+  background: radial-gradient(ellipse at center,
+    color-mix(in srgb, var(--accent) 38%, transparent) 0%,
+    transparent 70%);
+  pointer-events: none;
+  filter: blur(2px);
+}
+/* The dropdown panel is positioned by JS via top/left CSS vars so it can
+   escape the scroll-clipped .page-tabs strip. Position: fixed sidesteps the
+   parent's overflow + mask without needing a portal. */
+.page-tab-menu {
+  position: fixed;
+  top: var(--menu-y, 0);
+  left: var(--menu-x, 0);
+  min-width: max(180px, var(--menu-min, 180px));
+  padding: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-3);
+  box-shadow: var(--elev-pop);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 50;
+  transform-origin: top left;
+  animation: stonks-page-tab-menu-in var(--dur-2) var(--ease-out);
+}
+.page-tab-menu[hidden] { display: none; }
+@keyframes stonks-page-tab-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-tab-menu { animation: none; }
+  .page-tab-caret { transition: none; }
+}
+.page-tab-menu-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
+}
+.page-tab-menu-item:hover,
+.page-tab-menu-item:focus-visible {
+  outline: none;
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.page-tab-menu-item[aria-selected="true"] {
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .site-footer {
   max-width: var(--w-shell);
   margin: var(--s-7) auto 0;
@@ -7361,6 +7460,9 @@ main { padding-top: var(--s-2); }
 @media (max-width: 480px) {
   .page-tabs { padding: 0 var(--s-3); gap: 0; }
   .page-tab { padding: 6px 10px; font-size: 11px; }
+  .page-tab-trigger { gap: 4px; }
+  .page-tab-menu { min-width: 200px; padding: 4px; }
+  .page-tab-menu-item { padding: 10px 12px; font-size: 13px; }
 }
 
 /* === CNN Fear & Greed Index tab ========================================= */
