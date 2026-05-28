@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-05-27","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-05-28","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -5738,37 +5738,86 @@
     }).join('') + '</div>';
   }
 
-  function oiStrikeRowHtml(s){
+  // Renders one "rung" of the ladder — a single strike with its OI bar,
+  // OI value, ΔOI day-over-day, expiry, and flag chips. maxOi is the
+  // largest OI across both sides of this ticker's top-12 (so call and
+  // put bars share a scale and you can eyeball one wall vs the other).
+  // isWall decorates the actual highest-OI strike of its side with a
+  // small WALL marker.
+  function oiRungHtml(s, maxOi, isWall){
     var sideCls = s.side === 'call' ? 'is-call' : 'is-put';
-    var sideLabel = s.side === 'call' ? 'C' : 'P';
     var dte = oiDte(s.expSec);
     var deltaPct = s.oiDeltaPct;
     var deltaCls = '';
     if (deltaPct != null) deltaCls = deltaPct >= 0 ? ' is-up' : ' is-dn';
-    var deltaTxt = deltaPct != null ? fmtOiPct(deltaPct, true) : '—';
+    var deltaTxt = deltaPct != null ? fmtOiPct(deltaPct, true) : null;
     var deltaAbs = s.oiDelta != null ? (s.oiDelta >= 0 ? '+' : '') + fmtOiNum(s.oiDelta) : '';
-    var fromSpotTxt = s.fromSpotPct != null ? fmtOiPct(s.fromSpotPct, true) : '—';
-    var volOiTxt = s.volOiRatio != null ? Number(s.volOiRatio).toFixed(2) + 'x' : '—';
+    var fromSpotPct = s.fromSpotPct;
+    var fromSpotTxt = fromSpotPct != null ? fmtOiPct(fromSpotPct, true) : '';
+    var fromSpotCls = fromSpotPct != null
+      ? (Math.abs(fromSpotPct) <= 0.02 ? ' is-atm' : (fromSpotPct >= 0 ? ' is-otm' : ' is-itm'))
+      : '';
+    var volOiTxt = s.volOiRatio != null ? Number(s.volOiRatio).toFixed(2) + '×' : '';
+    var volOiHot = s.volOiRatio != null && Number(s.volOiRatio) >= 1.5;
+    var pct = (maxOi > 0 && s.oi > 0) ? Math.max(2, Math.round((s.oi / maxOi) * 100)) : 0;
     var chips = [];
     if (s.flagOiBig) chips.push('<span class="oi-chip oi-chip-big" title="OI &gt; 1000">OI 1K+</span>');
     if (s.flagOiDelta100) chips.push('<span class="oi-chip oi-chip-delta100" title="ΔOI ≥ +100% — very aggressive new buying">ΔOI +100%+</span>');
     else if (s.flagOiDelta30) chips.push('<span class="oi-chip oi-chip-delta30" title="ΔOI ≥ +30% — new buying">ΔOI +30%+</span>');
-    var volOiHot = s.volOiRatio != null && Number(s.volOiRatio) >= 1.5;
     if (volOiHot) chips.push('<span class="oi-chip oi-chip-volhot" title="Vol &gt; 1.5× OI — likely new positions opening today">Vol&gt;&gt;OI</span>');
-    var chipsHtml = chips.length ? '<span class="oi-strike-chips">' + chips.join('') + '</span>' : '';
-    return '<tr class="oi-strike-row ' + sideCls + '">' +
-      '<td class="oi-cell-side"><span class="oi-side-pill ' + sideCls + '">' + sideLabel + '</span></td>' +
-      '<td class="oi-cell-strike">' + fmtOiStrike(s.strike) + '</td>' +
-      '<td class="oi-cell-exp">' + escapeHtml(fmtOiExpiry(s.expSec)) + (dte != null ? ' <span class="oi-dte">' + dte + 'd</span>' : '') + '</td>' +
-      '<td class="oi-cell-oi">' + fmtOiNum(s.oi) + '</td>' +
-      '<td class="oi-cell-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot">' +
-        deltaTxt + (deltaAbs ? ' <span class="oi-delta-abs">(' + deltaAbs + ')</span>' : '') +
-      '</td>' +
-      '<td class="oi-cell-vol">' + fmtOiNum(s.vol) + '</td>' +
-      '<td class="oi-cell-volratio">' + volOiTxt + '</td>' +
-      '<td class="oi-cell-spot">' + fromSpotTxt + '</td>' +
-      '<td class="oi-cell-chips">' + chipsHtml + '</td>' +
-    '</tr>';
+    var chipsHtml = chips.length ? '<div class="oi-rung-chips">' + chips.join('') + '</div>' : '';
+    var deltaHtml = deltaTxt != null
+      ? '<span class="oi-rung-delta' + deltaCls + '" title="ΔOI vs prior trading-day snapshot' + (deltaAbs ? ' (' + deltaAbs + ')' : '') + '">ΔOI ' + deltaTxt + '</span>'
+      : '';
+    var volHtml = s.vol > 0
+      ? '<span class="oi-rung-vol" title="Today\'s session volume on this strike">Vol ' + fmtOiNum(s.vol) + (volOiTxt ? ' · ' + volOiTxt : '') + '</span>'
+      : '';
+    var wallHtml = isWall
+      ? '<span class="oi-rung-wall ' + sideCls + '" title="Highest ' + (s.side === 'call' ? 'call' : 'put') + ' OI strike in the front 2 expirations">WALL</span>'
+      : '';
+    return '<li class="oi-rung ' + sideCls + (isWall ? ' is-wall' : '') + '">' +
+      '<div class="oi-rung-head">' +
+        '<span class="oi-rung-strike">' + fmtOiStrike(s.strike) + '</span>' +
+        (fromSpotTxt ? '<span class="oi-rung-spot' + fromSpotCls + '">' + fromSpotTxt + '</span>' : '') +
+        wallHtml +
+        '<span class="oi-rung-oi" title="Open interest on this strike"><b>' + fmtOiNum(s.oi) + '</b> OI</span>' +
+      '</div>' +
+      '<div class="oi-rung-bar" aria-hidden="true">' +
+        '<span class="oi-rung-bar-fill" style="width:' + pct + '%"></span>' +
+      '</div>' +
+      '<div class="oi-rung-meta">' +
+        '<span class="oi-rung-exp">' + escapeHtml(fmtOiExpiry(s.expSec)) + (dte != null ? ' · ' + dte + 'd' : '') + '</span>' +
+        deltaHtml +
+        volHtml +
+      '</div>' +
+      chipsHtml +
+    '</li>';
+  }
+
+  // Renders one side of the ladder (calls or puts). rungs are already
+  // sorted closest-to-spot first; the call/put wall strike (if it lands
+  // in the top 12) gets the WALL marker. Falls back to an inline empty
+  // message when no strikes from that side made the top 12.
+  function oiLadderColHtml(side, rungs, wallStrike, maxOi){
+    var label = side === 'call' ? 'CALLS' : 'PUTS';
+    var sideCls = side === 'call' ? 'oi-ladder-calls' : 'oi-ladder-puts';
+    if (!rungs.length){
+      return '<div class="oi-ladder-col ' + sideCls + '">' +
+        '<div class="oi-ladder-head"><span class="oi-ladder-side">' + label + '</span></div>' +
+        '<div class="oi-ladder-empty">No ' + label.toLowerCase() + ' in the top 12.</div>' +
+      '</div>';
+    }
+    var rungsHtml = rungs.map(function(s){
+      var isWall = wallStrike != null && s.strike === wallStrike;
+      return oiRungHtml(s, maxOi, isWall);
+    }).join('');
+    return '<div class="oi-ladder-col ' + sideCls + '">' +
+      '<div class="oi-ladder-head">' +
+        '<span class="oi-ladder-side">' + label + '</span>' +
+        '<span class="oi-ladder-count">' + rungs.length + ' rung' + (rungs.length === 1 ? '' : 's') + '</span>' +
+      '</div>' +
+      '<ol class="oi-ladder-rungs">' + rungsHtml + '</ol>' +
+    '</div>';
   }
 
   function oiIsRowCollapsed(symbol){
@@ -5779,6 +5828,7 @@
   }
   function oiTickerRowHtml(t){
     var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+    var spotVal = Number(t.spot);
     var score = t.score || 0;
     var tier = oiScoreTier(score);
     var collapsed = oiIsRowCollapsed(t.symbol);
@@ -5793,23 +5843,32 @@
     var cpHtml = t.cpRatio != null
       ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
       : '';
+    // Split top-12 strikes into calls and puts, then sort each side by
+    // absolute distance from spot (closest first, extending outwards).
+    // Falls back to raw |strike - spot| when fromSpotPct is missing so a
+    // single bad row can't break the order.
     var strikes = Array.isArray(t.strikes) ? t.strikes : [];
-    var tableHtml = '';
-    if (strikes.length){
-      tableHtml = '<div class="oi-table-wrap"><table class="oi-table"><thead><tr>' +
-        '<th class="oi-th-side">Side</th>' +
-        '<th class="oi-th-strike">Strike</th>' +
-        '<th class="oi-th-exp">Exp</th>' +
-        '<th class="oi-th-oi">OI</th>' +
-        '<th class="oi-th-delta" title="Change in OI vs the prior trading day">ΔOI</th>' +
-        '<th class="oi-th-vol">Vol today</th>' +
-        '<th class="oi-th-volratio" title="Today\'s volume ÷ open interest. &gt; 1.5× = likely new positions">Vol/OI</th>' +
-        '<th class="oi-th-spot" title="Strike\'s % distance from spot (positive = OTM)">% from spot</th>' +
-        '<th class="oi-th-chips">Flags</th>' +
-      '</tr></thead><tbody>' +
-        strikes.map(oiStrikeRowHtml).join('') +
-      '</tbody></table></div>';
+    function dist(s){
+      if (s.fromSpotPct != null && isFinite(s.fromSpotPct)) return Math.abs(Number(s.fromSpotPct));
+      if (isFinite(spotVal) && spotVal > 0 && s.strike != null) return Math.abs(s.strike - spotVal) / spotVal;
+      return Infinity;
     }
+    var calls = strikes.filter(function(s){ return s.side === 'call'; }).slice().sort(function(a, b){
+      var d = dist(a) - dist(b);
+      return d !== 0 ? d : a.strike - b.strike;
+    });
+    var puts = strikes.filter(function(s){ return s.side === 'put'; }).slice().sort(function(a, b){
+      var d = dist(a) - dist(b);
+      return d !== 0 ? d : b.strike - a.strike;
+    });
+    var maxOi = 0;
+    for (var i = 0; i < strikes.length; i++){ if (strikes[i].oi > maxOi) maxOi = strikes[i].oi; }
+    var ladderHtml = strikes.length
+      ? '<div class="oi-ladder" role="group" aria-label="Top OI strikes for ' + escapeHtml(t.symbol) + '">' +
+          oiLadderColHtml('call', calls, cw ? cw.strike : null, maxOi) +
+          oiLadderColHtml('put', puts, pw ? pw.strike : null, maxOi) +
+        '</div>'
+      : '';
     var scoreBadge =
       '<span class="oi-score ' + tier + (t.flagged ? ' is-flagged' : '') + '" ' +
         'title="Gamma Squeeze Score (0-5). 4-5 = strong potential setup.">' +
@@ -5827,7 +5886,7 @@
       '</button>' +
       '<div class="oi-body-row"' + (collapsed ? ' hidden' : '') + '>' +
         oiReasonChipsHtml(t.reasons) +
-        tableHtml +
+        ladderHtml +
       '</div>' +
     '</article>';
   }

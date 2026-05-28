@@ -9396,59 +9396,154 @@ html::-webkit-scrollbar-thumb:hover {
 }
 .oi-reason-tick { color: var(--up); font-weight: 700; }
 
-.oi-table-wrap { overflow-x: auto; }
-.oi-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.9em;
+/* Options ladder — two columns, calls left + puts right. Each "rung" is
+   one strike. Rungs are pre-sorted closest-to-spot first by the JS, so
+   visually the top of each column is ATM and the bottom is the most
+   distant. Bar widths share a scale across both sides so a tall call
+   wall really does look taller than a smaller put wall. */
+.oi-ladder {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
 }
-.oi-table th, .oi-table td {
-  text-align: left;
-  padding: var(--s-2) var(--s-3);
+.oi-ladder-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-3);
+  min-width: 0;
+}
+.oi-ladder-calls {
+  border-color: color-mix(in srgb, var(--up) 28%, var(--border));
+  background: color-mix(in srgb, var(--up) 3%, var(--surface));
+}
+.oi-ladder-puts {
+  border-color: color-mix(in srgb, var(--dn) 28%, var(--border));
+  background: color-mix(in srgb, var(--dn) 3%, var(--surface));
+}
+.oi-ladder-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding-bottom: var(--s-2);
   border-bottom: 1px solid var(--border);
-  white-space: nowrap;
 }
-.oi-table thead th {
-  font-weight: 500;
+.oi-ladder-side {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 0.78em;
+  text-transform: uppercase;
+}
+.oi-ladder-calls .oi-ladder-side { color: var(--up); }
+.oi-ladder-puts .oi-ladder-side { color: var(--dn); }
+.oi-ladder-count {
   color: var(--text-3);
-  border-bottom: 1px solid var(--border-strong);
-  position: sticky;
-  top: 0;
-  background: var(--surface-2);
+  font-size: 0.78em;
+  letter-spacing: 0.04em;
 }
-.oi-strike-row:hover {
+.oi-ladder-empty {
+  color: var(--text-3);
+  font-style: italic;
+  font-size: 0.88em;
+  padding: var(--s-3) 0;
+  text-align: center;
+}
+.oi-ladder-rungs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.oi-rung {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--s-2);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--xt), background-color var(--xt);
+}
+.oi-rung:hover {
   background: color-mix(in srgb, var(--accent) 4%, var(--surface-2));
 }
-.oi-side-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  font-weight: 700;
-  font-size: 0.8em;
-  border: 1px solid var(--border);
-}
-.oi-side-pill.is-call {
-  color: var(--up);
+.oi-rung.is-wall.is-call {
   border-color: color-mix(in srgb, var(--up) 45%, transparent);
-  background: color-mix(in srgb, var(--up) 10%, transparent);
+  background: color-mix(in srgb, var(--up) 8%, var(--surface-2));
 }
-.oi-side-pill.is-put {
-  color: var(--dn);
+.oi-rung.is-wall.is-put {
   border-color: color-mix(in srgb, var(--dn) 45%, transparent);
-  background: color-mix(in srgb, var(--dn) 10%, transparent);
+  background: color-mix(in srgb, var(--dn) 8%, var(--surface-2));
 }
-.oi-cell-strike { font-weight: 500; }
-.oi-cell-delta.is-up { color: var(--up); }
-.oi-cell-delta.is-dn { color: var(--dn); }
-.oi-delta-abs { color: var(--text-3); font-size: 0.9em; }
-.oi-dte { color: var(--text-3); font-size: 0.85em; }
-
-.oi-strike-chips {
-  display: inline-flex;
+.oi-rung-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.oi-rung-strike {
+  font-weight: 600;
+  font-size: 1em;
+  color: var(--text);
+}
+.oi-rung-spot {
+  font-size: 0.8em;
+  color: var(--text-3);
+}
+.oi-rung-spot.is-atm { color: var(--accent); font-weight: 500; }
+.oi-rung-spot.is-itm { color: var(--text-2); }
+.oi-rung-wall {
+  font-size: 0.66em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  border: 1px solid currentColor;
+}
+.oi-rung-wall.is-call { color: var(--up); }
+.oi-rung-wall.is-put { color: var(--dn); }
+.oi-rung-oi {
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: 0.85em;
+}
+.oi-rung-oi b { color: var(--text); font-weight: 600; }
+.oi-rung-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-3) 14%, transparent);
+  overflow: hidden;
+}
+.oi-rung-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, currentColor 60%, transparent),
+    currentColor);
+  transition: width var(--xt);
+}
+.oi-rung.is-call .oi-rung-bar-fill { color: var(--up); }
+.oi-rung.is-put  .oi-rung-bar-fill { color: var(--dn); }
+.oi-rung-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  color: var(--text-3);
+  font-size: 0.8em;
+}
+.oi-rung-delta.is-up { color: var(--up); }
+.oi-rung-delta.is-dn { color: var(--dn); }
+.oi-rung-chips {
+  display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
@@ -9490,12 +9585,18 @@ html::-webkit-scrollbar-thumb:hover {
   font-style: italic;
 }
 
+@media (max-width: 720px) {
+  .oi-ladder { grid-template-columns: 1fr; }
+}
 @media (max-width: 640px) {
   .oi-row-head { gap: var(--s-2); }
   .oi-summary-bits { margin-left: 0; width: 100%; }
   .oi-symbol { font-size: 1em; }
-  .oi-table { font-size: 0.82em; }
-  .oi-table th, .oi-table td { padding: var(--s-1) var(--s-2); }
+  .oi-ladder-col { padding: var(--s-2); }
+  .oi-rung { padding: var(--s-2); }
+  .oi-rung-head { gap: var(--s-1); }
+  .oi-rung-meta { font-size: 0.78em; }
+  .oi-rung-strike { font-size: 0.95em; }
 }
 
 /* ===================================================================
