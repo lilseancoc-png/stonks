@@ -2778,6 +2778,40 @@
           setText('land-sub-streaks', 'active runs (≥2d)');
         })
         .catch(function(){});
+
+      // Market-pulse strip — the major index ETFs baked into the manifest's
+      // marketBackdrop, with their last-close 1-day move colored green/red.
+      // UVXY is a VIX proxy so its coloring is inverted (rising vol = risk-off
+      // = red, falling vol = risk-on = green) to read as market-risk tone, not
+      // a literal price gain. Degrades to hidden if no backdrop data is baked.
+      (function(){
+        var wrap = document.getElementById('landing-pulse');
+        if (!wrap) return;
+        var META = {
+          SPY:  { name: 'S&P 500',     invert: false },
+          QQQ:  { name: 'Nasdaq 100',  invert: false },
+          IWM:  { name: 'Russell 2K',  invert: false },
+          SMH:  { name: 'Semis',       invert: false },
+          UVXY: { name: 'Volatility',  invert: true  }
+        };
+        var order = ['SPY', 'QQQ', 'IWM', 'SMH', 'UVXY'];
+        var html = '';
+        order.forEach(function(sym){
+          var meta = META[sym];
+          var b = MARKET_BACKDROP[sym];
+          if (!meta || !b || b.move1dPct == null || !isFinite(b.move1dPct)) return;
+          var mv = Number(b.move1dPct);
+          var tone = meta.invert ? -mv : mv;
+          var cls = tone > 0.05 ? 'is-up' : (tone < -0.05 ? 'is-dn' : 'is-flat');
+          var sign = mv > 0 ? '+' : '';
+          html += '<div class="pulse-item ' + cls + '" role="listitem">'
+                + '<span class="pulse-name">' + meta.name + '</span>'
+                + '<span class="pulse-sym">' + sym + '</span>'
+                + '<span class="pulse-move">' + sign + mv.toFixed(2) + '%</span>'
+                + '</div>';
+        });
+        if (html) { wrap.innerHTML = html; wrap.hidden = false; }
+      })();
     } catch (_) {}
   }
 

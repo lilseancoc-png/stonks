@@ -804,6 +804,50 @@ main {
 }
 .landing-hero-sub .mono { color: var(--text); }
 
+/* Market-pulse strip — major index ETFs with their last-close 1-day move,
+   tucked under the hero sub. Each item is a hairline pill; the move number is
+   tinted by tone (green up / red down, inverted for the volatility proxy). */
+.landing-pulse {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+.pulse-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px var(--s-3);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  box-shadow: var(--elev-0);
+  white-space: nowrap;
+}
+.pulse-name {
+  font: 600 var(--fs-xs)/1 var(--font-sans);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.pulse-sym {
+  font: 500 var(--fs-2xs)/1 var(--font-mono);
+  color: var(--muted-strong);
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.pulse-move {
+  font: 700 var(--fs-sm)/1 var(--font-mono);
+  letter-spacing: var(--ls-num);
+  color: var(--muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+.pulse-item.is-up { border-color: var(--accent-line); }
+.pulse-item.is-up .pulse-move { color: var(--pos); }
+.pulse-item.is-dn { border-color: color-mix(in srgb, var(--neg) 35%, var(--border)); }
+.pulse-item.is-dn .pulse-move { color: var(--neg); }
+.pulse-item.is-flat .pulse-move { color: var(--text); }
+
 .landing-grid {
   max-width: var(--w-content);
   margin: 0 auto var(--s-4);

@@ -758,6 +758,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <span class="landing-hero-eyebrow">Today's desk</span>
       <h1 class="landing-hero-title">What do you want to look at?</h1>
       <p class="landing-hero-sub">${tickerCount} curated tickers</p>
+      <div id="landing-pulse" class="landing-pulse" role="list" aria-label="Market pulse — major index ETFs, last close" hidden></div>
     </section>
     <section class="landing-section">
       <header class="landing-section-head">
