@@ -2447,10 +2447,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
   // so a return visit lands the user where they left off.
   function bindPageTabs(){
-    var tabs = document.querySelectorAll('.page-tab');
+    // Top-level tabs and the items inside the Flow/Macro/Tools dropdown menus
+    // both carry data-page-tab — iterating that attribute keeps cmd-K targeting
+    // (which queries [data-page-tab="X"]) working without special-casing.
+    var tabs = document.querySelectorAll('[data-page-tab]');
     if (!tabs.length) return;
     var tabsStrip = document.querySelector('.page-tabs');
-    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','grade','strategies','streaks','fear-greed','f13','bonds-usd','portfolio'];
+    var groups = document.querySelectorAll('.page-tab-group');
+    var triggers = document.querySelectorAll('.page-tab-trigger');
+    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','portfolio'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -2478,10 +2483,74 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // ::before pseudo lives inside that same scrollable box — so it
     // scrolls with the content automatically. Subtracting scrollLeft
     // would double-count the scroll and make the bar drift sideways.
+    // Map a menu item or trigger back to its parent .page-tab-group, which is
+    // what carries the active-state styling + the indicator anchor. Menus live
+    // outside .page-tabs (escaping the strip's edge-fade mask), so we route
+    // through the data-group attribute rather than DOM ancestry.
+    function groupForActive(activeBtn){
+      if (!activeBtn || !activeBtn.closest) return null;
+      var menu = activeBtn.closest('.page-tab-menu');
+      if (!menu) return null;
+      var key = menu.getAttribute('data-group');
+      return key ? document.querySelector('.page-tab-group[data-group="' + key + '"]') : null;
+    }
     function positionIndicator(activeBtn){
       if (!tabsStrip || !activeBtn) return;
-      tabsStrip.style.setProperty('--ind-x', activeBtn.offsetLeft + 'px');
-      tabsStrip.style.setProperty('--ind-w', String(activeBtn.offsetWidth));
+      // If the active item lives inside a dropdown menu, slide the indicator
+      // under the parent group's trigger instead — the menu item itself isn't
+      // in the strip, so positioning on its rect would push the bar off-screen.
+      var anchor = activeBtn;
+      var grp = groupForActive(activeBtn);
+      if (grp) {
+        var trig = grp.querySelector('.page-tab-trigger');
+        if (trig) anchor = trig;
+      }
+      tabsStrip.style.setProperty('--ind-x', anchor.offsetLeft + 'px');
+      tabsStrip.style.setProperty('--ind-w', String(anchor.offsetWidth));
+    }
+    function closeAllMenus(exceptTrigger){
+      triggers.forEach(function(t){
+        if (t === exceptTrigger) return;
+        if (t.getAttribute('aria-expanded') === 'true') {
+          t.setAttribute('aria-expanded', 'false');
+          var id = t.getAttribute('aria-controls');
+          var menu = id ? document.getElementById(id) : null;
+          if (menu) menu.hidden = true;
+        }
+      });
+    }
+    function positionMenu(trigger, menu){
+      // Position: fixed lets the menu escape the .page-tabs scroll + mask.
+      // We anchor below the trigger, then clamp inside the viewport so the
+      // menu can't disappear off the right edge on narrow screens.
+      var rect = trigger.getBoundingClientRect();
+      var gap = 6;
+      menu.style.setProperty('--menu-min', rect.width + 'px');
+      menu.hidden = false;
+      var menuW = menu.offsetWidth || 200;
+      var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      var left = rect.left;
+      var maxLeft = vw - menuW - 8;
+      if (maxLeft < 8) maxLeft = 8;
+      if (left > maxLeft) left = maxLeft;
+      if (left < 8) left = 8;
+      menu.style.setProperty('--menu-x', left + 'px');
+      menu.style.setProperty('--menu-y', (rect.bottom + gap) + 'px');
+    }
+    function openMenu(trigger){
+      var id = trigger.getAttribute('aria-controls');
+      var menu = id ? document.getElementById(id) : null;
+      if (!menu) return;
+      closeAllMenus(trigger);
+      trigger.setAttribute('aria-expanded', 'true');
+      positionMenu(trigger, menu);
+    }
+    function toggleMenu(trigger){
+      if (trigger.getAttribute('aria-expanded') === 'true') {
+        closeAllMenus(null);
+      } else {
+        openMenu(trigger);
+      }
     }
     function syncTabToUrl(name){
       // Mirror the active tab into ?tab= so bookmarks / back-forward / shares
@@ -2510,6 +2579,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var pane = paneId ? document.getElementById(paneId) : null;
         if (pane) pane.hidden = !sel;
       });
+      // Reflect the active selection on the parent group's trigger so the
+      // accent underline + halo paint there too when the user is on a
+      // collapsed tab. Resolved via data-group on the active item's menu,
+      // since menu items aren't DOM descendants of the group anymore.
+      var activeGroup = groupForActive(activeBtn);
+      groups.forEach(function(g){
+        if (g === activeGroup) g.setAttribute('data-active', 'true');
+        else g.removeAttribute('data-active');
+      });
+      closeAllMenus(null);
       syncTabToUrl(name);
       // Re-render the freshness banner for the active tab so Unusual flow /
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
@@ -2531,11 +2610,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
-      // sees where they are. scrollIntoView with inline:center keeps the
-      // chosen tab visually anchored in the strip.
-      if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+      // sees where they are. When the active item lives inside a closed
+      // dropdown menu it has display:none, so scroll the parent trigger.
+      var scrollTarget = activeBtn;
+      if (activeBtn && activeBtn.closest) {
+        var grpAnchor = activeBtn.closest('.page-tab-group');
+        if (grpAnchor) {
+          var grpTrig = grpAnchor.querySelector('.page-tab-trigger');
+          if (grpTrig) scrollTarget = grpTrig;
+        }
+      }
+      if (scrollTarget && typeof scrollTarget.scrollIntoView === 'function') {
         try {
-          activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+          scrollTarget.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         } catch (_) {
           // Older Safari ignores object-form options — fall back to no-op.
         }
@@ -2545,17 +2632,59 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
     });
+    // Dropdown triggers (Flow / Macro / Tools): click to toggle the menu.
+    // selectTab() closes any open menu after navigation, so we don't need to
+    // wire that explicitly from the menu items themselves.
+    triggers.forEach(function(t){
+      t.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        toggleMenu(t);
+      });
+      t.addEventListener('keydown', function(ev){
+        if (ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          openMenu(t);
+          var id = t.getAttribute('aria-controls');
+          var menu = id ? document.getElementById(id) : null;
+          var first = menu ? menu.querySelector('.page-tab-menu-item') : null;
+          if (first) try { first.focus(); } catch (_) {}
+        }
+      });
+    });
+    // Click-outside + Escape close menus. Keyed off document so it works
+    // regardless of where focus moves.
+    document.addEventListener('click', function(ev){
+      if (!ev.target || !ev.target.closest) return;
+      if (ev.target.closest('.page-tab-menu') || ev.target.closest('.page-tab-trigger')) return;
+      closeAllMenus(null);
+    });
+    document.addEventListener('keydown', function(ev){
+      if (ev.key !== 'Escape') return;
+      var anyOpen = false;
+      triggers.forEach(function(t){
+        if (t.getAttribute('aria-expanded') === 'true') {
+          anyOpen = true;
+          try { t.focus(); } catch (_) {}
+        }
+      });
+      if (anyOpen) closeAllMenus(null);
+    });
+    // Menus are position: fixed — they don't follow the strip when it
+    // scrolls horizontally or the viewport resizes, so close them instead of
+    // trying to reposition mid-interaction (which feels janky).
+    if (tabsStrip) tabsStrip.addEventListener('scroll', function(){ closeAllMenus(null); }, { passive: true });
     // Recompute indicator on resize + font-load so it doesn't drift.
     // No scroll listener — the ::before pseudo is inside the scrolling
     // container and tracks the content automatically; recomputing on
     // scroll fights the in-flight CSS transition and visibly glitches.
     window.addEventListener('resize', function(){
-      var active = document.querySelector('.page-tab[aria-selected="true"]');
+      closeAllMenus(null);
+      var active = document.querySelector('[data-page-tab][aria-selected="true"]');
       if (active) positionIndicator(active);
     });
     if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
       document.fonts.ready.then(function(){
-        var active = document.querySelector('.page-tab[aria-selected="true"]');
+        var active = document.querySelector('[data-page-tab][aria-selected="true"]');
         if (active) positionIndicator(active);
       }).catch(function(){});
     }
