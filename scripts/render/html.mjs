@@ -900,7 +900,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Market heatmap</h2>
         <span class="card-eyebrow" id="heatmap-eyebrow" aria-live="polite"></span>
       </header>
-      <p class="hint">A Finviz-style market map of our curated tickers. Each tile is sized by market cap and colored by today's % change — deeper green for bigger gainers, deeper red for bigger losers. Grouped by sector. Click a tile to jump to that ticker. ETFs are surfaced on the Bonds &amp; USD tab.</p>
+      <p class="hint">A Finviz-style market map of our curated tickers. Each tile is sized by market cap and colored by today's % change — deeper green for bigger gainers, deeper red for bigger losers. Grouped by sector. Scroll to zoom (or use the zoom controls), drag to pan when zoomed in, and click a tile to jump to that ticker. ETFs are surfaced on the Bonds &amp; USD tab.</p>
       <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
         <label class="heatmap-control">
           <span class="heatmap-control-label">Group by</span>
@@ -913,6 +913,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <input type="checkbox" id="heatmap-live-toggle" />
           <span class="heatmap-control-label">Live overlay</span>
         </label>
+        <div class="heatmap-control heatmap-zoom" role="group" aria-label="Zoom">
+          <span class="heatmap-control-label">Zoom</span>
+          <button type="button" class="heatmap-zoom-btn" id="heatmap-zoom-out" aria-label="Zoom out" disabled>&minus;</button>
+          <span class="heatmap-zoom-level" id="heatmap-zoom-level" aria-live="polite">100%</span>
+          <button type="button" class="heatmap-zoom-btn" id="heatmap-zoom-in" aria-label="Zoom in">+</button>
+          <button type="button" class="heatmap-zoom-btn heatmap-zoom-reset" id="heatmap-zoom-reset" aria-label="Reset zoom" disabled>Reset</button>
+        </div>
         <span class="heatmap-live-state" id="heatmap-live-state" aria-live="polite"></span>
       </div>
       <div id="heatmap-root" class="heatmap-root">Loading heatmap…</div>

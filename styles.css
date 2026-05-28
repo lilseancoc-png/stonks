@@ -9063,6 +9063,31 @@ html::-webkit-scrollbar-thumb:hover {
 .heatmap-live-state.is-live { color: var(--accent); }
 .heatmap-live-state.is-error { color: var(--neg); }
 
+.heatmap-zoom { gap: 4px; }
+.heatmap-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font: 700 13px/1 var(--font-mono);
+  cursor: pointer;
+}
+.heatmap-zoom-btn:hover:not(:disabled) { border-color: var(--accent); }
+.heatmap-zoom-btn:disabled { opacity: 0.4; cursor: default; }
+.heatmap-zoom-reset { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.heatmap-zoom-level {
+  min-width: 40px;
+  text-align: center;
+  font: 600 11px/1 var(--font-mono);
+  color: var(--muted-strong);
+}
+
 .heatmap-root {
   position: relative;
   width: 100%;
@@ -9082,6 +9107,17 @@ html::-webkit-scrollbar-thumb:hover {
   padding: var(--s-3);
   text-align: center;
 }
+/* Transform target for zoom/pan — fills the root, scaled from the top-left
+   corner via an inline transform set by applyHeatmapTransform(). */
+.heatmap-canvas {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.heatmap-root.is-zoomed { cursor: grab; }
+.heatmap-root.is-panning { cursor: grabbing; }
+.heatmap-root.is-panning .heatmap-canvas { transition: none; }
 
 .heatmap-sector {
   position: absolute;
