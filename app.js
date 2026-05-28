@@ -8048,7 +8048,20 @@
     liveOverlay: {},   // symbol -> { ch, sp, marketState, prevSpot }
     bound: false,
     lastRect: null,
+    // Zoom/pan. zoom=1 fits the container; pan is in container px applied
+    // before the scale (transform-origin is the top-left corner). Preserved
+    // across re-renders (group-by toggle, resize, live restore) so the view
+    // doesn't snap back to fit every refresh.
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    panDrag: null,        // active drag gesture { startX, startY, panX, panY, moved }
+    suppressNextClick: false,
   };
+  var HEATMAP_MIN_ZOOM = 1;
+  var HEATMAP_MAX_ZOOM = 8;
+  // Multiplicative step per +/- button click and per wheel notch.
+  var HEATMAP_ZOOM_STEP = 1.3;
   // Saturation maxes out at ±3% — anything beyond that pegs to the deepest
   // red or green. Mirrors how Finviz handles outliers (they don't keep
   // brightening forever, otherwise a single -8% blowup makes every other
@@ -8127,7 +8140,115 @@
       if (document.hidden) stopHeatmapLivePolling(false);
       else startHeatmapLivePolling();
     });
+    bindHeatmapZoomControls();
     heatmapState.bound = true;
+  }
+
+  // --- Zoom / pan ---------------------------------------------------------
+  // The squarified tiles are laid out as % of a .heatmap-canvas that fills
+  // .heatmap-root. Zoom is a CSS transform on the canvas (origin top-left),
+  // so the whole treemap scales as one unit and the % layout stays valid.
+  // The tooltip is a sibling of the canvas (not inside it) so it stays at
+  // its true pixel size and tracks the mouse regardless of zoom.
+  function heatmapClampPan(){
+    var root = $('heatmap-root');
+    if (!root) return;
+    var w = root.clientWidth, h = root.clientHeight;
+    var minX = w * (1 - heatmapState.zoom);   // <= 0 once zoomed in
+    var minY = h * (1 - heatmapState.zoom);
+    if (heatmapState.panX > 0) heatmapState.panX = 0;
+    if (heatmapState.panX < minX) heatmapState.panX = minX;
+    if (heatmapState.panY > 0) heatmapState.panY = 0;
+    if (heatmapState.panY < minY) heatmapState.panY = minY;
+  }
+  function applyHeatmapTransform(){
+    var canvas = $('heatmap-canvas');
+    if (!canvas) return;
+    heatmapClampPan();
+    canvas.style.transform =
+      'translate(' + heatmapState.panX.toFixed(2) + 'px,' +
+      heatmapState.panY.toFixed(2) + 'px) scale(' + heatmapState.zoom.toFixed(4) + ')';
+    var root = $('heatmap-root');
+    if (root) root.classList.toggle('is-zoomed', heatmapState.zoom > 1.001);
+    var lbl = $('heatmap-zoom-level');
+    if (lbl) lbl.textContent = Math.round(heatmapState.zoom * 100) + '%';
+    var outBtn = $('heatmap-zoom-out');
+    if (outBtn) outBtn.disabled = heatmapState.zoom <= HEATMAP_MIN_ZOOM + 0.001;
+    var inBtn = $('heatmap-zoom-in');
+    if (inBtn) inBtn.disabled = heatmapState.zoom >= HEATMAP_MAX_ZOOM - 0.001;
+    var resetBtn = $('heatmap-zoom-reset');
+    if (resetBtn) resetBtn.disabled = heatmapState.zoom <= HEATMAP_MIN_ZOOM + 0.001;
+  }
+  // Zoom toward a focal point (in container px) so the content under the
+  // cursor stays put — the natural feel for wheel/button zoom. Omit the
+  // focal point to zoom about the container center.
+  function heatmapZoomTo(newZoom, focalX, focalY){
+    var root = $('heatmap-root');
+    if (!root) return;
+    newZoom = Math.max(HEATMAP_MIN_ZOOM, Math.min(HEATMAP_MAX_ZOOM, newZoom));
+    if (focalX == null){ focalX = root.clientWidth / 2; focalY = root.clientHeight / 2; }
+    var contentX = (focalX - heatmapState.panX) / heatmapState.zoom;
+    var contentY = (focalY - heatmapState.panY) / heatmapState.zoom;
+    heatmapState.zoom = newZoom;
+    heatmapState.panX = focalX - contentX * newZoom;
+    heatmapState.panY = focalY - contentY * newZoom;
+    applyHeatmapTransform();
+  }
+  function heatmapResetZoom(){
+    heatmapState.zoom = 1;
+    heatmapState.panX = 0;
+    heatmapState.panY = 0;
+    applyHeatmapTransform();
+  }
+  function bindHeatmapZoomControls(){
+    var inBtn = $('heatmap-zoom-in');
+    if (inBtn) inBtn.addEventListener('click', function(){ heatmapZoomTo(heatmapState.zoom * HEATMAP_ZOOM_STEP); });
+    var outBtn = $('heatmap-zoom-out');
+    if (outBtn) outBtn.addEventListener('click', function(){ heatmapZoomTo(heatmapState.zoom / HEATMAP_ZOOM_STEP); });
+    var resetBtn = $('heatmap-zoom-reset');
+    if (resetBtn) resetBtn.addEventListener('click', heatmapResetZoom);
+
+    var root = $('heatmap-root');
+    if (!root) return;
+    // Wheel zooms about the cursor. preventDefault so the page doesn't
+    // scroll while the pointer is over the map.
+    root.addEventListener('wheel', function(ev){
+      if (!heatmapState.data || heatmapState.data.loadError) return;
+      ev.preventDefault();
+      var rect = root.getBoundingClientRect();
+      var factor = ev.deltaY < 0 ? HEATMAP_ZOOM_STEP : 1 / HEATMAP_ZOOM_STEP;
+      heatmapZoomTo(heatmapState.zoom * factor, ev.clientX - rect.left, ev.clientY - rect.top);
+    }, { passive: false });
+    // Drag to pan, but only when zoomed in (at fit there's nowhere to pan).
+    root.addEventListener('pointerdown', function(ev){
+      if (heatmapState.zoom <= 1.001 || ev.button !== 0) return;
+      heatmapState.panDrag = {
+        startX: ev.clientX, startY: ev.clientY,
+        panX: heatmapState.panX, panY: heatmapState.panY, moved: false,
+      };
+      try { root.setPointerCapture(ev.pointerId); } catch (e) {}
+      root.classList.add('is-panning');
+    });
+    root.addEventListener('pointermove', function(ev){
+      var d = heatmapState.panDrag;
+      if (!d) return;
+      var dx = ev.clientX - d.startX, dy = ev.clientY - d.startY;
+      if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) d.moved = true;
+      heatmapState.panX = d.panX + dx;
+      heatmapState.panY = d.panY + dy;
+      applyHeatmapTransform();
+    });
+    function endPan(ev){
+      var d = heatmapState.panDrag;
+      if (!d) return;
+      // A drag that moved must not also fire the tile click-to-navigate.
+      if (d.moved) heatmapState.suppressNextClick = true;
+      heatmapState.panDrag = null;
+      root.classList.remove('is-panning');
+      try { root.releasePointerCapture(ev.pointerId); } catch (e) {}
+    }
+    root.addEventListener('pointerup', endPan);
+    root.addEventListener('pointercancel', endPan);
   }
 
   // Squarified treemap (Bruls 2000). values must be desc-sorted by .value.
@@ -8335,11 +8456,15 @@
       html += '</div>';
     }
 
-    // Tooltip element lives at the end so it overlays everything.
-    html += '<div class="heatmap-tooltip" id="heatmap-tooltip" hidden></div>';
-
-    root.innerHTML = html;
+    // The sectors live inside .heatmap-canvas (the transform target for
+    // zoom/pan). The tooltip is a sibling of the canvas so it stays at true
+    // pixel size and tracks the cursor regardless of zoom.
+    root.innerHTML =
+      '<div class="heatmap-canvas" id="heatmap-canvas">' + html + '</div>' +
+      '<div class="heatmap-tooltip" id="heatmap-tooltip" hidden></div>';
     bindHeatmapTileEvents(root);
+    // Re-apply any preserved zoom/pan on top of the freshly-built tiles.
+    applyHeatmapTransform();
 
     if (eyebrow){
       // Prefer refreshedAtIso when the hourly refresh has run — its
@@ -8481,6 +8606,8 @@
   function bindHeatmapTileEvents(root){
     var tooltip = $('heatmap-tooltip');
     function onClick(ev){
+      // Swallow the click that ends a pan-drag so it doesn't navigate away.
+      if (heatmapState.suppressNextClick){ heatmapState.suppressNextClick = false; return; }
       var btn = ev.target && ev.target.closest && ev.target.closest('.heatmap-tile');
       if (!btn) return;
       var sym = btn.getAttribute('data-sym');
