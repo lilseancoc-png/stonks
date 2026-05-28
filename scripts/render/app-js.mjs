@@ -9040,12 +9040,53 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return 'sig-zero';
     }
     function fmtSignedNum(n){ return (n > 0 ? '+' : '') + n; }
+    var letter = { fundamentals: 'F', technicals: 'T', mechanicals: 'M', narrative: 'N' };
+    // Precompute scores so the composition bar can size each segment by its
+    // share of total |contribution|, and the per-row magnitude bars can scale
+    // against the biggest pillar.
+    var present = [];
+    var sumAbs = 0, maxAbs = 0;
+    for (var pi=0; pi<order.length; pi++){
+      var pk0 = order[pi];
+      var pil0 = pillars[pk0];
+      if (!pil0) continue;
+      var sc0 = pil0.score | 0;
+      present.push({ key: pk0, score: sc0 });
+      sumAbs += Math.abs(sc0);
+      if (Math.abs(sc0) > maxAbs) maxAbs = Math.abs(sc0);
+    }
+    // Composition bar — one glance at "what's driving the score". Each pillar
+    // is a segment sized by its share of total |contribution| and colored by
+    // sign (green = pushing the score in the trade's direction, red = against).
+    // The 1-letter code maps each segment back to its row below.
+    var vizSegs = '', vizAria = [];
+    if (sumAbs > 0){
+      for (var vi=0; vi<present.length; vi++){
+        var seg = present[vi];
+        var share = Math.abs(seg.score) / sumAbs;
+        var lbl = share >= 0.12 ? '<span class="pp-seg-l">' + letter[seg.key] + '</span>' : '';
+        vizSegs += '<span class="pp-seg ' + signClass(seg.score) + '" style="flex-grow:' +
+          Math.max(Math.abs(seg.score), 0.001) + '" title="' +
+          escapeHtml(nice[seg.key] + ' ' + fmtSignedNum(seg.score)) + '">' + lbl + '</span>';
+        vizAria.push(nice[seg.key] + ' ' + fmtSignedNum(seg.score));
+      }
+    }
+    var viz = vizSegs
+      ? '<div class="pick-pillars-viz" role="img" aria-label="Score composition: ' + escapeHtml(vizAria.join(', ')) + '">' + vizSegs + '</div>' +
+        '<div class="pick-pillars-viz-cap">what drives it</div>'
+      : '';
     var body = '';
     for (var i=0; i<order.length; i++){
       var k = order[i];
       var pil = pillars[k];
       if (!pil) continue;
       var pscore = pil.score | 0;
+      // Diverging magnitude bar — fills right (green) for a positive pillar,
+      // left (red) for a negative one, scaled against the biggest pillar so
+      // the collapsed list reads as a mini bar chart.
+      var magPct = maxAbs > 0 ? (Math.abs(pscore) / maxAbs * 50) : 0;
+      var barHtml = '<span class="pick-pillar-bar ' + signClass(pscore) +
+        '" style="--pill-mag:' + magPct.toFixed(1) + '%" aria-hidden="true"><i></i></span>';
       var sigList = '';
       var signals = Array.isArray(pil.signals) ? pil.signals : [];
       for (var j=0; j<signals.length; j++){
@@ -9064,6 +9105,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
         '<summary class="pick-pillar-head">' +
           '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + '</span>' +
+          barHtml +
           '<span class="pick-pillar-score ' + signClass(pscore) + '">' + escapeHtml(fmtSignedNum(pscore)) + '</span>' +
         '</summary>' +
         '<ul class="pick-pillar-signals">' + sigList + '</ul>' +
@@ -9074,6 +9116,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="pick-pillars-title">Score breakdown</span>' +
         '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + total) + '</span>' +
       '</div>' +
+      viz +
       body +
     '</aside>';
   }
