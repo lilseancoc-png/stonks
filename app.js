@@ -9206,6 +9206,16 @@
             ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
           '</span>'
         : '';
+      // How many consecutive builds this symbol has held a spot in the top
+      // picks. Only shown once it has survived more than one build — a single
+      // appearance is the default and not worth the chip.
+      var tenureHtml = '';
+      if (p.buildCount > 1){
+        var sinceTxt = fmtRepeatSince(p.firstSeen);
+        tenureHtml = '<span class="pick-tenure" title="In the top picks for ' + p.buildCount +
+          ' consecutive builds' + (sinceTxt ? ' — since ' + escapeHtml(sinceTxt) : '') + '">' +
+          '⏱ ' + p.buildCount + ' builds' + '</span>';
+      }
       var contractHtml = pickContractHtml(p);
       var tierHtml = pickTierBadge(p);
       var pillarsHtml = pickPillarPanel(p);
@@ -9222,6 +9232,7 @@
             sectorTag +
             '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
             streakHtml +
+            tenureHtml +
           '</div>' +
           tierHtml +
           analysisHtml +

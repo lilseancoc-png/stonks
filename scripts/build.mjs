@@ -6231,6 +6231,35 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null) {
   const picks = buildTopPicks(chains, narratives, null, unusualPayload);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
+
+  // Track how many consecutive builds each symbol has survived in the top
+  // picks. Keyed by symbol (a side flip still counts as "still in the list").
+  // firstSeen is the build timestamp the symbol first appeared; buildCount is
+  // the consecutive-build tally. Read the prior file before the zero-pick
+  // reuse branch below so genuinely-fresh picks get annotated; the stale
+  // reuse path carries the prior picks (and their counts) through untouched.
+  const priorBySymbol = new Map();
+  try {
+    const prior = JSON.parse(await readFile(picksPath, "utf8"));
+    if (Array.isArray(prior?.picks)) {
+      for (const pp of prior.picks) {
+        if (pp?.symbol) priorBySymbol.set(pp.symbol, pp);
+      }
+    }
+  } catch {
+    // No prior file (or unreadable) — every pick is brand new.
+  }
+  for (const p of picks) {
+    const prev = priorBySymbol.get(p.symbol);
+    if (prev?.firstSeen) {
+      p.firstSeen = prev.firstSeen;
+      p.buildCount = (prev.buildCount || 1) + 1;
+    } else {
+      p.firstSeen = builtAtIso;
+      p.buildCount = 1;
+    }
+  }
+
   // Preserve last-good picks when this run produces zero. The 9 ET cron
   // fires before the bell, so Yahoo returns bid=0 / ask=0 for nearly every
   // option contract and pickContractForPick's mechanical filters
