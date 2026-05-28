@@ -1665,12 +1665,21 @@ async function deleteTrade(id) {
   if (!id) return;
   if (!confirm("Delete this trade? The position will be restored to its prior state.")) return;
   try {
-    const token = state.session?.access_token;
+    // Read from the SDK rather than the cached state.session — the auto-
+    // refresh timer can rotate the access token without onAuthChange firing
+    // yet, and a stale bearer turns into an unrecoverable 401. Matches
+    // runReview / the sell handler.
+    const session = await getSession();
+    const token = session?.access_token;
+    if (!token) {
+      alert("Sign-in expired — refresh and sign in again.");
+      return;
+    }
     const r = await fetch("/api/delete-trade", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(token ? { authorization: "Bearer " + token } : {}),
+        authorization: "Bearer " + token,
       },
       body: JSON.stringify({ trade_id: id }),
     });

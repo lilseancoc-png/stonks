@@ -2437,7 +2437,7 @@
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','portfolio'];
+    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3380,8 +3380,13 @@
   // shape data/<SYMBOL>.json uses, so we can drop it straight into
   // state.chains[exp] and regrade without any other state changes.
   var CHAIN_POLL_MS = 30000;
+  // Abort a hung chain fetch well inside the poll interval so a single
+  // never-settling request can't wedge livePollInFlight (and silently kill
+  // all further polling) for the rest of the session.
+  var CHAIN_FETCH_TIMEOUT_MS = 12000;
   var livePollTimer = null;
   var livePollInFlight = false;
+  var livePollController = null;
   var liveLastRefreshAt = null;
   function liveRefreshLabel(state){
     if (state === 'REGULAR') return 'Live · auto-refresh 30s';
@@ -3406,10 +3411,12 @@
     if (livePollInFlight) return;
     if (state.symbol !== symbol) return;
     livePollInFlight = true;
-    fetch('/api/chain?symbol=' + encodeURIComponent(symbol) + '&exp=' + encodeURIComponent(exp), { cache: 'no-store' })
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    livePollController = controller;
+    var abortTimer = controller ? setTimeout(function(){ controller.abort(); }, CHAIN_FETCH_TIMEOUT_MS) : null;
+    fetch('/api/chain?symbol=' + encodeURIComponent(symbol) + '&exp=' + encodeURIComponent(exp), { cache: 'no-store', signal: controller ? controller.signal : undefined })
       .then(function(resp){ if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
       .then(function(r){
-        livePollInFlight = false;
         if (!r || !r.chain) return;
         if (state.symbol !== symbol) return;
         if (Number(state.currentExp) !== Number(exp)) return;
@@ -3443,9 +3450,13 @@
         if (r.marketState !== 'REGULAR') stopLivePolling();
       })
       .catch(function(){
+        // Silent failure (including timeout/abort); next interval will try
+        // again. Don't tear down the timer on a single hiccup.
+      })
+      .finally(function(){
+        if (abortTimer) clearTimeout(abortTimer);
+        if (livePollController === controller) livePollController = null;
         livePollInFlight = false;
-        // Silent failure; next interval will try again. Don't tear down
-        // the timer on a single hiccup.
       });
   }
   function currentMarketState(){
@@ -3469,6 +3480,10 @@
   }
   function stopLivePolling(){
     if (livePollTimer){ clearInterval(livePollTimer); livePollTimer = null; }
+    // Abort any in-flight request and clear the guard so a ticker/tab switch
+    // recovers immediately even if the prior fetch is still pending.
+    if (livePollController){ try { livePollController.abort(); } catch (_){} livePollController = null; }
+    livePollInFlight = false;
   }
   // Pause when the tab is hidden — no point burning Yahoo calls for a
   // tab the user can't see. Resume on visibility return.
@@ -9760,7 +9775,6 @@
       ['streaks', 'Streaks'],
       ['fear-greed', 'Fear & Greed'],
       ['f13', '13F filings'],
-      ['portfolio', 'Portfolio'],
     ];
 
     function buildCorpus(){

@@ -5345,18 +5345,21 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(macdSignal);
 
-  // 3. Streaks: ≥3 day green +2, ≥3 day red -2, else 0. Streaks are weighted
-  // heavier than RSI/MACD because a multi-day run reflects sustained
-  // accumulation/distribution rather than a single bar oscillator print.
+  // 3. Streaks: ≥3 genuine same-color days green +2, red -2, else 0. Streaks
+  // are weighted heavier than RSI/MACD because a multi-day run reflects
+  // sustained accumulation/distribution rather than a single bar oscillator
+  // print. Gate on sameDays, NOT days: `days` also counts flat sessions and
+  // tolerated counter days inside the streak window, so a 2-green + 1-flat
+  // run has days=3 but only 2 real green sessions — not a 3-day green run.
   let streakSignal = _sig("streak", "Streak", 0,
     { available: false, note: "no streak data" });
   const cur = streakRow && streakRow.current;
   if (cur) {
     let s = 0;
-    if (cur.color === "green" && cur.days >= 3) s = 2;
-    else if (cur.color === "red" && cur.days >= 3) s = -2;
+    if (cur.color === "green" && cur.sameDays >= 3) s = 2;
+    else if (cur.color === "red" && cur.sameDays >= 3) s = -2;
     streakSignal = _sig("streak", "Streak", s, {
-      value: `${cur.days}d ${cur.color}`,
+      value: `${cur.sameDays}d ${cur.color}`,
       note: `${cur.cumulativePct >= 0 ? "+" : ""}${cur.cumulativePct.toFixed(1)}% cumulative`,
     });
   }
@@ -5410,7 +5413,10 @@ function scoreTechnicals(data, streakRow) {
     { available: false, note: "no 52-week range" });
   const hi = f.fiftyTwoWeekHigh;
   const lo = f.fiftyTwoWeekLow;
-  if (spot > 0 && hi != null && isFinite(hi) && hi > 0 && lo != null && isFinite(lo) && lo > 0) {
+  // hi > lo (not just hi > 0 && lo > 0) so the (spot - lo) / (hi - lo)
+  // "% of range" below can't divide by zero on a degenerate range and ship
+  // a literal "Infinity%"/"NaN%" string.
+  if (spot > 0 && hi != null && isFinite(hi) && hi > 0 && lo != null && isFinite(lo) && lo > 0 && hi > lo) {
     const toHi = (hi - spot) / spot;
     const fromLo = (spot - lo) / spot;
     let s = 0;
@@ -7636,7 +7642,8 @@ async function fetchStocktwitsSentiment(symbol) {
     });
     if (!messages.length) return null;
     let bull = 0, bear = 0, neutral = 0;
-    let oldestMs = Infinity, newestMs = -Infinity;
+    let count24h = 0;
+    const cutoff24h = Date.now() - 24 * 3600 * 1000;
     const exBull = [], exBear = [], exNeu = [];
     for (const m of messages) {
       const tag = m?.entities?.sentiment?.basic;
@@ -7646,10 +7653,7 @@ async function fetchStocktwitsSentiment(symbol) {
       else { neutral++; sentiment = "neutral"; }
       if (m?.created_at) {
         const ts = Date.parse(m.created_at);
-        if (!isNaN(ts)) {
-          if (ts < oldestMs) oldestMs = ts;
-          if (ts > newestMs) newestMs = ts;
-        }
+        if (!isNaN(ts) && ts >= cutoff24h) count24h++;
       }
       const bucket = sentiment === "bullish" ? exBull : sentiment === "bearish" ? exBear : exNeu;
       if (bucket.length < 2 && m?.body) {
@@ -7662,12 +7666,16 @@ async function fetchStocktwitsSentiment(symbol) {
       }
     }
     const total = bull + bear + neutral;
-    const spanDays = oldestMs < newestMs ? Math.max((newestMs - oldestMs) / 86400000, 1 / 24) : 1;
-    const msgsPerDay = total / spanDays;
     return {
       source: "stocktwits",
       bull, bear, neutral, total,
-      msgsPerDay,
+      // Actual count of relevant messages posted in the trailing 24h (capped
+      // by StockTwits' ~30-message sample). This is the sample-size gate +
+      // the displayed activity figure. It previously held total / span — a
+      // per-day *rate* — which inflated short-span samples (30 msgs over an
+      // hour read as "720/day") and made the ">=5 msgs/24h" gate fire on
+      // essentially everything.
+      count24h,
       examples: pickExamples([exBull, exBear, exNeu], 2),
       sampledAt: new Date().toISOString(),
     };
@@ -7680,13 +7688,13 @@ async function fetchStocktwitsSentiment(symbol) {
 async function fetchSocialSentiment(symbol) {
   const stocktwits = await fetchStocktwitsSentiment(symbol);
   if (!stocktwits) return null;
-  const { bull, bear, neutral, total, msgsPerDay } = stocktwits;
+  const { bull, bear, neutral, total, count24h } = stocktwits;
   if (total === 0) return null;
   return {
     bullishPct: (bull / total) * 100,
     bearishPct: (bear / total) * 100,
     neutralPct: (neutral / total) * 100,
-    msgCount24h: msgsPerDay || 0,
+    msgCount24h: count24h || 0,
     trend: "flat",
     sources: { stocktwits },
     builtAt: new Date().toISOString(),
@@ -8499,7 +8507,7 @@ async function attachSocialSentiment(chains) {
     const social = await fetchSocialSentiment(sym);
     data.social = social;
     if (social) {
-      console.log(`  ✓ ${sym} — ${social.bullishPct.toFixed(0)}% bull / ${social.bearishPct.toFixed(0)}% bear (${Math.round(social.msgCount24h)} msgs/day)`);
+      console.log(`  ✓ ${sym} — ${social.bullishPct.toFixed(0)}% bull / ${social.bearishPct.toFixed(0)}% bear (${Math.round(social.msgCount24h)} msgs/24h)`);
     }
   }));
   await Promise.all(tasks);
