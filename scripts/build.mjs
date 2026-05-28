@@ -883,6 +883,9 @@ function computeTechnicals(bars) {
   if (!bars || bars.length < 27) return null;
   const closes = bars.map((b) => b.c);
   const rsi = computeRSI(closes, 14);
+  // 5-trading-day-prior RSI so the scoring layer can read rising vs
+  // dropping momentum even when RSI is mid-range (not overbought / oversold).
+  const rsi5d = closes.length >= 21 ? computeRSI(closes.slice(0, -5), 14) : null;
   const macd = computeMACD(closes, 12, 26, 9);
   const sr = computeSupportResistance(bars);
   const volRegime = computeVolRegime(bars, 30);
@@ -893,6 +896,7 @@ function computeTechnicals(bars) {
     asOfClose: round2(closes[closes.length - 1]),
     bars: closes.length,
     rsi: rsi != null ? round2(rsi) : null,
+    rsi5d: rsi5d != null ? round2(rsi5d) : null,
     macd: macd ? { line: round4(macd.line), signal: round4(macd.signal), hist: round4(macd.hist) } : null,
     sr: sr
       ? { s20: round2(sr.s20), r20: round2(sr.r20), s50: round2(sr.s50), r50: round2(sr.r50) }
@@ -5281,16 +5285,39 @@ function scoreTechnicals(data, streakRow) {
   const spot = data?.spot;
   const signals = [];
 
-  // 1. RSI 14: oversold (<35) +1, overbought (>70) -1, else 0.
+  // 1. RSI 14: extremes take priority — oversold (<35) +1, overbought (>70) -1.
+  // In the 35-70 mid-range, fall back to direction over the prior 5 sessions:
+  // ≥5pt rise → +1 (momentum building), ≥5pt drop → -1 (momentum fading).
+  // Captures the "Rising +1 / Dropping -1" half of the spec for tickers that
+  // aren't pinned at an extreme.
   let rsiSignal = _sig("rsi", "RSI 14", 0,
     { available: false, note: "no RSI computed" });
   if (t.rsi != null && isFinite(t.rsi)) {
     let s = 0;
-    if (t.rsi < 35) s = 1;
-    else if (t.rsi > 70) s = -1;
+    let note;
+    if (t.rsi < 35) {
+      s = 1;
+      note = "oversold";
+    } else if (t.rsi > 70) {
+      s = -1;
+      note = "overbought";
+    } else if (t.rsi5d != null && isFinite(t.rsi5d)) {
+      const delta = t.rsi - t.rsi5d;
+      if (delta >= 5) {
+        s = 1;
+        note = `rising (+${delta.toFixed(1)} pts vs 5d ago)`;
+      } else if (delta <= -5) {
+        s = -1;
+        note = `dropping (${delta.toFixed(1)} pts vs 5d ago)`;
+      } else {
+        note = "neutral range, flat momentum";
+      }
+    } else {
+      note = "neutral range";
+    }
     rsiSignal = _sig("rsi", "RSI 14", s, {
       value: t.rsi.toFixed(1),
-      note: t.rsi < 35 ? "oversold" : t.rsi > 70 ? "overbought" : "neutral range",
+      note,
     });
   }
   signals.push(rsiSignal);
@@ -5401,7 +5428,7 @@ function scoreTechnicals(data, streakRow) {
   signals.push(fiftyTwoSignal);
 
   // 6. Volume Confirmation: pairs with the S/R signal. A breakout with
-  // 1.5x+ relative volume scores +1 (move is real); a breakout on weak
+  // 1.3x+ relative volume scores +1 (move is real); a breakout on weak
   // volume (<0.8x) scores -1 (likely fakeout). Direction follows the
   // breakout: confirmed up-break = +1, confirmed down-break = -1, weak
   // up-break = -1, weak down-break = +1. Without an S/R breakout the
@@ -5415,13 +5442,13 @@ function scoreTechnicals(data, streakRow) {
     if (srScoreForConf === 2) { // bullish breakout
       let s = 0;
       let note = `${rv.toFixed(2)}x vs 20D — break unconfirmed by volume`;
-      if (rv >= 1.5) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakout confirmed by volume`; }
+      if (rv >= 1.3) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakout confirmed by volume`; }
       else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakout on weak volume (fakeout risk)`; }
       volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
     } else if (srScoreForConf === -2) { // bearish breakdown
       let s = 0;
       let note = `${rv.toFixed(2)}x vs 20D — breakdown unconfirmed by volume`;
-      if (rv >= 1.5) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakdown confirmed by volume`; }
+      if (rv >= 1.3) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakdown confirmed by volume`; }
       else if (rv < 0.8) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakdown on weak volume (bounce candidate)`; }
       volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
     } else {
@@ -5463,18 +5490,22 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
   const t = data?.technicals || {};
   const signals = [];
 
-  // 1. Unusual Flow: ±1. Net bullish premium ≥$1M tilts +1, ≥-$1M tilts -1.
+  // 1. Unusual Flow: ±1. Compare aggressive bullish print count (call buys
+  // lifting offer + put sells hitting bid) vs aggressive bearish print count.
+  // ≥1.5x ratio either way scores ±1, needs ≥5 prints on the dominant side
+  // so a single contract can't tip the signal.
   let flowSignal = _sig("unusualFlow", "Unusual Flow", 0,
     { available: false, note: "no unusual flow today" });
   const flow = summarizeUnusualForSym(sym, unusualPayload);
   if (flow) {
-    const net = (flow.bullPrem || 0) - (flow.bearPrem || 0);
-    const abs = Math.abs(net);
+    const bull = flow.bullCt || 0;
+    const bear = flow.bearCt || 0;
     let s = 0;
-    let note = `bull $${((flow.bullPrem || 0) / 1e6).toFixed(1)}M vs bear $${((flow.bearPrem || 0) / 1e6).toFixed(1)}M`;
-    if (abs >= 1_000_000) s = net > 0 ? 1 : -1;
+    let note = `${bull} bullish vs ${bear} bearish prints`;
+    if (bull >= 5 && bull >= 1.5 * Math.max(1, bear)) s = 1;
+    else if (bear >= 5 && bear >= 1.5 * Math.max(1, bull)) s = -1;
     flowSignal = _sig("unusualFlow", "Unusual Flow", s, {
-      value: `${net >= 0 ? "+" : "-"}$${(abs / 1e6).toFixed(1)}M net`,
+      value: `${bull}C / ${bear}P prints`,
       note,
     });
   }
@@ -5498,25 +5529,29 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
   }
   signals.push(oiSignal);
 
-  // 3. Short Interest %: ≥15% of float → +1 (squeeze potential); ≤3% → -1
-  // (no skeptics left in the position, or shorts have already covered into
-  // an established downtrend). We lack short-interest history to detect
-  // "dropping fast" so the bearish read is approximated from the low-SI
-  // floor instead.
+  // 3. Short Interest %: ±1. Spec wants "high short + rising stock = +1,
+  // rising SI = -1, falling SI = +1". We don't carry SI history so the
+  // "rising/falling SI" half is approximated from the snapshot floor (low
+  // SI = shorts already covered, +1 substitute) and the high-SI half is
+  // gated by today's price direction — high SI alone isn't a signal, it
+  // needs a green tape to trigger a squeeze read.
   let shortSignal = _sig("shortInterest", "Short Interest %", 0,
     { available: false, note: "no short interest data" });
   const sp = f.shortPercentOfFloat;
+  const dailyMove = t?.volume?.priceMove1dPct;
   if (sp != null && isFinite(sp)) {
     let s = 0;
-    let note = `${sp.toFixed(1)}% of float short`;
+    let note = `${sp.toFixed(1)}% of float short — neutral band`;
     if (sp >= 15) {
-      s = 1;
-      note = `${sp.toFixed(1)}% of float short — squeeze risk`;
+      if (dailyMove != null && isFinite(dailyMove) && dailyMove > 0) {
+        s = 1;
+        note = `${sp.toFixed(1)}% short + stock +${dailyMove.toFixed(2)}% today — squeeze setup`;
+      } else {
+        note = `${sp.toFixed(1)}% short, tape flat / red — squeeze not triggered`;
+      }
     } else if (sp <= 3) {
       s = -1;
-      note = `${sp.toFixed(1)}% of float short — complacent positioning`;
-    } else {
-      note = `${sp.toFixed(1)}% of float short — neutral band`;
+      note = `${sp.toFixed(1)}% short — complacent / shorts already covered`;
     }
     shortSignal = _sig("shortInterest", "Short Interest %", s, {
       value: `${sp.toFixed(1)}%`,
@@ -5525,7 +5560,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
   }
   signals.push(shortSignal);
 
-  // 4. Unusual Volume: ±1 on rvol ≥1.5x with a directional move. Spec is
+  // 4. Unusual Volume: ±1 on rvol ≥1.3x with a directional move. Spec is
   // hourly-vs-20D, but the daily build only has daily rvol; close-enough
   // proxy as long as the move's direction follows volume.
   let uvolSignal = _sig("unusualVolume", "Unusual Volume", 0,
@@ -5536,7 +5571,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
     const mv = Number(vol.priceMove1dPct);
     let s = 0;
     let note = `${rv.toFixed(2)}x vs 20D avg`;
-    if (rv >= 1.5 && Math.abs(mv) >= 0.5) {
+    if (rv >= 1.3 && Math.abs(mv) >= 0.5) {
       s = mv > 0 ? 1 : -1;
       note = `${rv.toFixed(2)}x volume on ${mv > 0 ? "+" : ""}${mv.toFixed(1)}% move`;
     }
@@ -5983,14 +6018,18 @@ function pickContractForPick(side, data) {
 }
 
 // Plain-English analysis paragraph for a pick — why it scored where it did,
-// what the dominant pillar was, and how it stacks up against same-sector
-// peers. Deterministic (no AI) so the explanation always matches the math.
+// what the dominant pillar was, what the strongest individual signals were,
+// and how it stacks up against same-sector peers (with explicit "we'd take
+// X over Y because X +20 vs Y +10" framing). Deterministic (no AI) so the
+// explanation always matches the math.
 function buildPickAnalysis(pick, peers) {
   const symbol = pick.symbol;
   const tier = pick.recommendation?.label || "—";
   const total = pick.total;
   const side = pick.side;
   const sectorName = pick.sector || "this sector";
+  const sideWord = side === "put" ? "puts" : "calls";
+  const sgn = (n) => `${n >= 0 ? "+" : ""}${n}`;
 
   const pillars = pick.pillars || {};
   const ranked = [
@@ -6002,31 +6041,67 @@ function buildPickAnalysis(pick, peers) {
 
   const top = ranked[0];
   const second = ranked[1];
-  const lead = `${symbol} scores ${total >= 0 ? "+" : ""}${total} — a ${tier} recommendation. `;
+  const lead = `${symbol} scores ${sgn(total)} — a ${tier} recommendation. `;
 
   const topDir = top.score > 0 ? "bullish" : top.score < 0 ? "bearish" : "flat";
   const pillarLine =
     top.score === 0
       ? "Every pillar landed at zero — there is no clear edge here. "
-      : `The ${topDir} read is led by ${top.label} (${top.score >= 0 ? "+" : ""}${top.score})` +
+      : `The ${topDir} read is led by ${top.label} (${sgn(top.score)})` +
         (second && second.score !== 0
-          ? `, reinforced by ${second.label} (${second.score >= 0 ? "+" : ""}${second.score}). `
+          ? `, reinforced by ${second.label} (${sgn(second.score)}). `
           : ". ");
+
+  // Surface the actual signals doing the lifting / fighting. Flatten every
+  // pillar's signals, pick the top contributors on each side, and call them
+  // out by name + value so the reader can verify the math against the side
+  // panel without scrolling.
+  const allSignals = [];
+  for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
+    const sigs = pillars[pk]?.signals || [];
+    for (const s of sigs) {
+      if (!s || !s.score) continue;
+      allSignals.push({ ...s, pillar: pk });
+    }
+  }
+  const dir = total >= 0 ? 1 : -1;
+  const helping = allSignals
+    .filter((s) => Math.sign(s.score) === dir)
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .slice(0, 3);
+  const fighting = allSignals
+    .filter((s) => Math.sign(s.score) === -dir)
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .slice(0, 2);
+  const fmtSig = (s) => `${s.label} (${sgn(s.score)}${s.value ? `, ${s.value}` : ""})`;
+  let driverLine = "";
+  if (helping.length) {
+    driverLine += `The biggest contributors are ${helping.map(fmtSig).join(", ")}. `;
+  }
+  if (fighting.length) {
+    driverLine += `Cutting the other way: ${fighting.map(fmtSig).join(", ")}. `;
+  }
 
   let peerLine = "";
   if (Array.isArray(peers) && peers.length) {
-    const lower = peers.filter((p) => Math.abs(p.total) < Math.abs(total));
+    const sameSideActionable = peers.filter((p) =>
+      ((p.side === side && p.side != null) ||
+       (side != null && Math.sign(p.total) === Math.sign(total))) &&
+      Math.abs(p.total) >= 9 && Math.abs(p.total) < Math.abs(total)
+    );
     const sameSide = peers.filter((p) =>
       (p.side === side && p.side != null) || (side != null && Math.sign(p.total) === Math.sign(total))
     );
-    if (sameSide.length) {
+    const lower = peers.filter((p) => Math.abs(p.total) < Math.abs(total));
+    if (sameSideActionable.length) {
+      const next = sameSideActionable[0];
+      peerLine = `Within ${sectorName} we gave ${symbol} a ${sgn(total)} and ${next.symbol} a ${sgn(next.total)} — same direction, lower conviction — which is why we'd take ${symbol} ${sideWord} over ${next.symbol} ${sideWord}. `;
+    } else if (sameSide.length) {
       const next = sameSide[0];
-      peerLine = `Within ${sectorName}, ${symbol} (${total >= 0 ? "+" : ""}${total}) ranks above ${next.symbol} ` +
-        `(${next.total >= 0 ? "+" : ""}${next.total}) — the same direction at lower conviction, which is why we'd take ${symbol} ${side === "call" ? "calls" : "puts"} over ${next.symbol}. `;
+      peerLine = `Within ${sectorName}, the next-closest same-direction peer is ${next.symbol} at ${sgn(next.total)} — well below ${symbol}'s ${sgn(total)}, so ${symbol} is the cleaner ${sideWord} expression. `;
     } else if (lower.length) {
       const next = lower[0];
-      peerLine = `Within ${sectorName}, ${symbol} (${total >= 0 ? "+" : ""}${total}) outscores ${next.symbol} ` +
-        `(${next.total >= 0 ? "+" : ""}${next.total}) on absolute conviction. `;
+      peerLine = `Within ${sectorName}, ${symbol} (${sgn(total)}) outscores ${next.symbol} (${sgn(next.total)}) on absolute conviction — no same-side peer cleared the threshold. `;
     } else {
       peerLine = `Same-sector peers carry similar or lower absolute scores — ${symbol} is at the top of ${sectorName} today. `;
     }
@@ -6035,11 +6110,10 @@ function buildPickAnalysis(pick, peers) {
   let contractLine = "";
   const c = pick.contract;
   if (c) {
-    const sideWord = side === "put" ? "puts" : "calls";
     contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria.`;
   }
 
-  return (lead + pillarLine + peerLine + contractLine).trim();
+  return (lead + pillarLine + driverLine + peerLine + contractLine).trim();
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
