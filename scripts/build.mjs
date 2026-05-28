@@ -4926,10 +4926,10 @@ export function pickFedwatchBuckets(history, meetingDate, nowIso) {
 // ============================================================================
 const PICKS_FILE = "picks.json";
 const PICKS_COUNT = 10;
-// 4-pillar scoring uses tiers: ±15 Strong, ±9 directional, otherwise No Trade.
-// Floor at 9 absolute so only actionable picks ship.
-const PICKS_MIN_CONVICTION = 9;
-const PICKS_TIER_STRONG = 15;
+// 4-pillar scoring uses tiers: ±16 Strong, ±12 directional, otherwise No Trade.
+// Floor at 12 absolute so only actionable picks ship.
+export const PICKS_MIN_CONVICTION = 12;
+const PICKS_TIER_STRONG = 16;
 
 // Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
@@ -5056,11 +5056,11 @@ function summarizeUnusualForSym(sym, unusualPayload) {
 // sum of its signals. Total score = sum of all four pillar scores.
 //
 // Score → tier mapping (per the spec):
-//   ≥ +15  Strong Call  (Very High conviction, Full size)
-//   +9..+14 Call        (High conviction, Standard size)
-//   -8..+8 No Trade     (Skip — not shipped)
-//   -9..-14 Put         (High conviction, Standard size)
-//   ≤ -15  Strong Put   (Very High conviction, Full size)
+//   ≥ +16   Strong Call  (Very High conviction, Full size)
+//   +12..+15 Call        (High conviction, Standard size)
+//   -11..+11 No Trade    (Skip — not shipped)
+//   -12..-15 Put         (High conviction, Standard size)
+//   ≤ -16   Strong Put   (Very High conviction, Full size)
 //
 // Each pillar returns a `signals` array where every entry is
 //   { key, label, score, value, note, available }
@@ -5129,8 +5129,9 @@ function scoreFundamentals(data, sectorMedianPE) {
   const f = data?.fundamentals || {};
   const signals = [];
 
-  // 1. Earnings Surprise (most-recent quarter): >15% beat ±3, 1-14% ±2, else 0.
-  // Stale prints (>~180d old) score 0 — the surprise was already absorbed.
+  // 1. Earnings Surprise (most-recent quarter): dynamic rating per spec —
+  // beat/miss by >25% = ±2, 1-24% = ±1, else 0. Stale prints (>~180d old)
+  // score 0 — the surprise was already absorbed by the tape.
   const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory : [];
   let surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", 0,
     { available: false, note: "no recent earnings on file" });
@@ -5143,10 +5144,10 @@ function scoreFundamentals(data, sectorMedianPE) {
       if (daysOld <= 180) {
         const sp = Number(recent.surprisePct);
         let s = 0;
-        if (sp > 15) s = 3;
-        else if (sp >= 1) s = 2;
-        else if (sp < -15) s = -3;
-        else if (sp <= -1) s = -2;
+        if (sp > 25) s = 2;
+        else if (sp >= 1) s = 1;
+        else if (sp < -25) s = -2;
+        else if (sp <= -1) s = -1;
         surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", s, {
           value: `${sp >= 0 ? "+" : ""}${sp.toFixed(1)}%`,
           note: `${recent.date} — actual ${recent.epsActual} vs est ${recent.epsEstimate}`,
@@ -5237,21 +5238,19 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(peSignal);
 
-  // 6. Guidance: ±3 with in-line as +2. Approximated from current-FY analyst
-  // growth estimate since raw guidance text isn't fetched. ≥+20% → raised +3,
-  // 0..+20% → in line +2, -10..0% → soft cut -2, ≤-10% → lowered -3.
+  // 6. Guidance: raised/in-line +2, soft cut -2, lowered -3 (per spec — the
+  // downside is weighted heavier than the upside). Approximated from the
+  // current-FY analyst growth estimate since raw guidance text isn't fetched.
+  // ≥0% → raised/in line +2, -10..0% → soft cut -2, ≤-10% → lowered -3.
   let guideSignal = _sig("guidance", "Guidance", 0,
     { available: false, note: "no guidance estimate available" });
   const gFY = f.growthEstimateCurY;
   if (gFY != null && isFinite(gFY)) {
     let s = 0;
     let note;
-    if (gFY >= 20) {
-      s = 3;
-      note = `+${gFY.toFixed(1)}% FY EPS growth est — raised proxy`;
-    } else if (gFY >= 0) {
+    if (gFY >= 0) {
       s = 2;
-      note = `+${gFY.toFixed(1)}% FY EPS growth est — in line/raised proxy`;
+      note = `+${gFY.toFixed(1)}% FY EPS growth est — raised/in-line proxy`;
     } else if (gFY <= -10) {
       s = -3;
       note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
@@ -5485,6 +5484,28 @@ function sumCallPutOI(data) {
   return { callOI, putOI };
 }
 
+// Sum near-term call vs put traded volume for the put/call-ratio signal.
+// Volume (today's prints) — not OI (resting depth) — so the ratio reflects
+// current-session positioning sentiment.
+function sumCallPutVolume(data) {
+  const chains = data?.chains;
+  if (!chains) return null;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const exps = Object.keys(chains)
+    .map(Number)
+    .filter((e) => e > nowSec)
+    .sort((a, b) => a - b)
+    .slice(0, 4); // nearest 4 expirations
+  if (!exps.length) return null;
+  let callVol = 0, putVol = 0;
+  for (const e of exps) {
+    const ch = chains[e];
+    for (const r of (ch?.c || [])) callVol += Number(r?.v) || 0;
+    for (const r of (ch?.p || [])) putVol += Number(r?.v) || 0;
+  }
+  return { callVol, putVol };
+}
+
 // ----- Mechanicals pillar ---------------------------------------------------
 function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
   const f = data?.fundamentals || {};
@@ -5600,6 +5621,32 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
     });
   }
   signals.push(spySignal);
+
+  // 6. Put/Call Ratio Extreme: ±1, contrarian. Total put volume / call volume
+  // across the nearest expirations. A high ratio (>1.25) is extreme fear —
+  // crowded protection that tends to mark a bottom, so it reads bullish. A
+  // low ratio (<0.65) is extreme greed — everyone already long calls, so it
+  // reads bearish. Mid-range ratios carry no edge (0).
+  let pcrSignal = _sig("putCallRatio", "Put/Call Ratio Extreme", 0,
+    { available: false, note: "no option volume data" });
+  const pcVol = sumCallPutVolume(data);
+  if (pcVol && pcVol.callVol > 0) {
+    const ratio = pcVol.putVol / pcVol.callVol;
+    let s = 0;
+    let note = `P/C ${ratio.toFixed(2)} — neutral positioning`;
+    if (ratio > 1.25) {
+      s = 1;
+      note = `P/C ${ratio.toFixed(2)} — extreme fear, contrarian bullish`;
+    } else if (ratio < 0.65) {
+      s = -1;
+      note = `P/C ${ratio.toFixed(2)} — extreme greed, contrarian bearish`;
+    }
+    pcrSignal = _sig("putCallRatio", "Put/Call Ratio Extreme", s, {
+      value: `${ratio.toFixed(2)} P/C`,
+      note,
+    });
+  }
+  signals.push(pcrSignal);
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
@@ -6083,12 +6130,39 @@ function buildPickAnalysis(pick, peers) {
     driverLine += `Cutting the other way: ${fighting.map(fmtSig).join(", ")}. `;
   }
 
+  // Name the pillars where this pick out-scores a peer *in the trade's
+  // direction* — the deterministic "why we'd take X over Y" (e.g. "mainly on
+  // Fundamentals (+8 vs +3) and Technicals (+4 vs +1)").
+  const dirSign = total >= 0 ? 1 : -1;
+  const pillarLabels = {
+    fundamentals: "Fundamentals",
+    technicals: "Technicals",
+    mechanicals: "Mechanicals",
+    narrative: "Narrative",
+  };
+  const pillarEdge = (peer) => {
+    const ps = peer && peer.pillarScores;
+    if (!ps) return "";
+    const edges = [];
+    for (const k of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
+      const mine = pillars[k]?.score ?? 0;
+      const theirs = ps[k] ?? 0;
+      const adv = (mine - theirs) * dirSign;
+      if (adv > 0) edges.push({ k, mine, theirs, adv });
+    }
+    if (!edges.length) return "";
+    edges.sort((a, b) => b.adv - a.adv);
+    const top = edges.slice(0, 2)
+      .map((e) => `${pillarLabels[e.k]} (${sgn(e.mine)} vs ${sgn(e.theirs)})`);
+    return top.length === 2 ? `${top[0]} and ${top[1]}` : top[0];
+  };
+
   let peerLine = "";
   if (Array.isArray(peers) && peers.length) {
     const sameSideActionable = peers.filter((p) =>
       ((p.side === side && p.side != null) ||
        (side != null && Math.sign(p.total) === Math.sign(total))) &&
-      Math.abs(p.total) >= 9 && Math.abs(p.total) < Math.abs(total)
+      Math.abs(p.total) >= PICKS_MIN_CONVICTION && Math.abs(p.total) < Math.abs(total)
     );
     const sameSide = peers.filter((p) =>
       (p.side === side && p.side != null) || (side != null && Math.sign(p.total) === Math.sign(total))
@@ -6096,10 +6170,12 @@ function buildPickAnalysis(pick, peers) {
     const lower = peers.filter((p) => Math.abs(p.total) < Math.abs(total));
     if (sameSideActionable.length) {
       const next = sameSideActionable[0];
-      peerLine = `Within ${sectorName} we gave ${symbol} a ${sgn(total)} and ${next.symbol} a ${sgn(next.total)} — same direction, lower conviction — which is why we'd take ${symbol} ${sideWord} over ${next.symbol} ${sideWord}. `;
+      const edge = pillarEdge(next);
+      peerLine = `Within ${sectorName} we gave ${symbol} a ${sgn(total)} and ${next.symbol} a ${sgn(next.total)} — same direction, lower conviction — which is why we'd take ${symbol} ${sideWord} over ${next.symbol} ${sideWord}${edge ? `, mainly on ${edge}` : ""}. `;
     } else if (sameSide.length) {
       const next = sameSide[0];
-      peerLine = `Within ${sectorName}, the next-closest same-direction peer is ${next.symbol} at ${sgn(next.total)} — well below ${symbol}'s ${sgn(total)}, so ${symbol} is the cleaner ${sideWord} expression. `;
+      const edge = pillarEdge(next);
+      peerLine = `Within ${sectorName}, the next-closest same-direction peer is ${next.symbol} at ${sgn(next.total)} — well below ${symbol}'s ${sgn(total)}${edge ? ` (${symbol} leads on ${edge})` : ""}, so ${symbol} is the cleaner ${sideWord} expression. `;
     } else if (lower.length) {
       const next = lower[0];
       peerLine = `Within ${sectorName}, ${symbol} (${sgn(total)}) outscores ${next.symbol} (${sgn(next.total)}) on absolute conviction — no same-side peer cleared the threshold. `;
@@ -6115,6 +6191,127 @@ function buildPickAnalysis(pick, peers) {
   }
 
   return (lead + pillarLine + driverLine + peerLine + contractLine).trim();
+}
+
+// Deterministic exit plan for a pick — two price targets (take-profit and
+// cut/reduce) on the underlying, each with a reason, plus a short list of
+// contextual exit triggers. Anchored to real S/R levels (20d/50d), the
+// 52-week range, the chain's 1σ expected move, earnings timing, and RSI.
+// Levels are on the *stock* price (not the option) because that's the thing
+// the trader actually watches — the option follows from it.
+//
+//   takeProfit / cut: { price, movePct, reason } | null
+//   triggers:         [ "…", … ]  (≤3 contextual exit conditions)
+function buildExitPlan(side, spot, data, contract) {
+  if (!(spot > 0) || (side !== "call" && side !== "put")) return null;
+  const t = data?.technicals || {};
+  const f = data?.fundamentals || {};
+  const sr = t.sr || {};
+  const s20 = Number(sr.s20), s50 = Number(sr.s50);
+  const r20 = Number(sr.r20), r50 = Number(sr.r50);
+  const hi52 = Number(f.fiftyTwoWeekHigh), lo52 = Number(f.fiftyTwoWeekLow);
+  const emPct = contract && contract.expectedMovePct != null && isFinite(contract.expectedMovePct)
+    ? Math.abs(Number(contract.expectedMovePct))
+    : null;
+  const px = (n) => `$${Number(n).toFixed(2)}`;
+  const movePct = (lvl) => Number((((lvl - spot) / spot) * 100).toFixed(1));
+
+  // Candidate levels above / below spot, each tagged with a human label.
+  const above = [];
+  const below = [];
+  const addLvl = (val, label) => {
+    if (!(val > 0) || !isFinite(val)) return;
+    if (val > spot * 1.015) above.push({ val, label });
+    else if (val < spot * 0.985) below.push({ val, label });
+  };
+  addLvl(r20, "20-day resistance");
+  addLvl(r50, "50-day resistance");
+  addLvl(hi52, "52-week high");
+  addLvl(s20, "20-day support");
+  addLvl(s50, "50-day support");
+  addLvl(lo52, "52-week low");
+  above.sort((a, b) => a.val - b.val);   // nearest overhead first
+  below.sort((a, b) => b.val - a.val);   // nearest underfoot first
+
+  const emText = emPct != null ? ` The chain prices a ±${emPct.toFixed(1)}% move by expiry` : "";
+  let takeProfit = null;
+  let cut = null;
+
+  if (side === "call") {
+    // Take-profit: nearest overhead resistance (where advances stall), else
+    // the chain's 1σ expected-move target.
+    const tpLvl = above[0];
+    if (tpLvl) {
+      takeProfit = {
+        price: Number(tpLvl.val.toFixed(2)),
+        movePct: movePct(tpLvl.val),
+        reason: `Bank gains near ${px(tpLvl.val)} — the ${tpLvl.label} where prior advances have stalled.${emText}, so take profit into strength rather than chasing an extension.`,
+      };
+    } else if (emPct != null) {
+      const target = spot * (1 + emPct / 100);
+      takeProfit = {
+        price: Number(target.toFixed(2)),
+        movePct: movePct(target),
+        reason: `No overhead resistance left (near highs) — target ${px(target)} (+${emPct.toFixed(1)}%), the chain's 1σ expected move by expiry. Beyond it you're betting on an outlier.`,
+      };
+    }
+    // Cut: close below nearest support — breaks the bullish structure.
+    const cutLvl = below[0];
+    const cutVal = cutLvl ? cutLvl.val : spot * 0.92;
+    const cutLabel = cutLvl ? cutLvl.label : "an ~8% stop below entry";
+    cut = {
+      price: Number(cutVal.toFixed(2)),
+      movePct: movePct(cutVal),
+      reason: `Reduce/exit on a close below ${px(cutVal)} — losing ${cutLabel} breaks the bullish setup that drove the call (thesis invalidated). Cut before theta compounds the loss.`,
+    };
+  } else {
+    // Put — mirror: take profit into support, cut on reclaim of resistance.
+    const tpLvl = below[0];
+    if (tpLvl) {
+      takeProfit = {
+        price: Number(tpLvl.val.toFixed(2)),
+        movePct: movePct(tpLvl.val),
+        reason: `Bank gains near ${px(tpLvl.val)} — the ${tpLvl.label} where declines tend to find bids.${emText}, so take profit into weakness rather than chasing a deeper drop.`,
+      };
+    } else if (emPct != null) {
+      const target = spot * (1 - emPct / 100);
+      takeProfit = {
+        price: Number(target.toFixed(2)),
+        movePct: movePct(target),
+        reason: `No support left below (near lows) — target ${px(target)} (-${emPct.toFixed(1)}%), the chain's 1σ expected move by expiry. Beyond it you're betting on an outlier.`,
+      };
+    }
+    const cutLvl = above[0];
+    const cutVal = cutLvl ? cutLvl.val : spot * 1.08;
+    const cutLabel = cutLvl ? cutLvl.label : "an ~8% stop above entry";
+    cut = {
+      price: Number(cutVal.toFixed(2)),
+      movePct: movePct(cutVal),
+      reason: `Reduce/exit on a close above ${px(cutVal)} — reclaiming ${cutLabel} invalidates the bearish breakdown (thesis invalidated). Cut before theta compounds the loss.`,
+    };
+  }
+
+  // Contextual triggers — highest-strength exit conditions first.
+  const triggers = [];
+  if (contract && contract.earningsInWindow) {
+    const eIso = f.nextEarningsDate;
+    const when = eIso ? ` (${eIso})` : "";
+    triggers.push(`Exit before earnings${when}: the post-report IV crush can erase a long premium even when the direction is right.`);
+  }
+  const rsi = t.rsi;
+  if (rsi != null && isFinite(rsi)) {
+    if (side === "call" && rsi >= 72) {
+      triggers.push(`RSI ${rsi.toFixed(0)} is stretched — tighten the take-profit; an overbought reading plus bearish divergence is a high-strength reversal signal.`);
+    } else if (side === "put" && rsi <= 28) {
+      triggers.push(`RSI ${rsi.toFixed(0)} is deeply oversold — tighten the take-profit; an oversold bounce can squeeze the put fast.`);
+    }
+  }
+  if (contract && contract.dte != null && isFinite(contract.dte)) {
+    triggers.push(`Time stop: don't carry into the final week before ${contract.expiryLabel || "expiry"} — theta accelerates and the breakeven move gets harder each day.`);
+  }
+  triggers.push(`Thesis check: if a higher-scoring setup appears or the original reason for the trade stops being true, rotate out regardless of price.`);
+
+  return { takeProfit, cut, triggers: triggers.slice(0, 4) };
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
@@ -6161,6 +6358,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       side: s.recommendation?.side || null,
       tier: s.recommendation?.tier || "no-trade",
       label: s.recommendation?.label || "No Trade",
+      pillarScores: {
+        fundamentals: s.pillars?.fundamentals?.score ?? 0,
+        technicals: s.pillars?.technicals?.score ?? 0,
+        mechanicals: s.pillars?.mechanicals?.score ?? 0,
+        narrative: s.pillars?.narrative?.score ?? 0,
+      },
     });
   }
   for (const sec of Object.keys(sectorIndex)) {
@@ -6221,6 +6424,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         : null,
       peers,
       contract,
+      exitPlan: buildExitPlan(side, r.data?.spot ?? null, r.data, contract),
     };
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);

@@ -8904,6 +8904,44 @@
       '<button type="button" class="pick-contract-grade"' + btnAttrs + '>Grade this contract →</button>' +
     '</div>';
   }
+  // Exit plan — two price targets (take-profit + cut/reduce) plus contextual
+  // exit triggers. Server-computed in buildExitPlan() so the browser just
+  // lays it out. Older picks.json payloads lack exitPlan; render nothing.
+  function pickExitPlanHtml(p){
+    var x = p && p.exitPlan;
+    if (!x || (!x.takeProfit && !x.cut)) return '';
+    function target(kind, t, cls){
+      if (!t || t.price == null) return '';
+      var mv = (t.movePct != null && isFinite(t.movePct))
+        ? '<span class="pick-exit-move">' + (t.movePct >= 0 ? '+' : '') + Number(t.movePct).toFixed(1) + '%</span>'
+        : '';
+      return '<div class="pick-exit-target pick-exit-' + cls + '">' +
+        '<div class="pick-exit-target-head">' +
+          '<span class="pick-exit-kind">' + escapeHtml(kind) + '</span>' +
+          '<span class="pick-exit-price">$' + Number(t.price).toFixed(2) + '</span>' +
+          mv +
+        '</div>' +
+        '<div class="pick-exit-reason">' + escapeHtml(t.reason || '') + '</div>' +
+      '</div>';
+    }
+    var targets = target('Take profit', x.takeProfit, 'tp') + target('Cut / reduce', x.cut, 'cut');
+    var trig = '';
+    if (Array.isArray(x.triggers) && x.triggers.length){
+      var items = '';
+      for (var i=0; i<x.triggers.length; i++){
+        items += '<li>' + escapeHtml(String(x.triggers[i])) + '</li>';
+      }
+      trig = '<div class="pick-exit-triggers">' +
+        '<div class="pick-exit-triggers-head">Also exit if</div>' +
+        '<ul class="pick-exit-trigger-list">' + items + '</ul>' +
+      '</div>';
+    }
+    return '<div class="pick-exit">' +
+      '<div class="pick-exit-head">Exit plan</div>' +
+      '<div class="pick-exit-targets">' + targets + '</div>' +
+      trig +
+    '</div>';
+  }
   function pickPremium(p){
     var c = p && p.contract;
     if (!c) return null;
@@ -8981,8 +9019,8 @@
   function pickTierBadge(p){
     var rec = p && p.recommendation;
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : null);
-    var label = rec && rec.label ? rec.label : (total >= 9 ? 'Call' : total <= -9 ? 'Put' : 'No Trade');
-    var tier = rec && rec.tier ? rec.tier : (total >= 15 ? 'strong-call' : total >= 9 ? 'call' : total <= -15 ? 'strong-put' : total <= -9 ? 'put' : 'no-trade');
+    var label = rec && rec.label ? rec.label : (total >= 12 ? 'Call' : total <= -12 ? 'Put' : 'No Trade');
+    var tier = rec && rec.tier ? rec.tier : (total >= 16 ? 'strong-call' : total >= 12 ? 'call' : total <= -16 ? 'strong-put' : total <= -12 ? 'put' : 'no-trade');
     var conv = rec && rec.conviction ? rec.conviction : '';
     var size = rec && rec.sizing ? rec.sizing : '';
     var scoreStr = (total != null) ? ((total >= 0 ? '+' : '') + total) : '—';
@@ -9217,6 +9255,7 @@
           '⏱ ' + p.buildCount + ' builds' + '</span>';
       }
       var contractHtml = pickContractHtml(p);
+      var exitHtml = pickExitPlanHtml(p);
       var tierHtml = pickTierBadge(p);
       var pillarsHtml = pickPillarPanel(p);
       var peersHtml = pickPeerList(p);
@@ -9237,6 +9276,7 @@
           tierHtml +
           analysisHtml +
           contractHtml +
+          exitHtml +
           peersHtml +
         '</div>' +
         pillarsHtml +
