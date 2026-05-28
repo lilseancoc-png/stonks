@@ -6358,6 +6358,102 @@ main { padding-top: var(--s-2); }
   border-color: color-mix(in srgb, var(--neg) 20%, var(--border));
 }
 
+/* Exit plan — two price targets (take-profit + cut/reduce) plus contextual
+   exit triggers. Sits under the contract block. */
+.pick-exit {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.pick-exit-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.pick-exit-targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px;
+}
+.pick-exit-target {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  border-left-width: 3px;
+}
+.pick-exit-tp {
+  border-left-color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 4%, var(--surface));
+}
+.pick-exit-cut {
+  border-left-color: var(--neg);
+  background: color-mix(in srgb, var(--neg) 4%, var(--surface));
+}
+.pick-exit-target-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.pick-exit-kind {
+  font: 600 10px/1.2 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-strong);
+}
+.pick-exit-tp .pick-exit-kind { color: var(--pos); }
+.pick-exit-cut .pick-exit-kind { color: var(--neg); }
+.pick-exit-price {
+  font: 700 14px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+  margin-left: auto;
+}
+.pick-exit-move {
+  font: 600 11px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.pick-exit-reason {
+  font: 400 11.5px/1.45 var(--font-sans);
+  color: var(--text);
+}
+.pick-exit-triggers { margin-top: 7px; }
+.pick-exit-triggers-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.pick-exit-trigger-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pick-exit-trigger-list li {
+  font: 400 11.5px/1.45 var(--font-sans);
+  color: var(--text);
+  padding-left: 14px;
+  position: relative;
+}
+.pick-exit-trigger-list li::before {
+  content: "›";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 /* "How to read a pick" collapsible — sits between the section hint and
    the cards. Closed by default so the section stays tight for return
    visitors; opening it shows the layout legend for first-time readers. */

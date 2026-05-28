@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks } from "./build.mjs";
+import { buildTopPicks, PICKS_MIN_CONVICTION } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -48,7 +48,7 @@ for (const sym of symbols) {
 const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload);
 const out = {
   builtAtIso: new Date().toISOString(),
-  minConviction: 9,
+  minConviction: PICKS_MIN_CONVICTION,
   picks,
 };
 

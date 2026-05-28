@@ -774,15 +774,16 @@
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
-    <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+15 or higher</b> Strong Call (Very High conviction, full size), <b>+9&nbsp;to&nbsp;+14</b> Call (High, standard size), <b>-8 to +8</b> No Trade (skipped), <b>-9 to -14</b> Put (High, standard size), <b>-15 or lower</b> Strong Put (Very High, full size). Each card shows the score breakdown on the side so you can audit the judgment and see how it stacks up against same-sector peers.</p>
+    <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+16 or higher</b> Strong Call (Very High conviction, full size), <b>+12&nbsp;to&nbsp;+15</b> Call (High, standard size), <b>-11 to +11</b> No Trade (skipped), <b>-12 to -15</b> Put (High, standard size), <b>-16 or lower</b> Strong Put (Very High, full size). Each card shows the score breakdown on the side so you can audit the judgment, an exit plan with take-profit and cut targets, and how it stacks up against same-sector peers.</p>
     <details class="picks-howto">
       <summary>How the 4-pillar score works &rarr;</summary>
       <div class="picks-howto-body">
-        <p><b>Fundamentals (7 signals).</b> Earnings surprise &plusmn;3 (&gt;15% &plusmn;3, 1-14% &plusmn;2), EPS growth YoY +1 / -2, revenue growth YoY +1 / -2, analyst price target &plusmn;1, P/E vs sector median &plusmn;1, guidance &plusmn;3 (in line +2), major contract +2 / -3.</p>
-        <p><b>Technicals (6 signals).</b> RSI 14 &plusmn;1, MACD &plusmn;1, current streak &plusmn;2, broke 20d support/resistance &plusmn;2, 52-week proximity (high -1 / low +1, contrarian read), volume confirmation &plusmn;1 (breakout on 1.5x+ avg vol = +1, low-vol break = -1).</p>
-        <p><b>Mechanicals (5 signals).</b> Unusual flow &plusmn;1, open interest C/P ratio &plusmn;1, short interest &plusmn;1 (&gt;15% +1, &lt;3% -1), unusual volume &plusmn;1, SPY flows &plusmn;1 (green tape +1, red tape -1).</p>
+        <p><b>Fundamentals (7 signals).</b> Earnings surprise (beat/miss &gt;25% &plusmn;2, 1-24% &plusmn;1), EPS growth YoY +1 / -2, revenue growth YoY +1 / -2, analyst price target &plusmn;1, P/E vs sector median &plusmn;1, guidance (raised/in line +2, soft cut -2, lowered -3), major contract +2 / -3.</p>
+        <p><b>Technicals (6 signals).</b> RSI 14 &plusmn;1, MACD &plusmn;1, current streak &plusmn;2, broke 20d support/resistance &plusmn;2, 52-week proximity (high -1 / low +1, contrarian read), volume confirmation &plusmn;1 (breakout on 1.3x+ avg vol = +1, low-vol break = -1).</p>
+        <p><b>Mechanicals (6 signals).</b> Unusual flow &plusmn;1, open interest C/P ratio &plusmn;1, short interest &plusmn;1 (&gt;15% +1, &lt;3% -1), unusual volume &plusmn;1, SPY flows &plusmn;1 (green tape +1, red tape -1), put/call ratio extreme &plusmn;1 (contrarian: P/C &gt;1.25 = fear &rarr; +1, &lt;0.65 = greed &rarr; -1).</p>
         <p><b>Narrative (6 signals).</b> Positive catalyst +3 / 0, sector tailwind/headwind &plusmn;2, social sentiment &plusmn;1, media coverage surge &plusmn;1, negative catalyst 0 / -3, macro tail/headwinds +1 / -2 (tariffs, regulation, war, Fed, trade policy).</p>
         <p><b>Suggested contract criteria.</b> 5-25% OTM, delta 0.15-0.40, IV &lt;200%, &ge;14 days to expiry, premium &le;$35/share (&le;$3,500 / contract), tight spread, liquid. The "In plain English" panel under each contract translates the bet into beginner terms.</p>
+        <p><b>Exit plan.</b> Each pick carries two price targets &mdash; a <b>take-profit</b> level (lock gains into overhead resistance / the chain&rsquo;s expected move) and a <b>cut/reduce</b> level (the close that invalidates the technical thesis) &mdash; plus contextual exit triggers (earnings-in-window IV-crush risk, stretched RSI, time stops).</p>
         <p><b>Risk.</b> Buying a call or put can lose <i>at most</i> the premium you pay &mdash; but can lose all of it if the stock doesn&rsquo;t move enough in your direction before expiry. None of this is financial advice; the picks are a starting watchlist, not a recommendation to trade.</p>
       </div>
     </details>
@@ -801,8 +802,8 @@
       </label>
     </div>
     <div id="picks-root" class="picks-root">Loading top picks…</div>
-    <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-8 to +8).</div>
-    <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;9 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
+    <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-11 to +11).</div>
+    <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;12 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
   </section>
   </div>
   <div class="page-pane" id="page-pane-heatmap" role="tabpanel" aria-labelledby="page-tab-heatmap" hidden>
