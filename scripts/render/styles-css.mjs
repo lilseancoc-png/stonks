@@ -6847,6 +6847,59 @@ main { padding-top: var(--s-2); }
 }
 .acc-target-tp { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, var(--surface)); }
 .acc-target-cut { color: var(--neg); background: color-mix(in srgb, var(--neg) 10%, var(--surface)); }
+.acc-contract {
+  font: 600 10px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-strong);
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 12%, var(--surface));
+}
+/* Per-ticker dropdown grouping multiple open contracts. Collapsed by default
+   so a hot ticker with several contracts stays to one summary line. */
+.acc-dd {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  margin-bottom: 6px;
+}
+.acc-dd-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.acc-dd-summary::-webkit-details-marker { display: none; }
+.acc-dd-summary::after {
+  content: '▸';
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform .15s ease;
+}
+.acc-dd[open] > .acc-dd-summary::after { transform: rotate(90deg); }
+.acc-dd[open] > .acc-dd-summary { border-bottom: 1px solid var(--border); }
+.acc-dd-sym { font: 700 14px/1 var(--font-mono); color: var(--text-strong); }
+.acc-dd-count {
+  font: 700 9px/1 var(--font-mono);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  color: var(--muted-strong);
+  background: color-mix(in srgb, var(--muted) 16%, var(--surface));
+}
+.acc-dd-side { font: 700 8.5px/1 var(--font-mono); letter-spacing: .05em; color: var(--muted-strong); }
+.acc-dd-avg {
+  margin-left: auto;
+  font: 700 13px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.acc-dd-body { padding: 8px; }
+.acc-dd-body .acc-row { margin-bottom: 6px; }
+.acc-dd-body .acc-row:last-child { margin-bottom: 0; }
 .accuracy-empty { color: var(--muted); font: 400 13px/1.5 var(--font-sans); padding: 12px 0; }
 @media (max-width: 560px) {
   .acc-tier-row { grid-template-columns: 92px 1fr 40px 40px; gap: 6px; }

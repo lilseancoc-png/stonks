@@ -4978,7 +4978,7 @@ const PICKS_IV_REGIME_HIGH = 70;
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
-const PICKS_ACCURACY_MAX_HOLD_DAYS = 30; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
+const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // only enroll the top-N ranked picks each build, so the open list can't balloon as the top-10 rotates
 
 // ---- Contract grade helpers (mirror app.js thresholds) ------------------
@@ -6825,6 +6825,16 @@ function gradeLabelFor(status, outcome) {
   return "—";
 }
 
+// Contract-level identity for a tracked pick: symbol + side + strike + expiry.
+// Two picks on the same ticker with different strikes or expiries are distinct
+// contracts (tracked separately, grouped under one ticker in the UI); an
+// identical contract is never enrolled twice.
+function pickContractKey(symbol, side, contract) {
+  const strike = contract && contract.strike != null ? contract.strike : "?";
+  const exp = contract && contract.expiry != null ? contract.expiry : "?";
+  return `${symbol}:${side}:${strike}:${exp}`;
+}
+
 function computePicksAccuracyStats(open, closed, builtAtIso) {
   const decided = closed.filter((e) => e.outcome === "win" || e.outcome === "loss");
   const wins = decided.filter((e) => e.outcome === "win").length;
@@ -6881,13 +6891,15 @@ export async function updatePicksAccuracyFile(chains, builtAtIso) {
   }
 
   const nowSec = Math.floor((Date.parse(builtAtIso) || Date.now()) / 1000);
-  const closedThisRun = new Set();
   const stillOpen = [];
 
   for (const e of state.open) {
-    if (!e || !e.key) continue;
+    if (!e || !e.symbol) continue;
     const sym = e.symbol;
     const isCall = e.side === "call";
+    // Normalize to a contract-level key (symbol:side:strike:expiry) so dedup is
+    // precise and legacy symbol:side keys from earlier builds migrate cleanly.
+    e.key = pickContractKey(sym, e.side, e.contract);
     const known = !!(chains && chains[sym]);
     const cur = Number(chains?.[sym]?.spot);
     if (cur > 0) {
@@ -6946,24 +6958,30 @@ export async function updatePicksAccuracyFile(chains, builtAtIso) {
         scoredRight: outcome === "win" ? true : outcome === "loss" ? false : null,
         grade: gradeLabelFor(status, outcome),
       });
-      closedThisRun.add(e.key);
     } else {
       stillOpen.push(e);
     }
   }
 
-  // Enroll picks not already tracked (and not just closed this run). Only the
-  // top-N ranked picks are eligible, so the open list can't balloon as the
-  // top-10 rotates. Names already open keep being tracked regardless of where
-  // they rank today — we only gate what gets newly enrolled.
-  const openKeys = new Set(stillOpen.map((e) => e.key));
+  // Enroll picks not already tracked. Only the top-N ranked picks are eligible,
+  // so the open list can't balloon as the top-10 rotates. Names already open
+  // keep being tracked regardless of where they rank today — we only gate what
+  // gets newly enrolled.
+  //
+  // Dedup is contract-level: we skip any pick whose exact contract is already
+  // open OR already resolved, so the same contract is never enrolled twice. A
+  // *different* contract on the same ticker (new strike or expiry) still
+  // enrolls as its own entry — the Track Record UI groups a ticker's contracts
+  // under a dropdown.
+  const seenKeys = new Set(stillOpen.map((e) => e.key));
+  for (const ce of state.closed) seenKeys.add(pickContractKey(ce.symbol, ce.side, ce.contract));
   for (const p of picks.slice(0, PICKS_ACCURACY_ENROLL_TOP_N)) {
     if (!p || (p.side !== "call" && p.side !== "put")) continue;
-    const key = `${p.symbol}:${p.side}`;
-    if (openKeys.has(key) || closedThisRun.has(key)) continue;
+    const c = p.contract || {};
+    const key = pickContractKey(p.symbol, p.side, c);
+    if (seenKeys.has(key)) continue;
     const entrySpot = Number(p.spot) || Number(chains?.[p.symbol]?.spot) || 0;
     if (!(entrySpot > 0)) continue;
-    const c = p.contract || {};
     stillOpen.push({
       key,
       symbol: p.symbol,
@@ -6995,7 +7013,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso) {
       maePct: 0,
       samples: 1,
     });
-    openKeys.add(key);
+    seenKeys.add(key);
   }
 
   // Prune the closed log by age, then cap.

@@ -8877,6 +8877,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (n == null || !isFinite(n)) return '—';
     return (n >= 0 ? '+' : '') + Number(n).toFixed(1) + '%';
   }
+  // Short "$50 · Jul 16 '26" descriptor so two different contracts on the same
+  // ticker are distinguishable within a dropdown.
+  function accContractDesc(e){
+    var c = e && e.contract; if (!c) return '';
+    var parts = [];
+    if (c.strike != null) parts.push('$' + c.strike);
+    if (c.expiryLabel) parts.push(c.expiryLabel);
+    return parts.join(' · ');
+  }
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
     var statsEl = $('accuracy-stats');
@@ -8939,40 +8948,70 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : '';
     if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock;
 
-    // --- Open positions -----------------------------------------------------
+    // --- Open positions (grouped by ticker; multiple contracts collapse) ----
     var nowMs = Date.now();
     var html = '';
+    function accOpenRow(e){
+      var isCall = e.side !== 'put';
+      var entry = Number(e.entrySpot) || 0;
+      var last = Number(e.lastSpot) || entry;
+      var chg = entry > 0 ? (last - entry) / entry * 100 : 0;
+      var favorable = isCall ? chg >= 0 : chg <= 0;
+      var expMs = Number(e.contract && e.contract.expiry) * 1000;
+      var dleft = isFinite(expMs) ? Math.round((expMs - nowMs) / 86400000) : (e.contract && e.contract.dte);
+      var tp = Number(e.takeProfit), ct = Number(e.cut);
+      var desc = accContractDesc(e);
+      var targets = '';
+      if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
+      if (isFinite(ct)) targets += '<span class="acc-target acc-target-cut">Cut $' + ct.toFixed(2) + '</span>';
+      return '<div class="acc-row acc-row-open">' +
+        '<div class="acc-row-head">' +
+          accSidePill(e.side) +
+          '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
+          (desc ? '<span class="acc-contract">' + escapeHtml(desc) + '</span>' : '') +
+          accTierTag(e.tier, e.label) +
+          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? e.score : '—')) + '</span>' +
+          '<span class="acc-since ' + (favorable ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + '</span>' +
+        '</div>' +
+        '<div class="acc-row-meta">' +
+          '<span>Entered ' + accDateShort(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
+          '<span>Now $' + last.toFixed(2) + '</span>' +
+          (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
+          '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
+        '</div>' +
+        (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
+      '</div>';
+    }
     if (open.length){
-      var openRows = '';
-      // Sort open by entry recency (newest first).
+      // Group by ticker. Entries sort newest-first; groups follow their most
+      // recent entry. One contract → a plain row; multiple distinct contracts
+      // on the same ticker → a collapsed dropdown so the list stays tight.
+      var bySym = {}, symOrder = [];
       open.slice().sort(function(a, b){ return (Date.parse(b.entryDate)||0) - (Date.parse(a.entryDate)||0); }).forEach(function(e){
-        var isCall = e.side !== 'put';
-        var entry = Number(e.entrySpot) || 0;
-        var last = Number(e.lastSpot) || entry;
-        var chg = entry > 0 ? (last - entry) / entry * 100 : 0;
-        var favorable = isCall ? chg >= 0 : chg <= 0;
-        var expMs = Number(e.contract && e.contract.expiry) * 1000;
-        var dleft = isFinite(expMs) ? Math.round((expMs - nowMs) / 86400000) : (e.contract && e.contract.dte);
-        var tp = Number(e.takeProfit), ct = Number(e.cut);
-        var targets = '';
-        if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
-        if (isFinite(ct)) targets += '<span class="acc-target acc-target-cut">Cut $' + ct.toFixed(2) + '</span>';
-        openRows += '<div class="acc-row acc-row-open">' +
-          '<div class="acc-row-head">' +
-            accSidePill(e.side) +
-            '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
-            accTierTag(e.tier, e.label) +
-            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? e.score : '—')) + '</span>' +
-            '<span class="acc-since ' + (favorable ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + '</span>' +
-          '</div>' +
-          '<div class="acc-row-meta">' +
-            '<span>Entered ' + accDateShort(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
-            '<span>Now $' + last.toFixed(2) + '</span>' +
-            (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
-            '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
-          '</div>' +
-          (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
-        '</div>';
+        var s = e.symbol || '—';
+        if (!bySym[s]){ bySym[s] = []; symOrder.push(s); }
+        bySym[s].push(e);
+      });
+      var openRows = '';
+      symOrder.forEach(function(s){
+        var list = bySym[s];
+        if (list.length === 1){ openRows += accOpenRow(list[0]); return; }
+        var avg = 0, n = 0, sides = {};
+        list.forEach(function(e){
+          var entry = Number(e.entrySpot) || 0, last = Number(e.lastSpot) || entry;
+          if (entry > 0){ avg += (last - entry) / entry * 100; n++; }
+          sides[e.side === 'put' ? 'put' : 'call'] = 1;
+        });
+        avg = n ? avg / n : 0;
+        var sideStr = Object.keys(sides).map(function(k){ return k === 'put' ? 'PUT' : 'CALL'; }).join('/');
+        var summary = '<span class="acc-dd-sym">' + escapeHtml(s) + '</span>' +
+          '<span class="acc-dd-count">' + list.length + ' contracts</span>' +
+          '<span class="acc-dd-side">' + sideStr + '</span>' +
+          '<span class="acc-dd-avg ' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '">avg ' + accPct(avg) + '</span>';
+        openRows += '<details class="acc-dd">' +
+          '<summary class="acc-dd-summary">' + summary + '</summary>' +
+          '<div class="acc-dd-body">' + list.map(accOpenRow).join('') + '</div>' +
+        '</details>';
       });
       html += '<div class="accuracy-group">' +
         '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
