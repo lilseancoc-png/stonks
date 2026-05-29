@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-05-28","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-05-29","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -9087,6 +9087,33 @@
       '</div>';
     }
     var targets = target('Take profit', x.takeProfit, 'tp') + target('Cut / reduce', x.cut, 'cut');
+    // Per-pillar invalidation reasons — one each for Fundamental / Technical /
+    // Mechanical / Narrative. Older picks.json payloads lack x.pillars; skip.
+    var pillarHtml = '';
+    if (Array.isArray(x.pillars) && x.pillars.length){
+      var rows = '';
+      for (var j=0; j<x.pillars.length; j++){
+        var pe = x.pillars[j];
+        if (!pe || !pe.reason) continue;
+        var strengthCls = String(pe.strength || '').toLowerCase().replace(/[^a-z]+/g, '-');
+        var strengthBadge = pe.strength
+          ? '<span class="pick-exit-strength pick-exit-strength-' + escapeHtml(strengthCls) + '">' + escapeHtml(pe.strength) + '</span>'
+          : '';
+        rows += '<div class="pick-exit-pillar">' +
+          '<div class="pick-exit-pillar-head">' +
+            '<span class="pick-exit-pillar-label">' + escapeHtml(pe.label || pe.pillar || '') + '</span>' +
+            strengthBadge +
+          '</div>' +
+          '<div class="pick-exit-pillar-reason">' + escapeHtml(pe.reason) + '</div>' +
+        '</div>';
+      }
+      if (rows){
+        pillarHtml = '<div class="pick-exit-pillars">' +
+          '<div class="pick-exit-pillars-head">What would invalidate it</div>' +
+          rows +
+        '</div>';
+      }
+    }
     var trig = '';
     if (Array.isArray(x.triggers) && x.triggers.length){
       var items = '';
@@ -9101,6 +9128,7 @@
     return '<div class="pick-exit">' +
       '<div class="pick-exit-head">Exit plan</div>' +
       '<div class="pick-exit-targets">' + targets + '</div>' +
+      pillarHtml +
       trig +
     '</div>';
   }

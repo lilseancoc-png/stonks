@@ -4940,11 +4940,11 @@ const PICKS_MIN_DTE = 14;           // 14d+ per spec
 const PICKS_MAX_DTE = 120;          // beyond ~4mo theta drags too long
 const PICKS_IDEAL_DTE_LO = 30;
 const PICKS_IDEAL_DTE_HI = 60;
-const PICKS_DELTA_MIN = 0.15;       // 0.15-0.40 band per spec
+const PICKS_DELTA_MIN = 0.10;       // 0.10-0.40 band per spec
 const PICKS_DELTA_MAX = 0.40;
-const PICKS_DELTA_IDEAL = 0.28;     // mid of the 0.15-0.40 band
+const PICKS_DELTA_IDEAL = 0.25;     // mid of the 0.10-0.40 band
 const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
-const PICKS_OTM_MAX_PCT = 0.25;     // 25% OTM
+const PICKS_OTM_MAX_PCT = 0.35;     // 35% OTM
 const PICKS_MAX_IV = 2.0;           // 200% IV cap
 const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
 // Required breakeven move vs IV-implied 1σ expected move at expiry.
@@ -5860,6 +5860,28 @@ function fmtExpiryLabelShort(epochSec) {
   return `${m} ${day} '${yr}`;
 }
 
+// True if an expiration (epoch seconds) is a standard monthly — the third
+// Friday of its month. Yahoo stores these epochs at 00:00 UTC of the expiry
+// date, so we read the calendar date in UTC (reading in ET would shift it to
+// the prior evening and miscount the day-of-month). The third Friday always
+// lands on day 15-21; we allow ±1 day of slack so the occasional off-by-one
+// epoch (Yahoo lists the near-term June monthly a day early) and holiday-
+// shifted expirations (Good Friday → the preceding Thursday) still count.
+// Weeklies, quarterlies on non-standard dates, and end-of-month series fail.
+function isStandardMonthly(epochSec) {
+  const d = new Date(epochSec * 1000);
+  if (Number.isNaN(d.getTime())) return false;
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+  // Day-of-month of the third Friday: first Friday is 1 + days-until-Friday
+  // from the 1st, plus two weeks.
+  const firstDow = new Date(Date.UTC(year, month, 1)).getUTCDay(); // 0=Sun..6=Sat
+  const firstFriday = 1 + ((5 - firstDow + 7) % 7);
+  const thirdFriday = firstFriday + 14;
+  return Math.abs(day - thirdFriday) <= 1;
+}
+
 // Pick the highest-quality contract on `side` ('call' | 'put') for a top
 // pick. Two-phase pipeline:
 //   1. Apply HARD mechanical filters (DTE, |delta|, bid-ask spread, OI,
@@ -5889,6 +5911,10 @@ function pickContractForPick(side, data) {
   for (const expSec of exps) {
     const dte = (expSec - nowSec) / 86400;
     if (dte < PICKS_MIN_DTE || dte > PICKS_MAX_DTE) continue;
+    // Standard monthlies only (third Friday) per spec — weeklies carry
+    // thinner OI and wider spreads, and the monthly series is what stays
+    // liquid all the way out to the longer DTEs we hold.
+    if (!isStandardMonthly(expSec)) continue;
     const ch = data.chains[expSec];
     const rows = (side === "call" ? ch?.c : ch?.p) || [];
     if (!rows.length) continue;
@@ -5899,8 +5925,8 @@ function pickContractForPick(side, data) {
       if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
       // IV cap (200%) — anything north of this is lottery-ticket pricing.
       if (row.iv > PICKS_MAX_IV) continue;
-      // 5-25% OTM band per the spec. Strike must be away from spot in the
-      // bet's direction by at least 5% but no more than 25%.
+      // 5-35% OTM band per the spec. Strike must be away from spot in the
+      // bet's direction by at least 5% but no more than 35%.
       const otmPct = side === "call"
         ? (row.s - spot) / spot
         : (spot - row.s) / spot;
@@ -5997,10 +6023,11 @@ function pickContractForPick(side, data) {
   let best = null;
   let bestComposite = Infinity;
   for (const c of candidates) {
-    // Delta window (0.15-0.40) — anchor on PICKS_DELTA_IDEAL so the ideal
+    // Delta window (0.10-0.40) — anchor on PICKS_DELTA_IDEAL so the ideal
     // contract sits squarely in the middle of the band rather than the upper
-    // or lower edge.
-    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.12);
+    // or lower edge. 0.15 = the max distance from the 0.25 ideal to either
+    // edge of the band, so the penalty spans [0,1] across the whole window.
+    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.15);
     const dtePen = Math.min(1, dteFitPenalty(c.dte));
     const spreadPen = Math.min(1, c.spreadPct / PICKS_MAX_SPREAD_PCT);
     const oiPen = Math.min(1, oiPenalty(c.oi));
@@ -6193,7 +6220,7 @@ function buildPickAnalysis(pick, peers) {
   let contractLine = "";
   const c = pick.contract;
   if (c) {
-    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-25% OTM / Δ 0.15-0.40 / ≤$35 premium criteria.`;
+    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-35% OTM / Δ 0.10-0.40 / ≤$35 premium / standard-monthly criteria.`;
   }
 
   return (lead + pillarLine + driverLine + peerLine + contractLine).trim();
@@ -6207,8 +6234,11 @@ function buildPickAnalysis(pick, peers) {
 // the trader actually watches — the option follows from it.
 //
 //   takeProfit / cut: { price, movePct, reason } | null
-//   triggers:         [ "…", … ]  (≤3 contextual exit conditions)
-function buildExitPlan(side, spot, data, contract) {
+//   pillars:          [ { pillar, label, reason, strength }, … ]  (one per
+//                     pillar — the key fundamental / technical / mechanical /
+//                     narrative thing that would invalidate the trade)
+//   triggers:         [ "…", … ]  (≤4 contextual exit conditions)
+function buildExitPlan(side, spot, data, contract, pillarScores) {
   if (!(spot > 0) || (side !== "call" && side !== "put")) return null;
   const t = data?.technicals || {};
   const f = data?.fundamentals || {};
@@ -6240,62 +6270,160 @@ function buildExitPlan(side, spot, data, contract) {
   below.sort((a, b) => b.val - a.val);   // nearest underfoot first
 
   const emText = emPct != null ? ` The chain prices a ±${emPct.toFixed(1)}% move by expiry` : "";
+  // Take-profit must offer meaningful upside (spec): it should sit at least
+  // ~half the chain's 1σ expected move from spot (floor 5%). Otherwise a
+  // resistance a couple percent away would set a target where the OTM option
+  // has barely moved — poor risk/reward and opportunity cost.
+  const emFrac = emPct != null ? emPct / 100 : null;
+  const tpMinFrac = emFrac != null ? Math.max(0.05, emFrac * 0.5) : 0.08;
   let takeProfit = null;
   let cut = null;
 
   if (side === "call") {
-    // Take-profit: nearest overhead resistance (where advances stall), else
-    // the chain's 1σ expected-move target.
-    const tpLvl = above[0];
+    // Take-profit: nearest overhead resistance that is FAR ENOUGH above spot to
+    // be worth banking (≥ tpMinFrac), else the chain's 1σ expected-move target.
+    const tpLvl = above.find((l) => l.val >= spot * (1 + tpMinFrac));
     if (tpLvl) {
       takeProfit = {
         price: Number(tpLvl.val.toFixed(2)),
         movePct: movePct(tpLvl.val),
-        reason: `Bank gains near ${px(tpLvl.val)} — the ${tpLvl.label} where prior advances have stalled.${emText}, so take profit into strength rather than chasing an extension.`,
+        reason: `Bank gains near ${px(tpLvl.val)} (+${movePct(tpLvl.val).toFixed(1)}%) — the ${tpLvl.label} where prior advances have stalled.${emText}, so take profit into strength rather than chasing an extension.`,
       };
     } else if (emPct != null) {
       const target = spot * (1 + emPct / 100);
       takeProfit = {
         price: Number(target.toFixed(2)),
         movePct: movePct(target),
-        reason: `No overhead resistance left (near highs) — target ${px(target)} (+${emPct.toFixed(1)}%), the chain's 1σ expected move by expiry. Beyond it you're betting on an outlier.`,
+        reason: `No resistance far enough above to bank into — target ${px(target)} (+${emPct.toFixed(1)}%), the chain's 1σ expected move by expiry. That's where the option has gained real value; beyond it you're betting on an outlier.`,
+      };
+    } else {
+      const target = spot * (1 + tpMinFrac);
+      takeProfit = {
+        price: Number(target.toFixed(2)),
+        movePct: movePct(target),
+        reason: `Target ${px(target)} (+${(tpMinFrac * 100).toFixed(1)}%) — a meaningful first profit-take; no resistance or expected-move level to anchor to.`,
       };
     }
     // Cut: close below nearest support — breaks the bullish structure.
     const cutLvl = below[0];
-    const cutVal = cutLvl ? cutLvl.val : spot * 0.92;
-    const cutLabel = cutLvl ? cutLvl.label : "an ~8% stop below entry";
+    let cutVal = cutLvl ? cutLvl.val : spot * 0.92;
+    let cutLabel = cutLvl ? cutLvl.label : "an ~8% stop below entry";
+    // Guard (per spec): never set the cut so far below spot that the call is
+    // already near-worthless by the time it triggers. If the nearest support
+    // sits more than ~12% under spot, fall back to a tighter ~8% stop so the
+    // contract still retains meaningful premium where we bail.
+    if (cutVal < spot * 0.88) {
+      cutVal = spot * 0.92;
+      cutLabel = "an ~8% stop (nearest support sits too far below to be a useful exit)";
+    }
     cut = {
       price: Number(cutVal.toFixed(2)),
       movePct: movePct(cutVal),
       reason: `Reduce/exit on a close below ${px(cutVal)} — losing ${cutLabel} breaks the bullish setup that drove the call (thesis invalidated). Cut before theta compounds the loss.`,
     };
   } else {
-    // Put — mirror: take profit into support, cut on reclaim of resistance.
-    const tpLvl = below[0];
+    // Put — mirror: take profit into support that is FAR ENOUGH below spot to
+    // be worth banking (≥ tpMinFrac), cut on reclaim of resistance.
+    const tpLvl = below.find((l) => l.val <= spot * (1 - tpMinFrac));
     if (tpLvl) {
       takeProfit = {
         price: Number(tpLvl.val.toFixed(2)),
         movePct: movePct(tpLvl.val),
-        reason: `Bank gains near ${px(tpLvl.val)} — the ${tpLvl.label} where declines tend to find bids.${emText}, so take profit into weakness rather than chasing a deeper drop.`,
+        reason: `Bank gains near ${px(tpLvl.val)} (${movePct(tpLvl.val).toFixed(1)}%) — the ${tpLvl.label} where declines tend to find bids.${emText}, so take profit into weakness rather than chasing a deeper drop.`,
       };
     } else if (emPct != null) {
       const target = spot * (1 - emPct / 100);
       takeProfit = {
         price: Number(target.toFixed(2)),
         movePct: movePct(target),
-        reason: `No support left below (near lows) — target ${px(target)} (-${emPct.toFixed(1)}%), the chain's 1σ expected move by expiry. Beyond it you're betting on an outlier.`,
+        reason: `No support far enough below to bank into — target ${px(target)} (-${emPct.toFixed(1)}%), the chain's 1σ expected move by expiry. That's where the option has gained real value; beyond it you're betting on an outlier.`,
+      };
+    } else {
+      const target = spot * (1 - tpMinFrac);
+      takeProfit = {
+        price: Number(target.toFixed(2)),
+        movePct: movePct(target),
+        reason: `Target ${px(target)} (-${(tpMinFrac * 100).toFixed(1)}%) — a meaningful first profit-take; no support or expected-move level to anchor to.`,
       };
     }
     const cutLvl = above[0];
-    const cutVal = cutLvl ? cutLvl.val : spot * 1.08;
-    const cutLabel = cutLvl ? cutLvl.label : "an ~8% stop above entry";
+    let cutVal = cutLvl ? cutLvl.val : spot * 1.08;
+    let cutLabel = cutLvl ? cutLvl.label : "an ~8% stop above entry";
+    // Guard (per spec): mirror of the call side — if the nearest resistance is
+    // more than ~12% above spot, the put would be near-worthless by the time
+    // price climbs there, so use a tighter ~8% stop instead.
+    if (cutVal > spot * 1.12) {
+      cutVal = spot * 1.08;
+      cutLabel = "an ~8% stop (nearest resistance sits too far above to be a useful exit)";
+    }
     cut = {
       price: Number(cutVal.toFixed(2)),
       movePct: movePct(cutVal),
       reason: `Reduce/exit on a close above ${px(cutVal)} — reclaiming ${cutLabel} invalidates the bearish breakdown (thesis invalidated). Cut before theta compounds the loss.`,
     };
   }
+
+  // Per-pillar exit reasons (spec): the single most important thing in each
+  // pillar that would invalidate the trade. Dynamic to the contract, spot,
+  // and live data where we have it. One entry each for Fundamental,
+  // Technical, Mechanical, and Narrative.
+  const pillarExits = [];
+  const sideWord = side === "call" ? "call" : "put";
+
+  // Fundamental — earnings inside the contract's life is the highest-strength
+  // kill-switch; otherwise it's the generic miss / guidance-cut watch.
+  if (contract && contract.earningsInWindow) {
+    const eIso = f.nextEarningsDate;
+    const when = eIso ? ` on ${eIso}` : " inside this window";
+    pillarExits.push({
+      pillar: "fundamental", label: "Fundamental", strength: "Very High",
+      reason: `Earnings land${when} before expiry — a miss or lowered guidance can gap the stock against you and crush IV even when the direction is right. Exit or roll past the print.`,
+    });
+  } else {
+    pillarExits.push({
+      pillar: "fundamental", label: "Fundamental", strength: "High",
+      reason: `A negative earnings surprise or a guidance cut is the fundamental kill-switch — close the ${sideWord} if the next report breaks the growth story the trade is leaning on.`,
+    });
+  }
+
+  // Technical — anchored to the cut level computed above so the two stay
+  // consistent.
+  if (cut && cut.price != null) {
+    pillarExits.push({
+      pillar: "technical", label: "Technical", strength: "High",
+      reason: side === "call"
+        ? `A daily close below ${px(cut.price)} (the cut level) breaks the structure driving the call — that's where the chart says the move is over. Don't hold a long call under broken support.`
+        : `A daily close back above ${px(cut.price)} (the cut level) reclaims the level and voids the breakdown — the bearish chart thesis is gone, so stop paying theta on the put.`,
+    });
+  }
+
+  // Mechanical — options flow / positioning. Reference today's put/call ratio
+  // when the near-term chain has volume.
+  let pcrTxt = "";
+  const pcv = sumCallPutVolume(data);
+  if (pcv && pcv.callVol > 0) {
+    pcrTxt = ` Today's put/call is ${(pcv.putVol / pcv.callVol).toFixed(2)}.`;
+  }
+  pillarExits.push({
+    pillar: "mechanical", label: "Mechanical", strength: "High",
+    reason: side === "call"
+      ? `Options flow is the early warning.${pcrTxt} A flip toward heavy put buying (P/C pushing back above 1.25) or fresh put open interest stacking up means smart money is hedging — exit into it instead of waiting for the chart.`
+      : `Options flow is the early warning.${pcrTxt} A drop in P/C below ~0.65 (the crowd piling into calls) or a surge of aggressive call buying says a squeeze is starting — cover the put.`,
+  });
+
+  // Narrative — reference the active sector narrative the pick rides, if any;
+  // otherwise the generic catalyst / sector-turn watch.
+  const narSigs = pillarScores && pillarScores.narrative && Array.isArray(pillarScores.narrative.signals)
+    ? pillarScores.narrative.signals : [];
+  const narSig = narSigs.find((s) => s && s.key === "sectorNarrative" && s.score);
+  const narName = narSig ? (/"([^"]+)"/.exec(narSig.note || "") || [])[1] : null;
+  const flipWord = side === "call" ? "into a headwind" : "into a tailwind";
+  pillarExits.push({
+    pillar: "narrative", label: "Narrative", strength: "Very High",
+    reason: narName
+      ? `The trade leans on the "${narName}" sector narrative (currently a ${narSig.value}). If it flips ${flipWord}, the catalyst behind the position is gone — exit on the narrative shift, not the chart.`
+      : `A negative catalyst — lawsuit, regulatory action, downgrade, or CEO departure — or the sector narrative turning ${side === "call" ? "bearish" : "bullish"} removes the reason for the trade. Exit on the headline; don't wait for price to confirm.`,
+  });
 
   // Contextual triggers — highest-strength exit conditions first.
   const triggers = [];
@@ -6317,7 +6445,7 @@ function buildExitPlan(side, spot, data, contract) {
   }
   triggers.push(`Thesis check: if a higher-scoring setup appears or the original reason for the trade stops being true, rotate out regardless of price.`);
 
-  return { takeProfit, cut, triggers: triggers.slice(0, 4) };
+  return { takeProfit, cut, pillars: pillarExits, triggers: triggers.slice(0, 4) };
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
@@ -6430,7 +6558,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         : null,
       peers,
       contract,
-      exitPlan: buildExitPlan(side, r.data?.spot ?? null, r.data, contract),
+      exitPlan: buildExitPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars),
     };
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
