@@ -1942,7 +1942,8 @@
     rsi:        'Relative Strength Index (14-day). Above 70 = overbought (stretched, prone to a pullback). Below 30 = oversold (washed out, prone to a bounce).',
     macd:       'Moving Average Convergence Divergence (12/26/9). MACD line above signal = bullish momentum; below = bearish. The histogram shows the gap.',
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
-    resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.'
+    resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.',
+    sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -3624,6 +3625,33 @@
       html += techCard('MACD (12,26,9)', '<span class="opt-tech-num">—</span>', '', 'not enough history', TIPS.macd);
     }
 
+    if (t.sma){
+      // One card per SMA window. The pill shows where spot sits relative to
+      // the average — above (acting as support, bullish) or below (acting as
+      // resistance, bearish). Windows with too little history render as "—".
+      function smaCard(label, val){
+        if (val == null){
+          return techCard(label, '<span class="opt-tech-num">—</span>', '', 'not enough history', TIPS.sma);
+        }
+        var pct = (spot != null && isFinite(spot) && val > 0) ? ((spot - val) / val) * 100 : null;
+        var pill = '';
+        var note = 'Average closing price over the window';
+        if (pct != null){
+          var above = pct >= 0;
+          pill = '<span class="opt-tech-pill ' + (above ? 'pos' : 'warn') + '">' +
+            (above ? '+' : '') + pct.toFixed(1) + '% ' + (above ? 'above' : 'below') + '</span>';
+          note = above
+            ? 'Spot is above the ' + label + ' — this average is acting as support'
+            : 'Spot is below the ' + label + ' — this average is acting as resistance';
+        }
+        return techCard(label, '<span class="opt-tech-num">$' + fmt(val) + '</span>', pill, note, TIPS.sma);
+      }
+      html += smaCard('20D SMA', t.sma.sma20);
+      html += smaCard('50D SMA', t.sma.sma50);
+      html += smaCard('100D SMA', t.sma.sma100);
+      html += smaCard('200D SMA', t.sma.sma200);
+    }
+
     if (t.volume && t.volume.today != null){
       var vol = t.volume;
       var rvol = vol.rvol;
@@ -3663,37 +3691,45 @@
     }
 
     if (t.sr){
-      var sup = t.sr.s20;
-      var supFar = t.sr.s50;
-      var supVal = '<span class="opt-tech-num">' + (sup != null ? '$' + fmt(sup) : '—') + '</span>' +
-        (supFar != null && supFar !== sup ? '<span class="opt-tech-vsub">50d $' + fmt(supFar) + '</span>' : '');
-      var supDist = sup != null ? fmtDistance(sup, spot) : '';
-      var supBroken = (sup != null && spot < sup);
-      html += techCard(
-        'Support (20d)',
-        supVal,
-        supDist ? '<span class="opt-tech-pill ' + (supBroken ? 'warn' : 'fair') + '">' + supDist + '</span>' : '',
-        supBroken
-          ? 'Spot is below the 20-day low — buyers haven\'t defended this level yet'
-          : 'Recent floor — buyers stepped in here; a break below is a meaningful technical event',
-        TIPS.support
-      );
-
-      var res = t.sr.r20;
-      var resFar = t.sr.r50;
-      var resVal = '<span class="opt-tech-num">' + (res != null ? '$' + fmt(res) : '—') + '</span>' +
-        (resFar != null && resFar !== res ? '<span class="opt-tech-vsub">50d $' + fmt(resFar) + '</span>' : '');
-      var resDist = res != null ? fmtDistance(res, spot) : '';
-      var resBroken = (res != null && spot > res);
-      html += techCard(
-        'Resistance (20d)',
-        resVal,
-        resDist ? '<span class="opt-tech-pill ' + (resBroken ? 'pos' : 'fair') + '">' + resDist + '</span>' : '',
-        resBroken
-          ? 'Spot is above the 20-day high — fresh breakout; watch for follow-through'
-          : 'Recent ceiling — sellers showed up here; a clean break above is a meaningful technical event',
-        TIPS.resistance
-      );
+      // Support / Resistance split into near-term (20d primary, 50d secondary)
+      // and long-term (100d primary, 200d secondary) cards. The kind argument
+      // flips the broken-level test and the pill colour: support is broken when
+      // spot dips below it (warn), resistance when spot pushes above it (pos).
+      function srCard(label, kind, primary, primaryLbl, secondary, secondaryLbl, tip){
+        if (primary == null){
+          return techCard(label, '<span class="opt-tech-num">—</span>', '', 'not enough history', tip);
+        }
+        var valHtml = '<span class="opt-tech-num">$' + fmt(primary) + '</span>' +
+          '<span class="opt-tech-vsub">' + primaryLbl + '</span>' +
+          (secondary != null
+            ? '<span class="opt-tech-vsub">' + secondaryLbl + ' $' + fmt(secondary) + '</span>'
+            : '');
+        var dist = fmtDistance(primary, spot);
+        var isSupport = (kind === 'support');
+        var broken = isSupport ? (spot < primary) : (spot > primary);
+        var pillCls = broken ? (isSupport ? 'warn' : 'pos') : 'fair';
+        var note;
+        if (isSupport){
+          note = broken
+            ? 'Spot is below the ' + primaryLbl + ' low — buyers haven\'t defended this level yet'
+            : 'Recent floor — buyers stepped in here; a break below is a meaningful technical event';
+        } else {
+          note = broken
+            ? 'Spot is above the ' + primaryLbl + ' high — fresh breakout; watch for follow-through'
+            : 'Recent ceiling — sellers showed up here; a clean break above is a meaningful technical event';
+        }
+        return techCard(
+          label,
+          valHtml,
+          dist ? '<span class="opt-tech-pill ' + pillCls + '">' + dist + '</span>' : '',
+          note,
+          tip
+        );
+      }
+      html += srCard('Support (near)', 'support', t.sr.s20, '20d', t.sr.s50, '50d', TIPS.support);
+      html += srCard('Resistance (near)', 'resistance', t.sr.r20, '20d', t.sr.r50, '50d', TIPS.resistance);
+      html += srCard('Support (long)', 'support', t.sr.s100, '100d', t.sr.s200, '200d', TIPS.support);
+      html += srCard('Resistance (long)', 'resistance', t.sr.r100, '100d', t.sr.r200, '200d', TIPS.resistance);
     }
 
     grid.innerHTML = html;

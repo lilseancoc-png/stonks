@@ -56,7 +56,7 @@ There is **no test suite, no linter, and no type checker** wired into `package.j
 
 The site is built around a strict split:
 
-1. **Bake time** (`scripts/build.mjs`, run by `.github/workflows/daily.yml` ~3×/day): fetches every curated ticker's option chain + ~6mo of daily bars from Yahoo, computes technicals (RSI/MACD/S&R/IV regime), asks Gemini for per-ticker news takes and the global narratives view, then writes every artifact the page needs into the repo:
+1. **Bake time** (`scripts/build.mjs`, run by `.github/workflows/daily.yml` ~3×/day): fetches every curated ticker's option chain + ~1yr of daily bars from Yahoo, computes technicals (RSI/MACD/SMA/S&R/IV regime), asks Gemini for per-ticker news takes and the global narratives view, then writes every artifact the page needs into the repo:
    - `index.html` — page shell with a `~30 KB` `window.STONKS_MANIFEST` JSON blob inlined (ticker list, sectors, narratives, sector overviews, spots, unusual flow snapshot, build timestamp).
    - `app.js` — generated single IIFE that runs the Tickers / Narratives / Calendar / Grade / etc. tabs. **Never edit `app.js` directly.** Its source is the template string returned by `renderAppJs()` in [`scripts/render/app-js.mjs`](scripts/render/app-js.mjs). Same applies to `styles.css` ([`scripts/render/styles-css.mjs`](scripts/render/styles-css.mjs)) and the page shell in [`scripts/render/html.mjs`](scripts/render/html.mjs).
    - `data/<SYMBOL>.json` — per-ticker option chain + technicals + AI news take. Loaded lazily by the browser when a ticker is picked.

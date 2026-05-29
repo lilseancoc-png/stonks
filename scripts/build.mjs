@@ -574,7 +574,13 @@ function compressContract(c) {
 // ticker (chart endpoint), added to the per-expiration calls already running
 // inside fetchTickerChain — kept non-fatal so the grader still works when
 // Yahoo hiccups on the chart side.
-const HISTORY_LOOKBACK_DAYS = 220;
+// 365 calendar days ≈ 252 trading days — enough to fill the 200-day SMA and
+// the 200-day support/resistance windows with margin for weekends + market
+// holidays. (Was 220 ≈ ~150 trading days, which left every 200d window
+// perpetually null.) Bars are never persisted per-ticker (`_bars` is stripped
+// before write) and the streak tracker slices its own 60-day tail, so the
+// extra history only feeds the trailing-window technicals.
+const HISTORY_LOOKBACK_DAYS = 365;
 
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
@@ -785,22 +791,53 @@ function computeMACD(closes, fast = 12, slow = 26, sig = 9) {
   return { line: lineNow, signal: sigNow, hist: lineNow - sigNow };
 }
 
-// Rolling-window support (lowest low) and resistance (highest high). Two
-// windows — 20 trading days ≈ one month of swings, 50 trading days ≈ the
-// quarter-ish picture — captures both the near-term and the longer-term
-// levels worth watching when picking strikes.
+// Rolling-window support (lowest low) and resistance (highest high). Four
+// windows — 20 trading days ≈ one month of swings, 50 ≈ the quarter-ish
+// picture, 100 ≈ half a year, 200 ≈ the long-term trend levels — capture both
+// the near-term and the big-picture floors/ceilings worth watching when
+// picking strikes. A window is only reported once the full lookback is
+// available; a "200d" level computed from 60 bars would be mislabeled, so
+// short-history tickers get null for the windows they can't fill.
 function computeSupportResistance(bars) {
   if (bars.length < 20) return null;
-  const tail = (n) => bars.slice(-n);
   const minLow = (arr) => arr.reduce((m, b) => (b.l < m ? b.l : m), Infinity);
   const maxHigh = (arr) => arr.reduce((m, b) => (b.h > m ? b.h : m), -Infinity);
-  const w20 = tail(20);
-  const w50 = bars.length >= 20 ? tail(Math.min(50, bars.length)) : null;
+  const level = (n) => {
+    if (bars.length < n) return { s: null, r: null };
+    const w = bars.slice(-n);
+    return { s: minLow(w), r: maxHigh(w) };
+  };
+  const w20 = level(20);
+  const w50 = level(50);
+  const w100 = level(100);
+  const w200 = level(200);
   return {
-    s20: minLow(w20),
-    r20: maxHigh(w20),
-    s50: w50 ? minLow(w50) : null,
-    r50: w50 ? maxHigh(w50) : null,
+    s20: w20.s, r20: w20.r,
+    s50: w50.s, r50: w50.r,
+    s100: w100.s, r100: w100.r,
+    s200: w200.s, r200: w200.r,
+  };
+}
+
+// Simple Moving Average of the most recent `period` closes: sum of those
+// closing prices ÷ period (e.g. a 5-day SMA = (C1+C2+C3+C4+C5)/5). Returns
+// null when there aren't enough closes to fill the window — a partial average
+// would misrepresent the level (a "200d" SMA from 120 bars isn't a 200d SMA).
+function smaLast(closes, period) {
+  if (!closes || closes.length < period) return null;
+  const tail = closes.slice(-period);
+  return tail.reduce((sum, c) => sum + c, 0) / period;
+}
+
+// The 20/50/100/200-day SMA stack. Together with where spot sits relative to
+// each, this is the classic trend read: above all = broad uptrend, below the
+// 200d = long-term downtrend, SMAs stacked in order = a clean trend.
+function computeMovingAverages(closes) {
+  return {
+    sma20: smaLast(closes, 20),
+    sma50: smaLast(closes, 50),
+    sma100: smaLast(closes, 100),
+    sma200: smaLast(closes, 200),
   };
 }
 
@@ -904,6 +941,7 @@ function computeTechnicals(bars) {
   const rsi5d = closes.length >= 21 ? computeRSI(closes.slice(0, -5), 14) : null;
   const macd = computeMACD(closes, 12, 26, 9);
   const sr = computeSupportResistance(bars);
+  const sma = computeMovingAverages(closes);
   const volRegime = computeVolRegime(bars, 30);
   const volume = computeVolumeStats(bars);
   const round2 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 100) / 100);
@@ -915,8 +953,17 @@ function computeTechnicals(bars) {
     rsi5d: rsi5d != null ? round2(rsi5d) : null,
     macd: macd ? { line: round4(macd.line), signal: round4(macd.signal), hist: round4(macd.hist) } : null,
     sr: sr
-      ? { s20: round2(sr.s20), r20: round2(sr.r20), s50: round2(sr.s50), r50: round2(sr.r50) }
+      ? {
+          s20: round2(sr.s20), r20: round2(sr.r20),
+          s50: round2(sr.s50), r50: round2(sr.r50),
+          s100: round2(sr.s100), r100: round2(sr.r100),
+          s200: round2(sr.s200), r200: round2(sr.r200),
+        }
       : null,
+    sma: {
+      sma20: round2(sma.sma20), sma50: round2(sma.sma50),
+      sma100: round2(sma.sma100), sma200: round2(sma.sma200),
+    },
     volRegime,
     volume,
   };
