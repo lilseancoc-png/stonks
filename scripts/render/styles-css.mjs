@@ -6433,6 +6433,48 @@ main { padding-top: var(--s-2); }
   font: 400 11.5px/1.45 var(--font-sans);
   color: var(--text);
 }
+.pick-exit-pillars { margin-top: 9px; }
+.pick-exit-pillars-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.pick-exit-pillar {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.pick-exit-pillar:first-of-type { border-top: 0; padding-top: 0; }
+.pick-exit-pillar-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.pick-exit-pillar-label {
+  font: 600 10px/1.2 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-strong);
+}
+.pick-exit-strength {
+  font: 700 8.5px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  color: var(--muted-strong);
+  background: color-mix(in srgb, var(--muted) 14%, var(--surface));
+}
+.pick-exit-strength-very-high {
+  color: var(--neg);
+  background: color-mix(in srgb, var(--neg) 12%, var(--surface));
+}
+.pick-exit-pillar-reason {
+  font: 400 11.5px/1.45 var(--font-sans);
+  color: var(--text);
+}
 .pick-exit-triggers { margin-top: 7px; }
 .pick-exit-triggers-head {
   font: 600 9px/1 var(--font-mono);
