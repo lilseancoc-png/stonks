@@ -6891,7 +6891,34 @@ function computePicksAccuracyStats(open, closed, builtAtIso) {
   };
 }
 
-export async function updatePicksAccuracyFile(chains, builtAtIso) {
+// Read the persisted track record (data/picks-accuracy.json) into memory.
+// main() MUST call this BEFORE writeChainFiles wipes data/ and thread the
+// result into updatePicksAccuracyFile — the file lives in data/, so after the
+// wipe the read would always miss and the tracker would silently reset to
+// empty on every build (open picks never carry forward, closed stays 0).
+// Mirrors the macro/iv/fedwatch pre-read pattern. Returns { open, closed }
+// with empty arrays on a missing / corrupt / first-run file.
+export async function readPicksAccuracyState() {
+  const accPath = resolve(DATA_DIR, PICKS_ACCURACY_FILE);
+  try {
+    const aj = JSON.parse(await readFile(accPath, "utf8"));
+    if (aj && typeof aj === "object") {
+      return {
+        open: Array.isArray(aj.open) ? aj.open : [],
+        closed: Array.isArray(aj.closed) ? aj.closed : [],
+      };
+    }
+  } catch {
+    // First run / missing / corrupt — fresh tracker.
+  }
+  return { open: [], closed: [] };
+}
+
+// `priorState` is the pre-wipe snapshot from readPicksAccuracyState(). A full
+// build passes it because writeChainFiles has already deleted the on-disk file
+// by the time we run. Callers that do NOT wipe data/ (regen-picks.mjs) omit it
+// and we read the live file off disk instead.
+export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = null) {
   const accPath = resolve(DATA_DIR, PICKS_ACCURACY_FILE);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
@@ -6903,18 +6930,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso) {
     // No picks file yet — nothing to enroll, but we still mark prior open ones.
   }
 
-  let state = { open: [], closed: [] };
-  try {
-    const aj = JSON.parse(await readFile(accPath, "utf8"));
-    if (aj && typeof aj === "object") {
-      state = {
-        open: Array.isArray(aj.open) ? aj.open : [],
-        closed: Array.isArray(aj.closed) ? aj.closed : [],
-      };
-    }
-  } catch {
-    // First run — fresh tracker.
-  }
+  const state = (priorState && typeof priorState === "object")
+    ? {
+        open: Array.isArray(priorState.open) ? priorState.open : [],
+        closed: Array.isArray(priorState.closed) ? priorState.closed : [],
+      }
+    : await readPicksAccuracyState();
 
   const nowSec = Math.floor((Date.parse(builtAtIso) || Date.now()) / 1000);
   const stillOpen = [];
@@ -9958,6 +9979,14 @@ async function main() {
   // re-persisted after the wipe so the chain continues.
   const cachedRfr = await readRfrHistory();
   const fedwatchHistoryPrev = await readFedwatchHistory();
+  // Pick-accuracy track record: snapshot the persisted tracker BEFORE
+  // writeChainFiles wipes data/, then thread it into updatePicksAccuracyFile
+  // after the wipe. The file lives in data/, so without this pre-read the
+  // post-wipe read always misses and the track record resets to empty every
+  // build — open picks never carry forward (so nothing is ever marked to
+  // market, timed out, or resolved) and closed stays 0. Same pattern as the
+  // macro / iv / fedwatch histories above.
+  const picksAccuracyPrev = await readPicksAccuracyState();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
@@ -10210,10 +10239,11 @@ async function main() {
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we
-  // just wrote; uses chains[sym].spot for the marks. Degrades to a no-op on a
-  // first run / missing files.
+  // just wrote; uses chains[sym].spot for the marks. Carries the prior tracker
+  // state forward via picksAccuracyPrev (snapshotted before writeChainFiles
+  // wiped data/). Degrades to a no-op on a first run / missing files.
   try {
-    const acc = await updatePicksAccuracyFile(chains, builtAtIso);
+    const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev);
     console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
   } catch (err) {
     console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
