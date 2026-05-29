@@ -9271,7 +9271,17 @@
         var mv = (lv.movePct != null && isFinite(lv.movePct))
           ? '<span class="pick-exit-move ' + (lv.movePct>=0?'sig-pos':'sig-neg') + '">' + (lv.movePct>=0?'+':'') + Number(lv.movePct).toFixed(1) + '%</span>'
           : '';
-        var prose = escapeHtml(String(lv.proseAi || lv.prose || ''));
+        var prose = String(lv.proseAi || lv.prose || '');
+        var watch = String(lv.watchFor || '');
+        // Exactly one secondary line per rung: interim levels (trim/reduce)
+        // lead with the actionable watch-for cue; take-profit/cut/runner lead
+        // with the reasoning. Per-pillar detail stays behind the quiet toggle.
+        var secondary, secondaryCls;
+        if (role === 'trim' || role === 'reduce') {
+          secondary = watch || prose; secondaryCls = watch ? 'pick-exit-watch' : 'pick-exit-level-prose';
+        } else {
+          secondary = prose || watch; secondaryCls = (!prose && watch) ? 'pick-exit-watch' : 'pick-exit-level-prose';
+        }
         var actionBadge = (role !== 'spot' && lv.action)
           ? '<span class="pick-exit-action">' + escapeHtml(String(lv.action)) + '</span>' : '';
         var rsnRows = '';
@@ -9285,17 +9295,14 @@
           '</li>';
         }
         var rsnBlock = rsnRows
-          ? '<details class="pick-exit-why"><summary>Why this level &rarr;</summary><ul class="pick-exit-rsn-list">' + rsnRows + '</ul></details>'
+          ? '<details class="pick-exit-why"><summary>why &rarr;</summary><ul class="pick-exit-rsn-list">' + rsnRows + '</ul></details>'
           : '';
-        var watch = lv.watchFor
-          ? '<div class="pick-exit-watch">' + escapeHtml(String(lv.watchFor)) + '</div>' : '';
         rungs += '<li class="pick-exit-level pick-exit-level-' + escapeHtml(role) + '">' +
           '<div class="pick-exit-level-main">' +
             '<span class="pick-exit-level-price">$' + Number(lv.price).toFixed(2) + '</span>' +
             mv + actionBadge +
           '</div>' +
-          (prose ? '<div class="pick-exit-level-prose">' + prose + '</div>' : '') +
-          watch +
+          (secondary ? '<div class="' + secondaryCls + '">' + escapeHtml(secondary) + '</div>' : '') +
           rsnBlock +
         '</li>';
       }
