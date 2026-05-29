@@ -1205,6 +1205,38 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
     }
 
+    // --- Volatility regime (baked VIX level + 90d percentile rank) --------
+    // The fear index itself, not a leveraged proxy. ^VIX can't refresh through
+    // /api/quote (the caret fails the symbol allowlist), so this reads the last
+    // build's close from the manifest. Complements UVXY's daily-spike read
+    // above: UVXY answers "is vol jumping today?"; VIX answers "is premium
+    // broadly rich or cheap right now?". Rank-based when history has filled,
+    // else level-based.
+    var vixLeg = (MACRO && MACRO.vix && MACRO.vix.value != null) ? MACRO.vix : null;
+    if (vixLeg) {
+      var vixLvl = vixLeg.value;
+      var vixRank = (vixLeg.rankPct != null && isFinite(vixLeg.rankPct)) ? vixLeg.rankPct : null;
+      var vixRankTxt = vixRank != null ? ', ' + vixRank + 'th pct over 90d' : '';
+      var vixWord = vixLvl >= 30 ? 'high-fear' : vixLvl >= 20 ? 'elevated' : vixLvl >= 15 ? 'normal' : 'calm';
+      var vixRich  = vixRank != null ? vixRank >= 75 : vixLvl >= 22;
+      var vixCheap = vixRank != null ? vixRank <= 25 : vixLvl <= 14;
+      if (vixRich) {
+        (dir > 0 ? cons : pros).push({ tag: 'Vol regime', strong: false, text:
+          'VIX ' + vixLvl.toFixed(1) + ' (' + vixWord + vixRankTxt + ') — option premium is rich; ' +
+          (dir > 0
+            ? 'long calls pay up for IV and get crushed if fear fades, even when direction is right.'
+            : 'puts are expensive, but an elevated-fear backdrop is on their side.')
+        });
+      } else if (vixCheap) {
+        (dir > 0 ? pros : cons).push({ tag: 'Vol regime', strong: false, text:
+          'VIX ' + vixLvl.toFixed(1) + ' (' + vixWord + vixRankTxt + ') — option premium is cheap; ' +
+          (dir > 0
+            ? 'IV-friendly for buying calls.'
+            : 'long puts get little help from a complacent tape — needs the move to come fast.')
+        });
+      }
+    }
+
     // --- Sector ETF tilt — semis basket via SMH ---------------------------
     // Only meaningful when divergent from SPY (e.g. SPY flat but SMH +1.5%
     // is a strong tape for NVDA/AMD/AVGO calls). For non-semis sectors the
@@ -1387,6 +1419,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</div>'
       : '';
 
+    // Always-visible VIX vol-regime readout (baked, never live — ^VIX can't
+    // go through /api/quote). Sits beneath the live backdrop strip so the
+    // ambient fear regime is right where the entry call is made. Reuses the
+    // backdrop pill classes; colored down (red) when vol is rich/risk-off,
+    // up (green) when calm/cheap.
+    var vixTone = (MACRO && MACRO.vix && MACRO.vix.value != null) ? MACRO.vix : null;
+    var vixToneHtml = '';
+    if (vixTone) {
+      var vtLvl = vixTone.value;
+      var vtRank = (vixTone.rankPct != null && isFinite(vixTone.rankPct)) ? vixTone.rankPct : null;
+      var vtWord = vtLvl >= 30 ? 'high fear' : vtLvl >= 20 ? 'elevated' : vtLvl >= 15 ? 'normal' : 'calm';
+      var vtCls = vtLvl >= 20 ? 'down' : vtLvl <= 14 ? 'up' : 'flat';
+      var vtRankTxt = vtRank != null ? ' · ' + vtRank + 'th pct 90d' : '';
+      var VIXTONE_TIP = 'CBOE Volatility Index (VIX) — the market\\'s 30-day expected volatility, i.e. ambient fear. Baked at the last build (VIX can\\'t live-refresh). High = rich option premium / risk-off; low = cheap premium / calm tape.';
+      vixToneHtml = '<div class="opt-exec-backdrop">' +
+        '<span class="opt-exec-bd-label">Vol regime' + tipChip(VIXTONE_TIP) + '</span>' +
+        '<span class="opt-exec-bd-pill ' + vtCls + '"><b>VIX</b> ' +
+          escapeHtml(vtLvl.toFixed(1) + ' · ' + vtWord + vtRankTxt) +
+        '</span>' +
+      '</div>';
+    }
+
     // Plain-English primer for the Execute-now card. Beginners coming
     // straight from the verdict above need to know this isn't a re-grade
     // of the contract — it's a read of the live chart pattern. Spells out
@@ -1430,6 +1484,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       (contractIsBroken ? '' : explainerExec) +
       '<div class="opt-exec-meta">' + metaLine + '</div>' +
       backdropStripHtml +
+      vixToneHtml +
       '<div class="opt-exec-body">' + escapeHtml(vBody) + '</div>' +
       (prosHtml
         ? '<div class="opt-exec-section">' +
@@ -10310,7 +10365,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var m = window.STONKS_MANIFEST || {};
     var macro = m.macro || null;
     var eyebrow = document.getElementById('bonds-live-eyebrow');
-    if (!macro || (!macro.twoY && !macro.tenY && !macro.thirtyY && !macro.dxy)) {
+    if (!macro || (!macro.twoY && !macro.tenY && !macro.thirtyY && !macro.dxy && !macro.vix)) {
       grid.innerHTML = '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
       return;
     }
@@ -10379,11 +10434,56 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         prevLine +
       '</div>';
     }
+    // VIX regime chip — percentile rank over the 90-day macro history once
+    // enough samples exist (baked as macro.vix.rankPct), else a classic
+    // absolute-level regime so the tile is useful from day one. Maps onto the
+    // existing band-* color classes (calm → green-ish, fear → red-ish).
+    function vixRegime(leg){
+      var rankPct = (macro.vix && macro.vix.rankPct != null && isFinite(macro.vix.rankPct)) ? macro.vix.rankPct : null;
+      if (rankPct != null) {
+        var rk = rankPct >= 90 ? 'very-large' : rankPct >= 75 ? 'big' : rankPct >= 40 ? 'notable' : 'normal';
+        return { key: rk, label: rankPct + 'th pct · 90d' };
+      }
+      var v = leg.value;
+      if (v == null) return null;
+      if (v >= 30) return { key: 'very-large', label: 'High fear' };
+      if (v >= 20) return { key: 'big',        label: 'Elevated' };
+      if (v >= 15) return { key: 'notable',    label: 'Normal' };
+      return { key: 'normal', label: 'Calm' };
+    }
+    function vixTile(leg){
+      if (!leg || leg.value == null) return '';
+      var p = leg.pctChange1d;
+      var daily = (p != null && isFinite(p))
+        ? { text: (p >= 0 ? '+' : '') + p.toFixed(2) + '% 1d', dirClass: p > 0 ? 'up' : p < 0 ? 'down' : 'flat' }
+        : null;
+      var weekly = fmtWeekly(leg);
+      var regime = vixRegime(leg);
+      var alerting = !!(regime && regime.key === 'very-large');
+      var badge = regime ? '<span class="bonds-live-band band-' + regime.key + '">' + escapeHtml(regime.label) + '</span>' : '';
+      var alertChip = alerting ? '<span class="bonds-live-alert" title="VIX in a high-fear regime">!</span>' : '';
+      var prevLine = '';
+      if (prev && prev.vix != null && prev.date) {
+        prevLine = '<span class="bonds-live-prev" title="Previous EOD close from data/macro-history.json">Prev ' +
+          escapeHtml(prev.date) + ': ' + escapeHtml(prev.vix.toFixed(2)) + '</span>';
+      }
+      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
+        '<div class="bonds-live-tile-head">' +
+          '<span class="bonds-live-label">VIX</span>' + alertChip +
+        '</div>' +
+        '<span class="bonds-live-value">' + escapeHtml(leg.value.toFixed(2)) + '</span>' +
+        (daily ? '<span class="bonds-live-change ' + daily.dirClass + '">' + escapeHtml(daily.text) + '</span>' : '') +
+        (badge ? '<div class="bonds-live-band-row">' + badge + '</div>' : '') +
+        (weekly ? '<span class="bonds-live-change bonds-live-change--sub ' + weekly.dirClass + '">' + escapeHtml(weekly.text) + '</span>' : '') +
+        prevLine +
+      '</div>';
+    }
     var html = '';
     html += tile('2Y yield',  macro.twoY,    '2y',  'twoY',    function(v){ return v.toFixed(2) + '%'; });
     html += tile('10Y yield', macro.tenY,    '10y', 'tenY',    function(v){ return v.toFixed(2) + '%'; });
     html += tile('30Y yield', macro.thirtyY, '30y', 'thirtyY', function(v){ return v.toFixed(2) + '%'; });
     html += tile('DXY',       macro.dxy,     'dxy', 'dxy',     function(v){ return v.toFixed(2); });
+    html += vixTile(macro.vix);
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
   }
 

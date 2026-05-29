@@ -2337,6 +2337,7 @@ function upsertMacroHistory(prevHistory, macroBackdrop) {
     tenY:    macroBackdrop?.tenY    && macroBackdrop.tenY.value    != null ? macroBackdrop.tenY.value    : null,
     thirtyY: macroBackdrop?.thirtyY && macroBackdrop.thirtyY.value != null ? macroBackdrop.thirtyY.value : null,
     dxy:     macroBackdrop?.dxy     && macroBackdrop.dxy.value     != null ? macroBackdrop.dxy.value     : null,
+    vix:     macroBackdrop?.vix     && macroBackdrop.vix.value     != null ? macroBackdrop.vix.value     : null,
   };
   const existingIdx = entries.findIndex((e) => e.date === today);
   if (existingIdx >= 0) entries[existingIdx] = todayEntry;
@@ -2353,6 +2354,22 @@ function upsertMacroHistory(prevHistory, macroBackdrop) {
 async function writeMacroHistory(history) {
   if (!history || !Array.isArray(history.entries)) return;
   await writeFile(resolve(DATA_DIR, MACRO_HISTORY_FILE), JSON.stringify(history, null, 2), "utf8");
+}
+
+// Percentile rank of today's VIX among the trailing macro-history closes:
+// the share of historical closes at-or-below today's level, 0–100. The vix
+// field is new, so until ~3 weeks of history accumulate the rank isn't
+// meaningful — below VIX_RANK_MIN_SAMPLES we return { rankPct: null } and the
+// UI falls back to a level-based regime label. Same idea as IV rank.
+const VIX_RANK_MIN_SAMPLES = 15;
+function computeVixRank(history, value) {
+  if (typeof value !== "number" || !isFinite(value)) return null;
+  const vals = (history?.entries || [])
+    .map((e) => (e && typeof e.vix === "number" && isFinite(e.vix) ? e.vix : null))
+    .filter((v) => v != null);
+  if (vals.length < VIX_RANK_MIN_SAMPLES) return { rankPct: null, samples: vals.length };
+  const atOrBelow = vals.filter((v) => v <= value).length;
+  return { rankPct: Math.round((atOrBelow / vals.length) * 100), samples: vals.length };
 }
 
 // Read the persisted last-good ^IRX reading. Must be called BEFORE
@@ -2408,7 +2425,8 @@ async function fetchRiskFreeRate(cachedRfr = null) {
 }
 
 // Macro backdrop — pulls 2Y (^UST2YR / fallback ^FVX), 10Y (^TNX), 30Y (^TYX)
-// Treasury yields and the US Dollar Index (DX-Y.NYB) plus 1- and ~5-trading-day
+// Treasury yields, the US Dollar Index (DX-Y.NYB), and the CBOE Volatility
+// Index (^VIX), plus 1- and ~5-trading-day
 // history so the Bonds & USD tab can frame today's move against typical
 // movement bands (Normal / Notable / Big / Very Large) and the Grade tab can
 // frame each contract against the prevailing yields + dollar trend.
@@ -2481,14 +2499,20 @@ async function fetchMacroBackdrop() {
   // the canonical one but is sometimes restricted; ^FVX (5Y) is a poor proxy
   // so we just leave twoY null if ^UST2YR is unavailable. The Bonds & USD
   // live grid simply omits the 2Y tile when twoY is absent.
-  const [twoY, tenY, thirtyY, dxy] = await Promise.all([
+  // ^VIX is an index, not an equity — quote-only (no option chain) and the
+  // leading caret deliberately fails the public SYMBOL_RE allowlist, so it can
+  // never flow through the api/* proxies. That's fine: the build fetches it
+  // server-side here exactly like the ^TNX/^TYX yields, and the Bonds & USD
+  // tile + Execute-now card read the baked value (they never live-refresh it).
+  const [twoY, tenY, thirtyY, dxy, vix] = await Promise.all([
     fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
     fetchLeg("^TNX", "10Y yield", { isYield: true }),
     fetchLeg("^TYX", "30Y yield", { isYield: true }),
     fetchLeg("DX-Y.NYB", "DXY"),
+    fetchLeg("^VIX", "VIX"),
   ]);
-  if (!twoY && !tenY && !thirtyY && !dxy) return null;
-  return { twoY, tenY, thirtyY, dxy, asOf: new Date().toISOString() };
+  if (!twoY && !tenY && !thirtyY && !dxy && !vix) return null;
+  return { twoY, tenY, thirtyY, dxy, vix, asOf: new Date().toISOString() };
 }
 
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
@@ -9903,7 +9927,7 @@ async function main() {
   // Fetch the macro backdrop (10Y yield + DXY) BEFORE per-ticker AI judgments
   // so the fallback paragraph (used when a ticker has no readable articles)
   // can quote live macro values instead of returning an empty take.
-  console.log("Fetching macro backdrop (10Y yield + DXY)…");
+  console.log("Fetching macro backdrop (yields + DXY + VIX)…");
   const macroBackdrop = await fetchMacroBackdrop();
   // Read the rolling macro history BEFORE writeChainFiles wipes data/. The
   // 17:00 ET daily slot is the authoritative end-of-day close — at that
@@ -9915,10 +9939,20 @@ async function main() {
   if (macroBackdrop) {
     const { history, previousClose } = upsertMacroHistory(macroHistoryPrev, macroBackdrop);
     macroHistoryNext = history;
+    // Attach the VIX percentile rank (computed off the just-upserted 90-day
+    // history) onto the baked leg so the Bonds & USD tile + Execute-now card
+    // can show "Nth pct over 90d" without inlining the whole series.
+    if (macroBackdrop.vix && macroBackdrop.vix.value != null) {
+      const rank = computeVixRank(macroHistoryNext, macroBackdrop.vix.value);
+      if (rank) {
+        macroBackdrop.vix.rankPct = rank.rankPct;
+        macroBackdrop.vix.rankSamples = rank.samples;
+      }
+    }
     if (previousClose) {
       macroBackdrop.previousClose = previousClose;
       console.log(`Macro prev close (${previousClose.date}): ${
-        ["twoY","tenY","thirtyY","dxy"].map((k) => previousClose[k] != null ? `${k}=${previousClose[k]}` : null).filter(Boolean).join(", ")
+        ["twoY","tenY","thirtyY","dxy","vix"].map((k) => previousClose[k] != null ? `${k}=${previousClose[k]}` : null).filter(Boolean).join(", ")
       }`);
     }
   }
