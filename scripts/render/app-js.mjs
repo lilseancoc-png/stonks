@@ -2596,6 +2596,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       try { renderFreshness(name); } catch (_) {}
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+      if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
       if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
       // Pause heatmap live polling when navigating away — don't burn
       // /api/quotes on a tab the user isn't looking at.
@@ -8830,6 +8831,189 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         renderPicks();
       });
   }
+
+  // --- Track record (pick accuracy) tab -----------------------------------
+  // Renders data/picks-accuracy.json: open picks marked to market + resolved
+  // picks graded win/loss against their own take-profit / cut levels, plus a
+  // win-rate-by-tier table answering "does a higher score actually win more?".
+  var accuracyState = { data: null, loading: false };
+  var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
+  var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
+  function loadAccuracy(){
+    if (accuracyState.data || accuracyState.loading){ renderAccuracy(); return; }
+    accuracyState.loading = true;
+    fetch('data/picks-accuracy.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
+        accuracyState.loading = false;
+        renderAccuracy();
+      })
+      .catch(function(){
+        accuracyState.data = { open: [], closed: [], stats: {}, loadError: true };
+        accuracyState.loading = false;
+        renderAccuracy();
+      });
+  }
+  function accSidePill(side){
+    var s = side === 'put' ? 'put' : 'call';
+    return '<span class="acc-side acc-side-' + s + '">' + (s === 'put' ? 'PUT' : 'CALL') + '</span>';
+  }
+  function accTierTag(tier, label){
+    var t = tier || 'no-trade';
+    return '<span class="acc-tier acc-tier-' + escapeHtml(t) + '">' + escapeHtml(label || ACC_TIER_LABEL[t] || t) + '</span>';
+  }
+  function accDateShort(iso){
+    if (!iso) return '—';
+    var s = String(iso).slice(0, 10);
+    return s;
+  }
+  function accDaysBetween(aIso, bIso){
+    var a = Date.parse(aIso), b = Date.parse(bIso);
+    if (!isFinite(a) || !isFinite(b)) return null;
+    return Math.max(0, Math.round((b - a) / 86400000));
+  }
+  function accPct(n){
+    if (n == null || !isFinite(n)) return '—';
+    return (n >= 0 ? '+' : '') + Number(n).toFixed(1) + '%';
+  }
+  function renderAccuracy(){
+    var root = $('accuracy-root'); if (!root) return;
+    var statsEl = $('accuracy-stats');
+    var emptyEl = $('accuracy-empty');
+    var eyebrow = $('accuracy-eyebrow');
+    var d = accuracyState.data || {};
+    var open = Array.isArray(d.open) ? d.open : [];
+    var closed = Array.isArray(d.closed) ? d.closed : [];
+    var st = d.stats || {};
+    if (d.loadError){
+      root.innerHTML = '<p class="muted">Couldn’t load the track record. Try a hard reload.</p>';
+      if (statsEl) statsEl.innerHTML = '';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    if (!open.length && !closed.length){
+      root.innerHTML = '';
+      if (statsEl) statsEl.innerHTML = '';
+      if (emptyEl) emptyEl.hidden = false;
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    if (eyebrow) eyebrow.textContent = closed.length + ' resolved · ' + open.length + ' open';
+
+    // --- Stats strip --------------------------------------------------------
+    var chips = '';
+    function chip(num, lbl, cls){
+      return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '">' +
+        '<span class="accuracy-chip-num">' + num + '</span>' +
+        '<span class="accuracy-chip-lbl">' + lbl + '</span>' +
+      '</div>';
+    }
+    var wr = (st.winRate != null && isFinite(st.winRate)) ? Math.round(st.winRate * 100) + '%' : '—';
+    chips += chip(wr, 'win rate · ' + (st.decided || 0) + ' resolved', (st.winRate != null && st.winRate >= 0.5) ? 'accuracy-chip-good' : (st.winRate != null ? 'accuracy-chip-bad' : ''));
+    chips += chip(String(st.wins || 0), 'wins', 'accuracy-chip-good');
+    chips += chip(String(st.losses || 0), 'losses', 'accuracy-chip-bad');
+    chips += chip(String(open.length), 'open');
+    if (st.avgMfePct != null) chips += chip(accPct(st.avgMfePct), 'avg peak gain');
+    if (st.avgMaePct != null) chips += chip('-' + Number(st.avgMaePct).toFixed(1) + '%', 'avg drawdown');
+
+    // --- Win rate by tier (the headline "does the score work?" view) --------
+    var tierRows = '';
+    var byTier = st.byTier || {};
+    for (var ti=0; ti<ACC_TIER_ORDER.length; ti++){
+      var tk = ACC_TIER_ORDER[ti];
+      var row = byTier[tk];
+      if (!row || !row.n) continue;
+      var rate = (row.winRate != null && isFinite(row.winRate)) ? Math.round(row.winRate * 100) : null;
+      var barCls = rate == null ? 'sig-zero' : (rate >= 50 ? 'sig-pos' : 'sig-neg');
+      tierRows += '<div class="acc-tier-row">' +
+        '<span class="acc-tier-name">' + accTierTag(tk) + '</span>' +
+        '<span class="acc-tier-bar"><i class="' + barCls + '" style="width:' + (rate == null ? 0 : rate) + '%"></i></span>' +
+        '<span class="acc-tier-rate ' + barCls + '">' + (rate == null ? '—' : rate + '%') + '</span>' +
+        '<span class="acc-tier-n">' + row.wins + '/' + row.n + '</span>' +
+      '</div>';
+    }
+    var tierBlock = tierRows
+      ? '<div class="accuracy-tiers"><div class="accuracy-tiers-head">Win rate by conviction tier</div>' + tierRows + '</div>'
+      : '';
+    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock;
+
+    // --- Open positions -----------------------------------------------------
+    var nowMs = Date.now();
+    var html = '';
+    if (open.length){
+      var openRows = '';
+      // Sort open by entry recency (newest first).
+      open.slice().sort(function(a, b){ return (Date.parse(b.entryDate)||0) - (Date.parse(a.entryDate)||0); }).forEach(function(e){
+        var isCall = e.side !== 'put';
+        var entry = Number(e.entrySpot) || 0;
+        var last = Number(e.lastSpot) || entry;
+        var chg = entry > 0 ? (last - entry) / entry * 100 : 0;
+        var favorable = isCall ? chg >= 0 : chg <= 0;
+        var expMs = Number(e.contract && e.contract.expiry) * 1000;
+        var dleft = isFinite(expMs) ? Math.round((expMs - nowMs) / 86400000) : (e.contract && e.contract.dte);
+        var tp = Number(e.takeProfit), ct = Number(e.cut);
+        var targets = '';
+        if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
+        if (isFinite(ct)) targets += '<span class="acc-target acc-target-cut">Cut $' + ct.toFixed(2) + '</span>';
+        openRows += '<div class="acc-row acc-row-open">' +
+          '<div class="acc-row-head">' +
+            accSidePill(e.side) +
+            '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
+            accTierTag(e.tier, e.label) +
+            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? e.score : '—')) + '</span>' +
+            '<span class="acc-since ' + (favorable ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + '</span>' +
+          '</div>' +
+          '<div class="acc-row-meta">' +
+            '<span>Entered ' + accDateShort(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
+            '<span>Now $' + last.toFixed(2) + '</span>' +
+            (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
+            '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
+          '</div>' +
+          (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
+        '</div>';
+      });
+      html += '<div class="accuracy-group">' +
+        '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
+        openRows +
+      '</div>';
+    }
+
+    // --- Resolved positions -------------------------------------------------
+    if (closed.length){
+      var closedRows = '';
+      closed.forEach(function(e){
+        var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
+        var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
+        var held = accDaysBetween(e.entryDate, e.exitDate);
+        var entry = Number(e.entrySpot) || 0;
+        var exit = Number(e.exitSpot);
+        closedRows += '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
+          '<div class="acc-row-head">' +
+            '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
+            accSidePill(e.side) +
+            '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
+            accTierTag(e.tier, e.label) +
+            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? e.score : '—')) + '</span>' +
+            '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
+          '</div>' +
+          '<div class="acc-row-meta">' +
+            '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
+            (held != null ? '<span>' + held + 'd held</span>' : '') +
+            '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
+            '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '<div class="accuracy-group">' +
+        '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span></div>' +
+        closedRows +
+      '</div>';
+    }
+    root.innerHTML = html;
+  }
+
   function pickDriverChip(d){
     var sign = (d.weight || 0) >= 0 ? 'pos' : 'neg';
     return '<span class="pick-driver pick-driver-' + sign + ' pick-driver-' + escapeHtml(d.tag || 'misc') + '">' +
@@ -9089,7 +9273,70 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // lays it out. Older picks.json payloads lack exitPlan; render nothing.
   function pickExitPlanHtml(p){
     var x = p && p.exitPlan;
-    if (!x || (!x.takeProfit && !x.cut)) return '';
+    if (!x) return '';
+    // Layered ladder (current payloads). Each level carries an action, a
+    // prose line (AI-polished when available, else templated), per-pillar
+    // reasoning behind a "Why this level" disclosure, and a watch-for cue.
+    if (Array.isArray(x.levels) && x.levels.length){
+      var pillarName = { technical:'Technical', fundamental:'Fundamental', mechanical:'Mechanical', narrative:'Narrative' };
+      var pillarTag = { technical:'T', fundamental:'F', mechanical:'M', narrative:'N' };
+      var pkeys = ['technical','fundamental','mechanical','narrative'];
+      var rungs = '';
+      for (var li=0; li<x.levels.length; li++){
+        var lv = x.levels[li];
+        if (!lv || lv.price == null) continue;
+        var role = String(lv.role || '');
+        var mv = (lv.movePct != null && isFinite(lv.movePct))
+          ? '<span class="pick-exit-move ' + (lv.movePct>=0?'sig-pos':'sig-neg') + '">' + (lv.movePct>=0?'+':'') + Number(lv.movePct).toFixed(1) + '%</span>'
+          : '';
+        var prose = escapeHtml(String(lv.proseAi || lv.prose || ''));
+        var actionBadge = (role !== 'spot' && lv.action)
+          ? '<span class="pick-exit-action">' + escapeHtml(String(lv.action)) + '</span>' : '';
+        var rsnRows = '';
+        var rs = lv.reasons || {};
+        for (var ri=0; ri<pkeys.length; ri++){
+          var rk = pkeys[ri], rv = rs[rk];
+          if (!rv) continue;
+          rsnRows += '<li class="pick-exit-rsn pick-exit-rsn-' + rk + '">' +
+            '<span class="pick-exit-rsn-tag" title="' + pillarName[rk] + '">' + pillarTag[rk] + '</span>' +
+            '<span class="pick-exit-rsn-txt">' + escapeHtml(String(rv)) + '</span>' +
+          '</li>';
+        }
+        var rsnBlock = rsnRows
+          ? '<details class="pick-exit-why"><summary>Why this level &rarr;</summary><ul class="pick-exit-rsn-list">' + rsnRows + '</ul></details>'
+          : '';
+        var watch = lv.watchFor
+          ? '<div class="pick-exit-watch">' + escapeHtml(String(lv.watchFor)) + '</div>' : '';
+        rungs += '<li class="pick-exit-level pick-exit-level-' + escapeHtml(role) + '">' +
+          '<div class="pick-exit-level-main">' +
+            '<span class="pick-exit-level-price">$' + Number(lv.price).toFixed(2) + '</span>' +
+            mv + actionBadge +
+          '</div>' +
+          (prose ? '<div class="pick-exit-level-prose">' + prose + '</div>' : '') +
+          watch +
+          rsnBlock +
+        '</li>';
+      }
+      var overview = x.overviewAi
+        ? '<div class="pick-exit-overview">' + escapeHtml(String(x.overviewAi)) + '</div>' : '';
+      var trigL = '';
+      if (Array.isArray(x.triggers) && x.triggers.length){
+        var itemsL = '';
+        for (var tl=0; tl<x.triggers.length; tl++) itemsL += '<li>' + escapeHtml(String(x.triggers[tl])) + '</li>';
+        trigL = '<div class="pick-exit-triggers">' +
+          '<div class="pick-exit-triggers-head">Also exit if</div>' +
+          '<ul class="pick-exit-trigger-list">' + itemsL + '</ul>' +
+        '</div>';
+      }
+      return '<div class="pick-exit">' +
+        '<div class="pick-exit-head">Exit ladder</div>' +
+        overview +
+        '<ol class="pick-exit-ladder">' + rungs + '</ol>' +
+        trigL +
+      '</div>';
+    }
+    // ---- Legacy fallback: two-target render for older picks.json payloads ----
+    if (!x.takeProfit && !x.cut) return '';
     function target(kind, t, cls){
       if (!t || t.price == null) return '';
       var mv = (t.movePct != null && isFinite(t.movePct))
@@ -9303,6 +9550,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? '<div class="pick-pillars-viz" role="img" aria-label="Score composition: ' + escapeHtml(vizAria.join(', ')) + '">' + vizSegs + '</div>' +
         '<div class="pick-pillars-viz-cap">what drives it</div>'
       : '';
+    // Lead-driver caption — names the dominant pillar so the audit panel opens
+    // with the "why" before the per-signal detail. Mirrors the headline of the
+    // analysis paragraph so the score is auditable at a glance.
+    var leadHtml = '';
+    var lead = null;
+    for (var li2=0; li2<present.length; li2++){
+      if (!lead || Math.abs(present[li2].score) > Math.abs(lead.score)) lead = present[li2];
+    }
+    if (lead && lead.score !== 0){
+      leadHtml = '<div class="pick-pillars-lead ' + signClass(lead.score) + '">Led by ' +
+        escapeHtml(nice[lead.key]) + ' <b>' + fmtSignedNum(lead.score) + '</b></div>';
+    } else if (present.length){
+      leadHtml = '<div class="pick-pillars-lead sig-zero">No clear edge</div>';
+    }
     var body = '';
     for (var i=0; i<order.length; i++){
       var k = order[i];
@@ -9344,6 +9605,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="pick-pillars-title">Score breakdown</span>' +
         '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + total) + '</span>' +
       '</div>' +
+      leadHtml +
       viz +
       body +
     '</aside>';

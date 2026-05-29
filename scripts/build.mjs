@@ -4955,11 +4955,11 @@ const PICKS_MIN_DTE = 14;           // 14d+ per spec
 const PICKS_MAX_DTE = 120;          // beyond ~4mo theta drags too long
 const PICKS_IDEAL_DTE_LO = 30;
 const PICKS_IDEAL_DTE_HI = 60;
-const PICKS_DELTA_MIN = 0.10;       // 0.10-0.40 band per spec
+const PICKS_DELTA_MIN = 0.20;       // 0.20-0.40 band per spec
 const PICKS_DELTA_MAX = 0.40;
-const PICKS_DELTA_IDEAL = 0.25;     // mid of the 0.10-0.40 band
+const PICKS_DELTA_IDEAL = 0.30;     // mid of the 0.20-0.40 band
 const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
-const PICKS_OTM_MAX_PCT = 0.35;     // 35% OTM
+const PICKS_OTM_MAX_PCT = 0.30;     // 30% OTM
 const PICKS_MAX_IV = 2.0;           // 200% IV cap
 const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
 // Required breakeven move vs IV-implied 1σ expected move at expiry.
@@ -4967,6 +4967,17 @@ const PICKS_MAX_REQ_MOVE_RATIO = 1.5;
 // Soft penalty when the contract's IV is in the top quintile of the
 // underlying's 30-day realized-vol percentile (buying expensive premium).
 const PICKS_IV_REGIME_HIGH = 70;
+
+// Pick accuracy tracker (spec): log every pick when it appears, mark it to
+// market on each build using the fresh underlying spot, and resolve it when
+// the stock reaches the take-profit (win), the cut (loss), or the contract
+// expires. Grades whether the SCORE actually predicted the move so the
+// Track-record tab can show win-rate by conviction tier. Build-cadence
+// granularity (~3 samples/day) — not intraday — which is plenty for these
+// multi-week swing setups.
+const PICKS_ACCURACY_FILE = "picks-accuracy.json";
+const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
+const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
 
 // ---- Contract grade helpers (mirror app.js thresholds) ------------------
 // These mirror gradeSpread/gradeLiquidity/gradeDelta/gradeTheta/gradeVolRegime
@@ -5940,7 +5951,7 @@ function pickContractForPick(side, data) {
       if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
       // IV cap (200%) — anything north of this is lottery-ticket pricing.
       if (row.iv > PICKS_MAX_IV) continue;
-      // 5-35% OTM band per the spec. Strike must be away from spot in the
+      // 5-30% OTM band per the spec. Strike must be away from spot in the
       // bet's direction by at least 5% but no more than 35%.
       const otmPct = side === "call"
         ? (row.s - spot) / spot
@@ -6038,7 +6049,7 @@ function pickContractForPick(side, data) {
   let best = null;
   let bestComposite = Infinity;
   for (const c of candidates) {
-    // Delta window (0.10-0.40) — anchor on PICKS_DELTA_IDEAL so the ideal
+    // Delta window (0.20-0.40) — anchor on PICKS_DELTA_IDEAL so the ideal
     // contract sits squarely in the middle of the band rather than the upper
     // or lower edge. 0.15 = the max distance from the 0.25 ideal to either
     // edge of the band, so the penalty spans [0,1] across the whole window.
@@ -6235,25 +6246,31 @@ function buildPickAnalysis(pick, peers) {
   let contractLine = "";
   const c = pick.contract;
   if (c) {
-    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-35% OTM / Δ 0.10-0.40 / ≤$35 premium / standard-monthly criteria.`;
+    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-30% OTM / Δ 0.20-0.40 / ≤$35 premium / standard-monthly criteria.`;
   }
 
   return (lead + pillarLine + driverLine + peerLine + contractLine).trim();
 }
 
-// Deterministic exit plan for a pick — two price targets (take-profit and
-// cut/reduce) on the underlying, each with a reason, plus a short list of
-// contextual exit triggers. Anchored to real S/R levels (20d/50d), the
-// 52-week range, the chain's 1σ expected move, earnings timing, and RSI.
-// Levels are on the *stock* price (not the option) because that's the thing
-// the trader actually watches — the option follows from it.
+// Deterministic exit plan for a pick — a LAYERED price ladder on the
+// underlying. The ladder spans cut → spot → take-profit (plus an optional
+// runner beyond the target) with multiple meaningful levels in between, each
+// carrying a clear action and per-pillar (Technical / Fundamental / Mechanical
+// / Narrative) reasoning that makes the level significant. Anchored to real
+// S/R levels (20d/50d), the 52-week range, round-number psych levels, the
+// recommended strike/breakeven, and the chain's 1σ expected move. Levels are
+// on the *stock* price (not the option) because that's the thing the trader
+// actually watches — the option follows from it. `takeProfit`/`cut` are kept
+// as the primary single anchors (consumed by the accuracy tracker); `levels`
+// is the full ladder rendered on the card. Templated `prose` per level is
+// overwritten by `proseAi` when the hybrid AI polish pass runs.
 //
 //   takeProfit / cut: { price, movePct, reason } | null
-//   pillars:          [ { pillar, label, reason, strength }, … ]  (one per
-//                     pillar — the key fundamental / technical / mechanical /
-//                     narrative thing that would invalidate the trade)
+//   levels:           [ { role, price, movePct, action, anchor,
+//                         reasons:{technical,fundamental,mechanical,narrative},
+//                         watchFor, prose, proseAi? }, … ]  (sorted high→low)
 //   triggers:         [ "…", … ]  (≤4 contextual exit conditions)
-function buildExitPlan(side, spot, data, contract, pillarScores) {
+function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   if (!(spot > 0) || (side !== "call" && side !== "put")) return null;
   const t = data?.technicals || {};
   const f = data?.fundamentals || {};
@@ -6378,67 +6395,198 @@ function buildExitPlan(side, spot, data, contract, pillarScores) {
     };
   }
 
-  // Per-pillar exit reasons (spec): the single most important thing in each
-  // pillar that would invalidate the trade. Dynamic to the contract, spot,
-  // and live data where we have it. One entry each for Fundamental,
-  // Technical, Mechanical, and Narrative.
-  const pillarExits = [];
-  const sideWord = side === "call" ? "call" : "put";
+  // ---------------------------------------------------------------------------
+  // Layered ladder. Gather candidate anchors, then lay out cut → spot → TP
+  // (plus an optional runner) with interim trim/reduce levels in between.
+  // ---------------------------------------------------------------------------
+  const isCall = side === "call";
+  const rsi = (t.rsi != null && isFinite(t.rsi)) ? Number(t.rsi) : null;
+  const strike = (contract && isFinite(Number(contract.strike))) ? Number(contract.strike) : null;
+  const breakeven = (contract && isFinite(Number(contract.breakeven))) ? Number(contract.breakeven) : null;
+  const stock = sym || data?.fundamentals?.name || "the stock";
+  const signedPct = (lvl) => { const m = movePct(lvl); return `${m >= 0 ? "+" : ""}${m.toFixed(1)}%`; };
 
-  // Fundamental — earnings inside the contract's life is the highest-strength
-  // kill-switch; otherwise it's the generic miss / guidance-cut watch.
-  if (contract && contract.earningsInWindow) {
-    const eIso = f.nextEarningsDate;
-    const when = eIso ? ` on ${eIso}` : " inside this window";
-    pillarExits.push({
-      pillar: "fundamental", label: "Fundamental", strength: "Very High",
-      reason: `Earnings land${when} before expiry — a miss or lowered guidance can gap the stock against you and crush IV even when the direction is right. Exit or roll past the print.`,
-    });
-  } else {
-    pillarExits.push({
-      pillar: "fundamental", label: "Fundamental", strength: "High",
-      reason: `A negative earnings surprise or a guidance cut is the fundamental kill-switch — close the ${sideWord} if the next report breaks the growth story the trade is leaning on.`,
-    });
-  }
-
-  // Technical — anchored to the cut level computed above so the two stay
-  // consistent.
-  if (cut && cut.price != null) {
-    pillarExits.push({
-      pillar: "technical", label: "Technical", strength: "High",
-      reason: side === "call"
-        ? `A daily close below ${px(cut.price)} (the cut level) breaks the structure driving the call — that's where the chart says the move is over. Don't hold a long call under broken support.`
-        : `A daily close back above ${px(cut.price)} (the cut level) reclaims the level and voids the breakdown — the bearish chart thesis is gone, so stop paying theta on the put.`,
-    });
-  }
-
-  // Mechanical — options flow / positioning. Reference today's put/call ratio
-  // when the near-term chain has volume.
-  let pcrTxt = "";
-  const pcv = sumCallPutVolume(data);
-  if (pcv && pcv.callVol > 0) {
-    pcrTxt = ` Today's put/call is ${(pcv.putVol / pcv.callVol).toFixed(2)}.`;
-  }
-  pillarExits.push({
-    pillar: "mechanical", label: "Mechanical", strength: "High",
-    reason: side === "call"
-      ? `Options flow is the early warning.${pcrTxt} A flip toward heavy put buying (P/C pushing back above 1.25) or fresh put open interest stacking up means smart money is hedging — exit into it instead of waiting for the chart.`
-      : `Options flow is the early warning.${pcrTxt} A drop in P/C below ~0.65 (the crowd piling into calls) or a surge of aggressive call buying says a squeeze is starting — cover the put.`,
-  });
-
-  // Narrative — reference the active sector narrative the pick rides, if any;
-  // otherwise the generic catalyst / sector-turn watch.
-  const narSigs = pillarScores && pillarScores.narrative && Array.isArray(pillarScores.narrative.signals)
+  // Active sector-narrative name (if the pick rides one) for narrative reasons.
+  const narSigsL = pillarScores && pillarScores.narrative && Array.isArray(pillarScores.narrative.signals)
     ? pillarScores.narrative.signals : [];
-  const narSig = narSigs.find((s) => s && s.key === "sectorNarrative" && s.score);
-  const narName = narSig ? (/"([^"]+)"/.exec(narSig.note || "") || [])[1] : null;
-  const flipWord = side === "call" ? "into a headwind" : "into a tailwind";
-  pillarExits.push({
-    pillar: "narrative", label: "Narrative", strength: "Very High",
-    reason: narName
-      ? `The trade leans on the "${narName}" sector narrative (currently a ${narSig.value}). If it flips ${flipWord}, the catalyst behind the position is gone — exit on the narrative shift, not the chart.`
-      : `A negative catalyst — lawsuit, regulatory action, downgrade, or CEO departure — or the sector narrative turning ${side === "call" ? "bearish" : "bullish"} removes the reason for the trade. Exit on the headline; don't wait for price to confirm.`,
-  });
+  const narSigL = narSigsL.find((s) => s && s.key === "sectorNarrative" && s.score);
+  const narNameL = narSigL ? (/"([^"]+)"/.exec(narSigL.note || "") || [])[1] : null;
+
+  // Today's put/call for mechanical colour.
+  let pcrNow = null;
+  const pcvL = sumCallPutVolume(data);
+  if (pcvL && pcvL.callVol > 0) pcrNow = pcvL.putVol / pcvL.callVol;
+
+  // Round-number psych levels scale with price magnitude.
+  const roundStep = (p) =>
+    p >= 1000 ? 50 : p >= 500 ? 25 : p >= 200 ? 10 : p >= 100 ? 5 :
+    p >= 50 ? 2.5 : p >= 20 ? 1 : p >= 5 ? 0.5 : 0.25;
+
+  // Candidate anchors with a human label + priority (higher = more meaningful).
+  const anchors = [];
+  const pushA = (val, label, prio) => {
+    if (val > 0 && isFinite(val)) anchors.push({ val: Number(val), label, prio });
+  };
+  pushA(r20, "20-day resistance", 3);
+  pushA(r50, "50-day resistance", 4);
+  pushA(hi52, "52-week high", 5);
+  pushA(s20, "20-day support", 3);
+  pushA(s50, "50-day support", 4);
+  pushA(lo52, "52-week low", 5);
+  if (strike) pushA(strike, "the strike", 2);
+  if (breakeven) pushA(breakeven, "breakeven", 1);
+  {
+    const tp0 = takeProfit ? takeProfit.price : (isCall ? spot * 1.1 : spot * 0.9);
+    const cut0 = cut ? cut.price : (isCall ? spot * 0.92 : spot * 1.08);
+    const step = roundStep(spot);
+    const lo = Math.min(cut0, tp0, spot) * 0.95;
+    const hi = Math.max(cut0, tp0, spot) * 1.08;
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+      if (v <= 0) continue;
+      const major = Math.abs((v / step) % 5) < 1e-9; // multiple of 5 steps reads stronger
+      pushA(v, `round number ${px(v)}`, major ? 2.5 : 1.5);
+    }
+  }
+
+  // Collapse anchors within ~1.5% of each other, keeping the strongest.
+  const dedupe = (arr) => {
+    const s = arr.slice().sort((a, b) => a.val - b.val);
+    const out = [];
+    for (const a of s) {
+      const last = out[out.length - 1];
+      if (last && Math.abs(a.val - last.val) / last.val < 0.015) {
+        if (a.prio > last.prio) out[out.length - 1] = a;
+      } else out.push(a);
+    }
+    return out;
+  };
+  const anchorLabelNear = (price, fallback) => {
+    let best = null;
+    for (const a of anchors) {
+      if (Math.abs(a.val - price) / price < 0.02 && (!best || a.prio > best.prio)) best = a;
+    }
+    return best ? best.label : fallback;
+  };
+
+  // Per-level, per-pillar reasoning keyed by the level's role.
+  const reasonsFor = (role, label, price) => {
+    const at = `${px(price)} (${signedPct(price)})`;
+    const r = { technical: "", fundamental: "", mechanical: "", narrative: "" };
+    if (role === "tp") {
+      r.technical = isCall
+        ? `${label} at ${at} — where prior advances have stalled and supply sits. RSI would likely be stretched (70+) into this level, so sell into strength rather than chase an extension.`
+        : `${label} at ${at} — where prior declines have found bids. RSI would likely be washed out (sub-30) here, so cover into weakness rather than press for more.`;
+      r.fundamental = isCall
+        ? `Roughly prices in the next 2-3 quarters of the growth the trade is paying for — beyond it you're betting on an outlier, not the thesis.`
+        : `Discounts the deterioration the trade expects — below it needs a fresh negative catalyst, not just the current setup.`;
+      r.mechanical = isCall
+        ? `Into a run like this, put/call usually compresses toward ~0.5 (peak greed)${pcrNow != null ? ` — it's ${pcrNow.toFixed(2)} now` : ""}: a contrarian cue to bank the move.`
+        : `Into a drop like this, put/call usually spikes above ~1.25 (peak fear)${pcrNow != null ? ` — it's ${pcrNow.toFixed(2)} now` : ""}: a contrarian cue to cover.`;
+      r.narrative = narNameL
+        ? `Peak "${narNameL}" ${isCall ? "enthusiasm" : "pessimism"} — sell into the strength of the story rather than wait for it to cool.`
+        : `Sell into strength rather than wait for the catalyst to fully play out.`;
+    } else if (role === "runner") {
+      r.technical = `${label} at ${at} — the stretch target if momentum is exceptional. Trail a stop and let the last piece run; don't add up here.`;
+    } else if (role === "trim") {
+      r.technical = isCall
+        ? `${label} at ${at} — the first real overhead. Watch whether it breaks on volume or rejects.`
+        : `${label} at ${at} — support giving way as the decline works. Trim into the break; a sharp bounce off it is the cue to take more.`;
+      r.mechanical = `Confirm a break with 1.3x+ relative volume and rising ${isCall ? "call" : "put"} volume — a low-volume poke is a fakeout, so take the trim.`;
+    } else if (role === "reduce") {
+      r.technical = isCall
+        ? `${label} at ${at} — the first crack below spot. Losing it on volume warns the cut is next; reduce rather than hope.`
+        : `${label} at ${at} — a reclaim/bounce against the position. Holding above it warns the cut is next; reduce.`;
+      r.mechanical = `Watch for a ${isCall ? "put" : "call"}-volume spike or fresh ${isCall ? "put" : "call"} open interest here — smart money hedging ahead of the break.`;
+    } else if (role === "cut") {
+      r.technical = isCall
+        ? `A daily close below ${at} breaks the structure driving the call — the chart says the move is over. Don't hold a long call under broken support.`
+        : `A daily close back above ${at} reclaims the level and voids the breakdown — the bearish chart thesis is gone.`;
+      r.fundamental = `A guidance cut or a macro risk-off rotation is what usually drives price here — exit, don't average down.`;
+      r.mechanical = isCall
+        ? `A surge in put buying / put-call pushing back above ~1.25 confirms the turn.`
+        : `A squeeze (put-call below ~0.65, aggressive call buying) confirms the reclaim.`;
+      r.narrative = narNameL
+        ? `If "${narNameL}" flips against the trade, the reason for the position is gone — exit on the narrative, not the chart.`
+        : `A negative catalyst or a sector-narrative flip removes the reason for the trade — exit on the headline.`;
+    }
+    return r;
+  };
+
+  const tpPrice = takeProfit ? takeProfit.price : (isCall ? spot * 1.1 : spot * 0.9);
+  const cutPrice = cut ? cut.price : (isCall ? spot * 0.92 : spot * 1.08);
+
+  // Assemble the raw plan (role, price, action, anchor) then sort + dedupe.
+  const plan = [];
+  if (isCall) {
+    plan.push({ role: "cut", price: cutPrice, action: "Cut 70-80%", anchor: anchorLabelNear(cutPrice, "support") });
+    const reduceLvl = dedupe(anchors.filter((a) => a.val < spot * 0.975 && a.val > cutPrice * 1.01))
+      .sort((a, b) => b.val - a.val)[0] || { val: spot - (spot - cutPrice) * 0.5, label: "halfway to the cut" };
+    if (reduceLvl.val < spot * 0.99 && reduceLvl.val > cutPrice * 1.01)
+      plan.push({ role: "reduce", price: reduceLvl.val, action: "Reduce 25-33%", anchor: reduceLvl.label });
+    plan.push({ role: "spot", price: spot, action: "", anchor: "current spot / entry" });
+    const trims = dedupe(anchors.filter((a) => a.val > spot * 1.025 && a.val < tpPrice * 0.99))
+      .sort((a, b) => b.prio - a.prio).slice(0, 3).sort((a, b) => a.val - b.val);
+    for (const a of trims) plan.push({ role: "trim", price: a.val, action: "Trim 25-33%", anchor: a.label });
+    plan.push({ role: "tp", price: tpPrice, action: "Take 60-70% off", anchor: anchorLabelNear(tpPrice, "overhead resistance / expected move") });
+    const runner = dedupe(anchors.filter((a) => a.val > tpPrice * 1.01 && a.val <= tpPrice * 1.25 && a.prio >= 3))
+      .sort((a, b) => a.val - b.val)[0] || null;
+    if (runner) plan.push({ role: "runner", price: runner.val, action: "Let it run (trail a stop)", anchor: runner.label });
+  } else {
+    plan.push({ role: "cut", price: cutPrice, action: "Cut 70-80%", anchor: anchorLabelNear(cutPrice, "resistance") });
+    const reduceLvl = dedupe(anchors.filter((a) => a.val > spot * 1.025 && a.val < cutPrice * 0.99))
+      .sort((a, b) => a.val - b.val)[0] || { val: spot + (cutPrice - spot) * 0.5, label: "halfway to the cut" };
+    if (reduceLvl.val > spot * 1.01 && reduceLvl.val < cutPrice * 0.99)
+      plan.push({ role: "reduce", price: reduceLvl.val, action: "Reduce 25-33%", anchor: reduceLvl.label });
+    plan.push({ role: "spot", price: spot, action: "", anchor: "current spot / entry" });
+    const trims = dedupe(anchors.filter((a) => a.val < spot * 0.975 && a.val > tpPrice * 1.01))
+      .sort((a, b) => b.prio - a.prio).slice(0, 3).sort((a, b) => b.val - a.val);
+    for (const a of trims) plan.push({ role: "trim", price: a.val, action: "Trim 25-33%", anchor: a.label });
+    plan.push({ role: "tp", price: tpPrice, action: "Take 60-70% off", anchor: anchorLabelNear(tpPrice, "support / expected move") });
+    const runner = dedupe(anchors.filter((a) => a.val < tpPrice * 0.99 && a.val >= tpPrice * 0.75 && a.prio >= 3))
+      .sort((a, b) => b.val - a.val)[0] || null;
+    if (runner) plan.push({ role: "runner", price: runner.val, action: "Let it run (trail a stop)", anchor: runner.label });
+  }
+
+  // Sort high→low and merge levels sitting within ~1.2% (keep the higher-prio role).
+  const rolePrio = { spot: 6, tp: 5, cut: 5, trim: 3, reduce: 3, runner: 1 };
+  plan.sort((a, b) => b.price - a.price);
+  const merged = [];
+  for (const lv of plan) {
+    const last = merged[merged.length - 1];
+    if (last && Math.abs(lv.price - last.price) / last.price < 0.012) {
+      if ((rolePrio[lv.role] || 0) > (rolePrio[last.role] || 0)) merged[merged.length - 1] = lv;
+    } else merged.push(lv);
+  }
+
+  const levels = [];
+  for (let i = 0; i < merged.length; i++) {
+    const lv = merged[i];
+    const price = lv.price;
+    const at = `${px(price)} (${signedPct(price)})`;
+    let watchFor = "";
+    if (lv.role === "trim") {
+      const fav = isCall ? merged[i - 1] : merged[i + 1]; // neighbour toward the target
+      const nextStr = fav ? `${px(fav.price)} (${signedPct(fav.price)})` : "the target";
+      watchFor = `If ${stock} ${isCall ? "gaps through" : "breaks"} ${px(price)} on 1.3x+ volume, the next level is ${nextStr}; if it ${isCall ? "stalls with RSI divergence" : "bounces hard"}, take the trim here.`;
+    } else if (lv.role === "reduce") {
+      watchFor = `A decisive ${isCall ? "loss" : "reclaim"} of ${px(price)} on volume opens the cut at ${px(cutPrice)} — tighten up.`;
+    }
+    let prose;
+    if (lv.role === "spot") prose = "Spot is here — your entry reference.";
+    else if (lv.role === "cut") prose = `${lv.action} on a close ${isCall ? "below" : "above"} ${at} — ${lv.anchor} breaks the thesis.`;
+    else if (lv.role === "runner") prose = `${lv.action} beyond ${at} — ${lv.anchor}, only if momentum is exceptional.`;
+    else prose = `${lv.action} at ${at} — ${lv.anchor}.`;
+    levels.push({
+      role: lv.role,
+      price,
+      movePct: movePct(price),
+      action: lv.action,
+      anchor: lv.anchor,
+      reasons: reasonsFor(lv.role, lv.anchor, price),
+      watchFor,
+      prose,
+    });
+  }
 
   // Contextual triggers — highest-strength exit conditions first.
   const triggers = [];
@@ -6447,7 +6595,6 @@ function buildExitPlan(side, spot, data, contract, pillarScores) {
     const when = eIso ? ` (${eIso})` : "";
     triggers.push(`Exit before earnings${when}: the post-report IV crush can erase a long premium even when the direction is right.`);
   }
-  const rsi = t.rsi;
   if (rsi != null && isFinite(rsi)) {
     if (side === "call" && rsi >= 72) {
       triggers.push(`RSI ${rsi.toFixed(0)} is stretched — tighten the take-profit; an overbought reading plus bearish divergence is a high-strength reversal signal.`);
@@ -6460,7 +6607,7 @@ function buildExitPlan(side, spot, data, contract, pillarScores) {
   }
   triggers.push(`Thesis check: if a higher-scoring setup appears or the original reason for the trade stops being true, rotate out regardless of price.`);
 
-  return { takeProfit, cut, pillars: pillarExits, triggers: triggers.slice(0, 4) };
+  return { takeProfit, cut, levels, triggers: triggers.slice(0, 4) };
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
@@ -6573,7 +6720,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         : null,
       peers,
       contract,
-      exitPlan: buildExitPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars),
+      exitPlan: buildExitPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars, r.sym),
     };
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
@@ -6643,6 +6790,11 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
       // No prior file (or unreadable) — fall through to the empty write.
     }
   }
+  // Hybrid AI polish (spec): rewrite the deterministic exit-ladder prose into a
+  // sharper trader voice. Self-skips without GEMINI_API_KEY; per-pick failures
+  // degrade to the templated prose. No-op when picks is empty.
+  await polishExitPlanProse(picks);
+
   const payload = {
     builtAtIso,
     minConviction: PICKS_MIN_CONVICTION,
@@ -6651,6 +6803,196 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
   return { bytes: json.length, count: picks.length };
+}
+
+// ----------------------------------------------------------------------------
+// Pick accuracy tracker (spec). Reads the just-written picks.json, marks every
+// tracked ("open") pick to market with the fresh underlying spot from `chains`,
+// resolves any that have reached take-profit / cut / expiry, enrolls new picks,
+// recomputes the win-rate stats, and writes data/picks-accuracy.json. Wholly
+// deterministic and AI-free; safe to run from main() and from regen-picks.mjs.
+// ----------------------------------------------------------------------------
+function gradeLabelFor(status, outcome) {
+  if (status === "hit-tp") return "Hit target";
+  if (status === "hit-cut") return "Stopped out";
+  if (status === "expired") return outcome === "win" ? "Expired ITM" : "Expired worthless";
+  if (status === "dropped") return outcome === "win" ? "Dropped (was green)" : "Dropped (was red)";
+  return "—";
+}
+
+function computePicksAccuracyStats(open, closed, builtAtIso) {
+  const decided = closed.filter((e) => e.outcome === "win" || e.outcome === "loss");
+  const wins = decided.filter((e) => e.outcome === "win").length;
+  const losses = decided.length - wins;
+  const winRate = decided.length ? Number((wins / decided.length).toFixed(3)) : null;
+  const byTier = {};
+  for (const e of decided) {
+    const t = e.tier || "—";
+    if (!byTier[t]) byTier[t] = { n: 0, wins: 0, winRate: null };
+    byTier[t].n += 1;
+    if (e.outcome === "win") byTier[t].wins += 1;
+  }
+  for (const k of Object.keys(byTier)) {
+    byTier[k].winRate = byTier[k].n ? Number((byTier[k].wins / byTier[k].n).toFixed(3)) : null;
+  }
+  const avg = (arr, f) => (arr.length ? Number((arr.reduce((s, e) => s + (Number(f(e)) || 0), 0) / arr.length).toFixed(1)) : null);
+  return {
+    builtAtIso,
+    openCount: open.length,
+    closedCount: closed.length,
+    decided: decided.length,
+    wins,
+    losses,
+    winRate,
+    avgMfePct: avg(closed, (e) => e.mfePct),
+    avgMaePct: avg(closed, (e) => e.maePct),
+    byTier,
+  };
+}
+
+export async function updatePicksAccuracyFile(chains, builtAtIso) {
+  const accPath = resolve(DATA_DIR, PICKS_ACCURACY_FILE);
+  const picksPath = resolve(DATA_DIR, PICKS_FILE);
+
+  let picks = [];
+  try {
+    const pj = JSON.parse(await readFile(picksPath, "utf8"));
+    if (Array.isArray(pj?.picks)) picks = pj.picks;
+  } catch {
+    // No picks file yet — nothing to enroll, but we still mark prior open ones.
+  }
+
+  let state = { open: [], closed: [] };
+  try {
+    const aj = JSON.parse(await readFile(accPath, "utf8"));
+    if (aj && typeof aj === "object") {
+      state = {
+        open: Array.isArray(aj.open) ? aj.open : [],
+        closed: Array.isArray(aj.closed) ? aj.closed : [],
+      };
+    }
+  } catch {
+    // First run — fresh tracker.
+  }
+
+  const nowSec = Math.floor((Date.parse(builtAtIso) || Date.now()) / 1000);
+  const closedThisRun = new Set();
+  const stillOpen = [];
+
+  for (const e of state.open) {
+    if (!e || !e.key) continue;
+    const sym = e.symbol;
+    const isCall = e.side === "call";
+    const known = !!(chains && chains[sym]);
+    const cur = Number(chains?.[sym]?.spot);
+    if (cur > 0) {
+      e.lastSpot = Number(cur.toFixed(2));
+      e.lastDate = builtAtIso;
+      e.samples = (e.samples || 1) + 1;
+      e.hi = Math.max(Number(e.hi) || cur, cur);
+      e.lo = Math.min(Number(e.lo) || cur, cur);
+    }
+    const entry = Number(e.entrySpot) || (cur > 0 ? cur : 0);
+    const hi = Number(e.hi) || entry;
+    const lo = Number(e.lo) || entry;
+    const mfePct = entry > 0 ? (isCall ? (hi - entry) / entry : (entry - lo) / entry) * 100 : 0;
+    const maePct = entry > 0 ? (isCall ? (entry - lo) / entry : (hi - entry) / entry) * 100 : 0;
+    e.mfePct = Number(mfePct.toFixed(1));
+    e.maePct = Number(maePct.toFixed(1));
+
+    const tp = Number(e.takeProfit);
+    const ct = Number(e.cut);
+    const be = Number(e.contract?.breakeven);
+    const expSec = Number(e.contract?.expiry);
+    let status = null;
+    let outcome = null;
+    if (!known) {
+      // Symbol left the curated universe — can't mark it any further.
+      status = "dropped";
+      outcome = mfePct > maePct ? "win" : "loss";
+    } else if (cur > 0 && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
+      status = "hit-tp";
+      outcome = "win";
+    } else if (cur > 0 && ct > 0 && ((isCall && cur <= ct) || (!isCall && cur >= ct))) {
+      status = "hit-cut";
+      outcome = "loss";
+    } else if (expSec > 0 && nowSec >= expSec) {
+      status = "expired";
+      const ref = cur > 0 ? cur : (Number(e.lastSpot) || entry);
+      if (be > 0) outcome = (isCall ? ref >= be : ref <= be) ? "win" : "loss";
+      else outcome = mfePct > maePct ? "win" : "loss";
+    }
+
+    if (status) {
+      state.closed.unshift({
+        ...e,
+        exitDate: builtAtIso,
+        exitSpot: cur > 0 ? Number(cur.toFixed(2)) : (e.lastSpot ?? null),
+        status,
+        outcome,
+        scoredRight: outcome === "win" ? true : outcome === "loss" ? false : null,
+        grade: gradeLabelFor(status, outcome),
+      });
+      closedThisRun.add(e.key);
+    } else {
+      stillOpen.push(e);
+    }
+  }
+
+  // Enroll picks not already tracked (and not just closed this run).
+  const openKeys = new Set(stillOpen.map((e) => e.key));
+  for (const p of picks) {
+    if (!p || (p.side !== "call" && p.side !== "put")) continue;
+    const key = `${p.symbol}:${p.side}`;
+    if (openKeys.has(key) || closedThisRun.has(key)) continue;
+    const entrySpot = Number(p.spot) || Number(chains?.[p.symbol]?.spot) || 0;
+    if (!(entrySpot > 0)) continue;
+    const c = p.contract || {};
+    stillOpen.push({
+      key,
+      symbol: p.symbol,
+      side: p.side,
+      score: p.total ?? p.score ?? null,
+      tier: p.recommendation?.tier || null,
+      label: p.recommendation?.label || null,
+      conviction: p.recommendation?.conviction || null,
+      sector: p.sector || null,
+      entryDate: builtAtIso,
+      entrySpot: Number(entrySpot.toFixed(2)),
+      contract: {
+        strike: c.strike ?? null,
+        expiry: c.expiry ?? null,
+        expiryLabel: c.expiryLabel || null,
+        mid: c.mid ?? null,
+        breakeven: c.breakeven ?? null,
+        otmPct: c.otmPct ?? null,
+        delta: c.delta ?? null,
+        dte: c.dte ?? null,
+      },
+      takeProfit: p.exitPlan?.takeProfit?.price ?? null,
+      cut: p.exitPlan?.cut?.price ?? null,
+      lastSpot: Number(entrySpot.toFixed(2)),
+      lastDate: builtAtIso,
+      hi: Number(entrySpot.toFixed(2)),
+      lo: Number(entrySpot.toFixed(2)),
+      mfePct: 0,
+      maePct: 0,
+      samples: 1,
+    });
+    openKeys.add(key);
+  }
+
+  // Prune the closed log by age, then cap.
+  const cutoffMs = (Date.parse(builtAtIso) || Date.now()) - PICKS_ACCURACY_KEEP_DAYS * 86400000;
+  state.closed = state.closed
+    .filter((e) => (Date.parse(e.exitDate) || 0) >= cutoffMs)
+    .slice(0, PICKS_ACCURACY_MAX_CLOSED);
+
+  const stats = computePicksAccuracyStats(stillOpen, state.closed, builtAtIso);
+  const payload = { builtAtIso, open: stillOpen, closed: state.closed, stats };
+  const json = JSON.stringify(payload);
+  await writeFile(accPath, json, "utf8");
+  return { bytes: json.length, open: stillOpen.length, closed: state.closed.length, ...stats };
 }
 
 // Per-ticker daily green/red streaks. Reuses the bars already fetched into
@@ -7952,6 +8294,111 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
     sources,
     builtAt: new Date().toISOString(),
   };
+}
+
+// ----------------------------------------------------------------------------
+// Hybrid exit-plan prose polish (spec). buildExitPlan() produces a fully
+// deterministic ladder with templated `prose` per level — this pass asks
+// Gemini to rewrite that prose into a sharper, plain-English trader voice and
+// attaches it as `proseAi` (plus an `overviewAi` game-plan line). The render
+// prefers `proseAi` and falls back to the templated `prose`, so this is purely
+// additive: self-skips without GEMINI_API_KEY, and a per-pick failure leaves
+// that pick on its templated prose rather than aborting the build. ~1 small
+// call per pick (≤10/build) on the lightweight news model.
+// ----------------------------------------------------------------------------
+const EXIT_PROSE_SCHEMA = {
+  type: "object",
+  properties: {
+    overview: { type: "string" },
+    levels: { type: "array", items: { type: "string" } },
+  },
+  required: ["levels"],
+};
+
+async function polishExitPlanProse(picks) {
+  if (!Array.isArray(picks) || !picks.length) return;
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — exit-plan prose stays templated.");
+    return;
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const model = process.env.AI_EXIT_MODEL || AI_NEWS_MODEL;
+  let polished = 0;
+  for (const p of picks) {
+    const x = p && p.exitPlan;
+    if (!x || !Array.isArray(x.levels) || !x.levels.length) continue;
+    const sideWord = p.side === "put" ? "put" : "call";
+    const c = p.contract || {};
+    const spotN = Number(p.spot) || 0;
+    const ladder = x.levels.map((lv, i) => {
+      const reasons = Object.entries(lv.reasons || {})
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" | ");
+      return (
+        `#${i} [${lv.role}] ${lv.action ? lv.action + " @ " : ""}$${lv.price} ` +
+        `(${lv.movePct >= 0 ? "+" : ""}${lv.movePct}%)${lv.anchor ? ` — anchor: ${lv.anchor}` : ""}` +
+        `${reasons ? `\n     reasons → ${reasons}` : ""}` +
+        `${lv.watchFor ? `\n     watch → ${lv.watchFor}` : ""}`
+      );
+    }).join("\n");
+    const userMessage =
+      `${p.symbol} — long ${sideWord}, spot $${spotN.toFixed(2)}. ` +
+      `Recommended contract: $${c.strike} strike, ${c.expiryLabel || ""} (${c.dte}d), breakeven $${c.breakeven}.\n\n` +
+      `Exit ladder (price levels on the underlying, high to low):\n${ladder}\n\n` +
+      `Rewrite the note for EACH level into one or two punchy, plain-English sentences in a confident options-trader voice. ` +
+      `Preserve the price, the % move, the action, and the single most important reason; fold in the watch-for cue where present. ` +
+      `No hedging, no disclaimers, no markdown, no preamble. ` +
+      `Return JSON { "overview": "<one-sentence game plan for the whole trade>", "levels": [ ... ] } with exactly ${x.levels.length} level strings, in the same order.`;
+    let response = null;
+    let lastErr;
+    for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+      try {
+        await acquireAiSlot();
+        response = await ai.models.generateContent({
+          model,
+          contents: `You are a sharp options trader writing terse exit-plan notes. Be concrete and decisive.\n\n${userMessage}`,
+          config: {
+            temperature: 0.4,
+            maxOutputTokens: 800,
+            responseMimeType: "application/json",
+            responseSchema: EXIT_PROSE_SCHEMA,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        });
+        recordAiUsage({ model, callType: "exit", symbol: p.symbol, usage: response?.usageMetadata });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const wait = classifyAiError(err, attempt);
+        if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
+        const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
+        console.log(`    ⌛ exit-prose ${p.symbol} attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    if (!response) {
+      if (lastErr) console.warn(`[picks] exit-prose polish failed for ${p.symbol} — keeping templated prose (${String(lastErr.message || lastErr).split("\n")[0]})`);
+      continue;
+    }
+    try {
+      const txt = String(response.text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      const firstBrace = txt.indexOf("{");
+      const lastBrace = txt.lastIndexOf("}");
+      const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? txt.slice(firstBrace, lastBrace + 1) : txt);
+      if (parsed && Array.isArray(parsed.levels)) {
+        for (let i = 0; i < x.levels.length && i < parsed.levels.length; i++) {
+          const s = String(parsed.levels[i] || "").trim();
+          if (s) x.levels[i].proseAi = s;
+        }
+        if (parsed.overview) x.overviewAi = String(parsed.overview).trim();
+        polished += 1;
+      }
+    } catch {
+      // Bad JSON — keep templated prose for this pick.
+    }
+  }
+  if (polished) console.log(`[picks] polished exit prose for ${polished}/${picks.length} picks (${model})`);
 }
 
 // Fundamentals judgment — given a ticker's fundamental metrics + last
@@ -9701,6 +10148,16 @@ async function main() {
   // destructured it out of the serialized payload but never deleted it).
   const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
+  // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
+  // resolve any that hit take-profit / cut / expiry. Reads the picks.json we
+  // just wrote; uses chains[sym].spot for the marks. Degrades to a no-op on a
+  // first run / missing files.
+  try {
+    const acc = await updatePicksAccuracyFile(chains, builtAtIso);
+    console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
+  } catch (err) {
+    console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Persist AI usage now (rather than at the very end) so a hang/timeout in
   // the slow EDGAR fetch below can't leave data/ai-usage.json missing —
   // writeChainFiles wiped it, and we want to make sure it's written back

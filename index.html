@@ -53,6 +53,7 @@
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track">Track record</button>
   <div class="page-tab-group" data-group="flow">
     <button type="button" class="page-tab page-tab-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="page-tab-menu-flow" id="page-tab-trigger-flow">
       <span class="page-tab-trigger-label">Flow</span>
@@ -811,7 +812,7 @@
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
-    <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+16 or higher</b> Strong Call (Very High conviction, full size), <b>+12&nbsp;to&nbsp;+15</b> Call (High, standard size), <b>-11 to +11</b> No Trade (skipped), <b>-12 to -15</b> Put (High, standard size), <b>-16 or lower</b> Strong Put (Very High, full size). Each card shows the score breakdown on the side so you can audit the judgment, an exit plan with take-profit and cut targets, and how it stacks up against same-sector peers.</p>
+    <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+16 or higher</b> Strong Call (Very High conviction, full size), <b>+12&nbsp;to&nbsp;+15</b> Call (High, standard size), <b>-11 to +11</b> No Trade (skipped), <b>-12 to -15</b> Put (High, standard size), <b>-16 or lower</b> Strong Put (Very High, full size). Each card shows the score breakdown on the side so you can audit the judgment, a layered exit ladder with an action at every level, and how it stacks up against same-sector peers. The <b>Track record</b> tab grades past picks against what actually happened.</p>
     <details class="picks-howto">
       <summary>How the 4-pillar score works &rarr;</summary>
       <div class="picks-howto-body">
@@ -819,8 +820,8 @@
         <p><b>Technicals (6 signals).</b> RSI 14 &plusmn;1, MACD &plusmn;1, current streak &plusmn;2, broke 20d support/resistance &plusmn;2, 52-week proximity (high -1 / low +1, contrarian read), volume confirmation &plusmn;1 (breakout on 1.3x+ avg vol = +1, low-vol break = -1).</p>
         <p><b>Mechanicals (6 signals).</b> Unusual flow &plusmn;1, open interest C/P ratio &plusmn;1, short interest &plusmn;1 (&gt;15% +1, &lt;3% -1), unusual volume &plusmn;1, SPY flows &plusmn;1 (green tape +1, red tape -1), put/call ratio extreme &plusmn;1 (contrarian: P/C &gt;1.25 = fear &rarr; +1, &lt;0.65 = greed &rarr; -1).</p>
         <p><b>Narrative (6 signals).</b> Positive catalyst +3 / 0, sector tailwind/headwind &plusmn;2, social sentiment &plusmn;1, media coverage surge &plusmn;1, negative catalyst 0 / -3, macro tail/headwinds +1 / -2 (tariffs, regulation, war, Fed, trade policy).</p>
-        <p><b>Suggested contract criteria.</b> 5-35% OTM, delta 0.10-0.40, IV &lt;200%, &ge;14 days to expiry, standard monthly expirations only (third Friday), premium &le;$35/share (&le;$3,500 / contract), tight spread, liquid. The "In plain English" panel under each contract translates the bet into beginner terms.</p>
-        <p><b>Exit plan.</b> Each pick carries two price targets &mdash; a <b>take-profit</b> level (lock gains into overhead resistance / the chain&rsquo;s expected move) and a <b>cut/reduce</b> level (the close that invalidates the technical thesis, kept close enough to spot that the option still has premium when it triggers) &mdash; a per-pillar list of what would invalidate the trade (the key Fundamental, Technical, Mechanical, and Narrative reasons to exit), plus contextual exit triggers (earnings-in-window IV-crush risk, stretched RSI, time stops).</p>
+        <p><b>Suggested contract criteria.</b> 5-30% OTM, delta 0.20-0.40, IV &lt;200%, &ge;14 days to expiry, standard monthly expirations only (third Friday), premium &le;$35/share (&le;$3,500 / contract), tight spread, liquid. The "In plain English" panel under each contract translates the bet into beginner terms.</p>
+        <p><b>Exit plan.</b> Each pick carries a <b>layered price ladder</b> &mdash; multiple meaningful levels on the way up and down from spot, each with a clear action (trim, take 60-70% off, reduce, cut) and the Technical / Fundamental / Mechanical / Narrative reasoning that makes that level significant. Interim levels flag what to watch as price approaches (e.g. a gap through resistance on heavy volume opening the next level). All levels are dynamic to the current spot and the recommended strike/expiry, plus contextual exit triggers (earnings-in-window IV-crush risk, stretched RSI, time stops).</p>
         <p><b>Risk.</b> Buying a call or put can lose <i>at most</i> the premium you pay &mdash; but can lose all of it if the stock doesn&rsquo;t move enough in your direction before expiry. None of this is financial advice; the picks are a starting watchlist, not a recommendation to trade.</p>
       </div>
     </details>
@@ -841,6 +842,19 @@
     <div id="picks-root" class="picks-root">Loading top picks…</div>
     <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-11 to +11).</div>
     <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;12 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-track" role="tabpanel" aria-labelledby="page-tab-track" hidden>
+  <section class="card" id="accuracy-section">
+    <header class="card-header">
+      <h2 class="card-title">Pick track record</h2>
+      <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Every Top Pick is logged the moment it appears and marked to market on each refresh. A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), or the contract expires (graded vs. breakeven). The point: does a higher conviction score actually win more often? The <b>win rate by tier</b> below answers that &mdash; if Strong Calls don&rsquo;t beat Calls, the score isn&rsquo;t earning its keep. Resolution is at build cadence (~3 checks/day), not intraday.</p>
+    <div id="accuracy-stats" class="accuracy-stats"></div>
+    <div id="accuracy-root" class="accuracy-root">Loading track record…</div>
+    <div id="accuracy-empty" class="accuracy-empty" hidden>No picks have been tracked yet — the record starts filling in on the next daily refresh.</div>
+    <p class="picks-foot">Track record is informational, not a performance claim: it follows the underlying stock against each pick&rsquo;s own take-profit / cut levels, not the realised option P&amp;L, and samples only at build time. Not financial advice.</p>
   </section>
   </div>
   <div class="page-pane" id="page-pane-heatmap" role="tabpanel" aria-labelledby="page-tab-heatmap" hidden>
