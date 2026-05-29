@@ -71,6 +71,8 @@ export const TICKERS = [
   "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM", "DRAM",
   // Space — satellite, lunar lander, in-space mfg, thermal mgmt
   "LUNR", "PL", "BKSY", "RDW", "KULR",
+  // Added coverage — AI silicon, RF/optics, Arm IP, broker, med-tech, DC infra, retail, gaming, travel, launch
+  "CBRS", "SWKS", "ARM", "COHR", "IBKR", "TMO", "VRT", "TGT", "RBLX", "ABNB", "FLY",
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
@@ -90,7 +92,8 @@ export const SECTORS = {
   LRCX: "Semis", MU: "Semis", INTC: "Semis", NXPI: "Semis", ON: "Semis",
   SMCI: "Semis", AMKR: "Semis", PLAB: "Semis", ALAB: "Semis", TSEM: "Semis",
   DRAM: "Semis", SWKS: "Semis", SNDK: "Storage", STX: "Storage", GLW: "Semis",
-  MP: "Materials", LITE: "Semis", AAOI: "Semis",
+  MP: "Materials", LITE: "Semis", AAOI: "Semis", ARM: "Semis", CBRS: "Semis",
+  COHR: "Semis",
   // Hardware / networking / tech services
   DELL: "Hardware", CSCO: "Networking", ANET: "Networking", IBM: "Tech services",
   // Software / SaaS / cloud
@@ -139,6 +142,7 @@ export const SECTORS = {
   GME: "Meme", AMC: "Meme",
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
   LUNR: "Space", PL: "Space", BKSY: "Space", RDW: "Space", KULR: "Space",
+  FLY: "Space",
 };
 
 // Taxonomy — the sectors and sub-industries the narratives card paints.
@@ -280,6 +284,10 @@ export const INDUSTRY_OF_TICKER = {
   LITE: "Semiconductors",
   STX: "Semiconductors",
   DRAM: "Semiconductors",
+  SWKS: "Semiconductors",
+  ARM: "Semiconductors",
+  CBRS: "Semiconductors",
+  COHR: "Semiconductors",
   // --- Technology · Semiconductor Equipment & Materials ---
   AMAT: "Semiconductor Equipment & Materials",
   LRCX: "Semiconductor Equipment & Materials",
@@ -308,6 +316,7 @@ export const INDUSTRY_OF_TICKER = {
   LEN: "Residential Construction",
   TSLA: "Auto Manufacturers",
   DASH: "Travel Services",
+  ABNB: "Travel Services",
   // --- Communication Services ---
   GOOGL: "Internet Content & Information",
   META: "Internet Content & Information",
@@ -315,6 +324,7 @@ export const INDUSTRY_OF_TICKER = {
   NFLX: "Entertainment",
   DIS: "Entertainment",
   SPOT: "Entertainment",
+  RBLX: "Electronic Gaming & Multimedia",
   // --- Industrials ---
   GD: "Aerospace & Defense",
   RKLB: "Aerospace & Defense",
@@ -323,7 +333,9 @@ export const INDUSTRY_OF_TICKER = {
   PL: "Aerospace & Defense",
   BKSY: "Aerospace & Defense",
   RDW: "Aerospace & Defense",
+  FLY: "Aerospace & Defense",
   KULR: "Electrical Equipment & Parts",
+  VRT: "Electrical Equipment & Parts",
   FDX: "Integrated Freight & Logistics",
   UPS: "Integrated Freight & Logistics",
   CAT: "Farm & Heavy Construction Machinery",
@@ -334,6 +346,7 @@ export const INDUSTRY_OF_TICKER = {
   UNH: "Healthcare Plans",
   CI: "Healthcare Plans",
   BSX: "Medical Devices",
+  TMO: "Medical Devices",
   HIMS: "Consumer Health Products",
   // --- Financials ---
   JPM: "Banks - Diversified",
@@ -351,9 +364,11 @@ export const INDUSTRY_OF_TICKER = {
   MS: "Capital Markets",
   SCHW: "Capital Markets",
   HOOD: "Capital Markets",
+  IBKR: "Capital Markets",
   // --- Consumer Defensive ---
   WMT: "Discount Stores",
   COST: "Discount Stores",
+  TGT: "Discount Stores",
   EL: "Household & Personal Products",
   // --- Utilities ---
   VST: "Utilities - Independent Power Producers",
