@@ -6506,6 +6506,349 @@ main { padding-top: var(--s-2); }
   font-weight: 700;
 }
 
+/* Layered exit ladder — a vertical price ladder (high → low) with an action,
+   prose line, per-pillar "why this level" disclosure, and watch-for cue per
+   rung. Role accents map to the chart: take-profit/runner green, cut red,
+   reduce amber, spot a muted dashed marker. */
+.pick-exit-overview {
+  font: 500 11.5px/1.45 var(--font-sans);
+  color: var(--text-strong);
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-1);
+}
+.pick-exit-ladder {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pick-exit-level {
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-1);
+  background: var(--surface);
+}
+.pick-exit-level-tp {
+  border-left-color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 5%, var(--surface));
+}
+.pick-exit-level-runner { border-left-color: var(--pos); border-left-style: dashed; }
+.pick-exit-level-trim { border-left-color: color-mix(in srgb, var(--pos) 55%, var(--muted)); }
+.pick-exit-level-spot {
+  border-left-color: var(--muted);
+  border-left-style: dashed;
+  background: var(--surface-2);
+}
+.pick-exit-level-reduce { border-left-color: var(--warn); }
+.pick-exit-level-cut {
+  border-left-color: var(--neg);
+  background: color-mix(in srgb, var(--neg) 5%, var(--surface));
+}
+.pick-exit-level-main {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.pick-exit-level-price {
+  font: 700 14px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+.pick-exit-action {
+  margin-left: auto;
+  font: 700 8.5px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  color: var(--muted-strong);
+  background: color-mix(in srgb, var(--muted) 14%, var(--surface));
+}
+.pick-exit-level-tp .pick-exit-action,
+.pick-exit-level-runner .pick-exit-action {
+  color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 13%, var(--surface));
+}
+.pick-exit-level-cut .pick-exit-action {
+  color: var(--neg);
+  background: color-mix(in srgb, var(--neg) 13%, var(--surface));
+}
+.pick-exit-level-reduce .pick-exit-action {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, var(--surface));
+}
+.pick-exit-level-prose {
+  font: 400 11.5px/1.45 var(--font-sans);
+  color: var(--text);
+  margin-top: 3px;
+}
+.pick-exit-watch {
+  font: 400 11px/1.4 var(--font-sans);
+  color: var(--muted-strong);
+  margin-top: 4px;
+  padding-left: 13px;
+  position: relative;
+}
+.pick-exit-watch::before {
+  content: "▸";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  color: var(--warn);
+  font-weight: 700;
+}
+.pick-exit-why { margin-top: 5px; }
+.pick-exit-why > summary {
+  cursor: pointer;
+  list-style: none;
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--accent);
+}
+.pick-exit-why > summary::-webkit-details-marker { display: none; }
+.pick-exit-rsn-list {
+  list-style: none;
+  margin: 6px 0 2px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pick-exit-rsn {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 7px;
+  align-items: start;
+}
+.pick-exit-rsn-tag {
+  font: 700 9px/16px var(--font-mono);
+  text-align: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-1);
+  color: var(--surface);
+  background: var(--muted-strong);
+}
+.pick-exit-rsn-technical .pick-exit-rsn-tag { background: var(--accent); }
+.pick-exit-rsn-fundamental .pick-exit-rsn-tag { background: var(--pos); }
+.pick-exit-rsn-mechanical .pick-exit-rsn-tag { background: var(--muted-strong); }
+.pick-exit-rsn-narrative .pick-exit-rsn-tag { background: var(--warn); }
+.pick-exit-rsn-txt {
+  font: 400 11px/1.4 var(--font-sans);
+  color: var(--text);
+}
+
+/* Audit-panel lead caption — names the dominant pillar up top. */
+.pick-pillars-lead {
+  font: 600 11px/1.3 var(--font-sans);
+  margin: 0 0 7px;
+}
+.pick-pillars-lead b { font-variant-numeric: tabular-nums; }
+.pick-pillars-lead.sig-pos { color: var(--pos); }
+.pick-pillars-lead.sig-neg { color: var(--neg); }
+.pick-pillars-lead.sig-zero { color: var(--muted-strong); }
+
+/* ===== Track record (pick accuracy) tab ============================== */
+.acc-ok { color: var(--pos); font-weight: 600; }
+.acc-bad { color: var(--neg); font-weight: 600; }
+.accuracy-stats { margin: 10px 0 14px; }
+.accuracy-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.accuracy-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  min-width: 80px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.accuracy-chip-num {
+  font: 700 18px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+.accuracy-chip-lbl {
+  font: 500 9.5px/1.1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+}
+.accuracy-chip-good .accuracy-chip-num { color: var(--pos); }
+.accuracy-chip-bad .accuracy-chip-num { color: var(--neg); }
+.accuracy-tiers {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.accuracy-tiers-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.acc-tier-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 44px 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.acc-tier-bar {
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--muted) 18%, var(--surface));
+  overflow: hidden;
+}
+.acc-tier-bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--muted);
+}
+.acc-tier-bar i.sig-pos { background: var(--pos); }
+.acc-tier-bar i.sig-neg { background: var(--neg); }
+.acc-tier-rate {
+  font: 700 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.acc-tier-n {
+  font: 500 10px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-align: right;
+}
+.accuracy-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.accuracy-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 11px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-strong);
+  margin-bottom: 8px;
+}
+.accuracy-group-n {
+  font: 700 9px/1 var(--font-mono);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  color: var(--muted-strong);
+  background: color-mix(in srgb, var(--muted) 16%, var(--surface));
+}
+.acc-row {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-1);
+  background: var(--surface);
+  margin-bottom: 6px;
+}
+.acc-row-open { border-left-color: var(--accent); }
+.acc-outcome-win { border-left-color: var(--pos); background: color-mix(in srgb, var(--pos) 4%, var(--surface)); }
+.acc-outcome-loss { border-left-color: var(--neg); background: color-mix(in srgb, var(--neg) 4%, var(--surface)); }
+.acc-outcome-flat { border-left-color: var(--muted); }
+.acc-row-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.acc-side {
+  font: 700 8.5px/1 var(--font-mono);
+  letter-spacing: .05em;
+  padding: 3px 5px;
+  border-radius: var(--r-1);
+}
+.acc-side-call { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, var(--surface)); }
+.acc-side-put { color: var(--neg); background: color-mix(in srgb, var(--neg) 13%, var(--surface)); }
+.acc-sym {
+  font: 700 14px/1 var(--font-mono);
+  color: var(--text-strong);
+}
+.acc-tier {
+  font: 600 9px/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  color: var(--muted-strong);
+  background: color-mix(in srgb, var(--muted) 14%, var(--surface));
+}
+.acc-tier-strong-call, .acc-tier-call { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, var(--surface)); }
+.acc-tier-strong-put, .acc-tier-put { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, var(--surface)); }
+.acc-score {
+  font: 700 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-strong);
+}
+.acc-since {
+  margin-left: auto;
+  font: 700 13px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.acc-grade {
+  margin-left: auto;
+  font: 600 10.5px/1 var(--font-sans);
+  color: var(--muted-strong);
+}
+.acc-outcome {
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: .06em;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+}
+.acc-outcome-tag-win { color: var(--surface); background: var(--pos); }
+.acc-outcome-tag-loss { color: var(--surface); background: var(--neg); }
+.acc-outcome-tag-flat { color: var(--muted-strong); background: color-mix(in srgb, var(--muted) 16%, var(--surface)); }
+.acc-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 5px;
+  font: 400 11px/1.3 var(--font-sans);
+  color: var(--muted-strong);
+}
+.acc-row-meta .acc-peak { color: var(--muted); }
+.acc-targets {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
+}
+.acc-target {
+  font: 600 10px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+}
+.acc-target-tp { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, var(--surface)); }
+.acc-target-cut { color: var(--neg); background: color-mix(in srgb, var(--neg) 10%, var(--surface)); }
+.accuracy-empty { color: var(--muted); font: 400 13px/1.5 var(--font-sans); padding: 12px 0; }
+@media (max-width: 560px) {
+  .acc-tier-row { grid-template-columns: 92px 1fr 40px 40px; gap: 6px; }
+  .acc-since, .acc-grade { margin-left: 0; }
+}
+
 /* "How to read a pick" collapsible — sits between the section hint and
    the cards. Closed by default so the section stays tight for return
    visitors; opening it shows the layout legend for first-time readers. */

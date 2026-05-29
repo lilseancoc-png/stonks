@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, PICKS_MIN_CONVICTION } from "./build.mjs";
+import { buildTopPicks, PICKS_MIN_CONVICTION, updatePicksAccuracyFile } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -50,20 +50,32 @@ for (const sym of symbols) {
 }
 
 const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload);
+const builtAtIso = new Date().toISOString();
 const out = {
-  builtAtIso: new Date().toISOString(),
+  builtAtIso,
   minConviction: PICKS_MIN_CONVICTION,
   picks,
 };
 
 // Match the minified format that build.mjs::writeTopPicksFile uses, so a
 // regen here produces a small, reviewable diff against the workflow-built
-// file rather than reformatting every line.
+// file rather than reformatting every line. (Regen leaves the exit-plan prose
+// templated — the AI polish only runs in the full build.)
 await writeFile(
   resolve(DATA_DIR, "picks.json"),
   JSON.stringify(out),
   "utf8",
 );
+
+// Keep the accuracy tracker in step with the regen'd picks: enroll new picks
+// and mark open ones to market using the cached spots. AI-free, so it's safe
+// to run here.
+try {
+  const acc = await updatePicksAccuracyFile(chains, builtAtIso);
+  console.log(`Updated picks-accuracy.json — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}.`);
+} catch (err) {
+  console.warn(`picks-accuracy.json skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
 
 console.log(`Regenerated picks.json — ${picks.length} pick${picks.length === 1 ? "" : "s"}.`);
 for (const p of picks) {
