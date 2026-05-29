@@ -4978,6 +4978,8 @@ const PICKS_IV_REGIME_HIGH = 70;
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
+const PICKS_ACCURACY_MAX_HOLD_DAYS = 30; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
+const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // only enroll the top-N ranked picks each build, so the open list can't balloon as the top-10 rotates
 
 // ---- Contract grade helpers (mirror app.js thresholds) ------------------
 // These mirror gradeSpread/gradeLiquidity/gradeDelta/gradeTheta/gradeVolRegime
@@ -6809,8 +6811,9 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
 // ----------------------------------------------------------------------------
 // Pick accuracy tracker (spec). Reads the just-written picks.json, marks every
 // tracked ("open") pick to market with the fresh underlying spot from `chains`,
-// resolves any that have reached take-profit / cut / expiry, enrolls new picks,
-// recomputes the win-rate stats, and writes data/picks-accuracy.json. Wholly
+// resolves any that have reached take-profit / cut / expiry / time-stop, enrolls
+// the top-N new picks, recomputes the win-rate stats, and writes
+// data/picks-accuracy.json. Wholly
 // deterministic and AI-free; safe to run from main() and from regen-picks.mjs.
 // ----------------------------------------------------------------------------
 function gradeLabelFor(status, outcome) {
@@ -6818,6 +6821,7 @@ function gradeLabelFor(status, outcome) {
   if (status === "hit-cut") return "Stopped out";
   if (status === "expired") return outcome === "win" ? "Expired ITM" : "Expired worthless";
   if (status === "dropped") return outcome === "win" ? "Dropped (was green)" : "Dropped (was red)";
+  if (status === "timed-out") return outcome === "win" ? "Timed out (green)" : "Timed out (red)";
   return "—";
 }
 
@@ -6905,6 +6909,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso) {
     const ct = Number(e.cut);
     const be = Number(e.contract?.breakeven);
     const expSec = Number(e.contract?.expiry);
+    const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
     let status = null;
     let outcome = null;
     if (!known) {
@@ -6922,6 +6927,13 @@ export async function updatePicksAccuracyFile(chains, builtAtIso) {
       const ref = cur > 0 ? cur : (Number(e.lastSpot) || entry);
       if (be > 0) outcome = (isCall ? ref >= be : ref <= be) ? "win" : "loss";
       else outcome = mfePct > maePct ? "win" : "loss";
+    } else if (entrySec > 0 && nowSec - entrySec >= PICKS_ACCURACY_MAX_HOLD_DAYS * 86400) {
+      // Time-stop: the thesis had its window and never hit target or stop, so
+      // we stop tracking it rather than let it linger until expiry. Judged the
+      // same way as a pick that leaves the universe — by whether it spent more
+      // of its life favorable (MFE) than adverse (MAE).
+      status = "timed-out";
+      outcome = mfePct > maePct ? "win" : "loss";
     }
 
     if (status) {
@@ -6940,9 +6952,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso) {
     }
   }
 
-  // Enroll picks not already tracked (and not just closed this run).
+  // Enroll picks not already tracked (and not just closed this run). Only the
+  // top-N ranked picks are eligible, so the open list can't balloon as the
+  // top-10 rotates. Names already open keep being tracked regardless of where
+  // they rank today — we only gate what gets newly enrolled.
   const openKeys = new Set(stillOpen.map((e) => e.key));
-  for (const p of picks) {
+  for (const p of picks.slice(0, PICKS_ACCURACY_ENROLL_TOP_N)) {
     if (!p || (p.side !== "call" && p.side !== "put")) continue;
     const key = `${p.symbol}:${p.side}`;
     if (openKeys.has(key) || closedThisRun.has(key)) continue;
