@@ -407,7 +407,7 @@ function optionEvalSection() {
             <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
           </header>
           <div class="opt-tech-grid" id="opt-tech-grid"></div>
-          <p class="opt-tech-foot">Indicators are computed at build time from ~6 months of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
+          <p class="opt-tech-foot">Indicators are computed at build time from ~1 year of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
         </section>
       </div>
       <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-iv" aria-labelledby="opt-tab-btn-iv" hidden>
