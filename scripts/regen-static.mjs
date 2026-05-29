@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage, FOMC_MEETINGS_BASELINE, buildHeatmapPayload } from "./build.mjs";
+import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage, FOMC_MEETINGS_BASELINE, buildHeatmapPayload, readRfrHistory } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -129,7 +129,41 @@ const html = renderHtml({
   oi,
 });
 const css = renderStylesCss();
-const js = renderAppJs();
+// The committed data/rfr-history.json holds the last fetched 3M T-bill rate
+// (written by build.mjs, and it survives the build's data/ wipe). Thread it
+// through so the regenerated app.js keeps the real risk-free rate instead of
+// silently resetting greeks to the hardcoded FALLBACK_RISK_FREE_RATE (4.5%).
+// This matters because daily.yml re-runs THIS script *after* build.mjs and
+// commits its app.js — and the hourly unusual-flow / twice-daily oi-tracker
+// workflows regen app.js from here too, with no build to bake the rate. Pass
+// it as the structured payload so the greeks tooltip's source label stays
+// honest ("fresh" only if captured today, else "cached").
+let riskFreeRate;
+try {
+  const rfr = await readRfrHistory();
+  if (rfr && Number.isFinite(rfr.rate)) {
+    const capturedIso = rfr.capturedAt || rfr.asOf || null;
+    const isFresh = capturedIso === todayIsoForFomc;
+    // On a non-fresh (cached) reading, carry the age so the greeks tooltip can
+    // show "cached ^IRX, Nd old" — matching what build.mjs's fetchRiskFreeRate
+    // emits. Fresh readings have no meaningful age (ageDays stays null).
+    let ageDays = null;
+    if (!isFresh && capturedIso) {
+      const capturedMs = Date.parse(capturedIso);
+      const todayMs = Date.parse(todayIsoForFomc);
+      if (Number.isFinite(capturedMs) && Number.isFinite(todayMs)) {
+        ageDays = Math.max(0, (todayMs - capturedMs) / 86400000);
+      }
+    }
+    riskFreeRate = {
+      rate: rfr.rate,
+      asOf: rfr.asOf || null,
+      source: isFresh ? "fresh" : "cached",
+      ageDays,
+    };
+  }
+} catch { /* no rfr-history.json yet — renderAppJs falls back to 4.5% */ }
+const js = renderAppJs(riskFreeRate ? { riskFreeRate } : {});
 
 await writeFile(resolve(ROOT, "index.html"), html, "utf8");
 await writeFile(resolve(ROOT, "styles.css"), css, "utf8");

@@ -66,6 +66,13 @@ const BIG_OI = 1000;
 //   +100% → very aggressive new buying, stronger chip
 const DELTA_OI_PCT_NEW = 0.30;
 const DELTA_OI_PCT_AGGR = 1.00;
+// A strike that went from 0 OI yesterday to a meaningful book today is the
+// strongest new-positioning signal there is — an infinite % increase that the
+// prevOi>0 percentage simply can't express. We surface it as both ΔOI chips
+// when the fresh OI clears the "big OI" bar, so 0→noise (e.g. 0→3) doesn't
+// trip it. Reusing BIG_OI keeps this on the same notability scale as the rest
+// of the tracker rather than inventing a new magic number.
+const NEW_OI_FROM_ZERO_FLOOR = BIG_OI;
 
 // Gamma squeeze "near the money" band: 0–12% OTM (calls).
 const NEAR_THE_MONEY_OTM_MAX = 0.12;
@@ -354,6 +361,9 @@ function decorateContract(c, spot, prevOiLookup) {
   const prevOi = prev?.oi ?? null;
   const oiDelta = prevOi != null ? c.oi - prevOi : null;
   const oiDeltaPct = prevOi != null && prevOi > 0 ? oiDelta / prevOi : null;
+  // 0 → big book: the percentage above is null (can't divide by 0), so flag
+  // it explicitly off the absolute fresh OI instead of dropping the signal.
+  const freshFromZero = prevOi === 0 && c.oi >= NEW_OI_FROM_ZERO_FLOOR;
   const volOiRatio = c.oi > 0 ? c.vol / c.oi : null;
   const fromSpot = otmPct(c.side, c.strike, spot);
   return {
@@ -364,8 +374,8 @@ function decorateContract(c, spot, prevOiLookup) {
     volOiRatio: volOiRatio != null ? Math.round(volOiRatio * 100) / 100 : null,
     fromSpotPct: fromSpot != null ? Math.round(fromSpot * 1000) / 1000 : null,
     flagOiBig: c.oi > BIG_OI,
-    flagOiDelta30: oiDeltaPct != null && oiDeltaPct >= DELTA_OI_PCT_NEW,
-    flagOiDelta100: oiDeltaPct != null && oiDeltaPct >= DELTA_OI_PCT_AGGR,
+    flagOiDelta30: freshFromZero || (oiDeltaPct != null && oiDeltaPct >= DELTA_OI_PCT_NEW),
+    flagOiDelta100: freshFromZero || (oiDeltaPct != null && oiDeltaPct >= DELTA_OI_PCT_AGGR),
   };
 }
 

@@ -3147,22 +3147,48 @@ function findLatestTwo13Fs(submissions) {
   if (!recent) return [];
   const forms = recent.form || [];
   const dates = recent.filingDate || [];
+  const reportDates = recent.reportDate || [];
   const accessions = recent.accessionNumber || [];
   const docs = recent.primaryDocument || [];
-  const found = [];
-  // recent block is already date-descending; walk newest-first.
+  // Gather every 13F-HR / 13F-HR/A filing as a row.
+  const rows = [];
   for (let i = 0; i < forms.length; i++) {
-    if (forms[i] === "13F-HR" || forms[i] === "13F-HR/A") {
-      found.push({
-        form: forms[i],
-        filingDate: dates[i],
-        accessionNumber: accessions[i],
-        primaryDocument: docs[i],
-      });
-      if (found.length >= 2) break;
-    }
+    if (forms[i] !== "13F-HR" && forms[i] !== "13F-HR/A") continue;
+    rows.push({
+      form: forms[i],
+      filingDate: dates[i],
+      reportDate: reportDates[i] || null,
+      accessionNumber: accessions[i],
+      primaryDocument: docs[i],
+    });
   }
-  return found;
+  // EDGAR's `recent` block is documented filing-date-descending, but don't
+  // trust the order (a sibling EDGAR parser in this file sorts for the same
+  // reason). Sort filing-date-descending so that keeping the first filing seen
+  // per report period below keeps the NEWEST one — which is the amendment
+  // (13F-HR/A) whenever one exists, since an /A is always filed after its
+  // original.
+  rows.sort((a, b) => String(b.filingDate || "").localeCompare(String(a.filingDate || "")));
+  // Keep the newest filing per distinct report period (period-of-report quarter
+  // end). Deduping by period is what prevents pairing an amended quarter against
+  // its own original — a near-zero, spurious QoQ diff. `reportDate` was
+  // previously ignored entirely; without it a recently filed /A made `latest`
+  // and `prior` the same quarter for any firm whose newest filing is an amendment.
+  const byPeriod = new Map(); // reportDate (filingDate fallback) -> filing
+  for (const row of rows) {
+    const period = row.reportDate || row.filingDate;
+    if (byPeriod.has(period)) continue; // first (newest) filing for the period wins
+    byPeriod.set(period, row);
+  }
+  // The two most-recent DISTINCT report periods. Sort by reportDate (ISO, so
+  // lexicographic compare is chronological) rather than trusting insertion
+  // order: a recently filed amendment to an OLD quarter carries a new
+  // filingDate but an old period, and must not displace a more recent quarter.
+  return [...byPeriod.values()]
+    .sort((a, b) =>
+      String(b.reportDate || b.filingDate).localeCompare(String(a.reportDate || a.filingDate)),
+    )
+    .slice(0, 2);
 }
 
 async function fetchEdgar13FHoldings(cik, filing) {
@@ -3794,7 +3820,7 @@ export const FOMC_MEETINGS_BASELINE = [
 // baseline. Falls back silently to an empty array on any failure; the
 // caller merges with the baseline so a network outage never empties
 // the schedule.
-async function fetchFomcSchedule() {
+export async function fetchFomcSchedule() {
   try {
     const res = await fetch(
       "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
@@ -3853,7 +3879,7 @@ async function fetchFomcSchedule() {
   }
 }
 
-function mergeFomcMeetings(live, baseline) {
+export function mergeFomcMeetings(live, baseline) {
   const byDate = new Map();
   for (const m of baseline) byDate.set(m.date, m);
   for (const m of live) byDate.set(m.date, m); // live wins on conflicts

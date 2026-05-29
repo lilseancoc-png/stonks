@@ -57,7 +57,28 @@ async function main() {
 
   console.log("Snapshotting CME FedWatch probabilities…");
   const fedwatchHistory = await build.readFedwatchHistory();
-  const upcomingMeetings = build.FOMC_MEETINGS_BASELINE.filter((m) => {
+  if (!fedwatchHistory.meetings) fedwatchHistory.meetings = {};
+  // Mirror build.mjs main(): when FRED:DFF flakes (common on CI runner IPs),
+  // fall back to the last known Fed Funds rate (≤14d old) so FedWatch still
+  // has a pre-meeting anchor and this regen produces the same calendar.json
+  // the full build would. Without it, a regen on a FRED-blocked day blanked
+  // the rate and computed FedWatch with no anchor.
+  let effectiveFedRate = fedRate;
+  if (!effectiveFedRate && fedwatchHistory.lastKnownFedRate) {
+    const last = fedwatchHistory.lastKnownFedRate;
+    const lastMs = Date.parse(last.capturedAt || last.asOf || "");
+    const ageDays = Number.isFinite(lastMs) ? (Date.now() - lastMs) / 86400000 : Infinity;
+    if (ageDays <= 14 && Number.isFinite(last.rate)) {
+      effectiveFedRate = { rate: last.rate, asOf: last.asOf, source: "FRED:DFF (cached)" };
+      console.log(`  · using cached Fed Funds rate ${last.rate}% from ${last.capturedAt || last.asOf} (${ageDays.toFixed(1)}d old)`);
+    }
+  }
+  // Use the live-merged FOMC schedule (not just the hardcoded baseline) so a
+  // meeting the Fed calendar added or shifted beyond the baseline is included,
+  // matching build.mjs.
+  const liveFomc = await build.fetchFomcSchedule();
+  const allFomcMeetings = build.mergeFomcMeetings(liveFomc, build.FOMC_MEETINGS_BASELINE);
+  const upcomingMeetings = allFomcMeetings.filter((m) => {
     const ms = Date.UTC(
       Number(m.date.slice(0, 4)),
       Number(m.date.slice(5, 7)) - 1,
@@ -66,7 +87,12 @@ async function main() {
     return ms >= todayMs;
   });
   const todayIso = new Date(todayMs).toISOString().slice(0, 10);
-  const snapshot = await build.fetchFedwatchSnapshot(upcomingMeetings, fedRate?.rate);
+  // Persist today's fresh Fed rate so a future FRED outage can anchor from it
+  // (only when we got a fresh reading, not when we just reused the cache).
+  if (fedRate && Number.isFinite(fedRate.rate)) {
+    fedwatchHistory.lastKnownFedRate = { rate: fedRate.rate, asOf: fedRate.asOf, capturedAt: todayIso };
+  }
+  const snapshot = await build.fetchFedwatchSnapshot(upcomingMeetings, effectiveFedRate?.rate);
   let snapshotCount = 0;
   for (const [meetingDate, buckets] of Object.entries(snapshot)) {
     if (!buckets?.now) continue;
@@ -102,7 +128,7 @@ async function main() {
   const info = await build.writeCalendarFile(chains, macroHeadlines, new Date().toISOString(), {
     reportEvents,
     fomcMeetings: upcomingMeetings,
-    fedRate,
+    fedRate: effectiveFedRate ?? fedRate,
     fedwatch,
     sessionMap,
   });
