@@ -6403,7 +6403,6 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   const rsi = (t.rsi != null && isFinite(t.rsi)) ? Number(t.rsi) : null;
   const strike = (contract && isFinite(Number(contract.strike))) ? Number(contract.strike) : null;
   const breakeven = (contract && isFinite(Number(contract.breakeven))) ? Number(contract.breakeven) : null;
-  const stock = sym || data?.fundamentals?.name || "the stock";
   const signedPct = (lvl) => { const m = movePct(lvl); return `${m >= 0 ? "+" : ""}${m.toFixed(1)}%`; };
 
   // Active sector-narrative name (if the pick rides one) for narrative reasons.
@@ -6562,20 +6561,22 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   for (let i = 0; i < merged.length; i++) {
     const lv = merged[i];
     const price = lv.price;
-    const at = `${px(price)} (${signedPct(price)})`;
     let watchFor = "";
     if (lv.role === "trim") {
       const fav = isCall ? merged[i - 1] : merged[i + 1]; // neighbour toward the target
       const nextStr = fav ? `${px(fav.price)} (${signedPct(fav.price)})` : "the target";
-      watchFor = `If ${stock} ${isCall ? "gaps through" : "breaks"} ${px(price)} on 1.3x+ volume, the next level is ${nextStr}; if it ${isCall ? "stalls with RSI divergence" : "bounces hard"}, take the trim here.`;
+      watchFor = `Breaks on 1.3x+ volume → ride toward ${nextStr}; ${isCall ? "stalls or RSI diverges" : "bounces hard"} → take the trim.`;
     } else if (lv.role === "reduce") {
-      watchFor = `A decisive ${isCall ? "loss" : "reclaim"} of ${px(price)} on volume opens the cut at ${px(cutPrice)} — tighten up.`;
+      watchFor = `${isCall ? "Loses" : "Reclaims"} it on volume → the cut at ${px(cutPrice)} is next; tighten up.`;
     }
+    // Reason-only prose — the price, % move and action are already shown in
+    // the rung header, so don't restate them here (keeps the ladder uncluttered).
     let prose;
-    if (lv.role === "spot") prose = "Spot is here — your entry reference.";
-    else if (lv.role === "cut") prose = `${lv.action} on a close ${isCall ? "below" : "above"} ${at} — ${lv.anchor} breaks the thesis.`;
-    else if (lv.role === "runner") prose = `${lv.action} beyond ${at} — ${lv.anchor}, only if momentum is exceptional.`;
-    else prose = `${lv.action} at ${at} — ${lv.anchor}.`;
+    if (lv.role === "spot") prose = "Your entry reference.";
+    else if (lv.role === "cut") prose = `A close ${isCall ? "below" : "above"} ${lv.anchor} breaks the structure the trade is built on.`;
+    else if (lv.role === "runner") prose = `${lv.anchor} — the stretch target if momentum is exceptional.`;
+    else if (lv.role === "tp") prose = `Into ${lv.anchor}, where the move is largely priced in — ${isCall ? "sell into strength" : "cover into weakness"}.`;
+    else prose = `${lv.anchor}.`;
     levels.push({
       role: lv.role,
       price,
@@ -8346,8 +8347,8 @@ async function polishExitPlanProse(picks) {
       `${p.symbol} — long ${sideWord}, spot $${spotN.toFixed(2)}. ` +
       `Recommended contract: $${c.strike} strike, ${c.expiryLabel || ""} (${c.dte}d), breakeven $${c.breakeven}.\n\n` +
       `Exit ladder (price levels on the underlying, high to low):\n${ladder}\n\n` +
-      `Rewrite the note for EACH level into one or two punchy, plain-English sentences in a confident options-trader voice. ` +
-      `Preserve the price, the % move, the action, and the single most important reason; fold in the watch-for cue where present. ` +
+      `Rewrite the note for EACH level into ONE short, punchy, plain-English sentence in a confident options-trader voice. ` +
+      `Do NOT restate the dollar price, the % move, or the action label (e.g. "Take 60-70% off") — those are displayed right next to your text, so repeating them is clutter. Write ONLY the reasoning: why this level matters and what to watch for. ` +
       `No hedging, no disclaimers, no markdown, no preamble. ` +
       `Return JSON { "overview": "<one-sentence game plan for the whole trade>", "levels": [ ... ] } with exactly ${x.levels.length} level strings, in the same order.`;
     let response = null;
