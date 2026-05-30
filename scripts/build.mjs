@@ -5285,10 +5285,10 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(surpriseSignal);
 
-  // 2. EPS Growth Trend YoY: asymmetric per spec — bullish caps at +1, bearish
-  // at -2 (significant slowdown is worse news than strong growth is good news,
-  // because the latter is usually already priced in). ≥10% +1, -10..-25% -1,
-  // <-25% -2. earningsGrowthYoy is in percent units (e.g., 214.5 = 214.5%).
+  // 2. EPS Growth Trend YoY: binary per spec — strong acceleration +1,
+  // significant slowdown -2, everything else 0 (the spec lists only +1 / -2;
+  // a mild slowdown isn't scored). ≥10% +1, <-25% -2.
+  // earningsGrowthYoy is in percent units (e.g., 214.5 = 214.5%).
   let epsSignal = _sig("epsGrowth", "EPS Growth YoY", 0,
     { available: false, note: "no growth data" });
   const eps = f.earningsGrowthYoy;
@@ -5296,16 +5296,15 @@ function scoreFundamentals(data, sectorMedianPE) {
     let s = 0;
     if (eps >= 10) s = 1;
     else if (eps < -25) s = -2;
-    else if (eps < -10) s = -1;
     epsSignal = _sig("epsGrowth", "EPS Growth YoY", s, {
       value: `${eps >= 0 ? "+" : ""}${eps.toFixed(1)}%`,
     });
   }
   signals.push(epsSignal);
 
-  // 3. Revenue Growth YoY: same asymmetric shape as EPS but slightly tighter
-  // (revenue grows slower than earnings can compound). ≥8% +1, -8..-20% -1,
-  // <-20% -2.
+  // 3. Revenue Growth YoY: binary per spec like EPS, but slightly tighter
+  // thresholds (revenue grows slower than earnings can compound). Strong beat
+  // +1, significant miss -2, else 0. ≥8% +1, <-20% -2.
   let revSignal = _sig("revGrowth", "Revenue Growth YoY", 0,
     { available: false, note: "no growth data" });
   const rev = f.revenueGrowthYoy;
@@ -5313,7 +5312,6 @@ function scoreFundamentals(data, sectorMedianPE) {
     let s = 0;
     if (rev >= 8) s = 1;
     else if (rev < -20) s = -2;
-    else if (rev < -8) s = -1;
     revSignal = _sig("revGrowth", "Revenue Growth YoY", s, {
       value: `${rev >= 0 ? "+" : ""}${rev.toFixed(1)}%`,
     });
@@ -5366,18 +5364,19 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(peSignal);
 
-  // 6. Guidance: raised +3, in-line +2, soft cut -2, lowered -3 (per spec — the
-  // downside is weighted heavier, and only a confirmed *raise* earns the full
-  // +3). Primary source is the AI-extracted guidance direction from recent news
-  // (data.aiSignals.guidance, set by attachAiContractGuidance when
+  // 6. Guidance: raised +3, in-line +2, lowered -3 (per spec — three states
+  // only, no intermediate "soft cut"; a modest cut still folds into the lowered
+  // bucket at -3). Primary source is the AI-extracted guidance direction from
+  // recent news (data.aiSignals.guidance, set by attachAiContractGuidance when
   // GEMINI_API_KEY is present). When the AI signal is absent or finds no
   // guidance language, fall back to the current-FY analyst growth estimate as a
   // proxy — which by construction tops out at +2, so a real "raised" can only
-  // come from the AI path.
+  // come from the AI path; a clearly negative estimate reads as a lowered proxy
+  // (-3) and a mildly negative one isn't called a cut (0).
   let guideSignal = _sig("guidance", "Guidance", 0,
     { available: false, note: "no guidance estimate available" });
   const aiGuide = data?.aiSignals?.guidance;
-  const GUIDE_SCORE = { raised: 3, inline: 2, soft: -2, lowered: -3 };
+  const GUIDE_SCORE = { raised: 3, inline: 2, soft: -3, lowered: -3 };
   if (aiGuide && aiGuide.direction && aiGuide.direction !== "none" &&
       GUIDE_SCORE[aiGuide.direction] != null) {
     guideSignal = _sig("guidance", "Guidance", GUIDE_SCORE[aiGuide.direction], {
@@ -5396,8 +5395,8 @@ function scoreFundamentals(data, sectorMedianPE) {
         s = -3;
         note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
       } else {
-        s = -2;
-        note = `${gFY.toFixed(1)}% FY EPS growth est — soft cut`;
+        s = 0;
+        note = `${gFY.toFixed(1)}% FY EPS growth est — mildly soft, not a clear cut`;
       }
       guideSignal = _sig("guidance", "Guidance", s, {
         value: `${gFY >= 0 ? "+" : ""}${gFY.toFixed(1)}%`,
@@ -5484,12 +5483,12 @@ function scoreFundamentals(data, sectorMedianPE) {
 }
 
 // Score one support/resistance window. Returns { sig, broke } where broke is
-// +1 (broke above resistance), -1 (broke below support), or 0. A clean break
-// scores the window's full magnitude (per spec: 20D ±1, 50D ±2, 100D ±3); just
-// sitting at a level scores a lighter ±1 contrarian (rejection at resistance is
-// mildly bearish, holding support mildly bullish); between levels scores 0.
-// available:false when neither level is present — e.g. 100D S/R is absent from
-// per-ticker data written before that window was added, until the next full build.
+// +1 (broke above resistance), -1 (broke below support), or 0. Per spec, only a
+// confirmed break is scored — at the window's full magnitude (20D ±1, 50D ±2,
+// 100D ±3); sitting at or between levels scores 0 (proximity/rejection is not a
+// spec signal). available:false when neither level is present — e.g. 100D S/R is
+// absent from per-ticker data written before that window was added, until the
+// next full build.
 function srRung(spot, key, label, sup, res, mag) {
   const r = Number(res);
   const s = Number(sup);
@@ -5505,10 +5504,6 @@ function srRung(spot, key, label, sup, res, mag) {
       sc = mag; broke = 1;
       note = `broke above ${label} resistance $${r.toFixed(2)}`;
       value = `+${(Math.abs(distR) * 100).toFixed(1)}% past R`;
-    } else if (distR >= -0.02 && distR <= 0.03) {
-      sc = -1;
-      note = `at ${label} resistance $${r.toFixed(2)}`;
-      value = `±${(Math.abs(distR) * 100).toFixed(1)}% to R`;
     }
   }
   if (sc === 0 && hasS) {
@@ -5517,10 +5512,6 @@ function srRung(spot, key, label, sup, res, mag) {
       sc = -mag; broke = -1;
       note = `broke below ${label} support $${s.toFixed(2)}`;
       value = `-${(Math.abs(distS) * 100).toFixed(1)}% past S`;
-    } else if (distS >= -0.02 && distS <= 0.03) {
-      sc = 1;
-      note = `at ${label} support $${s.toFixed(2)}`;
-      value = `±${(Math.abs(distS) * 100).toFixed(1)}% to S`;
     }
   }
   return { sig: _sig(key, `${label} S/R`, sc, { value, note }), broke };
@@ -5627,11 +5618,11 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(streakSignal);
 
-  // 4-6. Support / Resistance across three windows (per spec): a confirmed break
-  // above resistance / below support scores the window's magnitude — 20D ±1,
-  // 50D ±2, 100D ±3 (a longer-horizon break is a stronger trend signal). Sitting
-  // at a level scores a lighter ±1 contrarian. The 100D rung shows "no data"
-  // until a full build writes the s100/r100 levels into the per-ticker files.
+  // 4-6. Support / Resistance across three windows (per spec): only a confirmed
+  // break above resistance / below support scores, at the window's magnitude —
+  // 20D ±1, 50D ±2, 100D ±3 (a longer-horizon break is a stronger trend signal).
+  // Sitting at or between levels scores 0. The 100D rung shows "no data" until a
+  // full build writes the s100/r100 levels into the per-ticker files.
   const sr = t.sr || {};
   const sr20 = srRung(spot, "sr20", "20D", sr.s20, sr.r20, 1);
   const sr50 = srRung(spot, "sr50", "50D", sr.s50, sr.r50, 2);

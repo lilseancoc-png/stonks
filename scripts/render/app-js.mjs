@@ -8912,7 +8912,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
   // to refresh.
-  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {} };
+  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, activePick: null };
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
@@ -9807,52 +9807,80 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<p class="pick-analysis">' + escapeHtml(txt) + '</p>';
   }
 
-  // Side rail "jump to pick" index. Lists every visible pick in the same
-  // sort order as the cards so the user can skip the wall of scrolling.
-  // Hidden when there are no picks.
-  function renderPicksToc(picks){
-    var toc = $('picks-toc');
-    if (!toc) return;
+  // Ticker tab bar. The picks list behaves like a tabbed browser — one pick
+  // card visible at a time, a horizontal strip of ticker tabs to switch
+  // between them. Replaces the old wall-of-cards + jump-to side rail, which
+  // was painful to navigate on mobile. Same sort order as the cards; hidden
+  // when there are no picks.
+  function renderPicksTabs(picks){
+    var nav = $('picks-nav');
+    if (!nav) return;
     if (!picks || !picks.length){
-      toc.hidden = true;
-      toc.innerHTML = '';
+      nav.hidden = true;
+      nav.innerHTML = '';
       return;
     }
-    toc.hidden = false;
-    var items = picks.map(function(p, idx){
+    nav.hidden = false;
+    nav.innerHTML = picks.map(function(p, idx){
       var sideCls = pickSideClass(p.side);
       var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
       var tier = p.recommendation && p.recommendation.tier ? p.recommendation.tier : '';
       var total = (p.total != null) ? p.total : (p.score != null ? p.score : null);
       var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + total) : '—';
-      var tierCls = tier ? ' picks-toc-item-' + escapeHtml(tier) : '';
-      return '<a class="picks-toc-item ' + sideCls + tierCls + '" href="#pick-card-' + escapeHtml(p.symbol) + '" data-pick-toc="' + escapeHtml(p.symbol) + '">' +
-        '<span class="picks-toc-rank">' + (idx + 1) + '</span>' +
-        '<span class="picks-toc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="picks-toc-side picks-toc-side-' + sideCls + '">' + sideLabel + '</span>' +
-        '<span class="picks-toc-score">' + escapeHtml(scoreStr) + '</span>' +
-      '</a>';
+      var tierCls = tier ? ' picks-nav-item-' + escapeHtml(tier) : '';
+      var active = p.symbol === picksState.activePick;
+      return '<button type="button" class="picks-nav-item ' + sideCls + tierCls + (active ? ' is-active' : '') + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '" data-pick-nav="' + escapeHtml(p.symbol) + '">' +
+        '<span class="picks-nav-rank">' + (idx + 1) + '</span>' +
+        '<span class="picks-nav-sym">' + escapeHtml(p.symbol) + '</span>' +
+        '<span class="picks-nav-side picks-nav-side-' + sideCls + '">' + sideLabel + '</span>' +
+        '<span class="picks-nav-score">' + escapeHtml(scoreStr) + '</span>' +
+      '</button>';
     }).join('');
-    toc.innerHTML =
-      '<div class="picks-toc-head">Jump to</div>' +
-      '<div class="picks-toc-list">' + items + '</div>';
-    if (!toc._bound){
-      toc._bound = true;
-      toc.addEventListener('click', function(ev){
-        var link = ev.target && ev.target.closest ? ev.target.closest('[data-pick-toc]') : null;
-        if (!link) return;
-        var sym = link.getAttribute('data-pick-toc');
-        var target = sym ? document.getElementById('pick-card-' + sym) : null;
-        if (!target) return;
-        ev.preventDefault();
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        // Brief highlight pulse so the eye lands on the right card.
-        target.classList.remove('pick-card-flash');
-        // Force reflow so the animation restarts on repeat clicks.
-        // eslint-disable-next-line no-unused-expressions
-        target.offsetWidth;
-        target.classList.add('pick-card-flash');
+    if (!nav._bound){
+      nav._bound = true;
+      nav.addEventListener('click', function(ev){
+        var btn = ev.target && ev.target.closest ? ev.target.closest('[data-pick-nav]') : null;
+        if (!btn) return;
+        var sym = btn.getAttribute('data-pick-nav');
+        if (!sym) return;
+        picksState.activePick = sym;
+        applyActivePick(true);
       });
+    }
+  }
+
+  // Show only the active pick's card and light up its tab. Called on every tab
+  // click; the scroll flag brings the freshly shown card to the top (under the
+  // sticky tab strip) and keeps the active tab visible in the horizontal strip.
+  function applyActivePick(scroll){
+    var root = $('picks-root');
+    var nav = $('picks-nav');
+    var sym = picksState.activePick;
+    var activeCard = null;
+    if (root){
+      var cards = root.querySelectorAll('.pick-card');
+      for (var i=0; i<cards.length; i++){
+        var on = cards[i].getAttribute('data-symbol') === sym;
+        cards[i].classList.toggle('is-active', on);
+        if (on) activeCard = cards[i];
+      }
+    }
+    if (nav){
+      var items = nav.querySelectorAll('[data-pick-nav]');
+      for (var j=0; j<items.length; j++){
+        var navOn = items[j].getAttribute('data-pick-nav') === sym;
+        items[j].classList.toggle('is-active', navOn);
+        items[j].setAttribute('aria-selected', navOn ? 'true' : 'false');
+        if (navOn && scroll){
+          // Center the active tab in the horizontal strip without nudging the
+          // page vertically (scrollIntoView on a sticky child can do that).
+          var nr = nav.getBoundingClientRect(), ir = items[j].getBoundingClientRect();
+          nav.scrollLeft += (ir.left - nr.left) - (nav.clientWidth - items[j].clientWidth) / 2;
+        }
+      }
+    }
+    if (activeCard && scroll){
+      activeCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
 
@@ -9867,7 +9895,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="skel skel-block" style="height:60px"></span>' +
         '<span class="skel skel-block" style="height:60px"></span>' +
         '<span class="skel skel-block" style="height:60px"></span>';
-      renderPicksToc([]);
+      renderPicksTabs([]);
       if (empty) empty.hidden = true;
       return;
     }
@@ -9879,7 +9907,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (!picks.length){
       root.innerHTML = '';
-      renderPicksToc([]);
+      renderPicksTabs([]);
       if (empty){
         empty.hidden = false;
         empty.textContent = data.loadError
@@ -9916,6 +9944,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
         : '') +
     '</div>';
+    // Keep the user's current ticker selected across re-sorts; fall back to the
+    // top pick when the previous selection isn't in this build (or on first show).
+    var pickSymbols = picks.map(function(pp){ return pp.symbol; });
+    if (!picksState.activePick || pickSymbols.indexOf(picksState.activePick) === -1){
+      picksState.activePick = picks[0].symbol;
+    }
     root.innerHTML = summary + picks.map(function(p, idx){
       var sideCls = pickSideClass(p.side);
       var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
@@ -9967,7 +10001,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       } else {
         bodyHtml = recBody;
       }
-      return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + '" id="pick-card-' + escapeHtml(p.symbol) + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+      return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + (p.symbol === picksState.activePick ? ' is-active' : '') + '" id="pick-card-' + escapeHtml(p.symbol) + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
         '<div class="pick-rank' + rankCls + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
         '<div class="pick-main">' +
           '<div class="pick-head">' +
@@ -9982,7 +10016,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</div>' +
       '</article>';
     }).join('');
-    renderPicksToc(picks);
+    renderPicksTabs(picks);
     // Clicking a symbol (or "Grade this contract") jumps to the grader and
     // loads the ticker via the same path the URL ?s=X handler walks. We
     // stage pendingUrlState first so applyPendingUrlState() snaps the

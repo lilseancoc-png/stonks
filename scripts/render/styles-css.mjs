@@ -5435,151 +5435,100 @@ main { padding-top: var(--s-2); }
 }
 
 /* === Top picks tab === */
-/* Two-column layout: sticky side-rail TOC (180px) + the card stack. The
-   TOC lets the user skip past the long stack of detail cards straight to
-   the ticker they care about. On narrow screens it collapses to a
-   horizontal scrolling pill row above the cards (still sticky). */
+/* The picks list behaves like a tabbed browser: a horizontal strip of ticker
+   tabs, one pick card shown at a time. Beats the old wall-of-cards + jump-to
+   side rail — far easier to navigate, especially on mobile. The tab strip is
+   sticky so you can keep switching as you read down a long card. */
 .picks-layout {
-  display: grid;
-  grid-template-columns: 184px minmax(0, 1fr);
-  gap: var(--s-4);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
   margin-top: var(--s-3);
 }
 .picks-main {
   min-width: 0;
 }
-.picks-toc {
-  position: sticky;
-  /* Sits below the sticky site-header (~56px) with a comfortable gap. */
-  top: 72px;
-  align-self: start;
-  max-height: calc(100vh - 96px);
-  overflow-y: auto;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-3);
-  background: var(--surface);
-  box-shadow: var(--elev-1);
-  scrollbar-width: thin;
-}
-.picks-toc[hidden] { display: none; }
-.picks-toc-head {
-  font: 600 9px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: .12em;
-  color: var(--muted);
-  padding: 2px 4px 8px;
-  border-bottom: 1px solid var(--hairline);
-  margin-bottom: 6px;
-}
-.picks-toc-list {
+.picks-nav {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Sits below the sticky site-header (~56px). Bleed to the card padding edges
+     so the strip can scroll edge-to-edge on mobile. */
+  position: sticky;
+  top: 56px;
+  z-index: 4;
+  padding: 6px var(--s-3);
+  margin: 0 calc(var(--s-3) * -1);
+  background: var(--surface);
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
 }
-.picks-toc-item {
+.picks-nav[hidden] { display: none; }
+.picks-nav-item {
+  flex: 0 0 auto;
   display: grid;
-  grid-template-columns: 18px 1fr auto auto;
+  grid-template-columns: auto auto auto auto;
   align-items: center;
   gap: 6px;
-  padding: 6px 6px;
+  padding: 6px 10px;
   border-radius: var(--r-2);
-  border: 1px solid transparent;
-  text-decoration: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   color: var(--text);
+  cursor: pointer;
+  appearance: none;
+  scroll-snap-align: start;
   transition: background .15s var(--ease-out), border-color .15s var(--ease-out);
 }
-.picks-toc-item:hover {
+.picks-nav-item:hover {
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
 }
-.picks-toc-rank {
+.picks-nav-item.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  box-shadow: var(--elev-1);
+}
+.picks-nav-rank {
   font: 600 10px/1 var(--font-mono);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  text-align: right;
 }
-.picks-toc-sym {
+.picks-nav-sym {
   font: 700 12px/1 var(--font-mono);
   color: var(--text-strong);
   letter-spacing: .02em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.picks-toc-side {
+.picks-nav-side {
   font: 700 8px/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: .06em;
   padding: 3px 5px;
   border-radius: 3px;
 }
-.picks-toc-side-call {
+.picks-nav-side-call {
   color: var(--pos);
   background: color-mix(in srgb, var(--pos) 12%, transparent);
 }
-.picks-toc-side-put {
+.picks-nav-side-put {
   color: var(--neg);
   background: color-mix(in srgb, var(--neg) 12%, transparent);
 }
-.picks-toc-score {
+.picks-nav-score {
   font: 700 11px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text-strong);
 }
-.picks-toc-item.call .picks-toc-score { color: var(--pos); }
-.picks-toc-item.put  .picks-toc-score { color: var(--neg); }
-.picks-toc-item-strong-call,
-.picks-toc-item-strong-put {
-  font-weight: 700;
-}
-.picks-toc-item-strong-call .picks-toc-sym { color: var(--pos); }
-.picks-toc-item-strong-put  .picks-toc-sym { color: var(--neg); }
+.picks-nav-item.call .picks-nav-score { color: var(--pos); }
+.picks-nav-item.put  .picks-nav-score { color: var(--neg); }
+.picks-nav-item-strong-call .picks-nav-sym { color: var(--pos); }
+.picks-nav-item-strong-put  .picks-nav-sym { color: var(--neg); }
 
-/* Brief highlight flash when the user clicks a TOC entry — makes it
-   obvious which card the page just scrolled to. */
-@keyframes pick-card-flash {
-  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent), var(--elev-1); }
-  60%  { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent), var(--elev-2); }
-  100% { box-shadow: 0 0 0 0 transparent, var(--elev-1); }
-}
-.pick-card-flash {
-  animation: pick-card-flash 1.4s var(--ease-out);
-}
-
-/* Narrow viewports: drop the side rail to a horizontal scrolling pill
-   strip above the cards. Stays sticky so the user can keep jumping while
-   they scroll. */
-@media (max-width: 880px) {
-  .picks-layout {
-    grid-template-columns: 1fr;
-    gap: var(--s-2);
-  }
-  .picks-toc {
-    position: sticky;
-    top: 56px;
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 6px 8px;
-    z-index: 4;
-  }
-  .picks-toc-head { display: none; }
-  .picks-toc-list {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    gap: 6px;
-  }
-  .picks-toc-item {
-    flex: 0 0 auto;
-    grid-template-columns: auto auto auto auto;
-    padding: 5px 8px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-  }
-  .picks-toc-rank { text-align: center; }
-}
+/* Only the active ticker's card is shown — the rest stay in the DOM (so their
+   Recommendation/Grade toggle state survives) but collapsed. */
+.pick-card:not(.is-active) { display: none; }
 
 .picks-root {
   display: flex;
@@ -5612,8 +5561,8 @@ main { padding-top: var(--s-2); }
   background-image: var(--grad-surface);
   box-shadow: var(--elev-1);
   align-items: stretch;
-  /* TOC jumps land here; keep the headline clear of the sticky site-header. */
-  scroll-margin-top: 72px;
+  /* Tab switches scroll here; clear the sticky site-header + ticker tab strip. */
+  scroll-margin-top: 108px;
   transition: border-color .18s var(--ease-out), box-shadow .18s var(--ease-out), transform .18s var(--ease-out);
 }
 /* Side color bleeds into the rank gutter only, then fades — a directional
