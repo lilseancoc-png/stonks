@@ -48,15 +48,16 @@
     "bpsChange5d": null,
     "trend": "falling",
     "rankPct": null,
-    "rankSamples": 1
+    "rankSamples": 2
   },
-  "asOf": "2026-05-30T03:02:33.688Z",
+  "asOf": "2026-05-30T22:39:45.837Z",
   "previousClose": {
-    "date": "2026-05-28",
-    "asOf": "2026-05-29T02:14:42.416Z",
+    "date": "2026-05-29",
+    "asOf": "2026-05-30T03:02:33.688Z",
     "twoY": null,
-    "tenY": 4.455,
-    "thirtyY": 4.9849997,
-    "dxy": 99.037
+    "tenY": 4.453,
+    "thirtyY": 4.993,
+    "dxy": 98.942,
+    "vix": 15.32
   }
 }
