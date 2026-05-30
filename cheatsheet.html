@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Buyer's Field Manual · stonks</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d0e12;
+    --bg2:#11131a;
+    --surface:#171922;
+    --surface2:#1d2029;
+    --line:#2a2e3a;
+    --line2:#363b49;
+    --ink:#e9e6dd;
+    --muted:#8b8f9c;
+    --faint:#5c606d;
+    --gold:#e6b24a;
+    --gold-dim:#a07e34;
+    --call:#4ade80;
+    --put:#fb6f76;
+    --vega:#6db5f0;
+    --theta:#d59bf0;
+    --warn:#f0a23a;
+    --danger:#f0595f;
+    --radius:14px;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --disp:'Fraunces',Georgia,serif;
+    --body:'Hanken Grotesk',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--body);
+    line-height:1.55;
+    font-size:15px;
+    -webkit-font-smoothing:antialiased;
+    position:relative;
+    overflow-x:hidden;
+  }
+  /* atmosphere */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(900px 600px at 12% -5%, rgba(230,178,74,.10), transparent 60%),
+      radial-gradient(800px 700px at 100% 0%, rgba(109,181,240,.07), transparent 55%),
+      radial-gradient(700px 700px at 50% 120%, rgba(74,222,128,.05), transparent 60%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:0 22px 90px}
+
+  .backlink{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);text-decoration:none;
+    margin-top:28px;padding:7px 12px;border:1px solid var(--line);border-radius:7px;
+    transition:color .2s ease,border-color .2s ease,background .2s ease;
+  }
+  .backlink:hover{color:var(--gold);border-color:var(--gold-dim);background:var(--surface)}
+
+  /* masthead */
+  header{padding:28px 0 38px;border-bottom:1px solid var(--line)}
+  .kicker{
+    font-family:var(--mono);font-size:11px;letter-spacing:.34em;text-transform:uppercase;
+    color:var(--gold);display:flex;align-items:center;gap:14px;margin:36px 0 20px;
+  }
+  .kicker::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--gold-dim),transparent)}
+  h1{
+    font-family:var(--disp);font-weight:600;font-size:clamp(38px,7vw,76px);
+    line-height:.96;letter-spacing:-.02em;
+  }
+  h1 em{font-style:italic;color:var(--gold)}
+  .sub{margin-top:22px;max-width:620px;color:var(--muted);font-size:16.5px}
+  .scope{
+    margin-top:26px;display:inline-flex;align-items:center;gap:10px;
+    font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--ink);
+    background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--gold);
+    padding:9px 16px;border-radius:8px;
+  }
+  .scope b{color:var(--gold);font-weight:500}
+
+  /* section scaffolding */
+  section{padding-top:54px}
+  .shead{display:flex;align-items:baseline;gap:16px;margin-bottom:22px}
+  .snum{
+    font-family:var(--mono);font-size:13px;color:var(--gold);
+    border:1px solid var(--gold-dim);border-radius:6px;padding:3px 9px;flex:none;
+  }
+  .shead h2{font-family:var(--disp);font-weight:500;font-size:clamp(24px,3.4vw,33px);letter-spacing:-.01em}
+  .shead p{margin-left:auto;color:var(--faint);font-size:13px;font-family:var(--mono);align-self:center;text-align:right}
+
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:780px){.g2,.g3{grid-template-columns:1fr}}
+
+  .card{
+    background:linear-gradient(180deg,var(--surface),var(--bg2));
+    border:1px solid var(--line);border-radius:var(--radius);padding:22px 22px 20px;
+    transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease;
+  }
+  .card:hover{transform:translateY(-3px);border-color:var(--line2);box-shadow:0 14px 40px -22px rgba(0,0,0,.9)}
+  .card h3{font-family:var(--disp);font-weight:600;font-size:19px;margin-bottom:8px}
+  .card h3 .tag{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase;margin-left:8px}
+  .card p{color:var(--muted);font-size:14.5px}
+  .card p strong{color:var(--ink);font-weight:600}
+  .lead-call{border-left:3px solid var(--call)}
+  .lead-put{border-left:3px solid var(--put)}
+  .lead-gold{border-left:3px solid var(--gold)}
+
+  .term{font-family:var(--mono);color:var(--gold);font-weight:500}
+  .up{color:var(--call);font-weight:600}
+  .down{color:var(--put);font-weight:600}
+
+  /* formula callouts */
+  .formula{
+    background:var(--surface2);border:1px dashed var(--line2);border-radius:10px;
+    padding:16px 18px;font-family:var(--mono);font-size:14px;color:var(--ink);
+  }
+  .formula .lbl{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin-bottom:7px}
+  .formula b{color:var(--call)}
+  .formula .r b{color:var(--put)}
+
+  /* greeks table */
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+  table{border-collapse:collapse;width:100%;min-width:640px}
+  th,td{text-align:left;padding:14px 16px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}
+  thead th{
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--faint);background:var(--bg2);font-weight:500;
+  }
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:rgba(255,255,255,.018)}
+  .gk{font-family:var(--disp);font-weight:600;font-size:17px;display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  td .hook{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+  td.muted{color:var(--muted)}
+
+  /* day timeline */
+  .clock{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:780px){.clock{grid-template-columns:1fr}}
+  .slot{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative;overflow:hidden}
+  .slot .time{font-family:var(--mono);font-size:12px;color:var(--gold);letter-spacing:.05em}
+  .slot .name{font-family:var(--disp);font-size:20px;font-weight:600;margin:4px 0 9px}
+  .slot p{color:var(--muted);font-size:13.5px}
+  .slot .bar{position:absolute;top:0;left:0;height:3px;width:100%}
+  .bar-hot{background:linear-gradient(90deg,var(--danger),var(--warn))}
+  .bar-cool{background:linear-gradient(90deg,var(--vega),#3a4658)}
+  .bar-warm{background:linear-gradient(90deg,var(--warn),var(--gold))}
+
+  /* lists */
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:10px}
+  ul.clean li{position:relative;padding-left:24px;color:var(--muted);font-size:14.5px}
+  ul.clean li strong{color:var(--ink);font-weight:600}
+  ul.clean li::before{content:"▸";position:absolute;left:0;top:0;color:var(--gold);font-size:13px}
+
+  /* checklist */
+  .checklist{background:linear-gradient(180deg,var(--surface),var(--bg2));border:1px solid var(--gold-dim);border-radius:var(--radius);padding:24px 26px}
+  .checklist ul{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:13px 28px}
+  @media(max-width:780px){.checklist ul{grid-template-columns:1fr}}
+  .checklist li{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;color:var(--ink)}
+  .checklist .box{flex:none;width:18px;height:18px;border:1.5px solid var(--gold);border-radius:4px;margin-top:2px}
+  .checklist li span{color:var(--muted)}
+  .checklist li b{color:var(--ink);font-weight:600}
+
+  /* traps */
+  .traps{background:linear-gradient(180deg,#1c1417,#15101280);border:1px solid #54262b;border-radius:var(--radius);padding:24px 26px}
+  .traps h3{font-family:var(--disp);font-weight:600;font-size:21px;color:var(--put);margin-bottom:6px}
+  .traps .lead{color:var(--muted);font-size:14px;margin-bottom:16px}
+  .traps ul{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:12px 26px}
+  @media(max-width:780px){.traps ul{grid-template-columns:1fr}}
+  .traps li{position:relative;padding-left:26px;font-size:14px;color:var(--ink)}
+  .traps li::before{content:"✕";position:absolute;left:0;top:1px;color:var(--danger);font-family:var(--mono);font-size:12px}
+  .traps li span{color:var(--muted)}
+
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px;font-family:var(--mono);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+  /* load animation */
+  .reveal{opacity:0;transform:translateY(14px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  header .reveal:nth-child(1){animation-delay:.05s}
+  header .reveal:nth-child(2){animation-delay:.13s}
+  header .reveal:nth-child(3){animation-delay:.21s}
+  header .reveal:nth-child(4){animation-delay:.29s}
+  header .reveal:nth-child(5){animation-delay:.37s}
+  section{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <a class="backlink reveal" href="/">← Back to stonks</a>
+    <div class="kicker reveal">Options Trading · Reference Card</div>
+    <h1 class="reveal">The Buyer's<br><em>Field Manual</em></h1>
+    <p class="sub reveal">Everything that matters for buying calls and puts — the concepts, the levers you actually control, and the habits that keep you in the game. Built to scan, not to read cover to cover.</p>
+    <div class="scope reveal">SCOPE&nbsp;→&nbsp;<b>long calls &amp; puts only</b>&nbsp;· directional bets, sold back before expiry</div>
+  </header>
+
+  <!-- 01 BASICS -->
+  <section>
+    <div class="shead"><span class="snum">01</span><h2>The Building Blocks</h2><p>start here</p></div>
+    <div class="grid g3">
+      <div class="card lead-call"><h3>Call <span class="tag">bet up ↑</span></h3><p>The right to <strong>buy</strong> 100 shares at a fixed price. You want this when you think the stock <span class="up">rises</span>.</p></div>
+      <div class="card lead-put"><h3>Put <span class="tag">bet down ↓</span></h3><p>The right to <strong>sell</strong> 100 shares at a fixed price. You want this when you think the stock <span class="down">falls</span>.</p></div>
+      <div class="card lead-gold"><h3>Premium <span class="tag">×100</span></h3><p>The price of the contract itself. <strong>1 contract = 100 shares</strong>, so a "$2.00" option costs you <strong>$200</strong>.</p></div>
+    </div>
+    <div class="grid g3" style="margin-top:16px">
+      <div class="card"><h3>Strike</h3><p>The fixed price you'd buy or sell at if you exercised.</p></div>
+      <div class="card"><h3>Expiration <span class="tag">DTE</span></h3><p>The deadline. After it, the option is worthless. "DTE" = days to expiration.</p></div>
+      <div class="card"><h3>Exit</h3><p>You almost always <strong>sell the option back</strong> before expiry — you rarely exercise.</p></div>
+    </div>
+  </section>
+
+  <!-- 02 MONEYNESS -->
+  <section>
+    <div class="shead"><span class="snum">02</span><h2>Moneyness &amp; Value</h2><p>where the strike sits</p></div>
+    <div class="grid g2">
+      <div class="card lead-call">
+        <h3>For a Call</h3>
+        <ul class="clean">
+          <li><strong class="up">ITM</strong> — strike <strong>below</strong> the stock price (already has real value)</li>
+          <li><strong>ATM</strong> — strike <strong>around</strong> the stock price</li>
+          <li><strong class="down">OTM</strong> — strike <strong>above</strong> the stock price (pure bet on the future)</li>
+        </ul>
+      </div>
+      <div class="card lead-put">
+        <h3>For a Put</h3>
+        <ul class="clean">
+          <li><strong class="up">ITM</strong> — strike <strong>above</strong> the stock price</li>
+          <li><strong>ATM</strong> — strike <strong>around</strong> the stock price</li>
+          <li><strong class="down">OTM</strong> — strike <strong>below</strong> the stock price</li>
+        </ul>
+      </div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>Intrinsic vs. Extrinsic</h3>
+        <p><strong>Intrinsic</strong> = the "real" value, how far in-the-money you already are. <strong>Extrinsic (time value)</strong> = everything you're paying for future possibility — and it's the part <span class="term">theta</span> and IV destroy. An OTM option is <strong>100% extrinsic</strong>, which is why it can rot to zero.</p>
+      </div>
+      <div class="card lead-gold">
+        <h3>Breakeven <span class="tag">don't forget the premium</span></h3>
+        <div class="formula">
+          <span class="lbl">Call</span>breakeven = strike <b>+</b> premium paid
+        </div>
+        <div class="formula r" style="margin-top:10px">
+          <span class="lbl">Put</span>breakeven = strike <b>−</b> premium paid
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 GREEKS -->
+  <section>
+    <div class="shead"><span class="snum">03</span><h2>The Greeks</h2><p>what moves your option's price</p></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Greek</th><th>Measures</th><th>What it means for a buyer</th><th>Hook</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="gk"><span class="dot" style="background:var(--call)"></span>Delta</span></td>
+            <td class="muted">Price change per <strong>$1</strong> stock move. Also ≈ the odds of expiring ITM.</td>
+            <td class="muted">Your <strong>direction</strong> exposure — usually the <strong>dominant</strong> driver of your P&amp;L.</td>
+            <td><span class="hook">"speed"</span></td>
+          </tr>
+          <tr>
+            <td><span class="gk"><span class="dot" style="background:var(--gold)"></span>Gamma</span></td>
+            <td class="muted">How fast delta itself changes. Highest when <strong>ATM</strong>.</td>
+            <td class="muted">Acceleration. Makes near-the-money options swing wildly.</td>
+            <td><span class="hook">"acceleration"</span></td>
+          </tr>
+          <tr>
+            <td><span class="gk"><span class="dot" style="background:var(--theta)"></span>Theta</span></td>
+            <td class="muted">Value lost <strong>per day</strong> to time decay.</td>
+            <td class="muted">Almost always <strong>against you</strong>. Accelerates as expiration nears.</td>
+            <td><span class="hook">"the bleed"</span></td>
+          </tr>
+          <tr>
+            <td><span class="gk"><span class="dot" style="background:var(--vega)"></span>Vega</span></td>
+            <td class="muted">Sensitivity to a 1-point move in <strong>IV</strong>.</td>
+            <td class="muted">Your volatility risk. High vega = exposed to IV collapsing.</td>
+            <td><span class="hook">"volatility"</span></td>
+          </tr>
+          <tr>
+            <td><span class="gk"><span class="dot" style="background:var(--faint)"></span>Rho</span></td>
+            <td class="muted">Sensitivity to interest rates.</td>
+            <td class="muted">Minor on short trades — mostly safe to ignore.</td>
+            <td><span class="hook">"ignore-ish"</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 04 IV -->
+  <section>
+    <div class="shead"><span class="snum">04</span><h2>Implied Volatility</h2><p>the market's guess at movement</p></div>
+    <div class="grid g2">
+      <div class="card lead-gold">
+        <h3>What IV is</h3>
+        <p>The market's expectation of <strong>how much</strong> a stock will move — not which direction. It's backed out of the option's price. <strong class="up">High IV = expensive</strong> options; <strong class="down">low IV = cheap</strong>. Bigger expected swings make options worth more.</p>
+      </div>
+      <div class="card">
+        <h3>IV Rank / Percentile</h3>
+        <p>Tells you if <strong>today's IV is high or low versus the stock's own past year</strong>. Low → buying is cheaper and safer. High → options are pricey and favor sellers. <strong>Check this before you buy.</strong></p>
+      </div>
+      <div class="card lead-put">
+        <h3>IV Crush <span class="tag">the buyer's trap</span></h3>
+        <p>Around <strong>earnings / binary events</strong>, IV inflates beforehand, then collapses the instant the news drops. You can be <strong>right on direction and still lose</strong> as IV deflates. A product announcement is a milder cousin — event-day IV that quietly fades, not a true crush.</p>
+      </div>
+      <div class="card">
+        <h3>The Rule</h3>
+        <ul class="clean">
+          <li><strong>Prefer buying when IV is low.</strong></li>
+          <li><strong>Avoid buying right before earnings.</strong></li>
+          <li>A flat stock + a rising option = an <strong class="term">IV-driven</strong> move (vega, not delta).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 LIQUIDITY -->
+  <section>
+    <div class="shead"><span class="snum">05</span><h2>Liquidity</h2><p>can you actually get out?</p></div>
+    <div class="grid g3">
+      <div class="card"><h3>Bid–Ask Spread</h3><p>The gap between buyers' and sellers' prices = your <strong>cost to transact</strong>. <span class="up">Tight</span> = liquid &amp; cheap. <span class="down">Wide</span> = illiquid &amp; a hidden tax every round trip.</p></div>
+      <div class="card"><h3>Volume</h3><p>How many contracts traded <strong>today</strong>. High volume = active right now = quick, fair fills.</p></div>
+      <div class="card"><h3>Open Interest</h3><p>How many contracts are <strong>currently open</strong> = the size of the existing crowd ready to take the other side.</p></div>
+    </div>
+    <div class="card lead-gold" style="margin-top:16px">
+      <p><strong>Why it matters:</strong> getting <em>in</em> is easy; getting <em>out</em> is the problem. An illiquid option can trap you — forced to dump it below fair value, or no buyer at all near expiry. Stick to deep names (META, NVDA, SPY); obscure strikes and far-out expiries are where liquidity dries up.</p>
+    </div>
+  </section>
+
+  <!-- 06 STRIKE & EXPIRY -->
+  <section>
+    <div class="shead"><span class="snum">06</span><h2>Your Two Levers</h2><p>strike &amp; expiration</p></div>
+    <div class="grid g3">
+      <div class="card lead-put"><h3>OTM <span class="tag">lottery ticket</span></h3><p>Cheap, explosive % gains, but <strong>100% time value</strong> — decays fast and needs a big, fast move. <strong>Where beginners quietly lose.</strong></p></div>
+      <div class="card lead-gold"><h3>ATM</h3><p>Balanced cost. <strong>Highest gamma</strong> (most acceleration) <em>and</em> highest theta. Big swings both ways.</p></div>
+      <div class="card lead-call"><h3>ITM</h3><p>Pricier but <strong>behaves like the stock</strong> (high delta), decays slower, smaller % swings. Safer, less leveraged.</p></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><h3>Short DTE</h3><p>Cheap and fast — but <strong>theta is brutal</strong> and accelerates near the end. Can evaporate over a weekend.</p></div>
+      <div class="card"><h3>Long DTE</h3><p>Costs more, but slow decay and <strong>time for your thesis to play out</strong>.</p></div>
+    </div>
+    <div class="card lead-gold" style="margin-top:16px"><p><strong>The hard-learned rule:</strong> give yourself more time than you think you need. Being <em>right but early</em> still loses money if the option expires first.</p></div>
+  </section>
+
+  <!-- 07 DAY CLOCK -->
+  <section>
+    <div class="shead"><span class="snum">07</span><h2>The Trading Day</h2><p>execution timing · ET</p></div>
+    <div class="clock">
+      <div class="slot"><span class="bar bar-hot"></span><span class="time">9:30 – 10:00</span><div class="name">The Open</div><p><strong>Widest spreads, wildest prices.</strong> Market makers don't know fair value yet. Quotes can be stale. Wait 15–30 min for it to settle. <strong>Never market orders.</strong></p></div>
+      <div class="slot"><span class="bar bar-cool"></span><span class="time">11:30 – 2:00</span><div class="name">Midday Lull</div><p>Thin volume, quiet ranges, calmest stretch. Reasonable spreads but little to act on.</p></div>
+      <div class="slot"><span class="bar bar-warm"></span><span class="time">3:00 – 4:00</span><div class="name">Power Hour</div><p>Volume &amp; volatility return as desks rebalance and traders close out. Late directional moves live here.</p></div>
+    </div>
+    <div class="card lead-gold" style="margin-top:16px"><p><strong>Always use limit orders near the mid.</strong> The big moves cluster at the open and power hour — but the open is also where fills are worst. Separate <em>where the action is</em> from <em>where you can fill cleanly</em>.</p></div>
+  </section>
+
+  <!-- 08 ENTRY/EXIT -->
+  <section>
+    <div class="shead"><span class="snum">08</span><h2>Entry &amp; Exit Discipline</h2><p>the part you control</p></div>
+    <div class="grid g2">
+      <div class="card lead-call">
+        <h3>Entering</h3>
+        <ul class="clean">
+          <li>Buy when <strong>IV is reasonable or low</strong>.</li>
+          <li><strong>Limit orders</strong> near the mid — never market, never the chaotic open.</li>
+          <li>Confirm <strong>liquidity</strong> first (spread, volume, OI).</li>
+          <li>Define your <strong>profit target AND stop</strong> before you click buy.</li>
+        </ul>
+      </div>
+      <div class="card lead-put">
+        <h3>Exiting</h3>
+        <ul class="clean">
+          <li><strong>Take momentum gains</strong> — don't let theta erode a winner waiting for a perfect price.</li>
+          <li><strong>Honor your stop.</strong> Long options can go to <strong>zero</strong>.</li>
+          <li>"It'll come back" is how a small loss becomes a total one.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 RISK -->
+  <section>
+    <div class="shead"><span class="snum">09</span><h2>Risk Management</h2><p>the one that actually matters</p></div>
+    <div class="card lead-gold" style="padding:28px 26px">
+      <h3 style="font-size:23px">Position Sizing</h3>
+      <p style="font-size:15.5px;margin-top:6px">Decide the <strong>maximum dollars a single trade can lose — before you enter</strong> — and size to it. Long options can go to zero, so survival is about never letting one trade hurt you badly. <strong>More accounts die from oversizing than from picking the wrong direction.</strong> This outranks every concept above.</p>
+    </div>
+  </section>
+
+  <!-- 10 DECOMPOSITION -->
+  <section>
+    <div class="shead"><span class="snum">10</span><h2>Read Your Own Trades</h2><p>the skill that compounds</p></div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Decompose every move</h3>
+        <p>When your option wins or loses, split the cause: <span class="up">delta</span> (stock moved) · <span class="term" style="color:var(--theta)">theta</span> (time passed) · <span class="term" style="color:var(--vega)">vega</span> (IV shifted). <strong>Reach for the simplest explanation first</strong> — usually it's delta + theta, not an exotic vega story.</p>
+      </div>
+      <div class="card lead-gold">
+        <h3>Journal it <span class="tag">do this</span></h3>
+        <p>Log every trade: <strong>strike, expiration, entry price, IV at entry, your thesis, and why you exited.</strong> Recording IV at entry is what lets you prove (or rule out) a vega move later. The journal teaches you more than any guide.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <p style="color:var(--faint);font-family:var(--mono);font-size:12.5px">REMEMBER · The Greeks aren't static — delta shifts as the stock moves (gamma), theta accelerates toward expiry, and vega shrinks as expiration nears. The option you hold a week later is a different instrument.</p>
+    </div>
+  </section>
+
+  <!-- CHECKLIST -->
+  <section>
+    <div class="shead"><span class="snum">✓</span><h2>Pre-Trade Checklist</h2><p>run it every time</p></div>
+    <div class="checklist">
+      <ul>
+        <li><span class="box"></span><span><b>Liquid?</b> Tight spread, real volume, solid open interest.</span></li>
+        <li><span class="box"></span><span><b>IV low / reasonable?</b> Not buying inflated premium.</span></li>
+        <li><span class="box"></span><span><b>No earnings</b> before my expiry (unless that's the plan).</span></li>
+        <li><span class="box"></span><span><b>Enough time?</b> DTE gives the thesis room to work.</span></li>
+        <li><span class="box"></span><span><b>Strike fits conviction?</b> OTM only for a strong, fast-move thesis.</span></li>
+        <li><span class="box"></span><span><b>Profit target + stop</b> defined before entry.</span></li>
+        <li><span class="box"></span><span><b>Size within</b> my max-loss-per-trade rule.</span></li>
+        <li><span class="box"></span><span><b>Limit order</b> near mid — not market, not at the open.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- TRAPS -->
+  <section>
+    <div class="traps">
+      <h3>Common Traps</h3>
+      <p class="lead">The recurring ways buyers lose money — recognize them before they cost you.</p>
+      <ul>
+        <li>Cheap <b>OTM lottery tickets</b> <span>that expire worthless</span></li>
+        <li>Buying <b>into earnings</b> <span>→ IV crush guts you even when right</span></li>
+        <li><b>Forgetting the premium</b> <span>in your breakeven math</span></li>
+        <li><b>Market orders</b> <span>/ trading the chaotic open</span></li>
+        <li><b>Oversizing</b> <span>— one trade that can really hurt you</span></li>
+        <li>Blaming <b>vega</b> <span>when it was really delta + theta</span></li>
+        <li><b>Illiquid contracts</b> <span>you can't escape near expiry</span></li>
+        <li><b>Holding a winner</b> <span>until theta eats the gain</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <span>OPTIONS BUYER'S FIELD MANUAL · personal study reference</span>
+    <span>Educational only — not financial advice.</span>
+  </footer>
+
+</div>
+</body>
+</html>
