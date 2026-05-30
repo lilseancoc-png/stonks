@@ -528,7 +528,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // --- Chain controls -----------------------------------------------------
   function fmtExpiryLabel(epoch){
     var d = new Date(epoch*1000);
-    return d.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric', timeZone:'America/New_York' });
+    // Expiry epochs are 00:00 UTC of the expiry date — read them in UTC, else
+    // ET shifts 00:00 UTC back to the prior evening and shows the day before.
+    return d.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric', timeZone:'UTC' });
   }
   function getOptType(){
     var r = document.querySelector('input[name="opt-type"]:checked');
@@ -1404,7 +1406,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var bdS = backdropOrder[bdi];
       var bdM = backdropMoves[bdS];
       if (!bdM) continue;
-      var bdCls = bdM.pct >= 0.1 ? 'up' : (bdM.pct <= -0.1 ? 'down' : 'flat');
+      // UVXY is a leveraged VIX proxy: a spike is risk-OFF, so invert its tone
+      // for the pill color (red on a spike) to match the BACKDROP_TIP wording
+      // and the landing-pulse strip. The displayed signedPct stays the real move.
+      var bdTone = bdS === 'UVXY' ? -bdM.pct : bdM.pct;
+      var bdCls = bdTone >= 0.1 ? 'up' : (bdTone <= -0.1 ? 'down' : 'flat');
       var bdLabel = bdS === 'UVXY' ? 'VIX·UVXY' : bdS;
       backdropPills.push(
         '<span class="opt-exec-bd-pill ' + bdCls + '">' +
@@ -3240,7 +3246,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (p.strike != null) $('m-strike').value = String(p.strike);
     if (p.expEpoch){
       var d = new Date(p.expEpoch*1000);
-      var nyParts = new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(d);
+      // Expiry epochs are 00:00 UTC of the expiry date — derive the YYYY-MM-DD
+      // for the <input type=date> in UTC (reading in ET shifts it to the prior
+      // day, which evaluateManual would then re-parse one DTE short). Matches
+      // the snapshot-restore prefill (toISOString().slice(0,10)) elsewhere.
+      var nyParts = new Intl.DateTimeFormat('en-CA', { timeZone:'UTC', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(d);
       var y='', mo='', da='';
       for (var i=0; i<nyParts.length; i++){
         var part = nyParts[i];
@@ -3348,7 +3358,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var st = marketStateLabel(q.marketState);
     var changeCls = q.change == null ? '' : (q.change >= 0 ? 'up' : 'down');
     var changeTxt = q.change != null && isFinite(q.change)
-      ? ((q.change >= 0 ? '+' : '') + '$' + Math.abs(q.change).toFixed(2) + ' (' + fmtPctSigned(q.changePct) + ')')
+      ? ((q.change >= 0 ? '+' : '-') + '$' + Math.abs(q.change).toFixed(2) + ' (' + fmtPctSigned(q.changePct) + ')')
       : '';
     box.hidden = false;
     box.innerHTML = '<span class="opt-live-pill ' + st.cls + '">' + st.label + '</span>' +
@@ -7655,7 +7665,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function decodeIssuerName(name){
     if (!name) return name;
     return String(name)
-      .replace(/&#(\d+);/g, function(_, n){ return String.fromCodePoint(Number(n)); })
+      .replace(/&#([0-9]+);/g, function(_, n){ return String.fromCodePoint(Number(n)); })
       .replace(/&#x([0-9a-fA-F]+);/g, function(_, n){ return String.fromCodePoint(parseInt(n, 16)); })
       .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"').replace(/&apos;/g, "'");

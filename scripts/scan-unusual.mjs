@@ -319,9 +319,11 @@ async function loadUnusualLog() {
   }
 }
 
-// Build a lookup from the persisted log: contract-key -> {count, lastSeen}.
-// Counts how many distinct scans flagged each contract within the window,
-// so the UI can render a "🔥 ×N" repeat-conviction badge inline.
+// Build a lookup from the persisted log: contract-key -> {count, firstSeen,
+// lastSeen}. Counts how many distinct scans flagged each contract within the
+// window, so the UI can render a "🔥 ×N" repeat-conviction badge inline.
+// firstSeen tracks the EARLIEST sighting (for the "first flagged at …" badge);
+// lastSeen tracks the most recent.
 function buildRepeatLookup(log, nowMs) {
   const cutoff = nowMs - LOG_WINDOW_MS;
   const map = new Map();
@@ -331,10 +333,11 @@ function buildRepeatLookup(log, nowMs) {
     const key = `${e.symbol}|${e.side}|${e.strike}|${e.expSec}`;
     const prior = map.get(key);
     if (!prior) {
-      map.set(key, { count: 1, lastSeen: e.scannedAt, lastSeenMs: t });
+      map.set(key, { count: 1, firstSeen: e.scannedAt, firstSeenMs: t, lastSeen: e.scannedAt, lastSeenMs: t });
     } else {
       prior.count += 1;
       if (t > prior.lastSeenMs) { prior.lastSeen = e.scannedAt; prior.lastSeenMs = t; }
+      if (t < prior.firstSeenMs) { prior.firstSeen = e.scannedAt; prior.firstSeenMs = t; }
     }
   }
   return map;
@@ -1109,7 +1112,7 @@ async function main() {
           // and again this hour shows "×2", a brand-new hit shows "×1" (badge
           // won't render until count >= REPEAT_MIN).
           out.repeatCount = (prior?.count ?? 0) + 1;
-          out.firstSeen = prior?.lastSeen ?? scannedAt;
+          out.firstSeen = prior?.firstSeen ?? scannedAt;
           return out;
         });
         tickerRows.push({
