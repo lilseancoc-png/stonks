@@ -9411,7 +9411,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var pillarName = { technical:'Technical', fundamental:'Fundamental', mechanical:'Mechanical', narrative:'Narrative' };
       var pillarTag = { technical:'T', fundamental:'F', mechanical:'M', narrative:'N' };
       var pkeys = ['technical','fundamental','mechanical','narrative'];
-      var rungs = '';
+      var upRungs = '', downRungs = '';
       for (var li=0; li<x.levels.length; li++){
         var lv = x.levels[li];
         if (!lv || lv.price == null) continue;
@@ -9445,7 +9445,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var rsnBlock = rsnRows
           ? '<details class="pick-exit-why"><summary>why &rarr;</summary><ul class="pick-exit-rsn-list">' + rsnRows + '</ul></details>'
           : '';
-        rungs += '<li class="pick-exit-level pick-exit-level-' + escapeHtml(role) + '">' +
+        var rungHtml = '<li class="pick-exit-level pick-exit-level-' + escapeHtml(role) + '">' +
           '<div class="pick-exit-level-main">' +
             '<span class="pick-exit-level-price">$' + Number(lv.price).toFixed(2) + '</span>' +
             mv + actionBadge +
@@ -9453,6 +9453,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (secondary ? '<div class="' + secondaryCls + '">' + escapeHtml(secondary) + '</div>' : '') +
           rsnBlock +
         '</li>';
+        // Split the ladder into two side-by-side columns: scale-out levels
+        // above entry (take-profit / trims / runner) on the left, the entry
+        // marker plus downside defense (spot / reduce / cut) on the right.
+        // Halves the stack height and groups "if it works" vs "if it doesn't".
+        if (role === 'spot' || role === 'reduce' || role === 'cut') downRungs += rungHtml;
+        else upRungs += rungHtml;
       }
       var overview = x.overviewAi
         ? '<div class="pick-exit-overview">' + escapeHtml(String(x.overviewAi)) + '</div>' : '';
@@ -9465,10 +9471,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<ul class="pick-exit-trigger-list">' + itemsL + '</ul>' +
         '</div>';
       }
+      var cols = '';
+      if (upRungs) cols += '<div class="pick-exit-col">' +
+        '<div class="pick-exit-col-head pick-exit-col-head-up">Scale out &uarr;</div>' +
+        '<ol class="pick-exit-ladder">' + upRungs + '</ol>' +
+      '</div>';
+      if (downRungs) cols += '<div class="pick-exit-col">' +
+        '<div class="pick-exit-col-head pick-exit-col-head-down">Defend &amp; cut &darr;</div>' +
+        '<ol class="pick-exit-ladder">' + downRungs + '</ol>' +
+      '</div>';
       return '<div class="pick-exit">' +
         '<div class="pick-exit-head">Exit ladder</div>' +
         overview +
-        '<ol class="pick-exit-ladder">' + rungs + '</ol>' +
+        '<div class="pick-exit-cols">' + cols + '</div>' +
         trigL +
       '</div>';
     }
