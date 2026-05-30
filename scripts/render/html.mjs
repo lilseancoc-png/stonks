@@ -106,8 +106,13 @@ function topPicksSection() {
         </select>
       </label>
     </div>
-    <div id="picks-root" class="picks-root">Loading top picks…</div>
-    <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-15 to +15).</div>
+    <div class="picks-layout">
+      <aside id="picks-toc" class="picks-toc" aria-label="Jump to pick" hidden></aside>
+      <div class="picks-main">
+        <div id="picks-root" class="picks-root">Loading top picks…</div>
+        <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-15 to +15).</div>
+      </div>
+    </div>
     <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;16 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
   </section>`;
 }
