@@ -5429,7 +5429,9 @@ main { padding-top: var(--s-2); }
 }
 .pick-card {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 280px;
+  /* Two columns: rank gutter + main body. The score breakdown used to be a
+     third always-on column; it now lives inside the body as the "Grade" tab. */
+  grid-template-columns: 48px minmax(0, 1fr);
   gap: var(--s-3);
   padding: var(--s-3);
   border: 1px solid var(--border);
@@ -5979,8 +5981,9 @@ main { padding-top: var(--s-2); }
 .picks-summary-warn .picks-summary-num { color: var(--warn); }
 .picks-summary-warn .picks-summary-lbl { color: var(--warn); opacity: .85; }
 
-/* Mobile: drop the right-side pillars panel down to a row beneath
-   the main content so we can keep the breakdown visible on narrow viewports. */
+/* Mobile: tighten the rank gutter. The score breakdown is now the in-card
+   "Grade" tab (a tabpanel inside .pick-main), so it already flows full-width
+   beneath the tabs on narrow viewports — no grid reflow needed. */
 @media (max-width: 860px) {
   .pick-card {
     grid-template-columns: 44px minmax(0, 1fr);
@@ -5991,15 +5994,40 @@ main { padding-top: var(--s-2); }
   .pick-rank-top1 .pick-rank-num { font-size: 24px; }
   .pick-rank-top2 .pick-rank-num,
   .pick-rank-top3 .pick-rank-num { font-size: 22px; }
-  .pick-pillars-panel {
-    grid-column: 1 / -1;
-    border-left: 0;
-    border-top: 1px solid var(--border);
-    padding-left: 0;
-    padding-top: 10px;
-    margin-top: 4px;
-  }
 }
+
+/* --- Recommendation ⇄ Grade toggle -------------------------------------
+   A small segmented control under the head row that switches the card body
+   between the recommendation and the full 4-pillar score breakdown. */
+.pick-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 8px;
+  padding: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  width: fit-content;
+}
+.pick-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: .04em;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .12s var(--ease-out), color .12s var(--ease-out);
+}
+.pick-tab:hover:not(.is-active) { color: var(--text); }
+.pick-tab.is-active {
+  background: var(--surface-2);
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.pick-tabpanel[hidden] { display: none; }
 
 /* --- 4-pillar tier banner -----------------------------------------------
    Sits directly under the head row and dominates the card. Each tier gets
@@ -6144,13 +6172,11 @@ main { padding-top: var(--s-2); }
 .pick-peer.pick-peer-put .pick-peer-score { color: var(--neg); }
 .pick-peer.pick-peer-no-trade .pick-peer-score { color: var(--muted); }
 
-/* --- 4-pillar side panel (score breakdown) ----------------------------- */
+/* --- 4-pillar score breakdown (the "Grade" tab) ------------------------ */
 .pick-pillars-panel {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-left: var(--s-3);
-  border-left: 1px solid var(--border);
   min-width: 0;
 }
 .pick-pillars-bar {

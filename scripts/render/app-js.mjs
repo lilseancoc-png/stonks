@@ -8902,7 +8902,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
   // to refresh.
-  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false };
+  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {} };
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
@@ -9611,8 +9611,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function pickTierBadge(p){
     var rec = p && p.recommendation;
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : null);
-    var label = rec && rec.label ? rec.label : (total >= 12 ? 'Call' : total <= -12 ? 'Put' : 'No Trade');
-    var tier = rec && rec.tier ? rec.tier : (total >= 16 ? 'strong-call' : total >= 12 ? 'call' : total <= -16 ? 'strong-put' : total <= -12 ? 'put' : 'no-trade');
+    var label = rec && rec.label ? rec.label : (total >= 16 ? 'Call' : total <= -16 ? 'Put' : 'No Trade');
+    var tier = rec && rec.tier ? rec.tier : (total >= 20 ? 'strong-call' : total >= 16 ? 'call' : total <= -20 ? 'strong-put' : total <= -16 ? 'put' : 'no-trade');
     var conv = rec && rec.conviction ? rec.conviction : '';
     var size = rec && rec.sizing ? rec.sizing : '';
     var scoreStr = (total != null) ? ((total >= 0 ? '+' : '') + total) : '—';
@@ -9833,7 +9833,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
       '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
       (strongCount > 0
-        ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 15)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
+        ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 20)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
         : '') +
       '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
       (earningsCount > 0
@@ -9869,6 +9869,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var analysisHtml = pickAnalysisBlock(p);
       var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
       var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
+      // The card body is split into two switchable views: "Recommendation"
+      // (tier banner + analysis + contract + exit ladder + peers) and "Grade"
+      // (the full 4-pillar score breakdown — so you can judge how the score was
+      // arrived at, right next to the call). A legacy pick with no pillar data
+      // renders the recommendation directly with no tabs.
+      var recBody = tierHtml + analysisHtml + contractHtml + exitHtml + peersHtml;
+      var bodyHtml;
+      if (pillarsHtml){
+        // Honor the tab the user last picked for this symbol so a re-sort (which
+        // rebuilds the whole list) doesn't snap an open Grade view back to
+        // Recommendation. Keyed by symbol in picksState.activeTab.
+        var gradeOpen = picksState.activeTab[p.symbol] === 'grade';
+        bodyHtml =
+          '<div class="pick-tabs" role="tablist" aria-label="Pick view">' +
+            '<button type="button" class="pick-tab' + (gradeOpen ? '' : ' is-active') + '" role="tab" id="pt-rec-' + idx + '" aria-selected="' + (gradeOpen ? 'false' : 'true') + '" aria-controls="pp-rec-' + idx + '" data-pick-tab="rec">Recommendation</button>' +
+            '<button type="button" class="pick-tab' + (gradeOpen ? ' is-active' : '') + '" role="tab" id="pt-grade-' + idx + '" aria-selected="' + (gradeOpen ? 'true' : 'false') + '" aria-controls="pp-grade-' + idx + '" data-pick-tab="grade">Grade</button>' +
+          '</div>' +
+          '<div class="pick-tabpanel" role="tabpanel" id="pp-rec-' + idx + '" aria-labelledby="pt-rec-' + idx + '"' + (gradeOpen ? ' hidden' : '') + '>' + recBody + '</div>' +
+          '<div class="pick-tabpanel" role="tabpanel" id="pp-grade-' + idx + '" aria-labelledby="pt-grade-' + idx + '"' + (gradeOpen ? '' : ' hidden') + '>' + pillarsHtml + '</div>';
+      } else {
+        bodyHtml = recBody;
+      }
       return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
         '<div class="pick-rank' + rankCls + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
         '<div class="pick-main">' +
@@ -9880,13 +9902,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             streakHtml +
             tenureHtml +
           '</div>' +
-          tierHtml +
-          analysisHtml +
-          contractHtml +
-          exitHtml +
-          peersHtml +
+          bodyHtml +
         '</div>' +
-        pillarsHtml +
       '</article>';
     }).join('');
     // Clicking a symbol (or "Grade this contract") jumps to the grader and
@@ -9915,6 +9932,35 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         combo.commit(sym);
       });
     });
+    // Recommendation ⇄ Grade toggle. One delegated listener on the (stable)
+    // picks-root element, bound once — renderPicks replaces root.innerHTML on
+    // every sort change, which discards the card nodes but not root itself, so
+    // a per-render addEventListener would stack duplicates. Scope every lookup
+    // to the clicked card so each card toggles independently; match the panel
+    // by aria-controls so no per-card index bookkeeping is needed.
+    if (!root._pickTabsBound){
+      root._pickTabsBound = true;
+      root.addEventListener('click', function(ev){
+        var btn = ev.target && ev.target.closest ? ev.target.closest('.pick-tab') : null;
+        if (!btn) return;
+        var card = btn.closest('.pick-card');
+        if (!card) return;
+        var targetId = btn.getAttribute('aria-controls');
+        // Remember the choice per-symbol so it survives the next re-sort render.
+        var cardSym = card.getAttribute('data-symbol');
+        if (cardSym) picksState.activeTab[cardSym] = btn.getAttribute('data-pick-tab');
+        var tabs = card.querySelectorAll('.pick-tab');
+        for (var ti=0; ti<tabs.length; ti++){
+          var on = tabs[ti] === btn;
+          tabs[ti].classList.toggle('is-active', on);
+          tabs[ti].setAttribute('aria-selected', on ? 'true' : 'false');
+        }
+        var panels = card.querySelectorAll('.pick-tabpanel');
+        for (var pi=0; pi<panels.length; pi++){
+          panels[pi].hidden = panels[pi].id !== targetId;
+        }
+      });
+    }
   }
 
   // --- Pinned-to-compare strip --------------------------------------------

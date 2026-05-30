@@ -30,6 +30,18 @@ try {
   unusualPayload = JSON.parse(raw);
 } catch {}
 
+// The full build fetches the macro backdrop (VIX / DXY / 10Y) and threads it
+// into picks for the VIX-spot, VIX-tracking, DXY-1d and 10y-1d signals. On a
+// regen we read the committed data/macro.json instead — no Yahoo call. A
+// missing/stale read just leaves those macro signals at "no data" (the VIX leg
+// in particular is often absent from older macro.json files until a full build
+// repopulates it).
+let macroBackdrop = null;
+try {
+  const raw = await readFile(resolve(DATA_DIR, "macro.json"), "utf8");
+  macroBackdrop = JSON.parse(raw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 // Match the ticker allowlist shape (lib/yahoo.mjs SYMBOL_RE: leading letter,
 // then letters/digits/dot, ≤6 chars) so dotted/numeric tickers like BRK.B
@@ -49,7 +61,7 @@ for (const sym of symbols) {
   } catch {}
 }
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload);
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop);
 const builtAtIso = new Date().toISOString();
 const out = {
   builtAtIso,

@@ -5038,10 +5038,13 @@ export function pickFedwatchBuckets(history, meetingDate, nowIso) {
 // ============================================================================
 const PICKS_FILE = "picks.json";
 const PICKS_COUNT = 10;
-// 4-pillar scoring uses tiers: ±16 Strong, ±12 directional, otherwise No Trade.
-// Floor at 12 absolute so only actionable picks ship.
-export const PICKS_MIN_CONVICTION = 12;
-const PICKS_TIER_STRONG = 16;
+// 4-pillar scoring tiers (per the spec's Final Score Summary table):
+//   ±20  Strong (Very High conviction, "Load the Boat")
+//   ±16  directional Call/Put (High conviction, Standard size)
+//   otherwise (-15..+15) No Trade.
+// Floor at 16 absolute so only actionable (Call/Strong) picks ship.
+export const PICKS_MIN_CONVICTION = 16;
+const PICKS_TIER_STRONG = 20;
 
 // Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
@@ -5180,12 +5183,12 @@ function summarizeUnusualForSym(sym, unusualPayload) {
 // pillars (Fundamentals, Technicals, Mechanicals, Narrative). Pillar score =
 // sum of its signals. Total score = sum of all four pillar scores.
 //
-// Score → tier mapping (per the spec):
-//   ≥ +16   Strong Call  (Very High conviction, Full size)
-//   +12..+15 Call        (High conviction, Standard size)
-//   -11..+11 No Trade    (Skip — not shipped)
-//   -12..-15 Put         (High conviction, Standard size)
-//   ≤ -16   Strong Put   (Very High conviction, Full size)
+// Score → tier mapping (per the spec's Final Score Summary table):
+//   ≥ +20   Strong Call  (Very High conviction, Load the Boat)
+//   +16..+19 Call        (High conviction, Standard size)
+//   -15..+15 No Trade    (Skip — not shipped)
+//   -16..-19 Put         (High conviction, Standard size)
+//   ≤ -20   Strong Put   (Very High conviction, Load the Boat)
 //
 // Each pillar returns a `signals` array where every entry is
 //   { key, label, score, value, note, available }
@@ -5220,7 +5223,7 @@ function buildSectorPEMedians(chains) {
 function tierForScore(score) {
   if (score >= PICKS_TIER_STRONG) {
     return { tier: "strong-call", label: "Strong Call", side: "call",
-             conviction: "Very High", sizing: "Full size" };
+             conviction: "Very High", sizing: "Load the Boat" };
   }
   if (score >= PICKS_MIN_CONVICTION) {
     return { tier: "call", label: "Call", side: "call",
@@ -5228,7 +5231,7 @@ function tierForScore(score) {
   }
   if (score <= -PICKS_TIER_STRONG) {
     return { tier: "strong-put", label: "Strong Put", side: "put",
-             conviction: "Very High", sizing: "Full size" };
+             conviction: "Very High", sizing: "Load the Boat" };
   }
   if (score <= -PICKS_MIN_CONVICTION) {
     return { tier: "put", label: "Put", side: "put",
@@ -5363,44 +5366,180 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(peSignal);
 
-  // 6. Guidance: raised/in-line +2, soft cut -2, lowered -3 (per spec — the
-  // downside is weighted heavier than the upside). Approximated from the
-  // current-FY analyst growth estimate since raw guidance text isn't fetched.
-  // ≥0% → raised/in line +2, -10..0% → soft cut -2, ≤-10% → lowered -3.
+  // 6. Guidance: raised +3, in-line +2, soft cut -2, lowered -3 (per spec — the
+  // downside is weighted heavier, and only a confirmed *raise* earns the full
+  // +3). Primary source is the AI-extracted guidance direction from recent news
+  // (data.aiSignals.guidance, set by attachAiContractGuidance when
+  // GEMINI_API_KEY is present). When the AI signal is absent or finds no
+  // guidance language, fall back to the current-FY analyst growth estimate as a
+  // proxy — which by construction tops out at +2, so a real "raised" can only
+  // come from the AI path.
   let guideSignal = _sig("guidance", "Guidance", 0,
     { available: false, note: "no guidance estimate available" });
-  const gFY = f.growthEstimateCurY;
-  if (gFY != null && isFinite(gFY)) {
-    let s = 0;
-    let note;
-    if (gFY >= 0) {
-      s = 2;
-      note = `+${gFY.toFixed(1)}% FY EPS growth est — raised/in-line proxy`;
-    } else if (gFY <= -10) {
-      s = -3;
-      note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
-    } else {
-      s = -2;
-      note = `${gFY.toFixed(1)}% FY EPS growth est — soft cut`;
-    }
-    guideSignal = _sig("guidance", "Guidance", s, {
-      value: `${gFY >= 0 ? "+" : ""}${gFY.toFixed(1)}%`,
-      note,
+  const aiGuide = data?.aiSignals?.guidance;
+  const GUIDE_SCORE = { raised: 3, inline: 2, soft: -2, lowered: -3 };
+  if (aiGuide && aiGuide.direction && aiGuide.direction !== "none" &&
+      GUIDE_SCORE[aiGuide.direction] != null) {
+    guideSignal = _sig("guidance", "Guidance", GUIDE_SCORE[aiGuide.direction], {
+      value: `${aiGuide.direction} (AI)`,
+      note: aiGuide.evidence ? String(aiGuide.evidence).slice(0, 200) : "AI-read from recent news",
     });
+  } else {
+    const gFY = f.growthEstimateCurY;
+    if (gFY != null && isFinite(gFY)) {
+      let s = 0;
+      let note;
+      if (gFY >= 0) {
+        s = 2;
+        note = `+${gFY.toFixed(1)}% FY EPS growth est — raised/in-line proxy`;
+      } else if (gFY <= -10) {
+        s = -3;
+        note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
+      } else {
+        s = -2;
+        note = `${gFY.toFixed(1)}% FY EPS growth est — soft cut`;
+      }
+      guideSignal = _sig("guidance", "Guidance", s, {
+        value: `${gFY >= 0 ? "+" : ""}${gFY.toFixed(1)}%`,
+        note,
+      });
+    }
   }
   signals.push(guideSignal);
 
-  // 7. Major Contract: +2 if a major contract is announced, -3 if lost. No
-  // structured contract data is fetched — score 0 with "no data" so the row
-  // exists in the breakdown for transparency. (Catalyst-driven contract wins
-  // tend to surface in the Positive Catalyst narrative signal anyway.)
-  signals.push(_sig("majorContract", "Major Contract", 0, {
+  // 7. Major Contract: +2 if the company recently WON a major contract/order,
+  // -3 if it LOST one (per spec — a lost deal is a sharper negative than a win
+  // is a positive). Read from the AI extraction over recent news
+  // (data.aiSignals.majorContract, set by attachAiContractGuidance). With no AI
+  // signal the row is "no data" so the breakdown stays transparent.
+  let contractSignal = _sig("majorContract", "Major Contract", 0, {
     available: false,
-    note: "no structured contract data — manual check",
-  }));
+    note: "no contract data — AI read skipped",
+  });
+  const aiContract = data?.aiSignals?.majorContract;
+  if (aiContract && aiContract.status) {
+    const ev = aiContract.evidence ? String(aiContract.evidence).slice(0, 200) : "";
+    if (aiContract.status === "won") {
+      contractSignal = _sig("majorContract", "Major Contract", 2, {
+        value: "won", note: ev || "major contract win in recent news",
+      });
+    } else if (aiContract.status === "lost") {
+      contractSignal = _sig("majorContract", "Major Contract", -3, {
+        value: "lost", note: ev || "major contract loss in recent news",
+      });
+    } else {
+      contractSignal = _sig("majorContract", "Major Contract", 0, {
+        value: "none", note: "no major contract win/loss in recent news",
+      });
+    }
+  }
+  signals.push(contractSignal);
+
+  // 8. Free Cash Flow (TTM): positive +1, negative -1 (per spec). Yahoo's
+  // freeCashFlow is a trailing-twelve-month dollar figure.
+  let fcfSignal = _sig("fcf", "Free Cash Flow TTM", 0,
+    { available: false, note: "no FCF data" });
+  const fcf = f.freeCashFlow;
+  if (fcf != null && isFinite(fcf)) {
+    const absF = Math.abs(fcf);
+    const fcfLabel = absF >= 1e9 ? `$${(fcf / 1e9).toFixed(1)}B`
+                   : absF >= 1e6 ? `$${(fcf / 1e6).toFixed(0)}M`
+                   : `$${fcf.toFixed(0)}`;
+    const s = fcf > 0 ? 1 : (fcf < 0 ? -1 : 0);
+    fcfSignal = _sig("fcf", "Free Cash Flow TTM", s, {
+      value: fcfLabel,
+      note: fcf > 0 ? "positive trailing-12mo FCF"
+          : fcf < 0 ? "negative trailing-12mo FCF — burning cash"
+          : "breakeven FCF",
+    });
+  }
+  signals.push(fcfSignal);
+
+  // 9. Net Margin growth: expanding net margin quarter-over-quarter +1,
+  // contracting -1 (per spec). netMarginHistory values are in percent units,
+  // oldest→newest; compare the latest quarter to the prior one with a small
+  // dead-band so noise doesn't flip the sign. Needs ≥2 quarters to measure a
+  // trend — otherwise "no data".
+  let marginSignal = _sig("netMargin", "Net Margin Growth", 0,
+    { available: false, note: "insufficient margin history" });
+  const nmh = (Array.isArray(f.netMarginHistory) ? f.netMarginHistory : [])
+    .filter((r) => r && isFinite(r.value))
+    .sort((a, b) => (new Date(b.date || 0)) - (new Date(a.date || 0)));
+  if (nmh.length >= 2) {
+    const latest = Number(nmh[0].value);
+    const prior = Number(nmh[1].value);
+    const delta = latest - prior;          // percentage points
+    let s = 0;
+    if (delta > 0.25) s = 1;
+    else if (delta < -0.25) s = -1;
+    marginSignal = _sig("netMargin", "Net Margin Growth", s, {
+      value: `${latest.toFixed(1)}%`,
+      note: `${prior.toFixed(1)}% → ${latest.toFixed(1)}% net margin QoQ`,
+    });
+  }
+  signals.push(marginSignal);
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
+}
+
+// Score one support/resistance window. Returns { sig, broke } where broke is
+// +1 (broke above resistance), -1 (broke below support), or 0. A clean break
+// scores the window's full magnitude (per spec: 20D ±1, 50D ±2, 100D ±3); just
+// sitting at a level scores a lighter ±1 contrarian (rejection at resistance is
+// mildly bearish, holding support mildly bullish); between levels scores 0.
+// available:false when neither level is present — e.g. 100D S/R is absent from
+// per-ticker data written before that window was added, until the next full build.
+function srRung(spot, key, label, sup, res, mag) {
+  const r = Number(res);
+  const s = Number(sup);
+  const hasR = isFinite(r) && r > 0;
+  const hasS = isFinite(s) && s > 0;
+  if (!(spot > 0) || (!hasR && !hasS)) {
+    return { sig: _sig(key, `${label} S/R`, 0, { available: false, note: `no ${label} S/R levels` }), broke: 0 };
+  }
+  let sc = 0, broke = 0, note = `between ${label} S/R`, value = null;
+  if (hasR) {
+    const distR = (r - spot) / spot;
+    if (distR < -0.02 && distR >= -0.08) {
+      sc = mag; broke = 1;
+      note = `broke above ${label} resistance $${r.toFixed(2)}`;
+      value = `+${(Math.abs(distR) * 100).toFixed(1)}% past R`;
+    } else if (distR >= -0.02 && distR <= 0.03) {
+      sc = -1;
+      note = `at ${label} resistance $${r.toFixed(2)}`;
+      value = `±${(Math.abs(distR) * 100).toFixed(1)}% to R`;
+    }
+  }
+  if (sc === 0 && hasS) {
+    const distS = (spot - s) / spot;
+    if (distS < -0.02 && distS >= -0.08) {
+      sc = -mag; broke = -1;
+      note = `broke below ${label} support $${s.toFixed(2)}`;
+      value = `-${(Math.abs(distS) * 100).toFixed(1)}% past S`;
+    } else if (distS >= -0.02 && distS <= 0.03) {
+      sc = 1;
+      note = `at ${label} support $${s.toFixed(2)}`;
+      value = `±${(Math.abs(distS) * 100).toFixed(1)}% to S`;
+    }
+  }
+  return { sig: _sig(key, `${label} S/R`, sc, { value, note }), broke };
+}
+
+// Score the current price against one simple moving average. Above the SMA =
+// +mag, below = -mag (per spec: 20D ±1, 50D ±2, 100D ±3 — longer trends carry
+// more weight). available:false when the SMA is missing (the SMA stack is
+// absent from per-ticker data written before it was added, until a full build).
+function smaRung(spot, key, label, smaVal, mag) {
+  if (!(spot > 0) || smaVal == null || !isFinite(smaVal) || smaVal <= 0) {
+    return _sig(key, `${label} SMA`, 0, { available: false, note: `no ${label} SMA` });
+  }
+  const above = spot >= smaVal;
+  const distPct = ((spot - smaVal) / smaVal) * 100;
+  return _sig(key, `${label} SMA`, above ? mag : -mag, {
+    value: `${distPct >= 0 ? "+" : ""}${distPct.toFixed(1)}%`,
+    note: `price ${above ? "above" : "below"} ${label} SMA $${smaVal.toFixed(2)}`,
+  });
 }
 
 // ----- Technicals pillar ----------------------------------------------------
@@ -5470,19 +5609,17 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(macdSignal);
 
-  // 3. Streaks: ≥3 genuine same-color days green +2, red -2, else 0. Streaks
-  // are weighted heavier than RSI/MACD because a multi-day run reflects
-  // sustained accumulation/distribution rather than a single bar oscillator
-  // print. Gate on sameDays, NOT days: `days` also counts flat sessions and
-  // tolerated counter days inside the streak window, so a 2-green + 1-flat
-  // run has days=3 but only 2 real green sessions — not a 3-day green run.
+  // 3. Streaks: ≥3 genuine same-color days green +1, red -1, else 0 (per spec).
+  // Gate on sameDays, NOT days: `days` also counts flat sessions and tolerated
+  // counter days inside the streak window, so a 2-green + 1-flat run has days=3
+  // but only 2 real green sessions — not a 3-day green run.
   let streakSignal = _sig("streak", "Streak", 0,
     { available: false, note: "no streak data" });
   const cur = streakRow && streakRow.current;
   if (cur) {
     let s = 0;
-    if (cur.color === "green" && cur.sameDays >= 3) s = 2;
-    else if (cur.color === "red" && cur.sameDays >= 3) s = -2;
+    if (cur.color === "green" && cur.sameDays >= 3) s = 1;
+    else if (cur.color === "red" && cur.sameDays >= 3) s = -1;
     streakSignal = _sig("streak", "Streak", s, {
       value: `${cur.sameDays}d ${cur.color}`,
       note: `${cur.cumulativePct >= 0 ? "+" : ""}${cur.cumulativePct.toFixed(1)}% cumulative`,
@@ -5490,45 +5627,16 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(streakSignal);
 
-  // 4. Support / Resistance: broke above 20d resistance +2; broke below 20d
-  // support -2; at-resistance -1; at-support +1; else 0. Wider band on
-  // "broke" so the breakout follow-through window has time to play out.
-  let srSignal = _sig("sr", "Support/Resistance", 0,
-    { available: false, note: "no S/R levels" });
-  const sr = t.sr;
-  if (spot > 0 && sr) {
-    const s20 = Number(sr.s20);
-    const r20 = Number(sr.r20);
-    let s = 0;
-    let note = "between S/R levels";
-    let value = null;
-    if (isFinite(r20) && r20 > 0) {
-      const distR = (r20 - spot) / spot;
-      if (distR < -0.02 && distR >= -0.08) {
-        s = 2;
-        note = `broke above 20d resistance $${r20.toFixed(2)}`;
-        value = `+${(Math.abs(distR) * 100).toFixed(1)}% past R`;
-      } else if (distR >= -0.02 && distR <= 0.03) {
-        s = -1;
-        note = `at 20d resistance $${r20.toFixed(2)}`;
-        value = `±${(Math.abs(distR) * 100).toFixed(1)}% to R`;
-      }
-    }
-    if (s === 0 && isFinite(s20) && s20 > 0) {
-      const distS = (spot - s20) / spot;
-      if (distS < -0.02 && distS >= -0.08) {
-        s = -2;
-        note = `broke below 20d support $${s20.toFixed(2)}`;
-        value = `-${(Math.abs(distS) * 100).toFixed(1)}% past S`;
-      } else if (distS >= -0.02 && distS <= 0.03) {
-        s = 1;
-        note = `at 20d support $${s20.toFixed(2)}`;
-        value = `±${(Math.abs(distS) * 100).toFixed(1)}% to S`;
-      }
-    }
-    srSignal = _sig("sr", "Support/Resistance", s, { value, note });
-  }
-  signals.push(srSignal);
+  // 4-6. Support / Resistance across three windows (per spec): a confirmed break
+  // above resistance / below support scores the window's magnitude — 20D ±1,
+  // 50D ±2, 100D ±3 (a longer-horizon break is a stronger trend signal). Sitting
+  // at a level scores a lighter ±1 contrarian. The 100D rung shows "no data"
+  // until a full build writes the s100/r100 levels into the per-ticker files.
+  const sr = t.sr || {};
+  const sr20 = srRung(spot, "sr20", "20D", sr.s20, sr.r20, 1);
+  const sr50 = srRung(spot, "sr50", "50D", sr.s50, sr.r50, 2);
+  const sr100 = srRung(spot, "sr100", "100D", sr.s100, sr.r100, 3);
+  signals.push(sr20.sig, sr50.sig, sr100.sig);
 
   // 5. 52-week High/Low position: contrarian. Near 52w high → -1 (exhaustion /
   // priced for perfection); near 52w low → +1 (oversold / mean-reversion
@@ -5558,25 +5666,25 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(fiftyTwoSignal);
 
-  // 6. Volume Confirmation: pairs with the S/R signal. A breakout with
-  // 1.3x+ relative volume scores +1 (move is real); a breakout on weak
-  // volume (<0.8x) scores -1 (likely fakeout). Direction follows the
-  // breakout: confirmed up-break = +1, confirmed down-break = -1, weak
-  // up-break = -1, weak down-break = +1. Without an S/R breakout the
-  // signal stays at 0 — there's nothing to confirm.
+  // 7. Volume Confirmation: pairs with the 20D S/R break. A breakout with 1.3x+
+  // relative volume scores +1 (move is real); a breakout on weak volume (<0.8x)
+  // scores -1 (likely fakeout). Direction follows the breakout: confirmed
+  // up-break = +1, confirmed down-break = -1, weak up-break = -1, weak
+  // down-break = +1. Without a 20D break the signal stays at 0 — nothing to
+  // confirm.
   let volConfSignal = _sig("volConf", "Volume Confirmation", 0,
     { available: false, note: "no relative-volume data" });
-  const srScoreForConf = srSignal.score | 0;
+  const broke20 = sr20.broke | 0;
   const volForConf = t.volume;
   if (volForConf && volForConf.rvol != null && isFinite(volForConf.rvol)) {
     const rv = Number(volForConf.rvol);
-    if (srScoreForConf === 2) { // bullish breakout
+    if (broke20 === 1) { // bullish breakout
       let s = 0;
       let note = `${rv.toFixed(2)}x vs 20D — break unconfirmed by volume`;
       if (rv >= 1.3) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakout confirmed by volume`; }
       else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakout on weak volume (fakeout risk)`; }
       volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
-    } else if (srScoreForConf === -2) { // bearish breakdown
+    } else if (broke20 === -1) { // bearish breakdown
       let s = 0;
       let note = `${rv.toFixed(2)}x vs 20D — breakdown unconfirmed by volume`;
       if (rv >= 1.3) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakdown confirmed by volume`; }
@@ -5585,11 +5693,21 @@ function scoreTechnicals(data, streakRow) {
     } else {
       volConfSignal = _sig("volConf", "Volume Confirmation", 0, {
         value: `${rv.toFixed(2)}x`,
-        note: "no S/R breakout to confirm",
+        note: "no 20D S/R breakout to confirm",
       });
     }
   }
   signals.push(volConfSignal);
+
+  // 8-10. Moving-average stack (per spec): price above the SMA = bullish,
+  // below = bearish, weighted by horizon — 20D ±1, 50D ±2, 100D ±3. The whole
+  // stack shows "no data" until a full build writes technicals.sma.
+  const sma = t.sma || {};
+  signals.push(
+    smaRung(spot, "sma20", "20D", sma.sma20, 1),
+    smaRung(spot, "sma50", "50D", sma.sma50, 2),
+    smaRung(spot, "sma100", "100D", sma.sma100, 3),
+  );
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
@@ -5638,7 +5756,7 @@ function sumCallPutVolume(data) {
 }
 
 // ----- Mechanicals pillar ---------------------------------------------------
-function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
+function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   const f = data?.fundamentals || {};
   const t = data?.technicals || {};
   const signals = [];
@@ -5735,17 +5853,18 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
   }
   signals.push(uvolSignal);
 
-  // 5. SPY flows: +1 if SPY is green today, -1 if red. Broad-market direction
-  // is a tide that lifts/sinks most names — even a stand-out individual
+  // 5. SPY flows: +1 if SPY is meaningfully green today, -1 if red. Per spec a
+  // move smaller than 0.6% counts as flat (no edge) — broad-market direction
+  // only matters as a tide when it's actually moving. A stand-out individual
   // setup tends to fight a tape that's going the other way.
   let spySignal = _sig("spyFlows", "SPY flows", 0,
     { available: false, note: "no SPY tape data" });
   const spyMove = marketCtx && marketCtx.spyMove;
   if (spyMove != null && isFinite(spyMove)) {
     let s = 0;
-    let note = `SPY ${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}% today`;
-    if (spyMove >= 0.1) { s = 1; note = `SPY ${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}% — risk-on tape`; }
-    else if (spyMove <= -0.1) { s = -1; note = `SPY ${spyMove.toFixed(2)}% — risk-off tape`; }
+    let note = `SPY ${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}% — flat (<0.6%)`;
+    if (spyMove >= 0.6) { s = 1; note = `SPY +${spyMove.toFixed(2)}% — risk-on tape`; }
+    else if (spyMove <= -0.6) { s = -1; note = `SPY ${spyMove.toFixed(2)}% — risk-off tape`; }
     spySignal = _sig("spyFlows", "SPY flows", s, {
       value: `${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}%`,
       note,
@@ -5779,12 +5898,53 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx) {
   }
   signals.push(pcrSignal);
 
+  // 7. VIX tracking: rising fear is a market-wide headwind. Per spec — VIX
+  // rising AND above 25 = -2 (volatility regime turning against long premium);
+  // VIX falling = +1 (vol bleeding out, tailwind). "trend" is the 5-day
+  // direction from the macro backdrop (±0.5% band).
+  let vixTrendSignal = _sig("vixTracking", "VIX Tracking", 0,
+    { available: false, note: "no VIX data" });
+  const vix = macroBackdrop && macroBackdrop.vix;
+  if (vix && vix.value != null && isFinite(vix.value)) {
+    let s = 0;
+    let note = `VIX ${vix.value.toFixed(1)} — ${vix.trend || "flat"}`;
+    if (vix.trend === "rising" && vix.value > 25) {
+      s = -2;
+      note = `VIX ${vix.value.toFixed(1)} rising & >25 — risk-off regime`;
+    } else if (vix.trend === "falling") {
+      s = 1;
+      note = `VIX ${vix.value.toFixed(1)} falling — vol bleeding out, tailwind`;
+    }
+    vixTrendSignal = _sig("vixTracking", "VIX Tracking", s, {
+      value: vix.value.toFixed(1),
+      note,
+    });
+  }
+  signals.push(vixTrendSignal);
+
+  // 8. VIX spot level: extremes only, contrarian. Per spec — VIX very low (<15)
+  // = -1 (complacency, downside underpriced); VIX very high (>35) = +1
+  // (capitulation/peak fear, contrarian bullish). The mid-range carries no edge.
+  let vixSpotSignal = _sig("vixSpot", "VIX Spot", 0,
+    { available: false, note: "no VIX data" });
+  if (vix && vix.value != null && isFinite(vix.value)) {
+    let s = 0;
+    let note = `VIX ${vix.value.toFixed(1)} — normal range`;
+    if (vix.value < 15) { s = -1; note = `VIX ${vix.value.toFixed(1)} — complacency (<15)`; }
+    else if (vix.value > 35) { s = 1; note = `VIX ${vix.value.toFixed(1)} — capitulation (>35), contrarian bullish`; }
+    vixSpotSignal = _sig("vixSpot", "VIX Spot", s, {
+      value: vix.value.toFixed(1),
+      note,
+    });
+  }
+  signals.push(vixSpotSignal);
+
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
 }
 
 // ----- Narrative pillar -----------------------------------------------------
-function scoreNarrative(sym, data, narratives) {
+function scoreNarrative(sym, data, narratives, macroBackdrop) {
   const signals = [];
 
   // 1. Positive Catalyst: asymmetric (+3 or 0). Bullish news sentiment hits +3.
@@ -5915,6 +6075,44 @@ function scoreNarrative(sym, data, narratives) {
   }
   signals.push(macroSignal);
 
+  // 7. DXY strength (1D): a sharp dollar move is a market-wide risk signal. Per
+  // spec — only a ≥0.9% one-day move scores; smaller moves are noise (0). A
+  // rising dollar is an equity headwind (-1), a falling dollar a tailwind (+1).
+  let dxySignal = _sig("dxy", "DXY Strength (1D)", 0,
+    { available: false, note: "no DXY data" });
+  const dxy = macroBackdrop && macroBackdrop.dxy;
+  if (dxy && dxy.pctChange1d != null && isFinite(dxy.pctChange1d)) {
+    const mv = dxy.pctChange1d;
+    let s = 0;
+    let note = `DXY ${mv >= 0 ? "+" : ""}${mv.toFixed(2)}% — flat (<0.9%)`;
+    if (mv >= 0.9) { s = -1; note = `DXY +${mv.toFixed(2)}% — strong dollar, equity headwind`; }
+    else if (mv <= -0.9) { s = 1; note = `DXY ${mv.toFixed(2)}% — weak dollar, equity tailwind`; }
+    dxySignal = _sig("dxy", "DXY Strength (1D)", s, {
+      value: `${mv >= 0 ? "+" : ""}${mv.toFixed(2)}%`,
+      note,
+    });
+  }
+  signals.push(dxySignal);
+
+  // 8. 10-Year Treasury (1D): only a ≥13 bps one-day move scores (per spec).
+  // Rising yields pressure growth/risk assets (-1); falling yields ease
+  // financial conditions (+1).
+  let tenYSignal = _sig("tenY", "10Y Yield (1D)", 0,
+    { available: false, note: "no 10Y yield data" });
+  const tenY = macroBackdrop && macroBackdrop.tenY;
+  if (tenY && tenY.bpsChange1d != null && isFinite(tenY.bpsChange1d)) {
+    const bps = tenY.bpsChange1d;
+    let s = 0;
+    let note = `10Y ${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps — flat (<13 bps)`;
+    if (bps >= 13) { s = -1; note = `10Y +${bps.toFixed(1)} bps — yields spiking, risk-off`; }
+    else if (bps <= -13) { s = 1; note = `10Y ${bps.toFixed(1)} bps — yields falling, easing tailwind`; }
+    tenYSignal = _sig("tenY", "10Y Yield (1D)", s, {
+      value: `${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps`,
+      note,
+    });
+  }
+  signals.push(tenYSignal);
+
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
 }
@@ -5922,11 +6120,11 @@ function scoreNarrative(sym, data, narratives) {
 // Top-level pillar scoring entry point. Returns the full breakdown plus a
 // flat `drivers` list (top contributors by absolute weight) used by the
 // thesis line and the card driver chips.
-function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx) {
+function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx, macroBackdrop) {
   const fundamentals = scoreFundamentals(data, sectorMedianPE);
   const technicals = scoreTechnicals(data, streakRow);
-  const mechanicals = scoreMechanicals(sym, data, unusualPayload, marketCtx);
-  const narrative = scoreNarrative(sym, data, narratives);
+  const mechanicals = scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop);
+  const narrative = scoreNarrative(sym, data, narratives, macroBackdrop);
   const total = fundamentals.score + technicals.score + mechanicals.score + narrative.score;
   const recommendation = tierForScore(total);
 
@@ -5959,7 +6157,7 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
 // the transition; not used by buildTopPicks anymore.
 function scoreTicker(sym, data, narratives, streakRow, unusualPayload) {
   const sectorMedianPE = {};
-  const r = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, null);
+  const r = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, null, null);
   return { score: r.total, drivers: r.drivers };
 }
 // Reference so eslint doesn't flag this as unused in case the import path
@@ -6710,7 +6908,7 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   return { takeProfit, cut, levels, triggers: triggers.slice(0, 4) };
 }
 
-export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null) {
+export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null) {
   const sectorMedianPE = buildSectorPEMedians(chains);
 
   // Broad-market direction context for the SPY-flows mechanical signal.
@@ -6731,7 +6929,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const streakRow = streaksMap && streaksMap[sym]
       ? streaksMap[sym]
       : computeStreakForTicker(sym, data._bars);
-    const result = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx);
+    const result = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx, macroBackdrop);
     scored.push({
       sym,
       data,
@@ -6829,8 +7027,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   return out;
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null) {
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload);
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null) {
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Track how many consecutive builds each symbol has survived in the top
@@ -8553,6 +8751,120 @@ async function polishExitPlanProse(picks) {
   if (polished) console.log(`[picks] polished exit prose for ${polished}/${picks.length} picks (${model})`);
 }
 
+// ----------------------------------------------------------------------------
+// AI signal extraction (Major Contract + Guidance) for the Fundamentals pillar.
+// Reads each ticker's recently-attached news headlines and asks the model for
+// two structured reads: (a) did the company just WIN or LOSE a major contract,
+// and (b) which way did its most recent forward GUIDANCE go. Mutates
+// data.aiSignals in memory (consumed by scoreFundamentals) — no file write, so
+// this must run AFTER the news pass populates data.news.headlines and BEFORE
+// writeTopPicksFile scores. Purely additive: self-skips without GEMINI_API_KEY
+// (the two signals fall back to the analyst-estimate guidance proxy + "no data"
+// for contracts), and a per-ticker failure leaves that ticker's signals unset
+// rather than aborting the build. Shares the global AI rate-limiter + budget
+// tracker. One small call per ticker on the lightweight news model.
+// ----------------------------------------------------------------------------
+const AI_SIGNALS_SCHEMA = {
+  type: "object",
+  properties: {
+    majorContract: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["won", "lost", "none"] },
+        evidence: { type: "string" },
+      },
+      required: ["status"],
+    },
+    guidance: {
+      type: "object",
+      properties: {
+        direction: { type: "string", enum: ["raised", "inline", "soft", "lowered", "none"] },
+        evidence: { type: "string" },
+      },
+      required: ["direction"],
+    },
+  },
+  required: ["majorContract", "guidance"],
+};
+
+async function attachAiContractGuidance(chains) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — Major Contract + Guidance signals stay on proxy / no-data.");
+    return;
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const model = process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL;
+  const systemPrompt =
+    "You are an equity analyst extracting two structured facts from recent news for an options trader. " +
+    "From the supplied headlines, determine ONLY: " +
+    "(1) majorContract.status — 'won' if the company recently WON or was awarded a major new contract, order, or deal; " +
+    "'lost' if it LOST a major contract/customer or had a major deal cancelled; 'none' if neither is clearly evidenced. " +
+    "(2) guidance.direction — the company's most recent forward GUIDANCE: 'raised' (guided up / above expectations), " +
+    "'inline' (reaffirmed / in line), 'soft' (modest cut / cautious tone), 'lowered' (guided down materially), or 'none' if no guidance is evident. " +
+    "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
+    "Each evidence string: one short clause citing the headline. No markdown, no preamble.";
+  let tagged = 0;
+  for (const [sym, data] of Object.entries(chains)) {
+    const headlines = (data && data.news && Array.isArray(data.news.headlines)) ? data.news.headlines : [];
+    if (!headlines.length) continue;
+    const headlineBlock = headlines
+      .map((h, i) => `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`)
+      .join("\n");
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const userMessage =
+      `Today's date: ${todayIso}\nTicker: ${sym}\n` +
+      `Recent headlines (newest first):\n${headlineBlock}\n\n` +
+      `Return JSON {"majorContract":{"status":"won|lost|none","evidence":"..."},"guidance":{"direction":"raised|inline|soft|lowered|none","evidence":"..."}}.`;
+    let response = null;
+    let lastErr;
+    for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+      try {
+        await acquireAiSlot();
+        response = await ai.models.generateContent({
+          model,
+          config: {
+            systemInstruction: systemPrompt,
+            temperature: 0.2,
+            maxOutputTokens: 400,
+            responseMimeType: "application/json",
+            responseSchema: AI_SIGNALS_SCHEMA,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+          contents: userMessage,
+        });
+        recordAiUsage({ model, callType: "signals", symbol: sym, usage: response?.usageMetadata });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const wait = classifyAiError(err, attempt);
+        if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
+        const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
+        console.log(`    ⌛ signals ${sym} attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    if (!response) {
+      if (lastErr) console.warn(`[picks] contract/guidance extraction failed for ${sym} — fundamentals fall back to proxy (${String(lastErr.message || lastErr).split("\n")[0]})`);
+      continue;
+    }
+    try {
+      const txt = String(response.text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      const firstBrace = txt.indexOf("{");
+      const lastBrace = txt.lastIndexOf("}");
+      const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? txt.slice(firstBrace, lastBrace + 1) : txt);
+      const mcStatus = ["won", "lost", "none"].includes(parsed?.majorContract?.status) ? parsed.majorContract.status : null;
+      const gDir = ["raised", "inline", "soft", "lowered", "none"].includes(parsed?.guidance?.direction) ? parsed.guidance.direction : null;
+      const aiSignals = {};
+      if (mcStatus) aiSignals.majorContract = { status: mcStatus, evidence: String(parsed.majorContract.evidence || "").slice(0, 200) };
+      if (gDir) aiSignals.guidance = { direction: gDir, evidence: String(parsed.guidance.evidence || "").slice(0, 200) };
+      if (Object.keys(aiSignals).length) { data.aiSignals = aiSignals; tagged += 1; }
+    } catch {
+      // Bad JSON — leave aiSignals unset (proxy / no-data path).
+    }
+  }
+  if (tagged) console.log(`[picks] extracted contract/guidance signals for ${tagged} tickers (${model})`);
+}
+
 // Fundamentals judgment — given a ticker's fundamental metrics + last
 // earnings, asks the model to produce a verdict + concise positives/negatives
 // the user sees when selecting that ticker. The numeric snapshot is built
@@ -10013,6 +10325,10 @@ async function main() {
     await attachFundamentalsJudgments(chains);
   }
   await attachSocialSentiment(chains);
+  // Extract the Major Contract + Guidance fundamentals signals from the news
+  // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
+  // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
+  await attachAiContractGuidance(chains);
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
   // continuity; the unusual snapshot is rewritten after the wipe so the page
@@ -10316,7 +10632,7 @@ async function main() {
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we
