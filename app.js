@@ -9789,6 +9789,55 @@
     return '<p class="pick-analysis">' + escapeHtml(txt) + '</p>';
   }
 
+  // Side rail "jump to pick" index. Lists every visible pick in the same
+  // sort order as the cards so the user can skip the wall of scrolling.
+  // Hidden when there are no picks.
+  function renderPicksToc(picks){
+    var toc = $('picks-toc');
+    if (!toc) return;
+    if (!picks || !picks.length){
+      toc.hidden = true;
+      toc.innerHTML = '';
+      return;
+    }
+    toc.hidden = false;
+    var items = picks.map(function(p, idx){
+      var sideCls = pickSideClass(p.side);
+      var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+      var tier = p.recommendation && p.recommendation.tier ? p.recommendation.tier : '';
+      var total = (p.total != null) ? p.total : (p.score != null ? p.score : null);
+      var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + total) : '—';
+      var tierCls = tier ? ' picks-toc-item-' + escapeHtml(tier) : '';
+      return '<a class="picks-toc-item ' + sideCls + tierCls + '" href="#pick-card-' + escapeHtml(p.symbol) + '" data-pick-toc="' + escapeHtml(p.symbol) + '">' +
+        '<span class="picks-toc-rank">' + (idx + 1) + '</span>' +
+        '<span class="picks-toc-sym">' + escapeHtml(p.symbol) + '</span>' +
+        '<span class="picks-toc-side picks-toc-side-' + sideCls + '">' + sideLabel + '</span>' +
+        '<span class="picks-toc-score">' + escapeHtml(scoreStr) + '</span>' +
+      '</a>';
+    }).join('');
+    toc.innerHTML =
+      '<div class="picks-toc-head">Jump to</div>' +
+      '<div class="picks-toc-list">' + items + '</div>';
+    if (!toc._bound){
+      toc._bound = true;
+      toc.addEventListener('click', function(ev){
+        var link = ev.target && ev.target.closest ? ev.target.closest('[data-pick-toc]') : null;
+        if (!link) return;
+        var sym = link.getAttribute('data-pick-toc');
+        var target = sym ? document.getElementById('pick-card-' + sym) : null;
+        if (!target) return;
+        ev.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Brief highlight pulse so the eye lands on the right card.
+        target.classList.remove('pick-card-flash');
+        // Force reflow so the animation restarts on repeat clicks.
+        // eslint-disable-next-line no-unused-expressions
+        target.offsetWidth;
+        target.classList.add('pick-card-flash');
+      });
+    }
+  }
+
   function renderPicks(){
     bindPicksControls();
     var root = $('picks-root');
@@ -9800,6 +9849,7 @@
         '<span class="skel skel-block" style="height:60px"></span>' +
         '<span class="skel skel-block" style="height:60px"></span>' +
         '<span class="skel skel-block" style="height:60px"></span>';
+      renderPicksToc([]);
       if (empty) empty.hidden = true;
       return;
     }
@@ -9811,6 +9861,7 @@
     }
     if (!picks.length){
       root.innerHTML = '';
+      renderPicksToc([]);
       if (empty){
         empty.hidden = false;
         empty.textContent = data.loadError
@@ -9898,7 +9949,7 @@
       } else {
         bodyHtml = recBody;
       }
-      return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+      return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + '" id="pick-card-' + escapeHtml(p.symbol) + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
         '<div class="pick-rank' + rankCls + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
         '<div class="pick-main">' +
           '<div class="pick-head">' +
@@ -9913,6 +9964,7 @@
         '</div>' +
       '</article>';
     }).join('');
+    renderPicksToc(picks);
     // Clicking a symbol (or "Grade this contract") jumps to the grader and
     // loads the ticker via the same path the URL ?s=X handler walks. We
     // stage pendingUrlState first so applyPendingUrlState() snaps the
