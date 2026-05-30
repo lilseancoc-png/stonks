@@ -5052,7 +5052,7 @@ const PICKS_TIER_STRONG = 20;
 const PICKS_MAX_SPREAD_PCT = 0.18;  // tight bid/ask
 const PICKS_MIN_OI = 50;            // need real two-sided market
 const PICKS_MIN_DTE = 14;           // 14d+ per spec
-const PICKS_MAX_DTE = 120;          // beyond ~4mo theta drags too long
+const PICKS_MAX_DTE = 120;          // soft-scoring reference only (not a hard cap)
 const PICKS_IDEAL_DTE_LO = 30;
 const PICKS_IDEAL_DTE_HI = 60;
 const PICKS_DELTA_MIN = 0.20;       // 0.20-0.40 band per spec
@@ -5062,8 +5062,6 @@ const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
 const PICKS_OTM_MAX_PCT = 0.30;     // 30% OTM
 const PICKS_MAX_IV = 2.0;           // 200% IV cap
 const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
-// Required breakeven move vs IV-implied 1σ expected move at expiry.
-const PICKS_MAX_REQ_MOVE_RATIO = 1.5;
 // Soft penalty when the contract's IV is in the top quintile of the
 // underlying's 30-day realized-vol percentile (buying expensive premium).
 const PICKS_IV_REGIME_HIGH = 70;
@@ -5657,36 +5655,20 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(fiftyTwoSignal);
 
-  // 7. Volume Confirmation: pairs with the 20D S/R break. A breakout with 1.3x+
-  // relative volume scores +1 (move is real); a breakout on weak volume (<0.8x)
-  // scores -1 (likely fakeout). Direction follows the breakout: confirmed
-  // up-break = +1, confirmed down-break = -1, weak up-break = -1, weak
-  // down-break = +1. Without a 20D break the signal stays at 0 — nothing to
-  // confirm.
+  // 7. Volume Confirmation: per spec — relative volume ≥1.3x the 20-day average
+  // scores +1 (participation behind the move), notably-low volume (<0.8x) scores
+  // -1 (no conviction), in between is 0. Scored standalone, not gated on a S/R
+  // break.
   let volConfSignal = _sig("volConf", "Volume Confirmation", 0,
     { available: false, note: "no relative-volume data" });
-  const broke20 = sr20.broke | 0;
   const volForConf = t.volume;
   if (volForConf && volForConf.rvol != null && isFinite(volForConf.rvol)) {
     const rv = Number(volForConf.rvol);
-    if (broke20 === 1) { // bullish breakout
-      let s = 0;
-      let note = `${rv.toFixed(2)}x vs 20D — break unconfirmed by volume`;
-      if (rv >= 1.3) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakout confirmed by volume`; }
-      else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakout on weak volume (fakeout risk)`; }
-      volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
-    } else if (broke20 === -1) { // bearish breakdown
-      let s = 0;
-      let note = `${rv.toFixed(2)}x vs 20D — breakdown unconfirmed by volume`;
-      if (rv >= 1.3) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakdown confirmed by volume`; }
-      else if (rv < 0.8) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakdown on weak volume (bounce candidate)`; }
-      volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
-    } else {
-      volConfSignal = _sig("volConf", "Volume Confirmation", 0, {
-        value: `${rv.toFixed(2)}x`,
-        note: "no 20D S/R breakout to confirm",
-      });
-    }
+    let s = 0;
+    let note = `${rv.toFixed(2)}x vs 20D avg — in-line volume`;
+    if (rv >= 1.3) { s = 1; note = `${rv.toFixed(2)}x vs 20D avg — elevated volume`; }
+    else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D avg — low volume / no conviction`; }
+    volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
   }
   signals.push(volConfSignal);
 
@@ -6225,7 +6207,9 @@ function pickContractForPick(side, data) {
   const candidates = [];
   for (const expSec of exps) {
     const dte = (expSec - nowSec) / 86400;
-    if (dte < PICKS_MIN_DTE || dte > PICKS_MAX_DTE) continue;
+    // Spec floors DTE at ~14d ("≥14 days to expiry"); no max — longer-dated
+    // monthlies stay eligible (the soft quality score still prefers 30-60d).
+    if (dte < PICKS_MIN_DTE) continue;
     // Standard monthlies only (third Friday) per spec — weeklies carry
     // thinner OI and wider spreads, and the monthly series is what stays
     // liquid all the way out to the longer DTEs we hold.
@@ -6260,21 +6244,18 @@ function pickContractForPick(side, data) {
       if (!g) continue;
       const absDelta = Math.abs(g.delta);
       if (!isFinite(absDelta) || absDelta < PICKS_DELTA_MIN || absDelta > PICKS_DELTA_MAX) continue;
-      // Risk/reward check: required move to break even vs IV-implied
-      // 1σ expected move at expiry. Anything beyond MAX_REQ_MOVE_RATIO
-      // is asking for materially more than what the chain is pricing.
+      // Risk/reward + extrinsic ratio: computed for the soft quality score and
+      // the card display, but NOT used to reject — the spec's contract criteria
+      // are the only hard gate, so a spec-valid contract is never filtered out
+      // for needing a bigger move or carrying more time premium.
       const breakeven = side === "call" ? row.s + mid : row.s - mid;
       const reqMovePct = ((breakeven - spot) / spot) * 100 * (side === "call" ? 1 : -1);
       const expMovePct = expectedMovePct(row.iv, dte);
-      if (expMovePct != null && reqMovePct / expMovePct > PICKS_MAX_REQ_MOVE_RATIO) continue;
-      // Extrinsic ratio — paying mostly time premium with short DTE is
-      // a losing structure. Allowed for longer-dated.
       const intrinsic = side === "call"
         ? Math.max(0, spot - row.s)
         : Math.max(0, row.s - spot);
       const extrinsic = Math.max(0, mid - intrinsic);
       const extrinsicRatio = mid > 0 ? extrinsic / mid : 1;
-      if (extrinsicRatio > 0.85 && dte < 21) continue;
 
       candidates.push({
         row,
@@ -7015,7 +6996,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
   }
-  out.sort((a, b) => b.compositeScore - a.compositeScore);
+  // Rank strictly by raw conviction — |total| score, highest first — per spec.
+  // (Contract quality still decides *which* contract represents each pick, but
+  // it no longer reorders the list; a +25 always outranks a +22.)
+  out.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   return out;
 }
 
