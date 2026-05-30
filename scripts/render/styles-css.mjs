@@ -3,11 +3,11 @@ export function renderStylesCss() {
 :root {
   /* Institutional charcoal palette — surfaces are layered neutral grays, no
      blue/green tint at the bottom. Trader-desk default. */
-  --bg:#08090c;
+  --bg:#060709;
   --surface:#0f1116;
-  --surface-2:#15181f;
-  --surface-3:#1c2029;
-  --border:#1c2029;
+  --surface-2:#181c25;
+  --surface-3:#232834;
+  --border:#242a34;
   --border-strong:#2a2f38;
   --hairline:#1a1e25;
   --text:#d8dae0;
@@ -17,8 +17,8 @@ export function renderStylesCss() {
   --accent:#1ec773;
   --accent-soft:rgba(30,199,115,0.10);
   --accent-strong:#2ee089;
-  --accent-glow:rgba(30,199,115,0.28);
-  --accent-glow-soft:rgba(30,199,115,0.14);
+  --accent-glow:rgba(30,199,115,0.34);
+  --accent-glow-soft:rgba(30,199,115,0.18);
   --accent-tint-1:rgba(30,199,115,0.06);
   --accent-tint-2:rgba(30,199,115,0.12);
   --pos:#1ec773;
@@ -45,8 +45,9 @@ export function renderStylesCss() {
      flat (data rows). Tier 1 is the resting card. Tier 2 is a raised
      surface (hero readouts, pinned strip). Tier 3 is modal/popover. */
   --elev-0:0 0 0 1px var(--hairline);
-  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(0,0,0,0.40);
+  --elev-1:inset 0 1px 0 rgba(255,255,255,0.03), 0 1px 0 var(--hairline), 0 2px 6px rgba(0,0,0,0.50), 0 8px 20px -12px rgba(0,0,0,0.55);
   --elev-2:0 1px 0 var(--hairline), 0 8px 24px rgba(0,0,0,0.50), inset 0 1px 0 rgba(255,255,255,0.02);
+  --elev-2-hover:0 1px 0 var(--hairline), 0 14px 34px -10px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
   --elev-3:0 0 0 1px var(--border-strong), 0 24px 60px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.04);
   --elev-pop:var(--elev-3);
   --elev-focus:0 0 0 1px var(--accent), 0 0 0 4px var(--accent-glow-soft);
@@ -66,7 +67,7 @@ export function renderStylesCss() {
   --gradient-card:var(--surface);
   --gradient-positive:linear-gradient(180deg, color-mix(in srgb, var(--pos) 10%, var(--surface)) 0%, var(--surface) 70%);
   --gradient-negative:linear-gradient(180deg, color-mix(in srgb, var(--neg) 10%, var(--surface)) 0%, var(--surface) 70%);
-  --grad-surface:linear-gradient(180deg, color-mix(in srgb, #ffffff 3%, var(--surface)) 0%, var(--surface) 60%);
+  --grad-surface:linear-gradient(180deg, color-mix(in srgb, #ffffff 5%, var(--surface)) 0%, var(--surface) 60%);
   --grad-surface-raised:linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, var(--surface-2)) 0%, var(--surface) 70%);
   --grad-pos:linear-gradient(180deg, var(--pos-tint) 0%, transparent 60%);
   --grad-neg:linear-gradient(180deg, var(--neg-tint) 0%, transparent 60%);
@@ -75,10 +76,10 @@ export function renderStylesCss() {
   /* Display typography — large hero numbers (equity, score) lean on
      this weight + slight negative tracking. */
   --fw-display:800;
-  --ls-display:-0.025em;
-  --r-1:4px; --r-2:6px; --r-3:8px; --r-4:12px; --r-5:14px; --r-pill:999px;
+  --ls-display:-0.03em;
+  --r-1:4px; --r-2:6px; --r-3:8px; --r-4:14px; --r-5:18px; --r-pill:999px;
   --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-7:32px; --s-8:48px;
-  --fs-2xs:9px; --fs-xs:10px; --fs-sm:12px; --fs-md:14px; --fs-lg:15px; --fs-xl:18px; --fs-2xl:24px; --fs-3xl:32px; --fs-hero:44px; --fs-mega:56px;
+  --fs-2xs:9px; --fs-xs:10px; --fs-sm:12px; --fs-md:14px; --fs-lg:15px; --fs-xl:18px; --fs-2xl:24px; --fs-3xl:32px; --fs-hero:48px; --fs-mega:64px;
   --lh-tight:1.15; --lh-snug:1.35; --lh-normal:1.55;
   --ls-num:-0.01em; --ls-caps:0.10em;
   --font-sans:"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
@@ -86,7 +87,25 @@ export function renderStylesCss() {
   --focus-ring:0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
   --ease-out:cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out:cubic-bezier(0.4, 0, 0.2, 1);
-  --dur-1:120ms; --dur-2:220ms; --dur-3:350ms;
+  /* One restrained-overshoot easing reserved for press/lift micro-feedback. */
+  --ease-spring:cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-0:90ms; --dur-1:120ms; --dur-2:220ms; --dur-3:350ms;
+  /* Offset focus ring — a --bg-colored gap separates the accent ring from
+     busy/glass surfaces (header, command palette). Gap flips per theme via
+     --bg, so it stays crisp on both. */
+  --focus-ring-bold:0 0 0 2px var(--bg), 0 0 0 4px var(--accent), 0 0 0 8px var(--accent-glow-soft);
+  /* Alias tokens — these were referenced across the vol / strategies / OI /
+     heatmap tabs (100+ uses) but never declared, so they silently fell through
+     (color → inherited, radius → 0, transition → none). They are var()-based,
+     so this single base definition resolves correctly in BOTH themes. */
+  --text-2:var(--muted-strong);
+  --text-3:var(--muted);
+  --up:var(--pos);
+  --dn:var(--neg);
+  --xt:.12s var(--ease-out);
+  --r-md:var(--r-3);
+  --r-sm:var(--r-2);
+  --accent-on:var(--accent-fg);
   /* Unified content widths — wider than the legacy 760px to give the new
      dashboard layouts room to breathe without losing the focused feel. */
   --w-content:1120px;
@@ -94,10 +113,10 @@ export function renderStylesCss() {
   color-scheme:dark;
 }
 :root[data-theme="light"] {
-  --bg:#f7f8fa;
+  --bg:#f3f5f8;
   --surface:#ffffff;
-  --surface-2:#f1f3f6;
-  --surface-3:#e8ebf0;
+  --surface-2:#eef1f5;
+  --surface-3:#e3e7ee;
   --border:#e2e6eb;
   --border-strong:#cdd2da;
   --hairline:#ebeef2;
@@ -131,8 +150,9 @@ export function renderStylesCss() {
   --shadow-lg:0 24px 48px rgba(15,23,42,0.12);
   --shadow-glow-accent:0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
   --elev-0:0 0 0 1px var(--hairline);
-  --elev-1:0 1px 0 var(--hairline), 0 1px 2px rgba(15,23,42,0.05);
+  --elev-1:0 1px 0 var(--hairline), 0 2px 6px rgba(15,23,42,0.06), 0 10px 22px -14px rgba(15,23,42,0.10);
   --elev-2:0 1px 0 var(--hairline), 0 10px 28px rgba(15,23,42,0.10);
+  --elev-2-hover:0 1px 0 var(--hairline), 0 16px 34px -12px rgba(15,23,42,0.14);
   --elev-3:0 0 0 1px var(--border-strong), 0 28px 60px rgba(15,23,42,0.18);
   --elev-pop:var(--elev-3);
   --elev-focus:0 0 0 1px var(--accent), 0 0 0 4px var(--accent-glow-soft);
@@ -168,10 +188,10 @@ body {
      doesn't shift the highlight. */
   background-image:
     radial-gradient(ellipse 1400px 560px at 50% -160px,
-      color-mix(in srgb, var(--accent) 7%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 9%, transparent) 0%,
       transparent 70%),
     radial-gradient(ellipse 900px 420px at 92% 8%,
-      color-mix(in srgb, var(--info) 5%, transparent) 0%,
+      color-mix(in srgb, var(--info) 6%, transparent) 0%,
       transparent 70%),
     radial-gradient(ellipse 700px 320px at 6% 22%,
       color-mix(in srgb, var(--accent) 3%, transparent) 0%,
@@ -180,7 +200,7 @@ body {
        Light theme overrides this to none. */
     repeating-linear-gradient(180deg,
       transparent 0 2px,
-      rgba(255,255,255,0.012) 2px 3px);
+      rgba(255,255,255,0.018) 2px 3px);
   background-attachment: fixed;
   background-repeat: no-repeat;
   letter-spacing: 0;
@@ -559,20 +579,23 @@ main {
 }
 .page-tab[aria-selected="true"] {
   color: var(--text-strong);
+  letter-spacing: var(--ls-caps);
   border-bottom-color: var(--accent);
+  /* A faint top-down accent lift seats the active tab above its siblings. */
+  background: linear-gradient(180deg, var(--accent-tint-1), transparent);
 }
-/* Soft accent halo behind the active tab — replaces the older blurred
-   underline so the indicator reads crisply on both themes. */
+/* Crisp lit rail under the active tab — replaces the older blurred radial
+   halo so the indicator reads as a decisive 3px bar on both themes. The 8px
+   inset clears the page-tabs scroll-mask fade at narrow widths. */
 .page-tab[aria-selected="true"]::after {
   content: "";
   position: absolute;
-  inset: auto 12px -1px 12px;
-  height: 6px;
-  background: radial-gradient(ellipse at center,
-    color-mix(in srgb, var(--accent) 38%, transparent) 0%,
-    transparent 70%);
+  inset: auto 8px -1px 8px;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 12px -2px var(--accent-glow);
   pointer-events: none;
-  filter: blur(2px);
 }
 .page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-1); }
 .page-pane[hidden] { display: none; }
@@ -1062,7 +1085,7 @@ main {
 }
 .card-title {
   margin: 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   font-weight: 700;
   letter-spacing: var(--ls-caps);
   text-transform: uppercase;
@@ -1072,10 +1095,11 @@ main {
 .card-title::before {
   content: '';
   display: inline-block;
-  width: 3px; height: 12px;
-  background: var(--accent);
-  border-radius: 2px;
-  opacity: 0.85;
+  width: 4px; height: 16px;
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+  border-radius: var(--r-pill);
+  box-shadow: 0 0 6px var(--accent-glow-soft);
+  opacity: 1;
 }
 .card-eyebrow {
   font-size: var(--fs-xs); color: var(--muted);
@@ -5435,31 +5459,46 @@ main { padding-top: var(--s-2); }
   gap: var(--s-3);
   padding: var(--s-3);
   border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: var(--r-2);
+  border-left-width: 4px;
+  border-radius: var(--r-3);
   background: var(--surface-2);
+  background-image: var(--grad-surface);
+  box-shadow: var(--elev-1);
   align-items: stretch;
-  transition: border-color .18s var(--ease-out), transform .18s var(--ease-out);
+  transition: border-color .18s var(--ease-out), box-shadow .18s var(--ease-out), transform .18s var(--ease-out);
 }
-.pick-card.call { border-left-color: var(--pos); }
-.pick-card.put { border-left-color: var(--neg); }
+/* Side color bleeds into the rank gutter only, then fades — a directional
+   cue that doesn't wash the whole card. */
+.pick-card.call { border-left-color: var(--pos); background-image: linear-gradient(90deg, color-mix(in srgb, var(--pos) 7%, transparent) 0, transparent 64px), var(--grad-surface); }
+.pick-card.put  { border-left-color: var(--neg); background-image: linear-gradient(90deg, color-mix(in srgb, var(--neg) 7%, transparent) 0, transparent 64px), var(--grad-surface); }
 .pick-card:hover {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
-/* The #1 leader card carries an extra hint of side-color glow so the
-   top pick is unmistakable at a glance. */
+/* The #1 leader card sits proud — real elevation + a side-keyed top wash +
+   a contained directional glow, not the old near-invisible flat tint. */
 .pick-card.pick-card-leader {
-  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  border-left-width: 5px;
+  box-shadow: var(--elev-2);
 }
-.pick-card-leader.call { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pos) 18%, transparent); }
-.pick-card-leader.put  { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neg) 18%, transparent); }
+.pick-card-leader.call {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--pos) 12%, var(--surface-2)) 0%, var(--surface-2) 42%), var(--grad-surface);
+  box-shadow: var(--elev-2), 0 0 28px -10px var(--pos-glow);
+}
+.pick-card-leader.put {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--neg) 12%, var(--surface-2)) 0%, var(--surface-2) 42%), var(--grad-surface);
+  box-shadow: var(--elev-2), 0 0 28px -10px var(--neg-glow);
+}
 
 .pick-rank {
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: 1px;
-  align-self: center;
+  /* Anchor the rank to the top of the gutter so it baseline-aligns with the
+     ticker in the head row — not floating at the vertical center of a very
+     tall card. */
+  align-self: start;
+  padding-top: 2px;
   text-align: center;
   color: var(--muted);
   letter-spacing: -.02em;
@@ -5476,7 +5515,17 @@ main { padding-top: var(--s-2); }
 .pick-card.put  .pick-rank { color: color-mix(in srgb, var(--neg) 70%, var(--muted)); }
 .pick-card.call .pick-rank-top1 { color: var(--pos); }
 .pick-card.put  .pick-rank-top1 { color: var(--neg); }
-.pick-rank-top1 .pick-rank-num { font-size: 30px; }
+/* The #1 pick gets a filled medallion instead of plain "#1" text. */
+.pick-rank-top1 .pick-rank-hash { display: none; }
+.pick-rank-top1 .pick-rank-num {
+  color: var(--accent-fg);
+  border-radius: var(--r-pill);
+  padding: 4px 9px;
+  font-size: 24px;
+  box-shadow: var(--elev-glow);
+}
+.pick-card.call .pick-rank-top1 .pick-rank-num { background: var(--pos); }
+.pick-card.put  .pick-rank-top1 .pick-rank-num { background: var(--neg); }
 .pick-rank-top2 .pick-rank-num,
 .pick-rank-top3 .pick-rank-num { font-size: 28px; }
 .pick-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -5664,16 +5713,22 @@ main { padding-top: var(--s-2); }
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr);
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 6px;
+  /* The three readouts now read as one recessed instrument cluster rather
+     than three loose boxes. */
+  padding: 8px;
+  background: color-mix(in srgb, var(--bg) 35%, var(--surface));
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
 }
 .pick-stat {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 2px 6px;
   border-radius: var(--r-1);
-  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
-  border: 1px solid var(--hairline);
+  background: transparent;
+  border: 0;
   min-width: 0;
 }
 .pick-stat-label {
@@ -5683,7 +5738,7 @@ main { padding-top: var(--s-2); }
   color: var(--muted);
 }
 .pick-stat-value {
-  font: 700 15px/1.1 var(--font-mono);
+  font: 800 16px/1.1 var(--font-mono);
   color: var(--text-strong);
   font-variant-numeric: tabular-nums;
   letter-spacing: -.01em;
@@ -5759,14 +5814,18 @@ main { padding-top: var(--s-2); }
 .pick-contract-rr {
   font: 600 11px/1.3 var(--font-mono);
   font-variant-numeric: tabular-nums;
-  padding: 4px 6px;
-  border-radius: var(--r-1);
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
   display: inline-block;
   margin-top: 2px;
+  /* Demoted from a heavy filled block to a hairline chip so this secondary
+     risk readout stops out-shouting the tier banner above it. */
+  background: transparent;
+  border: 1px solid var(--border);
 }
-.pick-rr-good { color: var(--pos); background: var(--pos-soft); }
-.pick-rr-fair { color: var(--warn); background: var(--warn-soft); }
-.pick-rr-bad  { color: var(--neg); background: var(--neg-soft); }
+.pick-rr-good { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); }
+.pick-rr-fair { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, var(--border)); }
+.pick-rr-bad  { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); }
 
 /* Contract-quality chip row — Spread / Liq / Δ / Θ / IV. Each chip
    shows label + grade, color-coded so the user can eyeball
@@ -5781,28 +5840,30 @@ main { padding-top: var(--s-2); }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 6px;
-  border-radius: var(--r-1);
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
   font: 600 10px/1 var(--font-mono);
   letter-spacing: 0.04em;
-  border: 1px solid transparent;
-  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  background: transparent;
 }
 .pick-qchip-label { color: var(--muted); text-transform: uppercase; }
 .pick-qchip-val { color: var(--text); }
 .pick-qchip-good {
-  background: var(--pos-soft);
-  border-color: color-mix(in srgb, var(--pos) 35%, transparent);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--pos) 40%, var(--hairline));
 }
 .pick-qchip-good .pick-qchip-val { color: var(--pos); }
+/* "fair" is the resting/neutral state — hairline only, so it recedes and the
+   problem ("bad") chip is the one that pops. */
 .pick-qchip-fair {
-  background: var(--warn-soft);
-  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: transparent;
+  border-color: var(--hairline);
 }
 .pick-qchip-fair .pick-qchip-val { color: var(--warn); }
 .pick-qchip-bad {
   background: var(--neg-soft);
-  border-color: color-mix(in srgb, var(--neg) 35%, transparent);
+  border-color: color-mix(in srgb, var(--neg) 45%, transparent);
 }
 .pick-qchip-bad .pick-qchip-val { color: var(--neg); }
 
@@ -5950,11 +6011,13 @@ main { padding-top: var(--s-2); }
   border-radius: var(--r-2);
   border: 1px solid var(--border);
   background: var(--surface);
+  box-shadow: var(--elev-1);
 }
 .picks-summary-num {
-  font: 700 16px/1 var(--font-mono);
+  font: 800 18px/1 var(--font-mono);
   color: var(--text-strong);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-display);
 }
 .picks-summary-lbl {
   font: 600 9px/1 var(--font-mono);
@@ -5980,6 +6043,16 @@ main { padding-top: var(--s-2); }
 }
 .picks-summary-warn .picks-summary-num { color: var(--warn); }
 .picks-summary-warn .picks-summary-lbl { color: var(--warn); opacity: .85; }
+/* "Strong" tier count — the most important number in the strip. The markup
+   has always emitted .picks-summary-strong but no rule existed, so it looked
+   the least special. Give it the accent treatment. */
+.picks-summary-strong {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  box-shadow: var(--elev-1), 0 0 16px -8px var(--accent-glow);
+}
+.picks-summary-strong .picks-summary-num { color: var(--accent); }
+.picks-summary-strong .picks-summary-lbl { color: var(--accent); opacity: .85; }
 
 /* Mobile: tighten the rank gutter. The score breakdown is now the in-card
    "Grade" tab (a tabpanel inside .pick-main), so it already flows full-width
@@ -6008,6 +6081,7 @@ main { padding-top: var(--s-2); }
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
   width: fit-content;
+  box-shadow: var(--elev-1);
 }
 .pick-tab {
   appearance: none;
@@ -6025,7 +6099,7 @@ main { padding-top: var(--s-2); }
 .pick-tab.is-active {
   background: var(--surface-2);
   color: var(--text-strong);
-  box-shadow: inset 0 0 0 1px var(--border);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 .pick-tabpanel[hidden] { display: none; }
 
@@ -6037,10 +6111,11 @@ main { padding-top: var(--s-2); }
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 12px;
-  border-radius: var(--r-2);
+  padding: 10px 12px;
+  border-radius: var(--r-3);
   background: color-mix(in srgb, var(--surface) 90%, var(--muted) 10%);
   border: 1px solid var(--border);
+  box-shadow: var(--elev-1);
 }
 .pick-tier-head {
   display: flex;
@@ -6053,8 +6128,9 @@ main { padding-top: var(--s-2); }
   color: var(--text-strong);
 }
 .pick-tier-score {
-  font: 700 18px/1 var(--font-mono);
+  font: var(--fw-display) var(--fs-2xl)/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-display);
   color: var(--text-strong);
   margin-left: auto;
 }
@@ -6072,8 +6148,9 @@ main { padding-top: var(--s-2); }
   opacity: .4;
 }
 .pick-tier-strong-call {
-  background: color-mix(in srgb, var(--pos) 14%, var(--surface));
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--pos) 16%, var(--surface)) 0%, var(--surface) 62%);
   border-color: color-mix(in srgb, var(--pos) 45%, var(--border));
+  border-left: 3px solid var(--pos);
 }
 .pick-tier-strong-call .pick-tier-label,
 .pick-tier-strong-call .pick-tier-score { color: var(--pos); }
@@ -6084,8 +6161,9 @@ main { padding-top: var(--s-2); }
 .pick-tier-call .pick-tier-label,
 .pick-tier-call .pick-tier-score { color: color-mix(in srgb, var(--pos) 80%, var(--text-strong)); }
 .pick-tier-strong-put {
-  background: color-mix(in srgb, var(--neg) 14%, var(--surface));
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--neg) 16%, var(--surface)) 0%, var(--surface) 62%);
   border-color: color-mix(in srgb, var(--neg) 45%, var(--border));
+  border-left: 3px solid var(--neg);
 }
 .pick-tier-strong-put .pick-tier-label,
 .pick-tier-strong-put .pick-tier-score { color: var(--neg); }
@@ -8082,11 +8160,13 @@ main { padding-top: var(--s-2); }
    default cursor + transform stays subtle so the page reads as a data
    table, not a marketing grid. */
 .pick-card {
-  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), transform .15s var(--ease-out);
+  transition: border-color .15s var(--ease-out), background .15s var(--ease-out), box-shadow .15s var(--ease-out), transform .15s var(--ease-out);
 }
 .pick-card:hover {
-  border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--accent) 2.5%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  /* background-color (not the shorthand) so the side-gutter wash survives hover. */
+  background-color: color-mix(in srgb, var(--accent) 3%, var(--surface-2));
+  box-shadow: var(--elev-2);
 }
 .pick-card .pick-symbol {
   cursor: pointer;
