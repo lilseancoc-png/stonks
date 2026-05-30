@@ -42,6 +42,15 @@ try {
   macroBackdrop = JSON.parse(raw);
 } catch {}
 
+// The hourly scanner writes data/volume-flags.json (underlying hourly volume vs
+// 20D-average hourly volume). Picks use it for the "unusual volume" signal —
+// optional, so a missing read falls back to daily relative volume.
+let volumeFlags = null;
+try {
+  const raw = await readFile(resolve(DATA_DIR, "volume-flags.json"), "utf8");
+  volumeFlags = JSON.parse(raw);
+} catch {}
+
 const files = await readdir(DATA_DIR);
 // Match the ticker allowlist shape (lib/yahoo.mjs SYMBOL_RE: leading letter,
 // then letters/digits/dot, ≤6 chars) so dotted/numeric tickers like BRK.B
@@ -61,7 +70,7 @@ for (const sym of symbols) {
   } catch {}
 }
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop);
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
 const builtAtIso = new Date().toISOString();
 const out = {
   builtAtIso,

@@ -5434,105 +5434,125 @@ main { padding-top: var(--s-2); }
 }
 
 /* === Top picks tab === */
-/* The picks list behaves like a tabbed browser: a horizontal strip of ticker
-   tabs, one pick card shown at a time. Beats the old wall-of-cards + jump-to
-   side rail — far easier to navigate, especially on mobile. The tab strip is
-   sticky so you can keep switching as you read down a long card. */
-.picks-layout {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
+/* Master → detail. The landing view is a grid of clickable ticker tabs;
+   clicking one opens a focused page that judges just that ticker, with a back
+   button to return. Keeps the long judgment cards off the landing view entirely
+   — far cleaner to scan, especially on mobile. */
+.picks-listview[hidden],
+.picks-detail[hidden] { display: none; }
+.picks-detail { margin-top: var(--s-3); }
+
+/* Landing grid of ticker tabs. */
+.picks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 10px;
   margin-top: var(--s-3);
 }
-.picks-main {
-  min-width: 0;
-}
-.picks-nav {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  /* Sits below the sticky site-header (~56px). Bleed to the card padding edges
-     so the strip can scroll edge-to-edge on mobile. */
-  position: sticky;
-  top: 56px;
-  z-index: 4;
-  padding: 6px var(--s-3);
-  margin: 0 calc(var(--s-3) * -1);
-  background: var(--surface);
-  scrollbar-width: thin;
-  -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x proximity;
-}
-.picks-nav[hidden] { display: none; }
-.picks-nav-item {
-  flex: 0 0 auto;
+.pick-tab-card {
   display: grid;
-  grid-template-columns: auto auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "rank head  score"
+    "rank tier  tier"
+    "rank meta  meta"
+    "rank cta   cta";
+  column-gap: 12px;
+  row-gap: 3px;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: var(--r-2);
+  text-align: left;
+  padding: 12px 14px;
   border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--r-3);
   background: var(--surface-2);
+  background-image: var(--grad-surface);
+  box-shadow: var(--elev-1);
   color: var(--text);
   cursor: pointer;
   appearance: none;
-  scroll-snap-align: start;
-  transition: background .15s var(--ease-out), border-color .15s var(--ease-out);
+  font: inherit;
+  transition: border-color .15s var(--ease-out), box-shadow .15s var(--ease-out), transform .12s var(--ease-out);
 }
-.picks-nav-item:hover {
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+.pick-tab-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  box-shadow: var(--elev-2);
+  transform: translateY(-1px);
 }
-.picks-nav-item.is-active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-  box-shadow: var(--elev-1);
-}
-.picks-nav-rank {
-  font: 600 10px/1 var(--font-mono);
-  color: var(--muted);
+.pick-tab-card.call { border-left-color: var(--pos); }
+.pick-tab-card.put  { border-left-color: var(--neg); }
+.ptc-rank {
+  grid-area: rank;
+  align-self: start;
+  font: 700 20px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
-.picks-nav-sym {
-  font: 700 12px/1 var(--font-mono);
+.pick-tab-card.call .ptc-rank { color: color-mix(in srgb, var(--pos) 70%, var(--muted)); }
+.pick-tab-card.put  .ptc-rank { color: color-mix(in srgb, var(--neg) 70%, var(--muted)); }
+.ptc-head { grid-area: head; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ptc-sym {
+  font: 700 16px/1 var(--font-mono);
   color: var(--text-strong);
   letter-spacing: .02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.picks-nav-side {
+.ptc-side {
+  flex: 0 0 auto;
   font: 700 8px/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: .06em;
   padding: 3px 5px;
   border-radius: 3px;
 }
-.picks-nav-side-call {
-  color: var(--pos);
-  background: color-mix(in srgb, var(--pos) 12%, transparent);
-}
-.picks-nav-side-put {
-  color: var(--neg);
-  background: color-mix(in srgb, var(--neg) 12%, transparent);
-}
-.picks-nav-score {
-  font: 700 11px/1 var(--font-mono);
+.ptc-side-call { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
+.ptc-side-put  { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
+.ptc-score {
+  grid-area: score;
+  align-self: start;
+  font: 700 20px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text-strong);
 }
-.picks-nav-item.call .picks-nav-score { color: var(--pos); }
-.picks-nav-item.put  .picks-nav-score { color: var(--neg); }
-.picks-nav-item-strong-call .picks-nav-sym { color: var(--pos); }
-.picks-nav-item-strong-put  .picks-nav-sym { color: var(--neg); }
+.pick-tab-card.call .ptc-score { color: var(--pos); }
+.pick-tab-card.put  .ptc-score { color: var(--neg); }
+.ptc-tier {
+  grid-area: tier;
+  font: 600 11px/1.3 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--text-strong);
+}
+.ptc-meta { grid-area: meta; font-size: 11px; color: var(--muted); }
+.ptc-cta {
+  grid-area: cta;
+  margin-top: 4px;
+  font: 600 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--accent);
+}
 
-/* Only the active ticker's card is shown — the rest stay in the DOM (so their
-   Recommendation/Grade toggle state survives) but collapsed. */
-.pick-card:not(.is-active) { display: none; }
-
-.picks-root {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* Detail page back button. */
+.picks-back {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 13px;
+  margin-bottom: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  appearance: none;
+  font: 600 12px/1 var(--font-mono);
+  transition: background .15s var(--ease-out), border-color .15s var(--ease-out);
+}
+.picks-back:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 .picks-empty {
   padding: var(--s-4) var(--s-3);
@@ -6100,6 +6120,7 @@ main { padding-top: var(--s-2); }
   gap: 8px;
   margin-bottom: 12px;
 }
+.picks-summary:empty { display: none; }
 .picks-summary-chip {
   display: inline-flex;
   align-items: baseline;

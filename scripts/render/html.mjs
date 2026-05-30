@@ -79,13 +79,14 @@ function topPicksSection() {
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
+    <div id="picks-listview" class="picks-listview">
     <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+20 or higher</b> Strong Call (Very High conviction, Load the Boat), <b>+16&nbsp;to&nbsp;+19</b> Call (High, standard size), <b>-15 to +15</b> No Trade (skipped), <b>-16 to -19</b> Put (High, standard size), <b>-20 or lower</b> Strong Put (Very High, Load the Boat). Each card has a <b>Recommendation&nbsp;&#8644;&nbsp;Grade</b> toggle &mdash; flip to Grade to audit every signal that produced the score, right next to the call. Each pick also carries a layered exit ladder with an action at every level and how it stacks up against same-sector peers. The <b>Track record</b> tab grades past picks against what actually happened.</p>
     <details class="picks-howto">
       <summary>How the 4-pillar score works &rarr;</summary>
       <div class="picks-howto-body">
         <p><b>Fundamentals (9 signals).</b> Earnings surprise (beat/miss &gt;25% &plusmn;2, 1-24% &plusmn;1), EPS growth YoY +1 / -2, revenue growth YoY +1 / -2, analyst price target &plusmn;1, P/E vs sector median &plusmn;1, guidance (raised +3, in line +2, lowered -3), major contract +2 / -3, free cash flow TTM &plusmn;1 (positive / negative), net margin growth &plusmn;1 (expanding / contracting QoQ).</p>
-        <p><b>Technicals (11 signals).</b> RSI 14 &plusmn;1, MACD &plusmn;1, current streak &plusmn;1, broke 20d support/resistance &plusmn;1, broke 50d S/R &plusmn;2, broke 100d S/R &plusmn;3, 52-week proximity (high -1 / low +1, contrarian read), volume confirmation &plusmn;1 (breakout on 1.3x+ avg vol = +1, low-vol break = -1), and the moving-average stack &mdash; price above/below the 20d SMA &plusmn;1, 50d SMA &plusmn;2, 100d SMA &plusmn;3.</p>
-        <p><b>Mechanicals (8 signals).</b> Unusual flow &plusmn;1, open interest C/P ratio &plusmn;1, short interest &plusmn;1 (&gt;15% +1, &lt;3% -1), unusual volume &plusmn;1, SPY flows &plusmn;1 (a move &ge;0.6% sets risk-on +1 / risk-off -1; flat = 0), put/call ratio extreme &plusmn;1 (contrarian: P/C &gt;1.25 = fear &rarr; +1, &lt;0.65 = greed &rarr; -1), VIX tracking (rising &amp; &gt;25 = -2, falling = +1), VIX spot (&lt;15 = -1 complacency, &gt;35 = +1 capitulation).</p>
+        <p><b>Technicals (11 signals).</b> RSI 14 &plusmn;1, MACD &plusmn;1, current streak &plusmn;1, broke 20d support/resistance &plusmn;1, broke 50d S/R &plusmn;2, broke 100d S/R &plusmn;3, 52-week proximity (high -1 / low +1, contrarian read), volume confirmation &plusmn;1 (relative volume &ge;1.3x the 20d average = +1, low volume &lt;0.8x = -1), and the moving-average stack &mdash; price above/below the 20d SMA &plusmn;1, 50d SMA &plusmn;2, 100d SMA &plusmn;3.</p>
+        <p><b>Mechanicals (8 signals).</b> Unusual flow &plusmn;1, open interest C/P ratio &plusmn;1, short interest &plusmn;1 (high short + rising stock = squeeze +1, short interest rising month-over-month = -1, falling = +1), unusual volume &plusmn;1 (underlying hourly volume &ge;1.3x its 20d-average hourly volume, direction from the move), SPY flows &plusmn;1 (a move &ge;0.6% sets risk-on +1 / risk-off -1; flat = 0), put/call ratio extreme &plusmn;1 (contrarian: P/C &gt;1.25 = fear &rarr; +1, &lt;0.65 = greed &rarr; -1), VIX tracking (rising &amp; &gt;25 = -2, falling = +1), VIX spot (&lt;15 = -1 complacency, &gt;35 = +1 capitulation).</p>
         <p><b>Narrative (8 signals).</b> Positive catalyst +3 / 0, sector tailwind/headwind &plusmn;2, social sentiment &plusmn;1, media coverage surge &plusmn;1, negative catalyst 0 / -3, macro tail/headwinds +1 / -2 (tariffs, regulation, war, Fed, trade policy), DXY 1-day move &plusmn;1 (&ge;0.9%: strong dollar -1 / weak dollar +1), 10-year yield 1-day move &plusmn;1 (&ge;13 bps: rising -1 / falling +1).</p>
         <p><b>Suggested contract criteria.</b> 5-30% OTM, delta 0.20-0.40, IV &lt;200%, &ge;14 days to expiry, standard monthly expirations only (third Friday), premium &le;$35/share (&le;$3,500 / contract), tight spread, liquid. The "In plain English" panel under each contract translates the bet into beginner terms.</p>
         <p><b>Exit plan.</b> Each pick carries a <b>layered price ladder</b> &mdash; multiple meaningful levels on the way up and down from spot, each with a clear action (trim, take 60-70% off, reduce, cut) and the Technical / Fundamental / Mechanical / Narrative reasoning that makes that level significant. Interim levels flag what to watch as price approaches (e.g. a gap through resistance on heavy volume opening the next level). All levels are dynamic to the current spot and the recommended strike/expiry, plus contextual exit triggers (earnings-in-window IV-crush risk, stretched RSI, time stops).</p>
@@ -106,14 +107,15 @@ function topPicksSection() {
         </select>
       </label>
     </div>
-    <div class="picks-layout">
-      <nav id="picks-nav" class="picks-nav" role="tablist" aria-label="Switch pick ticker" hidden></nav>
-      <div class="picks-main">
-        <div id="picks-root" class="picks-root">Loading top picks…</div>
-        <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-15 to +15).</div>
-      </div>
+      <div id="picks-summary" class="picks-summary"></div>
+      <div id="picks-grid" class="picks-grid">Loading top picks…</div>
+      <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-15 to +15).</div>
+      <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;16 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
     </div>
-    <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;16 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
+    <div id="picks-detail" class="picks-detail" hidden>
+      <button type="button" id="picks-back" class="picks-back">&larr;&nbsp;All picks</button>
+      <div id="picks-detail-card" class="picks-detail-card"></div>
+    </div>
   </section>`;
 }
 

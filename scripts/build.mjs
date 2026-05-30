@@ -5052,7 +5052,7 @@ const PICKS_TIER_STRONG = 20;
 const PICKS_MAX_SPREAD_PCT = 0.18;  // tight bid/ask
 const PICKS_MIN_OI = 50;            // need real two-sided market
 const PICKS_MIN_DTE = 14;           // 14d+ per spec
-const PICKS_MAX_DTE = 120;          // beyond ~4mo theta drags too long
+const PICKS_MAX_DTE = 120;          // soft-scoring reference only (not a hard cap)
 const PICKS_IDEAL_DTE_LO = 30;
 const PICKS_IDEAL_DTE_HI = 60;
 const PICKS_DELTA_MIN = 0.20;       // 0.20-0.40 band per spec
@@ -5062,8 +5062,6 @@ const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
 const PICKS_OTM_MAX_PCT = 0.30;     // 30% OTM
 const PICKS_MAX_IV = 2.0;           // 200% IV cap
 const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
-// Required breakeven move vs IV-implied 1σ expected move at expiry.
-const PICKS_MAX_REQ_MOVE_RATIO = 1.5;
 // Soft penalty when the contract's IV is in the top quintile of the
 // underlying's 30-day realized-vol percentile (buying expensive premium).
 const PICKS_IV_REGIME_HIGH = 70;
@@ -5153,6 +5151,31 @@ function earningsInsideWindow(earningsIso, expSec) {
 // Bullish flow = aggressive call buying (ask/abv) OR aggressive put selling
 // (bid/blw). Bearish flow = aggressive put buying (ask/abv) OR aggressive
 // call selling (bid/blw). "mid" prints are ambiguous and ignored.
+// Best hourly volume read for one ticker from the hourly scanner's
+// volume-flags.json. volRatio = actualHourVol / expectedHourVol, where
+// expectedHourVol is the 20-day average daily volume apportioned to that
+// hour — i.e. exactly "hourly volume vs 20D-average hourly volume" per spec.
+// Returns the strongest (max volRatio) bucket of the session, or null when no
+// fresh hourly read is on disk (build will fall back to daily relative volume).
+function hourlyVolumeRead(sym, volumeFlags) {
+  if (!volumeFlags || !Array.isArray(volumeFlags.tickers)) return null;
+  const row = volumeFlags.tickers.find((t) => t?.symbol === sym);
+  if (!row || !Array.isArray(row.bucketHits)) return null;
+  let best = null;
+  for (const h of row.bucketHits) {
+    if (h && h.volRatio != null && isFinite(h.volRatio)) {
+      if (!best || h.volRatio > best.volRatio) best = h;
+    }
+  }
+  if (!best) return null;
+  return {
+    volRatio: best.volRatio,
+    priceMovePct: (best.priceMovePct != null && isFinite(best.priceMovePct)) ? best.priceMovePct : null,
+    bucketLabel: best.bucketLabel || null,
+    etDate: volumeFlags.etDate || null,
+  };
+}
+
 function summarizeUnusualForSym(sym, unusualPayload) {
   if (!unusualPayload || !Array.isArray(unusualPayload.tickers)) return null;
   const row = unusualPayload.tickers.find((t) => t?.symbol === sym);
@@ -5657,36 +5680,20 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(fiftyTwoSignal);
 
-  // 7. Volume Confirmation: pairs with the 20D S/R break. A breakout with 1.3x+
-  // relative volume scores +1 (move is real); a breakout on weak volume (<0.8x)
-  // scores -1 (likely fakeout). Direction follows the breakout: confirmed
-  // up-break = +1, confirmed down-break = -1, weak up-break = -1, weak
-  // down-break = +1. Without a 20D break the signal stays at 0 — nothing to
-  // confirm.
+  // 7. Volume Confirmation: per spec — relative volume ≥1.3x the 20-day average
+  // scores +1 (participation behind the move), notably-low volume (<0.8x) scores
+  // -1 (no conviction), in between is 0. Scored standalone, not gated on a S/R
+  // break.
   let volConfSignal = _sig("volConf", "Volume Confirmation", 0,
     { available: false, note: "no relative-volume data" });
-  const broke20 = sr20.broke | 0;
   const volForConf = t.volume;
   if (volForConf && volForConf.rvol != null && isFinite(volForConf.rvol)) {
     const rv = Number(volForConf.rvol);
-    if (broke20 === 1) { // bullish breakout
-      let s = 0;
-      let note = `${rv.toFixed(2)}x vs 20D — break unconfirmed by volume`;
-      if (rv >= 1.3) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakout confirmed by volume`; }
-      else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakout on weak volume (fakeout risk)`; }
-      volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
-    } else if (broke20 === -1) { // bearish breakdown
-      let s = 0;
-      let note = `${rv.toFixed(2)}x vs 20D — breakdown unconfirmed by volume`;
-      if (rv >= 1.3) { s = -1; note = `${rv.toFixed(2)}x vs 20D — breakdown confirmed by volume`; }
-      else if (rv < 0.8) { s = 1; note = `${rv.toFixed(2)}x vs 20D — breakdown on weak volume (bounce candidate)`; }
-      volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
-    } else {
-      volConfSignal = _sig("volConf", "Volume Confirmation", 0, {
-        value: `${rv.toFixed(2)}x`,
-        note: "no 20D S/R breakout to confirm",
-      });
-    }
+    let s = 0;
+    let note = `${rv.toFixed(2)}x vs 20D avg — in-line volume`;
+    if (rv >= 1.3) { s = 1; note = `${rv.toFixed(2)}x vs 20D avg — elevated volume`; }
+    else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D avg — low volume / no conviction`; }
+    volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
   }
   signals.push(volConfSignal);
 
@@ -5791,29 +5798,39 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   }
   signals.push(oiSignal);
 
-  // 3. Short Interest %: ±1. Spec wants "high short + rising stock = +1,
-  // rising SI = -1, falling SI = +1". We don't carry SI history so the
-  // "rising/falling SI" half is approximated from the snapshot floor (low
-  // SI = shorts already covered, +1 substitute) and the high-SI half is
-  // gated by today's price direction — high SI alone isn't a signal, it
-  // needs a green tape to trigger a squeeze read.
+  // 3. Short Interest %: ±1 per spec — "high short + rising stock = +1
+  // (squeeze), rising SI = -1, falling SI = +1". The SI trend is real now:
+  // month-over-month from Yahoo's current vs prior-month short-share counts
+  // (sharesShort vs sharesShortPriorMonth; Yahoo refreshes SI ~twice a month).
+  // The squeeze read takes priority — high short interest with a green tape
+  // today outranks the raw trend. With no prior-month figure and no squeeze,
+  // the signal stays 0 (per "not enough data → 0").
   let shortSignal = _sig("shortInterest", "Short Interest %", 0,
     { available: false, note: "no short interest data" });
   const sp = f.shortPercentOfFloat;
   const dailyMove = t?.volume?.priceMove1dPct;
   if (sp != null && isFinite(sp)) {
     let s = 0;
-    let note = `${sp.toFixed(1)}% of float short — neutral band`;
-    if (sp >= 15) {
-      if (dailyMove != null && isFinite(dailyMove) && dailyMove > 0) {
-        s = 1;
-        note = `${sp.toFixed(1)}% short + stock +${dailyMove.toFixed(2)}% today — squeeze setup`;
-      } else {
-        note = `${sp.toFixed(1)}% short, tape flat / red — squeeze not triggered`;
-      }
-    } else if (sp <= 3) {
+    let note = `${sp.toFixed(1)}% of float short — neutral`;
+    const ss = f.sharesShort;
+    const ssPrior = f.sharesShortPriorMonth;
+    const haveTrend = ss != null && isFinite(ss) && ssPrior != null && isFinite(ssPrior) && ssPrior > 0;
+    const moMPct = haveTrend ? ((ss - ssPrior) / ssPrior) * 100 : null;
+    const rising = haveTrend && moMPct > 3;   // SI up >3% month-over-month
+    const falling = haveTrend && moMPct < -3; // SI down >3% month-over-month
+    if (sp >= 15 && dailyMove != null && isFinite(dailyMove) && dailyMove > 0) {
+      s = 1;
+      note = `${sp.toFixed(1)}% short + stock +${dailyMove.toFixed(2)}% today — squeeze setup`;
+    } else if (rising) {
       s = -1;
-      note = `${sp.toFixed(1)}% short — complacent / shorts already covered`;
+      note = `${sp.toFixed(1)}% short, SI rising +${moMPct.toFixed(0)}% MoM — more shorts piling in`;
+    } else if (falling) {
+      s = 1;
+      note = `${sp.toFixed(1)}% short, SI falling ${moMPct.toFixed(0)}% MoM — shorts covering`;
+    } else if (haveTrend) {
+      note = `${sp.toFixed(1)}% short, SI flat MoM (${moMPct >= 0 ? "+" : ""}${moMPct.toFixed(0)}%)`;
+    } else {
+      note = `${sp.toFixed(1)}% short — no prior-month figure to gauge trend`;
     }
     shortSignal = _sig("shortInterest", "Short Interest %", s, {
       value: `${sp.toFixed(1)}%`,
@@ -5822,20 +5839,39 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   }
   signals.push(shortSignal);
 
-  // 4. Unusual Volume: ±1 on rvol ≥1.3x with a directional move. Spec is
-  // hourly-vs-20D, but the daily build only has daily rvol; close-enough
-  // proxy as long as the move's direction follows volume.
+  // 4. Unusual Volume: ±1 per spec — the underlying's HOURLY volume exceeding
+  // its 20D-average hourly volume by 1.3x, with direction from the move. The
+  // hourly read comes from the hourly scanner (data.hourlyVolume.volRatio, set
+  // in buildTopPicks from volume-flags.json). When no fresh hourly read is on
+  // disk (e.g. a pre-market build), fall back to the daily build's own daily
+  // relative volume so the signal still fires.
   let uvolSignal = _sig("unusualVolume", "Unusual Volume", 0,
     { available: false, note: "no relative-volume data" });
+  const hv = data?.hourlyVolume;
   const vol = t.volume;
-  if (vol && vol.rvol != null && isFinite(vol.rvol) && vol.priceMove1dPct != null && isFinite(vol.priceMove1dPct)) {
+  if (hv && hv.volRatio != null && isFinite(hv.volRatio)) {
+    const rv = Number(hv.volRatio);
+    const mv = (hv.priceMovePct != null && isFinite(hv.priceMovePct))
+      ? Number(hv.priceMovePct)
+      : (vol && isFinite(vol.priceMove1dPct) ? Number(vol.priceMove1dPct) : null);
+    let s = 0;
+    let note = `${rv.toFixed(2)}x hourly vs 20D-avg hourly`;
+    if (rv >= 1.3 && mv != null && Math.abs(mv) >= 0.5) {
+      s = mv > 0 ? 1 : -1;
+      note = `${rv.toFixed(2)}x hourly volume on ${mv > 0 ? "+" : ""}${mv.toFixed(1)}% move`;
+    }
+    uvolSignal = _sig("unusualVolume", "Unusual Volume", s, {
+      value: `${rv.toFixed(2)}x hrly`,
+      note,
+    });
+  } else if (vol && vol.rvol != null && isFinite(vol.rvol) && vol.priceMove1dPct != null && isFinite(vol.priceMove1dPct)) {
     const rv = Number(vol.rvol);
     const mv = Number(vol.priceMove1dPct);
     let s = 0;
-    let note = `${rv.toFixed(2)}x vs 20D avg`;
+    let note = `${rv.toFixed(2)}x vs 20D daily avg (no hourly read)`;
     if (rv >= 1.3 && Math.abs(mv) >= 0.5) {
       s = mv > 0 ? 1 : -1;
-      note = `${rv.toFixed(2)}x volume on ${mv > 0 ? "+" : ""}${mv.toFixed(1)}% move`;
+      note = `${rv.toFixed(2)}x daily volume on ${mv > 0 ? "+" : ""}${mv.toFixed(1)}% move (hourly unavailable)`;
     }
     uvolSignal = _sig("unusualVolume", "Unusual Volume", s, {
       value: `${rv.toFixed(2)}x`,
@@ -6225,7 +6261,9 @@ function pickContractForPick(side, data) {
   const candidates = [];
   for (const expSec of exps) {
     const dte = (expSec - nowSec) / 86400;
-    if (dte < PICKS_MIN_DTE || dte > PICKS_MAX_DTE) continue;
+    // Spec floors DTE at ~14d ("≥14 days to expiry"); no max — longer-dated
+    // monthlies stay eligible (the soft quality score still prefers 30-60d).
+    if (dte < PICKS_MIN_DTE) continue;
     // Standard monthlies only (third Friday) per spec — weeklies carry
     // thinner OI and wider spreads, and the monthly series is what stays
     // liquid all the way out to the longer DTEs we hold.
@@ -6260,21 +6298,18 @@ function pickContractForPick(side, data) {
       if (!g) continue;
       const absDelta = Math.abs(g.delta);
       if (!isFinite(absDelta) || absDelta < PICKS_DELTA_MIN || absDelta > PICKS_DELTA_MAX) continue;
-      // Risk/reward check: required move to break even vs IV-implied
-      // 1σ expected move at expiry. Anything beyond MAX_REQ_MOVE_RATIO
-      // is asking for materially more than what the chain is pricing.
+      // Risk/reward + extrinsic ratio: computed for the soft quality score and
+      // the card display, but NOT used to reject — the spec's contract criteria
+      // are the only hard gate, so a spec-valid contract is never filtered out
+      // for needing a bigger move or carrying more time premium.
       const breakeven = side === "call" ? row.s + mid : row.s - mid;
       const reqMovePct = ((breakeven - spot) / spot) * 100 * (side === "call" ? 1 : -1);
       const expMovePct = expectedMovePct(row.iv, dte);
-      if (expMovePct != null && reqMovePct / expMovePct > PICKS_MAX_REQ_MOVE_RATIO) continue;
-      // Extrinsic ratio — paying mostly time premium with short DTE is
-      // a losing structure. Allowed for longer-dated.
       const intrinsic = side === "call"
         ? Math.max(0, spot - row.s)
         : Math.max(0, row.s - spot);
       const extrinsic = Math.max(0, mid - intrinsic);
       const extrinsicRatio = mid > 0 ? extrinsic / mid : 1;
-      if (extrinsicRatio > 0.85 && dte < 21) continue;
 
       candidates.push({
         row,
@@ -6900,7 +6935,7 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   return { takeProfit, cut, levels, triggers: triggers.slice(0, 4) };
 }
 
-export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null) {
+export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
   const sectorMedianPE = buildSectorPEMedians(chains);
 
   // Broad-market direction context for the SPY-flows mechanical signal.
@@ -6921,6 +6956,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const streakRow = streaksMap && streaksMap[sym]
       ? streaksMap[sym]
       : computeStreakForTicker(sym, data._bars);
+    // Attach the hourly volume read (from the hourly scanner's volume-flags.json)
+    // so the Unusual Volume mechanical signal can use real hourly-vs-20D data.
+    data.hourlyVolume = hourlyVolumeRead(sym, volumeFlags);
     const result = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx, macroBackdrop);
     scored.push({
       sym,
@@ -7015,12 +7053,15 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
   }
-  out.sort((a, b) => b.compositeScore - a.compositeScore);
+  // Rank strictly by raw conviction — |total| score, highest first — per spec.
+  // (Contract quality still decides *which* contract represents each pick, but
+  // it no longer reorders the list; a +25 always outranks a +22.)
+  out.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   return out;
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null) {
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop);
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null) {
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Prior picks snapshot. A full build passes priorPicks (captured by
@@ -10654,7 +10695,7 @@ async function main() {
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we

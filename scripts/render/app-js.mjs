@@ -8912,7 +8912,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
   // to refresh.
-  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, activePick: null };
+  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, openSym: null, sorted: [] };
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
@@ -9807,107 +9807,231 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<p class="pick-analysis">' + escapeHtml(txt) + '</p>';
   }
 
-  // Ticker tab bar. The picks list behaves like a tabbed browser — one pick
-  // card visible at a time, a horizontal strip of ticker tabs to switch
-  // between them. Replaces the old wall-of-cards + jump-to side rail, which
-  // was painful to navigate on mobile. Same sort order as the cards; hidden
-  // when there are no picks.
-  function renderPicksTabs(picks){
-    var nav = $('picks-nav');
-    if (!nav) return;
-    if (!picks || !picks.length){
-      nav.hidden = true;
-      nav.innerHTML = '';
-      return;
+  // Build the full judgment card for one pick — the tier banner, analysis,
+  // contract, exit ladder, peers, and the Recommendation ⇄ Grade toggle. Used
+  // by the detail "page"; the landing view shows only the compact tab cards.
+  function buildPickCardHtml(p, idx){
+    var sideCls = pickSideClass(p.side);
+    var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
+    var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
+    var streakHtml = p.streak
+      ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '">' +
+          p.streak.days + 'd ' + (p.streak.color === 'green' ? '▲' : '▼') +
+          ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
+        '</span>'
+      : '';
+    // How many consecutive builds this symbol has held a spot in the top
+    // picks. Only shown once it has survived more than one build — a single
+    // appearance is the default and not worth the chip.
+    var tenureHtml = '';
+    if (p.buildCount > 1){
+      var sinceTxt = fmtRepeatSince(p.firstSeen);
+      tenureHtml = '<span class="pick-tenure" title="In the top picks for ' + p.buildCount +
+        ' consecutive builds' + (sinceTxt ? ' — since ' + escapeHtml(sinceTxt) : '') + '">' +
+        '⏱ ' + p.buildCount + ' builds' + '</span>';
     }
-    nav.hidden = false;
-    nav.innerHTML = picks.map(function(p, idx){
-      var sideCls = pickSideClass(p.side);
-      var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
-      var tier = p.recommendation && p.recommendation.tier ? p.recommendation.tier : '';
-      var total = (p.total != null) ? p.total : (p.score != null ? p.score : null);
-      var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + total) : '—';
-      var tierCls = tier ? ' picks-nav-item-' + escapeHtml(tier) : '';
-      var active = p.symbol === picksState.activePick;
-      return '<button type="button" class="picks-nav-item ' + sideCls + tierCls + (active ? ' is-active' : '') + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '" data-pick-nav="' + escapeHtml(p.symbol) + '">' +
-        '<span class="picks-nav-rank">' + (idx + 1) + '</span>' +
-        '<span class="picks-nav-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="picks-nav-side picks-nav-side-' + sideCls + '">' + sideLabel + '</span>' +
-        '<span class="picks-nav-score">' + escapeHtml(scoreStr) + '</span>' +
-      '</button>';
-    }).join('');
-    if (!nav._bound){
-      nav._bound = true;
-      nav.addEventListener('click', function(ev){
-        var btn = ev.target && ev.target.closest ? ev.target.closest('[data-pick-nav]') : null;
-        if (!btn) return;
-        var sym = btn.getAttribute('data-pick-nav');
-        if (!sym) return;
-        picksState.activePick = sym;
-        applyActivePick(true);
-      });
+    var contractHtml = pickContractHtml(p);
+    var exitHtml = pickExitPlanHtml(p);
+    var tierHtml = pickTierBadge(p);
+    var pillarsHtml = pickPillarPanel(p);
+    var peersHtml = pickPeerList(p);
+    var analysisHtml = pickAnalysisBlock(p);
+    var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
+    var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
+    // The card body is split into two switchable views: "Recommendation"
+    // (tier banner + analysis + contract + exit ladder + peers) and "Grade"
+    // (the full 4-pillar score breakdown — so you can judge how the score was
+    // arrived at, right next to the call). A legacy pick with no pillar data
+    // renders the recommendation directly with no tabs.
+    var recBody = tierHtml + analysisHtml + contractHtml + exitHtml + peersHtml;
+    var bodyHtml;
+    if (pillarsHtml){
+      // Honor the tab the user last picked for this symbol so re-opening the
+      // detail doesn't snap an open Grade view back to Recommendation.
+      var gradeOpen = picksState.activeTab[p.symbol] === 'grade';
+      bodyHtml =
+        '<div class="pick-tabs" role="tablist" aria-label="Pick view">' +
+          '<button type="button" class="pick-tab' + (gradeOpen ? '' : ' is-active') + '" role="tab" id="pt-rec-' + idx + '" aria-selected="' + (gradeOpen ? 'false' : 'true') + '" aria-controls="pp-rec-' + idx + '" data-pick-tab="rec">Recommendation</button>' +
+          '<button type="button" class="pick-tab' + (gradeOpen ? ' is-active' : '') + '" role="tab" id="pt-grade-' + idx + '" aria-selected="' + (gradeOpen ? 'true' : 'false') + '" aria-controls="pp-grade-' + idx + '" data-pick-tab="grade">Grade</button>' +
+        '</div>' +
+        '<div class="pick-tabpanel" role="tabpanel" id="pp-rec-' + idx + '" aria-labelledby="pt-rec-' + idx + '"' + (gradeOpen ? ' hidden' : '') + '>' + recBody + '</div>' +
+        '<div class="pick-tabpanel" role="tabpanel" id="pp-grade-' + idx + '" aria-labelledby="pt-grade-' + idx + '"' + (gradeOpen ? '' : ' hidden') + '>' + pillarsHtml + '</div>';
+    } else {
+      bodyHtml = recBody;
     }
+    return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + '" id="pick-card-' + escapeHtml(p.symbol) + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+      '<div class="pick-rank' + rankCls + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
+      '<div class="pick-main">' +
+        '<div class="pick-head">' +
+          '<button type="button" class="pick-symbol" data-pick-symbol="' + escapeHtml(p.symbol) + '" title="Open ' + escapeHtml(p.symbol) + ' in the grader">' + escapeHtml(p.symbol) + '</button>' +
+          (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
+          sectorTag +
+          '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
+          streakHtml +
+          tenureHtml +
+        '</div>' +
+        bodyHtml +
+      '</div>' +
+    '</article>';
   }
 
-  // Show only the active pick's card and light up its tab. Called on every tab
-  // click; the scroll flag brings the freshly shown card to the top (under the
-  // sticky tab strip) and keeps the active tab visible in the horizontal strip.
-  function applyActivePick(scroll){
-    var root = $('picks-root');
-    var nav = $('picks-nav');
-    var sym = picksState.activePick;
-    var activeCard = null;
-    if (root){
-      var cards = root.querySelectorAll('.pick-card');
-      for (var i=0; i<cards.length; i++){
-        var on = cards[i].getAttribute('data-symbol') === sym;
-        cards[i].classList.toggle('is-active', on);
-        if (on) activeCard = cards[i];
-      }
+  // Compact landing tab — one per pick, in sort order. Clicking it opens the
+  // detail page for that ticker. Shows rank, ticker, side, score, tier, and a
+  // little context so the grid reads as a scannable menu.
+  function pickTabCardHtml(p, idx){
+    var sideCls = pickSideClass(p.side);
+    var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var total = (p.total != null) ? p.total : (p.score != null ? p.score : null);
+    var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + total) : '—';
+    var rec = p.recommendation || {};
+    var tierLabel = rec.label ? escapeHtml(rec.label) : '';
+    if (tierLabel && rec.conviction && rec.conviction !== '—') tierLabel += ' · ' + escapeHtml(rec.conviction);
+    var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
+    var metaBits = [];
+    if (p.sector) metaBits.push(escapeHtml(p.sector));
+    if (spot) metaBits.push(spot);
+    return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
+      '<span class="ptc-rank">' + (idx + 1) + '</span>' +
+      '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span></span>' +
+      '<span class="ptc-score">' + escapeHtml(scoreStr) + '</span>' +
+      (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
+      (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
+      '<span class="ptc-cta">View judgment →</span>' +
+    '</button>';
+  }
+
+  // Render the detail page for one ticker into the (stable) detail container.
+  function renderPickDetailCard(sym){
+    var holder = $('picks-detail-card');
+    if (!holder) return;
+    var picks = picksState.sorted || [];
+    var idx = -1;
+    for (var i=0; i<picks.length; i++){ if (picks[i].symbol === sym){ idx = i; break; } }
+    if (idx === -1){ closePickDetail(); return; }
+    holder.innerHTML = buildPickCardHtml(picks[idx], idx);
+  }
+
+  // Open the focused judgment page for a ticker; hide the landing grid.
+  function openPickDetail(sym){
+    picksState.openSym = sym;
+    renderPickDetailCard(sym);
+    var list = $('picks-listview'), detail = $('picks-detail');
+    if (list) list.hidden = true;
+    if (detail) detail.hidden = false;
+    var sec = $('picks-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var back = $('picks-back');
+    if (back) back.focus();
+  }
+
+  // Return to the landing grid.
+  function closePickDetail(){
+    picksState.openSym = null;
+    var list = $('picks-listview'), detail = $('picks-detail');
+    if (detail) detail.hidden = true;
+    if (list) list.hidden = false;
+  }
+
+  // Wire the grid → detail navigation once. The grid and detail card are both
+  // rebuilt on every render, but their parents (#picks-grid, #picks-detail-card)
+  // are stable, so delegated listeners bound once survive re-renders.
+  function bindPicksNav(){
+    var grid = $('picks-grid');
+    if (grid && !grid._bound){
+      grid._bound = true;
+      grid.addEventListener('click', function(ev){
+        var btn = ev.target && ev.target.closest ? ev.target.closest('[data-pick-open]') : null;
+        if (!btn) return;
+        openPickDetail(btn.getAttribute('data-pick-open'));
+      });
     }
-    if (nav){
-      var items = nav.querySelectorAll('[data-pick-nav]');
-      for (var j=0; j<items.length; j++){
-        var navOn = items[j].getAttribute('data-pick-nav') === sym;
-        items[j].classList.toggle('is-active', navOn);
-        items[j].setAttribute('aria-selected', navOn ? 'true' : 'false');
-        if (navOn && scroll){
-          // Center the active tab in the horizontal strip without nudging the
-          // page vertically (scrollIntoView on a sticky child can do that).
-          var nr = nav.getBoundingClientRect(), ir = items[j].getBoundingClientRect();
-          nav.scrollLeft += (ir.left - nr.left) - (nav.clientWidth - items[j].clientWidth) / 2;
+    var back = $('picks-back');
+    if (back && !back._bound){
+      back._bound = true;
+      back.addEventListener('click', closePickDetail);
+    }
+    var holder = $('picks-detail-card');
+    if (holder && !holder._bound){
+      holder._bound = true;
+      holder.addEventListener('click', function(ev){
+        // Recommendation ⇄ Grade toggle inside the detail card.
+        var tab = ev.target && ev.target.closest ? ev.target.closest('.pick-tab') : null;
+        if (tab){
+          var card = tab.closest('.pick-card');
+          if (!card) return;
+          var targetId = tab.getAttribute('aria-controls');
+          var cardSym = card.getAttribute('data-symbol');
+          if (cardSym) picksState.activeTab[cardSym] = tab.getAttribute('data-pick-tab');
+          var tabs = card.querySelectorAll('.pick-tab');
+          for (var ti=0; ti<tabs.length; ti++){
+            var on = tabs[ti] === tab;
+            tabs[ti].classList.toggle('is-active', on);
+            tabs[ti].setAttribute('aria-selected', on ? 'true' : 'false');
+          }
+          var panels = card.querySelectorAll('.pick-tabpanel');
+          for (var pi=0; pi<panels.length; pi++){
+            panels[pi].hidden = panels[pi].id !== targetId;
+          }
+          return;
         }
-      }
-    }
-    if (activeCard && scroll){
-      activeCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Clicking the ticker symbol jumps to the grader, loading the ticker via
+        // the same path the URL ?s=X handler walks — pendingUrlState is staged
+        // first so applyPendingUrlState() snaps the expiry/strike/type to the
+        // pick's recommendation once the chain JSON has parsed.
+        var symBtn = ev.target && ev.target.closest ? ev.target.closest('[data-pick-symbol]') : null;
+        if (symBtn){
+          var sym = symBtn.getAttribute('data-pick-symbol');
+          if (!sym || SYMBOLS.indexOf(sym) === -1) return;
+          var k = parseFloat(symBtn.getAttribute('data-pick-strike') || '');
+          var exp = parseInt(symBtn.getAttribute('data-pick-exp') || '', 10);
+          var t = symBtn.getAttribute('data-pick-type') || null;
+          if (t !== 'call' && t !== 'put') t = null;
+          pendingUrlState = {
+            sym: sym,
+            k: isFinite(k) && k > 0 ? k : null,
+            exp: isFinite(exp) && exp > 0 ? exp : null,
+            t: t,
+          };
+          var gradeTab = document.querySelector('[data-page-tab="grade"]');
+          if (gradeTab) gradeTab.click();
+          combo.commit(sym);
+        }
+      });
     }
   }
 
   function renderPicks(){
     bindPicksControls();
-    var root = $('picks-root');
+    bindPicksNav();
+    var grid = $('picks-grid');
     var empty = $('picks-empty');
     var eyebrow = $('picks-eyebrow');
-    if (!root) return;
+    var summaryEl = $('picks-summary');
+    if (!grid) return;
     if (picksState.loading){
-      root.innerHTML =
-        '<span class="skel skel-block" style="height:60px"></span>' +
-        '<span class="skel skel-block" style="height:60px"></span>' +
-        '<span class="skel skel-block" style="height:60px"></span>';
-      renderPicksTabs([]);
+      grid.innerHTML =
+        '<span class="skel skel-block" style="height:118px"></span>' +
+        '<span class="skel skel-block" style="height:118px"></span>' +
+        '<span class="skel skel-block" style="height:118px"></span>';
+      if (summaryEl) summaryEl.innerHTML = '';
       if (empty) empty.hidden = true;
       return;
     }
     var data = picksState.data || { picks: [] };
     var picksRaw = Array.isArray(data.picks) ? data.picks : [];
     var picks = sortPicks(picksRaw, picksState.sort);
+    picksState.sorted = picks;
     if (eyebrow){
       eyebrow.textContent = picks.length + ' pick' + (picks.length === 1 ? '' : 's') + ' · rebuilt with each daily refresh';
     }
+    // Always (re)enter on the landing grid — leaving and returning to the tab
+    // should show the menu, not a stale detail page.
+    closePickDetail();
     if (!picks.length){
-      root.innerHTML = '';
-      renderPicksTabs([]);
+      grid.innerHTML = '';
+      if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
         empty.hidden = false;
         empty.textContent = data.loadError
@@ -9932,146 +10056,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (pp.contract && pp.contract.earningsInWindow) earningsCount++;
     }
     var avgScore = scoreCount > 0 ? (scoreSum / scoreCount).toFixed(1) : '—';
-    var summary = '<div class="picks-summary">' +
-      '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
-      '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
-      '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
-      (strongCount > 0
-        ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 20)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
-        : '') +
-      '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
-      (earningsCount > 0
-        ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
-        : '') +
-    '</div>';
-    // Keep the user's current ticker selected across re-sorts; fall back to the
-    // top pick when the previous selection isn't in this build (or on first show).
-    var pickSymbols = picks.map(function(pp){ return pp.symbol; });
-    if (!picksState.activePick || pickSymbols.indexOf(picksState.activePick) === -1){
-      picksState.activePick = picks[0].symbol;
+    if (summaryEl){
+      summaryEl.innerHTML =
+        '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
+        '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
+        '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
+        (strongCount > 0
+          ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 20)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
+          : '') +
+        '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
+        (earningsCount > 0
+          ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
+          : '');
     }
-    root.innerHTML = summary + picks.map(function(p, idx){
-      var sideCls = pickSideClass(p.side);
-      var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
-      var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
-      var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
-      var streakHtml = p.streak
-        ? '<span class="pick-streak pick-streak-' + escapeHtml(p.streak.color) + '">' +
-            p.streak.days + 'd ' + (p.streak.color === 'green' ? '▲' : '▼') +
-            ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
-          '</span>'
-        : '';
-      // How many consecutive builds this symbol has held a spot in the top
-      // picks. Only shown once it has survived more than one build — a single
-      // appearance is the default and not worth the chip.
-      var tenureHtml = '';
-      if (p.buildCount > 1){
-        var sinceTxt = fmtRepeatSince(p.firstSeen);
-        tenureHtml = '<span class="pick-tenure" title="In the top picks for ' + p.buildCount +
-          ' consecutive builds' + (sinceTxt ? ' — since ' + escapeHtml(sinceTxt) : '') + '">' +
-          '⏱ ' + p.buildCount + ' builds' + '</span>';
-      }
-      var contractHtml = pickContractHtml(p);
-      var exitHtml = pickExitPlanHtml(p);
-      var tierHtml = pickTierBadge(p);
-      var pillarsHtml = pickPillarPanel(p);
-      var peersHtml = pickPeerList(p);
-      var analysisHtml = pickAnalysisBlock(p);
-      var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
-      var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
-      // The card body is split into two switchable views: "Recommendation"
-      // (tier banner + analysis + contract + exit ladder + peers) and "Grade"
-      // (the full 4-pillar score breakdown — so you can judge how the score was
-      // arrived at, right next to the call). A legacy pick with no pillar data
-      // renders the recommendation directly with no tabs.
-      var recBody = tierHtml + analysisHtml + contractHtml + exitHtml + peersHtml;
-      var bodyHtml;
-      if (pillarsHtml){
-        // Honor the tab the user last picked for this symbol so a re-sort (which
-        // rebuilds the whole list) doesn't snap an open Grade view back to
-        // Recommendation. Keyed by symbol in picksState.activeTab.
-        var gradeOpen = picksState.activeTab[p.symbol] === 'grade';
-        bodyHtml =
-          '<div class="pick-tabs" role="tablist" aria-label="Pick view">' +
-            '<button type="button" class="pick-tab' + (gradeOpen ? '' : ' is-active') + '" role="tab" id="pt-rec-' + idx + '" aria-selected="' + (gradeOpen ? 'false' : 'true') + '" aria-controls="pp-rec-' + idx + '" data-pick-tab="rec">Recommendation</button>' +
-            '<button type="button" class="pick-tab' + (gradeOpen ? ' is-active' : '') + '" role="tab" id="pt-grade-' + idx + '" aria-selected="' + (gradeOpen ? 'true' : 'false') + '" aria-controls="pp-grade-' + idx + '" data-pick-tab="grade">Grade</button>' +
-          '</div>' +
-          '<div class="pick-tabpanel" role="tabpanel" id="pp-rec-' + idx + '" aria-labelledby="pt-rec-' + idx + '"' + (gradeOpen ? ' hidden' : '') + '>' + recBody + '</div>' +
-          '<div class="pick-tabpanel" role="tabpanel" id="pp-grade-' + idx + '" aria-labelledby="pt-grade-' + idx + '"' + (gradeOpen ? '' : ' hidden') + '>' + pillarsHtml + '</div>';
-      } else {
-        bodyHtml = recBody;
-      }
-      return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + (p.symbol === picksState.activePick ? ' is-active' : '') + '" id="pick-card-' + escapeHtml(p.symbol) + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
-        '<div class="pick-rank' + rankCls + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
-        '<div class="pick-main">' +
-          '<div class="pick-head">' +
-            '<button type="button" class="pick-symbol" data-pick-symbol="' + escapeHtml(p.symbol) + '" title="Open ' + escapeHtml(p.symbol) + ' in the grader">' + escapeHtml(p.symbol) + '</button>' +
-            (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
-            sectorTag +
-            '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
-            streakHtml +
-            tenureHtml +
-          '</div>' +
-          bodyHtml +
-        '</div>' +
-      '</article>';
-    }).join('');
-    renderPicksTabs(picks);
-    // Clicking a symbol (or "Grade this contract") jumps to the grader and
-    // loads the ticker via the same path the URL ?s=X handler walks. We
-    // stage pendingUrlState first so applyPendingUrlState() snaps the
-    // expiry/strike/type to the pick's recommendation once the chain JSON
-    // has parsed. (The previous implementation wrote ?sym=X — the wrong
-    // param name — and dispatched a hashchange, which the grader doesn't
-    // listen to, so nothing loaded.)
-    root.querySelectorAll('[data-pick-symbol]').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var sym = btn.getAttribute('data-pick-symbol');
-        if (!sym || SYMBOLS.indexOf(sym) === -1) return;
-        var k = parseFloat(btn.getAttribute('data-pick-strike') || '');
-        var exp = parseInt(btn.getAttribute('data-pick-exp') || '', 10);
-        var t = btn.getAttribute('data-pick-type') || null;
-        if (t !== 'call' && t !== 'put') t = null;
-        pendingUrlState = {
-          sym: sym,
-          k: isFinite(k) && k > 0 ? k : null,
-          exp: isFinite(exp) && exp > 0 ? exp : null,
-          t: t,
-        };
-        var gradeTab = document.querySelector('[data-page-tab="grade"]');
-        if (gradeTab) gradeTab.click();
-        combo.commit(sym);
-      });
-    });
-    // Recommendation ⇄ Grade toggle. One delegated listener on the (stable)
-    // picks-root element, bound once — renderPicks replaces root.innerHTML on
-    // every sort change, which discards the card nodes but not root itself, so
-    // a per-render addEventListener would stack duplicates. Scope every lookup
-    // to the clicked card so each card toggles independently; match the panel
-    // by aria-controls so no per-card index bookkeeping is needed.
-    if (!root._pickTabsBound){
-      root._pickTabsBound = true;
-      root.addEventListener('click', function(ev){
-        var btn = ev.target && ev.target.closest ? ev.target.closest('.pick-tab') : null;
-        if (!btn) return;
-        var card = btn.closest('.pick-card');
-        if (!card) return;
-        var targetId = btn.getAttribute('aria-controls');
-        // Remember the choice per-symbol so it survives the next re-sort render.
-        var cardSym = card.getAttribute('data-symbol');
-        if (cardSym) picksState.activeTab[cardSym] = btn.getAttribute('data-pick-tab');
-        var tabs = card.querySelectorAll('.pick-tab');
-        for (var ti=0; ti<tabs.length; ti++){
-          var on = tabs[ti] === btn;
-          tabs[ti].classList.toggle('is-active', on);
-          tabs[ti].setAttribute('aria-selected', on ? 'true' : 'false');
-        }
-        var panels = card.querySelectorAll('.pick-tabpanel');
-        for (var pi=0; pi<panels.length; pi++){
-          panels[pi].hidden = panels[pi].id !== targetId;
-        }
-      });
-    }
+    grid.innerHTML = picks.map(function(p, idx){ return pickTabCardHtml(p, idx); }).join('');
   }
 
   // --- Pinned-to-compare strip --------------------------------------------
