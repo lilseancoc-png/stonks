@@ -25,18 +25,32 @@
     "trend": "falling"
   },
   "dxy": {
-    "value": 98.88,
+    "value": 98.942,
     "prior": 99.19000244140625,
     "prior1d": 99.0199966430664,
     "prior5d": 99.19000244140625,
-    "change5d": -0.31253395884265645,
-    "pctChange1d": -0.141382193306925,
-    "pctChange5d": -0.31253395884265645,
+    "change5d": -0.25002765934274224,
+    "pctChange1d": -0.07876857777279543,
+    "pctChange5d": -0.25002765934274224,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "flat"
   },
-  "asOf": "2026-05-29T20:03:14.862Z",
+  "vix": {
+    "value": 15.32,
+    "prior": 16.700000762939453,
+    "prior1d": 15.739999771118164,
+    "prior5d": 16.700000762939453,
+    "change5d": -8.263477244874998,
+    "pctChange1d": -2.668359448701105,
+    "pctChange5d": -8.263477244874998,
+    "bpsChange1d": null,
+    "bpsChange5d": null,
+    "trend": "falling",
+    "rankPct": null,
+    "rankSamples": 1
+  },
+  "asOf": "2026-05-30T03:02:33.688Z",
   "previousClose": {
     "date": "2026-05-28",
     "asOf": "2026-05-29T02:14:42.416Z",
