@@ -49,15 +49,31 @@ export default async function handler(req, res) {
     const list = Array.isArray(r) ? r : r ? [r] : [];
     const quotes = list
       .map((q) => {
-        const spot =
-          q?.regularMarketPrice ?? q?.postMarketPrice ?? q?.preMarketPrice ?? null;
+        const reg = q?.regularMarketPrice ?? null;
+        const spot = reg ?? q?.postMarketPrice ?? q?.preMarketPrice ?? null;
         if (spot == null) return null;
+        const prevClose = q?.regularMarketPreviousClose ?? null;
+        // When spot falls back to a pre/post-market price, Yahoo's
+        // regularMarketChange/Percent (regular-session close vs prior close)
+        // no longer matches the price we're showing. Re-derive off prevClose
+        // so the spot and the % move share one baseline.
+        let change = q?.regularMarketChange ?? null;
+        let changePct = q?.regularMarketChangePercent ?? null;
+        if (reg == null) {
+          if (prevClose != null && prevClose !== 0) {
+            change = spot - prevClose;
+            changePct = ((spot - prevClose) / prevClose) * 100;
+          } else {
+            change = null;
+            changePct = null;
+          }
+        }
         return {
           symbol: q?.symbol,
           spot,
-          prevClose: q?.regularMarketPreviousClose ?? null,
-          change: q?.regularMarketChange ?? null,
-          changePct: q?.regularMarketChangePercent ?? null,
+          prevClose,
+          change,
+          changePct,
           marketState: q?.marketState ?? null,
         };
       })
