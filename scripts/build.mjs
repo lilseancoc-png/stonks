@@ -6165,14 +6165,15 @@ function scoreTicker(sym, data, narratives, streakRow, unusualPayload) {
 void scoreTicker;
 
 
-// Format an expiration epoch (seconds) as a short ET label like "Dec 20 '26".
-// Mirrors fmtExpiryLabel in app.js but emits the year suffix the picks card
-// shows alongside the strike. Uses Intl with the America/New_York time zone
-// so weekday expirations don't shift by one day around DST boundaries.
+// Format an expiration epoch (seconds) as a short label like "Dec 18 '26".
+// Emits the year suffix the picks card shows alongside the strike. Yahoo stores
+// these epochs at 00:00 UTC of the expiry date, so we MUST read them in UTC
+// (matching isStandardMonthly below) — reading in ET would shift 00:00 UTC back
+// to the prior evening and render the option one calendar day early.
 function fmtExpiryLabelShort(epochSec) {
   const d = new Date(epochSec * 1000);
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
+    timeZone: "UTC",
     month: "short",
     day: "numeric",
     year: "2-digit",
@@ -7027,26 +7028,36 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   return out;
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null) {
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null) {
   const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
+
+  // Prior picks snapshot. A full build passes priorPicks (captured by
+  // readPriorPicks BEFORE writeChainFiles wiped data/). Without it the reads
+  // below always miss post-wipe, which (a) pins every pick's buildCount to 1 so
+  // the "in the top picks for N builds" tenure badge never renders and (b)
+  // defeats the zero-pick stale-reuse path, overwriting last-good picks with []
+  // every pre-bell run. Callers that do NOT wipe data/ (regen-picks.mjs) pass
+  // null and we read the live file off disk instead. Same pre-read pattern as
+  // readPicksAccuracyState / picksAccuracyPrev.
+  let priorPayload = priorPicks;
+  if (!priorPayload) {
+    try {
+      priorPayload = JSON.parse(await readFile(picksPath, "utf8"));
+    } catch {
+      priorPayload = null;
+    }
+  }
 
   // Track how many consecutive builds each symbol has survived in the top
   // picks. Keyed by symbol (a side flip still counts as "still in the list").
   // firstSeen is the build timestamp the symbol first appeared; buildCount is
-  // the consecutive-build tally. Read the prior file before the zero-pick
-  // reuse branch below so genuinely-fresh picks get annotated; the stale
-  // reuse path carries the prior picks (and their counts) through untouched.
+  // the consecutive-build tally.
   const priorBySymbol = new Map();
-  try {
-    const prior = JSON.parse(await readFile(picksPath, "utf8"));
-    if (Array.isArray(prior?.picks)) {
-      for (const pp of prior.picks) {
-        if (pp?.symbol) priorBySymbol.set(pp.symbol, pp);
-      }
+  if (Array.isArray(priorPayload?.picks)) {
+    for (const pp of priorPayload.picks) {
+      if (pp?.symbol) priorBySymbol.set(pp.symbol, pp);
     }
-  } catch {
-    // No prior file (or unreadable) — every pick is brand new.
   }
   for (const p of picks) {
     const prev = priorBySymbol.get(p.symbol);
@@ -7067,26 +7078,22 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   // file and mark it stale so the UI can flag the freshness. Mirrors the
   // narratives last-good pattern documented in CLAUDE.md.
   if (picks.length === 0) {
-    try {
-      const prior = JSON.parse(await readFile(picksPath, "utf8"));
-      if (Array.isArray(prior?.picks) && prior.picks.length > 0) {
-        const stalePayload = {
-          builtAtIso,
-          minConviction: PICKS_MIN_CONVICTION,
-          picks: prior.picks,
-          stale: true,
-          stalePicksFromIso: prior.builtAtIso || null,
-        };
-        const staleJson = JSON.stringify(stalePayload);
-        await writeFile(picksPath, staleJson, "utf8");
-        console.warn(
-          `[picks] buildTopPicks returned 0 picks — reusing ${prior.picks.length} from ${prior.builtAtIso || "previous run"} (marked stale)`,
-        );
-        return { bytes: staleJson.length, count: prior.picks.length, stale: true };
-      }
-    } catch {
-      // No prior file (or unreadable) — fall through to the empty write.
+    if (Array.isArray(priorPayload?.picks) && priorPayload.picks.length > 0) {
+      const stalePayload = {
+        builtAtIso,
+        minConviction: PICKS_MIN_CONVICTION,
+        picks: priorPayload.picks,
+        stale: true,
+        stalePicksFromIso: priorPayload.builtAtIso || null,
+      };
+      const staleJson = JSON.stringify(stalePayload);
+      await writeFile(picksPath, staleJson, "utf8");
+      console.warn(
+        `[picks] buildTopPicks returned 0 picks — reusing ${priorPayload.picks.length} from ${priorPayload.builtAtIso || "previous run"} (marked stale)`,
+      );
+      return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true };
     }
+    // No prior picks (first run / unreadable) — fall through to the empty write.
   }
   // Hybrid AI polish (spec): rewrite the deterministic exit-ladder prose into a
   // sharper trader voice. Self-skips without GEMINI_API_KEY; per-pick failures
@@ -7101,6 +7108,25 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
   return { bytes: json.length, count: picks.length };
+}
+
+// Read the prior data/picks.json into memory. main() MUST call this BEFORE
+// writeChainFiles wipes data/ and thread the result into writeTopPicksFile —
+// the file lives in data/, so after the wipe the read always misses, which
+// pins every pick's buildCount to 1 (the tenure badge never renders) AND
+// defeats the zero-pick stale-reuse path (last-good picks get overwritten with
+// [] on the pre-bell run). Mirrors readPicksAccuracyState. Returns the parsed
+// payload { picks, builtAtIso, ... } or null on a missing / corrupt / first-run
+// file.
+export async function readPriorPicks() {
+  const picksPath = resolve(DATA_DIR, PICKS_FILE);
+  try {
+    const pj = JSON.parse(await readFile(picksPath, "utf8"));
+    if (pj && typeof pj === "object" && Array.isArray(pj.picks)) return pj;
+  } catch {
+    // First run / missing / corrupt — no prior picks.
+  }
+  return null;
 }
 
 // ----------------------------------------------------------------------------
@@ -10384,6 +10410,11 @@ async function main() {
   // market, timed out, or resolved) and closed stays 0. Same pattern as the
   // macro / iv / fedwatch histories above.
   const picksAccuracyPrev = await readPicksAccuracyState();
+  // Snapshot the prior picks.json the same way, BEFORE writeChainFiles wipes
+  // data/. Threaded into writeTopPicksFile so the consecutive-build tenure
+  // counts survive the wipe and the zero-pick (pre-bell) stale-reuse path can
+  // actually find last-good picks instead of overwriting them with [].
+  const picksPrev = await readPriorPicks();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
@@ -10632,7 +10663,7 @@ async function main() {
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we

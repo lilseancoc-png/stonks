@@ -47,7 +47,9 @@ function fmtNum(n, d = 2) {
 function fmtExpiry(epochSec) {
   if (!epochSec) return "—";
   const d = new Date(epochSec * 1000);
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  // Expiry epochs are 00:00 UTC of the expiry date — format in UTC so users
+  // west of UTC don't see the prior calendar day (e.g. May 28 for a May 29 exp).
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 function fmtDate(iso) {
@@ -931,7 +933,9 @@ async function loadChain(symbol) {
   const j = await r.json();
   const expirations = (j.expirations || []).map((sec) => ({
     sec,
-    label: new Date(sec * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
+    // Expiry epochs are 00:00 UTC of the expiry date — format in UTC so the
+    // dropdown labels don't read one calendar day early west of UTC.
+    label: new Date(sec * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }),
   }));
   // Spot + fundamentals are kept alongside expirations/chains so the risk
   // dashboard can read beta and the live underlying price for each holding
