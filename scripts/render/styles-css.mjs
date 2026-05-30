@@ -6545,6 +6545,25 @@ main { padding-top: var(--s-2); }
   border-left: 2px solid var(--accent);
   border-radius: var(--r-1);
 }
+/* Two side-by-side ladders: scale-out (above entry) left, defend & cut
+   (entry + below) right. Stacks back to one column on narrow viewports. */
+.pick-exit-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .pick-exit-cols { grid-template-columns: minmax(0, 1fr); }
+}
+.pick-exit-col-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 5px;
+}
+.pick-exit-col-head-up { color: var(--pos); }
+.pick-exit-col-head-down { color: var(--neg); }
 .pick-exit-ladder {
   list-style: none;
   margin: 0;
