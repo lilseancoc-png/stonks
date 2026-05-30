@@ -79,6 +79,7 @@ function topPicksSection() {
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
+    <div id="picks-listview" class="picks-listview">
     <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+20 or higher</b> Strong Call (Very High conviction, Load the Boat), <b>+16&nbsp;to&nbsp;+19</b> Call (High, standard size), <b>-15 to +15</b> No Trade (skipped), <b>-16 to -19</b> Put (High, standard size), <b>-20 or lower</b> Strong Put (Very High, Load the Boat). Each card has a <b>Recommendation&nbsp;&#8644;&nbsp;Grade</b> toggle &mdash; flip to Grade to audit every signal that produced the score, right next to the call. Each pick also carries a layered exit ladder with an action at every level and how it stacks up against same-sector peers. The <b>Track record</b> tab grades past picks against what actually happened.</p>
     <details class="picks-howto">
       <summary>How the 4-pillar score works &rarr;</summary>
@@ -106,14 +107,15 @@ function topPicksSection() {
         </select>
       </label>
     </div>
-    <div class="picks-layout">
-      <nav id="picks-nav" class="picks-nav" role="tablist" aria-label="Switch pick ticker" hidden></nav>
-      <div class="picks-main">
-        <div id="picks-root" class="picks-root">Loading top picks…</div>
-        <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-15 to +15).</div>
-      </div>
+      <div id="picks-summary" class="picks-summary"></div>
+      <div id="picks-grid" class="picks-grid">Loading top picks…</div>
+      <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — every ticker scored in the No Trade band (-15 to +15).</div>
+      <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;16 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
     </div>
-    <p class="picks-foot">Picks rebuild from scratch on every daily refresh. Each pick clears the |total|&nbsp;&ge;&nbsp;16 actionable threshold and a tradeable contract that fits the suggested-contract criteria above.</p>
+    <div id="picks-detail" class="picks-detail" hidden>
+      <button type="button" id="picks-back" class="picks-back">&larr;&nbsp;All picks</button>
+      <div id="picks-detail-card" class="picks-detail-card"></div>
+    </div>
   </section>`;
 }
 
