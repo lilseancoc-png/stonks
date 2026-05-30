@@ -343,12 +343,26 @@ function buildRepeatLookup(log, nowMs) {
   return map;
 }
 
-// Flattens the most recent snapshot's per-contract volumes into a lookup
-// keyed by contract identity tuple. Returns null when there's no prior
-// snapshot (first run after deploy, or file wiped).
-function buildPrevVolLookup(history) {
-  const last = history?.snapshots?.[history.snapshots.length - 1];
-  if (!last || !Array.isArray(last.contracts)) return null;
+// Flattens the most recent SAME-SESSION snapshot's per-contract volumes into
+// a lookup keyed by contract identity tuple. "Same session" = the snapshot's
+// ET calendar date equals `todayKey`. Option `volume` is a daily counter that
+// resets each session, so diffing against a prior-day snapshot would compute a
+// meaningless cross-session delta (vol − yesterdayEOD) and can produce a false
+// flag on the day's first scan. Returns null when there's no same-session
+// snapshot — flagging is then correctly skipped this run (legacy snapshots
+// written before etDate existed have no etDate and are treated as not-today,
+// so the gate self-heals after one scan).
+function buildPrevVolLookup(history, todayKey) {
+  const snaps = history?.snapshots;
+  if (!Array.isArray(snaps) || !todayKey) return null;
+  let last = null;
+  for (let i = snaps.length - 1; i >= 0; i--) {
+    if (snaps[i]?.etDate === todayKey && Array.isArray(snaps[i].contracts)) {
+      last = snaps[i];
+      break;
+    }
+  }
+  if (!last) return null;
   const map = new Map();
   for (const h of last.contracts) {
     if (h.symbol == null || h.strike == null || h.expSec == null) continue;
@@ -1057,13 +1071,16 @@ async function runVolumePass({
 async function main() {
   const scannedAt = new Date().toISOString();
   const nowMs = Date.now();
+  // ET calendar date of this scan — used to gate the per-contract volume delta
+  // (and stamped onto each history snapshot) so we never diff across sessions.
+  const todayKey = etDateKey(scannedAt);
   // AI usage totals are shared with the daily build via data/ai-usage.json;
   // load at start so the per-call recordAiUsage() entries inside the flow
   // explanation pipeline accumulate onto today's totals.
   await loadAiUsageState();
   const history = await loadUnusualHistory();
   const log = await loadUnusualLog();
-  const prevVolLookup = buildPrevVolLookup(history);
+  const prevVolLookup = buildPrevVolLookup(history, todayKey);
   // Repeat lookup is built from the log BEFORE we append this scan's hits, so
   // a contract that fires for the first time today shows count=1 (not 2) on
   // its inaugural badge.
@@ -1140,7 +1157,6 @@ async function main() {
   // the next market day (or a manual run on a different ET date) we reset
   // and only show this scan's hits.
   const prior = await loadPriorUnusual();
-  const todayKey = etDateKey(scannedAt);
   const priorKey = prior ? etDateKey(prior.scannedAt) : null;
   const sameSession = !!(prior && todayKey && priorKey && todayKey === priorKey);
   const mergedTickers = sameSession ? mergeTickerRows(prior.tickers, tickerRows) : tickerRows;
@@ -1184,6 +1200,7 @@ async function main() {
   // compute deltas for contracts that didn't flag this hour.
   history.snapshots.push({
     scannedAt,
+    etDate: todayKey,
     contracts: allCandidates.map((c) => ({
       symbol: c.symbol,
       side: c.side,

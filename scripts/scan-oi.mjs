@@ -373,7 +373,7 @@ function decorateContract(c, spot, prevOiLookup) {
     oiDeltaPct: oiDeltaPct != null ? Math.round(oiDeltaPct * 1000) / 1000 : null,
     volOiRatio: volOiRatio != null ? Math.round(volOiRatio * 100) / 100 : null,
     fromSpotPct: fromSpot != null ? Math.round(fromSpot * 1000) / 1000 : null,
-    flagOiBig: c.oi > BIG_OI,
+    flagOiBig: c.oi >= BIG_OI,
     flagOiDelta30: freshFromZero || (oiDeltaPct != null && oiDeltaPct >= DELTA_OI_PCT_NEW),
     flagOiDelta100: freshFromZero || (oiDeltaPct != null && oiDeltaPct >= DELTA_OI_PCT_AGGR),
   };

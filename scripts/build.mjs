@@ -613,10 +613,13 @@ async function fetchHistoricalBars(symbol) {
 //   • a single counter day's magnitude exceeds COUNTER_BREAK_PCT
 //   • the tolerance bank reaches CUM_TOLERANCE_BREAK_PCT
 //   • CONSECUTIVE_COUNTER_BREAK counter days line up in a row
-// A same-direction day "heals" the streak: tolerance bank and consecutive
-// counter-day counter both reset to zero. Tolerance only kicks in once
-// the streak has logged ≥ 2 same-direction days -- a lone +0.5% day
-// followed by a small red day isn't really a "streak" to defend.
+// A same-direction day "heals" only the trailing counter-day run: the
+// consecutive-counter-day counter resets to zero, but the tolerance bank and
+// the total counter-day count are cumulative across the whole streak window
+// and do NOT reset (see startStreak + the same-direction branch below).
+// Tolerance only kicks in once the streak has logged ≥ 2 same-direction days
+// -- a lone +0.5% day followed by a small red day isn't really a "streak" to
+// defend.
 const STREAK_COUNTER_BREAK_PCT = 1.2;
 const STREAK_CUM_TOLERANCE_BREAK_PCT = 1.5;
 const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
@@ -4743,6 +4746,37 @@ export async function readFedwatchHistory() {
 
 export async function writeFedwatchHistory(history) {
   await writeFile(resolve(DATA_DIR, FEDWATCH_HISTORY_FILE), JSON.stringify(history), "utf8");
+}
+
+// Per-meeting cap on retained daily snapshots. pickFedwatchBuckets looks back
+// up to 30 days, so 40 leaves comfortable headroom while keeping the committed
+// artifact from growing without bound.
+const FEDWATCH_HISTORY_MAX_SNAPSHOTS_PER_MEETING = 40;
+
+// Keep fedwatch-history.json bounded. Every other rolling-history file in this
+// module is capped; without this, fedwatch-history grew forever — past meeting
+// keys were never removed and each meeting accumulated an unbounded number of
+// daily snapshots. Drops meetings that have already happened (the UI only ever
+// shows upcoming meetings) and trims each remaining meeting to its most recent
+// snapshots. Mutates `history` in place and returns it.
+export function pruneFedwatchHistory(history, todayIso) {
+  if (!history?.meetings || !todayIso) return history;
+  for (const meetingDate of Object.keys(history.meetings)) {
+    // ISO YYYY-MM-DD compares lexicographically; a meeting strictly before
+    // today is in the past (today's meeting still counts as upcoming).
+    if (meetingDate < todayIso) {
+      delete history.meetings[meetingDate];
+      continue;
+    }
+    const snaps = history.meetings[meetingDate];
+    if (!snaps || typeof snaps !== "object") continue;
+    const dates = Object.keys(snaps).sort();
+    if (dates.length > FEDWATCH_HISTORY_MAX_SNAPSHOTS_PER_MEETING) {
+      const keep = new Set(dates.slice(-FEDWATCH_HISTORY_MAX_SNAPSHOTS_PER_MEETING));
+      for (const d of dates) if (!keep.has(d)) delete snaps[d];
+    }
+  }
+  return history;
 }
 
 // Fetch the latest settle / mid price for a Yahoo futures symbol.
@@ -10160,7 +10194,7 @@ function annotateNarrativesWithLifespan(narratives, history, todayIso) {
     // run that includes this narrative.
     for (let i = 0; i < history.length; i++) {
       const snap = history[i];
-      const hit = snap.narratives.find((h) => h.name.toLowerCase() === lcName);
+      const hit = (snap.narratives || []).find((h) => h.name.toLowerCase() === lcName);
       if (hit) {
         firstSeen = snap.date;
       } else {
@@ -10217,7 +10251,7 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
   const seen = new Map();
   for (const snap of history) {
     if (snap.date === today) continue;
-    for (const n of snap.narratives) {
+    for (const n of (snap.narratives || [])) {
       const key = n.name.toLowerCase();
       if (active.has(key)) continue;
       const cur = seen.get(key);
@@ -10656,6 +10690,7 @@ async function main() {
     fedwatchHistory.meetings[meetingDate][todayIso] = buckets.now;
     snapshotCount++;
   }
+  pruneFedwatchHistory(fedwatchHistory, todayIso);
   await writeFedwatchHistory(fedwatchHistory);
   console.log(`  · ${snapshotCount} meeting snapshots (history: ${Object.keys(fedwatchHistory.meetings).length} meetings tracked)`);
   // For each upcoming meeting, ship the four lookback buckets the UI

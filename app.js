@@ -1689,18 +1689,26 @@
         var moveSign = vol.priceMove1dPct >= 0 ? 1 : -1;
         var moveLabel = (vol.priceMove1dPct >= 0 ? '+' : '') + vol.priceMove1dPct.toFixed(2) + '%';
         var rvolLabel = vol.rvol != null ? vol.rvol.toFixed(2) + 'x avg' : 'volume';
+        // "score" is a bullish-for-the-stock accumulator that gets converted
+        // to direction-aligned conviction once via (score * dir) below. So a
+        // signal that supports the chosen direction must nudge score by +dir
+        // (not +1) and land in the aligned (dir>0?bull:bear) list; one that
+        // opposes it nudges by -dir and lands in the opposed list. Using a
+        // raw +/-1 here was correct for calls but inverted the contribution
+        // for puts.
+        var volAgrees = moveSign === dir;
         if (vol.conviction === 'strong'){
-          if (moveSign === dir){
-            bull.push({ name: 'Volume', why: 'Strong conviction print: ' + moveLabel + ' on ' + rvolLabel + ' — institutional flow agrees with the direction.', weight: 1 });
-            score += 1;
+          if (volAgrees){
+            (dir > 0 ? bull : bear).push({ name: 'Volume', why: 'Strong conviction print: ' + moveLabel + ' on ' + rvolLabel + ' — institutional flow agrees with the direction.', weight: 1 });
+            score += dir;
           } else {
-            bear.push({ name: 'Volume', why: 'Strong conviction in the OPPOSITE direction: ' + moveLabel + ' on ' + rvolLabel + '. Fighting institutional flow is expensive.', weight: 1 });
-            score -= 1;
+            (dir > 0 ? bear : bull).push({ name: 'Volume', why: 'Strong conviction in the OPPOSITE direction: ' + moveLabel + ' on ' + rvolLabel + '. Fighting institutional flow is expensive.', weight: 1 });
+            score -= dir;
           }
         } else if (vol.conviction === 'weak'){
-          if (moveSign === dir){
-            bear.push({ name: 'Volume', why: 'Print of ' + moveLabel + ' came on only ' + rvolLabel + ' — thin tape, treat the move as low-conviction.', weight: 1 });
-            score -= 1;
+          if (volAgrees){
+            (dir > 0 ? bear : bull).push({ name: 'Volume', why: 'Print of ' + moveLabel + ' came on only ' + rvolLabel + ' — thin tape, treat the move as low-conviction.', weight: 1 });
+            score -= dir;
           }
         }
       }
@@ -1726,15 +1734,17 @@
       if (macro.score > 0){ bull.push({ name: 'Macro', why: macroWhy + '.', weight: 1 }); score += 1; }
       else { bear.push({ name: 'Macro', why: macroWhy + '.', weight: 1 }); score -= 1; }
     }
+    var aligned = score * dir;
     // 30 DTE penalty — soft warning, not a hard fail (the 3 DTE + 80%
     // extrinsic gates already catch the worst cases). Still surfaced so
-    // users know they're buying into accelerating decay.
+    // users know they're buying into accelerating decay. Applied to the
+    // direction-aligned conviction (not the bullish-frame score) so it cuts
+    // conviction for puts and calls alike — subtracting from score would
+    // have *raised* a put's conviction after the (score * dir) flip.
     if (dte != null && dte > 3 && dte <= 30){
-      score -= 1;
+      aligned -= 1;
       warnings.push('Theta accelerates inside 30 DTE — ' + dte + ' day' + (dte === 1 ? '' : 's') + ' left means decay is going to step up week-over-week from here.');
     }
-
-    var aligned = score * dir;
     var alignedSignals = dir > 0 ? bull : bear;
     var opposedSignals = dir > 0 ? bear : bull;
     var alignedNames = alignedSignals.map(function(s){ return s.name; });

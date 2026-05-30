@@ -327,8 +327,8 @@ function renderPositions() {
 
 // Pick the contract from an already-loaded chain that matches a saved
 // position (same strike, same side). Returns null when the strike rolled
-// off-band (Yahoo only stores ±55% of spot) so the caller can skip it
-// without crashing the aggregate.
+// off-band (we only store ±50% of spot, per STRIKE_BAND) so the caller can
+// skip it without crashing the aggregate.
 function lookupContract(chainCache, position) {
   const entry = chainCache[position.symbol];
   if (!entry) return null;
@@ -512,7 +512,7 @@ function renderRisk() {
           <div class="pf-risk-greek"><span class="pf-greek-label">V Vega</span><span class="pf-greek-value">${fmtGreek(vega, 1)}</span></div>
           <div class="pf-risk-greek"><span class="pf-greek-label">Θ Theta/day</span><span class="pf-greek-value ${theta >= 0 ? "pf-pos" : "pf-neg"}">${fmtGreek(theta, 1)}</span></div>
         </div>
-        <p class="pf-risk-foot">Sum of per-contract Greeks × quantity × 100. Δ is dollars-per-$1-move on the underlying; Θ is the dollar decay you bleed per calendar day.</p>
+        <p class="pf-risk-foot">Sum of per-contract Greeks × quantity × 100. Δ is dollars-per-$1-move on the underlying and Γ is how that Δ shifts per $1; Θ is the dollar decay you bleed per calendar day; V (Vega) is dollars per <strong>1-point (1%) move in implied volatility</strong> — not a $1 underlying move.</p>
       </div>
       <div class="pf-risk-block">
         <div class="pf-risk-block-head">Market exposure</div>
