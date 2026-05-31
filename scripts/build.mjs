@@ -10285,7 +10285,13 @@ async function attachMarketNarratives(chains, previousHistory) {
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
-  const previousNames = lastSnapshot ? lastSnapshot.narratives.map((n) => n.name) : [];
+  // Guard the inner .narratives/.name access (not just lastSnapshot): this runs
+  // before the stale-fallback try/catch below, so a malformed or legacy history
+  // snapshot lacking a narratives array would otherwise throw and abort the
+  // whole bake. Mirrors the guards in annotateNarrativesWithLifespan.
+  const previousNames = Array.isArray(lastSnapshot?.narratives)
+    ? lastSnapshot.narratives.map((n) => n?.name).filter(Boolean)
+    : [];
   // Macro RSS fetch — independent of the AI rate limiter, runs concurrently
   // with anything the limiter still has queued. The narrative generateContent
   // call will block on acquireAiSlot() if the previous pass's window hasn't
