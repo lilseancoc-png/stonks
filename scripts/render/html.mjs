@@ -362,6 +362,7 @@ function optionEvalSection() {
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-max-pain" class="opt-max-pain" hidden aria-live="polite"></div>
+    <div id="opt-toppick" class="opt-toppick" hidden aria-live="polite" aria-label="Top Picks grade for this ticker"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
     <div class="opt-result-wrap">
       <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>

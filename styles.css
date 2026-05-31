@@ -2748,6 +2748,46 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   letter-spacing: 0.03em;
 }
 
+/* === Top-Picks grade banner === */
+/* The best call/put the Top Picks engine baked for this ticker, graded with
+   the exact picks criteria. Accent-tinted to read as a featured highlight;
+   the inner card reuses the .pick-contract* / .pick-qchip* / .pick-stat*
+   styles from the Picks tab so it looks identical to a pick card. */
+.opt-toppick {
+  margin: var(--s-3) 0;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-3);
+  background:
+    linear-gradient(180deg, var(--accent-tint-1), transparent),
+    var(--surface-2);
+}
+.opt-toppick-head {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  justify-content: space-between; gap: 8px;
+  margin-bottom: 8px;
+}
+.opt-toppick-title {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--accent-strong);
+}
+.opt-toppick-asof {
+  font-size: 11px; color: var(--muted);
+  letter-spacing: 0.02em;
+}
+/* The pick-contract card already carries its own margin-top inside a
+   pick-card; standalone in the banner it sits flush under the header. */
+.opt-toppick .pick-contract { margin-top: 0; }
+.opt-toppick-empty {
+  font-size: 13px; line-height: 1.5; color: var(--text-2);
+}
+.opt-toppick-crit {
+  display: block; margin-top: 3px;
+  font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* === Technical signals card === */
 .opt-tech {
   margin: var(--s-3) 0;

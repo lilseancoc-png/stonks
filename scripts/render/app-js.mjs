@@ -678,6 +678,130 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>';
   }
 
+  // --- Top-Picks grade banner --------------------------------------------
+  // Surfaces the best call/put the Top Picks engine baked for this ticker
+  // (state.autoPick[side], computed by pickContractForPick() at build time)
+  // graded with the exact same criteria the Picks tab uses. Reuses the
+  // pick-contract* / pick-qchip* / pick-stat* markup + CSS so it reads
+  // identically to a Picks-tab contract card. Nothing is recomputed in the
+  // browser, so the grade always matches Top Picks by construction.
+  function topPickCardHtml(c, side, symbol){
+    if (!c || c.strike == null || !c.expiryLabel) return '';
+    var sideLabel = side === 'put' ? 'PUT' : 'CALL';
+    var dteTxt = (c.dte != null) ? ' · ' + c.dte + 'd' : '';
+    var otmTxt = (c.otmPct != null && isFinite(c.otmPct)) ? ' · ' + Math.abs(Number(c.otmPct)).toFixed(1) + '% OTM' : '';
+    // Premium / Breakeven / Greeks stat grid — mirrors pickContractHtml().
+    var premiumPrimary = '';
+    if (c.mid != null && isFinite(c.mid)) premiumPrimary = '$' + Number(c.mid).toFixed(2);
+    else if (c.last != null && isFinite(c.last)) premiumPrimary = '$' + Number(c.last).toFixed(2);
+    var premiumSub = '';
+    if (c.bid != null && c.ask != null) premiumSub = '$' + Number(c.bid).toFixed(2) + ' × $' + Number(c.ask).toFixed(2);
+    else if (c.last != null && isFinite(c.last)) premiumSub = 'last $' + Number(c.last).toFixed(2);
+    var dollarsContract = '';
+    if (premiumPrimary){ var midN = parseFloat(premiumPrimary.slice(1)); if (isFinite(midN)) dollarsContract = '$' + (midN * 100).toFixed(0) + ' / contract'; }
+    var stats = '<div class="pick-stat-grid">' +
+      '<div class="pick-stat" title="Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.">' +
+        '<div class="pick-stat-label">Premium</div>' +
+        '<div class="pick-stat-value">' + escapeHtml(premiumPrimary || '—') + '</div>' +
+        '<div class="pick-stat-sub">' + escapeHtml(premiumSub || dollarsContract || '') + '</div>' +
+      '</div>';
+    var beVal = '', beSub = '';
+    if (c.breakeven != null){
+      beVal = '$' + Number(c.breakeven).toFixed(2);
+      if (c.breakevenMovePct != null){ var bem = Number(c.breakevenMovePct); beSub = (bem >= 0 ? '+' : '') + bem.toFixed(1) + '% to BE'; }
+    }
+    stats += '<div class="pick-stat" title="Breakeven — the share price the stock must reach by expiry just to recover the premium. Anything past this is profit.">' +
+        '<div class="pick-stat-label">Breakeven</div>' +
+        '<div class="pick-stat-value">' + escapeHtml(beVal || '—') + '</div>' +
+        '<div class="pick-stat-sub">' + escapeHtml(beSub || '') + '</div>' +
+      '</div>';
+    var deltaCell = (c.delta != null && isFinite(c.delta)) ? '<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + Number(c.delta).toFixed(2) + '</span>' : '';
+    var thetaCell = (c.thetaDay != null && isFinite(c.thetaDay)) ? '<span title="Theta — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + Number(c.thetaDay).toFixed(2) + '/d</span>' : '';
+    var ivCell = (c.iv != null && isFinite(c.iv)) ? '<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (Number(c.iv) * 100).toFixed(0) + '%</span>' : '';
+    stats += '<div class="pick-stat pick-stat-greeks">' +
+        '<div class="pick-stat-label">Greeks</div>' +
+        '<div class="pick-stat-greek-row">' + [deltaCell, thetaCell, ivCell].filter(Boolean).join('') + '</div>' +
+      '</div>' +
+    '</div>';
+    // Risk/reward — required breakeven move vs IV-implied 1σ move at expiry.
+    var rr = '';
+    if (c.expectedMovePct != null && c.breakevenMovePct != null){
+      var req = Math.abs(Number(c.breakevenMovePct)), expMv = Math.abs(Number(c.expectedMovePct));
+      var rrCls = (c.rrRatio == null || c.rrRatio <= 0.7) ? 'good' : (c.rrRatio <= 1.0 ? 'fair' : 'bad');
+      rr = '<div class="pick-contract-rr pick-rr-' + rrCls + '">Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · chain prices ±' + expMv.toFixed(1) + '%</div>';
+    }
+    // Contract-quality chips — straight from the baked contractQuality, the
+    // same five grades Top Picks shows.
+    var qChips = '';
+    var q = c.contractQuality;
+    if (q && q.spread){
+      var chip = function(label, g, tipText){
+        if (!g) return '';
+        var t = tipText ? (tipText + ' Current: ' + g.label + '.') : label;
+        return '<span class="pick-qchip pick-qchip-' + escapeHtml(g.cls) + '" title="' + escapeHtml(t) + '">' +
+          '<span class="pick-qchip-label">' + escapeHtml(label) + '</span>' +
+          '<span class="pick-qchip-val">' + escapeHtml(g.label) + '</span>' +
+        '</span>';
+      };
+      var liqTip = 'Liquidity — number of contracts already held open. Lots of open interest = orders fill at the quoted price; thin = wider effective spread and slow fills.';
+      qChips = '<div class="pick-contract-quality">' +
+        chip('Spread', q.spread, 'Bid/ask spread — ' + TIPS.spread) +
+        chip('Liq', q.oi, liqTip) +
+        chip('Δ', q.delta, 'Delta — ' + TIPS.delta) +
+        chip('Θ', q.theta, 'Theta — ' + TIPS.theta) +
+        (q.iv ? chip('IV', q.iv, 'Implied volatility — ' + TIPS.iv) : '') +
+      '</div>';
+    }
+    var liqParts = [];
+    if (c.oi != null && isFinite(c.oi)) liqParts.push('OI ' + Number(c.oi).toLocaleString());
+    if (c.volume != null && isFinite(c.volume)) liqParts.push('vol ' + Number(c.volume).toLocaleString());
+    var liq = liqParts.length ? '<div class="pick-contract-meta"><span class="pick-contract-liq">' + escapeHtml(liqParts.join(' · ')) + '</span></div>' : '';
+    var earningsBadge = c.earningsInWindow ? '<span class="pick-badge pick-badge-warn">Earnings in window</span>' : '';
+    var overall = (q && q.overall) ? ' pick-contract-overall-' + escapeHtml(q.overall) : '';
+    var btnAttrs = ' data-tp-strike="' + escapeHtml(String(c.strike)) + '" data-tp-exp="' + escapeHtml(String(c.expiry || '')) + '" data-tp-side="' + escapeHtml(side) + '"';
+    return '<div class="pick-contract' + overall + '">' +
+      '<div class="pick-contract-head">' +
+        '<span class="pick-contract-label">Top-Picks ' + sideLabel + '</span>' +
+        '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt + '</span>' +
+        earningsBadge +
+      '</div>' +
+      stats + rr + qChips + liq +
+      '<button type="button" class="pick-contract-grade" id="opt-toppick-grade"' + btnAttrs + '>Grade this contract →</button>' +
+    '</div>';
+  }
+  function renderTopPickBanner(){
+    var box = $('opt-toppick');
+    if (!box) return;
+    // No field (data baked before this feature) → hide; rest of tab unaffected.
+    if (!state.autoPick){ box.hidden = true; box.innerHTML = ''; return; }
+    var side = getOptType();
+    var pick = state.autoPick[side] || null;
+    var sym = state.symbol || '';
+    var sideWord = side === 'put' ? 'puts' : 'calls';
+    // Build-snapshot note — recomputed each daily build, same as the Picks tab.
+    var asOf = '';
+    try {
+      var iso = (MANIFEST && MANIFEST.builtAtIso) || '';
+      if (iso){
+        var d = new Date(iso);
+        if (!isNaN(d.getTime())) asOf = 'as of ' + d.toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'America/New_York' }) + ' build';
+      }
+    } catch (_){}
+    var head = '<div class="opt-toppick-head">' +
+        '<span class="opt-toppick-title">★ Top-Picks grade</span>' +
+        (asOf ? '<span class="opt-toppick-asof">' + escapeHtml(asOf) + '</span>' : '') +
+      '</div>';
+    var body;
+    if (!pick){
+      body = '<div class="opt-toppick-empty">No ' + escapeHtml(sym) + ' ' + sideWord + ' clear the Top-Picks bar in this build. ' +
+        '<span class="opt-toppick-crit">Needs ≥14d standard monthly · 5–30% OTM · |Δ| 0.20–0.40 · OI ≥ 50 · spread ≤ 18% · IV ≤ 200% · premium ≤ $35.</span></div>';
+    } else {
+      body = topPickCardHtml(pick, side, sym);
+    }
+    box.innerHTML = head + body;
+    box.hidden = false;
+  }
+
   // --- Grading ------------------------------------------------------------
   // Spread grade combines % of mid with an absolute-cents floor so cheap
   // contracts don't get unfairly punished. A 1-cent gap on a $0.10 contract
@@ -3318,6 +3442,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       state.technicals = entry.technicals || null;
       state.fundamentals = entry.fundamentals || null;
       state.social = entry.social || null;
+      // autoPick — the best call/put the Top Picks engine would select for this
+      // name, scored at bake time with the exact pickContractForPick() the
+      // picks pipeline uses. Drives the "★ Top-Picks grade" banner. Older data
+      // (pre-feature) lacks the field → banner stays hidden.
+      state.autoPick = entry.autoPick || null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       // Default to the first expiration with at least 7 DTE so users don't
       // land on a 0-DTE contract that auto-fails every grader (expiry crisis,
@@ -3332,6 +3461,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       populateStrikes();
       applyPendingUrlState();
       renderMaxPain();
+      renderTopPickBanner();
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderAnalysisShell();
@@ -10787,11 +10917,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindCmdPalette();
     bindPinCompare();
 
-    var radioGroup = document.querySelector('[role="radiogroup"]');
+    // Bind to the OPTION-TYPE group specifically. The page has several
+    // [role="radiogroup"] elements (calendar/flow/volume filters) that sort
+    // earlier in the DOM, so querySelector('[role="radiogroup"]') grabbed the
+    // wrong one and this handler never fired on Call/Put toggle — the strike
+    // list silently kept the prior side's quotes. Anchor on the opt-type radio.
+    var optTypeRadio = $('opt-type-call');
+    var radioGroup = optTypeRadio && optTypeRadio.closest ? optTypeRadio.closest('[role="radiogroup"]') : null;
     if (radioGroup){
       radioGroup.addEventListener('change', function(ev){
         if (ev.target && ev.target.name === 'opt-type'){
           if (state.currentExp) populateStrikes();
+          renderTopPickBanner(); // the baked pick differs per call/put side
           scheduleEvaluate();
           pushUrlState();
         }
@@ -10801,6 +10938,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (expSel) expSel.addEventListener('change', onExpiryChange);
     var strikeSel = $('opt-strike');
     if (strikeSel) strikeSel.addEventListener('change', function(){ scheduleEvaluate(); pushUrlState(); });
+
+    // "Grade this contract →" on the Top-Picks banner — load the baked pick
+    // into the live grade card by re-targeting the chain dropdowns in place
+    // (the ticker is already loaded, so no tab switch / reload). Same
+    // mechanism as the "Switch to this contract" alternative-suggestion path.
+    var topPickBox = $('opt-toppick');
+    if (topPickBox){
+      topPickBox.addEventListener('click', function(ev){
+        var btn = ev.target && ev.target.closest ? ev.target.closest('#opt-toppick-grade') : null;
+        if (!btn) return;
+        var tpSide = btn.getAttribute('data-tp-side');
+        if (tpSide === 'call' || tpSide === 'put'){
+          var radio = document.querySelector('input[name="opt-type"][value="' + tpSide + '"]');
+          if (radio && !radio.checked) radio.checked = true;
+        }
+        var tpExp = parseInt(btn.getAttribute('data-tp-exp') || '', 10);
+        if (isFinite(tpExp) && tpExp > 0 && state.expirations.indexOf(tpExp) !== -1){
+          var expSel3 = $('opt-expiry'); if (expSel3) expSel3.value = String(tpExp);
+          state.currentExp = tpExp;
+        }
+        populateStrikes();
+        var tpStrike = parseFloat(btn.getAttribute('data-tp-strike') || '');
+        if (isFinite(tpStrike) && tpStrike > 0){
+          var type = getOptType();
+          var chain = state.chains[state.currentExp];
+          if (chain){
+            var rows = (type === 'call' ? chain.c : chain.p) || [];
+            var bestIdx3 = -1, bestD3 = Infinity;
+            for (var i = 0; i < rows.length; i++){
+              var d3 = Math.abs((rows[i].s || 0) - tpStrike);
+              if (d3 < bestD3){ bestD3 = d3; bestIdx3 = i; }
+            }
+            if (bestIdx3 >= 0){ var ss = $('opt-strike'); if (ss) ss.selectedIndex = bestIdx3; }
+          }
+        }
+        scheduleEvaluate();
+        pushUrlState();
+        if (state.symbol && state.currentExp) refreshLiveChain(state.symbol, state.currentExp);
+        var resultEl3 = $('opt-eval-result');
+        if (resultEl3 && typeof resultEl3.scrollIntoView === 'function') resultEl3.scrollIntoView({ behavior:'smooth', block:'start' });
+      });
+    }
 
     var manualForm = $('opt-manual-form');
     if (manualForm){
