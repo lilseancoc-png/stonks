@@ -1272,7 +1272,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
     }
     var daysToFomc = null;
-    var todayIso = new Date().toISOString().slice(0, 10);
+    // ET calendar date, not UTC — after ~8pm ET the UTC date has rolled to
+    // tomorrow, which would mislabel an FOMC the evening before as "today".
+    var todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
     for (var fi = 0; fi < NEXT_FOMC_DATES.length; fi++){
       var fd = NEXT_FOMC_DATES[fi];
       if (!fd || fd < todayIso) continue;
@@ -2673,6 +2675,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Pause heatmap live polling when navigating away — don't burn
       // /api/quotes on a tab the user isn't looking at.
       if (name !== 'heatmap' && typeof stopHeatmapLivePolling === 'function') stopHeatmapLivePolling(false);
+      // Likewise stop the Grade-tab chain poll when leaving Grade — otherwise it
+      // keeps hitting /api/chain and regrading a hidden pane indefinitely.
+      if (name !== 'grade' && typeof stopLivePolling === 'function') stopLivePolling();
       if (name === 'f13' && typeof loadF13 === 'function') loadF13();
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
@@ -3302,6 +3307,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // session.
     setStatus('opt-eval-status', cached ? '' : 'Loading ' + symbol + ' chain, news, technicals + fundamentals…', cached ? '' : 'loading');
     fetchChain(symbol).then(function(entry){
+      // The user may have switched tickers while this fetch was in flight; a
+      // slow earlier response must not overwrite the newer ticker's state and
+      // paint a mismatched grade. Matches refreshLiveQuote/refreshLiveChain.
+      if (state.symbol !== symbol) return;
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
       state.chains = entry.chains || {};
@@ -3562,6 +3571,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function startLivePolling(){
     stopLivePolling();
     if (document.hidden) return;
+    // Only poll while the Grade pane is the active tab — guards the
+    // visibilitychange resume from restarting the poll on a different tab.
+    var gradePane = document.getElementById('page-pane-grade');
+    if (gradePane && gradePane.hidden) return;
     if (!state.symbol || !state.currentExp) return;
     if (currentMarketState() !== 'REGULAR') {
       renderLiveRefreshIndicator(currentMarketState());
@@ -3887,7 +3900,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       metrics += fundMetric(lqLabel, lqVal, beatTone);
     }
     if (f.nextEarningsDate){
-      metrics += fundMetric('Next earnings', f.nextEarningsDate, 'warn');
+      // Yahoo sometimes lags rolling this forward after a report, leaving a past
+      // date. Don't label a stale past date "Next earnings" — skip it until the
+      // source updates. (ET date string; YYYY-MM-DD compares lexically.)
+      var todayEtIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+      if (f.nextEarningsDate >= todayEtIso) {
+        metrics += fundMetric('Next earnings', f.nextEarningsDate, 'warn');
+      }
     }
     if (f.targetMeanPrice != null && state.spot){
       var upside = (f.targetMeanPrice - state.spot) / state.spot * 100;
@@ -8764,7 +8783,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');
         if (!sym) return;
-        var tab = document.querySelector('[data-page-tab="tickers"]');
+        var tab = document.querySelector('[data-page-tab="grade"]');
         if (tab) tab.click();
         setTimeout(function(){
           if (combo && typeof combo.commit === 'function') combo.commit(sym);
@@ -8782,10 +8801,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (!btn) return;
       var sym = btn.getAttribute('data-sym');
       if (!sym) return;
-      var tab = document.querySelector('[data-page-tab="tickers"]');
+      var tab = document.querySelector('[data-page-tab="grade"]');
       if (tab) tab.click();
-      // Defer the commit so the tickers pane is visible (the symbol-input
-      // sits inside it; combo.commit reads input.value).
+      // Defer the commit so the Grade pane is visible (the symbol-input lives
+      // in page-pane-grade, not the tickers directory; combo.commit reads
+      // input.value).
       setTimeout(function(){ if (combo && typeof combo.commit === 'function') combo.commit(sym); }, 0);
     }
     function onMove(ev){

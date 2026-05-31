@@ -200,7 +200,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   if (footer && builtAtIso) {
     const d = new Date(builtAtIso);
     if (!isNaN(d.getTime())) {
-      footer.textContent = `Updated ${d.toLocaleString()}`;
+      footer.textContent = `Updated ${d.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET`;
     }
   }
 
