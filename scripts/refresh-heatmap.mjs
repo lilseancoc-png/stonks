@@ -109,7 +109,9 @@ async function fetchQuotesChunked(symbols) {
 function etDateKey(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "numeric",
+    // 2-digit day so single-digit days zero-pad (2026-05-03, not 2026-05-3) and
+    // these keys compare equal to the scanners'/volume-flags' ET date keys.
+    year: "numeric", month: "2-digit", day: "2-digit",
   }).format(d);
 }
 

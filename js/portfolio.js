@@ -1376,9 +1376,13 @@ function filterTradesByRange(trades, range) {
 function computeTradeAnalytics(trades) {
   if (!trades.length) return null;
   const totalPnl = trades.reduce((s, t) => s + t.realizedPnl, 0);
-  const wins = trades.filter((t) => t.isWin);
-  const losses = trades.filter((t) => !t.isWin);
-  const winRate = (wins.length / trades.length) * 100;
+  // Scratches (exactly break-even) are neither a win nor a loss — exclude them
+  // from the loss bucket and the win-rate denominator rather than counting a
+  // $0 close against the trader.
+  const wins = trades.filter((t) => t.realizedPnl > 0);
+  const losses = trades.filter((t) => t.realizedPnl < 0);
+  const decided = wins.length + losses.length;
+  const winRate = decided ? (wins.length / decided) * 100 : 0;
   const holdArr = trades.filter((t) => t.holdDays != null).map((t) => t.holdDays);
   const avgHold = holdArr.length ? holdArr.reduce((s, d) => s + d, 0) / holdArr.length : null;
   const sorted = trades.slice().sort((a, b) => b.realizedPnl - a.realizedPnl);
@@ -1386,8 +1390,10 @@ function computeTradeAnalytics(trades) {
   const topLosses = sorted.filter((t) => t.realizedPnl < 0).reverse().slice(0, 5);
   const calls = trades.filter((t) => t.side === "call");
   const puts = trades.filter((t) => t.side === "put");
-  const callWinRate = calls.length ? (calls.filter((t) => t.isWin).length / calls.length) * 100 : null;
-  const putWinRate = puts.length ? (puts.filter((t) => t.isWin).length / puts.length) * 100 : null;
+  const callDecided = calls.filter((t) => t.realizedPnl !== 0).length;
+  const callWinRate = callDecided ? (calls.filter((t) => t.realizedPnl > 0).length / callDecided) * 100 : null;
+  const putDecided = puts.filter((t) => t.realizedPnl !== 0).length;
+  const putWinRate = putDecided ? (puts.filter((t) => t.realizedPnl > 0).length / putDecided) * 100 : null;
   const bySymbol = {};
   for (const t of trades) {
     if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { symbol: t.symbol, pnl: 0, count: 0, wins: 0 };
