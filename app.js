@@ -3349,8 +3349,9 @@
     if (!q || q.spot == null){ box.hidden = true; box.innerHTML = ''; return; }
     var st = marketStateLabel(q.marketState);
     var changeCls = q.change == null ? '' : (q.change >= 0 ? 'up' : 'down');
+    var changePctTxt = fmtPctSigned(q.changePct);
     var changeTxt = q.change != null && isFinite(q.change)
-      ? ((q.change >= 0 ? '+' : '-') + '$' + Math.abs(q.change).toFixed(2) + ' (' + fmtPctSigned(q.changePct) + ')')
+      ? ((q.change >= 0 ? '+' : '-') + '$' + Math.abs(q.change).toFixed(2) + (changePctTxt ? ' (' + changePctTxt + ')' : ''))
       : '';
     box.hidden = false;
     box.innerHTML = '<span class="opt-live-pill ' + st.cls + '">' + st.label + '</span>' +
@@ -4382,7 +4383,7 @@
 
     var legend = '<div class="opt-fund-seg-legend">';
     for (var j = 0; j < slices.length; j++){
-      var pct = ((slices[j].value / total) * 100).toFixed(1);
+      var pct = total > 0 ? ((slices[j].value / total) * 100).toFixed(1) : '0.0';
       var lCol = SEG_COLORS[j % SEG_COLORS.length];
       var prev = slices[j].previousValue;
       var hasPrev = prev != null && isFinite(prev) && prev > 0;
@@ -4429,7 +4430,7 @@
         l.style.opacity = li === idx ? '1' : '0.4';
       });
       var sl = slices[idx];
-      var pctStr = ((sl.value / total) * 100).toFixed(1) + '%';
+      var pctStr = (total > 0 ? ((sl.value / total) * 100).toFixed(1) : '0.0') + '%';
       var name = '<span class="opt-fund-seg-tip-name">' + escapeHtml(prettifySegmentName(sl.name)) + '</span>';
       var lines = '<div class="opt-fund-seg-tip-row"><span class="opt-fund-seg-tip-k">Current</span>' +
         '<span class="opt-fund-seg-tip-val">' + escapeHtml(fmtBig(sl.value) + ' (' + pctStr + ')') + '</span></div>';
