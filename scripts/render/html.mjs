@@ -79,6 +79,20 @@ function topPicksSection() {
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
+    <div class="picks-search" role="search">
+      <label class="picks-search-label" for="picks-search-input">Grade any ticker</label>
+      <div class="combo picks-search-combo" id="picks-search-combo">
+        <input type="text" id="picks-search-input" role="combobox"
+               aria-expanded="false" aria-controls="picks-search-listbox"
+               aria-autocomplete="list"
+               aria-label="Search any tracked ticker to see its 4-pillar grade and conviction"
+               placeholder="Search a symbol or sector — e.g. AAPL, NVDA, Energy…"
+               autocomplete="off" spellcheck="false">
+        <button type="button" class="combo-clear" id="picks-search-clear" aria-label="Clear" tabindex="-1">&times;</button>
+        <ul id="picks-search-listbox" role="listbox" hidden></ul>
+      </div>
+      <p class="picks-search-hint">See the full 4-pillar grade &amp; conviction for any of the tracked tickers &mdash; not just today&rsquo;s top picks.</p>
+    </div>
     <div id="picks-listview" class="picks-listview">
     <p class="hint">A 4-pillar scoring system. Every signal scores from -3 to +3, signals roll up into <b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, and <b>Narrative</b>, and the four pillar scores sum to a total. Tiers: <b>+20 or higher</b> Strong Call (Very High conviction, Load the Boat), <b>+16&nbsp;to&nbsp;+19</b> Call (High, standard size), <b>-15 to +15</b> No Trade (skipped), <b>-16 to -19</b> Put (High, standard size), <b>-20 or lower</b> Strong Put (Very High, Load the Boat). Each card has a <b>Recommendation&nbsp;&#8644;&nbsp;Grade</b> toggle &mdash; flip to Grade to audit every signal that produced the score, right next to the call. Each pick also carries a <b>named entry strategy</b> (a scale-in plan with confluence buy zones) and a layered exit ladder with an action at every level, plus how it stacks up against same-sector peers. The <b>Track record</b> tab grades past picks against what actually happened.</p>
     <details class="picks-howto">

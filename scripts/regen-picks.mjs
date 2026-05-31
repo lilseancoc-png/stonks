@@ -1,10 +1,10 @@
-// Regenerates data/picks.json from the existing per-ticker data/*.json
-// files + data/streaks.json + data/trends.json. Useful when only the
-// picks algorithm changed — no Yahoo or Gemini calls needed.
+// Regenerates data/picks.json (+ data/grades.json) from the existing
+// per-ticker data/*.json files + data/streaks.json + data/trends.json. Useful
+// when only the picks algorithm changed — no Yahoo or Gemini calls needed.
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, PICKS_MIN_CONVICTION, updatePicksAccuracyFile } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -87,6 +87,17 @@ await writeFile(
   JSON.stringify(out),
   "utf8",
 );
+
+// Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
+// ticker search). Same 4-pillar scoring as buildTopPicks; kept in step with the
+// regen'd picks. Same minified format as build.mjs::writeGradesFile.
+const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+await writeFile(
+  resolve(DATA_DIR, "grades.json"),
+  JSON.stringify({ builtAtIso, minConviction: PICKS_MIN_CONVICTION, grades }),
+  "utf8",
+);
+console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers.`);
 
 // Keep the accuracy tracker in step with the regen'd picks: enroll new picks
 // and mark open ones to market using the cached spots. AI-free, so it's safe

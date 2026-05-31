@@ -9098,6 +9098,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
   }
 
+  // Grade index for EVERY tracked ticker (data/grades.json) — powers the Top
+  // Picks tab's "grade any ticker" search. Lazy-loaded only when the user first
+  // uses that search (it's a ~900KB file), then cached for the session.
+  var picksGradesState = { data: null, loading: false };
+  function loadGradesIndex(cb){
+    if (picksGradesState.data){ if (cb) cb(picksGradesState.data); return; }
+    if (picksGradesState.loading) return; // a re-render will pick it up on arrival
+    picksGradesState.loading = true;
+    fetch('data/grades.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        picksGradesState.data = (json && json.grades) ? json : { grades: {}, minConviction: 16 };
+        picksGradesState.loading = false;
+        if (cb) cb(picksGradesState.data);
+      })
+      .catch(function(){
+        picksGradesState.data = { grades: {}, minConviction: 16, loadError: true };
+        picksGradesState.loading = false;
+        if (cb) cb(picksGradesState.data);
+      });
+  }
+
   // --- Track record (pick accuracy) tab -----------------------------------
   // Renders data/picks-accuracy.json: open picks marked to market + resolved
   // picks graded win/loss against their own take-profit / cut levels, plus a
@@ -10181,6 +10203,210 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (list) list.hidden = false;
   }
 
+  // Grade-only card for a searched ticker that ISN'T in today's top picks.
+  // Reuses the same tier banner / 4-pillar panel / peer list the real picks
+  // show, so the breakdown matches by construction. There's no Recommendation
+  // tab — off-list names have no recommended contract / entry / exit plan, just
+  // the audit of how they graded. g is a data/grades.json record.
+  function buildGradeCardHtml(g){
+    if (!g) return '';
+    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 16;
+    var total = (g.total != null) ? g.total : 0;
+    var actionable = Math.abs(total) >= minConv;
+    // No-trade names have side === null — keep the card neutral (don't tint it
+    // green the way pickSideClass(null) would).
+    var cardSide = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'pick-grade-neutral';
+    var sideLabel = g.side === 'put' ? 'PUT' : g.side === 'call' ? 'CALL' : 'NO TRADE';
+    var sideBadgeCls = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'neutral';
+    var spot = g.spot != null ? '$' + Number(g.spot).toFixed(2) : '';
+    var sectorTag = g.sector ? '<span class="pick-sector">' + escapeHtml(g.sector) + '</span>' : '';
+    var streakHtml = g.streak
+      ? '<span class="pick-streak pick-streak-' + escapeHtml(g.streak.color) + '">' +
+          g.streak.days + 'd ' + (g.streak.color === 'green' ? '▲' : '▼') +
+          ' ' + (g.streak.cumulativePct >= 0 ? '+' : '') + g.streak.cumulativePct.toFixed(1) + '%' +
+        '</span>'
+      : '';
+    var noteHtml = actionable
+      ? '<p class="pick-offlist-note">Clears the |total|&nbsp;&ge;&nbsp;' + minConv + ' actionable threshold. Open the <b>Top Picks</b> grid above for the full contract + entry/exit plan.</p>'
+      : '<p class="pick-offlist-note">Not in today’s top picks — scored in the No&nbsp;Trade band (|total|&nbsp;&lt;&nbsp;' + minConv + '). The 4-pillar breakdown below shows exactly how it graded.</p>';
+    var tierHtml = pickTierBadge(g);
+    var pillarsHtml = pickPillarPanel(g);
+    var peersHtml = pickPeerList(g);
+    return '<article class="pick-card pick-grade-card ' + cardSide + '" id="pick-card-' + escapeHtml(g.symbol) + '" data-symbol="' + escapeHtml(g.symbol) + '">' +
+      '<div class="pick-main">' +
+        '<div class="pick-head">' +
+          '<button type="button" class="pick-symbol" data-pick-symbol="' + escapeHtml(g.symbol) + '" title="Open ' + escapeHtml(g.symbol) + ' in the grader">' + escapeHtml(g.symbol) + '</button>' +
+          (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
+          sectorTag +
+          '<span class="pick-side pick-side-' + sideBadgeCls + '">' + sideLabel + '</span>' +
+          streakHtml +
+        '</div>' +
+        noteHtml +
+        tierHtml +
+        pillarsHtml +
+        peersHtml +
+      '</div>' +
+    '</article>';
+  }
+
+  // Open the grade breakdown for an off-list searched ticker — reuses the same
+  // listview→detail toggle (and #picks-back button) the top-pick detail uses.
+  function openGradeDetail(sym){
+    var holder = $('picks-detail-card');
+    if (!holder) return;
+    var data = picksGradesState.data;
+    var g = data && data.grades ? data.grades[sym] : null;
+    if (g){
+      holder.innerHTML = buildGradeCardHtml(g);
+    } else {
+      // grades.json failed to load (or the symbol is somehow untracked) — offer
+      // the grader as a fallback rather than a dead end.
+      holder.innerHTML = '<div class="picks-search-miss">Couldn’t load the grade for <b>' + escapeHtml(sym) + '</b>. ' +
+        '<button type="button" class="pick-symbol" data-pick-symbol="' + escapeHtml(sym) + '">Open it in the grader →</button></div>';
+    }
+    picksState.openSym = sym;
+    var list = $('picks-listview'), detail = $('picks-detail');
+    if (list) list.hidden = true;
+    if (detail) detail.hidden = false;
+    var sec = $('picks-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var back = $('picks-back');
+    if (back) back.focus();
+  }
+
+  // --- Top Picks tab "grade any ticker" search ----------------------------
+  // A combobox over all tracked symbols (mirrors the global header combo). On
+  // commit: a name in today's top picks opens its rich pick card; anything else
+  // opens the grade-only breakdown built from data/grades.json. As you type,
+  // each row shows the ticker's total score + tier once grades.json has loaded.
+  var picksSearch = {
+    input: null, listbox: null, items: [], activeIdx: -1, open: false,
+    init: function(){
+      this.input = $('picks-search-input');
+      this.listbox = $('picks-search-listbox');
+      if (!this.input || !this.listbox) return;
+      var self = this;
+      this.input.addEventListener('input', function(){ self.filter(); });
+      this.input.addEventListener('focus', function(){ self.filter(); });
+      this.input.addEventListener('keydown', function(e){ self.onKey(e); });
+      this.input.addEventListener('blur', function(){ setTimeout(function(){ self.close(); }, 120); });
+      var clear = $('picks-search-clear');
+      if (clear) clear.addEventListener('mousedown', function(e){
+        e.preventDefault(); self.input.value = ''; self.input.focus(); self.filter();
+      });
+      this.listbox.addEventListener('mousedown', function(e){
+        var li = e.target.closest && e.target.closest('li[data-sym]');
+        if (!li) return;
+        e.preventDefault();
+        self.commit(li.getAttribute('data-sym'));
+      });
+      var box = $('picks-search-combo');
+      document.addEventListener('pointerdown', function(e){
+        if (!self.open) return;
+        if (box && box.contains(e.target)) return;
+        self.close();
+      });
+    },
+    rank: function(q){
+      q = (q||'').trim().toUpperCase();
+      if (!q) return SYMBOLS.slice(0, 50);
+      var prefix = [], contains = [], sector = [];
+      for (var i=0; i<SYMBOLS.length; i++){
+        var sym = SYMBOLS[i];
+        var sec = (SECTORS[sym] || '').toUpperCase();
+        if (sym.indexOf(q) === 0) prefix.push(sym);
+        else if (sym.indexOf(q) >= 0) contains.push(sym);
+        else if (sec.indexOf(q) >= 0) sector.push(sym);
+      }
+      return prefix.concat(contains, sector).slice(0, 50);
+    },
+    filter: function(){
+      var self = this;
+      // Pull the grade index in on first use so the rows can show scores. Only
+      // fire the fetch once (the guard skips while loading / after loaded); the
+      // callback re-renders the open dropdown when it lands.
+      if (!picksGradesState.data && !picksGradesState.loading){
+        loadGradesIndex(function(){ if (self.open) self.filter(); });
+      }
+      var grades = (picksGradesState.data && picksGradesState.data.grades) || null;
+      var matches = this.rank(this.input.value);
+      this.items = matches;
+      if (!matches.length){
+        this.listbox.innerHTML = '<li class="combo-empty">No matches</li>';
+      } else {
+        var html = '';
+        for (var i=0; i<matches.length; i++){
+          var sym = matches[i];
+          var g = grades ? grades[sym] : null;
+          var midCol;
+          if (g && g.total != null){
+            var t = g.total;
+            var sgn = t > 0 ? 'sig-pos' : t < 0 ? 'sig-neg' : 'sig-zero';
+            var lbl = (g.recommendation && g.recommendation.label) ? g.recommendation.label : '';
+            midCol = '<span class="picks-search-grade ' + sgn + '">' + (t >= 0 ? '+' : '') + t +
+              (lbl ? ' · ' + escapeHtml(lbl) : '') + '</span>';
+          } else {
+            var spot = SPOTS[sym];
+            midCol = '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>';
+          }
+          html += '<li role="option" data-sym="' + sym + '" id="picks-search-opt-' + sym + '">' +
+            '<span class="combo-sym">' + sym + '</span>' +
+            midCol +
+            '<span class="combo-sector">' + escapeHtml(SECTORS[sym] || '') + '</span>' +
+          '</li>';
+        }
+        this.listbox.innerHTML = html;
+      }
+      this.activeIdx = -1;
+      this.show();
+    },
+    show: function(){
+      this.listbox.hidden = false;
+      this.input.setAttribute('aria-expanded', 'true');
+      this.open = true;
+    },
+    close: function(){
+      this.listbox.hidden = true;
+      this.input.setAttribute('aria-expanded', 'false');
+      this.input.removeAttribute('aria-activedescendant');
+      this.open = false;
+      this.activeIdx = -1;
+    },
+    move: function(delta){
+      if (!this.items.length) return;
+      this.activeIdx = (this.activeIdx + delta + this.items.length) % this.items.length;
+      var nodes = this.listbox.querySelectorAll('li[data-sym]');
+      for (var i=0; i<nodes.length; i++) nodes[i].classList.toggle('is-active', i === this.activeIdx);
+      var sym = this.items[this.activeIdx];
+      this.input.setAttribute('aria-activedescendant', 'picks-search-opt-' + sym);
+      var active = nodes[this.activeIdx];
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+    },
+    onKey: function(e){
+      if (e.key === 'ArrowDown'){ e.preventDefault(); if (!this.open) this.filter(); else this.move(1); }
+      else if (e.key === 'ArrowUp'){ e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Enter'){
+        if (this.activeIdx >= 0){ e.preventDefault(); this.commit(this.items[this.activeIdx]); }
+        else if (this.items.length === 1){ e.preventDefault(); this.commit(this.items[0]); }
+      }
+      else if (e.key === 'Escape'){ this.close(); }
+    },
+    commit: function(sym){
+      if (!sym) return;
+      this.input.value = sym;
+      this.close();
+      // A name in today's top picks → the rich pick card (contract, entry/exit).
+      var inPicks = false;
+      var picks = picksState.data && picksState.data.picks;
+      if (Array.isArray(picks)){
+        for (var i=0; i<picks.length; i++){ if (picks[i].symbol === sym){ inPicks = true; break; } }
+      }
+      if (inPicks){ openPickDetail(sym); return; }
+      // Otherwise → the grade-only breakdown (ensure the index is loaded first).
+      loadGradesIndex(function(){ openGradeDetail(sym); });
+    }
+  };
+
   // Wire the grid → detail navigation once. The grid and detail card are both
   // rebuilt on every render, but their parents (#picks-grid, #picks-detail-card)
   // are stable, so delegated listeners bound once survive re-renders.
@@ -10987,6 +11213,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindTabs();
     setupTickersGrid();
     combo.init();
+    picksSearch.init();
     renderNarratives();
     renderUnusualFlow();
     bindFlowControls();
