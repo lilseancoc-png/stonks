@@ -1014,9 +1014,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <thead><tr><th>Asset</th><th><span class="bonds-live-band band-normal">Normal</span></th><th><span class="bonds-live-band band-notable">Notable</span></th><th><span class="bonds-live-band band-big">Big</span></th><th><span class="bonds-live-band band-very-large">Very large</span></th></tr></thead>
         <tbody>
           <tr><td>DXY</td><td>0.2–0.4%</td><td>0.5%</td><td>0.7–1.0%</td><td>&gt;1.0%</td></tr>
-          <tr><td>10Y yield</td><td>3–6 bps</td><td>8–10 bps</td><td>10–15 bps</td><td>20+ bps</td></tr>
-          <tr><td>2Y yield</td><td>4–8 bps</td><td>8–12 bps</td><td>12–20 bps</td><td>25+ bps</td></tr>
-          <tr><td>30Y yield</td><td>3–6 bps</td><td>7–9 bps</td><td>10–15 bps</td><td>20+ bps</td></tr>
+          <tr><td>10Y yield</td><td>&lt; 8 bps</td><td>8–10 bps</td><td>10–15 bps</td><td>15+ bps</td></tr>
+          <tr><td>2Y yield</td><td>&lt; 8 bps</td><td>8–12 bps</td><td>12–20 bps</td><td>20+ bps</td></tr>
+          <tr><td>30Y yield</td><td>&lt; 8 bps</td><td>8–10 bps</td><td>10–15 bps</td><td>15+ bps</td></tr>
         </tbody>
       </table>
       <p class="hint"><em>Weekly context.</em> DXY weekly moves of 0.5–1.0% are meaningful; 1.5%+ is a strong trend signal. For the 10Y yield, weekly moves of 20–30 bps are significant and 40+ bps signal a clear regime shift. Sustained DXY moves of 2–3%+ over a month can shift the regime for multinationals and commodities.</p>

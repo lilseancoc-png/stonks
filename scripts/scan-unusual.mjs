@@ -937,15 +937,18 @@ async function runVolumePass({
     // anything > BUCKET_START_GAP_TOLERANCE_MIN means a prior hourly scan
     // was missed and the resulting actualHourVol absorbs earlier volume.
     let bucketStartCumVol = null;
+    let bucketStartEtMin = null;
     let bucketStartGap = null;
     if (currentBucket) {
       if (currentBucket.startMin === 0) {
         bucketStartCumVol = 0;
+        bucketStartEtMin = 0;
         bucketStartGap = 0;
       } else if (bucketStartLookup) {
         const entry = bucketStartLookup.get(r.symbol);
         if (entry) {
           bucketStartCumVol = entry.cumVol ?? null;
+          bucketStartEtMin = entry.etMin ?? null;
           bucketStartGap = currentBucket.startMin - (entry.etMin ?? currentBucket.startMin);
         }
       }
@@ -959,6 +962,7 @@ async function runVolumePass({
       sr: tech.sr,
       prev,
       bucketStartCumVol,
+      bucketStartEtMin,
     });
     const row = buildFlagRow(r.symbol, evalOut, scannedAt, isFinalScan, bucketStartGap);
     if (row) freshRows.push(row);

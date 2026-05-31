@@ -349,14 +349,62 @@ async function preloadPositionChains() {
   await Promise.all(symbols.map((s) => loadChain(s).catch(() => null)));
 }
 
+// Stable key for a position's contract identity (symbol/expiry/side/strike).
+function positionContractKey(p) {
+  return `${p.symbol}|${p.expiry}|${p.side}|${p.strike}`;
+}
+
+// The baked chain (and /api/chain) only carry strikes within ±50% of spot, so a
+// position whose strike rolled off-band — typically a deep ITM/OTM holding,
+// i.e. the biggest delta/VaR contributor — has no row to price and was silently
+// dropped from the aggregate Greeks / VaR / beta-delta (while still counting in
+// concentration). Fetch those live via /api/contract, which bypasses the band
+// the same way the server-side review does, so they contribute to every
+// aggregate. Best-effort: a failed fetch leaves the position in the skipped
+// count, preserving graceful degradation.
+async function preloadOffBandContracts() {
+  state.liveContracts = state.liveContracts || {};
+  const needed = state.positions.filter(
+    (p) => !lookupContract(state.chainCache, p) && !state.liveContracts[positionContractKey(p)],
+  );
+  await Promise.all(
+    needed.map(async (p) => {
+      const key = positionContractKey(p);
+      try {
+        const url =
+          `/api/contract?symbol=${encodeURIComponent(p.symbol)}` +
+          `&exp=${encodeURIComponent(p.expiry)}` +
+          `&side=${encodeURIComponent(p.side)}` +
+          `&strike=${encodeURIComponent(p.strike)}`;
+        const r = await fetch(url);
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j && j.iv != null) state.liveContracts[key] = j;
+      } catch (_) {
+        /* graceful — position stays in the skipped count */
+      }
+    }),
+  );
+}
+
 // Build a per-position pricing snapshot used by both the Greeks
 // aggregation and the concentration / VaR computations downstream.
 function buildPositionMetrics() {
   const out = [];
   for (const p of state.positions) {
-    const contract = lookupContract(state.chainCache, p);
+    let contract = lookupContract(state.chainCache, p);
     const entry = state.chainCache[p.symbol] || {};
-    const spot = entry.spot;
+    let spot = entry.spot;
+    if (!contract) {
+      // Off-band strike (or unbaked symbol): use the live band-bypassing
+      // contract preloaded in loadRisk(), with its own spot, so the position
+      // still contributes to the aggregates instead of being skipped.
+      const live = state.liveContracts?.[positionContractKey(p)];
+      if (live) {
+        contract = live;
+        if (live.spot != null) spot = live.spot;
+      }
+    }
     const iv = contract?.iv;
     const T = yearsToExpiry(p.expiry);
     const g = (spot && iv && T && p.strike > 0)
@@ -431,6 +479,9 @@ async function loadRisk() {
   // SPY's spot doubles as the beta-weighting denominator. Load lazily so
   // forks without SPY in the curated set still render the rest.
   try { await loadChain("SPY"); } catch (_) {}
+  // Price any off-band-strike holdings via the live contract endpoint so they
+  // don't drop out of the aggregate Greeks / VaR / beta-delta.
+  try { await preloadOffBandContracts(); } catch (_) {}
   renderRisk();
 }
 

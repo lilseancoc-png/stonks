@@ -5765,10 +5765,14 @@
       ? (hit.priceMovePct >= 0 ? '+' : '') + Number(hit.priceMovePct).toFixed(2) + '%'
       : '';
     var moveCls = hit.priceMovePct == null ? '' : (hit.priceMovePct >= 0 ? ' is-up' : ' is-dn');
-    // bucketStartGap > 15 min means a prior hourly scan was missed and this
-    // bucket's actualHourVol absorbs earlier volume — call it out.
+    // The hourly cron fires on the hour, so the bucket-start snapshot normally
+    // lands ~30 min before the :30 boundary — that structural offset is NOT a
+    // missed scan. Only flag a genuinely dropped slot (gap beyond the normal
+    // 30-min offset). The expected volume now scales with the window, so a
+    // wider window keeps the ratio valid; the badge is purely informational.
     var startGap = typeof hit.bucketStartGap === 'number' ? hit.bucketStartGap : null;
-    var startGapWarn = startGap != null && startGap > 15;
+    var missedMin = startGap != null ? startGap - 30 : null;
+    var startGapWarn = missedMin != null && missedMin > 15;
     var bits = [];
     bits.push(
       '<div class="vol-bucket-row">' +
@@ -5793,8 +5797,8 @@
     if (startGapWarn){
       badges.push(
         '<span class="vol-pill-badge vol-scan-gap" ' +
-          'title="Prior bucket-boundary scan missed by ' + startGap + ' min — this row absorbs earlier-bucket volume">' +
-          'Includes ' + startGap + 'm gap' +
+          'title="A prior hourly scan was missed (~' + missedMin + ' min), so this row covers a wider window — expected volume scales with it, so the ratio stays valid">' +
+          'Includes ' + missedMin + 'm gap' +
         '</span>',
       );
     }
