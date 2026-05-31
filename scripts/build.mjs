@@ -6315,7 +6315,7 @@ function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
       // IV cap (200%) — anything north of this is lottery-ticket pricing.
       if (row.iv > PICKS_MAX_IV) continue;
       // 5-30% OTM band per the spec. Strike must be away from spot in the
-      // bet's direction by at least 5% but no more than 35%.
+      // bet's direction by at least 5% but no more than 30%.
       const otmPct = side === "call"
         ? (row.s - spot) / spot
         : (spot - row.s) / spot;
