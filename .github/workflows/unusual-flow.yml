@@ -20,37 +20,14 @@ permissions:
   contents: write
 
 concurrency:
-  # Don't cancel an in-progress scan — let it finish so we don't lose a
-  # partial sweep. The next hourly run will simply queue.
-  group: stonks-unusual
+  # Shared across daily / unusual-flow / oi-tracker so the three never commit
+  # concurrently — they queue instead of racing on shared files. Not cancelled
+  # in-progress so a partial sweep always finishes.
+  group: stonks-data-commit
   cancel-in-progress: false
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      proceed: ${{ steps.slot.outputs.proceed }}
-    steps:
-      - id: slot
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_dispatch — proceeding."
-            exit 0
-          fi
-          ET_HOUR=$(TZ=America/New_York date +%H)
-          # Market hours target: 09-16 ET inclusive.
-          if [ "$ET_HOUR" -ge 9 ] && [ "$ET_HOUR" -le 16 ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-            echo "ET hour $ET_HOUR is within market hours — proceeding."
-          else
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "ET hour $ET_HOUR is outside 9-16 ET — skipping this DST-duplicate firing."
-          fi
-
   scan:
-    needs: check
-    if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -118,11 +118,11 @@ Schema lives in `supabase/schema.sql` (run once via the Supabase SQL editor). Th
 
 ### Workflow scheduling
 
-`.github/workflows/daily.yml` and `unusual-flow.yml` are triggered only by `workflow_dispatch` — there is no `schedule:` block. An external cron service (cron-job.org) POSTs to the dispatch endpoint at the right ET times and the workflow itself **double-checks the current ET hour** before proceeding. This is the DST guard — never replace it with GitHub's `schedule:` (which only speaks UTC and fires twice during DST shifts).
+`.github/workflows/daily.yml`, `unusual-flow.yml`, and `oi-tracker.yml` are triggered only by `workflow_dispatch` — there is no `schedule:` block. An external cron service (cron-job.org) POSTs to the dispatch endpoint at the right ET times. **cron-job.org runs in ET, so it is the single authority on the ET slots and DST** — never replace it with GitHub's `schedule:` (which only speaks UTC and fires twice during DST shifts). The workflows used to re-check the ET hour themselves, but with a `workflow_dispatch`-only trigger that code was unreachable (every firing is a `workflow_dispatch` event), so it was removed; the workflows now proceed on dispatch and trust cron-job.org for timing.
 
-Both workflows commit back to `main`. They handle concurrent commits differently:
-- `daily.yml` does a `fetch + reset --mixed` retry loop because the build wipes and regenerates `data/` wholesale — there's nothing local worth merging from the remote.
-- `unusual-flow.yml` does `stash + pull --rebase + stash pop` because its scanner writes only three files; a concurrent push from the daily build needs to be preserved.
+All three workflows share one `concurrency` group (`stonks-data-commit`, `cancel-in-progress: false`) so they queue instead of committing concurrently — that removes the races on files written by more than one of them (`ai-usage.json`, `heatmap.json`). They still handle landing on a moved `main` differently:
+- `daily.yml` does a `fetch + reset --mixed` retry loop because the build wipes and regenerates `data/` wholesale — there's nothing local worth merging from the remote. It restores scanner-owned files (`SCANNER_FILES`) from the remote after the reset so a concurrent scan's output isn't clobbered.
+- `unusual-flow.yml` does `stash + pull --rebase + stash pop` because its scanner writes only a few files; a concurrent push from the daily build needs to be preserved.
 
 ### Vercel caching
 

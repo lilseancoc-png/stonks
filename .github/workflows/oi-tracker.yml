@@ -12,9 +12,9 @@ name: Near-term OI tracker
 # workflow_dispatch endpoint twice on weekdays:
 #   • Pre-market scan ~08:30 America/New_York (1h before the bell)
 #   • EOD scan      ~19:00 America/New_York (3h after the close)
-# cron-job.org runs in ET so DST is handled by the service. The ET-hour
-# gate below double-checks the slot so a DST-edge duplicate doesn't
-# trigger a third run.
+# cron-job.org runs in ET, so it — not this workflow — is the single authority
+# on the ET slots and DST. (A previous in-workflow ET-hour re-check was dead
+# code under a workflow_dispatch-only trigger.)
 on:
   workflow_dispatch:
 
@@ -22,40 +22,14 @@ permissions:
   contents: write
 
 concurrency:
-  # Don't cancel an in-progress scan — let it finish so we don't lose a
-  # partial sweep. The next slot will simply queue.
-  group: stonks-oi-tracker
+  # Shared across daily / unusual-flow / oi-tracker so the three never commit
+  # concurrently — they queue instead of racing on shared files. Not cancelled
+  # in-progress so a partial sweep always finishes.
+  group: stonks-data-commit
   cancel-in-progress: false
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      proceed: ${{ steps.slot.outputs.proceed }}
-    steps:
-      - id: slot
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_dispatch — proceeding."
-            exit 0
-          fi
-          ET_HOUR=$(TZ=America/New_York date +%H)
-          # Accept the 08 and 19 ET slots only. 08 covers the ~08:30
-          # pre-market scan; 19 covers the ~19:00 EOD scan. Any other
-          # hour is rejected so a DST-shifted duplicate firing can't
-          # produce a phantom mid-day scan.
-          if [ "$ET_HOUR" = "08" ] || [ "$ET_HOUR" = "19" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-            echo "ET hour $ET_HOUR matches a scheduled slot — proceeding."
-          else
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "ET hour $ET_HOUR is outside the scheduled 08 / 19 slots — skipping this DST-duplicate firing."
-          fi
-
   scan:
-    needs: check
-    if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
