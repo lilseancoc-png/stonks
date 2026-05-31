@@ -2647,7 +2647,7 @@ import { renderHtml } from './render/html.mjs';
 import { renderStylesCss } from './render/styles-css.mjs';
 export { renderAppJs, renderHtml, renderStylesCss };
 
-async function writeChainFiles(chains) {
+async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
   // Wipe data/ first so tickers that fell out of the curated list (or
   // failed this run) don't leave stale files behind. The directory is
   // then recreated fresh.
@@ -2658,7 +2658,19 @@ async function writeChainFiles(chains) {
     // _bars is a transient field used by the streak aggregator; never write
     // it to the per-ticker JSON (would inflate each file ~6x).
     const { _bars, ...rest } = data;
-    const json = JSON.stringify(rest);
+    // autoPick — the best call and best put the Top Picks engine would pick
+    // for this name, scored with the exact same pickContractForPick() the
+    // picks pipeline uses (same hard filters + composite + component grades).
+    // Top Picks only ships the conviction-chosen side for the ~10 strongest
+    // names; here we precompute BOTH sides for EVERY ticker so the Grade tab
+    // can show "graded with Top Picks criteria" for anything the user searches
+    // (the Grade tab has its own call/put toggle). Either side is null when no
+    // contract clears the bar. ~1 KB/file — negligible vs. the chain payload.
+    const autoPick = {
+      call: pickContractForPick("call", data, rfr),
+      put: pickContractForPick("put", data, rfr),
+    };
+    const json = JSON.stringify({ ...rest, autoPick });
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
@@ -6279,7 +6291,7 @@ function isStandardMonthly(epochSec) {
 //      sweet-spot proximity, spread tightness, liquidity, and breakeven
 //      headroom vs the chain's own expected move. Pick best.
 // Returns null when no contract on any expiration clears every filter.
-function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
+export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
   if (!data || !data.chains || !(data.spot > 0)) return null;
   const spot = data.spot;
   const nowSec = Math.floor(Date.now() / 1000);
@@ -10558,7 +10570,7 @@ async function main() {
   await writeFile(OUT, html, "utf8");
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
-  const totalChainBytes = await writeChainFiles(chains);
+  const totalChainBytes = await writeChainFiles(chains, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
   // Persist macro to disk AFTER writeChainFiles — that call wipes data/
   // wholesale, so writing macro.json before it deletes our snapshot
   // immediately (confirmed in git history: chore: daily refresh 2026-05-25
