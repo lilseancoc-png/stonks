@@ -2085,7 +2085,8 @@
     macd:       'Moving Average Convergence Divergence (12/26/9). MACD line above signal = bullish momentum; below = bearish. The histogram shows the gap.',
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
     resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.',
-    sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.'
+    sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.',
+    chartPattern: 'A classic chart formation identified by AI from the daily price series — one of 7 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom), or none. Recomputed each daily build. Context only — confirm on your own chart before trading.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -3766,6 +3767,40 @@
     var rsiSt = rsiState(t.rsi);
     var macdSt = macdState(t.macd);
     var html = '';
+
+    // AI-identified chart pattern — a full-width banner above the indicator
+    // cards. Renders only when a full build has attached technicals.chartPattern;
+    // shows the label + type badge + confidence, an explanation, and what it
+    // could signal. "None" gets a muted note so the absence is explicit.
+    var cp = t.chartPattern;
+    if (cp && cp.pattern){
+      if (cp.pattern === 'None'){
+        html += '<div class="opt-tech-pattern none">' +
+          '<div class="opt-tech-pattern-head">' +
+            '<span class="opt-tech-pattern-label">Chart pattern' + tipChip(TIPS.chartPattern) + '</span>' +
+            '<span class="opt-tech-pattern-name">No clear pattern</span>' +
+          '</div>' +
+          '<div class="opt-tech-pattern-body">' +
+            (cp.explanation ? escapeHtml(cp.explanation)
+              : 'No textbook chart pattern is clearly present on the recent daily chart.') +
+          '</div>' +
+        '</div>';
+      } else {
+        var dirCls = cp.direction === 'bullish' ? 'pos' : (cp.direction === 'bearish' ? 'neg' : 'fair');
+        html += '<div class="opt-tech-pattern ' + dirCls + '">' +
+          '<div class="opt-tech-pattern-head">' +
+            '<span class="opt-tech-pattern-label">Chart pattern' + tipChip(TIPS.chartPattern) + '</span>' +
+            '<span class="opt-tech-pattern-name">' + escapeHtml(cp.pattern) + '</span>' +
+            (cp.type ? '<span class="opt-tech-pattern-type ' + dirCls + '">' + escapeHtml(cp.type) + '</span>' : '') +
+            (cp.confidence ? '<span class="opt-tech-pattern-conf">' + escapeHtml(cp.confidence) + ' confidence</span>' : '') +
+          '</div>' +
+          (cp.explanation ? '<div class="opt-tech-pattern-body">' + escapeHtml(cp.explanation) + '</div>' : '') +
+          (cp.signal ? '<div class="opt-tech-pattern-signal">' +
+            '<span class="opt-tech-pattern-signal-label">Could signal</span>' + escapeHtml(cp.signal) + '</div>' : '') +
+          '<div class="opt-tech-pattern-foot">AI-identified from the daily chart — one of 7 classic formations, or none. Context, not a trade signal.</div>' +
+        '</div>';
+      }
+    }
 
     html += techCard(
       'RSI (14)',
