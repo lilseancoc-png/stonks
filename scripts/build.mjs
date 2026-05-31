@@ -6279,7 +6279,7 @@ function isStandardMonthly(epochSec) {
 //      sweet-spot proximity, spread tightness, liquidity, and breakeven
 //      headroom vs the chain's own expected move. Pick best.
 // Returns null when no contract on any expiration clears every filter.
-function pickContractForPick(side, data) {
+function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
   if (!data || !data.chains || !(data.spot > 0)) return null;
   const spot = data.spot;
   const nowSec = Math.floor(Date.now() / 1000);
@@ -6330,7 +6330,7 @@ function pickContractForPick(side, data) {
       if (spreadPct > PICKS_MAX_SPREAD_PCT) continue;
       const oi = row.oi || 0;
       if (oi < PICKS_MIN_OI) continue;
-      const g = greeks(side, spot, row.s, T, row.iv);
+      const g = greeks(side, spot, row.s, T, row.iv, rfr);
       if (!g) continue;
       const absDelta = Math.abs(g.delta);
       if (!isFinite(absDelta) || absDelta < PICKS_DELTA_MIN || absDelta > PICKS_DELTA_MAX) continue;
@@ -6971,7 +6971,7 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   return { takeProfit, cut, levels, triggers: triggers.slice(0, 4) };
 }
 
-export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
+export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
   const sectorMedianPE = buildSectorPEMedians(chains);
 
   // Broad-market direction context for the SPY-flows mechanical signal.
@@ -7042,7 +7042,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (out.length >= PICKS_COUNT) break;
     const side = r.recommendation.side;
     if (!side) continue; // no-trade, shouldn't be here but defend anyway
-    const contract = pickContractForPick(side, r.data);
+    const contract = pickContractForPick(side, r.data, rfr);
     if (!contract) continue;
 
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
@@ -7096,8 +7096,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   return out;
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null) {
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags);
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Prior picks snapshot. A full build passes priorPicks (captured by
@@ -7710,6 +7710,12 @@ export function recordAiUsage({ model, callType, symbol, usage, mode }) {
   console.log(`    [ai]${sym} ${callType} ${model} in=${inT} cached=${cachedT} out=${outT}${thoughtT ? ` thought=${thoughtT}` : ""}`);
 }
 
+// NOTE: this is a full read-modify-overwrite of data/ai-usage.json, shared by
+// the daily build, the unusual-flow scanner, and the heatmap refresh. With the
+// three workflows now serialized under one concurrency group they no longer
+// overlap, but even if they did this ledger is cost-reporting ONLY — it is never
+// read to gate or cap an AI call (acquireAiSlot is an in-process RPM pacer), so
+// a lost update can at worst under-count the daily total, never change behavior.
 export async function writeAiUsageState() {
   if (!_aiUsageState) return;
   const cutoff = new Date(Date.now() - AI_USAGE_HISTORY_DAYS * 86400000)
@@ -10739,7 +10745,7 @@ async function main() {
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we

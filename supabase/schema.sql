@@ -200,6 +200,40 @@ $$;
 
 grant execute on function public.close_position(uuid, int, numeric) to authenticated;
 
+-- Original opened contract count. Captured at insert via a trigger and never
+-- decremented by closes, so delete_trade can cap a reopen at what was actually
+-- bought — a replayed or out-of-order SELL deletion must not inflate the open
+-- count past reality (which would corrupt realized P/L and the equity
+-- snapshot). Positions are opened with no BUY trade row, so the cap can't be
+-- derived from trades; this column is the authoritative original size.
+-- Idempotent — safe to re-run. (Placed after the trades table so the back-fill
+-- below can reference it.)
+alter table public.positions add column if not exists opened_quantity integer;
+
+create or replace function public.positions_set_opened_quantity()
+returns trigger language plpgsql as $$
+begin
+  -- Always derive from the inserted quantity; ignore any client-supplied value
+  -- so it can't be spoofed. At open, quantity == the original size.
+  new.opened_quantity := new.quantity;
+  return new;
+end;
+$$;
+
+drop trigger if exists positions_set_opened_quantity on public.positions;
+create trigger positions_set_opened_quantity
+  before insert on public.positions
+  for each row execute function public.positions_set_opened_quantity();
+
+-- Back-fill positions that predate the column: the original size is the current
+-- open quantity plus everything already sold from it (every SELL decremented
+-- quantity). Only fills nulls, so re-running is a no-op.
+update public.positions p
+   set opened_quantity = p.quantity + coalesce(
+     (select sum(t.quantity) from public.trades t
+       where t.position_id = p.id and t.side = 'SELL'), 0)
+ where p.opened_quantity is null;
+
 -- Reverse a SELL trade: undoes the position-side mutation that close_position
 -- applied (re-opens a fully closed position, or restores quantity for a
 -- partial close) and deletes the trade row, all in one transaction. Row
@@ -243,10 +277,12 @@ begin
   -- count), `quantity` is the real open count in every state — so adding the
   -- deleted trade's quantity back is correct whether the position was
   -- partially open, fully sold out, or archived, and stays correct when trades
-  -- are deleted out of order. Reopen if it had been closed (setting closed_at
-  -- = null is a no-op when it was already open).
+  -- are deleted out of order. Cap at opened_quantity so a replayed/duplicate
+  -- delete can never push the open count past what was originally bought.
+  -- Reopen if it had been closed (setting closed_at = null is a no-op when it
+  -- was already open).
   update public.positions
-     set quantity = pos.quantity + tr.quantity,
+     set quantity = least(pos.quantity + tr.quantity, coalesce(pos.opened_quantity, pos.quantity + tr.quantity)),
          closed_at = null
    where positions.id = pos.id
    returning * into pos;

@@ -6,7 +6,9 @@ name: Daily build
 #
 # Scheduling is handled externally by cron-job.org, which POSTs to the
 # workflow_dispatch endpoint at 9:00, 12:00, and 17:00 America/New_York
-# on weekdays. cron-job.org runs in ET so DST is handled by the service.
+# on weekdays. cron-job.org runs in ET, so it — not this workflow — is the
+# single authority on the ET slots and DST. (A previous in-workflow ET-hour
+# re-check was dead code: with a workflow_dispatch-only trigger it never ran.)
 on:
   workflow_dispatch:
 
@@ -14,39 +16,14 @@ permissions:
   contents: write
 
 concurrency:
-  group: stonks-daily
+  # Shared across daily / unusual-flow / oi-tracker so the three never commit
+  # concurrently — they queue instead of racing on shared files (ai-usage.json,
+  # heatmap.json), which previously caused spurious stash-pop conflicts.
+  group: stonks-data-commit
   cancel-in-progress: false
 
 jobs:
-  check:
-    # Drops the cron firing whose current ET hour isn't one of the three
-    # intended slots (9, 12, 17). Manual workflow_dispatch always proceeds.
-    runs-on: ubuntu-latest
-    outputs:
-      proceed: ${{ steps.slot.outputs.proceed }}
-    steps:
-      - id: slot
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_dispatch — proceeding."
-            exit 0
-          fi
-          ET_HOUR=$(TZ=America/New_York date +%H)
-          case "$ET_HOUR" in
-            09|12|17)
-              echo "proceed=true" >> "$GITHUB_OUTPUT"
-              echo "ET hour $ET_HOUR matches a scheduled slot — proceeding."
-              ;;
-            *)
-              echo "proceed=false" >> "$GITHUB_OUTPUT"
-              echo "ET hour $ET_HOUR is not a scheduled slot — skipping this DST-duplicate firing."
-              ;;
-          esac
-
   build:
-    needs: check
-    if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -116,7 +93,7 @@ jobs:
           # were running. Restore the remote's copies so we don't clobber them
           # (dropping a rolling oi-history snapshot), then re-run regen-static
           # so the MANIFEST in index.html matches.
-          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/ai-usage.json data/flow-explanations.json data/oi-tracker.json data/oi-history.json"
+          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/heatmap.json data/ai-usage.json data/flow-explanations.json data/oi-tracker.json data/oi-history.json"
           for attempt in 1 2 3; do
             git fetch origin "$BRANCH"
             git reset --mixed "origin/$BRANCH"
