@@ -5555,8 +5555,8 @@ function scoreFundamentals(data, sectorMedianPE) {
 
 // Score one support/resistance window. Returns { sig, broke } where broke is
 // +1 (broke above resistance), -1 (broke below support), or 0. Per spec, only a
-// confirmed break is scored — at the window's full magnitude (20D ±1, 50D ±2,
-// 100D ±3); sitting at or between levels scores 0 (proximity/rejection is not a
+// confirmed break is scored — at the window's full magnitude (20D ±1, 50D ±1,
+// 100D ±2); sitting at or between levels scores 0 (proximity/rejection is not a
 // spec signal). available:false when neither level is present — e.g. 100D S/R is
 // absent from per-ticker data written before that window was added, until the
 // next full build.
@@ -5589,7 +5589,7 @@ function srRung(spot, key, label, sup, res, mag) {
 }
 
 // Score the current price against one simple moving average. Above the SMA =
-// +mag, below = -mag (per spec: 20D ±1, 50D ±2, 100D ±3 — longer trends carry
+// +mag, below = -mag (per spec: 20D ±1, 50D ±1, 100D ±2 — longer trends carry
 // more weight). available:false when the SMA is missing (the SMA stack is
 // absent from per-ticker data written before it was added, until a full build).
 function smaRung(spot, key, label, smaVal, mag) {
@@ -5691,13 +5691,13 @@ function scoreTechnicals(data, streakRow) {
 
   // 4-6. Support / Resistance across three windows (per spec): only a confirmed
   // break above resistance / below support scores, at the window's magnitude —
-  // 20D ±1, 50D ±2, 100D ±3 (a longer-horizon break is a stronger trend signal).
+  // 20D ±1, 50D ±1, 100D ±2 (a longer-horizon break is a stronger trend signal).
   // Sitting at or between levels scores 0. The 100D rung shows "no data" until a
   // full build writes the s100/r100 levels into the per-ticker files.
   const sr = t.sr || {};
   const sr20 = srRung(spot, "sr20", "20D", sr.s20, sr.r20, 1);
-  const sr50 = srRung(spot, "sr50", "50D", sr.s50, sr.r50, 2);
-  const sr100 = srRung(spot, "sr100", "100D", sr.s100, sr.r100, 3);
+  const sr50 = srRung(spot, "sr50", "50D", sr.s50, sr.r50, 1);
+  const sr100 = srRung(spot, "sr100", "100D", sr.s100, sr.r100, 2);
   signals.push(sr20.sig, sr50.sig, sr100.sig);
 
   // 5. 52-week High/Low position: contrarian. Near 52w high → -1 (exhaustion /
@@ -5746,13 +5746,13 @@ function scoreTechnicals(data, streakRow) {
   signals.push(volConfSignal);
 
   // 8-10. Moving-average stack (per spec): price above the SMA = bullish,
-  // below = bearish, weighted by horizon — 20D ±1, 50D ±2, 100D ±3. The whole
+  // below = bearish, weighted by horizon — 20D ±1, 50D ±1, 100D ±2. The whole
   // stack shows "no data" until a full build writes technicals.sma.
   const sma = t.sma || {};
   signals.push(
     smaRung(spot, "sma20", "20D", sma.sma20, 1),
-    smaRung(spot, "sma50", "50D", sma.sma50, 2),
-    smaRung(spot, "sma100", "100D", sma.sma100, 3),
+    smaRung(spot, "sma50", "50D", sma.sma50, 1),
+    smaRung(spot, "sma100", "100D", sma.sma100, 2),
   );
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
@@ -5998,15 +5998,16 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   signals.push(vixTrendSignal);
 
   // 8. VIX spot level: extremes only, contrarian. Per spec — VIX very low (<15)
-  // = -1 (complacency, downside underpriced); VIX very high (>35) = +1
-  // (capitulation/peak fear, contrarian bullish). The mid-range carries no edge.
+  // = -1 (complacency, downside underpriced); VIX very high (>35) = +2
+  // (capitulation/peak fear, contrarian bullish — a sharper signal than the low
+  // end, per the spec's asymmetric weighting). The mid-range carries no edge.
   let vixSpotSignal = _sig("vixSpot", "VIX Spot", 0,
     { available: false, note: "no VIX data" });
   if (vix && vix.value != null && isFinite(vix.value)) {
     let s = 0;
     let note = `VIX ${vix.value.toFixed(1)} — normal range`;
     if (vix.value < 15) { s = -1; note = `VIX ${vix.value.toFixed(1)} — complacency (<15)`; }
-    else if (vix.value > 35) { s = 1; note = `VIX ${vix.value.toFixed(1)} — capitulation (>35), contrarian bullish`; }
+    else if (vix.value > 35) { s = 2; note = `VIX ${vix.value.toFixed(1)} — capitulation (>35), contrarian bullish`; }
     vixSpotSignal = _sig("vixSpot", "VIX Spot", s, {
       value: vix.value.toFixed(1),
       note,
@@ -6152,7 +6153,8 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
 
   // 7. DXY strength (1D): a sharp dollar move is a market-wide risk signal. Per
   // spec — only a ≥0.9% one-day move scores; smaller moves are noise (0). A
-  // rising dollar is an equity headwind (-1), a falling dollar a tailwind (+1).
+  // rising dollar is an equity headwind (-2), a falling dollar a tailwind (+1) —
+  // asymmetric per the spec, since a dollar spike pressures the whole tape.
   let dxySignal = _sig("dxy", "DXY Strength (1D)", 0,
     { available: false, note: "no DXY data" });
   const dxy = macroBackdrop && macroBackdrop.dxy;
@@ -6160,7 +6162,7 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     const mv = dxy.pctChange1d;
     let s = 0;
     let note = `DXY ${mv >= 0 ? "+" : ""}${mv.toFixed(2)}% — flat (<0.9%)`;
-    if (mv >= 0.9) { s = -1; note = `DXY +${mv.toFixed(2)}% — strong dollar, equity headwind`; }
+    if (mv >= 0.9) { s = -2; note = `DXY +${mv.toFixed(2)}% — strong dollar, equity headwind`; }
     else if (mv <= -0.9) { s = 1; note = `DXY ${mv.toFixed(2)}% — weak dollar, equity tailwind`; }
     dxySignal = _sig("dxy", "DXY Strength (1D)", s, {
       value: `${mv >= 0 ? "+" : ""}${mv.toFixed(2)}%`,
@@ -6170,8 +6172,8 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   signals.push(dxySignal);
 
   // 8. 10-Year Treasury (1D): only a ≥13 bps one-day move scores (per spec).
-  // Rising yields pressure growth/risk assets (-1); falling yields ease
-  // financial conditions (+1).
+  // Rising yields pressure growth/risk assets (-2, the heavier side per the
+  // spec's asymmetric weighting); falling yields ease financial conditions (+1).
   let tenYSignal = _sig("tenY", "10Y Yield (1D)", 0,
     { available: false, note: "no 10Y yield data" });
   const tenY = macroBackdrop && macroBackdrop.tenY;
@@ -6179,7 +6181,7 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     const bps = tenY.bpsChange1d;
     let s = 0;
     let note = `10Y ${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps — flat (<13 bps)`;
-    if (bps >= 13) { s = -1; note = `10Y +${bps.toFixed(1)} bps — yields spiking, risk-off`; }
+    if (bps >= 13) { s = -2; note = `10Y +${bps.toFixed(1)} bps — yields spiking, risk-off`; }
     else if (bps <= -13) { s = 1; note = `10Y ${bps.toFixed(1)} bps — yields falling, easing tailwind`; }
     tenYSignal = _sig("tenY", "10Y Yield (1D)", s, {
       value: `${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps`,
@@ -6983,6 +6985,310 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   return { takeProfit, cut, levels, triggers: triggers.slice(0, 4) };
 }
 
+// Deterministic ENTRY plan for a pick — the mirror of buildExitPlan. The exit
+// ladder says where to take profit / cut; the entry plan answers "how do we get
+// in?": which of the six named strategies fits the current technical posture
+// (per spec), whether to take a full position or scale in over 2-4 tranches, and
+// the specific confluence prices to buy at on the way to a position. Best entries
+// cluster where multiple technicals line up (support + a moving average + volume),
+// so the plan hunts confluence zones rather than a single level. Prices are on
+// the *stock* (the option follows). Anchored to real S/R + SMA levels, the
+// 52-week range, and the exit cut — entries never sit beyond the cut, since you
+// don't add into a thesis the exit plan already calls broken.
+//
+//   strategy:   { name, blurb, strength }   one of the six spec strategies
+//   stance:     "scale" | "full"
+//   scaleCount: 1-4
+//   sizingRule: prose — the tranche plan (50/50, 50/30/20, …)
+//   atFiftyDaySma: boolean                  the "±20 grade sitting on its 50D SMA" alert
+//   tranches:   [ { role, size, price, movePct, label, trigger,
+//                   reasons:{technical,fundamental,mechanical,narrative}, prose } ]
+//   summary:    one-line headline
+function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, exitPlan) {
+  if (!(spot > 0) || (side !== "call" && side !== "put")) return null;
+  const isCall = side === "call";
+  const t = data?.technicals || {};
+  const f = data?.fundamentals || {};
+  const sr = t.sr || {};
+  const sma = t.sma || {};
+  const fin = (x) => x != null && isFinite(x) && x > 0;
+  const px = (n) => `$${Number(n).toFixed(2)}`;
+  const movePct = (lvl) => Number((((lvl - spot) / spot) * 100).toFixed(1));
+  const signedPct = (lvl) => { const m = movePct(lvl); return `${m >= 0 ? "+" : ""}${m.toFixed(1)}%`; };
+
+  const s20 = Number(sr.s20), s50 = Number(sr.s50), s100 = Number(sr.s100);
+  const r20 = Number(sr.r20), r50 = Number(sr.r50), r100 = Number(sr.r100);
+  const sma20 = Number(sma.sma20), sma50 = Number(sma.sma50), sma100 = Number(sma.sma100);
+  const rsi = (t.rsi != null && isFinite(t.rsi)) ? Number(t.rsi) : null;
+  const rvol = (t.volume && t.volume.rvol != null && isFinite(t.volume.rvol)) ? Number(t.volume.rvol) : null;
+  const lo52 = Number(f.fiftyTwoWeekLow), hi52 = Number(f.fiftyTwoWeekHigh);
+  const absTotal = Math.abs(Number(total) || 0);
+
+  // The exit cut bounds the entries: call → floor (never add below it),
+  // put → ceiling. Fall back to a ~10% stop when there's no exit plan.
+  const cutPrice = (exitPlan && exitPlan.cut && isFinite(exitPlan.cut.price))
+    ? Number(exitPlan.cut.price)
+    : (isCall ? spot * 0.9 : spot * 1.1);
+
+  // Active sector-narrative name + the strongest in-direction fundamental, for
+  // the per-tranche narrative / fundamental reasoning.
+  const narSigs = pillarScores && pillarScores.narrative && Array.isArray(pillarScores.narrative.signals)
+    ? pillarScores.narrative.signals : [];
+  const narSig = narSigs.find((s) => s && s.key === "sectorNarrative" && s.score);
+  const narName = narSig ? (/"([^"]+)"/.exec(narSig.note || "") || [])[1] : null;
+  const fundSigs = pillarScores && pillarScores.fundamentals && Array.isArray(pillarScores.fundamentals.signals)
+    ? pillarScores.fundamentals.signals : [];
+  const topFund = fundSigs
+    .filter((s) => s && Math.sign(s.score) === (isCall ? 1 : -1))
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))[0];
+  const fundName = topFund ? topFund.label : null;
+
+  // Candidate buy-side anchors: below spot for calls (pullback zones), above
+  // spot for puts (bounce-into-resistance zones). prio = how meaningful.
+  const rawZones = [];
+  const pushZone = (val, label, prio) => { if (fin(val)) rawZones.push({ val: Number(val), label, prio }); };
+  if (isCall) {
+    pushZone(s20, "20D support", 3); pushZone(s50, "50D support", 4); pushZone(s100, "100D support", 4);
+    pushZone(sma20, "20D SMA", 3);   pushZone(sma50, "50D SMA", 4);   pushZone(sma100, "100D SMA", 4);
+    pushZone(lo52, "52-week low", 2);
+  } else {
+    pushZone(r20, "20D resistance", 3); pushZone(r50, "50D resistance", 4); pushZone(r100, "100D resistance", 4);
+    pushZone(sma20, "20D SMA", 3);      pushZone(sma50, "50D SMA", 4);      pushZone(sma100, "100D SMA", 4);
+    pushZone(hi52, "52-week high", 2);
+  }
+
+  // Technical posture for the strategy chooser.
+  const resAll = [r20, r50, r100].filter(fin);
+  const supAll = [s20, s50, s100].filter(fin);
+  const nearestResBelow = isCall ? resAll.filter((v) => v < spot).sort((a, b) => b - a)[0] : null;
+  const nearestSupAbove = !isCall ? supAll.filter((v) => v > spot).sort((a, b) => a - b)[0] : null;
+  const brokeResistance = isCall && nearestResBelow != null && (spot - nearestResBelow) / spot <= 0.04;
+  const brokeSupport = !isCall && nearestSupAbove != null && (nearestSupAbove - spot) / spot <= 0.04;
+  const brokenLevel = isCall ? nearestResBelow : nearestSupAbove;
+  const brokenLabel = isCall
+    ? (brokenLevel === r50 ? "50D resistance" : brokenLevel === r100 ? "100D resistance" : "20D resistance")
+    : (brokenLevel === s50 ? "50D support" : brokenLevel === s100 ? "100D support" : "20D support");
+  const uptrend = fin(sma50) ? spot > sma50 : (fin(sma20) ? spot > sma20 : null);
+  const downtrend = fin(sma50) ? spot < sma50 : (fin(sma20) ? spot < sma20 : null);
+  const trendOk = isCall ? (uptrend === true) : (downtrend === true);
+  const volElevated = rvol != null && rvol >= 1.3;
+  const rsiLow = rsi != null && rsi < 42;
+  const rsiHigh = rsi != null && rsi > 62;
+  const nearSupport = isCall
+    ? supAll.some((v) => Math.abs(v - spot) / spot <= 0.03)
+    : resAll.some((v) => Math.abs(v - spot) / spot <= 0.03);
+
+  // Merge buy-side anchors into confluence clusters (within ~2%), nearest-to-
+  // spot first, then drop anything beyond the cut.
+  const sideZones = rawZones.filter((z) => isCall ? z.val <= spot * 1.01 : z.val >= spot * 0.99);
+  sideZones.sort((a, b) => isCall ? b.val - a.val : a.val - b.val);
+  const clusters = [];
+  for (const z of sideZones) {
+    const last = clusters[clusters.length - 1];
+    if (last && Math.abs(z.val - last.val) / last.val < 0.02) {
+      last.parts.push(z); last.prio = Math.max(last.prio, z.prio);
+    } else {
+      clusters.push({ val: z.val, prio: z.prio, parts: [z] });
+    }
+  }
+  const buyZones = clusters
+    .filter((c) => isCall ? c.val > cutPrice * 1.003 : c.val < cutPrice * 0.997)
+    .map((c) => {
+      const labels = [...new Set(c.parts.map((p) => p.label))];
+      const confluence = labels.length >= 2;
+      const label = confluence ? `${labels.slice(0, 2).join(" + ")} confluence` : labels[0];
+      return { val: c.val, label, confluence, prio: c.prio + (confluence ? 2 : 0) };
+    });
+  const atZoneNow = buyZones.length > 0 && Math.abs(buyZones[0].val - spot) / spot <= 0.015;
+  const hasConfluence = buyZones.some((z) => z.confluence);
+
+  // Pick the named strategy (per spec) from the posture, highest-priority first.
+  let stratKey;
+  if (brokeResistance || brokeSupport) stratKey = volElevated ? "volumeBreakout" : "breakoutRetest";
+  else if ((isCall ? rsiLow : rsiHigh) && nearSupport) stratKey = "rsiDivergence";
+  else if (nearSupport && (volElevated || (rsi != null && (isCall ? rsi >= 50 : rsi <= 50)))) stratKey = "supportConfirmation";
+  else if (trendOk && hasConfluence) stratKey = "pullbackConfluence";
+  else if (trendOk) stratKey = "maPullback";
+  else stratKey = "pullbackConfluence";
+  const isBreakout = stratKey === "breakoutRetest" || stratKey === "volumeBreakout";
+
+  const STRATS = {
+    pullbackConfluence: { name: "Pullback to Confluence", strength: "Strong recommend",
+      blurb: isCall
+        ? "Buy the pullback into a zone where support, a moving average and volume all line up — the highest-probability entry."
+        : "Short the bounce into a zone where resistance, a moving average and volume all line up — the highest-probability entry." },
+    breakoutRetest: { name: "Breakout + Retest", strength: "Strong trend",
+      blurb: isCall
+        ? `Price broke ${brokenLabel}; buy the retest of that level as new support rather than chasing the breakout candle.`
+        : `Price broke ${brokenLabel}; short the retest of that level as new resistance rather than chasing the breakdown candle.` },
+    maPullback: { name: "Moving-Average Pullback", strength: "Trending market",
+      blurb: isCall
+        ? "In an uptrend, buy the pullback to the 20D/50D SMA — trend-followers defend these in a strong tape."
+        : "In a downtrend, short the bounce to the 20D/50D SMA — sellers defend these in a weak tape." },
+    supportConfirmation: { name: "Support + Confirmation", strength: "Reversal",
+      blurb: isCall
+        ? "Buy the bounce off 50/100D support with rising volume and RSI reclaiming 50 — confirmation, not a falling knife."
+        : "Short the rejection at 50/100D resistance with rising volume and RSI rolling under 50 — confirmation, not a top-tick." },
+    rsiDivergence: { name: "RSI + Divergence", strength: "Bottoming",
+      blurb: isCall
+        ? "Bullish RSI divergence with price at support — a bottoming entry; wait for RSI to actually turn up."
+        : "Bearish RSI divergence with price at resistance — a topping entry; wait for RSI to actually roll over." },
+    volumeBreakout: { name: "Volume Breakout", strength: "High conviction",
+      blurb: isCall
+        ? `Price broke ${brokenLabel} on a clear volume surge${rvol != null ? ` (${rvol.toFixed(1)}x avg)` : ""} — buy the breakout, then add on the retest.`
+        : `Price broke ${brokenLabel} on a clear volume surge${rvol != null ? ` (${rvol.toFixed(1)}x avg)` : ""} — short the breakdown, then add on the retest.` },
+  };
+  const strategy = STRATS[stratKey];
+
+  // Per-tranche, per-pillar reasoning.
+  const entryReasons = (role, label, price) => {
+    const at = `${px(price)} (${signedPct(price)})`;
+    const r = { technical: "", fundamental: "", mechanical: "", narrative: "" };
+    if (role === "starter" && isBreakout) {
+      r.technical = isCall
+        ? `The breakout above ${brokenLabel} is the trigger — a close back below it negates the setup, so enter on strength but keep the invalidation tight.`
+        : `The breakdown below ${brokenLabel} is the trigger — a close back above it negates the setup, so enter on weakness but keep the invalidation tight.`;
+      r.mechanical = `Want ${volElevated ? "the current 1.3x+" : "1.3x+"} relative volume and ${isCall ? "call" : "put"}-side flow leading — a breakout on thin volume is the classic fakeout.`;
+    } else if (role === "starter") {
+      // Only cite the current RSI reading when price is actually at the zone —
+      // for a deeper pullback target the reading there will differ from today's.
+      r.technical = isCall
+        ? `${label} at ${at} — the zone prior pullbacks have bounced from. ${atZoneNow ? `Price is there now${rsi != null ? ` (RSI ${rsi.toFixed(0)})` : ""}` : "Wait for price to come to it"}; a hold with RSI turning back up is the entry, not a falling knife.`
+        : `${label} at ${at} — the zone prior bounces have stalled at. ${atZoneNow ? `Price is there now${rsi != null ? ` (RSI ${rsi.toFixed(0)})` : ""}` : "Wait for price to come to it"}; a rejection with RSI rolling back over is the entry, not a squeeze chase.`;
+    } else if (role === "add") {
+      r.technical = isCall
+        ? `${label} at ${at} — add only on confirmation the zone holds (a clean bounce, RSI turning up); that validates the entry and completes the position.`
+        : `${label} at ${at} — add only on confirmation the zone rejects (a clean fade, RSI rolling over); that validates the entry and completes the position.`;
+    } else {
+      r.technical = isCall
+        ? `${label} at ${at} — the last layer, just above the ${px(cutPrice)} cut. Below the cut the setup is broken; this is the deepest you add, not a hope buy.`
+        : `${label} at ${at} — the last layer, just below the ${px(cutPrice)} cut. Above the cut the setup is broken; this is the highest you add, not a hope short.`;
+    }
+    r.fundamental = fundName
+      ? `The fundamental edge behind the score (${fundName}) doesn't change on a routine ${isCall ? "dip" : "pop"} — weakness into this level is price, not a thesis break.`
+      : `A routine ${isCall ? "pullback" : "bounce"} into this level is price action, not a change in the fundamentals behind the score.`;
+    if (!r.mechanical) {
+      r.mechanical = isCall
+        ? `Confirm with rising volume on the bounce and call flow / call OI building — a low-volume drift through ${px(price)} is the cue to wait for the next layer.`
+        : `Confirm with rising volume on the rejection and put flow / put OI building — a low-volume drift through ${px(price)} is the cue to wait for the next layer.`;
+    }
+    r.narrative = narName
+      ? `The "${narName}" ${isCall ? "tailwind" : "headwind"} is intact — ${isCall ? "buying the dip" : "shorting the bounce"} here is a discount on the same story, not a fade of it.`
+      : `Enter while the catalyst behind the score is still in force — if the story flips before the fill, stand down.`;
+    return r;
+  };
+  const entryProse = (role, label) => {
+    if (role === "starter" && isBreakout) return `Enter on the confirmed breakout; the retest below is the lower-risk add.`;
+    if (role === "starter") return atZoneNow ? `Price is at the ${label} now — start as it holds.` : `Your first add when price comes to the ${label}.`;
+    if (role === "final") return `${label} — the deepest layer, just shy of the cut.`;
+    return `${label} — add as the move comes to you.`;
+  };
+
+  // Assemble raw tranches (role + price + label + trigger).
+  const tranches = [];
+  if (isBreakout) {
+    const lvl = fin(brokenLevel) ? brokenLevel : spot;
+    tranches.push({ role: "starter", price: Number(spot.toFixed(2)), label: `breakout ${isCall ? "above" : "below"} ${brokenLabel}`,
+      trigger: isCall
+        ? `Confirmed daily close above ${px(lvl)} on ${volElevated ? "the current" : "1.3x+"} volume`
+        : `Confirmed daily close below ${px(lvl)} on ${volElevated ? "the current" : "1.3x+"} volume` });
+    tranches.push({ role: "add", price: Number(lvl.toFixed(2)), label: `${brokenLabel} retest (now ${isCall ? "support" : "resistance"})`,
+      trigger: isCall
+        ? `Pullback retests ${px(lvl)} and holds — former resistance flips to support`
+        : `Bounce retests ${px(lvl)} and rejects — former support flips to resistance` });
+    const deeper = buyZones.find((z) => isCall ? z.val < lvl * 0.985 : z.val > lvl * 1.015);
+    if (deeper) tranches.push({ role: "final", price: Number(deeper.val.toFixed(2)), label: deeper.label,
+      trigger: isCall
+        ? `Only if a deeper flush tags ${px(deeper.val)} and holds above the ${px(cutPrice)} cut`
+        : `Only if a deeper squeeze tags ${px(deeper.val)} and holds below the ${px(cutPrice)} cut` });
+  } else {
+    let zones = buyZones.slice(0, 3);
+    if (!zones.length) {
+      const synth = isCall
+        ? [{ val: spot * 0.97, label: "~3% pullback" }, { val: spot * 0.93, label: "~7% pullback" }]
+        : [{ val: spot * 1.03, label: "~3% bounce" }, { val: spot * 1.07, label: "~7% bounce" }];
+      zones = synth
+        .filter((z) => isCall ? z.val > cutPrice * 1.003 : z.val < cutPrice * 0.997)
+        .map((z) => ({ ...z, confluence: false }));
+      if (!zones.length) zones = [{ val: isCall ? spot * 0.97 : spot * 1.03, label: isCall ? "~3% pullback" : "~3% bounce", confluence: false }];
+    }
+    if (zones.length === 1) {
+      // Only one viable zone above the cut — split it into the spec's canonical
+      // 50% on the first touch + 50% on confirmation rather than committing 100%
+      // on the first tag.
+      const z = zones[0];
+      tranches.push({ role: "starter", price: Number(z.val.toFixed(2)), label: z.label,
+        trigger: atZoneNow
+          ? `Price is at ${px(z.val)} now — start here as it holds${rsi != null ? ` (RSI ${rsi.toFixed(0)})` : ""}`
+          : (isCall ? `First touch of ${px(z.val)} (${signedPct(z.val)})` : `First tag of ${px(z.val)} (${signedPct(z.val)})`) });
+      tranches.push({ role: "add", price: Number(z.val.toFixed(2)), label: `${z.label} — confirmation`,
+        trigger: isCall
+          ? `Add the rest on confirmation it holds — a green close back above ${px(z.val)} or RSI turning up`
+          : `Add the rest on confirmation it rejects — a red close back below ${px(z.val)} or RSI rolling over` });
+    } else {
+      for (let i = 0; i < zones.length; i++) {
+        const z = zones[i];
+        const role = i === 0 ? "starter" : (i === zones.length - 1 ? "final" : "add");
+        let trigger;
+        if (i === 0) {
+          trigger = atZoneNow
+            ? `Price is at ${px(z.val)} now — start here as it holds${rsi != null ? ` (RSI ${rsi.toFixed(0)})` : ""}`
+            : (isCall ? `First pullback to ${px(z.val)} (${signedPct(z.val)})` : `First bounce to ${px(z.val)} (${signedPct(z.val)})`);
+        } else if (role === "final") {
+          trigger = isCall
+            ? `Final piece only if it tags ${px(z.val)} and holds above the ${px(cutPrice)} cut`
+            : `Final piece only if it tags ${px(z.val)} and holds below the ${px(cutPrice)} cut`;
+        } else {
+          trigger = isCall ? `Add on a deeper dip to ${px(z.val)} (${signedPct(z.val)})` : `Add on a higher bounce to ${px(z.val)} (${signedPct(z.val)})`;
+        }
+        tranches.push({ role, price: Number(z.val.toFixed(2)), label: z.label, trigger });
+      }
+    }
+  }
+  if (!tranches.length) {
+    tranches.push({ role: "starter", price: Number(spot.toFixed(2)), label: "current price",
+      trigger: "No levels on file — enter a starter at the market and scale on confirmation" });
+  }
+
+  // Size the tranches and fill move% / reasons / prose.
+  const SIZES = { 1: ["100%"], 2: ["50%", "50%"], 3: ["50%", "30%", "20%"], 4: ["40%", "30%", "20%", "10%"] };
+  const n = Math.min(4, Math.max(1, tranches.length));
+  const sizes = SIZES[n] || SIZES[2];
+  for (let i = 0; i < tranches.length; i++) {
+    const tr = tranches[i];
+    tr.size = sizes[i] || sizes[sizes.length - 1];
+    tr.movePct = movePct(tr.price);
+    tr.reasons = entryReasons(tr.role, tr.label, tr.price);
+    tr.prose = entryProse(tr.role, tr.label);
+  }
+
+  // Full size vs scale: only a very-high-conviction pick already sitting on a
+  // confluence earns a full-size green light; everything else scales in.
+  const stance = (absTotal >= 20 && atZoneNow && buyZones[0] && buyZones[0].confluence && !isBreakout) ? "full" : "scale";
+  // The "±20 graded stock at its 50D SMA" alert (per spec) — the highest-
+  // probability pullback entry in a strong uptrend/downtrend.
+  const atFiftyDaySma = absTotal >= 20 && fin(sma50) && Math.abs(spot - sma50) / sma50 <= 0.02;
+
+  let sizingRule;
+  if (stance === "full") {
+    sizingRule = `Conviction is very high and price is sitting on the ${buyZones[0].label} (${px(buyZones[0].val)}) — a full-size entry is defensible. To stay disciplined you can still split 50/50: half now, half on the first confirmed ${isCall ? "bounce" : "rejection"}.`;
+  } else if (isBreakout) {
+    const lvl = fin(brokenLevel) ? brokenLevel : spot;
+    sizingRule = `Enter ${sizes[0]} on the breakout (a confirmed close ${isCall ? "above" : "below"} ${px(lvl)} on volume), then add ${sizes[1] || "the rest"} on the retest of that level as ${isCall ? "support" : "resistance"}. Don't pay up for the breakout candle — the retest is the lower-risk fill.`;
+  } else {
+    const first = tranches[0], second = tranches[1];
+    const sameZone = second && Math.abs(second.price - first.price) <= first.price * 0.005;
+    const addClause = !second ? "the rest on confirmation"
+      : sameZone ? `${sizes[1]} on confirmation it ${isCall ? "holds (a green close / RSI turning up)" : "rejects (a red close / RSI rolling over)"}`
+      : `${sizes[1]} on a ${isCall ? "deeper pullback" : "higher bounce"} to ${px(second.price)}`;
+    sizingRule = `Enter ${sizes[0]} at the first signal (${atZoneNow ? `price is at the ${first.label} now` : `the first ${isCall ? "pullback" : "bounce"} to ${px(first.price)}`}), then add ${addClause}${tranches[2] ? `, and the final ${sizes[2]} only if it tags ${px(tranches[2].price)}` : ""}. Never add ${isCall ? "below" : "above"} the ${px(cutPrice)} cut — that's where the thesis breaks.`;
+  }
+
+  const summary = `${strategy.name} — ${stance === "full" ? "full size OK" : `scale in over ${tranches.length} tranche${tranches.length === 1 ? "" : "s"}`}${atFiftyDaySma ? " · ⚑ ±20 grade on its 50D SMA" : ""}.`;
+
+  return { strategy, stance, scaleCount: tranches.length, sizingRule, atFiftyDaySma, tranches, summary };
+}
+
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
   const sectorMedianPE = buildSectorPEMedians(chains);
 
@@ -7068,6 +7374,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       .filter((p) => p.symbol !== r.sym)
       .slice(0, 5);
 
+    // Exit ladder first, then the entry plan (which reads the exit cut as its
+    // floor/ceiling so it never suggests adding into an already-broken thesis).
+    const exitPlan = buildExitPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars, r.sym);
+    const entryPlan = buildEntryPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars, r.sym, r.total, exitPlan);
+
     const pickPayload = {
       symbol: r.sym,
       side,
@@ -7096,7 +7407,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         : null,
       peers,
       contract,
-      exitPlan: buildExitPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars, r.sym),
+      exitPlan,
+      entryPlan,
+      fiftyDayAlert: entryPlan?.atFiftyDaySma || false,
     };
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);

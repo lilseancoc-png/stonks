@@ -6636,6 +6636,180 @@ main { padding-top: var(--s-2); }
 
 /* Exit plan — two price targets (take-profit + cut/reduce) plus contextual
    exit triggers. Sits under the contract block. */
+/* ----- Entry plan (mirror of the exit ladder) ------------------------------ */
+.pick-entry {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.pick-entry-head {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.pick-entry-alert {
+  font: 400 11.5px/1.45 var(--font-sans);
+  color: var(--text-strong);
+  padding: 7px 9px;
+  margin-bottom: 7px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-left-width: 3px;
+  border-left-color: var(--warn);
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+}
+.pick-entry-strat {
+  padding: 7px 9px;
+  margin-bottom: 7px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-left-color: var(--accent);
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.pick-entry-strat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pick-entry-strat-name {
+  font: 700 12.5px/1.2 var(--font-sans);
+  color: var(--text-strong);
+}
+.pick-entry-strat-strength {
+  font: 700 8.5px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.pick-entry-strat-blurb {
+  font: 400 11.5px/1.45 var(--font-sans);
+  color: var(--text);
+  margin-top: 3px;
+}
+.pick-entry-sizing {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+.pick-entry-stance {
+  flex: none;
+  font: 700 8.5px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.pick-entry-stance-full {
+  color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 14%, var(--surface));
+}
+.pick-entry-stance-scale {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.pick-entry-sizing-txt {
+  font: 400 11.5px/1.45 var(--font-sans);
+  color: var(--text);
+}
+.pick-entry-ladder {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pick-entry-rung {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-left-color: var(--accent);
+  border-radius: var(--r-1);
+  background: var(--surface);
+}
+.pick-entry-rung-starter {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.pick-entry-rung-add { border-left-color: color-mix(in srgb, var(--accent) 60%, var(--muted)); }
+.pick-entry-rung-final { border-left-color: var(--muted); border-left-style: dashed; }
+.pick-entry-rung-main {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.pick-entry-size {
+  flex: none;
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: .03em;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.pick-entry-price {
+  font: 700 14px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+.pick-entry-move {
+  font: 600 11px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.pick-entry-rung-label {
+  font: 400 11px/1.3 var(--font-sans);
+  color: var(--muted-strong);
+}
+.pick-entry-trigger {
+  font: 400 11.5px/1.4 var(--font-sans);
+  color: var(--text);
+  margin-top: 2px;
+  padding-left: 13px;
+  position: relative;
+}
+.pick-entry-trigger::before {
+  content: "▸";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+/* "±20 grade at 50D SMA" alert chips (detail header + grid card) */
+.pick-fifty-alert {
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: .04em;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 15%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  white-space: nowrap;
+}
+.ptc-alert {
+  font: 700 8px/1 var(--font-mono);
+  letter-spacing: .03em;
+  padding: 2px 5px;
+  border-radius: var(--r-pill);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 15%, var(--surface));
+  white-space: nowrap;
+}
+
 .pick-exit {
   margin-top: 8px;
   padding: 8px 10px;
