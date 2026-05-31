@@ -178,8 +178,15 @@ async function hydratePosition(p) {
   if (!isValidSymbol(p.symbol)) {
     return { id: p.id, error: "invalid symbol" };
   }
-  const T = yearsToExpiry(p.expiry);
-  const expired = p.expiry * 1000 < Date.now();
+  // Equity options trade until 4:00 PM ET on the expiry date, but p.expiry is
+  // stored as 00:00 UTC of that date (~8 PM ET the prior evening). Comparing the
+  // raw epoch against now() marks a still-tradable contract "expired" for its
+  // entire final session — nulling its greeks and triggering a bogus "expired,
+  // close it" rec. Anchor to the ~4 PM ET close (+21h covers EST exactly; in EDT
+  // it runs ~1h past the close, which is harmless).
+  const settleSec = p.expiry + 21 * 3600;
+  const T = yearsToExpiry(settleSec);
+  const expired = settleSec * 1000 < Date.now();
 
   try {
     const row = await fetchContract(p.symbol, p.expiry, p.side, p.strike);
@@ -244,7 +251,7 @@ async function hydratePosition(p) {
       side: p.side,
       strike: Number(p.strike),
       expiry: Number(p.expiry),
-      daysToExpiry: Math.max(0, Math.round((p.expiry * 1000 - Date.now()) / 86400000)),
+      daysToExpiry: Math.max(0, Math.round((settleSec * 1000 - Date.now()) / 86400000)),
       quantity: Number(p.quantity),
       entryPremium: entry,
       openedAt,
