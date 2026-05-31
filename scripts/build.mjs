@@ -2356,7 +2356,9 @@ const MACRO_HISTORY_MAX_ENTRIES = 90;
 function etDateKey(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "numeric",
+    // 2-digit day so single-digit days zero-pad (2026-05-03, not 2026-05-3) and
+    // these keys compare equal to the scanners'/volume-flags' ET date keys.
+    year: "numeric", month: "2-digit", day: "2-digit",
   }).format(d);
 }
 
@@ -10194,7 +10196,7 @@ function annotateNarrativesWithLifespan(narratives, history, todayIso) {
     // run that includes this narrative.
     for (let i = 0; i < history.length; i++) {
       const snap = history[i];
-      const hit = (snap.narratives || []).find((h) => h.name.toLowerCase() === lcName);
+      const hit = (snap.narratives || []).find((h) => h && h.name && h.name.toLowerCase() === lcName);
       if (hit) {
         firstSeen = snap.date;
       } else {
@@ -10252,6 +10254,7 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
   for (const snap of history) {
     if (snap.date === today) continue;
     for (const n of (snap.narratives || [])) {
+      if (!n || !n.name) continue;
       const key = n.name.toLowerCase();
       if (active.has(key)) continue;
       const cur = seen.get(key);

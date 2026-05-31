@@ -147,11 +147,13 @@ create or replace function public.close_position(
 declare
   pos public.positions%rowtype;
 begin
-  if p_quantity is null or p_quantity <= 0 then
-    raise exception 'quantity must be a positive integer' using errcode = '22023';
+  if p_quantity is null or p_quantity <= 0 or p_quantity > 100000 then
+    raise exception 'quantity out of range' using errcode = '22023';
   end if;
-  if p_price is null or p_price < 0 then
-    raise exception 'price must be a non-negative number' using errcode = '22023';
+  -- Upper bound guards realized P&L / equity snapshots against a fat-fingered
+  -- or malicious price; mirrors the api/close-position.js endpoint check.
+  if p_price is null or p_price < 0 or p_price > 1000000 then
+    raise exception 'price out of range' using errcode = '22023';
   end if;
 
   -- Row lock keeps concurrent closes from racing past validation.

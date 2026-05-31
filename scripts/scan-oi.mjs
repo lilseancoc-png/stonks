@@ -15,11 +15,14 @@
 //
 // Scheduling (managed externally by cron-job.org, dispatched as
 // .github/workflows/oi-tracker.yml):
-//   • Pre-market scan ~08:30 ET (1h before the bell). Captures overnight
-//     OI updates from broker reporting. Session volume is 0, so rule 3
-//     of the gamma score can't fire in pre-market.
-//   • EOD scan ~19:00 ET (3h after the close). Captures the full-day
-//     OI move and lights up vol-based signals.
+//   • Pre-market scan ~08:30 ET (1h before the bell). OI is reported T+1, so
+//     this is when the overnight OI update lands — ΔOI vs the prior
+//     trading-day snapshot reflects the just-closed session's net OI change.
+//     Session volume is 0, so rule 3 of the gamma score can't fire pre-market.
+//   • EOD scan ~19:00 ET (3h after the close). Re-runs mainly to light up the
+//     volume-based signals (rule 3 needs session volume). Today's trades won't
+//     post to OI until tomorrow's T+1 update, so this scan's ΔOI equals the
+//     morning scan's — it reflects the prior session, NOT today's OI move.
 //
 // Writes:
 //   data/oi-tracker.json    Today's payload (consumed by the UI via

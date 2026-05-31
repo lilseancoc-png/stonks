@@ -1054,9 +1054,9 @@
       });
     }
     if (dir < 0 && nearS20 && alignedMove != null && alignedMove < -0.3) {
-      cons.push({ tag: 'Bounce fails to reclaim', strong: true, text:
-        'Spot cannot reclaim 20D support $' + fmt(s20) + ' (' + signedPct(todayMovePct) +
-        ' today) — failed bounce; downtrend intact.'
+      cons.push({ tag: 'Bounce off support', strong: true, text:
+        'Spot bounced off 20D support $' + fmt(s20) + ' (' + signedPct(todayMovePct) +
+        ' today) — buyers are defending the floor; wrong side for puts.'
       });
     }
     if (!breakoutAligned && !sideways) {

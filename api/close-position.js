@@ -82,8 +82,11 @@ export default async function handler(req, res) {
   const quantity = Math.floor(Number(body.quantity) || 0);
   const price = Number(body.price);
   if (!position_id) return res.status(400).json({ error: "position_id required" });
-  if (!(quantity > 0)) return res.status(400).json({ error: "quantity must be a positive integer" });
-  if (!(price >= 0)) return res.status(400).json({ error: "price must be a non-negative number" });
+  // Upper bounds keep a fat-fingered or malicious value from poisoning realized
+  // P&L and the equity snapshot. The RPC re-checks these so the DB stays
+  // authoritative regardless of caller.
+  if (!(quantity > 0) || quantity > 100000) return res.status(400).json({ error: "quantity out of range" });
+  if (!Number.isFinite(price) || price < 0 || price > 1000000) return res.status(400).json({ error: "price out of range" });
 
   const supabase = userClient(token);
   if (!supabase) return res.status(500).json({ error: "supabase not configured" });

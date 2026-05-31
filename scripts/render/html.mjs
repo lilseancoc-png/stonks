@@ -667,7 +667,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     marketBackdrop: marketBackdrop || null,
     nextFomcDates: Array.isArray(nextFomcDates) ? nextFomcDates : [],
     oi: oi || null,
-  }).replace(/<\/script>/gi, "<\\/script>");
+  }).replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   const cacheBust = encodeURIComponent(builtAtIso);
   return `<!doctype html>
 <html lang="en">
