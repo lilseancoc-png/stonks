@@ -1155,6 +1155,23 @@ async function main() {
 
   tickerRows.sort((a, b) => b.topDelta - a.topDelta);
 
+  // Abort before writing anything if a systemic fetch failure (e.g. Yahoo
+  // IP-blocking the runner) means almost nothing came back. The first scan of a
+  // session has no prior hits to carry over, so writing now would commit a
+  // near-empty unusual.json + history (and a degraded volume-flags/heatmap),
+  // blanking the tab and poisoning the next run's deltas. Exiting non-zero fails
+  // the workflow step so the commit never runs and last-good data stays — this
+  // sits before every write below (flow-explanations, unusual, history, log,
+  // volume pass).
+  const MIN_SCAN_SUCCESS_RATE = 0.5;
+  const attempted = scannedCount + failedCount;
+  if (attempted && scannedCount / attempted < MIN_SCAN_SUCCESS_RATE) {
+    console.error(
+      `Only ${scannedCount}/${attempted} tickers fetched (${((scannedCount / attempted) * 100).toFixed(0)}% < ${MIN_SCAN_SUCCESS_RATE * 100}%) — likely a systemic Yahoo block. Leaving last-good flow data in place.`,
+    );
+    process.exit(1);
+  }
+
   // Carry over earlier-today hits so contracts that flagged at 10am stay on
   // the page at 2pm even if they didn't re-flag. The prior file is treated
   // as same-session only when its ET calendar date matches this scan's; on

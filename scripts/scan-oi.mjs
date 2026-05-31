@@ -611,6 +611,21 @@ async function main() {
     await sleep(POLITENESS_MS);
   }
 
+  // Abort before writing if a systemic fetch failure (e.g. Yahoo IP-blocking the
+  // runner — see CLAUDE.md) means almost nothing came back. Writing now would
+  // commit an empty oi-tracker.json (blanking the Gamma Squeeze tab) and push an
+  // empty snapshot into oi-history.json, poisoning the next run's ΔOI baseline.
+  // Exiting non-zero fails the workflow step so the commit never runs and the
+  // last-good files stay — mirrors build.mjs's MIN_SUCCESS_RATE guard.
+  const MIN_SCAN_SUCCESS_RATE = 0.5;
+  const attempted = scannedCount + failedCount;
+  if (attempted && scannedCount / attempted < MIN_SCAN_SUCCESS_RATE) {
+    console.error(
+      `Only ${scannedCount}/${attempted} tickers fetched (${((scannedCount / attempted) * 100).toFixed(0)}% < ${MIN_SCAN_SUCCESS_RATE * 100}%) — likely a systemic Yahoo block. Leaving last-good OI data in place.`,
+    );
+    process.exit(1);
+  }
+
   // Sort tickers: flagged first (highest score), then by score desc,
   // then by total OI desc. Gives the UI a sensible default order.
   tickerRows.sort((a, b) => {
