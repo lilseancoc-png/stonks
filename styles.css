@@ -2959,6 +2959,50 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   margin: var(--s-2) 0 0; line-height: 1.4;
 }
 
+/* AI-identified chart pattern banner — spans the full grid width above the
+   indicator cards. The left border colour encodes the directional bias. */
+.opt-tech-pattern {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: var(--r-2);
+}
+.opt-tech-pattern.pos  { border-left-color: var(--pos); }
+.opt-tech-pattern.neg  { border-left-color: var(--neg); }
+.opt-tech-pattern-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2);
+}
+.opt-tech-pattern-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted);
+  display: flex; align-items: center;
+}
+.opt-tech-pattern-name {
+  font-size: var(--fs-lg); font-weight: 700; color: var(--text-strong);
+}
+.opt-tech-pattern-type {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 2px 8px; border-radius: var(--r-pill);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+}
+.opt-tech-pattern-type.pos { color: var(--pos); background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.opt-tech-pattern-type.neg { color: var(--neg); background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.opt-tech-pattern-conf {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.opt-tech-pattern-body { font-size: 12px; color: var(--text); line-height: 1.5; }
+.opt-tech-pattern-signal { font-size: 12px; color: var(--text); line-height: 1.5; }
+.opt-tech-pattern-signal-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); margin-right: 6px;
+}
+.opt-tech-pattern-foot { font-size: 10px; color: var(--muted); line-height: 1.4; }
+
 /* === Fundamentals + earnings panel === */
 .opt-fund {
   margin-top: var(--s-4);

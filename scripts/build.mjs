@@ -5316,6 +5316,23 @@ function tierForScore(score) {
            conviction: "—", sizing: "Skip" };
 }
 
+// The 7 classic chart patterns the AI detector (attachChartPatterns) may
+// identify, each with its canonical directional bias. The model only picks the
+// LABEL and writes the explanation/signal prose — the `type` badge and the
+// technicals-pillar score are looked up from THIS table, never trusted from the
+// model's free text, so a hallucinated "type" can't flip the sign of the score.
+// Keys are the canonical spellings ("and", not "&") used as the schema enum.
+const CHART_PATTERN_META = {
+  "Cup and Handle":             { type: "Bullish Continuation", direction: "bullish" },
+  "Head and Shoulders":         { type: "Bearish Reversal",     direction: "bearish" },
+  "Inverse Head and Shoulders": { type: "Bullish Reversal",     direction: "bullish" },
+  "Bull Flag":                  { type: "Bullish Continuation", direction: "bullish" },
+  "Ascending Triangle":         { type: "Bullish Continuation", direction: "bullish" },
+  "Double Bottom":              { type: "Bullish Reversal",     direction: "bullish" },
+  "Descending Triangle":        { type: "Bearish Continuation", direction: "bearish" },
+};
+const CHART_PATTERN_NAMES = Object.keys(CHART_PATTERN_META);
+
 function _sig(key, label, score, opts) {
   return {
     key,
@@ -5758,6 +5775,28 @@ function scoreTechnicals(data, streakRow) {
     smaRung(spot, "sma50", "50D", sma.sma50, 1),
     smaRung(spot, "sma100", "100D", sma.sma100, 2),
   );
+
+  // 11. Chart pattern (AI-identified, per attachChartPatterns): a recognised
+  // bullish formation scores +1 (+2 when the model flags high confidence), a
+  // bearish formation -1 / -2. Direction + magnitude come from the canonical
+  // CHART_PATTERN_META table — the model's prose never touches the sign. "None",
+  // an unrecognised label, or a missing read (no full build yet) scores 0.
+  let chartSignal = _sig("chartPattern", "Chart Pattern", 0,
+    { available: false, note: "no chart pattern computed" });
+  const cp = t.chartPattern;
+  if (cp && cp.pattern === "None") {
+    chartSignal = _sig("chartPattern", "Chart Pattern", 0,
+      { value: "None", note: "no classic pattern present on the daily chart" });
+  } else if (cp && cp.pattern && CHART_PATTERN_META[cp.pattern]) {
+    const meta = CHART_PATTERN_META[cp.pattern];
+    const mag = cp.confidence === "high" ? 2 : 1;
+    const s = meta.direction === "bullish" ? mag : meta.direction === "bearish" ? -mag : 0;
+    chartSignal = _sig("chartPattern", "Chart Pattern", s, {
+      value: cp.pattern,
+      note: `${meta.type}${cp.confidence ? ` · ${cp.confidence} confidence` : ""}`,
+    });
+  }
+  signals.push(chartSignal);
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
@@ -7940,6 +7979,11 @@ const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-2.5-f
 // independent attachAiNewsTakes / attachFundamentalsJudgments calls.
 const AI_TICKER_MODEL = process.env.AI_TICKER_MODEL || "gemini-2.5-flash-lite";
 const AI_COMBINED = process.env.AI_COMBINED !== "0";
+// Chart-pattern detection (attachChartPatterns) feeds a compact daily price
+// series to the model and asks it to name one of 7 classic formations (or
+// "None"). Short, schema-shaped output — same Flash-Lite default as the other
+// per-ticker calls; rollback to Gemma is one env var.
+const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash-lite";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -10047,6 +10091,200 @@ async function attachTickerJudgments(chains, macroBackdrop) {
   hb.stop();
 }
 
+// ----------------------------------------------------------------------------
+// Chart-pattern detection. Feeds the model a compact daily OHLC+volume series
+// and asks it to name one of 7 classic chart formations — or "None". The label
+// it returns is validated against CHART_PATTERN_META; the canonical type +
+// directional bias (and therefore the technicals-pillar score in
+// scoreTechnicals) are looked up from that table, so the model only contributes
+// the label + the explanation/signal prose. Purely additive: self-skips
+// without GEMINI_API_KEY (the Chart Pattern signal then scores 0 / shows
+// nothing), and a per-ticker failure leaves that name without a pattern rather
+// than aborting the build. ~1 small call per ticker on the lightweight model.
+// ----------------------------------------------------------------------------
+const CHART_PATTERN_SCHEMA = {
+  type: "object",
+  properties: {
+    pattern: { type: "string", enum: [...CHART_PATTERN_NAMES, "None"] },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    explanation: { type: "string" },
+    signal: { type: "string" },
+  },
+  required: ["pattern"],
+};
+
+const CHART_PATTERN_SYSTEM_PROMPT =
+  "You are a technical-analysis chart reader. Given a US-listed ticker, its " +
+  "current share price, and a daily price series (oldest first; each row is " +
+  "DATE close high low volume), decide whether the recent price action forms " +
+  "one of these 7 classic chart patterns:\n" +
+  "1. Cup and Handle (Bullish Continuation) — a rounded U-shaped bottom (the " +
+  "cup) followed by a small downward-drifting consolidation (the handle); " +
+  "bullish on a breakout above the handle, strongest when the breakout comes on " +
+  "rising volume.\n" +
+  "2. Head and Shoulders (Bearish Reversal) — three peaks with a higher middle " +
+  "peak (head) flanked by two lower peaks (shoulders) over a roughly flat " +
+  "neckline; signals a top / reversal from up to down.\n" +
+  "3. Inverse Head and Shoulders (Bullish Reversal) — the upside-down version: " +
+  "three troughs with a lower middle trough; signals a bottom / reversal from " +
+  "down to up.\n" +
+  "4. Bull Flag (Bullish Continuation) — a sharp upward move (the pole) followed " +
+  "by a short, shallow, downward-sloping consolidation (the flag); the uptrend " +
+  "usually continues.\n" +
+  "5. Ascending Triangle (Bullish Continuation) — a flat horizontal resistance " +
+  "line with a rising series of higher lows beneath it; buyers getting stronger, " +
+  "high-probability upside breakout.\n" +
+  "6. Double Bottom (Bullish Reversal) — two distinct troughs at roughly the " +
+  "same price level forming a W; signals a reversal higher once the middle peak " +
+  "is cleared.\n" +
+  "7. Descending Triangle (Bearish Continuation) — a flat horizontal support " +
+  "line with a falling series of lower highs above it; sellers in control, often " +
+  "breaks down.\n\n" +
+  "Return \"None\" unless one pattern is CLEARLY present in the recent action — " +
+  "do not force a fit. Spelling of the pattern MUST match the list exactly " +
+  "(use 'and', not '&'). If you do identify a pattern: in `explanation` (1-3 " +
+  "sentences, plain English, no markdown) describe where it is forming in THIS " +
+  "series, citing the approximate price levels and rough dates of the key swing " +
+  "points (cup rim, neckline, the two bottoms, the pole, the triangle line, " +
+  "etc.); in `signal` (1-2 sentences) describe what a confirmed pattern could " +
+  "potentially signal (e.g. a breakout target or a reversal), framed as " +
+  "possibility, not certainty. Set `confidence` to high / medium / low based on " +
+  "how textbook the formation is. Stay grounded in the supplied data; do not " +
+  "invent levels the series does not support, and do not give buy/sell advice. " +
+  "Respond with ONLY a JSON object of the form " +
+  `{"pattern": "...", "confidence": "high"|"medium"|"low", "explanation": "...", "signal": "..."} ` +
+  "— no markdown fences, no prose before or after the JSON. For \"None\", " +
+  "`explanation` may briefly say why nothing qualifies and `signal` may be empty.";
+
+// How many trailing daily bars to show the model. ~140 sessions ≈ 6-7 months —
+// enough to contain a full cup-and-handle or head-and-shoulders on the daily
+// timeframe these patterns are read on, without bloating the prompt.
+const CHART_PATTERN_BARS = 140;
+// Need a meaningful window before any pattern read is credible.
+const CHART_PATTERN_MIN_BARS = 60;
+
+async function generateChartPattern(ai, symbol, spot, bars) {
+  const series = bars.slice(-CHART_PATTERN_BARS);
+  const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
+  const seriesBlock = series
+    .map((b) => `${b.t || "?"} ${r2(b.c)} ${r2(b.h)} ${r2(b.l)} ${b.v != null && isFinite(b.v) ? Math.round(b.v) : "?"}`)
+    .join("\n");
+  const spotStr = (spot != null && isFinite(spot)) ? `$${spot.toFixed(2)}` : "n/a";
+  const userMessage =
+    `Ticker: ${symbol}\n` +
+    `Current spot: ${spotStr}\n` +
+    `Daily series (oldest first — DATE close high low volume):\n${seriesBlock}`;
+
+  let response;
+  let lastErr;
+  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+    try {
+      await acquireAiSlot();
+      response = await ai.models.generateContent({
+        model: AI_CHART_MODEL,
+        contents: `${CHART_PATTERN_SYSTEM_PROMPT}\n\n${userMessage}`,
+        config: {
+          temperature: 0.2,
+          maxOutputTokens: 400,
+          responseMimeType: "application/json",
+          responseSchema: CHART_PATTERN_SCHEMA,
+          // Geometric pattern matching over a fixed series — no long
+          // deliberation, and on Flash-Lite thinking tokens count against
+          // maxOutputTokens.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      });
+      recordAiUsage({ model: AI_CHART_MODEL, callType: "chartPattern", symbol, usage: response?.usageMetadata });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const wait = classifyAiError(err, attempt);
+      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
+      console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
+
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const jsonText = firstBrace >= 0 && lastBrace > firstBrace
+    ? stripped.slice(firstBrace, lastBrace + 1)
+    : stripped;
+  const parsed = JSON.parse(jsonText);
+
+  const builtAt = new Date().toISOString();
+  const label = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
+  const meta = CHART_PATTERN_META[label];
+  // Any label we don't recognise collapses to "None" — the score + badge only
+  // ever key off the canonical table, never the model's free text.
+  if (!meta) {
+    return {
+      pattern: "None",
+      type: null,
+      direction: null,
+      confidence: null,
+      explanation: String(parsed.explanation || "").trim(),
+      signal: "",
+      builtAt,
+    };
+  }
+  const conf = ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "medium";
+  return {
+    pattern: label,
+    type: meta.type,
+    direction: meta.direction,
+    confidence: conf,
+    explanation: String(parsed.explanation || "").trim(),
+    signal: String(parsed.signal || "").trim(),
+    builtAt,
+  };
+}
+
+async function attachChartPatterns(chains) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — skipping chart-pattern detection. Chart Pattern signal scores 0.");
+    return;
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  // Needs the in-memory daily bars (writeChainFiles strips _bars before write,
+  // so this MUST run before that wipe) and enough history to read a pattern.
+  const entries = Object.entries(chains).filter(
+    ([, data]) => Array.isArray(data._bars) && data._bars.length >= CHART_PATTERN_MIN_BARS,
+  );
+  console.log(`Detecting chart patterns for ${entries.length} tickers…`);
+  const hb = startHeartbeat("chart patterns", entries.length);
+  const runPass = (passEntries) =>
+    Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
+      try {
+        const chartPattern = await generateChartPattern(ai, sym, data.spot, data._bars);
+        data.technicals = { ...(data.technicals || {}), chartPattern };
+        if (chartPattern.pattern === "None") {
+          console.log(`  · ${sym} — no chart pattern`);
+        } else {
+          console.log(`  ✓ ${sym} — ${chartPattern.pattern} (${chartPattern.type}, ${chartPattern.confidence})`);
+        }
+      } catch (err) {
+        console.log(`  ✗ ${sym} chart-pattern detection failed: ${err.message}`);
+      }
+    })));
+  await runPass(entries);
+  // Final sweep: any ticker still missing a read hit a transient streak that
+  // exhausted the in-call retry budget. Mirrors attachFundamentalsJudgments —
+  // sleep through a quota window, take one more swing.
+  const missed = entries.filter(([, data]) => !data.technicals?.chartPattern);
+  if (missed.length > 0) {
+    console.log(`Retrying ${missed.length} chart-pattern detection(s) after transient failures (sleeping 30s for quota window)…`);
+    await new Promise((r) => setTimeout(r, 30000));
+    await runPass(missed);
+  }
+  hb.stop();
+}
+
 async function attachSocialSentiment(chains) {
   const entries = Object.entries(chains);
   console.log(`Fetching retail sentiment (Stocktwits) for ${entries.length} tickers…`);
@@ -10830,6 +11068,12 @@ async function main() {
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
   await attachAiContractGuidance(chains);
+  // Identify a classic chart pattern per ticker from the in-memory daily bars.
+  // MUST run before writeChainFiles strips _bars (and wipes data/), and before
+  // buildTopPicks / buildGradesIndex score scoreTechnicals — the result lands on
+  // chains[sym].technicals.chartPattern, persisted into each data/<SYM>.json and
+  // read by the Chart Pattern signal. Self-skips without GEMINI_API_KEY.
+  await attachChartPatterns(chains);
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
   // continuity; the unusual snapshot is rewritten after the wipe so the page
