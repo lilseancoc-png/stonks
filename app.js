@@ -9558,6 +9558,78 @@
   // Exit plan — two price targets (take-profit + cut/reduce) plus contextual
   // exit triggers. Server-computed in buildExitPlan() so the browser just
   // lays it out. Older picks.json payloads lack exitPlan; render nothing.
+  // Entry plan — the mirror of the exit ladder. Strategy chip + (optional) 50D
+  // SMA alert + sizing rule + a tranche ladder (each rung: size, price, %move,
+  // trigger, and a per-pillar "why →" disclosure reusing the exit-plan classes).
+  function pickEntryPlanHtml(p){
+    var x = p && p.entryPlan;
+    if (!x || !Array.isArray(x.tranches) || !x.tranches.length) return '';
+    var pillarName = { technical:'Technical', fundamental:'Fundamental', mechanical:'Mechanical', narrative:'Narrative' };
+    var pillarTag = { technical:'T', fundamental:'F', mechanical:'M', narrative:'N' };
+    var pkeys = ['technical','fundamental','mechanical','narrative'];
+    var strat = x.strategy || {};
+    var stratChip = strat.name
+      ? '<div class="pick-entry-strat">' +
+          '<div class="pick-entry-strat-row">' +
+            '<span class="pick-entry-strat-name">' + escapeHtml(String(strat.name)) + '</span>' +
+            (strat.strength ? '<span class="pick-entry-strat-strength">' + escapeHtml(String(strat.strength)) + '</span>' : '') +
+          '</div>' +
+          (strat.blurb ? '<div class="pick-entry-strat-blurb">' + escapeHtml(String(strat.blurb)) + '</div>' : '') +
+        '</div>'
+      : '';
+    var alertHtml = x.atFiftyDaySma
+      ? '<div class="pick-entry-alert">⚑ <b>Prime entry:</b> a &plusmn;20-grade name sitting right on its 50D SMA — the highest-probability pullback entry. Watch for the bounce off it on rising volume.</div>'
+      : '';
+    var nTr = x.scaleCount || x.tranches.length;
+    var stanceBadge = '<span class="pick-entry-stance pick-entry-stance-' + (x.stance === 'full' ? 'full' : 'scale') + '">' +
+      (x.stance === 'full' ? 'Full size OK' : ('Scale &middot; ' + nTr + ' tranche' + (nTr === 1 ? '' : 's'))) + '</span>';
+    var sizingHtml = '<div class="pick-entry-sizing">' + stanceBadge +
+      (x.sizingRule ? '<span class="pick-entry-sizing-txt">' + escapeHtml(String(x.sizingRule)) + '</span>' : '') +
+    '</div>';
+    var rungs = '';
+    for (var i=0; i<x.tranches.length; i++){
+      var tr = x.tranches[i];
+      if (!tr) continue;
+      var role = String(tr.role || '');
+      var mv = (tr.movePct != null && isFinite(tr.movePct))
+        ? '<span class="pick-entry-move ' + (tr.movePct>=0?'sig-pos':'sig-neg') + '">' + (tr.movePct>=0?'+':'') + Number(tr.movePct).toFixed(1) + '%</span>'
+        : '';
+      var priceTxt = (tr.price != null && isFinite(tr.price)) ? '$' + Number(tr.price).toFixed(2) : '';
+      var sizeBadge = tr.size ? '<span class="pick-entry-size">' + escapeHtml(String(tr.size)) + '</span>' : '';
+      var labelTxt = tr.label ? '<span class="pick-entry-rung-label">' + escapeHtml(String(tr.label)) + '</span>' : '';
+      var rsnRows = '';
+      var rs = tr.reasons || {};
+      for (var ri=0; ri<pkeys.length; ri++){
+        var rk = pkeys[ri], rv = rs[rk];
+        if (!rv) continue;
+        rsnRows += '<li class="pick-exit-rsn pick-exit-rsn-' + rk + '">' +
+          '<span class="pick-exit-rsn-tag" title="' + pillarName[rk] + '">' + pillarTag[rk] + '</span>' +
+          '<span class="pick-exit-rsn-txt">' + escapeHtml(String(rv)) + '</span>' +
+        '</li>';
+      }
+      var rsnBlock = rsnRows
+        ? '<details class="pick-exit-why"><summary>why &rarr;</summary><ul class="pick-exit-rsn-list">' + rsnRows + '</ul></details>'
+        : '';
+      rungs += '<li class="pick-entry-rung pick-entry-rung-' + escapeHtml(role) + '">' +
+        '<div class="pick-entry-rung-main">' +
+          sizeBadge +
+          (priceTxt ? '<span class="pick-entry-price">' + priceTxt + '</span>' : '') +
+          mv +
+          labelTxt +
+        '</div>' +
+        (tr.trigger ? '<div class="pick-entry-trigger">' + escapeHtml(String(tr.trigger)) + '</div>' : '') +
+        rsnBlock +
+      '</li>';
+    }
+    return '<div class="pick-entry">' +
+      '<div class="pick-entry-head">Entry plan</div>' +
+      alertHtml +
+      stratChip +
+      sizingHtml +
+      '<ol class="pick-entry-ladder">' + rungs + '</ol>' +
+    '</div>';
+  }
+
   function pickExitPlanHtml(p){
     var x = p && p.exitPlan;
     if (!x) return '';
@@ -9979,8 +10051,14 @@
         '⏱ ' + p.buildCount + ' builds' + '</span>';
     }
     var contractHtml = pickContractHtml(p);
+    var entryHtml = pickEntryPlanHtml(p);
     var exitHtml = pickExitPlanHtml(p);
     var tierHtml = pickTierBadge(p);
+    // "±20 graded stock at its 50D SMA" alert chip (per spec) — only shown when
+    // the entry engine flags the prime-pullback condition.
+    var fiftyHtml = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
+      ? '<span class="pick-fifty-alert" title="A ±20-graded name sitting on its 50D SMA — the highest-probability pullback entry">⚑ 50D SMA</span>'
+      : '';
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
@@ -9991,7 +10069,7 @@
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + analysisHtml + contractHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + analysisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -10017,6 +10095,7 @@
           '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
           streakHtml +
           tenureHtml +
+          fiftyHtml +
         '</div>' +
         bodyHtml +
       '</div>' +
@@ -10038,10 +10117,13 @@
     var metaBits = [];
     if (p.sector) metaBits.push(escapeHtml(p.sector));
     if (spot) metaBits.push(spot);
+    var fiftyChip = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
+      ? '<span class="ptc-alert" title="±20 grade sitting on its 50D SMA — prime pullback entry">⚑ 50D</span>'
+      : '';
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span></span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) + '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
