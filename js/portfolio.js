@@ -549,10 +549,16 @@ function renderRisk() {
     </li>`;
   }).join("");
 
+  // These aggregate Greeks/VaR are computed from the latest build's baked spot +
+  // IV (refreshed ~3×/day), so they can differ from the live per-position rows
+  // above. Surface the build time so the staleness is explicit rather than a
+  // silent mismatch a reviewer would question.
+  const buildAt = window.STONKS_MANIFEST?.builtAt || null;
+  const asOfTitle = `Aggregate Greeks &amp; VaR use the latest build's spot + IV (refreshed ~3×/day${buildAt ? `, last built ${escapeHtml(buildAt)} ET` : ""}); intraday moves aren't reflected here. Off-band-strike positions are priced live.`;
   box.innerHTML = `
     <header class="pf-risk-head">
       <h3 class="pf-risk-title">Portfolio risk</h3>
-      <span class="pf-risk-sub">${countedGreeks} position${countedGreeks === 1 ? "" : "s"} priced${skipped > 0 ? ` · ${skipped} skipped (off-band strike or missing chain)` : ""}</span>
+      <span class="pf-risk-sub" title="${asOfTitle}">${countedGreeks} position${countedGreeks === 1 ? "" : "s"} priced${skipped > 0 ? ` · ${skipped} skipped (off-band strike or missing chain)` : ""} · prices as of last build</span>
     </header>
     <div class="pf-risk-grid">
       <div class="pf-risk-block">
