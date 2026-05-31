@@ -2140,6 +2140,28 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 }
 .combo-empty { padding: 10px var(--s-3); color: var(--muted); font-size: var(--fs-sm); }
 
+/* === Top Picks "grade any ticker" search === */
+.picks-search { margin: 0 0 var(--s-4); }
+.picks-search-label {
+  display: block;
+  font: 600 var(--fs-sm)/1.2 inherit;
+  color: var(--text);
+  margin: 0 0 6px;
+}
+/* The .combo defaults to flex:1 for the header layout; here it's a standalone
+   field, so cap its width and let it size itself. */
+.picks-search .combo { flex: none; max-width: 460px; min-width: 0; }
+.picks-search-hint { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+/* Grade chip shown in each search row once grades.json loads — color by sign
+   via the shared .sig-pos / .sig-neg / .sig-zero tokens. */
+.picks-search-grade {
+  font: 700 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.picks-search-miss { padding: var(--s-3); color: var(--muted); font-size: var(--fs-sm); }
+.picks-search-miss .pick-symbol { margin-left: 4px; }
+
 /* === Segmented control === */
 .segmented {
   display: inline-flex;
@@ -5728,6 +5750,23 @@ main { padding-top: var(--s-2); }
 }
 .pick-side-call { background: var(--pos-soft); color: var(--pos); }
 .pick-side-put { background: var(--neg-soft); color: var(--neg); }
+.pick-side-neutral { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+
+/* Grade-only card (off-list searched ticker) — no rank gutter, so collapse the
+   pick-card's two-column grid to a single column. */
+.pick-card.pick-grade-card { grid-template-columns: minmax(0, 1fr); }
+/* No-trade names render neutral (no green/red side wash). */
+.pick-card.pick-grade-neutral { border-left-color: var(--border); }
+.pick-offlist-note {
+  margin: 0 0 var(--s-3);
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
 .pick-streak {
   font: 600 10px/1 var(--font-mono);
   letter-spacing: .04em;

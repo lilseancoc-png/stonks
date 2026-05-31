@@ -5085,6 +5085,10 @@ export function pickFedwatchBuckets(history, meetingDate, nowIso) {
 // matches reality. Easier to audit and 0¢ to run.
 // ============================================================================
 const PICKS_FILE = "picks.json";
+// Grade index for EVERY tracked ticker (not just the actionable top picks).
+// Powers the Top Picks tab's "grade any ticker" search — the full 4-pillar
+// breakdown + conviction tier for names that don't clear PICKS_MIN_CONVICTION.
+const GRADES_FILE = "grades.json";
 const PICKS_COUNT = 10;
 // 4-pillar scoring tiers (per the spec's Final Score Summary table):
 //   ±20  Strong (Very High conviction, "Load the Boat")
@@ -7289,7 +7293,12 @@ function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, ex
   return { strategy, stance, scaleCount: tranches.length, sizingRule, atFiftyDaySma, tranches, summary };
 }
 
-export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
+// First pass of the picks pipeline, also reused on its own by buildGradesIndex:
+// score EVERY tracked ticker with the full 4-pillar breakdown and build the
+// sector → peer index. buildTopPicks then drops all but the actionable names,
+// but the grades index keeps the whole set so the Top Picks tab can grade any
+// searched ticker, not just the ~10 that clear the conviction threshold.
+function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
   const sectorMedianPE = buildSectorPEMedians(chains);
 
   // Broad-market direction context for the SPY-flows mechanical signal.
@@ -7303,8 +7312,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       : null;
   const marketCtx = { spyMove };
 
-  // First pass: score every ticker with the full 4-pillar breakdown so we
-  // can build the sector index and find peers before we drop anything.
+  // Score every ticker with the full 4-pillar breakdown so we can build the
+  // sector index and find peers before we drop anything.
   const scored = [];
   for (const [sym, data] of Object.entries(chains)) {
     const streakRow = streaksMap && streaksMap[sym]
@@ -7347,6 +7356,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   for (const sec of Object.keys(sectorIndex)) {
     sectorIndex[sec].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   }
+
+  return { scored, sectorIndex };
+}
+
+export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
+  const { scored, sectorIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
 
   // Filter to actionable picks (tier ≠ no-trade) and rank by absolute score.
   const actionable = scored
@@ -7419,6 +7434,60 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // it no longer reorders the list; a +25 always outranks a +22.)
   out.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   return out;
+}
+
+// Grade EVERY tracked ticker with the same 4-pillar engine the top picks use,
+// keyed by symbol. The Top Picks tab's "grade any ticker" search renders these
+// records with the same pillar panel the actionable picks show — so a searched
+// name that didn't clear PICKS_MIN_CONVICTION still gets the full auditable
+// breakdown + conviction tier (no browser recompute). Each record is the subset
+// of the buildTopPicks pickPayload the Grade view needs — pick-only fields
+// (contract / entryPlan / exitPlan / analysis / thesis) are intentionally
+// omitted since off-list names have no recommended contract.
+export function buildGradesIndex(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
+  const { scored, sectorIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+  const grades = {};
+  for (const r of scored) {
+    const sector = r.data?.fundamentals?.sector || null;
+    const peers = (sectorIndex[sector] || [])
+      .filter((p) => p.symbol !== r.sym)
+      .slice(0, 5);
+    grades[r.sym] = {
+      symbol: r.sym,
+      side: r.recommendation?.side || null,
+      total: r.total,
+      conviction: Math.abs(r.total),
+      recommendation: r.recommendation,
+      pillars: r.pillars,
+      drivers: r.drivers,
+      spot: r.data?.spot ?? null,
+      sector,
+      sentiment: r.data?.news?.sentiment || null,
+      fundamentalsVerdict: r.data?.fundamentals?.judgment?.verdict || null,
+      rsi: r.data?.technicals?.rsi ?? null,
+      ivPctile: r.data?.technicals?.volRegime?.rv30Pctile ?? null,
+      streak: r.streakRow?.current
+        ? {
+            color: r.streakRow.current.color,
+            days: r.streakRow.current.days,
+            cumulativePct: r.streakRow.current.cumulativePct,
+          }
+        : null,
+      peers,
+    };
+  }
+  return grades;
+}
+
+// Write data/grades.json — the all-tickers grade index (see buildGradesIndex).
+// Bake-written like picks.json (regenerated every build, not scanner-owned), so
+// it lives in the normal data/ write path and needs no SCANNER_FILES handling.
+export async function writeGradesFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
+  const grades = buildGradesIndex(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags);
+  const payload = { builtAtIso, minConviction: PICKS_MIN_CONVICTION, grades };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, GRADES_FILE), json, "utf8");
+  return { bytes: json.length, count: Object.keys(grades).length };
 }
 
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
@@ -11072,6 +11141,11 @@ async function main() {
   // destructured it out of the serialized payload but never deleted it).
   const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
+  // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
+  // ticker search). Same 4-pillar scoring as the picks above; full breakdown
+  // for names that don't clear the actionable threshold.
+  const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags);
+  console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we
   // just wrote; uses chains[sym].spot for the marks. Carries the prior tracker
