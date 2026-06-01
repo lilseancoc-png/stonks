@@ -50,7 +50,10 @@ const DATA_DIR = resolve(ROOT, "data");
 // Strike scan band is wider than the OTM-flag band so we still see a few
 // ITM strikes for context, but only OTM 5–50% can actually flag.
 const STRIKE_BAND = 0.55;
-const FRONT_EXPIRATIONS = 3;
+// Front two expirations per ticker. The vast majority of high-volume unusual
+// flow concentrates in the front two expiries; scanning the 3rd added a Yahoo
+// call + a 250ms gap per ticker for rare further-dated flags. (Was 3.)
+const FRONT_EXPIRATIONS = 2;
 const OTM_MIN = 0.05;
 const OTM_MAX = 0.50;
 const DTE_NEAR_DAYS = 14;
@@ -1103,55 +1106,76 @@ async function main() {
   let scannedCount = 0;
   let failedCount = 0;
 
-  for (const symbol of TICKERS) {
-    if (EXCLUDE_FROM_SCAN.has(symbol)) continue;
-    try {
-      const result = await scanTicker(symbol, scannedAt, prevVolLookup, nowMs);
-      if (!result) {
+  // Bounded worker pool — the same 4-wide concurrency the daily build runs
+  // against the identical Yahoo options() endpoint (build.mjs TICKER_CONCURRENCY),
+  // so the effective request rate stays at the proven-safe ~4× the serial
+  // baseline (and the two workflows never run concurrently — the shared
+  // concurrency group serializes them). Each worker keeps scanTicker's inner
+  // per-expiration pacing plus a trailing politeness sleep. The collectors below
+  // are append-only and the counters are plain numbers: JS runs these tasks
+  // cooperatively on a single thread (interleaving only at awaits), so the
+  // pushes/increments can't race. `firstMarketState` becomes "any scanned
+  // ticker's market state" rather than strictly the first — harmless, since all
+  // tickers report the same market.
+  const scanList = TICKERS.filter((s) => !EXCLUDE_FROM_SCAN.has(s));
+  let scanCursor = 0;
+  async function scanWorker() {
+    while (true) {
+      const idx = scanCursor++;
+      if (idx >= scanList.length) return;
+      const symbol = scanList[idx];
+      try {
+        const result = await scanTicker(symbol, scannedAt, prevVolLookup, nowMs);
+        if (!result) {
+          failedCount++;
+        } else {
+          scannedCount++;
+          if (!firstMarketState && result.marketState) firstMarketState = result.marketState;
+          volumeScanResults.push({
+            symbol: result.symbol,
+            spot: result.spot,
+            cumVol: result.cumVol,
+            prevClose: result.prevClose,
+          });
+          for (const c of result.candidates) {
+            if ((c.vol ?? 0) >= HISTORY_MIN_VOL) allCandidates.push(c);
+          }
+          if (result.hits.length) {
+            const top = result.hits[0];
+            const topDelta = top.deltaVol ?? 0;
+            const stripped = result.hits.map((h) => {
+              const out = stripCandidate(h);
+              const key = `${out.symbol}|${out.side}|${out.strike}|${out.expSec}`;
+              const prior = repeatLookup.get(key);
+              // +1 includes the current scan, so a contract flagged once before
+              // and again this hour shows "×2", a brand-new hit shows "×1" (badge
+              // won't render until count >= REPEAT_MIN).
+              out.repeatCount = (prior?.count ?? 0) + 1;
+              out.firstSeen = prior?.firstSeen ?? scannedAt;
+              return out;
+            });
+            tickerRows.push({
+              symbol: result.symbol,
+              spot: result.spot,
+              topDelta,
+              contracts: stripped,
+            });
+            console.log(`  ✓ ${symbol} — ${result.hits.length} hit${result.hits.length === 1 ? "" : "s"}, top +${topDelta}/hr (${top.side} $${top.strike})`);
+          } else {
+            console.log(`  · ${symbol} — no unusual flow`);
+          }
+        }
+      } catch (err) {
         failedCount++;
-        continue;
+        console.log(`  ✗ ${symbol} — ${err.message}`);
       }
-      scannedCount++;
-      if (!firstMarketState && result.marketState) firstMarketState = result.marketState;
-      volumeScanResults.push({
-        symbol: result.symbol,
-        spot: result.spot,
-        cumVol: result.cumVol,
-        prevClose: result.prevClose,
-      });
-      for (const c of result.candidates) {
-        if ((c.vol ?? 0) >= HISTORY_MIN_VOL) allCandidates.push(c);
-      }
-      if (result.hits.length) {
-        const top = result.hits[0];
-        const topDelta = top.deltaVol ?? 0;
-        const stripped = result.hits.map((h) => {
-          const out = stripCandidate(h);
-          const key = `${out.symbol}|${out.side}|${out.strike}|${out.expSec}`;
-          const prior = repeatLookup.get(key);
-          // +1 includes the current scan, so a contract flagged once before
-          // and again this hour shows "×2", a brand-new hit shows "×1" (badge
-          // won't render until count >= REPEAT_MIN).
-          out.repeatCount = (prior?.count ?? 0) + 1;
-          out.firstSeen = prior?.firstSeen ?? scannedAt;
-          return out;
-        });
-        tickerRows.push({
-          symbol: result.symbol,
-          spot: result.spot,
-          topDelta,
-          contracts: stripped,
-        });
-        console.log(`  ✓ ${symbol} — ${result.hits.length} hit${result.hits.length === 1 ? "" : "s"}, top +${topDelta}/hr (${top.side} $${top.strike})`);
-      } else {
-        console.log(`  · ${symbol} — no unusual flow`);
-      }
-    } catch (err) {
-      failedCount++;
-      console.log(`  ✗ ${symbol} — ${err.message}`);
+      await sleep(POLITENESS_MS);
     }
-    await sleep(POLITENESS_MS);
   }
+  const SCAN_CONCURRENCY = 4;
+  await Promise.all(
+    Array.from({ length: Math.min(SCAN_CONCURRENCY, scanList.length) }, scanWorker),
+  );
 
   tickerRows.sort((a, b) => b.topDelta - a.topDelta);
 
