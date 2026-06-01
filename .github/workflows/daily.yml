@@ -56,12 +56,16 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Funded Tier-1 project: Flash/Flash-Lite carry 1K-4K RPM quotas, so
           # the build's per-minute AI pacer (build.mjs AI_RPM, default 100) can
-          # run well above the conservative default without risking 429s. 300
-          # keeps a wide cushion under the quota while cutting the RPM-paced
-          # floor of the per-ticker AI passes ~3x. Token-neutral — same number
-          # of calls, just spaced tighter. Leave UNSET on a free-tier fork
-          # (Gemma free = 15 RPM; the default 100 is already too high there).
-          AI_RPM: "300"
+          # run well above the conservative default without risking 429s. The
+          # per-ticker passes run on gemini-2.5-flash-lite (4K RPM / 4M TPM).
+          # Measured peak at AI_RPM=300 was 279 RPM / 890K TPM (~3.2K tok/req) —
+          # i.e. the pacer itself was the binding floor on the per-ticker AI passes.
+          # 600 holds peak-minute TPM at ~53% of the 4M quota and ~15% of the 4K
+          # RPM quota while halving that RPM-paced floor. Token-neutral — same
+          # number of calls, just spaced tighter. (Ceiling ~880 = the 70%-of-4M
+          # TPM line at this token size; 750 is the aggressive option.) Leave
+          # UNSET on a free-tier fork (Gemma free = 15 RPM; even 100 is too high).
+          AI_RPM: "600"
           # Model selection is plumbed through Actions Variables so we can
           # swap models (Gemma free tier → Gemini 2.5 Flash-Lite on paid
           # Tier 1, etc.) without touching code. Unset = build.mjs falls
