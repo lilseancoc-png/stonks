@@ -3741,8 +3741,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         state.chains[exp] = r.chain;
         if (r.spot != null && isFinite(r.spot) && r.spot > 0) state.spot = r.spot;
         // Keep the live-quote pill in sync — same shape /api/quote returns
-        // so renderLiveQuote can reuse its existing branch.
-        var pillQ = { spot: r.spot, marketState: r.marketState, change: null, changePct: null };
+        // so renderLiveQuote can reuse its existing branch. /api/chain doesn't
+        // return the day change, so carry forward the last quote's change /
+        // changePct instead of nulling them — otherwise polling (and re-selecting
+        // the ticker within the 30s cache window) wipes the day-change off the pill.
+        var prevQ = (LIVE_CACHE[symbol] && LIVE_CACHE[symbol].q) || {};
+        var pillQ = {
+          spot: r.spot,
+          marketState: r.marketState,
+          change: prevQ.change != null ? prevQ.change : null,
+          changePct: prevQ.changePct != null ? prevQ.changePct : null,
+        };
         LIVE_CACHE[symbol] = { q: pillQ, at: Date.now() };
         renderLiveQuote(symbol, pillQ);
         populateStrikes();
@@ -4627,15 +4636,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var fmtBig = opts.formatValue || fmtBigDollars;
     var centerLabel = fmtBig(total);
 
-    // Whole-donut delta header — sum of all previousValues we have, so the
-    // top of the chart anchors the comparison in one number.
-    var prevTotal = 0;
+    // Whole-donut delta header. Sum the surviving slices' prior values to
+    // detect whether we have any comparison data at all (and as a fallback for
+    // older baked data), but anchor the actual prior total on opts.previousTotal
+    // when the pipeline supplied it — that figure includes segments which have
+    // since exited and are absent from the slice list, so summing per-slice
+    // previousValue alone undercounts the prior total and biases the header up.
+    var slicePrevSum = 0;
     var prevTotalHits = 0;
     for (var pi = 0; pi < slices.length; pi++){
       var pv = slices[pi].previousValue;
-      if (pv != null && isFinite(pv) && pv > 0){ prevTotal += pv; prevTotalHits++; }
+      if (pv != null && isFinite(pv) && pv > 0){ slicePrevSum += pv; prevTotalHits++; }
     }
     var hasComparison = prevTotalHits > 0;
+    var prevTotal = (opts.previousTotal != null && isFinite(opts.previousTotal) && opts.previousTotal > 0)
+      ? opts.previousTotal : slicePrevSum;
     var totalDelta = hasComparison ? (total - prevTotal) : null;
     var totalPct = hasComparison && prevTotal > 0 ? (totalDelta / prevTotal) : null;
 
@@ -4784,6 +4799,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       subtitle: subFor(seg.productPeriod),
       slices: seg.product || null,
       formatValue: fmtVal,
+      previousTotal: seg.productPeriod && seg.productPeriod.previousTotal,
     });
     renderDonutChart({
       boxId: 'opt-fund-seg-geo',
@@ -4791,6 +4807,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       subtitle: subFor(seg.geographicPeriod),
       slices: seg.geographic || null,
       formatValue: fmtVal,
+      previousTotal: seg.geographicPeriod && seg.geographicPeriod.previousTotal,
     });
     container.hidden = !(seg.product || seg.geographic);
   }
@@ -7250,7 +7267,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var costCls   = netCost >= 0 ? 'is-debit' : 'is-credit';
     var maxGain, maxLoss;
     if (sweep){
-      maxGain = sweep.unlimitedGainUp ? '<span class="strat-summary-unlim">unlimited</span>' : stratFmtSigned(sweep.max);
+      // Mirror the loss cell: a down-tail-driven extreme (net-long puts →
+      // unboundedGainDown) is flagged "unlimited" just like net-long calls
+      // (unlimitedGainUp). Checking only unlimitedGainUp showed long-put
+      // structures a misleading sampled-band cap from sweep.max.
+      maxGain = sweep.unlimitedGainUp || sweep.unboundedGainDown ? '<span class="strat-summary-unlim">unlimited</span>' : stratFmtSigned(sweep.max);
       maxLoss = sweep.unlimitedLossUp || sweep.unboundedLossDown ? '<span class="strat-summary-unlim is-loss">unlimited</span>' : stratFmtSigned(sweep.min);
     } else {
       maxGain = '—'; maxLoss = '—';
@@ -10954,11 +10975,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             rows.push({
               ticker: t.symbol,
               spot: t.spot != null ? t.spot : '',
-              side: c.type || '',
-              strike: c.s != null ? c.s : '',
-              expiry: c.expDate || '',
+              // Field names must match what scan-unusual.mjs::stripCandidate
+              // writes (side/strike/expSec/vol) — the same names flowContractHtml
+              // renders. The old c.type/c.s/c.expDate/c.v never existed on these
+              // objects, so those four columns exported blank.
+              side: c.side || '',
+              strike: c.strike != null ? c.strike : '',
+              expiry: c.expSec ? fmtExpiry(c.expSec) : '',
               dte: c.dte != null ? c.dte : '',
-              volume: c.v != null ? c.v : '',
+              volume: c.vol != null ? c.vol : '',
               openInterest: c.oi != null ? c.oi : '',
               iv: c.iv != null ? c.iv : '',
               tape: c.tape || '',
