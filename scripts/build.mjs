@@ -11526,6 +11526,37 @@ async function main() {
   // a FRED/BLS outage ships a blank macro calendar. Threaded in via extras.priorCalendar.
   const priorCalendar = await readPriorCalendar();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
+  // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
+  // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
+  // phases below, instead of serially after them — it was the build's second
+  // biggest stage and is fully off the critical path once overlapped.
+  // buildPerFirm13FHoldings() takes no args and reads only the network (never
+  // data/, chains, or narratives), so starting it here is safe; the result is
+  // awaited far below where the 13F files are written.
+  // SEC-safety: the only per-ticker SEC (data.sec.gov) work — fetchRevenueSegments
+  // inside fetchAllTickerChains — already finished (chains were awaited above), so
+  // this 13F SEC burst is temporally DISJOINT from the per-ticker XBRL burst and
+  // does NOT raise the aggregate SEC request rate. Do NOT move this earlier (ahead
+  // of the chain fetch) — that WOULD double SEC load and risk an EDGAR IP-block.
+  // The 240s timeout starts here (true budget-from-start, now overlapping useful
+  // work); clearTimeout fires at the await site when the work resolves first.
+  console.log("Fetching per-firm 13F holdings (SEC EDGAR + OpenFIGI), concurrent with narratives…");
+  // 240s caps a runaway: OpenFIGI's unauth tier throttles each batch ~2.5s
+  // (~125s with OPENFIGI_MAX_BATCHES_UNAUTH=50) and the slowest EDGAR firm can
+  // burn its full per-firm budget on top — 185s observed in the wild.
+  const F13_TIMEOUT_MS = 240_000;
+  const f13Empty = { perFirm: {}, overallTopBought: [], overallTopSold: [] };
+  let f13TimeoutHandle = null;
+  const f13TimeoutPromise = new Promise((resolve) => {
+    f13TimeoutHandle = setTimeout(() => {
+      console.log(`  ⚠ buildPerFirm13FHoldings exceeded ${F13_TIMEOUT_MS / 1000}s — keeping baseline.`);
+      resolve(f13Empty);
+    }, F13_TIMEOUT_MS);
+  });
+  const f13WorkPromise = buildPerFirm13FHoldings().catch((err) => {
+    console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
+    return f13Empty;
+  });
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
@@ -11824,31 +11855,13 @@ async function main() {
   // file deleted in the next commit.
   const baselineInfo = await write13FFile(chains, trends.narratives, builtAtIso, {});
   console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
-  console.log("Fetching per-firm 13F holdings (SEC EDGAR + OpenFIGI)…");
-  // OpenFIGI's unauthenticated tier throttles every batch by 2.5s. With
-  // OPENFIGI_MAX_BATCHES_UNAUTH=50 that's ~125s of pure throttle sleep,
-  // and the slowest EDGAR firm can burn the full 60s per-firm budget on
-  // top of that — 185s observed in the wild, blowing past an earlier
-  // 180s cap. 240s gives ~55s of headroom while still capping a runaway.
-  const F13_TIMEOUT_MS = 240_000;
-  // buildPerFirm13FHoldings now returns { perFirm, overallTopBought,
-  // overallTopSold } — the diff-based shape this PR introduced.
-  const f13Empty = { perFirm: {}, overallTopBought: [], overallTopSold: [] };
-  // Clear the timer when the real work resolves first — otherwise the
-  // unfired setTimeout keeps counting and prints a misleading "exceeded
-  // 240s — keeping baseline" warning long after the enriched 13F was
-  // already written.
-  let f13TimeoutHandle = null;
-  const f13TimeoutPromise = new Promise((resolve) => {
-    f13TimeoutHandle = setTimeout(() => {
-      console.log(`  ⚠ buildPerFirm13FHoldings exceeded ${F13_TIMEOUT_MS / 1000}s — keeping baseline.`);
-      resolve(f13Empty);
-    }, F13_TIMEOUT_MS);
-  });
-  const f13WorkPromise = buildPerFirm13FHoldings().catch((err) => {
-    console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
-    return f13Empty;
-  });
+  // The enrichment work + its 240s timeout race were kicked off concurrently up
+  // near attachMarketNarratives so they overlapped the narratives/calendar/scoring
+  // phases — by now it's usually already resolved. Await the race here, where the
+  // result is consumed, and clear the timer when the real work won (otherwise the
+  // unfired setTimeout would keep counting and later print a misleading
+  // "exceeded 240s" warning). buildPerFirm13FHoldings returns
+  // { perFirm, overallTopBought, overallTopSold }.
   const perFirmResult = await Promise.race([f13WorkPromise, f13TimeoutPromise]);
   clearTimeout(f13TimeoutHandle);
   const perFirmMap = perFirmResult.perFirm || {};

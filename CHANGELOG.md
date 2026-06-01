@@ -19,6 +19,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Top Picks landing cards now show a `⏱ N×` consecutive-build streak chip (how many builds in a row the ticker has held a top-picks spot), mirroring the detail card's existing tenure badge. Shown only when the streak is >1.
 
+### Perf
+- Daily build: 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI) now runs **concurrently** with the narratives/calendar/scoring phases instead of serially at the end — its ~60-80s comes off the critical path. Kicked off right before `attachMarketNarratives` (after all per-ticker SEC XBRL has drained, so SEC load is not doubled) and awaited where the 13F files are written.
+- Daily build: raise the Gemini AI pacer `AI_RPM` 300 → 600 in `daily.yml`. The per-ticker passes run on Flash-Lite (4K RPM / 4M TPM) and peaked at 279 RPM / 890K TPM, so the pacer was the binding floor; 600 keeps peak-minute TPM at ~53% of quota while halving the RPM-paced floor. Together with the 13F overlap this projects the ~4m20s node build down to ~2m45s.
+
 ### Fixed
 - Calendar macro-report salvage now actually fires: `writeCalendarFile`'s FRED/BLS-outage fallback read `data/calendar.json` *after* the build wiped `data/`, so it always missed and shipped a blank macro calendar on a feed outage. `main()` now pre-reads it before the wipe and threads it in (`readPriorCalendar` / `extras.priorCalendar`).
 - Unusual-flow **Export CSV** no longer leaves Side/Strike/Expiry/Volume blank — it read `c.type`/`c.s`/`c.expDate`/`c.v` but the scanner writes `c.side`/`c.strike`/`c.expSec`/`c.vol`.
