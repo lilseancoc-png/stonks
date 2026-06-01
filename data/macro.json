@@ -1,15 +1,15 @@
 {
   "twoY": null,
   "tenY": {
-    "value": 4.473,
+    "value": 4.475,
     "prior": 4.558000087738037,
     "prior1d": 4.453000068664551,
     "prior5d": 4.558000087738037,
-    "change5d": -1.8648548947312455,
-    "pctChange1d": 0.4491338654177708,
-    "pctChange5d": -1.8648548947312455,
-    "bpsChange1d": 1.9999931335449084,
-    "bpsChange5d": -8.500008773803724,
+    "change5d": -1.8209760013240206,
+    "pctChange1d": 0.4940474061579481,
+    "pctChange5d": -1.8209760013240206,
+    "bpsChange1d": 2.1999931335448863,
+    "bpsChange5d": -8.300008773803746,
     "trend": "falling"
   },
   "thirtyY": {
@@ -25,32 +25,32 @@
     "trend": "falling"
   },
   "dxy": {
-    "value": 99.187,
+    "value": 99.197,
     "prior": 99.31999969482422,
     "prior1d": 98.91000366210938,
     "prior5d": 99.31999969482422,
-    "change5d": -0.13391028517205286,
-    "pctChange1d": 0.28004886021122943,
-    "pctChange5d": -0.13391028517205286,
+    "change5d": -0.12384181957526305,
+    "pctChange1d": 0.29015906102991157,
+    "pctChange5d": -0.12384181957526305,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "flat"
   },
   "vix": {
-    "value": 15.74,
+    "value": 16.01,
     "prior": 16.59000015258789,
     "prior1d": 15.319999694824219,
     "prior5d": 16.59000015258789,
-    "change5d": -5.123569287341436,
-    "pctChange1d": 2.741516406933587,
-    "pctChange5d": -5.123569287341436,
+    "change5d": -3.4960828646973474,
+    "pctChange1d": 4.503918530813651,
+    "pctChange5d": -3.4960828646973474,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "falling",
     "rankPct": null,
     "rankSamples": 4
   },
-  "asOf": "2026-06-01T19:02:37.450Z",
+  "asOf": "2026-06-01T20:02:37.158Z",
   "previousClose": {
     "date": "2026-05-31",
     "asOf": "2026-06-01T00:16:32.898Z",
