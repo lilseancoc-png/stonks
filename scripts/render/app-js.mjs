@@ -10361,10 +10361,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var fiftyChip = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
       ? '<span class="ptc-alert" title="±20 grade sitting on its 50D SMA — prime pullback entry">⚑ 50D</span>'
       : '';
+    // Consecutive-build streak chip — mirrors the detail card's ⏱ tenure badge
+    // (buildPickCardHtml) so the count is visible while skimming the ranked grid.
+    // Only shown once the name has held a top-picks spot for more than one build
+    // in a row; a lone appearance is the default and not worth the chip.
+    var streakChip = '';
+    if (p.buildCount > 1){
+      var ptcSince = fmtRepeatSince(p.firstSeen);
+      streakChip = '<span class="ptc-streak" title="In the top picks for ' + p.buildCount +
+        ' consecutive builds' + (ptcSince ? ' — since ' + escapeHtml(ptcSince) : '') + '">⏱ ' +
+        p.buildCount + '×</span>';
+    }
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) + '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +

@@ -5663,6 +5663,19 @@ main { padding-top: var(--s-2); }
 }
 .ptc-side-call { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
 .ptc-side-put  { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
+/* Neutral muted tint over the card (the card itself is --surface-2, so a flat
+   --surface-2 chip would vanish). Geometry matches the adjacent .ptc-side chip;
+   only the hue is neutral instead of the call/put green/red. */
+.ptc-streak {
+  flex: 0 0 auto;
+  font: 700 8px/1 var(--font-mono);
+  letter-spacing: .06em;
+  padding: 3px 5px;
+  border-radius: 3px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  white-space: nowrap;
+}
 .ptc-score {
   grid-area: score;
   align-self: start;
