@@ -215,9 +215,15 @@ async function loadOiHistory() {
   }
 }
 
-// Picks the most recent snapshot whose etDate is strictly before
-// today's. That's always yesterday's last scan (EOD if both runs landed,
-// pre-market if only one). Returns null on a cold start.
+// Picks the most recent snapshot whose etDate is strictly before today's —
+// i.e. the last scan from any earlier ET date. On a normal weekday cadence
+// that's yesterday's last scan (EOD if both runs landed, pre-market if only
+// one). Note it is NOT guaranteed to be the previous *trading* day: an
+// off-schedule weekend/holiday scan would interpose. That's acceptable for ΔOI
+// because open interest is static while the market is closed (a weekend
+// snapshot carries Friday's settled OI), and the interposed snapshot's strike
+// coverage often matches the next session better than Friday's would. Returns
+// null on a cold start.
 function findPreviousDaySnapshot(history, todayKey) {
   const snaps = (history.snapshots || []).slice().reverse();
   for (const snap of snaps) {
@@ -512,9 +518,13 @@ async function main() {
 
   // OI_SCAN_LIMIT env var caps the universe to the first N tickers —
   // useful for local smoke tests and CI dry runs without hitting Yahoo
-  // for the full ~137 symbols. Unset in production.
-  const SCAN_TICKERS = process.env.OI_SCAN_LIMIT
-    ? TICKERS.slice(0, Number(process.env.OI_SCAN_LIMIT))
+  // for the full ~137 symbols. Unset in production. Parse defensively: a
+  // value of "0" / non-numeric must NOT collapse the universe to zero
+  // tickers (which would skip the success-rate guard below and commit an
+  // empty oi-tracker.json + poison the ΔOI baseline) — treat it as "no cap".
+  const scanLimit = Number(process.env.OI_SCAN_LIMIT);
+  const SCAN_TICKERS = Number.isFinite(scanLimit) && scanLimit > 0
+    ? TICKERS.slice(0, scanLimit)
     : TICKERS;
 
   console.log(
@@ -619,7 +629,9 @@ async function main() {
   // last-good files stay — mirrors build.mjs's MIN_SUCCESS_RATE guard.
   const MIN_SCAN_SUCCESS_RATE = 0.5;
   const attempted = scannedCount + failedCount;
-  if (attempted && scannedCount / attempted < MIN_SCAN_SUCCESS_RATE) {
+  // `!attempted` also aborts the degenerate empty-universe case (e.g. a bad
+  // OI_SCAN_LIMIT) so it can never write an empty tracker + poison history.
+  if (!attempted || scannedCount / attempted < MIN_SCAN_SUCCESS_RATE) {
     console.error(
       `Only ${scannedCount}/${attempted} tickers fetched (${((scannedCount / attempted) * 100).toFixed(0)}% < ${MIN_SCAN_SUCCESS_RATE * 100}%) — likely a systemic Yahoo block. Leaving last-good OI data in place.`,
     );

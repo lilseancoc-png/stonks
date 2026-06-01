@@ -1281,7 +1281,16 @@ function clipSnapshotsToRange(rows, range) {
   if (range === "ALL") return rows;
   const days = RANGE_DAYS[range];
   if (!days) return rows;
-  const cutoff = Date.now() - days * 86400000;
+  // Snapshot dates are UTC-midnight day keys, so anchor the cutoff on a UTC day
+  // boundary (like the YTD branch) instead of a raw `Date.now() - days*ms`
+  // sliding instant. A sliding cutoff lands mid-day (e.g. for "1D", ~now−24h
+  // falls in the middle of yesterday), but yesterday's key is yesterday at
+  // 00:00Z — which is < the sliding cutoff — so only today's snapshot survived
+  // and the chart (which needs ≥2 points) stayed blank. Snapping to today's UTC
+  // midnight and going `days` back keeps the intended window: 1D → yesterday +
+  // today, 1W → the last 7 days, etc.
+  const today0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const cutoff = today0 - days * 86400000;
   return rows.filter((r) => new Date(r.date).getTime() >= cutoff);
 }
 

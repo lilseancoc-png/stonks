@@ -100,6 +100,10 @@ async function main() {
     fedwatchHistory.meetings[meetingDate][todayIso] = buckets.now;
     snapshotCount++;
   }
+  // Drop past meetings + cap per-meeting snapshots before writing, exactly as
+  // build.mjs main() does — otherwise the regen path lets fedwatch-history.json
+  // grow unbounded and diverge from the bounded artifact the full build emits.
+  build.pruneFedwatchHistory(fedwatchHistory, todayIso);
   await build.writeFedwatchHistory(fedwatchHistory);
   console.log(`  · ${snapshotCount} meeting snapshots`);
 

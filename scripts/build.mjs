@@ -1117,9 +1117,27 @@ async function fetchFundamentals(symbol) {
       nextEarnings = first.toISOString().slice(0, 10);
       const hourUtc = first.getUTCHours();
       const minUtc = first.getUTCMinutes();
-      if (hourUtc === 0 && minUtc === 0) nextEarningsSession = "TBD";
-      else if (hourUtc < 14) nextEarningsSession = "AM";
-      else nextEarningsSession = "PM";
+      if (hourUtc === 0 && minUtc === 0) {
+        nextEarningsSession = "TBD";
+      } else {
+        // Bucket by America/New_York wall-clock, NOT a fixed UTC hour: BMO
+        // releases cluster pre-open and AMC post-close, but a fixed UTC cut
+        // (`hourUtc < 14`) mislabels winter (EST) pre-open releases as PM —
+        // e.g. a 9:00 ET BMO print is 14:00 UTC in EST, so it fell through to
+        // "PM". Convert to ET and split at midday so the call is DST-correct
+        // year-round. (earningsCallTime and the Nasdaq sessionMap still
+        // override this heuristic when present.)
+        let etHour = hourUtc;
+        try {
+          const etH = Number(
+            new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York", hour: "2-digit", hour12: false,
+            }).format(first),
+          );
+          if (Number.isFinite(etH)) etHour = etH % 24;
+        } catch (_) { /* Intl missing — fall back to the UTC hour */ }
+        nextEarningsSession = etHour < 12 ? "AM" : "PM";
+      }
     }
   }
   // Yahoo occasionally exposes a separate earningsCallTime string ("BMO"/"AMC")
@@ -2200,8 +2218,19 @@ export async function fetchRevenueSegments(symbol) {
     if (!pick) return null;
     const slices = buildSegmentSlices(pick.current, pick.previous);
     if (!slices) return null;
+    // True prior-period total over ALL prior segments — including any that
+    // have since exited and so are absent from `slices`. The donut's
+    // whole-chart QoQ/YoY header must anchor on this, not on the sum of
+    // surviving slices' previousValue, or dropped segments bias the delta up.
+    let previousTotal = 0;
+    if (pick.previous) {
+      for (const v of pick.previous.values()) {
+        if (Number.isFinite(v) && v > 0) previousTotal += v;
+      }
+    }
     return {
       slices,
+      previousTotal: previousTotal > 0 ? previousTotal : null,
       periodType: type,
       currentPeriod: pick.currentEnd ? {
         endDate: pick.currentEnd,
@@ -2257,11 +2286,13 @@ export async function fetchRevenueSegments(symbol) {
       periodType: productAxis.periodType,
       currentPeriod: productAxis.currentPeriod,
       previousPeriod: productAxis.previousPeriod,
+      previousTotal: productAxis.previousTotal,
     } : null,
     geographicPeriod: geographicAxis ? {
       periodType: geographicAxis.periodType,
       currentPeriod: geographicAxis.currentPeriod,
       previousPeriod: geographicAxis.previousPeriod,
+      previousTotal: geographicAxis.previousTotal,
     } : null,
     currency: cur,
     fetchedDate: today,
@@ -2996,6 +3027,22 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   };
 }
 
+// Snapshot data/calendar.json BEFORE writeChainFiles wipes data/, so the
+// macro-report salvage in writeCalendarFile (carry in-window report rows when
+// FRED + BLS both come back empty) has a prior calendar to read. In the build
+// path the wipe runs before writeCalendarFile, so a disk read there always
+// misses — main() pre-reads via this and threads the result in as
+// extras.priorCalendar. regen-calendar.mjs never wipes data/, so it leaves
+// extras.priorCalendar undefined and writeCalendarFile falls back to the
+// on-disk read. Returns null when the file is absent/unreadable.
+export async function readPriorCalendar() {
+  try {
+    return JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extras) {
   const payload = buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras);
   // Final tier of macro-report resilience: if FRED + BLS both came back
@@ -3008,7 +3055,13 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
   const hasFreshReports = payload.events.some((ev) => ev?.type === "report");
   if (!hasFreshReports) {
     try {
-      const prior = JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
+      // In the build path data/calendar.json is already wiped by the time this
+      // runs, so main() pre-reads it before the wipe and passes it as
+      // extras.priorCalendar (may be null on a cold start). regen-calendar.mjs
+      // leaves it undefined and we read from disk — it never wipes data/.
+      const prior = extras?.priorCalendar !== undefined
+        ? extras.priorCalendar
+        : JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
       const today = new Date(builtAtIso || Date.now());
       const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
       const cutoffMs = startMs + CALENDAR_DAYS_AHEAD * 86400000;
@@ -11466,6 +11519,12 @@ async function main() {
   // lives in data/, so snapshot it now and thread it into diffGradesHistory after
   // the wipe, or the change log resets every build.
   const gradesHistoryPrev = await readGradesHistory();
+  // Same rule for the calendar macro-report salvage: writeCalendarFile's
+  // last-good fallback (carry in-window report rows when FRED + BLS both come
+  // back empty) reads data/calendar.json, but it runs AFTER writeChainFiles
+  // wipes data/ — so without this pre-read the salvage silently never fires and
+  // a FRED/BLS outage ships a blank macro calendar. Threaded in via extras.priorCalendar.
+  const priorCalendar = await readPriorCalendar();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
@@ -11714,6 +11773,7 @@ async function main() {
     fedRate: effectiveFedRate || fedRate,
     fedwatch,
     sessionMap,
+    priorCalendar,
   });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (next ${CALENDAR_DAYS_AHEAD}d), ${calendarInfo.bytes} bytes`);
   // Top picks: rank tickers by fused signal score and write data/picks.json.

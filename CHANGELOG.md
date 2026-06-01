@@ -19,6 +19,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Top Picks landing cards now show a `⏱ N×` consecutive-build streak chip (how many builds in a row the ticker has held a top-picks spot), mirroring the detail card's existing tenure badge. Shown only when the streak is >1.
 
+### Fixed
+- Calendar macro-report salvage now actually fires: `writeCalendarFile`'s FRED/BLS-outage fallback read `data/calendar.json` *after* the build wiped `data/`, so it always missed and shipped a blank macro calendar on a feed outage. `main()` now pre-reads it before the wipe and threads it in (`readPriorCalendar` / `extras.priorCalendar`).
+- Unusual-flow **Export CSV** no longer leaves Side/Strike/Expiry/Volume blank — it read `c.type`/`c.s`/`c.expDate`/`c.v` but the scanner writes `c.side`/`c.strike`/`c.expSec`/`c.vol`.
+- Earnings AM/PM session is now derived from America/New_York wall-clock instead of a fixed UTC-hour cut, so winter (EST) pre-open releases are no longer mislabeled PM.
+- `regen-calendar.mjs` now prunes `fedwatch-history.json` (past meetings + per-meeting snapshot cap) before writing, matching the full build so the regen path can't grow it unbounded.
+- Revenue-segment donut QoQ/YoY header no longer biases upward when a segment exits — the prior-period total now counts all prior segments (`previousTotal`), not just surviving slices.
+- Entry-Strategy summary now flags long-put (down-tail) max gain as "unlimited" like long calls, instead of showing a misleading capped sampled-band number.
+- Grade-tab live `/api/chain` poll no longer wipes the day-change off the live-quote pill — it carries forward the prior quote's `change`/`changePct` instead of nulling them.
+- `scan-oi.mjs` hardens `OI_SCAN_LIMIT`: a `0`/non-numeric value now means "no cap" instead of collapsing to zero tickers, and the success-rate guard also aborts on an empty universe so it can't commit an empty tracker or poison the ΔOI baseline.
+- Portfolio equity-chart "1D" range now anchors its cutoff on a UTC day boundary instead of a sliding 24h instant, so the range returns ≥2 points and the chart renders (dormant portfolio stack).
+
 ### Docs
 - Add this `CHANGELOG.md` and a convention in `CLAUDE.md` to log every change going forward.
 
