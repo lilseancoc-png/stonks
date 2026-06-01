@@ -40,13 +40,28 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # Cache ~/.npm keyed on package-lock.json so the per-run dependency
+          # download (collapses the ~25-50s cold install of the @google/genai
+          # + yahoo-finance2 + @supabase trees) becomes a ~3-8s cache restore.
+          cache: "npm"
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        # `npm ci` installs offline from the committed lockfile (lockfileVersion
+        # 3, fully pinned) — deterministic and faster than `npm install` once the
+        # cache above is warm. Cache miss falls back to a normal cold install.
+        run: npm ci --no-audit --no-fund
 
       - name: Build site
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Funded Tier-1 project: Flash/Flash-Lite carry 1K-4K RPM quotas, so
+          # the build's per-minute AI pacer (build.mjs AI_RPM, default 100) can
+          # run well above the conservative default without risking 429s. 300
+          # keeps a wide cushion under the quota while cutting the RPM-paced
+          # floor of the per-ticker AI passes ~3x. Token-neutral — same number
+          # of calls, just spaced tighter. Leave UNSET on a free-tier fork
+          # (Gemma free = 15 RPM; the default 100 is already too high there).
+          AI_RPM: "300"
           # Model selection is plumbed through Actions Variables so we can
           # swap models (Gemma free tier → Gemini 2.5 Flash-Lite on paid
           # Tier 1, etc.) without touching code. Unset = build.mjs falls

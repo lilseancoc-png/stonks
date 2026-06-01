@@ -14,6 +14,7 @@
 import { writeFile, readFile, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 import { greeks, yearsToExpiry } from "../lib/greeks.mjs";
@@ -500,11 +501,19 @@ export function ensureTickerCoverage(narratives, allSymbols) {
 // without any extra Yahoo calls (we already receive the full chain, this
 // just controls how much of it we keep).
 const STRIKE_BAND = 0.50;
-// Up from 6 — pushes coverage to ~late-2027 LEAPS for liquid names. Each
-// added expiration costs one extra Yahoo call per ticker with a 250ms
-// politeness pause, so the build adds ~2 min wall-clock. Less-liquid
-// names asymptote at whatever Yahoo returns (the .slice() handles it).
-const MAX_EXPIRATIONS = 15;
+// Each added expiration costs one extra Yahoo call per ticker (with the
+// inter-expiration politeness pause below), so this directly drives the
+// chain-fetch wall clock. 10 keeps the near-dated weeklies plus the front 1-2
+// standard monthlies (~46 DTE for the most liquid, weekly-heavy names; further
+// out for monthly-only names) — comfortably covering the picks engine's ideal
+// 30-60 DTE window and never beyond its PICKS_MAX_DTE=120 soft cap, so Top
+// Picks / autoPick are unaffected. The far-dated tail beyond slot 10 is dropped
+// from the baked IV term-structure chart + expiration dropdown, but the Grade
+// tab still live-fetches any specific expiration via /api/chain on demand.
+// (Was 15 — the extra ~5 expirations/ticker added ~1.5 min of wall clock for a
+// LEAPS tail almost nothing in the UI consumed.) Less-liquid names asymptote at
+// whatever Yahoo returns (the .slice() handles it).
+const MAX_EXPIRATIONS = 10;
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst. Retry transient failures, but bail on the
 // existing site if too many tickers fail — better to serve yesterday's data
@@ -2287,7 +2296,11 @@ async function fetchTickerChain(symbol) {
     if (i === 0 && initial.options?.[0]) {
       chainEntry = initial.options[0];
     } else {
-      await new Promise((r) => setTimeout(r, 250));
+      // Politeness gap between same-ticker expiration calls. 150ms keeps each
+      // worker's request rate (~1 call / 150ms+latency) comfortably below the
+      // Yahoo throttle line at TICKER_CONCURRENCY=4 (~8 req/s aggregate), while
+      // shaving ~100ms × (expirations-1) off every ticker vs the old 250ms gap.
+      await new Promise((r) => setTimeout(r, 150));
       const r = await fetchYahooOptions(symbol, exp);
       chainEntry = r.options?.[0];
     }
@@ -2568,7 +2581,7 @@ async function fetchMacroBackdrop() {
 }
 
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
-// paces its own per-expiration Yahoo calls with the existing 250ms gap inside
+// paces its own per-expiration Yahoo calls with the 150ms gap inside
 // fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
 // times the serial baseline — still well below typical rate-limit thresholds.
 // Four workers — gives us the chain-fetch speedup without re-introducing
@@ -2599,7 +2612,9 @@ async function fetchAllTickerChains() {
       });
       // Small per-worker politeness pause so adjacent tickers on the same
       // worker don't slam Yahoo back-to-back after the inner expiration loop.
-      await new Promise((r) => setTimeout(r, 350));
+      // (The inner loop's last 150ms gap already precedes this, so 200ms keeps
+      // a comfortable margin between one ticker's last call and the next's.)
+      await new Promise((r) => setTimeout(r, 200));
     }
   }
 
@@ -9570,13 +9585,18 @@ async function attachAiContractGuidance(chains) {
     "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
     "Each evidence string: one short clause citing the headline. No markdown, no preamble.";
   let tagged = 0;
-  for (const [sym, data] of Object.entries(chains)) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  // Parallelize across tickers — the actual model calls are still serialized by
+  // the shared acquireAiSlot() RPM pacer, so concurrency here only overlaps
+  // network + JSON-parse latency. This pass used to be a serial for-of (the one
+  // un-parallelized AI pass), summing a full round-trip per ticker on the
+  // critical path; the other per-ticker passes already fan out via Promise.all.
+  await Promise.all(Object.entries(chains).map(([sym, data]) => (async () => {
     const headlines = (data && data.news && Array.isArray(data.news.headlines)) ? data.news.headlines : [];
-    if (!headlines.length) continue;
+    if (!headlines.length) return;
     const headlineBlock = headlines
       .map((h, i) => `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`)
       .join("\n");
-    const todayIso = new Date().toISOString().slice(0, 10);
     const userMessage =
       `Today's date: ${todayIso}\nTicker: ${sym}\n` +
       `Recent headlines (newest first):\n${headlineBlock}\n\n` +
@@ -9611,7 +9631,7 @@ async function attachAiContractGuidance(chains) {
     }
     if (!response) {
       if (lastErr) console.warn(`[picks] contract/guidance extraction failed for ${sym} — fundamentals fall back to proxy (${String(lastErr.message || lastErr).split("\n")[0]})`);
-      continue;
+      return;
     }
     try {
       const txt = String(response.text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
@@ -9627,7 +9647,7 @@ async function attachAiContractGuidance(chains) {
     } catch {
       // Bad JSON — leave aiSignals unset (proxy / no-data path).
     }
-  }
+  })()));
   if (tagged) console.log(`[picks] extracted contract/guidance signals for ${tagged} tickers (${model})`);
 }
 
@@ -10410,8 +10430,13 @@ async function generateChartPattern(ai, symbol, spot, bars) {
       await acquireAiSlot();
       response = await ai.models.generateContent({
         model: AI_CHART_MODEL,
-        contents: `${CHART_PATTERN_SYSTEM_PROMPT}\n\n${userMessage}`,
+        contents: userMessage,
         config: {
+          // Static instruction → stable prefix so Gemini implicit caching can
+          // engage across the per-ticker calls in this pass (the judgment +
+          // signals passes already pass their system prompt this way). The
+          // model sees the same total text, just partitioned out of `contents`.
+          systemInstruction: CHART_PATTERN_SYSTEM_PROMPT,
           temperature: 0.2,
           maxOutputTokens: 400,
           responseMimeType: "application/json",
@@ -10473,10 +10498,59 @@ async function generateChartPattern(ai, symbol, spot, bars) {
   };
 }
 
-async function attachChartPatterns(chains) {
+// data/chart-pattern-cache.json — cross-build cache so the 12:00 / 17:00 ET
+// builds don't re-ask the model for a pattern whose underlying daily series
+// hasn't meaningfully changed since the 9:00 build. Mirrors the read-before-
+// wipe / write-after-wipe pattern used for macro / picks-accuracy / grades
+// history (writeChainFiles rm -rf's data/, so main() reads this BEFORE the wipe
+// and writes the refreshed map back AFTER it). Shape: { [sym]: { key, pattern } }.
+const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
+
+// Cache key over the trailing window the model is shown, MINUS the last
+// (possibly in-progress / intraday) daily bar — so the three same-day builds
+// share a key and reuse the morning read, while a new CLOSED daily bar the next
+// session changes the key and forces a fresh detection. Closes/highs/lows are
+// rounded the way the prompt rounds them (r2) so sub-cent jitter on a confirmed
+// bar never busts the key. Returns null when there isn't enough history (the
+// ticker is then always detected fresh, never cached). The deliberate
+// trade-off: a pattern lags the current session by ~1 trading day — acceptable
+// for daily-timeframe formations and the price of real cache hits (token spend).
+function chartPatternCacheKey(bars) {
+  if (!Array.isArray(bars) || bars.length < CHART_PATTERN_MIN_BARS) return null;
+  const series = bars.slice(-CHART_PATTERN_BARS).slice(0, -1);
+  if (!series.length) return null;
+  const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
+  const sig = series.map((b) => `${b.t || "?"}:${r2(b.c)}:${r2(b.h)}:${r2(b.l)}`).join("|");
+  return createHash("sha1").update(`${CHART_PATTERN_BARS}|${sig}`).digest("hex");
+}
+
+// Read BEFORE writeChainFiles wipes data/. Missing / unreadable / wrong-shape → {}.
+async function readChartPatternCache() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, CHART_PATTERN_CACHE_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch (_) { /* missing or unreadable — first build / cleared */ }
+  return {};
+}
+
+// Write AFTER writeChainFiles has recreated data/. Soft-fail: a cache write
+// error must never break the build (the next build just rebuilds it fresh).
+async function writeChartPatternCache(cache) {
+  try {
+    await writeFile(resolve(DATA_DIR, CHART_PATTERN_CACHE_FILE), JSON.stringify(cache || {}), "utf8");
+  } catch (err) {
+    console.warn(`[chart] failed to persist chart-pattern cache — ${String(err?.message || err).split("\n")[0]}`);
+  }
+}
+
+async function attachChartPatterns(chains, priorCache = {}) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping chart-pattern detection. Chart Pattern signal scores 0.");
-    return;
+    // Carry the prior cache forward unchanged rather than clobbering it with {}
+    // — a transiently-missing key shouldn't force the next keyed build to start
+    // cold (and a keyless fork has no patterns to cache either way).
+    return priorCache;
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   // Needs the in-memory daily bars (writeChainFiles strips _bars before write,
@@ -10484,33 +10558,56 @@ async function attachChartPatterns(chains) {
   const entries = Object.entries(chains).filter(
     ([, data]) => Array.isArray(data._bars) && data._bars.length >= CHART_PATTERN_MIN_BARS,
   );
-  console.log(`Detecting chart patterns for ${entries.length} tickers…`);
-  const hb = startHeartbeat("chart patterns", entries.length);
-  const runPass = (passEntries) =>
-    Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
-      try {
-        const chartPattern = await generateChartPattern(ai, sym, data.spot, data._bars);
-        data.technicals = { ...(data.technicals || {}), chartPattern };
-        if (chartPattern.pattern === "None") {
-          console.log(`  · ${sym} — no chart pattern`);
-        } else {
-          console.log(`  ✓ ${sym} — ${chartPattern.pattern} (${chartPattern.type}, ${chartPattern.confidence})`);
-        }
-      } catch (err) {
-        console.log(`  ✗ ${sym} chart-pattern detection failed: ${err.message}`);
-      }
-    })));
-  await runPass(entries);
-  // Final sweep: any ticker still missing a read hit a transient streak that
-  // exhausted the in-call retry budget. Mirrors attachFundamentalsJudgments —
-  // sleep through a quota window, take one more swing.
-  const missed = entries.filter(([, data]) => !data.technicals?.chartPattern);
-  if (missed.length > 0) {
-    console.log(`Retrying ${missed.length} chart-pattern detection(s) after transient failures (sleeping 30s for quota window)…`);
-    await new Promise((r) => setTimeout(r, 30000));
-    await runPass(missed);
+  // Cross-build cache: split the universe into cache HITS (confirmed-bar
+  // signature unchanged since a prior build → copy the prior pattern forward,
+  // skip the model entirely) and MISSES (fresh/changed series → hit Gemini).
+  // nextCache is returned for main() to persist after the data/ wipe; only
+  // successfully-detected names are cached, so a failure is retried next build.
+  const nextCache = {};
+  const toCall = [];
+  let reused = 0;
+  for (const [sym, data] of entries) {
+    const key = chartPatternCacheKey(data._bars);
+    const prior = key && priorCache[sym] && priorCache[sym].key === key ? priorCache[sym].pattern : null;
+    if (prior) {
+      data.technicals = { ...(data.technicals || {}), chartPattern: prior };
+      nextCache[sym] = { key, pattern: prior };
+      reused += 1;
+    } else {
+      toCall.push([sym, data, key]);
+    }
   }
-  hb.stop();
+  console.log(`Detecting chart patterns for ${entries.length} tickers… (${reused} reused from cache, ${toCall.length} fresh)`);
+  if (toCall.length) {
+    const hb = startHeartbeat("chart patterns", toCall.length);
+    const runPass = (passEntries) =>
+      Promise.all(passEntries.map(([sym, data, key]) => hb.track(async () => {
+        try {
+          const chartPattern = await generateChartPattern(ai, sym, data.spot, data._bars);
+          data.technicals = { ...(data.technicals || {}), chartPattern };
+          if (key) nextCache[sym] = { key, pattern: chartPattern };
+          if (chartPattern.pattern === "None") {
+            console.log(`  · ${sym} — no chart pattern`);
+          } else {
+            console.log(`  ✓ ${sym} — ${chartPattern.pattern} (${chartPattern.type}, ${chartPattern.confidence})`);
+          }
+        } catch (err) {
+          console.log(`  ✗ ${sym} chart-pattern detection failed: ${err.message}`);
+        }
+      })));
+    await runPass(toCall);
+    // Final sweep: any ticker still missing a read hit a transient streak that
+    // exhausted the in-call retry budget. Mirrors attachFundamentalsJudgments —
+    // sleep through a quota window, take one more swing.
+    const missed = toCall.filter(([, data]) => !data.technicals?.chartPattern);
+    if (missed.length > 0) {
+      console.log(`Retrying ${missed.length} chart-pattern detection(s) after transient failures (sleeping 30s for quota window)…`);
+      await new Promise((r) => setTimeout(r, 30000));
+      await runPass(missed);
+    }
+    hb.stop();
+  }
+  return nextCache;
 }
 
 async function attachSocialSentiment(chains) {
@@ -11301,7 +11398,10 @@ async function main() {
   // buildTopPicks / buildGradesIndex score scoreTechnicals — the result lands on
   // chains[sym].technicals.chartPattern, persisted into each data/<SYM>.json and
   // read by the Chart Pattern signal. Self-skips without GEMINI_API_KEY.
-  await attachChartPatterns(chains);
+  // Read the cross-build cache BEFORE writeChainFiles wipes data/; the refreshed
+  // map is written back AFTER the wipe (writeChartPatternCache below).
+  const chartPatternCachePrev = await readChartPatternCache();
+  const chartPatternCacheNext = await attachChartPatterns(chains, chartPatternCachePrev);
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
   // continuity; the unusual snapshot is rewritten after the wipe so the page
@@ -11429,6 +11529,10 @@ async function main() {
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
   const totalChainBytes = await writeChainFiles(chains, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
+  // Persist the refreshed chart-pattern cache (read before the wipe, updated by
+  // attachChartPatterns) so the next same-day build can reuse unchanged reads.
+  // writeChainFiles just recreated data/, so this must come after it.
+  await writeChartPatternCache(chartPatternCacheNext);
   // Persist macro to disk AFTER writeChainFiles — that call wipes data/
   // wholesale, so writing macro.json before it deletes our snapshot
   // immediately (confirmed in git history: chore: daily refresh 2026-05-25

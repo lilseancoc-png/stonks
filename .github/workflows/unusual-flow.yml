@@ -43,9 +43,15 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # Cache ~/.npm keyed on package-lock.json — turns the cold dependency
+          # install into a fast cache restore. Matters more here than on the
+          # daily build: this hourly run is short, so the install is a larger
+          # fraction of its wall clock.
+          cache: "npm"
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        # Offline, deterministic install from the committed lockfile.
+        run: npm ci --no-audit --no-fund
 
       - name: Scan for unusual flow
         env:

@@ -131,6 +131,15 @@ Bake-time tunables to know about:
 - `MIN_SUCCESS_RATE = 0.75` — if fewer than 75% of tickers come back, the run throws and the workflow keeps the last-good `index.html` + `data/`.
 - `FALLBACK_RISK_FREE_RATE = 0.045` — used when the 3M T-bill fetch fails. The fetched rate is plumbed into the generated `app.js` as `RFR`.
 - `CALENDAR_DAYS_AHEAD = 30`.
+- `MAX_EXPIRATIONS = 10` — per-ticker option expirations fetched from Yahoo, fetched **sequentially** with a 150ms politeness gap, so this is the biggest single chain-fetch wall-clock lever. 10 covers the picks engine's ideal 30-60 DTE window (and its `PICKS_MAX_DTE=120` cap) for liquid names; the far-dated LEAPS tail beyond slot 10 is dropped from the baked IV term-structure chart + expiration dropdown, but the Grade tab live-fetches any specific expiration via `/api/chain`. Chain fetch runs at `TICKER_CONCURRENCY=4` — raising it cuts wall clock but increases the aggregate Yahoo request rate, so tune concurrency **or** the politeness gaps, not both at once (`MIN_SUCCESS_RATE` degrades a throttled run to last-good data, not a corrupt one).
+
+### Cross-build AI caches (token conservation)
+
+The bake runs ~3×/weekday, but several Gemini outputs change far more slowly. Two caches cut repeat token spend:
+- `data/chart-pattern-cache.json` — keyed per ticker on a hash of the **confirmed** daily-bar series (the trailing window the model sees, **minus** the last/in-progress bar). The midday + evening builds reuse the morning's pattern when that signature is unchanged, skipping the Gemini call entirely; a new *closed* bar the next session busts the key and forces a fresh read. Deliberate trade-off: a pattern can lag the current session by ~1 trading day — acceptable for daily-timeframe formations, and the price of real same-day cache hits. Follows the same **read-before-wipe / write-after-wipe** rule as the histories below (`readChartPatternCache()` before `writeChainFiles`, `writeChartPatternCache()` after). A keyless build returns the prior cache unchanged rather than clobbering it. Only successfully-detected names are cached, so a failure retries next build.
+- The unusual-flow scanner's `data/flow-explanations.json` is the analogous per-contract cache (see `scan-unusual.mjs`) — a contract flagged once is explained once and reused free for the rest of the session.
+
+`AI_RPM` (default 100, the per-minute AI pacer in `build.mjs`) is set to `300` in `daily.yml` for the funded Tier-1 project — Flash/Flash-Lite carry 1K-4K RPM quotas, so 300 keeps a wide cushion while shrinking the RPM-paced floor of the per-ticker AI passes. **Leave it unset on a free-tier fork** (Gemma free = 15 RPM; even the default 100 is too high there).
 
 ### Browser runtime layers
 
