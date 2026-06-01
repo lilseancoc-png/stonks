@@ -5130,6 +5130,7 @@ const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
 const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // only enroll the top-N ranked picks each build, so the open list can't balloon as the top-10 rotates
+const PICKS_ACCURACY_FLAT_BAND_PCT = 0.5; // |MFE−MAE| within this → flat/inconclusive (null outcome), NOT a win or loss
 
 // Fixed-horizon checkpoints (spec): snapshot each tracked pick's underlying spot
 // + current grade score at Day 0 / 2 weeks / 1 month, so the Track-record tab
@@ -7762,10 +7763,59 @@ export async function readPriorPicks() {
 function gradeLabelFor(status, outcome) {
   if (status === "hit-tp") return "Hit target";
   if (status === "hit-cut") return "Stopped out";
-  if (status === "expired") return outcome === "win" ? "Expired ITM" : "Expired worthless";
-  if (status === "dropped") return outcome === "win" ? "Dropped (was green)" : "Dropped (was red)";
-  if (status === "timed-out") return outcome === "win" ? "Timed out (green)" : "Timed out (red)";
+  if (status === "expired") return outcome === "win" ? "Expired ITM" : outcome === "loss" ? "Expired worthless" : "Expired flat";
+  if (status === "dropped") return outcome === "win" ? "Dropped (was green)" : outcome === "loss" ? "Dropped (was red)" : "Dropped (flat)";
+  if (status === "timed-out") return outcome === "win" ? "Timed out (green)" : outcome === "loss" ? "Timed out (red)" : "Timed out (flat)";
   return "—";
+}
+
+// Win/loss verdict for picks that close WITHOUT a clean take-profit / cut hit
+// (dropped, timed-out, or expired with no breakeven anchor). MFE and MAE are
+// both non-negative magnitudes — peak favorable vs peak adverse move since
+// entry — so we only call a winner when one MEANINGFULLY beats the other. A
+// pick that barely moved (edge within PICKS_ACCURACY_FLAT_BAND_PCT) is
+// inconclusive: outcome null (rendered "flat", excluded from the win-rate),
+// NOT a loss. Without this band a perfectly flat hold scored as a loss — the
+// bug that made a transiently-dropped IBM show up red.
+export function excursionOutcome(mfePct, maePct) {
+  const mfe = Number(mfePct) || 0;
+  const mae = Number(maePct) || 0;
+  if (mfe - mae > PICKS_ACCURACY_FLAT_BAND_PCT) return "win";
+  if (mae - mfe > PICKS_ACCURACY_FLAT_BAND_PCT) return "loss";
+  return null;
+}
+
+// Decide how a tracked pick resolves on this build, or null to keep it open.
+// Pure (all inputs are scalars the marking pass already computed) and exported
+// so the resolution rules can be unit-tested without touching the data dir.
+//
+// Order matters: a clean TP/cut hit wins; then the time-based exits (expiry /
+// 14-day time-stop) fire even on a build with no fresh quote; finally a symbol
+// that has genuinely left the curated universe is dropped. A transient fetch
+// miss (still in TICKERS, no fresh quote, not expired/timed-out) returns null
+// so the pick stays open and is retried next build — a single Yahoo flake must
+// never resolve a pick.
+export function resolvePickOutcome(opts) {
+  const { isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct, expSec, entrySec, nowSec, inUniverse } = opts;
+  if (haveFresh && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
+    return { status: "hit-tp", outcome: "win" };
+  }
+  if (haveFresh && ct > 0 && ((isCall && cur <= ct) || (!isCall && cur >= ct))) {
+    return { status: "hit-cut", outcome: "loss" };
+  }
+  if (expSec > 0 && nowSec >= expSec) {
+    const outcome = be > 0
+      ? ((isCall ? ref >= be : ref <= be) ? "win" : "loss")
+      : excursionOutcome(mfePct, maePct);
+    return { status: "expired", outcome };
+  }
+  if (entrySec > 0 && nowSec - entrySec >= PICKS_ACCURACY_MAX_HOLD_DAYS * 86400) {
+    return { status: "timed-out", outcome: excursionOutcome(mfePct, maePct) };
+  }
+  if (!inUniverse) {
+    return { status: "dropped", outcome: excursionOutcome(mfePct, maePct) };
+  }
+  return null;
 }
 
 // Contract-level identity for a tracked pick: symbol + side + strike + expiry.
@@ -7824,7 +7874,7 @@ function fillCheckpoints(e, builtAtIso, curSpot, scoreNow, nowSec) {
   }
 }
 
-function computePicksAccuracyStats(open, closed, builtAtIso) {
+export function computePicksAccuracyStats(open, closed, builtAtIso) {
   const decided = closed.filter((e) => e.outcome === "win" || e.outcome === "loss");
   const wins = decided.filter((e) => e.outcome === "win").length;
   const losses = decided.length - wins;
@@ -7902,6 +7952,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
 
   const nowSec = Math.floor((Date.parse(builtAtIso) || Date.now()) / 1000);
   const stillOpen = [];
+  // A pick is only truly "dropped" when its symbol has left the curated
+  // universe — NOT when one build failed to fetch it. Distinguishing the two
+  // is the whole point: a transient Yahoo miss must not resolve a pick.
+  const universe = new Set(TICKERS);
 
   for (const e of state.open) {
     if (!e || !e.symbol) continue;
@@ -7910,9 +7964,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // Normalize to a contract-level key (symbol:side:strike:expiry) so dedup is
     // precise and legacy symbol:side keys from earlier builds migrate cleanly.
     e.key = pickContractKey(sym, e.side, e.contract);
-    const known = !!(chains && chains[sym]);
     const cur = Number(chains?.[sym]?.spot);
-    if (cur > 0) {
+    const haveFresh = cur > 0;
+    if (haveFresh) {
       e.lastSpot = Number(cur.toFixed(2));
       e.lastDate = builtAtIso;
       e.samples = (e.samples || 1) + 1;
@@ -7922,7 +7976,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // Fill the Day0/2wk/1mo checkpoints (score = the ticker's current grade
     // total). Independent of the resolution branches below.
     fillCheckpoints(e, builtAtIso, cur, Number(gradesIndex?.[sym]?.total), nowSec);
-    const entry = Number(e.entrySpot) || (cur > 0 ? cur : 0);
+    const entry = Number(e.entrySpot) || (haveFresh ? cur : 0);
     const hi = Number(e.hi) || entry;
     const lo = Number(e.lo) || entry;
     const mfePct = entry > 0 ? (isCall ? (hi - entry) / entry : (entry - lo) / entry) * 100 : 0;
@@ -7935,37 +7989,21 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const be = Number(e.contract?.breakeven);
     const expSec = Number(e.contract?.expiry);
     const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
-    let status = null;
-    let outcome = null;
-    if (!known) {
-      // Symbol left the curated universe — can't mark it any further.
-      status = "dropped";
-      outcome = mfePct > maePct ? "win" : "loss";
-    } else if (cur > 0 && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
-      status = "hit-tp";
-      outcome = "win";
-    } else if (cur > 0 && ct > 0 && ((isCall && cur <= ct) || (!isCall && cur >= ct))) {
-      status = "hit-cut";
-      outcome = "loss";
-    } else if (expSec > 0 && nowSec >= expSec) {
-      status = "expired";
-      const ref = cur > 0 ? cur : (Number(e.lastSpot) || entry);
-      if (be > 0) outcome = (isCall ? ref >= be : ref <= be) ? "win" : "loss";
-      else outcome = mfePct > maePct ? "win" : "loss";
-    } else if (entrySec > 0 && nowSec - entrySec >= PICKS_ACCURACY_MAX_HOLD_DAYS * 86400) {
-      // Time-stop: the thesis had its window and never hit target or stop, so
-      // we stop tracking it rather than let it linger until expiry. Judged the
-      // same way as a pick that leaves the universe — by whether it spent more
-      // of its life favorable (MFE) than adverse (MAE).
-      status = "timed-out";
-      outcome = mfePct > maePct ? "win" : "loss";
-    }
+    // Reference spot for the time-based exits (expiry / time-stop), which can
+    // fire on a build where we never got a fresh quote: last known mark, then
+    // entry.
+    const ref = haveFresh ? cur : (Number(e.lastSpot) || entry);
+    const resolved = resolvePickOutcome({
+      isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct,
+      expSec, entrySec, nowSec, inUniverse: universe.has(sym),
+    });
 
-    if (status) {
+    if (resolved) {
+      const { status, outcome } = resolved;
       state.closed.unshift({
         ...e,
         exitDate: builtAtIso,
-        exitSpot: cur > 0 ? Number(cur.toFixed(2)) : (e.lastSpot ?? null),
+        exitSpot: haveFresh ? Number(cur.toFixed(2)) : (e.lastSpot ?? null),
         status,
         outcome,
         scoredRight: outcome === "win" ? true : outcome === "loss" ? false : null,
