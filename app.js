@@ -9141,24 +9141,32 @@
   // Renders data/picks-accuracy.json: open picks marked to market + resolved
   // picks graded win/loss against their own take-profit / cut levels, plus a
   // win-rate-by-tier table answering "does a higher score actually win more?".
-  var accuracyState = { data: null, loading: false };
+  var accuracyState = { data: null, loading: false, gradeChanges: null };
   var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
+  var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
   function loadAccuracy(){
     if (accuracyState.data || accuracyState.loading){ renderAccuracy(); return; }
     accuracyState.loading = true;
-    fetch('data/picks-accuracy.json', { cache: 'no-cache' })
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(j){
-        accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
-        accuracyState.loading = false;
-        renderAccuracy();
-      })
-      .catch(function(){
-        accuracyState.data = { open: [], closed: [], stats: {}, loadError: true };
-        accuracyState.loading = false;
-        renderAccuracy();
-      });
+    var pAcc = fetch('data/picks-accuracy.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    // Grade-change log is a separate, optional file — a miss must not fail the
+    // whole tab, so it resolves to null and the section just stays empty.
+    var pGch = fetch('data/grades-history.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+    Promise.all([pAcc, pGch]).then(function(res){
+      var j = res[0], gh = res[1];
+      accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
+      accuracyState.gradeChanges = (gh && Array.isArray(gh.changes)) ? gh.changes : [];
+      accuracyState.loading = false;
+      renderAccuracy();
+    }).catch(function(){
+      accuracyState.data = { open: [], closed: [], stats: {}, loadError: true };
+      accuracyState.gradeChanges = accuracyState.gradeChanges || [];
+      accuracyState.loading = false;
+      renderAccuracy();
+    });
   }
   function accSidePill(side){
     var s = side === 'put' ? 'put' : 'call';
@@ -9191,6 +9199,81 @@
     if (c.expiryLabel) parts.push(c.expiryLabel);
     return parts.join(' · ');
   }
+  // --- Grade-change log ---------------------------------------------------
+  // Whole-universe log of grade moves (data/grades-history.json): a ticker
+  // appears when its tier flips OR its score moves >= the build-side threshold.
+  // Independent of tracked picks, so it renders in its own container regardless
+  // of whether any picks are open/closed.
+  function renderGradeChangeLog(){
+    var el = $('accuracy-grade-log'); if (!el) return;
+    var changes = accuracyState.gradeChanges;
+    if (!Array.isArray(changes) || !changes.length){ el.innerHTML = ''; return; }
+    var MAX_ROWS = 40;
+    var rows = '';
+    changes.slice(0, MAX_ROWS).forEach(function(c){
+      var up = c.direction === 'up';
+      var dir = up ? 'sig-pos' : 'sig-neg';
+      var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? c.deltaScore : '');
+      rows += '<div class="acc-gc-row">' +
+        '<span class="acc-sym">' + escapeHtml(c.symbol || '—') + '</span>' +
+        '<span class="acc-gc-tiers">' + accTierTag(c.oldTier) +
+          '<span class="acc-gc-arrow ' + dir + '">' + (up ? '▲' : '▼') + '</span>' +
+          accTierTag(c.newTier) + '</span>' +
+        '<span class="acc-gc-score ' + dir + '">' + c.oldTotal + '→' + c.newTotal + ' (' + ds + ')</span>' +
+        '<span class="acc-gc-why">' + escapeHtml(c.whyText || '') + '</span>' +
+        '<span class="acc-gc-date">' + accDateShort(c.date) + '</span>' +
+      '</div>';
+    });
+    var more = changes.length > MAX_ROWS ? '<div class="acc-gc-more">+' + (changes.length - MAX_ROWS) + ' older changes</div>' : '';
+    el.innerHTML = '<div class="accuracy-group">' +
+      '<details class="acc-gc-wrap" open>' +
+        '<summary class="accuracy-group-head">Grade changes <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
+        '<div class="acc-gc-list">' + rows + '</div>' + more +
+      '</details>' +
+    '</div>';
+  }
+  // --- Per-pick checkpoints (Day 0 / 2 weeks / 1 month) -------------------
+  // Side-adjusted verdict: did the underlying move the way the score predicted?
+  function accCheckpointVerdict(e){
+    var cps = Array.isArray(e.checkpoints) ? e.checkpoints : [];
+    if (cps.length < 2) return '';
+    var latest = cps[cps.length - 1];
+    var isCall = e.side !== 'put';
+    var rawPct = Number(latest.deltaSpotPct), dScore = Number(latest.deltaScore);
+    if (!isFinite(rawPct) || !isFinite(dScore)) return '';
+    var priceFav = isCall ? rawPct : -rawPct;   // a price drop is favorable for a put
+    var scoreFav = isCall ? dScore : -dScore;   // a more-negative total strengthens a put
+    var FLAT = 0.5;
+    var pUp = priceFav > FLAT, pDn = priceFav < -FLAT;
+    var verdict, cls;
+    if ((pUp && scoreFav > 0) || (pDn && scoreFav < 0)){ verdict = 'price followed the score'; cls = 'sig-pos'; }
+    else if ((pUp && scoreFav < 0) || (pDn && scoreFav > 0)){ verdict = 'price diverged from the score'; cls = 'sig-neg'; }
+    else { verdict = 'mixed / flat so far'; cls = ''; }
+    return '<div class="acc-cp-verdict ' + cls + '">Verdict: ' + verdict + '</div>';
+  }
+  function accCheckpointsBlock(e){
+    var cps = Array.isArray(e.checkpoints) ? e.checkpoints : [];
+    if (!cps.some(function(c){ return c && c.mark !== 'day0'; })) return '';  // only day0 — nothing to compare yet
+    var rows = '<div class="acc-cp-row acc-cp-head"><span>Checkpoint</span><span>Date</span><span>Spot</span><span>vs D0</span><span>Score</span></div>';
+    cps.forEach(function(c){
+      var isD0 = c.mark === 'day0';
+      var dPct = isD0 ? null : Number(c.deltaSpotPct);
+      var dScore = isD0 ? null : Number(c.deltaScore);
+      rows += '<div class="acc-cp-row">' +
+        '<span class="acc-cp-mark">' + (ACC_CP_LABEL[c.mark] || c.mark) + '</span>' +
+        '<span>' + accDateShort(c.date) + '</span>' +
+        '<span>$' + (Number(c.spot) || 0).toFixed(2) + '</span>' +
+        '<span class="' + (dPct == null ? '' : (dPct >= 0 ? 'sig-pos' : 'sig-neg')) + '">' + (dPct == null ? '—' : accPct(dPct)) + '</span>' +
+        '<span>' + (c.score != null ? ((c.score >= 0 ? '+' : '') + c.score) : '—') +
+          (dScore != null && dScore !== 0 ? ' <small class="' + (dScore > 0 ? 'sig-pos' : 'sig-neg') + '">(' + (dScore > 0 ? '+' : '') + dScore + ')</small>' : '') + '</span>' +
+      '</div>';
+    });
+    return '<details class="acc-checkpoints">' +
+      '<summary class="acc-cp-summary">Price vs. score · Day 0 / 2wk / 1mo</summary>' +
+      '<div class="acc-cp-table">' + rows + '</div>' +
+      accCheckpointVerdict(e) +
+    '</details>';
+  }
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
     var statsEl = $('accuracy-stats');
@@ -9200,6 +9283,9 @@
     var open = Array.isArray(d.open) ? d.open : [];
     var closed = Array.isArray(d.closed) ? d.closed : [];
     var st = d.stats || {};
+    // Grade-change log is whole-universe and independent of tracked picks, so
+    // render it first — it can have rows even when no picks are open/closed.
+    renderGradeChangeLog();
     if (d.loadError){
       root.innerHTML = '<p class="muted">Couldn’t load the track record. Try a hard reload.</p>';
       if (statsEl) statsEl.innerHTML = '';
@@ -9285,6 +9371,7 @@
           '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
         '</div>' +
         (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
+        accCheckpointsBlock(e) +
       '</div>';
     }
     if (open.length){
@@ -9348,6 +9435,7 @@
             '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
             '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
           '</div>' +
+          accCheckpointsBlock(e) +
         '</div>';
       });
       html += '<div class="accuracy-group">' +

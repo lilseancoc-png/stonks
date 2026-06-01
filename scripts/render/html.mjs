@@ -144,8 +144,9 @@ function trackRecordSection() {
       <h2 class="card-title">Pick track record</h2>
       <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Every Top Pick is logged the moment it appears and marked to market on each refresh. A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), or the contract expires (graded vs. breakeven). The point: does a higher conviction score actually win more often? The <b>win rate by tier</b> below answers that &mdash; if Strong Calls don&rsquo;t beat Calls, the score isn&rsquo;t earning its keep. Resolution is at build cadence (~3 checks/day), not intraday.</p>
+    <p class="hint">The five strongest Top Picks each refresh are logged and marked to market. A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), expires (graded vs. breakeven), or hits a 14-day time-stop. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. Build cadence (~3 checks/day), not intraday.</p>
     <div id="accuracy-stats" class="accuracy-stats"></div>
+    <div id="accuracy-grade-log" class="accuracy-grade-log"></div>
     <div id="accuracy-root" class="accuracy-root">Loading track record…</div>
     <div id="accuracy-empty" class="accuracy-empty" hidden>No picks have been tracked yet — the record starts filling in on the next daily refresh.</div>
     <p class="picks-foot">Track record is informational, not a performance claim: it follows the underlying stock against each pick&rsquo;s own take-profit / cut levels, not the realised option P&amp;L, and samples only at build time. Not financial advice.</p>

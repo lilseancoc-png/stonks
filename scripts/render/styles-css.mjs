@@ -7448,6 +7448,88 @@ main { padding-top: var(--s-2); }
   .acc-since, .acc-grade { margin-left: 0; }
 }
 
+/* ===== Grade-change log (whole-universe upgrades / downgrades) ======== */
+.accuracy-grade-log { margin: 0 0 16px; }
+.accuracy-grade-log:empty { display: none; }
+.acc-gc-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface);
+}
+.acc-gc-wrap > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 9px 10px;
+  margin: 0;
+}
+.acc-gc-wrap > summary::-webkit-details-marker { display: none; }
+.acc-gc-wrap[open] > summary { border-bottom: 1px solid var(--border); }
+.acc-gc-list { display: flex; flex-direction: column; }
+.acc-gc-row {
+  display: grid;
+  grid-template-columns: 52px auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  font: 400 11.5px/1.3 var(--font-sans);
+}
+.acc-gc-row:first-child { border-top: none; }
+.acc-gc-row .acc-sym { font-size: 12.5px; }
+.acc-gc-tiers { display: inline-flex; align-items: center; gap: 5px; }
+.acc-gc-arrow { font-size: 10px; }
+.acc-gc-score { font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.acc-gc-why { color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-gc-date { color: var(--muted); font: 400 10px/1 var(--font-mono); justify-self: end; }
+.acc-gc-more { padding: 6px 10px; color: var(--muted); font: 400 10.5px/1 var(--font-sans); border-top: 1px solid var(--border); }
+
+/* ===== Per-pick checkpoints (Day 0 / 2wk / 1mo price-vs-score) ======== */
+.acc-checkpoints { margin-top: 6px; }
+.acc-cp-summary {
+  cursor: pointer;
+  list-style: none;
+  font: 600 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted-strong);
+  padding: 2px 0;
+}
+.acc-cp-summary::-webkit-details-marker { display: none; }
+.acc-cp-summary::after {
+  content: '▸';
+  margin-left: 5px;
+  color: var(--muted);
+  display: inline-block;
+  transition: transform .15s ease;
+}
+.acc-checkpoints[open] > .acc-cp-summary::after { transform: rotate(90deg); }
+.acc-cp-table { margin-top: 5px; }
+.acc-cp-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 72px 66px 74px;
+  gap: 4px 8px;
+  padding: 3px 0;
+  font: 400 11px/1.3 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.acc-cp-head {
+  color: var(--muted);
+  font: 600 9px/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.acc-cp-mark { color: var(--muted-strong); font-weight: 700; }
+.acc-cp-verdict { margin-top: 6px; font: 600 11px/1.3 var(--font-sans); color: var(--muted-strong); }
+@media (max-width: 560px) {
+  .acc-gc-row { grid-template-columns: 46px auto 1fr; }
+  .acc-gc-score { grid-column: 2 / -1; }
+  .acc-gc-why, .acc-gc-date { grid-column: 1 / -1; justify-self: start; white-space: normal; }
+  .acc-cp-row { grid-template-columns: 58px 1fr 60px 64px; }
+  .acc-cp-row > :nth-child(2) { display: none; }
+}
+
 /* "How to read a pick" collapsible — sits between the section hint and
    the cards. Closed by default so the section stays tight for return
    visitors; opening it shows the layout legend for first-time readers. */
