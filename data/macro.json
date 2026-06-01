@@ -25,39 +25,39 @@
     "trend": "falling"
   },
   "dxy": {
-    "value": 99,
+    "value": 99.07,
     "prior": 99.31999969482422,
     "prior1d": 98.91000366210938,
     "prior5d": 99.31999969482422,
-    "change5d": -0.3221905918319235,
-    "pctChange1d": 0.09098810490197258,
-    "pctChange5d": -0.3221905918319235,
+    "change5d": -0.25171133265443774,
+    "pctChange1d": 0.16175951063270444,
+    "pctChange5d": -0.25171133265443774,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "flat"
   },
   "vix": {
-    "value": 15.32,
-    "prior": 16.700000762939453,
-    "prior1d": 15.739999771118164,
-    "prior5d": 16.700000762939453,
-    "change5d": -8.263477244874998,
-    "pctChange1d": -2.668359448701105,
-    "pctChange5d": -8.263477244874998,
+    "value": 15.78,
+    "prior": 16.59000015258789,
+    "prior1d": 15.319999694824219,
+    "prior5d": 16.59000015258789,
+    "change5d": -4.882460187690466,
+    "pctChange1d": 3.002613017878775,
+    "pctChange5d": -4.882460187690466,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "falling",
     "rankPct": null,
-    "rankSamples": 3
+    "rankSamples": 4
   },
-  "asOf": "2026-06-01T00:16:32.898Z",
+  "asOf": "2026-06-01T11:33:08.545Z",
   "previousClose": {
-    "date": "2026-05-30",
-    "asOf": "2026-05-30T22:39:45.837Z",
+    "date": "2026-05-31",
+    "asOf": "2026-06-01T00:16:32.898Z",
     "twoY": null,
     "tenY": 4.453,
     "thirtyY": 4.993,
-    "dxy": 98.942,
+    "dxy": 99,
     "vix": 15.32
   }
 }
