@@ -245,6 +245,84 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   }
 
+  // --- Live market-status badge ------------------------------------------
+  // Pure client-side: the browser knows "now", so market open/closed is a
+  // live question, not a bake-time one — no manifest field, so regen-static
+  // and build.mjs render identically. Powers the header badge plus a Top-Picks
+  // note that explains a short pick list outside the session is expected (picks
+  // select a live option contract, and pre-market chains quote $0 bid/ask, so a
+  // pre-open build legitimately drops most names — see the picks pipeline's
+  // two-sided-quote gate in build.mjs::pickContractForPick).
+  // US equity/options FULL-DAY closures (NYSE/Cboe), explicit YYYY-MM-DD so we
+  // never compute observed-shift rules at runtime. EXTEND ANNUALLY: past the
+  // last listed year the badge degrades to weekday+hours only (an untracked
+  // holiday would read "open" — cosmetic, and never the reverse on a real day).
+  var MARKET_HOLIDAYS = {
+    '2026-01-01':'New Year’s Day','2026-01-19':'MLK Jr. Day','2026-02-16':'Presidents’ Day',
+    '2026-04-03':'Good Friday','2026-05-25':'Memorial Day','2026-06-19':'Juneteenth',
+    '2026-07-03':'Independence Day','2026-09-07':'Labor Day','2026-11-26':'Thanksgiving','2026-12-25':'Christmas',
+    '2027-01-01':'New Year’s Day','2027-01-18':'MLK Jr. Day','2027-02-15':'Presidents’ Day',
+    '2027-03-26':'Good Friday','2027-05-31':'Memorial Day','2027-06-18':'Juneteenth (obs.)',
+    '2027-07-05':'Independence Day (obs.)','2027-09-06':'Labor Day','2027-11-25':'Thanksgiving','2027-12-24':'Christmas (obs.)'
+  };
+  // Early-close (13:00 ET) half-days.
+  var MARKET_HALF_DAYS = {
+    '2026-11-27':'day after Thanksgiving','2026-12-24':'Christmas Eve','2027-11-26':'day after Thanksgiving'
+  };
+  function etNowParts(){
+    // Current ET wall-clock (DST-correct via Intl). Returns { dateKey, hour, dow } or null.
+    try {
+      var now = new Date();
+      var dParts = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(now);
+      var y='', mo='', da='';
+      for (var i=0;i<dParts.length;i++){ var p=dParts[i]; if(p.type==='year')y=p.value; else if(p.type==='month')mo=p.value; else if(p.type==='day')da=p.value; }
+      var tParts = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour12:false, hour:'2-digit', minute:'2-digit' }).formatToParts(now);
+      var hh=0, mm=0;
+      for (var j=0;j<tParts.length;j++){ var q=tParts[j]; if(q.type==='hour')hh=parseInt(q.value,10); else if(q.type==='minute')mm=parseInt(q.value,10); }
+      if (hh===24) hh=0;
+      var dowStr = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', weekday:'short' }).format(now);
+      return { dateKey: y+'-'+mo+'-'+da, hour: hh + mm/60, dow: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(dowStr) };
+    } catch (e) { return null; }
+  }
+  function getMarketStatus(){
+    // state: 'open' | 'pre' | 'after' | 'closed'. label/cls drive the badge.
+    var et = etNowParts();
+    if (!et || et.dow < 0) return { state:'open', label:'', cls:'' }; // can't tell → stay quiet, don't alarm
+    if (MARKET_HOLIDAYS.hasOwnProperty(et.dateKey)) return { state:'closed', label:'Markets closed · ' + MARKET_HOLIDAYS[et.dateKey], cls:'closed' };
+    if (et.dow === 0 || et.dow === 6) return { state:'closed', label:'Markets closed · weekend', cls:'closed' };
+    var closeHr = MARKET_HALF_DAYS.hasOwnProperty(et.dateKey) ? 13 : 16;
+    if (et.hour < 9.5) return { state:'pre', label:'Pre-market · opens 9:30 AM ET', cls:'pre' };
+    if (et.hour >= closeHr) return { state:'after', label: closeHr === 13 ? 'Closed · half-day (' + MARKET_HALF_DAYS[et.dateKey] + ')' : 'After hours · market closed', cls:'after' };
+    return { state:'open', label: closeHr === 13 ? 'Market open · early close 1:00 PM ET' : 'Market open', cls:'open' };
+  }
+  var _lastMarketKey = null;
+  function renderMarketStatus(){
+    var s = getMarketStatus();
+    // Called on a 30s heartbeat — skip all DOM writes (and the a11y re-announce
+    // they'd trigger) unless the state actually changed at a 9:30 / 16:00 bell.
+    var key = s.cls + '|' + s.label;
+    if (key === _lastMarketKey) return;
+    _lastMarketKey = key;
+    var badge = $('market-status');
+    if (badge){
+      if (!s.label){ badge.hidden = true; }
+      else { badge.hidden = false; badge.className = 'market-status market-status-' + s.cls; badge.textContent = s.label; }
+    }
+    // Top-Picks context note — a short list outside the live session is normal.
+    var note = $('picks-market-note');
+    if (note){
+      if (s.state && s.state !== 'open'){
+        var why = s.state === 'pre' ? 'Pre-market — the U.S. options market opens at 9:30 AM ET.'
+                : s.state === 'after' ? 'The U.S. options market is closed for the day.'
+                : 'U.S. markets are closed right now.';
+        note.hidden = false;
+        note.innerHTML = '<strong>' + why + '</strong> Top Picks select a live option contract, so the list is built from the most recent session’s quotes and refreshes during market hours (9:30 AM–4:00 PM ET). A short list outside the session is expected — not an error.';
+      } else {
+        note.hidden = true;
+      }
+    }
+  }
+
   // --- Math: Black-Scholes ------------------------------------------------
   function npdf(x){ return Math.exp(-0.5*x*x) / Math.sqrt(2*Math.PI); }
   function ncdf(x){
@@ -11331,6 +11409,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
+    try { renderMarketStatus(); } catch (_) {}
     bindThemeToggle();
     bindPageTabs();
     bindTabs();
@@ -11511,9 +11590,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // becomes visible and on a 5-minute heartbeat so the warn / bad
     // states trip when their thresholds (36h, 7d) cross.
     document.addEventListener('visibilitychange', function(){
-      if (!document.hidden) renderFreshness();
+      if (!document.hidden) { renderFreshness(); try { renderMarketStatus(); } catch (_) {} }
     });
     setInterval(renderFreshness, 5 * 60 * 1000);
+    // Market-status badge flips at 9:30 / 16:00 ET — poll every 30s so the
+    // open/closed state is never more than a few seconds stale at the bell.
+    setInterval(function(){ try { renderMarketStatus(); } catch (_) {} }, 30 * 1000);
 
     // Auto-load any ticker from the URL. combo.commit walks the same path
     // a user-pick takes, so loadChain consumes pendingUrlState as it lands.

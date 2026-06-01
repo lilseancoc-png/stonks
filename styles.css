@@ -758,6 +758,51 @@ main {
 .freshness.warn #freshness-text { color: var(--warn); }
 .freshness.bad  #freshness-text { color: var(--neg); }
 
+/* Live market-status badge in the freshness banner. A quiet pill whose leading
+   dot carries the state: open = green, pre-market / after-hours = amber,
+   closed (weekend/holiday) = grey. Computed client-side from ET wall-clock. */
+.market-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 2px var(--s-3);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+.market-status::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--muted); flex: 0 0 6px;
+}
+.market-status-open   { color: var(--pos);  border-color: color-mix(in srgb, var(--pos) 35%, var(--border)); }
+.market-status-open::before   { background: var(--pos); }
+.market-status-pre,
+.market-status-after  { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); }
+.market-status-pre::before,
+.market-status-after::before  { background: var(--warn); }
+.market-status-closed { color: var(--muted); }
+.market-status-closed::before { background: var(--muted); }
+
+/* Top-Picks "markets closed" context note — explains a short list outside the
+   live session is expected (picks need live option quotes), not a failure. */
+.picks-market-note {
+  margin: 0 0 var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-2);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--border));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.picks-market-note strong { color: var(--warn); font-weight: 700; }
+
 /* === Landing / Home tab ===
    First view a user lands on. A welcome hero + a grid of clickable
    section cards. Each card uses the new gradient skin + glow tokens
