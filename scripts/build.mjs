@@ -5131,6 +5131,26 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
 const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // only enroll the top-N ranked picks each build, so the open list can't balloon as the top-10 rotates
 
+// Fixed-horizon checkpoints (spec): snapshot each tracked pick's underlying spot
+// + current grade score at Day 0 / 2 weeks / 1 month, so the Track-record tab
+// can answer "did the price move the way the score predicted?". Decoupled from
+// win/loss resolution — we keep filling these even after a pick resolves (it
+// time-stops at 14d, well before the 1-month mark), and stop once both later
+// marks are captured or the entry is older than CHECKPOINT_MAX_AGE_DAYS.
+const CHECKPOINT_MARKS = [{ mark: "2wk", days: 14 }, { mark: "1mo", days: 30 }];
+const CHECKPOINT_MAX_AGE_DAYS = 35;
+
+// Grade-change history (spec's "Grade Change Log"): grades.json is a stateless
+// snapshot overwritten every build, so we keep a separate rolling log here. Each
+// build we diff the fresh grade index against the last-seen snapshot and append
+// an event for any ticker whose tier flips OR whose integer score moves by at
+// least GRADE_CHANGE_MIN_DELTA (captures meaningful drift inside "No Trade", not
+// just the 16/20 tier crossings), naming the pillar(s) that moved as the "why".
+const GRADES_HISTORY_FILE = "grades-history.json";
+const GRADES_HISTORY_KEEP_DAYS = 120;   // prune change events older than this
+const GRADES_HISTORY_MAX_CHANGES = 500; // hard cap on the rolling log
+const GRADE_CHANGE_MIN_DELTA = 3;       // min |Δscore| to log when the tier is unchanged
+
 // ---- Contract grade helpers (mirror app.js thresholds) ------------------
 // These mirror gradeSpread/gradeLiquidity/gradeDelta/gradeTheta/gradeVolRegime
 // in the browser app.js. Duplicated by design — app.js is a generated IIFE
@@ -7521,12 +7541,113 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
 // Write data/grades.json — the all-tickers grade index (see buildGradesIndex).
 // Bake-written like picks.json (regenerated every build, not scanner-owned), so
 // it lives in the normal data/ write path and needs no SCANNER_FILES handling.
-export async function writeGradesFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
-  const grades = buildGradesIndex(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags);
+export async function writeGradesFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, volumeFlags = null, prebuiltGrades = null) {
+  const grades = prebuiltGrades || buildGradesIndex(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags);
   const payload = { builtAtIso, minConviction: PICKS_MIN_CONVICTION, grades };
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, GRADES_FILE), json, "utf8");
-  return { bytes: json.length, count: Object.keys(grades).length };
+  return { bytes: json.length, count: Object.keys(grades).length, grades };
+}
+
+// ---- Grade-change history (data/grades-history.json) --------------------
+// Rolling log of grade moves across the whole grade universe. Lives in data/,
+// so main() MUST readGradesHistory() BEFORE writeChainFiles wipes data/ and
+// thread the result into diffGradesHistory — exactly the pre-read pattern that
+// keeps picks-accuracy from resetting every build. regen-picks.mjs (no wipe)
+// reads the live file directly instead.
+const GRADE_PILLAR_KEYS = ["fundamentals", "technicals", "mechanicals", "narrative"];
+const GRADE_PILLAR_LABEL = {
+  fundamentals: "Fundamentals",
+  technicals: "Technicals",
+  mechanicals: "Mechanicals",
+  narrative: "Narrative",
+};
+
+function gradeTierRank(tier) {
+  switch (tier) {
+    case "strong-call": return 2;
+    case "call": return 1;
+    case "put": return -1;
+    case "strong-put": return -2;
+    default: return 0; // no-trade / unknown
+  }
+}
+
+// Lean snapshot we persist per symbol for the next build to diff against — just
+// the total, tier, and per-pillar scores (not the full signal arrays).
+function leanGradeSnapshot(g) {
+  const p = {};
+  for (const k of GRADE_PILLAR_KEYS) p[k] = Number(g?.pillars?.[k]?.score) || 0;
+  return { total: Number(g?.total) || 0, tier: g?.recommendation?.tier || "no-trade", p };
+}
+
+export async function readGradesHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, GRADES_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return {
+        latest: (parsed.latest && typeof parsed.latest === "object") ? parsed.latest : {},
+        changes: Array.isArray(parsed.changes) ? parsed.changes : [],
+      };
+    }
+  } catch {
+    // First run / missing / corrupt — fresh history.
+  }
+  return { latest: {}, changes: [] };
+}
+
+export async function writeGradesHistory(history) {
+  await writeFile(resolve(DATA_DIR, GRADES_HISTORY_FILE), JSON.stringify(history), "utf8");
+}
+
+// Diff the fresh grade index against the prior lean snapshot, append a change
+// event for any ticker whose tier flips OR whose score moves >= the threshold,
+// then refresh the snapshot and prune. A first run (no prior snapshot) just
+// seeds `latest` and emits zero changes, so the log doesn't flood on rollout.
+export function diffGradesHistory(prev, gradesIndex, builtAtIso) {
+  const priorLatest = (prev && prev.latest && typeof prev.latest === "object") ? prev.latest : {};
+  const seeded = Object.keys(priorLatest).length > 0;
+  let changes = (prev && Array.isArray(prev.changes)) ? prev.changes.slice() : [];
+  const nextLatest = {};
+  for (const [sym, g] of Object.entries(gradesIndex || {})) {
+    const cur = leanGradeSnapshot(g);
+    nextLatest[sym] = cur;
+    if (!seeded) continue;
+    const old = priorLatest[sym];
+    if (!old) continue; // newly covered ticker — start tracking, don't log a phantom move
+    const deltaScore = cur.total - (Number(old.total) || 0);
+    const tierChanged = cur.tier !== old.tier;
+    if (!tierChanged && Math.abs(deltaScore) < GRADE_CHANGE_MIN_DELTA) continue;
+    const why = GRADE_PILLAR_KEYS
+      .map((k) => ({ pillar: k, delta: (Number(cur.p?.[k]) || 0) - (Number(old.p?.[k]) || 0) }))
+      .filter((d) => d.delta !== 0)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+      .slice(0, 2);
+    const whyText = why.length
+      ? why.map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${d.delta}`).join(", ")
+      : "mixed signals";
+    const direction = deltaScore > 0 ? "up"
+      : deltaScore < 0 ? "down"
+      : (gradeTierRank(cur.tier) >= gradeTierRank(old.tier) ? "up" : "down");
+    changes.unshift({
+      date: builtAtIso,
+      symbol: sym,
+      oldTotal: Number(old.total) || 0,
+      newTotal: cur.total,
+      oldTier: old.tier,
+      newTier: cur.tier,
+      direction,
+      deltaScore,
+      why,
+      whyText,
+    });
+  }
+  const cutoffMs = (Date.parse(builtAtIso) || Date.now()) - GRADES_HISTORY_KEEP_DAYS * 86400000;
+  changes = changes
+    .filter((c) => (Date.parse(c && c.date) || 0) >= cutoffMs)
+    .slice(0, GRADES_HISTORY_MAX_CHANGES);
+  return { builtAtIso, latest: nextLatest, changes };
 }
 
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
@@ -7657,6 +7778,52 @@ function pickContractKey(symbol, side, contract) {
   return `${symbol}:${side}:${strike}:${exp}`;
 }
 
+// Seed the Day-0 checkpoint on a tracked entry if it doesn't have one (handles
+// entries enrolled before checkpoints existed).
+function ensureDay0Checkpoint(e) {
+  if (!Array.isArray(e.checkpoints) || e.checkpoints.length === 0) {
+    e.checkpoints = [{
+      mark: "day0",
+      date: e.entryDate,
+      spot: Number(e.entrySpot) || null,
+      score: e.score ?? null,
+      deltaSpotPct: 0,
+      deltaScore: 0,
+    }];
+  }
+}
+
+// Fill the fixed-horizon (2wk / 1mo) checkpoints on a tracked entry. Decoupled
+// from win/loss resolution: we keep sampling the underlying spot + the ticker's
+// current grade score (scoreNow, from the fresh grade index) so the spec's
+// Day0/2wk/1mo price-vs-score view fills in even after the contract resolves.
+// No-op once a mark is already present or the entry is older than
+// CHECKPOINT_MAX_AGE_DAYS. deltaSpotPct is a raw price move vs Day 0 (the UI
+// side-adjusts when judging whether price followed the score).
+function fillCheckpoints(e, builtAtIso, curSpot, scoreNow, nowSec) {
+  ensureDay0Checkpoint(e);
+  const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
+  if (!(entrySec > 0) || !(curSpot > 0)) return;
+  const ageDays = (nowSec - entrySec) / 86400;
+  if (ageDays > CHECKPOINT_MAX_AGE_DAYS) return;
+  const day0 = e.checkpoints[0] || {};
+  const d0spot = Number(day0.spot) || Number(e.entrySpot) || 0;
+  const d0score = Number(day0.score);
+  const have = new Set(e.checkpoints.map((c) => c && c.mark));
+  for (const cp of CHECKPOINT_MARKS) {
+    if (have.has(cp.mark) || ageDays < cp.days) continue;
+    const score = Number.isFinite(scoreNow) ? scoreNow : null;
+    e.checkpoints.push({
+      mark: cp.mark,
+      date: builtAtIso,
+      spot: Number(curSpot.toFixed(2)),
+      score,
+      deltaSpotPct: d0spot > 0 ? Number((((curSpot - d0spot) / d0spot) * 100).toFixed(1)) : null,
+      deltaScore: (score != null && Number.isFinite(d0score)) ? score - d0score : null,
+    });
+  }
+}
+
 function computePicksAccuracyStats(open, closed, builtAtIso) {
   const decided = closed.filter((e) => e.outcome === "win" || e.outcome === "loss");
   const wins = decided.filter((e) => e.outcome === "win").length;
@@ -7714,7 +7881,7 @@ export async function readPicksAccuracyState() {
 // build passes it because writeChainFiles has already deleted the on-disk file
 // by the time we run. Callers that do NOT wipe data/ (regen-picks.mjs) omit it
 // and we read the live file off disk instead.
-export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = null) {
+export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = null, gradesIndex = null) {
   const accPath = resolve(DATA_DIR, PICKS_ACCURACY_FILE);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
@@ -7752,6 +7919,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       e.hi = Math.max(Number(e.hi) || cur, cur);
       e.lo = Math.min(Number(e.lo) || cur, cur);
     }
+    // Fill the Day0/2wk/1mo checkpoints (score = the ticker's current grade
+    // total). Independent of the resolution branches below.
+    fillCheckpoints(e, builtAtIso, cur, Number(gradesIndex?.[sym]?.total), nowSec);
     const entry = Number(e.entrySpot) || (cur > 0 ? cur : 0);
     const hi = Number(e.hi) || entry;
     const lo = Number(e.lo) || entry;
@@ -7855,8 +8025,28 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       mfePct: 0,
       maePct: 0,
       samples: 1,
+      checkpoints: [{
+        mark: "day0",
+        date: builtAtIso,
+        spot: Number(entrySpot.toFixed(2)),
+        score: p.total ?? p.score ?? null,
+        deltaSpotPct: 0,
+        deltaScore: 0,
+      }],
     });
     seenKeys.add(key);
+  }
+
+  // Keep filling the fixed-horizon checkpoints on recently-closed entries too,
+  // so the 2wk / 1mo price-vs-score view completes even though the contract
+  // already resolved (picks time-stop at 14d, before the 1-month mark). Bounded
+  // by CHECKPOINT_MAX_AGE_DAYS inside fillCheckpoints.
+  for (const ce of state.closed) {
+    if (!ce || !ce.symbol) continue;
+    const haveAll = Array.isArray(ce.checkpoints)
+      && CHECKPOINT_MARKS.every((m) => ce.checkpoints.some((c) => c && c.mark === m.mark));
+    if (haveAll) continue;
+    fillCheckpoints(ce, builtAtIso, Number(chains?.[ce.symbol]?.spot), Number(gradesIndex?.[ce.symbol]?.total), nowSec);
   }
 
   // Prune the closed log by age, then cap.
@@ -11134,6 +11324,10 @@ async function main() {
   // counts survive the wipe and the zero-pick (pre-bell) stale-reuse path can
   // actually find last-good picks instead of overwriting them with [].
   const picksPrev = await readPriorPicks();
+  // Same pre-read-before-wipe rule for the grade-change log: data/grades-history.json
+  // lives in data/, so snapshot it now and thread it into diffGradesHistory after
+  // the wipe, or the change log resets every build.
+  const gradesHistoryPrev = await readGradesHistory();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   const trends = await attachMarketNarratives(chains, previousHistory);
   const symbols = Object.keys(chains).sort();
@@ -11388,15 +11582,26 @@ async function main() {
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown
   // for names that don't clear the actionable threshold.
-  const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags);
+  // Build the grade index once and reuse it for the grades file, the grade-change
+  // history diff, and the picks-accuracy checkpoint scores (avoids re-scoring).
+  const gradesIndex = buildGradesIndex(chains, trends.narratives, null, unusual, macroBackdrop, volumeFlags);
+  const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
+  // Grade-change log: diff the fresh index against the pre-wipe snapshot.
+  try {
+    const gradesHistoryNext = diffGradesHistory(gradesHistoryPrev, gradesIndex, builtAtIso);
+    await writeGradesHistory(gradesHistoryNext);
+    console.log(`wrote data/${GRADES_HISTORY_FILE} — ${gradesHistoryNext.changes.length} change events`);
+  } catch (err) {
+    console.warn(`[grades] history skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we
   // just wrote; uses chains[sym].spot for the marks. Carries the prior tracker
   // state forward via picksAccuracyPrev (snapshotted before writeChainFiles
   // wiped data/). Degrades to a no-op on a first run / missing files.
   try {
-    const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev);
+    const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex);
     console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
   } catch (err) {
     console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);

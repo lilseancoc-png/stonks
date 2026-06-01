@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -99,11 +99,23 @@ await writeFile(
 );
 console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers.`);
 
+// Grade-change log: diff the regen'd grade index against the live history file.
+// No data/ wipe here, so we read the live grades-history.json directly (the full
+// build pre-reads it before its wipe instead).
+try {
+  const ghPrev = await readGradesHistory();
+  const ghNext = diffGradesHistory(ghPrev, grades, builtAtIso);
+  await writeGradesHistory(ghNext);
+  console.log(`Updated grades-history.json — ${ghNext.changes.length} change events.`);
+} catch (err) {
+  console.warn(`grades-history.json skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
 // Keep the accuracy tracker in step with the regen'd picks: enroll new picks
 // and mark open ones to market using the cached spots. AI-free, so it's safe
-// to run here.
+// to run here. Pass the grade index so checkpoint scores reflect current grades.
 try {
-  const acc = await updatePicksAccuracyFile(chains, builtAtIso);
+  const acc = await updatePicksAccuracyFile(chains, builtAtIso, null, grades);
   console.log(`Updated picks-accuracy.json — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}.`);
 } catch (err) {
   console.warn(`picks-accuracy.json skipped — ${String(err?.message || err).split("\n")[0]}`);
