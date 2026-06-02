@@ -1760,6 +1760,97 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   border-radius: var(--r-pill);
 }
 
+/* Narrative lifecycle stepper — the 6-stage boom→bust arc (catalysts →
+   amplification → validation → peak → challenges → collapse). Past stages read
+   muted; the current stage is highlighted accent while rising (≤ peak) and
+   negative once falling (challenges/collapse) as an exhaustion cue. */
+.narr-lifecycle { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.narr-lifecycle-label,
+.narr-hype-label {
+  font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); flex: 0 0 auto;
+}
+.narr-lifecycle-steps { display: inline-flex; gap: 3px; flex: 0 0 auto; }
+.narr-life-step { width: 16px; height: 5px; border-radius: var(--r-pill); background: var(--surface-3); }
+.narr-life-step.is-past { background: color-mix(in srgb, var(--muted) 55%, transparent); }
+.narr-lifecycle.is-rising .narr-life-step.is-on {
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.narr-lifecycle.is-falling .narr-life-step.is-on {
+  background: var(--neg);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--neg) 45%, transparent);
+}
+.narr-lifecycle-stage { font-size: 11px; font-weight: 700; color: var(--text); }
+.narr-lifecycle.is-falling .narr-lifecycle-stage { color: var(--neg); }
+
+/* Fundamentals → hype gauge. The track is a fixed fundamentals(green) →
+   hype(red) gradient; the marker shows where this story sits on it. */
+.narr-hype { margin-top: 8px; }
+.narr-hype-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.narr-hype-verdict { font-size: 11px; font-weight: 700; color: var(--text); }
+.narr-hype.is-fundamentals .narr-hype-verdict { color: var(--pos); }
+.narr-hype.is-hype .narr-hype-verdict { color: var(--neg); }
+.narr-hype.is-balanced .narr-hype-verdict { color: var(--accent-strong); }
+.narr-hype-track {
+  position: relative; height: 6px; border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--pos), var(--accent) 50%, var(--neg));
+  opacity: .85;
+}
+.narr-hype-fill {
+  position: absolute; top: -2px; bottom: -2px; width: 3px; transform: translateX(-50%);
+  background: var(--text); border-radius: var(--r-pill);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.narr-hype-why { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); line-height: 1.35; }
+
+/* Bull / Base / Bear scenario block — the optimistic / most-likely / pessimistic
+   paths, colour-keyed on the left rail. */
+.narr-scenarios { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.narr-scenario {
+  display: grid; grid-template-columns: 40px 1fr; gap: 8px; align-items: baseline;
+  padding: 4px 8px; border-radius: var(--r-1);
+  background: var(--surface-2); border-left: 2px solid var(--border-strong);
+}
+.narr-scenario-tag { font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.narr-scenario-text { font-size: 11.5px; color: var(--text); line-height: 1.35; }
+.narr-scenario.bull { border-left-color: var(--pos); }
+.narr-scenario.bull .narr-scenario-tag { color: var(--pos); }
+.narr-scenario.base { border-left-color: var(--accent); }
+.narr-scenario.base .narr-scenario-tag { color: var(--accent-strong); }
+.narr-scenario.bear { border-left-color: var(--neg); }
+.narr-scenario.bear .narr-scenario-tag { color: var(--neg); }
+
+/* Sector industry-group grade breakdown — makes the two-level rollup visible
+   (sector grade = the average of these). Magnitude bar coloured by stance. */
+.narr-iggrades { margin-top: var(--s-2); }
+.narr-iggrades-summary {
+  font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); cursor: pointer; list-style: none;
+}
+.narr-iggrades-summary::-webkit-details-marker { display: none; }
+.narr-iggrades-summary::before { content: '▸ '; }
+.narr-iggrades[open] .narr-iggrades-summary::before { content: '▾ '; }
+.narr-iggrades-hint { font-weight: 500; text-transform: none; letter-spacing: 0; opacity: .8; }
+.narr-iggrades-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.narr-iggrade { display: grid; grid-template-columns: minmax(0,1fr) 80px 34px; gap: 8px; align-items: center; padding: 2px 0; }
+.narr-iggrade-name { font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.narr-iggrade-count {
+  font-size: 9px; font-weight: 700; color: var(--muted);
+  background: var(--surface-3); border-radius: var(--r-pill); padding: 0 5px; margin-left: 4px;
+}
+.narr-iggrade-bar { position: relative; height: 5px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.narr-iggrade-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--r-pill); }
+.narr-iggrade[data-stance="bullish"] .narr-iggrade-fill { background: var(--pos); }
+.narr-iggrade[data-stance="bearish"] .narr-iggrade-fill { background: var(--neg); }
+.narr-iggrade[data-stance="mixed"]   .narr-iggrade-fill { background: var(--muted); }
+.narr-iggrade-score {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  font-variant-numeric: tabular-nums; text-align: right; color: var(--muted);
+}
+.narr-iggrade[data-stance="bullish"] .narr-iggrade-score { color: var(--pos); }
+.narr-iggrade[data-stance="bearish"] .narr-iggrade-score { color: var(--neg); }
+
 /* Per-narrative source citations — appears under watchFor/conflicts. Each
    entry is a verified headline that informed the thesis. Hairline divider
    above to separate from the thesis body; tracked-uppercase eyebrow label;
