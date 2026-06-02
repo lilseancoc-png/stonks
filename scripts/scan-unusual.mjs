@@ -1032,12 +1032,22 @@ async function runVolumePass({
   };
   for (const row of merged) {
     let countedHourly = false;
+    let countedSr = false;
     for (const h of row.bucketHits || []) {
       if (h.hourlyFlagged && !countedHourly) {
         summary.hourlyFlagCount++;
         countedHourly = true;
       }
-      if (h.srBreak) summary.srBreakCount++;
+      // Count only CONFIRMED S/R breaks, once per ticker — matching the
+      // hourlyFlagCount dedup and the engine's own flag rule
+      // (srBreak.conviction !== "None"). evaluateTicker emits a
+      // "None"/"No confirmation" placeholder srBreak for unconfirmed
+      // crossings; tallying those (and per bucket-hit) double-counted the
+      // headline vs the rows the UI renders.
+      if (h.srBreak && h.srBreak.conviction && h.srBreak.conviction !== "None" && !countedSr) {
+        summary.srBreakCount++;
+        countedSr = true;
+      }
     }
     if (row.eod?.flagged) summary.eodFlagCount++;
   }
