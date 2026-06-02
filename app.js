@@ -10625,13 +10625,13 @@
     '</aside>';
   }
 
-  // Same-sector peers — show how the pick stacks up against other tickers
-  // in its sector. Sourced from picks.json's pre-computed peer table so the
-  // browser doesn't have to re-rank every ticker.
+  // Same-industry peers — show how the pick stacks up against other tickers
+  // in its sub-industry. Sourced from picks.json's pre-computed peer table so
+  // the browser doesn't have to re-rank every ticker.
   function pickPeerList(p){
     var peers = p && p.peers;
     if (!Array.isArray(peers) || !peers.length) return '';
-    var sec = p.sector ? escapeHtml(p.sector) : 'this sector';
+    var sec = p.peerGroup ? escapeHtml(p.peerGroup) : (p.sector ? escapeHtml(p.sector) : 'this industry');
     var items = '';
     for (var i=0; i<peers.length; i++){
       var q = peers[i];
