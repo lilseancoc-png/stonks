@@ -72,14 +72,23 @@ jobs:
           # back to its hard-coded Gemma default.
           AI_MODEL: ${{ vars.AI_MODEL }}
           NARRATIVES_MODEL: ${{ vars.NARRATIVES_MODEL }}
-          # Optional: when set, FRED fetches use api.stlouisfed.org (the
-          # official JSON API, not Cloudflare-fronted) as the primary
-          # path, with the public CSV endpoint as the fallback. Without
-          # it, the build degrades gracefully — see fetchFredSeries in
-          # scripts/build.mjs. Register a free key at
-          # https://fred.stlouisfed.org/docs/api/api_key.html and add it
-          # as a repo secret to populate macro events + Fed Funds rate
-          # reliably from the GH Actions runner IPs.
+          # Optional: registered BLS Public Data API access. BLS is the
+          # PRIMARY source for the macro calendar (CPI/PPI/payrolls/
+          # unemployment/JOLTS — FRED only mirrors these); a key lifts the
+          # unauthenticated ~25 queries/day cap to 500/day + 20yr history
+          # so BLS-primary never gets throttled into a stale day. Without
+          # it the build still works on the unauthenticated endpoint. Free
+          # key at https://www.bls.gov/developers/api_signature_v2.htm —
+          # see fetchBlsSeries in scripts/build.mjs.
+          BLS_API_KEY: ${{ secrets.BLS_API_KEY }}
+          # Optional: FRED is now the FALLBACK behind BLS (macro) and NY
+          # Fed EFFR (the Fed Funds rate), fetched only when the primary
+          # returns empty. When set, that fallback fetch uses
+          # api.stlouisfed.org (the official JSON API, not the Cloudflare-
+          # fronted CSV the runner IPs intermittently get blocked from) so
+          # the backstop is reliable too. Without it the fallback still
+          # degrades gracefully — see fetchFredSeries in scripts/build.mjs.
+          # Free key at https://fred.stlouisfed.org/docs/api/api_key.html.
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           # Optional: when set, OpenFIGI batches use the authenticated

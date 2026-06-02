@@ -46,11 +46,11 @@ async function main() {
   );
   const cutoffMs = todayMs + 30 * 86400000;
 
-  console.log("Fetching macro report releases (FRED)…");
+  console.log("Fetching macro report releases (BLS)…");
   const reportEvents = await build.fetchMacroReleases(todayMs, cutoffMs);
   console.log(`  · ${reportEvents.length} report rows`);
 
-  console.log("Fetching effective Fed Funds rate (FRED:DFF)…");
+  console.log("Fetching effective Fed Funds rate (NY Fed EFFR)…");
   const fedRate = await build.fetchEffectiveFedFundsRate();
   if (fedRate) console.log(`  · ${fedRate.rate}% as of ${fedRate.asOf}`);
   else console.log("  · unavailable");
@@ -58,7 +58,7 @@ async function main() {
   console.log("Snapshotting CME FedWatch probabilities…");
   const fedwatchHistory = await build.readFedwatchHistory();
   if (!fedwatchHistory.meetings) fedwatchHistory.meetings = {};
-  // Mirror build.mjs main(): when FRED:DFF flakes (common on CI runner IPs),
+  // Mirror build.mjs main(): when NY Fed + FRED:DFF both flake (common on CI runner IPs),
   // fall back to the last known Fed Funds rate (≤14d old) so FedWatch still
   // has a pre-meeting anchor and this regen produces the same calendar.json
   // the full build would. Without it, a regen on a FRED-blocked day blanked
@@ -69,7 +69,7 @@ async function main() {
     const lastMs = Date.parse(last.capturedAt || last.asOf || "");
     const ageDays = Number.isFinite(lastMs) ? (Date.now() - lastMs) / 86400000 : Infinity;
     if (ageDays <= 14 && Number.isFinite(last.rate)) {
-      effectiveFedRate = { rate: last.rate, asOf: last.asOf, source: "FRED:DFF (cached)" };
+      effectiveFedRate = { rate: last.rate, asOf: last.asOf, source: "Fed Funds (cached)" };
       console.log(`  · using cached Fed Funds rate ${last.rate}% from ${last.capturedAt || last.asOf} (${ageDays.toFixed(1)}d old)`);
     }
   }
@@ -87,7 +87,7 @@ async function main() {
     return ms >= todayMs;
   });
   const todayIso = new Date(todayMs).toISOString().slice(0, 10);
-  // Persist today's fresh Fed rate so a future FRED outage can anchor from it
+  // Persist today's fresh Fed rate so a future outage can anchor from it
   // (only when we got a fresh reading, not when we just reused the cache).
   if (fedRate && Number.isFinite(fedRate.rate)) {
     fedwatchHistory.lastKnownFedRate = { rate: fedRate.rate, asOf: fedRate.asOf, capturedAt: todayIso };
