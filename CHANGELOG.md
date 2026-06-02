@@ -11,7 +11,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 **Docs** (documentation/CLAUDE.md).
 
 <!-- Add new entries to the TOP of the "Unreleased" section as you make changes.
-     One bullet per change, present tense, plain language. Reference the PR (#317)
+     One bullet per change, present tense, plain language. Reference the PR (#NNN)
      when there is one. -->
 
 ## [Unreleased]
