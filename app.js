@@ -577,6 +577,18 @@
         }
         if (bestIdx !== -1){
           var sel = $('opt-strike'); if (sel) sel.selectedIndex = bestIdx;
+          // Lock this exact contract as the vetted Top Pick. The bake already
+          // guaranteed it grades clean (requireClean), so the grader should
+          // trust it and never offer to swap it — even if live quotes drift.
+          // Skip if the bake itself graded it bad (stale pre-fix data).
+          if (pendingUrlState.origin === 'toppick' && pendingUrlState.quality !== 'bad'){
+            state.topPickLock = {
+              sym: state.symbol,
+              exp: Number(state.currentExp),
+              strike: rows[bestIdx] ? rows[bestIdx].s : pendingUrlState.k,
+              type: getOptType(),
+            };
+          }
         }
       }
     } finally {
@@ -1820,35 +1832,48 @@
 
     // 1) Hard fails — collect ALL of them, don't return at the first one.
     var hardFails = [];
-    if (sGrade && sGrade.cls === 'bad') {
+    // trustBaked: this contract is a vetted Top Pick the user clicked through
+    // from the Picks tab. The bake (requireClean) already proved it clears every
+    // mechanical gate, so we trust that grade over a live re-derivation and skip
+    // the mechanical deal-breakers entirely — any "bad" reading now is just live
+    // quotes drifting since the last build, not a bad contract. The directional
+    // score below still drives the YES/NO call. (Manual pastes / chain browsing
+    // are not vetted, so they keep the full hard-fail gate.)
+    var trustBaked = !!args.trustBaked;
+    // quoteStale: before 09:30 ET (and outside regular hours) Yahoo often
+    // returns a one-sided or zeroed quote (bid 0 / ask only), which makes the
+    // bid/ask spread balloon past the 15% "wide" line for an otherwise-fine
+    // contract. Don't treat that as a deal-breaker — it's a stale quote, not a
+    // bad contract, and it self-heals the moment the regular session opens.
+    if (sGrade && sGrade.cls === 'bad' && !args.quoteStale && !trustBaked) {
       hardFails.push({
         kind: 'spread',
         label: 'Wide spread',
         why: 'Bid/ask is wide enough that you give back a large chunk of the move just on entry/exit. Look for a more liquid strike or a more popular expiry.',
       });
     }
-    if (dGrade && dGrade.cls === 'bad') {
+    if (dGrade && dGrade.cls === 'bad' && !trustBaked) {
       hardFails.push({
         kind: 'delta',
         label: 'Far-OTM delta',
         why: 'The strike is so far out of the money that the contract barely moves with the stock. Statistically most likely to expire worthless — this is a lottery ticket, not a directional bet.',
       });
     }
-    if (tGrade && tGrade.cls === 'bad') {
+    if (tGrade && tGrade.cls === 'bad' && !trustBaked) {
       hardFails.push({
         kind: 'theta',
         label: 'Heavy theta decay',
         why: 'Premium is bleeding > 3% per day just from time passing. Even if you\'re right on direction, the clock is working against you faster than the move can compound.',
       });
     }
-    if (dte != null && dte <= 3) {
+    if (dte != null && dte <= 3 && !trustBaked) {
       hardFails.push({
         kind: 'dte',
         label: 'Expiry crisis (' + dte + ' day' + (dte === 1 ? '' : 's') + ' left)',
         why: 'Gamma is enormous and theta is brutal in the last 3 days. This behaves more like a same-day lottery than a positional trade. If you must, size very small.',
       });
     }
-    if (extrinsicRatio != null && extrinsicRatio > 0.8 && dte != null && dte < 14) {
+    if (extrinsicRatio != null && extrinsicRatio > 0.8 && dte != null && dte < 14 && !trustBaked) {
       hardFails.push({
         kind: 'extrinsic',
         label: 'All-premium / no time',
@@ -3101,6 +3126,12 @@
     var mid = (bid != null && ask != null && (bid + ask) > 0) ? (bid + ask) / 2 : (input.last || null);
     var spread = (bid != null && ask != null) ? (ask - bid) : null;
     var spreadPct = (spread != null && mid > 0) ? (spread/mid * 100) : null;
+    // Stale/pre-market quote: a missing side (bid or ask ≤ 0) or a known
+    // non-regular session. Used to suppress the wide-spread hard-fail so a
+    // good contract isn't condemned on a pre-bell stub quote (see shouldBuy).
+    var mkt = (typeof currentMarketState === 'function') ? currentMarketState() : null;
+    var quoteStale = (input.source === 'chain') &&
+      ((bid == null || ask == null || bid <= 0 || ask <= 0) || (mkt != null && mkt !== 'REGULAR'));
     var iv = input.iv;
     var T = (input.expEpoch*1000 - Date.now()) / (365*24*3600*1000);
     var g = (T > 0 && iv > 0 && input.spot > 0 && input.strike > 0)
@@ -3140,6 +3171,8 @@
       type: input.type,
       news: input.news, technicals: input.technicals, fundamentals: input.fundamentals,
       symbol: input.ticker || input.symbol,
+      quoteStale: quoteStale,
+      trustBaked: !!input.topPick,
     });
     // Hard fails reconcile the mechanical verdict so the headline matches
     // the buy chip (no more "Mixed — proceed with caution" sitting next to
@@ -3149,17 +3182,35 @@
     // pastes don't have other strikes to compare against. Pass through the
     // original contract's delta/spread/strike so the suggestion can render
     // a "before → after" comparison instead of just stating the new figures.
-    var alt = (input.source === 'chain') ? findAlternative(input, buy, {
+    // A vetted Top Pick (input.topPick) is NEVER offered a swap — the bake
+    // already guaranteed it grades clean, so any live deterioration is drift,
+    // not grounds to recommend a different contract.
+    var alt = (input.source === 'chain' && !input.topPick) ? findAlternative(input, buy, {
       delta: g ? g.delta : null,
       spreadPct: spreadPct,
       strike: input.strike,
       dte: daysToExpiry,
     }) : null;
 
+    // A vetted Top Pick keeps a clean verdict even if a live chip drifted to
+    // "bad" — the contract cleared every gate at the last build. Surface the
+    // drift as a transient note rather than condemning the pick or swapping it.
+    var topPickDrift = false;
+    if (input.topPick){
+      var liveBad = (sGrade && sGrade.cls === 'bad') || (tGrade && tGrade.cls === 'bad') || (dGrade && dGrade.cls === 'bad');
+      topPickDrift = !!liveBad && !quoteStale;
+      verdict = { label: 'Top Pick · contract vetted', cls: 'good' };
+    }
+
     var html = '';
     html += renderBuyPanel(buy, alt);
     html += '<div class="opt-verdict ' + verdict.cls + '" id="opt-verdict-main">' + verdict.label + '</div>';
-    if (nudgedVerdict.nudged && input.news && input.news.sentiment && !verdict.forced){
+    if (input.topPick){
+      html += '<div class="opt-news-note">This contract is a vetted Top Pick — it cleared every mechanical gate (spread, liquidity, theta, expiry) at the last build, so the grader won’t suggest swapping it.' +
+        (topPickDrift ? ' A figure above has drifted on live quotes since then; Top Picks re-checks the contract on each refresh (~3×/day).' : '') +
+        '</div>';
+    }
+    if (nudgedVerdict.nudged && input.news && input.news.sentiment && !verdict.forced && !input.topPick){
       var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
@@ -3364,12 +3415,18 @@
     }
     var type = getOptType();
     var label = (state.symbol || '') + ' ' + type.toUpperCase() + ' $' + fmt(c.s) + ' · exp ' + fmtExpiryLabel(state.currentExp);
+    // Is the contract on screen the exact Top Pick the user clicked through? If
+    // so the bake vetted it (requireClean) — trust that grade over live drift.
+    // The match disengages the moment the user changes strike/expiry/type.
+    var lk = state.topPickLock;
+    var isTopPick = !!(lk && lk.sym === state.symbol && Number(lk.exp) === Number(state.currentExp) &&
+      lk.strike === c.s && lk.type === type);
     var built = buildResultHtml({
       type: type, spot: state.spot, strike: c.s, expEpoch: state.currentExp,
       bid: c.b, ask: c.a, last: c.l, iv: c.iv,
       oi: c.oi, volume: c.v, label: label, source: 'chain',
       news: state.news, technicals: state.technicals, fundamentals: state.fundamentals,
-      ticker: state.symbol
+      ticker: state.symbol, topPick: isTopPick
     });
     resultEl.innerHTML = built.html;
     renderStickyVerdict(built.verdict, built.contractLabel, built.buy);
@@ -3508,6 +3565,9 @@
       // picks pipeline uses. Drives the "★ Top-Picks grade" banner. Older data
       // (pre-feature) lacks the field → banner stays hidden.
       state.autoPick = entry.autoPick || null;
+      // Reset any prior Top-Pick lock — applyPendingUrlState re-arms it below
+      // only if this load came from a pick-card "Grade this contract" handoff.
+      state.topPickLock = null;
       if (!state.expirations.length){ setStatus('opt-eval-status', 'No expirations for ' + symbol + '.', 'err'); return; }
       // Default to the first expiration with at least 7 DTE so users don't
       // land on a 0-DTE contract that auto-fails every grader (expiry crisis,
@@ -10179,7 +10239,8 @@
       ' data-pick-symbol="' + escapeHtml(p.symbol) + '"' +
       ' data-pick-strike="' + escapeHtml(String(c.strike)) + '"' +
       ' data-pick-exp="' + escapeHtml(String(c.expiry || '')) + '"' +
-      ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"';
+      ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"' +
+      ' data-pick-quality="' + escapeHtml((q && q.overall) || '') + '"';
     var overall = (q && q.overall) ? ' pick-contract-overall-' + escapeHtml(q.overall) : '';
     var plain = pickPlainEnglish(p, c);
     var otmTxt = '';
@@ -11080,11 +11141,19 @@
           var exp = parseInt(symBtn.getAttribute('data-pick-exp') || '', 10);
           var t = symBtn.getAttribute('data-pick-type') || null;
           if (t !== 'call' && t !== 'put') t = null;
+          var quality = symBtn.getAttribute('data-pick-quality') || null;
+          // Mark a full contract handoff (strike+exp+type present) as a
+          // Top-Picks-vetted contract so the grader trusts the bake instead of
+          // re-deriving from live quotes and offering to swap it. The bare
+          // ticker-name button carries no strike/exp and is NOT a vetted pick.
+          var isPickContract = isFinite(k) && k > 0 && isFinite(exp) && exp > 0 && !!t;
           pendingUrlState = {
             sym: sym,
             k: isFinite(k) && k > 0 ? k : null,
             exp: isFinite(exp) && exp > 0 ? exp : null,
             t: t,
+            origin: isPickContract ? 'toppick' : null,
+            quality: quality,
           };
           var gradeTab = document.querySelector('[data-page-tab="grade"]');
           if (gradeTab) gradeTab.click();
