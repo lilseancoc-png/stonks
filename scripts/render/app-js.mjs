@@ -5114,6 +5114,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<span class="narr-lifecycle-stage">' + escapeHtml(LIFECYCLE_LABELS[stage] || stage) + '</span>' +
     '</div>';
   }
+  // Lifecycle OUTLOOK — the "why here / what's next / when" read that sits under
+  // the stepper. o is the AI-authored {rationale, nextStage, trigger}; renders
+  // only the parts present (older cached narratives without it render nothing).
+  // currentStage is the resolved stage so we can flag whether nextStage is a step
+  // further down the arc (advancing toward collapse) or a recovery back up it.
+  function lifecycleOutlookHtml(o, currentStage){
+    if (!o || typeof o !== 'object') return '';
+    var rationale = o.rationale ? String(o.rationale) : '';
+    var trigger = o.trigger ? String(o.trigger) : '';
+    var nextStage = (o.nextStage && LIFECYCLE_STAGES.indexOf(String(o.nextStage).toLowerCase()) >= 0)
+      ? String(o.nextStage).toLowerCase() : '';
+    if (!rationale && !trigger && !nextStage) return '';
+    var rows = '';
+    if (rationale) rows += '<div class="narr-life-outlook-row">' +
+      '<span class="narr-life-outlook-k">Why here</span>' +
+      '<span class="narr-life-outlook-v">' + escapeHtml(rationale) + '</span></div>';
+    if (nextStage){
+      var curIdx = LIFECYCLE_STAGES.indexOf(currentStage);
+      var nextIdx = LIFECYCLE_STAGES.indexOf(nextStage);
+      var dir = (curIdx < 0 || nextIdx < 0) ? '' : nextIdx > curIdx ? ' is-advancing' : nextIdx < curIdx ? ' is-recovering' : '';
+      var arrow = dir === ' is-recovering' ? '↑ ' : dir === ' is-advancing' ? '→ ' : '';
+      rows += '<div class="narr-life-outlook-row">' +
+        '<span class="narr-life-outlook-k">Next</span>' +
+        '<span class="narr-life-outlook-v"><span class="narr-life-outlook-next' + dir + '">' + arrow + escapeHtml(LIFECYCLE_LABELS[nextStage] || nextStage) + '</span></span></div>';
+    }
+    if (trigger) rows += '<div class="narr-life-outlook-row">' +
+      '<span class="narr-life-outlook-k">Watch for</span>' +
+      '<span class="narr-life-outlook-v">' + escapeHtml(trigger) + '</span></div>';
+    return '<div class="narr-life-outlook">' + rows + '</div>';
+  }
   // Fundamentals-vs-hype gauge: 0 = move earned by fundamentals, 100 = pure
   // story / positioning. Tolerates older data (no hype object) by rendering ''.
   function hypeGaugeHtml(hype){
@@ -5214,6 +5244,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</header>' +
       strengthBarHtml(n.strength, n.name) +
       lifecycleStepperHtml(narrStage(n)) +
+      lifecycleOutlookHtml(n.lifecycleOutlook, narrStage(n)) +
       hypeGaugeHtml(n.hype) +
       '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
       scenariosHtml(n) +
@@ -5326,6 +5357,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       statsHtml +
       strengthHtml +
       lifecycleStepperHtml(overview.lifecycleStage) +
+      lifecycleOutlookHtml(overview.lifecycleOutlook, overview.lifecycleStage) +
       hypeGaugeHtml(overview.hype) +
       thesisHtml +
       scenariosHtml(overview) +

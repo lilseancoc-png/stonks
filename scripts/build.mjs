@@ -455,6 +455,37 @@ export function normalizeLifecycleStage(raw, status) {
   const s = String(raw || "").toLowerCase().trim();
   return NARRATIVE_LIFECYCLE_STAGES.includes(s) ? s : lifecycleStageFromStatus(status);
 }
+// The stage that naturally FOLLOWS `stage` in the boom→bust arc, or null when
+// `stage` is unknown or terminal (collapse has no successor). Used as the
+// default "what's next" when the model doesn't name one.
+export function nextLifecycleStage(stage) {
+  const i = NARRATIVE_LIFECYCLE_STAGES.indexOf(stage);
+  if (i < 0 || i >= NARRATIVE_LIFECYCLE_STAGES.length - 1) return null;
+  return NARRATIVE_LIFECYCLE_STAGES[i + 1];
+}
+// The model's forward read on where the story heads NEXT. We accept ANY of the
+// six stages (a story under challenge can recover to validation OR proceed to
+// collapse, so we don't force strictly-forward motion) — but never an echo of
+// the current stage. Falls back to the arc-next when the model omits it or
+// names the stage it's already in.
+function normalizeNextStage(raw, currentStage) {
+  const s = String(raw || "").toLowerCase().trim();
+  if (NARRATIVE_LIFECYCLE_STAGES.includes(s) && s !== currentStage) return s;
+  return nextLifecycleStage(currentStage);
+}
+// Per-narrative lifecycle outlook (the AI's "why here / what's next / when"):
+//   rationale — one sentence on WHY the story sits at its current stage now
+//   nextStage — the stage expected next (normalized to the 6-stage vocab)
+//   trigger   — the signal/event (and rough timing) that confirms the transition
+// Returns null when the model supplies no prose — we don't ship a bare
+// arc-default nextStage with nothing to explain it.
+function cleanLifecycleOutlook(raw, currentStage, clamp) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  const rationale = clamp(o.rationale);
+  const trigger = clamp(o.trigger);
+  if (!rationale && !trigger) return null;
+  return { rationale, nextStage: normalizeNextStage(o.nextStage, currentStage), trigger };
+}
 // Fundamentals-vs-hype read: 0 = move fully earned by fundamentals, 100 = pure
 // story/positioning with little underneath. Label derived from the score when
 // the model doesn't supply one.
@@ -498,7 +529,7 @@ export function computeSectorGrades(narratives) {
     if (n.status === "active") {
       const stage = normalizeLifecycleStage(n.lifecycleStage, n.status);
       if (!dominant[sector] || strength > dominant[sector].strength) {
-        dominant[sector] = { strength, stage };
+        dominant[sector] = { strength, stage, outlook: n.lifecycleOutlook || null };
       }
     }
   }
@@ -524,6 +555,7 @@ export function computeSectorGrades(narratives) {
       strength: Math.round(Math.abs(sectorScore)),
       score: Math.round(sectorScore),
       lifecycleStage: dominant[sector] ? dominant[sector].stage : null,
+      lifecycleOutlook: dominant[sector] ? dominant[sector].outlook : null,
       industryGrades,
     };
   }
@@ -589,6 +621,7 @@ export function ensureTickerCoverage(narratives, allSymbols) {
       status: "building",
       // Pre-catalyst by definition — these are quiet names waiting for a story.
       lifecycleStage: "catalysts",
+      lifecycleOutlook: null,
       timeframe: "medium-term",
       bullCase: "",
       baseCase: "",
@@ -5867,9 +5900,9 @@ function srRung(spot, key, label, sup, res, mag) {
 }
 
 // Score the current price against one simple moving average. Above the SMA =
-// +mag, below = -mag (per spec: 20D ±1, 50D ±1, 100D ±2 — longer trends carry
-// more weight). available:false when the SMA is missing (the SMA stack is
-// absent from per-ticker data written before it was added, until a full build).
+// +mag, below = -mag (per spec: 20D ±1, 50D ±1, 100D ±1 — all flat). available:false
+// when the SMA is missing (the SMA stack is absent from per-ticker data written
+// before it was added, until a full build).
 function smaRung(spot, key, label, smaVal, mag) {
   if (!(spot > 0) || smaVal == null || !isFinite(smaVal) || smaVal <= 0) {
     return _sig(key, `${label} SMA`, 0, { available: false, note: `no ${label} SMA` });
@@ -6044,18 +6077,19 @@ function scoreTechnicals(data, streakRow) {
   signals.push(volConfSignal);
 
   // 10-12. Moving-average stack (per spec): price above the SMA = bullish,
-  // below = bearish, weighted by horizon — 20D ±1, 50D ±1, 100D ±2. The whole
-  // stack shows "no data" until a full build writes technicals.sma.
+  // below = bearish — 20D ±1, 50D ±1, 100D ±1 (all flat per spec; unlike the
+  // 100D S/R rung, the 100D SMA is not double-weighted). The whole stack shows
+  // "no data" until a full build writes technicals.sma.
   const sma = t.sma || {};
   signals.push(
     smaRung(spot, "sma20", "20D", sma.sma20, 1),
     smaRung(spot, "sma50", "50D", sma.sma50, 1),
-    smaRung(spot, "sma100", "100D", sma.sma100, 2),
+    smaRung(spot, "sma100", "100D", sma.sma100, 1),
   );
 
   // 13. Chart pattern (AI-identified, per attachChartPatterns): a recognised
-  // bullish formation scores +1 (+2 when the model flags high confidence), a
-  // bearish formation -1 / -2. Direction + magnitude come from the canonical
+  // bullish formation scores +1, a bearish formation -1 (per spec — flat ±1
+  // regardless of model confidence). Direction comes from the canonical
   // CHART_PATTERN_META table — the model's prose never touches the sign. "None",
   // an unrecognised label, or a missing read (no full build yet) scores 0.
   let chartSignal = _sig("chartPattern", "Chart Pattern", 0,
@@ -6066,7 +6100,7 @@ function scoreTechnicals(data, streakRow) {
       { value: "None", note: "no classic pattern present on the daily chart" });
   } else if (cp && cp.pattern && CHART_PATTERN_META[cp.pattern]) {
     const meta = CHART_PATTERN_META[cp.pattern];
-    const mag = cp.confidence === "high" ? 2 : 1;
+    const mag = 1; // flat ±1 per spec — no high-confidence doubling
     const s = meta.direction === "bullish" ? mag : meta.direction === "bearish" ? -mag : 0;
     chartSignal = _sig("chartPattern", "Chart Pattern", s, {
       value: cp.pattern,
@@ -6267,7 +6301,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   }
   signals.push(spySignal);
 
-  // 6. Put/Call Ratio Extreme: ±1, contrarian. Total put volume / call volume
+  // 6. Put/Call Ratio Extreme: ±2, contrarian. Total put volume / call volume
   // across the nearest expirations. A high ratio (>1.25) is extreme fear —
   // crowded protection that tends to mark a bottom, so it reads bullish. A
   // low ratio (<0.65) is extreme greed — everyone already long calls, so it
@@ -6280,10 +6314,10 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     let s = 0;
     let note = `P/C ${ratio.toFixed(2)} — neutral positioning`;
     if (ratio > 1.25) {
-      s = 1;
+      s = 2;
       note = `P/C ${ratio.toFixed(2)} — extreme fear, contrarian bullish`;
     } else if (ratio < 0.65) {
-      s = -1;
+      s = -2;
       note = `P/C ${ratio.toFixed(2)} — extreme greed, contrarian bearish`;
     }
     pcrSignal = _sig("putCallRatio", "Put/Call Ratio Extreme", s, {
@@ -6428,13 +6462,14 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
 
   // 4. Media: surge of recent coverage. Approximated from headline count and
   // sentiment polarity since per-ticker headline-volume history isn't tracked.
-  // ≥4 fresh headlines + non-neutral sentiment scores ±1.
+  // ≥4 fresh headlines + non-neutral sentiment: bullish +1, bearish -2 (per
+  // spec — a negative media surge weighs twice as heavy as a positive one).
   let mediaSignal = _sig("media", "Media Coverage", 0,
     { available: true, note: "no media surge detected" });
   const headlines = data?.news?.headlines;
   if (Array.isArray(headlines) && headlines.length >= 4 &&
       (sent === "bullish" || sent === "bearish")) {
-    const s = sent === "bullish" ? 1 : -1;
+    const s = sent === "bullish" ? 1 : -2;
     mediaSignal = _sig("media", "Media Coverage", s, {
       value: `${headlines.length} headlines`,
       note: `${headlines.length} headlines with ${sent} tilt`,
@@ -11192,6 +11227,7 @@ const NARRATIVE_SYSTEM_PROMPT =
   `a "strength" integer 0-100 (95 = dominant tape driver; 60 = meaningful mover; 30 = simmering; 10 = mostly latent); ` +
   `a "status" of "active" (playing out in price), "building" (thesis intact but not yet priced — waiting on a trigger), or "fading" (move has largely happened); ` +
   `a "lifecycleStage" of "catalysts", "amplification", "validation", "peak", "challenges", or "collapse" — where THIS specific story sits in the 6-stage lifecycle described above (status is "is it priced yet?"; lifecycleStage is "how far through the boom→bust arc is it?"); ` +
+  `a "lifecycleOutlook" object with three keys: "rationale" — ONE sentence on WHY this story sits at its current lifecycleStage right now, citing the concrete evidence (price action, who is piling in, earnings/data, positioning); "nextStage" — the stage you expect it to enter NEXT (one of the six stage names; usually the next stage along the arc, though a story under challenge can recover to an earlier stage); and "trigger" — the SPECIFIC observable signal or event, with a rough timing/horizon, that would confirm the move into nextStage (e.g. a hot core-CPI print at the mid-month release tipping a validation story into challenges, or two straight quarters of accelerating capex confirming amplification → validation). Keep rationale and trigger to ONE concise sentence each; ` +
   `a "timeframe" of "immediate" (this week), "near-term" (1-4 weeks), "medium-term" (1-3 months), or "long-term" (3+ months); ` +
   `a "bullCase", a "baseCase" and a "bearCase", each ONE short sentence — the optimistic, most-likely, and pessimistic path for THIS narrative; ` +
   `a "hype" object {"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"<one short clause>"} — how much of THIS move is earned by fundamentals (0) vs. hype / positioning (100); ` +
@@ -11204,7 +11240,7 @@ const NARRATIVE_SYSTEM_PROMPT =
   "If a list of PREVIOUS narrative names is provided, reuse a previous name verbatim when today's narrative is the same story so we can track its lifespan; otherwise pick a fresh name. " +
   "conflictsWith names MUST match other names in your own response exactly. " +
   "Respond with ONLY a JSON object of the form " +
-  `{"sectors":[{"sector":"Technology","overview":{"thesis":"...","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["...","..."]},"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","lifecycleStage":"catalysts"|"amplification"|"validation"|"peak"|"challenges"|"collapse","timeframe":"immediate"|"near-term"|"medium-term"|"long-term","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["..."],"conflictsWith":["..."],"sources":[{"publisher":"...","title":"...","date":"YYYY-MM-DD"}]}]}]} ` +
+  `{"sectors":[{"sector":"Technology","overview":{"thesis":"...","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["...","..."]},"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","lifecycleStage":"catalysts"|"amplification"|"validation"|"peak"|"challenges"|"collapse","lifecycleOutlook":{"rationale":"...","nextStage":"validation","trigger":"..."},"timeframe":"immediate"|"near-term"|"medium-term"|"long-term","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["..."],"conflictsWith":["..."],"sources":[{"publisher":"...","title":"...","date":"YYYY-MM-DD"}]}]}]} ` +
   "— include an entry for EVERY sector in the whitelist (even if its narratives array is empty), no markdown fences, no prose before or after the JSON.";
 
 const TRENDS_FILE = "trends.json";
@@ -11447,7 +11483,8 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
           // already explicit about the shape, so deliberation isn't
           // worth losing the response over. Bumped 16384 → 32768 when the
           // schema grew (per-narrative + per-sector bull/base/bear cases, hype
-          // read, lifecycleStage) — roughly 3-4× the payload. Prod NARRATIVES_MODEL
+          // read, lifecycleStage, + the per-narrative lifecycleOutlook why/next/
+          // trigger) — roughly 3-4× the payload. Prod NARRATIVES_MODEL
           // is Flash (handles 32k fine); a free-tier Gemma fork may still drop
           // some fields, which the parser + renderer tolerate (graceful degrade).
           maxOutputTokens: 32768,
@@ -11599,6 +11636,9 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
     const timeframe = VALID_TIMEFRAME.includes(n.timeframe) ? n.timeframe : "near-term";
     // Where this story sits in the 6-stage boom→bust arc; defaults off status.
     const lifecycleStage = normalizeLifecycleStage(n.lifecycleStage, status);
+    // Forward read on the arc: WHY it sits at this stage, what stage comes NEXT,
+    // and the trigger (with rough timing) that would confirm the transition.
+    const lifecycleOutlook = cleanLifecycleOutlook(n.lifecycleOutlook, lifecycleStage, cleanCase);
     // The three scenario paths + the fundamentals-vs-hype read (six-question framework).
     const bullCase = cleanCase(n.bullCase);
     const baseCase = cleanCase(n.baseCase);
@@ -11616,7 +11656,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
     // vote from the longs (then shorts). Falls back to "Uncategorized" only
     // when no ticker resolves either (which the upstream filter then drops).
     const industry = resolveNarrativeIndustry(n.industry, longs, shorts);
-    const out = { name, industry, thesis, sentiment, confidence, strength, status, timeframe, lifecycleStage, bullCase, baseCase, bearCase, hype, watchFor, conflictsWith: conflictsWithRaw, longs, shorts, sources };
+    const out = { name, industry, thesis, sentiment, confidence, strength, status, timeframe, lifecycleStage, lifecycleOutlook, bullCase, baseCase, bearCase, hype, watchFor, conflictsWith: conflictsWithRaw, longs, shorts, sources };
     // Stamp the parent sector when we know it from the wrapper. The UI
     // groups by SECTOR_OF_INDUSTRY anyway, but having `sector` on the
     // narrative simplifies the stale-fallback path.
@@ -11702,6 +11742,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       strength: grade ? grade.strength : 0,
       score: grade ? grade.score : 0,
       lifecycleStage: grade ? grade.lifecycleStage : null,
+      lifecycleOutlook: grade ? grade.lifecycleOutlook : null,
       industryGrades: grade ? grade.industryGrades : [],
     };
   }
