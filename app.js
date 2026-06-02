@@ -7687,11 +7687,11 @@
     var grid = '<div class="cal-report-grid">' + cells.join('') + '</div>';
     var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
     // Stale tag: writeCalendarFile carries forward in-window report rows
-    // from the prior calendar.json when FRED + BLS both come back empty
+    // from the prior calendar.json when BLS + FRED both come back empty
     // (each carried row gets ev.stale=true). Surface it so traders know
     // the figures may not reflect today's release schedule.
     var staleTag = e.stale
-      ? '<span class="cal-chip-stale" title="Today\'s FRED + BLS fetches were empty — these figures were carried forward from the previous build">Stale</span>'
+      ? '<span class="cal-chip-stale" title="Today\'s BLS + FRED fetches were empty — these figures were carried forward from the previous build">Stale</span>'
       : '';
     return '<div class="cal-chip cal-report' + (e.stale ? ' is-stale' : '') + '">' +
       '<div class="cal-report-head">' +
@@ -7719,9 +7719,10 @@
     var rateValue = (rate && typeof rate.rate === 'number' && isFinite(rate.rate))
       ? rate.rate.toFixed(2) : null;
     // Tag the rate visibly when it came from the on-disk cache instead of
-    // a fresh FRED fetch. The build silently substitutes a prior reading
-    // (up to 14 days old) when FRED:DFF flakes; without this tag, the
-    // 'as of' date is the only signal — and it's easy to miss. Probabilities
+    // a fresh fetch. The build silently substitutes a prior reading
+    // (up to 14 days old) when both the NY Fed and FRED sources flake;
+    // without this tag, the 'as of' date is the only signal — and it's
+    // easy to miss. Probabilities
     // in the table below are anchored to this rate, so traders need to
     // know its provenance.
     var rateStaleTag = '';
@@ -7729,7 +7730,7 @@
       var rateSince = Date.parse(rate.asOf);
       if (isFinite(rateSince)){
         var rateDays = Math.max(1, Math.floor((Date.now() - rateSince) / 86400000));
-        rateStaleTag = '<span class="fomc-rate-stale" title="FRED:DFF unavailable today — using the last persisted reading (max age 14d before the widget hides itself)">Cached · ' + rateDays + 'd</span>';
+        rateStaleTag = '<span class="fomc-rate-stale" title="Fed Funds rate unavailable today — using the last persisted reading (max age 14d before the widget hides itself)">Cached · ' + rateDays + 'd</span>';
       }
     }
     var meetings = (fomc.meetings || []).slice(0, 2);
@@ -7737,7 +7738,7 @@
     var header = '<div class="fomc-head">' +
       (rateValue != null
         ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span>' + rateStaleTag + '</div>'
-        : '<div class="fomc-rate fomc-rate-missing"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">—</span><span class="fomc-rate-asof">FRED:DFF unavailable this build</span></div>') +
+        : '<div class="fomc-rate fomc-rate-missing"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">—</span><span class="fomc-rate-asof">Fed Funds rate unavailable this build</span></div>') +
       (meetings.length
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + ' · 14:00 ET</span></div>'
         : '') +

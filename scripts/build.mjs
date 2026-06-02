@@ -2328,9 +2328,10 @@ async function fetchTickerChain(symbol) {
       chainEntry = initial.options[0];
     } else {
       // Politeness gap between same-ticker expiration calls. 150ms keeps each
-      // worker's request rate (~1 call / 150ms+latency) comfortably below the
-      // Yahoo throttle line at TICKER_CONCURRENCY=4 (~8 req/s aggregate), while
-      // shaving ~100ms × (expirations-1) off every ticker vs the old 250ms gap.
+      // worker's request rate (~1 call / 150ms + ~104ms latency ≈ 4/s) below
+      // the Yahoo throttle line even at TICKER_CONCURRENCY=6 (~18 req/s
+      // aggregate, probed clean), while shaving ~100ms × (expirations-1) off
+      // every ticker vs the old 250ms gap.
       await new Promise((r) => setTimeout(r, 150));
       const r = await fetchYahooOptions(symbol, exp);
       chainEntry = r.options?.[0];
@@ -2615,13 +2616,18 @@ async function fetchMacroBackdrop() {
 // paces its own per-expiration Yahoo calls with the 150ms gap inside
 // fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
 // times the serial baseline — still well below typical rate-limit thresholds.
-// Four workers — gives us the chain-fetch speedup without re-introducing
-// within-ticker parallelism. Because each worker runs its ticker's chain
-// loop, then chart, then fundamentals strictly in order (see
+// Six workers — measured Yahoo options latency is ~104ms p50 (well under the
+// 150ms inter-expiration gap), so the gap (not the network) paces each worker;
+// six probed clean (0 errors / 0 quoteless, no latency degradation) at ~18
+// options-req/s, ~27% faster than four. Because each worker runs its ticker's
+// chain loop, then chart, then fundamentals strictly in order (see
 // fetchTickerChain), any per-ticker warning lands directly before THAT
-// ticker's "✓ X — spot $Y" line. Other workers' lines may interleave
-// across tickers, but warnings never get misattributed.
-const TICKER_CONCURRENCY = 4;
+// ticker's "✓ X — spot $Y" line. Other workers' lines may interleave across
+// tickers, but warnings never get misattributed. The 3× backoff retry +
+// MIN_SUCCESS_RATE=0.75 floor keep an occasional CI-runner-IP throttle from
+// shipping bad data — dial back to 4-5 if the chain log shows ↻ retries or
+// quoteless picks.
+const TICKER_CONCURRENCY = 6;
 
 async function fetchAllTickerChains() {
   const out = {};
@@ -4108,8 +4114,10 @@ function buildReleaseSchedule(asOf) {
 // id to pull the time series from, the canonical user-facing label, the
 // release-schedule key, and a per-series formatter that maps the raw
 // value to a display string the calendar chips render verbatim. The
-// `bls` field is the matching BLS Public Data API series ID, used as a
-// fallback when FRED is unreachable — see fetchBlsSeries.
+// `bls` field is the matching BLS Public Data API series ID — BLS is the
+// source of record for every series here (CPI/PPI/payrolls/unemployment/
+// JOLTS), so it's the PRIMARY fetch and FRED's mirror is the fallback.
+// See fetchBlsSeries / fetchMacroReleases.
 const ECON_REPORTS = [
   { subtype: "nfp",          label: "Non-Farm Payroll",      schedule: "empSit", series: "PAYEMS",   bls: "CES0000000001",     format: "nfp"  },
   { subtype: "unrate",       label: "Unemployment Rate",     schedule: "empSit", series: "UNRATE",   bls: "LNS14000000",       format: "pct"  },
@@ -4121,8 +4129,13 @@ const ECON_REPORTS = [
   { subtype: "ppi-mom",      label: "PPI MoM",               schedule: "ppi",    series: "PPIFIS",   bls: "WPSFD4",            format: "mom"  },
 ];
 
-// === FRED ============================================================
-// Primary path when FRED_API_KEY is set: the official JSON API at
+// === FRED (fallback source) ==========================================
+// FRED is the FALLBACK behind BLS (macro series) and NY Fed EFFR (the
+// DFF rate) — both the upstream publishers FRED mirrors — so it's only
+// fetched when the primary returns empty. That keeps its frequently-
+// throttled Cloudflare path off every build's hot path.
+//
+// Path when FRED_API_KEY is set: the official JSON API at
 //   https://api.stlouisfed.org/fred/series/observations?series_id=<ID>&api_key=<KEY>&file_type=json
 // This host doesn't go through the Cloudflare WAF that gates the public
 // CSV endpoint, so it's far more reliable from CI runner IPs (which have
@@ -4244,12 +4257,14 @@ async function fetchFredSeries(seriesId) {
   return [];
 }
 
-// === BLS Public Data API ============================================
-// Alternate source for the macro series FRED publishes — used as a
-// fallback when FRED is unreachable (e.g. the Cloudflare-fronted CSV
-// endpoint blocking the runner IP). The v2 GET endpoint is
-// unauthenticated and returns the last 3 calendar years of monthly
-// observations:
+// === BLS Public Data API (primary macro source) =====================
+// BLS is the source of record for every macro series in ECON_REPORTS
+// (CPI/PPI/payrolls/unemployment/JOLTS) — FRED merely republishes it —
+// so we fetch BLS first and fall back to FRED's mirror only when BLS is
+// empty. When BLS_API_KEY is set the fetch uses the registered POST path
+// (500 queries/day, 20yr history); otherwise the unauthenticated v2 GET
+// endpoint, which returns the last 3 calendar years of monthly
+// observations (plenty for the YoY calc, which needs 13 months):
 //   GET https://api.bls.gov/publicAPI/v2/timeseries/data/<SERIES_ID>
 // Response (newest-first):
 //   {
@@ -4259,24 +4274,46 @@ async function fetchFredSeries(seriesId) {
 //       "data": [{ "year": "2026", "period": "M04", "value": "158234", ... }]
 //     }]}
 //   }
-// We dropped to ~6 calls per build (one per unique FRED series) so the
-// unauthenticated v2 throttle is plenty. Periods "M01"–"M12" map to
-// months 1–12; "M13" (annual avg) is skipped so cadence matches FRED's
-// monthly observations.
+// We make ~6 calls per build (one per unique series); even the
+// unauthenticated v2 throttle is plenty, and BLS_API_KEY lifts it well
+// clear. Periods "M01"–"M12" map to months 1–12; "M13" (annual avg) is
+// skipped so cadence matches FRED's monthly observations.
 async function fetchBlsSeries(blsId) {
   if (!blsId) return [];
+  const ua =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  const apiKey = process.env.BLS_API_KEY;
   try {
-    const res = await fetch(
-      `https://api.bls.gov/publicAPI/v2/timeseries/data/${encodeURIComponent(blsId)}`,
-      {
+    let res;
+    if (apiKey) {
+      // Registered path: POST with the key → 500 queries/day, 20yr
+      // history. Request the last 3 calendar years so the YoY calc (needs
+      // 13 months) always has a full prior-year anchor, even in January.
+      const endyear = new Date().getUTCFullYear();
+      res = await fetch("https://api.bls.gov/publicAPI/v2/timeseries/data/", {
+        method: "POST",
         headers: {
+          "content-type": "application/json",
           accept: "application/json",
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "user-agent": ua,
         },
+        body: JSON.stringify({
+          seriesid: [blsId],
+          startyear: String(endyear - 2),
+          endyear: String(endyear),
+          registrationkey: apiKey,
+        }),
         signal: AbortSignal.timeout(15000),
-      },
-    );
+      });
+    } else {
+      res = await fetch(
+        `https://api.bls.gov/publicAPI/v2/timeseries/data/${encodeURIComponent(blsId)}`,
+        {
+          headers: { accept: "application/json", "user-agent": ua },
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+    }
     if (!res.ok) {
       console.log(`    ⚠ BLS ${blsId} HTTP ${res.status}`);
       return [];
@@ -4377,29 +4414,30 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
   // Tracks which source ultimately filled each series so event.source can
   // attribute correctly (FRED:ID vs BLS:ID). null = both empty.
   const seriesSource = {};
-  // Pull FRED (+ BLS fallback) + ForexFactory in parallel. FRED provides
-  // Actual/Previous (canonical); when FRED is blocked from the runner IP
-  // we fall back to the BLS Public API for the same Actual/Previous
-  // numbers. ForexFactory provides Consensus/Forecast (and sometimes a
-  // faster Actual, since FF tends to publish within minutes of release
-  // while the monthly observation can lag a day or two).
+  // Pull BLS (+ FRED fallback) + ForexFactory in parallel. BLS is the
+  // source of record for these series and provides Actual/Previous; we
+  // fall back to FRED's mirror only when BLS returns empty. ForexFactory
+  // provides Consensus/Forecast (and sometimes a faster Actual, since FF
+  // tends to publish within minutes of release while the monthly
+  // observation can lag a day or two).
   const [ , ffEvents ] = await Promise.all([
     Promise.all(uniqueSeries.map(async (id) => {
-      let data = await fetchFredSeries(id);
-      if (data.length) {
-        seriesData[id] = data;
-        seriesSource[id] = "FRED:" + id;
-        return;
-      }
       const blsId = blsByFredId[id];
       if (blsId) {
-        data = await fetchBlsSeries(blsId);
-        if (data.length) {
-          console.log(`    ✓ ${id} sourced from BLS (${blsId}) — FRED returned empty`);
-          seriesData[id] = data;
+        const blsData = await fetchBlsSeries(blsId);
+        if (blsData.length) {
+          seriesData[id] = blsData;
           seriesSource[id] = "BLS:" + blsId;
           return;
         }
+      }
+      // BLS empty → fall back to FRED's mirror of the same series.
+      const fredData = await fetchFredSeries(id);
+      if (fredData.length) {
+        console.log(`    ✓ ${id} sourced from FRED (BLS returned empty)`);
+        seriesData[id] = fredData;
+        seriesSource[id] = "FRED:" + id;
+        return;
       }
       seriesData[id] = [];
       seriesSource[id] = null;
@@ -4455,7 +4493,8 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         date: dateStr,
         title: report.label,
         // Prefer ForexFactory's actual when present (it publishes within
-        // minutes of release); fall back to FRED's monthly observation.
+        // minutes of release); fall back to the primary (BLS, or FRED's
+        // mirror) monthly observation.
         actual: ffActual || fredActual,
         previous: ffPrevious || fredPrevious,
         consensus,
@@ -4464,18 +4503,19 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         // doesn't expose a separate "forecast" feed.
         forecast: consensus,
         source: ff
-          ? "BLS · FRED · ForexFactory"
-          : (seriesSource[report.series] || "FRED · " + report.series).replace(":", " · "),
+          ? "BLS · ForexFactory"
+          : (seriesSource[report.series] || "BLS · " + report.series).replace(":", " · "),
       });
     }
   }
   return events;
 }
 
-// === Federal Funds Rate (FRED DFF + NY Fed EFFR fallback) ============
+// === Federal Funds Rate (NY Fed EFFR primary + FRED DFF fallback) ====
 // The NY Fed publishes the effective fed funds rate (EFFR) daily at a
 // public JSON endpoint with no auth and no Cloudflare WAF — it's
-// literally the upstream of FRED's DFF series. Response shape:
+// literally the upstream of FRED's DFF series, so we pull it as the
+// PRIMARY and keep FRED:DFF only as the backstop. Response shape:
 //   { "refRates": [{ "effectiveDate": "YYYY-MM-DD", "type": "EFFR",
 //                    "percentRate": 4.33, ... }] }
 async function fetchNyFedEffr() {
@@ -4508,20 +4548,19 @@ async function fetchNyFedEffr() {
 }
 
 export async function fetchEffectiveFedFundsRate() {
+  // NY Fed EFFR is the source of record (and dodges FRED's throttled
+  // Cloudflare path) — try it first.
+  const nyFed = await fetchNyFedEffr();
+  if (nyFed) return nyFed;
+  // NY Fed empty → fall back to FRED's DFF mirror (cascade short-circuit,
+  // timeout, or a genuinely empty response all yield []).
   const series = await fetchFredSeries("DFF");
   if (series.length) {
     const last = series[series.length - 1];
+    console.log(`    ✓ Fed Funds rate sourced from FRED:DFF ${last.value}% as of ${last.date} (NY Fed returned empty)`);
     return { rate: last.value, asOf: last.date, source: "FRED:DFF" };
   }
-  // FRED empty (cascade short-circuit, timeout, or genuinely empty
-  // response). Try the NY Fed EFFR endpoint as a backstop — same daily
-  // series, different publisher, different network path.
-  const nyFed = await fetchNyFedEffr();
-  if (nyFed) {
-    console.log(`    ✓ Fed Funds rate sourced from NY Fed EFFR ${nyFed.rate}% as of ${nyFed.asOf} (FRED returned empty)`);
-    return nyFed;
-  }
-  console.log("    ⚠ Fed Funds Rate fetch returned no observations (FRED:DFF + NY Fed both empty / blocked).");
+  console.log("    ⚠ Fed Funds Rate fetch returned no observations (NY Fed + FRED:DFF both empty / blocked).");
   return null;
 }
 
@@ -11714,12 +11753,12 @@ async function main() {
   console.log("Fetching macro report releases (FRED)…");
   const reportEvents = await fetchMacroReleases(todayMs, cutoffMs);
   console.log(`  · ${reportEvents.length} report rows`);
-  console.log("Fetching effective Fed Funds rate (FRED:DFF)…");
+  console.log("Fetching effective Fed Funds rate (NY Fed EFFR)…");
   const fedRate = await fetchEffectiveFedFundsRate();
   if (fedRate) console.log(`  · ${fedRate.rate}% as of ${fedRate.asOf}`);
   // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
   // from that pre-wipe snapshot so the lastKnownFedRate cache actually
-  // serves as a fallback when FRED:DFF flakes today — the Fed only
+  // serves as a fallback when NY Fed + FRED:DFF both flake today — the Fed only
   // moves rates every 6-8 weeks, so a 14-day-old anchor still produces
   // a defensible probability spread.
   const fedwatchHistory = fedwatchHistoryPrev || { meetings: {} };
@@ -11730,7 +11769,7 @@ async function main() {
     const lastMs = Date.parse(last.capturedAt || last.asOf || "");
     const ageDays = Number.isFinite(lastMs) ? (Date.now() - lastMs) / 86400000 : Infinity;
     if (ageDays <= 14 && Number.isFinite(last.rate)) {
-      effectiveFedRate = { rate: last.rate, asOf: last.asOf, source: "FRED:DFF (cached)" };
+      effectiveFedRate = { rate: last.rate, asOf: last.asOf, source: "Fed Funds (cached)" };
       console.log(`  · using cached Fed Funds rate ${last.rate}% from ${last.capturedAt || last.asOf} (${ageDays.toFixed(1)}d old)`);
     }
   }
@@ -11751,9 +11790,9 @@ async function main() {
   // pre-meeting anchor — without it we can't separate pre/post-meeting
   // averages from the implied month-average rate.
   const currentRateNum = effectiveFedRate?.rate;
-  // Persist today's Fed rate so a future FRED outage can still anchor
+  // Persist today's Fed rate so a future outage can still anchor
   // FedWatch from a recent observation. Only update when we got a fresh
-  // reading from FRED (not when we fell back to the cached value).
+  // reading (NY Fed or FRED), not when we fell back to the cached value.
   if (fedRate && Number.isFinite(fedRate.rate)) {
     fedwatchHistory.lastKnownFedRate = {
       rate: fedRate.rate,

@@ -16,10 +16,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- Macro calendar + Fed Funds rate now fetch from their **source-of-record** first — BLS Public Data API for the CPI/PPI/payrolls/unemployment/JOLTS series and the NY Fed EFFR endpoint for the effective rate — with FRED demoted to a fallback behind both. Takes FRED's frequently-throttled Cloudflare path off every build's hot path (no more ~25–50s of 429/timeout "cascade") while keeping it as a backstop. Adds an optional `BLS_API_KEY` for registered BLS access (500 queries/day, 20yr history; unset still works unauthenticated). `api/fed-rate.js` likewise tries NY Fed EFFR first, FRED CSV as fallback.
+
 ### Added
 - Top Picks landing cards now show a `⏱ N×` consecutive-build streak chip (how many builds in a row the ticker has held a top-picks spot), mirroring the detail card's existing tenure badge. Shown only when the streak is >1.
 
 ### Perf
+- Daily build: raise chain-fetch `TICKER_CONCURRENCY` 4 → 6. Measured Yahoo options latency is ~104ms p50 (under the 150ms inter-expiration gap), so workers are gap-paced, not latency-bound, and six probed clean (0 errors / 0 quoteless, no latency degradation) at ~18 req/s — ~27% faster on the chain phase (~87s → ~64s for 138 tickers). Single lever (gaps unchanged); the 3× backoff retry + `MIN_SUCCESS_RATE=0.75` floor keep an occasional runner-IP throttle non-breaking.
 - Daily build: 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI) now runs **concurrently** with the narratives/calendar/scoring phases instead of serially at the end — its ~60-80s comes off the critical path. Kicked off right before `attachMarketNarratives` (after all per-ticker SEC XBRL has drained, so SEC load is not doubled) and awaited where the 13F files are written.
 - Daily build: raise the Gemini AI pacer `AI_RPM` 300 → 600 in `daily.yml`. The per-ticker passes run on Flash-Lite (4K RPM / 4M TPM) and peaked at 279 RPM / 890K TPM, so the pacer was the binding floor; 600 keeps peak-minute TPM at ~53% of quota while halving the RPM-paced floor. Together with the 13F overlap this projects the ~4m20s node build down to ~2m45s.
 
