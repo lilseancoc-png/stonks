@@ -5366,6 +5366,28 @@ const GRADES_HISTORY_KEEP_DAYS = 120;   // prune change events older than this
 const GRADES_HISTORY_MAX_CHANGES = 500; // hard cap on the rolling log
 const GRADE_CHANGE_MIN_DELTA = 3;       // min |Δscore| to log when the tier is unchanged
 
+// Picks churn log (data/picks-changes.json): why a name ENTERED or LEFT the
+// actionable Top Picks set. Detected on the grade index (a name crossing the
+// ±PICKS_MIN_CONVICTION conviction bar), NOT the visible top-N list — that keeps
+// it immune to the pre-market quote collapse that transiently empties the picks
+// list (grades stay healthy pre-bell), and the "why" maps cleanly to the four
+// pillars (fundamentals / technicals / mechanicals / narrative). Each build we
+// diff the fresh grade index against the prior grade snapshot (the same
+// gradesHistoryPrev.latest the grade-change log uses) and append an event for
+// every crossing, with a deterministic pillar-delta "why" plus an optional AI
+// one-liner (hybrid; self-skips without GEMINI_API_KEY).
+const PICKS_CHANGES_FILE = "picks-changes.json";
+const PICKS_CHANGES_KEEP_DAYS = 30;     // prune churn events older than this
+const PICKS_CHANGES_MAX = 200;          // hard cap on the rolling log
+const PICKS_CHANGES_AI_MAX = 12;        // max events per build that get an AI one-liner
+// Hysteresis dead-band (anti-jitter): a name ENTERS the log when its |total|
+// clears the +PICKS_MIN_CONVICTION bar (16), but only EXITS once |total| falls
+// below the bar by this much (i.e. < 14). Combined with the per-symbol in/out
+// state derived from the rolling log, this stops a score parked at the bar from
+// spamming entered/exited every ~3×/day build — the same noise the grade-change
+// log suppresses with GRADE_CHANGE_MIN_DELTA.
+const PICKS_CHANGES_EXIT_BAND = 2;
+
 // ---- Contract grade helpers (mirror app.js thresholds) ------------------
 // These mirror gradeSpread/gradeLiquidity/gradeDelta/gradeTheta/gradeVolRegime
 // in the browser app.js. Duplicated by design — app.js is a generated IIFE
@@ -7912,14 +7934,265 @@ export function diffGradesHistory(prev, gradesIndex, builtAtIso) {
   return { builtAtIso, latest: nextLatest, changes };
 }
 
+// Stamp each pick's firstSeen — the build timestamp it first appeared in the
+// current *continuous* run on the top-picks list. A symbol present in priorPicks
+// inherits its firstSeen; one that dropped out (absent from priorPicks) resets
+// to builtAtIso, and that reset is what makes the day-streak "consecutive".
+// Keyed by symbol so a side flip still counts as "still on the list". The
+// browser derives the streak from firstSeen as trading days on the list
+// (daysOnPicks in app-js.mjs, weekends/holidays excluded) — we deliberately keep
+// no build tally, since the tenure is measured in trading days the name has been
+// there, not builds survived.
+// Mutates picks in place (and returns it). Shared by the full build
+// (writeTopPicksFile, which passes the pre-wipe priorPayload) and the render-only
+// regen-picks.mjs (which reads the live picks.json), so the day-streak survives a
+// regen instead of resetting to 0 until the next full bake.
+export function applyPickFirstSeen(picks, priorPicks, builtAtIso) {
+  const priorBySymbol = new Map();
+  if (Array.isArray(priorPicks)) {
+    for (const pp of priorPicks) {
+      if (pp?.symbol) priorBySymbol.set(pp.symbol, pp);
+    }
+  }
+  for (const p of picks) {
+    const prev = priorBySymbol.get(p.symbol);
+    p.firstSeen = prev?.firstSeen || builtAtIso;
+  }
+  return picks;
+}
+
+// ---- Picks churn log (data/picks-changes.json) --------------------------
+// Why a name entered or left the actionable Top Picks set (crossed the
+// ±PICKS_MIN_CONVICTION conviction bar). See the constants block for the design
+// rationale (grade-set based, pre-bell-collapse immune). Like grades-history,
+// this lives in data/, so main() MUST readPicksChanges() BEFORE writeChainFiles
+// wipes data/; regen-picks.mjs (no wipe) reads the live file directly.
+
+export async function readPicksChanges() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, PICKS_CHANGES_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.changes)) {
+      return { builtAtIso: parsed.builtAtIso || null, changes: parsed.changes };
+    }
+  } catch {
+    // First run / missing / corrupt — fresh log.
+  }
+  return { builtAtIso: null, changes: [] };
+}
+
+export async function writePicksChanges(payload) {
+  await writeFile(resolve(DATA_DIR, PICKS_CHANGES_FILE), JSON.stringify(payload), "utf8");
+}
+
+// Normalize either a full grade/pick object (`.pillars[k].score`) or a lean
+// grades-history snapshot (`.p[k]`) into a flat { pillarKey: score } map, so the
+// entered side (fresh grade index) and the prior side (lean snapshot) diff with
+// one code path.
+function pillarScoreMap(src) {
+  const out = {};
+  for (const k of GRADE_PILLAR_KEYS) {
+    if (src && src.pillars && src.pillars[k] && src.pillars[k].score != null) out[k] = Number(src.pillars[k].score) || 0;
+    else if (src && src.p && src.p[k] != null) out[k] = Number(src.p[k]) || 0;
+    else out[k] = 0;
+  }
+  return out;
+}
+
+// Top-N pillar deltas + a "Technicals +4, Narrative +2" style summary, mirroring
+// diffGradesHistory's whyText so the two logs read consistently.
+function picksChangeWhy(prevScores, curScores) {
+  const why = GRADE_PILLAR_KEYS
+    .map((k) => ({ pillar: k, delta: (Number(curScores[k]) || 0) - (Number(prevScores[k]) || 0) }))
+    .filter((d) => d.delta !== 0)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 2);
+  const whyText = why.length
+    ? why.map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${d.delta}`).join(", ")
+    : "mixed signals";
+  return { why, whyText };
+}
+
+// Detect names that crossed the actionable conviction bar between the prior grade
+// snapshot (gradesHistoryPrev.latest — lean { total, tier, p }) and the fresh
+// grade index (full pillars). Returns a list of deterministic churn events
+// (newest-build first is applied by the caller via appendPicksChanges). A symbol
+// with no prior snapshot is skipped (no phantom event on first rollout), exactly
+// like diffGradesHistory. Pure + AI-free, so it's shared by main() and
+// regen-picks.mjs.
+export function buildPicksChanges(prevLatest, gradesIndex, builtAtIso, prevLog = null) {
+  const priorLatest = (prevLatest && typeof prevLatest === "object") ? prevLatest : {};
+  if (!Object.keys(priorLatest).length) return []; // unseeded — don't flood on first run
+  const idx = gradesIndex || {};
+  const TH = PICKS_MIN_CONVICTION;
+  const EXIT_TH = TH - PICKS_CHANGES_EXIT_BAND; // dead-band: stay "in" until below this
+  // Per-symbol in/out state from the rolling log (newest-first, so the first hit
+  // wins). This is what makes the dead-band work: we only flip a name's logged
+  // state, never re-log the same direction or chatter inside the band.
+  const lastState = new Map();
+  const priorEvents = (prevLog && Array.isArray(prevLog.changes)) ? prevLog.changes : [];
+  for (const c of priorEvents) {
+    if (c && c.symbol && !lastState.has(c.symbol)) {
+      lastState.set(c.symbol, c.event === "entered" ? "in" : "out");
+    }
+  }
+  // Union of symbols: current grade universe + any prior-actionable name that may
+  // have left the universe entirely (so a delisted strong pick still logs an exit).
+  const symbols = new Set([...Object.keys(idx), ...Object.keys(priorLatest)]);
+  const events = [];
+  for (const sym of symbols) {
+    const prev = priorLatest[sym];
+    if (!prev) continue; // newly covered — start tracking, no phantom crossing
+    const cur = idx[sym] || null;
+    const prevTotal = Number(prev.total) || 0;
+    const curTotal = cur ? (Number(cur.total) || 0) : 0;
+    const curAbs = Math.abs(curTotal);
+    // Was this name "in" the actionable set going into this build? Prefer the
+    // logged state; seed from the prior grade snapshot when the name has never
+    // churned (first rollout / a name with no prior event).
+    const wasIn = lastState.has(sym)
+      ? lastState.get(sym) === "in"
+      : Math.abs(prevTotal) >= TH;
+    let evType = null;
+    if (!wasIn && curAbs >= TH) evType = "entered";          // crossed up through the bar
+    else if (wasIn && curAbs < EXIT_TH) evType = "exited";   // dropped clear of the dead-band
+    if (!evType) continue;                                    // no state change (incl. band limbo)
+    const entered = evType === "entered";
+    const prevScores = pillarScoreMap(prev);
+    const curScores = pillarScoreMap(cur || {});
+    const { why, whyText } = picksChangeWhy(prevScores, curScores);
+    // Side reflects the side that matters for the event: the new call/put on
+    // entry, the side it held on exit.
+    const sideTotal = entered ? curTotal : prevTotal;
+    const side = sideTotal >= 0 ? "call" : "put";
+    const tier = entered ? (cur?.recommendation?.tier || null) : (prev.tier || null);
+    const drivers = entered && Array.isArray(cur?.drivers)
+      ? cur.drivers.slice(0, 3).map((d) => d && d.text).filter(Boolean)
+      : [];
+    const barNote = entered
+      ? `Cleared the ±${TH} conviction bar`
+      : (cur ? `Fell below the ±${TH} conviction bar` : "No longer in the tracked universe");
+    events.push({
+      date: builtAtIso,
+      symbol: sym,
+      event: entered ? "entered" : "exited",
+      side,
+      tier,
+      total: curTotal,
+      prevTotal,
+      deltaScore: curTotal - prevTotal,
+      why,
+      whyText: `${barNote} — ${whyText}`,
+      drivers,
+      sentiment: cur?.sentiment || null,
+      fundamentalsVerdict: cur?.fundamentalsVerdict || null,
+      rsi: cur?.rsi ?? null,
+    });
+  }
+  // Strongest moves first within this build (largest absolute score swing).
+  events.sort((a, b) => Math.abs(b.deltaScore) - Math.abs(a.deltaScore));
+  return events;
+}
+
+// Prepend this build's events to the rolling log, then prune by age + hard cap.
+// A build that detected no crossings still rewrites the file (refreshing
+// builtAtIso) so the freshness footer in the UI tracks the latest build.
+export function appendPicksChanges(prevLog, newEvents, builtAtIso) {
+  let changes = (prevLog && Array.isArray(prevLog.changes)) ? prevLog.changes.slice() : [];
+  if (Array.isArray(newEvents) && newEvents.length) changes = newEvents.concat(changes);
+  const cutoffMs = (Date.parse(builtAtIso) || Date.now()) - PICKS_CHANGES_KEEP_DAYS * 86400000;
+  changes = changes
+    .filter((c) => (Date.parse(c && c.date) || 0) >= cutoffMs)
+    .slice(0, PICKS_CHANGES_MAX);
+  return { builtAtIso, minConviction: PICKS_MIN_CONVICTION, changes };
+}
+
+// Hybrid AI polish: write a ONE-sentence plain-English explanation for each new
+// churn event, folding in the per-ticker news take + the pillar shifts. Mutates
+// each event's `aiText` in place. Self-skips without GEMINI_API_KEY (the
+// deterministic whyText still ships); per-event failures degrade to no aiText.
+// Capped at PICKS_CHANGES_AI_MAX events/build (churn is normally small) and
+// routed through the shared AI rate-limiter + ai-usage tracker.
+async function aiExplainPicksChanges(events, chains) {
+  if (!Array.isArray(events) || !events.length) return;
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — picks-change explanations stay deterministic.");
+    return;
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const model = process.env.AI_PICKS_CHANGE_MODEL || AI_NEWS_MODEL;
+  const slice = events.slice(0, PICKS_CHANGES_AI_MAX);
+  let done = 0;
+  for (const ev of slice) {
+    const data = chains?.[ev.symbol] || null;
+    const news = data?.news || null;
+    const newsBits = [];
+    if (news?.sentiment) newsBits.push(`sentiment ${news.sentiment}`);
+    if (news?.paragraph) newsBits.push(String(news.paragraph).slice(0, 400));
+    else if (Array.isArray(news?.headlines) && news.headlines[0]) newsBits.push(`headline: ${news.headlines[0].title || news.headlines[0].headline || ""}`);
+    const verdict = data?.fundamentals?.judgment?.verdict || ev.fundamentalsVerdict || null;
+    const dir = ev.event === "entered" ? "ENTERED" : "LEFT";
+    const userMessage =
+      `${ev.symbol} just ${dir} the actionable Top Picks (a ${ev.side}). ` +
+      `Conviction score moved ${ev.prevTotal} → ${ev.total}. ${ev.whyText}.` +
+      (ev.drivers && ev.drivers.length ? ` Current signals: ${ev.drivers.join("; ")}.` : "") +
+      (verdict ? ` Fundamentals verdict: ${verdict}.` : "") +
+      (ev.rsi != null ? ` RSI ${Math.round(ev.rsi)}.` : "") +
+      (newsBits.length ? ` Recent news — ${newsBits.join("; ")}.` : "") +
+      `\n\nIn ONE short, plain-English sentence, explain why ${ev.symbol} ${ev.event === "entered" ? "became" : "stopped being"} a Top Pick, ` +
+      `naming the fundamentals / technicals / news driver(s) that actually moved it. ` +
+      `No preamble, no markdown, no disclaimers, no restating the raw score. Return JSON { "text": "<one sentence>" }.`;
+    let response = null;
+    let lastErr;
+    for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+      try {
+        await acquireAiSlot();
+        response = await ai.models.generateContent({
+          model,
+          contents: `You are a sharp markets analyst writing a terse one-line reason a stock moved on/off a watchlist. Be concrete.\n\n${userMessage}`,
+          config: {
+            temperature: 0.4,
+            maxOutputTokens: 200,
+            responseMimeType: "application/json",
+            responseSchema: PICKS_CHANGE_PROSE_SCHEMA,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        });
+        recordAiUsage({ model, callType: "picks-change", symbol: ev.symbol, usage: response?.usageMetadata });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const wait = classifyAiError(err, attempt);
+        if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    if (!response) {
+      if (lastErr) console.warn(`[picks] change-explain failed for ${ev.symbol} — keeping deterministic why (${String(lastErr.message || lastErr).split("\n")[0]})`);
+      continue;
+    }
+    try {
+      const txt = String(response.text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      const firstBrace = txt.indexOf("{");
+      const lastBrace = txt.lastIndexOf("}");
+      const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? txt.slice(firstBrace, lastBrace + 1) : txt);
+      const s = parsed && parsed.text ? String(parsed.text).trim() : "";
+      if (s) { ev.aiText = s; done += 1; }
+    } catch {
+      // Bad JSON — keep the deterministic whyText for this event.
+    }
+  }
+  if (done) console.log(`[picks] AI-explained ${done}/${slice.length} picks-change events (${model})`);
+}
+
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
   const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr);
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Prior picks snapshot. A full build passes priorPicks (captured by
   // readPriorPicks BEFORE writeChainFiles wiped data/). Without it the reads
-  // below always miss post-wipe, which (a) pins every pick's buildCount to 1 so
-  // the "in the top picks for N builds" tenure badge never renders and (b)
+  // below always miss post-wipe, which (a) resets every pick's firstSeen to this
+  // build so the day-streak tenure badge restarts at day 1 and (b)
   // defeats the zero-pick stale-reuse path, overwriting last-good picks with []
   // every pre-bell run. Callers that do NOT wipe data/ (regen-picks.mjs) pass
   // null and we read the live file off disk instead. Same pre-read pattern as
@@ -7933,26 +8206,8 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
     }
   }
 
-  // Track how many consecutive builds each symbol has survived in the top
-  // picks. Keyed by symbol (a side flip still counts as "still in the list").
-  // firstSeen is the build timestamp the symbol first appeared; buildCount is
-  // the consecutive-build tally.
-  const priorBySymbol = new Map();
-  if (Array.isArray(priorPayload?.picks)) {
-    for (const pp of priorPayload.picks) {
-      if (pp?.symbol) priorBySymbol.set(pp.symbol, pp);
-    }
-  }
-  for (const p of picks) {
-    const prev = priorBySymbol.get(p.symbol);
-    if (prev?.firstSeen) {
-      p.firstSeen = prev.firstSeen;
-      p.buildCount = (prev.buildCount || 1) + 1;
-    } else {
-      p.firstSeen = builtAtIso;
-      p.buildCount = 1;
-    }
-  }
+  // Stamp how long each symbol has continuously held a spot in the top picks.
+  applyPickFirstSeen(picks, priorPayload?.picks, builtAtIso);
 
   // Preserve last-good picks when this run produces zero. The 9 ET cron
   // fires before the bell, so Yahoo returns bid=0 / ask=0 for nearly every
@@ -7997,9 +8252,10 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
 // Read the prior data/picks.json into memory. main() MUST call this BEFORE
 // writeChainFiles wipes data/ and thread the result into writeTopPicksFile —
 // the file lives in data/, so after the wipe the read always misses, which
-// pins every pick's buildCount to 1 (the tenure badge never renders) AND
-// defeats the zero-pick stale-reuse path (last-good picks get overwritten with
-// [] on the pre-bell run). Mirrors readPicksAccuracyState. Returns the parsed
+// resets every pick's firstSeen to the current build (the day-streak tenure
+// badge restarts at day 1) AND defeats the zero-pick stale-reuse path (last-good
+// picks get overwritten with [] on the pre-bell run). Mirrors
+// readPicksAccuracyState. Returns the parsed
 // payload { picks, builtAtIso, ... } or null on a missing / corrupt / first-run
 // file.
 export async function readPriorPicks() {
@@ -9690,6 +9946,15 @@ const EXIT_PROSE_SCHEMA = {
     levels: { type: "array", items: { type: "string" } },
   },
   required: ["levels"],
+};
+
+// One-sentence "why it entered/left the Top Picks" explanation (aiExplainPicksChanges).
+const PICKS_CHANGE_PROSE_SCHEMA = {
+  type: "object",
+  properties: {
+    text: { type: "string" },
+  },
+  required: ["text"],
 };
 
 async function polishExitPlanProse(picks) {
@@ -11765,6 +12030,10 @@ async function main() {
   // lives in data/, so snapshot it now and thread it into diffGradesHistory after
   // the wipe, or the change log resets every build.
   const gradesHistoryPrev = await readGradesHistory();
+  // Same rule for the picks churn log (data/picks-changes.json) — read it now so
+  // this build's entered/exited events append to the rolling log instead of
+  // resetting it after the wipe.
+  const picksChangesPrev = await readPicksChanges();
   // Same rule for the calendar macro-report salvage: writeCalendarFile's
   // last-good fallback (carry in-window report rows when FRED + BLS both come
   // back empty) reads data/calendar.json, but it runs AFTER writeChainFiles
@@ -12073,6 +12342,22 @@ async function main() {
     console.log(`wrote data/${GRADES_HISTORY_FILE} — ${gradesHistoryNext.changes.length} change events`);
   } catch (err) {
     console.warn(`[grades] history skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Picks churn log: which names crossed the actionable conviction bar this build
+  // and why. Detected against the SAME pre-wipe grade snapshot the grade-change
+  // log uses (gradesHistoryPrev.latest), so it's immune to the pre-bell pick
+  // collapse. Deterministic detection first, then an optional AI one-liner per
+  // new event (self-skips without GEMINI_API_KEY), then append + prune + write.
+  try {
+    const churnEvents = buildPicksChanges(gradesHistoryPrev.latest, gradesIndex, builtAtIso, picksChangesPrev);
+    await aiExplainPicksChanges(churnEvents, chains);
+    const picksChangesNext = appendPicksChanges(picksChangesPrev, churnEvents, builtAtIso);
+    await writePicksChanges(picksChangesNext);
+    const entered = churnEvents.filter((e) => e.event === "entered").length;
+    const exited = churnEvents.length - entered;
+    console.log(`wrote data/${PICKS_CHANGES_FILE} — ${entered} in, ${exited} out this build (${picksChangesNext.changes.length} logged)`);
+  } catch (err) {
+    console.warn(`[picks] churn log skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we

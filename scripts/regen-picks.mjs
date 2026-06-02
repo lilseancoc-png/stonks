@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -72,6 +72,23 @@ for (const sym of symbols) {
 
 const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
 const builtAtIso = new Date().toISOString();
+
+// Preserve the day-streak across a render-only regen. We don't wipe data/ here,
+// so the live picks.json still holds each surviving name's original firstSeen —
+// read it and inherit, exactly as the full build's writeTopPicksFile does (a
+// dropped/new name resets to builtAtIso). Without this, regen would emit picks
+// with no firstSeen and the Top Picks tenure chips would vanish until the next
+// full bake. Missing/corrupt file → everything is treated as freshly seen.
+let priorPicks = null;
+try {
+  const priorRaw = await readFile(resolve(DATA_DIR, "picks.json"), "utf8");
+  const priorParsed = JSON.parse(priorRaw);
+  if (Array.isArray(priorParsed?.picks)) priorPicks = priorParsed.picks;
+} catch {
+  // First run / missing / corrupt — no prior firstSeen to inherit.
+}
+applyPickFirstSeen(picks, priorPicks, builtAtIso);
+
 const out = {
   builtAtIso,
   minConviction: PICKS_MIN_CONVICTION,
@@ -101,14 +118,32 @@ console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers.`
 
 // Grade-change log: diff the regen'd grade index against the live history file.
 // No data/ wipe here, so we read the live grades-history.json directly (the full
-// build pre-reads it before its wipe instead).
+// build pre-reads it before its wipe instead). Capture the prior snapshot's
+// `latest` BEFORE writeGradesHistory overwrites it — the picks churn log below
+// needs it as the prior grade state.
+let ghPrevLatest = {};
 try {
   const ghPrev = await readGradesHistory();
+  ghPrevLatest = ghPrev.latest || {};
   const ghNext = diffGradesHistory(ghPrev, grades, builtAtIso);
   await writeGradesHistory(ghNext);
   console.log(`Updated grades-history.json — ${ghNext.changes.length} change events.`);
 } catch (err) {
   console.warn(`grades-history.json skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
+// Picks churn log: same deterministic actionable-bar crossing detection as the
+// full build (no AI one-liner here — regen is AI-free). Reads the live
+// picks-changes.json (no wipe) and appends this regen's events.
+try {
+  const pcPrev = await readPicksChanges();
+  const churn = buildPicksChanges(ghPrevLatest, grades, builtAtIso, pcPrev);
+  const pcNext = appendPicksChanges(pcPrev, churn, builtAtIso);
+  await writePicksChanges(pcNext);
+  const entered = churn.filter((e) => e.event === "entered").length;
+  console.log(`Updated picks-changes.json — ${entered} in, ${churn.length - entered} out (${pcNext.changes.length} logged).`);
+} catch (err) {
+  console.warn(`picks-changes.json skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
 // Keep the accuracy tracker in step with the regen'd picks: enroll new picks
