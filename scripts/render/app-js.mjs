@@ -5084,6 +5084,93 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</details>' +
     '</div>';
   }
+  // ----- Lifecycle / hype / scenarios (narrative enrichment) ----------------
+  // The 6-stage arc a market narrative travels from birth (catalyst) to death
+  // (collapse). 'peak' is the top; everything after it is the downslope (risk).
+  var LIFECYCLE_STAGES = ['catalysts','amplification','validation','peak','challenges','collapse'];
+  var LIFECYCLE_LABELS = { catalysts:'Catalysts', amplification:'Amplification', validation:'Validation', peak:'Peak', challenges:'Challenges', collapse:'Collapse' };
+  // Resolve a stage even on older cached data that predates the field, by
+  // falling back to the 3-state status (mirrors the build-side default).
+  function narrStage(n){
+    var s = (n && n.lifecycleStage ? String(n.lifecycleStage) : '').toLowerCase();
+    if (LIFECYCLE_STAGES.indexOf(s) >= 0) return s;
+    if (n && n.status === 'building') return 'amplification';
+    if (n && n.status === 'fading') return 'challenges';
+    if (n && n.status === 'active') return 'validation';
+    return '';
+  }
+  function lifecycleStepperHtml(stage){
+    var idx = LIFECYCLE_STAGES.indexOf(stage);
+    if (idx < 0) return '';
+    var phase = idx <= 3 ? 'rising' : 'falling';
+    var steps = '';
+    for (var i=0; i<LIFECYCLE_STAGES.length; i++){
+      var cls = 'narr-life-step' + (i < idx ? ' is-past' : i === idx ? ' is-on' : '');
+      steps += '<span class="' + cls + '" title="' + LIFECYCLE_LABELS[LIFECYCLE_STAGES[i]] + '"></span>';
+    }
+    return '<div class="narr-lifecycle is-' + phase + '" title="Narrative lifecycle — stage ' + (idx+1) + ' of 6">' +
+      '<span class="narr-lifecycle-label">Lifecycle</span>' +
+      '<span class="narr-lifecycle-steps">' + steps + '</span>' +
+      '<span class="narr-lifecycle-stage">' + escapeHtml(LIFECYCLE_LABELS[stage] || stage) + '</span>' +
+    '</div>';
+  }
+  // Fundamentals-vs-hype gauge: 0 = move earned by fundamentals, 100 = pure
+  // story / positioning. Tolerates older data (no hype object) by rendering ''.
+  function hypeGaugeHtml(hype){
+    if (!hype || typeof hype !== 'object') return '';
+    var score = hype.score;
+    if (typeof score !== 'number' || !isFinite(score)) return '';
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    var tier = score >= 67 ? 'hype' : score >= 34 ? 'balanced' : 'fundamentals';
+    var verdict = ({ fundamentals:'Fundamentals-backed', balanced:'Balanced', hype:'Hype-driven' })[tier];
+    var rationale = hype.rationale ? '<span class="narr-hype-why">' + escapeHtml(hype.rationale) + '</span>' : '';
+    return '<div class="narr-hype is-' + tier + '" title="Fundamentals vs hype: ' + score + ' / 100">' +
+      '<div class="narr-hype-head">' +
+        '<span class="narr-hype-label">Fundamentals → Hype</span>' +
+        '<span class="narr-hype-verdict">' + verdict + ' · ' + score + '</span>' +
+      '</div>' +
+      '<div class="narr-hype-track"><div class="narr-hype-fill" style="left:' + score + '%"></div></div>' +
+      rationale +
+    '</div>';
+  }
+  // Bull / Base / Bear scenario block (works for a narrative or a sector overview
+  // — both carry bullCase/baseCase/bearCase). Renders only the cases present.
+  function scenariosHtml(o){
+    var rows = [];
+    if (o && o.bullCase) rows.push(['bull','Bull', o.bullCase]);
+    if (o && o.baseCase) rows.push(['base','Base', o.baseCase]);
+    if (o && o.bearCase) rows.push(['bear','Bear', o.bearCase]);
+    if (!rows.length) return '';
+    return '<div class="narr-scenarios">' +
+      rows.map(function(r){
+        return '<div class="narr-scenario ' + r[0] + '">' +
+          '<span class="narr-scenario-tag">' + r[1] + '</span>' +
+          '<span class="narr-scenario-text">' + escapeHtml(r[2]) + '</span>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }
+  // Industry-group grade breakdown for a sector — makes the two-level rollup
+  // visible (sector grade = the average of these). Each row: industry, a
+  // magnitude bar coloured by stance, and the signed score.
+  function industryGradesHtml(grades){
+    if (!Array.isArray(grades) || !grades.length) return '';
+    var rows = grades.map(function(g){
+      var score = g.score | 0;
+      var stance = ['bullish','bearish','mixed'].indexOf(g.stance) >= 0 ? g.stance : 'mixed';
+      var mag = Math.max(0, Math.min(100, Math.abs(score)));
+      var count = g.count ? '<span class="narr-iggrade-count" title="' + g.count + ' narrative' + (g.count===1?'':'s') + '">' + g.count + '</span>' : '';
+      return '<li class="narr-iggrade" data-stance="' + stance + '">' +
+        '<span class="narr-iggrade-name">' + escapeHtml(g.industry) + count + '</span>' +
+        '<span class="narr-iggrade-bar"><span class="narr-iggrade-fill" style="width:' + mag + '%"></span></span>' +
+        '<span class="narr-iggrade-score">' + (score > 0 ? '+' : '') + score + '</span>' +
+      '</li>';
+    }).join('');
+    return '<details class="narr-iggrades" open>' +
+      '<summary class="narr-iggrades-summary">Industry-group grades <span class="narr-iggrades-hint">sector = their average</span></summary>' +
+      '<ul class="narr-iggrades-list">' + rows + '</ul>' +
+    '</details>';
+  }
   function narrativeCardHtml(n, rankInSector){
     var sent = n.sentiment === 'bearish' ? 'bearish' : 'bullish';
     var status = ['active','building','fading'].indexOf(n.status) >= 0 ? n.status : 'active';
@@ -5126,7 +5213,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
       '</header>' +
       strengthBarHtml(n.strength, n.name) +
+      lifecycleStepperHtml(narrStage(n)) +
+      hypeGaugeHtml(n.hype) +
       '<p class="narr-thesis">' + escapeHtml(n.thesis || '') + '</p>' +
+      scenariosHtml(n) +
       longRow + shortRow +
       watchForHtml(n) +
       conflictsHtml(n) +
@@ -5191,7 +5281,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function sectorOverviewHtml(sector, overview, sectorGrouped){
     var rollup = sectorRollup(sectorGrouped);
     var statsHtml = sectorStatsHtml(rollup);
-    if (!overview || !overview.thesis) {
+    var hasGrade = overview && Array.isArray(overview.industryGrades) && overview.industryGrades.length;
+    // Render the banner if there's EITHER a top-down thesis OR a computed grade.
+    if (!overview || (!overview.thesis && !hasGrade)) {
       return '<section class="narr-sector-overview is-empty" data-stance="neutral">' +
         '<header class="narr-sector-overview-head">' +
           '<span class="narr-sector-overview-eyebrow">Sector overview</span>' +
@@ -5203,10 +5295,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var stance = ['bullish','bearish','mixed'].indexOf(overview.stance) >= 0 ? overview.stance : 'mixed';
     var stanceLabel = ({ bullish:'Bullish', bearish:'Bearish', mixed:'Mixed' })[stance];
+    // Sector strength is now the COMPUTED two-level grade magnitude (average of
+    // its industry-group grades), not an AI guess.
     var strengthHtml = (typeof overview.strength === 'number')
       ? strengthBarHtml(overview.strength)
       : '';
     var watchHtml = watchForHtml({ watchFor: overview.watchFor || [] });
+    var thesisHtml = overview.thesis
+      ? '<p class="narr-sector-overview-thesis">' + escapeHtml(overview.thesis) + '</p>'
+      : '';
     var staleTag = '';
     if (overview.stale) {
       var staleAge = '';
@@ -5228,7 +5325,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</header>' +
       statsHtml +
       strengthHtml +
-      '<p class="narr-sector-overview-thesis">' + escapeHtml(overview.thesis) + '</p>' +
+      lifecycleStepperHtml(overview.lifecycleStage) +
+      hypeGaugeHtml(overview.hype) +
+      thesisHtml +
+      scenariosHtml(overview) +
+      industryGradesHtml(overview.industryGrades) +
       watchHtml +
     '</section>';
   }
