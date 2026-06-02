@@ -5767,6 +5767,40 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }).format(d);
     } catch (_) { return ''; }
   }
+  // Trading days a pick has continuously held its top-picks spot, derived from
+  // its firstSeen build timestamp (inclusive: a same-session debut = 1). Counts
+  // only U.S. market sessions between firstSeen and now — weekends and full-day
+  // holidays (MARKET_HOLIDAYS, reused from the market-status badge) are skipped,
+  // so the streak does NOT inflate over a weekend/holiday when no session has
+  // passed (half-days still count — the market is open). Both operands are
+  // normalized to ET-midnight-as-UTC so the day walk is DST-safe. Mirrors the
+  // ET-date handling in fmtFlaggedTime. Returns 0 when firstSeen is missing,
+  // unparseable, or in the future (no chip).
+  function daysOnPicks(iso){
+    if (!iso) return 0;
+    try {
+      function etDayMs(d){
+        var parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(d);
+        var o = {};
+        for (var i=0;i<parts.length;i++){ o[parts[i].type] = parts[i].value; }
+        return Date.UTC(+o.year, (+o.month) - 1, +o.day);
+      }
+      var first = etDayMs(new Date(iso));
+      var now = etDayMs(new Date());
+      if (!isFinite(first) || !isFinite(now) || now < first) return 0;
+      var sessions = 0;
+      for (var t = first; t <= now; t += 86400000){
+        var dt = new Date(t);                 // UTC midnight of an ET calendar date
+        var dow = dt.getUTCDay();             // 0=Sun … 6=Sat
+        if (dow === 0 || dow === 6) continue; // weekend — not a session
+        if (MARKET_HOLIDAYS.hasOwnProperty(dt.toISOString().slice(0, 10))) continue; // full-day closure
+        sessions++;
+      }
+      return sessions;
+    } catch (_) { return 0; }
+  }
   // Compact label for when our scanner first flagged a contract as unusual.
   // Yahoo doesn't surface per-trade tape, so this is the closest signal to
   // "when did this show up" — same-day shows just the hour; older shows the date.
@@ -9360,7 +9394,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Renders data/picks-accuracy.json: open picks marked to market + resolved
   // picks graded win/loss against their own take-profit / cut levels, plus a
   // win-rate-by-tier table answering "does a higher score actually win more?".
-  var accuracyState = { data: null, loading: false, gradeChanges: null };
+  var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null };
   var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
@@ -9369,20 +9403,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     accuracyState.loading = true;
     var pAcc = fetch('data/picks-accuracy.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-    // Grade-change log is a separate, optional file — a miss must not fail the
-    // whole tab, so it resolves to null and the section just stays empty.
+    // Grade-change log + picks-churn log are separate, optional files — a miss
+    // must not fail the whole tab, so each resolves to null and its section just
+    // stays empty.
     var pGch = fetch('data/grades-history.json', { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    Promise.all([pAcc, pGch]).then(function(res){
-      var j = res[0], gh = res[1];
+    var pPch = fetch('data/picks-changes.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+    Promise.all([pAcc, pGch, pPch]).then(function(res){
+      var j = res[0], gh = res[1], pc = res[2];
       accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
       accuracyState.gradeChanges = (gh && Array.isArray(gh.changes)) ? gh.changes : [];
+      accuracyState.picksChanges = (pc && Array.isArray(pc.changes)) ? pc.changes : [];
       accuracyState.loading = false;
       renderAccuracy();
     }).catch(function(){
       accuracyState.data = { open: [], closed: [], stats: {}, loadError: true };
       accuracyState.gradeChanges = accuracyState.gradeChanges || [];
+      accuracyState.picksChanges = accuracyState.picksChanges || [];
       accuracyState.loading = false;
       renderAccuracy();
     });
@@ -9417,6 +9457,44 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (c.strike != null) parts.push('$' + c.strike);
     if (c.expiryLabel) parts.push(c.expiryLabel);
     return parts.join(' · ');
+  }
+  // --- Picks in & out log -------------------------------------------------
+  // data/picks-changes.json: why a name crossed the ±16 conviction bar onto
+  // (entered) or off (exited) the actionable Top Picks set this build, with a
+  // deterministic pillar-delta "why" and an optional AI one-liner that folds in
+  // news. Independent of tracked picks, so it renders regardless of open/closed.
+  function renderPicksChangeLog(){
+    var el = $('accuracy-picks-changes'); if (!el) return;
+    var changes = accuracyState.picksChanges;
+    if (!Array.isArray(changes) || !changes.length){ el.innerHTML = ''; return; }
+    var MAX_ROWS = 40;
+    var rows = '';
+    changes.slice(0, MAX_ROWS).forEach(function(c){
+      var entered = c.event === 'entered';
+      var evCls = entered ? 'sig-pos' : 'sig-neg';
+      var evLbl = entered ? 'IN' : 'OUT';
+      var evArrow = entered ? '▲' : '▼';
+      var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? c.deltaScore : '');
+      // The AI one-liner is the headline when present; the deterministic whyText
+      // is always shown beneath as the auditable reason.
+      var aiHtml = c.aiText ? '<span class="acc-pc-ai">' + escapeHtml(c.aiText) + '</span>' : '';
+      var whyHtml = c.whyText ? '<span class="acc-pc-why">' + escapeHtml(c.whyText) + '</span>' : '';
+      rows += '<div class="acc-pc-row">' +
+        '<span class="acc-pc-evt ' + evCls + '" title="' + (entered ? 'Crossed onto the actionable list' : 'Dropped off the actionable list') + '">' + evArrow + ' ' + evLbl + '</span>' +
+        '<span class="acc-sym">' + escapeHtml(c.symbol || '—') + '</span>' +
+        accSidePill(c.side) +
+        '<span class="acc-pc-score ' + evCls + '">' + (c.prevTotal != null ? c.prevTotal : '?') + '→' + (c.total != null ? c.total : '?') + ' (' + ds + ')</span>' +
+        '<span class="acc-pc-reason">' + (aiHtml || whyHtml) + (aiHtml && whyHtml ? whyHtml : '') + '</span>' +
+        '<span class="acc-pc-date">' + accDateShort(c.date) + '</span>' +
+      '</div>';
+    });
+    var more = changes.length > MAX_ROWS ? '<div class="acc-gc-more">+' + (changes.length - MAX_ROWS) + ' older changes</div>' : '';
+    el.innerHTML = '<div class="accuracy-group">' +
+      '<details class="acc-pc-wrap" open>' +
+        '<summary class="accuracy-group-head">Picks in &amp; out <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
+        '<div class="acc-pc-list">' + rows + '</div>' + more +
+      '</details>' +
+    '</div>';
   }
   // --- Grade-change log ---------------------------------------------------
   // Whole-universe log of grade moves (data/grades-history.json): a ticker
@@ -9502,8 +9580,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var open = Array.isArray(d.open) ? d.open : [];
     var closed = Array.isArray(d.closed) ? d.closed : [];
     var st = d.stats || {};
-    // Grade-change log is whole-universe and independent of tracked picks, so
-    // render it first — it can have rows even when no picks are open/closed.
+    // Picks in/out + grade-change logs are whole-universe and independent of
+    // tracked picks, so render them first — they can have rows even when no picks
+    // are open/closed.
+    renderPicksChangeLog();
     renderGradeChangeLog();
     if (d.loadError){
       root.innerHTML = '<p class="muted">Couldn’t load the track record. Try a hard reload.</p>';
@@ -10404,15 +10484,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ' ' + (p.streak.cumulativePct >= 0 ? '+' : '') + p.streak.cumulativePct.toFixed(1) + '%' +
         '</span>'
       : '';
-    // How many consecutive builds this symbol has held a spot in the top
-    // picks. Only shown once it has survived more than one build — a single
-    // appearance is the default and not worth the chip.
+    // How many trading days this symbol has continuously held a spot in the top
+    // picks, derived from its firstSeen timestamp. Only shown once it has carried
+    // over into a second session — a same-day debut is the default and not worth
+    // the chip.
     var tenureHtml = '';
-    if (p.buildCount > 1){
+    var pickDays = daysOnPicks(p.firstSeen);
+    if (pickDays > 1){
       var sinceTxt = fmtRepeatSince(p.firstSeen);
-      tenureHtml = '<span class="pick-tenure" title="In the top picks for ' + p.buildCount +
-        ' consecutive builds' + (sinceTxt ? ' — since ' + escapeHtml(sinceTxt) : '') + '">' +
-        '⏱ ' + p.buildCount + ' builds' + '</span>';
+      tenureHtml = '<span class="pick-tenure" title="On the top picks for ' + pickDays +
+        ' trading days' + (sinceTxt ? ' — since ' + escapeHtml(sinceTxt) : '') + '">' +
+        '⏱ ' + pickDays + ' days' + '</span>';
     }
     var contractHtml = pickContractHtml(p);
     var entryHtml = pickEntryPlanHtml(p);
@@ -10484,16 +10566,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var fiftyChip = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
       ? '<span class="ptc-alert" title="±20 grade sitting on its 50D SMA — prime pullback entry">⚑ 50D</span>'
       : '';
-    // Consecutive-build streak chip — mirrors the detail card's ⏱ tenure badge
+    // Day-streak chip — mirrors the detail card's ⏱ tenure badge
     // (buildPickCardHtml) so the count is visible while skimming the ranked grid.
-    // Only shown once the name has held a top-picks spot for more than one build
-    // in a row; a lone appearance is the default and not worth the chip.
+    // Only shown once the name has carried its top-picks spot into a second
+    // trading day; a same-day debut is the default and not worth the chip.
     var streakChip = '';
-    if (p.buildCount > 1){
+    var ptcDays = daysOnPicks(p.firstSeen);
+    if (ptcDays > 1){
       var ptcSince = fmtRepeatSince(p.firstSeen);
-      streakChip = '<span class="ptc-streak" title="In the top picks for ' + p.buildCount +
-        ' consecutive builds' + (ptcSince ? ' — since ' + escapeHtml(ptcSince) : '') + '">⏱ ' +
-        p.buildCount + '×</span>';
+      streakChip = '<span class="ptc-streak" title="On the top picks for ' + ptcDays +
+        ' trading days' + (ptcSince ? ' — since ' + escapeHtml(ptcSince) : '') + '">⏱ ' +
+        ptcDays + 'd</span>';
     }
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
