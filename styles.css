@@ -1783,6 +1783,25 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .narr-lifecycle-stage { font-size: 11px; font-weight: 700; color: var(--text); }
 .narr-lifecycle.is-falling .narr-lifecycle-stage { color: var(--neg); }
 
+/* Lifecycle outlook — the why-here / what's-next / watch-for read under the
+   stepper. Compact key/value rows on a left-railed card; the "Next" stage chip
+   is accent-coloured, tinted red when the story is advancing toward collapse
+   and green when it is recovering back up the arc. */
+.narr-life-outlook {
+  margin-top: 6px; display: flex; flex-direction: column; gap: 3px;
+  padding: 6px 8px; border-radius: var(--r-1);
+  background: var(--surface-2); border-left: 2px solid var(--border-strong);
+}
+.narr-life-outlook-row { display: grid; grid-template-columns: 62px 1fr; gap: 8px; align-items: baseline; }
+.narr-life-outlook-k {
+  font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.narr-life-outlook-v { font-size: 11.5px; color: var(--text); line-height: 1.35; }
+.narr-life-outlook-next { font-weight: 700; color: var(--accent-strong); }
+.narr-life-outlook-next.is-advancing { color: var(--neg); }
+.narr-life-outlook-next.is-recovering { color: var(--pos); }
+
 /* Fundamentals → hype gauge. The track is a fixed fundamentals(green) →
    hype(red) gradient; the marker shows where this story sits on it. */
 .narr-hype { margin-top: 8px; }
