@@ -5433,6 +5433,28 @@ const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
 const PICKS_OTM_MAX_PCT = 0.30;     // 30% OTM
 const PICKS_MAX_IV = 2.0;           // 200% IV cap
 const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
+
+// Tightened "self-consistency" gates used ONLY for the visible Top-Picks
+// roster (pickContractForPick called with { requireClean:true } from
+// buildTopPicks). The universe-wide autoPick path keeps the looser gates
+// above so the Grade tab's "★ Top-Picks grade" banner still grades a contract
+// for every ticker (its job is to explain WHY a contract is fair/bad).
+//
+// Why tighter than the gates above: the Grade tab re-derives spread/Δ/theta
+// from LIVE quotes and re-runs the same hard-fail logic every poll, so a
+// recommended contract that merely *clears* the loose gate can still grade
+// "bad" — wide spread / heavy theta — the moment the user opens it, which is
+// what fires the "Try this instead" swap. These gates sit a buffer INSIDE
+// each grade-bad line (spread bad >15% → gate 12%; theta bad >3%/day → gate
+// 2.5%; OI bad <100 → gate 100) and push DTE off the 14-day extrinsic-trap /
+// 3-day crisis lines, so a freshly-baked roster pick stays clean across a
+// normal intraday/overnight drift window. Delta is deliberately left at the
+// 0.20-0.40 band (an OTM pick that "can still go up" is the intended product,
+// and |Δ| 0.20-0.40 is never a grader hard-fail — only |Δ|<0.15 is).
+const PICKS_CLEAN_MAX_SPREAD_PCT = 0.12;  // buffer below the 15% spread-bad line
+const PICKS_CLEAN_MIN_OI = 100;           // grade "Light/fair" floor (no OI-bad chip)
+const PICKS_CLEAN_MIN_DTE = 21;           // clears the dte<14 extrinsic trap + dte≤3 crisis through a multi-day hold
+const PICKS_CLEAN_MAX_THETA = 0.025;      // |theta|/mid per day — buffer below the 3%/day theta-bad line
 // Soft penalty when the contract's IV is in the top quintile of the
 // underlying's 30-day realized-vol percentile (buying expensive premium).
 const PICKS_IV_REGIME_HIGH = 70;
@@ -5513,9 +5535,14 @@ function gradeSpread(spreadPct) {
   return { cls: "bad", label: "Wide" };
 }
 function gradeLiquidity(oi) {
+  // Thresholds kept identical to the client gradeLiquidity in app-js.mjs so the
+  // pick card and the Grade tab show the same liquidity chip for one contract
+  // (good ≥100 / fair ≥10 / bad <10). Previously this read ≥500 for "good",
+  // which made an OI 100-499 pick show "Light/fair" on the card but "Liquid"
+  // in the grader — the same contract, two verdicts.
   if (oi == null || !isFinite(oi)) return { cls: "fair", label: "—" };
-  if (oi >= 500) return { cls: "good", label: "Liquid" };
-  if (oi >= 100) return { cls: "fair", label: "Light" };
+  if (oi >= 100) return { cls: "good", label: "Liquid" };
+  if (oi >= 10) return { cls: "fair", label: "Light" };
   return { cls: "bad", label: "Thin" };
 }
 function gradeDelta(absDelta) {
@@ -6756,8 +6783,17 @@ function isStandardMonthly(epochSec) {
 //      sweet-spot proximity, spread tightness, liquidity, and breakeven
 //      headroom vs the chain's own expected move. Pick best.
 // Returns null when no contract on any expiration clears every filter.
-export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
+export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   if (!data || !data.chains || !(data.spot > 0)) return null;
+  // requireClean = the Top-Picks roster path: apply the tightened buffered
+  // gates and refuse any contract its own grade fns (the same ones the live
+  // Grade tab runs) would call "bad" or hard-fail, so a recommended pick can
+  // never be the contract the grader wants to swap. Default false keeps the
+  // universe-wide autoPick selection (banner) on the looser documented gates.
+  const requireClean = !!opts.requireClean;
+  const maxSpread = requireClean ? PICKS_CLEAN_MAX_SPREAD_PCT : PICKS_MAX_SPREAD_PCT;
+  const minOi = requireClean ? PICKS_CLEAN_MIN_OI : PICKS_MIN_OI;
+  const minDte = requireClean ? PICKS_CLEAN_MIN_DTE : PICKS_MIN_DTE;
   const spot = data.spot;
   const nowSec = Math.floor(Date.now() / 1000);
   const earningsIso = data?.fundamentals?.nextEarningsDate || null;
@@ -6776,7 +6812,8 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
     const dte = (expSec - nowSec) / 86400;
     // Spec floors DTE at ~14d ("≥14 days to expiry"); no max — longer-dated
     // monthlies stay eligible (the soft quality score still prefers 30-60d).
-    if (dte < PICKS_MIN_DTE) continue;
+    // The roster (requireClean) path floors at 21d for a hold buffer.
+    if (dte < minDte) continue;
     // Standard monthlies only (third Friday) per spec — weeklies carry
     // thinner OI and wider spreads, and the monthly series is what stays
     // liquid all the way out to the longer DTEs we hold.
@@ -6804,9 +6841,9 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
       // Premium ≤ $35/share keeps the contract under ~$3,500/contract.
       if (mid > PICKS_MAX_PREMIUM) continue;
       const spreadPct = (row.a - row.b) / mid;
-      if (spreadPct > PICKS_MAX_SPREAD_PCT) continue;
+      if (spreadPct > maxSpread) continue;
       const oi = row.oi || 0;
-      if (oi < PICKS_MIN_OI) continue;
+      if (oi < minOi) continue;
       const g = greeks(side, spot, row.s, T, row.iv, rfr);
       if (!g) continue;
       const absDelta = Math.abs(g.delta);
@@ -6823,6 +6860,28 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
         : Math.max(0, row.s - spot);
       const extrinsic = Math.max(0, mid - intrinsic);
       const extrinsicRatio = mid > 0 ? extrinsic / mid : 1;
+
+      // Self-consistency gate (roster path only): refuse any contract the
+      // grade fns — the SAME ones the live Grade tab runs — would call "bad"
+      // or that would trip one of the grader's hard-fails (theta >3%/day,
+      // dte ≤3, ≥80%-extrinsic with <14 DTE). The buffered gates above keep
+      // these from biting in the normal case; this is the belt-and-braces
+      // guarantee that a shipped pick is never one the grader wants to swap.
+      // Delta is intentionally NOT rejected here: |Δ| 0.20-0.40 grades "fair",
+      // never "bad" (bad is |Δ|<0.15), and a fair delta is not a hard-fail.
+      if (requireClean) {
+        const decayPerDay = mid > 0 ? Math.abs(g.thetaDay) / mid : Infinity;
+        if (
+          gradeSpread(spreadPct).cls === "bad" ||
+          gradeLiquidity(oi).cls === "bad" ||
+          gradeTheta(g.thetaDay, mid).cls === "bad" ||
+          decayPerDay > PICKS_CLEAN_MAX_THETA ||
+          dte <= 3 ||
+          (extrinsicRatio > 0.8 && dte < 14)
+        ) {
+          continue;
+        }
+      }
 
       candidates.push({
         row,
@@ -6921,12 +6980,23 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
   const ivPctile = data?.technicals?.volRegime?.rv30Pctile;
   const ivGrade = gradeVolRegime(ivPctile);
 
-  // Overall: worst component wins. A single "bad" component is enough
-  // to flag the pick as risky even if the rest is clean.
-  const cls = [spreadGrade.cls, oiGrade.cls, deltaGrade.cls, thetaGrade.cls];
+  // Overall: worst of the fill-quality components (spread / OI / theta) wins —
+  // a single "bad" one is enough to flag the pick. Delta is deliberately NOT a
+  // gating component: every contract here is gated to |Δ| 0.20-0.40 (the OTM
+  // target that "can still go up"), which always grades "fair", so folding it
+  // in would cap EVERY pick at "fair" and no pick could ever read "good". A
+  // genuinely broken delta (<0.15, only reachable if the band is ever loosened)
+  // still counts.
+  const cls = [spreadGrade.cls, oiGrade.cls, thetaGrade.cls];
+  if (deltaGrade.cls === "bad") cls.push("bad");
   let overall = "good";
   if (cls.includes("bad")) overall = "bad";
   else if (cls.includes("fair")) overall = "fair";
+
+  // Roster invariant: never hand back a contract that grades bad. Unreachable
+  // after the requireClean filter above, but this guarantees the property even
+  // if a future edit weakens the filter.
+  if (requireClean && overall === "bad") return null;
 
   return {
     strike: best.row.s,
@@ -7850,7 +7920,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (out.length >= PICKS_COUNT) break;
     const side = r.recommendation.side;
     if (!side) continue; // no-trade, shouldn't be here but defend anyway
-    const contract = pickContractForPick(side, r.data, rfr);
+    // requireClean: the visible roster only ships contracts that clear the
+    // tightened buffered gates and that the live grader would never flag bad /
+    // offer to swap. A name whose chain has no such contract is skipped and the
+    // loop backfills from the next conviction-ranked candidate.
+    const contract = pickContractForPick(side, r.data, rfr, { requireClean: true });
     if (!contract) continue;
 
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
