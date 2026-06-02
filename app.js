@@ -9408,7 +9408,7 @@
   // Renders data/picks-accuracy.json: open picks marked to market + resolved
   // picks graded win/loss against their own take-profit / cut levels, plus a
   // win-rate-by-tier table answering "does a higher score actually win more?".
-  var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null };
+  var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null, roster: null };
   var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
@@ -9426,17 +9426,24 @@
     var pPch = fetch('data/picks-changes.json', { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    Promise.all([pAcc, pGch, pPch]).then(function(res){
-      var j = res[0], gh = res[1], pc = res[2];
+    // The Top-10 roster snapshot (in/out + per-pillar deltas + forecast). Optional
+    // — a miss leaves the roster section empty and the rest of the tab works.
+    var pRos = fetch('data/picks-roster.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+    Promise.all([pAcc, pGch, pPch, pRos]).then(function(res){
+      var j = res[0], gh = res[1], pc = res[2], ros = res[3];
       accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
       accuracyState.gradeChanges = (gh && Array.isArray(gh.changes)) ? gh.changes : [];
       accuracyState.picksChanges = (pc && Array.isArray(pc.changes)) ? pc.changes : [];
+      accuracyState.roster = (ros && Array.isArray(ros.roster)) ? ros : null;
       accuracyState.loading = false;
       renderAccuracy();
     }).catch(function(){
       accuracyState.data = { open: [], closed: [], stats: {}, loadError: true };
       accuracyState.gradeChanges = accuracyState.gradeChanges || [];
       accuracyState.picksChanges = accuracyState.picksChanges || [];
+      accuracyState.roster = accuracyState.roster || null;
       accuracyState.loading = false;
       renderAccuracy();
     });
@@ -9472,6 +9479,171 @@
     if (c.expiryLabel) parts.push(c.expiryLabel);
     return parts.join(' · ');
   }
+  // --- Top-10 roster (picks in & out) -------------------------------------
+  // data/picks-roster.json: the current 10-name Top Picks list with each pick's
+  // in/held/new status, the prior→current per-pillar deltas, the names that
+  // dropped OUT (paired to the entrant that took their slot), and a per-pick
+  // upgrade/downgrade forecast. Clicking a row expands the full 4-pillar rubric
+  // (reusing pickPillarPanel) with the pillar deltas + forecast factors.
+  var ROSTER_PILLAR_KEYS = ['fundamentals','technicals','mechanicals','narrative'];
+  var ROSTER_PILLAR_LETTER = { fundamentals:'F', technicals:'T', mechanicals:'M', narrative:'N' };
+  var ROSTER_PILLAR_LABEL = { fundamentals:'Fundamentals', technicals:'Technicals', mechanicals:'Mechanicals', narrative:'Narrative' };
+  function rosterSign(n){ return n > 0 ? 'sig-pos' : (n < 0 ? 'sig-neg' : 'sig-zero'); }
+  function rosterSignedNum(n){ if (n == null) return '—'; return (n > 0 ? '+' : '') + n; }
+  function rosterStatusBadge(status, sideFlipped){
+    var map = { entered:['sig-pos','▲ IN','Newly in the Top 10 this refresh'], held:['','• HELD','Held its Top 10 spot'], 'new':['sig-pos','★ NEW','Newly tracked this refresh'] };
+    var m = map[status] || map.held;
+    var flip = sideFlipped ? '<span class="roster-flip" title="Thesis side flipped (call⇄put)">⇄ flipped</span>' : '';
+    return '<span class="roster-status ' + m[0] + '" title="' + m[2] + '">' + m[1] + '</span>' + flip;
+  }
+  function rosterForecastPill(f){
+    if (!f) return '';
+    var dir = f.direction || 'neutral';
+    var map = { upgrade:['sig-pos','▲','Upgrade likely'], downgrade:['sig-neg','▼','Downgrade risk'], neutral:['sig-zero','→','Holding'] };
+    var m = map[dir] || map.neutral;
+    var conf = f.confidence ? ' · ' + f.confidence : '';
+    var earn = f.earningsCatalyst ? '<span class="roster-earn" title="Earnings before the contract expires — binary catalyst">📅 earnings</span>' : '';
+    return '<span class="roster-fc ' + m[0] + '" title="Rules-based forward read on the conviction score">' + m[1] + ' ' + m[2] + conf + '</span>' + earn;
+  }
+  // 4 mini delta chips — how each pillar moved vs. the prior build.
+  function rosterDeltaChips(deltas){
+    if (!deltas) return '<div class="roster-deltas roster-deltas-none">Newly tracked — no prior build to compare.</div>';
+    var any = false, chips = '';
+    for (var i=0;i<ROSTER_PILLAR_KEYS.length;i++){
+      var k = ROSTER_PILLAR_KEYS[i];
+      var d = Number(deltas[k]) || 0;
+      if (d !== 0) any = true;
+      chips += '<span class="roster-dchip ' + rosterSign(d) + '" title="' + escapeHtml(ROSTER_PILLAR_LABEL[k]) + ' ' + rosterSignedNum(d) + '">' +
+        '<span class="roster-dchip-k">' + ROSTER_PILLAR_LETTER[k] + '</span>' +
+        '<span class="roster-dchip-v">' + rosterSignedNum(d) + '</span></span>';
+    }
+    return '<div class="roster-deltas">' + chips + (any ? '' : '<span class="roster-deltas-flat">no pillar change</span>') + '</div>';
+  }
+  // Forecast detail block — the factors that drive the upgrade/downgrade read,
+  // plus the optional AI one-liner.
+  function rosterForecastBlock(f){
+    if (!f) return '';
+    var ai = f.aiText ? '<p class="roster-fc-ai">' + escapeHtml(f.aiText) + '</p>' : '';
+    var facts = '';
+    if (Array.isArray(f.factors) && f.factors.length){
+      facts = '<ul class="roster-fc-factors">';
+      for (var i=0;i<f.factors.length;i++) facts += '<li>' + escapeHtml(f.factors[i]) + '</li>';
+      facts += '</ul>';
+    }
+    var dirLbl = f.direction === 'upgrade' ? 'More likely to keep climbing' : (f.direction === 'downgrade' ? 'More likely to roll over' : 'Likely to hold its grade');
+    return '<div class="roster-fc-block">' +
+      '<div class="roster-fc-head">Forecast — ' + escapeHtml(dirLbl) + ' <span class="roster-fc-conf">' + escapeHtml(f.confidence || 'low') + ' confidence</span></div>' +
+      ai + facts +
+    '</div>';
+  }
+  // Full 4-pillar rubric for a symbol, reusing the Top Picks tab's pickPillarPanel
+  // (needs the grade index — lazy-loaded once). Renders a placeholder until grades
+  // arrive; loadGradesIndex re-renders the whole roster on arrival.
+  function rosterRubric(sym){
+    var gi = picksGradesState.data && picksGradesState.data.grades;
+    if (!gi){
+      return '<div class="roster-rubric-pending muted">Loading full rubric…</div>';
+    }
+    var g = gi[sym];
+    if (!g || !g.pillars) return '<div class="roster-rubric-pending muted">No rubric available for ' + escapeHtml(sym) + '.</div>';
+    return (typeof pickPillarPanel === 'function') ? pickPillarPanel(g) : '';
+  }
+  function rosterRow(e){
+    var scoreHtml;
+    if (e.status === 'held' && e.priorTotal != null){
+      var dc = rosterSign(e.deltaScore);
+      scoreHtml = '<span class="roster-score">' + e.priorTotal + '→' + e.total +
+        ' <small class="' + dc + '">(' + rosterSignedNum(e.deltaScore) + ')</small></span>';
+    } else if (e.status === 'entered'){
+      scoreHtml = '<span class="roster-score sig-pos">NEW · ' + e.total + '</span>';
+    } else {
+      scoreHtml = '<span class="roster-score">' + e.total + '</span>';
+    }
+    var summary = '<summary class="roster-row-head">' +
+      '<span class="roster-rank">#' + e.rank + '</span>' +
+      rosterStatusBadge(e.status, e.sideFlipped) +
+      '<span class="acc-sym">' + escapeHtml(e.symbol) + '</span>' +
+      accSidePill(e.side) +
+      accTierTag(e.tier) +
+      scoreHtml +
+      rosterForecastPill(e.forecast) +
+      '<span class="roster-expand" aria-hidden="true">▾</span>' +
+    '</summary>';
+    var body = '<div class="roster-row-body">' +
+      '<div class="roster-section-lbl">Where the score moved</div>' +
+      rosterDeltaChips(e.pillarDeltas) +
+      rosterForecastBlock(e.forecast) +
+      '<details class="roster-rubric"><summary>Full grading rubric →</summary>' + rosterRubric(e.symbol) + '</details>' +
+    '</div>';
+    return '<details class="roster-row roster-row-' + e.status + '">' + summary + body + '</details>';
+  }
+  function rosterExitedRow(e){
+    var dc = e.deltaScore != null ? rosterSign(e.deltaScore) : '';
+    var scoreHtml = e.curTotal != null
+      ? '<span class="roster-score">' + e.prevTotal + '→' + e.curTotal + ' <small class="' + dc + '">(' + rosterSignedNum(e.deltaScore) + ')</small></span>'
+      : '<span class="roster-score">' + e.prevTotal + '→<small class="muted">untracked</small></span>';
+    var tag = e.stillActionable
+      ? '<span class="roster-out-tag" title="Still clears the ±16 bar — just out-ranked off the Top 10">out-ranked</span>'
+      : '<span class="roster-out-tag sig-neg" title="Dropped below the ±16 conviction bar">below bar</span>';
+    var summary = '<summary class="roster-row-head">' +
+      '<span class="roster-status sig-neg" title="Dropped off the Top 10">▼ OUT</span>' +
+      '<span class="acc-sym">' + escapeHtml(e.symbol) + '</span>' +
+      accSidePill(e.side) +
+      scoreHtml + tag +
+      '<span class="roster-out-why">' + escapeHtml(e.whyText || '') + '</span>' +
+      '<span class="roster-expand" aria-hidden="true">▾</span>' +
+    '</summary>';
+    var body = '<div class="roster-row-body">' +
+      '<div class="roster-section-lbl">Where the score moved</div>' +
+      rosterDeltaChips(e.pillarDeltas) +
+      '<details class="roster-rubric"><summary>Full grading rubric →</summary>' + rosterRubric(e.symbol) + '</details>' +
+    '</div>';
+    return '<details class="roster-row roster-row-exited">' + summary + body + '</details>';
+  }
+  function renderPicksRoster(){
+    var el = $('accuracy-roster'); if (!el) return;
+    var R = accuracyState.roster;
+    if (!R || !Array.isArray(R.roster) || !R.roster.length){ el.innerHTML = ''; return; }
+    // Kick off the grade-index fetch once so the expandable rubrics can render;
+    // re-render the whole section when it arrives.
+    if (!picksGradesState.data && !picksGradesState.loading && typeof loadGradesIndex === 'function'){
+      loadGradesIndex(function(){ renderPicksRoster(); });
+    }
+    var stale = R.stale ? '<div class="roster-stale">Pre-market snapshot — last-good picks carried forward (contracts unpriced until the bell).</div>' : '';
+    // Swap callouts — what came in and what it bumped.
+    var swaps = '';
+    if (Array.isArray(R.swaps) && R.swaps.length){
+      var rows = '';
+      for (var i=0;i<R.swaps.length;i++){
+        var s = R.swaps[i];
+        var stillIn = s.out.stillActionable ? ' <span class="roster-swap-note">(still actionable, out-ranked)</span>' : ' <span class="roster-swap-note sig-neg">(fell below bar)</span>';
+        rows += '<div class="roster-swap-row">' +
+          '<span class="roster-swap-in sig-pos">▲ ' + escapeHtml(s['in'].symbol) + '</span>' +
+          '<span class="roster-swap-arrow">took the slot of</span>' +
+          '<span class="roster-swap-out sig-neg">▼ ' + escapeHtml(s.out.symbol) + '</span>' +
+          stillIn +
+        '</div>';
+      }
+      swaps = '<div class="roster-swaps"><div class="roster-section-lbl">This refresh’s swaps</div>' + rows + '</div>';
+    }
+    var rosterRows = '';
+    for (var j=0;j<R.roster.length;j++) rosterRows += rosterRow(R.roster[j]);
+    var exited = '';
+    if (Array.isArray(R.exited) && R.exited.length){
+      var exRows = '';
+      for (var k=0;k<R.exited.length;k++) exRows += rosterExitedRow(R.exited[k]);
+      exited = '<div class="roster-exited"><div class="roster-section-lbl">Dropped out of the Top 10 <span class="accuracy-group-n">' + R.exited.length + '</span></div>' + exRows + '</div>';
+    }
+    el.innerHTML = '<div class="accuracy-group">' +
+      '<details class="roster-wrap" open>' +
+        '<summary class="accuracy-group-head">Top 10 — picks in &amp; out <span class="accuracy-group-n">' + R.roster.length + '</span></summary>' +
+        '<p class="roster-intro">The current Top 10, what changed in the 4 pillars since the last refresh, what dropped out and what took its place, plus a rules-based read on each name’s next move. Click any row for the full rubric.</p>' +
+        stale + swaps +
+        '<div class="roster-list">' + rosterRows + '</div>' +
+        exited +
+      '</details>' +
+    '</div>';
+  }
   // --- Picks in & out log -------------------------------------------------
   // data/picks-changes.json: why a name crossed the ±16 conviction bar onto
   // (entered) or off (exited) the actionable Top Picks set this build, with a
@@ -9503,9 +9675,11 @@
       '</div>';
     });
     var more = changes.length > MAX_ROWS ? '<div class="acc-gc-more">+' + (changes.length - MAX_ROWS) + ' older changes</div>' : '';
+    // Collapsed by default — the Top-10 roster above is the headline; this is the
+    // long-run chronological history of ±16-bar crossings.
     el.innerHTML = '<div class="accuracy-group">' +
-      '<details class="acc-pc-wrap" open>' +
-        '<summary class="accuracy-group-head">Picks in &amp; out <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
+      '<details class="acc-pc-wrap">' +
+        '<summary class="accuracy-group-head">Recent crossings (±16 bar) <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
         '<div class="acc-pc-list">' + rows + '</div>' + more +
       '</details>' +
     '</div>';
@@ -9594,9 +9768,10 @@
     var open = Array.isArray(d.open) ? d.open : [];
     var closed = Array.isArray(d.closed) ? d.closed : [];
     var st = d.stats || {};
-    // Picks in/out + grade-change logs are whole-universe and independent of
-    // tracked picks, so render them first — they can have rows even when no picks
-    // are open/closed.
+    // Roster + picks in/out + grade-change logs are whole-universe and independent
+    // of tracked picks, so render them first — they can have rows even when no
+    // picks are open/closed.
+    renderPicksRoster();
     renderPicksChangeLog();
     renderGradeChangeLog();
     if (d.loadError){

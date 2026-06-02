@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -144,6 +144,20 @@ try {
   console.log(`Updated picks-changes.json — ${entered} in, ${churn.length - entered} out (${pcNext.changes.length} logged).`);
 } catch (err) {
   console.warn(`picks-changes.json skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
+// Top-10 roster snapshot: the current 10-name list with in/held/new status,
+// prior→current pillar deltas, dropped names paired to the entrant that took
+// their slot, and a per-pick forecast. Same deterministic builder as the full
+// build; AI-free here (regen runs no Gemini). priorPicks (read above before the
+// overwrite) is the prior visible top-N; ghPrevLatest is the prior whole-universe
+// grade snapshot, so status stays pre-bell-collapse immune.
+try {
+  const rosterPayload = buildPicksRoster(picks, priorPicks, ghPrevLatest, grades, builtAtIso, false);
+  await writePicksRoster(rosterPayload);
+  console.log(`Updated picks-roster.json — ${rosterPayload.count} in roster, ${rosterPayload.exited.length} out, ${rosterPayload.swaps.length} swap(s).`);
+} catch (err) {
+  console.warn(`picks-roster.json skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
 // Keep the accuracy tracker in step with the regen'd picks: enroll new picks

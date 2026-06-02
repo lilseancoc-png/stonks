@@ -5413,6 +5413,14 @@ const PICKS_CHANGES_FILE = "picks-changes.json";
 const PICKS_CHANGES_KEEP_DAYS = 30;     // prune churn events older than this
 const PICKS_CHANGES_MAX = 200;          // hard cap on the rolling log
 const PICKS_CHANGES_AI_MAX = 12;        // max events per build that get an AI one-liner
+// Top-10 roster diff (data/picks-roster.json) — the "Picks in & out" snapshot
+// view: the current 10-name list with each pick's in/held/new status, the prior
+// vs current per-pillar deltas, the names that dropped OUT (paired to the entrant
+// that took their slot), and a per-pick upgrade/downgrade FORECAST. Rebuilt every
+// build (not accumulated), so it needs no pre-wipe read — only its inputs (prior
+// picks + prior grade snapshot) are pre-read, and those already are.
+const PICKS_ROSTER_FILE = "picks-roster.json";
+const PICKS_ROSTER_FORECAST_AI_MAX = 10; // max picks/build that get an AI forecast gloss
 // Hysteresis dead-band (anti-jitter): a name ENTERS the log when its |total|
 // clears the +PICKS_MIN_CONVICTION bar (16), but only EXITS once |total| falls
 // below the bar by this much (i.e. < 14). Combined with the per-symbol in/out
@@ -8020,6 +8028,10 @@ export async function writePicksChanges(payload) {
   await writeFile(resolve(DATA_DIR, PICKS_CHANGES_FILE), JSON.stringify(payload), "utf8");
 }
 
+export async function writePicksRoster(payload) {
+  await writeFile(resolve(DATA_DIR, PICKS_ROSTER_FILE), JSON.stringify(payload), "utf8");
+}
+
 // Normalize either a full grade/pick object (`.pillars[k].score`) or a lean
 // grades-history snapshot (`.p[k]`) into a flat { pillarKey: score } map, so the
 // entered side (fresh grade index) and the prior side (lean snapshot) diff with
@@ -8142,6 +8154,214 @@ export function appendPicksChanges(prevLog, newEvents, builtAtIso) {
   return { builtAtIso, minConviction: PICKS_MIN_CONVICTION, changes };
 }
 
+// ---- Top-10 roster forecast + diff (data/picks-roster.json) --------------
+// Look up a single pre-computed signal score by key inside one pillar of a
+// scored pick/grade object. Returns 0 when the signal is absent (graceful — a
+// "no data" signal is scored 0 with available:false upstream).
+function rosterSignalScore(pillar, key) {
+  if (!pillar || !Array.isArray(pillar.signals)) return 0;
+  const s = pillar.signals.find((sig) => sig && sig.key === key);
+  return s ? (Number(s.score) || 0) : 0;
+}
+
+// Deterministic per-pick "will the score keep climbing or roll over?" forecast.
+// Reads ONLY pre-computed signal scores off the pick's own pillars (never raw
+// data.* fields, which aren't on the pick payload) and normalizes every read to
+// the trade's direction (call=+1 / put=-1) via `aligned = signalScore * dir`, so
+// a positive aligned value supports the thesis (upgrade pressure) and a negative
+// one works against it (downgrade / mean-reversion risk). Mean-reverting extremes
+// (RSI ≥75, 52-week proximity, rich IV) read as exhaustion; building momentum,
+// raised guidance, unrealized analyst-target headroom and an early-arc narrative
+// read as room to run. Pure + AI-free, so it's shared by main() and
+// regen-picks.mjs and degrades gracefully on any missing field.
+export function buildPickForecast(entry) {
+  const total = Number(entry && entry.total) || 0;
+  const dir = total >= 0 ? 1 : -1;
+  const pillars = (entry && entry.pillars) || {};
+  const tech = pillars.technicals || null;
+  const fund = pillars.fundamentals || null;
+  const narr = pillars.narrative || null;
+  const factors = []; // { text, weight }  weight signed in upgrade(+)/downgrade(-) terms
+  let score = 0;
+  const add = (w, text) => { score += w; factors.push({ weight: w, text }); };
+
+  // RSI extreme (heaviest technical, ±3) — contrarian to the thesis.
+  const rsiAligned = rosterSignalScore(tech, "rsiReading") * dir;
+  if (rsiAligned <= -3) add(-2, "RSI at an extreme against the thesis — exhaustion / mean-reversion risk");
+  else if (rsiAligned >= 3) add(1, "RSI extreme still in the trade’s favor — room before it exhausts");
+
+  // 52-week proximity (±1, contrarian) — headroom vs. a fresh reversal.
+  const ftwAligned = rosterSignalScore(tech, "fiftyTwoWeek") * dir;
+  if (ftwAligned < 0) add(-1, "Stretched near a 52-week extreme — limited headroom left");
+  else if (ftwAligned > 0) add(1, "Turning off a 52-week extreme in the trade’s direction");
+
+  // RSI momentum (±1) — 50-centerline trend continuation.
+  const rsiMomAligned = rosterSignalScore(tech, "rsiMomentum") * dir;
+  if (rsiMomAligned > 0) add(1, "RSI momentum building with the thesis");
+  else if (rsiMomAligned < 0) add(-1, "RSI momentum fading against the thesis");
+
+  // Guidance (±3) + analyst-target gap (±1) — fundamental drift.
+  const guideAligned = rosterSignalScore(fund, "guidance") * dir;
+  if (guideAligned <= -3) add(-2, "Guidance cut is working against the thesis");
+  else if (guideAligned >= 2) add(1, "Raised / in-line guidance supports the thesis");
+  const analystAligned = rosterSignalScore(fund, "analystTarget") * dir;
+  if (analystAligned > 0) add(1, "Unrealized analyst-target headroom in the trade’s direction");
+  else if (analystAligned < 0) add(-1, "Price has run past analyst consensus — stretched");
+
+  // Narrative lifecycle (read the sectorNarrative signal's value/note — the stage
+  // is baked into the note, e.g. `… (str 85, peak)`). Late-cycle stories are
+  // fade risk; early-arc stories that already help the thesis have room to run.
+  if (narr && Array.isArray(narr.signals)) {
+    const ns = narr.signals.find((s) => s && s.key === "sectorNarrative");
+    if (ns) {
+      const note = String(ns.note || "");
+      const lateCycle = ns.value === "faded" || /peak|challenges|collapse/i.test(note);
+      const earlyCycle = /catalysts|amplification|validation/i.test(note);
+      if (lateCycle) add(-1, "Driving narrative is late-cycle (peak / challenged) — fade risk");
+      else if (earlyCycle && (Number(ns.score) || 0) * dir > 0) add(1, "Driving narrative is still early in its arc — room to run");
+    }
+  }
+
+  // IV percentile extreme — long-premium decay vs. cheap entry.
+  const ivp = entry && entry.ivPctile != null ? Number(entry.ivPctile) : null;
+  if (ivp != null && isFinite(ivp)) {
+    if (ivp >= 80) add(-1, "IV richly priced (top quintile) — premium-decay headwind");
+    else if (ivp <= 20) add(1, "IV cheap (bottom quintile) — favorable entry on premium");
+  }
+
+  // Earnings inside the recommended contract's life — a binary catalyst that
+  // widens both tails (doesn't bias direction, but caps confidence).
+  const earningsCatalyst = !!(entry && entry.contract && entry.contract.earningsInWindow);
+  const earningsDte = earningsCatalyst ? (entry.contract.dte ?? null) : null;
+
+  const direction = score >= 2 ? "upgrade" : score <= -2 ? "downgrade" : "neutral";
+  const mag = Math.abs(score);
+  let confidence = mag >= 4 ? "high" : mag >= 2 ? "medium" : "low";
+  if (earningsCatalyst && confidence === "high") confidence = "medium"; // binary uncertainty
+
+  // Top 3 influences by absolute weight; a neutral read with no driver still says so.
+  const topFactors = factors
+    .slice()
+    .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
+    .slice(0, 3)
+    .map((f) => f.text);
+  if (!topFactors.length) topFactors.push("Balanced signals — no near-term catalyst either way");
+
+  return { direction, confidence, score, factors: topFactors, earningsCatalyst, earningsDte };
+}
+
+// Top-2 pillar deltas + a "Technicals +4, Narrative -2" summary between a prior
+// and current pillar-score map. Mirrors picksChangeWhy/diffGradesHistory so every
+// "why it moved" string in the track record reads the same way.
+function rosterPillarDelta(prevMap, curMap) {
+  const deltas = {};
+  for (const k of GRADE_PILLAR_KEYS) deltas[k] = (Number(curMap[k]) || 0) - (Number(prevMap[k]) || 0);
+  const ranked = GRADE_PILLAR_KEYS
+    .map((k) => ({ pillar: k, delta: deltas[k] }))
+    .filter((d) => d.delta !== 0)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const whyText = ranked.length
+    ? ranked.slice(0, 2).map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${d.delta}`).join(", ")
+    : "no pillar change";
+  return { deltas, whyText };
+}
+
+// Build the Top-10 roster diff snapshot. `currentPicks` is the freshly-written
+// top-N (post stale-reuse), `priorPicks` the prior build's visible top-N (for
+// held/entered status + prior pillar scores), `prevLatest` the whole-universe lean
+// grade snapshot (gradesHistoryPrev.latest — the fallback prior score for a name
+// that wasn't in the prior visible list, and the source that makes status
+// pre-bell-collapse immune), and `gradesIndex` the fresh full grade index (for an
+// exited name's CURRENT score + rubric). Pure + AI-free → shared by main() and
+// regen-picks.mjs. The AI gloss is layered on separately by aiGlossRosterForecasts.
+export function buildPicksRoster(currentPicks, priorPicks, prevLatest, gradesIndex, builtAtIso, stale = false) {
+  const picks = Array.isArray(currentPicks) ? currentPicks : [];
+  const prior = Array.isArray(priorPicks) ? priorPicks : [];
+  const prevLean = (prevLatest && typeof prevLatest === "object") ? prevLatest : {};
+  const idx = (gradesIndex && typeof gradesIndex === "object") ? gradesIndex : {};
+  const priorBySym = new Map(prior.filter((p) => p && p.symbol).map((p) => [p.symbol, p]));
+  const priorTop = new Set(priorBySym.keys());
+  const curSyms = new Set(picks.map((p) => p && p.symbol).filter(Boolean));
+
+  const roster = picks.map((p, i) => {
+    const sym = p.symbol;
+    const priorPick = priorBySym.get(sym) || null;
+    // Prior score: prefer the prior visible pick, else the lean whole-universe
+    // snapshot; null only when the name was never tracked before.
+    const priorTotal = priorPick
+      ? (Number(priorPick.total) || 0)
+      : (prevLean[sym] ? (Number(prevLean[sym].total) || 0) : null);
+    const hasPrior = priorPick != null || prevLean[sym] != null;
+    const status = !hasPrior ? "new" : (priorTop.has(sym) ? "held" : "entered");
+    const curMap = pillarScoreMap(p);
+    const prevMap = hasPrior ? pillarScoreMap(priorPick || prevLean[sym]) : null;
+    const { deltas } = prevMap ? rosterPillarDelta(prevMap, curMap) : { deltas: null };
+    const sideFlipped = hasPrior && priorTotal != null && priorTotal !== 0 && (Number(p.total) || 0) !== 0
+      && Math.sign(priorTotal) !== Math.sign(Number(p.total) || 0);
+    return {
+      rank: i + 1,
+      symbol: sym,
+      side: p.side || (Number(p.total) >= 0 ? "call" : "put"),
+      total: Number(p.total) || 0,
+      tier: p.recommendation?.tier || null,
+      status,
+      priorTotal,
+      deltaScore: priorTotal != null ? (Number(p.total) || 0) - priorTotal : null,
+      pillarDeltas: deltas,
+      sideFlipped,
+      forecast: buildPickForecast(p),
+      drivers: Array.isArray(p.drivers) ? p.drivers.slice(0, 3).map((d) => d && d.text).filter(Boolean) : [],
+    };
+  });
+
+  // Names that were in the prior visible top-N but aren't in the current one.
+  const exited = [];
+  for (const sym of priorTop) {
+    if (curSyms.has(sym)) continue;
+    const priorPick = priorBySym.get(sym);
+    const cur = idx[sym] || null;
+    const prevTotal = Number(priorPick.total) || 0;
+    const curTotal = cur ? (Number(cur.total) || 0) : null;
+    const prevMap = pillarScoreMap(priorPick);
+    const curMap = cur ? pillarScoreMap(cur) : null;
+    const { deltas, whyText } = curMap ? rosterPillarDelta(prevMap, curMap) : { deltas: null, whyText: "no longer tracked" };
+    const stillActionable = curTotal != null && Math.abs(curTotal) >= PICKS_MIN_CONVICTION;
+    const reason = curTotal == null
+      ? "no longer in the tracked universe"
+      : stillActionable
+        ? "still actionable, but out-ranked off the Top 10"
+        : "fell below the ±" + PICKS_MIN_CONVICTION + " conviction bar";
+    exited.push({
+      symbol: sym,
+      side: priorPick.side || (prevTotal >= 0 ? "call" : "put"),
+      prevTotal,
+      curTotal,
+      deltaScore: curTotal != null ? curTotal - prevTotal : null,
+      pillarDeltas: deltas,
+      stillActionable,
+      whyText: `${reason} — ${whyText}`,
+    });
+  }
+  exited.sort((a, b) => Math.abs(b.prevTotal) - Math.abs(a.prevTotal) || a.symbol.localeCompare(b.symbol));
+
+  // Pair the biggest entrant with the biggest drop-off for the "X out → Y in"
+  // narrative. Not a causal claim — just the largest add lined up with the
+  // largest departure (deterministic via the symbol tiebreaker).
+  const entrants = roster
+    .filter((r) => r.status === "entered")
+    .slice()
+    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.symbol.localeCompare(b.symbol));
+  const swaps = [];
+  for (let i = 0; i < Math.min(entrants.length, exited.length); i++) {
+    swaps.push({
+      in: { symbol: entrants[i].symbol, side: entrants[i].side, total: entrants[i].total },
+      out: { symbol: exited[i].symbol, side: exited[i].side, prevTotal: exited[i].prevTotal, stillActionable: exited[i].stillActionable },
+    });
+  }
+
+  return { builtAtIso, minConviction: PICKS_MIN_CONVICTION, stale: !!stale, count: roster.length, roster, exited, swaps };
+}
+
 // Hybrid AI polish: write a ONE-sentence plain-English explanation for each new
 // churn event, folding in the per-ticker news take + the pillar shifts. Mutates
 // each event's `aiText` in place. Self-skips without GEMINI_API_KEY (the
@@ -8218,6 +8438,84 @@ async function aiExplainPicksChanges(events, chains) {
     }
   }
   if (done) console.log(`[picks] AI-explained ${done}/${slice.length} picks-change events (${model})`);
+}
+
+// Hybrid AI polish for the roster forecasts: write a ONE-sentence plain-English
+// read on whether each Top-Pick's conviction is likelier to climb or roll over
+// next, folding the deterministic factors together with the per-ticker news take.
+// Mutates each roster entry's `forecast.aiText` in place. Self-skips without
+// GEMINI_API_KEY (the deterministic factors still ship); per-pick failures
+// degrade to no aiText. Capped at PICKS_ROSTER_FORECAST_AI_MAX/build and routed
+// through the shared AI rate-limiter + ai-usage tracker. main()-only — regen is
+// AI-free, exactly like aiExplainPicksChanges.
+async function aiGlossRosterForecasts(roster, chains) {
+  if (!Array.isArray(roster) || !roster.length) return;
+  if (!process.env.GEMINI_API_KEY) {
+    console.log("No GEMINI_API_KEY set — roster forecasts stay deterministic.");
+    return;
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const model = process.env.AI_PICKS_FORECAST_MODEL || AI_NEWS_MODEL;
+  const slice = roster.slice(0, PICKS_ROSTER_FORECAST_AI_MAX);
+  let done = 0;
+  for (const r of slice) {
+    const f = r.forecast || {};
+    const data = chains?.[r.symbol] || null;
+    const news = data?.news || null;
+    const newsBits = [];
+    if (news?.sentiment) newsBits.push(`sentiment ${news.sentiment}`);
+    if (news?.paragraph) newsBits.push(String(news.paragraph).slice(0, 300));
+    else if (Array.isArray(news?.headlines) && news.headlines[0]) newsBits.push(`headline: ${news.headlines[0].title || news.headlines[0].headline || ""}`);
+    const dirWord = f.direction === "upgrade" ? "a further UPGRADE" : f.direction === "downgrade" ? "a DOWNGRADE / pullback" : "roughly HOLDING its grade";
+    const userMessage =
+      `${r.symbol} is a ${r.side} on the Top Picks list (conviction ${r.total}). ` +
+      `The rules-based read leans toward ${dirWord} next (${f.confidence || "low"} confidence). ` +
+      (Array.isArray(f.factors) && f.factors.length ? `Key factors: ${f.factors.join("; ")}.` : "") +
+      (f.earningsCatalyst ? ` Earnings land before the contract expires (~${f.earningsDte ?? "?"}d) — a binary catalyst.` : "") +
+      (newsBits.length ? ` Recent news — ${newsBits.join("; ")}.` : "") +
+      `\n\nIn ONE short, plain-English sentence, say whether ${r.symbol}'s conviction score is more likely to keep rising or to roll over from here, and name the single biggest thing that would influence it. ` +
+      `No preamble, no markdown, no disclaimers, no restating the raw score. Return JSON { "text": "<one sentence>" }.`;
+    let response = null;
+    let lastErr;
+    for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+      try {
+        await acquireAiSlot();
+        response = await ai.models.generateContent({
+          model,
+          contents: `You are a sharp markets analyst writing a terse one-line forward read on a watchlist name. Be concrete about the catalyst.\n\n${userMessage}`,
+          config: {
+            temperature: 0.4,
+            maxOutputTokens: 200,
+            responseMimeType: "application/json",
+            responseSchema: PICKS_CHANGE_PROSE_SCHEMA,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        });
+        recordAiUsage({ model, callType: "picks-forecast", symbol: r.symbol, usage: response?.usageMetadata });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const wait = classifyAiError(err, attempt);
+        if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
+        await new Promise((res) => setTimeout(res, wait));
+      }
+    }
+    if (!response) {
+      if (lastErr) console.warn(`[picks] forecast-gloss failed for ${r.symbol} — keeping deterministic factors (${String(lastErr.message || lastErr).split("\n")[0]})`);
+      continue;
+    }
+    try {
+      const txt = String(response.text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      const firstBrace = txt.indexOf("{");
+      const lastBrace = txt.lastIndexOf("}");
+      const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? txt.slice(firstBrace, lastBrace + 1) : txt);
+      const s = parsed && parsed.text ? String(parsed.text).trim() : "";
+      if (s) { r.forecast = { ...f, aiText: s }; done += 1; }
+    } catch {
+      // Bad JSON — keep the deterministic factors for this pick.
+    }
+  }
+  if (done) console.log(`[picks] AI-glossed ${done}/${slice.length} roster forecasts (${model})`);
 }
 
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
@@ -12399,6 +12697,31 @@ async function main() {
     console.log(`wrote data/${PICKS_CHANGES_FILE} — ${entered} in, ${exited} out this build (${picksChangesNext.changes.length} logged)`);
   } catch (err) {
     console.warn(`[picks] churn log skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Top-10 roster snapshot: the current 10-name list with each pick's in/held/new
+  // status, prior→current pillar deltas, the names that dropped OUT (paired to the
+  // entrant that took their slot), and a per-pick upgrade/downgrade FORECAST.
+  // Reads the just-written picks.json (so it reflects the stale-reused set on a
+  // pre-bell run) and diffs against the prior visible top-N (picksPrev) plus the
+  // pre-wipe whole-universe grade snapshot (gradesHistoryPrev.latest, which keeps
+  // status pre-bell-collapse immune). Deterministic forecast first, then an
+  // optional AI gloss (self-skips without GEMINI_API_KEY).
+  try {
+    let currentPicksPayload = null;
+    try { currentPicksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
+    const rosterPayload = buildPicksRoster(
+      currentPicksPayload?.picks || [],
+      picksPrev?.picks || null,
+      gradesHistoryPrev.latest,
+      gradesIndex,
+      builtAtIso,
+      !!currentPicksPayload?.stale,
+    );
+    await aiGlossRosterForecasts(rosterPayload.roster, chains);
+    await writePicksRoster(rosterPayload);
+    console.log(`wrote data/${PICKS_ROSTER_FILE} — ${rosterPayload.count} in roster, ${rosterPayload.exited.length} out, ${rosterPayload.swaps.length} swap(s)`);
+  } catch (err) {
+    console.warn(`[picks] roster snapshot skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we
