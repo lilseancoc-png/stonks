@@ -5648,8 +5648,9 @@ function scoreFundamentals(data, sectorMedianPE) {
   const signals = [];
 
   // 1. Earnings Surprise (most-recent quarter): dynamic rating per spec —
-  // beat/miss by >25% = ±2, 1-24% = ±1, else 0. Stale prints (>~180d old)
-  // score 0 — the surprise was already absorbed by the tape.
+  // beat/miss by >25% = ±2, 10-24% = ±1, in line (|surprise| < 10%) = 0.
+  // Stale prints (>~180d old) score 0 — the surprise was already absorbed by
+  // the tape.
   const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory : [];
   let surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", 0,
     { available: false, note: "no recent earnings on file" });
@@ -5663,9 +5664,9 @@ function scoreFundamentals(data, sectorMedianPE) {
         const sp = Number(recent.surprisePct);
         let s = 0;
         if (sp > 25) s = 2;
-        else if (sp >= 1) s = 1;
+        else if (sp >= 10) s = 1;
         else if (sp < -25) s = -2;
-        else if (sp <= -1) s = -1;
+        else if (sp <= -10) s = -1;
         surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", s, {
           value: `${sp >= 0 ? "+" : ""}${sp.toFixed(1)}%`,
           note: `${recent.date} — actual ${recent.epsActual} vs est ${recent.epsEstimate}`,
@@ -6310,7 +6311,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   signals.push(spySignal);
 
   // 6. Put/Call Ratio Extreme: ±2, contrarian. Total put volume / call volume
-  // across the nearest expirations. A high ratio (>1.25) is extreme fear —
+  // across the nearest expirations. A high ratio (>1.15) is extreme fear —
   // crowded protection that tends to mark a bottom, so it reads bullish. A
   // low ratio (<0.65) is extreme greed — everyone already long calls, so it
   // reads bearish. Mid-range ratios carry no edge (0).
@@ -6321,7 +6322,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     const ratio = pcVol.putVol / pcVol.callVol;
     let s = 0;
     let note = `P/C ${ratio.toFixed(2)} — neutral positioning`;
-    if (ratio > 1.25) {
+    if (ratio > 1.15) {
       s = 2;
       note = `P/C ${ratio.toFixed(2)} — extreme fear, contrarian bullish`;
     } else if (ratio < 0.65) {
@@ -6890,7 +6891,7 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE) {
 
 // Plain-English analysis paragraph for a pick — why it scored where it did,
 // what the dominant pillar was, what the strongest individual signals were,
-// and how it stacks up against same-sector peers (with explicit "we'd take
+// and how it stacks up against same-industry peers (with explicit "we'd take
 // X over Y because X +20 vs Y +10" framing). Deterministic (no AI) so the
 // explanation always matches the math.
 function buildPickAnalysis(pick, peers) {
@@ -6898,7 +6899,7 @@ function buildPickAnalysis(pick, peers) {
   const tier = pick.recommendation?.label || "—";
   const total = pick.total;
   const side = pick.side;
-  const sectorName = pick.sector || "this sector";
+  const sectorName = pick.peerGroup || pick.sector || "this industry";
   const sideWord = side === "put" ? "puts" : "calls";
   const sgn = (n) => `${n >= 0 ? "+" : ""}${n}`;
 
@@ -7003,7 +7004,7 @@ function buildPickAnalysis(pick, peers) {
       const next = lower[0];
       peerLine = `Within ${sectorName}, ${symbol} (${sgn(total)}) outscores ${next.symbol} (${sgn(next.total)}) on absolute conviction — no same-side peer cleared the threshold. `;
     } else {
-      peerLine = `Same-sector peers carry similar or lower absolute scores — ${symbol} is at the top of ${sectorName} today. `;
+      peerLine = `Peers in ${sectorName} carry similar or lower absolute scores — ${symbol} is at the top of the industry today. `;
     }
   }
 
@@ -7679,9 +7680,23 @@ function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, ex
   return { strategy, stance, scaleCount: tranches.length, sizingRule, atFiftyDaySma, tranches, summary };
 }
 
+// Resolve the most specific peer group for a ticker — the curated sub-industry
+// from INDUSTRY_OF_TICKER, falling back to Yahoo's fundamentals.industry, then
+// the broad sector. Peer comparisons key on this so a pick is judged against
+// true competitors (CRWD vs PANW/FTNT/ZS within Software Infrastructure) rather
+// than the whole sector (CRWD vs AAPL within Technology).
+function peerGroupOf(sym, data) {
+  return (
+    INDUSTRY_OF_TICKER[sym] ||
+    data?.fundamentals?.industry ||
+    data?.fundamentals?.sector ||
+    "—"
+  );
+}
+
 // First pass of the picks pipeline, also reused on its own by buildGradesIndex:
 // score EVERY tracked ticker with the full 4-pillar breakdown and build the
-// sector → peer index. buildTopPicks then drops all but the actionable names,
+// industry → peer index. buildTopPicks then drops all but the actionable names,
 // but the grades index keeps the whole set so the Top Picks tab can grade any
 // searched ticker, not just the ~10 that clear the conviction threshold.
 function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
@@ -7720,12 +7735,14 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     });
   }
 
-  // Build sector → [{symbol, total, side, tier}, ...] index for peer comparison.
-  const sectorIndex = {};
+  // Build industry → [{symbol, total, side, tier}, ...] index for peer
+  // comparison (keyed by the sub-industry from peerGroupOf, not the broad
+  // sector, so picks are stacked against true competitors).
+  const peerIndex = {};
   for (const s of scored) {
-    const sec = s.data?.fundamentals?.sector || "—";
-    if (!sectorIndex[sec]) sectorIndex[sec] = [];
-    sectorIndex[sec].push({
+    const grp = peerGroupOf(s.sym, s.data);
+    if (!peerIndex[grp]) peerIndex[grp] = [];
+    peerIndex[grp].push({
       symbol: s.sym,
       total: s.total,
       side: s.recommendation?.side || null,
@@ -7739,15 +7756,15 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
       },
     });
   }
-  for (const sec of Object.keys(sectorIndex)) {
-    sectorIndex[sec].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  for (const grp of Object.keys(peerIndex)) {
+    peerIndex[grp].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   }
 
-  return { scored, sectorIndex };
+  return { scored, peerIndex };
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
-  const { scored, sectorIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+  const { scored, peerIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
 
   // Filter to actionable picks (tier ≠ no-trade) and rank by absolute score.
   const actionable = scored
@@ -7768,10 +7785,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const reasons = r.drivers.map((d) => d.text);
     const thesis = `${verb} on ${r.sym}: ${reasons.join("; ")}.`;
     const sector = r.data?.fundamentals?.sector || null;
+    const peerGroup = peerGroupOf(r.sym, r.data);
 
-    // Sector peers: other tickers in the same sector with their pillar totals.
-    // Drop the pick itself; cap at 5 strongest peers (by |total|).
-    const peers = (sectorIndex[sector] || [])
+    // Industry peers: other tickers in the same sub-industry with their pillar
+    // totals. Drop the pick itself; cap at 5 strongest peers (by |total|).
+    const peers = (peerIndex[peerGroup] || [])
       .filter((p) => p.symbol !== r.sym)
       .slice(0, 5);
 
@@ -7795,6 +7813,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       drivers: r.drivers,
       spot: r.data?.spot ?? null,
       sector,
+      peerGroup,
       sentiment: r.data?.news?.sentiment || null,
       fundamentalsVerdict: r.data?.fundamentals?.judgment?.verdict || null,
       rsi: r.data?.technicals?.rsi ?? null,
@@ -7831,11 +7850,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 // (contract / entryPlan / exitPlan / analysis / thesis) are intentionally
 // omitted since off-list names have no recommended contract.
 export function buildGradesIndex(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
-  const { scored, sectorIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+  const { scored, peerIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
   const grades = {};
   for (const r of scored) {
     const sector = r.data?.fundamentals?.sector || null;
-    const peers = (sectorIndex[sector] || [])
+    const peerGroup = peerGroupOf(r.sym, r.data);
+    const peers = (peerIndex[peerGroup] || [])
       .filter((p) => p.symbol !== r.sym)
       .slice(0, 5);
     grades[r.sym] = {
@@ -7848,6 +7868,7 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
       drivers: r.drivers,
       spot: r.data?.spot ?? null,
       sector,
+      peerGroup,
       sentiment: r.data?.news?.sentiment || null,
       fundamentalsVerdict: r.data?.fundamentals?.judgment?.verdict || null,
       rsi: r.data?.technicals?.rsi ?? null,
