@@ -293,7 +293,21 @@ async function fetchTickerChain(symbol) {
   const inBand = (c) => c.strike != null && c.strike >= minK && c.strike <= maxK;
 
   const expirationDates = Array.isArray(first.expirationDates) ? first.expirationDates : [];
-  const expirations = expirationDates.slice(0, FRONT_EXPIRATIONS);
+  // Drop already-expired expirations before taking the front two. Yahoo keeps
+  // the current day's expiration in the list after it settles at the 16:00 ET
+  // close, so the post-close EOD scan would otherwise spend a slot on the dead
+  // 0DTE chain for daily-expiry names (SPY/QQQ/IWM) and let its frozen
+  // settlement OI/volume drive the walls / cpRatio / gamma score. Treat an
+  // expiration as live until 21:00 UTC of its calendar day (covers the latest
+  // US close, 16:00 EST) — the pre-market scan keeps today's chain, the EOD
+  // scan (~19:00 ET, hours later) correctly drops it.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const EXP_GRACE_SEC = 21 * 3600;
+  const isLiveExpiration = (d) => {
+    const ymd = d.toISOString().slice(0, 10);
+    return Math.floor(Date.parse(ymd + "T00:00:00Z") / 1000) + EXP_GRACE_SEC > nowSec;
+  };
+  const expirations = expirationDates.filter(isLiveExpiration).slice(0, FRONT_EXPIRATIONS);
 
   const contracts = [];
   const ingest = (entry, expSec) => {
@@ -329,11 +343,33 @@ async function fetchTickerChain(symbol) {
     }
   };
 
+  // first.options[0] is the chain for expirationDates[0] — which may now be
+  // the expired one we just filtered out. Only ingest it directly when it
+  // matches a live expiration; otherwise re-fetch the first LIVE expiration so
+  // the expired chain never enters the snapshot.
   const firstEntry = first.options?.[0];
   const firstExpSec = firstEntry?.expirationDate
     ? Math.round(new Date(firstEntry.expirationDate).getTime() / 1000)
     : null;
-  if (firstEntry && firstExpSec) ingest(firstEntry, firstExpSec);
+  const firstIsLive =
+    firstExpSec != null &&
+    expirations.some((d) => Math.round(d.getTime() / 1000) === firstExpSec);
+  if (firstEntry && firstExpSec && firstIsLive) {
+    ingest(firstEntry, firstExpSec);
+  } else if (expirations[0]) {
+    try {
+      const r0 = await fetchOptionsWithRetry(symbol, { date: expirations[0] });
+      const e0 = r0.options?.[0];
+      if (e0) {
+        const e0Sec = e0.expirationDate
+          ? Math.round(new Date(e0.expirationDate).getTime() / 1000)
+          : Math.round(expirations[0].getTime() / 1000);
+        ingest(e0, e0Sec);
+      }
+    } catch (err) {
+      console.log(`    · ${symbol} first live expiration fetch failed: ${err.message}`);
+    }
+  }
 
   for (let i = 1; i < expirations.length; i++) {
     const d = expirations[i];

@@ -11,7 +11,7 @@
 // chain (~30-60 KB) from the same origin only when the user selects it.
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
-import { writeFile, readFile, mkdir, rm } from "node:fs/promises";
+import { writeFile, readFile, mkdir, rm, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -1254,12 +1254,21 @@ async function fetchFundamentals(symbol) {
   if (Array.isArray(ed) && ed.length) {
     const first = ed[0] instanceof Date ? ed[0] : new Date(ed[0]);
     if (!isNaN(first.getTime())) {
-      nextEarnings = first.toISOString().slice(0, 10);
       const hourUtc = first.getUTCHours();
       const minUtc = first.getUTCMinutes();
       if (hourUtc === 0 && minUtc === 0) {
+        // Time not supplied: 00:00 UTC IS the intended calendar date — keep
+        // the UTC day (etDateKey would roll a midnight-UTC instant back to the
+        // prior ET day).
+        nextEarnings = first.toISOString().slice(0, 10);
         nextEarningsSession = "TBD";
       } else {
+        // Real intraday timestamp: take the ET wall-clock date, not the UTC
+        // one. An after-close (AMC) print at/after 20:00 ET (EDT) / 19:00 ET
+        // (EST) crosses into the next UTC day, so toISOString() would record
+        // it one day late and desync from the ET-keyed Nasdaq sessionMap,
+        // calendar chips, and earningsInsideWindow (all keyed on etDateKey).
+        nextEarnings = etDateKey(first);
         // Bucket by America/New_York wall-clock, NOT a fixed UTC hour: BMO
         // releases cluster pre-open and AMC post-close, but a fixed UTC cut
         // (`hourUtc < 14`) mislabels winter (EST) pre-open releases as PM —
@@ -1886,20 +1895,37 @@ function dropPrefixRollups(byMember) {
 }
 
 // Drop generic catch-all rollups by name. Catches the LLY pattern:
-// `us-gaap:ProductMember` ($61B, every drug combined) sitting alongside
-// specific drug members ($3-4B each). The generic-named member rolls up
-// everything beneath it; keeping it produces a breakdown that mixes
-// granularity levels. The threshold is intentionally above 100% of
-// company total — a true rollup overcounts the whole company (LLY:
-// $61B Product vs. $54B total revenue). A `ProductMember` of normal
-// size (ASTS: $0.04B Product / $0.07B total) is just one product line
-// and stays.
+// `us-gaap:ProductMember` (every drug combined) sitting alongside the
+// specific drug members. The generic-named member rolls up everything
+// beneath it; keeping it produces a breakdown that mixes granularity
+// levels and overcounts.
+//
+// We detect a rollup by REDUNDANCY, not a fixed ratio: a generic member is a
+// company-wide rollup when (a) it is itself LARGE (≥50% of total — a plausible
+// catch-all, not a minor line) AND (b) the OTHER members already reconcile to
+// the whole company (≥90% of total) on their own, so the generic one is
+// double-counting on top of a set that already adds up. This is
+// scale-independent — it catches an annual `Product` above 100% of total AND a
+// quarterly `Product` at ~0.93× of total (the old fixed 0.95 bar tuned on the
+// annual ratio missed the quarterly one) — while a legitimate single line stays
+// whether it is small (a ~9% `Services` whose siblings happen to sum to total)
+// or dominant with tiny siblings (ASTS: `Product` vs a small `Service`).
 function dropGenericRollups(byMember, totalRevenue) {
   if (!totalRevenue || totalRevenue <= 0) return byMember;
+  // Need at least 3 members so a drop still leaves a 2-slice donut.
+  if (byMember.size < 3) return byMember;
   const GENERIC = /^(Product|Products|Service|Services|Total|All|Combined|Aggregate|ReportableSegment)$/i;
+  const grandSum = [...byMember.values()].reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
   const out = new Map();
   for (const [name, value] of byMember) {
-    if (GENERIC.test(memberLocalName(name)) && value / totalRevenue > 0.95) continue;
+    if (GENERIC.test(memberLocalName(name))) {
+      const othersSum = grandSum - value;
+      if (
+        value >= totalRevenue * 0.5 &&
+        othersSum >= totalRevenue * 0.9 &&
+        byMember.size - 1 >= 2
+      ) continue;
+    }
     out.set(name, value);
   }
   return out;
@@ -2126,7 +2152,11 @@ function pickBestAxisBreakdownByPeriod(facts, contexts, priorityList, periodPred
 //   v14: Prefer YoY same-quarter over sequential QoQ. Sequential
 //        comparisons are dominated by seasonality (Apple iPhone holiday
 //        → spring -33%, retail Q4 peaks, etc.) and hide actual growth.
-const SEGMENT_PARSER_VERSION = 14;
+//   v15: dropGenericRollups detects a catch-all rollup by redundancy
+//        (siblings already reconcile to total) instead of a fixed 0.95×
+//        ratio, so a quarterly `Product` rollup at ~0.93× of total is
+//        dropped instead of inflating the donut. Re-parse cached accessions.
+const SEGMENT_PARSER_VERSION = 15;
 
 // Forms we'll try to extract segment data from. 10-K + 10-Q cover
 // US-GAAP filers; 20-F + 6-K cover foreign private issuers (NVO, ASML,
@@ -2599,9 +2629,15 @@ async function writeMacroHistory(history) {
 // meaningful — below VIX_RANK_MIN_SAMPLES we return { rankPct: null } and the
 // UI falls back to a level-based regime label. Same idea as IV rank.
 const VIX_RANK_MIN_SAMPLES = 15;
-function computeVixRank(history, value) {
+function computeVixRank(history, value, todayKey = etDateKey()) {
   if (typeof value !== "number" || !isFinite(value)) return null;
+  // Rank against the TRAILING distribution — exclude today's own
+  // just-upserted entry, otherwise the at-or-below count always includes the
+  // sample being ranked (rankPct could never read 0 and was biased up by
+  // ~1/n). Keyed on the ET date so it's robust across the pre-market / midday
+  // / EOD re-bakes that all carry today's entry.
   const vals = (history?.entries || [])
+    .filter((e) => e && e.date !== todayKey)
     .map((e) => (e && typeof e.vix === "number" && isFinite(e.vix) ? e.vix : null))
     .filter((v) => v != null);
   if (vals.length < VIX_RANK_MIN_SAMPLES) return { rankPct: null, samples: vals.length };
@@ -2982,16 +3018,43 @@ async function loadIvHistoryEntries(symbol) {
 // Build today's iv-history snapshots before the writeChainFiles wipe.
 // Returns Map<symbol, {symbol, entries, dte}> ready to flush after the
 // wipe via writeIvHistory.
+//
+// The returned map is the COMPLETE set re-persisted after `rm -rf data/`,
+// so it MUST carry forward every existing iv-history file — not just the
+// tickers that fetched (and produced an ATM IV) this build. A ticker that
+// flaked from Yahoo (the build tolerates up to 25% missing via
+// MIN_SUCCESS_RATE) or that has no computable ATM IV today would otherwise
+// be dropped from the map and have its entire accumulated series wiped.
+// So: seed the map from every prior file on disk first, then layer today's
+// fresh sample on top only where computeAtm30dIv succeeds.
 async function collectIvHistory(chains) {
   const today = new Date().toISOString().slice(0, 10);
   const out = new Map();
+  // 1) Seed from every prior file so untouched/flaked tickers survive the wipe.
+  let priorSyms = [];
+  try {
+    priorSyms = (await readdir(resolve(DATA_DIR, IV_HISTORY_DIR)))
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.slice(0, -5));
+  } catch (_) { /* dir missing on the first-ever build — nothing to carry */ }
+  for (const sym of priorSyms) {
+    const prior = await loadIvHistoryEntries(sym);
+    if (prior.length) {
+      out.set(sym, {
+        symbol: sym,
+        dteTarget: IV_HISTORY_TARGET_DTE,
+        entries: prior.slice(-IV_HISTORY_MAX_ENTRIES),
+      });
+    }
+  }
+  // 2) Upsert today's fresh sample where available (last-write-wins on today).
   for (const [sym, data] of Object.entries(chains)) {
     const iv = computeAtm30dIv(data);
     if (iv == null) continue;
-    const prior = await loadIvHistoryEntries(sym);
+    const base = out.get(sym)?.entries || [];
     // Replace today's entry if a previous run already wrote one (the
     // build runs pre-market + EOD on weekdays — keep the later sample).
-    const filtered = prior.filter((e) => e?.date !== today);
+    const filtered = base.filter((e) => e?.date !== today);
     filtered.push({ date: today, iv: Number(iv.toFixed(4)) });
     filtered.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     const capped = filtered.slice(-IV_HISTORY_MAX_ENTRIES);
@@ -3633,8 +3696,13 @@ function decodeXmlEntities(s) {
 
 export function parseEdgar13FXml(xml) {
   // Strip XML namespaces so a single regex set works across schema
-  // versions (the 13F XSD has been re-namespaced multiple times).
-  const clean = String(xml || "").replace(/<\/?([a-zA-Z0-9]+):/g, (_, _ns) => "<");
+  // versions (the 13F XSD has been re-namespaced multiple times). Capture
+  // and re-emit the tag-open boundary ("<" or "</") so a namespaced CLOSING
+  // tag keeps its slash — `</ns1:infoTable>` must become `</infoTable>`, not
+  // `<infoTable>`. Dropping the slash made the infoTable block regex match
+  // nothing, so prefixed filings parsed to ZERO holdings and silently fell
+  // back to the curated baseline (no real QoQ deltas).
+  const clean = String(xml || "").replace(/(<\/?)[a-zA-Z0-9]+:/g, "$1");
   const out = [];
   const blocks = clean.match(/<infoTable\b[^>]*>[\s\S]*?<\/infoTable>/g) || [];
   for (const block of blocks) {
@@ -4262,10 +4330,14 @@ const ECON_REPORTS = [
   { subtype: "nfp",          label: "Non-Farm Payroll",      schedule: "empSit", series: "PAYEMS",   bls: "CES0000000001",     format: "nfp"  },
   { subtype: "unrate",       label: "Unemployment Rate",     schedule: "empSit", series: "UNRATE",   bls: "LNS14000000",       format: "pct"  },
   { subtype: "jolts",        label: "JOLTS Job Openings",    schedule: "jolts",  series: "JTSJOL",   bls: "JTS000000000000000JOL", format: "jobs" },
+  // MoM uses the seasonally-adjusted index (SA); YoY uses the NON-seasonally-
+  // adjusted index (NSA, CUUR…/…NS) because that's what BLS computes the
+  // published year-over-year headline from. YoY off the SA index leaves a
+  // residual seasonal error, so it wouldn't match the "+3.x%" markets quote.
   { subtype: "cpi-mom",      label: "CPI MoM",               schedule: "cpi",    series: "CPIAUCSL", bls: "CUSR0000SA0",       format: "mom"  },
-  { subtype: "cpi-yoy",      label: "CPI YoY",               schedule: "cpi",    series: "CPIAUCSL", bls: "CUSR0000SA0",       format: "yoy"  },
+  { subtype: "cpi-yoy",      label: "CPI YoY",               schedule: "cpi",    series: "CPIAUCNS", bls: "CUUR0000SA0",       format: "yoy"  },
   { subtype: "core-cpi-mom", label: "Core CPI MoM",          schedule: "cpi",    series: "CPILFESL", bls: "CUSR0000SA0L1E",    format: "mom"  },
-  { subtype: "core-cpi-yoy", label: "Core CPI YoY",          schedule: "cpi",    series: "CPILFESL", bls: "CUSR0000SA0L1E",    format: "yoy"  },
+  { subtype: "core-cpi-yoy", label: "Core CPI YoY",          schedule: "cpi",    series: "CPILFENS", bls: "CUUR0000SA0L1E",    format: "yoy"  },
   { subtype: "ppi-mom",      label: "PPI MoM",               schedule: "ppi",    series: "PPIFIS",   bls: "WPSFD4",            format: "mom"  },
 ];
 
@@ -12116,6 +12188,12 @@ function updateTrendHistory(history, narratives, todayIso) {
       lifecycleStage: n.lifecycleStage,
       longs: n.longs,
       shorts: n.shorts,
+      // Carry the coverage-filler discriminator so computeRecentlyEnded can
+      // tell real extracted narratives from autogenerated "<Industry>
+      // Watchlist" placeholders — a Watchlist vanishing when a real
+      // narrative starts covering its orphan tickers is not a trend that
+      // "ended". (Legacy snapshots lack this key → falsy → unchanged.)
+      autogenerated: !!n.autogenerated,
       sourcePublishers: Array.isArray(n.sources)
         ? Array.from(new Set(n.sources.map((s) => s.publisher).filter(Boolean))).slice(0, 6)
         : [],
@@ -12142,6 +12220,10 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
     if (snap.date === today) continue;
     for (const n of (snap.narratives || [])) {
       if (!n || !n.name) continue;
+      // Skip autogenerated coverage filler — a "<Industry> Watchlist"
+      // placeholder is not a real trend, so its disappearance must not show
+      // up in the "recently ended" view as a phantom trend.
+      if (n.autogenerated) continue;
       const key = n.name.toLowerCase();
       if (active.has(key)) continue;
       const cur = seen.get(key);

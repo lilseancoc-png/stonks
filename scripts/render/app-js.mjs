@@ -3742,15 +3742,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (r.spot != null && isFinite(r.spot) && r.spot > 0) state.spot = r.spot;
         // Keep the live-quote pill in sync — same shape /api/quote returns
         // so renderLiveQuote can reuse its existing branch. /api/chain doesn't
-        // return the day change, so carry forward the last quote's change /
-        // changePct instead of nulling them — otherwise polling (and re-selecting
-        // the ticker within the 30s cache window) wipes the day-change off the pill.
+        // return the day change, but the last /api/quote carried prevClose, so
+        // re-derive change/changePct off the FRESH spot (matching the quote
+        // helper's own convention) — otherwise the pill pairs a fresh spot with
+        // a stale delta computed against an older spot and the two don't
+        // reconcile. Carry prevClose forward so later chain-only polls keep
+        // re-deriving; fall back to the stale carry-forward only when no
+        // prevClose is available.
         var prevQ = (LIVE_CACHE[symbol] && LIVE_CACHE[symbol].q) || {};
+        var prevClose = (prevQ.prevClose != null && isFinite(prevQ.prevClose) && prevQ.prevClose !== 0)
+          ? prevQ.prevClose : null;
+        var freshChange = null, freshChangePct = null;
+        if (prevClose != null && r.spot != null && isFinite(r.spot)) {
+          freshChange = r.spot - prevClose;
+          freshChangePct = (freshChange / prevClose) * 100;
+        }
         var pillQ = {
           spot: r.spot,
           marketState: r.marketState,
-          change: prevQ.change != null ? prevQ.change : null,
-          changePct: prevQ.changePct != null ? prevQ.changePct : null,
+          prevClose: prevClose,
+          change: freshChange != null ? freshChange : (prevQ.change != null ? prevQ.change : null),
+          changePct: freshChangePct != null ? freshChangePct : (prevQ.changePct != null ? prevQ.changePct : null),
         };
         LIVE_CACHE[symbol] = { q: pillQ, at: Date.now() };
         renderLiveQuote(symbol, pillQ);
