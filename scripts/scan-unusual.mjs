@@ -84,10 +84,14 @@ const REPEAT_MIN = 2;
 // pruned when the contract's expiration date passes.
 const FLOW_EXPLANATIONS_FILE = "flow-explanations.json";
 const AI_FLOW_MODEL = process.env.AI_FLOW_MODEL || "gemini-2.5-flash-lite";
-// Modest concurrency — we expect ≤20 new anomalies per scan, and the
-// shared Gemini Flash-Lite quota is generous, but cap to keep retries
-// from stampeding.
-const AI_FLOW_CONCURRENCY = 5;
+// We expect ≤20 NEW anomalies per scan (re-flags hit the per-contract
+// flow-explanations cache and cost no call). These AI calls are NOT gated by
+// build.mjs's AI_RPM pacer — only by this cap — and Flash-Lite peaks at just
+// ~355/4K RPM (the scan runs alone, serialized with the build via the shared
+// concurrency group), so the quota has huge unused headroom. 15 fans the
+// typical anomaly batch out in 1-2 waves instead of ~4, while still bounding
+// the burst so a transient 429 doesn't trigger a retry-backoff stampede.
+const AI_FLOW_CONCURRENCY = 15;
 const AI_FLOW_MAX_ATTEMPTS = 4;
 const AI_FLOW_RETRY_BACKOFF_MS = [2000, 6000, 15000];
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
@@ -1116,11 +1120,15 @@ async function main() {
   let scannedCount = 0;
   let failedCount = 0;
 
-  // Bounded worker pool — the same 4-wide concurrency the daily build runs
-  // against the identical Yahoo options() endpoint (build.mjs TICKER_CONCURRENCY),
-  // so the effective request rate stays at the proven-safe ~4× the serial
-  // baseline (and the two workflows never run concurrently — the shared
-  // concurrency group serializes them). Each worker keeps scanTicker's inner
+  // Bounded worker pool — matches the daily build's TICKER_CONCURRENCY (now 6)
+  // against the identical Yahoo options() endpoint, restoring the "track the
+  // build" invariant this comment describes (it drifted to 4 when the build was
+  // bumped 4→6). Each scan ticker fetches only FRONT_EXPIRATIONS=2 chains with
+  // the same POLITENESS_MS pacing, so at 6 workers the aggregate options() rate
+  // is ~17 req/s — *below* the build's empirically-clean ~18 req/s on this same
+  // endpoint and runner IP — and the two workflows never run concurrently (the
+  // shared concurrency group serializes them), so this adds no rate-limit risk.
+  // Each worker keeps scanTicker's inner
   // per-expiration pacing plus a trailing politeness sleep. The collectors below
   // are append-only and the counters are plain numbers: JS runs these tasks
   // cooperatively on a single thread (interleaving only at awaits), so the
@@ -1182,7 +1190,7 @@ async function main() {
       await sleep(POLITENESS_MS);
     }
   }
-  const SCAN_CONCURRENCY = 4;
+  const SCAN_CONCURRENCY = 6;
   await Promise.all(
     Array.from({ length: Math.min(SCAN_CONCURRENCY, scanList.length) }, scanWorker),
   );
