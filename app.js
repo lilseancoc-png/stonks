@@ -2189,7 +2189,7 @@
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
     resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.',
     sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.',
-    chartPattern: 'A classic chart formation identified by AI from the daily price series — one of 7 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom), or none. Recomputed each daily build. Context only — confirm on your own chart before trading.'
+    chartPattern: 'A classic chart formation identified by AI from a zoomed view of the recent daily chart — one of 7 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1). Recomputed each daily build. Context only — confirm on your own chart before trading.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -3917,10 +3917,10 @@
       (noteHtml ? '<div class="opt-tech-note">' + noteHtml + '</div>' : '') +
     '</div>';
   }
-  // Full daily price chart for the Technicals tab, drawn from the compact
-  // priceSeries baked into each ticker JSON (build.mjs buildPriceSeries). Lets a
-  // human eyeball formations the AI chart-pattern detector may miss — close line
-  // + 50/200-day SMA overlays + high/low range band + volume strip + spot line.
+  // Daily price chart for the Technicals tab, drawn from the compact priceSeries
+  // baked into each ticker JSON (build.mjs buildPriceSeries). Lets a human eyeball
+  // formations the AI chart-pattern detector may miss — close line + range-
+  // adaptive SMA overlays + high/low range band + volume strip + spot line.
   function priceChartSma(arr, p){
     // Queue of the actual contributed (non-null) values so a null gap can't
     // desync the rolling sum from the window — evict the value that truly left,
@@ -3942,26 +3942,32 @@
     if (p.length < 3) return String(s);
     return mo[(+p[1]) - 1] + ' ' + (+p[2]) + ' \'' + p[0].slice(2);
   }
-  function priceChartSvg(ps, spot){
-    if (!ps || !ps.c || ps.c.length < 2) return '';
+  // Render ONE price chart for a display window [startIdx..end] of the full
+  // series. SMAs are computed over the FULL closes (so a zoomed window still
+  // gets a correct moving average using the lookback behind it), then plotted
+  // only within the visible window. Returns { svg, legend } for that range.
+  function priceChartRender(ps, spot, startIdx, smaPeriods){
     var c = ps.c, h = ps.h || c, l = ps.l || c, v = ps.v || [], dates = ps.t || [];
     var n = c.length;
-    var lo = Infinity, hi = -Infinity;
-    for (var i = 0; i < n; i++){
+    var s0 = Math.max(0, startIdx | 0);
+    if (n - s0 < 2) s0 = Math.max(0, n - 2);
+    var dN = n - s0;
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = s0; i < n; i++){
       var hh = (h[i] != null ? h[i] : c[i]), ll = (l[i] != null ? l[i] : c[i]);
       if (ll != null && ll < lo) lo = ll;
       if (hh != null && hh > hi) hi = hh;
     }
     if (spot != null && isFinite(spot)){ lo = Math.min(lo, spot); hi = Math.max(hi, spot); }
-    if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return '';
+    if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return { svg: '', legend: '' };
     var padv = (hi - lo) * 0.05; lo -= padv; hi += padv;
     var W = 1000, H = 388, padL = 48, padR = 14, padT = 12, priceBot = 300, volTop = 322, volBot = 374;
     var plotW = W - padL - padR;
-    function xAt(i){ return padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW); }
+    function xAt(i){ return padL + (dN === 1 ? plotW / 2 : ((i - s0) / (dN - 1)) * plotW); }
     function yAt(val){ return padT + (1 - (val - lo) / (hi - lo)) * (priceBot - padT); }
     function pts(arr){
       var s = '', started = false;
-      for (var i = 0; i < n; i++){
+      for (var i = s0; i < n; i++){
         if (arr[i] == null || !isFinite(arr[i])) continue;
         s += (started ? ' ' : '') + xAt(i).toFixed(1) + ',' + yAt(arr[i]).toFixed(1);
         started = true;
@@ -3970,7 +3976,7 @@
     }
     // high/low range band (close fallback when a wick is missing)
     var topPts = [], botPts = [];
-    for (var i = 0; i < n; i++){
+    for (i = s0; i < n; i++){
       var hv = (h[i] != null ? h[i] : c[i]), lv = (l[i] != null ? l[i] : c[i]);
       if (hv == null || lv == null) continue;
       topPts.push(xAt(i).toFixed(1) + ',' + yAt(hv).toFixed(1));
@@ -3978,7 +3984,7 @@
     }
     var band = topPts.length ? '<path class="opt-pc-band" d="M' + topPts.join('L') + 'L' + botPts.reverse().join('L') + 'Z" />' : '';
     // price gridlines + y labels
-    var grid = '', i;
+    var grid = '';
     for (i = 0; i <= 4; i++){
       var gy = (padT + (i / 4) * (priceBot - padT));
       var gval = hi - (i / 4) * (hi - lo);
@@ -3986,17 +3992,17 @@
       grid += '<text class="opt-pc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">$' + fmt(gval) + '</text>';
     }
     // volume strip (single path of vertical strokes)
-    var vmax = 0; for (i = 0; i < n; i++){ if (v[i] != null && v[i] > vmax) vmax = v[i]; }
+    var vmax = 0; for (i = s0; i < n; i++){ if (v[i] != null && v[i] > vmax) vmax = v[i]; }
     var volPath = '';
     if (vmax > 0){
-      for (i = 0; i < n; i++){
+      for (i = s0; i < n; i++){
         if (v[i] == null) continue;
         var vh = (v[i] / vmax) * (volBot - volTop);
         var vx = xAt(i).toFixed(1);
         volPath += 'M' + vx + ' ' + volBot.toFixed(1) + 'L' + vx + ' ' + (volBot - vh).toFixed(1);
       }
     }
-    var barW = Math.max(1, (plotW / n) * 0.6).toFixed(2);
+    var barW = Math.max(1, (plotW / dN) * 0.6).toFixed(2);
     var vol = volPath ? '<path class="opt-pc-vol" style="stroke-width:' + barW + '" d="' + volPath + '" />' : '';
     // spot line + label
     var spotEl = '';
@@ -4005,36 +4011,66 @@
       spotEl = '<line class="opt-pc-spot" x1="' + padL + '" y1="' + sy + '" x2="' + (W - padR) + '" y2="' + sy + '" />' +
         '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">spot $' + fmt(spot) + '</text>';
     }
-    // x date labels (first / mid / last)
+    // x date labels (first / mid / last of the window)
     var xlabels = '';
-    if (dates.length === n && n > 1){
-      var idxs = [0, Math.floor((n - 1) / 2), n - 1];
+    if (dates.length === n && dN > 1){
+      var idxs = [s0, s0 + Math.floor((dN - 1) / 2), n - 1];
       var anch = ['start', 'middle', 'end'];
       for (i = 0; i < idxs.length; i++){
-        var di = idxs[i];
-        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(di).toFixed(1) + '" y="' + (volBot + 12) + '">' + escapeHtml(priceChartFmtDate(dates[di])) + '</text>';
+        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (volBot + 12) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]])) + '</text>';
       }
     }
-    var sma50pts = pts(priceChartSma(c, 50)), sma200pts = pts(priceChartSma(c, 200));
-    var sma50El = sma50pts ? '<polyline class="opt-pc-sma50" fill="none" points="' + sma50pts + '" />' : '';
-    var sma200El = sma200pts ? '<polyline class="opt-pc-sma200" fill="none" points="' + sma200pts + '" />' : '';
-    var hasSma200 = !!sma200pts;
-    var legend =
-      '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>' +
-      '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma50"></i>50D SMA</span>' +
-      (hasSma200 ? '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma200"></i>200D SMA</span>' : '') +
-      '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-spot"></i>Spot</span>';
-    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Daily price chart for the last ' + n + ' sessions">' +
-      grid + band + vol + sma200El + sma50El +
+    // adaptive SMAs (computed over the FULL closes, drawn within the window)
+    var pA = smaPeriods[0], pB = smaPeriods[1];
+    var legend = '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>';
+    var ptsA = pts(priceChartSma(c, pA));
+    var smaAEl = ptsA ? '<polyline class="opt-pc-sma50" fill="none" points="' + ptsA + '" />' : '';
+    if (ptsA) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma50"></i>' + pA + 'D SMA</span>';
+    var ptsB = pts(priceChartSma(c, pB));
+    var smaBEl = ptsB ? '<polyline class="opt-pc-sma200" fill="none" points="' + ptsB + '" />' : '';
+    if (ptsB) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma200"></i>' + pB + 'D SMA</span>';
+    legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-spot"></i>Spot</span>';
+    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Daily price chart, ' + dN + ' sessions">' +
+      grid + band + vol + smaBEl + smaAEl +
       '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
       spotEl + xlabels +
       '</svg>';
-    return '<div class="opt-tech-chart">' +
+    return { svg: svg, legend: legend };
+  }
+  // Price chart with selectable range tabs (1M / 3M / 1Y / MAX, default 1M).
+  // CSS-only switching via hidden radios so there are no per-render event
+  // listeners to manage; each range gets its own window + range-appropriate SMAs.
+  function priceChartCard(ps, spot){
+    if (!ps || !ps.c || ps.c.length < 2) return '';
+    var n = ps.c.length;
+    // 1Y is the longest range — the bake only fetches ~1 year of bars, so a
+    // separate MAX tab would be identical. (Extend HISTORY_LOOKBACK_DAYS to add
+    // a true multi-year MAX.)
+    var ranges = [
+      { key: '1m', label: '1M', bars: 22,  smas: [10, 20] },
+      { key: '3m', label: '3M', bars: 63,  smas: [20, 50] },
+      { key: '1y', label: '1Y', bars: 252, smas: [50, 200] }
+    ];
+    var radios = '', tabs = '', charts = '', def = '1m';
+    for (var r = 0; r < ranges.length; r++){
+      var rg = ranges[r];
+      // Hide a range that can't add anything over the previous one (series
+      // shorter than this range) — but always keep 1M and at least one more.
+      if (r > 1 && n <= ranges[r - 1].bars) continue;
+      var id = 'opt-pc-r-' + rg.key;
+      radios += '<input type="radio" name="opt-pc-range" id="' + id + '" class="opt-pc-radio"' + (rg.key === def ? ' checked' : '') + '>';
+      tabs += '<label for="' + id + '" class="opt-pc-tab">' + rg.label + '</label>';
+      var rendered = priceChartRender(ps, spot, Math.max(0, n - rg.bars), rg.smas);
+      charts += '<div class="opt-pc-chart opt-pc-chart-' + rg.key + '">' +
+        '<div class="opt-pc-legend">' + rendered.legend + '</div>' + rendered.svg + '</div>';
+    }
+    return '<div class="opt-tech-chart">' + radios +
       '<div class="opt-tech-chart-head">' +
-        '<span class="opt-tech-chart-title">Price &middot; last ' + n + ' sessions</span>' +
-        '<span class="opt-pc-legend">' + legend + '</span>' +
-      '</div>' + svg +
-      '<div class="opt-tech-chart-foot">Daily closes with 50/200-day moving averages, the high\u2013low range, and volume. Eyeball it against the chart-pattern read below.</div>' +
+        '<span class="opt-tech-chart-title">Price</span>' +
+        '<div class="opt-pc-ranges">' + tabs + '</div>' +
+      '</div>' +
+      '<div class="opt-pc-charts">' + charts + '</div>' +
+      '<div class="opt-tech-chart-foot">Daily closes with range-appropriate moving averages, the high\u2013low range, and volume. Pick a range and eyeball it against the chart-pattern read below.</div>' +
     '</div>';
   }
   function renderTechnicals(sym){
@@ -4051,7 +4087,7 @@
     // Price chart first — the actual picture, so the chart-pattern read below
     // can be checked against it by eye. Drawn from the baked priceSeries; older
     // ticker JSON (pre-priceSeries) simply omits it.
-    if (state && state.priceSeries) html += priceChartSvg(state.priceSeries, spot);
+    if (state && state.priceSeries) html += priceChartCard(state.priceSeries, spot);
 
     // AI-identified chart pattern — a full-width banner above the indicator
     // cards. Renders only when a full build has attached technicals.chartPattern;
@@ -4072,17 +4108,36 @@
         '</div>';
       } else {
         var dirCls = cp.direction === 'bullish' ? 'pos' : (cp.direction === 'bearish' ? 'neg' : 'fair');
-        html += '<div class="opt-tech-pattern ' + dirCls + '">' +
+        var forming = cp.stage === 'forming';
+        var stageBadge = cp.stage
+          ? '<span class="opt-tech-pattern-stage ' + (forming ? 'forming' : 'confirmed') + '">' +
+              (forming ? '&#9888; Forming' : '&#10003; Confirmed') + '</span>'
+          : '';
+        // Early-warning levels: neckline + what confirms / invalidates it + the
+        // measured target. Each rendered only when the model supplied it.
+        var lvls = '';
+        function lvlRow(k, v){ return '<div class="opt-tech-pattern-lvl"><span class="opt-tech-pattern-lvl-k">' + k + '</span><span class="opt-tech-pattern-lvl-v">' + v + '</span></div>'; }
+        if (cp.neckline != null && isFinite(cp.neckline)) lvls += lvlRow('Neckline', '$' + fmt(cp.neckline));
+        if (cp.confirm) lvls += lvlRow('Confirms on', escapeHtml(cp.confirm));
+        if (cp.invalidate) lvls += lvlRow('Invalidated if', escapeHtml(cp.invalidate));
+        if (cp.target) lvls += lvlRow('Measured target', escapeHtml(cp.target));
+        var lvlsHtml = lvls ? '<div class="opt-tech-pattern-lvls">' + lvls + '</div>' : '';
+        var foot = forming
+          ? 'Flagged EARLY — the pattern is still forming and is not confirmed until the level above breaks (it scores 0 on the grade until then). Context, not a trade signal.'
+          : 'AI-identified from the daily chart — one of 7 classic formations. Context, not a trade signal.';
+        html += '<div class="opt-tech-pattern ' + dirCls + (forming ? ' forming' : '') + '">' +
           '<div class="opt-tech-pattern-head">' +
             '<span class="opt-tech-pattern-label">Chart pattern' + tipChip(TIPS.chartPattern) + '</span>' +
+            stageBadge +
             '<span class="opt-tech-pattern-name">' + escapeHtml(cp.pattern) + '</span>' +
             (cp.type ? '<span class="opt-tech-pattern-type ' + dirCls + '">' + escapeHtml(cp.type) + '</span>' : '') +
             (cp.confidence ? '<span class="opt-tech-pattern-conf">' + escapeHtml(cp.confidence) + ' confidence</span>' : '') +
           '</div>' +
           (cp.explanation ? '<div class="opt-tech-pattern-body">' + escapeHtml(cp.explanation) + '</div>' : '') +
+          lvlsHtml +
           (cp.signal ? '<div class="opt-tech-pattern-signal">' +
             '<span class="opt-tech-pattern-signal-label">Could signal</span>' + escapeHtml(cp.signal) + '</div>' : '') +
-          '<div class="opt-tech-pattern-foot">AI-identified from the daily chart — one of 7 classic formations, or none. Context, not a trade signal.</div>' +
+          '<div class="opt-tech-pattern-foot">' + foot + '</div>' +
         '</div>';
       }
     }

@@ -2877,12 +2877,15 @@ import { renderStylesCss } from './render/styles-css.mjs';
 export { renderAppJs, renderHtml, renderStylesCss };
 
 // Compact daily price series persisted per ticker so the browser's Technicals
-// tab can draw a price chart. The raw bars (`_bars`) are otherwise dropped
-// before write (they'd inflate each file ~6x), and the per-ticker JSON carries
-// only summary technicals — so without this the page has nothing to chart.
-// Parallel rounded arrays for the last PRICE_SERIES_BARS sessions keep it small
-// (~4 KB/ticker). The browser derives SMA overlays from `c` itself.
-const PRICE_SERIES_BARS = 180;
+// tab can draw a price chart with selectable ranges (1M/3M/1Y/MAX). The raw
+// bars (`_bars`) are otherwise dropped before write (they'd inflate each file
+// ~6x), and the per-ticker JSON carries only summary technicals — so without
+// this the page has nothing to chart. We ship up to ~1 year (all we fetch, per
+// HISTORY_LOOKBACK_DAYS) as parallel rounded arrays (~10 KB/ticker, mostly the
+// date strings) so the client can reslice to any range AND compute SMAs with
+// full lookback behind a zoomed window. The browser derives the SMA overlays
+// from `c` itself.
+const PRICE_SERIES_BARS = 252;
 function buildPriceSeries(bars) {
   if (!Array.isArray(bars) || bars.length < 2) return null;
   const tail = bars.slice(-PRICE_SERIES_BARS);
@@ -6230,11 +6233,15 @@ function scoreTechnicals(data, streakRow) {
       { value: "None", note: "no classic pattern present on the daily chart" });
   } else if (cp && cp.pattern && CHART_PATTERN_META[cp.pattern]) {
     const meta = CHART_PATTERN_META[cp.pattern];
-    const mag = 1; // flat ±1 per spec — no high-confidence doubling
-    const s = meta.direction === "bullish" ? mag : meta.direction === "bearish" ? -mag : 0;
+    // A CONFIRMED pattern scores flat ±1 by direction (per spec). A FORMING
+    // pattern is an early warning, not a confirmed signal — it's surfaced in the
+    // UI (badge + neckline + what-confirms-it) but scores 0 so an unconfirmed
+    // prediction can't move a pick until price actually breaks the neckline.
+    const forming = cp.stage === "forming";
+    const s = forming ? 0 : (meta.direction === "bullish" ? 1 : meta.direction === "bearish" ? -1 : 0);
     chartSignal = _sig("chartPattern", "Chart Pattern", s, {
-      value: cp.pattern,
-      note: `${meta.type}${cp.confidence ? ` · ${cp.confidence} confidence` : ""}`,
+      value: `${forming ? "Forming " : ""}${cp.pattern}`,
+      note: `${meta.type}${forming ? " · forming (unconfirmed, scores 0 until it breaks)" : ""}${cp.confidence ? ` · ${cp.confidence} confidence` : ""}`,
     });
   }
   signals.push(chartSignal);
@@ -11444,7 +11451,12 @@ const CHART_PATTERN_SCHEMA = {
   type: "object",
   properties: {
     pattern: { type: "string", enum: [...CHART_PATTERN_NAMES, "None"] },
+    stage: { type: "string", enum: ["forming", "confirmed"] },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
+    neckline: { type: "number" },
+    confirm: { type: "string" },
+    invalidate: { type: "string" },
+    target: { type: "string" },
     explanation: { type: "string" },
     signal: { type: "string" },
   },
@@ -11486,26 +11498,45 @@ const CHART_PATTERN_SYSTEM_PROMPT =
   "7. Descending Triangle (Bearish Continuation) — a flat horizontal support " +
   "line with a falling series of lower highs above it; sellers in control, often " +
   "breaks down.\n\n" +
-  "Return \"None\" unless one pattern is CLEARLY present in the recent action — " +
-  "do not force a fit. Spelling of the pattern MUST match the list exactly " +
-  "(use 'and', not '&'). If you do identify a pattern: in `explanation` (1-3 " +
-  "sentences, plain English, no markdown) describe where it is forming in THIS " +
-  "series, citing the approximate price levels and rough dates of the key swing " +
-  "points (cup rim, neckline, the two bottoms, the pole, the triangle line, " +
-  "etc.); in `signal` (1-2 sentences) describe what a confirmed pattern could " +
-  "potentially signal (e.g. a breakout target or a reversal), framed as " +
-  "possibility, not certainty. Set `confidence` to high / medium / low based on " +
-  "how textbook the formation is. Stay grounded in the supplied data; do not " +
-  "invent levels the series does not support, and do not give buy/sell advice. " +
+  "Report a pattern in one of TWO stages — this is the key job: catch it EARLY.\n" +
+  "• stage \"forming\" — the structure is PARTIALLY built and the decisive break " +
+  "has NOT happened yet. Flag this as soon as enough of the shape is in place to " +
+  "name it: e.g. for a Head and Shoulders, a left shoulder and a higher head are " +
+  "in place and price is rolling over into a right shoulder near the left " +
+  "shoulder's height, but the neckline has NOT yet broken. This is the early " +
+  "warning the user wants — surface it BEFORE confirmation so they can act faster.\n" +
+  "• stage \"confirmed\" — the decisive move has happened (e.g. a daily close " +
+  "through the neckline for an H&S, a breakout above the handle/resistance for a " +
+  "continuation pattern).\n" +
+  "Return \"None\" only when not even a forming structure is credibly present — " +
+  "do not force a fit, but DO lean into naming a forming pattern when two-thirds " +
+  "of the shape is there. Spelling of the pattern MUST match the list exactly " +
+  "(use 'and', not '&'). When you identify a pattern, also return: " +
+  "`neckline` — the single most important horizontal level (the neckline for " +
+  "H&S/inverse-H&S, the resistance/support line for a triangle, the handle/rim " +
+  "for a cup, the two-bottom level, etc.) as a number in the series' price range; " +
+  "`confirm` — one short clause naming the move that would CONFIRM the pattern " +
+  "(e.g. \"a daily close below the ~$418 neckline\"); `invalidate` — one short " +
+  "clause naming the move that would BREAK/cancel the thesis (e.g. \"a close back " +
+  "above the ~$445 head\"); `target` — the rough measured-move objective once " +
+  "confirmed (e.g. \"~$391\"), or \"\" if not estimable; `explanation` (1-3 " +
+  "sentences, plain English, no markdown) describing where each swing point sits " +
+  "with approximate prices and rough dates; `signal` (1-2 sentences) on what a " +
+  "confirmed pattern could mean, framed as possibility not certainty. Set " +
+  "`confidence` to high / medium / low on how textbook the formation is (a clean " +
+  "forming pattern can still be 'high'). Stay grounded in the supplied data; do " +
+  "not invent levels the series does not support, and do not give buy/sell advice. " +
   "Respond with ONLY a JSON object of the form " +
-  `{"pattern": "...", "confidence": "high"|"medium"|"low", "explanation": "...", "signal": "..."} ` +
+  `{"pattern": "...", "stage": "forming"|"confirmed", "confidence": "high"|"medium"|"low", "neckline": <number>, "confirm": "...", "invalidate": "...", "target": "...", "explanation": "...", "signal": "..."} ` +
   "— no markdown fences, no prose before or after the JSON. For \"None\", " +
-  "`explanation` may briefly say why nothing qualifies and `signal` may be empty.";
+  "`explanation` may briefly say why nothing qualifies and the other fields may be empty.";
 
-// How many trailing daily bars to show the model. ~140 sessions ≈ 6-7 months —
-// enough to contain a full cup-and-handle or head-and-shoulders on the daily
-// timeframe these patterns are read on, without bloating the prompt.
-const CHART_PATTERN_BARS = 140;
+// How many trailing daily bars to show the model. ~75 sessions ≈ 3.5 months —
+// zoomed in on the recent action so a FORMING reversal (e.g. a head-and-
+// shoulders building its right shoulder) is large and legible rather than
+// squished into the right edge of a 6-month view. Still long enough to contain
+// a full daily-timeframe formation. Catching patterns early is the goal here.
+const CHART_PATTERN_BARS = 75;
 // Need a meaningful window before any pattern read is credible.
 const CHART_PATTERN_MIN_BARS = 60;
 
@@ -11516,15 +11547,17 @@ async function generateChartPattern(ai, symbol, spot, bars) {
     .map((b) => `${b.t || "?"} ${r2(b.c)} ${r2(b.h)} ${r2(b.l)} ${b.v != null && isFinite(b.v) ? Math.round(b.v) : "?"}`)
     .join("\n");
   const spotStr = (spot != null && isFinite(spot)) ? `$${spot.toFixed(2)}` : "n/a";
-  // Describe ONLY the SMA overlays the renderer can actually draw for this
-  // window — an N-day SMA needs N prior closes, so a 140-bar series has a 50-day
-  // line but never a 200-day one. Claiming a line that isn't in the pixels would
-  // mislead the model about a reference level it can't see.
+  // SMA overlays sized to this ~75-session window — a 20- and 50-day line read
+  // well here (a 200-day would barely populate). Describe ONLY the ones the
+  // renderer can actually draw (an N-day SMA needs N prior closes), so we never
+  // tell the model about a reference line that isn't in the pixels.
+  const CHART_IMG_SMA_PERIODS = [20, 50];
   const finiteCloses = series.filter((b) => b && isFinite(b.c)).length;
-  const smaLegend = [
-    finiteCloses >= 50 ? "blue = 50-day SMA" : null,
-    finiteCloses >= 200 ? "orange = 200-day SMA" : null,
-  ].filter(Boolean).join(", ");
+  const smaColors = ["blue", "orange"];
+  const drawnSmaPeriods = CHART_IMG_SMA_PERIODS.filter((p) => finiteCloses >= p);
+  const smaLegend = drawnSmaPeriods
+    .map((p, i) => `${smaColors[i]} = ${p}-day SMA`)
+    .join(", ");
   const userMessage =
     `Ticker: ${symbol}\n` +
     `Current spot: ${spotStr}\n` +
@@ -11541,7 +11574,7 @@ async function generateChartPattern(ai, symbol, spot, bars) {
   // we fall back to the text-only series (the model still gets the numbers).
   let imagePart = null;
   try {
-    const png = renderPriceChartPng(series, { symbol, spot });
+    const png = renderPriceChartPng(series, { symbol, spot, smaPeriods: CHART_IMG_SMA_PERIODS });
     if (png) imagePart = { inlineData: { mimeType: "image/png", data: png.toString("base64") } };
   } catch (err) {
     console.log(`    · ${symbol} chart image render failed (${String(err?.message || err).slice(0, 80)}) — text-only`);
@@ -11605,18 +11638,35 @@ async function generateChartPattern(ai, symbol, spot, bars) {
       pattern: "None",
       type: null,
       direction: null,
+      stage: null,
       confidence: null,
+      neckline: null,
+      confirm: "",
+      invalidate: "",
+      target: "",
       explanation: String(parsed.explanation || "").trim(),
       signal: "",
       builtAt,
     };
   }
   const conf = ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "medium";
+  // Only an EXPLICIT "forming" downgrades the pick score to 0; a missing/garbled
+  // stage defaults to "confirmed" so we never silently zero-out the chart-pattern
+  // signal for a pattern the model simply didn't stage-label (that would shift
+  // roster membership universe-wide on the img3 re-read). Net: forming=0 affects
+  // only the patterns the model deliberately flags as still-building.
+  const stage = parsed.stage === "forming" ? "forming" : "confirmed";
+  const neckline = Number.isFinite(parsed.neckline) ? Math.round(parsed.neckline * 100) / 100 : null;
   return {
     pattern: label,
     type: meta.type,
     direction: meta.direction,
+    stage,
     confidence: conf,
+    neckline,
+    confirm: String(parsed.confirm || "").trim(),
+    invalidate: String(parsed.invalidate || "").trim(),
+    target: String(parsed.target || "").trim(),
     explanation: String(parsed.explanation || "").trim(),
     signal: String(parsed.signal || "").trim(),
     builtAt,
@@ -11646,10 +11696,10 @@ function chartPatternCacheKey(bars) {
   if (!series.length) return null;
   const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
   const sig = series.map((b) => `${b.t || "?"}:${r2(b.c)}:${r2(b.h)}:${r2(b.l)}`).join("|");
-  // `img2` version tag: bumped when the detection method changes (here: the
-  // switch to a multimodal chart image on Flash) so every cached pre-image
-  // verdict is invalidated and re-read once, rather than serving a stale "None".
-  return createHash("sha1").update(`${CHART_PATTERN_BARS}|img2|${sig}`).digest("hex");
+  // Version tag: bumped when the detection method changes so every cached prior
+  // verdict is invalidated and re-read once (img2 = multimodal image on Flash;
+  // img3 = zoomed ~75-session window + forming/confirmed early detection).
+  return createHash("sha1").update(`${CHART_PATTERN_BARS}|img3|${sig}`).digest("hex");
 }
 
 // Read BEFORE writeChainFiles wipes data/. Missing / unreadable / wrong-shape → {}.

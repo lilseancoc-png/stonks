@@ -3118,6 +3118,7 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 /* AI-identified chart pattern banner — spans the full grid width above the
    indicator cards. The left border colour encodes the directional bias. */
 .opt-tech-chart {
+  position: relative;
   grid-column: 1 / -1;
   display: flex; flex-direction: column; gap: 8px;
   padding: var(--s-2) var(--s-3) var(--s-3);
@@ -3158,6 +3159,32 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .opt-pc-ylabel { text-anchor: end; }
 .opt-pc-spotlabel { fill: var(--neg); font-size: 11px; text-anchor: end; font-variant-numeric: tabular-nums; }
 .opt-tech-chart-foot { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+/* Range tabs (1M/3M/1Y/MAX) — CSS-only switching via hidden radios. */
+.opt-pc-radio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.opt-pc-ranges { display: flex; gap: 2px; }
+.opt-pc-tab {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+  color: var(--muted); padding: 3px 9px; border-radius: var(--r-1);
+  cursor: pointer; user-select: none;
+}
+.opt-pc-tab:hover { color: var(--text-strong); background: var(--surface-2); }
+.opt-pc-chart { display: none; }
+.opt-pc-chart .opt-pc-legend { margin-bottom: 6px; }
+/* Show the chart + highlight the tab matching the checked radio. */
+#opt-pc-r-1m:checked ~ .opt-pc-charts .opt-pc-chart-1m,
+#opt-pc-r-3m:checked ~ .opt-pc-charts .opt-pc-chart-3m,
+#opt-pc-r-1y:checked ~ .opt-pc-charts .opt-pc-chart-1y { display: block; }
+#opt-pc-r-1m:checked ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1m"],
+#opt-pc-r-3m:checked ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-3m"],
+#opt-pc-r-1y:checked ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1y"] {
+  color: var(--accent-fg); background: var(--accent);
+}
+#opt-pc-r-1m:focus-visible ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1m"],
+#opt-pc-r-3m:focus-visible ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-3m"],
+#opt-pc-r-1y:focus-visible ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1y"] {
+  outline: 2px solid var(--accent-glow); outline-offset: 1px;
+}
 
 .opt-tech-pattern {
   grid-column: 1 / -1;
@@ -3200,6 +3227,33 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   color: var(--muted); margin-right: 6px;
 }
 .opt-tech-pattern-foot { font-size: 10px; color: var(--muted); line-height: 1.4; }
+
+/* Forming (early-warning) vs confirmed. A forming pattern is unconfirmed, so it
+   reads as a caution (accent/gold) rather than a hard pos/neg signal. */
+.opt-tech-pattern.forming { border-left-color: var(--accent); }
+.opt-tech-pattern-stage {
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 2px 8px; border-radius: var(--r-pill); white-space: nowrap;
+}
+.opt-tech-pattern-stage.forming { color: var(--accent-fg); background: var(--accent); }
+.opt-tech-pattern-stage.confirmed {
+  color: var(--pos); background: var(--pos-soft);
+  border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.opt-tech-pattern-lvls {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 16px; padding: 8px 10px; margin-top: 2px;
+  background: var(--surface-2); border-radius: var(--r-1);
+}
+.opt-tech-pattern-lvl { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.opt-tech-pattern-lvl-k {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.opt-tech-pattern-lvl-v {
+  font-size: 12px; font-weight: 600; color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
 
 /* === Fundamentals + earnings panel === */
 .opt-fund {
