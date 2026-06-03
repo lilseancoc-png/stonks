@@ -101,7 +101,7 @@ There is **no test suite, no linter, and no type checker** wired into `package.j
 
 The site is built around a strict split:
 
-1. **Bake time** (`scripts/build.mjs`, run by `.github/workflows/daily.yml` ~3×/day): fetches every curated ticker's option chain + ~1yr of daily bars from Yahoo, computes technicals (RSI/MACD/SMA/S&R/IV regime), asks Gemini for per-ticker news takes and the global narratives view, then writes every artifact the page needs into the repo:
+1. **Bake time** (`scripts/build.mjs`, run by `.github/workflows/daily.yml` 8×/trading day — 9:30 ET open, then hourly 10:00–16:00 ET): fetches every curated ticker's option chain + ~1yr of daily bars from Yahoo, computes technicals (RSI/MACD/SMA/S&R/IV regime), asks Gemini for per-ticker news takes and the global narratives view, then writes every artifact the page needs into the repo:
    - `index.html` — page shell with a `~30 KB` `window.STONKS_MANIFEST` JSON blob inlined (ticker list, sectors, narratives, sector overviews, spots, unusual flow snapshot, build timestamp).
    - `app.js` — generated single IIFE that runs the Tickers / Narratives / Calendar / Grade / etc. tabs. **Never edit `app.js` directly.** Its source is the template string returned by `renderAppJs()` in [`scripts/render/app-js.mjs`](scripts/render/app-js.mjs). Same applies to `styles.css` ([`scripts/render/styles-css.mjs`](scripts/render/styles-css.mjs)) and the page shell in [`scripts/render/html.mjs`](scripts/render/html.mjs).
    - `data/<SYMBOL>.json` — per-ticker option chain + technicals + AI news take. Loaded lazily by the browser when a ticker is picked.
@@ -141,8 +141,8 @@ Bake-time tunables to know about:
 
 ### Cross-build AI caches (token conservation)
 
-The bake runs ~3×/weekday, but several Gemini outputs change far more slowly. Two caches cut repeat token spend:
-- `data/chart-pattern-cache.json` — keyed per ticker on a hash of the **confirmed** daily-bar series (the trailing window the model sees, **minus** the last/in-progress bar). The midday + evening builds reuse the morning's pattern when that signature is unchanged, skipping the Gemini call entirely; a new *closed* bar the next session busts the key and forces a fresh read. Deliberate trade-off: a pattern can lag the current session by ~1 trading day — acceptable for daily-timeframe formations, and the price of real same-day cache hits. Follows the same **read-before-wipe / write-after-wipe** rule as the histories below (`readChartPatternCache()` before `writeChainFiles`, `writeChartPatternCache()` after). A keyless build returns the prior cache unchanged rather than clobbering it. Only successfully-detected names are cached, so a failure retries next build.
+The bake runs 8×/trading day (9:30 ET open, then hourly to the 16:00 close), but several Gemini outputs change far more slowly. Two caches cut repeat token spend:
+- `data/chart-pattern-cache.json` — keyed per ticker on a hash of the **confirmed** daily-bar series (the trailing window the model sees, **minus** the last/in-progress bar). Every build after the day's first reuses that first build's pattern when the signature is unchanged, skipping the Gemini call entirely; a new *closed* bar the next session busts the key and forces a fresh read. Deliberate trade-off: a pattern can lag the current session by ~1 trading day — acceptable for daily-timeframe formations, and the price of real same-day cache hits. Follows the same **read-before-wipe / write-after-wipe** rule as the histories below (`readChartPatternCache()` before `writeChainFiles`, `writeChartPatternCache()` after). A keyless build returns the prior cache unchanged rather than clobbering it. Only successfully-detected names are cached, so a failure retries next build.
 - The unusual-flow scanner's `data/flow-explanations.json` is the analogous per-contract cache (see `scan-unusual.mjs`) — a contract flagged once is explained once and reused free for the rest of the session.
 
 `AI_RPM` (default 100, the per-minute AI pacer in `build.mjs`) is set to `300` in `daily.yml` for the funded Tier-1 project — Flash/Flash-Lite carry 1K-4K RPM quotas, so 300 keeps a wide cushion while shrinking the RPM-paced floor of the per-ticker AI passes. **Leave it unset on a free-tier fork** (Gemma free = 15 RPM; even the default 100 is too high there).
@@ -188,7 +188,7 @@ Schema lives in `supabase/schema.sql` (run once via the Supabase SQL editor). Th
 
 There are three data-generating workflows, all triggered **only** by `workflow_dispatch` (no `schedule:` block). An external cron service (cron-job.org) POSTs to the dispatch endpoint at the right ET times. **cron-job.org runs in ET, so it is the single authority on the ET slots and DST** — never replace it with GitHub's `schedule:` (which only speaks UTC and fires twice during DST shifts). The workflows used to re-check the ET hour themselves, but with a `workflow_dispatch`-only trigger that code was unreachable (every firing is a `workflow_dispatch` event), so it was removed; the workflows now proceed on dispatch and trust cron-job.org for timing.
 
-- `daily.yml` — the full bake (`build.mjs`), ~3×/day (9:00 / 12:00 / 17:00 ET).
+- `daily.yml` — the full bake (`build.mjs`), 8×/trading day: 9:30 ET (open), then hourly 10:00–16:00 ET (the close). Split across two cron-job.org jobs (`30 9 * * 1-5` for the :30 open + `0 10-16 * * 1-5` for the top-of-hour cadence) because one cron line can't mix the two minute values.
 - `unusual-flow.yml` — hourly 9:00–16:00 ET; runs **two** steps: `scan-unusual.mjs` then `refresh-heatmap.mjs` (the heatmap's live `ch`/`sp` go stale within a session). Then `regen-static.mjs`.
 - `oi-tracker.yml` — twice on weekdays (pre-market ~08:30 ET when overnight T+1 OI lands, EOD ~19:00 ET to light up volume-based signals); runs `scan-oi.mjs` then `regen-static.mjs`.
 
@@ -201,7 +201,7 @@ All three workflows share one `concurrency` group (`stonks-data-commit`, `cancel
 `vercel.json` sets cache headers per route. The three patterns worth knowing:
 - `data/unusual*.json` gets a short edge cache (`max-age=60, s-maxage=60, stale-while-revalidate=3600`) because the unusual-flow workflow runs hourly during market hours.
 - `data/heatmap.json` gets that **same** short edge cache — its live `ch`/`sp` fields are refreshed hourly by `refresh-heatmap.mjs` (the unusual-flow workflow's second step), so it needs the same freshness as `unusual*`.
-- Everything else under `data/` gets `max-age=300, s-maxage=600, stale-while-revalidate=86400` — the daily build only runs 3×/day, so longer caches are fine.
+- Everything else under `data/` gets `max-age=300, s-maxage=600, stale-while-revalidate=86400` — even though the bake now runs hourly through the session, this is daily-timeframe data (chains, technicals, picks), not live quotes, so a 10-min edge cache (`s-maxage=600`, well under the hourly cadence) is fine.
 
 The `/api/quote`, `/api/chain`, and `/api/fed-rate` endpoints set their own `Cache-Control` (20–30s edge for live data, 1h for the Fed rate).
 

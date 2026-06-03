@@ -75,10 +75,14 @@ per-ticker AI news takes, persisted to `data/trends.json`, with a rolling
 
 ## How it updates
 
-`.github/workflows/daily.yml` runs `node scripts/build.mjs` on a schedule:
+`.github/workflows/daily.yml` runs `node scripts/build.mjs` on a schedule.
+Timing is driven by cron-job.org (two jobs that POST the `workflow_dispatch`
+endpoint), which runs in ET so daylight saving is handled for us:
 
-- **09:00 ET (13:00 UTC) weekdays** — pre-market refresh.
-- **17:30 ET (21:30 UTC) daily** — end-of-day refresh.
+- **9:30 ET weekdays** — at the market open.
+- **Hourly 10:00–16:00 ET weekdays** — through the trading day to the close.
+
+That's eight runs per trading day.
 
 Each run fetches the option chains and ~6 months of daily history per ticker
 (with retries on transient Yahoo errors), computes RSI / MACD / 20- and
