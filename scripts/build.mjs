@@ -10908,6 +10908,8 @@ FUNDAMENTALS FIELD — {verdict, summary, earningsRecap, positives, negatives}. 
 
 CATALYSTS FIELD — array of upcoming, ticker-specific, date-anchored corporate events that move the underlying. Each item is {date, title, category, confidence}.
 
+ACTIVELY POPULATE THIS FIELD — do not default to an empty array. When the supplied article material clearly names a dated forward event for THIS ticker (source (a) below), you MUST include it; returning [] is correct ONLY when neither the article material NOR your reliable background knowledge surfaces a qualifying event. A clearly-dated event named in the headlines or bodies — a developer/customer conference (WWDC / GTC / Build / I/O / Connect / re:Invent), product launch, FDA / PDUFA date, contract or court decision, investor day — is exactly what belongs here; extract it rather than leaving the array empty out of caution. The HARD GUARDRAILS below exist to stop you INVENTING events (never fabricate a date) — they do NOT excuse omitting one that is genuinely present in the input.
+
 TWO ALLOWED SOURCES for a catalyst — both must clear the HARD GUARDRAILS below.
   (a) ARTICLE MATERIAL. The supplied headlines/bodies explicitly state or strongly imply the event is scheduled for a specific date or window. Examples that qualify: "FDA PDUFA date set for June 14", "NASA contract decision expected May 26", "Investor day on May 28", "court ruling in patent suit due in early June", "shareholder vote on the merger scheduled June 3", "product launch event on May 30".
   (b) BACKGROUND KNOWLEDGE for WIDELY-KNOWN, PUBLICLY-ANNOUNCED, RECURRING-OR-SCHEDULED corporate events that you remember from training data with HIGH CONFIDENCE in the specific date. Qualifying examples: major annual developer/customer conferences with publicly-announced dates (Apple WWDC, NVIDIA GTC, Microsoft Build / Ignite, Google I/O, Meta Connect, AWS re:Invent, Salesforce Dreamforce, Oracle CloudWorld, Adobe MAX, Snowflake Summit), well-publicized product launch events on the corporate calendar (Apple's September iPhone event, Tesla AI Day / Robotaxi events, etc.), scheduled investor days / analyst days / capital markets days, regulator-published PDUFA dates, scheduled M&A vote / close dates that are matter of public record. The event MUST be one you have specific calendar knowledge of for the YEAR in question — not just "this is an annual event that usually happens around X." If you don't remember the specific dates with confidence for THIS year, SKIP IT.
@@ -11048,7 +11050,12 @@ const TICKER_JUDGMENT_SCHEMA = {
       },
     },
   },
-  required: ["news"],
+  // catalysts is REQUIRED (not just news) so flash-lite must actively produce
+  // the array instead of silently skipping an optional field — the prior
+  // optional shape returned [] on every ticker even when a clearly-dated event
+  // (e.g. AAPL WWDC) was in the input. An empty array still satisfies "required"
+  // when no qualifying event exists, so this forces consideration, not invention.
+  required: ["news", "catalysts"],
 };
 
 async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals) {
