@@ -1,14 +1,18 @@
 name: Daily build
 
 # Regenerates the baked per-ticker JSON (chains, AI news takes, technicals)
-# three times a weekday. The commit it pushes triggers Vercel's GitHub
+# eight times a weekday. The commit it pushes triggers Vercel's GitHub
 # integration, which deploys the new static files automatically.
 #
 # Scheduling is handled externally by cron-job.org, which POSTs to the
-# workflow_dispatch endpoint at 9:00, 12:00, and 17:00 America/New_York
-# on weekdays. cron-job.org runs in ET, so it — not this workflow — is the
-# single authority on the ET slots and DST. (A previous in-workflow ET-hour
-# re-check was dead code: with a workflow_dispatch-only trigger it never ran.)
+# workflow_dispatch endpoint at 9:30 America/New_York (the market open) and
+# then hourly from 10:00 to 16:00 (the close) on weekdays — eight runs a
+# trading day. It takes TWO cron-job.org jobs because one cron line can't mix
+# the :30 open with the top-of-hour cadence: `30 9 * * 1-5` fires the open and
+# `0 10-16 * * 1-5` fires 10:00–16:00. cron-job.org runs in ET, so it — not
+# this workflow — is the single authority on the ET slots and DST. (A previous
+# in-workflow ET-hour re-check was dead code: with a workflow_dispatch-only
+# trigger it never ran.)
 on:
   workflow_dispatch:
 
