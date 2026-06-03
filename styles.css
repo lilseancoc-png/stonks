@@ -6787,6 +6787,28 @@ main { padding-top: var(--s-2); }
   flex-direction: column;
   gap: 4px;
 }
+/* Dated-catalysts sub-section inside the Narrative pillar (Top Picks / Grade
+   breakdown). Chips reuse the Calendar tab's .cal-chip / .cal-catalyst styling;
+   these rules only add the labeled wrapper + let the title wrap in the narrow
+   panel (scoped under .pick-catalysts so the Calendar tab's one-line chips are
+   untouched). Purely additive — new class names not used elsewhere. */
+.pick-catalysts {
+  margin: 0 10px 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pick-catalysts-head {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.pick-catalysts .cal-chip-text {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
 .pillar-signal {
   display: grid;
   grid-template-columns: 1fr auto;
