@@ -3117,6 +3117,48 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 
 /* AI-identified chart pattern banner — spans the full grid width above the
    indicator cards. The left border colour encodes the directional bias. */
+.opt-tech-chart {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  margin-bottom: var(--s-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.opt-tech-chart-head {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px;
+}
+.opt-tech-chart-title {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.opt-pc-legend { display: flex; flex-wrap: wrap; gap: 10px; }
+.opt-pc-leg {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.opt-pc-key { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+.opt-pc-key-close  { background: var(--text-strong); }
+.opt-pc-key-sma50  { background: #5b9cff; }
+.opt-pc-key-sma200 { background: var(--accent); }
+.opt-pc-key-spot   { background: var(--neg); }
+.opt-pc-svg { width: 100%; height: auto; display: block; }
+.opt-pc-grid { stroke: var(--border); stroke-width: 1; }
+.opt-pc-band { fill: color-mix(in srgb, var(--text-strong) 7%, transparent); stroke: none; }
+.opt-pc-close  { stroke: var(--text-strong); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.opt-pc-sma50  { stroke: #5b9cff; stroke-width: 1.2; vector-effect: non-scaling-stroke; opacity: 0.95; }
+.opt-pc-sma200 { stroke: var(--accent); stroke-width: 1.2; vector-effect: non-scaling-stroke; opacity: 0.95; }
+.opt-pc-spot   { stroke: var(--neg); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: 0.8; }
+.opt-pc-vol    { stroke: var(--muted); opacity: 0.32; }
+.opt-pc-ylabel, .opt-pc-xlabel { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.opt-pc-ylabel { text-anchor: end; }
+.opt-pc-spotlabel { fill: var(--neg); font-size: 11px; text-anchor: end; font-variant-numeric: tabular-nums; }
+.opt-tech-chart-foot { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
 .opt-tech-pattern {
   grid-column: 1 / -1;
   display: flex; flex-direction: column; gap: 6px;
