@@ -7976,6 +7976,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       exitPlan,
       entryPlan,
       fiftyDayAlert: entryPlan?.atFiftyDaySma || false,
+      // Dated forward catalysts (contract decisions, launches, court rulings,
+      // …) AI-extracted per ticker. Presentational only — surfaced in the Top
+      // Picks Narrative breakdown; does NOT feed the +3/0 Positive-Catalyst
+      // signal, which stays news-sentiment-driven.
+      catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
     };
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
@@ -8027,6 +8032,10 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
           }
         : null,
       peers,
+      // Dated forward catalysts — same presentational copy as the picks payload;
+      // powers the Narrative-breakdown Catalysts section on the grade-any-ticker
+      // search card + Track-record roster. Not part of the score.
+      catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
     };
   }
   return grades;

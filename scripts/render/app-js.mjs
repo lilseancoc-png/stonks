@@ -10696,6 +10696,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (noteTxt ? '<span class="pillar-signal-note">' + escapeHtml(noteTxt) + '</span>' : '') +
         '</li>';
       }
+      // Dated catalysts — surface the per-ticker AI-extracted forward events
+      // (contract decisions, launches, court rulings, …) inside the Narrative
+      // pillar, reusing the Calendar tab's catalyst chip styling. Presentational
+      // only; the +3/0 Positive-Catalyst signal stays sentiment-driven. Guarded
+      // on k==='narrative' + a non-empty p.catalysts so every other pillar and
+      // any legacy/empty payload emits byte-identical markup (catSection = '').
+      var catSection = '';
+      if (k === 'narrative' && p && Array.isArray(p.catalysts) && p.catalysts.length){
+        var catChips = '';
+        var cats = p.catalysts.slice(0, 3);
+        for (var ci=0; ci<cats.length; ci++){
+          var c = cats[ci];
+          if (!c) continue;
+          var ccat = c.category || 'other';
+          var cdt = c.date ? '<span class="cal-chip-time">' + escapeHtml(fmtSrcDate(c.date)) + '</span> ' : '';
+          var cconf = c.confidence === 'low' ? ' <span class="cal-chip-conf" title="Date is approximate">soft</span>' : '';
+          catChips += '<div class="cal-chip cal-catalyst cal-catalyst-' + escapeHtml(ccat) + '">' +
+            cdt +
+            '<span class="cal-chip-tag">' + escapeHtml(catalystCategoryLabel(ccat)) + '</span>' +
+            cconf +
+            ' <span class="cal-chip-text">' + escapeHtml(c.title || 'Catalyst') + '</span>' +
+          '</div>';
+        }
+        if (catChips){
+          catSection = '<div class="pick-catalysts">' +
+            '<div class="pick-catalysts-head">Dated catalysts</div>' +
+            '<div class="cal-chips">' + catChips + '</div>' +
+          '</div>';
+        }
+      }
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
         '<summary class="pick-pillar-head">' +
           '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + '</span>' +
@@ -10703,6 +10733,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span class="pick-pillar-score ' + signClass(pscore) + '">' + escapeHtml(fmtSignedNum(pscore)) + '</span>' +
         '</summary>' +
         '<ul class="pick-pillar-signals">' + sigList + '</ul>' +
+        catSection +
       '</details>';
     }
     return '<aside class="pick-pillars-panel" aria-label="4-pillar score breakdown">' +
