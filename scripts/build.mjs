@@ -11190,11 +11190,28 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
   const rawCatalysts = Array.isArray(parsed?.catalysts) ? parsed.catalysts : [];
   const catalysts = [];
   const seenCatalystKeys = new Set();
+  // Deterministic guardrail enforcement. Making catalysts a required field
+  // (#321) stopped the empty arrays, but flash-lite then dumped PROHIBITED
+  // content into them — overwhelmingly the next-earnings print and far-dated
+  // events — despite the prompt forbidding both. Strip those here rather than
+  // trusting a prompt the model clearly ignores: (1) earnings prints get their
+  // own dedicated calendar entry, never a catalyst; (2) catalysts are the
+  // next-30-day window only (same CALENDAR_DAYS_AHEAD the calendar render uses).
+  const _catNow = new Date();
+  const catWindowStartMs = Date.UTC(_catNow.getUTCFullYear(), _catNow.getUTCMonth(), _catNow.getUTCDate());
+  const catWindowEndMs = catWindowStartMs + CALENDAR_DAYS_AHEAD * 86400000;
+  const nextEarnDate = fundamentals?.nextEarningsDate ? String(fundamentals.nextEarningsDate).slice(0, 10) : null;
   for (const c of rawCatalysts) {
     const date = String(c?.date || "").trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
     const title = String(c?.title || "").trim();
     if (!title) continue;
+    // Drop the next-earnings print (own calendar entry) and anything outside the
+    // forward 30-day window — the two rules the model violates most.
+    if (/\bearnings\b/i.test(title)) continue;
+    if (nextEarnDate && date === nextEarnDate) continue;
+    const eventMs = Date.parse(date + "T00:00:00Z");
+    if (!Number.isFinite(eventMs) || eventMs < catWindowStartMs || eventMs > catWindowEndMs) continue;
     const category = CATALYST_CATEGORIES.includes(c?.category) ? c.category : "other";
     const confidence = ["high", "medium", "low"].includes(c?.confidence) ? c.confidence : "medium";
     const key = date + "|" + category + "|" + title.toLowerCase();
