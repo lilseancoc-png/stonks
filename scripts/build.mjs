@@ -9435,6 +9435,16 @@ function logAiUsageSummary() {
 const AI_MAX_ATTEMPTS = 6;
 const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000, 30000, 60000];
 
+// Between-pass "miss sweep" wait. After an AI pass, any ticker still missing a
+// result gets one more swing — but only after a pause to let a transient blip
+// (a socket reset, a stray 429) clear. Was a flat 30s ("sleep through a 60s
+// quota window"), but quota 429s are now rare — the build peaks well under
+// AI_RPM (≈355 vs 600), so misses are almost always transient network, which
+// recover in a few seconds. 15s keeps the recovery benefit at half the dead
+// wait; a genuine 60s quota stall would outlast either value and the ticker
+// just degrades to no-AI-take (graceful), so the longer wait bought little.
+const AI_MISS_SWEEP_WAIT_MS = 15000;
+
 // Classify a Gemini/Gemma error as transient and return the backoff (ms) the
 // caller should wait before retrying, or null if the error isn't transient.
 // 429s carry a "Please retry in 14.6985s" hint we should respect — otherwise
@@ -9841,7 +9851,15 @@ async function fetchTickerHeadlines(symbol) {
 // this into the AI prompt alongside the headline. We deliberately do NOT
 // use Mozilla Readability + jsdom here — the build has no bundler / no
 // browser deps, so we keep the extractor regex-based.
-const ARTICLE_FETCH_TIMEOUT_MS = 8000;
+// 4s, not 8s: on GitHub-Actions egress IPs most news sites block or stall the
+// body fetch, and each failure previously burned the full 8s before timing out
+// (~16s/ticker across the two fetch waves) — the single biggest drag on the AI
+// stage's wall clock. A body that loads at all almost always returns in <3s, so
+// 4s keeps the fast hits while halving the dead wait on the (majority) failures;
+// a body that doesn't make it degrades gracefully — the AI grounds the take on
+// the headline title + publisher + date instead. Pure HTTP timeout, no API/quota
+// impact and no change to the request rate (so no new rate-limit exposure).
+const ARTICLE_FETCH_TIMEOUT_MS = 4000;
 const ARTICLE_MIN_BODY_CHARS = 400;
 const ARTICLE_MAX_BODY_CHARS = 3000;
 const ARTICLE_PARA_MIN_CHARS = 40;
@@ -11243,8 +11261,8 @@ async function attachFundamentalsJudgments(chains) {
   // fresh attempt budget. Caps spurious gaps without unbounded reruns.
   const missed = entries.filter(([, data]) => !data.fundamentals?.judgment);
   if (missed.length > 0) {
-    console.log(`Retrying ${missed.length} fundamentals judgment(s) after transient failures (sleeping 30s for quota window)…`);
-    await new Promise((r) => setTimeout(r, 30000));
+    console.log(`Retrying ${missed.length} fundamentals judgment(s) after transient failures (sleeping ${AI_MISS_SWEEP_WAIT_MS / 1000}s to clear a transient blip)…`);
+    await new Promise((r) => setTimeout(r, AI_MISS_SWEEP_WAIT_MS));
     await runPass(missed);
   }
   hb.stop();
@@ -11342,8 +11360,8 @@ async function attachTickerJudgments(chains, macroBackdrop) {
   // take one more swing with a fresh attempt budget.
   const missed = entries.filter(([, data]) => !data.news);
   if (missed.length > 0) {
-    console.log(`Retrying ${missed.length} ticker judgment(s) after transient failures (sleeping 30s for quota window)…`);
-    await new Promise((r) => setTimeout(r, 30000));
+    console.log(`Retrying ${missed.length} ticker judgment(s) after transient failures (sleeping ${AI_MISS_SWEEP_WAIT_MS / 1000}s to clear a transient blip)…`);
+    await new Promise((r) => setTimeout(r, AI_MISS_SWEEP_WAIT_MS));
     await runPass(missed);
   }
   console.log(summarizeBodyFetchStats());
@@ -11612,8 +11630,8 @@ async function attachChartPatterns(chains, priorCache = {}) {
     // sleep through a quota window, take one more swing.
     const missed = toCall.filter(([, data]) => !data.technicals?.chartPattern);
     if (missed.length > 0) {
-      console.log(`Retrying ${missed.length} chart-pattern detection(s) after transient failures (sleeping 30s for quota window)…`);
-      await new Promise((r) => setTimeout(r, 30000));
+      console.log(`Retrying ${missed.length} chart-pattern detection(s) after transient failures (sleeping ${AI_MISS_SWEEP_WAIT_MS / 1000}s to clear a transient blip)…`);
+      await new Promise((r) => setTimeout(r, AI_MISS_SWEEP_WAIT_MS));
       await runPass(missed);
     }
     hb.stop();
@@ -12742,12 +12760,34 @@ async function main() {
     new Date().getUTCDate(),
   );
   const cutoffMs = todayMs + CALENDAR_DAYS_AHEAD * 86400000;
-  console.log("Fetching macro report releases (FRED)…");
-  const reportEvents = await fetchMacroReleases(todayMs, cutoffMs);
+  // These calendar sources hit DIFFERENT hosts — FRED/BLS (macro releases),
+  // NY Fed EFFR (Fed Funds rate), the Fed's FOMC calendar page, and Nasdaq
+  // (earnings sessions) — with no data dependency on one another, so fetch
+  // them concurrently. This overlaps the independent round trips without
+  // raising the request rate to ANY single host (one call each), and each
+  // already degrades gracefully on its own.
+  //
+  // ONE subtlety preserved: macro releases AND the Fed-rate fetch both fall
+  // back to FRED (fetchFredSeries), which shares the module-level
+  // _fredFirstAttemptFailures cascade counter — deliberately scoped (see
+  // ~line 4369) so a FRED cascade in the macro fetch also short-circuits the
+  // Fed-rate fetch. So those two run STRICTLY SEQUENTIAL inside their own lane
+  // (macro → rate, identical to the original ordering, identical counter
+  // semantics); only the two FRED-free fetches (Fed.gov FOMC HTML, Nasdaq)
+  // overlap them. The fifth source (FedWatch/CME ZQ) depends on fedRate + the
+  // FOMC schedule, so it stays sequential after this batch resolves.
+  console.log("Fetching calendar sources (FRED · NY Fed EFFR · FOMC schedule · Nasdaq earnings) in parallel…");
+  const [[reportEvents, fedRate], liveFomc, sessionMap] = await Promise.all([
+    (async () => {
+      const macro = await fetchMacroReleases(todayMs, cutoffMs);
+      const rate = await fetchEffectiveFedFundsRate();
+      return [macro, rate];
+    })(),
+    fetchFomcSchedule(),
+    fetchNasdaqEarningsSessions(todayMs, CALENDAR_DAYS_AHEAD),
+  ]);
   console.log(`  · ${reportEvents.length} report rows`);
-  console.log("Fetching effective Fed Funds rate (NY Fed EFFR)…");
-  const fedRate = await fetchEffectiveFedFundsRate();
-  if (fedRate) console.log(`  · ${fedRate.rate}% as of ${fedRate.asOf}`);
+  if (fedRate) console.log(`  · Fed Funds ${fedRate.rate}% as of ${fedRate.asOf}`);
   // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
   // from that pre-wipe snapshot so the lastKnownFedRate cache actually
   // serves as a fallback when NY Fed + FRED:DFF both flake today — the Fed only
@@ -12765,10 +12805,9 @@ async function main() {
       console.log(`  · using cached Fed Funds rate ${last.rate}% from ${last.capturedAt || last.asOf} (${ageDays.toFixed(1)}d old)`);
     }
   }
-  console.log("Fetching FOMC meeting schedule…");
-  // Live fetch the Fed's calendar HTML and merge with the multi-year
-  // baseline. Network failure → empty live list → falls back to baseline.
-  const liveFomc = await fetchFomcSchedule();
+  // liveFomc was fetched in the parallel batch above (Fed calendar HTML).
+  // Merge with the multi-year baseline; a network failure there yields an
+  // empty live list → falls back cleanly to the baseline.
   const allFomcMeetings = mergeFomcMeetings(liveFomc, FOMC_MEETINGS_BASELINE);
   console.log(`  · ${allFomcMeetings.length} FOMC dates (baseline ${FOMC_MEETINGS_BASELINE.length}, live ${liveFomc.length})`);
   console.log("Computing FedWatch probabilities from ZQ Fed Funds Futures…");
@@ -12822,9 +12861,8 @@ async function main() {
   // which is far more reliable than Yahoo's earnings-timestamp hour
   // (Yahoo returns 00:00 UTC for many confirmed earnings, which falls
   // back to TBD). Builds a SYM|YYYY-MM-DD → AM/PM/TBD map.
-  console.log("Fetching earnings AM/PM sessions (Nasdaq)…");
-  const sessionMap = await fetchNasdaqEarningsSessions(todayMs, CALENDAR_DAYS_AHEAD);
-  console.log(`  · ${sessionMap.size} session entries`);
+  // sessionMap (Nasdaq earnings AM/PM) was fetched in the parallel batch above.
+  console.log(`  · ${sessionMap.size} earnings session entries`);
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
     reportEvents,
     fomcMeetings: upcomingMeetings,
