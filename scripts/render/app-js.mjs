@@ -75,7 +75,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // surfaces non-fresh sources so traders know the anchor is degraded.
   var RFR_META = ${rfrMetaLiteral};
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, fundamentals: null, social: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, fundamentals: null, social: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -3576,6 +3576,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       state.chains = entry.chains || {};
       state.news = entry.news || null;
       state.technicals = entry.technicals || null;
+      state.priceSeries = entry.priceSeries || null;
       state.fundamentals = entry.fundamentals || null;
       state.social = entry.social || null;
       // autoPick — the best call/put the Top Picks engine would select for this
@@ -3934,6 +3935,126 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       (noteHtml ? '<div class="opt-tech-note">' + noteHtml + '</div>' : '') +
     '</div>';
   }
+  // Full daily price chart for the Technicals tab, drawn from the compact
+  // priceSeries baked into each ticker JSON (build.mjs buildPriceSeries). Lets a
+  // human eyeball formations the AI chart-pattern detector may miss — close line
+  // + 50/200-day SMA overlays + high/low range band + volume strip + spot line.
+  function priceChartSma(arr, p){
+    // Queue of the actual contributed (non-null) values so a null gap can't
+    // desync the rolling sum from the window — evict the value that truly left,
+    // not arr[i-p] (which would point at a skipped/null slot).
+    var out = new Array(arr.length).fill(null), sum = 0, q = [];
+    for (var i = 0; i < arr.length; i++){
+      var x = arr[i];
+      if (x == null || !isFinite(x)){ out[i] = null; continue; }
+      q.push(x); sum += x;
+      if (q.length > p){ sum -= q.shift(); }
+      out[i] = q.length >= p ? sum / p : null;
+    }
+    return out;
+  }
+  function priceChartFmtDate(s){
+    if (!s) return '';
+    var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var p = String(s).split('-');
+    if (p.length < 3) return String(s);
+    return mo[(+p[1]) - 1] + ' ' + (+p[2]) + ' \\'' + p[0].slice(2);
+  }
+  function priceChartSvg(ps, spot){
+    if (!ps || !ps.c || ps.c.length < 2) return '';
+    var c = ps.c, h = ps.h || c, l = ps.l || c, v = ps.v || [], dates = ps.t || [];
+    var n = c.length;
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < n; i++){
+      var hh = (h[i] != null ? h[i] : c[i]), ll = (l[i] != null ? l[i] : c[i]);
+      if (ll != null && ll < lo) lo = ll;
+      if (hh != null && hh > hi) hi = hh;
+    }
+    if (spot != null && isFinite(spot)){ lo = Math.min(lo, spot); hi = Math.max(hi, spot); }
+    if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return '';
+    var padv = (hi - lo) * 0.05; lo -= padv; hi += padv;
+    var W = 1000, H = 388, padL = 48, padR = 14, padT = 12, priceBot = 300, volTop = 322, volBot = 374;
+    var plotW = W - padL - padR;
+    function xAt(i){ return padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW); }
+    function yAt(val){ return padT + (1 - (val - lo) / (hi - lo)) * (priceBot - padT); }
+    function pts(arr){
+      var s = '', started = false;
+      for (var i = 0; i < n; i++){
+        if (arr[i] == null || !isFinite(arr[i])) continue;
+        s += (started ? ' ' : '') + xAt(i).toFixed(1) + ',' + yAt(arr[i]).toFixed(1);
+        started = true;
+      }
+      return s;
+    }
+    // high/low range band (close fallback when a wick is missing)
+    var topPts = [], botPts = [];
+    for (var i = 0; i < n; i++){
+      var hv = (h[i] != null ? h[i] : c[i]), lv = (l[i] != null ? l[i] : c[i]);
+      if (hv == null || lv == null) continue;
+      topPts.push(xAt(i).toFixed(1) + ',' + yAt(hv).toFixed(1));
+      botPts.push(xAt(i).toFixed(1) + ',' + yAt(lv).toFixed(1));
+    }
+    var band = topPts.length ? '<path class="opt-pc-band" d="M' + topPts.join('L') + 'L' + botPts.reverse().join('L') + 'Z" />' : '';
+    // price gridlines + y labels
+    var grid = '', i;
+    for (i = 0; i <= 4; i++){
+      var gy = (padT + (i / 4) * (priceBot - padT));
+      var gval = hi - (i / 4) * (hi - lo);
+      grid += '<line class="opt-pc-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" />';
+      grid += '<text class="opt-pc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">$' + fmt(gval) + '</text>';
+    }
+    // volume strip (single path of vertical strokes)
+    var vmax = 0; for (i = 0; i < n; i++){ if (v[i] != null && v[i] > vmax) vmax = v[i]; }
+    var volPath = '';
+    if (vmax > 0){
+      for (i = 0; i < n; i++){
+        if (v[i] == null) continue;
+        var vh = (v[i] / vmax) * (volBot - volTop);
+        var vx = xAt(i).toFixed(1);
+        volPath += 'M' + vx + ' ' + volBot.toFixed(1) + 'L' + vx + ' ' + (volBot - vh).toFixed(1);
+      }
+    }
+    var barW = Math.max(1, (plotW / n) * 0.6).toFixed(2);
+    var vol = volPath ? '<path class="opt-pc-vol" style="stroke-width:' + barW + '" d="' + volPath + '" />' : '';
+    // spot line + label
+    var spotEl = '';
+    if (spot != null && isFinite(spot)){
+      var sy = yAt(spot).toFixed(1);
+      spotEl = '<line class="opt-pc-spot" x1="' + padL + '" y1="' + sy + '" x2="' + (W - padR) + '" y2="' + sy + '" />' +
+        '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">spot $' + fmt(spot) + '</text>';
+    }
+    // x date labels (first / mid / last)
+    var xlabels = '';
+    if (dates.length === n && n > 1){
+      var idxs = [0, Math.floor((n - 1) / 2), n - 1];
+      var anch = ['start', 'middle', 'end'];
+      for (i = 0; i < idxs.length; i++){
+        var di = idxs[i];
+        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(di).toFixed(1) + '" y="' + (volBot + 12) + '">' + escapeHtml(priceChartFmtDate(dates[di])) + '</text>';
+      }
+    }
+    var sma50pts = pts(priceChartSma(c, 50)), sma200pts = pts(priceChartSma(c, 200));
+    var sma50El = sma50pts ? '<polyline class="opt-pc-sma50" fill="none" points="' + sma50pts + '" />' : '';
+    var sma200El = sma200pts ? '<polyline class="opt-pc-sma200" fill="none" points="' + sma200pts + '" />' : '';
+    var hasSma200 = !!sma200pts;
+    var legend =
+      '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>' +
+      '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma50"></i>50D SMA</span>' +
+      (hasSma200 ? '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma200"></i>200D SMA</span>' : '') +
+      '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-spot"></i>Spot</span>';
+    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Daily price chart for the last ' + n + ' sessions">' +
+      grid + band + vol + sma200El + sma50El +
+      '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
+      spotEl + xlabels +
+      '</svg>';
+    return '<div class="opt-tech-chart">' +
+      '<div class="opt-tech-chart-head">' +
+        '<span class="opt-tech-chart-title">Price &middot; last ' + n + ' sessions</span>' +
+        '<span class="opt-pc-legend">' + legend + '</span>' +
+      '</div>' + svg +
+      '<div class="opt-tech-chart-foot">Daily closes with 50/200-day moving averages, the high\\u2013low range, and volume. Eyeball it against the chart-pattern read below.</div>' +
+    '</div>';
+  }
   function renderTechnicals(sym){
     var box = $('opt-technicals');
     var grid = $('opt-tech-grid');
@@ -3944,6 +4065,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var rsiSt = rsiState(t.rsi);
     var macdSt = macdState(t.macd);
     var html = '';
+
+    // Price chart first — the actual picture, so the chart-pattern read below
+    // can be checked against it by eye. Drawn from the baked priceSeries; older
+    // ticker JSON (pre-priceSeries) simply omits it.
+    if (state && state.priceSeries) html += priceChartSvg(state.priceSeries, spot);
 
     // AI-identified chart pattern — a full-width banner above the indicator
     // cards. Renders only when a full build has attached technicals.chartPattern;

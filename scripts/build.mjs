@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 import { greeks, yearsToExpiry } from "../lib/greeks.mjs";
+import { renderPriceChartPng } from "../lib/chart-image.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -2875,6 +2876,26 @@ import { renderHtml } from './render/html.mjs';
 import { renderStylesCss } from './render/styles-css.mjs';
 export { renderAppJs, renderHtml, renderStylesCss };
 
+// Compact daily price series persisted per ticker so the browser's Technicals
+// tab can draw a price chart. The raw bars (`_bars`) are otherwise dropped
+// before write (they'd inflate each file ~6x), and the per-ticker JSON carries
+// only summary technicals — so without this the page has nothing to chart.
+// Parallel rounded arrays for the last PRICE_SERIES_BARS sessions keep it small
+// (~4 KB/ticker). The browser derives SMA overlays from `c` itself.
+const PRICE_SERIES_BARS = 180;
+function buildPriceSeries(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const tail = bars.slice(-PRICE_SERIES_BARS);
+  const r2 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 100) / 100);
+  return {
+    t: tail.map((b) => b.t || null),
+    c: tail.map((b) => r2(b.c)),
+    h: tail.map((b) => r2(b.h)),
+    l: tail.map((b) => r2(b.l)),
+    v: tail.map((b) => (b && isFinite(b.v) ? Math.round(b.v) : null)),
+  };
+}
+
 async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
   // Wipe data/ first so tickers that fell out of the curated list (or
   // failed this run) don't leave stale files behind. The directory is
@@ -2898,7 +2919,8 @@ async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
       call: pickContractForPick("call", data, rfr),
       put: pickContractForPick("put", data, rfr),
     };
-    const json = JSON.stringify({ ...rest, autoPick });
+    const priceSeries = buildPriceSeries(_bars);
+    const json = JSON.stringify({ ...rest, priceSeries, autoPick });
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
@@ -9237,7 +9259,13 @@ const AI_COMBINED = process.env.AI_COMBINED !== "0";
 // series to the model and asks it to name one of 7 classic formations (or
 // "None"). Short, schema-shaped output — same Flash-Lite default as the other
 // per-ticker calls; rollback to Gemma is one env var.
-const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash-lite";
+// Chart-pattern detection is a *visual* task (it now ships the model a rendered
+// price-chart image, not just a number table — see generateChartPattern), so it
+// runs on full Flash rather than Flash-Lite: Lite reads geometry off an image
+// poorly and the per-ticker chart-pattern cache means this fires ~once/ticker/day
+// (first build of the day; cache reuse after), so the upgrade is cheap. Override
+// with AI_CHART_MODEL.
+const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -11424,10 +11452,18 @@ const CHART_PATTERN_SCHEMA = {
 };
 
 const CHART_PATTERN_SYSTEM_PROMPT =
-  "You are a technical-analysis chart reader. Given a US-listed ticker, its " +
-  "current share price, and a daily price series (oldest first; each row is " +
-  "DATE close high low volume), decide whether the recent price action forms " +
-  "one of these 7 classic chart patterns:\n" +
+  "You are a technical-analysis chart reader. You are given a US-listed ticker, " +
+  "its current share price, a RENDERED DAILY PRICE-CHART IMAGE, and the same " +
+  "daily price series as text (oldest first; each row is DATE close high low " +
+  "volume). Judge the pattern primarily from the IMAGE — that is where the " +
+  "visual geometry lives — and use the numeric series to pin down exact levels " +
+  "and dates. In the image: black line = close, light-gray verticals = each " +
+  "bar's high–low range, red dashed line = current spot, gray bars along the " +
+  "bottom = volume, plus any moving-average overlays named in the accompanying " +
+  "text (blue = 50-day, orange = 200-day) — only the ones listed there are drawn. " +
+  "The right edge is " +
+  "the most recent action; reversal patterns most often complete there. Decide " +
+  "whether the recent price action forms one of these 7 classic chart patterns:\n" +
   "1. Cup and Handle (Bullish Continuation) — a rounded U-shaped bottom (the " +
   "cup) followed by a small downward-drifting consolidation (the handle); " +
   "bullish on a breakout above the handle, strongest when the breakout comes on " +
@@ -11480,10 +11516,37 @@ async function generateChartPattern(ai, symbol, spot, bars) {
     .map((b) => `${b.t || "?"} ${r2(b.c)} ${r2(b.h)} ${r2(b.l)} ${b.v != null && isFinite(b.v) ? Math.round(b.v) : "?"}`)
     .join("\n");
   const spotStr = (spot != null && isFinite(spot)) ? `$${spot.toFixed(2)}` : "n/a";
+  // Describe ONLY the SMA overlays the renderer can actually draw for this
+  // window — an N-day SMA needs N prior closes, so a 140-bar series has a 50-day
+  // line but never a 200-day one. Claiming a line that isn't in the pixels would
+  // mislead the model about a reference level it can't see.
+  const finiteCloses = series.filter((b) => b && isFinite(b.c)).length;
+  const smaLegend = [
+    finiteCloses >= 50 ? "blue = 50-day SMA" : null,
+    finiteCloses >= 200 ? "orange = 200-day SMA" : null,
+  ].filter(Boolean).join(", ");
   const userMessage =
     `Ticker: ${symbol}\n` +
     `Current spot: ${spotStr}\n` +
+    `A rendered daily price chart is attached: black = close, ` +
+    (smaLegend ? smaLegend + ", " : "") +
+    `light gray = each bar's high–low range, red dashed = current spot, ` +
+    `gray bars beneath = volume. Read the pattern off the IMAGE; use the numeric series below ` +
+    `to cite exact price levels and dates.\n` +
     `Daily series (oldest first — DATE close high low volume):\n${seriesBlock}`;
+
+  // Render the same window to a chart image so the (multimodal) model judges the
+  // visual SHAPE rather than inferring geometry from a column of numbers — the
+  // whole point of the upgrade. Best-effort: if rendering fails for any reason
+  // we fall back to the text-only series (the model still gets the numbers).
+  let imagePart = null;
+  try {
+    const png = renderPriceChartPng(series, { symbol, spot });
+    if (png) imagePart = { inlineData: { mimeType: "image/png", data: png.toString("base64") } };
+  } catch (err) {
+    console.log(`    · ${symbol} chart image render failed (${String(err?.message || err).slice(0, 80)}) — text-only`);
+  }
+  const contents = imagePart ? [imagePart, { text: userMessage }] : userMessage;
 
   let response;
   let lastErr;
@@ -11492,7 +11555,7 @@ async function generateChartPattern(ai, symbol, spot, bars) {
       await acquireAiSlot();
       response = await ai.models.generateContent({
         model: AI_CHART_MODEL,
-        contents: userMessage,
+        contents,
         config: {
           // Static instruction → stable prefix so Gemini implicit caching can
           // engage across the per-ticker calls in this pass (the judgment +
@@ -11500,13 +11563,13 @@ async function generateChartPattern(ai, symbol, spot, bars) {
           // model sees the same total text, just partitioned out of `contents`.
           systemInstruction: CHART_PATTERN_SYSTEM_PROMPT,
           temperature: 0.2,
-          maxOutputTokens: 400,
+          maxOutputTokens: 600,
           responseMimeType: "application/json",
           responseSchema: CHART_PATTERN_SCHEMA,
-          // Geometric pattern matching over a fixed series — no long
-          // deliberation, and on Flash-Lite thinking tokens count against
-          // maxOutputTokens.
-          thinkingConfig: { thinkingBudget: 0 },
+          // Reading geometry off a chart benefits from a little deliberation
+          // (Flash bills thinking tokens separately from maxOutputTokens, unlike
+          // Flash-Lite). Small budget — this is pattern matching, not analysis.
+          thinkingConfig: { thinkingBudget: 512 },
         },
       });
       recordAiUsage({ model: AI_CHART_MODEL, callType: "chartPattern", symbol, usage: response?.usageMetadata });
@@ -11583,7 +11646,10 @@ function chartPatternCacheKey(bars) {
   if (!series.length) return null;
   const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
   const sig = series.map((b) => `${b.t || "?"}:${r2(b.c)}:${r2(b.h)}:${r2(b.l)}`).join("|");
-  return createHash("sha1").update(`${CHART_PATTERN_BARS}|${sig}`).digest("hex");
+  // `img2` version tag: bumped when the detection method changes (here: the
+  // switch to a multimodal chart image on Flash) so every cached pre-image
+  // verdict is invalidated and re-read once, rather than serving a stale "None".
+  return createHash("sha1").update(`${CHART_PATTERN_BARS}|img2|${sig}`).digest("hex");
 }
 
 // Read BEFORE writeChainFiles wipes data/. Missing / unreadable / wrong-shape → {}.
