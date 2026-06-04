@@ -1127,6 +1127,48 @@
     '</div>';
   }
 
+  // Intraday cumulative-volume curve — a trimmed copy of the U-shaped session
+  // distribution in lib/volume-flags.mjs (BUCKETS / cumFracExpected /
+  // etMinutesSinceOpen). Duplicated here because app.js is a generated IIFE and
+  // can't import the ESM module (same rationale as the greeks duplication noted
+  // in CLAUDE.md). If you retune the curve there, mirror it here. Used only to
+  // project today's live cumulative volume to a full-day figure so the
+  // Execute-now card's relative-volume read can be live + time-of-day-normalized
+  // rather than frozen at the last build.
+  var EXEC_VOL_BUCKETS = [
+    { startMin: 0,   endMin: 60,  frac: 0.25 },
+    { startMin: 60,  endMin: 120, frac: 0.14 },
+    { startMin: 120, endMin: 180, frac: 0.11 },
+    { startMin: 180, endMin: 240, frac: 0.11 },
+    { startMin: 240, endMin: 300, frac: 0.14 },
+    { startMin: 300, endMin: 390, frac: 0.25 },
+  ];
+  function execCumFracExpected(etMin){
+    if (etMin <= 0) return 0;
+    if (etMin >= 390) return 1;
+    var cum = 0;
+    for (var i = 0; i < EXEC_VOL_BUCKETS.length; i++){
+      var b = EXEC_VOL_BUCKETS[i];
+      if (etMin >= b.endMin){ cum += b.frac; }
+      else { cum += b.frac * (etMin - b.startMin) / (b.endMin - b.startMin); break; }
+    }
+    return cum;
+  }
+  function execEtMinutesSinceOpen(){
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit'
+      }).formatToParts(new Date());
+      var h = 0, m = 0;
+      for (var i = 0; i < parts.length; i++){
+        if (parts[i].type === 'hour') h = parseInt(parts[i].value, 10);
+        else if (parts[i].type === 'minute') m = parseInt(parts[i].value, 10);
+      }
+      if (h === 24) h = 0;
+      return (h - 9) * 60 + (m - 30);
+    } catch (e) { return null; }
+  }
+
   // "Execute now?" — entry-timing card. The Recommendation breakdown above
   // grades the CONTRACT (is this strike/expiry/spread worth owning?); this
   // card grades the MOMENT (is right now a good time to click buy?). The
@@ -1164,7 +1206,32 @@
     var rsi = tech.rsi;
     var macd = tech.macd;
     var vol = tech.volume || {};
+    // Relative volume — prefer a live, time-of-day-normalized estimate over the
+    // baked rvol (frozen at the last build, and itself only a partial in-progress
+    // bar during RTH). /api/quote returns regularMarketVolume (cumulative session
+    // volume so far); projecting it to a full-day figure off the U-shaped intraday
+    // curve and dividing by the baked 20D average daily volume gives a live
+    // "where is today's rvol heading?" read directly comparable to the 1.5x/0.7x
+    // thresholds below. Falls back to the baked rvol when live volume or the curve
+    // isn't usable (pre-market, missing avg20, the opening minute).
     var rvol = vol.rvol;
+    var rvolSrc = 'last build';
+    var liveVol = (live && live.volume != null && isFinite(live.volume)) ? live.volume : null;
+    var avg20Vol = (vol.avg20 != null && isFinite(vol.avg20) && vol.avg20 > 0) ? vol.avg20 : null;
+    if (liveVol != null && liveVol > 0 && avg20Vol != null){
+      var etMinNow = execEtMinutesSinceOpen();
+      if (etMinNow != null && etMinNow > 0){
+        var volFrac = execCumFracExpected(etMinNow);
+        // Below ~2% of the day elapsed the projection is too noisy to trust —
+        // use the raw ratio instead so the opening tick can't blow up to 50x.
+        var projFullDayVol = volFrac > 0.02 ? (liveVol / volFrac) : liveVol;
+        var liveRvol = projFullDayVol / avg20Vol;
+        if (isFinite(liveRvol) && liveRvol > 0){
+          rvol = Math.round(liveRvol * 100) / 100;
+          rvolSrc = volFrac < 0.999 ? 'live, projected' : 'live';
+        }
+      }
+    }
     var sr = tech.sr || {};
     var r20 = sr.r20, s20 = sr.s20;
 
@@ -1585,10 +1652,10 @@
     // jargon (R20 / S20 / relative volume) without escaping them away.
     var R20_TIP = '20-day resistance — the highest price the stock has hit in the last month. Acts as a ceiling: rallies often stall here until volume breaks through.';
     var S20_TIP = '20-day support — the lowest price the stock has hit in the last month. Acts as a floor: selloffs often find buyers here.';
-    var RVOL_TIP = 'Relative volume — today\'s shares traded divided by the recent daily average. 1.0x is normal. Above 1.5x = unusually active (institutions involved); below 0.7x = quiet tape.';
+    var RVOL_TIP = 'Relative volume — today\'s shares traded divided by the recent daily average. 1.0x is normal. Above 1.5x = unusually active (institutions involved); below 0.7x = quiet tape. When live, today\'s volume-so-far is projected to a full-day estimate using the typical U-shaped intraday curve so it stays comparable through the session.';
     var metaBits = ['<span>Spot $' + fmt(spot) + '</span>'];
     if (todayMovePct != null) metaBits.push('<span>' + escapeHtml(signedPct(todayMovePct)) + ' today (' + escapeHtml(moveSrc) + ')</span>');
-    if (rvol != null) metaBits.push('<span>' + rvol.toFixed(2) + 'x avg volume' + tipChip(RVOL_TIP) + '</span>');
+    if (rvol != null) metaBits.push('<span>' + rvol.toFixed(2) + 'x avg volume (' + escapeHtml(rvolSrc) + ')' + tipChip(RVOL_TIP) + '</span>');
     if (r20 != null) metaBits.push('<span>R20' + tipChip(R20_TIP) + ' $' + fmt(r20) + '</span>');
     if (s20 != null) metaBits.push('<span>S20' + tipChip(S20_TIP) + ' $' + fmt(s20) + '</span>');
     var metaLine = metaBits.join(' <span class="opt-exec-meta-sep">·</span> ');

@@ -4,9 +4,10 @@
 // crumb handshake — so the page hits this endpoint when the user picks a
 // ticker. Shared client + symbol allowlist live in lib/yahoo.mjs.
 //
-// Returns just the quote: spot, prev close, change, change %, and the
-// market state ("REGULAR" / "PRE" / "POST" / "CLOSED"). The browser uses
-// marketState to decide whether to show a "Live" badge.
+// Returns just the quote: spot, prev close, change, change %, cumulative
+// session volume, and the market state ("REGULAR" / "PRE" / "POST" /
+// "CLOSED"). The browser uses marketState to decide whether to show a "Live"
+// badge, and the volume to compute a live relative-volume read.
 
 import { fetchQuote, isValidSymbol } from "../lib/yahoo.mjs";
 
