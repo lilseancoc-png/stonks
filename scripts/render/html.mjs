@@ -787,6 +787,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="grade" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
     <a class="page-tab-menu-item" role="menuitem" href="/cheatsheet.html" style="text-decoration:none">Buyer's manual</a>
+    <a class="page-tab-menu-item" role="menuitem" href="/chart-patterns.html" style="text-decoration:none">Chart patterns</a>
   </div>
 </div>
 <main>
