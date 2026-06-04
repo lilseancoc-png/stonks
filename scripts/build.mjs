@@ -9358,6 +9358,17 @@ const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // fails, so detection degrades rather than breaks. Bump back to gemini-2.5-flash
 // via AI_CHART_MODEL if pattern quality regresses.
 const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash-lite";
+// Chart-pattern thinking budget. Flash-Lite (the default model) only accepts a
+// thinking budget of 0 or 512-24576 — a non-zero value below 512 returns a 400
+// INVALID_ARGUMENT (the old 384 default 400'd every chart call once the model
+// moved off full Flash). So this floors at 512: ample to read 1 of 7 shapes +
+// the key level off a clear chart image, valid on full Flash too, and the value
+// maxOutputTokens=2048 was originally sized for. AI_CHART_THINK tunes it — 0 (or
+// negative) disables thinking; any positive value below 512 is clamped up.
+const AI_CHART_THINK_ENV = Number(process.env.AI_CHART_THINK);
+const AI_CHART_THINK = Number.isFinite(AI_CHART_THINK_ENV)
+  ? (AI_CHART_THINK_ENV <= 0 ? 0 : Math.max(512, AI_CHART_THINK_ENV))
+  : 512;
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -11777,10 +11788,10 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
           responseMimeType: "application/json",
           responseSchema: CHART_PATTERN_SCHEMA,
           // Thinking tokens are billed at the (pricey) output rate, so this is a
-          // real cost lever — trimmed 512 -> 384 (still ample to read 1 of 7
-          // shapes + the key level off a clear chart image). Kept conservative to
-          // protect detection quality; lower it via AI_CHART_THINK to save more.
-          thinkingConfig: { thinkingBudget: Number(process.env.AI_CHART_THINK) || 384 },
+          // real cost lever — but Flash-Lite floors a non-zero budget at 512, so
+          // that's the default (resolved + clamped into AI_CHART_THINK above; set
+          // AI_CHART_THINK=0 to disable thinking, or higher to spend more).
+          thinkingConfig: { thinkingBudget: AI_CHART_THINK },
         },
       });
       recordAiUsage({ model: AI_CHART_MODEL, callType: "chartPattern", symbol, usage: response?.usageMetadata });
