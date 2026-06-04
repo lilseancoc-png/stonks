@@ -760,25 +760,31 @@ async function fetchHistoricalBars(symbol) {
 // chart-pattern detector, which now rates the "1-month" timeframe where
 // short-horizon reversals (an intraday head-and-shoulders, etc.) actually live.
 // Yahoo returns pre/post-market 30m bars too, whose gaps add noise a Robinhood
-// chart doesn't show — we drop them using the chart meta's gmtoffset (DST-aware)
-// to keep 09:30–16:00 ET. One extra Yahoo call per ticker; non-fatal like the
-// daily fetch. Never persisted raw (`_intraday` is stripped before write); a
-// compact close+volume series (buildIntradaySeries) is what reaches the browser.
+// chart doesn't show — we drop them to keep 09:30–15:30 ET. The ~1-month window
+// can straddle a DST transition, so we derive each bar's ET wall clock with a
+// per-bar Intl formatter (America/New_York) rather than a single request-time
+// gmtoffset (which would mislabel/drop bars on the wrong side of the shift). One
+// extra Yahoo call per ticker; non-fatal like the daily fetch. Never persisted
+// raw (`_intraday` is stripped before write); a compact close+volume series
+// (buildIntradaySeries) is what reaches the browser.
 const INTRADAY_INTERVAL = "30m";
 const INTRADAY_LOOKBACK_DAYS = 32;
+const ET_PARTS_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York", hour12: false,
+  year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+});
 async function fetchIntradayBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - INTRADAY_LOOKBACK_DAYS * 24 * 3600 * 1000);
   const result = await yahooFinance.chart(symbol, { period1, period2, interval: INTRADAY_INTERVAL });
   const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
-  const gmtOff = Number(result?.meta?.gmtoffset);
-  const offMs = Number.isFinite(gmtOff) ? gmtOff * 1000 : -4 * 3600 * 1000;
-  const pad = (n) => String(n).padStart(2, "0");
   return quotes
     .filter((q) => q && q.close != null && q.date)
     .map((q) => {
-      const et = new Date(new Date(q.date).getTime() + offMs); // UTC-shifted -> ET wall clock
-      return { q, et, mins: et.getUTCHours() * 60 + et.getUTCMinutes() };
+      const p = {};
+      for (const part of ET_PARTS_FMT.formatToParts(new Date(q.date))) p[part.type] = part.value;
+      let hh = parseInt(p.hour, 10); if (hh === 24) hh = 0; // some impls emit 24 at midnight
+      return { q, p, hh, mins: hh * 60 + parseInt(p.minute, 10) };
     })
     // 09:30 (570) .. 15:30 (930): 30m bars are stamped at their open, so the
     // 15:30 bar covers the last regular half-hour; pre/post-market is dropped.
@@ -790,7 +796,7 @@ async function fetchIntradayBars(symbol) {
       v: x.q.volume ?? null,
       // ET wall-clock "YYYY-MM-DD HH:MM" so the browser labels the axis without
       // needing timezone logic.
-      t: `${x.et.getUTCFullYear()}-${pad(x.et.getUTCMonth() + 1)}-${pad(x.et.getUTCDate())} ${pad(x.et.getUTCHours())}:${pad(x.et.getUTCMinutes())}`,
+      t: `${x.p.year}-${x.p.month}-${x.p.day} ${String(x.hh).padStart(2, "0")}:${x.p.minute}`,
     }));
 }
 
@@ -2961,7 +2967,7 @@ function buildIntradaySeries(bars) {
   return {
     t: tail.map((b) => b.t || null),
     c: tail.map((b) => r2(b.c)),
-    v: tail.map((b) => (b && isFinite(b.v) ? Math.round(b.v) : null)),
+    v: tail.map((b) => (b && Number.isFinite(b.v) ? Math.round(b.v) : null)),
   };
 }
 
@@ -11744,12 +11750,13 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
   };
 }
 
-// data/chart-pattern-cache.json — cross-build cache so the 12:00 / 17:00 ET
-// builds don't re-ask the model for a pattern whose underlying daily series
-// hasn't meaningfully changed since the 9:00 build. Mirrors the read-before-
-// wipe / write-after-wipe pattern used for macro / picks-accuracy / grades
-// history (writeChainFiles rm -rf's data/, so main() reads this BEFORE the wipe
-// and writes the refreshed map back AFTER it). Shape: { [sym]: { key, pattern } }.
+// data/chart-pattern-cache.json — cross-build cache keyed on the AM/PM session
+// bucket (see chartPatternBucketKey) so the hourly builds within a half-day
+// reuse that half-day's read instead of re-rating the intraday chart every time.
+// Mirrors the read-before-wipe / write-after-wipe pattern used for macro /
+// picks-accuracy / grades history (writeChainFiles rm -rf's data/, so main()
+// reads this BEFORE the wipe and writes the refreshed map back AFTER it). Shape:
+// { [sym]: { key, pattern } }.
 const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 
 // Re-rate the 1-month INTRADAY pattern ~2× per trading day — once at the open

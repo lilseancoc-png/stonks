@@ -4046,7 +4046,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var idxs = [s0, s0 + Math.floor((dN - 1) / 2), n - 1];
       var anch = ['start', 'middle', 'end'];
       for (i = 0; i < idxs.length; i++){
-        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (volBot + 12) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]])) + '</text>';
+        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (volBot + 12) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]], intraday)) + '</text>';
       }
     }
     var legend = '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>';
@@ -4092,13 +4092,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var radios = '', tabs = '', charts = '', def = '1m', shown = 0;
     for (var r = 0; r < ranges.length; r++){
       var rg = ranges[r];
-      var series, nn, startIdx, opts;
+      var series, startIdx, opts;
       if (rg.intraday && hasIntra){
-        series = intra; nn = iN; startIdx = Math.max(0, iN - rg.bars);
+        series = intra; startIdx = Math.max(0, iN - rg.bars);
         opts = { intraday: true };
       } else {
         if (!hasDaily) continue;
-        series = daily; nn = dN;
+        series = daily;
         // daily fallback windows for the intraday ranges (1W -> ~5 sessions,
         // 1M -> ~22); native daily ranges use their own bar counts.
         var dbars = rg.intraday ? (rg.key === '1w' ? 5 : 22) : rg.bars;
@@ -4118,13 +4118,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       shown++;
     }
     if (!shown) return '';
+    var foot = hasIntra
+      ? '1W &amp; 1M are 30-minute intraday bars (like Robinhood); 3M &amp; 1Y are daily closes with moving averages.'
+      : 'Daily closes with range-adaptive moving averages (intraday unavailable for this ticker).';
     return '<div class="opt-tech-chart">' + radios +
       '<div class="opt-tech-chart-head">' +
         '<span class="opt-tech-chart-title">Price</span>' +
         '<div class="opt-pc-ranges">' + tabs + '</div>' +
       '</div>' +
       '<div class="opt-pc-charts">' + charts + '</div>' +
-      '<div class="opt-tech-chart-foot">1W &amp; 1M are 30-minute intraday bars (like Robinhood); 3M &amp; 1Y are daily closes with moving averages. Pick a range and eyeball it against the chart-pattern read below.</div>' +
+      '<div class="opt-tech-chart-foot">' + foot + ' Pick a range and eyeball it against the chart-pattern read below.</div>' +
     '</div>';
   }
   function renderTechnicals(sym){
