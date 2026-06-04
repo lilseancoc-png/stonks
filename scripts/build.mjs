@@ -11618,10 +11618,15 @@ const CHART_PATTERN_MIN_BARS = 130;
 async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
   const series = bars.slice(-CHART_PATTERN_INTRADAY_BARS);
   const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
-  // Close-only text series — the IMAGE carries the shape; the text just lets the
-  // model cite exact levels/timestamps, so a compact ET "DATE TIME close" keeps
-  // the ~1-month 30m window from bloating the prompt.
-  const seriesBlock = series.map((b) => `${b.t || "?"} ${r2(b.c)}`).join("\n");
+  // Close-only text series — the IMAGE (full-resolution) carries the shape; the
+  // text just lets the model anchor approximate levels/timestamps, so we DOWN-
+  // SAMPLE it to ~40 rows. The full ~286-row series was ~3.4k input tokens/call
+  // for little benefit over the image; sampling cuts that ~85% (last bar always
+  // kept so spot/recent action is exact).
+  const TEXT_MAX_ROWS = 40;
+  const step = Math.max(1, Math.ceil(series.length / TEXT_MAX_ROWS));
+  const textSeries = series.filter((_, i) => i % step === 0 || i === series.length - 1);
+  const seriesBlock = textSeries.map((b) => `${b.t || "?"} ${r2(b.c)}`).join("\n");
   const spotStr = (spot != null && isFinite(spot)) ? `$${spot.toFixed(2)}` : "n/a";
   // Two intraday smoothing lines sized to the 30m window (≈1 and ≈3 trading
   // days). Describe ONLY the ones the renderer can actually draw.
@@ -11640,9 +11645,9 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
     (smaLegend ? smaLegend + ", " : "") +
     `light gray = each bar's high–low range, red dashed = current spot, gray bars beneath = ` +
     `volume. This is the 1-month timeframe — formations here are short-horizon (days to a few ` +
-    `weeks). Read the pattern off the IMAGE; use the numeric series below to cite exact levels ` +
-    `and timestamps (times are ET).\n` +
-    `Intraday series (oldest first — DATE TIME close):\n${seriesBlock}`;
+    `weeks). Read the pattern off the IMAGE; use the numeric series below (a sampled subset — the ` +
+    `IMAGE has every bar) to anchor approximate levels and timestamps (times are ET).\n` +
+    `Intraday series (oldest first, sampled — DATE TIME close):\n${seriesBlock}`;
 
   // Render the window to a chart image so the (multimodal) model judges the
   // visual SHAPE rather than inferring geometry from a column of numbers. Best-
@@ -11673,13 +11678,23 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
           // model sees the same total text, just partitioned out of `contents`.
           systemInstruction: CHART_PATTERN_SYSTEM_PROMPT,
           temperature: 0.2,
-          maxOutputTokens: 600,
+          // maxOutputTokens must cover BOTH the thinking budget AND the JSON —
+          // on gemini-2.5-flash the thinking tokens count AGAINST this ceiling
+          // (verified in build logs: ~510 thought + ~80 output ≈ 590 ≈ the old
+          // 600 cap), so a 512 thinking budget left almost nothing for the reply
+          // and the now-larger forming-stage JSON (stage/neckline/confirm/
+          // invalidate/target/explanation/signal) was truncated mid-string,
+          // failing JSON.parse for ~70% of tickers. 2048 leaves ~1.5k for the
+          // reply after thinking — plenty. (It's a ceiling, not a cost: we still
+          // only pay for the ~700 tokens actually generated.)
+          maxOutputTokens: 2048,
           responseMimeType: "application/json",
           responseSchema: CHART_PATTERN_SCHEMA,
-          // Reading geometry off a chart benefits from a little deliberation
-          // (Flash bills thinking tokens separately from maxOutputTokens, unlike
-          // Flash-Lite). Small budget — this is pattern matching, not analysis.
-          thinkingConfig: { thinkingBudget: 512 },
+          // Thinking tokens are billed at the (pricey) output rate, so this is a
+          // real cost lever — trimmed 512 -> 384 (still ample to read 1 of 7
+          // shapes + the key level off a clear chart image). Kept conservative to
+          // protect detection quality; lower it via AI_CHART_THINK to save more.
+          thinkingConfig: { thinkingBudget: Number(process.env.AI_CHART_THINK) || 384 },
         },
       });
       recordAiUsage({ model: AI_CHART_MODEL, callType: "chartPattern", symbol, usage: response?.usageMetadata });
