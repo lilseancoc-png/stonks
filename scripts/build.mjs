@@ -11775,16 +11775,16 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
           // model sees the same total text, just partitioned out of `contents`.
           systemInstruction: CHART_PATTERN_SYSTEM_PROMPT,
           temperature: 0.2,
-          // maxOutputTokens must cover BOTH the thinking budget AND the JSON —
-          // on gemini-2.5-flash the thinking tokens count AGAINST this ceiling
-          // (verified in build logs: ~510 thought + ~80 output ≈ 590 ≈ the old
-          // 600 cap), so a 512 thinking budget left almost nothing for the reply
-          // and the now-larger forming-stage JSON (stage/neckline/confirm/
-          // invalidate/target/explanation/signal) was truncated mid-string,
-          // failing JSON.parse for ~70% of tickers. 2048 leaves ~1.5k for the
-          // reply after thinking — plenty. (It's a ceiling, not a cost: we still
-          // only pay for the ~700 tokens actually generated.)
-          maxOutputTokens: 2048,
+          // maxOutputTokens must cover BOTH the thinking budget AND the JSON,
+          // because thinking tokens count AGAINST this ceiling. Flash-Lite emits
+          // a longer per-ticker JSON (stage/neckline/confirm/invalidate/target/
+          // explanation/signal) than full Flash did, and with the 512 thinking
+          // floor eating into the old 2048 cap the verbose names truncated mid-
+          // string ("Unterminated string in JSON" at ~4-6.5k chars → JSON.parse
+          // failed). 4096 leaves ~3.5k for the reply after thinking — ample for
+          // the longest observed output. (It's a ceiling, not a cost: only the
+          // tokens actually generated are billed.)
+          maxOutputTokens: 4096,
           responseMimeType: "application/json",
           responseSchema: CHART_PATTERN_SCHEMA,
           // Thinking tokens are billed at the (pricey) output rate, so this is a
