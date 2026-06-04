@@ -9351,24 +9351,16 @@ const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // "None"). Short, schema-shaped output — same Flash-Lite default as the other
 // per-ticker calls; rollback to Gemma is one env var.
 // Chart-pattern detection is a *visual* task (it ships the model a rendered
-// price-chart image, not just a number table — see generateChartPattern). It now
-// runs on Flash-Lite like every other call. Flash-Lite reads image geometry less
-// sharply than full Flash, but generateChartPattern keeps the numeric series as a
-// level/timestamp anchor and falls back to a text-only read when the image call
-// fails, so detection degrades rather than breaks. Bump back to gemini-2.5-flash
-// via AI_CHART_MODEL if pattern quality regresses.
-const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash-lite";
-// Chart-pattern thinking budget. Flash-Lite (the default model) only accepts a
-// thinking budget of 0 or 512-24576 — a non-zero value below 512 returns a 400
-// INVALID_ARGUMENT (the old 384 default 400'd every chart call once the model
-// moved off full Flash). So this floors at 512: ample to read 1 of 7 shapes +
-// the key level off a clear chart image, valid on full Flash too, and the value
-// maxOutputTokens=2048 was originally sized for. AI_CHART_THINK tunes it — 0 (or
-// negative) disables thinking; any positive value below 512 is clamped up.
-const AI_CHART_THINK_ENV = Number(process.env.AI_CHART_THINK);
-const AI_CHART_THINK = Number.isFinite(AI_CHART_THINK_ENV)
-  ? (AI_CHART_THINK_ENV <= 0 ? 0 : Math.max(512, AI_CHART_THINK_ENV))
-  : 512;
+// price-chart image, not just a number table — see generateChartPattern), so —
+// unlike every other (text-only) call, which defaults to Flash-Lite — it stays
+// on full Flash. Flash-Lite proved unfit for this one call: it both reads image
+// geometry poorly AND (verified across builds) runs away generating the
+// `explanation` string until it fills maxOutputTokens, truncating the JSON
+// mid-reply (Unterminated-string parse failures whose position scaled with the
+// token cap — 2048→~6.5k chars, 4096→~13.7k). The per-ticker chart-pattern cache
+// fires this ~once/ticker/trading day, so Flash here is cheap. Override with
+// AI_CHART_MODEL (but Flash-Lite is known-broken for it).
+const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -11775,23 +11767,23 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
           // model sees the same total text, just partitioned out of `contents`.
           systemInstruction: CHART_PATTERN_SYSTEM_PROMPT,
           temperature: 0.2,
-          // maxOutputTokens must cover BOTH the thinking budget AND the JSON,
-          // because thinking tokens count AGAINST this ceiling. Flash-Lite emits
-          // a longer per-ticker JSON (stage/neckline/confirm/invalidate/target/
-          // explanation/signal) than full Flash did, and with the 512 thinking
-          // floor eating into the old 2048 cap the verbose names truncated mid-
-          // string ("Unterminated string in JSON" at ~4-6.5k chars → JSON.parse
-          // failed). 4096 leaves ~3.5k for the reply after thinking — ample for
-          // the longest observed output. (It's a ceiling, not a cost: only the
-          // tokens actually generated are billed.)
-          maxOutputTokens: 4096,
+          // maxOutputTokens must cover BOTH the thinking budget AND the JSON —
+          // on gemini-2.5-flash the thinking tokens count AGAINST this ceiling
+          // (verified in build logs: ~510 thought + ~80 output ≈ 590 ≈ the old
+          // 600 cap), so a 512 thinking budget left almost nothing for the reply
+          // and the now-larger forming-stage JSON (stage/neckline/confirm/
+          // invalidate/target/explanation/signal) was truncated mid-string,
+          // failing JSON.parse for ~70% of tickers. 2048 leaves ~1.5k for the
+          // reply after thinking — plenty. (It's a ceiling, not a cost: we still
+          // only pay for the ~700 tokens actually generated.)
+          maxOutputTokens: 2048,
           responseMimeType: "application/json",
           responseSchema: CHART_PATTERN_SCHEMA,
           // Thinking tokens are billed at the (pricey) output rate, so this is a
-          // real cost lever — but Flash-Lite floors a non-zero budget at 512, so
-          // that's the default (resolved + clamped into AI_CHART_THINK above; set
-          // AI_CHART_THINK=0 to disable thinking, or higher to spend more).
-          thinkingConfig: { thinkingBudget: AI_CHART_THINK },
+          // real cost lever — trimmed 512 -> 384 (still ample to read 1 of 7
+          // shapes + the key level off a clear chart image). Kept conservative to
+          // protect detection quality; lower it via AI_CHART_THINK to save more.
+          thinkingConfig: { thinkingBudget: Number(process.env.AI_CHART_THINK) || 384 },
         },
       });
       recordAiUsage({ model: AI_CHART_MODEL, callType: "chartPattern", symbol, usage: response?.usageMetadata });
