@@ -828,7 +828,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           </header>
           <div class="landing-card-stat" id="land-stat-narratives">—</div>
           <div class="landing-card-sub">sectors covered</div>
-          <p class="landing-card-desc">AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About AI-built theses" data-tip="Theses built by Google Gemini (default: gemma-4-26b-a4b-it; override via NARRATIVES_MODEL env). Inputs: sector + industry news filtered to reputable publishers. Refreshed each daily build.">i</span>-built theses on what's driving capital today — longs, shorts, and the triggers to watch.</p>
+          <p class="landing-card-desc">AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About AI-built theses" data-tip="Theses built by Google Gemini (default: gemini-2.5-flash-lite; override via NARRATIVES_MODEL env). Inputs: sector + industry news filtered to reputable publishers. Refreshed each daily build.">i</span>-built theses on what's driving capital today — longs, shorts, and the triggers to watch.</p>
         </button>
         <button type="button" class="landing-card" data-go="calendar" aria-label="View calendar">
           <header class="landing-card-head">

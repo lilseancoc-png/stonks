@@ -410,18 +410,20 @@ const RESPONSE_SCHEMA = {
   required: ["perPosition", "portfolio"],
 };
 
-// Primary model: gemini-2.5-flash — best reasoning Flash available on
-// the free tier (20 RPD). Fallback: gemma-4-26b-a4b-it (1.5K RPD on
-// free tier, same Gemma the daily build uses, no billing required).
+// Primary + fallback both gemini-2.5-flash-lite — the whole stonks AI
+// pipeline standardized on Flash-Lite, so this (dormant) portfolio review
+// matches: cheap, 4K RPM on funded Tier 1, supports responseSchema. The
+// fallback is the same model now, so it only re-tries past a transient
+// primary error rather than dropping to a different family.
 // Pro models exist on Tier 1+ but require funded billing — even free-
 // tier-available models fail with "prepayment credits depleted" once
 // the project is moved to Tier 1 without funded credits.
 //
-// Both overridable via env vars — upgrade to gemini-2.5-pro or
-// gemini-3.1-pro after adding billing in AI Studio without a code change.
-const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-2.5-flash";
+// Both overridable via env vars — upgrade to gemini-2.5-flash / -pro
+// after adding billing in AI Studio without a code change.
+const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-2.5-flash-lite";
 const FALLBACK_MODEL =
-  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemma-4-26b-a4b-it";
+  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemini-2.5-flash-lite";
 const GEMINI_TIMEOUT_MS = 25_000;
 
 function isQuotaError(err) {

@@ -9309,14 +9309,14 @@ async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null) {
 // verdict toward Good or Bad. Skipped silently if no GEMINI_API_KEY is set,
 // so forks without a key still build.
 //
-// Default to gemma-4-26b-a4b-it — Gemma 3 was retired from the v1beta
-// endpoint when the Gemma 4 family launched (Mar 2026), and gemini-*-flash
-// free-tier RPD is too tight for a daily build over ~65 tickers. The 26B MoE
-// (4B active params) is fast, generous on free tier, and plenty for a
-// 3-sentence summary task. Override via AI_MODEL env (e.g.
-// `gemini-2.5-flash-lite` on a funded Tier 1 project) to trade a bit of cost
-// for much higher RPM and faster builds.
-const AI_MODEL = process.env.AI_MODEL || "gemma-4-26b-a4b-it";
+// Default to gemini-2.5-flash-lite — every AI call in the build now runs on
+// Flash-Lite (funded Tier 1: 4K RPM / 4M TPM), so the base model matches the
+// per-ticker call sites and there's no model mix left to reason about. Flash-
+// Lite supports responseSchema (constrained decoding) and implicit prompt
+// caching, and is cheaper per token than the old Gemma 4 26B default. Override
+// via AI_MODEL env to roll back to Gemma (`gemma-4-26b-a4b-it`, 1.5K RPD on the
+// free tier — set AI_RPM=10 there) or to trial a stronger model.
+const AI_MODEL = process.env.AI_MODEL || "gemini-2.5-flash-lite";
 // News + fundamentals are short, schema-shaped summaries — Gemini 2.5
 // Flash-Lite is cheaper per token than Gemma 4 26B, supports both
 // responseSchema (constrained decoding, no fence-stripping fallback
@@ -9350,19 +9350,20 @@ const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // series to the model and asks it to name one of 7 classic formations (or
 // "None"). Short, schema-shaped output — same Flash-Lite default as the other
 // per-ticker calls; rollback to Gemma is one env var.
-// Chart-pattern detection is a *visual* task (it now ships the model a rendered
-// price-chart image, not just a number table — see generateChartPattern), so it
-// runs on full Flash rather than Flash-Lite: Lite reads geometry off an image
-// poorly and the per-ticker chart-pattern cache means this fires ~once/ticker/day
-// (first build of the day; cache reuse after), so the upgrade is cheap. Override
-// with AI_CHART_MODEL.
-const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash";
+// Chart-pattern detection is a *visual* task (it ships the model a rendered
+// price-chart image, not just a number table — see generateChartPattern). It now
+// runs on Flash-Lite like every other call. Flash-Lite reads image geometry less
+// sharply than full Flash, but generateChartPattern keeps the numeric series as a
+// level/timestamp anchor and falls back to a text-only read when the image call
+// fails, so detection degrades rather than breaks. Bump back to gemini-2.5-flash
+// via AI_CHART_MODEL if pattern quality regresses.
+const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash-lite";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
-// fail with "prepayment credits depleted" without it. Default to AI_MODEL
-// (Gemma 4 26B — 1.5K RPD on free tier, battle-tested). Override with
-// NARRATIVES_MODEL=gemini-2.5-pro etc. after adding billing in AI Studio.
+// fail with "prepayment credits depleted" without it. Defaults to AI_MODEL
+// (now gemini-2.5-flash-lite). Override with NARRATIVES_MODEL=gemini-2.5-pro
+// etc. after adding billing in AI Studio.
 const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 const AI_NEWS_COUNT = 10;
 // Publishers we accept as ticker-news sources. Two flavors mixed here:
