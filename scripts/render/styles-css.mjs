@@ -3172,14 +3172,17 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .opt-pc-chart { display: none; }
 .opt-pc-chart .opt-pc-legend { margin-bottom: 6px; }
 /* Show the chart + highlight the tab matching the checked radio. */
+#opt-pc-r-1w:checked ~ .opt-pc-charts .opt-pc-chart-1w,
 #opt-pc-r-1m:checked ~ .opt-pc-charts .opt-pc-chart-1m,
 #opt-pc-r-3m:checked ~ .opt-pc-charts .opt-pc-chart-3m,
 #opt-pc-r-1y:checked ~ .opt-pc-charts .opt-pc-chart-1y { display: block; }
+#opt-pc-r-1w:checked ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1w"],
 #opt-pc-r-1m:checked ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1m"],
 #opt-pc-r-3m:checked ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-3m"],
 #opt-pc-r-1y:checked ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1y"] {
   color: var(--accent-fg); background: var(--accent);
 }
+#opt-pc-r-1w:focus-visible ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1w"],
 #opt-pc-r-1m:focus-visible ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1m"],
 #opt-pc-r-3m:focus-visible ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-3m"],
 #opt-pc-r-1y:focus-visible ~ .opt-tech-chart-head .opt-pc-tab[for="opt-pc-r-1y"] {

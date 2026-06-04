@@ -57,7 +57,7 @@
   // surfaces non-fresh sources so traders know the anchor is degraded.
   var RFR_META = {"source":"fresh","asOf":"2026-06-03","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, fundamentals: null, social: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -2189,7 +2189,7 @@
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
     resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.',
     sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.',
-    chartPattern: 'A classic chart formation identified by AI from a zoomed view of the recent daily chart — one of 7 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1). Recomputed each daily build. Context only — confirm on your own chart before trading.'
+    chartPattern: 'A classic chart formation identified by AI from the 1-month intraday (30-minute) chart — the timeframe where short-horizon reversals show up — one of 7 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1). Re-rated about twice a day. Context only — confirm on your own chart before trading.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -3559,6 +3559,7 @@
       state.news = entry.news || null;
       state.technicals = entry.technicals || null;
       state.priceSeries = entry.priceSeries || null;
+      state.intradaySeries = entry.intradaySeries || null;
       state.fundamentals = entry.fundamentals || null;
       state.social = entry.social || null;
       // autoPick — the best call/put the Top Picks engine would select for this
@@ -3935,18 +3936,24 @@
     }
     return out;
   }
-  function priceChartFmtDate(s){
+  function priceChartFmtDate(s, withTime){
     if (!s) return '';
     var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    var p = String(s).split('-');
+    var parts = String(s).split(' ');           // "YYYY-MM-DD" or "YYYY-MM-DD HH:MM"
+    var p = parts[0].split('-');
     if (p.length < 3) return String(s);
-    return mo[(+p[1]) - 1] + ' ' + (+p[2]) + ' \'' + p[0].slice(2);
+    var out = mo[(+p[1]) - 1] + ' ' + (+p[2]);
+    if (withTime && parts[1]) return out + ' ' + parts[1];   // intraday: "May 4 09:30"
+    return out + ' \'' + p[0].slice(2);                       // daily: "May 4 '26"
   }
   // Render ONE price chart for a display window [startIdx..end] of the full
   // series. SMAs are computed over the FULL closes (so a zoomed window still
   // gets a correct moving average using the lookback behind it), then plotted
   // only within the visible window. Returns { svg, legend } for that range.
-  function priceChartRender(ps, spot, startIdx, smaPeriods){
+  function priceChartRender(ps, spot, startIdx, opts){
+    opts = opts || {};
+    var intraday = !!opts.intraday;                 // clean line, no band/SMA (Robinhood-style)
+    var smaPeriods = opts.smaPeriods || [50, 200];
     var c = ps.c, h = ps.h || c, l = ps.l || c, v = ps.v || [], dates = ps.t || [];
     var n = c.length;
     var s0 = Math.max(0, startIdx | 0);
@@ -3974,15 +3981,19 @@
       }
       return s;
     }
-    // high/low range band (close fallback when a wick is missing)
-    var topPts = [], botPts = [];
-    for (i = s0; i < n; i++){
-      var hv = (h[i] != null ? h[i] : c[i]), lv = (l[i] != null ? l[i] : c[i]);
-      if (hv == null || lv == null) continue;
-      topPts.push(xAt(i).toFixed(1) + ',' + yAt(hv).toFixed(1));
-      botPts.push(xAt(i).toFixed(1) + ',' + yAt(lv).toFixed(1));
+    // high/low range band — daily only (the intraday series ships close-only and
+    // a Robinhood-style intraday chart is a clean line with no band anyway).
+    var band = '';
+    if (!intraday){
+      var topPts = [], botPts = [];
+      for (i = s0; i < n; i++){
+        var hv = (h[i] != null ? h[i] : c[i]), lv = (l[i] != null ? l[i] : c[i]);
+        if (hv == null || lv == null) continue;
+        topPts.push(xAt(i).toFixed(1) + ',' + yAt(hv).toFixed(1));
+        botPts.push(xAt(i).toFixed(1) + ',' + yAt(lv).toFixed(1));
+      }
+      band = topPts.length ? '<path class="opt-pc-band" d="M' + topPts.join('L') + 'L' + botPts.reverse().join('L') + 'Z" />' : '';
     }
-    var band = topPts.length ? '<path class="opt-pc-band" d="M' + topPts.join('L') + 'L' + botPts.reverse().join('L') + 'Z" />' : '';
     // price gridlines + y labels
     var grid = '';
     for (i = 0; i <= 4; i++){
@@ -4011,7 +4022,7 @@
       spotEl = '<line class="opt-pc-spot" x1="' + padL + '" y1="' + sy + '" x2="' + (W - padR) + '" y2="' + sy + '" />' +
         '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">spot $' + fmt(spot) + '</text>';
     }
-    // x date labels (first / mid / last of the window)
+    // x labels (first / mid / last of the window)
     var xlabels = '';
     if (dates.length === n && dN > 1){
       var idxs = [s0, s0 + Math.floor((dN - 1) / 2), n - 1];
@@ -4020,57 +4031,82 @@
         xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (volBot + 12) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]])) + '</text>';
       }
     }
-    // adaptive SMAs (computed over the FULL closes, drawn within the window)
-    var pA = smaPeriods[0], pB = smaPeriods[1];
     var legend = '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>';
-    var ptsA = pts(priceChartSma(c, pA));
-    var smaAEl = ptsA ? '<polyline class="opt-pc-sma50" fill="none" points="' + ptsA + '" />' : '';
-    if (ptsA) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma50"></i>' + pA + 'D SMA</span>';
-    var ptsB = pts(priceChartSma(c, pB));
-    var smaBEl = ptsB ? '<polyline class="opt-pc-sma200" fill="none" points="' + ptsB + '" />' : '';
-    if (ptsB) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma200"></i>' + pB + 'D SMA</span>';
+    var smaAEl = '', smaBEl = '';
+    // adaptive SMAs — daily ranges only. Computed over the FULL closes (correct
+    // lookback behind a zoomed window), drawn only within the visible window.
+    if (!intraday){
+      var pA = smaPeriods[0], pB = smaPeriods[1];
+      var ptsA = pts(priceChartSma(c, pA));
+      smaAEl = ptsA ? '<polyline class="opt-pc-sma50" fill="none" points="' + ptsA + '" />' : '';
+      if (ptsA) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma50"></i>' + pA + 'D SMA</span>';
+      var ptsB = pts(priceChartSma(c, pB));
+      smaBEl = ptsB ? '<polyline class="opt-pc-sma200" fill="none" points="' + ptsB + '" />' : '';
+      if (ptsB) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma200"></i>' + pB + 'D SMA</span>';
+    }
     legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-spot"></i>Spot</span>';
-    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Daily price chart, ' + dN + ' sessions">' +
+    var aria = intraday ? '30-minute intraday bars, ' + dN + ' points' : 'daily, ' + dN + ' sessions';
+    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + '">' +
       grid + band + vol + smaBEl + smaAEl +
       '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
       spotEl + xlabels +
       '</svg>';
     return { svg: svg, legend: legend };
   }
-  // Price chart with selectable range tabs (1M / 3M / 1Y / MAX, default 1M).
-  // CSS-only switching via hidden radios so there are no per-render event
-  // listeners to manage; each range gets its own window + range-appropriate SMAs.
-  function priceChartCard(ps, spot){
-    if (!ps || !ps.c || ps.c.length < 2) return '';
-    var n = ps.c.length;
-    // 1Y is the longest range — the bake only fetches ~1 year of bars, so a
-    // separate MAX tab would be identical. (Extend HISTORY_LOOKBACK_DAYS to add
-    // a true multi-year MAX.)
+  // Price chart with range tabs (default 1M). 1W and 1M draw the 30-minute
+  // INTRADAY series (Robinhood-style clean line) so short-horizon shapes are
+  // visible; 3M and 1Y draw the DAILY series with range-adaptive SMAs. CSS-only
+  // switching via hidden radios. Falls back to daily slices for 1W/1M when a
+  // ticker has no intraday series (older payload / failed fetch).
+  function priceChartCard(daily, intra, spot){
+    var hasDaily = daily && daily.c && daily.c.length >= 2;
+    var hasIntra = intra && intra.c && intra.c.length >= 2;
+    if (!hasDaily && !hasIntra) return '';
+    var dN = hasDaily ? daily.c.length : 0;
+    var iN = hasIntra ? intra.c.length : 0;
+    // ~13 regular-session 30-minute bars per trading day.
     var ranges = [
-      { key: '1m', label: '1M', bars: 22,  smas: [10, 20] },
-      { key: '3m', label: '3M', bars: 63,  smas: [20, 50] },
-      { key: '1y', label: '1Y', bars: 252, smas: [50, 200] }
+      { key: '1w', label: '1W', intraday: true,  bars: 5 * 13 },
+      { key: '1m', label: '1M', intraday: true,  bars: 99999 },
+      { key: '3m', label: '3M', intraday: false, bars: 63,  smas: [20, 50] },
+      { key: '1y', label: '1Y', intraday: false, bars: 252, smas: [50, 200] }
     ];
-    var radios = '', tabs = '', charts = '', def = '1m';
+    var radios = '', tabs = '', charts = '', def = '1m', shown = 0;
     for (var r = 0; r < ranges.length; r++){
       var rg = ranges[r];
-      // Hide a range that can't add anything over the previous one (series
-      // shorter than this range) — but always keep 1M and at least one more.
-      if (r > 1 && n <= ranges[r - 1].bars) continue;
+      var series, nn, startIdx, opts;
+      if (rg.intraday && hasIntra){
+        series = intra; nn = iN; startIdx = Math.max(0, iN - rg.bars);
+        opts = { intraday: true };
+      } else {
+        if (!hasDaily) continue;
+        series = daily; nn = dN;
+        // daily fallback windows for the intraday ranges (1W -> ~5 sessions,
+        // 1M -> ~22); native daily ranges use their own bar counts.
+        var dbars = rg.intraday ? (rg.key === '1w' ? 5 : 22) : rg.bars;
+        startIdx = Math.max(0, dN - dbars);
+        opts = { intraday: false, smaPeriods: rg.smas || [10, 20] };
+        // 3M always shows; drop the redundant 1Y only when the daily history is
+        // no longer than 3M (≤63 sessions) so it wouldn't differ. (Never the
+        // intraday 1W/1M, whose "bars" are intraday-point sentinels.)
+        if (rg.key === '1y' && dN <= 63) continue;
+      }
       var id = 'opt-pc-r-' + rg.key;
       radios += '<input type="radio" name="opt-pc-range" id="' + id + '" class="opt-pc-radio"' + (rg.key === def ? ' checked' : '') + '>';
       tabs += '<label for="' + id + '" class="opt-pc-tab">' + rg.label + '</label>';
-      var rendered = priceChartRender(ps, spot, Math.max(0, n - rg.bars), rg.smas);
+      var rendered = priceChartRender(series, spot, startIdx, opts);
       charts += '<div class="opt-pc-chart opt-pc-chart-' + rg.key + '">' +
         '<div class="opt-pc-legend">' + rendered.legend + '</div>' + rendered.svg + '</div>';
+      shown++;
     }
+    if (!shown) return '';
     return '<div class="opt-tech-chart">' + radios +
       '<div class="opt-tech-chart-head">' +
         '<span class="opt-tech-chart-title">Price</span>' +
         '<div class="opt-pc-ranges">' + tabs + '</div>' +
       '</div>' +
       '<div class="opt-pc-charts">' + charts + '</div>' +
-      '<div class="opt-tech-chart-foot">Daily closes with range-appropriate moving averages, the high\u2013low range, and volume. Pick a range and eyeball it against the chart-pattern read below.</div>' +
+      '<div class="opt-tech-chart-foot">1W &amp; 1M are 30-minute intraday bars (like Robinhood); 3M &amp; 1Y are daily closes with moving averages. Pick a range and eyeball it against the chart-pattern read below.</div>' +
     '</div>';
   }
   function renderTechnicals(sym){
@@ -4087,7 +4123,7 @@
     // Price chart first — the actual picture, so the chart-pattern read below
     // can be checked against it by eye. Drawn from the baked priceSeries; older
     // ticker JSON (pre-priceSeries) simply omits it.
-    if (state && state.priceSeries) html += priceChartCard(state.priceSeries, spot);
+    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot);
 
     // AI-identified chart pattern — a full-width banner above the indicator
     // cards. Renders only when a full build has attached technicals.chartPattern;
