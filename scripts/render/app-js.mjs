@@ -3964,10 +3964,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (withTime && parts[1]) return out + ' ' + parts[1];   // intraday: "May 4 09:30"
     return out + ' \\'' + p[0].slice(2);                       // daily: "May 4 '26"
   }
+  // Shared geometry for the price chart — one source of truth so the static
+  // render (priceChartRender) and the hover handler (attachPriceChartHover)
+  // map between data and SVG coords identically.
+  var PC_LAYOUT = { W: 1000, H: 388, padL: 48, padR: 14, padT: 12, priceBot: 300, volTop: 322, volBot: 374 };
   // Render ONE price chart for a display window [startIdx..end] of the full
   // series. SMAs are computed over the FULL closes (so a zoomed window still
   // gets a correct moving average using the lookback behind it), then plotted
-  // only within the visible window. Returns { svg, legend } for that range.
+  // only within the visible window. Returns { svg, legend, points, intraday }
+  // for that range (points feed the hover crosshair + tooltip).
   function priceChartRender(ps, spot, startIdx, opts){
     opts = opts || {};
     var intraday = !!opts.intraday;                 // clean line, no band/SMA (Robinhood-style)
@@ -3986,7 +3991,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (spot != null && isFinite(spot)){ lo = Math.min(lo, spot); hi = Math.max(hi, spot); }
     if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return { svg: '', legend: '' };
     var padv = (hi - lo) * 0.05; lo -= padv; hi += padv;
-    var W = 1000, H = 388, padL = 48, padR = 14, padT = 12, priceBot = 300, volTop = 322, volBot = 374;
+    var L = PC_LAYOUT;
+    var W = L.W, H = L.H, padL = L.padL, padR = L.padR, padT = L.padT, priceBot = L.priceBot, volTop = L.volTop, volBot = L.volBot;
     var plotW = W - padL - padR;
     function xAt(i){ return padL + (dN === 1 ? plotW / 2 : ((i - s0) / (dN - 1)) * plotW); }
     function yAt(val){ return padT + (1 - (val - lo) / (hi - lo)) * (priceBot - padT); }
@@ -4064,12 +4070,37 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-spot"></i>Spot</span>';
     var aria = intraday ? '30-minute intraday bars, ' + dN + ' points' : 'daily, ' + dN + ' sessions';
+    // Hover points — one [x, y, dateRaw, close, vol(, high, low)] per visible bar
+    // with a finite close, pre-projected to SVG coords so attachPriceChartHover
+    // can snap a crosshair + tooltip to the nearest bar without redoing the math.
+    var hoverPts = [];
+    for (i = s0; i < n; i++){
+      if (c[i] == null || !isFinite(c[i])) continue;
+      var hpt = [ +xAt(i).toFixed(1), +yAt(c[i]).toFixed(1), (dates[i] || ''),
+        +c[i].toFixed(2), (v[i] != null && isFinite(v[i]) ? v[i] : null) ];
+      if (!intraday){
+        var hpH = (h[i] != null ? h[i] : c[i]), hpL = (l[i] != null ? l[i] : c[i]);
+        hpt.push(hpH != null && isFinite(hpH) ? +hpH.toFixed(2) : null);
+        hpt.push(hpL != null && isFinite(hpL) ? +hpL.toFixed(2) : null);
+      }
+      hoverPts.push(hpt);
+    }
+    // Crosshair scaffolding: a transparent hit rect so moves over empty gaps
+    // still fire, plus a hidden overlay (vertical + horizontal rules + focus
+    // dot) the handler repositions onto the nearest bar.
+    var hitEl = '<rect class="opt-pc-hit" x="' + padL + '" y="' + padT + '" width="' + plotW + '" height="' + (volBot - padT) + '" />';
+    var hoverEl =
+      '<g class="opt-pc-hover" style="display:none">' +
+        '<line class="opt-pc-cross-x" y1="' + padT + '" y2="' + volBot + '" />' +
+        '<line class="opt-pc-cross-y" x1="' + padL + '" x2="' + (W - padR) + '" />' +
+        '<circle class="opt-pc-cross-dot" r="3.5" />' +
+      '</g>';
     var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + '">' +
-      grid + band + vol + smaBEl + smaAEl +
+      grid + hitEl + band + vol + smaBEl + smaAEl +
       '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
-      spotEl + xlabels +
+      spotEl + xlabels + hoverEl +
       '</svg>';
-    return { svg: svg, legend: legend };
+    return { svg: svg, legend: legend, points: hoverPts, intraday: intraday };
   }
   // Price chart with range tabs (default 1M). 1W and 1M draw the 30-minute
   // INTRADAY series (Robinhood-style clean line) so short-horizon shapes are
@@ -4113,8 +4144,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       radios += '<input type="radio" name="opt-pc-range" id="' + id + '" class="opt-pc-radio"' + (rg.key === def ? ' checked' : '') + '>';
       tabs += '<label for="' + id + '" class="opt-pc-tab">' + rg.label + '</label>';
       var rendered = priceChartRender(series, spot, startIdx, opts);
-      charts += '<div class="opt-pc-chart opt-pc-chart-' + rg.key + '">' +
-        '<div class="opt-pc-legend">' + rendered.legend + '</div>' + rendered.svg + '</div>';
+      // Embed the per-bar hover points on the wrapper (single-quoted attr — the
+      // JSON's only quote char is the double quote, so no escaping needed) plus
+      // an absolutely-positioned tooltip div the handler fills + places.
+      var ptsAttr = (rendered.points && rendered.points.length)
+        ? " data-pc-pts='" + JSON.stringify(rendered.points) + "'" + (rendered.intraday ? " data-pc-intraday='1'" : '')
+        : '';
+      charts += '<div class="opt-pc-chart opt-pc-chart-' + rg.key + '"' + ptsAttr + '>' +
+        '<div class="opt-pc-legend">' + rendered.legend + '</div>' + rendered.svg +
+        '<div class="opt-pc-tip" hidden></div></div>';
       shown++;
     }
     if (!shown) return '';
@@ -4129,6 +4167,84 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="opt-pc-charts">' + charts + '</div>' +
       '<div class="opt-tech-chart-foot">' + foot + ' Pick a range and eyeball it against the chart-pattern read below.</div>' +
     '</div>';
+  }
+  // Wire crosshair + tooltip hover onto every price chart inside root (one per
+  // range; only the CSS-selected one is visible, the rest never see a mousemove).
+  // Reads the per-bar points off each wrapper's data-pc-pts, snaps to the nearest
+  // bar by x, and positions the SVG crosshair + an HTML tooltip. Re-run safe:
+  // re-rendering the technicals HTML replaces the nodes, so listeners die with
+  // them — nothing to tear down. Mirrors attachIvHover, incl. touch support.
+  function attachPriceChartHover(root){
+    if (!root || !root.querySelectorAll) return;
+    var charts = root.querySelectorAll('.opt-pc-chart');
+    for (var ci = 0; ci < charts.length; ci++) wireOne(charts[ci]);
+    function wireOne(chart){
+      var raw = chart.getAttribute('data-pc-pts');
+      if (!raw) return;
+      var pts;
+      try { pts = JSON.parse(raw); } catch (e){ return; }
+      if (!pts || !pts.length) return;
+      var intraday = chart.getAttribute('data-pc-intraday') === '1';
+      var svg = chart.querySelector('svg.opt-pc-svg');
+      var hover = chart.querySelector('.opt-pc-hover');
+      var crossX = chart.querySelector('.opt-pc-cross-x');
+      var crossY = chart.querySelector('.opt-pc-cross-y');
+      var dot = chart.querySelector('.opt-pc-cross-dot');
+      var tip = chart.querySelector('.opt-pc-tip');
+      if (!svg || !hover || !crossX || !crossY || !dot || !tip) return;
+      var L = PC_LAYOUT, lastP = null;
+      function nearest(vx){
+        var best = pts[0], bestD = Math.abs(pts[0][0] - vx);
+        for (var i = 1; i < pts.length; i++){
+          var d = Math.abs(pts[i][0] - vx);
+          if (d < bestD){ best = pts[i]; bestD = d; }
+        }
+        return best;
+      }
+      function tipRow(label, val){
+        return '<div class="opt-pc-tip-row"><span>' + label + '</span><span>' + val + '</span></div>';
+      }
+      function show(clientX){
+        var rect = svg.getBoundingClientRect();
+        if (!rect.width) return;
+        var p = nearest((clientX - rect.left) / rect.width * L.W);
+        if (p === lastP) return;   // cursor still on the same bar — skip the tooltip rebuild + reflow
+        lastP = p;
+        var px = p[0], py = p[1];
+        hover.style.display = '';
+        crossX.setAttribute('x1', px); crossX.setAttribute('x2', px);
+        crossY.setAttribute('y1', py); crossY.setAttribute('y2', py);
+        dot.setAttribute('cx', px); dot.setAttribute('cy', py);
+        // p = [x, y, dateRaw, close, vol(, high, low)]
+        var rows = tipRow('Close', '$' + fmt(p[3]));
+        if (!intraday && p.length > 6 && p[5] != null && p[6] != null){
+          rows += tipRow('High', '$' + fmt(p[5])) + tipRow('Low', '$' + fmt(p[6]));
+        }
+        if (p[4] != null && isFinite(p[4])) rows += tipRow('Vol', fmtVolume(p[4]));
+        tip.innerHTML = '<div class="opt-pc-tip-head">' + escapeHtml(priceChartFmtDate(p[2], intraday)) + '</div>' + rows;
+        tip.hidden = false;
+        // Position the tooltip in chart-relative pixels: project the dot's SVG
+        // coords through the rendered svg box, offset to the cursor side, and
+        // clamp/flip so it never runs off the chart.
+        var chartRect = chart.getBoundingClientRect();
+        var dotX = (rect.left - chartRect.left) + (px / L.W) * rect.width;
+        var dotY = (rect.top - chartRect.top) + (py / L.H) * rect.height;
+        var pad = 12, tw = tip.offsetWidth, th = tip.offsetHeight;
+        var left = dotX + pad;
+        if (left + tw > chartRect.width) left = dotX - pad - tw;
+        if (left < 0) left = 0;
+        var top = dotY - th - pad;
+        if (top < 0) top = dotY + pad;
+        tip.style.left = left.toFixed(1) + 'px';
+        tip.style.top = top.toFixed(1) + 'px';
+      }
+      function hide(){ hover.style.display = 'none'; tip.hidden = true; lastP = null; }
+      svg.addEventListener('mousemove', function(e){ show(e.clientX); });
+      svg.addEventListener('mouseleave', hide);
+      svg.addEventListener('touchstart', function(e){ if (e.touches && e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
+      svg.addEventListener('touchmove', function(e){ if (e.touches && e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
+      svg.addEventListener('touchend', hide);
+    }
   }
   function renderTechnicals(sym){
     var box = $('opt-technicals');
@@ -4329,6 +4445,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
 
     grid.innerHTML = html;
+    attachPriceChartHover(grid);
     box.hidden = false;
   }
 

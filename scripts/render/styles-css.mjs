@@ -3160,6 +3160,28 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .opt-pc-spotlabel { fill: var(--neg); font-size: 11px; text-anchor: end; font-variant-numeric: tabular-nums; }
 .opt-tech-chart-foot { font-size: 11px; color: var(--muted); line-height: 1.4; }
 
+/* Hover crosshair + tooltip — the hit rect catches moves over empty gaps; the
+   overlay group is positioned onto the nearest bar by attachPriceChartHover. */
+.opt-pc-hit { fill: transparent; }
+.opt-pc-hover { pointer-events: none; }
+.opt-pc-cross-x, .opt-pc-cross-y {
+  stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3;
+  opacity: 0.7; vector-effect: non-scaling-stroke;
+}
+.opt-pc-cross-dot { fill: var(--text-strong); stroke: var(--surface); stroke-width: 1.5; }
+.opt-pc-tip {
+  position: absolute; left: 0; top: 0; pointer-events: none; z-index: 5;
+  background: var(--surface-3); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--r-2);
+  padding: 6px 8px; font-size: 0.74rem; line-height: 1.3;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); white-space: nowrap;
+}
+.opt-pc-tip[hidden] { display: none; }
+.opt-pc-tip-head { font: 700 11px/1.2 var(--font-mono); color: var(--text-strong); margin-bottom: 3px; }
+.opt-pc-tip-row { display: flex; justify-content: space-between; gap: 14px; }
+.opt-pc-tip-row span:first-child { color: var(--muted); }
+.opt-pc-tip-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+
 /* Range tabs (1M/3M/1Y/MAX) — CSS-only switching via hidden radios. */
 .opt-pc-radio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .opt-pc-ranges { display: flex; gap: 2px; }
@@ -3169,7 +3191,7 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   cursor: pointer; user-select: none;
 }
 .opt-pc-tab:hover { color: var(--text-strong); background: var(--surface-2); }
-.opt-pc-chart { display: none; }
+.opt-pc-chart { display: none; position: relative; }
 .opt-pc-chart .opt-pc-legend { margin-bottom: 6px; }
 /* Show the chart + highlight the tab matching the checked radio. */
 #opt-pc-r-1w:checked ~ .opt-pc-charts .opt-pc-chart-1w,
