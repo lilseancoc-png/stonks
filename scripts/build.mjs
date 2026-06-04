@@ -755,6 +755,51 @@ async function fetchHistoricalBars(symbol) {
     }));
 }
 
+// Intraday bars (30-minute, ~1 month, REGULAR SESSION ONLY) — added for the
+// 1W/1M chart tabs (Robinhood shows intraday at those ranges) and for the
+// chart-pattern detector, which now rates the "1-month" timeframe where
+// short-horizon reversals (an intraday head-and-shoulders, etc.) actually live.
+// Yahoo returns pre/post-market 30m bars too, whose gaps add noise a Robinhood
+// chart doesn't show — we drop them to keep 09:30–15:30 ET. The ~1-month window
+// can straddle a DST transition, so we derive each bar's ET wall clock with a
+// per-bar Intl formatter (America/New_York) rather than a single request-time
+// gmtoffset (which would mislabel/drop bars on the wrong side of the shift). One
+// extra Yahoo call per ticker; non-fatal like the daily fetch. Never persisted
+// raw (`_intraday` is stripped before write); a compact close+volume series
+// (buildIntradaySeries) is what reaches the browser.
+const INTRADAY_INTERVAL = "30m";
+const INTRADAY_LOOKBACK_DAYS = 32;
+const ET_PARTS_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York", hour12: false,
+  year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+});
+async function fetchIntradayBars(symbol) {
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - INTRADAY_LOOKBACK_DAYS * 24 * 3600 * 1000);
+  const result = await yahooFinance.chart(symbol, { period1, period2, interval: INTRADAY_INTERVAL });
+  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+  return quotes
+    .filter((q) => q && q.close != null && q.date)
+    .map((q) => {
+      const p = {};
+      for (const part of ET_PARTS_FMT.formatToParts(new Date(q.date))) p[part.type] = part.value;
+      let hh = parseInt(p.hour, 10); if (hh === 24) hh = 0; // some impls emit 24 at midnight
+      return { q, p, hh, mins: hh * 60 + parseInt(p.minute, 10) };
+    })
+    // 09:30 (570) .. 15:30 (930): 30m bars are stamped at their open, so the
+    // 15:30 bar covers the last regular half-hour; pre/post-market is dropped.
+    .filter((x) => x.mins >= 570 && x.mins <= 930)
+    .map((x) => ({
+      c: x.q.close,
+      h: x.q.high ?? x.q.close,
+      l: x.q.low ?? x.q.close,
+      v: x.q.volume ?? null,
+      // ET wall-clock "YYYY-MM-DD HH:MM" so the browser labels the axis without
+      // needing timezone logic.
+      t: `${x.p.year}-${x.p.month}-${x.p.day} ${String(x.hh).padStart(2, "0")}:${x.p.minute}`,
+    }));
+}
+
 // Streak break thresholds. A "counter day" is a daily move opposite the
 // streak direction (red move during a green streak, or vice versa). Small
 // counter days don't break a streak immediately; they accumulate into a
@@ -2521,11 +2566,19 @@ async function fetchTickerChain(symbol) {
   // log becomes scannable, which is the higher value here.
   let technicals = null;
   let bars = null;
+  let intraday = null;
   try {
     bars = await fetchHistoricalBars(symbol);
     technicals = computeTechnicals(bars);
   } catch (err) {
     console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
+  }
+  // Intraday (30m) for the 1W/1M chart + the chart-pattern detector. Independent
+  // of the daily fetch above and non-fatal — a failure just hides intraday.
+  try {
+    intraday = await fetchIntradayBars(symbol);
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} intraday fetch failed: ${err.message}`);
   }
   // ETFs return mostly empty modules, so the renderer hides the card when
   // there's nothing useful to show. fetchFundamentals already logs its own
@@ -2548,6 +2601,10 @@ async function fetchTickerChain(symbol) {
     // Used by the streak aggregator (data/streaks.json) so we don't re-hit
     // Yahoo for the same daily closes.
     _bars: bars,
+    // _intraday (30m, regular session) — in-memory only, stripped before write.
+    // Feeds the chart-pattern detector (1-month timeframe) and is compacted into
+    // the persisted `intradaySeries` for the browser's 1W/1M chart tabs.
+    _intraday: intraday,
   };
 }
 
@@ -2899,6 +2956,21 @@ function buildPriceSeries(bars) {
   };
 }
 
+// Compact intraday series for the browser's 1W/1M chart tabs. Close + volume
+// only (a Robinhood-style chart is a clean line with no high/low band), keeping
+// the full ~1-month 30m window so the client can slice the last ~week for 1W.
+const INTRADAY_SERIES_BARS = 320; // ~22 trading days * ~13 regular-session 30m bars
+function buildIntradaySeries(bars) {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const tail = bars.slice(-INTRADAY_SERIES_BARS);
+  const r2 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 100) / 100);
+  return {
+    t: tail.map((b) => b.t || null),
+    c: tail.map((b) => r2(b.c)),
+    v: tail.map((b) => (b && Number.isFinite(b.v) ? Math.round(b.v) : null)),
+  };
+}
+
 async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
   // Wipe data/ first so tickers that fell out of the curated list (or
   // failed this run) don't leave stale files behind. The directory is
@@ -2907,9 +2979,9 @@ async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
   await mkdir(DATA_DIR, { recursive: true });
   let totalBytes = 0;
   for (const [sym, data] of Object.entries(chains)) {
-    // _bars is a transient field used by the streak aggregator; never write
-    // it to the per-ticker JSON (would inflate each file ~6x).
-    const { _bars, ...rest } = data;
+    // _bars / _intraday are transient in-memory series; never write them raw to
+    // the per-ticker JSON (they'd inflate each file). Compact series below.
+    const { _bars, _intraday, ...rest } = data;
     // autoPick — the best call and best put the Top Picks engine would pick
     // for this name, scored with the exact same pickContractForPick() the
     // picks pipeline uses (same hard filters + composite + component grades).
@@ -2923,7 +2995,8 @@ async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
       put: pickContractForPick("put", data, rfr),
     };
     const priceSeries = buildPriceSeries(_bars);
-    const json = JSON.stringify({ ...rest, priceSeries, autoPick });
+    const intradaySeries = buildIntradaySeries(_intraday);
+    const json = JSON.stringify({ ...rest, priceSeries, intradaySeries, autoPick });
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
@@ -11465,15 +11538,16 @@ const CHART_PATTERN_SCHEMA = {
 
 const CHART_PATTERN_SYSTEM_PROMPT =
   "You are a technical-analysis chart reader. You are given a US-listed ticker, " +
-  "its current share price, a RENDERED DAILY PRICE-CHART IMAGE, and the same " +
-  "daily price series as text (oldest first; each row is DATE close high low " +
-  "volume). Judge the pattern primarily from the IMAGE — that is where the " +
-  "visual geometry lives — and use the numeric series to pin down exact levels " +
-  "and dates. In the image: black line = close, light-gray verticals = each " +
-  "bar's high–low range, red dashed line = current spot, gray bars along the " +
+  "its current share price, a RENDERED PRICE-CHART IMAGE of roughly the last " +
+  "MONTH of 30-minute INTRADAY bars, and the same series as text (oldest first; " +
+  "each row is DATE TIME close, times in ET). Judge the pattern primarily from " +
+  "the IMAGE — that is where the visual geometry lives — and use the numeric " +
+  "series to pin down exact levels and timestamps. This is a 1-month / intraday " +
+  "timeframe, so formations are short-horizon (they play out over days to a few " +
+  "weeks, not months). In the image: black line = close, light-gray verticals = " +
+  "each bar's high–low range, red dashed line = current spot, gray bars along the " +
   "bottom = volume, plus any moving-average overlays named in the accompanying " +
-  "text (blue = 50-day, orange = 200-day) — only the ones listed there are drawn. " +
-  "The right edge is " +
+  "text — only the ones listed there are drawn. The right edge is " +
   "the most recent action; reversal patterns most often complete there. Decide " +
   "whether the recent price action forms one of these 7 classic chart patterns:\n" +
   "1. Cup and Handle (Bullish Continuation) — a rounded U-shaped bottom (the " +
@@ -11531,53 +11605,56 @@ const CHART_PATTERN_SYSTEM_PROMPT =
   "— no markdown fences, no prose before or after the JSON. For \"None\", " +
   "`explanation` may briefly say why nothing qualifies and the other fields may be empty.";
 
-// How many trailing daily bars to show the model. ~75 sessions ≈ 3.5 months —
-// zoomed in on the recent action so a FORMING reversal (e.g. a head-and-
-// shoulders building its right shoulder) is large and legible rather than
-// squished into the right edge of a 6-month view. Still long enough to contain
-// a full daily-timeframe formation. Catching patterns early is the goal here.
-const CHART_PATTERN_BARS = 75;
-// Need a meaningful window before any pattern read is credible.
-const CHART_PATTERN_MIN_BARS = 60;
+// The detector rates the "1-month" timeframe (per product spec) off ~1 month of
+// 30-minute INTRADAY bars — that's where short-horizon reversals like an intraday
+// head-and-shoulders actually live (they vanish into a single spike on daily
+// bars). ~320 bars ≈ 22 trading days × ~13 regular-session 30m bars.
+const CHART_PATTERN_INTRADAY_BARS = 320;
+// Need a meaningful window before any read is credible (~2 weeks of 30m bars).
+const CHART_PATTERN_MIN_BARS = 130;
 
-async function generateChartPattern(ai, symbol, spot, bars) {
-  const series = bars.slice(-CHART_PATTERN_BARS);
+// `bars` here is the in-memory intraday (30m) series. opts.forceTextOnly skips
+// the image (used as a last-resort fallback when an image call keeps failing).
+async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
+  const series = bars.slice(-CHART_PATTERN_INTRADAY_BARS);
   const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
-  const seriesBlock = series
-    .map((b) => `${b.t || "?"} ${r2(b.c)} ${r2(b.h)} ${r2(b.l)} ${b.v != null && isFinite(b.v) ? Math.round(b.v) : "?"}`)
-    .join("\n");
+  // Close-only text series — the IMAGE carries the shape; the text just lets the
+  // model cite exact levels/timestamps, so a compact ET "DATE TIME close" keeps
+  // the ~1-month 30m window from bloating the prompt.
+  const seriesBlock = series.map((b) => `${b.t || "?"} ${r2(b.c)}`).join("\n");
   const spotStr = (spot != null && isFinite(spot)) ? `$${spot.toFixed(2)}` : "n/a";
-  // SMA overlays sized to this ~75-session window — a 20- and 50-day line read
-  // well here (a 200-day would barely populate). Describe ONLY the ones the
-  // renderer can actually draw (an N-day SMA needs N prior closes), so we never
-  // tell the model about a reference line that isn't in the pixels.
-  const CHART_IMG_SMA_PERIODS = [20, 50];
-  const finiteCloses = series.filter((b) => b && isFinite(b.c)).length;
+  // Two intraday smoothing lines sized to the 30m window (≈1 and ≈3 trading
+  // days). Describe ONLY the ones the renderer can actually draw.
+  const CHART_IMG_SMA_PERIODS = [13, 39];
+  const smaLabels = ["≈1-day", "≈3-day"];
   const smaColors = ["blue", "orange"];
-  const drawnSmaPeriods = CHART_IMG_SMA_PERIODS.filter((p) => finiteCloses >= p);
-  const smaLegend = drawnSmaPeriods
-    .map((p, i) => `${smaColors[i]} = ${p}-day SMA`)
+  const finiteCloses = series.filter((b) => b && isFinite(b.c)).length;
+  const smaLegend = CHART_IMG_SMA_PERIODS
+    .map((p, i) => (finiteCloses >= p ? `${smaColors[i]} = ${smaLabels[i]} moving average` : null))
+    .filter(Boolean)
     .join(", ");
   const userMessage =
     `Ticker: ${symbol}\n` +
     `Current spot: ${spotStr}\n` +
-    `A rendered daily price chart is attached: black = close, ` +
+    `A rendered chart of ~1 MONTH of 30-MINUTE intraday bars is attached: black = close, ` +
     (smaLegend ? smaLegend + ", " : "") +
-    `light gray = each bar's high–low range, red dashed = current spot, ` +
-    `gray bars beneath = volume. Read the pattern off the IMAGE; use the numeric series below ` +
-    `to cite exact price levels and dates.\n` +
-    `Daily series (oldest first — DATE close high low volume):\n${seriesBlock}`;
+    `light gray = each bar's high–low range, red dashed = current spot, gray bars beneath = ` +
+    `volume. This is the 1-month timeframe — formations here are short-horizon (days to a few ` +
+    `weeks). Read the pattern off the IMAGE; use the numeric series below to cite exact levels ` +
+    `and timestamps (times are ET).\n` +
+    `Intraday series (oldest first — DATE TIME close):\n${seriesBlock}`;
 
-  // Render the same window to a chart image so the (multimodal) model judges the
-  // visual SHAPE rather than inferring geometry from a column of numbers — the
-  // whole point of the upgrade. Best-effort: if rendering fails for any reason
-  // we fall back to the text-only series (the model still gets the numbers).
+  // Render the window to a chart image so the (multimodal) model judges the
+  // visual SHAPE rather than inferring geometry from a column of numbers. Best-
+  // effort: a render failure (or forceTextOnly) falls back to the text series.
   let imagePart = null;
-  try {
-    const png = renderPriceChartPng(series, { symbol, spot, smaPeriods: CHART_IMG_SMA_PERIODS });
-    if (png) imagePart = { inlineData: { mimeType: "image/png", data: png.toString("base64") } };
-  } catch (err) {
-    console.log(`    · ${symbol} chart image render failed (${String(err?.message || err).slice(0, 80)}) — text-only`);
+  if (!opts.forceTextOnly) {
+    try {
+      const png = renderPriceChartPng(series, { symbol, spot, smaPeriods: CHART_IMG_SMA_PERIODS });
+      if (png) imagePart = { inlineData: { mimeType: "image/png", data: png.toString("base64") } };
+    } catch (err) {
+      console.log(`    · ${symbol} chart image render failed (${String(err?.message || err).slice(0, 80)}) — text-only`);
+    }
   }
   const contents = imagePart ? [imagePart, { text: userMessage }] : userMessage;
 
@@ -11673,34 +11750,48 @@ async function generateChartPattern(ai, symbol, spot, bars) {
   };
 }
 
-// data/chart-pattern-cache.json — cross-build cache so the 12:00 / 17:00 ET
-// builds don't re-ask the model for a pattern whose underlying daily series
-// hasn't meaningfully changed since the 9:00 build. Mirrors the read-before-
-// wipe / write-after-wipe pattern used for macro / picks-accuracy / grades
-// history (writeChainFiles rm -rf's data/, so main() reads this BEFORE the wipe
-// and writes the refreshed map back AFTER it). Shape: { [sym]: { key, pattern } }.
+// data/chart-pattern-cache.json — cross-build cache keyed on the AM/PM session
+// bucket (see chartPatternBucketKey) so the hourly builds within a half-day
+// reuse that half-day's read instead of re-rating the intraday chart every time.
+// Mirrors the read-before-wipe / write-after-wipe pattern used for macro /
+// picks-accuracy / grades history (writeChainFiles rm -rf's data/, so main()
+// reads this BEFORE the wipe and writes the refreshed map back AFTER it). Shape:
+// { [sym]: { key, pattern } }.
 const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 
-// Cache key over the trailing window the model is shown, MINUS the last
-// (possibly in-progress / intraday) daily bar — so the three same-day builds
-// share a key and reuse the morning read, while a new CLOSED daily bar the next
-// session changes the key and forces a fresh detection. Closes/highs/lows are
-// rounded the way the prompt rounds them (r2) so sub-cent jitter on a confirmed
-// bar never busts the key. Returns null when there isn't enough history (the
-// ticker is then always detected fresh, never cached). The deliberate
-// trade-off: a pattern lags the current session by ~1 trading day — acceptable
-// for daily-timeframe formations and the price of real cache hits (token spend).
-function chartPatternCacheKey(bars) {
-  if (!Array.isArray(bars) || bars.length < CHART_PATTERN_MIN_BARS) return null;
-  const series = bars.slice(-CHART_PATTERN_BARS).slice(0, -1);
-  if (!series.length) return null;
-  const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
-  const sig = series.map((b) => `${b.t || "?"}:${r2(b.c)}:${r2(b.h)}:${r2(b.l)}`).join("|");
-  // Version tag: bumped when the detection method changes so every cached prior
-  // verdict is invalidated and re-read once (img2 = multimodal image on Flash;
-  // img3 = zoomed ~75-session window + forming/confirmed early detection).
-  return createHash("sha1").update(`${CHART_PATTERN_BARS}|img3|${sig}`).digest("hex");
+// Re-rate the 1-month INTRADAY pattern ~2× per trading day — once at the open
+// and again midday — and reuse the cached read otherwise. Intraday bars change
+// every 30 min, so keying on the bar signature (as the old daily detector did)
+// would re-call the model on every build (8×/day, ~8× the Gemini spend). Instead
+// the key is the ET date + an AM/PM half: the FIRST build in each half is a miss
+// (re-reads), the rest of that half reuse it. Deliberate trade-off: a fast-
+// forming intraday pattern can lag by up to a few hours within a session.
+// The same key string is used for every ticker in a given build, so a hit just
+// means "this ticker was already read this half-day". `img4` is the version tag
+// (intraday-timeframe detector) — bumping it invalidates all prior verdicts once.
+const CHART_PATTERN_CACHE_VERSION = "img4";
+function chartPatternBucketKey() {
+  const now = new Date();
+  const etDate = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+  const etHour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
+  const half = etHour < 12 ? "am" : "pm";
+  return `${CHART_PATTERN_CACHE_VERSION}|${etDate}|${half}`;
 }
+
+// Bounded-concurrency pool — at most `limit` workers run `fn` over `items` at
+// once. Keeps the chart-pattern pass from firing ~137 image requests in one
+// burst (which rate-limited Gemini and left ~half the universe with no verdict).
+async function runPooled(items, limit, fn) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+}
+const CHART_PATTERN_CONCURRENCY = Number(process.env.AI_CHART_CONCURRENCY) || 6;
 
 // Read BEFORE writeChainFiles wipes data/. Missing / unreadable / wrong-shape → {}.
 async function readChartPatternCache() {
@@ -11731,52 +11822,63 @@ async function attachChartPatterns(chains, priorCache = {}) {
     return priorCache;
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  // Needs the in-memory daily bars (writeChainFiles strips _bars before write,
-  // so this MUST run before that wipe) and enough history to read a pattern.
+  // Reads the in-memory INTRADAY (30m) series — writeChainFiles strips _intraday
+  // before write, so this MUST run before that wipe — needing ~2 weeks of bars.
   const entries = Object.entries(chains).filter(
-    ([, data]) => Array.isArray(data._bars) && data._bars.length >= CHART_PATTERN_MIN_BARS,
+    ([, data]) => Array.isArray(data._intraday) && data._intraday.length >= CHART_PATTERN_MIN_BARS,
   );
-  // Cross-build cache: split the universe into cache HITS (confirmed-bar
-  // signature unchanged since a prior build → copy the prior pattern forward,
-  // skip the model entirely) and MISSES (fresh/changed series → hit Gemini).
-  // nextCache is returned for main() to persist after the data/ wipe; only
-  // successfully-detected names are cached, so a failure is retried next build.
+  // Cross-build cache keyed on the AM/PM half-day bucket: the first build in each
+  // half re-reads, the rest reuse it (≈2 reads/ticker/day). nextCache is returned
+  // for main() to persist after the data/ wipe; only successfully-read names are
+  // cached, so a failure is retried on the next build.
+  const bucketKey = chartPatternBucketKey();
   const nextCache = {};
   const toCall = [];
   let reused = 0;
   for (const [sym, data] of entries) {
-    const key = chartPatternCacheKey(data._bars);
-    const prior = key && priorCache[sym] && priorCache[sym].key === key ? priorCache[sym].pattern : null;
+    const prior = priorCache[sym] && priorCache[sym].key === bucketKey ? priorCache[sym].pattern : null;
     if (prior) {
       data.technicals = { ...(data.technicals || {}), chartPattern: prior };
-      nextCache[sym] = { key, pattern: prior };
+      nextCache[sym] = { key: bucketKey, pattern: prior };
       reused += 1;
     } else {
-      toCall.push([sym, data, key]);
+      toCall.push([sym, data]);
     }
   }
-  console.log(`Detecting chart patterns for ${entries.length} tickers… (${reused} reused from cache, ${toCall.length} fresh)`);
+  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused this half-day, ${toCall.length} fresh)`);
   if (toCall.length) {
     const hb = startHeartbeat("chart patterns", toCall.length);
+    // Bounded concurrency so we don't burst ~137 image requests at once (that
+    // rate-limited Gemini and left ~half the universe undetected). On an image-
+    // call failure, fall back to a TEXT-ONLY read so a rate-limited burst still
+    // yields a verdict instead of `undefined`.
     const runPass = (passEntries) =>
-      Promise.all(passEntries.map(([sym, data, key]) => hb.track(async () => {
+      runPooled(passEntries, CHART_PATTERN_CONCURRENCY, ([sym, data]) => hb.track(async () => {
+        let chartPattern = null;
         try {
-          const chartPattern = await generateChartPattern(ai, sym, data.spot, data._bars);
+          chartPattern = await generateChartPattern(ai, sym, data.spot, data._intraday);
+        } catch (errImg) {
+          try {
+            chartPattern = await generateChartPattern(ai, sym, data.spot, data._intraday, { forceTextOnly: true });
+            console.log(`  ↪ ${sym} — image read failed, text-only fallback succeeded`);
+          } catch (errText) {
+            console.log(`  ✗ ${sym} chart-pattern detection failed: ${errText.message}`);
+          }
+        }
+        if (chartPattern) {
           data.technicals = { ...(data.technicals || {}), chartPattern };
-          if (key) nextCache[sym] = { key, pattern: chartPattern };
+          nextCache[sym] = { key: bucketKey, pattern: chartPattern };
           if (chartPattern.pattern === "None") {
             console.log(`  · ${sym} — no chart pattern`);
           } else {
-            console.log(`  ✓ ${sym} — ${chartPattern.pattern} (${chartPattern.type}, ${chartPattern.confidence})`);
+            console.log(`  ✓ ${sym} — ${chartPattern.stage === "forming" ? "Forming " : ""}${chartPattern.pattern} (${chartPattern.type}, ${chartPattern.confidence})`);
           }
-        } catch (err) {
-          console.log(`  ✗ ${sym} chart-pattern detection failed: ${err.message}`);
         }
-      })));
+      }));
     await runPass(toCall);
     // Final sweep: any ticker still missing a read hit a transient streak that
-    // exhausted the in-call retry budget. Mirrors attachFundamentalsJudgments —
-    // sleep through a quota window, take one more swing.
+    // exhausted both the image and text retry budgets. Sleep through a quota
+    // window, take one more swing.
     const missed = toCall.filter(([, data]) => !data.technicals?.chartPattern);
     if (missed.length > 0) {
       console.log(`Retrying ${missed.length} chart-pattern detection(s) after transient failures (sleeping ${AI_MISS_SWEEP_WAIT_MS / 1000}s to clear a transient blip)…`);
