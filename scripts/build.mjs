@@ -9335,6 +9335,17 @@ const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-2.5-f
 // independent attachAiNewsTakes / attachFundamentalsJudgments calls.
 const AI_TICKER_MODEL = process.env.AI_TICKER_MODEL || "gemini-2.5-flash-lite";
 const AI_COMBINED = process.env.AI_COMBINED !== "0";
+// Fold the Major-Contract + Guidance signal extraction into the combined
+// ticker-judgment call instead of issuing a second per-ticker round-trip
+// (attachAiContractGuidance). The combined call already holds the same
+// headlines (with article bodies), so it can emit a `signals` field in the
+// same response — eliminating ~one flash-lite call per ticker per build.
+// OFF by default: it is a behaviour-equivalent-by-design change to a SCORING
+// input (data.aiSignals → scoreFundamentals), so it must clear an A/B parity
+// check (see scripts/ab-signals-merge.mjs) before being switched on in prod
+// via the AI_SIGNALS_COMBINED=1 Actions Variable. Only takes effect when
+// AI_COMBINED is also on (the signals can only ride a call that runs).
+const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // Chart-pattern detection (attachChartPatterns) feeds a compact daily price
 // series to the model and asks it to name one of 7 classic formations (or
 // "None"). Short, schema-shaped output — same Flash-Lite default as the other
@@ -10839,58 +10850,82 @@ function formatFundamentalsForPrompt(symbol, spot, f) {
   lines.push(`Ticker: ${symbol}`);
   if (f.name) lines.push(`Company: ${f.name}`);
   lines.push(`Spot price: $${spot.toFixed(2)}`);
-  lines.push(`Market cap: ${fmtBig(f.marketCap)}`);
-  lines.push("");
-  lines.push("Valuation:");
-  lines.push(`  Trailing P/E: ${fmtNum(f.trailingPE)}`);
-  lines.push(`  Forward P/E: ${fmtNum(f.forwardPE)}`);
-  lines.push(`  PEG ratio: ${fmtNum(f.pegRatio)}`);
-  lines.push(`  Price/Book: ${fmtNum(f.priceToBook)}`);
-  lines.push(`  Price/Sales (TTM): ${fmtNum(f.priceToSales)}`);
-  lines.push("");
-  lines.push("Growth (YoY):");
-  lines.push(`  Revenue growth: ${fmtPct(f.revenueGrowthYoy)}`);
-  lines.push(`  Earnings growth: ${fmtPct(f.earningsGrowthYoy)}`);
-  lines.push(`  Quarterly earnings growth: ${fmtPct(f.earningsQuarterlyGrowthYoy)}`);
-  if (f.growthEstimateCurQ != null) lines.push(`  Analyst growth est, current Q: ${fmtPct(f.growthEstimateCurQ)}`);
-  if (f.growthEstimateCurY != null) lines.push(`  Analyst growth est, current FY: ${fmtPct(f.growthEstimateCurY)}`);
-  lines.push("");
-  lines.push("Margins / returns:");
-  lines.push(`  Gross margin: ${fmtPct(f.grossMargin)}`);
-  lines.push(`  Operating margin: ${fmtPct(f.operatingMargin)}`);
-  lines.push(`  Profit margin: ${fmtPct(f.profitMargin)}`);
-  lines.push(`  Return on equity: ${fmtPct(f.returnOnEquity)}`);
-  lines.push(`  Return on assets: ${fmtPct(f.returnOnAssets)}`);
-  lines.push("");
-  lines.push("Balance sheet / cash flow:");
-  lines.push(`  Debt/Equity: ${fmtNum(f.debtToEquity)}`);
-  lines.push(`  Current ratio: ${fmtNum(f.currentRatio)}`);
-  lines.push(`  Quick ratio: ${fmtNum(f.quickRatio)}`);
-  lines.push(`  Total cash: ${fmtBig(f.totalCash)}`);
-  lines.push(`  Total debt: ${fmtBig(f.totalDebt)}`);
-  lines.push(`  Free cash flow (TTM): ${fmtBig(f.freeCashFlow)}`);
-  lines.push("");
-  lines.push("Dividend:");
-  lines.push(`  Yield: ${fmtPct(f.dividendYield)}`);
-  lines.push(`  Payout ratio: ${fmtPct(f.payoutRatio)}`);
-  lines.push("");
-  lines.push("Analyst targets:");
-  lines.push(`  Mean target: ${f.targetMeanPrice != null ? `$${f.targetMeanPrice.toFixed(2)}` : "n/a"} ` +
-    `(low ${f.targetLowPrice != null ? `$${f.targetLowPrice.toFixed(2)}` : "n/a"}, ` +
-    `high ${f.targetHighPrice != null ? `$${f.targetHighPrice.toFixed(2)}` : "n/a"})`);
-  lines.push(`  Consensus: ${f.recommendationKey || "n/a"} (${f.numberOfAnalystOpinions ?? "n/a"} analysts)`);
-  lines.push(`  Beta: ${fmtNum(f.beta)}`);
-  lines.push("");
-  lines.push("Earnings:");
+  if (fmtBig(f.marketCap) !== "n/a") lines.push(`Market cap: ${fmtBig(f.marketCap)}`);
+  // Emit a header + its metric rows, dropping any "n/a" row and skipping the
+  // whole section when every row is n/a. Identical snapshot for populated names;
+  // for sparsely-covered tickers it trims dead "Field: n/a" lines (and now-empty
+  // section headers) — fewer input tokens, same information conveyed.
+  const section = (header, rows) => {
+    const kept = rows.filter(([, v]) => v !== "n/a");
+    if (!kept.length) return;
+    lines.push("");
+    lines.push(header);
+    for (const [k, v] of kept) lines.push(`  ${k}: ${v}`);
+  };
+  section("Valuation:", [
+    ["Trailing P/E", fmtNum(f.trailingPE)],
+    ["Forward P/E", fmtNum(f.forwardPE)],
+    ["PEG ratio", fmtNum(f.pegRatio)],
+    ["Price/Book", fmtNum(f.priceToBook)],
+    ["Price/Sales (TTM)", fmtNum(f.priceToSales)],
+  ]);
+  section("Growth (YoY):", [
+    ["Revenue growth", fmtPct(f.revenueGrowthYoy)],
+    ["Earnings growth", fmtPct(f.earningsGrowthYoy)],
+    ["Quarterly earnings growth", fmtPct(f.earningsQuarterlyGrowthYoy)],
+    ["Analyst growth est, current Q", f.growthEstimateCurQ != null ? fmtPct(f.growthEstimateCurQ) : "n/a"],
+    ["Analyst growth est, current FY", f.growthEstimateCurY != null ? fmtPct(f.growthEstimateCurY) : "n/a"],
+  ]);
+  section("Margins / returns:", [
+    ["Gross margin", fmtPct(f.grossMargin)],
+    ["Operating margin", fmtPct(f.operatingMargin)],
+    ["Profit margin", fmtPct(f.profitMargin)],
+    ["Return on equity", fmtPct(f.returnOnEquity)],
+    ["Return on assets", fmtPct(f.returnOnAssets)],
+  ]);
+  section("Balance sheet / cash flow:", [
+    ["Debt/Equity", fmtNum(f.debtToEquity)],
+    ["Current ratio", fmtNum(f.currentRatio)],
+    ["Quick ratio", fmtNum(f.quickRatio)],
+    ["Total cash", fmtBig(f.totalCash)],
+    ["Total debt", fmtBig(f.totalDebt)],
+    ["Free cash flow (TTM)", fmtBig(f.freeCashFlow)],
+  ]);
+  section("Dividend:", [
+    ["Yield", fmtPct(f.dividendYield)],
+    ["Payout ratio", fmtPct(f.payoutRatio)],
+  ]);
+  // Analyst targets — composite mean/low/high line + consensus + beta. Header
+  // emitted only when at least one of the three carries data.
+  const targetRows = [];
+  if (f.targetMeanPrice != null) {
+    targetRows.push(`  Mean target: $${f.targetMeanPrice.toFixed(2)} ` +
+      `(low ${f.targetLowPrice != null ? `$${f.targetLowPrice.toFixed(2)}` : "n/a"}, ` +
+      `high ${f.targetHighPrice != null ? `$${f.targetHighPrice.toFixed(2)}` : "n/a"})`);
+  }
+  if (f.recommendationKey || f.numberOfAnalystOpinions != null) {
+    targetRows.push(`  Consensus: ${f.recommendationKey || "n/a"} (${f.numberOfAnalystOpinions ?? "n/a"} analysts)`);
+  }
+  if (fmtNum(f.beta) !== "n/a") targetRows.push(`  Beta: ${fmtNum(f.beta)}`);
+  if (targetRows.length) {
+    lines.push("");
+    lines.push("Analyst targets:");
+    for (const r of targetRows) lines.push(r);
+  }
+  // Earnings — last-reported recap + next date. Header emitted only when one is present.
+  const earningsRows = [];
   if (f.lastQuarter) {
     const lq = f.lastQuarter;
-    lines.push(`  Last reported (${lq.period || "?"} ${lq.date || ""}): EPS actual ${fmtNum(lq.epsActual)} ` +
+    earningsRows.push(`  Last reported (${lq.period || "?"} ${lq.date || ""}): EPS actual ${fmtNum(lq.epsActual)} ` +
       `vs estimate ${fmtNum(lq.epsEstimate)} ` +
       `(surprise ${lq.surprisePct != null ? fmtPct(lq.surprisePct) : "n/a"})`);
-  } else {
-    lines.push("  Last reported: n/a");
   }
-  lines.push(`  Next earnings date: ${f.nextEarningsDate || "n/a"}`);
+  if (f.nextEarningsDate) earningsRows.push(`  Next earnings date: ${f.nextEarningsDate}`);
+  if (earningsRows.length) {
+    lines.push("");
+    lines.push("Earnings:");
+    for (const r of earningsRows) lines.push(r);
+  }
   return lines.join("\n");
 }
 
@@ -11121,6 +11156,19 @@ Expected output:
 
 END EXAMPLES.`;
 
+// Appended to COMBINED_SYSTEM_PROMPT only when AI_SIGNALS_COMBINED is on, so the
+// combined call also emits the Major-Contract + Guidance signals that otherwise
+// require the separate attachAiContractGuidance round-trip. Wording mirrors that
+// call's system prompt so the reads stay semantically identical; the appended
+// text is constant across all tickers, so it stays inside the implicit-cache
+// key prefix (the discount is unaffected).
+const SIGNALS_PROMPT_SECTION = `
+
+SIGNALS FIELD — {majorContract, guidance}. ALWAYS include this field. Extract two structured facts from the supplied article material, used by the Fundamentals pillar:
+- majorContract.status — "won" if the company recently WON or was awarded a major new contract, order, or deal; "lost" if it LOST a major contract/customer or had a major deal cancelled; "none" if neither is clearly evidenced.
+- guidance.direction — the company's most recent forward GUIDANCE: "raised" (guided up / above expectations), "inline" (reaffirmed / in line), "soft" (modest cut / cautious tone), "lowered" (guided down materially), or "none" if no guidance is evident.
+Be conservative: only report "won"/"lost"/"raised"/"lowered" when the material clearly supports it; otherwise use "none". Each evidence string: one short clause citing the headline. Read these from the NEWS material only — never infer them from the fundamentals snapshot numbers.`;
+
 const CATALYST_CATEGORIES = ["fda", "contract", "launch", "court", "trial", "merger", "investor", "guidance", "other"];
 const TICKER_JUDGMENT_SCHEMA = {
   type: "object",
@@ -11196,6 +11244,22 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     userMessage += `\n\nFundamentals snapshot:\n${formatFundamentalsForPrompt(symbol, spot, fundamentals)}`;
   }
 
+  // When AI_SIGNALS_COMBINED is on, fold the Major-Contract + Guidance signals
+  // into this same call: append the SIGNALS instructions to the (cache-key)
+  // system prompt and add the `signals` field to the schema as required. Both
+  // additions are constant across tickers, so the implicit-cache prefix still
+  // matches across the per-ticker fan-out. Off → byte-identical to before.
+  const systemInstruction = AI_SIGNALS_COMBINED
+    ? COMBINED_SYSTEM_PROMPT + SIGNALS_PROMPT_SECTION
+    : COMBINED_SYSTEM_PROMPT;
+  const judgmentSchema = AI_SIGNALS_COMBINED
+    ? {
+        ...TICKER_JUDGMENT_SCHEMA,
+        properties: { ...TICKER_JUDGMENT_SCHEMA.properties, signals: AI_SIGNALS_SCHEMA },
+        required: [...TICKER_JUDGMENT_SCHEMA.required, "signals"],
+      }
+    : TICKER_JUDGMENT_SCHEMA;
+
   let response;
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
@@ -11208,14 +11272,14 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
         // interpolates symbol/spot into COMBINED_SYSTEM_PROMPT the implicit
         // caching breaks silently.
         config: {
-          systemInstruction: COMBINED_SYSTEM_PROMPT,
+          systemInstruction,
           temperature: 0.3,
           // Wider than the old 600/900 because we're emitting news +
           // fundamentals + catalysts in one response; still well under
           // the 8192 default.
           maxOutputTokens: 1800,
           responseMimeType: "application/json",
-          responseSchema: TICKER_JUDGMENT_SCHEMA,
+          responseSchema: judgmentSchema,
           thinkingConfig: { thinkingBudget: 0 },
         },
         contents: userMessage,
@@ -11329,7 +11393,24 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     if (catalysts.length >= 3) break;
   }
 
-  return { news, judgment, catalysts };
+  // Major-Contract + Guidance signals, folded in when AI_SIGNALS_COMBINED is on.
+  // Validation MUST mirror attachAiContractGuidance exactly so data.aiSignals is
+  // byte-identical in shape and the scoreFundamentals inputs are unchanged: keep
+  // a "none" status/direction (scoreFundamentals reads "none" specifically), and
+  // only set the object when at least one signal validated.
+  let aiSignals = null;
+  if (AI_SIGNALS_COMBINED) {
+    const mc = parsed?.signals?.majorContract?.status;
+    const gd = parsed?.signals?.guidance?.direction;
+    const mcStatus = ["won", "lost", "none"].includes(mc) ? mc : null;
+    const gDir = ["raised", "inline", "soft", "lowered", "none"].includes(gd) ? gd : null;
+    const sig = {};
+    if (mcStatus) sig.majorContract = { status: mcStatus, evidence: String(parsed.signals.majorContract.evidence || "").slice(0, 200) };
+    if (gDir) sig.guidance = { direction: gDir, evidence: String(parsed.signals.guidance.evidence || "").slice(0, 200) };
+    if (Object.keys(sig).length) aiSignals = sig;
+  }
+
+  return { news, judgment, catalysts, aiSignals };
 }
 
 // Periodic progress heartbeat. Each AI phase fans out via Promise.all against
@@ -11480,12 +11561,16 @@ async function attachTickerJudgments(chains, macroBackdrop) {
           return;
         }
         const withBody = headlines.filter((h) => h.body).length;
-        const { news, judgment, catalysts } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
+        const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
         data.news = news;
         if (judgment) {
           data.fundamentals = { ...data.fundamentals, judgment };
         }
         data.catalysts = catalysts && catalysts.length ? catalysts : [];
+        // Major-Contract + Guidance signals ride the same call when
+        // AI_SIGNALS_COMBINED is on (otherwise aiSignals is null and the
+        // dedicated attachAiContractGuidance pass in main() sets them instead).
+        if (aiSignals) data.aiSignals = aiSignals;
         const fundTag = judgment ? ` · fundamentals ${judgment.verdict}` : "";
         const catTag = data.catalysts.length ? ` · ${data.catalysts.length} catalyst(s)` : "";
         console.log(`  ✓ ${sym} — ${news.sentiment} (${headlines.length} articles, ${withBody} with body)${fundTag}${catTag}`);
@@ -12219,8 +12304,16 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       await acquireAiSlot();
       response = await ai.models.generateContent({
         model: NARRATIVES_MODEL,
-        contents: `${NARRATIVE_SYSTEM_PROMPT}\n\n${userMessage}`,
+        // System prompt goes in config.systemInstruction (NOT inlined into
+        // contents) so it forms the implicit-cache key prefix — matching the
+        // ticker-judgment / signals / chart calls. @google/genai drops a
+        // top-level systemInstruction, so it MUST nest inside config. (Cash
+        // savings are ~0 today — the 8 daily builds are an hour apart, past the
+        // implicit-cache TTL — but it engages on the in-build retry loop and
+        // keeps every call site consistent.)
+        contents: userMessage,
         config: {
+          systemInstruction: NARRATIVE_SYSTEM_PROMPT,
           temperature: 0.4,
           // Gemini 2.5 Flash counts "thinking" tokens against
           // maxOutputTokens, and on this prompt the dynamic thinking
@@ -12756,7 +12849,13 @@ async function main() {
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
-  await attachAiContractGuidance(chains);
+  // When AI_SIGNALS_COMBINED is on (and the combined path ran), these signals
+  // already came back inside attachTickerJudgments' single per-ticker call, so
+  // skip the dedicated round-trip — that is the cost saving. The split path
+  // (AI_COMBINED=0) and the flag-off default still use this dedicated pass.
+  if (!(AI_COMBINED && AI_SIGNALS_COMBINED)) {
+    await attachAiContractGuidance(chains);
+  }
   // Identify a classic chart pattern per ticker from the in-memory daily bars.
   // MUST run before writeChainFiles strips _bars (and wipes data/), and before
   // buildTopPicks / buildGradesIndex score scoreTechnicals — the result lands on
