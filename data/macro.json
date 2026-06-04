@@ -37,20 +37,20 @@
     "trend": "flat"
   },
   "vix": {
-    "value": 16.36,
+    "value": 16.14,
     "prior": 15.739999771118164,
     "prior1d": 16.059999465942383,
     "prior5d": 15.739999771118164,
-    "change5d": 3.939010405956256,
-    "pctChange1d": 1.8679984061880723,
-    "pctChange5d": 3.939010405956256,
+    "change5d": 2.541297552086436,
+    "pctChange1d": 0.4981353469361614,
+    "pctChange5d": 2.541297552086436,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "rising",
     "rankPct": null,
     "rankSamples": 6
   },
-  "asOf": "2026-06-04T13:31:35.990Z",
+  "asOf": "2026-06-04T14:01:58.301Z",
   "previousClose": {
     "date": "2026-06-03",
     "asOf": "2026-06-04T02:46:45.538Z",
