@@ -11616,12 +11616,19 @@ const CHART_PATTERN_SCHEMA = {
     stage: { type: "string", enum: ["forming", "confirmed"] },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     neckline: { type: "number" },
-    confirm: { type: "string" },
-    invalidate: { type: "string" },
-    target: { type: "string" },
-    explanation: { type: "string" },
-    signal: { type: "string" },
+    confirm: { type: "string", maxLength: 160 },
+    invalidate: { type: "string", maxLength: 160 },
+    target: { type: "string", maxLength: 80 },
+    explanation: { type: "string", maxLength: 500 },
+    signal: { type: "string", maxLength: 300 },
   },
+  // Emit the decision + levels BEFORE the prose. Gemini honours propertyOrdering,
+  // so if the (length-capped) explanation/signal still run long and the reply
+  // truncates at maxOutputTokens, pattern/stage/confidence/neckline/confirm/
+  // invalidate/target are already on the wire and parseChartJson salvages them
+  // instead of the whole detection being lost (was: a truncated explanation threw
+  // "Unterminated string in JSON" and dropped the ticker to no-pattern).
+  propertyOrdering: ["pattern", "stage", "confidence", "neckline", "confirm", "invalidate", "target", "explanation", "signal"],
   required: ["pattern"],
 };
 
@@ -11682,10 +11689,11 @@ const CHART_PATTERN_SYSTEM_PROMPT =
   "(e.g. \"a daily close below the ~$418 neckline\"); `invalidate` — one short " +
   "clause naming the move that would BREAK/cancel the thesis (e.g. \"a close back " +
   "above the ~$445 head\"); `target` — the rough measured-move objective once " +
-  "confirmed (e.g. \"~$391\"), or \"\" if not estimable; `explanation` (1-3 " +
-  "sentences, plain English, no markdown) describing where each swing point sits " +
-  "with approximate prices and rough dates; `signal` (1-2 sentences) on what a " +
-  "confirmed pattern could mean, framed as possibility not certainty. Set " +
+  "confirmed (e.g. \"~$391\"), or \"\" if not estimable; `explanation` (ONE or " +
+  "TWO sentences, ≤60 words total, plain English, no markdown, and do NOT repeat " +
+  "yourself) describing where each swing point sits with approximate prices and " +
+  "rough dates; `signal` (ONE sentence) on what a confirmed pattern could mean, " +
+  "framed as possibility not certainty. Keep every field terse. Set " +
   "`confidence` to high / medium / low on how textbook the formation is (a clean " +
   "forming pattern can still be 'high'). Stay grounded in the supplied data; do " +
   "not invent levels the series does not support, and do not give buy/sell advice. " +
@@ -11701,6 +11709,43 @@ const CHART_PATTERN_SYSTEM_PROMPT =
 const CHART_PATTERN_INTRADAY_BARS = 320;
 // Need a meaningful window before any read is credible (~2 weeks of 30m bars).
 const CHART_PATTERN_MIN_BARS = 130;
+
+// Tolerant parse for the chart-pattern reply. Happy path is a clean JSON.parse;
+// but the model can run the `explanation` long enough to hit maxOutputTokens and
+// truncate the reply mid-string, which makes JSON.parse throw "Unterminated
+// string in JSON". Because the schema's propertyOrdering emits every scoring
+// field (pattern/stage/confidence/neckline/confirm/invalidate/target) BEFORE the
+// prose, a truncated reply still contains them — so on a parse failure we
+// regex-extract the known scalar fields from the partial text rather than losing
+// the whole detection. Returns { parsed, salvaged }.
+function parseChartJson(jsonText) {
+  try {
+    return { parsed: JSON.parse(jsonText), salvaged: false };
+  } catch (_) {
+    const str = (key) => {
+      const m = jsonText.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+      if (!m) return undefined;
+      try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; }
+    };
+    const num = (key) => {
+      const m = jsonText.match(new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
+      return m ? Number(m[1]) : undefined;
+    };
+    const parsed = {
+      pattern: str("pattern"),
+      stage: str("stage"),
+      confidence: str("confidence"),
+      neckline: num("neckline"),
+      confirm: str("confirm"),
+      invalidate: str("invalidate"),
+      target: str("target"),
+      explanation: str("explanation"),
+      signal: str("signal"),
+    };
+    if (parsed.pattern == null) throw new Error("unparseable chart reply (no pattern field recovered)");
+    return { parsed, salvaged: true };
+  }
+}
 
 // `bars` here is the in-memory intraday (30m) series. opts.forceTextOnly skips
 // the image (used as a last-resort fallback when an image call keeps failing).
@@ -11807,7 +11852,10 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
   const jsonText = firstBrace >= 0 && lastBrace > firstBrace
     ? stripped.slice(firstBrace, lastBrace + 1)
     : stripped;
-  const parsed = JSON.parse(jsonText);
+  const { parsed, salvaged } = parseChartJson(jsonText);
+  if (salvaged) {
+    console.log(`    ⚠ ${symbol} chart reply truncated — salvaged pattern="${parsed.pattern}" from partial JSON`);
+  }
 
   const builtAt = new Date().toISOString();
   const label = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
@@ -11871,9 +11919,12 @@ const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 // (re-reads), the rest of that half reuse it. Deliberate trade-off: a fast-
 // forming intraday pattern can lag by up to a few hours within a session.
 // The same key string is used for every ticker in a given build, so a hit just
-// means "this ticker was already read this half-day". `img4` is the version tag
+// means "this ticker was already read this half-day". `img5` is the version tag
 // (intraday-timeframe detector) — bumping it invalidates all prior verdicts once.
-const CHART_PATTERN_CACHE_VERSION = "img4";
+// Bumped img4→img5 with the truncation-salvage fix so the stale "None" reads that
+// the runaway-explanation bug cached (image call truncated → fell to a blind
+// text-only read → None) are all re-rated once with the image path working.
+const CHART_PATTERN_CACHE_VERSION = "img5";
 function chartPatternBucketKey() {
   const now = new Date();
   const etDate = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
@@ -11962,11 +12013,12 @@ async function attachChartPatterns(chains, priorCache = {}) {
         try {
           chartPattern = await generateChartPattern(ai, sym, data.spot, data._intraday);
         } catch (errImg) {
+          const why = String(errImg?.message || errImg).split("\n")[0].slice(0, 100);
           try {
             chartPattern = await generateChartPattern(ai, sym, data.spot, data._intraday, { forceTextOnly: true });
-            console.log(`  ↪ ${sym} — image read failed, text-only fallback succeeded`);
+            console.log(`  ↪ ${sym} — image read failed (${why}), text-only fallback succeeded`);
           } catch (errText) {
-            console.log(`  ✗ ${sym} chart-pattern detection failed: ${errText.message}`);
+            console.log(`  ✗ ${sym} chart-pattern detection failed: image=(${why}) text=(${errText.message})`);
           }
         }
         if (chartPattern) {
