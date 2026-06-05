@@ -6902,15 +6902,36 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   const technicals = scoreTechnicals(data, streakRow);
   const mechanicals = scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop);
   const narrative = scoreNarrative(sym, data, narratives, macroBackdrop);
-  const total = fundamentals.score + technicals.score + mechanicals.score + narrative.score;
+  const subtotal = fundamentals.score + technicals.score + mechanicals.score + narrative.score;
+
+  // Entry timing folded in as a 5th component so the single grade answers
+  // "is this a good trade to put on NOW?", not just "is this a good asset?".
+  // Direction is the grade's own lean; timing weakens or strengthens conviction
+  // in that direction (bounded -8..+4) but never flips the implied side — a
+  // weak grade whose timing would cross zero is pulled to a flat "no trade".
+  const dirSign = subtotal >= 0 ? 1 : -1;
+  const tSide = dirSign > 0 ? "call" : "put";
+  const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  const et = computeEntryTiming(tSide, data, (data && data.spot) || null, { regime });
+  const tContribution = Number.isFinite(et.contribution) ? et.contribution : 0;
+  const total = dirSign * Math.max(0, Math.abs(subtotal) + tContribution);
+  const timingDelta = total - subtotal; // exact, so the 5 pillars sum to total
+  const timing = {
+    score: timingDelta,
+    signals: [{ key: "entryTiming", label: et.headline || "Entry timing", score: timingDelta }],
+    state: et.state,
+    headline: et.headline || "",
+    reasons: Array.isArray(et.reasons) ? et.reasons : [],
+  };
   const recommendation = tierForScore(total);
 
-  // Top-3 contributing signals per side become the headline drivers.
+  // Top contributing signals across all pillars become the headline drivers.
   const allSignals = [
     ...fundamentals.signals.map((s) => ({ ...s, pillar: "fundamentals" })),
     ...technicals.signals.map((s) => ({ ...s, pillar: "technicals" })),
     ...mechanicals.signals.map((s) => ({ ...s, pillar: "mechanicals" })),
     ...narrative.signals.map((s) => ({ ...s, pillar: "narrative" })),
+    ...timing.signals.map((s) => ({ ...s, pillar: "timing" })),
   ];
   const drivers = allSignals
     .filter((s) => s.score !== 0)
@@ -6924,7 +6945,7 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
 
   return {
     total,
-    pillars: { fundamentals, technicals, mechanicals, narrative },
+    pillars: { fundamentals, technicals, mechanicals, narrative, timing },
     recommendation,
     drivers,
   };
@@ -8143,7 +8164,7 @@ function daysToEarningsFrom(data) {
 // Exported (like resolvePickOutcome) so the gate rules can be unit-tested.
 export function computeEntryTiming(side, data, spot, opts = {}) {
   const regime = opts.regime || "neutral";
-  const failOpen = (why) => ({ state: "go", score: 0, reasons: [why], headline: "Timing read unavailable — not gated" });
+  const failOpen = (why) => ({ state: "go", score: 0, contribution: 0, reasons: [why], headline: "Timing read unavailable — not gated" });
   if (!(spot > 0) || (side !== "call" && side !== "put")) return failOpen("no spot / side — gate skipped");
   const t = (data && data.technicals) || {};
   const f = (data && data.fundamentals) || {};
@@ -8319,7 +8340,14 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     headline = "No clean entry yet — wait for a setup";
   }
 
-  return { state, score, reasons, headline };
+  // Fold the read into a bounded score contribution so the grade itself can
+  // carry "is NOW a good entry?" instead of a separate gate. Knife / chase are
+  // the dominant failure modes → a flat heavy penalty; otherwise the pro/con
+  // tally, clamped so timing nudges conviction without swamping the 4 pillars.
+  // Sign is normalized to the trade direction (+ = good for the trade).
+  const contribution = (knife || chase) ? -8 : Math.max(-8, Math.min(4, score));
+
+  return { state, score, contribution, reasons, headline };
 }
 
 // Resolve the most specific peer group for a ticker — the curated sub-industry
@@ -8412,13 +8440,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const { scored, peerIndex, marketCtx } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
 
-  // Candidate set: every name the GRADE marks actionable (calls total ≥ +16,
-  // puts total ≤ -16), each tagged with its side. PLUS, when the broad tape is
-  // confirmed risk-off, a "tactical put" tier — names that don't clear the -16
-  // bar but are still bearish-leaning (total ≤ PICKS_RISKOFF_PUT_BAR). Tactical
-  // puts must additionally pass the timing gate with a 'go' (a real, well-timed
-  // breakdown) before they ship; graded picks ship on 'go' OR 'wait'. This is
-  // how puts appear in a long-biased universe without ever touching `total`.
+  // Candidate set: every name the GRADE marks actionable (|total| ≥
+  // PICKS_MIN_CONVICTION), each tagged with its side. The grade now already bakes
+  // in entry timing (scorePillared), so a chasing-top / falling-knife name has
+  // been pushed below the bar and simply isn't here. PLUS, when the broad tape is
+  // confirmed risk-off, a "tactical put" tier — bearish-leaning names that don't
+  // clear the bar (total ≤ PICKS_RISKOFF_PUT_BAR) — which still ship only on a
+  // clean breakdown (timing 'go'). This is how puts appear in a long-biased
+  // universe.
   const candSet = scored
     .filter((s) => Math.abs(s.total) >= PICKS_MIN_CONVICTION && s.recommendation.side)
     .map((s) => ({ r: s, side: s.recommendation.side, tactical: false }));
@@ -8454,14 +8483,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const contract = pickContractForPick(side, r.data, rfr, { requireClean: true });
     if (!contract) continue;
 
-    // Execution-timing gate — the fix for "buying tops / catching knives". A
-    // pick that grades great can still be a terrible entry RIGHT NOW (extended
-    // into resistance, or a falling knife). 'avoid' drops the pick (the loop
-    // backfills from the next candidate); a tactical risk-off put must clear a
-    // 'go'; graded picks ship on 'go' or (badged) 'wait'. Never touches `total`.
-    const entryTiming = computeEntryTiming(side, r.data, r.data?.spot ?? null, { regime });
-    if (entryTiming.state === "avoid") { vetoed += 1; continue; }
-    if (cand.tactical && entryTiming.state !== "go") { vetoed += 1; continue; }
+    // Entry timing is already folded into `total` (scorePillared) — a chasing-
+    // top / falling-knife read subtracts up to 8 points there, so badly-timed
+    // names fall below the conviction bar and never reach this loop. We read the
+    // already-computed timing pillar for the breakdown + the tactical guard.
+    const timing = (r.pillars && r.pillars.timing) || { state: "go", score: 0, headline: "", reasons: [] };
+    // A tactical risk-off put sits below the grade bar to begin with, so only
+    // ship it on a genuinely clean breakdown (timing 'go'), never a marginal one.
+    if (cand.tactical && timing.state !== "go") { vetoed += 1; continue; }
 
     // Tactical puts sit below the -16 grade bar, so tierForScore() would call
     // them "no-trade". Override the recommendation so the card reads correctly;
@@ -8506,10 +8535,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       ),
       recommendation,
       pillars: r.pillars,
-      // Execution-timing read — "should we execute NOW?" Separate from the grade
-      // (`total`/pillars). state: 'go' (clean entry) | 'wait' (ship but defer —
-      // mixed / catalyst / tape against). 'avoid' picks never reach here (dropped).
-      entryTiming,
+      // Execution-timing read, now folded INTO the grade (pillars.timing, already
+      // reflected in `total`). Kept here too for the accuracy A/B cohort and any
+      // legacy reader; state ('go'|'wait'|'avoid') is informational only.
+      entryTiming: timing,
       tactical: !!cand.tactical,
       entryRegime: regime,   // stamped onto the accuracy entry for the byRegime cohort
       thesis,
@@ -8544,11 +8573,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
   }
   // Rank by raw conviction — |total| score, highest first (a +25 always outranks
-  // a +22) — then break genuine ties by entry-timing quality so a 'go' edges out
-  // a 'wait' at the same score. Contract quality still only decides WHICH contract
-  // represents each pick, not the order. The roster is intentionally allowed to
-  // ship FEWER than PICKS_COUNT: the timing gate DROPS falling-knife / chasing-top
-  // entries and nothing backfills with a worse-timed name, so a short list on a
+  // a +22). `total` now already folds in entry timing, so a well-timed name
+  // outscores a chased one directly; the secondary key just stabilizes exact
+  // ties. Contract quality still only decides WHICH contract represents each
+  // pick, not the order. The roster is intentionally allowed to ship FEWER than
+  // PICKS_COUNT: a chasing-top / falling-knife read drags the name below the
+  // conviction bar, and nothing backfills with a worse one, so a short list on a
   // junk-entry day is the honest signal that there's little clean to buy.
   out.sort((a, b) =>
     Math.abs(b.total) - Math.abs(a.total) ||
@@ -9783,11 +9813,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // governs the CLOSED/resolved set, so genuinely distinct realized trades stay
   // distinct in the history.
   const openTheses = new Set(stillOpen.map((e) => `${e.symbol}:${e.side}`));
-  // Headline track record = ENDORSED ('go') entries only. When the A/B flag is
-  // on, also enroll the top-N 'wait' picks (tagged cohort:'wait') so the gate can
-  // be validated go-vs-wait; computePicksAccuracyStats keeps them out of the
-  // headline and exposes them only under byCohort.
-  const goPicks = picks.filter((p) => !p?.entryTiming || p.entryTiming.state === "go");
+  // Track record = the shipped roster. Entry timing is now folded into the grade
+  // (a badly-timed name scores below the bar and never ships), so every pick that
+  // made the list is an endorsed, well-timed entry — enroll the top-N directly.
+  // When the A/B flag is on, also enroll top-N 'wait'-tagged picks under a
+  // separate cohort; computePicksAccuracyStats keeps them out of the headline.
+  const goPicks = picks;
   const waitPicks = PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT
     ? picks.filter((p) => p?.entryTiming?.state === "wait")
     : [];
@@ -9809,7 +9840,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // older entries without it are simply skipped by that aggregator.
     const entrySignals = [];
     const pl = p.pillars || {};
-    for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
+    for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative", "timing"]) {
       for (const s of (pl[pk]?.signals || [])) {
         if (s && s.key) entrySignals.push({ key: s.key, pillar: pk, score: s.score | 0 });
       }
