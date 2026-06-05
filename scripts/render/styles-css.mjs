@@ -5877,13 +5877,15 @@ main { padding-top: var(--s-2); }
 }
 .pick-tab-card.call .ptc-rank { color: color-mix(in srgb, var(--pos) 70%, var(--muted)); }
 .pick-tab-card.put  .ptc-rank { color: color-mix(in srgb, var(--neg) 70%, var(--muted)); }
-.ptc-head { grid-area: head; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ptc-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+/* The ticker is the card's headline — it must never truncate. Keep it from
+   shrinking; the side/timing badges wrap to a second line on a narrow card
+   instead of crushing the symbol to "C…". */
 .ptc-sym {
+  flex: 0 0 auto;
   font: 700 16px/1 var(--font-mono);
   color: var(--text-strong);
   letter-spacing: .02em;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ptc-side {
