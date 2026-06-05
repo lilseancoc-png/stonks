@@ -1167,10 +1167,16 @@ function computeTechnicals(bars) {
   };
 }
 
+// Trailing window over which analyst upgrades/downgrades count toward the
+// Fundamentals "Analyst Rating Changes" signal. ~one quarter — long enough to
+// catch a wave of revisions, short enough that a stale year-old call doesn't
+// score. Tunable in one place (mirrored in docs/top-picks-rubric.md §3).
+const ANALYST_REVISION_WINDOW_DAYS = 90;
+
 // Fundamentals + last earnings pull. quoteSummary lets us request multiple
 // modules in a single round trip — we ask for the key valuation / health /
-// growth / margin / cash flow / analyst-target slices plus the earnings
-// schedule. Failure is non-fatal: the page still grades options without it.
+// growth / margin / cash flow / analyst-target / rating-action slices plus the
+// earnings schedule. Failure is non-fatal: the page still grades options without it.
 async function fetchFundamentals(symbol) {
   const modules = [
     "summaryDetail",
@@ -1181,6 +1187,12 @@ async function fetchFundamentals(symbol) {
     "earningsHistory",
     "earningsTrend",
     "price",
+    // upgradeDowngradeHistory is Yahoo's analyst rating-action feed — every
+    // firm's upgrade/downgrade/initiate/maintain with from→to grades. We use
+    // the recent up vs. down counts as a Fundamentals signal (a wave of
+    // upgrades is real analyst momentum). Missing for ETFs / thin coverage →
+    // graceful (the signal reads "no data").
+    "upgradeDowngradeHistory",
     // assetProfile gives us longBusinessSummary, industry, and sector so the
     // news-fallback paragraph (used when no readable articles flow through)
     // can describe what the company actually does instead of just citing
@@ -1218,6 +1230,7 @@ async function fetchFundamentals(symbol) {
   const ap = res.assetProfile || {};
   const et = res.earningsTrend || {};
   const pr = res.price || {};
+  const ud = res.upgradeDowngradeHistory || {};
 
   // Quarterly income-statement series. Yahoo retired the old
   // incomeStatementHistoryQuarterly quoteSummary module (Nov 2024) — the
@@ -1446,6 +1459,51 @@ async function fetchFundamentals(symbol) {
     if (m >= 1 && m <= 12) fiscalYearEndMonth = m;
   }
 
+  // Analyst rating changes — summarize the upgrade/downgrade feed into the
+  // recent up vs. down counts (the score driver) plus the single most-recent
+  // up/down action (for the breakdown note). We only count actual rating
+  // CHANGES (action "up"/"down"); the constant stream of "maintain"/"reiterate"
+  // prints is noise, not a revision. Window is the trailing
+  // ANALYST_REVISION_WINDOW_DAYS so a stale call from last year doesn't score.
+  // null when there's no coverage (ETFs, thin names) → signal reads "no data".
+  let analystRevisions = null;
+  const udHist = Array.isArray(ud.history) ? ud.history : [];
+  if (udHist.length) {
+    const nowMs = Date.now();
+    let upgrades = 0, downgrades = 0, latest = null, latestT = -Infinity;
+    for (const row of udHist) {
+      if (!row) continue;
+      const act = String(row.action || "").toLowerCase();
+      if (act !== "up" && act !== "down") continue;
+      const t = row.epochGradeDate ? new Date(row.epochGradeDate).getTime() : NaN;
+      if (!Number.isFinite(t)) continue;
+      const ageDays = (nowMs - t) / 86400000;
+      if (ageDays < 0 || ageDays > ANALYST_REVISION_WINDOW_DAYS) continue;
+      if (act === "up") upgrades++; else downgrades++;
+      // Track the most-recent qualifying action by timestamp (not iteration
+      // order) for the breakdown note — robust if Yahoo ever reorders the feed.
+      if (t > latestT) {
+        latestT = t;
+        latest = {
+          firm: row.firm || null,
+          action: act,
+          fromGrade: row.fromGrade || null,
+          toGrade: row.toGrade || null,
+          date: new Date(t).toISOString().slice(0, 10),
+        };
+      }
+    }
+    if (upgrades || downgrades) {
+      analystRevisions = {
+        windowDays: ANALYST_REVISION_WINDOW_DAYS,
+        upgrades,
+        downgrades,
+        net: upgrades - downgrades,
+        latest,
+      };
+    }
+  }
+
   return {
     // Prefer longName: Yahoo caps shortName at ~30 chars, which truncates
     // names like "Taiwan Semiconductor Manufacturing Company Limited" mid-word
@@ -1490,6 +1548,7 @@ async function fetchFundamentals(symbol) {
     targetLowPrice: num(fd.targetLowPrice),
     recommendationKey: fd.recommendationKey || null,
     numberOfAnalystOpinions: num(fd.numberOfAnalystOpinions),
+    analystRevisions,
     lastQuarter,
     earningsHistory: earningsHistory.slice(-8),
     revenueHistory,
@@ -5600,6 +5659,10 @@ const PICKS_TIMING_CHASE_52W = 0.92;        // ≥92% of the way to the 52w extr
 const PICKS_TIMING_CHASE_RET5D = 10;        // % 5-day run in the trade's direction = an extended move
 const PICKS_TIMING_CHASE_RET3D = 10;        // % 3-day blow-off run in the trade's direction
 const PICKS_TIMING_PULLBACK_BAND = 3;       // % around the 20D SMA that counts as a healthy reset (the green zone)
+const PICKS_TIMING_VOL_CONFIRM = 1.3;       // rvol ≥ this = above-average participation confirming the move
+const PICKS_TIMING_VOL_LIGHT = 0.8;         // rvol < this = thin tape; a move on no volume tends to fade
+const PICKS_TIMING_VOL_HEAVY = 1.5;         // rvol ≥ this into a pullback = distribution, not a quiet reset
+const PICKS_TIMING_NEAR_LEVEL_PCT = 1.5;    // within this % of the leanable 20D level = a tight, defined-risk stop
 const PICKS_TIMING_RISKOFF_VIX = 20;        // VIX level that confirms a risk-off regime
 const PICKS_TIMING_RISKOFF_SPY = -1.0;      // % SPY day that confirms a risk-off regime
 const PICKS_TIMING_RISKON_SPY = 0.6;        // % SPY day that confirms a risk-on regime
@@ -5989,7 +6052,36 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(analystSignal);
 
-  // 5. P/E vs Sector median: discount +1, premium-with-no-growth -1, else 0.
+  // 5. Analyst Rating Changes: recent upgrades vs downgrades (last ~90d, from
+  // Yahoo's rating-action feed). Distinct from the price-target signal above —
+  // a TARGET is a level, a RATING CHANGE is an event (and events move stocks).
+  // A wave of upgrades is real analyst momentum (+2), a single one +1; symmetric
+  // for downgrades. Only actual up/down actions count (maintains/reiterates are
+  // ignored upstream). Most names have no recent change → 0.
+  let ratingSignal = _sig("analystRevisions", "Analyst Rating Changes", 0,
+    { available: false, note: "no recent upgrades or downgrades" });
+  const ar = f.analystRevisions;
+  if (ar && (ar.upgrades || ar.downgrades)) {
+    const net = (ar.upgrades || 0) - (ar.downgrades || 0);
+    let s = 0;
+    if (net >= 3) s = 2;
+    else if (net >= 1) s = 1;
+    else if (net <= -3) s = -2;
+    else if (net <= -1) s = -1;
+    const noteBits = [`${ar.upgrades || 0} up / ${ar.downgrades || 0} down in ${ar.windowDays || ANALYST_REVISION_WINDOW_DAYS}d`];
+    const lt = ar.latest;
+    if (lt && lt.firm) {
+      const grades = lt.fromGrade && lt.toGrade ? ` ${lt.fromGrade}→${lt.toGrade}` : (lt.toGrade ? ` ${lt.toGrade}` : "");
+      noteBits.push(`latest: ${lt.firm} ${lt.action === "up" ? "upgrade" : "downgrade"}${grades}`);
+    }
+    ratingSignal = _sig("analystRevisions", "Analyst Rating Changes", s, {
+      value: `${net >= 0 ? "+" : ""}${net} net`,
+      note: noteBits.join(" · "),
+    });
+  }
+  signals.push(ratingSignal);
+
+  // 6. P/E vs Sector median: discount +1, premium-with-no-growth -1, else 0.
   const sec = f.sector;
   const peSelf = f.trailingPE;
   const peMed = sec && sectorMedianPE ? sectorMedianPE[sec] : null;
@@ -6015,7 +6107,7 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(peSignal);
 
-  // 6. Guidance: raised +3, in-line +2, lowered -3 (per spec — three states
+  // 7. Guidance: raised +3, in-line +2, lowered -3 (per spec — three states
   // only, no intermediate "soft cut"; a modest cut still folds into the lowered
   // bucket at -3). Primary source is the AI-extracted guidance direction from
   // recent news (data.aiSignals.guidance, set by attachAiContractGuidance when
@@ -6067,7 +6159,7 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(guideSignal);
 
-  // 7. Major Contract: +2 if the company recently WON a major contract/order,
+  // 8. Major Contract: +2 if the company recently WON a major contract/order,
   // -3 if it LOST one (per spec — a lost deal is a sharper negative than a win
   // is a positive). Read from the AI extraction over recent news
   // (data.aiSignals.majorContract, set by attachAiContractGuidance). With no AI
@@ -6095,7 +6187,7 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(contractSignal);
 
-  // 8. Free Cash Flow (TTM): positive +1, negative -1 (per spec). Yahoo's
+  // 9. Free Cash Flow (TTM): positive +1, negative -1 (per spec). Yahoo's
   // freeCashFlow is a trailing-twelve-month dollar figure.
   let fcfSignal = _sig("fcf", "Free Cash Flow TTM", 0,
     { available: false, note: "no FCF data" });
@@ -6115,7 +6207,7 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(fcfSignal);
 
-  // 9. Net Margin growth: expanding net margin quarter-over-quarter +1,
+  // 10. Net Margin growth: expanding net margin quarter-over-quarter +1,
   // contracting -1 (per spec). netMarginHistory values are in percent units,
   // oldest→newest; compare the latest quarter to the prior one with a small
   // dead-band so noise doesn't flip the sign. Needs ≥2 quarters to measure a
@@ -8304,6 +8396,41 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const pullbackHold = distSma20 != null && Math.abs(distSma20) <= PICKS_TIMING_PULLBACK_BAND &&
                        rsiDeltaDir != null && rsiDeltaDir > 0 && ret1d != null && ret1d >= 0 && trendOk;
   if (pullbackHold) pro(true, `healthy pullback to the 20D SMA with momentum turning back up — buyers stepping in`);
+
+  // ---- Volume confirmation (does the tape back the move?) --------------------
+  // Price tells you the direction; volume tells you whether to believe it. rvol
+  // already feeds the breakout pro and the falling-knife read above — this is the
+  // standalone participation check for moves that aren't a clean level break: a
+  // push the trade's way on heavy volume is real demand; the same push on thin
+  // volume is a low-conviction drift that tends to fade. On a healthy pullback
+  // the read inverts — light volume into support is sellers drying up (good),
+  // heavy volume into it is distribution (bad).
+  if (rvol != null) {
+    if (pullbackHold) {
+      if (rvol <= 1.0) pro(false, `pullback came on light volume (${rvol.toFixed(1)}x) — sellers drying up, not distribution`);
+      else if (rvol >= PICKS_TIMING_VOL_HEAVY) con(false, `pullback is on heavy volume (${rvol.toFixed(1)}x) — looks like distribution, not a quiet reset`);
+    } else if (!broke && !chase && !knife && ret1d != null && ret1d > 0) {
+      // Don't credit "real participation" while we're flagging a chase/knife —
+      // that would show a pro alongside the disqualifier (the defined-risk block
+      // below is guarded the same way).
+      if (rvol >= PICKS_TIMING_VOL_CONFIRM) pro(false, `${pct(ret1d)} day on ${rvol.toFixed(1)}x volume — real participation behind the move`);
+      else if (rvol < PICKS_TIMING_VOL_LIGHT) con(false, `the move is on thin volume (${rvol.toFixed(1)}x) — low conviction, prone to fade`);
+    }
+  }
+
+  // ---- Other factor: defined-risk entry near a leanable level ----------------
+  // An entry sitting right on top of the level it can lean on (the 20D support
+  // for a call, the 20D resistance for a put) has a tight, well-defined stop —
+  // the structural complement to the ATR-floor cut. Only credited when we're not
+  // already chasing (a stretched name's level sits far below) and not breaking
+  // the wrong way.
+  const leanLevel = dir > 0 ? s20 : r20;
+  let nearLevel = false;
+  if (leanLevel > 0 && !chase && !brokeAgainst) {
+    const distToLevel = dir > 0 ? ((spot - leanLevel) / leanLevel) * 100 : ((leanLevel - spot) / leanLevel) * 100;
+    nearLevel = distToLevel >= 0 && distToLevel <= PICKS_TIMING_NEAR_LEVEL_PCT;
+  }
+  if (nearLevel) pro(false, `within ${PICKS_TIMING_NEAR_LEVEL_PCT}% of the 20D ${dir > 0 ? "support" : "resistance"} — a tight, defined-risk stop`);
 
   // ---- Tape & catalyst overlays ---------------------------------------------
   const tapeAgainst = (side === "call" && regime === "risk-off") || (side === "put" && regime === "risk-on");
