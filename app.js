@@ -866,7 +866,7 @@
     var body;
     if (!pick){
       body = '<div class="opt-toppick-empty">No ' + escapeHtml(sym) + ' ' + sideWord + ' clear the Top-Picks bar in this build. ' +
-        '<span class="opt-toppick-crit">Needs ≥14d standard monthly · 5–30% OTM · |Δ| 0.20–0.40 · OI ≥ 50 · spread ≤ 18% · IV ≤ 200% · premium ≤ $35.</span></div>';
+        '<span class="opt-toppick-crit">Needs ≥14d standard monthly · near-the-money |Δ| 0.45–0.65 · OI ≥ 50 · spread ≤ 18% · IV ≤ 200% · premium ≤ max($35, 12% of spot).</span></div>';
     } else {
       body = topPickCardHtml(pick, side, sym);
     }
@@ -10285,6 +10285,17 @@
     // SPY benchmark over each pick's hold — the honest "does this beat buy-and-hold?"
     if (st.expectancyPct != null) chips += chip(accPct(st.expectancyPct), 'expectancy · stock move', st.expectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
     if (st.excessExpectancyPct != null) chips += chip(accPct(st.excessExpectancyPct), 'vs SPY', st.excessExpectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
+    // MODELED option-P&L expectancy (P0.1): the BS-repriced result, not the
+    // underlying move. The gap vs the stock-move expectancy above is the theta +
+    // IV-crush tax. null until gate-era picks (with the entry-option snapshot)
+    // resolve. Tooltipped as modeled so it's never read as a realized fill.
+    if (st.optionExpectancyPct != null) {
+      chips += '<div class="accuracy-chip' + (st.optionExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="Modeled with Black-Scholes (entry IV decayed toward realized HV, earnings crush applied) — we have no options-price feed. The gap vs stock-move expectancy is the theta/IV-crush tax.">' +
+        '<span class="accuracy-chip-num">' + accPct(st.optionExpectancyPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">expectancy · option (modeled · ' + (st.optionDecided || 0) + ')</span>' +
+      '</div>';
+    }
 
     // --- Win rate by tier (the headline "does the score work?" view) --------
     var tierRows = '';
@@ -11040,10 +11051,17 @@
   // the single folded-score signal — so this renders that structure directly
   // from pillars.timing.{state,headline,reasons}. Falls back gracefully on
   // legacy payloads that lack those fields.
-  function pickTimingPanelBody(pil){
+  function pickTimingPanelBody(pil, pick){
     var state = (pil && pil.state) || 'go';
     var headline = (pil && pil.headline) || '';
-    var reasons = Array.isArray(pil && pil.reasons) ? pil.reasons : [];
+    var reasons = Array.isArray(pil && pil.reasons) ? pil.reasons.slice() : [];
+    // Crush-exposure flag (P1.3): if the recommended contract's expiry falls after
+    // an (unconfirmed) earnings date, surface it as a disqualifier-style warning —
+    // a long-premium buyer eats the post-print IV crush unless this is explicitly
+    // an IV-expansion play.
+    if (pick && pick.earningsBeforeExpiry){
+      reasons.unshift('earnings before expiry — crush-exposed unless this is an IV-expansion play');
+    }
     var stCls = state === 'go' ? 'go' : (state === 'avoid' ? 'avoid' : 'wait');
     var stLabel = state === 'go' ? 'GO' : (state === 'avoid' ? 'AVOID' : 'WAIT');
     var stHint = state === 'go'
@@ -11083,6 +11101,10 @@
     if (!flags.length && !pros.length && !cons.length){
       out += '<p class="pick-timing-empty">No timing signals fired — entry reads neutral (0 to the grade).</p>';
     }
+    // The gate's thresholds were fit to a small (~19-pick) in-sample set; its edge
+    // over the volatility-aware stop alone is not yet validated on forward,
+    // gate-era picks. Label it research/unproven so it isn't read as proven.
+    out += '<p class="pick-timing-research">⚗︎ Research / unproven — thresholds fit in-sample; marginal edge validates as gate-era picks accumulate (see the Track Record\'s modeled option expectancy).</p>';
     return out;
   }
 
@@ -11217,7 +11239,7 @@
       // Entry timing renders a verdict + classified reason list; the four asset
       // pillars render their flat signal list (+ any catalyst chips).
       var pillarBody = (k === 'timing')
-        ? pickTimingPanelBody(pil)
+        ? pickTimingPanelBody(pil, p)
         : '<ul class="pick-pillar-signals">' + sigList + '</ul>' + catSection;
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
         '<summary class="pick-pillar-head">' +
@@ -11781,6 +11803,7 @@
     var noteBits = [];
     if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> clean setup' + (picks.length === 1 ? '' : 's') + ' cleared the bar today');
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
+    if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';

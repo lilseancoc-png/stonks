@@ -47,7 +47,7 @@ buildTopPicks()
    ├─ candidate set          |total| ≥ 12  (+ risk-off "tactical puts", §6)
    ├─ ranked by |total|      conviction (entry timing already inside it)
    ├─ GATE 1: contract       pickContractForPick(requireClean) — a tradeable contract
-   ├─ GATE 2: sector cap     ≤ 4 per sector (§7) — caps correlation
+   ├─ GATE 2: sector cap     ≤ 3 per sector + ≤ 5 per factor (§7) — caps correlation
    └─ ship survivors         up to 10; roster may honestly shrink
 ```
 
@@ -56,7 +56,8 @@ scores below the bar. Two gates then decide whether a high-grade name ships:
 
 1. **Contract-quality gate** (`pickContractForPick`, §5) — is there a *tradeable
    contract* (liquidity, spread, delta, DTE)? No → drop.
-2. **Sector cap** (§7) — already 4 picks from this sector? → skip.
+2. **Sector + factor cap** (§7) — already 3 picks from this GICS sector, or 5 from
+   this correlation factor? → skip.
 
 Ranking is by **conviction** (`|total|`), which already folds in entry timing,
 so a well-timed name outscores a chased one directly.
@@ -87,11 +88,11 @@ sum of the four pillars **plus the entry-timing component (§6)**, which adds
 | Signal | Scoring |
 |---|---|
 | RSI Movement | >50 & rising +1, <50 & falling −1 |
-| **RSI Reading** | ≥75 **−3** (overbought), ≤25 **+3** (oversold) — *contrarian* |
+| **RSI Reading** | ≥75 **−3** (overbought); ≤25 **+3** (oversold) — *contrarian, trend-conditioned (P1.2): the +3 oversold credit fires only with a reversal-confirmation bar (RSI ticking up, MACD hist >0, or a green session), so a still-falling knife scores 0* |
 | MACD | line>signal & hist>0 +1, line<signal & hist<0 −1 |
 | Streak | ≥3 green days +1, ≥3 red −1 |
 | Support/Resistance | confirmed break: 20D ±1, 50D ±1, 100D ±2 |
-| **52-week H/L** | within 5% of high **−1**, within 5% of low **+1** — *contrarian* |
+| **52-week H/L** | within 5% of high **−1**; within 5% of low **+1** — *contrarian; the +1 near-low credit is trend-conditioned (P1.2) on the same reversal bar* |
 | Volume Confirmation | rvol ≥1.3 +1, <0.8 −1 |
 | **MA Stack (20/50/100D)** | **±1** total — above the majority of the SMAs +1, below −1 (**decorrelated**: was ±1 *each* = ±3, which triple-counted one collinear trend read and over-weighted momentum; the 20/50/100D SMAs are almost always on the same side of price at once) |
 | Chart Pattern | confirmed bullish +1, bearish −1 (forming = 0) |
@@ -104,9 +105,9 @@ sum of the four pillars **plus the entry-timing component (§6)**, which adds
 | Short Interest % | squeeze setup +1, SI rising −1, SI falling +1 |
 | Unusual Volume | hourly ≥1.3× 20D-avg, ±1 by move direction |
 | SPY flows | ≥+0.6% +1, ≤−0.6% −1 |
-| **Put/Call Ratio Extreme** | >1.15 **+2** (fear, contrarian bullish), <0.65 **−2** (greed) — *contrarian* |
+| **Put/Call Ratio Extreme** | >1.15 **+2** (fear, contrarian bullish), <0.65 **−2** (greed) — *contrarian; the +2 fear credit is trend-conditioned (P1.2) on a per-name reversal bar* |
 | VIX Tracking | rising & >25 −2; **falling & ≥20 +1** (vol relief from an *elevated* level). The falling-VIX credit is gated on the level — it used to fire at any level, handing a "free" +1 to **every** name on any calm down-drift, uniformly inflating the whole grade |
-| **VIX Spot** | <15 −1 (complacency), >35 **+2** (capitulation, contrarian bullish) — *contrarian* |
+| **VIX Spot** | <15 −1 (complacency), >35 **+2** (capitulation, contrarian bullish) — *contrarian; the +2 capitulation credit is trend-conditioned (P1.2) on a per-name reversal bar* |
 
 ### Narrative (`scoreNarrative`)
 | Signal | Scoring |
@@ -120,15 +121,18 @@ sum of the four pillars **plus the entry-timing component (§6)**, which adds
 | DXY (1D) | ≥+0.9% −2, ≤−0.9% +1 |
 | 10Y Yield (1D) | ≥+13 bps −2, ≤−13 bps +1 |
 
-> **Known long-bias / falling-knife risk in the score.** The *contrarian* signals
-> in **bold** above (RSI-oversold, 52w-low, P/C-fear, VIX-capitulation) turn
-> **more bullish as a quality name crashes** — i.e. the grade can keep a name at
-> "Strong Call" while the four asset pillars alone keep scoring it. We do **not**
-> trend-condition these signals; instead the **entry-timing component (§6) is now
-> part of `total`** and subtracts up to 8 points for exactly this knife-catch (and
-> in a confirmed risk-off tape it tightens its knife thresholds, §6.3), so a
-> contrarian-inflated long is pulled back below the conviction bar by the score
-> itself rather than vetoed by a separate gate.
+> **Long-bias / falling-knife defense (two layers).** The *contrarian* signals in
+> **bold** above (RSI-oversold, 52w-low, P/C-fear, VIX-capitulation) used to turn
+> **more bullish as a quality name crashed** — so the grade could keep a name at
+> "Strong Call" purely on the buy-the-crash signals. Two layers now defend against
+> that: (1) **trend-conditioning at the source (P1.2)** — each bold buy-the-crash
+> credit only fires once a reversal bar confirms the turn (RSI ticking up, MACD
+> histogram >0, or a green session), so a still-falling knife never earns the credit
+> in the first place; and (2) the **entry-timing component (§6), part of `total`**,
+> which still subtracts up to 8 points for a knife-catch / chase (tightening its
+> knife thresholds in a confirmed risk-off tape, §6.3). Layer 1 stops the double
+> book-keeping the old design had (score the crash +8, then claw it back −8); layer
+> 2 remains as the *location/timing* read.
 
 ---
 
@@ -164,11 +168,19 @@ filters (drop the contract if any fails), then a composite quality score picks t
 best survivor:
 
 - **DTE** ≥ 14 (roster path: ≥ 21); standard monthlies only (third Friday).
-- **|Delta|** 0.20–0.40 (target 0.30).
-- **OTM** 5–30% from spot.
+- **|Delta|** 0.45–0.65 (target 0.55) — **near-the-money** (P1.1). Moved off the
+  old cheap/fragile 0.20–0.40Δ OTM band, where an ~8% adverse underlying move was
+  ≈ −70% on the option; a slightly-ITM contract carries less theta drag and
+  IV-crush sensitivity and survives one red day. Delta is the primary moneyness gate.
+- **Moneyness sanity bound** −20% (ITM) … +12% (OTM) from spot — a loose bound now
+  that delta gates moneyness, not the old 5–30% OTM rule.
 - **Bid/ask spread** ≤ 18% (roster: ≤ 12%).
 - **Open interest** ≥ 50 (roster: ≥ 100); needs a real two-sided quote.
-- **IV** ≤ 200%; **premium** ≤ $35/share (≤ ~$3,500/contract).
+- **IV** ≤ 200%; **premium** ≤ **max($35/share, 12% of spot)** — price-aware
+  (P1.1, `PICKS_MAX_PREMIUM_PCT_OF_SPOT`). A flat $35 cap fit the old cheap OTM
+  contract; at 0.55Δ it would gut the roster to only cheap stocks, so the cap scales
+  with spot (premium bounded as a share of exposure) while still rejecting a
+  genuinely overpriced (e.g. earnings-IV-inflated) ATM.
 - **Roster (`requireClean`)** additionally refuses any contract the live Grade-tab
   grader would call "bad" (theta >2.5%/day, dte ≤3, ≥80%-extrinsic with <14 DTE).
 
@@ -248,7 +260,10 @@ Structure / momentum / **volume** / location accumulate as signed pros & cons:
   back up** (this is the dip-buy we *want* — the one historical winner, OKTA entered
   at a local low, fit this).
 - **Strong cons:** momentum against the trade; a wrong-side 20D break; the broad tape
-  fighting it (§6.3); earnings within 3 sessions (IV-crush risk → forces `wait`).
+  fighting it (§6.3); earnings within `PICKS_TIMING_EARNINGS_DEFER_DAYS` = **8**
+  sessions (P1.3 — IV ramps 1–2 weeks out, so 3 was too tight; IV-crush risk →
+  forces `wait`). A pick whose contract **expiry falls after** an earnings date is
+  additionally flagged `earningsBeforeExpiry` (crush-exposed) on the timing panel.
 - **Volume confirmation (soft, ±1).** Volume tells you whether to believe the move.
   Beyond the breakout/knife reads above: a move the trade's way on **≥1.3× rvol**
   (`PICKS_TIMING_VOL_CONFIRM`) that isn't already a clean break is real participation
@@ -287,9 +302,11 @@ elevated/rising VIX; risk-on requires a firm SPY up day with a calm VIX.
   pick and only fills slots the vetoed calls leave behind.
 
 ### 6.4 Fail-open
-Missing spot / technicals / fewer than 15 confirmed bars → `go` with score 0, so a
-thin or freshly-added name is never silently dropped (matches the repo's
-graceful-degradation convention).
+Missing spot / technicals / fewer than 15 confirmed bars → **`wait`** with score 0
+(P2.2). The name still **ships** (badged) so it's never silently dropped, but a
+fail-open read no longer mints an endorsed `go` (or a track-record entry) on the
+names with the *least* data and the *most* knife risk. The contribution stays 0, so
+the grade isn't dinged either — pure graceful degradation, just not endorsed.
 
 ### 6.5 Worked examples (from the loss data)
 - **CRM** calls bought $205–210 (+18% in 3 days, +16% above the 20D SMA) → chase B →
@@ -309,17 +326,25 @@ graceful-degradation convention).
 ## 7. Ranking & roster construction
 
 - **Order:** by `|total|` (conviction), ties broken by entry-timing score.
-- **Sector-concentration cap** (`PICKS_MAX_PER_SECTOR = 4`). The equal-weight score
-  systematically over-loads correlated names (the failing record was 18/19 losses in
-  Technology), so no more than 4 picks (40% of the roster) may come from one sector;
-  ETFs (null sector) are uncapped. This caps *correlation* — one sector-factor
-  drawdown can't wipe the whole roster — and is the structural complement to the
-  long-bias work. Skips are recorded in `rosterMeta.sectorCapped`.
+- **Sector-concentration cap** (`PICKS_MAX_PER_SECTOR = 3`, tightened from 4 in
+  P2.1). The equal-weight score systematically over-loads correlated names (the
+  failing record was 18/19 losses in Technology), so no more than 3 picks (30% of
+  the roster) may come from one GICS sector; ETFs (null sector) are uncapped. Skips
+  are recorded in `rosterMeta.sectorCapped`.
+- **Factor / correlation cap** (`PICKS_MAX_PER_FACTOR = 5`, P2.1). The real blowup
+  cluster — semis + software + the mega-cap-tech / data-center-power complex — is
+  **one beta that spans several GICS sectors** (Technology, Comm Services, even some
+  Utilities/Industrials), so the per-sector cap alone can't stop it filling the
+  roster through two labels. `FACTOR_OF_SECTOR`/`factorOfTicker` collapse the curated
+  `SECTORS` of that complex into one factor and cap it on top of the sector cap;
+  unmapped names (banks, pharma, energy, …) rely on the sector cap. Skips →
+  `rosterMeta.factorCapped`.
 - **No knife backfill.** When the gate drops a candidate, nothing pads its slot
   with a worse-timed name. The roster may ship **fewer than 10** picks — a short
   list is the honest signal that there's little clean to buy today. `rosterMeta`
-  (`{vetoed, sectorCapped, sectorCounts}`) rides on `picks.json` so the UI shows an
-  honest "only N clean setups · M gated · K sector-capped" note.
+  (`{vetoed, sectorCapped, sectorCounts, factorCapped, factorCounts}`) rides on
+  `picks.json` so the UI shows an honest "only N clean setups · M gated ·
+  K sector-capped · L factor-capped" note.
 - `go` picks are the endorsed entries; `wait` picks are shown (badged) with their
   entry levels so the user can act on confirmation.
 
@@ -343,7 +368,9 @@ it has to be trustworthy. The fixes:
   *wait* on would punish the discipline the gate enforces. The win-rate reflects
   *endorsed* entries.
 - **Resolution** (`resolvePickOutcome`): TP (win), cut (loss), expiry (vs breakeven),
-  or the 14-day time-stop.
+  the **theta-stop** (P1.4 — cut when modeled daily theta > `PICKS_THETA_STOP_PCT`
+  = 2.5%/day of remaining premium, gated to held ≥ 5d and modeled at a loss), or the
+  14-day time-stop.
 - **Honest cohorts.** Win-rate is reported overall and broken down by `byTier`,
   **`bySector`** (the old `byTier` was degenerate — all picks were "strong-call" —
   while losses were 18/19 Technology, hidden by the global rate), and **`byRegime`**
@@ -351,8 +378,17 @@ it has to be trustworthy. The fixes:
 - **Expectancy + SPY benchmark.** Beyond win-rate: `expectancyPct` (mean side-adjusted
   realized *underlying* move — does the average pick make money?) and
   `excessExpectancyPct` (vs SPY over each pick's actual hold). These are the honest
-  "is the engine adding value vs buy-and-hold?" headline. *(Underlying move, not
-  option P&L — we have no options-price history.)*
+  "is the engine adding value vs buy-and-hold?" headline.
+- **Modeled option expectancy (P0.1).** We still have no options-price feed, so the
+  tracker reprices the *same* contract with Black-Scholes at exit (`modelOptionExit`:
+  remaining DTE, the real exit spot, entry IV decayed toward realized HV over the
+  hold, an earnings-crush haircut if a print fell inside the hold) → per-pick
+  `optionPnlPct` and a cohort `optionExpectancyPct` (+ win/loss splits). The **gap
+  between `optionExpectancyPct` and the underlying `expectancyPct` is the theta /
+  IV-crush tax** — a stock that drifts ~flat can still print a deeply negative option
+  result, which the underlying metric is structurally blind to. Needs the entry-option
+  snapshot stamped at enroll (`contract.iv`, `entryHv`, `earningsDate`), so it
+  populates as gate-era picks resolve.
 - **Per-signal attribution** (`bySignal`, measure-only). Each enrolled pick stores a
   flat `entrySignals` snapshot; the stats then ask, per signal, "when it pointed the
   pick's way, did the pick win?" Raw counts always; a `rate` only past
@@ -372,16 +408,23 @@ it has to be trustworthy. The fixes:
 
 - Every threshold is a named constant in `scripts/build.mjs`:
   - **Tiers:** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`, `PICKS_COUNT 10`,
-    `PICKS_MAX_PER_SECTOR 4`.
+    `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`).
+  - **Contract (`pickContractForPick`):** `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,
+    `PICKS_OTM_MIN/MAX_PCT −0.20/0.12`, `PICKS_MAX_PREMIUM 35` +
+    `PICKS_MAX_PREMIUM_PCT_OF_SPOT 0.12` (cap = max of the two).
+  - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 14`, `PICKS_THETA_STOP_PCT
+    0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 5` (theta-stop); modeled-option repricer
+    `PICKS_OPTION_IV_DECAY_DAYS 30`, `PICKS_OPTION_EARNINGS_CRUSH 0.70`.
   - **Timing gate (`PICKS_TIMING_*`):** knife `RET1D −6`, `RET3D −8`, `DD_ATR −2.5`;
     chase `RSI 70`, `DIST_SMA20 8`, `DIST_SMA20_SOFT 7`, `52W 0.92`, `RET5D 10`,
     `RET3D 10`; volume `VOL_CONFIRM 1.3`, `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`,
     `NEAR_LEVEL_PCT 1.5`; regime `RISKOFF_VIX 20`, `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
-    `EARNINGS_DEFER_DAYS 3`; `MIN_BARS 15`; risk-off put bar
+    `EARNINGS_DEFER_DAYS 8`; `MIN_BARS 15` (fail-open → `wait`); risk-off put bar
     `PICKS_RISKOFF_PUT_BAR −8`.
   - **Analyst rating changes:** `ANALYST_REVISION_WINDOW_DAYS 90` (Fundamentals §3).
-  - **Accuracy:** `PICKS_ACCURACY_ENROLL_TOP_N 5`, `PICKS_SIGNAL_MIN_N 25`, and the
-    `PICKS_ACCURACY_AB` env flag for the go-vs-wait research cohort.
+  - **Accuracy:** `PICKS_ACCURACY_ENROLL_TOP_N 5`, `PICKS_SIGNAL_MIN_N 25`,
+    `PICKS_SIGNAL_PRUNE_BAND 0.05` (prunable flag), and the `PICKS_ACCURACY_AB` env
+    flag for the go-vs-wait research cohort.
 - Numbers are tuned to a **19-pick sample** and should be revisited once
   `picks-accuracy.json` carries gate-era outcomes. **`bySignal` is the path to that
   recalibration — it does not feed weights until the sample is large.**
@@ -389,14 +432,21 @@ it has to be trustworthy. The fixes:
   session, so it can lag the current session by ~1 trading day (an accepted
   trade-off, same as the chart-pattern cache).
 - Graceful degradation throughout — a missing input never throws and never silently
-  drops a pick (fail-open `go`).
+  drops a pick (fail-open → `wait`, shown but not enrolled; P2.2).
+- **Gate is research / unproven.** Its thresholds were fit to that ~19-pick
+  in-sample set, and its *marginal* edge over the volatility-aware stop alone is not
+  validated until forward, gate-era picks accumulate (the 2×2 ablation — ATR-floor /
+  no-gate vs ATR-floor / gate-on — needs the modeled option P&L of P0.1). The Grade
+  tab's Entry-timing panel labels it "research / unproven" accordingly.
 
 ---
 
 ## 10. Pointers
 - Code: [`scripts/build.mjs`](../scripts/build.mjs) — `computeEntryTiming`,
   `detectMarketRegime`, `timingBarsFrom`, `buildTopPicks`, `scorePillared`,
-  `pickContractForPick`, `buildExitPlan`, `updatePicksAccuracyFile`.
+  `pickContractForPick`, `buildExitPlan`, `updatePicksAccuracyFile`,
+  `resolvePickOutcome`, `modelOptionExit` (P0.1 BS repricer),
+  `bullishReversalConfirmed` (P1.2), `factorOfTicker`/`FACTOR_OF_SECTOR` (P2.1).
 - Render: [`scripts/render/app-js.mjs`](../scripts/render/app-js.mjs) —
   `pickTimingBanner` / `pickTimingBadge` (the card) and `buildExecuteNowCard` (the
   live Grade-tab sibling). The expandable score breakdown is `pickPillarPanel`,
