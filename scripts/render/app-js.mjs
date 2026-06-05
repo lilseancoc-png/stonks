@@ -5015,7 +5015,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
   }
 
-  var SEG_COLORS = ['#5b8def','#1ec773','#f59e0b','#f43f5e','#a78bfa','#14b8a6','#f97316','#6b7280','#ec4899'];
+  var SEG_COLORS = ['#4c8dff','#16e08a','#ffb020','#ff4d5e','#7c6bff','#2dd4d4','#f97316','#6b7280','#ff6fb0'];
 
   // Mirror of build.mjs cleanup for previously-cached segment labels that
   // were tokenized before BRAND_CASING_OVERRIDES landed in the parser.

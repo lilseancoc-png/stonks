@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-04","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-04","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -4997,7 +4997,7 @@
     });
   }
 
-  var SEG_COLORS = ['#5b8def','#1ec773','#f59e0b','#f43f5e','#a78bfa','#14b8a6','#f97316','#6b7280','#ec4899'];
+  var SEG_COLORS = ['#4c8dff','#16e08a','#ffb020','#ff4d5e','#7c6bff','#2dd4d4','#f97316','#6b7280','#ff6fb0'];
 
   // Mirror of build.mjs cleanup for previously-cached segment labels that
   // were tokenized before BRAND_CASING_OVERRIDES landed in the parser.
