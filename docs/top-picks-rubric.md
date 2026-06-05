@@ -28,44 +28,46 @@ win rate (1 win / 18 losses; every loss a stopped-out call):
   (persistent fundamentals + narrative keep quality names green through a fast
   selloff), so no name reached the −16 put bar.
 
-The fix is an **execution-timing gate** (§6): a separate "should we execute *now*?"
-layer that drops falling-knife and chasing-top entries and, in a confirmed
-risk-off tape, opens a tactical put path. **It never touches the grade `total`.**
+The fix folds **entry timing into the grade itself** (§6) as a 5th scoring
+component: a chasing-top / falling-knife read subtracts up to 8 points from
+`total`, so badly-timed names fall below the conviction bar on their own — no
+separate veto, one number. A confirmed risk-off tape still opens a tactical put
+path.
 
 ---
 
 ## 2. Pipeline overview
 
 ```
-scoreAllTickers()            every ticker → 4 pillars → total  (= the GRADE)
+scoreAllTickers()            every ticker → 5 components → total  (= the GRADE)
    └─ scorePillared()        Fundamentals + Technicals + Mechanicals + Narrative
+                             + Entry timing (computeEntryTiming, −8..+4, §6)
 tierForScore(total)          ±12 = Call/Put, ±16 = Strong, else No-Trade
 buildTopPicks()
    ├─ candidate set          |total| ≥ 12  (+ risk-off "tactical puts", §6)
-   ├─ ranked by |total|      conviction first, timing as tiebreak
+   ├─ ranked by |total|      conviction (entry timing already inside it)
    ├─ GATE 1: contract       pickContractForPick(requireClean) — a tradeable contract
-   ├─ GATE 2: timing         computeEntryTiming() → go / wait / avoid
-   ├─ GATE 3: sector cap     ≤ 4 per sector (§7) — caps correlation
+   ├─ GATE 2: sector cap     ≤ 4 per sector (§7) — caps correlation
    └─ ship survivors         up to 10; roster may honestly shrink
 ```
 
-Three gates decide whether a high-grade name actually ships:
+Entry timing is now part of the grade itself (§6) — a poorly-timed name simply
+scores below the bar. Two gates then decide whether a high-grade name ships:
 
 1. **Contract-quality gate** (`pickContractForPick`, §5) — is there a *tradeable
    contract* (liquidity, spread, delta, DTE)? No → drop.
-2. **Execution-timing gate** (`computeEntryTiming`, §6) — is *now* a good moment
-   to enter? `avoid` → drop; `wait` → ship badged but don't track it; `go` → ship.
-3. **Sector cap** (§7) — already 4 picks from this sector? → skip.
+2. **Sector cap** (§7) — already 4 picks from this sector? → skip.
 
-Ranking is **conviction-primary, timing-secondary**: a higher `|total|` always
-outranks a lower one; entry-timing quality only breaks ties.
+Ranking is by **conviction** (`|total|`), which already folds in entry timing,
+so a well-timed name outscores a chased one directly.
 
 ---
 
 ## 3. The 4-pillar score (with decorrelation reworks)
 
 Every signal scores in `{-3…+3}`. Pillar score = sum of its signals; `total` =
-sum of the four pillars. The timing gate (§6) does **not** modify any of this.
+sum of the four pillars **plus the entry-timing component (§6)**, which adds
+−8..+4 to conviction in the implied direction (without ever flipping the side).
 
 ### Fundamentals (`scoreFundamentals`)
 | Signal | Scoring |
@@ -120,12 +122,12 @@ sum of the four pillars. The timing gate (§6) does **not** modify any of this.
 > **Known long-bias / falling-knife risk in the score.** The *contrarian* signals
 > in **bold** above (RSI-oversold, 52w-low, P/C-fear, VIX-capitulation) turn
 > **more bullish as a quality name crashes** — i.e. the grade can keep a name at
-> "Strong Call" while it's breaking down. This is deliberate: the grade measures
-> the *asset*, not the *entry*. We do **not** trend-condition these signals in the
-> score — the **execution-timing gate (§6) handles entry quality instead** (and in
-> a confirmed risk-off tape it tightens its knife thresholds, §6.3, to catch
-> exactly this contrarian-inflated long), by vetoing the knife-catch at publish
-> time rather than muddying the grade.
+> "Strong Call" while the four asset pillars alone keep scoring it. We do **not**
+> trend-condition these signals; instead the **entry-timing component (§6) is now
+> part of `total`** and subtracts up to 8 points for exactly this knife-catch (and
+> in a confirmed risk-off tape it tightens its knife thresholds, §6.3), so a
+> contrarian-inflated long is pulled back below the conviction bar by the score
+> itself rather than vetoed by a separate gate.
 
 ---
 
@@ -181,15 +183,17 @@ but ordinary volatility doesn't. Null ATR (thin history) → the prior 8% behavi
 
 ---
 
-## 6. The execution-timing gate (`computeEntryTiming`) — the headline
+## 6. Entry timing as the 5th score component (`computeEntryTiming`)
 
-A pure, server-side function (no AI, no network) consulted **only** by
-`buildTopPicks`. It reads **confirmed daily bars** (the last/in-progress candle is
+A pure, server-side function (no AI, no network) called by `scorePillared` for
+**every** ticker. It reads **confirmed daily bars** (the last/in-progress candle is
 dropped — same convention as the chart-pattern cache, so a mid-session print can't
-fake a signal) plus the already-computed technicals, and returns one of three
-states. **It never feeds `total`** — `grades.json`, the ±16/±20 tiers, the
-grade-change log, the churn log and the roster snapshot are all byte-for-byte
-unchanged.
+fake a signal) plus the already-computed technicals, and returns a state plus a
+bounded **`contribution` (−8..+4)**. That contribution is **folded into `total`**
+as a 5th component (alongside the four pillars), so `grades.json`, the ±12/±16
+tiers, the grade-change log, the churn log, the roster snapshot and the Top Picks
+ranking all reflect entry timing through the one score. It weakens or strengthens
+conviction in the grade's implied direction but never flips the side.
 
 It is the server-side sibling of the browser's live `buildExecuteNowCard`
 (`scripts/render/app-js.mjs`): that card reads *live intraday* structure on the
@@ -203,13 +207,17 @@ in ATR units, extension beyond the 20D SMA, RSI + 5-day RSI change, MACD, relati
 volume, position in the 52-week range, the 20D S/R levels, the broad-market regime
 (SPY day move + VIX, §6.3), and days-to-earnings.
 
-### States
-- **`avoid`** → falling knife or chasing an extended top. **Drop the pick** (the
-  loop backfills from the next candidate).
+### States → score contribution
+The state is informational; what feeds the grade is the bounded `contribution`:
+- **`avoid`** → falling knife or chasing an extended top → **−8**. Drags the name
+  down so it usually falls below the conviction bar and off the roster on its own
+  (no separate veto, no backfill).
 - **`wait`** → no clean entry yet (mixed structure / catalyst imminent / tape
-  fighting it). **Ship it badged**, but it is **not** marked-to-market in the
-  track record (§8) — we told the user to defer.
-- **`go`** → a clean, well-located entry. Ship and track.
+  fighting it) → a small negative from the pro/con tally (clamped to −8..+4).
+- **`go`** → a clean, well-located entry → up to **+4**, strengthening conviction.
+
+Every shipped pick is enrolled in the track record (§8): entry timing is already
+in the score, so the roster *is* the set of well-timed, endorsed entries.
 
 ### 6.1 Hard vetoes → `avoid`
 

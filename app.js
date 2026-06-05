@@ -11012,53 +11012,11 @@
     '</div>';
   }
 
-  // Map the server-side execution-timing state to a CSS class + label. The gate
-  // (build.mjs::computeEntryTiming) answers "should we execute NOW?" separately
-  // from the grade. 'avoid' picks never ship, so only 'go'/'wait' render here.
-  function pickTimingMeta(state){
-    if (state === 'go')   return { cls: 'pos',  label: 'EXECUTE NOW' };
-    if (state === 'wait') return { cls: 'fair', label: 'WAIT' };
-    return null;
-  }
+  // Entry timing is no longer a separate "Execute now?" component — it's folded
+  // into the grade as the 5th score pillar (build.mjs::scorePillared), so it
+  // shows up inside the score breakdown below rather than as its own badge/banner.
 
-  // Compact timing pill for the scannable grid card + the detail head.
-  function pickTimingBadge(p){
-    var et = p && p.entryTiming;
-    var meta = et && pickTimingMeta(et.state);
-    if (!meta) return '';
-    return '<span class="pick-timing-pill pick-timing-' + meta.cls + '" title="' +
-      escapeHtml(et.headline || '') + '">' + meta.label + '</span>';
-  }
-
-  // Full "Execute now?" banner for the detail card — the headline + the top
-  // couple of reasons the gate gave, so the user sees WHY now is / isn't the
-  // moment. Deliberately distinct from the grade panel: this is timing, not the
-  // 4-pillar asset score. Tactical (risk-off) puts get an extra note.
-  function pickTimingBanner(p){
-    var et = p && p.entryTiming;
-    var meta = et && pickTimingMeta(et.state);
-    if (!meta) return '';
-    var reasons = Array.isArray(et.reasons) ? et.reasons.slice(0, 3) : [];
-    var reasonsHtml = reasons.length
-      ? '<ul class="pick-timing-reasons">' +
-          reasons.map(function(r){ return '<li>' + escapeHtml(String(r)) + '</li>'; }).join('') +
-        '</ul>'
-      : '';
-    var tacticalNote = p.tactical
-      ? '<div class="pick-timing-tactical">Tape-driven tactical put — the grade doesn’t clear the put bar, but a confirmed risk-off tape + a clean breakdown opened this short. Reduced size.</div>'
-      : '';
-    return '<div class="pick-timing pick-timing-' + meta.cls + '">' +
-      '<div class="pick-timing-head">' +
-        '<span class="pick-timing-verdict pick-timing-v-' + meta.cls + '">' + meta.label + '</span>' +
-        '<span class="pick-timing-title">Execute now? <span class="pick-timing-sub">' + escapeHtml(et.headline || '') + '</span></span>' +
-      '</div>' +
-      tacticalNote +
-      reasonsHtml +
-      '<div class="pick-timing-foot">Entry timing is separate from the grade — the score says the setup is good; this says whether <em>now</em> is the moment to put it on.</div>' +
-    '</div>';
-  }
-
-  // 4-pillar breakdown side panel. Each pillar is a collapsible <details>
+  // Score breakdown side panel. Each pillar is a collapsible <details>
   // showing every signal (including "no data" ones at 0). Sign-coded for
   // colour: positive contributions tint green, negative tint red, neutral
   // stay muted. Used as the per-card side panel that answers "why did this
@@ -11067,12 +11025,13 @@
     var pillars = p && p.pillars;
     if (!pillars) return '';
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : 0);
-    var order = ['fundamentals','technicals','mechanicals','narrative'];
+    var order = ['fundamentals','technicals','mechanicals','narrative','timing'];
     var nice = {
       fundamentals: 'Fundamentals',
       technicals: 'Technicals',
       mechanicals: 'Mechanicals',
       narrative: 'Narrative',
+      timing: 'Entry timing',
     };
     function signClass(n){
       if (n > 0) return 'sig-pos';
@@ -11080,7 +11039,7 @@
       return 'sig-zero';
     }
     function fmtSignedNum(n){ return (n > 0 ? '+' : '') + n; }
-    var letter = { fundamentals: 'F', technicals: 'T', mechanicals: 'M', narrative: 'N' };
+    var letter = { fundamentals: 'F', technicals: 'T', mechanicals: 'M', narrative: 'N', timing: 'E' };
     // Precompute scores so the composition bar can size each segment by its
     // share of total |contribution|, and the per-row magnitude bars can scale
     // against the biggest pillar.
@@ -11196,7 +11155,7 @@
         catSection +
       '</details>';
     }
-    return '<aside class="pick-pillars-panel" aria-label="4-pillar score breakdown">' +
+    return '<aside class="pick-pillars-panel" aria-label="Score breakdown">' +
       '<div class="pick-pillars-bar">' +
         '<span class="pick-pillars-title">Score breakdown</span>' +
         '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + total) + '</span>' +
@@ -11279,8 +11238,6 @@
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
-    var timingHtml = pickTimingBanner(p);
-    var timingBadge = pickTimingBadge(p);
     var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
     var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
     // The card body is split into two switchable views: "Recommendation"
@@ -11288,7 +11245,7 @@
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + timingHtml + analysisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + analysisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -11312,8 +11269,7 @@
           (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
           sectorTag +
           '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
-          timingBadge +
-          (p.tactical ? '<span class="pick-tactical-tag" title="Tape-driven tactical put — see the Execute-now banner">TACTICAL</span>' : '') +
+          (p.tactical ? '<span class="pick-tactical-tag" title="Tape-driven tactical put — a confirmed risk-off tape opened this short below the grade bar. Reduced size.">TACTICAL</span>' : '') +
           streakHtml +
           tenureHtml +
           fiftyHtml +
@@ -11353,12 +11309,11 @@
         ' trading days' + (ptcSince ? ' — since ' + escapeHtml(ptcSince) : '') + '">⏱ ' +
         ptcDays + 'd</span>';
     }
-    var timingChip = pickTimingBadge(p);
     var tacticalChip = p.tactical ? '<span class="ptc-tactical" title="Tape-driven tactical put">TACTICAL</span>' : '';
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + timingChip + tacticalChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) + '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
@@ -11745,13 +11700,12 @@
           ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
           : '');
     }
-    // Honest roster note — why the list may be short today (the timing gate
-    // drops chasing/knife entries and nothing backfills with a worse-timed name,
-    // and the sector cap limits correlated names). Reads picks.json rosterMeta.
+    // Honest roster note — why the list may be short today (entry timing is
+    // baked into the grade, so a chasing-top / falling-knife name scores below
+    // the bar, and the sector cap limits correlated names). Reads rosterMeta.
     var rm = data.rosterMeta || null;
     var noteBits = [];
     if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> clean setup' + (picks.length === 1 ? '' : 's') + ' cleared the bar today');
-    if (rm && rm.vetoed) noteBits.push('<b>' + rm.vetoed + '</b> dropped by the timing gate (chasing a top / falling knife)');
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
