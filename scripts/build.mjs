@@ -6159,29 +6159,35 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   signals.push(guideSignal);
 
-  // 8. Major Contract: +2 if the company recently WON a major contract/order,
-  // -3 if it LOST one (per spec — a lost deal is a sharper negative than a win
-  // is a positive). Read from the AI extraction over recent news
-  // (data.aiSignals.majorContract, set by attachAiContractGuidance). With no AI
-  // signal the row is "no data" so the breakdown stays transparent.
-  let contractSignal = _sig("majorContract", "Major Contract", 0, {
+  // 8. Major Contract / Deal: +2 if the company recently WON a major contract,
+  // order, or deal — including, for a bank/broker/adviser, a lead-underwriter /
+  // bookrunner / lead-adviser mandate on a marquee IPO, M&A, or capital raise
+  // (e.g. leading the SpaceX IPO) — and -3 if it LOST one (per spec — a lost
+  // deal is a sharper negative than a win is a positive). Read from the AI
+  // extraction over recent news (data.aiSignals.majorContract, set by
+  // attachAiContractGuidance). This is a DISCRETE signal, not the holistic
+  // news.sentiment behind the Positive Catalyst — so a single concrete win lifts
+  // the grade even when the day's overall coverage nets out to "neutral" (and it
+  // is scored ONLY here, never also as a Positive Catalyst, to avoid
+  // double-counting). With no AI signal the row is "no data".
+  let contractSignal = _sig("majorContract", "Major Contract / Deal", 0, {
     available: false,
-    note: "no contract data — AI read skipped",
+    note: "no deal data — AI read skipped",
   });
   const aiContract = data?.aiSignals?.majorContract;
   if (aiContract && aiContract.status) {
     const ev = aiContract.evidence ? String(aiContract.evidence).slice(0, 200) : "";
     if (aiContract.status === "won") {
-      contractSignal = _sig("majorContract", "Major Contract", 2, {
-        value: "won", note: ev || "major contract win in recent news",
+      contractSignal = _sig("majorContract", "Major Contract / Deal", 2, {
+        value: "won", note: ev || "major contract or deal win in recent news",
       });
     } else if (aiContract.status === "lost") {
-      contractSignal = _sig("majorContract", "Major Contract", -3, {
-        value: "lost", note: ev || "major contract loss in recent news",
+      contractSignal = _sig("majorContract", "Major Contract / Deal", -3, {
+        value: "lost", note: ev || "major contract or deal loss in recent news",
       });
     } else {
-      contractSignal = _sig("majorContract", "Major Contract", 0, {
-        value: "none", note: "no major contract win/loss in recent news",
+      contractSignal = _sig("majorContract", "Major Contract / Deal", 0, {
+        value: "none", note: "no major contract or deal win/loss in recent news",
       });
     }
   }
@@ -11557,8 +11563,8 @@ async function attachAiContractGuidance(chains) {
   const systemPrompt =
     "You are an equity analyst extracting two structured facts from recent news for an options trader. " +
     "From the supplied headlines, determine ONLY: " +
-    "(1) majorContract.status — 'won' if the company recently WON or was awarded a major new contract, order, or deal; " +
-    "'lost' if it LOST a major contract/customer or had a major deal cancelled; 'none' if neither is clearly evidenced. " +
+    "(1) majorContract.status — 'won' if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. 'Goldman Sachs to lead the SpaceX IPO'); " +
+    "'lost' if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; 'none' if neither is clearly evidenced. " +
     "(2) guidance.direction — the company's most recent forward GUIDANCE: 'raised' (guided up / above expectations), " +
     "'inline' (reaffirmed / in line), 'soft' (modest cut / cautious tone), 'lowered' (guided down materially), or 'none' if no guidance is evident. " +
     "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
@@ -11987,7 +11993,7 @@ END EXAMPLES.`;
 const SIGNALS_PROMPT_SECTION = `
 
 SIGNALS FIELD — {majorContract, guidance}. ALWAYS include this field. Extract two structured facts from the supplied article material, used by the Fundamentals pillar:
-- majorContract.status — "won" if the company recently WON or was awarded a major new contract, order, or deal; "lost" if it LOST a major contract/customer or had a major deal cancelled; "none" if neither is clearly evidenced.
+- majorContract.status — "won" if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. "Goldman Sachs to lead the SpaceX IPO"); "lost" if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; "none" if neither is clearly evidenced.
 - guidance.direction — the company's most recent forward GUIDANCE: "raised" (guided up / above expectations), "inline" (reaffirmed / in line), "soft" (modest cut / cautious tone), "lowered" (guided down materially), or "none" if no guidance is evident.
 Be conservative: only report "won"/"lost"/"raised"/"lowered" when the material clearly supports it; otherwise use "none". Each evidence string: one short clause citing the headline. Read these from the NEWS material only — never infer them from the fundamentals snapshot numbers.`;
 
