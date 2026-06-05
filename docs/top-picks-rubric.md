@@ -8,8 +8,8 @@ code wins — fix the doc.
 > **Scope.** "Top Picks" = the ~10 *actionable* names the engine is willing to
 > trade today. It is **not** the grade-any-ticker search (that's `data/grades.json`,
 > the full 138-name 4-pillar index). Both share the same scoring first pass
-> (`scoreAllTickers`); Top Picks then applies two extra gates and ships only the
-> survivors.
+> (`scoreAllTickers`); Top Picks then applies the extra gates (contract quality,
+> execution timing, sector cap) and ships only the survivors.
 
 ---
 
@@ -39,9 +39,9 @@ risk-off tape, opens a tactical put path. **It never touches the grade `total`.*
 ```
 scoreAllTickers()            every ticker → 4 pillars → total  (= the GRADE)
    └─ scorePillared()        Fundamentals + Technicals + Mechanicals + Narrative
-tierForScore(total)          ±14 = Call/Put, ±18 = Strong, else No-Trade
+tierForScore(total)          ±12 = Call/Put, ±16 = Strong, else No-Trade
 buildTopPicks()
-   ├─ candidate set          |total| ≥ 14  (+ risk-off "tactical puts", §6)
+   ├─ candidate set          |total| ≥ 12  (+ risk-off "tactical puts", §6)
    ├─ ranked by |total|      conviction first, timing as tiebreak
    ├─ GATE 1: contract       pickContractForPick(requireClean) — a tradeable contract
    ├─ GATE 2: timing         computeEntryTiming() → go / wait / avoid
@@ -62,7 +62,7 @@ outranks a lower one; entry-timing quality only breaks ties.
 
 ---
 
-## 3. The 4-pillar score (with two decorrelation reworks)
+## 3. The 4-pillar score (with decorrelation reworks)
 
 Every signal scores in `{-3…+3}`. Pillar score = sum of its signals; `total` =
 sum of the four pillars. The timing gate (§6) does **not** modify any of this.
@@ -75,10 +75,10 @@ sum of the four pillars. The timing gate (§6) does **not** modify any of this.
 | Revenue Growth YoY | ≥8% +1, <−20% −2 |
 | Analyst Price Target | ≥+10% upside +1, ≤−10% −1 (needs ≥5 analysts) |
 | P/E vs Sector median | ≤80% of median +1; ≥150% with no growth −1 |
-| Guidance | raised +3, in-line +2, lowered/soft −3 (AI-read, else FY-growth proxy) |
+| Guidance | AI-read: raised +3, in-line +2, lowered −3. **FY-growth proxy (fallback) is now graded** — ≥10% +2, 0–10% +1, ≤−10% −3 (was a flat +2 for *any* positive estimate, which gave ~the whole universe the same +2 and barely discriminated) |
 | Major Contract | won +2, lost −3 (AI-read from news) |
 | Free Cash Flow TTM | positive +1, negative −1 |
-| Net Margin Growth QoQ | expanding +1, contracting −1 |
+| Net Margin Growth | expanding +1, contracting −1 — **YoY** (vs the same quarter last year) when ≥5 quarters of history, else QoQ (YoY removes the seasonal noise in a QoQ margin compare) |
 
 ### Technicals (`scoreTechnicals`)
 | Signal | Scoring |
@@ -102,7 +102,7 @@ sum of the four pillars. The timing gate (§6) does **not** modify any of this.
 | Unusual Volume | hourly ≥1.3× 20D-avg, ±1 by move direction |
 | SPY flows | ≥+0.6% +1, ≤−0.6% −1 |
 | **Put/Call Ratio Extreme** | >1.15 **+2** (fear, contrarian bullish), <0.65 **−2** (greed) — *contrarian* |
-| VIX Tracking | rising & >25 −2, falling +1 |
+| VIX Tracking | rising & >25 −2; **falling & ≥20 +1** (vol relief from an *elevated* level). The falling-VIX credit is gated on the level — it used to fire at any level, handing a "free" +1 to **every** name on any calm down-drift, uniformly inflating the whole grade |
 | **VIX Spot** | <15 −1 (complacency), >35 **+2** (capitulation, contrarian bullish) — *contrarian* |
 
 ### Narrative (`scoreNarrative`)
@@ -111,7 +111,7 @@ sum of the four pillars. The timing gate (§6) does **not** modify any of this.
 | Positive Catalyst | bullish news **+2** (asymmetric — deliberately lighter than the −3 Negative Catalyst, since one AI sentiment read is noisy and weighting good news as heavily as bad fed the long-bias) |
 | Sector Narrative | rides an active strong narrative ±2, faded by lifecycle/hype |
 | Social Sentiment | net ≥±35% ±1 (≥5 msgs/24h) |
-| Media Coverage | ≥4 fresh headlines: bullish +1, bearish −2 |
+| Media Coverage | **0 (informational only)** — it used to add bullish +1 / bearish −2, but its only directional input was the *same* `news.sentiment` the Catalyst signals already score, and it fired only as a subset of them, so it double-counted one AI sentiment read. Kept in the breakdown for transparency; sentiment is owned solely by the Catalyst signals |
 | Negative Catalyst | bearish news −3 (asymmetric) |
 | Macro Tail/Headwinds | bullish macro +1, bearish −2 |
 | DXY (1D) | ≥+0.9% −2, ≤−0.9% +1 |
@@ -133,20 +133,23 @@ sum of the four pillars. The timing gate (§6) does **not** modify any of this.
 
 | `total` | Tier | Conviction | Sizing |
 |---|---|---|---|
-| ≥ +18 | Strong Call | Very High | Load the Boat |
-| +14 … +17 | Call | High | Standard |
-| −13 … +13 | No Trade | — | Skip (not shipped) |
-| −14 … −17 | Put | High | Standard |
-| ≤ −18 | Strong Put | Very High | Load the Boat |
+| ≥ +16 | Strong Call | Very High | Load the Boat |
+| +12 … +15 | Call | High | Standard |
+| −11 … +11 | No Trade | — | Skip (not shipped) |
+| −12 … −15 | Put | High | Standard |
+| ≤ −16 | Strong Put | Very High | Load the Boat |
 
-`PICKS_MIN_CONVICTION = 14`, `PICKS_TIER_STRONG = 18` — **recalibrated down from
-±16/±20** to offset the scoring de-inflation (the MA-stack decorrelation and the
-Positive-Catalyst cut, §3, lowered the bullish distribution ~2-3 points; without
-the offset the old +20 Strong tier became unreachable and the roster gutted). The
-numbers are a deliberate offset to a known mean shift, not a fit to one day.
+`PICKS_MIN_CONVICTION = 12`, `PICKS_TIER_STRONG = 16` — **recalibrated (twice) down
+from ±16/±20** as the scoring was de-inflated to remove double-counting: first to
+±14/±18 (MA-stack decorrelation + Positive-Catalyst cut), then to ±12/±16 (rubric
+audit — dropped the Media sentiment echo, gated the VIX-tracking "free +1", graded
+the flat-+2 guidance proxy). The removed points were spurious (double-counted or
+undiscriminating), so lowering the bar by the same offset is **ranking-preserving**,
+not a loosening of standards — it tracks the now-lower distribution so the intended
+"top ~10-13 actionable / very-best = Strong" selectivity holds.
 
 The engine is **long-biased in practice**: persistent fundamentals + narrative keep
-quality names positive, so graded puts (`total ≤ −14`) are rare. The timing gate's
+quality names positive, so graded puts (`total ≤ −12`) are rare. The timing gate's
 risk-off **tactical put** path (§6) is the escape valve.
 
 ---
@@ -254,7 +257,7 @@ elevated/rising VIX; risk-on requires a firm SPY up day with a calm VIX.
   touched; the gate just gets stricter when the tape disagrees.
 - **Risk-off put path:** because graded puts are rare (§4), in a *confirmed*
   risk-off tape the candidate set is widened to **tactical puts** — names that
-  don't clear the −14 bar but are still bearish-leaning (`total ≤ −8`). A tactical
+  don't clear the −12 bar but are still bearish-leaning (`total ≤ −8`). A tactical
   put must additionally pass the gate with a **`go`** (a real, well-timed
   breakdown) before it ships, and is labelled **"Tactical Put" / reduced size**.
   Its `total` stays its true (negative) grade score, so it ranks below every graded
@@ -345,7 +348,7 @@ it has to be trustworthy. The fixes:
 ## 9. Tuning & caveats
 
 - Every threshold is a named constant in `scripts/build.mjs`:
-  - **Tiers:** `PICKS_MIN_CONVICTION 14`, `PICKS_TIER_STRONG 18`, `PICKS_COUNT 10`,
+  - **Tiers:** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`, `PICKS_COUNT 10`,
     `PICKS_MAX_PER_SECTOR 4`.
   - **Timing gate (`PICKS_TIMING_*`):** knife `RET1D −6`, `RET3D −8`, `DD_ATR −2.5`;
     chase `RSI 70`, `DIST_SMA20 8`, `DIST_SMA20_SOFT 7`, `52W 0.92`, `RET5D 10`,

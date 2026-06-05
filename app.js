@@ -9869,12 +9869,12 @@
     fetch('data/grades.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        picksGradesState.data = (json && json.grades) ? json : { grades: {}, minConviction: 14 };
+        picksGradesState.data = (json && json.grades) ? json : { grades: {}, minConviction: 12 };
         picksGradesState.loading = false;
         if (cb) cb(picksGradesState.data);
       })
       .catch(function(){
-        picksGradesState.data = { grades: {}, minConviction: 14, loadError: true };
+        picksGradesState.data = { grades: {}, minConviction: 12, loadError: true };
         picksGradesState.loading = false;
         if (cb) cb(picksGradesState.data);
       });
@@ -10993,8 +10993,8 @@
   function pickTierBadge(p){
     var rec = p && p.recommendation;
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : null);
-    var label = rec && rec.label ? rec.label : (total >= 14 ? 'Call' : total <= -14 ? 'Put' : 'No Trade');
-    var tier = rec && rec.tier ? rec.tier : (total >= 18 ? 'strong-call' : total >= 14 ? 'call' : total <= -18 ? 'strong-put' : total <= -14 ? 'put' : 'no-trade');
+    var label = rec && rec.label ? rec.label : (total >= 12 ? 'Call' : total <= -12 ? 'Put' : 'No Trade');
+    var tier = rec && rec.tier ? rec.tier : (total >= 16 ? 'strong-call' : total >= 12 ? 'call' : total <= -16 ? 'strong-put' : total <= -12 ? 'put' : 'no-trade');
     var conv = rec && rec.conviction ? rec.conviction : '';
     var size = rec && rec.sizing ? rec.sizing : '';
     var scoreStr = (total != null) ? ((total >= 0 ? '+' : '') + total) : '—';
@@ -11405,7 +11405,7 @@
   // the audit of how they graded. g is a data/grades.json record.
   function buildGradeCardHtml(g){
     if (!g) return '';
-    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 14;
+    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 12;
     var total = (g.total != null) ? g.total : 0;
     var actionable = Math.abs(total) >= minConv;
     // No-trade names have side === null — keep the card neutral (don't tint it

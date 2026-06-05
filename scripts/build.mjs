@@ -5515,19 +5515,21 @@ const PICKS_COUNT = 10;
 // elsewhere (the grade + the timing gate's risk-off put path).
 const PICKS_MAX_PER_SECTOR = 4;
 // 4-pillar scoring tiers:
-//   ±18  Strong (Very High conviction, "Load the Boat")
-//   ±14  directional Call/Put (High conviction, Standard size)
-//   otherwise (-13..+13) No Trade.
-// RECALIBRATED from ±16/±20 when the scoring was de-inflated: the moving-average
-// stack went from ±3 (three collinear rungs) to ±1 (one decorrelated read) and
-// the Positive-Catalyst signal from +3 to +2, which lowered the whole bullish
-// distribution by ~2-3 points. Dropping the bars by the same offset preserves
-// the intended "top ~10 actionable / very-best = Strong" semantics rather than
-// silently gutting the roster (post-de-inflation the old +20 Strong tier became
-// unreachable). The numbers are a deliberate offset to a known mean shift, not a
-// fit to any single day's snapshot.
-export const PICKS_MIN_CONVICTION = 14;
-const PICKS_TIER_STRONG = 18;
+//   ±16  Strong (Very High conviction, "Load the Boat")
+//   ±12  directional Call/Put (High conviction, Standard size)
+//   otherwise (-11..+11) No Trade.
+// RECALIBRATED (twice) as the scoring was de-inflated to remove double-counting:
+//   ±16/±20 → ±14/±18  (MA stack ±3→±1 decorrelation; Positive Catalyst +3→+2)
+//   ±14/±18 → ±12/±16  (rubric audit: dropped the Media double-count of news
+//                       sentiment; gated the VIX-tracking "free +1" that had been
+//                       added to EVERY name on any calm down-drift — a uniform
+//                       ~-1 shift; graded the flat-+2 guidance proxy).
+// The bars track the (now lower, de-inflated) score distribution so the intended
+// "top ~10-13 actionable / very-best = Strong" selectivity is preserved — the
+// removed points were spurious (double-counted / undiscriminating), so lowering
+// the bar by the same offset is ranking-preserving, not a loosening of standards.
+export const PICKS_MIN_CONVICTION = 12;
+const PICKS_TIER_STRONG = 16;
 
 // Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
@@ -5815,11 +5817,11 @@ function summarizeUnusualForSym(sym, unusualPayload) {
 //
 // Score → tier mapping (post de-inflation recalibration; bars are the
 // PICKS_TIER_STRONG / PICKS_MIN_CONVICTION constants):
-//   ≥ +18   Strong Call  (Very High conviction, Load the Boat)
-//   +14..+17 Call        (High conviction, Standard size)
-//   -13..+13 No Trade    (Skip — not shipped)
-//   -14..-17 Put         (High conviction, Standard size)
-//   ≤ -18   Strong Put   (Very High conviction, Load the Boat)
+//   ≥ +16   Strong Call  (Very High conviction, Load the Boat)
+//   +12..+15 Call        (High conviction, Standard size)
+//   -11..+11 No Trade    (Skip — not shipped)
+//   -12..-15 Put         (High conviction, Standard size)
+//   ≤ -16   Strong Put   (Very High conviction, Load the Boat)
 //
 // Each pillar returns a `signals` array where every entry is
 //   { key, label, score, value, note, available }
@@ -6035,11 +6037,21 @@ function scoreFundamentals(data, sectorMedianPE) {
   } else {
     const gFY = f.growthEstimateCurY;
     if (gFY != null && isFinite(gFY)) {
+      // GRADE the proxy instead of handing every positive estimate a flat +2.
+      // The old `gFY >= 0 → +2` lumped ~all of the universe into the same +2
+      // (almost every name has a positive FY EPS growth estimate), so this
+      // fallback — the heaviest fundamental signal — barely discriminated. Now:
+      // strong growth (≥10%) +2, modest (0-10%) +1, clearly negative (≤-10%) -3
+      // (a real "lowered" read), mildly soft (-10..0) 0. A genuine "raised" +3
+      // can still only come from the AI guidance path, not the proxy.
       let s = 0;
       let note;
-      if (gFY >= 0) {
+      if (gFY >= 10) {
         s = 2;
-        note = `+${gFY.toFixed(1)}% FY EPS growth est — raised/in-line proxy`;
+        note = `+${gFY.toFixed(1)}% FY EPS growth est — strong, raised/in-line proxy`;
+      } else if (gFY >= 0) {
+        s = 1;
+        note = `+${gFY.toFixed(1)}% FY EPS growth est — modest growth proxy`;
       } else if (gFY <= -10) {
         s = -3;
         note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
@@ -6114,15 +6126,20 @@ function scoreFundamentals(data, sectorMedianPE) {
     .filter((r) => r && isFinite(r.value))
     .sort((a, b) => (new Date(b.date || 0)) - (new Date(a.date || 0)));
   if (nmh.length >= 2) {
+    // Prefer YEAR-over-year (vs the same quarter last year) when we have ≥5
+    // quarters — QoQ net margin is seasonally noisy (retail Q4, etc.), so a YoY
+    // compare is a cleaner read of the trend. Fall back to QoQ with <5 quarters.
     const latest = Number(nmh[0].value);
-    const prior = Number(nmh[1].value);
+    const yoy = nmh.length >= 5;
+    const prior = yoy ? Number(nmh[4].value) : Number(nmh[1].value);
+    const basis = yoy ? "YoY" : "QoQ";
     const delta = latest - prior;          // percentage points
     let s = 0;
     if (delta > 0.25) s = 1;
     else if (delta < -0.25) s = -1;
     marginSignal = _sig("netMargin", "Net Margin Growth", s, {
       value: `${latest.toFixed(1)}%`,
-      note: `${prior.toFixed(1)}% → ${latest.toFixed(1)}% net margin QoQ`,
+      note: `${prior.toFixed(1)}% → ${latest.toFixed(1)}% net margin ${basis}`,
     });
   }
   signals.push(marginSignal);
@@ -6614,10 +6631,13 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   }
   signals.push(pcrSignal);
 
-  // 7. VIX tracking: rising fear is a market-wide headwind. Per spec — VIX
-  // rising AND above 25 = -2 (volatility regime turning against long premium);
-  // VIX falling = +1 (vol bleeding out, tailwind). "trend" is the 5-day
-  // direction from the macro backdrop (±0.5% band).
+  // 7. VIX tracking: VIX rising AND > 25 = -2 (vol regime turning against long
+  // premium); VIX FALLING FROM AN ELEVATED LEVEL (≥ 20) = +1 (genuine vol relief,
+  // a tailwind). The falling branch is gated on the level on purpose: a VIX that
+  // is already calm (e.g. 15) and merely drifting lower is not a tailwind — the
+  // old ungated rule handed a "free" +1 to EVERY name on any quiet down-drift,
+  // uniformly inflating the whole grade distribution with no discrimination.
+  // "trend" is the 5-day direction from the macro backdrop (±0.5% band).
   let vixTrendSignal = _sig("vixTracking", "VIX Tracking", 0,
     { available: false, note: "no VIX data" });
   const vix = macroBackdrop && macroBackdrop.vix;
@@ -6627,9 +6647,11 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     if (vix.trend === "rising" && vix.value > 25) {
       s = -2;
       note = `VIX ${vix.value.toFixed(1)} rising & >25 — risk-off regime`;
-    } else if (vix.trend === "falling") {
+    } else if (vix.trend === "falling" && vix.value >= 20) {
       s = 1;
-      note = `VIX ${vix.value.toFixed(1)} falling — vol bleeding out, tailwind`;
+      note = `VIX ${vix.value.toFixed(1)} falling from elevated — vol relief tailwind`;
+    } else if (vix.trend === "falling") {
+      note = `VIX ${vix.value.toFixed(1)} falling but already calm (<20) — no edge`;
     }
     vixTrendSignal = _sig("vixTracking", "VIX Tracking", s, {
       value: vix.value.toFixed(1),
@@ -6753,19 +6775,22 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   }
   signals.push(socSignal);
 
-  // 4. Media: surge of recent coverage. Approximated from headline count and
-  // sentiment polarity since per-ticker headline-volume history isn't tracked.
-  // ≥4 fresh headlines + non-neutral sentiment: bullish +1, bearish -2 (per
-  // spec — a negative media surge weighs twice as heavy as a positive one).
-  let mediaSignal = _sig("media", "Media Coverage", 0,
-    { available: true, note: "no media surge detected" });
+  // 4. Media: coverage intensity (informational, scores 0). It USED to add
+  // bullish +1 / bearish -2 — but its only directional input was the SAME
+  // data.news.sentiment the Positive/Negative Catalyst signals already score, and
+  // it fired only as a subset of those (≥4 headlines + the same tilt), so it never
+  // contributed an independent read — it just double-counted one AI sentiment call
+  // (a bullish name got +2 catalyst +1 media; a bearish one -3 −2). Per-ticker
+  // headline-VOLUME history isn't tracked, so there's no baseline to turn this
+  // into a genuine "coverage surge" signal — it's left at 0 (sentiment is owned
+  // solely by the Catalyst signals) and kept in the breakdown for transparency.
   const headlines = data?.news?.headlines;
-  if (Array.isArray(headlines) && headlines.length >= 4 &&
-      (sent === "bullish" || sent === "bearish")) {
-    const s = sent === "bullish" ? 1 : -2;
-    mediaSignal = _sig("media", "Media Coverage", s, {
+  let mediaSignal = _sig("media", "Media Coverage", 0,
+    { available: false, note: "coverage intensity — informational; sentiment is scored by the Catalyst signals (no double-count)" });
+  if (Array.isArray(headlines) && headlines.length >= 4 && (sent === "bullish" || sent === "bearish")) {
+    mediaSignal = _sig("media", "Media Coverage", 0, {
       value: `${headlines.length} headlines`,
-      note: `${headlines.length} headlines with ${sent} tilt`,
+      note: `${headlines.length} headlines, ${sent} tilt — scored via the Catalyst signal, not double-counted here`,
     });
   }
   signals.push(mediaSignal);
