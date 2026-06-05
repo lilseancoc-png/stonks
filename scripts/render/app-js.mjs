@@ -9887,12 +9887,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     fetch('data/grades.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        picksGradesState.data = (json && json.grades) ? json : { grades: {}, minConviction: 16 };
+        picksGradesState.data = (json && json.grades) ? json : { grades: {}, minConviction: 12 };
         picksGradesState.loading = false;
         if (cb) cb(picksGradesState.data);
       })
       .catch(function(){
-        picksGradesState.data = { grades: {}, minConviction: 16, loadError: true };
+        picksGradesState.data = { grades: {}, minConviction: 12, loadError: true };
         picksGradesState.loading = false;
         if (cb) cb(picksGradesState.data);
       });
@@ -10077,8 +10077,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? '<span class="roster-score">' + e.prevTotal + '→' + e.curTotal + ' <small class="' + dc + '">(' + rosterSignedNum(e.deltaScore) + ')</small></span>'
       : '<span class="roster-score">' + e.prevTotal + '→<small class="muted">untracked</small></span>';
     var tag = e.stillActionable
-      ? '<span class="roster-out-tag" title="Still clears the ±16 bar — just out-ranked off the Top 10">out-ranked</span>'
-      : '<span class="roster-out-tag sig-neg" title="Dropped below the ±16 conviction bar">below bar</span>';
+      ? '<span class="roster-out-tag" title="Still clears the conviction bar — just out-ranked off the Top 10">out-ranked</span>'
+      : '<span class="roster-out-tag sig-neg" title="Dropped below the conviction bar">below bar</span>';
     var summary = '<summary class="roster-row-head">' +
       '<span class="roster-status sig-neg" title="Dropped off the Top 10">▼ OUT</span>' +
       '<span class="acc-sym">' + escapeHtml(e.symbol) + '</span>' +
@@ -10173,7 +10173,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // long-run chronological history of ±16-bar crossings.
     el.innerHTML = '<div class="accuracy-group">' +
       '<details class="acc-pc-wrap">' +
-        '<summary class="accuracy-group-head">Recent crossings (±16 bar) <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
+        '<summary class="accuracy-group-head">Recent crossings (conviction bar) <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
         '<div class="acc-pc-list">' + rows + '</div>' + more +
       '</details>' +
     '</div>';
@@ -10299,6 +10299,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     chips += chip(String(open.length), 'open');
     if (st.avgMfePct != null) chips += chip(accPct(st.avgMfePct), 'avg peak gain');
     if (st.avgMaePct != null) chips += chip('-' + Number(st.avgMaePct).toFixed(1) + '%', 'avg drawdown');
+    // Realized expectancy (side-adjusted underlying move, not option P&L) + the
+    // SPY benchmark over each pick's hold — the honest "does this beat buy-and-hold?"
+    if (st.expectancyPct != null) chips += chip(accPct(st.expectancyPct), 'expectancy · stock move', st.expectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
+    if (st.excessExpectancyPct != null) chips += chip(accPct(st.excessExpectancyPct), 'vs SPY', st.excessExpectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
 
     // --- Win rate by tier (the headline "does the score work?" view) --------
     var tierRows = '';
@@ -10319,7 +10323,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tierBlock = tierRows
       ? '<div class="accuracy-tiers"><div class="accuracy-tiers-head">Win rate by conviction tier</div>' + tierRows + '</div>'
       : '';
-    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock;
+    // Generic cohort renderer (sector / regime / gate A/B) — same bar layout as
+    // the tier block. Suppresses cohorts with <1 decided and labels are escaped.
+    function cohortBlock(title, obj){
+      if (!obj) return '';
+      var keys = Object.keys(obj).sort(function(a, b){ return (obj[b].n || 0) - (obj[a].n || 0); });
+      var rows = '';
+      for (var i = 0; i < keys.length; i++){
+        var k = keys[i]; var row = obj[k];
+        if (!row || !row.n) continue;
+        var rate = (row.winRate != null && isFinite(row.winRate)) ? Math.round(row.winRate * 100) : null;
+        var cls = rate == null ? 'sig-zero' : (rate >= 50 ? 'sig-pos' : 'sig-neg');
+        rows += '<div class="acc-tier-row">' +
+          '<span class="acc-tier-name">' + escapeHtml(k) + '</span>' +
+          '<span class="acc-tier-bar"><i class="' + cls + '" style="width:' + (rate == null ? 0 : rate) + '%"></i></span>' +
+          '<span class="acc-tier-rate ' + cls + '">' + (rate == null ? '—' : rate + '%') + '</span>' +
+          '<span class="acc-tier-n">' + row.wins + '/' + row.n + '</span>' +
+        '</div>';
+      }
+      return rows ? '<div class="accuracy-tiers"><div class="accuracy-tiers-head">' + title + '</div>' + rows + '</div>' : '';
+    }
+    var sectorBlock = cohortBlock('Win rate by sector', st.bySector);
+    var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime);
+    // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
+    var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
+    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock + sectorBlock + regimeBlock + abBlock;
 
     // --- Open positions (grouped by ticker; multiple contracts collapse) ----
     var nowMs = Date.now();
@@ -10983,8 +11011,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function pickTierBadge(p){
     var rec = p && p.recommendation;
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : null);
-    var label = rec && rec.label ? rec.label : (total >= 16 ? 'Call' : total <= -16 ? 'Put' : 'No Trade');
-    var tier = rec && rec.tier ? rec.tier : (total >= 20 ? 'strong-call' : total >= 16 ? 'call' : total <= -20 ? 'strong-put' : total <= -16 ? 'put' : 'no-trade');
+    var label = rec && rec.label ? rec.label : (total >= 12 ? 'Call' : total <= -12 ? 'Put' : 'No Trade');
+    var tier = rec && rec.tier ? rec.tier : (total >= 16 ? 'strong-call' : total >= 12 ? 'call' : total <= -16 ? 'strong-put' : total <= -12 ? 'put' : 'no-trade');
     var conv = rec && rec.conviction ? rec.conviction : '';
     var size = rec && rec.sizing ? rec.sizing : '';
     var scoreStr = (total != null) ? ((total >= 0 ? '+' : '') + total) : '—';
@@ -10999,6 +11027,52 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (size ? '<span class="pick-tier-size">' + escapeHtml(size) + '</span>' : '') +
           '</div>'
         : '') +
+    '</div>';
+  }
+
+  // Map the server-side execution-timing state to a CSS class + label. The gate
+  // (build.mjs::computeEntryTiming) answers "should we execute NOW?" separately
+  // from the grade. 'avoid' picks never ship, so only 'go'/'wait' render here.
+  function pickTimingMeta(state){
+    if (state === 'go')   return { cls: 'pos',  label: 'EXECUTE NOW' };
+    if (state === 'wait') return { cls: 'fair', label: 'WAIT' };
+    return null;
+  }
+
+  // Compact timing pill for the scannable grid card + the detail head.
+  function pickTimingBadge(p){
+    var et = p && p.entryTiming;
+    var meta = et && pickTimingMeta(et.state);
+    if (!meta) return '';
+    return '<span class="pick-timing-pill pick-timing-' + meta.cls + '" title="' +
+      escapeHtml(et.headline || '') + '">' + meta.label + '</span>';
+  }
+
+  // Full "Execute now?" banner for the detail card — the headline + the top
+  // couple of reasons the gate gave, so the user sees WHY now is / isn't the
+  // moment. Deliberately distinct from the grade panel: this is timing, not the
+  // 4-pillar asset score. Tactical (risk-off) puts get an extra note.
+  function pickTimingBanner(p){
+    var et = p && p.entryTiming;
+    var meta = et && pickTimingMeta(et.state);
+    if (!meta) return '';
+    var reasons = Array.isArray(et.reasons) ? et.reasons.slice(0, 3) : [];
+    var reasonsHtml = reasons.length
+      ? '<ul class="pick-timing-reasons">' +
+          reasons.map(function(r){ return '<li>' + escapeHtml(String(r)) + '</li>'; }).join('') +
+        '</ul>'
+      : '';
+    var tacticalNote = p.tactical
+      ? '<div class="pick-timing-tactical">Tape-driven tactical put — the grade doesn’t clear the put bar, but a confirmed risk-off tape + a clean breakdown opened this short. Reduced size.</div>'
+      : '';
+    return '<div class="pick-timing pick-timing-' + meta.cls + '">' +
+      '<div class="pick-timing-head">' +
+        '<span class="pick-timing-verdict pick-timing-v-' + meta.cls + '">' + meta.label + '</span>' +
+        '<span class="pick-timing-title">Execute now? <span class="pick-timing-sub">' + escapeHtml(et.headline || '') + '</span></span>' +
+      '</div>' +
+      tacticalNote +
+      reasonsHtml +
+      '<div class="pick-timing-foot">Entry timing is separate from the grade — the score says the setup is good; this says whether <em>now</em> is the moment to put it on.</div>' +
     '</div>';
   }
 
@@ -11218,11 +11292,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // "±20 graded stock at its 50D SMA" alert chip (per spec) — only shown when
     // the entry engine flags the prime-pullback condition.
     var fiftyHtml = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
-      ? '<span class="pick-fifty-alert" title="A ±20-graded name sitting on its 50D SMA — the highest-probability pullback entry">⚑ 50D SMA</span>'
+      ? '<span class="pick-fifty-alert" title="A Strong-tier name sitting on its 50D SMA — the highest-probability pullback entry">⚑ 50D SMA</span>'
       : '';
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
+    var timingHtml = pickTimingBanner(p);
+    var timingBadge = pickTimingBadge(p);
     var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
     var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
     // The card body is split into two switchable views: "Recommendation"
@@ -11230,7 +11306,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + analysisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + timingHtml + analysisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -11254,6 +11330,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
           sectorTag +
           '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
+          timingBadge +
+          (p.tactical ? '<span class="pick-tactical-tag" title="Tape-driven tactical put — see the Execute-now banner">TACTICAL</span>' : '') +
           streakHtml +
           tenureHtml +
           fiftyHtml +
@@ -11279,7 +11357,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (p.sector) metaBits.push(escapeHtml(p.sector));
     if (spot) metaBits.push(spot);
     var fiftyChip = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
-      ? '<span class="ptc-alert" title="±20 grade sitting on its 50D SMA — prime pullback entry">⚑ 50D</span>'
+      ? '<span class="ptc-alert" title="Strong grade sitting on its 50D SMA — prime pullback entry">⚑ 50D</span>'
       : '';
     // Day-streak chip — mirrors the detail card's ⏱ tenure badge
     // (buildPickCardHtml) so the count is visible while skimming the ranked grid.
@@ -11293,10 +11371,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ' trading days' + (ptcSince ? ' — since ' + escapeHtml(ptcSince) : '') + '">⏱ ' +
         ptcDays + 'd</span>';
     }
+    var timingChip = pickTimingBadge(p);
+    var tacticalChip = p.tactical ? '<span class="ptc-tactical" title="Tape-driven tactical put">TACTICAL</span>' : '';
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + timingChip + tacticalChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) + '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
@@ -11343,7 +11423,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // the audit of how they graded. g is a data/grades.json record.
   function buildGradeCardHtml(g){
     if (!g) return '';
-    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 16;
+    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 12;
     var total = (g.total != null) ? g.total : 0;
     var actionable = Math.abs(total) >= minConv;
     // No-trade names have side === null — keep the card neutral (don't tint it
@@ -11683,7 +11763,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
           : '');
     }
-    grid.innerHTML = picks.map(function(p, idx){ return pickTabCardHtml(p, idx); }).join('');
+    // Honest roster note — why the list may be short today (the timing gate
+    // drops chasing/knife entries and nothing backfills with a worse-timed name,
+    // and the sector cap limits correlated names). Reads picks.json rosterMeta.
+    var rm = data.rosterMeta || null;
+    var noteBits = [];
+    if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> clean setup' + (picks.length === 1 ? '' : 's') + ' cleared the bar today');
+    if (rm && rm.vetoed) noteBits.push('<b>' + rm.vetoed + '</b> dropped by the timing gate (chasing a top / falling knife)');
+    if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
+    var rosterNote = noteBits.length
+      ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
+      : '';
+    grid.innerHTML = rosterNote + picks.map(function(p, idx){ return pickTabCardHtml(p, idx); }).join('');
   }
 
   // --- Pinned-to-compare strip --------------------------------------------

@@ -92,6 +92,7 @@ applyPickFirstSeen(picks, priorPicks, builtAtIso);
 const out = {
   builtAtIso,
   minConviction: PICKS_MIN_CONVICTION,
+  rosterMeta: picks.rosterMeta || null,
   picks,
 };
 

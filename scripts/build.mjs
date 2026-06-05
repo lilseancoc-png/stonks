@@ -5507,13 +5507,29 @@ const PICKS_FILE = "picks.json";
 // breakdown + conviction tier for names that don't clear PICKS_MIN_CONVICTION.
 const GRADES_FILE = "grades.json";
 const PICKS_COUNT = 10;
-// 4-pillar scoring tiers (per the spec's Final Score Summary table):
-//   ±20  Strong (Very High conviction, "Load the Boat")
-//   ±16  directional Call/Put (High conviction, Standard size)
-//   otherwise (-15..+15) No Trade.
-// Floor at 16 absolute so only actionable (Call/Strong) picks ship.
-export const PICKS_MIN_CONVICTION = 16;
-const PICKS_TIER_STRONG = 20;
+// Max picks from any one sector on the visible roster. The equal-weight score
+// systematically over-loads correlated names (the failing track record was 18/19
+// losses in Technology), so a single sector-factor drawdown could wipe the whole
+// roster at once. Cap correlation at 40% of the roster; ETFs (null sector) are
+// uncapped. This caps CORRELATION, not sidedness — the long-bias is handled
+// elsewhere (the grade + the timing gate's risk-off put path).
+const PICKS_MAX_PER_SECTOR = 4;
+// 4-pillar scoring tiers:
+//   ±16  Strong (Very High conviction, "Load the Boat")
+//   ±12  directional Call/Put (High conviction, Standard size)
+//   otherwise (-11..+11) No Trade.
+// RECALIBRATED (twice) as the scoring was de-inflated to remove double-counting:
+//   ±16/±20 → ±14/±18  (MA stack ±3→±1 decorrelation; Positive Catalyst +3→+2)
+//   ±14/±18 → ±12/±16  (rubric audit: dropped the Media double-count of news
+//                       sentiment; gated the VIX-tracking "free +1" that had been
+//                       added to EVERY name on any calm down-drift — a uniform
+//                       ~-1 shift; graded the flat-+2 guidance proxy).
+// The bars track the (now lower, de-inflated) score distribution so the intended
+// "top ~10-13 actionable / very-best = Strong" selectivity is preserved — the
+// removed points were spurious (double-counted / undiscriminating), so lowering
+// the bar by the same offset is ranking-preserving, not a loosening of standards.
+export const PICKS_MIN_CONVICTION = 12;
+const PICKS_TIER_STRONG = 16;
 
 // Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
@@ -5557,6 +5573,45 @@ const PICKS_CLEAN_MAX_THETA = 0.025;      // |theta|/mid per day — buffer belo
 // underlying's 30-day realized-vol percentile (buying expensive premium).
 const PICKS_IV_REGIME_HIGH = 70;
 
+// ---- Execution-timing gate (computeEntryTiming) ----------------------------
+// The 4-pillar score grades the ASSET ("is this a good setup?"). It does NOT
+// answer "is NOW a good moment to put this on?" — and that gap is what produced
+// the failing track record: the engine kept buying fundamentally-strong names
+// AFTER they'd ripped 15-50% in a few days (extended, pressed into resistance),
+// then they mean-reverted and the ~8% underlying cut (≈ -70% on a deep-OTM call)
+// fired. The gate is a SEPARATE pre-publish filter in buildTopPicks — it never
+// touches `total`, so grades.json / tiers / the whole downstream consumer chain
+// are unchanged. It returns one of three states per candidate:
+//   'avoid' — falling knife / chasing an extended top → DROP the pick.
+//   'wait'  — no clean entry yet (mixed / catalyst imminent / tape against) →
+//             still SHIP it, badged, so the user can act on confirmation.
+//   'go'    — a clean, well-located entry (pullback-in-trend, breakout w/ volume).
+// Sibling of the browser's live buildExecuteNowCard (scripts/render/app-js.mjs);
+// that card reads LIVE intraday structure, this reads CONFIRMED daily bars and
+// adds the multi-day extension/knife reads the card lacks. Thresholds are named
+// so they're auditable and tunable from one place.
+const PICKS_TIMING_KNIFE_RET1D = -6;        // % 1-day collapse against the trade = falling knife
+const PICKS_TIMING_KNIFE_RET3D = -8;        // % 3-day slide against the trade (with volume) = knife
+const PICKS_TIMING_KNIFE_DD_ATR = -2.5;     // adverse excursion from the 20-bar extreme, in ATRs
+const PICKS_TIMING_CHASE_RSI = 70;          // RSI this hot in the trade's direction = overbought chase
+const PICKS_TIMING_CHASE_DIST_SMA20 = 8;    // % stretched beyond the 20D SMA (with a hot RSI) = chase
+const PICKS_TIMING_CHASE_DIST_SMA20_SOFT = 7; // % stretch that, paired with a hot multi-day run, still chases
+const PICKS_TIMING_CHASE_52W = 0.92;        // ≥92% of the way to the 52w extreme (with a hot RSI) = chase
+const PICKS_TIMING_CHASE_RET5D = 10;        // % 5-day run in the trade's direction = an extended move
+const PICKS_TIMING_CHASE_RET3D = 10;        // % 3-day blow-off run in the trade's direction
+const PICKS_TIMING_PULLBACK_BAND = 3;       // % around the 20D SMA that counts as a healthy reset (the green zone)
+const PICKS_TIMING_RISKOFF_VIX = 20;        // VIX level that confirms a risk-off regime
+const PICKS_TIMING_RISKOFF_SPY = -1.0;      // % SPY day that confirms a risk-off regime
+const PICKS_TIMING_RISKON_SPY = 0.6;        // % SPY day that confirms a risk-on regime
+const PICKS_TIMING_EARNINGS_DEFER_DAYS = 3; // earnings this close → defer entry (IV-crush risk) → 'wait'
+const PICKS_TIMING_MIN_BARS = 15;           // need this many confirmed bars or the gate fails OPEN ('go')
+// Risk-off put enablement (user-chosen): the universe is long-biased, so puts
+// almost never clear the -16 grade bar. When the broad tape is CONFIRMED
+// risk-off, relax the put bar to this score AND require a clean bearish entry
+// ('go' from the gate) — so we only short genuinely weak names that are
+// breaking down NOW, in a tape that backs it. Reduced-size, clearly tagged.
+const PICKS_RISKOFF_PUT_BAR = -8;
+
 // Pick accuracy tracker (spec): log every pick when it appears, mark it to
 // market on each build using the fresh underlying spot, and resolve it when
 // the stock reaches the take-profit (win), the cut (loss), or the contract
@@ -5570,6 +5625,13 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
 const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // only enroll the top-N ranked picks each build, so the open list can't balloon as the top-10 rotates
 const PICKS_ACCURACY_FLAT_BAND_PCT = 0.5; // |MFE−MAE| within this → flat/inconclusive (null outcome), NOT a win or loss
+// Research A/B: when set, ALSO enroll the top-N 'wait' picks (tagged
+// cohort:'wait'), tracked by the same machinery but EXCLUDED from the headline
+// win-rate/expectancy — surfaced only as the `byCohort` go-vs-wait comparison, so
+// we can eventually PROVE the timing gate earns its keep. OFF by default: it
+// roughly doubles the open list, and the comparison is noise until many more
+// than the current sample of decided picks accrue.
+const PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT = process.env.PICKS_ACCURACY_AB === "1";
 
 // Fixed-horizon checkpoints (spec): snapshot each tracked pick's underlying spot
 // + current grade score at Day 0 / 2 weeks / 1 month, so the Track-record tab
@@ -5753,12 +5815,13 @@ function summarizeUnusualForSym(sym, unusualPayload) {
 // pillars (Fundamentals, Technicals, Mechanicals, Narrative). Pillar score =
 // sum of its signals. Total score = sum of all four pillar scores.
 //
-// Score → tier mapping (per the spec's Final Score Summary table):
-//   ≥ +20   Strong Call  (Very High conviction, Load the Boat)
-//   +16..+19 Call        (High conviction, Standard size)
-//   -15..+15 No Trade    (Skip — not shipped)
-//   -16..-19 Put         (High conviction, Standard size)
-//   ≤ -20   Strong Put   (Very High conviction, Load the Boat)
+// Score → tier mapping (post de-inflation recalibration; bars are the
+// PICKS_TIER_STRONG / PICKS_MIN_CONVICTION constants):
+//   ≥ +16   Strong Call  (Very High conviction, Load the Boat)
+//   +12..+15 Call        (High conviction, Standard size)
+//   -11..+11 No Trade    (Skip — not shipped)
+//   -12..-15 Put         (High conviction, Standard size)
+//   ≤ -16   Strong Put   (Very High conviction, Load the Boat)
 //
 // Each pillar returns a `signals` array where every entry is
 //   { key, label, score, value, note, available }
@@ -5974,11 +6037,21 @@ function scoreFundamentals(data, sectorMedianPE) {
   } else {
     const gFY = f.growthEstimateCurY;
     if (gFY != null && isFinite(gFY)) {
+      // GRADE the proxy instead of handing every positive estimate a flat +2.
+      // The old `gFY >= 0 → +2` lumped ~all of the universe into the same +2
+      // (almost every name has a positive FY EPS growth estimate), so this
+      // fallback — the heaviest fundamental signal — barely discriminated. Now:
+      // strong growth (≥10%) +2, modest (0-10%) +1, clearly negative (≤-10%) -3
+      // (a real "lowered" read), mildly soft (-10..0) 0. A genuine "raised" +3
+      // can still only come from the AI guidance path, not the proxy.
       let s = 0;
       let note;
-      if (gFY >= 0) {
+      if (gFY >= 10) {
         s = 2;
-        note = `+${gFY.toFixed(1)}% FY EPS growth est — raised/in-line proxy`;
+        note = `+${gFY.toFixed(1)}% FY EPS growth est — strong, raised/in-line proxy`;
+      } else if (gFY >= 0) {
+        s = 1;
+        note = `+${gFY.toFixed(1)}% FY EPS growth est — modest growth proxy`;
       } else if (gFY <= -10) {
         s = -3;
         note = `${gFY.toFixed(1)}% FY EPS growth est — lowered proxy`;
@@ -6053,15 +6126,20 @@ function scoreFundamentals(data, sectorMedianPE) {
     .filter((r) => r && isFinite(r.value))
     .sort((a, b) => (new Date(b.date || 0)) - (new Date(a.date || 0)));
   if (nmh.length >= 2) {
+    // Prefer YEAR-over-year (vs the same quarter last year) when we have ≥5
+    // quarters — QoQ net margin is seasonally noisy (retail Q4, etc.), so a YoY
+    // compare is a cleaner read of the trend. Fall back to QoQ with <5 quarters.
     const latest = Number(nmh[0].value);
-    const prior = Number(nmh[1].value);
+    const yoy = nmh.length >= 5;
+    const prior = yoy ? Number(nmh[4].value) : Number(nmh[1].value);
+    const basis = yoy ? "YoY" : "QoQ";
     const delta = latest - prior;          // percentage points
     let s = 0;
     if (delta > 0.25) s = 1;
     else if (delta < -0.25) s = -1;
     marginSignal = _sig("netMargin", "Net Margin Growth", s, {
       value: `${latest.toFixed(1)}%`,
-      note: `${prior.toFixed(1)}% → ${latest.toFixed(1)}% net margin QoQ`,
+      note: `${prior.toFixed(1)}% → ${latest.toFixed(1)}% net margin ${basis}`,
     });
   }
   signals.push(marginSignal);
@@ -6282,16 +6360,32 @@ function scoreTechnicals(data, streakRow) {
   }
   signals.push(volConfSignal);
 
-  // 10-12. Moving-average stack (per spec): price above the SMA = bullish,
-  // below = bearish — 20D ±1, 50D ±1, 100D ±1 (all flat per spec; unlike the
-  // 100D S/R rung, the 100D SMA is not double-weighted). The whole stack shows
-  // "no data" until a full build writes technicals.sma.
+  // 10. Moving-average stack — DECORRELATED. The 20/50/100D SMAs are highly
+  // collinear (price is almost always above or below all three at once), so
+  // scoring each ±1 triple-counted a SINGLE trend read (±3) and over-weighted
+  // momentum versus the rest of the score — a structural reason hot, trending
+  // (mostly mega-cap-tech) names dominated the roster. Collapse the stack into
+  // ONE ±1 signal: above the majority of the available SMAs = +1 (uptrend),
+  // below the majority = -1. "No data" until a full build writes technicals.sma.
   const sma = t.sma || {};
-  signals.push(
-    smaRung(spot, "sma20", "20D", sma.sma20, 1),
-    smaRung(spot, "sma50", "50D", sma.sma50, 1),
-    smaRung(spot, "sma100", "100D", sma.sma100, 1),
-  );
+  const smaVals = [sma.sma20, sma.sma50, sma.sma100].filter((v) => v != null && isFinite(v) && v > 0);
+  let smaStackSig;
+  if (!(spot > 0) || smaVals.length === 0) {
+    smaStackSig = _sig("smaStack", "MA Stack (20/50/100D)", 0, { available: false, note: "no SMA stack" });
+  } else {
+    const above = smaVals.filter((v) => spot >= v).length;
+    const below = smaVals.length - above;
+    const s = above > below ? 1 : below > above ? -1 : 0;
+    smaStackSig = _sig("smaStack", "MA Stack (20/50/100D)", s, {
+      value: `${above}/${smaVals.length} above`,
+      note: s > 0
+        ? `price above ${above} of ${smaVals.length} SMAs — uptrend`
+        : s < 0
+          ? `price below ${below} of ${smaVals.length} SMAs — downtrend`
+          : "price split across the SMA stack",
+    });
+  }
+  signals.push(smaStackSig);
 
   // 13. Chart pattern (AI-identified, per attachChartPatterns): a recognised
   // bullish formation scores +1, a bearish formation -1 (per spec — flat ±1
@@ -6537,10 +6631,13 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   }
   signals.push(pcrSignal);
 
-  // 7. VIX tracking: rising fear is a market-wide headwind. Per spec — VIX
-  // rising AND above 25 = -2 (volatility regime turning against long premium);
-  // VIX falling = +1 (vol bleeding out, tailwind). "trend" is the 5-day
-  // direction from the macro backdrop (±0.5% band).
+  // 7. VIX tracking: VIX rising AND > 25 = -2 (vol regime turning against long
+  // premium); VIX FALLING FROM AN ELEVATED LEVEL (≥ 20) = +1 (genuine vol relief,
+  // a tailwind). The falling branch is gated on the level on purpose: a VIX that
+  // is already calm (e.g. 15) and merely drifting lower is not a tailwind — the
+  // old ungated rule handed a "free" +1 to EVERY name on any quiet down-drift,
+  // uniformly inflating the whole grade distribution with no discrimination.
+  // "trend" is the 5-day direction from the macro backdrop (±0.5% band).
   let vixTrendSignal = _sig("vixTracking", "VIX Tracking", 0,
     { available: false, note: "no VIX data" });
   const vix = macroBackdrop && macroBackdrop.vix;
@@ -6550,9 +6647,11 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     if (vix.trend === "rising" && vix.value > 25) {
       s = -2;
       note = `VIX ${vix.value.toFixed(1)} rising & >25 — risk-off regime`;
-    } else if (vix.trend === "falling") {
+    } else if (vix.trend === "falling" && vix.value >= 20) {
       s = 1;
-      note = `VIX ${vix.value.toFixed(1)} falling — vol bleeding out, tailwind`;
+      note = `VIX ${vix.value.toFixed(1)} falling from elevated — vol relief tailwind`;
+    } else if (vix.trend === "falling") {
+      note = `VIX ${vix.value.toFixed(1)} falling but already calm (<20) — no edge`;
     }
     vixTrendSignal = _sig("vixTracking", "VIX Tracking", s, {
       value: vix.value.toFixed(1),
@@ -6587,13 +6686,19 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
 function scoreNarrative(sym, data, narratives, macroBackdrop) {
   const signals = [];
 
-  // 1. Positive Catalyst: asymmetric (+3 or 0). Bullish news sentiment hits +3.
-  // Strict cap at +3 even if multiple positive items align.
+  // 1. Positive Catalyst: asymmetric (+2 or 0). Bullish news sentiment hits +2.
+  // Deliberately LIGHTER than the Negative Catalyst's -3: a single AI
+  // headline-sentiment read is noisy, and weighting good news as heavily as bad
+  // news fed the structural long-bias that kept quality names graded green
+  // through a selloff. Capping the bullish side at +2 (vs the bearish -3) makes
+  // the narrative pillar net more sensitive to bad news than good — the correct
+  // asymmetry for an option-BUYER, where a negative surprise is far more
+  // dangerous to long premium than a positive one is helpful.
   let posCatSignal = _sig("positiveCatalyst", "Positive Catalyst", 0,
     { available: true, note: "no positive catalyst flagged" });
   const sent = data?.news?.sentiment;
   if (sent === "bullish") {
-    posCatSignal = _sig("positiveCatalyst", "Positive Catalyst", 3, {
+    posCatSignal = _sig("positiveCatalyst", "Positive Catalyst", 2, {
       value: "bullish",
       note: "news sentiment bullish",
     });
@@ -6670,19 +6775,22 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   }
   signals.push(socSignal);
 
-  // 4. Media: surge of recent coverage. Approximated from headline count and
-  // sentiment polarity since per-ticker headline-volume history isn't tracked.
-  // ≥4 fresh headlines + non-neutral sentiment: bullish +1, bearish -2 (per
-  // spec — a negative media surge weighs twice as heavy as a positive one).
-  let mediaSignal = _sig("media", "Media Coverage", 0,
-    { available: true, note: "no media surge detected" });
+  // 4. Media: coverage intensity (informational, scores 0). It USED to add
+  // bullish +1 / bearish -2 — but its only directional input was the SAME
+  // data.news.sentiment the Positive/Negative Catalyst signals already score, and
+  // it fired only as a subset of those (≥4 headlines + the same tilt), so it never
+  // contributed an independent read — it just double-counted one AI sentiment call
+  // (a bullish name got +2 catalyst +1 media; a bearish one -3 −2). Per-ticker
+  // headline-VOLUME history isn't tracked, so there's no baseline to turn this
+  // into a genuine "coverage surge" signal — it's left at 0 (sentiment is owned
+  // solely by the Catalyst signals) and kept in the breakdown for transparency.
   const headlines = data?.news?.headlines;
-  if (Array.isArray(headlines) && headlines.length >= 4 &&
-      (sent === "bullish" || sent === "bearish")) {
-    const s = sent === "bullish" ? 1 : -2;
-    mediaSignal = _sig("media", "Media Coverage", s, {
+  let mediaSignal = _sig("media", "Media Coverage", 0,
+    { available: false, note: "coverage intensity — informational; sentiment is scored by the Catalyst signals (no double-count)" });
+  if (Array.isArray(headlines) && headlines.length >= 4 && (sent === "bullish" || sent === "bearish")) {
+    mediaSignal = _sig("media", "Media Coverage", 0, {
       value: `${headlines.length} headlines`,
-      note: `${headlines.length} headlines with ${sent} tilt`,
+      note: `${headlines.length} headlines, ${sent} tilt — scored via the Catalyst signal, not double-counted here`,
     });
   }
   signals.push(mediaSignal);
@@ -7293,6 +7401,18 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   const px = (n) => `$${Number(n).toFixed(2)}`;
   const movePct = (lvl) => Number((((lvl - spot) / spot) * 100).toFixed(1));
 
+  // Volatility-aware stop floor. A fixed ~8% underlying cut sits INSIDE one
+  // average daily range for a high-beta name, so routine chop stops the trade
+  // out — and on a 15-30% OTM option that ~8% move is ≈ -70% on the contract.
+  // Floor the stop at ~2.5× ATR (clamped 5-12%) so the cut sits OUTSIDE the daily
+  // noise band; the cut is then the DEEPER of structural support and this floor
+  // (so a real broken level still exits, but noise never does), kept inside the
+  // 12% cap. Null ATR (thin history) → 0.08, reproducing the prior behavior.
+  const tbExit = timingBarsFrom(data);
+  const atrPExit = tbExit ? atrPctFrom(tbExit.h, tbExit.l, tbExit.c) : null;
+  const minStopFrac = (atrPExit > 0) ? Math.min(0.12, Math.max(0.05, 2.5 * atrPExit / 100)) : 0.08;
+  const stopPctLabel = `~${Math.round(minStopFrac * 100)}%${atrPExit > 0 ? " (≈2.5×ATR)" : ""}`;
+
   // Candidate levels above / below spot, each tagged with a human label.
   const above = [];
   const below = [];
@@ -7345,18 +7465,23 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
         reason: `Target ${px(target)} (+${(tpMinFrac * 100).toFixed(1)}%) — a meaningful first profit-take; no resistance or expected-move level to anchor to.`,
       };
     }
-    // Cut: close below nearest support — breaks the bullish structure.
+    // Cut: close below nearest support — breaks the bullish structure. The cut
+    // is the DEEPER (lower) of nearest support and the ~2.5×ATR floor, so we
+    // never stop on intraday noise; capped at 12% so a far-off support doesn't
+    // leave the call worthless before it triggers.
     const cutLvl = below[0];
-    let cutVal = cutLvl ? cutLvl.val : spot * 0.92;
-    let cutLabel = cutLvl ? cutLvl.label : "an ~8% stop below entry";
-    // Guard (per spec): never set the cut so far below spot that the call is
-    // already near-worthless by the time it triggers. If the nearest support
-    // sits more than ~12% under spot, fall back to a tighter ~8% stop so the
-    // contract still retains meaningful premium where we bail.
-    if (cutVal < spot * 0.88) {
-      cutVal = spot * 0.92;
-      cutLabel = "an ~8% stop (nearest support sits too far below to be a useful exit)";
+    const atrFloor = spot * (1 - minStopFrac);
+    let cutVal, cutLabel;
+    if (cutLvl && cutLvl.val <= atrFloor && cutLvl.val >= spot * 0.88) {
+      cutVal = cutLvl.val; cutLabel = cutLvl.label;
+    } else if (cutLvl && cutLvl.val > atrFloor) {
+      // Nearest support sits inside one ATR — too tight; widen to the ATR floor.
+      cutVal = atrFloor; cutLabel = `a ${stopPctLabel} stop (nearest support is inside the daily noise band)`;
+    } else {
+      // No support, or it's beyond the 12% cap — use the ATR floor.
+      cutVal = atrFloor; cutLabel = `a ${stopPctLabel} stop below entry`;
     }
+    if (cutVal < spot * 0.88) { cutVal = spot * 0.88; cutLabel = "a 12% stop (deeper support sits too far below to be a useful exit)"; }
     cut = {
       price: Number(cutVal.toFixed(2)),
       movePct: movePct(cutVal),
@@ -7387,16 +7512,19 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
         reason: `Target ${px(target)} (-${(tpMinFrac * 100).toFixed(1)}%) — a meaningful first profit-take; no support or expected-move level to anchor to.`,
       };
     }
+    // Cut: the DEEPER (higher) of nearest resistance and the ~2.5×ATR floor, so
+    // a noise bounce never stops the put; capped at 12% above spot.
     const cutLvl = above[0];
-    let cutVal = cutLvl ? cutLvl.val : spot * 1.08;
-    let cutLabel = cutLvl ? cutLvl.label : "an ~8% stop above entry";
-    // Guard (per spec): mirror of the call side — if the nearest resistance is
-    // more than ~12% above spot, the put would be near-worthless by the time
-    // price climbs there, so use a tighter ~8% stop instead.
-    if (cutVal > spot * 1.12) {
-      cutVal = spot * 1.08;
-      cutLabel = "an ~8% stop (nearest resistance sits too far above to be a useful exit)";
+    const atrCeil = spot * (1 + minStopFrac);
+    let cutVal, cutLabel;
+    if (cutLvl && cutLvl.val >= atrCeil && cutLvl.val <= spot * 1.12) {
+      cutVal = cutLvl.val; cutLabel = cutLvl.label;
+    } else if (cutLvl && cutLvl.val < atrCeil) {
+      cutVal = atrCeil; cutLabel = `a ${stopPctLabel} stop (nearest resistance is inside the daily noise band)`;
+    } else {
+      cutVal = atrCeil; cutLabel = `a ${stopPctLabel} stop above entry`;
     }
+    if (cutVal > spot * 1.12) { cutVal = spot * 1.12; cutLabel = "a 12% stop (deeper resistance sits too far above to be a useful exit)"; }
     cut = {
       price: Number(cutVal.toFixed(2)),
       movePct: movePct(cutVal),
@@ -7897,12 +8025,12 @@ function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, ex
     tr.prose = entryProse(tr.role, tr.label);
   }
 
-  // Full size vs scale: only a very-high-conviction pick already sitting on a
-  // confluence earns a full-size green light; everything else scales in.
-  const stance = (absTotal >= 20 && atZoneNow && buyZones[0] && buyZones[0].confluence && !isBreakout) ? "full" : "scale";
-  // The "±20 graded stock at its 50D SMA" alert (per spec) — the highest-
-  // probability pullback entry in a strong uptrend/downtrend.
-  const atFiftyDaySma = absTotal >= 20 && fin(sma50) && Math.abs(spot - sma50) / sma50 <= 0.02;
+  // Full size vs scale: only a very-high-conviction (Strong-tier) pick already
+  // sitting on a confluence earns a full-size green light; everything else scales.
+  const stance = (absTotal >= PICKS_TIER_STRONG && atZoneNow && buyZones[0] && buyZones[0].confluence && !isBreakout) ? "full" : "scale";
+  // The "Strong-tier graded stock at its 50D SMA" alert — the highest-probability
+  // pullback entry in a strong uptrend/downtrend.
+  const atFiftyDaySma = absTotal >= PICKS_TIER_STRONG && fin(sma50) && Math.abs(spot - sma50) / sma50 <= 0.02;
 
   let sizingRule;
   if (stance === "full") {
@@ -7919,9 +8047,279 @@ function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, ex
     sizingRule = `Enter ${sizes[0]} at the first signal (${atZoneNow ? `price is at the ${first.label} now` : `the first ${isCall ? "pullback" : "bounce"} to ${px(first.price)}`}), then add ${addClause}${tranches[2] ? `, and the final ${sizes[2]} only if it tags ${px(tranches[2].price)}` : ""}. Never add ${isCall ? "below" : "above"} the ${px(cutPrice)} cut — that's where the thesis breaks.`;
   }
 
-  const summary = `${strategy.name} — ${stance === "full" ? "full size OK" : `scale in over ${tranches.length} tranche${tranches.length === 1 ? "" : "s"}`}${atFiftyDaySma ? " · ⚑ ±20 grade on its 50D SMA" : ""}.`;
+  const summary = `${strategy.name} — ${stance === "full" ? "full size OK" : `scale in over ${tranches.length} tranche${tranches.length === 1 ? "" : "s"}`}${atFiftyDaySma ? " · ⚑ Strong grade on its 50D SMA" : ""}.`;
 
   return { strategy, stance, scaleCount: tranches.length, sizingRule, atFiftyDaySma, tranches, summary };
+}
+
+// ----------------------------------------------------------------------------
+// Execution-timing gate (see the PICKS_TIMING_* constant block). Pure — no AI,
+// no network. Reads CONFIRMED daily bars plus the already-computed technicals
+// and answers the question the 4-pillar grade never asks: "is NOW a good moment
+// to enter THIS side?" Consulted only by buildTopPicks; it never feeds `total`.
+// ----------------------------------------------------------------------------
+
+// Normalize whatever daily-bar series is attached to `data` into oldest→newest
+// {c,h,l} arrays. Full build: data._bars (array of bar objects — still attached
+// in memory after writeChainFiles strips it from the written JSON). regen-picks:
+// data.priceSeries (the persisted {t,c,h,l,v} column arrays). null when neither
+// has enough history.
+function timingBarsFrom(data) {
+  const b = data && data._bars;
+  if (Array.isArray(b) && b.length >= PICKS_TIMING_MIN_BARS) {
+    return {
+      c: b.map((x) => Number(x && x.c)),
+      h: b.map((x) => Number(x && x.h)),
+      l: b.map((x) => Number(x && x.l)),
+    };
+  }
+  const ps = data && data.priceSeries;
+  if (ps && Array.isArray(ps.c) && ps.c.length >= PICKS_TIMING_MIN_BARS) {
+    return {
+      c: ps.c.map(Number),
+      h: (Array.isArray(ps.h) ? ps.h : ps.c).map(Number),
+      l: (Array.isArray(ps.l) ? ps.l : ps.c).map(Number),
+    };
+  }
+  return null;
+}
+
+// Average True Range over the last 14 confirmed bars, as a % of the latest
+// confirmed close. Used to size a drawdown in volatility units (a 10% drop is a
+// knife for a calm name but routine for a 6%-ATR mover). null without clean OHLC.
+function atrPctFrom(h, l, c) {
+  const m = Math.min(h.length, l.length, c.length);
+  if (m < PICKS_TIMING_MIN_BARS) return null;
+  let sum = 0, cnt = 0;
+  for (let i = m - 14; i < m; i++) {
+    if (i < 1) continue;
+    const hi = h[i], lo = l[i], pc = c[i - 1];
+    if (![hi, lo, pc].every((v) => isFinite(v))) continue;
+    const tr = Math.max(hi - lo, Math.abs(hi - pc), Math.abs(lo - pc));
+    if (isFinite(tr)) { sum += tr; cnt++; }
+  }
+  if (!cnt) return null;
+  const ref = c[m - 1];
+  return ref > 0 ? ((sum / cnt) / ref) * 100 : null;
+}
+
+// Broad-market regime from the SPY day move + the VIX level/trend. Deliberately
+// conservative: risk-off needs BOTH a ≥1% SPY drop AND an elevated/rising VIX,
+// so the risk-off put path (buildTopPicks) only opens when the tape confirms.
+export function detectMarketRegime(marketCtx, macroBackdrop) {
+  const spy = marketCtx && isFinite(marketCtx.spyMove) ? marketCtx.spyMove : null;
+  const vix = macroBackdrop && macroBackdrop.vix ? macroBackdrop.vix : null;
+  const vixVal = vix && isFinite(vix.value) ? vix.value : null;
+  const vixRising = vix && vix.trend === "rising";
+  const spyOff = spy != null && spy <= PICKS_TIMING_RISKOFF_SPY;
+  const vixOff = vixVal != null && (vixVal >= PICKS_TIMING_RISKOFF_VIX || (vixRising && vixVal >= 18));
+  if (spyOff && vixOff) return "risk-off";
+  const spyOn = spy != null && spy >= PICKS_TIMING_RISKON_SPY;
+  const vixCalm = vixVal == null || vixVal < 18;
+  if (spyOn && vixCalm) return "risk-on";
+  return "neutral";
+}
+
+// Whole days until the next earnings report (≥0), or null. Earnings inside the
+// next few sessions defers entry — the post-print IV crush can lose money even
+// when direction is right.
+function daysToEarningsFrom(data) {
+  const iso = data && data.fundamentals && data.fundamentals.nextEarningsDate;
+  if (!iso || typeof iso !== "string") return null;
+  const t = Date.parse(iso.length <= 10 ? `${iso}T16:00:00Z` : iso);
+  if (!Number.isFinite(t)) return null;
+  const d = (t - Date.now()) / 86400000;
+  return d >= -1 ? Math.max(0, Math.round(d)) : null;
+}
+
+// The gate. Returns { state:'go'|'wait'|'avoid', score, reasons:[], headline }.
+//   avoid → the entry is a falling knife or a chase of an extended top: DROP it.
+//   wait  → no clean entry yet (mixed structure / catalyst imminent / tape
+//           fighting it): SHIP it badged so the user can act on confirmation.
+//   go    → a clean, well-located entry.
+// FAIL-OPEN: missing spot / technicals / bar history → 'go' with score 0, so a
+// thin or freshly-added name is never silently dropped (graceful degradation).
+// `score` is a signed structure tally used only as a ranking tiebreaker.
+// Exported (like resolvePickOutcome) so the gate rules can be unit-tested.
+export function computeEntryTiming(side, data, spot, opts = {}) {
+  const regime = opts.regime || "neutral";
+  const failOpen = (why) => ({ state: "go", score: 0, reasons: [why], headline: "Timing read unavailable — not gated" });
+  if (!(spot > 0) || (side !== "call" && side !== "put")) return failOpen("no spot / side — gate skipped");
+  const t = (data && data.technicals) || {};
+  const f = (data && data.fundamentals) || {};
+  const bars = timingBarsFrom(data);
+  if (!bars) return failOpen("insufficient bar history — gate skipped");
+  const cAll = bars.c.filter((x) => isFinite(x));
+  if (cAll.length < PICKS_TIMING_MIN_BARS) return failOpen("insufficient closes — gate skipped");
+  // Confirmed bars only — drop the last/in-progress candle so a mid-session
+  // print can't fake a knife or a breakout (chart-pattern-cache convention).
+  const c = cAll.slice(0, -1);
+  const h = bars.h.slice(0, -1);
+  const l = bars.l.slice(0, -1);
+  const n = c.length;
+  const last = c[n - 1];
+  const dir = side === "call" ? 1 : -1;
+  const dirWord = dir > 0 ? "calls" : "puts";
+
+  // Direction-normalized multi-day returns (+ = moved the trade's way).
+  const retRaw = (k) => (n > k && c[n - 1 - k] > 0 ? ((last - c[n - 1 - k]) / c[n - 1 - k]) * 100 : null);
+  const retDir = (k) => { const r = retRaw(k); return r == null ? null : r * dir; };
+  const ret1d = retDir(1), ret3d = retDir(3), ret5d = retDir(5);
+
+  // Extension beyond the 20D SMA, direction-normalized (+ = stretched the way we bet).
+  const sma20 = t.sma && isFinite(t.sma.sma20) ? t.sma.sma20 : null;
+  const sma50 = t.sma && isFinite(t.sma.sma50) ? t.sma.sma50 : null;
+  const distSma20 = sma20 > 0 ? ((spot - sma20) / sma20) * 100 * dir : null;
+
+  // Position in the 52-week range, normalized toward the trade's extreme (→1 = at it).
+  const hi52 = f.fiftyTwoWeekHigh, lo52 = f.fiftyTwoWeekLow;
+  let ext52 = null;
+  if (isFinite(hi52) && isFinite(lo52) && hi52 > lo52) {
+    const pos = (spot - lo52) / (hi52 - lo52);
+    ext52 = dir > 0 ? pos : 1 - pos;
+  }
+
+  // 20D level we'd be buying into: resistance for calls, support for puts.
+  const r20 = t.sr && isFinite(t.sr.r20) ? t.sr.r20 : null;
+  const s20 = t.sr && isFinite(t.sr.s20) ? t.sr.s20 : null;
+
+  const rsi = isFinite(t.rsi) ? t.rsi : null;
+  const rsi5d = isFinite(t.rsi5d) ? t.rsi5d : null;
+  const rsiDelta = rsi != null && rsi5d != null ? rsi - rsi5d : null;
+  const rsiDeltaDir = rsiDelta != null ? rsiDelta * dir : null;
+  const macdHist = t.macd && isFinite(t.macd.hist) ? t.macd.hist : null;
+  const rvol = t.volume && isFinite(t.volume.rvol) ? t.volume.rvol : null;
+
+  // Adverse excursion from the 20-bar extreme, in ATR units (≤0 = against us).
+  const hwin = h.slice(-20).filter(isFinite);
+  const lwin = l.slice(-20).filter(isFinite);
+  const hiWin = hwin.length ? Math.max(...hwin) : null;
+  const loWin = lwin.length ? Math.min(...lwin) : null;
+  const atrP = atrPctFrom(h, l, c);
+  let adverseInAtr = null;
+  if (atrP > 0) {
+    if (dir > 0 && hiWin > 0) adverseInAtr = (((spot - hiWin) / hiWin) * 100) / atrP;
+    else if (dir < 0 && loWin > 0) adverseInAtr = (-(((spot - loWin) / loWin) * 100)) / atrP;
+  }
+
+  // ---- Hard vetoes -----------------------------------------------------------
+  // Regime tightening: a long bought INTO a confirmed risk-off tape (or a short
+  // into risk-on) is the contrarian-inflated grade the score itself can't catch
+  // — the persistent fundamentals/narrative keep it graded green while the tape
+  // is selling. So when the tape is against this side, tighten the knife
+  // thresholds ~25% (a -4.5%/-6% slide counts as a knife, not just -6%/-8%), so a
+  // borderline name is DROPPED rather than merely deferred. The score is never
+  // touched — this is purely the gate being stricter when the tape disagrees.
+  const tapeFightsTrade = (side === "call" && regime === "risk-off") || (side === "put" && regime === "risk-on");
+  const kRet1d = tapeFightsTrade ? PICKS_TIMING_KNIFE_RET1D * 0.75 : PICKS_TIMING_KNIFE_RET1D;
+  const kRet3d = tapeFightsTrade ? PICKS_TIMING_KNIFE_RET3D * 0.75 : PICKS_TIMING_KNIFE_RET3D;
+  const kDdAtr = tapeFightsTrade ? PICKS_TIMING_KNIFE_DD_ATR * 0.8 : PICKS_TIMING_KNIFE_DD_ATR;
+  const k1 = ret1d != null && ret1d <= kRet1d;
+  const k2 = ret3d != null && ret3d <= kRet3d && rvol != null && rvol >= 1.3;
+  const k3 = adverseInAtr != null && adverseInAtr <= kDdAtr && rsiDeltaDir != null && rsiDeltaDir < 0;
+  const knife = k1 || k2 || k3;
+
+  // Chasing an extended top (the dominant failure mode in the loss data): the
+  // engine kept buying calls AFTER a name had ripped 10-50% in a few days and
+  // sat well above its 20D SMA — a local extreme that mean-reverts. Three reads:
+  //   A — overbought (RSI hot) AND stretched above the 20D SMA, or pinned at the
+  //       52-week extreme.
+  //   B — a hot 5-day run AND extended above the 20D SMA.
+  //   C — a fast 3-day blow-off AND extended above the 20D SMA.
+  // (Resistance proximity is intentionally NOT required: a vertical run to a new
+  // high IS the chase even when it's nowhere near a prior 20D ceiling.)
+  const rsiHot = rsi != null && (dir > 0 ? rsi >= PICKS_TIMING_CHASE_RSI : rsi <= 100 - PICKS_TIMING_CHASE_RSI);
+  const at52Extreme = ext52 != null && ext52 >= PICKS_TIMING_CHASE_52W;
+  const chaseA = rsiHot && ((distSma20 != null && distSma20 >= PICKS_TIMING_CHASE_DIST_SMA20) || at52Extreme);
+  const chaseB = ret5d != null && ret5d >= PICKS_TIMING_CHASE_RET5D &&
+                 distSma20 != null && distSma20 >= PICKS_TIMING_CHASE_DIST_SMA20_SOFT;
+  const chaseC = ret3d != null && ret3d >= PICKS_TIMING_CHASE_RET3D &&
+                 distSma20 != null && distSma20 >= PICKS_TIMING_CHASE_DIST_SMA20_SOFT;
+  const chase = chaseA || chaseB || chaseC;
+
+  let score = 0;
+  const reasons = [];
+  const strongPros = [], strongCons = [];
+  const pro = (strong, txt) => { score += strong ? 2 : 1; reasons.push(`+ ${txt}`); if (strong) strongPros.push(txt); };
+  const con = (strong, txt) => { score -= strong ? 2 : 1; reasons.push(`- ${txt}`); if (strong) strongCons.push(txt); };
+  const pct = (x) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
+
+  if (knife) {
+    const bits = [];
+    if (k1) bits.push(`${pct(ret1d)} 1-day move against the trade`);
+    if (k2) bits.push(`${pct(ret3d)} over 3 days on ${rvol.toFixed(1)}x volume`);
+    if (k3) bits.push(`${adverseInAtr.toFixed(1)} ATRs off the 20-bar ${dir > 0 ? "high" : "low"}, momentum still against`);
+    reasons.unshift(`falling knife — ${bits.join("; ")}`);
+  } else if (chase) {
+    const bits = [];
+    if (chaseA) bits.push(`RSI ${rsi.toFixed(0)}${distSma20 != null && distSma20 >= PICKS_TIMING_CHASE_DIST_SMA20 ? `, ${distSma20.toFixed(0)}% beyond the 20D SMA` : ""}${at52Extreme ? `, ${(ext52 * 100).toFixed(0)}% of the way to the 52w ${dir > 0 ? "high" : "low"}` : ""}`);
+    if (chaseB) bits.push(`${pct(ret5d)} 5-day run, ${distSma20.toFixed(0)}% beyond the 20D SMA`);
+    else if (chaseC) bits.push(`${pct(ret3d)} 3-day blow-off, ${distSma20.toFixed(0)}% beyond the 20D SMA`);
+    reasons.unshift(`chasing an extended move — ${bits.join("; ")}`);
+  }
+
+  // ---- Structure / momentum / location (pros & cons) -------------------------
+  const broke = dir > 0 ? (r20 != null && spot > r20 * 1.005) : (s20 != null && spot < s20 * 0.995);
+  const brokeAgainst = dir > 0 ? (s20 != null && spot < s20) : (r20 != null && spot > r20);
+  if (broke && rvol != null && rvol >= 1.3 && ret1d != null && ret1d > 0) {
+    pro(true, `broke the 20D ${dir > 0 ? "resistance" : "support"} on ${rvol.toFixed(1)}x volume — confirmed breakout`);
+  } else if (broke) {
+    pro(false, `through the 20D ${dir > 0 ? "ceiling" : "floor"} but volume is light — watch for follow-through`);
+  }
+  if (brokeAgainst) con(true, `broke the 20D ${dir > 0 ? "support" : "resistance"} — wrong side for ${dirWord}`);
+
+  const momentumAligned = dir > 0
+    ? (rsi != null && rsi >= 50 && rsi < PICKS_TIMING_CHASE_RSI && macdHist != null && macdHist > 0)
+    : (rsi != null && rsi <= 50 && rsi > 100 - PICKS_TIMING_CHASE_RSI && macdHist != null && macdHist < 0);
+  const momentumAgainst = dir > 0
+    ? (rsi != null && rsi < 45 && macdHist != null && macdHist < 0)
+    : (rsi != null && rsi > 55 && macdHist != null && macdHist > 0);
+  if (momentumAligned) pro(true, `RSI ${rsi.toFixed(0)} + MACD aligned — trend intact for ${dirWord}`);
+  if (momentumAgainst) con(true, `RSI ${rsi.toFixed(0)} + MACD against ${dirWord} — fighting the tape`);
+
+  // The green signature: a healthy pullback to the 20D SMA in an intact trend
+  // with momentum turning back our way (this is the OKTA-at-the-low entry).
+  const trendOk = sma50 != null && (dir > 0 ? spot > sma50 : spot < sma50);
+  const pullbackHold = distSma20 != null && Math.abs(distSma20) <= PICKS_TIMING_PULLBACK_BAND &&
+                       rsiDeltaDir != null && rsiDeltaDir > 0 && ret1d != null && ret1d >= 0 && trendOk;
+  if (pullbackHold) pro(true, `healthy pullback to the 20D SMA with momentum turning back up — buyers stepping in`);
+
+  // ---- Tape & catalyst overlays ---------------------------------------------
+  const tapeAgainst = (side === "call" && regime === "risk-off") || (side === "put" && regime === "risk-on");
+  const tapeWith = (side === "call" && regime === "risk-on") || (side === "put" && regime === "risk-off");
+  if (tapeAgainst) con(true, `broad tape is ${regime} — single names rarely fight the index`);
+  else if (tapeWith) pro(false, `broad tape is ${regime} — the index is with ${dirWord}`);
+
+  const dte = daysToEarningsFrom(data);
+  const catalystImminent = dte != null && dte <= PICKS_TIMING_EARNINGS_DEFER_DAYS;
+  if (catalystImminent) con(true, `earnings in ${dte === 0 ? "0" : dte}d — IV crush can sink the trade even when direction is right`);
+
+  // ---- Collapse to a verdict -------------------------------------------------
+  let state, headline;
+  if (knife) {
+    state = "avoid";
+    headline = `Falling knife — don't catch ${dir > 0 ? "it" : "the squeeze"}`;
+  } else if (chase) {
+    state = "avoid";
+    headline = "Chasing an extended move — wait for a pullback";
+  } else if (brokeAgainst && strongPros.length === 0) {
+    state = "avoid";
+    headline = `Structure is against ${dirWord} right now`;
+  } else if (catalystImminent) {
+    state = "wait";
+    headline = `Earnings in ${dte === 0 ? "0" : dte}d — defer entry`;
+  } else if (strongPros.length > 0 && strongCons.length === 0) {
+    state = "go";
+    headline = `Clean entry — structure and timing line up for ${dirWord}`;
+  } else if (strongPros.length > 0 && strongCons.length > 0) {
+    state = "wait";
+    headline = "Mixed signals — wait for the next bar to confirm";
+  } else {
+    state = "wait";
+    headline = "No clean entry yet — wait for a setup";
+  }
+
+  return { state, score, reasons, headline };
 }
 
 // Resolve the most specific peer group for a ticker — the curated sub-industry
@@ -8004,23 +8402,50 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     peerIndex[grp].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   }
 
-  return { scored, peerIndex };
+  // marketCtx (the SPY day move) rides out so buildTopPicks can derive the
+  // broad-market regime for the execution-timing gate + risk-off put path.
+  // buildGradesIndex destructures only { scored, peerIndex } and ignores it.
+  return { scored, peerIndex, marketCtx };
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
-  const { scored, peerIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+  const { scored, peerIndex, marketCtx } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+  const regime = detectMarketRegime(marketCtx, macroBackdrop);
 
-  // Filter to actionable picks (tier ≠ no-trade) and rank by absolute score.
-  const actionable = scored
-    .filter((s) => Math.abs(s.total) >= PICKS_MIN_CONVICTION)
-    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  // Candidate set: every name the GRADE marks actionable (calls total ≥ +16,
+  // puts total ≤ -16), each tagged with its side. PLUS, when the broad tape is
+  // confirmed risk-off, a "tactical put" tier — names that don't clear the -16
+  // bar but are still bearish-leaning (total ≤ PICKS_RISKOFF_PUT_BAR). Tactical
+  // puts must additionally pass the timing gate with a 'go' (a real, well-timed
+  // breakdown) before they ship; graded picks ship on 'go' OR 'wait'. This is
+  // how puts appear in a long-biased universe without ever touching `total`.
+  const candSet = scored
+    .filter((s) => Math.abs(s.total) >= PICKS_MIN_CONVICTION && s.recommendation.side)
+    .map((s) => ({ r: s, side: s.recommendation.side, tactical: false }));
+  if (regime === "risk-off") {
+    const seen = new Set(candSet.map((c) => c.r.sym));
+    for (const s of scored) {
+      if (seen.has(s.sym)) continue;
+      if (s.total <= PICKS_RISKOFF_PUT_BAR && s.total > -PICKS_MIN_CONVICTION) {
+        candSet.push({ r: s, side: "put", tactical: true });
+      }
+    }
+  }
+  // Conviction-ranked. Graded picks (|total| ≥ 16) always outrank tactical puts
+  // (|total| < 16), so puts only fill slots the vetoed calls leave behind.
+  candSet.sort((a, b) => Math.abs(b.r.total) - Math.abs(a.r.total));
 
-  // Score more candidates than we ship — some won't have a tradeable contract.
-  const candidates = actionable.slice(0, PICKS_COUNT * 3);
+  // Score more candidates than we ship — some won't have a tradeable contract
+  // or will be dropped by the timing gate.
+  const candidates = candSet.slice(0, PICKS_COUNT * 4);
   const out = [];
-  for (const r of candidates) {
+  let vetoed = 0; // count dropped-by-gate for the roster note
+  const sectorCounts = {}; // enforce the per-sector concentration cap
+  const skippedSectorCapped = [];
+  for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
-    const side = r.recommendation.side;
+    const r = cand.r;
+    const side = cand.side;
     if (!side) continue; // no-trade, shouldn't be here but defend anyway
     // requireClean: the visible roster only ships contracts that clear the
     // tightened buffered gates and that the live grader would never flag bad /
@@ -8029,10 +8454,34 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const contract = pickContractForPick(side, r.data, rfr, { requireClean: true });
     if (!contract) continue;
 
+    // Execution-timing gate — the fix for "buying tops / catching knives". A
+    // pick that grades great can still be a terrible entry RIGHT NOW (extended
+    // into resistance, or a falling knife). 'avoid' drops the pick (the loop
+    // backfills from the next candidate); a tactical risk-off put must clear a
+    // 'go'; graded picks ship on 'go' or (badged) 'wait'. Never touches `total`.
+    const entryTiming = computeEntryTiming(side, r.data, r.data?.spot ?? null, { regime });
+    if (entryTiming.state === "avoid") { vetoed += 1; continue; }
+    if (cand.tactical && entryTiming.state !== "go") { vetoed += 1; continue; }
+
+    // Tactical puts sit below the -16 grade bar, so tierForScore() would call
+    // them "no-trade". Override the recommendation so the card reads correctly;
+    // `total` stays the real (negative) grade score for ranking + accuracy.
+    const recommendation = cand.tactical
+      ? { tier: "tactical-put", label: "Tactical Put", side: "put",
+          conviction: "Tactical", sizing: "Reduced size — tape-driven" }
+      : r.recommendation;
+
+    const sector = r.data?.fundamentals?.sector || null;
+    // Sector-concentration cap: don't let one correlated sector fill the roster.
+    // ETFs / unknown sector (null) are uncapped.
+    if (sector && (sectorCounts[sector] || 0) >= PICKS_MAX_PER_SECTOR) {
+      skippedSectorCapped.push({ symbol: r.sym, sector });
+      continue;
+    }
+
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
     const reasons = r.drivers.map((d) => d.text);
     const thesis = `${verb} on ${r.sym}: ${reasons.join("; ")}.`;
-    const sector = r.data?.fundamentals?.sector || null;
     const peerGroup = peerGroupOf(r.sym, r.data);
 
     // Industry peers: other tickers in the same sub-industry with their pillar
@@ -8055,8 +8504,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       compositeScore: Number(
         (Math.abs(r.total) * (contract.qualityScore ?? 0.5)).toFixed(3),
       ),
-      recommendation: r.recommendation,
+      recommendation,
       pillars: r.pillars,
+      // Execution-timing read — "should we execute NOW?" Separate from the grade
+      // (`total`/pillars). state: 'go' (clean entry) | 'wait' (ship but defer —
+      // mixed / catalyst / tape against). 'avoid' picks never reach here (dropped).
+      entryTiming,
+      tactical: !!cand.tactical,
+      entryRegime: regime,   // stamped onto the accuracy entry for the byRegime cohort
       thesis,
       drivers: r.drivers,
       spot: r.data?.spot ?? null,
@@ -8086,11 +8541,26 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     };
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
+    if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
   }
-  // Rank strictly by raw conviction — |total| score, highest first — per spec.
-  // (Contract quality still decides *which* contract represents each pick, but
-  // it no longer reorders the list; a +25 always outranks a +22.)
-  out.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  // Rank by raw conviction — |total| score, highest first (a +25 always outranks
+  // a +22) — then break genuine ties by entry-timing quality so a 'go' edges out
+  // a 'wait' at the same score. Contract quality still only decides WHICH contract
+  // represents each pick, not the order. The roster is intentionally allowed to
+  // ship FEWER than PICKS_COUNT: the timing gate DROPS falling-knife / chasing-top
+  // entries and nothing backfills with a worse-timed name, so a short list on a
+  // junk-entry day is the honest signal that there's little clean to buy.
+  out.sort((a, b) =>
+    Math.abs(b.total) - Math.abs(a.total) ||
+    ((b.entryTiming?.score || 0) - (a.entryTiming?.score || 0)));
+  // Roster construction meta (gate drops + sector-cap skips) so the UI can show
+  // an honest "only N clean setups today / M capped" note. Stashed on a
+  // non-enumerable so JSON.stringify(picks) is unchanged but writeTopPicksFile
+  // can read it.
+  Object.defineProperty(out, "rosterMeta", {
+    value: { vetoed, sectorCapped: skippedSectorCapped, sectorCounts },
+    enumerable: false,
+  });
   return out;
 }
 
@@ -8853,6 +9323,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   const payload = {
     builtAtIso,
     minConviction: PICKS_MIN_CONVICTION,
+    rosterMeta: picks.rosterMeta || null,
     picks,
   };
   const json = JSON.stringify(payload);
@@ -9002,21 +9473,152 @@ function fillCheckpoints(e, builtAtIso, curSpot, scoreNow, nowSec) {
   }
 }
 
-export function computePicksAccuracyStats(open, closed, builtAtIso) {
-  const decided = closed.filter((e) => e.outcome === "win" || e.outcome === "loss");
+// Minimum decided sample before a per-signal hit-rate is published (below this
+// the `rate` is null — raw counts only). Guards against reading signal into noise
+// on the thin early sample.
+const PICKS_SIGNAL_MIN_N = 25;
+
+// Side-adjusted REALIZED underlying move for a resolved pick: how far the stock
+// moved in the trade's favor between entry and exit, in %. (This is the stock
+// move, NOT the option P&L — we have no options-price history.) null when either
+// spot is missing.
+function realizedMovePct(e) {
+  const entry = Number(e.entrySpot), exit = Number(e.exitSpot);
+  if (!(entry > 0) || !(exit > 0)) return null;
+  const raw = ((exit - entry) / entry) * 100;
+  return e.side === "put" ? -raw : raw;
+}
+
+// Build a date(YYYY-MM-DD) → close map from a SPY-like bar series (priceSeries
+// column arrays or an array of bar objects), for the benchmark below.
+function closesByDate(spyBars) {
+  const map = new Map();
+  if (!spyBars) return map;
+  if (Array.isArray(spyBars.t) && Array.isArray(spyBars.c)) {
+    for (let i = 0; i < spyBars.t.length; i++) {
+      const d = spyBars.t[i]; const c = Number(spyBars.c[i]);
+      if (d && isFinite(c)) map.set(String(d).slice(0, 10), c);
+    }
+  } else if (Array.isArray(spyBars)) {
+    for (const b of spyBars) {
+      const d = b && b.t; const c = Number(b && b.c);
+      if (d && isFinite(c)) map.set(String(d).slice(0, 10), c);
+    }
+  }
+  return map;
+}
+function closeOnOrBefore(map, iso) {
+  if (!map.size || !iso) return null;
+  let key = String(iso).slice(0, 10);
+  // walk back up to ~10 calendar days to skip weekends/holidays
+  for (let i = 0; i < 10; i++) {
+    if (map.has(key)) return map.get(key);
+    const d = new Date(key + "T00:00:00Z");
+    if (Number.isNaN(d.getTime())) return null;
+    d.setUTCDate(d.getUTCDate() - 1);
+    key = d.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+// `spyBars` (optional) is SPY's price series — passed by updatePicksAccuracyFile
+// so the benchmark can answer "did the pick beat the index over its hold?". When
+// absent (regen without SPY on disk), the benchmark fields degrade to null.
+export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = null) {
+  // ALL resolved win/loss entries (used for the go-vs-wait byCohort A/B).
+  const decidedAll = closed.filter((e) => e.outcome === "win" || e.outcome === "loss");
+  // Headline metrics = ENDORSED entries only — 'wait' picks ship (badged) but are
+  // never marked-to-market as if we bought them, so they can't drag the record.
+  const decided = decidedAll.filter((e) => e.cohort !== "wait");
   const wins = decided.filter((e) => e.outcome === "win").length;
   const losses = decided.length - wins;
   const winRate = decided.length ? Number((wins / decided.length).toFixed(3)) : null;
-  const byTier = {};
+
+  // Generic cohort aggregator: { key → {n, wins, winRate} }, suppressing the
+  // rate below a tiny floor so a 1-of-1 cohort doesn't read as "100%".
+  const cohort = (keyFn) => {
+    const out = {};
+    for (const e of decided) {
+      const k = keyFn(e) || "—";
+      if (!out[k]) out[k] = { n: 0, wins: 0, winRate: null };
+      out[k].n += 1;
+      if (e.outcome === "win") out[k].wins += 1;
+    }
+    for (const k of Object.keys(out)) {
+      out[k].winRate = out[k].n >= 3 ? Number((out[k].wins / out[k].n).toFixed(3)) : null;
+    }
+    return out;
+  };
+  const byTier = cohort((e) => e.tier);
+  const bySector = cohort((e) => e.sector);
+  const byRegime = cohort((e) => e.entryRegime || "unknown");
+  // go-vs-wait A/B (research; only populated when PICKS_ACCURACY_AB is on, else
+  // every decided entry is 'go'). Computed over decidedAll so the 'wait' arm is
+  // visible even though it's excluded from the headline above.
+  const byCohort = (() => {
+    const out = {};
+    for (const e of decidedAll) {
+      const k = e.cohort || "go";
+      if (!out[k]) out[k] = { n: 0, wins: 0, winRate: null };
+      out[k].n += 1;
+      if (e.outcome === "win") out[k].wins += 1;
+    }
+    for (const k of Object.keys(out)) out[k].winRate = out[k].n >= 3 ? Number((out[k].wins / out[k].n).toFixed(3)) : null;
+    return out;
+  })();
+
+  // Per-signal attribution (measure-only). A signal "fired" for a pick when it
+  // pointed in the pick's own direction with a nonzero score. We then ask: when
+  // it fired, did the pick win? Raw counts always; rate only past the min-n bar.
+  // Needs entrySignals on the closed entry (stamped at enroll) — older entries
+  // without it are simply skipped.
+  const bySignal = {};
   for (const e of decided) {
-    const t = e.tier || "—";
-    if (!byTier[t]) byTier[t] = { n: 0, wins: 0, winRate: null };
-    byTier[t].n += 1;
-    if (e.outcome === "win") byTier[t].wins += 1;
+    const sigs = Array.isArray(e.entrySignals) ? e.entrySignals : null;
+    if (!sigs) continue;
+    const dir = Math.sign(Number(e.score) || (e.side === "put" ? -1 : 1));
+    for (const s of sigs) {
+      if (!s || !s.key || !s.score) continue;
+      if (Math.sign(s.score) !== dir) continue; // only count signals that backed the trade
+      const k = s.key;
+      if (!bySignal[k]) bySignal[k] = { n: 0, wins: 0, losses: 0, rate: null, pillar: s.pillar || null };
+      bySignal[k].n += 1;
+      if (e.outcome === "win") bySignal[k].wins += 1; else bySignal[k].losses += 1;
+    }
   }
-  for (const k of Object.keys(byTier)) {
-    byTier[k].winRate = byTier[k].n ? Number((byTier[k].wins / byTier[k].n).toFixed(3)) : null;
+  for (const k of Object.keys(bySignal)) {
+    const r = bySignal[k];
+    r.rate = r.n >= PICKS_SIGNAL_MIN_N ? Number((r.wins / r.n).toFixed(3)) : null;
   }
+
+  // Realized expectancy (side-adjusted underlying move, %): the honest "do the
+  // winners pay for the losers?" headline that raw win-rate can't answer.
+  const realized = decided.map(realizedMovePct).filter((x) => x != null);
+  const wRealized = decided.filter((e) => e.outcome === "win").map(realizedMovePct).filter((x) => x != null);
+  const lRealized = decided.filter((e) => e.outcome === "loss").map(realizedMovePct).filter((x) => x != null);
+  const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
+  const expectancyPct = realized.length ? Number(mean(realized).toFixed(2)) : null;
+
+  // SPY benchmark over each pick's actual hold window, side-adjusted to the
+  // trade's direction → excess = did the name beat the index in the bet's way.
+  const spyMap = closesByDate(spyBars);
+  let avgSpyRetPct = null, excessExpectancyPct = null;
+  if (spyMap.size) {
+    const spyRets = [];
+    for (const e of decided) {
+      const a = closeOnOrBefore(spyMap, e.entryDate);
+      const b = closeOnOrBefore(spyMap, e.exitDate);
+      if (a > 0 && b > 0) {
+        const raw = ((b - a) / a) * 100;
+        spyRets.push(e.side === "put" ? -raw : raw);
+      }
+    }
+    if (spyRets.length) {
+      avgSpyRetPct = Number(mean(spyRets).toFixed(2));
+      if (expectancyPct != null) excessExpectancyPct = Number((expectancyPct - avgSpyRetPct).toFixed(2));
+    }
+  }
+
   const avg = (arr, f) => (arr.length ? Number((arr.reduce((s, e) => s + (Number(f(e)) || 0), 0) / arr.length).toFixed(1)) : null);
   return {
     builtAtIso,
@@ -9028,7 +9630,17 @@ export function computePicksAccuracyStats(open, closed, builtAtIso) {
     winRate,
     avgMfePct: avg(closed, (e) => e.mfePct),
     avgMaePct: avg(closed, (e) => e.maePct),
+    // Realized-move expectancy + index benchmark (underlying move, not option P&L).
+    expectancyPct,
+    avgWinRealizedPct: wRealized.length ? Number(mean(wRealized).toFixed(2)) : null,
+    avgLossRealizedPct: lRealized.length ? Number(mean(lRealized).toFixed(2)) : null,
+    avgSpyRetPct,
+    excessExpectancyPct,
     byTier,
+    bySector,
+    byRegime,
+    byCohort,
+    bySignal,
   };
 }
 
@@ -9147,6 +9759,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // keep being tracked regardless of where they rank today — we only gate what
   // gets newly enrolled.
   //
+  // Execution-timing filter: only enroll picks the gate marked 'go' — the ones
+  // the engine actually endorsed executing NOW. A 'wait' pick still SHIPS in the
+  // roster (badged, for transparency) but is NOT marked-to-market here: we told
+  // the user to defer, so grading ourselves as if we bought it would punish the
+  // very discipline the gate exists to enforce. Picks with no entryTiming (older
+  // builds / fail-open reads) keep the legacy behavior and enroll. This is what
+  // makes the track record reflect endorsed entries, not every name on the list.
+  //
   // Dedup is contract-level: we skip any pick whose exact contract is already
   // open OR already resolved, so the same contract is never enrolled twice. A
   // *different* contract on the same ticker (new strike or expiry) still
@@ -9154,13 +9774,46 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // under a dropdown.
   const seenKeys = new Set(stillOpen.map((e) => e.key));
   for (const ce of state.closed) seenKeys.add(pickContractKey(ce.symbol, ce.side, ce.contract));
-  for (const p of picks.slice(0, PICKS_ACCURACY_ENROLL_TOP_N)) {
+  // Per-THESIS dedup: skip enrolling a symbol+side that already has an OPEN
+  // entry. pickContractForPick re-selects a slightly different strike/expiry as
+  // spot drifts each build, so the contract-level key alone let the SAME thesis
+  // re-enroll 2-6× under distinct keys (the open list had ballooned to 79 across
+  // 34 theses, e.g. TSM×6) — which silently re-weighted every cohort statistic
+  // toward whichever names churned contracts most. The contract-level key still
+  // governs the CLOSED/resolved set, so genuinely distinct realized trades stay
+  // distinct in the history.
+  const openTheses = new Set(stillOpen.map((e) => `${e.symbol}:${e.side}`));
+  // Headline track record = ENDORSED ('go') entries only. When the A/B flag is
+  // on, also enroll the top-N 'wait' picks (tagged cohort:'wait') so the gate can
+  // be validated go-vs-wait; computePicksAccuracyStats keeps them out of the
+  // headline and exposes them only under byCohort.
+  const goPicks = picks.filter((p) => !p?.entryTiming || p.entryTiming.state === "go");
+  const waitPicks = PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT
+    ? picks.filter((p) => p?.entryTiming?.state === "wait")
+    : [];
+  const enrollable = [
+    ...goPicks.slice(0, PICKS_ACCURACY_ENROLL_TOP_N),
+    ...waitPicks.slice(0, PICKS_ACCURACY_ENROLL_TOP_N),
+  ];
+  for (const p of enrollable) {
     if (!p || (p.side !== "call" && p.side !== "put")) continue;
     const c = p.contract || {};
     const key = pickContractKey(p.symbol, p.side, c);
     if (seenKeys.has(key)) continue;
+    const thesisKey = `${p.symbol}:${p.side}`;
+    if (openTheses.has(thesisKey)) continue; // one open trade per thesis
     const entrySpot = Number(p.spot) || Number(chains?.[p.symbol]?.spot) || 0;
     if (!(entrySpot > 0)) continue;
+    // Flat snapshot of every directional signal at entry — the substrate for the
+    // per-signal attribution in computePicksAccuracyStats. Cheap + additive;
+    // older entries without it are simply skipped by that aggregator.
+    const entrySignals = [];
+    const pl = p.pillars || {};
+    for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
+      for (const s of (pl[pk]?.signals || [])) {
+        if (s && s.key) entrySignals.push({ key: s.key, pillar: pk, score: s.score | 0 });
+      }
+    }
     stillOpen.push({
       key,
       symbol: p.symbol,
@@ -9170,6 +9823,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       label: p.recommendation?.label || null,
       conviction: p.recommendation?.conviction || null,
       sector: p.sector || null,
+      entryRegime: p.entryRegime || "unknown",
+      cohort: p.entryTiming?.state === "wait" ? "wait" : "go",
+      entrySignals,
       entryDate: builtAtIso,
       entrySpot: Number(entrySpot.toFixed(2)),
       contract: {
@@ -9201,6 +9857,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       }],
     });
     seenKeys.add(key);
+    openTheses.add(thesisKey);
   }
 
   // Keep filling the fixed-horizon checkpoints on recently-closed entries too,
@@ -9221,7 +9878,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     .filter((e) => (Date.parse(e.exitDate) || 0) >= cutoffMs)
     .slice(0, PICKS_ACCURACY_MAX_CLOSED);
 
-  const stats = computePicksAccuracyStats(stillOpen, state.closed, builtAtIso);
+  // SPY price series for the index benchmark (graceful: null when SPY isn't in
+  // the chains map, e.g. a thin regen). _bars in the full build, priceSeries on regen.
+  const spyBars = chains?.SPY?._bars || chains?.SPY?.priceSeries || null;
+  const stats = computePicksAccuracyStats(stillOpen, state.closed, builtAtIso, spyBars);
   const payload = { builtAtIso, open: stillOpen, closed: state.closed, stats };
   const json = JSON.stringify(payload);
   await writeFile(accPath, json, "utf8");

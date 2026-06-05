@@ -6712,6 +6712,71 @@ main { padding-top: var(--s-2); }
   border-color: var(--border);
 }
 
+/* --- Execution-timing gate (computeEntryTiming) — "should we execute NOW?" -
+   Separate from the grade tier above: the tier says how good the setup is, this
+   says whether now is the moment. 'go' tints green (--pos), 'wait' amber (--warn). */
+.pick-timing {
+  margin: 6px 0 4px;
+  padding: 9px 11px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, var(--muted) 8%);
+}
+.pick-timing-pos { border-left: 3px solid var(--pos); background: color-mix(in srgb, var(--pos) 7%, var(--surface)); }
+.pick-timing-fair { border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 7%, var(--surface)); }
+.pick-timing-head { display: flex; align-items: baseline; gap: 8px; }
+.pick-timing-verdict {
+  font: 700 11px/1 var(--font-mono);
+  letter-spacing: .06em;
+  padding: 3px 7px;
+  border-radius: var(--r-1);
+  white-space: nowrap;
+}
+.pick-timing-v-pos { background: var(--pos); color: var(--bg); }
+.pick-timing-v-fair { background: var(--warn); color: var(--bg); }
+.pick-timing-title { font: 600 12px/1.3 var(--font-sans); color: var(--text-strong); }
+.pick-timing-sub { font-weight: 400; color: var(--muted); }
+.pick-timing-reasons {
+  margin: 7px 0 0;
+  padding-left: 16px;
+  font: 400 11.5px/1.5 var(--font-sans);
+  color: var(--text);
+}
+.pick-timing-reasons li { margin: 1px 0; }
+.pick-timing-tactical {
+  margin-top: 6px;
+  font: 500 11px/1.45 var(--font-sans);
+  color: color-mix(in srgb, var(--neg) 80%, var(--text-strong));
+}
+.pick-timing-foot {
+  margin-top: 7px;
+  font: 400 10.5px/1.4 var(--font-sans);
+  color: var(--muted);
+}
+/* Compact pills on the head row + the scannable grid card. */
+.pick-timing-pill, .ptc-tactical, .pick-tactical-tag {
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: .05em;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+  white-space: nowrap;
+}
+.pick-timing-pos.pick-timing-pill { background: color-mix(in srgb, var(--pos) 18%, var(--surface)); color: var(--pos); border: 1px solid color-mix(in srgb, var(--pos) 40%, var(--border)); }
+.pick-timing-fair.pick-timing-pill { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); }
+.ptc-tactical, .pick-tactical-tag { background: color-mix(in srgb, var(--neg) 16%, var(--surface)); color: var(--neg); border: 1px solid color-mix(in srgb, var(--neg) 38%, var(--border)); }
+/* Honest roster note above the picks grid (short list / gated / sector-capped). */
+.picks-roster-note {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+  padding: 8px 12px;
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  font: 500 12px/1.5 var(--font-sans);
+  color: var(--text);
+}
+.picks-roster-note b { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+
 /* --- Plain-English analysis paragraph -- */
 .pick-analysis {
   margin: 4px 0 4px;
