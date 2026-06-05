@@ -76,6 +76,7 @@ sum of the four pillars **plus the entry-timing component (§6)**, which adds
 | EPS Growth YoY | ≥10% +1, <−25% −2 |
 | Revenue Growth YoY | ≥8% +1, <−20% −2 |
 | Analyst Price Target | ≥+10% upside +1, ≤−10% −1 (needs ≥5 analysts) |
+| **Analyst Rating Changes** | net of recent **upgrades − downgrades** over the trailing ~90d (Yahoo `upgradeDowngradeHistory`, `ANALYST_REVISION_WINDOW_DAYS=90`): ≥3 net upgrades **+2**, 1–2 **+1**, −1/−2 **−1**, ≤−3 **−2**. Only actual up/down *actions* count — the constant "maintain"/"reiterate" stream is ignored. Distinct from the Price Target above: a target is a *level*, a rating change is an *event* (and events move stocks). Most names have no recent change → 0 |
 | P/E vs Sector median | ≤80% of median +1; ≥150% with no growth −1 |
 | Guidance | AI-read: raised +3, in-line +2, lowered −3. **FY-growth proxy (fallback) is now graded** — ≥10% +2, 0–10% +1, ≤−10% −3 (was a flat +2 for *any* positive estimate, which gave ~the whole universe the same +2 and barely discriminated) |
 | Major Contract | won +2, lost −3 (AI-read from news) |
@@ -241,15 +242,29 @@ A confirmed break of the *wrong* level (below 20D support for a call, above 20D
 resistance for a put) with no offsetting strong positive also → `avoid`.
 
 ### 6.2 `go` vs `wait`
-Structure/momentum/location accumulate as signed pros & cons:
-- **Pros:** a confirmed breakout on ≥1.3× volume; RSI + MACD aligned with the trade;
-  a **healthy pullback to the 20D SMA in an intact trend with momentum turning back
-  up** (this is the dip-buy we *want* — the one historical winner, OKTA entered at a
-  local low, fit this).
-- **Cons:** momentum against the trade; the broad tape fighting it (§6.3); earnings
-  within 3 sessions (IV-crush risk → forces `wait`).
+Structure / momentum / **volume** / location accumulate as signed pros & cons:
+- **Strong pros:** a confirmed breakout on ≥1.3× volume; RSI + MACD aligned with the
+  trade; a **healthy pullback to the 20D SMA in an intact trend with momentum turning
+  back up** (this is the dip-buy we *want* — the one historical winner, OKTA entered
+  at a local low, fit this).
+- **Strong cons:** momentum against the trade; a wrong-side 20D break; the broad tape
+  fighting it (§6.3); earnings within 3 sessions (IV-crush risk → forces `wait`).
+- **Volume confirmation (soft, ±1).** Volume tells you whether to believe the move.
+  Beyond the breakout/knife reads above: a move the trade's way on **≥1.3× rvol**
+  (`PICKS_TIMING_VOL_CONFIRM`) that isn't already a clean break is real participation
+  (+); the same move on **<0.8× rvol** (`PICKS_TIMING_VOL_LIGHT`) is a low-conviction
+  drift that tends to fade (−). On a pullback the read **inverts**: light volume into
+  support is sellers drying up (+), while **≥1.5× rvol** (`PICKS_TIMING_VOL_HEAVY`)
+  into it looks like distribution (−).
+- **Defined-risk entry (soft, +1) — an "other factor".** An entry sitting within
+  `PICKS_TIMING_NEAR_LEVEL_PCT` (1.5%) of the 20D level it can lean on (support for a
+  call, resistance for a put) earns credit for a tight, well-defined stop — the
+  structural complement to the ATR-floor cut (§5). Not credited while chasing or
+  breaking the wrong way.
 
-`go` = a strong pro with no strong con; otherwise `wait`.
+The soft volume/defined-risk reads tune the bounded `contribution` (and thus `total`)
+without by themselves flipping the verdict — `go` = a strong pro with no strong con;
+otherwise `wait`.
 
 ### 6.3 Market overlay & risk-off puts (`detectMarketRegime`)
 Regime is conservative — **risk-off requires both** a ≥1% SPY drop **and** an
@@ -360,9 +375,11 @@ it has to be trustworthy. The fixes:
     `PICKS_MAX_PER_SECTOR 4`.
   - **Timing gate (`PICKS_TIMING_*`):** knife `RET1D −6`, `RET3D −8`, `DD_ATR −2.5`;
     chase `RSI 70`, `DIST_SMA20 8`, `DIST_SMA20_SOFT 7`, `52W 0.92`, `RET5D 10`,
-    `RET3D 10`; regime `RISKOFF_VIX 20`, `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
+    `RET3D 10`; volume `VOL_CONFIRM 1.3`, `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`,
+    `NEAR_LEVEL_PCT 1.5`; regime `RISKOFF_VIX 20`, `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
     `EARNINGS_DEFER_DAYS 3`; `MIN_BARS 15`; risk-off put bar
     `PICKS_RISKOFF_PUT_BAR −8`.
+  - **Analyst rating changes:** `ANALYST_REVISION_WINDOW_DAYS 90` (Fundamentals §3).
   - **Accuracy:** `PICKS_ACCURACY_ENROLL_TOP_N 5`, `PICKS_SIGNAL_MIN_N 25`, and the
     `PICKS_ACCURACY_AB` env flag for the go-vs-wait research cohort.
 - Numbers are tuned to a **19-pick sample** and should be revisited once
