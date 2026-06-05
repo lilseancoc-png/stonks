@@ -7061,6 +7061,17 @@ main { padding-top: var(--s-2); }
   font: 400 11px/1.4 var(--font-sans);
   color: var(--muted);
 }
+/* Research/unproven footnote on the Entry-timing panel (P0.2): the gate's
+   thresholds are fit in-sample and not yet validated on forward picks. Muted +
+   a subtle top rule so it reads as a caveat, not a signal. */
+.pick-timing-research {
+  margin: 8px 10px 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border, rgba(255,255,255,0.12));
+  font: 400 10.5px/1.4 var(--font-sans);
+  color: var(--muted);
+  font-style: italic;
+}
 /* Dated-catalysts sub-section inside the Narrative pillar (Top Picks / Grade
    breakdown). Chips reuse the Calendar tab's .cal-chip / .cal-catalyst styling;
    these rules only add the labeled wrapper + let the title wrap in the narrow

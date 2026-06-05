@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
-import { greeks, yearsToExpiry } from "../lib/greeks.mjs";
+import { greeks, bsPrice, yearsToExpiry } from "../lib/greeks.mjs";
 import { renderPriceChartPng } from "../lib/chart-image.mjs";
 
 // Library prints a survey notice on first use and validates response
@@ -5569,10 +5569,40 @@ const PICKS_COUNT = 10;
 // Max picks from any one sector on the visible roster. The equal-weight score
 // systematically over-loads correlated names (the failing track record was 18/19
 // losses in Technology), so a single sector-factor drawdown could wipe the whole
-// roster at once. Cap correlation at 40% of the roster; ETFs (null sector) are
-// uncapped. This caps CORRELATION, not sidedness — the long-bias is handled
-// elsewhere (the grade + the timing gate's risk-off put path).
-const PICKS_MAX_PER_SECTOR = 4;
+// roster at once. Cap correlation at 30% of the roster (tightened 4→3, P2.1);
+// ETFs (null sector) are uncapped. This caps CORRELATION, not sidedness — the
+// long-bias is handled elsewhere (the grade + the timing gate's risk-off put path).
+const PICKS_MAX_PER_SECTOR = 3;
+// Factor / correlation cap (P2.1). The historical blowup cluster — semis +
+// software + the mega-cap-tech / data-center-power complex — trades as ONE beta
+// that spans several GICS sectors (Technology, Communication Services, even some
+// Industrials/Utilities), so a per-GICS-sector cap alone can't stop that single
+// factor filling the roster through two different labels. We collapse the curated
+// SECTORS into broad factors and cap picks per factor on top of the sector cap.
+// Only the correlated growth complex is mapped; everything else (Banks, Pharma,
+// Energy, …) is left to the GICS sector cap. ETFs / unmapped → no factor cap.
+const PICKS_MAX_PER_FACTOR = 5;
+const FACTOR_OF_SECTOR = {
+  "Mega-cap tech": "Tech/AI growth",
+  "Semis": "Tech/AI growth",
+  "Storage": "Tech/AI growth",
+  "Software": "Tech/AI growth",
+  "Hardware": "Tech/AI growth",
+  "Networking": "Tech/AI growth",
+  "Tech services": "Tech/AI growth",
+  "IT services": "Tech/AI growth",
+  "Data center": "Tech/AI growth",
+  "Power": "Tech/AI growth",
+  "Clean energy": "Tech/AI growth",
+  "Nuclear": "Tech/AI growth",
+};
+// The curated SECTORS map (not Yahoo's GICS) → broad correlation factor, or null
+// when the name isn't part of a capped factor (ETFs, banks, pharma, …).
+function factorOfTicker(sym) {
+  const curated = SECTORS[sym];
+  if (!curated || curated === "ETF") return null;
+  return FACTOR_OF_SECTOR[curated] || null;
+}
 // 4-pillar scoring tiers:
 //   ±16  Strong (Very High conviction, "Load the Boat")
 //   ±12  directional Call/Put (High conviction, Standard size)
@@ -5599,13 +5629,21 @@ const PICKS_MIN_DTE = 14;           // 14d+ per spec
 const PICKS_MAX_DTE = 120;          // soft-scoring reference only (not a hard cap)
 const PICKS_IDEAL_DTE_LO = 30;
 const PICKS_IDEAL_DTE_HI = 60;
-const PICKS_DELTA_MIN = 0.20;       // 0.20-0.40 band per spec
-const PICKS_DELTA_MAX = 0.40;
-const PICKS_DELTA_IDEAL = 0.30;     // mid of the 0.20-0.40 band
-const PICKS_OTM_MIN_PCT = 0.05;     // 5% OTM
-const PICKS_OTM_MAX_PCT = 0.30;     // 30% OTM
+// Delta target (P1.1). Moved off the cheap, fragile 0.20-0.40 OTM band — where an
+// ~8% adverse underlying move is ≈ -70% on the option — to a near-the-money
+// 0.45-0.65 band (target 0.55). A slightly-ITM contract has far less theta drag
+// and IV-crush sensitivity and won't get shaken out by one red day, so the trade
+// survives the noise the ATR-floor cut (§5) is also there to ride through. Delta
+// is now the primary moneyness gate; the OTM band below is widened to a loose
+// sanity bound so it no longer fights the delta target.
+const PICKS_DELTA_MIN = 0.45;
+const PICKS_DELTA_MAX = 0.65;
+const PICKS_DELTA_IDEAL = 0.55;     // mid of the 0.45-0.65 band
+const PICKS_OTM_MIN_PCT = -0.20;    // allow up to 20% ITM (a 0.55-0.65Δ call sits at/below spot)
+const PICKS_OTM_MAX_PCT = 0.12;     // up to 12% OTM (a 0.45Δ call); delta is the real gate
 const PICKS_MAX_IV = 2.0;           // 200% IV cap
-const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
+const PICKS_MAX_PREMIUM = 35.0;     // flat per-share floor (mid ≤ $35/share on cheaper names)
+const PICKS_MAX_PREMIUM_PCT_OF_SPOT = 0.12; // …or up to 12% of spot, whichever is larger (P1.1 — keeps the near-the-money 0.55Δ contract affordable across the price range without becoming a cheap-stock filter)
 
 // Tightened "self-consistency" gates used ONLY for the visible Top-Picks
 // roster (pickContractForPick called with { requireClean:true } from
@@ -5622,8 +5660,8 @@ const PICKS_MAX_PREMIUM = 35.0;     // mid ≤ $35/share = ≤ $3500/contract
 // 2.5%; OI bad <100 → gate 100) and push DTE off the 14-day extrinsic-trap /
 // 3-day crisis lines, so a freshly-baked roster pick stays clean across a
 // normal intraday/overnight drift window. Delta is deliberately left at the
-// 0.20-0.40 band (an OTM pick that "can still go up" is the intended product,
-// and |Δ| 0.20-0.40 is never a grader hard-fail — only |Δ|<0.15 is).
+// 0.45-0.65 band (P1.1 — a near-the-money pick that survives noise; gradeDelta
+// rates 0.45-0.55 "good" and 0.55-0.65 "fair", never a grader hard-fail).
 const PICKS_CLEAN_MAX_SPREAD_PCT = 0.12;  // buffer below the 15% spread-bad line
 const PICKS_CLEAN_MIN_OI = 100;           // grade "Light/fair" floor (no OI-bad chip)
 const PICKS_CLEAN_MIN_DTE = 21;           // clears the dte<14 extrinsic trap + dte≤3 crisis through a multi-day hold
@@ -5666,8 +5704,8 @@ const PICKS_TIMING_NEAR_LEVEL_PCT = 1.5;    // within this % of the leanable 20D
 const PICKS_TIMING_RISKOFF_VIX = 20;        // VIX level that confirms a risk-off regime
 const PICKS_TIMING_RISKOFF_SPY = -1.0;      // % SPY day that confirms a risk-off regime
 const PICKS_TIMING_RISKON_SPY = 0.6;        // % SPY day that confirms a risk-on regime
-const PICKS_TIMING_EARNINGS_DEFER_DAYS = 3; // earnings this close → defer entry (IV-crush risk) → 'wait'
-const PICKS_TIMING_MIN_BARS = 15;           // need this many confirmed bars or the gate fails OPEN ('go')
+const PICKS_TIMING_EARNINGS_DEFER_DAYS = 8; // earnings this close → defer entry → 'wait' (P1.3: 3→8; IV ramps 1-2 weeks out, so a 3-session window let a 21-DTE call bought 4 sessions pre-print still eat the crush)
+const PICKS_TIMING_MIN_BARS = 15;           // need this many confirmed bars or the gate fails OPEN (P2.2: to 'wait', shown-but-not-enrolled)
 // Risk-off put enablement (user-chosen): the universe is long-biased, so puts
 // almost never clear the -16 grade bar. When the broad tape is CONFIRMED
 // risk-off, relax the put bar to this score AND require a clean bearish entry
@@ -5687,6 +5725,20 @@ const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
 const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // only enroll the top-N ranked picks each build, so the open list can't balloon as the top-10 rotates
+// Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
+// pick that goes nowhere on a ≥21-DTE contract hits day 14 with ~7 DTE left — the
+// theta cliff — recorded as ~breakeven on the underlying while the OPTION is deep
+// red. So in addition to the 14-day stop, cut a position whose MODELED daily theta
+// exceeds this fraction of its remaining premium AND that is held a few days AND is
+// modeled at a loss (never cut a working trade early).
+const PICKS_THETA_STOP_PCT = 0.025;          // 2.5%/day of remaining premium
+const PICKS_THETA_STOP_MIN_HOLD_DAYS = 5;    // don't theta-stop before this many days held
+// Modeled-option-P&L repricer (P0.1). We have no options-price history, so the
+// track record reprices the SAME contract with Black-Scholes at exit to surface
+// the theta + IV-crush tax the underlying-move metric is blind to. Crude
+// vol-mean-reversion: decay entry IV toward the name's realized HV over the hold…
+const PICKS_OPTION_IV_DECAY_DAYS = 30;       // hold length over which entry IV fully decays toward HV
+const PICKS_OPTION_EARNINGS_CRUSH = 0.70;    // …and knock IV to 70% if an earnings print fell inside the hold
 const PICKS_ACCURACY_FLAT_BAND_PCT = 0.5; // |MFE−MAE| within this → flat/inconclusive (null outcome), NOT a win or loss
 // Research A/B: when set, ALSO enroll the top-N 'wait' picks (tagged
 // cohort:'wait'), tracked by the same machinery but EXCLUDED from the headline
@@ -6298,11 +6350,32 @@ function smaRung(spot, key, label, smaVal, mag) {
 }
 
 // ----- Technicals pillar ----------------------------------------------------
+// A bullish "reversal confirmation bar" for the contrarian buy-the-crash signals
+// (P1.2). The four bold contrarian signals — RSI-oversold, 52-week-low,
+// put/call-fear, VIX-capitulation — turn MORE bullish as a quality name crashes,
+// so the score used to hand a falling knife up to +8 of conviction that the
+// timing component (§6) then had to claw back. Instead we trend-condition them AT
+// THE SOURCE: a buy-the-crash credit only fires once the turn has actually begun
+// — RSI ticking up off the low, the MACD histogram positive (inflecting up), or a
+// confirmed green session. A still-falling knife never earns the +8 in the first
+// place. Returns false on missing inputs (the signal then just doesn't fire — it
+// is never penalized, matching graceful degradation).
+function bullishReversalConfirmed(t) {
+  if (!t) return false;
+  const rsiUp = isFinite(t.rsi) && isFinite(t.rsi5d) && t.rsi > t.rsi5d;
+  const macdUp = t.macd && isFinite(t.macd.hist) && t.macd.hist > 0;
+  const dayUp = t.volume && isFinite(t.volume.priceMove1dPct) && t.volume.priceMove1dPct > 0;
+  return rsiUp || macdUp || dayUp;
+}
+
 function scoreTechnicals(data, streakRow) {
   const t = data?.technicals || {};
   const f = data?.fundamentals || {};
   const spot = data?.spot;
   const signals = [];
+  // Has the down-move started to turn? Gates the contrarian buy-the-crash credits
+  // (RSI-oversold, 52w-low) so they don't fire mid-knife (P1.2).
+  const reversalOk = bullishReversalConfirmed(t);
 
   // 1. RSI 14 movement (±1): the centerline read. RSI above 50 and rising over the
   // prior 5 sessions is building bullish momentum (+1); below 50 and falling is
@@ -6351,8 +6424,15 @@ function scoreTechnicals(data, streakRow) {
       s = -3;
       note = "overbought (75+) — fade / exhaustion risk";
     } else if (t.rsi <= 25) {
-      s = 3;
-      note = "oversold (≤25) — bounce candidate";
+      // Contrarian buy-the-crash — only credit once the turn confirms (RSI ticking
+      // up / MACD inflecting / a green session), so we don't score a falling knife
+      // as a +3 bounce mid-collapse (P1.2).
+      if (reversalOk) {
+        s = 3;
+        note = "oversold (≤25) with the turn confirming — bounce candidate";
+      } else {
+        note = "oversold (≤25) but still falling — no reversal bar yet (held at 0)";
+      }
     }
     rsiReadSignal = _sig("rsiReading", "RSI Reading", s, {
       value: t.rsi.toFixed(1),
@@ -6434,8 +6514,14 @@ function scoreTechnicals(data, streakRow) {
       s = -1;
       note = `${(toHi * 100).toFixed(1)}% below 52w high — extended / fade risk`;
     } else if (fromLo >= 0 && fromLo <= 0.05) {
-      s = 1;
-      note = `${(fromLo * 100).toFixed(1)}% above 52w low — oversold / bounce candidate`;
+      // Contrarian buy-the-crash — gate on a reversal bar so we don't credit a name
+      // still slicing to fresh 52-week lows (P1.2).
+      if (reversalOk) {
+        s = 1;
+        note = `${(fromLo * 100).toFixed(1)}% above 52w low with the turn confirming — bounce candidate`;
+      } else {
+        note = `${(fromLo * 100).toFixed(1)}% above 52w low but still falling — no reversal bar yet (held at 0)`;
+      }
     }
     fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", s, { value, note });
   }
@@ -6562,6 +6648,10 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   const f = data?.fundamentals || {};
   const t = data?.technicals || {};
   const signals = [];
+  // Per-name reversal confirmation — gates the contrarian buy-the-crash credits
+  // (put/call-fear, VIX-capitulation) so a market-wide fear reading only lifts a
+  // name that is itself turning up, not one still in free-fall (P1.2).
+  const reversalOk = bullishReversalConfirmed(t);
 
   // 1. Unusual Flow: ±1. Compare aggressive bullish print count (call buys
   // lifting offer + put sells hitting bid) vs aggressive bearish print count.
@@ -6716,8 +6806,14 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     let s = 0;
     let note = `P/C ${ratio.toFixed(2)} — neutral positioning`;
     if (ratio > 1.15) {
-      s = 2;
-      note = `P/C ${ratio.toFixed(2)} — extreme fear, contrarian bullish`;
+      // Contrarian bullish (crowded fear marks bottoms) — only when the name is
+      // itself turning up, else it's just confirming a still-falling knife (P1.2).
+      if (reversalOk) {
+        s = 2;
+        note = `P/C ${ratio.toFixed(2)} — extreme fear with the turn confirming, contrarian bullish`;
+      } else {
+        note = `P/C ${ratio.toFixed(2)} — extreme fear but no reversal bar yet (held at 0)`;
+      }
     } else if (ratio < 0.65) {
       s = -2;
       note = `P/C ${ratio.toFixed(2)} — extreme greed, contrarian bearish`;
@@ -6768,7 +6864,12 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     let s = 0;
     let note = `VIX ${vix.value.toFixed(1)} — normal range`;
     if (vix.value < 15) { s = -1; note = `VIX ${vix.value.toFixed(1)} — complacency (<15)`; }
-    else if (vix.value > 35) { s = 2; note = `VIX ${vix.value.toFixed(1)} — capitulation (>35), contrarian bullish`; }
+    else if (vix.value > 35) {
+      // Contrarian bullish (peak fear) — gate on a per-name reversal so we don't
+      // credit a name still cratering inside the capitulation (P1.2).
+      if (reversalOk) { s = 2; note = `VIX ${vix.value.toFixed(1)} — capitulation (>35) with the turn confirming, contrarian bullish`; }
+      else { note = `VIX ${vix.value.toFixed(1)} — capitulation (>35) but no reversal bar yet (held at 0)`; }
+    }
     vixSpotSignal = _sig("vixSpot", "VIX Spot", s, {
       value: vix.value.toFixed(1),
       note,
@@ -7108,7 +7209,7 @@ function isStandardMonthly(epochSec) {
 //      required breakeven move vs IV-implied expected move). Anything
 //      failing any one filter is dropped — we'd rather ship fewer picks
 //      than recommend a structurally bad one.
-//   2. Score survivors by a composite of delta-distance from 0.45, DTE
+//   2. Score survivors by a composite of delta-distance from 0.55, DTE
 //      sweet-spot proximity, spread tightness, liquidity, and breakeven
 //      headroom vs the chain's own expected move. Pick best.
 // Returns null when no contract on any expiration clears every filter.
@@ -7157,8 +7258,9 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
       if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
       // IV cap (200%) — anything north of this is lottery-ticket pricing.
       if (row.iv > PICKS_MAX_IV) continue;
-      // 5-30% OTM band per the spec. Strike must be away from spot in the
-      // bet's direction by at least 5% but no more than 30%.
+      // Moneyness sanity bound (P1.1). Delta (0.45-0.65, below) is now the real
+      // moneyness gate; this just keeps the strike from drifting absurdly far —
+      // up to ~20% ITM (a 0.55-0.65Δ call sits at/below spot) through ~12% OTM.
       const otmPct = side === "call"
         ? (row.s - spot) / spot
         : (spot - row.s) / spot;
@@ -7167,8 +7269,16 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
       if (!(row.b > 0 && row.a > 0)) continue;
       const mid = (row.b + row.a) / 2;
       if (!(mid > 0)) continue;
-      // Premium ≤ $35/share keeps the contract under ~$3,500/contract.
-      if (mid > PICKS_MAX_PREMIUM) continue;
+      // Premium cap — price-aware (P1.1). The flat $35/share cap was sized for
+      // the old cheap 0.20-0.40Δ OTM contract; at the new near-the-money 0.45-0.65Δ
+      // target a perfectly reasonable ATM contract on a $300+ name costs more than
+      // $35, so a flat cap would silently gut the roster down to only cheap stocks.
+      // Cap at the GREATER of the flat floor and a fraction of spot, so premium is
+      // bounded as a share of underlying exposure (delta-coherent) rather than as a
+      // raw dollar amount that filters by price. A genuinely overpriced contract
+      // (e.g. an earnings-IV-inflated ATM at ~25% of spot) still fails.
+      const maxPremium = Math.max(PICKS_MAX_PREMIUM, spot * PICKS_MAX_PREMIUM_PCT_OF_SPOT);
+      if (mid > maxPremium) continue;
       const spreadPct = (row.a - row.b) / mid;
       if (spreadPct > maxSpread) continue;
       const oi = row.oi || 0;
@@ -7196,8 +7306,8 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
       // dte ≤3, ≥80%-extrinsic with <14 DTE). The buffered gates above keep
       // these from biting in the normal case; this is the belt-and-braces
       // guarantee that a shipped pick is never one the grader wants to swap.
-      // Delta is intentionally NOT rejected here: |Δ| 0.20-0.40 grades "fair",
-      // never "bad" (bad is |Δ|<0.15), and a fair delta is not a hard-fail.
+      // Delta is intentionally NOT rejected here: |Δ| 0.45-0.65 grades "good"/
+      // "fair", never "bad" (bad is |Δ|<0.15), and is not a hard-fail.
       if (requireClean) {
         const decayPerDay = mid > 0 ? Math.abs(g.thetaDay) / mid : Infinity;
         if (
@@ -7274,11 +7384,11 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   let best = null;
   let bestComposite = Infinity;
   for (const c of candidates) {
-    // Delta window (0.20-0.40) — anchor on PICKS_DELTA_IDEAL so the ideal
+    // Delta window (0.45-0.65) — anchor on PICKS_DELTA_IDEAL (0.55) so the ideal
     // contract sits squarely in the middle of the band rather than the upper
-    // or lower edge. 0.15 = the max distance from the 0.25 ideal to either
-    // edge of the band, so the penalty spans [0,1] across the whole window.
-    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.15);
+    // or lower edge. 0.10 = the max distance from the 0.55 ideal to either edge
+    // of the band, so the penalty spans [0,1] across the whole window.
+    const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.10);
     const dtePen = Math.min(1, dteFitPenalty(c.dte));
     const spreadPen = Math.min(1, c.spreadPct / PICKS_MAX_SPREAD_PCT);
     const oiPen = Math.min(1, oiPenalty(c.oi));
@@ -7311,11 +7421,10 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
 
   // Overall: worst of the fill-quality components (spread / OI / theta) wins —
   // a single "bad" one is enough to flag the pick. Delta is deliberately NOT a
-  // gating component: every contract here is gated to |Δ| 0.20-0.40 (the OTM
-  // target that "can still go up"), which always grades "fair", so folding it
-  // in would cap EVERY pick at "fair" and no pick could ever read "good". A
-  // genuinely broken delta (<0.15, only reachable if the band is ever loosened)
-  // still counts.
+  // gating component: every contract here is gated to |Δ| 0.45-0.65 (the
+  // near-the-money survivable band, P1.1), which grades good/fair, so a genuinely
+  // broken delta (<0.15, only reachable if the band is ever loosened) is the only
+  // delta read that can flag the pick.
   const cls = [spreadGrade.cls, oiGrade.cls, thetaGrade.cls];
   if (deltaGrade.cls === "bad") cls.push("bad");
   let overall = "good";
@@ -7482,7 +7591,7 @@ function buildPickAnalysis(pick, peers) {
   let contractLine = "";
   const c = pick.contract;
   if (c) {
-    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% OTM with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — well inside the 5-30% OTM / Δ 0.20-0.40 / ≤$35 premium / standard-monthly criteria.`;
+    contractLine = `The suggested ${sideWord} sit ~${Math.abs(c.otmPct ?? 0).toFixed(1)}% from spot with ${c.dte}d to expiry, delta ${Number(c.delta || 0).toFixed(2)}, mid $${Number(c.mid || 0).toFixed(2)} — a near-the-money Δ 0.45-0.65 contract (survives noise) inside the premium (≤ the larger of $35 or 12% of spot) / standard-monthly criteria.`;
   }
 
   return (lead + pillarLine + driverLine + peerLine + contractLine).trim();
@@ -8256,13 +8365,16 @@ function daysToEarningsFrom(data) {
 //   wait  → no clean entry yet (mixed structure / catalyst imminent / tape
 //           fighting it): SHIP it badged so the user can act on confirmation.
 //   go    → a clean, well-located entry.
-// FAIL-OPEN: missing spot / technicals / bar history → 'go' with score 0, so a
-// thin or freshly-added name is never silently dropped (graceful degradation).
+// FAIL-OPEN (P2.2): missing spot / technicals / bar history → 'wait' with score 0
+// — the name still SHIPS (badged) but is NOT enrolled in the track record, so we
+// never mint a conviction call (or a win-rate number) on the names where we have
+// the least data and the most knife risk. Contribution stays 0, so the grade is
+// not dinged either — pure graceful degradation, just not an endorsed entry.
 // `score` is a signed structure tally used only as a ranking tiebreaker.
 // Exported (like resolvePickOutcome) so the gate rules can be unit-tested.
 export function computeEntryTiming(side, data, spot, opts = {}) {
   const regime = opts.regime || "neutral";
-  const failOpen = (why) => ({ state: "go", score: 0, contribution: 0, reasons: [why], headline: "Timing read unavailable — not gated" });
+  const failOpen = (why) => ({ state: "wait", score: 0, contribution: 0, reasons: [why], headline: "Timing read unavailable — shown but not enrolled" });
   if (!(spot > 0) || (side !== "call" && side !== "put")) return failOpen("no spot / side — gate skipped");
   const t = (data && data.technicals) || {};
   const f = (data && data.fundamentals) || {};
@@ -8604,6 +8716,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   let vetoed = 0; // count dropped-by-gate for the roster note
   const sectorCounts = {}; // enforce the per-sector concentration cap
   const skippedSectorCapped = [];
+  const factorCounts = {}; // enforce the broader cross-sector factor cap (P2.1)
+  const skippedFactorCapped = [];
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -8640,6 +8754,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       skippedSectorCapped.push({ symbol: r.sym, sector });
       continue;
     }
+    // Factor / correlation cap (P2.1): the semis + software + mega-cap-tech /
+    // data-center-power complex is ONE beta spanning several GICS sectors, so the
+    // per-sector cap above can't stop it filling the roster through two labels.
+    // Cap that factor on top of the sector cap; unmapped names (ETFs / banks /
+    // pharma / …) have no factor and are governed by the sector cap alone.
+    const factor = factorOfTicker(r.sym);
+    if (factor && (factorCounts[factor] || 0) >= PICKS_MAX_PER_FACTOR) {
+      skippedFactorCapped.push({ symbol: r.sym, factor });
+      continue;
+    }
 
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
     const reasons = r.drivers.map((d) => d.text);
@@ -8673,6 +8797,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       // legacy reader; state ('go'|'wait'|'avoid') is informational only.
       entryTiming: timing,
       tactical: !!cand.tactical,
+      // Crush-exposure flag (P1.3): the recommended contract's expiry falls AFTER
+      // an (unconfirmed) earnings date, so a long-premium buyer eats the post-print
+      // IV crush unless the thesis is explicitly an IV-expansion play. Sourced from
+      // the contract's earnings-in-window read; surfaced on the card + timing panel.
+      earningsBeforeExpiry: !!contract.earningsInWindow,
       entryRegime: regime,   // stamped onto the accuracy entry for the byRegime cohort
       thesis,
       drivers: r.drivers,
@@ -8704,6 +8833,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
     if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+    if (factor) factorCounts[factor] = (factorCounts[factor] || 0) + 1;
   }
   // Rank by raw conviction — |total| score, highest first (a +25 always outranks
   // a +22). `total` now already folds in entry timing, so a well-timed name
@@ -8721,7 +8851,13 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // non-enumerable so JSON.stringify(picks) is unchanged but writeTopPicksFile
   // can read it.
   Object.defineProperty(out, "rosterMeta", {
-    value: { vetoed, sectorCapped: skippedSectorCapped, sectorCounts },
+    value: {
+      vetoed,
+      sectorCapped: skippedSectorCapped,
+      sectorCounts,
+      factorCapped: skippedFactorCapped,
+      factorCounts,
+    },
     enumerable: false,
   });
   return out;
@@ -9528,6 +9664,7 @@ function gradeLabelFor(status, outcome) {
   if (status === "expired") return outcome === "win" ? "Expired ITM" : outcome === "loss" ? "Expired worthless" : "Expired flat";
   if (status === "dropped") return outcome === "win" ? "Dropped (was green)" : outcome === "loss" ? "Dropped (was red)" : "Dropped (flat)";
   if (status === "timed-out") return outcome === "win" ? "Timed out (green)" : outcome === "loss" ? "Timed out (red)" : "Timed out (flat)";
+  if (status === "theta-stop") return outcome === "win" ? "Theta-stopped (green)" : outcome === "loss" ? "Theta-stopped (red)" : "Theta-stopped (flat)";
   return "—";
 }
 
@@ -9558,7 +9695,8 @@ export function excursionOutcome(mfePct, maePct) {
 // so the pick stays open and is retried next build — a single Yahoo flake must
 // never resolve a pick.
 export function resolvePickOutcome(opts) {
-  const { isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct, expSec, entrySec, nowSec, inUniverse } = opts;
+  const { isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct, expSec, entrySec, nowSec, inUniverse,
+          thetaPctDay, modeledOptLossPct } = opts;
   if (haveFresh && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
     return { status: "hit-tp", outcome: "win" };
   }
@@ -9570,6 +9708,18 @@ export function resolvePickOutcome(opts) {
       ? ((isCall ? ref >= be : ref <= be) ? "win" : "loss")
       : excursionOutcome(mfePct, maePct);
     return { status: "expired", outcome };
+  }
+  // Theta-aware time-stop (P1.4): cut a position whose MODELED daily theta exceeds
+  // PICKS_THETA_STOP_PCT of its remaining premium BEFORE the flat 14-day stop — but
+  // only once it's been held a few days AND is modeled at a loss, so a working trade
+  // is never cut early. Fires only with the modeled inputs present (a fresh quote +
+  // the entry option snapshot); legacy entries fall through to the 14-day stop.
+  if (
+    thetaPctDay != null && thetaPctDay >= PICKS_THETA_STOP_PCT &&
+    modeledOptLossPct != null && modeledOptLossPct < 0 &&
+    entrySec > 0 && nowSec - entrySec >= PICKS_THETA_STOP_MIN_HOLD_DAYS * 86400
+  ) {
+    return { status: "theta-stop", outcome: excursionOutcome(mfePct, maePct) };
   }
   if (entrySec > 0 && nowSec - entrySec >= PICKS_ACCURACY_MAX_HOLD_DAYS * 86400) {
     return { status: "timed-out", outcome: excursionOutcome(mfePct, maePct) };
@@ -9640,6 +9790,9 @@ function fillCheckpoints(e, builtAtIso, curSpot, scoreNow, nowSec) {
 // the `rate` is null — raw counts only). Guards against reading signal into noise
 // on the thin early sample.
 const PICKS_SIGNAL_MIN_N = 25;
+// A published per-signal hit-rate this close to 0.50 (a coin flip) is treated as
+// "no demonstrated edge" → flagged prunable (P2.3, measure-only).
+const PICKS_SIGNAL_PRUNE_BAND = 0.05;
 
 // Side-adjusted REALIZED underlying move for a resolved pick: how far the stock
 // moved in the trade's favor between entry and exit, in %. (This is the stock
@@ -9650,6 +9803,62 @@ function realizedMovePct(e) {
   if (!(entry > 0) || !(exit > 0)) return null;
   const raw = ((exit - entry) / entry) * 100;
   return e.side === "put" ? -raw : raw;
+}
+
+// MODELED option P&L for a resolved pick (P0.1). We have no options-price
+// history, so reprice the SAME contract with Black-Scholes at the exit bar to
+// surface the theta + IV-crush tax that the underlying-move metric is structurally
+// blind to (a long 0.55-delta call can be ~breakeven on the stock and deep red on
+// the premium). Reads the entry snapshot stamped at enroll (contract.{strike,
+// expiry,iv,mid} + entryHv + earningsDate + entrySpot). Returns
+// { optionPnlPct, premiumExit, sigmaExit, earningsInHold } or null when the entry
+// predates the snapshot (older open picks) or any input is degenerate.
+//   T   = remaining DTE at exit
+//   S   = exit spot off the real underlying path
+//   σ   = entry IV decayed toward realized HV over the hold (crude vol-mean-
+//         reversion), then crushed if an earnings print fell inside the hold.
+function modelOptionExit(e, exitSpot, exitSec, rfr = FALLBACK_RISK_FREE_RATE) {
+  const c = e && e.contract;
+  if (!c) return null;
+  const K = Number(c.strike), exp = Number(c.expiry), iv0 = Number(c.iv), prem0 = Number(c.mid);
+  const side = e.side === "put" ? "put" : "call";
+  if (!(K > 0) || !(exp > 0) || !(iv0 > 0) || !(prem0 > 0) || !(exitSpot > 0)) return null;
+  const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
+  const holdDays = entrySec > 0 ? Math.max(0, (exitSec - entrySec) / 86400) : 0;
+  const yearSecs = 365.25 * 24 * 3600;
+  const Texit = Math.max(0, (exp - exitSec) / yearSecs);
+  // Second-pass IV: decay entry IV toward the name's realized HV over the hold.
+  const hv = Number(e.entryHv);
+  let sigma = iv0;
+  if (hv > 0) {
+    const blend = Math.min(1, holdDays / PICKS_OPTION_IV_DECAY_DAYS);
+    sigma = iv0 + (hv - iv0) * blend;
+  }
+  // Earnings crush: if a report fell inside the hold, the event premium is gone
+  // by exit — knock IV down a notch.
+  const eIso = e.earningsDate;
+  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T16:00:00Z` : eIso) : NaN;
+  const eSec = Number.isFinite(eMs) ? Math.floor(eMs / 1000) : NaN;
+  const earningsInHold = Number.isFinite(eSec) && entrySec > 0 && eSec >= entrySec && eSec <= exitSec;
+  if (earningsInHold) sigma *= PICKS_OPTION_EARNINGS_CRUSH;
+  sigma = Math.max(0.01, sigma);
+  // At/after expiry the option is worth only its intrinsic value.
+  let premExit;
+  if (Texit <= 1 / 365) {
+    premExit = side === "call" ? Math.max(0, exitSpot - K) : Math.max(0, K - exitSpot);
+  } else {
+    premExit = bsPrice(side, exitSpot, K, Texit, sigma, rfr);
+    if (premExit == null || !isFinite(premExit)) {
+      premExit = side === "call" ? Math.max(0, exitSpot - K) : Math.max(0, K - exitSpot);
+    }
+  }
+  const optionPnlPct = ((premExit - prem0) / prem0) * 100;
+  return {
+    optionPnlPct: Number(optionPnlPct.toFixed(1)),
+    premiumExit: Number(premExit.toFixed(2)),
+    sigmaExit: Number(sigma.toFixed(4)),
+    earningsInHold,
+  };
 }
 
 // Build a date(YYYY-MM-DD) → close map from a SPY-like bar series (priceSeries
@@ -9752,6 +9961,13 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   for (const k of Object.keys(bySignal)) {
     const r = bySignal[k];
     r.rate = r.n >= PICKS_SIGNAL_MIN_N ? Number((r.wins / r.n).toFixed(3)) : null;
+    // Pruning candidate (P2.3, measure-only): once a signal has a published rate
+    // (n ≥ PICKS_SIGNAL_MIN_N) and that rate is statistically indistinguishable
+    // from a coin flip, it adds variance without edge — flag it for removal rather
+    // than keep it for completeness. Does NOT auto-drop the signal; it's a hint for
+    // the next recalibration. Never add a NEW signal until the existing set is
+    // attributed this way.
+    r.prunable = r.rate != null && Math.abs(r.rate - 0.5) <= PICKS_SIGNAL_PRUNE_BAND;
   }
 
   // Realized expectancy (side-adjusted underlying move, %): the honest "do the
@@ -9782,6 +9998,17 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     }
   }
 
+  // MODELED OPTION expectancy (P0.1): the same decided cohort, but on the BS-
+  // repriced option P&L (modelOptionExit, stamped at resolution) instead of the
+  // underlying move. The gap between optionExpectancyPct and the underlying
+  // expectancyPct above IS the theta + IV-crush tax — a stock that drifts ~flat
+  // can still print a deeply negative option result. Entries that predate the
+  // entry-option snapshot have no optionPnlPct and are simply skipped.
+  const optDecided = decided.map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  const wOpt = decided.filter((e) => e.outcome === "win").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  const lOpt = decided.filter((e) => e.outcome === "loss").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  const optionExpectancyPct = optDecided.length ? Number(mean(optDecided).toFixed(2)) : null;
+
   const avg = (arr, f) => (arr.length ? Number((arr.reduce((s, e) => s + (Number(f(e)) || 0), 0) / arr.length).toFixed(1)) : null);
   return {
     builtAtIso,
@@ -9799,6 +10026,13 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     avgLossRealizedPct: lRealized.length ? Number(mean(lRealized).toFixed(2)) : null,
     avgSpyRetPct,
     excessExpectancyPct,
+    // MODELED option-P&L expectancy (P0.1) — the theta/IV-crush-aware lens; the
+    // gap vs expectancyPct above is the premium tax. null until gate-era picks
+    // (which carry the entry-option snapshot) resolve.
+    optionExpectancyPct,
+    optionDecided: optDecided.length,
+    avgWinOptionPnlPct: wOpt.length ? Number(mean(wOpt).toFixed(2)) : null,
+    avgLossOptionPnlPct: lOpt.length ? Number(mean(lOpt).toFixed(2)) : null,
     byTier,
     bySector,
     byRegime,
@@ -9896,21 +10130,49 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // fire on a build where we never got a fresh quote: last known mark, then
     // entry.
     const ref = haveFresh ? cur : (Number(e.lastSpot) || entry);
+    // Theta-aware time-stop inputs (P1.4): model the contract NOW with BS so we can
+    // see when a position that's going nowhere is bleeding theta faster than
+    // PICKS_THETA_STOP_PCT/day of its remaining premium. Only computable with a
+    // fresh quote + the entry option snapshot; null otherwise (branch won't fire).
+    let thetaPctDay = null, modeledOptLossPct = null;
+    if (haveFresh) {
+      const ec = e.contract || {};
+      const K = Number(ec.strike), exp = Number(ec.expiry), iv0 = Number(ec.iv), prem0 = Number(ec.mid);
+      if (K > 0 && exp > 0 && iv0 > 0 && prem0 > 0) {
+        const sideStr = isCall ? "call" : "put";
+        const Tnow = yearsToExpiry(exp);
+        const g = greeks(sideStr, cur, K, Tnow, iv0, FALLBACK_RISK_FREE_RATE);
+        const curPrem = bsPrice(sideStr, cur, K, Tnow, iv0, FALLBACK_RISK_FREE_RATE);
+        if (g && curPrem > 0 && isFinite(curPrem)) {
+          thetaPctDay = Math.abs(g.thetaDay) / curPrem;
+          modeledOptLossPct = ((curPrem - prem0) / prem0) * 100;
+        }
+      }
+    }
     const resolved = resolvePickOutcome({
       isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct,
       expSec, entrySec, nowSec, inUniverse: universe.has(sym),
+      thetaPctDay, modeledOptLossPct,
     });
 
     if (resolved) {
       const { status, outcome } = resolved;
+      const exitSpot = haveFresh ? Number(cur.toFixed(2)) : (e.lastSpot ?? null);
+      // Reprice the contract at exit so the record carries the option P&L, not
+      // just the underlying move (P0.1). null on legacy entries without the snapshot.
+      const opt = (exitSpot > 0) ? modelOptionExit(e, exitSpot, nowSec, FALLBACK_RISK_FREE_RATE) : null;
       state.closed.unshift({
         ...e,
         exitDate: builtAtIso,
-        exitSpot: haveFresh ? Number(cur.toFixed(2)) : (e.lastSpot ?? null),
+        exitSpot,
         status,
         outcome,
         scoredRight: outcome === "win" ? true : outcome === "loss" ? false : null,
         grade: gradeLabelFor(status, outcome),
+        optionPnlPct: opt ? opt.optionPnlPct : null,
+        optionPremiumExit: opt ? opt.premiumExit : null,
+        optionExitIv: opt ? opt.sigmaExit : null,
+        earningsInHold: opt ? !!opt.earningsInHold : null,
       });
     } else {
       stillOpen.push(e);
@@ -9946,12 +10208,15 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // governs the CLOSED/resolved set, so genuinely distinct realized trades stay
   // distinct in the history.
   const openTheses = new Set(stillOpen.map((e) => `${e.symbol}:${e.side}`));
-  // Track record = the shipped roster. Entry timing is now folded into the grade
-  // (a badly-timed name scores below the bar and never ships), so every pick that
-  // made the list is an endorsed, well-timed entry — enroll the top-N directly.
+  // Track record = the ENDORSED ('go') subset of the shipped roster (P2.2 / §8
+  // go-only enrollment). Entry timing is folded into the grade, but a name can
+  // still ship as 'wait' (mixed structure, catalyst imminent, or a fail-open read
+  // on thin data) — enrolling those would grade ourselves on names we told the
+  // user to defer or had no read on, dinging a number we didn't earn. A pick with
+  // no entryTiming at all (legacy payloads) keeps the legacy behavior and enrolls.
   // When the A/B flag is on, also enroll top-N 'wait'-tagged picks under a
   // separate cohort; computePicksAccuracyStats keeps them out of the headline.
-  const goPicks = picks;
+  const goPicks = picks.filter((p) => (p?.entryTiming?.state ?? "go") === "go");
   const waitPicks = PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT
     ? picks.filter((p) => p?.entryTiming?.state === "wait")
     : [];
@@ -9992,11 +10257,17 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       entrySignals,
       entryDate: builtAtIso,
       entrySpot: Number(entrySpot.toFixed(2)),
+      // Entry-time vol + earnings state — the substrate the BS repricer
+      // (modelOptionExit, P0.1) needs to model option P&L at exit. HV30 from the
+      // entry build's realized-vol regime; next earnings date for the crush haircut.
+      entryHv: Number(chains?.[p.symbol]?.technicals?.volRegime?.rv30) || null,
+      earningsDate: chains?.[p.symbol]?.fundamentals?.nextEarningsDate || null,
       contract: {
         strike: c.strike ?? null,
         expiry: c.expiry ?? null,
         expiryLabel: c.expiryLabel || null,
         mid: c.mid ?? null,
+        iv: c.iv ?? null,        // entry IV — BS-repricer baseline (P0.1)
         breakeven: c.breakeven ?? null,
         otmPct: c.otmPct ?? null,
         delta: c.delta ?? null,
