@@ -11039,6 +11039,71 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // colour: positive contributions tint green, negative tint red, neutral
   // stay muted. Used as the per-card side panel that answers "why did this
   // ticker score what it did?".
+  // One-paragraph plain-language explainer per grading category, shown at the
+  // top of each pillar's expanded breakdown so a reader knows what the signals
+  // below it are measuring and how they score before reading the numbers. Kept
+  // in sync with docs/top-picks-rubric.md §3 (the four asset pillars) and §6
+  // (entry timing). Purely presentational.
+  var PILLAR_INFO = {
+    fundamentals: 'The health of the underlying business — earnings surprises, EPS & revenue growth, analyst price targets, valuation vs. the sector median, guidance, major contracts, free cash flow and net-margin trend. A strong business is a tailwind for the trade; a weak one is a headwind. Each signal scores −3 … +3.',
+    technicals: 'The price chart itself — RSI momentum and extremes, MACD, win/loss streaks, confirmed support/resistance breaks, distance from the 52-week high/low, volume confirmation, the moving-average stack and chart patterns. Note the contrarian reads: an overbought RSI (≥75) or a name pinned at its 52-week high score negative, because stretched names tend to mean-revert.',
+    mechanicals: 'The options and market plumbing around the name — unusual flow, open-interest call/put skew, short interest, hourly volume vs. its 20-day average, the broad SPY tape, the put/call ratio and the VIX. Extremes read contrarian: heavy put buying or a VIX spike (fear) lean bullish, while complacency leans bearish.',
+    narrative: 'The story driving the stock — AI-read news catalysts (good +2, bad −3, deliberately asymmetric), the strength and lifecycle stage of its sector narrative, social sentiment, and macro tail/headwinds including the dollar (DXY) and the 10-year yield. Catalysts move stocks faster than indicators, so they carry the most weight here.',
+    timing: 'Is *now* a good moment to put this trade on, independent of how good the asset is? Reads confirmed daily bars (the in-progress candle is dropped so a mid-session spike can\\'t fake a signal) for the two dominant failure modes — catching a falling knife and chasing an extended top — plus the setups we want: a confirmed breakout on volume and a healthy pullback to the 20-day average with momentum turning back up. It adds up to +4 to conviction for a clean entry, subtracts up to −8 for a poor one (a knife or a chase is a flat −8), and tightens its thresholds when the broad tape is fighting the trade. It nudges the grade up or down without ever flipping the side.',
+  };
+
+  // Expanded body for the Entry-timing pillar. The four asset pillars render a
+  // flat signal list; timing instead carries a verdict (go / wait / avoid), a
+  // one-line headline, and a classified pro/con reason list — far richer than
+  // the single folded-score signal — so this renders that structure directly
+  // from pillars.timing.{state,headline,reasons}. Falls back gracefully on
+  // legacy payloads that lack those fields.
+  function pickTimingPanelBody(pil){
+    var state = (pil && pil.state) || 'go';
+    var headline = (pil && pil.headline) || '';
+    var reasons = Array.isArray(pil && pil.reasons) ? pil.reasons : [];
+    var stCls = state === 'go' ? 'go' : (state === 'avoid' ? 'avoid' : 'wait');
+    var stLabel = state === 'go' ? 'GO' : (state === 'avoid' ? 'AVOID' : 'WAIT');
+    var stHint = state === 'go'
+      ? 'Structure and timing line up — a clean entry.'
+      : (state === 'avoid'
+          ? 'A disqualifying read fired — the grade is pulled down and the name usually drops off the roster on its own.'
+          : 'No clean entry yet — wait for the next bar to confirm.');
+    // The reason strings are tagged at build time: "+ " = a pro, "- " = a con,
+    // and an untagged leading line = a hard disqualifier (knife / chase /
+    // wrong-side break) unshifted to the front.
+    var flags = [], pros = [], cons = [];
+    for (var i=0; i<reasons.length; i++){
+      var r = String(reasons[i] || '');
+      if (r.indexOf('+ ') === 0) pros.push(r.slice(2));
+      else if (r.indexOf('- ') === 0) cons.push(r.slice(2));
+      else if (r) flags.push(r);
+    }
+    function group(title, arr, cls){
+      if (!arr.length) return '';
+      var items = '';
+      for (var j=0; j<arr.length; j++) items += '<li>' + escapeHtml(arr[j]) + '</li>';
+      return '<div class="pick-timing-group ' + cls + '">' +
+        '<div class="pick-timing-group-head">' + title + '</div>' +
+        '<ul class="pick-timing-list">' + items + '</ul>' +
+      '</div>';
+    }
+    var out = '<div class="pick-timing-verdict pick-timing-' + stCls + '">' +
+        '<span class="pick-timing-state">' + stLabel + '</span>' +
+        '<span class="pick-timing-headline">' + escapeHtml(headline || stHint) + '</span>' +
+      '</div>';
+    if (headline && stHint && headline !== stHint){
+      out += '<p class="pick-timing-hint">' + escapeHtml(stHint) + '</p>';
+    }
+    out += group('Disqualifier', flags, 'is-flag') +
+      group('Supports entry now', pros, 'is-pro') +
+      group('Reasons to hold off', cons, 'is-con');
+    if (!flags.length && !pros.length && !cons.length){
+      out += '<p class="pick-timing-empty">No timing signals fired — entry reads neutral (0 to the grade).</p>';
+    }
+    return out;
+  }
+
   function pickPillarPanel(p){
     var pillars = p && p.pillars;
     if (!pillars) return '';
@@ -11163,14 +11228,23 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '</div>';
         }
       }
+      // Plain-language explainer for the category, shown above its signals so
+      // the breakdown is legible without prior knowledge of the rubric.
+      var descTxt = PILLAR_INFO[k] || '';
+      var descHtml = descTxt ? '<p class="pick-pillar-desc">' + escapeHtml(descTxt) + '</p>' : '';
+      // Entry timing renders a verdict + classified reason list; the four asset
+      // pillars render their flat signal list (+ any catalyst chips).
+      var pillarBody = (k === 'timing')
+        ? pickTimingPanelBody(pil)
+        : '<ul class="pick-pillar-signals">' + sigList + '</ul>' + catSection;
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
         '<summary class="pick-pillar-head">' +
           '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + '</span>' +
           barHtml +
           '<span class="pick-pillar-score ' + signClass(pscore) + '">' + escapeHtml(fmtSignedNum(pscore)) + '</span>' +
         '</summary>' +
-        '<ul class="pick-pillar-signals">' + sigList + '</ul>' +
-        catSection +
+        descHtml +
+        pillarBody +
       '</details>';
     }
     return '<aside class="pick-pillars-panel" aria-label="Score breakdown">' +

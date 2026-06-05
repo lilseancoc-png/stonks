@@ -382,5 +382,8 @@ it has to be trustworthy. The fixes:
   `pickContractForPick`, `buildExitPlan`, `updatePicksAccuracyFile`.
 - Render: [`scripts/render/app-js.mjs`](../scripts/render/app-js.mjs) —
   `pickTimingBanner` / `pickTimingBadge` (the card) and `buildExecuteNowCard` (the
-  live Grade-tab sibling).
+  live Grade-tab sibling). The expandable score breakdown is `pickPillarPanel`,
+  whose per-category explainers live in `PILLAR_INFO` and whose Entry-timing
+  panel (`pickTimingPanelBody`) renders the verdict + classified `reasons` from
+  `pillars.timing`.
 - Changelog: [`CHANGELOG.md`](../CHANGELOG.md).

@@ -6969,6 +6969,15 @@ main { padding-top: var(--s-2); }
   font: 700 13px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+/* Per-category plain-language explainer shown at the top of each expanded
+   pillar (and the timing panel) so the signals below read without prior
+   knowledge of the rubric. */
+.pick-pillar-desc {
+  margin: 0;
+  padding: 8px 10px 0;
+  font: 400 11px/1.45 var(--font-sans);
+  color: var(--muted-strong);
+}
 .pick-pillar-signals {
   list-style: none;
   margin: 0;
@@ -6976,6 +6985,81 @@ main { padding-top: var(--s-2); }
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+/* --- Entry-timing pillar: verdict + classified reason list ---------------- */
+.pick-timing-verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 10px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface);
+}
+.pick-timing-state {
+  flex: 0 0 auto;
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  padding: 4px 7px;
+  border-radius: var(--r-1);
+  color: #fff;
+}
+.pick-timing-go    .pick-timing-state { background: var(--pos); }
+.pick-timing-wait  .pick-timing-state { background: var(--warn, #b8860b); }
+.pick-timing-avoid .pick-timing-state { background: var(--neg); }
+.pick-timing-go    { border-color: color-mix(in srgb, var(--pos) 40%, var(--border)); }
+.pick-timing-wait  { border-color: color-mix(in srgb, var(--warn, #b8860b) 40%, var(--border)); }
+.pick-timing-avoid { border-color: color-mix(in srgb, var(--neg) 40%, var(--border)); }
+.pick-timing-headline {
+  font: 600 11px/1.35 var(--font-sans);
+  color: var(--text-strong);
+}
+.pick-timing-hint {
+  margin: 6px 10px 0;
+  font: 400 10px/1.4 var(--font-sans);
+  color: var(--muted);
+}
+.pick-timing-group {
+  margin: 8px 10px 0;
+}
+.pick-timing-group:last-child { margin-bottom: 8px; }
+.pick-timing-group-head {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.pick-timing-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pick-timing-list li {
+  position: relative;
+  padding-left: 14px;
+  font: 400 11px/1.4 var(--font-sans);
+  color: var(--text);
+}
+.pick-timing-list li::before {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font: 700 11px/1.4 var(--font-mono);
+}
+.pick-timing-group.is-pro  .pick-timing-list li::before { content: "+"; color: var(--pos); }
+.pick-timing-group.is-con  .pick-timing-list li::before { content: "−"; color: var(--neg); }
+.pick-timing-group.is-flag .pick-timing-list li::before { content: "⚠"; color: var(--neg); font-size: 10px; }
+.pick-timing-group.is-flag .pick-timing-group-head { color: var(--neg); }
+.pick-timing-group.is-flag .pick-timing-list li { color: var(--text-strong); font-weight: 500; }
+.pick-timing-empty {
+  margin: 8px 10px;
+  font: 400 11px/1.4 var(--font-sans);
+  color: var(--muted);
 }
 /* Dated-catalysts sub-section inside the Narrative pillar (Top Picks / Grade
    breakdown). Chips reuse the Calendar tab's .cal-chip / .cal-catalyst styling;
