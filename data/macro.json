@@ -25,39 +25,39 @@
     "trend": "flat"
   },
   "dxy": {
-    "value": 99.418,
-    "prior": 99.0199966430664,
-    "prior1d": 99.52999877929688,
-    "prior5d": 99.0199966430664,
-    "change5d": 0.4019424060053926,
-    "pctChange1d": -0.11252766067567296,
-    "pctChange5d": 0.4019424060053926,
+    "value": 99.215,
+    "prior": 98.91000366210938,
+    "prior1d": 99.41000366210938,
+    "prior5d": 98.91000366210938,
+    "change5d": 0.3083574225035308,
+    "pctChange1d": -0.1961610048543819,
+    "pctChange5d": 0.3083574225035308,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "flat"
   },
   "vix": {
-    "value": 15.4,
-    "prior": 15.739999771118164,
-    "prior1d": 16.059999465942383,
-    "prior5d": 15.739999771118164,
-    "change5d": -2.160100229112076,
-    "pctChange1d": -4.109585852365746,
-    "pctChange5d": -2.160100229112076,
+    "value": 15.63,
+    "prior": 15.319999694824219,
+    "prior1d": 15.399999618530273,
+    "prior5d": 15.319999694824219,
+    "change5d": 2.0235007268343095,
+    "pctChange1d": 1.4935090075780004,
+    "pctChange5d": 2.0235007268343095,
     "bpsChange1d": null,
     "bpsChange5d": null,
-    "trend": "falling",
+    "trend": "rising",
     "rankPct": null,
-    "rankSamples": 6
+    "rankSamples": 7
   },
-  "asOf": "2026-06-05T02:45:49.298Z",
+  "asOf": "2026-06-05T11:34:51.542Z",
   "previousClose": {
-    "date": "2026-06-03",
-    "asOf": "2026-06-04T02:46:45.538Z",
+    "date": "2026-06-04",
+    "asOf": "2026-06-05T02:45:49.298Z",
     "twoY": null,
-    "tenY": 4.491,
-    "thirtyY": 4.9900002,
-    "dxy": 99.453,
-    "vix": 16.06
+    "tenY": 4.477,
+    "thirtyY": 4.9779997,
+    "dxy": 99.418,
+    "vix": 15.4
   }
 }
