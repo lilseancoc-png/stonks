@@ -11861,8 +11861,20 @@
       if (pp.contract && pp.contract.earningsInWindow) earningsCount++;
     }
     var avgScore = scoreCount > 0 ? (scoreSum / scoreCount).toFixed(1) : '—';
+    // Live market-regime chip — today's tape (S&P move + VIX), shared by every pick
+    // this build. Makes the "How the market tape moves the picks" explainer concrete:
+    // risk-off shrinks the list, tilts it to puts, and sizes down; risk-on leans long.
+    var regime = (picks[0] && picks[0].entryRegime) || null;
+    var regimeChip = '';
+    if (regime === 'risk-off' || regime === 'risk-on' || regime === 'neutral'){
+      var rLbl = regime === 'risk-off' ? 'Risk-off' : (regime === 'risk-on' ? 'Risk-on' : 'Neutral');
+      var rCls = regime === 'risk-off' ? ' picks-summary-put' : (regime === 'risk-on' ? ' picks-summary-call' : '');
+      var rTitle = 'Today’s market regime, derived from the S&P move + the VIX. Risk-off (a sell-off) pulls grades down, makes entry timing stricter, opens reduced-size tactical puts, and holds more cash; risk-on is a tailwind that leans the list long. See “How the grade works” above.';
+      regimeChip = '<div class="picks-summary-chip' + rCls + '" title="' + rTitle + '"><span class="picks-summary-num">' + (regime === 'risk-off' ? '⚠ ' : '') + rLbl + '</span><span class="picks-summary-lbl">market tape</span></div>';
+    }
     if (summaryEl){
       summaryEl.innerHTML =
+        regimeChip +
         '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
