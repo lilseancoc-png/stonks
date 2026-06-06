@@ -5744,7 +5744,14 @@ const PICKS_MAX_PREMIUM_PCT_OF_SPOT = 0.12; // …or up to 12% of spot, whicheve
 // normal intraday/overnight drift window. Delta is deliberately left at the
 // 0.45-0.65 band (P1.1 — a near-the-money pick that survives noise; gradeDelta
 // rates 0.45-0.55 "good" and 0.55-0.65 "fair", never a grader hard-fail).
-const PICKS_CLEAN_MAX_SPREAD_PCT = 0.12;  // buffer below the 15% spread-bad line
+// Bid/ask is a first-order tax on a single-leg long: a 12% round-trip spread needs a
+// ~12% premium move just to break even on execution, and the loss diagnostic measured
+// ~25% on the legacy OTM picks. Tightened 0.12 → 0.10 (env-overridable) so the roster
+// only pays premium when the contract is genuinely liquid; the composite (below) also
+// weights spread much harder + saturates its penalty at PICKS_SPREAD_PEN_REF so the
+// tightest-spread contract among the survivors wins.
+const PICKS_CLEAN_MAX_SPREAD_PCT = Number(process.env.PICKS_CLEAN_MAX_SPREAD_PCT ?? 0.10);
+const PICKS_SPREAD_PEN_REF = Number(process.env.PICKS_SPREAD_PEN_REF ?? 0.10); // spreadPct at which the composite spread penalty saturates to 1
 const PICKS_CLEAN_MIN_OI = 100;           // grade "Light/fair" floor (no OI-bad chip)
 const PICKS_CLEAN_MIN_DTE = 21;           // clears the dte<14 extrinsic trap + dte≤3 crisis through a multi-day hold
 const PICKS_CLEAN_MAX_THETA = 0.025;      // |theta|/mid per day — buffer below the 3%/day theta-bad line
@@ -5837,8 +5844,20 @@ const PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT = process.env.PICKS_ACCURACY_AB ===
 // underlying-level TP/cut. Levels are flat (vol/DTE-blind) until a forward sample
 // lets us make them regime-aware — the AXIS (premium, not stock) is the fix.
 const PICKS_OPT_EXITS = process.env.PICKS_OPT_EXITS !== "0"; // default ON
-const PICKS_OPT_TP_PCT = Number(process.env.PICKS_OPT_TP_PCT ?? 0.6);   // +60% of entry premium → take profit
+const PICKS_OPT_TP_PCT = Number(process.env.PICKS_OPT_TP_PCT ?? 0.6);   // +60% of entry premium → take profit (or, with the trail on, the ARM + minimum-lock level)
 const PICKS_OPT_STOP_PCT = Number(process.env.PICKS_OPT_STOP_PCT ?? 0.4); // -40% of entry premium → cut
+// Let winners run: a TRAILING premium take-profit instead of the flat +60% cap.
+// Long-premium P&L is right-tail-driven — a few big winners pay for the losers — so
+// capping every win at +60% truncates exactly the trades that make the style work.
+// Once the peak modeled gain ARMS (reaches PICKS_OPT_TP_PCT, +60%), the exit floor
+// ratchets up to max(peak·(1−giveback), +60%): it locks AT LEAST the old flat TP and
+// trails a runner upward, exiting only on a PICKS_OPT_TRAIL_GIVEBACK pullback from the
+// peak. Strictly Pareto over the flat TP (never locks less than +60%). The recorded
+// outcome is by the SIGN of the modeled P&L at the trigger (a violent gap back through
+// the floor between build samples is an honest give-back, not a phantom win). Trips off
+// → the legacy flat take-profit. Needs the entry-option snapshot (gate-era picks).
+const PICKS_OPT_TRAIL = process.env.PICKS_OPT_TRAIL !== "0"; // default ON
+const PICKS_OPT_TRAIL_GIVEBACK = Number(process.env.PICKS_OPT_TRAIL_GIVEBACK ?? 0.33); // exit when the modeled gain gives back this fraction of its peak
 // P2 — earnings-eve forward exit. The entry gate defers picks with earnings ≤8d
 // out, so an enrolled pick has room; but if a print creeps within this many
 // sessions of the mark, close at the pre-crush modeled mark rather than ride the
@@ -7657,17 +7676,20 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     // of the band, so the penalty spans [0,1] across the whole window.
     const deltaPen = Math.min(1, Math.abs(c.absDelta - PICKS_DELTA_IDEAL) / 0.10);
     const dtePen = Math.min(1, dteFitPenalty(c.dte));
-    const spreadPen = Math.min(1, c.spreadPct / PICKS_MAX_SPREAD_PCT);
+    // Saturate the spread penalty at PICKS_SPREAD_PEN_REF (10%), not the 18% loose cap,
+    // so a 5% spread scores far better than a 9% one — execution cost is a first-order
+    // tax on a long single leg, so it's weighted much harder now (0.13 → 0.24).
+    const spreadPen = Math.min(1, c.spreadPct / PICKS_SPREAD_PEN_REF);
     const oiPen = Math.min(1, oiPenalty(c.oi));
     const volPen = Math.min(1, volumePenalty(c.row.v || 0));
     const rrPen = rrPenalty(c.reqMovePct, c.expMovePct);
     let composite =
-      deltaPen * 0.34 +
-      dtePen * 0.18 +
-      spreadPen * 0.13 +
-      oiPen * 0.07 +
-      volPen * 0.08 +
-      rrPen * 0.20;
+      deltaPen * 0.30 +
+      dtePen * 0.16 +
+      spreadPen * 0.24 +
+      oiPen * 0.06 +
+      volPen * 0.06 +
+      rrPen * 0.18;
     // If earnings fall inside the contract window, nudge against —
     // not a reject (earnings can be a catalyst) but a tie-break in
     // favor of a clean expiry when one exists.
@@ -10494,6 +10516,7 @@ function gradeLabelFor(status, outcome) {
   if (status === "hit-tp") return "Hit target";
   if (status === "hit-cut") return "Stopped out";
   if (status === "hit-tp-prem") return "Hit target (premium)";
+  if (status === "hit-trail-prem") return outcome === "loss" ? "Trailed out (gave back)" : "Trailing stop (locked gain)";
   if (status === "hit-stop-prem") return "Stopped out (premium)";
   if (status === "pre-earnings") return outcome === "win" ? "Closed pre-earnings (green)" : outcome === "loss" ? "Closed pre-earnings (red)" : "Closed pre-earnings (flat)";
   if (status === "expired") return outcome === "win" ? "Expired ITM" : outcome === "loss" ? "Expired worthless" : "Expired flat";
@@ -10531,15 +10554,32 @@ export function excursionOutcome(mfePct, maePct) {
 // never resolve a pick.
 export function resolvePickOutcome(opts) {
   const { isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct, expSec, entrySec, nowSec, inUniverse,
-          thetaPctDay, modeledOptPnlPct, earningsAheadDays } = opts;
+          thetaPctDay, modeledOptPnlPct, optMfePct, earningsAheadDays } = opts;
   // P0.3 — premium-space exits FIRST. The capital at risk is the premium, and a
   // symmetric underlying stop maps to a wildly asymmetric option move, so cut at a
   // fixed premium loss (truncating the -60% tail the structural cut lets run) and
-  // scale out at a premium multiple. Needs a fresh modeled mark; legacy entries
-  // (no entry-option snapshot) fall through to the underlying-level checks below.
+  // take profit on the upside. Needs a fresh modeled mark; legacy entries (no
+  // entry-option snapshot) fall through to the underlying-level checks below.
   if (PICKS_OPT_EXITS && modeledOptPnlPct != null && isFinite(modeledOptPnlPct)) {
-    if (modeledOptPnlPct >= PICKS_OPT_TP_PCT * 100) return { status: "hit-tp-prem", outcome: "win" };
+    // Hard initial stop (unchanged) — bounds the left tail.
     if (modeledOptPnlPct <= -PICKS_OPT_STOP_PCT * 100) return { status: "hit-stop-prem", outcome: "loss" };
+    if (PICKS_OPT_TRAIL) {
+      // Trailing take-profit (let winners run). Once the PEAK modeled gain arms at
+      // PICKS_OPT_TP_PCT (+60%), the exit floor ratchets to max(peak·(1−giveback),
+      // +60%): it locks at least the old flat TP and trails a runner up, exiting only
+      // on a `giveback` pullback from the peak. Outcome is by the SIGN at the trigger
+      // — a violent gap back through the floor between samples is an honest give-back.
+      const arm = PICKS_OPT_TP_PCT * 100;
+      const peak = Number(optMfePct);
+      if (isFinite(peak) && peak >= arm) {
+        const floor = Math.max(peak * (1 - PICKS_OPT_TRAIL_GIVEBACK), arm);
+        if (modeledOptPnlPct <= floor) {
+          return { status: "hit-trail-prem", outcome: modeledOptPnlPct > 0 ? "win" : "loss" };
+        }
+      }
+    } else if (modeledOptPnlPct >= PICKS_OPT_TP_PCT * 100) {
+      return { status: "hit-tp-prem", outcome: "win" }; // legacy flat take-profit
+    }
   }
   if (haveFresh && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
     return { status: "hit-tp", outcome: "win" };
@@ -11157,6 +11197,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         if (g && curPrem > 0 && isFinite(curPrem)) {
           thetaPctDay = Math.abs(g.thetaDay) / curPrem;
           modeledOptPnlPct = ((curPrem - prem0) / prem0) * 100;
+          // Track the PEAK modeled gain over the hold (constant entry-IV mark, same
+          // basis as modeledOptPnlPct) so the trailing take-profit can let a winner
+          // run and exit on a give-back from the peak.
+          e.optMfePct = Number(Math.max(Number.isFinite(e.optMfePct) ? Number(e.optMfePct) : modeledOptPnlPct, modeledOptPnlPct).toFixed(1));
         }
       }
     }
@@ -11169,7 +11213,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const resolved = resolvePickOutcome({
       isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct,
       expSec, entrySec, nowSec, inUniverse: universe.has(sym),
-      thetaPctDay, modeledOptPnlPct, earningsAheadDays,
+      thetaPctDay, modeledOptPnlPct, optMfePct: e.optMfePct, earningsAheadDays,
     });
 
     if (resolved) {
@@ -11322,6 +11366,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       lo: Number(entrySpot.toFixed(2)),
       mfePct: 0,
       maePct: 0,
+      optMfePct: 0, // peak modeled option gain over the hold (for the trailing TP)
       samples: 1,
       checkpoints: [{
         mark: "day0",
