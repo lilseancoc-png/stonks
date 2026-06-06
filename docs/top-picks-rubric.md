@@ -228,7 +228,7 @@ best survivor:
   IV-crush sensitivity and survives one red day. Delta is the primary moneyness gate.
 - **Moneyness sanity bound** −20% (ITM) … +12% (OTM) from spot — a loose bound now
   that delta gates moneyness, not the old 5–30% OTM rule.
-- **Bid/ask spread** ≤ 18% (roster: ≤ 12%).
+- **Bid/ask spread** ≤ 18% (roster: ≤ **10%**, `PICKS_CLEAN_MAX_SPREAD_PCT`, tightened from 12% — a wide spread is a first-order tax on a single-leg long, ~25% round-trip on the legacy OTM picks). The composite also **weights spread hard** (0.24) and saturates its penalty at `PICKS_SPREAD_PEN_REF` (10%), so the tightest-spread survivor wins.
 - **Open interest** ≥ 50 (roster: ≥ 100); needs a real two-sided quote.
 - **IV** ≤ 200%; **premium** ≤ **max($35/share, 12% of spot)** — price-aware
   (P1.1, `PICKS_MAX_PREMIUM_PCT_OF_SPOT`). A flat $35 cap fit the old cheap OTM
@@ -263,6 +263,20 @@ is now the **deeper of nearest structural support and a ~2.5×ATR floor** (clamp
 but ordinary volatility doesn't. Null ATR (thin history) → the prior 8% behavior
 (graceful). This is the structural complement to the timing gate — the gate stops us
 *entering* badly, the ATR floor stops a good entry from being *shaken out* on noise.
+
+**Premium-space exits — hard stop + a TRAILING take-profit (let winners run).**
+`resolvePickOutcome` resolves on the MODELED option P&L before the underlying-level
+TP/cut. The downside is a flat hard stop at `−PICKS_OPT_STOP_PCT` (−40% of entry
+premium). The upside is **not** a flat cap: long-premium P&L is right-tail-driven (a
+few big winners pay for the losers), so capping every win at +60% truncates exactly
+those. Instead, once the **peak** modeled gain arms at `PICKS_OPT_TP_PCT` (+60%), the
+exit floor ratchets to `max(peak·(1−PICKS_OPT_TRAIL_GIVEBACK), +60%)` — it locks **at
+least** the old flat TP and trails a runner upward, exiting only on a `giveback` (33%)
+pullback from the peak. Strictly Pareto over the flat TP (never locks less than +60%);
+the recorded outcome is by the **sign** of the modeled P&L at the trigger, so a violent
+gap back through the floor between build samples is booked as an honest give-back, not
+a phantom win. Peak is tracked as `optMfePct` (the constant-entry-IV mark, same basis
+as the +60/−40 levels). `PICKS_OPT_TRAIL=0` reverts to the legacy flat take-profit.
 
 ---
 
@@ -508,12 +522,17 @@ it has to be trustworthy. The fixes:
     `PICKS_COUNT 10`, `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`).
   - **Contract (`pickContractForPick`):** `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,
     `PICKS_OTM_MIN/MAX_PCT −0.20/0.12`, `PICKS_MAX_PREMIUM 35` +
-    `PICKS_MAX_PREMIUM_PCT_OF_SPOT 0.12` (cap = max of the two).
+    `PICKS_MAX_PREMIUM_PCT_OF_SPOT 0.12` (cap = max of the two); spread gate
+    `PICKS_CLEAN_MAX_SPREAD_PCT 0.10` (roster) / `PICKS_MAX_SPREAD_PCT 0.18` (loose),
+    composite spread penalty saturates at `PICKS_SPREAD_PEN_REF 0.10` (weight 0.24).
   - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 14`, `PICKS_THETA_STOP_PCT
     0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 5` (theta-stop); modeled-option repricer
     `PICKS_OPTION_IV_DECAY_DAYS 30`, `PICKS_OPTION_EARNINGS_CRUSH 0.70`.
   - **Premium-space exits (P0.3):** `PICKS_OPT_EXITS` (default ON), `PICKS_OPT_TP_PCT 0.6`,
     `PICKS_OPT_STOP_PCT 0.4` — resolve on modeled option P&L before the underlying TP/cut.
+    Trailing take-profit: `PICKS_OPT_TRAIL` (default ON), `PICKS_OPT_TRAIL_GIVEBACK 0.33`
+    (arm at +60%, lock ≥+60%, trail a runner up, exit on a 33%-of-peak give-back; `=0` →
+    legacy flat TP). Tracked via the per-pick `optMfePct` peak.
   - **Earnings-eve exit (P2):** `PICKS_EARNINGS_EXIT` (default ON), `PICKS_EARNINGS_EXIT_DAYS 2`.
   - **Edge governor (P1.3):** `PICKS_EDGE_GOVERNOR` (default ON), `PICKS_EDGE_MIN_N 15`,
     `PICKS_EDGE_SCALE_DEFAULT 0.6`, `PICKS_EDGE_SCALE_MIN 0.25`, `PICKS_EDGE_FULL_CUT_EXP −40`.
