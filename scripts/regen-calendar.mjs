@@ -121,6 +121,14 @@ async function main() {
   const sessionMap = await build.fetchNasdaqEarningsSessions(todayMs, 30);
   console.log(`  · ${sessionMap.size} session entries`);
 
+  console.log("Fetching prediction markets (Kalshi + Polymarket)…");
+  let predictionMarkets = { fomc: {}, reports: {} };
+  try {
+    predictionMarkets = await build.fetchPredictionMarkets(upcomingMeetings, reportEvents);
+  } catch (e) {
+    console.log(`  ⚠ prediction markets skipped: ${e?.message || e}`);
+  }
+
   // Read existing macro headlines so calendar continues to surface them.
   let macroHeadlines = [];
   try {
@@ -135,6 +143,7 @@ async function main() {
     fedRate: effectiveFedRate ?? fedRate,
     fedwatch,
     sessionMap,
+    predictionMarkets,
   });
   console.log(`wrote data/calendar.json — ${info.count} events, ${info.bytes} bytes`);
 }

@@ -5597,6 +5597,71 @@ main { padding-top: var(--s-2); }
   text-underline-offset: 2px;
 }
 .fomc-prob-empty a:hover { color: var(--text-strong); }
+.fomc-prob-cap {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 4px 0;
+}
+/* Prediction-market cross-check (Kalshi + Polymarket) under the futures table. */
+.fomc-pm { margin-top: var(--s-2); }
+.fomc-pm-head {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fomc-pm-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fomc-pm-table th, .fomc-pm-table td {
+  padding: 3px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--hairline);
+}
+.fomc-pm-table thead th {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fomc-pm-name { text-align: left !important; font-weight: 600; color: var(--text); }
+.fomc-pm-name a { color: var(--accent); text-decoration: none; }
+.fomc-pm-name a:hover { text-decoration: underline; }
+.fomc-pm-stale {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warn);
+  font: 600 9px/1.4 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+/* Market-implied pill on a macro report chip. */
+.cal-report-pm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cal-report-pm-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface-2);
+}
+a.cal-report-pm-item:hover { border-color: var(--accent); }
+.cal-report-pm-plat {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cal-report-pm-lbl { color: var(--muted); }
 .calendar-empty {
   padding: var(--s-5) var(--s-3);
   text-align: center;

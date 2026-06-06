@@ -8371,6 +8371,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (has(e.consensus)) cells.push('<div class="cal-report-cell"><span class="cal-report-label">Consensus</span><span class="cal-report-val">' + escapeHtml(fmt(e.consensus)) + '</span></div>');
     if (has(e.forecast)) cells.push('<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>');
     var grid = '<div class="cal-report-grid">' + cells.join('') + '</div>';
+    // Best-effort market-implied reading (Polymarket) attached at bake time when
+    // a related market resolves near this release. Rendered as a small pill below
+    // the figures; omitted entirely when no market was matched.
+    var pmLine = '';
+    if (Array.isArray(e.predictions) && e.predictions.length){
+      pmLine = '<div class="cal-report-pm">' + e.predictions.map(function(p){
+        var n = (p && p.prob != null) ? Number(p.prob) : null;
+        var pct = (n != null && isFinite(n))
+          ? ' <b>' + ((n > 1.5 ? n / 100 : n) * 100).toFixed(0) + '%</b>' : '';
+        var lbl = p && p.label ? ' <span class="cal-report-pm-lbl">' + escapeHtml(p.label) + '</span>' : '';
+        var inner = '<span class="cal-report-pm-plat">' + escapeHtml((p && p.platform) || 'Market') + '</span>' + lbl + pct;
+        return (p && p.url)
+          ? '<a class="cal-report-pm-item" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener noreferrer" title="Market-implied odds — opens the source market">' + inner + '</a>'
+          : '<span class="cal-report-pm-item">' + inner + '</span>';
+      }).join('') + '</div>';
+    }
     var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
     // Stale tag: writeCalendarFile carries forward in-window report rows
     // from the prior calendar.json when BLS + FRED both come back empty
@@ -8387,6 +8403,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         src +
       '</div>' +
       grid +
+      pmLine +
     '</div>';
   }
   function renderFomcWidget(fomc){
@@ -8421,6 +8438,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var meetings = (fomc.meetings || []).slice(0, 2);
     var probs = fomc.probabilities || {};
+    var pmAll = fomc.predictionMarkets || {};
     var header = '<div class="fomc-head">' +
       (rateValue != null
         ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span>' + rateStaleTag + '</div>'
@@ -8468,11 +8486,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : '';
       return '<div class="fomc-meeting">' +
         '<h3 class="fomc-meeting-title">' + escapeHtml(m.label) + '</h3>' +
+        (allEmpty ? '' : '<div class="fomc-prob-cap">Implied by ZQ Fed Funds futures</div>') +
         grid +
         note +
+        renderFomcPredictionMarkets(pmAll[m.date]) +
       '</div>';
     }).join('');
     root.innerHTML = header + meetingBlocks;
+  }
+  // Prediction-market cross-check (Kalshi + Polymarket) shown beneath the
+  // futures-implied table. Each platform's hike/hold/cut is an independent,
+  // money-weighted read on the same decision. Renders nothing when neither
+  // platform returned data for the meeting.
+  function renderFomcPredictionMarkets(pm){
+    if (!pm || (!pm.kalshi && !pm.polymarket)) return '';
+    var keys = ['hike','hold','cut'];
+    var fmtPct = function(v){
+      var n = (v == null) ? null : Number(v);
+      if (n == null || !isFinite(n)) return '—';
+      var x = n > 1.5 ? n / 100 : n;
+      return (x * 100).toFixed(0) + '%';
+    };
+    var line = function(name, obj){
+      if (!obj) return '';
+      var nm = obj.url
+        ? '<a href="' + escapeHtml(obj.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(name) + '</a>'
+        : escapeHtml(name);
+      return '<tr><th class="fomc-pm-name">' + nm + '</th>' +
+        keys.map(function(k){ return '<td>' + fmtPct(obj[k]) + '</td>'; }).join('') +
+      '</tr>';
+    };
+    var stale = pm.stale
+      ? ' <span class="fomc-pm-stale" title="Live Kalshi/Polymarket reads flaked this build — carried forward from the prior build">Cached</span>'
+      : '';
+    return '<div class="fomc-pm">' +
+      '<div class="fomc-pm-head">Prediction-market odds' + stale + '</div>' +
+      '<table class="fomc-pm-table"><thead><tr>' +
+        '<th></th><th>Hike</th><th>Hold</th><th>Cut</th>' +
+      '</tr></thead><tbody>' +
+        line('Kalshi', pm.kalshi) +
+        line('Polymarket', pm.polymarket) +
+      '</tbody></table>' +
+    '</div>';
   }
   function fmtCalendarDate(dateStr){
     if (!dateStr) return '';
