@@ -10337,6 +10337,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="accuracy-chip-lbl">fade-the-grade (research' + (st.fadeWinRate != null ? ' · ' + Math.round(st.fadeWinRate * 100) + '% win' : '') + ')</span>' +
       '</div>';
     }
+    // Grade IC (research): correlation of the grade with the realized direction.
+    // Negative = the grade is anti-predictive. The rigorous version of the fade
+    // chip; a baseline on the retired engine until gate-era picks resolve.
+    if (st.gradeIc != null) {
+      chips += '<div class="accuracy-chip ' + (st.gradeIc >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') + '" title="Research only: Pearson correlation of the signed grade vs the realized underlying move across resolved picks. Positive = a higher grade precedes a better move (predictive); negative = anti-predictive (fading wins). Measured on the retired ~0.30Δ engine until gate-era picks resolve.">' +
+        '<span class="accuracy-chip-num">' + st.gradeIc.toFixed(2) + '</span>' +
+        '<span class="accuracy-chip-lbl">grade IC (research · ' + (st.gradeIcN || 0) + ')</span>' +
+      '</div>';
+    }
 
     // --- Win rate by tier (the headline "does the score work?" view) --------
     var tierRows = '';

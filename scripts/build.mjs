@@ -5882,6 +5882,32 @@ const PICKS_VERT_IVRANK = Number(process.env.PICKS_VERT_IVRANK ?? 70);        //
 const PICKS_VERT_SHORT_DELTA_MIN = Number(process.env.PICKS_VERT_SHORT_DELTA_MIN ?? 0.20);
 const PICKS_VERT_SHORT_DELTA_MAX = Number(process.env.PICKS_VERT_SHORT_DELTA_MAX ?? 0.38);
 const PICKS_VERT_MIN_CREDIT = Number(process.env.PICKS_VERT_MIN_CREDIT ?? 0.20); // short mid must finance ≥20% of the long
+// Collinearity-collapse decorrelation (audit root-cause #1). The cross-sectional
+// pass z-scores each signal's MARGINAL but never touches the covariance, so a
+// cluster of K correlated signals (e.g. the growth complex earningsSurprise +
+// epsGrowth + revGrowth + analystTarget + analystRevisions + netMargin) gets K×
+// the loading of one independent signal — over-weighting whatever common factor
+// (usually the Tech/AI beta) the universe shares. With this on, each converted
+// signal's contribution is scaled by 1/sqrt(K), K = the firing signals in its
+// cluster for that name (variance scaling: K independent → ~unchanged, K fully
+// collinear → ~1 signal's worth). DARK by default: it changes the grade scale, and
+// we won't ship an unvalidated score change live on a losing engine — the exact
+// scaling is itself a forward-validation target (rubric §9.6 / the IC bridge).
+const PICKS_DECORRELATE = process.env.PICKS_DECORRELATE === "1"; // default OFF
+const SIGNAL_CLUSTER = {
+  // growth / quality (move together when a company is beating + growing)
+  earningsSurprise: "growth", epsGrowth: "growth", revGrowth: "growth",
+  analystTarget: "growth", analystRevisions: "growth", netMargin: "growth",
+  // value
+  peVsSector: "value", fcf: "value",
+  // trend-momentum
+  rsiMomentum: "momentum",
+  // mean-reversion / contrarian (already gated, but collinear among themselves)
+  rsiReading: "meanrev", fiftyTwoWeek: "meanrev", putCallRatio: "meanrev",
+  // options flow
+  unusualFlow: "flow", oi: "flow",
+  // (volConf, socialSentiment are singletons — no cluster, scale ×1)
+};
 
 // Fixed-horizon checkpoints (spec): snapshot each tracked pick's underlying spot
 // + current grade score at Day 0 / 2 weeks / 1 month, so the Track-record tab
@@ -9092,6 +9118,30 @@ function computeCrossSectionalScores(scored, opts = {}) {
     }
   }
 
+  // 2b. Collinearity collapse (audit #1, DARK via PICKS_DECORRELATE). For each name,
+  // scale every converted signal's contribution by 1/sqrt(K), K = the firing signals
+  // in its cluster — so a cluster of correlated signals contributes like ~one factor
+  // instead of K×, capping the loading on whatever common beta the universe shares.
+  // Off by default (changes the grade scale; needs forward validation).
+  if (PICKS_DECORRELATE) {
+    for (const r of scored) {
+      const counts = {};
+      for (const pk of PILLAR_KEYS) {
+        for (const sig of (r.pillars && r.pillars[pk] && r.pillars[pk].signals) || []) {
+          const cl = SIGNAL_CLUSTER[sig.key];
+          if (cl && Number.isFinite(sig.contribution) && sig.contribution !== 0) counts[cl] = (counts[cl] || 0) + 1;
+        }
+      }
+      for (const pk of PILLAR_KEYS) {
+        for (const sig of (r.pillars && r.pillars[pk] && r.pillars[pk].signals) || []) {
+          const cl = SIGNAL_CLUSTER[sig.key];
+          const k = cl ? counts[cl] : 0;
+          if (k > 1 && Number.isFinite(sig.contribution)) sig.contribution /= Math.sqrt(k);
+        }
+      }
+    }
+  }
+
   // 3. Recompute each name's pillars/subtotal, re-fold timing, recompute total.
   for (const r of scored) {
     let subtotal = 0;
@@ -10787,6 +10837,19 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
   const expectancyPct = realized.length ? Number(mean(realized).toFixed(2)) : null;
 
+  // Pearson correlation over [x,y] pairs (finite only), or null below a tiny floor.
+  // The substrate for the IC reads below (does the grade / each signal predict?).
+  const pearson = (pairs, minN = 8) => {
+    const f = pairs.filter((p) => p && isFinite(p[0]) && isFinite(p[1]));
+    if (f.length < minN) return null;
+    let sx = 0, sy = 0; for (const [x, y] of f) { sx += x; sy += y; }
+    const mx = sx / f.length, my = sy / f.length;
+    let cov = 0, vx = 0, vy = 0;
+    for (const [x, y] of f) { const dx = x - mx, dy = y - my; cov += dx * dy; vx += dx * dx; vy += dy * dy; }
+    if (!(vx > 0) || !(vy > 0)) return null;
+    return { ic: Number((cov / Math.sqrt(vx * vy)).toFixed(3)), n: f.length };
+  };
+
   // Fade-the-grade research metric: would betting the OPPOSITE side have paid?
   // Pure DIRECTIONAL (an option payoff isn't symmetric, so this is the
   // underlying-move fade — the honest IC-sign check). Given a measured negative
@@ -10796,6 +10859,50 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   // never feeds the engine.
   const fadeExpectancyPct = expectancyPct != null ? Number((-expectancyPct).toFixed(2)) : null;
   const fadeWinRate = realized.length ? Number((realized.filter((x) => x < 0).length / realized.length).toFixed(3)) : null;
+
+  // ---- IC bridge (does the score predict? — measure-only) -------------------
+  // GRADE IC: correlation of the SIGNED grade vs the realized RAW underlying move
+  // across resolved picks — works across calls AND puts (a high +grade should
+  // precede an up move, a low −grade a down move, so a predictive grade → positive
+  // corr regardless of side). A NEGATIVE gradeIc = the composite is anti-predictive
+  // (fading it wins) — the rigorous version of fadeExpectancyPct. gradeIcOption
+  // correlates CONVICTION (|score|) with the option P&L. NOTE: the current closed
+  // set is the retired ~0.30Δ engine — read these as a baseline, not validation of
+  // the live grade; they re-measure forward as gate-era picks resolve.
+  const rawMove = (e) => (e.entrySpot > 0 && e.exitSpot > 0 ? ((e.exitSpot - e.entrySpot) / e.entrySpot) * 100 : null);
+  const gradeIcStat = pearson(decided.map((e) => [Number(e.score), rawMove(e)]));
+  const gradeIc = gradeIcStat ? gradeIcStat.ic : null;
+  const gradeIcN = gradeIcStat ? gradeIcStat.n : 0;
+  const gradeIcOptionStat = pearson(decided.map((e) => [Math.abs(Number(e.score)), Number(e.optionPnlPct)]));
+  const gradeIcOption = gradeIcOptionStat ? gradeIcOptionStat.ic : null;
+
+  // PER-SIGNAL IC: correlate each signal's stored directional contribution (z·dir·W,
+  // aligned to the trade) against the realized OPTION P&L (fallback: underlying
+  // move) across resolved picks. Positive = the signal predicted; negative = it hurt.
+  // Populates once entrySignals/z accrue on gate-era closed picks (legacy closed have
+  // neither) and only past PICKS_SIGNAL_MIN_N. This is the drop-in that lets W_s be
+  // refit from realized IC (rubric §9.6) — it does NOT feed weights yet.
+  for (const e of decided) {
+    const sigs = Array.isArray(e.entrySignals) ? e.entrySignals : null;
+    if (!sigs) continue;
+    const tradeDir = Math.sign(Number(e.score)) || (e.side === "put" ? -1 : 1);
+    const y = isFinite(Number(e.optionPnlPct)) ? Number(e.optionPnlPct) : realizedMovePct(e);
+    if (y == null || !isFinite(y)) continue;
+    for (const s of sigs) {
+      const c = Number(s && s.contribution);
+      if (!s || !s.key || !isFinite(c) || c === 0) continue;
+      const r = bySignal[s.key] || (bySignal[s.key] = { n: 0, wins: 0, losses: 0, rate: null, pillar: s.pillar || null });
+      (r._x || (r._x = [])).push(c * tradeDir);
+      (r._y || (r._y = [])).push(y);
+    }
+  }
+  for (const k of Object.keys(bySignal)) {
+    const r = bySignal[k];
+    const ic = (r._x && r._x.length >= PICKS_SIGNAL_MIN_N) ? pearson(r._x.map((x, i) => [x, r._y[i]]), PICKS_SIGNAL_MIN_N) : null;
+    r.ic = ic ? ic.ic : null;
+    r.icN = r._x ? r._x.length : 0;
+    delete r._x; delete r._y;
+  }
 
   // SPY benchmark over each pick's actual hold window, side-adjusted to the
   // trade's direction → excess = did the name beat the index in the bet's way.
@@ -10852,6 +10959,12 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     // Fade-the-grade (research): directional expectancy / win rate of the OPPOSITE bet.
     fadeExpectancyPct,
     fadeWinRate,
+    // IC bridge (research): does the grade predict? gradeIc = corr(signed grade, raw
+    // underlying move); negative = anti-predictive. gradeIcOption = corr(|grade|,
+    // option P&L). Per-signal IC rides on bySignal[].ic. Baseline on the retired set.
+    gradeIc,
+    gradeIcN,
+    gradeIcOption,
     // MODELED option-P&L expectancy (P0.1) — the theta/IV-crush-aware lens; the
     // gap vs expectancyPct above is the premium tax. null until gate-era picks
     // (which carry the entry-option snapshot) resolve.
