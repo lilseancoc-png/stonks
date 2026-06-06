@@ -8169,6 +8169,71 @@ main { padding-top: var(--s-2); }
 /* "How to read a pick" collapsible — sits between the section hint and
    the cards. Closed by default so the section stays tight for return
    visitors; opening it shows the layout legend for first-time readers. */
+/* "Check a position you hold" tool (Top Picks) */
+.picks-position {
+  margin: var(--s-2) 0 var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text);
+}
+.picks-position > summary {
+  cursor: pointer; padding: 8px 12px;
+  font: 600 12px/1.2 var(--font-sans); color: var(--muted-strong);
+  list-style: none; user-select: none; border-radius: var(--r-2);
+  transition: color .12s var(--ease-out), background .12s var(--ease-out);
+}
+.picks-position > summary::-webkit-details-marker { display: none; }
+.picks-position > summary:hover { color: var(--text-strong); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.picks-position[open] > summary { color: var(--text-strong); border-bottom: 1px solid var(--border); border-radius: var(--r-2) var(--r-2) 0 0; }
+.picks-position-body { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.picks-position-body .hint { margin: 0; line-height: 1.55; color: var(--text); }
+.pos-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; }
+.pos-field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 130px; min-width: 0; }
+.pos-field-sm { flex: 0 1 96px; }
+.pos-field-xs { flex: 0 1 76px; }
+.pos-field > span { font: 600 10px/1 var(--font-sans); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.pos-field input, .pos-field select {
+  width: 100%; box-sizing: border-box; padding: 7px 8px;
+  font: 500 13px/1.2 var(--font-sans); color: var(--text-strong);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-1);
+}
+.pos-field input:focus, .pos-field select:focus { outline: none; border-color: var(--accent); }
+.pos-field input:disabled, .pos-field select:disabled { opacity: .5; }
+.pos-check-btn {
+  flex: 0 0 auto; padding: 8px 14px; font: 600 12px/1 var(--font-sans);
+  color: var(--bg); background: var(--accent); border: 0; border-radius: var(--r-1); cursor: pointer;
+  transition: opacity .12s var(--ease-out);
+}
+.pos-check-btn:disabled { opacity: .45; cursor: default; }
+.pos-check-btn:not(:disabled):hover { opacity: .9; }
+.pos-status { font-size: 12px; color: var(--muted); }
+.pos-status.loading { color: var(--muted-strong); }
+.pos-status.err { color: var(--neg); }
+.pos-result {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--bg);
+}
+.pos-head { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 3px solid var(--muted); }
+.pos-tone-good, .pos-tone-hold { border-left-color: var(--pos); }
+.pos-tone-bad { border-left-color: var(--neg); }
+.pos-tone-wait { border-left-color: var(--accent); }
+.pos-action { font: 800 15px/1.1 var(--font-sans); letter-spacing: .01em; color: var(--text-strong); }
+.pos-tone-good .pos-action, .pos-tone-hold .pos-action { color: var(--pos); }
+.pos-tone-bad .pos-action { color: var(--neg); }
+.pos-headline { font-size: 12.5px; color: var(--text); }
+.pos-contract { font: 600 12px/1.2 var(--font-mono); color: var(--muted-strong); }
+.pos-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.pos-stat { display: flex; flex-direction: column; gap: 1px; }
+.pos-stat-num { font: 700 14px/1.1 var(--font-sans); color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.pos-stat-num.pos-up { color: var(--pos); }
+.pos-stat-num.pos-down { color: var(--neg); }
+.pos-stat-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+.pos-reasons { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.pos-reasons li { line-height: 1.5; color: var(--text); }
+.pos-foot { margin: 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+
 .picks-howto {
   margin: var(--s-2) 0 var(--s-3);
   border: 1px solid var(--border);

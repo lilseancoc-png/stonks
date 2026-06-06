@@ -94,6 +94,23 @@ function topPicksSection() {
       </div>
       <p class="picks-search-hint">See the full 4-pillar grade &amp; conviction for any of the tracked tickers &mdash; not just today&rsquo;s top picks.</p>
     </div>
+    <details class="picks-position" id="picks-position">
+      <summary>Check a position you already hold &rarr;</summary>
+      <div class="picks-position-body">
+        <p class="hint">Already own a call or put? Enter it below and get a <b>hold / trim / sell / wait</b> read &mdash; priced live and judged against the engine&rsquo;s current grade, entry-timing, and the same premium take-profit / stop the track record uses. Tracked tickers only. Not financial advice.</p>
+        <div class="pos-form">
+          <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
+          <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
+          <label class="pos-field"><span>Expiry</span><select id="pos-expiry" disabled><option value="">&mdash;</option></select></label>
+          <label class="pos-field pos-field-sm"><span>Strike</span><input type="number" id="pos-strike" list="pos-strike-list" step="0.5" min="0" inputmode="decimal" placeholder="&mdash;" disabled><datalist id="pos-strike-list"></datalist></label>
+          <label class="pos-field pos-field-sm"><span>Price paid</span><input type="number" id="pos-entry" step="0.01" min="0" inputmode="decimal" placeholder="per share"></label>
+          <label class="pos-field pos-field-xs"><span>Contracts</span><input type="number" id="pos-qty" step="1" min="1" value="1" inputmode="numeric"></label>
+          <button type="button" id="pos-check" class="pos-check-btn" disabled>Check position</button>
+        </div>
+        <div id="pos-status" class="pos-status" role="status" aria-live="polite"></div>
+        <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
+      </div>
+    </details>
     <div id="picks-listview" class="picks-listview">
     <p class="hint">A <b>cross-sectional</b> grading system. Every tracked name is scored on five components &mdash; four asset pillars (<b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, <b>Narrative</b>) plus an <b>Entry-timing</b> read &mdash; and those scores are standardized <i>against the rest of the universe this build</i>. A grade therefore means &ldquo;strong relative to its peers right now,&rdquo; not a fixed number: the names at the top of that ranking that <i>also</i> clear an absolute quality floor become the actionable list. The list is deliberately allowed to be <b>short, or empty</b>, on a poor day &mdash; the engine would rather hold cash than pad it. Each card has a <b>Recommendation&nbsp;&#8644;&nbsp;Grade</b> toggle &mdash; flip to Grade to audit every signal behind the score &mdash; plus a named entry strategy, a layered exit ladder, and a same-sector peer comparison. The <b>Track record</b> tab marks past picks to market (modeled option P&amp;L).</p>
     <details class="picks-howto">
