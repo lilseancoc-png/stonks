@@ -11030,6 +11030,184 @@
       renderPicks();
     });
   }
+
+  // --- "Check a position you hold" tool -----------------------------------
+  // A held-contract evaluator: price the user's option live (/api/contract,
+  // which handles ANY strike/expiry incl. off-band) and turn the engine's
+  // current grade + entry-timing + premium exit plan into a hold / trim / sell /
+  // wait read. Reuses the same +60% / -40% premium targets the track record
+  // resolves on (PICKS_OPT_TP_PCT / PICKS_OPT_STOP_PCT). Tracked tickers only —
+  // expirations/strikes come from the baked per-ticker chain. Not advice.
+  var posState = { chain: null, symbol: null, bound: false };
+  var POS_TP = 60, POS_STOP = 40; // % of entry premium — mirrors the engine's plan
+
+  function posYrs(exp){ return Math.max(1e-6, (Number(exp) - Date.now()/1000) / (365.25*86400)); }
+  function posRows(chain, side, exp){
+    var ch = chain && chain.chains && chain.chains[String(exp)];
+    if (!ch) return [];
+    var rows = side === 'put' ? ch.p : ch.c;
+    return Array.isArray(rows) ? rows : [];
+  }
+  function posChainRow(chain, side, exp, strike){
+    var rows = posRows(chain, side, exp), best=null, bd=Infinity;
+    for (var i=0;i<rows.length;i++){ var d=Math.abs(Number(rows[i].s)-Number(strike)); if(d<bd){bd=d;best=rows[i];} }
+    return (best && bd<=0.01) ? best : null;
+  }
+  function posSetStatus(msg, cls){ var el=$('pos-status'); if(el){ el.textContent=msg||''; el.className='pos-status'+(cls?' '+cls:''); } }
+
+  function posLoadSymbol(){
+    var inp=$('pos-symbol'); if(!inp) return;
+    var sym=(inp.value||'').toUpperCase().trim().replace(/[^A-Z0-9.]/g,'');
+    inp.value=sym;
+    var expSel=$('pos-expiry'), strikeInp=$('pos-strike'), checkBtn=$('pos-check');
+    function lock(){ if(expSel){expSel.innerHTML='<option value="">—</option>';expSel.disabled=true;} if(strikeInp)strikeInp.disabled=true; if(checkBtn)checkBtn.disabled=true; }
+    if(!sym){ posState.chain=null; posState.symbol=null; lock(); posSetStatus(''); return; }
+    if(posState.symbol===sym && posState.chain){ posPopulateExpiry(); return; }
+    posSetStatus('Loading ' + sym + '…','loading');
+    loadGradesIndex(function(){});
+    fetchChain(sym).then(function(chain){
+      if((($('pos-symbol')||{}).value||'').toUpperCase().trim()!==sym) return;
+      posState.chain=chain; posState.symbol=sym; posPopulateExpiry(); posSetStatus('');
+    }).catch(function(){
+      posState.chain=null; posState.symbol=null; lock();
+      posSetStatus(sym + ' isn’t a tracked ticker (expirations come from the tracked set).','err');
+    });
+  }
+  function posPopulateExpiry(){
+    var expSel=$('pos-expiry'); if(!expSel||!posState.chain) return;
+    var nowSec=Date.now()/1000;
+    var exps=(posState.chain.expirations||[]).slice().filter(function(e){return Number(e)>nowSec;}).sort(function(a,b){return a-b;});
+    if(!exps.length){ expSel.innerHTML='<option value="">no live expirations</option>'; expSel.disabled=true; return; }
+    expSel.innerHTML=exps.map(function(e){return '<option value="'+e+'">'+escapeHtml(fmtExpiryLabel(e))+'</option>';}).join('');
+    expSel.disabled=false;
+    var strikeInp=$('pos-strike'); if(strikeInp) strikeInp.disabled=false;
+    var checkBtn=$('pos-check'); if(checkBtn) checkBtn.disabled=false;
+    posPopulateStrikes();
+  }
+  function posPopulateStrikes(){
+    var dl=$('pos-strike-list'), expSel=$('pos-expiry'), sideSel=$('pos-side');
+    if(!dl||!expSel||!posState.chain) return;
+    var rows=posRows(posState.chain, sideSel?sideSel.value:'call', expSel.value);
+    var strikes=rows.map(function(r){return Number(r.s);}).filter(function(x){return x>0;}).sort(function(a,b){return a-b;});
+    dl.innerHTML=strikes.map(function(s){return '<option value="'+s+'"></option>';}).join('');
+  }
+
+  function posFetchMark(sym, side, exp, strike){
+    return fetch('/api/contract?symbol='+encodeURIComponent(sym)+'&side='+encodeURIComponent(side)+'&exp='+encodeURIComponent(exp)+'&strike='+encodeURIComponent(strike), { cache:'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('http'); return r.json(); })
+      .then(function(c){ return { bid:Number(c.b), ask:Number(c.a), last:Number(c.l), iv:Number(c.iv), spot:Number(c.spot), marketState:c.marketState||null, src:'live' }; })
+      .catch(function(){
+        var row=posChainRow(posState.chain, side, exp, strike);
+        if(row) return { bid:Number(row.b), ask:Number(row.a), last:Number(row.l), iv:Number(row.iv), spot:Number(posState.chain&&posState.chain.spot), marketState:'CLOSED', src:'build' };
+        return null;
+      });
+  }
+
+  function posCheck(){
+    if(!posState.chain){ posSetStatus('Enter a tracked ticker first.','err'); return; }
+    var sym=posState.symbol;
+    var side=($('pos-side')||{}).value || 'call';
+    var exp=Number(($('pos-expiry')||{}).value);
+    var strike=Number(($('pos-strike')||{}).value);
+    var entry=Number(($('pos-entry')||{}).value);
+    var qty=Math.max(1, Math.floor(Number(($('pos-qty')||{}).value)||1));
+    if(!(exp>0)){ posSetStatus('Pick an expiry.','err'); return; }
+    if(!(strike>0)){ posSetStatus('Enter your strike.','err'); return; }
+    if(!(entry>0)){ posSetStatus('Enter the price you paid (per share).','err'); return; }
+    posSetStatus('Pricing ' + sym + ' ' + strike + (side==='put'?'P':'C') + '…','loading');
+    posFetchMark(sym, side, exp, strike).then(function(m){
+      if(!m){ posSetStatus('Couldn’t price that contract — double-check the strike & expiry.','err'); return; }
+      posSetStatus('');
+      posRender(posDecision({ sym:sym, side:side, exp:exp, strike:strike, entry:entry, qty:qty, mark:m }));
+    });
+  }
+
+  function posDecision(o){
+    var side=o.side, sideWord=side==='put'?'put':'call', entry=o.entry, m=o.mark;
+    var mark = (m.bid>0 && m.ask>0) ? (m.bid+m.ask)/2 : (m.last>0?m.last:NaN);
+    var pnlPct = isFinite(mark) ? ((mark-entry)/entry)*100 : NaN;
+    var dollarPnl = isFinite(mark) ? (mark-entry)*100*o.qty : NaN;
+    var dte = Math.max(0, Math.round((o.exp - Date.now()/1000)/86400));
+    var g = (m.iv>0 && m.spot>0) ? greeks(side, m.spot, o.strike, posYrs(o.exp), m.iv, RFR) : null;
+    var thetaPctDay = (g && isFinite(g.thetaDay) && mark>0) ? (Math.abs(g.thetaDay)/mark)*100 : null;
+    var grade = (picksGradesState.data && picksGradesState.data.grades) ? picksGradesState.data.grades[o.sym] : null;
+    var gTotal = grade && isFinite(grade.total) ? grade.total : null;
+    var aligned = gTotal!=null && ((gTotal>=0?'call':'put')===side);
+    var gMag = gTotal==null?0:Math.abs(gTotal);
+    var timing = grade && grade.pillars && grade.pillars.timing ? grade.pillars.timing.state : null;
+    var earnIso = posState.chain && posState.chain.fundamentals && posState.chain.fundamentals.nextEarningsDate;
+    var earnDays=null, earnBeforeExp=false;
+    if(earnIso){ var em=Date.parse(String(earnIso).length<=10?(earnIso+'T16:00:00Z'):earnIso); if(isFinite(em)){ earnDays=Math.round((em-Date.now())/86400000); earnBeforeExp = earnDays>=0 && (em/1000)<=o.exp; } }
+    var tpPrice=entry*(1+POS_TP/100), cutPrice=entry*(1-POS_STOP/100);
+    var gRound = gTotal==null?null:((gTotal>=0?'+':'')+Math.round(gTotal));
+    var pnlTxt = isFinite(pnlPct)?((pnlPct>=0?'+':'')+pnlPct.toFixed(0)+'%'):'—';
+
+    var reasons=[], action='WAIT / MONITOR', tone='wait', headline='No action yet — monitor.';
+    if(isFinite(pnlPct) && pnlPct>=POS_TP){
+      action='SELL / TAKE PROFIT'; tone='good'; headline='Up '+pnlTxt+' — at the +'+POS_TP+'% premium target.';
+      reasons.push('You’ve hit the plan’s take-profit (+'+POS_TP+'% of premium). Lock it in — or trim most and trail the rest only if the grade is still strong and timing is GO.');
+    } else if(isFinite(pnlPct) && pnlPct<=-POS_STOP){
+      action='SELL / CUT'; tone='bad'; headline='Down '+Math.abs(pnlPct).toFixed(0)+'% — past the −'+POS_STOP+'% premium stop.';
+      reasons.push('You’ve hit the plan’s stop (−'+POS_STOP+'% of premium). The discipline is to cut here, not hope it back — a symmetric move on the stock is a far bigger move on the option.');
+    } else if(grade && !aligned && gMag>=8){
+      action='SELL / THESIS TURNED'; tone='bad'; headline='The grade has flipped against your '+sideWord+'.';
+      reasons.push('The current grade is '+gRound+' ('+(gTotal>=0?'bullish':'bearish')+') — it no longer supports a '+sideWord+'. Exit rather than hold a contract the model is now leaning against.');
+    } else if(grade && timing==='avoid' && isFinite(pnlPct) && pnlPct<0){
+      action='SELL / EXIT'; tone='bad'; headline='Timing reads the move as exhausted or breaking.';
+      reasons.push('Entry-timing is AVOID and you’re underwater — the setup that justified the trade is gone.');
+    } else if(grade && aligned && timing!=='avoid'){
+      action='HOLD'; tone='hold'; headline='Thesis intact — hold.';
+      reasons.push('Grade '+gRound+' still supports your '+sideWord+(timing?(' (timing '+String(timing).toUpperCase()+')'):'')+'. Target ~$'+tpPrice.toFixed(2)+' (+'+POS_TP+'%); stop ~$'+cutPrice.toFixed(2)+' (−'+POS_STOP+'%).');
+    } else {
+      reasons.push('Not at the +'+POS_TP+'% target or the −'+POS_STOP+'% stop. '+(grade?('Grade '+gRound+(aligned?' still leans your way':' has weakened against your side')+'.'):(o.sym+' isn’t in the tracked grade set — premium plan only, no grade read.')));
+    }
+
+    if(earnBeforeExp && earnDays!=null) reasons.push('⚠ Earnings ~'+earnDays+' day'+(earnDays===1?'':'s')+' out, before your expiry — an IV crush can gut a long even on a correct call. Consider closing into the print.');
+    if(dte<=7) reasons.push('⚠ Only '+dte+' day'+(dte===1?'':'s')+' to expiry — gamma & theta are steep; small underlying moves swing the premium hard.');
+    else if(thetaPctDay!=null && thetaPctDay>=2.5) reasons.push('⚠ Time decay ≈'+thetaPctDay.toFixed(1)+'%/day of the current premium — a flat price still bleeds you.');
+
+    return { sym:o.sym, side:side, strike:o.strike, exp:o.exp, entry:entry, qty:o.qty, mark:mark,
+      pnlPct:pnlPct, dollarPnl:dollarPnl, dte:dte, src:m.src, marketState:m.marketState,
+      gRound:gRound, tier:(grade&&grade.recommendation&&grade.recommendation.label)||null, timing:timing, aligned:aligned, hasGrade:!!grade,
+      tpPrice:tpPrice, cutPrice:cutPrice, action:action, tone:tone, headline:headline, reasons:reasons };
+  }
+
+  function posRender(d){
+    var el=$('pos-result'); if(!el) return;
+    var pnlCls = !isFinite(d.pnlPct)?'':(d.pnlPct>=0?'pos-up':'pos-down');
+    var pnlTxt = isFinite(d.pnlPct)?((d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(0)+'%'):'—';
+    var dollarTxt = isFinite(d.dollarPnl)?((d.dollarPnl>=0?'+$':'−$')+Math.abs(d.dollarPnl).toFixed(0)):'';
+    var markTxt = isFinite(d.mark)?('$'+d.mark.toFixed(2)):'—';
+    var srcNote = d.src==='build'?' · last build' : (d.marketState && d.marketState!=='REGULAR' ? ' · last close' : '');
+    function stat(lbl,val,cls){ return '<div class="pos-stat"><span class="pos-stat-num'+(cls?' '+cls:'')+'">'+val+'</span><span class="pos-stat-lbl">'+lbl+'</span></div>'; }
+    var reasons='<ul class="pos-reasons">'+d.reasons.map(function(r){return '<li>'+escapeHtml(r)+'</li>';}).join('')+'</ul>';
+    el.hidden=false;
+    el.innerHTML=
+      '<div class="pos-head pos-tone-'+d.tone+'">'+
+        '<span class="pos-action">'+escapeHtml(d.action)+'</span>'+
+        '<span class="pos-headline">'+escapeHtml(d.headline)+'</span>'+
+      '</div>'+
+      '<div class="pos-contract">'+escapeHtml(d.sym)+' $'+d.strike+' '+(d.side==='put'?'Put':'Call')+' · '+escapeHtml(fmtExpiryLabel(d.exp))+' · '+d.dte+'d</div>'+
+      '<div class="pos-stats">'+
+        stat('you paid','$'+d.entry.toFixed(2))+
+        stat('now'+srcNote, markTxt)+
+        stat('P&amp;L'+(dollarTxt?(' · '+dollarTxt):''), pnlTxt, pnlCls)+
+        (d.hasGrade?stat('grade'+(d.tier?(' · '+escapeHtml(d.tier)):''), d.gRound, d.aligned?'pos-up':'pos-down'):'')+
+        (d.timing?stat('timing', String(d.timing).toUpperCase()):'')+
+      '</div>'+
+      reasons+
+      '<p class="pos-foot">Plan levels: take-profit ~$'+d.tpPrice.toFixed(2)+' (+'+POS_TP+'%) · stop ~$'+d.cutPrice.toFixed(2)+' (−'+POS_STOP+'%). Mark is the live mid, greeks modeled. The grade is relative &amp; research/unproven — not financial advice.</p>';
+  }
+
+  function bindPositionTool(){
+    if(posState.bound) return;
+    var sym=$('pos-symbol'); if(!sym) return; posState.bound=true;
+    sym.addEventListener('change', posLoadSymbol);
+    sym.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); posLoadSymbol(); } });
+    var side=$('pos-side'); if(side) side.addEventListener('change', posPopulateStrikes);
+    var exp=$('pos-expiry'); if(exp) exp.addEventListener('change', posPopulateStrikes);
+    var btn=$('pos-check'); if(btn) btn.addEventListener('click', posCheck);
+  }
   // Big tier banner — replaces the old conviction bar. The picks.json shape
   // includes a "recommendation" object with tier/label/conviction/sizing,
   // along with the integer score. Older payloads fall back gracefully.
@@ -11810,6 +11988,7 @@
   function renderPicks(){
     bindPicksControls();
     bindPicksNav();
+    bindPositionTool();
     var grid = $('picks-grid');
     var empty = $('picks-empty');
     var eyebrow = $('picks-eyebrow');
