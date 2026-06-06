@@ -164,18 +164,44 @@ function trackRecordSection() {
   // data/picks-accuracy.json lazily on first tab activation and fills the
   // containers in. The tracker grades whether each past pick's SCORE actually
   // predicted the move, so we can see if the judgment held up.
+  // The body is split into four sub-tabs (Scorecard / Top 10 / Activity /
+  // Picks) wired by bindAccuracyTabs() in app.js — one short view at a time
+  // instead of the old single long scroll. renderAccuracy() still fills the
+  // same container IDs (now nested inside the panes) and toggles the per-pane
+  // empty notes + the count badges on the tabs.
   return `<section class="card" id="accuracy-section">
     <header class="card-header">
       <h2 class="card-title">Pick track record</h2>
       <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">The five strongest Top Picks each refresh are logged and marked to market. A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), expires (graded vs. breakeven), or hits a 14-day time-stop. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological &plusmn;16-bar history; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. Build cadence (~3 checks/day), not intraday.</p>
-    <div id="accuracy-stats" class="accuracy-stats"></div>
-    <div id="accuracy-roster" class="accuracy-roster"></div>
-    <div id="accuracy-picks-changes" class="accuracy-picks-changes"></div>
-    <div id="accuracy-grade-log" class="accuracy-grade-log"></div>
-    <div id="accuracy-root" class="accuracy-root">Loading track record…</div>
-    <div id="accuracy-empty" class="accuracy-empty" hidden>No picks have been tracked yet — the record starts filling in on the next daily refresh.</div>
+    <p class="hint">The five strongest Top Picks each refresh are logged and marked to market against each pick&rsquo;s own take-profit / cut levels. Use the tabs below to switch between the scorecard, the live Top&nbsp;10 roster, the activity logs, and the open / resolved picks.</p>
+    <details class="accuracy-how">
+      <summary>How this works</summary>
+      <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), expires (graded vs. breakeven), or hits a 14-day time-stop. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological &plusmn;16-bar history; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. Build cadence (~3 checks/day), not intraday.</p>
+    </details>
+    <div class="acc-tabs" role="tablist" aria-label="Track record view">
+      <button type="button" class="acc-tab" role="tab" aria-selected="true" aria-controls="acc-pane-scorecard" id="acc-tab-scorecard" data-acc-tab="scorecard">Scorecard</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-top10" id="acc-tab-top10" data-acc-tab="top10">Top&nbsp;10<span class="acc-tab-n" id="acc-tab-n-top10" hidden></span></button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-activity" id="acc-tab-activity" data-acc-tab="activity">Activity<span class="acc-tab-n" id="acc-tab-n-activity" hidden></span></button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-picks" id="acc-tab-picks" data-acc-tab="picks">Picks<span class="acc-tab-n" id="acc-tab-n-picks" hidden></span></button>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-scorecard" aria-labelledby="acc-tab-scorecard">
+      <div id="accuracy-stats" class="accuracy-stats">Loading track record…</div>
+      <div id="accuracy-empty" class="accuracy-empty" hidden>No picks have been tracked yet — the record starts filling in on the next daily refresh.</div>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-top10" aria-labelledby="acc-tab-top10" hidden>
+      <div id="accuracy-roster" class="accuracy-roster"></div>
+      <p class="acc-pane-empty" id="acc-empty-top10" hidden>No Top-10 roster snapshot yet — it appears after the next daily refresh.</p>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-activity" aria-labelledby="acc-tab-activity" hidden>
+      <div id="accuracy-grade-log" class="accuracy-grade-log"></div>
+      <div id="accuracy-picks-changes" class="accuracy-picks-changes"></div>
+      <p class="acc-pane-empty" id="acc-empty-activity" hidden>No grade changes or conviction-bar crossings logged yet.</p>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-picks" aria-labelledby="acc-tab-picks" hidden>
+      <div id="accuracy-root" class="accuracy-root"></div>
+      <p class="acc-pane-empty" id="acc-empty-picks" hidden>No open or resolved picks yet.</p>
+    </div>
     <p class="picks-foot">Track record is informational, not a performance claim: it follows the underlying stock against each pick&rsquo;s own take-profit / cut levels, not the realised option P&amp;L, and samples only at build time. Not financial advice.</p>
   </section>`;
 }

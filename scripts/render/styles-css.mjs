@@ -351,10 +351,10 @@ body {
   }
 
   /* Primary CTAs and pill toggles get a press-down state for tactility. */
-  .pf-btn, .calendar-pill, .flow-pill, .opt-tab {
+  .pf-btn, .calendar-pill, .flow-pill, .opt-tab, .acc-tab {
     transition: color .12s var(--ease-out), background .12s var(--ease-out), border-color .12s var(--ease-out), transform .08s var(--ease-out);
   }
-  .pf-btn:active, .calendar-pill:active, .flow-pill:active, .opt-tab:active {
+  .pf-btn:active, .calendar-pill:active, .flow-pill:active, .opt-tab:active, .acc-tab:active {
     transform: translateY(1px);
   }
 
@@ -7690,6 +7690,122 @@ main { padding-top: var(--s-2); }
 /* ===== Track record (pick accuracy) tab ============================== */
 .acc-ok { color: var(--pos); font-weight: 600; }
 .acc-bad { color: var(--neg); font-weight: 600; }
+/* === Track-record sub-tabs (Scorecard / Top 10 / Activity / Picks) ===
+   One short view at a time instead of the old single long scroll. The tab
+   strip mirrors .opt-tabs (Grade tab) so the two read consistently. */
+.accuracy-how {
+  margin: -2px 0 4px;
+}
+.accuracy-how > summary {
+  cursor: pointer;
+  list-style: none;
+  width: max-content;
+  padding: 2px 0;
+  color: var(--accent);
+  font: 600 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.accuracy-how > summary::-webkit-details-marker { display: none; }
+.accuracy-how > summary::before { content: "▸ "; }
+.accuracy-how[open] > summary::before { content: "▾ "; }
+.accuracy-how > p {
+  margin: 8px 0 0;
+  color: var(--muted-strong);
+  font: 400 12px/1.5 var(--font-sans);
+}
+.acc-tabs {
+  display: flex; flex-wrap: wrap; gap: 0;
+  margin: var(--s-4) 0 0;
+  border-bottom: 1px solid var(--border);
+}
+.acc-tab {
+  position: relative;
+  appearance: none; background: transparent;
+  border: none; border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: -1px;
+  border-radius: var(--r-1) var(--r-1) 0 0;
+}
+.acc-tab:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.acc-tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.acc-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -2px 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 60%, transparent) 50%,
+    transparent 100%);
+  filter: blur(3px);
+  pointer-events: none;
+}
+.acc-tab-n {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font: 700 9px/1.5 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--muted-strong);
+  background: color-mix(in srgb, var(--muted) 16%, var(--surface));
+}
+.acc-tab[aria-selected="true"] .acc-tab-n {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.acc-pane { padding-top: var(--s-4); }
+.acc-pane[hidden] { display: none; }
+.acc-pane-empty {
+  color: var(--muted);
+  font: 400 13px/1.5 var(--font-sans);
+  padding: 12px 0;
+}
+.acc-pane-empty[hidden] { display: none; }
+/* Advanced / research disclosure inside the Scorecard pane — demotes the
+   sector / regime / A-B cohort bars + fade-the-grade / grade-IC chips. */
+.accuracy-advanced {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.accuracy-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 9px 12px;
+  font: 600 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted-strong);
+}
+.accuracy-advanced > summary::-webkit-details-marker { display: none; }
+.accuracy-advanced > summary::before { content: "▸ "; color: var(--muted); }
+.accuracy-advanced[open] > summary::before { content: "▾ "; }
+.accuracy-advanced[open] > summary { border-bottom: 1px solid var(--border); }
+.accuracy-advanced-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Flatten the cohort blocks inside the advanced card — the disclosure already
+   frames them, so drop their own surface chrome to avoid nested boxes. */
+.accuracy-advanced-body .accuracy-tiers { background: transparent; border: none; padding: 0; }
+.accuracy-chips-research { margin-bottom: 0; }
+
 .accuracy-stats { margin: 10px 0 14px; }
 .accuracy-chips {
   display: flex;
@@ -8909,14 +9025,17 @@ main { padding-top: var(--s-2); }
      wrapped to two lines on phones, which made the active underline
      ambiguous. Switch to a horizontal scroller (same pattern as
      .narr-tabs) so the strip stays one row and flicks cleanly. */
-  .opt-tabs {
+  .opt-tabs,
+  .acc-tabs {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
-  .opt-tabs::-webkit-scrollbar { display: none; }
+  .opt-tabs::-webkit-scrollbar,
+  .acc-tabs::-webkit-scrollbar { display: none; }
   .opt-tab { flex: 0 0 auto; white-space: nowrap; }
+  .acc-tab { flex: 0 0 auto; white-space: nowrap; }
 
   /* Grade tab technicals grid: minmax(170px,1fr) tried to fit two
      columns at ~360px viewport and overflowed. Force single column. */
@@ -9335,6 +9454,7 @@ main { padding-top: var(--s-2); }
 .calendar-pill:focus-visible,
 .flow-pill:focus-visible,
 .opt-tab:focus-visible,
+.acc-tab:focus-visible,
 .pf-btn:focus-visible,
 .f13-firm-summary:focus-visible {
   outline: none;
