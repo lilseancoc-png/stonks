@@ -2795,6 +2795,31 @@
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
     selectTab(saved && ['fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'fund');
   }
+  // Track-record sub-tabs (Scorecard / Top 10 / Activity / Picks). The strip
+  // lives in static HTML so this binds once at startup; renderAccuracy() fills
+  // the panes lazily when the Track record page-tab is first opened. Last view
+  // is persisted (localStorage only — no URL sync, matching .opt-tabs).
+  function bindAccuracyTabs(){
+    var tabs = document.querySelectorAll('.acc-tab');
+    if (!tabs.length) return;
+    var KEYS = ['scorecard','top10','activity','picks'];
+    function selectAccTab(name){
+      try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
+      tabs.forEach(function(btn){
+        var sel = btn.getAttribute('data-acc-tab') === name;
+        btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        var paneId = btn.getAttribute('aria-controls');
+        var pane = paneId ? document.getElementById(paneId) : null;
+        if (pane) pane.hidden = !sel;
+      });
+    }
+    tabs.forEach(function(btn){
+      btn.addEventListener('click', function(){ selectAccTab(btn.getAttribute('data-acc-tab')); });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('stonks-acc-tab'); } catch (_) {}
+    selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'scorecard');
+  }
   // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
   // so a return visit lands the user where they left off.
   function bindPageTabs(){
@@ -2806,7 +2831,7 @@
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd'];
+    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -10252,9 +10277,31 @@
     renderPicksRoster();
     renderPicksChangeLog();
     renderGradeChangeLog();
+    // Sub-tab count badges + per-pane empty notes. These hold regardless of the
+    // load-error / empty branches below (the roster + logs are whole-universe
+    // and independent of tracked picks), so compute them up front.
+    var rosterN = (accuracyState.roster && Array.isArray(accuracyState.roster.roster)) ? accuracyState.roster.roster.length : 0;
+    var activityN = (accuracyState.gradeChanges ? accuracyState.gradeChanges.length : 0) +
+                    (accuracyState.picksChanges ? accuracyState.picksChanges.length : 0);
+    var picksN = open.length + closed.length;
+    function accSetTabN(id, n){
+      var el = $(id); if (!el) return;
+      if (n > 0){ el.textContent = String(n); el.hidden = false; }
+      else { el.textContent = ''; el.hidden = true; }
+    }
+    function accSetPaneEmpty(id, isEmpty){ var el = $(id); if (el) el.hidden = !isEmpty; }
+    accSetTabN('acc-tab-n-top10', rosterN);
+    accSetTabN('acc-tab-n-activity', activityN);
+    accSetTabN('acc-tab-n-picks', picksN);
+    accSetPaneEmpty('acc-empty-top10', rosterN === 0);
+    accSetPaneEmpty('acc-empty-activity', activityN === 0);
+    accSetPaneEmpty('acc-empty-picks', picksN === 0);
     if (d.loadError){
-      root.innerHTML = '<p class="muted">Couldn’t load the track record. Try a hard reload.</p>';
-      if (statsEl) statsEl.innerHTML = '';
+      // Surface the error on the default (Scorecard) pane — accuracy-root now
+      // lives in the hidden Picks pane, so an error written only there would be
+      // invisible until the user clicked over.
+      if (statsEl) statsEl.innerHTML = '<p class="muted">Couldn’t load the track record. Try a hard reload.</p>';
+      root.innerHTML = '';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }
@@ -10269,7 +10316,10 @@
     if (eyebrow) eyebrow.textContent = closed.length + ' resolved · ' + open.length + ' open';
 
     // --- Stats strip --------------------------------------------------------
+    // chips      → the core headline scorecard (always visible on Scorecard)
+    // researchChips → fade-the-grade / grade-IC, demoted into the Advanced collapse
     var chips = '';
+    var researchChips = '';
     function chip(num, lbl, cls){
       return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '">' +
         '<span class="accuracy-chip-num">' + num + '</span>' +
@@ -10314,7 +10364,7 @@
     // side. A positive number means fading the grade would have paid — i.e. the
     // signal's directional edge is net negative. Shown only when it's informative.
     if (st.fadeExpectancyPct != null && st.fadeExpectancyPct > 0) {
-      chips += '<div class="accuracy-chip accuracy-chip-bad" title="Research only: the directional expectancy of betting the OPPOSITE of every grade. Positive = fading the engine would have paid, i.e. the signal has negative directional edge in-sample. Does not feed the engine.">' +
+      researchChips += '<div class="accuracy-chip accuracy-chip-bad" title="Research only: the directional expectancy of betting the OPPOSITE of every grade. Positive = fading the engine would have paid, i.e. the signal has negative directional edge in-sample. Does not feed the engine.">' +
         '<span class="accuracy-chip-num">' + accPct(st.fadeExpectancyPct) + '</span>' +
         '<span class="accuracy-chip-lbl">fade-the-grade (research' + (st.fadeWinRate != null ? ' · ' + Math.round(st.fadeWinRate * 100) + '% win' : '') + ')</span>' +
       '</div>';
@@ -10323,7 +10373,7 @@
     // Negative = the grade is anti-predictive. The rigorous version of the fade
     // chip; a baseline on the retired engine until gate-era picks resolve.
     if (st.gradeIc != null) {
-      chips += '<div class="accuracy-chip ' + (st.gradeIc >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') + '" title="Research only: Pearson correlation of the signed grade vs the realized underlying move across resolved picks. Positive = a higher grade precedes a better move (predictive); negative = anti-predictive (fading wins). Measured on the retired ~0.30Δ engine until gate-era picks resolve.">' +
+      researchChips += '<div class="accuracy-chip ' + (st.gradeIc >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') + '" title="Research only: Pearson correlation of the signed grade vs the realized underlying move across resolved picks. Positive = a higher grade precedes a better move (predictive); negative = anti-predictive (fading wins). Measured on the retired ~0.30Δ engine until gate-era picks resolve.">' +
         '<span class="accuracy-chip-num">' + st.gradeIc.toFixed(2) + '</span>' +
         '<span class="accuracy-chip-lbl">grade IC (research · ' + (st.gradeIcN || 0) + ')</span>' +
       '</div>';
@@ -10372,7 +10422,16 @@
     var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime);
     // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
     var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
-    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock + sectorBlock + regimeBlock + abBlock;
+    // Demote the research-y chips + cohort breakdowns into a collapsed "Advanced"
+    // disclosure so the Scorecard leads with the headline win rate / expectancy
+    // and win-rate-by-tier, not a wall of bars.
+    var advancedInner = '';
+    if (researchChips) advancedInner += '<div class="accuracy-chips accuracy-chips-research">' + researchChips + '</div>';
+    advancedInner += sectorBlock + regimeBlock + abBlock;
+    var advancedBlock = advancedInner
+      ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
+      : '';
+    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock + advancedBlock;
 
     // --- Open positions (grouped by ticker; multiple contracts collapse) ----
     var nowMs = Date.now();
@@ -12755,6 +12814,7 @@
     bindThemeToggle();
     bindPageTabs();
     bindTabs();
+    bindAccuracyTabs();
     setupTickersGrid();
     combo.init();
     picksSearch.init();
