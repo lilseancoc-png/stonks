@@ -5866,8 +5866,16 @@ const PICKS_SIZE_IV_DROP_CAP = Number(process.env.PICKS_SIZE_IV_DROP_CAP ?? 0.10
 // tailwind. A fixed ±1 signal (NOT cross-sectional) gated on a minimum history.
 const PICKS_IVRANK_SIGNAL = process.env.PICKS_IVRANK_SIGNAL !== "0"; // default ON
 const PICKS_IVRANK_MIN_N = Number(process.env.PICKS_IVRANK_MIN_N ?? 10); // min history entries to score
-const PICKS_IVRANK_RICH = Number(process.env.PICKS_IVRANK_RICH ?? 80);   // ≥ this pctile → -1 (expensive)
+const PICKS_IVRANK_RICH = Number(process.env.PICKS_IVRANK_RICH ?? 80);   // ≥ this pctile → -1 (expensive, soft con)
 const PICKS_IVRANK_CHEAP = Number(process.env.PICKS_IVRANK_CHEAP ?? 20);  // ≤ this pctile → +1 (cheap)
+// IV-rank GATE (vol surface as a gate, not a nudge): at an EXTREME own-history IV
+// percentile the rich-premium read upgrades from the soft con above to a STRONG con
+// in computeEntryTiming — which adds to strongCons, so it blocks a `go` (demotes to
+// `wait`, no enrollment) and shaves an extra point off the timing contribution. You
+// simply don't buy a naked long at the 90th+ percentile of a name's own vol. Also
+// suppresses risk-off "tactical puts" bought into a VIX/IV spike (long vol after the
+// move). Default 90; set 0 to disable the gate (keep only the soft con).
+const PICKS_IVRANK_VETO = Number(process.env.PICKS_IVRANK_VETO ?? 90);
 // P2 — IV term-structure slope gate (computeEntryTiming soft con). Backwardation
 // (front-month IV richer than the back by ≥ this fraction) = buying the most
 // expensive point on the curve, a vol headwind for a naked long debit.
@@ -5882,6 +5890,18 @@ const PICKS_VERT_IVRANK = Number(process.env.PICKS_VERT_IVRANK ?? 70);        //
 const PICKS_VERT_SHORT_DELTA_MIN = Number(process.env.PICKS_VERT_SHORT_DELTA_MIN ?? 0.20);
 const PICKS_VERT_SHORT_DELTA_MAX = Number(process.env.PICKS_VERT_SHORT_DELTA_MAX ?? 0.38);
 const PICKS_VERT_MIN_CREDIT = Number(process.env.PICKS_VERT_MIN_CREDIT ?? 0.20); // short mid must finance ≥20% of the long
+// Auto-engage debit verticals as the DEFAULT structure under rich-IV / negative-edge
+// conditions ("stop buying naked premium when it's expensive / when the book has a
+// measured negative edge"). When on, pickContractForPick converts a rich-IV long
+// (rank ≥ PICKS_VERT_IVRANK) into a debit vertical without the master PICKS_VERTICALS
+// switch; on a measured-negative-edge book the IV floor drops to PICKS_VERT_NEGEDGE_IVRANK
+// so spreads engage at more moderate IV too. DARK by default (=== "1"): enabling it
+// live needs the pick CARD to render 2 legs (it doesn't yet) — sizing/repricing are
+// already vertical-aware (netDebit + net delta + modelVerticalExit). Same discipline
+// as PICKS_VERTICALS: ship the policy wired + correct, flip it on after the render
+// + forward validation.
+const PICKS_VERT_AUTO = process.env.PICKS_VERT_AUTO === "1"; // default OFF (dark)
+const PICKS_VERT_NEGEDGE_IVRANK = Number(process.env.PICKS_VERT_NEGEDGE_IVRANK ?? 50); // negative-edge book → engage spreads at this IV rank
 // Collinearity-collapse decorrelation (audit root-cause #1). The cross-sectional
 // pass z-scores each signal's MARGINAL but never touches the covariance, so a
 // cluster of K correlated signals (e.g. the growth complex earningsSurprise +
@@ -7701,7 +7721,13 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   let netDebit = longLeg.mid;
   let shortLeg = null;
   const ivRankPctile = data?.ivRank?.pctile;
-  if (PICKS_VERTICALS && Number.isFinite(ivRankPctile) && ivRankPctile >= PICKS_VERT_IVRANK) {
+  // Vertical engages when EITHER the master switch is on OR the auto policy is on
+  // (rich-IV / negative-edge default, #3). On a measured-negative-edge book the IV
+  // floor drops so spreads kick in at more moderate IV. Both still require a liquid,
+  // credit-financing short wing (else falls through to the single long, graceful).
+  const wantVertical = PICKS_VERTICALS || PICKS_VERT_AUTO;
+  const vertIvFloor = opts.negativeEdge ? PICKS_VERT_NEGEDGE_IVRANK : PICKS_VERT_IVRANK;
+  if (wantVertical && Number.isFinite(ivRankPctile) && ivRankPctile >= vertIvFloor) {
     const sw = pickShortWing(side, data.chains[best.expSec], data.spot, best.row.s, best.expSec, rfr);
     if (sw && sw.mid > 0 && longLeg.mid > 0 && sw.mid / longLeg.mid >= PICKS_VERT_MIN_CREDIT) {
       shortLeg = {
@@ -8897,8 +8923,19 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   // would be wrong-signed for puts). Soft only — never flips the verdict.
   const ivr = data && data.ivRank;
   if (PICKS_IVRANK_SIGNAL && ivr && Number.isFinite(ivr.pctile) && ivr.n >= PICKS_IVRANK_MIN_N) {
-    if (ivr.pctile >= PICKS_IVRANK_RICH) con(false, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — rich premium, a vol headwind for a long debit`);
-    else if (ivr.pctile <= PICKS_IVRANK_CHEAP) pro(false, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — cheap premium for a long debit`);
+    // GATE (not a nudge): at an EXTREME own-history IV percentile, upgrade the
+    // rich-premium read to a STRONG con — it blocks a `go` (→ wait, not enrolled)
+    // and shaves the timing contribution, so the engine won't endorse a naked long
+    // bought at the 90th+ percentile of a name's own vol (incl. a risk-off "tactical
+    // put" into a VIX/IV spike — long vol after the move). Side-aware: a con weakens
+    // conviction for whichever side, never flips it.
+    if (PICKS_IVRANK_VETO > 0 && ivr.pctile >= PICKS_IVRANK_VETO) {
+      con(true, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — extreme premium; don't buy a naked long here (wait for vol to come in, or trade it defined-risk)`);
+    } else if (ivr.pctile >= PICKS_IVRANK_RICH) {
+      con(false, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — rich premium, a vol headwind for a long debit`);
+    } else if (ivr.pctile <= PICKS_IVRANK_CHEAP) {
+      pro(false, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — cheap premium for a long debit`);
+    }
   }
   const tsSlope = termStructureSlope(data, spot);
   if (tsSlope != null && tsSlope <= -PICKS_TIMING_BACKWARDATION) {
@@ -9323,13 +9360,23 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
 // At/above 0% → full gross; at/below PICKS_EDGE_FULL_CUT_EXP → the floor; linear
 // between. Prefers the modeled-option expectancy, falling back to the underlying
 // move expectancy when no option P&L has accrued yet.
-export function computeEdgeScale(closed) {
-  if (!PICKS_EDGE_GOVERNOR) return 1;
+// Trailing realized edge over the prior closed (endorsed, non-wait) set: the mean
+// of the modeled OPTION P&L when ≥ PICKS_EDGE_MIN_N option results exist, else the
+// underlying side-adjusted move. exp is null below the min-n (can't measure). Single
+// source of truth shared by the gross-scaling governor (computeEdgeScale) and the
+// negative-edge vertical trigger (buildTopPicks #3) so the two never drift.
+export function realizedOptionEdge(closed) {
   const decided = Array.isArray(closed) ? closed.filter((e) => e && (e.outcome === "win" || e.outcome === "loss") && e.cohort !== "wait") : [];
   const opt = decided.map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  const basis = opt.length >= PICKS_EDGE_MIN_N ? "option" : "underlying";
   const series = opt.length >= PICKS_EDGE_MIN_N ? opt : decided.map(realizedMovePct).filter((x) => x != null);
-  if (series.length < PICKS_EDGE_MIN_N) return PICKS_EDGE_SCALE_DEFAULT;
-  const exp = series.reduce((s, x) => s + x, 0) / series.length; // expectancy in %
+  if (series.length < PICKS_EDGE_MIN_N) return { exp: null, n: series.length, basis };
+  return { exp: series.reduce((s, x) => s + x, 0) / series.length, n: series.length, basis };
+}
+export function computeEdgeScale(closed) {
+  if (!PICKS_EDGE_GOVERNOR) return 1;
+  const { exp } = realizedOptionEdge(closed);
+  if (exp == null) return PICKS_EDGE_SCALE_DEFAULT; // below min-n → can't measure
   if (exp >= 0) return 1;
   if (exp <= PICKS_EDGE_FULL_CUT_EXP) return PICKS_EDGE_SCALE_MIN;
   // linear from 1 (exp=0) down to the floor (exp=FULL_CUT)
@@ -9343,8 +9390,20 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1) {
   const rows = [];
   for (const p of picks) {
     const spot = Number(p.spot);
-    const premium = Number(p.contract && p.contract.mid);
-    const absDelta = Math.abs(Number(p.contract && p.contract.delta));
+    // premium = the net debit actually paid. pickContractForPick already points
+    // contract.mid at netDebit for a debit vertical (#3), so this is correct for
+    // both a single long and a spread.
+    const c = p.contract || {};
+    const premium = Number(c.mid);
+    // Net delta for the risk-to-stop math: sum the legs (long − short) on a vertical
+    // (#3), else the single leg's delta. A spread's net delta is smaller, so its
+    // modeled loss-to-stop is smaller — the correct (lower) risk for a defined-risk
+    // structure (contract.delta alone is just the long leg).
+    let absDelta = Math.abs(Number(c.delta));
+    if (c.structure === "debit_vertical" && Array.isArray(c.legs) && c.legs.length > 1) {
+      const nd = c.legs.reduce((a, l) => a + (Number(l.delta) || 0) * (Number(l.qty) || 0), 0);
+      if (isFinite(nd)) absDelta = Math.abs(nd);
+    }
     const stopFrac = (p.exitPlan && p.exitPlan.cut && Number.isFinite(p.exitPlan.cut.movePct))
       ? Math.abs(p.exitPlan.cut.movePct) / 100      // cut.movePct is a PERCENT → fraction
       : null;
@@ -9447,8 +9506,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // be filled by high-grade names we can't actually trade out of. The contract is
   // reused in the loop (no double compute). Spread-crossing is a first-order cost
   // on a 30-60 DTE near-the-money option — bigger than most of the directional edge.
+  // Negative-edge → prefer defined-risk structures (#3). Measured off the same
+  // prior-closed set the gross governor uses; null/positive edge ⇒ no change. Only
+  // bites when PICKS_VERT_AUTO is on AND the book has ≥ PICKS_EDGE_MIN_N decided with
+  // a sub-zero expectancy (today: 0 decided ⇒ false ⇒ only the rich-IV path engages).
+  const _edge = realizedOptionEdge(opts.priorClosed || null);
+  const negativeEdge = _edge.exp != null && _edge.exp < 0;
   for (const cand of candSet) {
-    cand.contract = pickContractForPick(cand.side, cand.r.data, rfr, { requireClean: true });
+    cand.contract = pickContractForPick(cand.side, cand.r.data, rfr, { requireClean: true, negativeEdge });
   }
   let untradeable = 0;
   const tradeable = candSet.filter((c) => { if (c.contract) return true; untradeable += 1; return false; });

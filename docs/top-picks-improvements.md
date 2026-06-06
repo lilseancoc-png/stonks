@@ -23,7 +23,7 @@ render. The pure-measurement items (the 2×2 ablation, signal pruning) ship as t
 | Item | Status | Notes |
 |---|---|---|
 | **P0.1** model option P&L | ✅ shipped | `modelOptionExit` (BS repricer), entry-option snapshot at enroll, `optionExpectancyPct` + win/loss splits, Track Record chip. |
-| **P0.2** ablation | ◑ substrate + label | P0.1 makes the modeled P&L exist; the gate is labelled "research / unproven" in the timing panel. The full 2×2 backtest is a forward-data measurement, not a shippable engine path. |
+| **P0.2** ablation | ◑ substrate + A/B + label | P0.1 makes the modeled P&L exist; the gate is labelled "research / unproven" in the timing panel. `scripts/diagnose-pick-losses.mjs` now prints the **go-vs-wait modeled-P&L A/B** (the data-available proxy for the 2×2 — a true stop×gate grid needs the intraday path we don't store) + the gate-era sample size. Today: 0 gate-era resolved → "insufficient sample". |
 | **P1.1** less-fragile contract | ✅ shipped | Δ target 0.30→0.55 (band 0.45–0.65); OTM band loosened to a sanity bound; **premium cap made price-aware** — see deviation below. |
 | **P1.2** kill contrarian↔timing circularity | ✅ shipped | The four bold contrarian credits trend-condition at the source (`bullishReversalConfirmed`). |
 | **P1.3** earnings defer 3→8 | ✅ shipped | `PICKS_TIMING_EARNINGS_DEFER_DAYS 3→8`; `earningsBeforeExpiry` flag surfaced. |
@@ -405,6 +405,8 @@ next.
    → *Is the bleed theta/IV or direction?*
 2. **P0.2 2×2.** ATR-floor/no-gate vs ATR-floor/gate-on.
    → *Does the gate earn its keep over the stop fix alone?*
+   *(Shipped proxy: `diagnose-pick-losses.mjs` prints the go-vs-wait modeled-P&L A/B +
+   the gate-era sample size. The full stop×gate grid still needs the intraday path.)*
 3. **P1.1 delta swap.** 0.30 vs 0.55 target, gate **off**, ATR floor on.
    → *How much "timing edge" is really contract fragility?*
 4. **P1.2 conditioning.** Contrarian-unconditional vs reversal-confirmed, via
@@ -430,6 +432,10 @@ is labelled.
 | `EARNINGS_DEFER_DAYS` | 3 | **8** | ✅ 8 | P1.3 |
 | `PICKS_THETA_STOP_PCT` *(new)* | — | **2.5%/day** | ✅ 0.025 (+ min-hold 5d) | P1.4 |
 | `PICKS_MAX_PER_SECTOR` | 4 | **3** + factor cap | ✅ 3 + `PICKS_MAX_PER_FACTOR 5` | P2.1 |
+| `PICKS_IVRANK_VETO` *(new)* | — | extreme IV → **gate** (strong con, blocks `go`) | ✅ **90** (ON; 0 disables) | #2 |
+| `PICKS_VERT_AUTO` *(new)* | — | auto debit vertical in rich-IV / neg-edge | ✅ wired + sizing-correct, **dark** (`=1` on) | #3 |
+| `PICKS_VERT_NEGEDGE_IVRANK` *(new)* | — | neg-edge book → spread at this IV rank | ✅ **50** | #3 |
+| gate go-vs-wait A/B *(new)* | — | modeled-P&L marginal + sample size | ✅ in `diagnose-pick-losses.mjs` | #5/P0.2 |
 | fail-open verdict | `go` | **`wait`** | ✅ `wait` (+ go-only enroll) | P2.2 |
 | `optionExpectancyPct` *(new)* | — | reported alongside underlying | ✅ + win/loss splits | P0.1 |
 | `bySignal.prunable` *(new)* | — | n≥25 & ~50% → flag | ✅ band 0.05 | P2.3 |

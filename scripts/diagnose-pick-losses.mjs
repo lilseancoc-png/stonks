@@ -57,6 +57,39 @@ function yearsBetween(expirySec, refSec) {
   return Math.max(0, (expirySec - refSec) / YEAR_SECS);
 }
 
+// Model one resolved pick's option P&L (IV implied from the entry mid, held to exit)
+// and the direction/theta counterfactuals. Returns null when the entry lacks the
+// strike/expiry/mid/spots to model. Shared by the attribution table and the gate
+// A/B below so the two can never drift.
+function modelClosedPick(e) {
+  if (!e || (e.outcome !== "win" && e.outcome !== "loss")) return null;
+  const c = e.contract || {};
+  const side = e.side === "put" ? "put" : "call";
+  const K = Number(c.strike), exp = Number(c.expiry), entryPrem = Number(c.mid);
+  const S0 = Number(e.entrySpot), S1 = Number(e.exitSpot);
+  const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
+  const exitSec = Math.floor((Date.parse(e.exitDate) || 0) / 1000);
+  if (!(K > 0 && exp > 0 && entryPrem > 0 && S0 > 0 && S1 > 0 && entrySec > 0 && exitSec > 0)) return null;
+  const Tentry = yearsBetween(exp, entrySec);
+  const Texit = yearsBetween(exp, exitSec);
+  if (!(Tentry > 0)) return null;
+  const iv = impliedVol(side, S0, K, Tentry, entryPrem);
+  if (iv == null) return null;
+  const priceAt = (S, T) => (T <= 1 / 365
+    ? (side === "call" ? Math.max(0, S - K) : Math.max(0, K - S))
+    : bsPrice(side, S, K, T, iv, RFR));
+  const exitPrem = priceAt(S1, Texit);   // direction + theta
+  const dirOnly = priceAt(S1, Tentry);   // spot moves, time frozen
+  const thetaOnly = priceAt(S0, Texit);  // time passes, spot frozen
+  return {
+    sym: e.symbol, side, outcome: e.outcome, cohort: e.cohort || null, K, exp,
+    optPnl: ((exitPrem - entryPrem) / entryPrem) * 100,
+    dirContrib: ((dirOnly - entryPrem) / entryPrem) * 100,
+    thetaContrib: ((thetaOnly - entryPrem) / entryPrem) * 100,
+    undMove: ((S1 - S0) / S0) * 100 * (side === "put" ? -1 : 1), // side-adjusted
+  };
+}
+
 async function loadJson(name) {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, name), "utf8")); }
   catch { return null; }
@@ -91,49 +124,23 @@ async function main() {
 
   const rows = [];
   for (const e of acc.closed) {
-    if (e.outcome !== "win" && e.outcome !== "loss") continue;
-    if (e.cohort === "wait") continue;
-    const c = e.contract || {};
-    const side = e.side === "put" ? "put" : "call";
-    const K = Number(c.strike), exp = Number(c.expiry), entryPrem = Number(c.mid);
-    const S0 = Number(e.entrySpot), S1 = Number(e.exitSpot);
-    const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
-    const exitSec = Math.floor((Date.parse(e.exitDate) || 0) / 1000);
-    if (!(K > 0 && exp > 0 && entryPrem > 0 && S0 > 0 && S1 > 0 && entrySec > 0 && exitSec > 0)) continue;
-
-    const Tentry = yearsBetween(exp, entrySec);
-    const Texit = yearsBetween(exp, exitSec);
-    if (!(Tentry > 0)) continue;
-
-    const iv = impliedVol(side, S0, K, Tentry, entryPrem);
-    if (iv == null) continue;
-
-    // Exit value (IV held constant) and the two counterfactuals isolating each greek.
-    const priceAt = (S, T) => (T <= 1 / 365
-      ? (side === "call" ? Math.max(0, S - K) : Math.max(0, K - S))
-      : bsPrice(side, S, K, T, iv, RFR));
-    const exitPrem = priceAt(S1, Texit);          // direction + theta
-    const dirOnly = priceAt(S1, Tentry);          // spot moves, time frozen
-    const thetaOnly = priceAt(S0, Texit);         // time passes, spot frozen
-
-    const optPnl = ((exitPrem - entryPrem) / entryPrem) * 100;
-    const dirContrib = ((dirOnly - entryPrem) / entryPrem) * 100;
-    const thetaContrib = ((thetaOnly - entryPrem) / entryPrem) * 100;
-    const undMove = ((S1 - S0) / S0) * 100 * (side === "put" ? -1 : 1); // side-adjusted
-
+    if (e.cohort === "wait") continue; // attribution = the endorsed set; wait handled in the A/B below
+    const m = modelClosedPick(e);
+    if (!m) continue;
     let cls;
-    if (optPnl >= 0) cls = "win";
-    else if (undMove <= -ADVERSE_MOVE || dirContrib <= thetaContrib) cls = "direction";
+    if (m.optPnl >= 0) cls = "win";
+    else if (m.undMove <= -ADVERSE_MOVE || m.dirContrib <= m.thetaContrib) cls = "direction";
     else cls = "theta/vol";
     // The most damning sub-case: the stock moved WITH the trade (or was flat) yet
     // the option still lost — pure vehicle bleed the underlying metric is blind to.
-    const flatButLost = optPnl < 0 && undMove >= -FAVORABLE_MOVE;
+    const flatButLost = m.optPnl < 0 && m.undMove >= -FAVORABLE_MOVE;
 
     rows.push({
-      sym: e.symbol, side, undMove, optPnl, dirContrib, thetaContrib, cls, flatButLost,
-      spread: liveSpreadPct(chains, e.symbol, side, K, exp),
-      undExpectancy: undMove,
-      outcome: e.outcome,
+      sym: m.sym, side: m.side, undMove: m.undMove, optPnl: m.optPnl,
+      dirContrib: m.dirContrib, thetaContrib: m.thetaContrib, cls, flatButLost,
+      spread: liveSpreadPct(chains, m.sym, m.side, m.K, m.exp),
+      undExpectancy: m.undMove,
+      outcome: m.outcome,
     });
   }
 
@@ -197,6 +204,33 @@ async function main() {
     console.log("  costing money. Sequence the cheap measurement/policy fixes (P0) first, then");
     console.log("  re-run this after a forward sample to see which lever moved the needle.");
   }
+  // ---- Timing-gate A/B (go vs wait), modeled option P&L (rubric P0.2 / #5) -----
+  // The decisive "does the timing gate earn its keep?" read. A true 2×2 across
+  // {flat-8% stop × ATR-floor stop} needs the intraday PATH we don't store, so the
+  // data-available proxy is the gate's own go-vs-wait split on modeled option P&L:
+  // if endorsed (go) picks don't out-expect deferred (wait) picks, the gate isn't
+  // adding value. Gate-era only (picks carrying a cohort tag) — and the honest
+  // gate-era sample size, which is the #1 prerequisite for trusting ANY of this.
+  const NEED = 25; // per-arm decided needed for a stable read
+  const gateRows = acc.closed.map(modelClosedPick).filter((m) => m && m.cohort);
+  const goRows = gateRows.filter((m) => m.cohort === "go");
+  const waitRows = gateRows.filter((m) => m.cohort === "wait");
+  console.log("\n=== Timing-gate A/B (go vs wait), modeled option P&L ===\n");
+  console.log("  gate-era resolved : " + gateRows.length + "  (go " + goRows.length + " / wait " + waitRows.length + ")");
+  const armStat = (rs) => (rs.length ? { exp: mean(rs.map((r) => r.optPnl)), win: rs.filter((r) => r.optPnl >= 0).length / rs.length * 100, n: rs.length } : null);
+  const goS = armStat(goRows), waitS = armStat(waitRows);
+  if (goS) console.log("  go   : option exp " + pct(goS.exp) + " · win " + goS.win.toFixed(0) + "% (n=" + goS.n + ")");
+  if (waitS) console.log("  wait : option exp " + pct(waitS.exp) + " · win " + waitS.win.toFixed(0) + "% (n=" + waitS.n + ")");
+  if (goS && waitS) {
+    console.log("  marginal (go − wait) : " + pct(goS.exp - waitS.exp) + "   <- the gate's value-add; > 0 means endorsing helped");
+  }
+  if (goRows.length < NEED || waitRows.length < NEED) {
+    console.log("  INSUFFICIENT gate-era sample — need ≥ " + NEED + " decided per arm for a stable read.");
+    console.log("  The gate's edge stays UNPROVEN until forward, gate-era picks accumulate; re-run");
+    console.log("  this as the open book resolves. (Set PICKS_ACCURACY_AB=1 to also enroll the wait");
+    console.log("  arm so this populates.)");
+  }
+
   console.log("\n  NOTE: modeled (no options feed). Entry IV implied from the stored entry mid;");
   console.log("  IV held constant to exit, so a real vol crush would make option losses worse,");
   console.log("  and the spread cost above is charged on top. Treat magnitudes as a floor.\n");
