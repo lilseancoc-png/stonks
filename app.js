@@ -10276,8 +10276,31 @@
         '<span class="accuracy-chip-lbl">' + lbl + '</span>' +
       '</div>';
     }
+    // Headline order (P0.2): when modeled option P&L exists (gate-era picks carry
+    // the entry-option snapshot), LEAD with the OPTION win rate + expectancy — the
+    // engine trades options, so that's the honest scorecard. The underlying win
+    // rate / stock-move expectancy follow as context (a flat stock can still be a
+    // total option loss). Both option chips are tooltipped as Black-Scholes-modeled
+    // (entry at ask, exit at bid; no options-price feed) so they're never read as
+    // realized fills.
+    var optTip = 'Modeled with Black-Scholes — entry at the ask, exit at the bid, entry IV decayed toward realized HV, earnings crush applied. We have no options-price feed, so this is a model, not a realized fill.';
+    if (st.optionWinRate != null) {
+      chips += '<div class="accuracy-chip' + (st.optionWinRate >= 0.5 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + optTip + '">' +
+        '<span class="accuracy-chip-num">' + Math.round(st.optionWinRate * 100) + '%</span>' +
+        '<span class="accuracy-chip-lbl">win rate · option (modeled · ' + (st.optionDecided || 0) + ')</span>' +
+      '</div>';
+    }
+    if (st.optionExpectancyPct != null) {
+      chips += '<div class="accuracy-chip' + (st.optionExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="' + optTip + ' The gap vs the stock-move expectancy is the theta / IV-crush / spread tax.">' +
+        '<span class="accuracy-chip-num">' + accPct(st.optionExpectancyPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">expectancy · option (modeled)</span>' +
+      '</div>';
+    }
+    // Underlying outcome win rate (TP/cut/expiry on the stock) — secondary when the
+    // option lens is present, the headline when it isn't (legacy / pre-snapshot).
     var wr = (st.winRate != null && isFinite(st.winRate)) ? Math.round(st.winRate * 100) + '%' : '—';
-    chips += chip(wr, 'win rate · ' + (st.decided || 0) + ' resolved', (st.winRate != null && st.winRate >= 0.5) ? 'accuracy-chip-good' : (st.winRate != null ? 'accuracy-chip-bad' : ''));
+    chips += chip(wr, 'win rate · ' + (st.optionWinRate != null ? 'stock · ' : '') + (st.decided || 0) + ' resolved', (st.winRate != null && st.winRate >= 0.5) ? 'accuracy-chip-good' : (st.winRate != null ? 'accuracy-chip-bad' : ''));
     chips += chip(String(st.wins || 0), 'wins', 'accuracy-chip-good');
     chips += chip(String(st.losses || 0), 'losses', 'accuracy-chip-bad');
     chips += chip(String(open.length), 'open');
@@ -10287,17 +10310,6 @@
     // SPY benchmark over each pick's hold — the honest "does this beat buy-and-hold?"
     if (st.expectancyPct != null) chips += chip(accPct(st.expectancyPct), 'expectancy · stock move', st.expectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
     if (st.excessExpectancyPct != null) chips += chip(accPct(st.excessExpectancyPct), 'vs SPY', st.excessExpectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
-    // MODELED option-P&L expectancy (P0.1): the BS-repriced result, not the
-    // underlying move. The gap vs the stock-move expectancy above is the theta +
-    // IV-crush tax. null until gate-era picks (with the entry-option snapshot)
-    // resolve. Tooltipped as modeled so it's never read as a realized fill.
-    if (st.optionExpectancyPct != null) {
-      chips += '<div class="accuracy-chip' + (st.optionExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
-        '" title="Modeled with Black-Scholes (entry IV decayed toward realized HV, earnings crush applied) — we have no options-price feed. The gap vs stock-move expectancy is the theta/IV-crush tax.">' +
-        '<span class="accuracy-chip-num">' + accPct(st.optionExpectancyPct) + '</span>' +
-        '<span class="accuracy-chip-lbl">expectancy · option (modeled · ' + (st.optionDecided || 0) + ')</span>' +
-      '</div>';
-    }
 
     // --- Win rate by tier (the headline "does the score work?" view) --------
     var tierRows = '';

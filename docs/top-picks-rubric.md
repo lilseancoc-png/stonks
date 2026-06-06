@@ -177,6 +177,17 @@ by construction. On 138 names the percentile tiers yield ≈8 Strong / ≈18 act
 Scores stay on a roughly-legacy scale via the scale-preserving weights
 `W_s = oldMax/PICKS_Z_CLIP` (§3), so the secondary ±12/16 / −8 reads elsewhere stay valid.
 
+> **Absolute floor under the percentile (P0.4 — "cash is a position").** Percentile
+> tiers alone pass ~the same count *every* build, so on a uniformly weak/expensive
+> tape the engine still mints a full roster — it can never say "nothing worth buying
+> today." The cutoffs are therefore **floored** at an absolute bar:
+> `strongCut = max(pctl 5%, PICKS_ABS_STRONG_FLOOR)`, `tradeCut = max(pctl 12%,
+> PICKS_ABS_TRADE_FLOOR)` (defaults = the legacy ±16/±12; env-set to 0 to disable).
+> A name must clear **both** the rank **and** the floor, so when the top-12% `|total|`
+> sits below the floor the actionable set shrinks — the roster honestly ships **fewer
+> than 10, or 0**. (Measured on a recent weak/risk-off tape: 10 force-fed names with
+> conviction down to ~7.9 → 4, one graded call + three tactical puts.)
+
 The universe is curated long, but **cross-sectional standardization demeans it** (§3),
 so the actionable set — selected by percentile of `|total|` regardless of sign — can
 carry materially more outright puts than the old absolute engine (a relatively-weak
@@ -189,10 +200,18 @@ For each roster survivor: a per-name risk denominator (the option-aware % of pre
 lost if the underlying hits the stop — `(stopDistFrac·spot·|Δ|)/premium`, capped at
 100%, ATR%-of-underlying fallback, floored at `PICKS_SIZE_VOL_FLOOR`), a conviction
 `tilt = clamp(|total|/strongCut, PICKS_SIZE_TILT_MIN, _MAX)`, then a normalized
-`weight = (1/risk · tilt)/Σ · PICKS_GROSS_TARGET` (Σ weight = the gross target, rest
+`weight = (1/risk · tilt)/Σ · grossTarget` (Σ weight = the gross target, rest
 cash). Each pick ships a `sizing` block `{weight, riskToStopPct, riskDenom,
 suggestedContracts}`, rendered "size ~X% of book · ~N contracts at $Y" against a
 display-only `PICKS_DISPLAY_ACCOUNT`. Highest-vol survivor → smallest weight (risk parity).
+
+**Thin-roster guard (P0.4).** Now that the absolute floor lets the roster honestly
+shrink, the deployed gross is **ramped**: `grossTarget = PICKS_GROSS_TARGET ·
+min(1, n/PICKS_SIZE_FULL_ROSTER_N)` (n = roster size, full at 5). A 1–2 name roster
+therefore holds proportionally more cash instead of dumping the whole 80% into one
+position (a 1-name roster caps at 0.80/5 = 16%). This caps **concentration**, not
+leverage-vs-edge — the edge governor (scale gross by realized option expectancy) is a
+separate, still-pending fix.
 
 ---
 
@@ -414,16 +433,24 @@ it has to be trustworthy. The fixes:
   realized *underlying* move — does the average pick make money?) and
   `excessExpectancyPct` (vs SPY over each pick's actual hold). These are the honest
   "is the engine adding value vs buy-and-hold?" headline.
-- **Modeled option expectancy (P0.1).** We still have no options-price feed, so the
-  tracker reprices the *same* contract with Black-Scholes at exit (`modelOptionExit`:
-  remaining DTE, the real exit spot, entry IV decayed toward realized HV over the
-  hold, an earnings-crush haircut if a print fell inside the hold) → per-pick
-  `optionPnlPct` and a cohort `optionExpectancyPct` (+ win/loss splits). The **gap
-  between `optionExpectancyPct` and the underlying `expectancyPct` is the theta /
-  IV-crush tax** — a stock that drifts ~flat can still print a deeply negative option
+- **Modeled option expectancy + win rate (P0.1/P0.2).** We still have no options-price
+  feed, so the tracker reprices the *same* contract with Black-Scholes at exit
+  (`modelOptionExit`: remaining DTE, the real exit spot, entry IV decayed toward
+  realized HV over the hold, an earnings-crush haircut if a print fell inside the
+  hold) → per-pick `optionPnlPct` and a cohort `optionExpectancyPct` + `optionWinRate`
+  (the **headline** the Track-record tab now leads with — the engine trades options, so
+  it's graded on the option, with the underlying win rate demoted to context). **Honest
+  fills (P0.1):** the repricer **enters at the ASK and exits at the BID** (haircutting
+  the BS fair value by the stamped `spreadPct`), charging the 12–18% bid/ask the
+  contract selector admits instead of a free mid-to-mid round trip. The **gap between
+  `optionExpectancyPct` and the underlying `expectancyPct` is the theta / IV-crush /
+  spread tax** — a stock that drifts ~flat can still print a deeply negative option
   result, which the underlying metric is structurally blind to. Needs the entry-option
-  snapshot stamped at enroll (`contract.iv`, `entryHv`, `earningsDate`), so it
-  populates as gate-era picks resolve.
+  snapshot stamped at enroll (`contract.iv`/`bid`/`ask`/`spreadPct`, `entryHv`,
+  `earningsDate`), so it populates as gate-era picks resolve. *Offline check:*
+  `scripts/diagnose-pick-losses.mjs` models the existing resolved set and attributes
+  each loss (direction vs theta/vol) — on the current record, 100% direction-driven,
+  modeled option expectancy −39.1% vs the −7.6% stock-move headline.
 - **Per-signal attribution** (`bySignal`, measure-only). Each enrolled pick stores a
   flat `entrySignals` snapshot; the stats then ask, per signal, "when it pointed the
   pick's way, did the pick win?" Raw counts always; a `rate` only past
@@ -447,7 +474,11 @@ it has to be trustworthy. The fixes:
     `PICKS_SECTOR_MIN_N 8`, `PICKS_TIER_PCTL_STRONG 0.05`, `PICKS_TIER_PCTL_TRADE 0.12`;
     per-signal `W_s = oldMax/PICKS_Z_CLIP` (`CONVERTED_SIGNALS` registry).
   - **Sizing (P3.4, §4.1):** `PICKS_SIZE_RISK_DENOM 'option'`, `PICKS_SIZE_VOL_FLOOR 0.05`,
-    `PICKS_SIZE_TILT_MIN/MAX 0.6/1.4`, `PICKS_GROSS_TARGET 0.80`, `PICKS_DISPLAY_ACCOUNT 25000`.
+    `PICKS_SIZE_TILT_MIN/MAX 0.6/1.4`, `PICKS_GROSS_TARGET 0.80`, `PICKS_DISPLAY_ACCOUNT 25000`,
+    `PICKS_SIZE_FULL_ROSTER_N 5` (P0.4 thin-roster gross ramp).
+  - **Absolute floor (P0.4, §4):** `PICKS_ABS_STRONG_FLOOR` / `PICKS_ABS_TRADE_FLOOR`
+    (default ±16/±12; env-set to 0 to disable) — the absolute bar the percentile cutoffs
+    are `Math.max`'d against so the roster can honestly ship 0.
   - **Tiers (legacy floor fallback):** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`,
     `PICKS_COUNT 10`, `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`).
   - **Contract (`pickContractForPick`):** `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,

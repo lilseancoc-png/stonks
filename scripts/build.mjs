@@ -5651,6 +5651,17 @@ const PICKS_Z_MIN_UNIVERSE = 20;     // fewer than this many scored names → sk
 const PICKS_SECTOR_MIN_N = 8;        // a sector with fewer finite raws than this → z that name against the full universe instead (thin-peer fallback)
 const PICKS_TIER_PCTL_STRONG = 0.05; // top 5% of |total| across the universe → Strong tier
 const PICKS_TIER_PCTL_TRADE = 0.12;  // top 12% → actionable (Call/Put)
+// P0.4 — absolute quality FLOOR under the percentile tiers ("cash is a position").
+// Percentile tiers alone always pass ~the same count every build, so the engine
+// can never say "nothing worth buying today" — it force-feeds a roster onto a
+// uniformly weak/expensive tape. A name must now clear BOTH the percentile rank
+// AND this absolute |total| (in the standardizer's roughly-legacy scale, §3.4) to
+// ship. On a junk tape every |total| sits below the floor → tierForScore sets
+// side=null → the candidate set empties → the roster honestly ships 0. Default to
+// the legacy ±12/±16 bars; set the env var to 0 to disable the floor (pure
+// percentile, the old P3.2 behavior).
+const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? PICKS_MIN_CONVICTION);
+const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? PICKS_TIER_STRONG);
 // Risk-based position sizing (P3.4) — emitted only for roster survivors.
 const PICKS_SIZE_RISK_DENOM = "option"; // 'option' (Δ/premium-aware loss to the stop) | 'atr' (underlying ATR% fallback)
 const PICKS_SIZE_VOL_FLOOR = 0.05;   // min risk denominator (5%) so a near-zero loss-to-stop can't mint an enormous weight
@@ -5658,6 +5669,13 @@ const PICKS_SIZE_TILT_MIN = 0.6;     // conviction tilt band: highest-conviction
 const PICKS_SIZE_TILT_MAX = 1.4;
 const PICKS_GROSS_TARGET = 0.80;     // Σ weights = fraction of capital deployed (rest held as cash)
 const PICKS_DISPLAY_ACCOUNT = 25000; // display-only account size for the suggested contract count (NOT a live balance)
+// Thin-roster guard (P0.4): once the absolute floor lets the roster honestly
+// shrink, a 1–2 name roster must NOT deploy the full 80% gross into one name.
+// Ramp the gross target linearly to full only once the roster reaches this many
+// names; below it, hold proportionally more cash. (A 1-name roster → 0.80/5 = 16%
+// max in that name, not 80%.) This is the floor's safety complement, not the
+// edge governor (P1.3) — it caps concentration, not leverage-vs-edge.
+const PICKS_SIZE_FULL_ROSTER_N = Number(process.env.PICKS_SIZE_FULL_ROSTER_N ?? 5);
 
 // Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
@@ -7539,6 +7557,7 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     bid: best.row.b ?? null,
     ask: best.row.a ?? null,
     mid: Number(best.mid.toFixed(2)),
+    spreadPct: Number(best.spreadPct.toFixed(4)), // (ask−bid)/mid — the round-trip fill cost (P0.1)
     last: best.row.l ?? null,
     iv: Number(best.row.iv.toFixed(4)),
     oi: best.oi,
@@ -8945,8 +8964,13 @@ function computeCrossSectionalScores(scored, opts = {}) {
   //    the absolute ±12/16 bars are only the small-universe fallback (handled by
   //    the early return above).
   const absSorted = scored.map((r) => Math.abs(r.total)).sort((a, b) => a - b);
-  const strongCut = _quantile(absSorted, 1 - PICKS_TIER_PCTL_STRONG);
-  const tradeCut = _quantile(absSorted, 1 - PICKS_TIER_PCTL_TRADE);
+  // P0.4 — floor the percentile cutoffs at an absolute quality bar. Math.max so a
+  // name ships only when it clears BOTH the rank AND the floor: on a weak tape the
+  // top-12% |total| can be well under PICKS_ABS_TRADE_FLOOR, and without the floor
+  // the engine would still mint a full roster of mediocre names. With it, every
+  // |total| below the floor grades no-trade → the roster shrinks (or empties).
+  const strongCut = Math.max(_quantile(absSorted, 1 - PICKS_TIER_PCTL_STRONG), PICKS_ABS_STRONG_FLOOR);
+  const tradeCut = Math.max(_quantile(absSorted, 1 - PICKS_TIER_PCTL_TRADE), PICKS_ABS_TRADE_FLOOR);
   for (const r of scored) r.recommendation = tierForScore(r.total, { strongCut, tradeCut });
   return { applied: true, strongCut, tradeCut };
 }
@@ -9078,8 +9102,13 @@ function applyPickSizing(picks, chains, strongCut) {
     rows.push({ p, risk, denom, rawW, premium });
   }
   const sumW = rows.reduce((a, r) => a + (Number.isFinite(r.rawW) ? r.rawW : 0), 0);
+  // Thin-roster guard (P0.4): ramp the deployed gross up to the full target only
+  // once the roster reaches PICKS_SIZE_FULL_ROSTER_N names. A floor-shrunken 1–2
+  // name roster therefore holds proportionally more cash instead of concentrating
+  // the whole book into one name. Full rosters are unaffected (Math.min caps at 1).
+  const grossTarget = PICKS_GROSS_TARGET * Math.min(1, rows.length / PICKS_SIZE_FULL_ROSTER_N);
   for (const row of rows) {
-    const weight = sumW > 0 ? (row.rawW / sumW) * PICKS_GROSS_TARGET : (PICKS_GROSS_TARGET / rows.length);
+    const weight = sumW > 0 ? (row.rawW / sumW) * grossTarget : (grossTarget / rows.length);
     // weight already sums to the gross target (cash is the remainder), so the
     // dollar allocation is weight·ACCOUNT — do not re-apply the gross target.
     const contracts = row.premium > 0 ? Math.floor((weight * PICKS_DISPLAY_ACCOUNT) / (row.premium * 100)) : 0;
@@ -10253,7 +10282,9 @@ function realizedMovePct(e) {
 function modelOptionExit(e, exitSpot, exitSec, rfr = FALLBACK_RISK_FREE_RATE) {
   const c = e && e.contract;
   if (!c) return null;
-  const K = Number(c.strike), exp = Number(c.expiry), iv0 = Number(c.iv), prem0 = Number(c.mid);
+  // Enter at the ASK (P0.1) — you pay the offer, not the mid. Legacy entries with
+  // no ask fall back to mid (graceful, just understates the entry cost).
+  const K = Number(c.strike), exp = Number(c.expiry), iv0 = Number(c.iv), prem0 = Number(c.ask) || Number(c.mid);
   const side = e.side === "put" ? "put" : "call";
   if (!(K > 0) || !(exp > 0) || !(iv0 > 0) || !(prem0 > 0) || !(exitSpot > 0)) return null;
   const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
@@ -10283,6 +10314,13 @@ function modelOptionExit(e, exitSpot, exitSec, rfr = FALLBACK_RISK_FREE_RATE) {
     premExit = bsPrice(side, exitSpot, K, Texit, sigma, rfr);
     if (premExit == null || !isFinite(premExit)) {
       premExit = side === "call" ? Math.max(0, exitSpot - K) : Math.max(0, K - exitSpot);
+    } else {
+      // Exit at the BID, not fair value (P0.1): a live exit crosses the spread.
+      // spreadPct = entry (ask−bid)/mid; half of it is mid/fair → bid. Only on the
+      // BS-priced branch — an expiry settle (above) realizes intrinsic, no spread.
+      // Legacy entries without spreadPct get no haircut (graceful).
+      const spreadPct = Number(c.spreadPct);
+      if (isFinite(spreadPct) && spreadPct > 0) premExit = Math.max(0, premExit * (1 - 0.5 * spreadPct));
     }
   }
   const optionPnlPct = ((premExit - prem0) / prem0) * 100;
@@ -10345,12 +10383,20 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     const out = {};
     for (const e of decided) {
       const k = keyFn(e) || "—";
-      if (!out[k]) out[k] = { n: 0, wins: 0, winRate: null };
+      if (!out[k]) out[k] = { n: 0, wins: 0, winRate: null, optN: 0, optWins: 0, optSum: 0, optWinRate: null, optExpectancyPct: null };
       out[k].n += 1;
       if (e.outcome === "win") out[k].wins += 1;
+      // Option-P&L lens (P0.2): a cohort's win rate / expectancy on the BS-repriced
+      // OPTION result, not the underlying outcome — the metric that actually maps to
+      // capital. Populates only for entries with the entry-option snapshot.
+      const op = Number(e.optionPnlPct);
+      if (isFinite(op)) { out[k].optN += 1; out[k].optSum += op; if (op > 0) out[k].optWins += 1; }
     }
     for (const k of Object.keys(out)) {
-      out[k].winRate = out[k].n >= 3 ? Number((out[k].wins / out[k].n).toFixed(3)) : null;
+      const o = out[k];
+      o.winRate = o.n >= 3 ? Number((o.wins / o.n).toFixed(3)) : null;
+      o.optWinRate = o.optN >= 3 ? Number((o.optWins / o.optN).toFixed(3)) : null;
+      o.optExpectancyPct = o.optN ? Number((o.optSum / o.optN).toFixed(2)) : null;
     }
     return out;
   };
@@ -10441,6 +10487,10 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   const wOpt = decided.filter((e) => e.outcome === "win").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
   const lOpt = decided.filter((e) => e.outcome === "loss").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
   const optionExpectancyPct = optDecided.length ? Number(mean(optDecided).toFixed(2)) : null;
+  // Option WIN RATE (P0.2): fraction of repriced picks that made money ON THE
+  // OPTION — the honest headline for an options engine. A flat/up stock that still
+  // bled the premium counts as a loss here even when the underlying "win" flagged.
+  const optionWinRate = optDecided.length ? Number((optDecided.filter((x) => x > 0).length / optDecided.length).toFixed(3)) : null;
 
   const avg = (arr, f) => (arr.length ? Number((arr.reduce((s, e) => s + (Number(f(e)) || 0), 0) / arr.length).toFixed(1)) : null);
   return {
@@ -10463,6 +10513,7 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     // gap vs expectancyPct above is the premium tax. null until gate-era picks
     // (which carry the entry-option snapshot) resolve.
     optionExpectancyPct,
+    optionWinRate,
     optionDecided: optDecided.length,
     avgWinOptionPnlPct: wOpt.length ? Number(mean(wOpt).toFixed(2)) : null,
     avgLossOptionPnlPct: lOpt.length ? Number(mean(lOpt).toFixed(2)) : null,
@@ -10570,7 +10621,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     let thetaPctDay = null, modeledOptLossPct = null;
     if (haveFresh) {
       const ec = e.contract || {};
-      const K = Number(ec.strike), exp = Number(ec.expiry), iv0 = Number(ec.iv), prem0 = Number(ec.mid);
+      // Entry baseline = ASK (P0.1) for an honest unrealized-loss read, matching
+      // modelOptionExit; legacy entries fall back to mid.
+      const K = Number(ec.strike), exp = Number(ec.expiry), iv0 = Number(ec.iv), prem0 = Number(ec.ask) || Number(ec.mid);
       if (K > 0 && exp > 0 && iv0 > 0 && prem0 > 0) {
         const sideStr = isCall ? "call" : "put";
         const Tnow = yearsToExpiry(exp);
@@ -10713,6 +10766,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         expiry: c.expiry ?? null,
         expiryLabel: c.expiryLabel || null,
         mid: c.mid ?? null,
+        // Entry-time quote both sides + spread — so the BS repricer can enter at
+        // the ASK and exit at the BID (P0.1), charging the bid/ask the selector
+        // admits (≤12-18%) instead of modeling a free mid-to-mid round trip.
+        bid: c.bid ?? null,
+        ask: c.ask ?? null,
+        spreadPct: c.spreadPct ?? null,
         iv: c.iv ?? null,        // entry IV — BS-repricer baseline (P0.1)
         breakeven: c.breakeven ?? null,
         otmPct: c.otmPct ?? null,
