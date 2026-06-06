@@ -238,6 +238,22 @@ best survivor:
 - **Roster (`requireClean`)** additionally refuses any contract the live Grade-tab
   grader would call "bad" (theta >2.5%/day, dte ≤3, ≥80%-extrinsic with <14 DTE).
 
+**Structure — single long, or an auto debit vertical in rich IV.** The default
+structure is a single long (`structure:'long'`, `netDebit = mid`). When
+`PICKS_VERT_AUTO` (or the master `PICKS_VERTICALS`) is on **and** IV rank ≥
+`PICKS_VERT_IVRANK` (70; or ≥ `PICKS_VERT_NEGEDGE_IVRANK` = 50 on a measured-negative-edge
+book), the long is financed by **selling an OTM wing** on the same expiry — a debit
+vertical that cuts net vega/theta so you're not buying naked premium when it's
+expensive (the structural complement to the §6 IV gate). `contract.mid`/`breakeven`/
+sizing all repoint to the **net debit** and the modeled-exit repricer nets both legs
+(`modelVerticalExit`). **`PICKS_VERT_AUTO` is DARK by default**: enabling it live needs
+the pick *card* to render two legs (it shows the net debit + breakeven today but not
+the spread structure / capped max-profit), and the loss-attribution diagnostic
+(`scripts/diagnose-pick-losses.mjs`) still shows losses are **direction-driven** (a
+vertical only shrinks a wrong-side loss). Ship the policy wired + sizing-correct;
+flip it on after the card render + forward validation — same discipline as
+`PICKS_VERTICALS`.
+
 **Exit geometry — volatility-aware stop.** `buildExitPlan` sets the take-profit at
 the nearest meaningful S/R (≥ ~half the chain's 1σ move). The cut used to be a flat
 ~8% on the underlying — which, on a high-beta name, sits *inside* one average daily
@@ -318,6 +334,15 @@ Structure / momentum / **volume** / location accumulate as signed pros & cons:
   sessions (P1.3 — IV ramps 1–2 weeks out, so 3 was too tight; IV-crush risk →
   forces `wait`). A pick whose contract **expiry falls after** an earnings date is
   additionally flagged `earningsBeforeExpiry` (crush-exposed) on the timing panel.
+- **Vol-surface gate (strong con) — IV rank as a gate, not a nudge.** The own-history
+  IV-rank read is a *soft* con at the rich threshold (`PICKS_IVRANK_RICH` = 80, −1) but
+  upgrades to a **strong** con at an extreme percentile (`PICKS_IVRANK_VETO` = **90**,
+  default ON; set 0 to disable). A strong con blocks `go` → `wait` (not enrolled) and
+  shaves the contribution, so the engine won't endorse a **naked long bought at the
+  90th+ percentile of a name's own vol** — including a risk-off "tactical put" bought
+  into a VIX/IV spike (long vol *after* the move). Side-aware (weakens conviction for
+  whichever side, never flips it). The structural complement is §5's auto-vertical: at
+  rich IV the contract is financed as a debit spread rather than bought outright.
 - **Volume confirmation (soft, ±1).** Volume tells you whether to believe the move.
   Beyond the breakout/knife reads above: a move the trade's way on **≥1.3× rvol**
   (`PICKS_TIMING_VOL_CONFIRM`) that isn't already a clean break is real participation
@@ -495,10 +520,14 @@ it has to be trustworthy. The fixes:
   - **Premium-at-risk sizing (P1.5):** `PICKS_SIZE_PREMIUM_RISK` (default ON),
     `PICKS_SIZE_HOLD_DAYS 10`, `PICKS_SIZE_IV_DROP_CAP 0.10`.
   - **IV rank (P1.6):** `PICKS_IVRANK_SIGNAL` (default ON), `PICKS_IVRANK_MIN_N 10`,
-    `PICKS_IVRANK_RICH 80`, `PICKS_IVRANK_CHEAP 20` (read as a side-aware timing con/pro).
+    `PICKS_IVRANK_RICH 80`, `PICKS_IVRANK_CHEAP 20` (side-aware timing con/pro), and
+    `PICKS_IVRANK_VETO 90` (default ON; extreme IV → **strong** con that blocks `go`;
+    set 0 to disable the gate).
   - **Term structure (P2):** `PICKS_TIMING_BACKWARDATION 0.05` (computeEntryTiming soft con).
   - **Debit verticals (P1.2, DARK):** `PICKS_VERTICALS` (default **OFF**), `PICKS_VERT_IVRANK 70`,
-    `PICKS_VERT_SHORT_DELTA_MIN/MAX 0.20/0.38`, `PICKS_VERT_MIN_CREDIT 0.20`.
+    `PICKS_VERT_SHORT_DELTA_MIN/MAX 0.20/0.38`, `PICKS_VERT_MIN_CREDIT 0.20`; auto-engage
+    `PICKS_VERT_AUTO` (default **OFF**) + `PICKS_VERT_NEGEDGE_IVRANK 50` (rich-IV / negative-edge
+    default structure — wired + sizing-correct, dark pending the 2-leg card render).
   - **Decorrelation (audit #1, DARK):** `PICKS_DECORRELATE` (default **OFF**) — collapse
     correlated converted-signal clusters (`SIGNAL_CLUSTER`) by 1/√K so a beta isn't N-weighted.
   - **IC bridge (research, measure-only):** `gradeIc`/`gradeIcN`/`gradeIcOption` + per-signal
