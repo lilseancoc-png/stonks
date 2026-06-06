@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"cached","asOf":"2026-06-05","ageDays":1};
+  var RFR_META = {"source":"fresh","asOf":"2026-06-06","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -10317,6 +10317,15 @@
       chips += '<div class="accuracy-chip accuracy-chip-bad" title="Research only: the directional expectancy of betting the OPPOSITE of every grade. Positive = fading the engine would have paid, i.e. the signal has negative directional edge in-sample. Does not feed the engine.">' +
         '<span class="accuracy-chip-num">' + accPct(st.fadeExpectancyPct) + '</span>' +
         '<span class="accuracy-chip-lbl">fade-the-grade (research' + (st.fadeWinRate != null ? ' · ' + Math.round(st.fadeWinRate * 100) + '% win' : '') + ')</span>' +
+      '</div>';
+    }
+    // Grade IC (research): correlation of the grade with the realized direction.
+    // Negative = the grade is anti-predictive. The rigorous version of the fade
+    // chip; a baseline on the retired engine until gate-era picks resolve.
+    if (st.gradeIc != null) {
+      chips += '<div class="accuracy-chip ' + (st.gradeIc >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') + '" title="Research only: Pearson correlation of the signed grade vs the realized underlying move across resolved picks. Positive = a higher grade precedes a better move (predictive); negative = anti-predictive (fading wins). Measured on the retired ~0.30Δ engine until gate-era picks resolve.">' +
+        '<span class="accuracy-chip-num">' + st.gradeIc.toFixed(2) + '</span>' +
+        '<span class="accuracy-chip-lbl">grade IC (research · ' + (st.gradeIcN || 0) + ')</span>' +
       '</div>';
     }
 
