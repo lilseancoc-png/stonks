@@ -6672,7 +6672,9 @@ main { padding-top: var(--s-2); }
 }
 .pick-tier-sub {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
   font: 500 10px/1.2 var(--font-mono);
   letter-spacing: .04em;
   color: var(--muted);
@@ -6682,6 +6684,15 @@ main { padding-top: var(--s-2); }
   content: " ·";
   margin-left: 4px;
   opacity: .4;
+}
+/* Risk-based sizing line (P3.4): "size ~X% of book · ~N contracts at $Y" — has
+   numbers + a $ price, so keep it readable (no uppercase) and let it take the
+   remaining width / wrap to its own line on a narrow card. */
+.pick-tier-size {
+  text-transform: none;
+  letter-spacing: .01em;
+  color: var(--text);
+  cursor: help;
 }
 .pick-tier-strong-call {
   background-image: linear-gradient(135deg, color-mix(in srgb, var(--pos) 16%, var(--surface)) 0%, var(--surface) 62%);

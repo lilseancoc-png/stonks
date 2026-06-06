@@ -5620,6 +5620,45 @@ function factorOfTicker(sym) {
 export const PICKS_MIN_CONVICTION = 12;
 const PICKS_TIER_STRONG = 16;
 
+// ---- P3.x — cross-sectional standardization + risk-based sizing ------------
+// The fixed bars above (±12/±16) and the per-signal integer thresholds in the
+// scorers are ABSOLUTE — each name is judged against a constant fit once to a
+// 19-pick sample, so they go stale when the regime drifts (the ±16/±20 →
+// ±14/±18 → ±12/±16 recalibration treadmill) and an equal-weight absolute score
+// is long-beta with extra steps (the whole universe clears the same bars
+// together in a rally → one correlated cohort fills the roster).
+//
+// P3.1/P3.2 convert the per-name CONTINUOUS signals (growth %, ratios, RSI
+// level, rvol, …) to cross-sectional robust z-scores and make tiers
+// percentile-relative, so "cheap / fast-growing / overbought" self-recalibrate
+// every build and the rank — not an absolute number — is what ships. Discrete
+// events (guidance, catalysts, MACD, …) and market-wide common factors (SPY,
+// VIX, DXY, 10Y, macro) stay on their fixed logic (see CONVERTED_SIGNALS).
+//
+// Scale: with the standardizer ON we keep the score on a roughly-legacy scale
+// via per-signal weights W_s = oldMax_s / PICKS_Z_CLIP (the spec's §3.4
+// conservative option) so the ±12/16 floor, the −8 risk-off bar and the
+// absTotal≥16 reads in the entry/exit plans stay approximately valid and
+// grades.json doesn't lurch — the self-recalibration happens (a merely-median
+// name now scores ~0 where it used to clear a fixed bar) without rescaling the
+// whole distribution. The raw z (median 0 / scale 1) is persisted separately
+// for the future per-signal IC bridge (rubric §9.6); W_s only scales the
+// CONTRIBUTION, not the stored z.
+const PICKS_XSECTIONAL = process.env.PICKS_XSECTIONAL !== "0"; // master flag, default ON; set =0 to fall back to the legacy absolute scorer
+const PICKS_SECTOR_NEUTRAL = process.env.PICKS_SECTOR_NEUTRAL !== "0"; // P3.3, default ON; demean each signal within its GICS sector instead of universe-wide
+const PICKS_Z_CLIP = 3.0;            // winsorize each z to ±3 (fat tails would otherwise let one blowup compress everyone)
+const PICKS_Z_MIN_UNIVERSE = 20;     // fewer than this many scored names → skip standardization, use legacy fixed thresholds for the build
+const PICKS_SECTOR_MIN_N = 8;        // a sector with fewer finite raws than this → z that name against the full universe instead (thin-peer fallback)
+const PICKS_TIER_PCTL_STRONG = 0.05; // top 5% of |total| across the universe → Strong tier
+const PICKS_TIER_PCTL_TRADE = 0.12;  // top 12% → actionable (Call/Put)
+// Risk-based position sizing (P3.4) — emitted only for roster survivors.
+const PICKS_SIZE_RISK_DENOM = "option"; // 'option' (Δ/premium-aware loss to the stop) | 'atr' (underlying ATR% fallback)
+const PICKS_SIZE_VOL_FLOOR = 0.05;   // min risk denominator (5%) so a near-zero loss-to-stop can't mint an enormous weight
+const PICKS_SIZE_TILT_MIN = 0.6;     // conviction tilt band: highest-conviction names nudged up, but the risk budget still dominates
+const PICKS_SIZE_TILT_MAX = 1.4;
+const PICKS_GROSS_TARGET = 0.80;     // Σ weights = fraction of capital deployed (rest held as cash)
+const PICKS_DISPLAY_ACCOUNT = 25000; // display-only account size for the suggested contract count (NOT a live balance)
+
 // Hard mechanical filters for the suggested contract. A pick that
 // can't find a contract clearing every threshold is dropped — we'd
 // rather ship fewer picks than recommend a structurally bad one.
@@ -5968,20 +6007,28 @@ function buildSectorPEMedians(chains) {
 // Tier the total score into one of five recommendation buckets. The "No Trade"
 // tier still ships its breakdown so the UI can explain why a pick was skipped;
 // buildTopPicks filters before publishing.
-function tierForScore(score) {
-  if (score >= PICKS_TIER_STRONG) {
+//
+// P3.2: the cutoffs are parameterized. `ctx.strongCut`/`ctx.tradeCut` are the
+// cross-sectional percentile cutoffs (the |total| at the top 5% / 12% ranks),
+// supplied by the finalize step in scoreAllTickers when the standardizer is on;
+// they default to the legacy absolute bars (±16 / ±12) so the legacy path, the
+// small-universe fallback, and any direct caller keep their old behavior.
+function tierForScore(score, ctx) {
+  const strongCut = ctx && Number.isFinite(ctx.strongCut) ? ctx.strongCut : PICKS_TIER_STRONG;
+  const tradeCut = ctx && Number.isFinite(ctx.tradeCut) ? ctx.tradeCut : PICKS_MIN_CONVICTION;
+  if (score >= strongCut) {
     return { tier: "strong-call", label: "Strong Call", side: "call",
              conviction: "Very High", sizing: "Load the Boat" };
   }
-  if (score >= PICKS_MIN_CONVICTION) {
+  if (score >= tradeCut) {
     return { tier: "call", label: "Call", side: "call",
              conviction: "High", sizing: "Standard size" };
   }
-  if (score <= -PICKS_TIER_STRONG) {
+  if (score <= -strongCut) {
     return { tier: "strong-put", label: "Strong Put", side: "put",
              conviction: "Very High", sizing: "Load the Boat" };
   }
-  if (score <= -PICKS_MIN_CONVICTION) {
+  if (score <= -tradeCut) {
     return { tier: "put", label: "Put", side: "put",
              conviction: "High", sizing: "Standard size" };
   }
@@ -6011,6 +6058,13 @@ function _sig(key, label, score, opts) {
     key,
     label,
     score: score | 0,
+    // P3.1 raw channel: the continuous underlying magnitude this signal reads
+    // (e.g. the +12.3% EPS-growth value, the P/E-vs-median ratio), so the
+    // universe-wide cross-sectional pass can standardize it. null for discrete /
+    // market-wide / missing signals — those keep their fixed integer `score`.
+    raw: opts && opts.raw !== undefined && opts.raw !== null && isFinite(opts.raw)
+      ? Number(opts.raw)
+      : null,
     value: opts && opts.value !== undefined ? opts.value : null,
     note: opts && opts.note ? opts.note : "",
     available: opts && opts.available === false ? false : true,
@@ -6043,6 +6097,7 @@ function scoreFundamentals(data, sectorMedianPE) {
         else if (sp < -25) s = -2;
         else if (sp <= -10) s = -1;
         surpriseSignal = _sig("earningsSurprise", "Earnings Surprise", s, {
+          raw: sp,
           value: `${sp >= 0 ? "+" : ""}${sp.toFixed(1)}%`,
           note: `${recent.date} — actual ${recent.epsActual} vs est ${recent.epsEstimate}`,
         });
@@ -6063,6 +6118,7 @@ function scoreFundamentals(data, sectorMedianPE) {
     if (eps >= 10) s = 1;
     else if (eps < -25) s = -2;
     epsSignal = _sig("epsGrowth", "EPS Growth YoY", s, {
+      raw: eps,
       value: `${eps >= 0 ? "+" : ""}${eps.toFixed(1)}%`,
     });
   }
@@ -6079,6 +6135,7 @@ function scoreFundamentals(data, sectorMedianPE) {
     if (rev >= 8) s = 1;
     else if (rev < -20) s = -2;
     revSignal = _sig("revGrowth", "Revenue Growth YoY", s, {
+      raw: rev,
       value: `${rev >= 0 ? "+" : ""}${rev.toFixed(1)}%`,
     });
   }
@@ -6098,6 +6155,7 @@ function scoreFundamentals(data, sectorMedianPE) {
     if (upside >= 0.10) s = 1;
     else if (upside <= -0.10) s = -1;
     analystSignal = _sig("analystTarget", "Analyst Price Target", s, {
+      raw: upside,
       value: `${upside >= 0 ? "+" : ""}${(upside * 100).toFixed(0)}% to $${tgt.toFixed(2)}`,
       note: `${nA} analysts`,
     });
@@ -6127,6 +6185,7 @@ function scoreFundamentals(data, sectorMedianPE) {
       noteBits.push(`latest: ${lt.firm} ${lt.action === "up" ? "upgrade" : "downgrade"}${grades}`);
     }
     ratingSignal = _sig("analystRevisions", "Analyst Rating Changes", s, {
+      raw: net,
       value: `${net >= 0 ? "+" : ""}${net} net`,
       note: noteBits.join(" · "),
     });
@@ -6153,6 +6212,7 @@ function scoreFundamentals(data, sectorMedianPE) {
       note = `${(ratio * 100).toFixed(0)}% of sector median (${peSelf.toFixed(1)} vs ${peMed.toFixed(1)})`;
     }
     peSignal = _sig("peVsSector", "P/E vs Sector", s, {
+      raw: ratio,
       value: peSelf.toFixed(1),
       note,
     });
@@ -6256,7 +6316,16 @@ function scoreFundamentals(data, sectorMedianPE) {
                    : absF >= 1e6 ? `$${(fcf / 1e6).toFixed(0)}M`
                    : `$${fcf.toFixed(0)}`;
     const s = fcf > 0 ? 1 : (fcf < 0 ? -1 : 0);
+    // Cross-sectional raw is the FCF YIELD (FCF / market cap), not the raw dollar
+    // figure — z-scoring raw FCF dollars would just rank by company size. Yield
+    // is comparable across the universe (and the signed-log transform in the
+    // standardizer handles its order-of-magnitude spread + negative tail). When
+    // market cap is missing we can't form a yield → raw stays null (legacy sign
+    // score still applies on the non-xsectional path).
+    const mktCap = Number(f.marketCap);
+    const fcfYield = mktCap > 0 ? fcf / mktCap : null;
     fcfSignal = _sig("fcf", "Free Cash Flow TTM", s, {
+      raw: fcfYield,
       value: fcfLabel,
       note: fcf > 0 ? "positive trailing-12mo FCF"
           : fcf < 0 ? "negative trailing-12mo FCF — burning cash"
@@ -6288,6 +6357,7 @@ function scoreFundamentals(data, sectorMedianPE) {
     if (delta > 0.25) s = 1;
     else if (delta < -0.25) s = -1;
     marginSignal = _sig("netMargin", "Net Margin Growth", s, {
+      raw: delta,
       value: `${latest.toFixed(1)}%`,
       note: `${prior.toFixed(1)}% → ${latest.toFixed(1)}% net margin ${basis}`,
     });
@@ -6386,8 +6456,12 @@ function scoreTechnicals(data, streakRow) {
   if (t.rsi != null && isFinite(t.rsi)) {
     let s = 0;
     let note;
+    // The 5-day RSI change is the continuous momentum magnitude this signal
+    // reads (distinct from rsiReading's LEVEL) — it's the cross-sectional raw.
+    let rsiDelta = null;
     if (t.rsi5d != null && isFinite(t.rsi5d)) {
       const delta = t.rsi - t.rsi5d;
+      rsiDelta = delta;
       if (t.rsi > 50 && delta > 0) {
         s = 1;
         note = `above 50 & rising (+${delta.toFixed(1)} vs 5d ago)`;
@@ -6405,6 +6479,7 @@ function scoreTechnicals(data, streakRow) {
       note = "no 5-day RSI history for direction";
     }
     rsiMoveSignal = _sig("rsiMomentum", "RSI Movement", s, {
+      raw: rsiDelta,
       value: t.rsi.toFixed(1),
       note,
     });
@@ -6435,6 +6510,7 @@ function scoreTechnicals(data, streakRow) {
       }
     }
     rsiReadSignal = _sig("rsiReading", "RSI Reading", s, {
+      raw: t.rsi,
       value: t.rsi.toFixed(1),
       note,
     });
@@ -6507,9 +6583,12 @@ function scoreTechnicals(data, streakRow) {
   if (spot > 0 && hi != null && isFinite(hi) && hi > 0 && lo != null && isFinite(lo) && lo > 0 && hi > lo) {
     const toHi = (hi - spot) / spot;
     const fromLo = (spot - lo) / spot;
+    // Position within the 52-week range (0 = at the low, 1 = at the high) — the
+    // continuous raw the cross-sectional pass standardizes (contrarian, dir −1).
+    const rangePos = (spot - lo) / (hi - lo);
     let s = 0;
     let note = `range $${lo.toFixed(2)}–$${hi.toFixed(2)}`;
-    let value = `${(((spot - lo) / (hi - lo)) * 100).toFixed(0)}% of range`;
+    let value = `${(rangePos * 100).toFixed(0)}% of range`;
     if (toHi >= 0 && toHi <= 0.05) {
       s = -1;
       note = `${(toHi * 100).toFixed(1)}% below 52w high — extended / fade risk`;
@@ -6523,7 +6602,7 @@ function scoreTechnicals(data, streakRow) {
         note = `${(fromLo * 100).toFixed(1)}% above 52w low but still falling — no reversal bar yet (held at 0)`;
       }
     }
-    fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", s, { value, note });
+    fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", s, { raw: rangePos, value, note });
   }
   signals.push(fiftyTwoSignal);
 
@@ -6540,7 +6619,7 @@ function scoreTechnicals(data, streakRow) {
     let note = `${rv.toFixed(2)}x vs 20D avg — in-line volume`;
     if (rv >= 1.3) { s = 1; note = `${rv.toFixed(2)}x vs 20D avg — elevated volume`; }
     else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D avg — low volume / no conviction`; }
-    volConfSignal = _sig("volConf", "Volume Confirmation", s, { value: `${rv.toFixed(2)}x`, note });
+    volConfSignal = _sig("volConf", "Volume Confirmation", s, { raw: rv, value: `${rv.toFixed(2)}x`, note });
   }
   signals.push(volConfSignal);
 
@@ -6667,7 +6746,12 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     let note = `${bull} bullish vs ${bear} bearish prints`;
     if (bull >= 5 && bull >= 1.5 * Math.max(1, bear)) s = 1;
     else if (bear >= 5 && bear >= 1.5 * Math.max(1, bull)) s = -1;
+    // Bull/bear aggressive-print ratio is the continuous raw (log-transformed in
+    // the cross-sectional pass since it's a ratio). Only meaningful when there is
+    // flow on both sides — a one-sided/no-flow name keeps raw null (legacy 0).
+    const flowRatio = (bull > 0 || bear > 0) ? (bull + 1) / (bear + 1) : null;
     flowSignal = _sig("unusualFlow", "Unusual Flow", s, {
+      raw: flowRatio,
       value: `${bull}C / ${bear}P prints`,
       note,
     });
@@ -6686,6 +6770,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     if (ratio >= 1.5) s = 1;
     else if (ratio <= 0.67) s = -1;
     oiSignal = _sig("oi", "Open Interest (C/P)", s, {
+      raw: ratio,
       value: `${ratio.toFixed(2)}x C/P`,
       note,
     });
@@ -6819,6 +6904,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
       note = `P/C ${ratio.toFixed(2)} — extreme greed, contrarian bearish`;
     }
     pcrSignal = _sig("putCallRatio", "Put/Call Ratio Extreme", s, {
+      raw: ratio,
       value: `${ratio.toFixed(2)} P/C`,
       note,
     });
@@ -6968,6 +7054,7 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     if (net >= 35) s = 1;
     else if (net <= -35) s = -1;
     socSignal = _sig("socialSentiment", "Social Sentiment", s, {
+      raw: net,
       value: `${net >= 0 ? "+" : ""}${net.toFixed(0)}% net`,
       note,
     });
@@ -7121,6 +7208,14 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
     state: et.state,
     headline: et.headline || "",
     reasons: Array.isArray(et.reasons) ? et.reasons : [],
+    // P3.1 re-fold substrate: timingDelta = total − subtotal is NOT invertible
+    // (the Math.max(0,…) clamp above destroys tContribution when a small positive
+    // subtotal pairs with negative timing). The cross-sectional pass re-scores
+    // subtotal, so it must re-fold timing from the RAW bounded −8..+4 contribution
+    // — and it was evaluated for `side`, so if the re-scored subtotal flips sign
+    // the pass recomputes timing for the new side instead of reusing this.
+    rawContribution: tContribution,
+    side: tSide,
   };
   const recommendation = tierForScore(total);
 
@@ -7481,7 +7576,13 @@ function buildPickAnalysis(pick, peers) {
   const side = pick.side;
   const sectorName = pick.peerGroup || pick.sector || "this industry";
   const sideWord = side === "put" ? "puts" : "calls";
-  const sgn = (n) => `${n >= 0 ? "+" : ""}${n}`;
+  // Scores are cross-sectional floats now (P3.1) — round to 1 decimal in prose
+  // so the analysis doesn't print "+13.25494629536023".
+  const sgn = (n) => { const r = Math.round((Number(n) || 0) * 10) / 10; return `${r >= 0 ? "+" : ""}${r}`; };
+  // The number a signal actually contributed to the score: the cross-sectional
+  // contribution for converted signals, else the fixed integer. Keeps the prose
+  // consistent with the per-signal chips in the side panel.
+  const sigScore = (s) => (s && s.contribution != null) ? Number(s.contribution) : ((s && s.score) || 0);
 
   const pillars = pick.pillars || {};
   const ranked = [
@@ -7512,20 +7613,20 @@ function buildPickAnalysis(pick, peers) {
   for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
     const sigs = pillars[pk]?.signals || [];
     for (const s of sigs) {
-      if (!s || !s.score) continue;
+      if (!s || !sigScore(s)) continue;
       allSignals.push({ ...s, pillar: pk });
     }
   }
   const dir = total >= 0 ? 1 : -1;
   const helping = allSignals
-    .filter((s) => Math.sign(s.score) === dir)
-    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .filter((s) => Math.sign(sigScore(s)) === dir)
+    .sort((a, b) => Math.abs(sigScore(b)) - Math.abs(sigScore(a)))
     .slice(0, 3);
   const fighting = allSignals
-    .filter((s) => Math.sign(s.score) === -dir)
-    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .filter((s) => Math.sign(sigScore(s)) === -dir)
+    .sort((a, b) => Math.abs(sigScore(b)) - Math.abs(sigScore(a)))
     .slice(0, 2);
-  const fmtSig = (s) => `${s.label} (${sgn(s.score)}${s.value ? `, ${s.value}` : ""})`;
+  const fmtSig = (s) => `${s.label} (${sgn(sigScore(s))}${s.value ? `, ${s.value}` : ""})`;
   let driverLine = "";
   if (helping.length) {
     driverLine += `The biggest contributors are ${helping.map(fmtSig).join(", ")}. `;
@@ -8609,12 +8710,253 @@ function peerGroupOf(sym, data) {
   );
 }
 
+// ---- P3.1/P3.2/P3.3 — cross-sectional standardization ----------------------
+// The registry of the per-name CONTINUOUS signals that get standardized against
+// the universe this build (everything NOT listed here — discrete events, the
+// market-wide common factors, and the two non-monotonic per-name signals
+// shortInterest/unusualVolume — keeps its fixed integer score). Per signal:
+//   pillar     — which pillar the signal lives in (for the pillar re-sum)
+//   dir        — +1 (higher raw = more bullish) | −1 (e.g. P/E: cheaper is better)
+//   xf         — 'id' | 'log' (ratios; symmetric in log space) | 'slog' (signed
+//                log, for the FCF yield which spans orders of magnitude and goes
+//                negative)
+//   oldMax     — the signal's legacy max |score|; W_s = oldMax / PICKS_Z_CLIP so
+//                a name at the ±clip edge reaches its prior cap (scale-preserving,
+//                spec §3.4) and the ±12/16-derived secondary reads stay valid.
+//   contrarian — the three extreme-fade signals (rsiReading, fiftyTwoWeek,
+//                putCallRatio): keep the extreme-only dead-band (z only the tail
+//                magnitude, don't linearize the middle) + the asymmetric
+//                bullish-reversal gate. tailBull/tailBear test the ORIGINAL raw.
+const CONVERTED_SIGNALS = {
+  earningsSurprise: { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 2 },
+  epsGrowth:        { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 2 },
+  revGrowth:        { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 2 },
+  analystTarget:    { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 1 },
+  analystRevisions: { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 2 },
+  peVsSector:       { pillar: "fundamentals", dir: -1, xf: "log",  oldMax: 1 },
+  fcf:              { pillar: "fundamentals", dir: +1, xf: "slog", oldMax: 1 },
+  netMargin:        { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 1 },
+  rsiMomentum:      { pillar: "technicals",   dir: +1, xf: "id",   oldMax: 1 },
+  rsiReading:       { pillar: "technicals",   dir: -1, xf: "id",   oldMax: 3,
+                      contrarian: true, gated: true,
+                      tailBull: (raw) => raw <= 25, tailBear: (raw) => raw >= 75 },
+  fiftyTwoWeek:     { pillar: "technicals",   dir: -1, xf: "id",   oldMax: 1,
+                      contrarian: true, gated: true,
+                      tailBull: (raw) => raw <= 0.05, tailBear: (raw) => raw >= 0.95 },
+  volConf:          { pillar: "technicals",   dir: +1, xf: "log",  oldMax: 1 },
+  unusualFlow:      { pillar: "mechanicals",  dir: +1, xf: "log",  oldMax: 1 },
+  oi:               { pillar: "mechanicals",  dir: +1, xf: "log",  oldMax: 1 },
+  putCallRatio:     { pillar: "mechanicals",  dir: +1, xf: "log",  oldMax: 2,
+                      contrarian: true, gated: true,
+                      tailBull: (raw) => raw > 1.15, tailBear: (raw) => raw < 0.65 },
+  socialSentiment:  { pillar: "narrative",    dir: +1, xf: "id",   oldMax: 1 },
+};
+const PILLAR_KEYS = ["fundamentals", "technicals", "mechanicals", "narrative"];
+
+function _xfRaw(mode, x) {
+  if (!Number.isFinite(x)) return null;
+  if (mode === "log") return x > 0 ? Math.log(x) : null;        // ratios; ≤0 has no log → drop
+  if (mode === "slog") return Math.sign(x) * Math.log1p(Math.abs(x)); // signed, handles 0/negative
+  return x;                                                     // 'id'
+}
+function _median(arr) {
+  if (!arr.length) return NaN;
+  const a = arr.slice().sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+// Robust center + scale (median / 1.4826·MAD ≈ σ). MAD=0 is the COMMON case for
+// sparse signals (analyst-revision net is 0 for most names, the no-flow default,
+// …) — a modal value dominates → MAD 0 would silently zero the whole signal — so
+// fall back to a secondary scale over the non-modal subset before giving up.
+function _robustStats(xs) {
+  if (!xs.length) return null;
+  const med = _median(xs);
+  let scale = 1.4826 * _median(xs.map((x) => Math.abs(x - med)));
+  if (scale === 0) {
+    const nonModal = xs.filter((x) => x !== med);
+    if (nonModal.length) scale = 1.4826 * _median(nonModal.map((x) => Math.abs(x - med)));
+  }
+  return { med, scale }; // scale may still be 0 if the signal is genuinely constant
+}
+function _quantile(sortedAsc, p) {
+  if (!sortedAsc.length) return 0;
+  const i = Math.min(sortedAsc.length - 1, Math.max(0, Math.floor(p * (sortedAsc.length - 1))));
+  return sortedAsc[i];
+}
+
+// Standardize the converted signals across the universe (P3.1), re-fold timing,
+// recompute each name's total, then derive the percentile tier cutoffs (P3.2).
+// Mutates each `scored` entry in place: rewrites pillar.score (legacy kept on
+// pillar.legacyScore), total, recommendation, drivers, and stamps s.z (the
+// standardized feature, for the IC bridge) + s.contribution on every converted
+// signal. Returns { applied, strongCut, tradeCut }. Fails OPEN to the legacy
+// absolute scorer when the flag is off or the universe is too small to a have a
+// distribution (spec §8). regime is reused for the rare timing re-eval on a
+// side flip — it is cross-section-independent for a fixed side.
+function computeCrossSectionalScores(scored, opts = {}) {
+  const xsectional = opts.xsectional !== false;
+  const sectorNeutral = !!opts.sectorNeutral;
+  const regime = opts.regime || null;
+  if (!xsectional || !Array.isArray(scored) || scored.length < PICKS_Z_MIN_UNIVERSE) {
+    return { applied: false, strongCut: PICKS_TIER_STRONG, tradeCut: PICKS_MIN_CONVICTION };
+  }
+
+  // 1. Collect transformed raws per converted key (universe + per-sector pools),
+  //    keeping a back-reference to each signal so we can write z/contribution
+  //    back. Initialize every converted signal to contribution 0 / z null first
+  //    so a null-raw name stays in the universe scored on its other signals.
+  const pools = {};   // key -> [{ r, sig, x, sector }]
+  for (const r of scored) {
+    const sector = (r.data && r.data.fundamentals && r.data.fundamentals.sector) || null;
+    for (const pk of PILLAR_KEYS) {
+      const sigs = r.pillars && r.pillars[pk] && r.pillars[pk].signals;
+      if (!Array.isArray(sigs)) continue;
+      for (const sig of sigs) {
+        const reg = CONVERTED_SIGNALS[sig.key];
+        if (!reg || reg.pillar !== pk) continue;
+        sig.z = null;
+        sig.contribution = 0;
+        const x = _xfRaw(reg.xf, sig.raw);
+        if (x === null) continue;          // missing/untransformable → graceful 0, stays in universe
+        (pools[sig.key] || (pools[sig.key] = [])).push({ r, sig, x, sector });
+      }
+    }
+  }
+
+  // 2. Per signal: robust stats (universe-wide, and per-sector when P3.3 is on),
+  //    z, then map to a contribution (with the contrarian tail+gate wrappers).
+  for (const key of Object.keys(pools)) {
+    const reg = CONVERTED_SIGNALS[key];
+    const W = reg.oldMax / PICKS_Z_CLIP; // scale-preserving weight
+    const entries = pools[key];
+    const universe = _robustStats(entries.map((e) => e.x));
+
+    // Per-sector stats (P3.3) — only for sectors with enough finite raws; thin
+    // sectors / ETF / null-sector fall back to the universe distribution.
+    let sectorStats = null;
+    if (sectorNeutral) {
+      sectorStats = {};
+      const bySec = {};
+      for (const e of entries) {
+        if (!e.sector) continue;
+        (bySec[e.sector] || (bySec[e.sector] = [])).push(e.x);
+      }
+      for (const sec of Object.keys(bySec)) {
+        if (bySec[sec].length >= PICKS_SECTOR_MIN_N) sectorStats[sec] = _robustStats(bySec[sec]);
+      }
+    }
+
+    for (const e of entries) {
+      const st = (sectorNeutral && e.sector && sectorStats[e.sector]) ? sectorStats[e.sector] : universe;
+      if (!st || !(st.scale > 0)) { e.sig.z = 0; e.sig.contribution = 0; continue; }
+      const z = Math.max(-PICKS_Z_CLIP, Math.min(PICKS_Z_CLIP, (e.x - st.med) / st.scale));
+      e.sig.z = z;                       // standardized feature (pre-dir/pre-gate) for the IC bridge
+      const base = reg.dir * z * W;
+      if (reg.contrarian) {
+        // Extreme-fade signals: contribute only when the name is in the absolute
+        // tail AND extreme vs peers in the fade direction (so a name in the
+        // oversold tail but relatively LESS oversold than peers scores 0, not a
+        // wrong-signed tilt). The bullish (positive) side needs a reversal bar.
+        const raw = e.sig.raw;
+        const bull = reg.tailBull(raw);
+        const bear = reg.tailBear(raw);
+        if (!bull && !bear) { e.sig.contribution = 0; continue; }
+        if (bull && base <= 0) { e.sig.contribution = 0; continue; }
+        if (bear && base >= 0) { e.sig.contribution = 0; continue; }
+        if (base > 0 && reg.gated && !bullishReversalConfirmed(e.r.data && e.r.data.technicals)) {
+          e.sig.contribution = 0; continue;
+        }
+        e.sig.contribution = base;
+      } else {
+        e.sig.contribution = base;
+      }
+    }
+  }
+
+  // 3. Recompute each name's pillars/subtotal, re-fold timing, recompute total.
+  for (const r of scored) {
+    let subtotal = 0;
+    for (const pk of PILLAR_KEYS) {
+      const pillar = r.pillars && r.pillars[pk];
+      if (!pillar || !Array.isArray(pillar.signals)) continue;
+      let sum = 0;
+      for (const sig of pillar.signals) {
+        sum += CONVERTED_SIGNALS[sig.key] ? (sig.contribution || 0) : (sig.score || 0);
+      }
+      if (pillar.legacyScore === undefined) pillar.legacyScore = pillar.score;
+      pillar.score = sum;
+      subtotal += sum;
+    }
+
+    // Re-fold the entry-timing contribution. It was evaluated for the legacy
+    // side; if the re-scored subtotal flips sign the cached value is for the
+    // WRONG trade, so recompute computeEntryTiming for the new side (cheap, only
+    // the flipped minority; cross-section-independent for a fixed side).
+    const timing = r.pillars && r.pillars.timing;
+    const newDir = subtotal >= 0 ? 1 : -1;
+    const newSide = newDir > 0 ? "call" : "put";
+    let tc = 0;
+    if (timing) {
+      const cachedDir = timing.side === "put" ? -1 : 1;
+      if (newDir === cachedDir && Number.isFinite(timing.rawContribution)) {
+        tc = timing.rawContribution;
+      } else {
+        const et = computeEntryTiming(newSide, r.data, (r.data && r.data.spot) || null, { regime });
+        tc = Number.isFinite(et.contribution) ? et.contribution : 0;
+        timing.state = et.state;
+        timing.headline = et.headline || "";
+        timing.reasons = Array.isArray(et.reasons) ? et.reasons : [];
+        timing.side = newSide;
+        timing.rawContribution = tc;
+      }
+    }
+    const total = newDir * Math.max(0, Math.abs(subtotal) + tc);
+    if (timing) {
+      const timingDelta = total - subtotal;
+      timing.score = timingDelta;
+      if (Array.isArray(timing.signals) && timing.signals[0]) timing.signals[0].score = timingDelta;
+    }
+    r.total = total;
+
+    // Rebuild the headline drivers from the re-scored contributions (else the
+    // card would show stale legacy integer weights inconsistent with the new
+    // pillar sums and the thesis prose).
+    const all = [];
+    for (const pk of PILLAR_KEYS) {
+      const pillar = r.pillars[pk];
+      if (!pillar || !Array.isArray(pillar.signals)) continue;
+      for (const s of pillar.signals) {
+        const w = CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0);
+        if (w) all.push({ tag: pk, weight: w, label: s.label, value: s.value, note: s.note });
+      }
+    }
+    if (timing && timing.score) {
+      all.push({ tag: "timing", weight: timing.score, label: timing.headline || "Entry timing", value: null, note: "" });
+    }
+    r.drivers = all
+      .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
+      .slice(0, 8)
+      .map((s) => ({ tag: s.tag, weight: s.weight, text: `${s.label}${s.value ? ` (${s.value})` : ""}${s.note ? ` — ${s.note}` : ""}` }));
+  }
+
+  // 4. Percentile-relative tier cutoffs (P3.2): the |total| at the top
+  //    PICKS_TIER_PCTL_STRONG / PICKS_TIER_PCTL_TRADE ranks. Pure percentile —
+  //    the absolute ±12/16 bars are only the small-universe fallback (handled by
+  //    the early return above).
+  const absSorted = scored.map((r) => Math.abs(r.total)).sort((a, b) => a - b);
+  const strongCut = _quantile(absSorted, 1 - PICKS_TIER_PCTL_STRONG);
+  const tradeCut = _quantile(absSorted, 1 - PICKS_TIER_PCTL_TRADE);
+  for (const r of scored) r.recommendation = tierForScore(r.total, { strongCut, tradeCut });
+  return { applied: true, strongCut, tradeCut };
+}
+
 // First pass of the picks pipeline, also reused on its own by buildGradesIndex:
 // score EVERY tracked ticker with the full 4-pillar breakdown and build the
 // industry → peer index. buildTopPicks then drops all but the actionable names,
 // but the grades index keeps the whole set so the Top Picks tab can grade any
 // searched ticker, not just the ~10 that clear the conviction threshold.
-function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
+function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, opts = {}) {
   const sectorMedianPE = buildSectorPEMedians(chains);
 
   // Broad-market direction context for the SPY-flows mechanical signal.
@@ -8650,6 +8992,18 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     });
   }
 
+  // Cross-sectional standardization (P3.1/P3.2/P3.3) — runs ONCE over the whole
+  // universe here, so both buildTopPicks and buildGradesIndex (and regen-picks,
+  // which reuses them) inherit the relative scores + percentile tiers with no
+  // further change. Fails open to the legacy absolute totals from scorePillared
+  // when the flag is off or the universe is below the standardization floor.
+  const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  const tierCutoffs = computeCrossSectionalScores(scored, {
+    xsectional: opts.xsectional ?? PICKS_XSECTIONAL,
+    sectorNeutral: opts.sectorNeutral ?? PICKS_SECTOR_NEUTRAL,
+    regime,
+  });
+
   // Build industry → [{symbol, total, side, tier}, ...] index for peer
   // comparison (keyed by the sub-industry from peerGroupOf, not the broad
   // sector, so picks are stacked against true competitors).
@@ -8677,30 +9031,93 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
 
   // marketCtx (the SPY day move) rides out so buildTopPicks can derive the
   // broad-market regime for the execution-timing gate + risk-off put path.
-  // buildGradesIndex destructures only { scored, peerIndex } and ignores it.
-  return { scored, peerIndex, marketCtx };
+  // tierCutoffs carries the percentile cutoffs (P3.2) so buildTopPicks's
+  // actionable filter and writeGradesFile's minConviction track them.
+  // buildGradesIndex destructures { scored, peerIndex, tierCutoffs }.
+  return { scored, peerIndex, marketCtx, tierCutoffs };
 }
 
-export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE) {
-  const { scored, peerIndex, marketCtx } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
-  const regime = detectMarketRegime(marketCtx, macroBackdrop);
+// Risk-based position sizing (P3.4). For each surviving pick: a per-name risk
+// denominator (the option-aware % of premium lost if the underlying hits the
+// stop — Δ/premium-aware — falling back to underlying ATR%), a conviction tilt,
+// then a normalized weight so Σweight = PICKS_GROSS_TARGET (rest cash) and a
+// display-only suggested contract count. Writes pick.sizing = { weight,
+// riskToStopPct, riskDenom, suggestedContracts }. `chains` is passed so the ATR
+// fallback can recover the bar series (timingBarsFrom) for a pick by symbol.
+function applyPickSizing(picks, chains, strongCut) {
+  if (!Array.isArray(picks) || !picks.length) return;
+  const strong = (Number.isFinite(strongCut) && strongCut > 0) ? strongCut : PICKS_TIER_STRONG;
+  const rows = [];
+  for (const p of picks) {
+    const spot = Number(p.spot);
+    const premium = Number(p.contract && p.contract.mid);
+    const absDelta = Math.abs(Number(p.contract && p.contract.delta));
+    const stopFrac = (p.exitPlan && p.exitPlan.cut && Number.isFinite(p.exitPlan.cut.movePct))
+      ? Math.abs(p.exitPlan.cut.movePct) / 100      // cut.movePct is a PERCENT → fraction
+      : null;
+    let risk, denom;
+    if (PICKS_SIZE_RISK_DENOM === "option" && absDelta > 0 && premium > 0 && stopFrac != null && spot > 0) {
+      // First-order % of premium lost if the underlying hits the stop. premium
+      // and (stopFrac·spot·|delta|) are both PER-SHARE, so the ×100 contract
+      // multiplier cancels — do not multiply premium by 100 here. Capped at 1.0:
+      // a long option can't lose more than 100% of premium, and the linear-delta
+      // estimate can overshoot past it on a leveraged near-the-money contract.
+      risk = Math.max(PICKS_SIZE_VOL_FLOOR, Math.min(1, (stopFrac * spot * absDelta) / premium));
+      denom = "option";
+    } else {
+      const data = chains && chains[p.symbol];
+      const tb = data ? timingBarsFrom(data) : null;
+      const atrPct = tb ? atrPctFrom(tb.h, tb.l, tb.c) : null; // atrPctFrom returns a PERCENT
+      risk = (Number.isFinite(atrPct) && atrPct > 0)
+        ? Math.max(PICKS_SIZE_VOL_FLOOR, atrPct / 100)
+        : Math.max(PICKS_SIZE_VOL_FLOOR, 0.08);      // mirror buildExitPlan's flat fallback when ATR is unavailable
+      denom = "atr";
+    }
+    const tilt = Math.max(PICKS_SIZE_TILT_MIN, Math.min(PICKS_SIZE_TILT_MAX, Math.abs(p.total) / strong));
+    const rawW = (1 / risk) * tilt;
+    rows.push({ p, risk, denom, rawW, premium });
+  }
+  const sumW = rows.reduce((a, r) => a + (Number.isFinite(r.rawW) ? r.rawW : 0), 0);
+  for (const row of rows) {
+    const weight = sumW > 0 ? (row.rawW / sumW) * PICKS_GROSS_TARGET : (PICKS_GROSS_TARGET / rows.length);
+    // weight already sums to the gross target (cash is the remainder), so the
+    // dollar allocation is weight·ACCOUNT — do not re-apply the gross target.
+    const contracts = row.premium > 0 ? Math.floor((weight * PICKS_DISPLAY_ACCOUNT) / (row.premium * 100)) : 0;
+    row.p.sizing = {
+      weight: Number(weight.toFixed(4)),
+      riskToStopPct: Number(row.risk.toFixed(4)),
+      riskDenom: row.denom,
+      suggestedContracts: Math.max(0, contracts),
+    };
+  }
+}
 
-  // Candidate set: every name the GRADE marks actionable (|total| ≥
-  // PICKS_MIN_CONVICTION), each tagged with its side. The grade now already bakes
-  // in entry timing (scorePillared), so a chasing-top / falling-knife name has
-  // been pushed below the bar and simply isn't here. PLUS, when the broad tape is
-  // confirmed risk-off, a "tactical put" tier — bearish-leaning names that don't
-  // clear the bar (total ≤ PICKS_RISKOFF_PUT_BAR) — which still ship only on a
-  // clean breakdown (timing 'go'). This is how puts appear in a long-biased
-  // universe.
+export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
+  const { scored, peerIndex, marketCtx, tierCutoffs } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
+  const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  // The actionable bar is the percentile trade cutoff (P3.2) when the
+  // standardizer applied, else the legacy ±PICKS_MIN_CONVICTION (tierCutoffs
+  // defaults to the legacy constants on the small-universe / flag-off path).
+  const tradeCut = (tierCutoffs && Number.isFinite(tierCutoffs.tradeCut)) ? tierCutoffs.tradeCut : PICKS_MIN_CONVICTION;
+
+  // Candidate set: every name the GRADE marks actionable, each tagged with its
+  // side. recommendation.side is null below the cutoff (set by tierForScore with
+  // the percentile cutoffs), so filtering on `side` already encodes the bar — no
+  // separate absolute magnitude test. The grade now already bakes in entry timing
+  // (scorePillared + the cross-sectional re-fold), so a chasing-top / falling-
+  // knife name has been pushed below the bar and simply isn't here. PLUS, when
+  // the broad tape is confirmed risk-off, a "tactical put" tier — bearish-leaning
+  // names that don't clear the bar (total ≤ PICKS_RISKOFF_PUT_BAR) — which still
+  // ship only on a clean breakdown (timing 'go'). This is how puts appear in a
+  // long-biased universe.
   const candSet = scored
-    .filter((s) => Math.abs(s.total) >= PICKS_MIN_CONVICTION && s.recommendation.side)
+    .filter((s) => s.recommendation && s.recommendation.side)
     .map((s) => ({ r: s, side: s.recommendation.side, tactical: false }));
   if (regime === "risk-off") {
     const seen = new Set(candSet.map((c) => c.r.sym));
     for (const s of scored) {
       if (seen.has(s.sym)) continue;
-      if (s.total <= PICKS_RISKOFF_PUT_BAR && s.total > -PICKS_MIN_CONVICTION) {
+      if (s.total <= PICKS_RISKOFF_PUT_BAR && s.total > -tradeCut) {
         candSet.push({ r: s, side: "put", tactical: true });
       }
     }
@@ -8846,6 +9263,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   out.sort((a, b) =>
     Math.abs(b.total) - Math.abs(a.total) ||
     ((b.entryTiming?.score || 0) - (a.entryTiming?.score || 0)));
+  // Risk-based position sizing (P3.4) — a pure post-step over the roster
+  // survivors (never the 120+ off-roster names). Sizes each pick inverse to its
+  // risk-to-stop and tilts by conviction, normalized so Σweight = the gross
+  // target. Independent of the scoring rework, so it runs whether or not the
+  // standardizer applied (strongCut defaults to the legacy bar on the fallback).
+  applyPickSizing(out, chains, tierCutoffs && tierCutoffs.strongCut);
   // Roster construction meta (gate drops + sector-cap skips) so the UI can show
   // an honest "only N clean setups today / M capped" note. Stashed on a
   // non-enumerable so JSON.stringify(picks) is unchanged but writeTopPicksFile
@@ -8871,8 +9294,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 // of the buildTopPicks pickPayload the Grade view needs — pick-only fields
 // (contract / entryPlan / exitPlan / analysis / thesis) are intentionally
 // omitted since off-list names have no recommended contract.
-export function buildGradesIndex(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null) {
-  const { scored, peerIndex } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+export function buildGradesIndex(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, opts = {}) {
+  const { scored, peerIndex, tierCutoffs } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const grades = {};
   for (const r of scored) {
     const sector = r.data?.fundamentals?.sector || null;
@@ -8909,6 +9332,11 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
       catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
     };
   }
+  // Stash the percentile tier cutoffs (P3.2) on a non-enumerable so writeGradesFile
+  // can publish minConviction = the actionable (trade) cutoff that the grade-tab
+  // "actionable" gate reads — without changing the serialized grades shape. Falls
+  // back to the legacy ±12 bar on the small-universe / flag-off path.
+  Object.defineProperty(grades, "tierCutoffs", { value: tierCutoffs || null, enumerable: false });
   return grades;
 }
 
@@ -8917,7 +9345,12 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
 // it lives in the normal data/ write path and needs no SCANNER_FILES handling.
 export async function writeGradesFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, volumeFlags = null, prebuiltGrades = null) {
   const grades = prebuiltGrades || buildGradesIndex(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags);
-  const payload = { builtAtIso, minConviction: PICKS_MIN_CONVICTION, grades };
+  // minConviction = the percentile trade cutoff when the standardizer applied,
+  // else the legacy ±PICKS_MIN_CONVICTION. The grade tab reads this to label a
+  // searched name actionable / no-trade, so it must track the live cutoff.
+  const minConviction = (grades && grades.tierCutoffs && Number.isFinite(grades.tierCutoffs.tradeCut))
+    ? grades.tierCutoffs.tradeCut : PICKS_MIN_CONVICTION;
+  const payload = { builtAtIso, minConviction, grades };
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, GRADES_FILE), json, "utf8");
   return { bytes: json.length, count: Object.keys(grades).length, grades };
@@ -8999,7 +9432,7 @@ export function diffGradesHistory(prev, gradesIndex, builtAtIso) {
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
       .slice(0, 2);
     const whyText = why.length
-      ? why.map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${d.delta}`).join(", ")
+      ? why.map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${Math.round(d.delta * 10) / 10}`).join(", ")
       : "mixed signals";
     const direction = deltaScore > 0 ? "up"
       : deltaScore < 0 ? "down"
@@ -9102,7 +9535,7 @@ function picksChangeWhy(prevScores, curScores) {
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
     .slice(0, 2);
   const whyText = why.length
-    ? why.map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${d.delta}`).join(", ")
+    ? why.map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${Math.round(d.delta * 10) / 10}`).join(", ")
     : "mixed signals";
   return { why, whyText };
 }
@@ -9308,7 +9741,7 @@ function rosterPillarDelta(prevMap, curMap) {
     .filter((d) => d.delta !== 0)
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   const whyText = ranked.length
-    ? ranked.slice(0, 2).map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${d.delta}`).join(", ")
+    ? ranked.slice(0, 2).map((d) => `${GRADE_PILLAR_LABEL[d.pillar]} ${d.delta > 0 ? "+" : ""}${Math.round(d.delta * 10) / 10}`).join(", ")
     : "no pillar change";
   return { deltas, whyText };
 }
@@ -9436,7 +9869,7 @@ async function aiExplainPicksChanges(events, chains) {
     const dir = ev.event === "entered" ? "ENTERED" : "LEFT";
     const userMessage =
       `${ev.symbol} just ${dir} the actionable Top Picks (a ${ev.side}). ` +
-      `Conviction score moved ${ev.prevTotal} → ${ev.total}. ${ev.whyText}.` +
+      `Conviction score moved ${Math.round((Number(ev.prevTotal) || 0) * 10) / 10} → ${Math.round((Number(ev.total) || 0) * 10) / 10}. ${ev.whyText}.` +
       (ev.drivers && ev.drivers.length ? ` Current signals: ${ev.drivers.join("; ")}.` : "") +
       (verdict ? ` Fundamentals verdict: ${verdict}.` : "") +
       (ev.rsi != null ? ` RSI ${Math.round(ev.rsi)}.` : "") +
@@ -10236,11 +10669,24 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // Flat snapshot of every directional signal at entry — the substrate for the
     // per-signal attribution in computePicksAccuracyStats. Cheap + additive;
     // older entries without it are simply skipped by that aggregator.
+    // P3.1 IC bridge (rubric §9.6): also persist the STANDARDIZED z (mean 0 /
+    // unit scale across the universe, computed in computeCrossSectionalScores)
+    // and the continuous `contribution` for converted signals — so once bySignal
+    // clears PICKS_SIGNAL_MIN_N, fitting per-signal IC weights W_s is a literal
+    // drop-in (correlate the stored z-vector against the realized outcome). z is
+    // null on the legacy / non-converted path; existing consumers read only
+    // key/pillar/score and are unaffected.
     const entrySignals = [];
     const pl = p.pillars || {};
     for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative", "timing"]) {
       for (const s of (pl[pk]?.signals || [])) {
-        if (s && s.key) entrySignals.push({ key: s.key, pillar: pk, score: s.score | 0 });
+        if (s && s.key) entrySignals.push({
+          key: s.key,
+          pillar: pk,
+          score: s.score | 0,
+          contribution: Number.isFinite(s.contribution) ? Number(s.contribution.toFixed(4)) : null,
+          z: Number.isFinite(s.z) ? Number(s.z.toFixed(3)) : null,
+        });
       }
     }
     stillOpen.push({

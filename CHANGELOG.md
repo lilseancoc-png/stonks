@@ -16,6 +16,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Added
+- **Top Picks P3.4 — risk-based position sizing.** Each roster pick now carries a numeric `sizing` block (`weight`, `riskToStopPct`, `riskDenom`, `suggestedContracts`) sized inverse to risk (option-aware % of premium lost to the stop, ATR% fallback) and tilted by conviction, normalized so the book's weights sum to `PICKS_GROSS_TARGET` (0.80). Replaces the qualitative "Standard size"/"Load the Boat" label on the card with "size ~X% of book · ~N contracts at $Y" (a suggested size on a configurable `PICKS_DISPLAY_ACCOUNT`, not a live balance).
+- **Top Picks P3.1/P3.3 — cross-sectional robust z-scoring.** The 16 per-name continuous signals (growth %, ratios, RSI level, rvol, OI/PC ratios, social sentiment, …) are now scored by a robust z (median/MAD) against the rest of the universe each build — sector-neutral by default (`PICKS_SECTOR_NEUTRAL`) — instead of fixed hand-tuned thresholds, so "cheap / fast-growing / overbought" self-recalibrate every rebuild and one rallying cohort no longer floats the whole roster up together. Discrete events (guidance, catalysts, MACD, …), market-wide common factors (SPY/VIX/DXY/10Y/macro), and the two non-monotonic per-name signals (short interest, unusual volume) stay on their fixed logic. The standardized z per signal is persisted into the accuracy `entrySignals` snapshot, making future per-signal IC weighting a drop-in.
+
+### Changed
+- **Top Picks P3.2 — percentile-relative tiers.** Tiers are now set by cross-sectional percentile of `|total|` (top `PICKS_TIER_PCTL_STRONG` 5% → Strong, top `PICKS_TIER_PCTL_TRADE` 12% → actionable) instead of the fixed ±12/±16 bars, which become the small-universe (< `PICKS_Z_MIN_UNIVERSE`) fallback only. This retires the recalibrate-the-constant treadmill — the bar tracks the distribution every build. Scores keep a roughly-legacy scale via per-signal weights `W_s = oldMax/PICKS_Z_CLIP` (spec §3.4). The whole rework is gated by `PICKS_XSECTIONAL` (default ON; set `=0` to fall back to the legacy absolute scorer). Expect grades/tiers/roster/history to shift once on the first bake (the scoring basis changed); because relative scoring demeans a long-biased universe, the roster can carry more outright puts than the old absolute engine.
+
 ### Docs
 - **Rubric §3 P/E signal: define "no growth".** A code-vs-rubric audit found the only underspecified line in `docs/top-picks-rubric.md` — the P/E-vs-sector penalty said "≥150% with no growth −1" without defining "no growth". Clarified to match the code (`scoreFundamentals`): EPS growth YoY < 5% (or unavailable). Pure doc precision; no behavior change.
 

@@ -66,9 +66,28 @@ so a well-timed name outscores a chased one directly.
 
 ## 3. The 4-pillar score (with decorrelation reworks)
 
-Every signal scores in `{-3…+3}`. Pillar score = sum of its signals; `total` =
-sum of the four pillars **plus the entry-timing component (§6)**, which adds
-−8..+4 to conviction in the implied direction (without ever flipping the side).
+Pillar score = sum of its signals; `total` = sum of the four pillars **plus the
+entry-timing component (§6)**, which adds −8..+4 to conviction in the implied
+direction (without ever flipping the side).
+
+> **Cross-sectional standardization (P3.1/P3.3, default on via `PICKS_XSECTIONAL`).**
+> The per-name **continuous** signals below (growth %, ratios, RSI level, rvol, the
+> OI/PC ratios, social sentiment — 16 in all) are no longer scored against fixed
+> thresholds. `computeCrossSectionalScores` standardizes each to a **robust z**
+> (median / 1.4826·MAD, winsorized to ±`PICKS_Z_CLIP`) against the rest of the universe
+> *this build* — **within each GICS sector** when `PICKS_SECTOR_NEUTRAL` is on — and the
+> signal's contribution becomes `dir · z · W_s` (`W_s = oldMax/PICKS_Z_CLIP`, so the
+> scale stays roughly legacy). The fixed-threshold columns below are the **legacy
+> reference**; the card's per-signal chip shows the actual standardized contribution.
+> **Discrete/event signals** (guidance, major-contract, MACD, streak, S/R breaks,
+> SMA-stack, chart pattern, ±2/−3 catalysts, sector narrative, media), **market-wide
+> common factors** (SPY/VIX/DXY/10Y/macro), and the two **non-monotonic** per-name
+> signals (short interest, unusual volume) keep their fixed integer scores. The three
+> contrarian signals (RSI reading, 52-week, P/C) keep their extreme-only dead-band +
+> asymmetric bullish-reversal gate around the z. Full spec:
+> [`top-picks-improvements.md`](./top-picks-improvements.md) §P3. Below the universe
+> floor (`PICKS_Z_MIN_UNIVERSE`) or with the flag off, every signal uses its fixed
+> threshold and tiers fall back to the absolute ±12/16 bars.
 
 ### Fundamentals (`scoreFundamentals`)
 | Signal | Scoring |
@@ -138,26 +157,42 @@ sum of the four pillars **plus the entry-timing component (§6)**, which adds
 
 ## 4. Tiers (`tierForScore`)
 
-| `total` | Tier | Conviction | Sizing |
+Tiers are **percentile-relative** (P3.2 — see [`top-picks-improvements.md`](./top-picks-improvements.md)),
+the necessary consequence of the cross-sectional scoring in §3. Each build:
+
+| percentile of `|total|` across the universe | Tier | Conviction | Sizing |
 |---|---|---|---|
-| ≥ +16 | Strong Call | Very High | Load the Boat |
-| +12 … +15 | Call | High | Standard |
-| −11 … +11 | No Trade | — | Skip (not shipped) |
-| −12 … −15 | Put | High | Standard |
-| ≤ −16 | Strong Put | Very High | Load the Boat |
+| top `PICKS_TIER_PCTL_STRONG` (5%) | Strong Call / Strong Put (by sign) | Very High | §4.1 |
+| next, to top `PICKS_TIER_PCTL_TRADE` (12%) | Call / Put (by sign) | High | §4.1 |
+| else | No Trade | — | Skip (not shipped) |
 
-`PICKS_MIN_CONVICTION = 12`, `PICKS_TIER_STRONG = 16` — **recalibrated (twice) down
-from ±16/±20** as the scoring was de-inflated to remove double-counting: first to
-±14/±18 (MA-stack decorrelation + Positive-Catalyst cut), then to ±12/±16 (rubric
-audit — dropped the Media sentiment echo, gated the VIX-tracking "free +1", graded
-the flat-+2 guidance proxy). The removed points were spurious (double-counted or
-undiscriminating), so lowering the bar by the same offset is **ranking-preserving**,
-not a loosening of standards — it tracks the now-lower distribution so the intended
-"top ~10-13 actionable / very-best = Strong" selectivity holds.
+`tierForScore(score, {strongCut, tradeCut})` takes the cutoffs computed in
+`computeCrossSectionalScores` (the `|total|` at the top-5% / top-12% ranks). On the
+**small-universe / flag-off** path (`scored.length < PICKS_Z_MIN_UNIVERSE`, or
+`PICKS_XSECTIONAL=0`) it falls back to the legacy **absolute** bars
+`PICKS_MIN_CONVICTION = 12` / `PICKS_TIER_STRONG = 16`. Those bars were themselves
+recalibrated twice (±16/±20 → ±14/±18 → ±12/±16) as the scoring was de-inflated — a
+treadmill the percentile tiers now retire: the bar tracks the distribution every build
+by construction. On 138 names the percentile tiers yield ≈8 Strong / ≈18 actionable.
+Scores stay on a roughly-legacy scale via the scale-preserving weights
+`W_s = oldMax/PICKS_Z_CLIP` (§3), so the secondary ±12/16 / −8 reads elsewhere stay valid.
 
-The engine is **long-biased in practice**: persistent fundamentals + narrative keep
-quality names positive, so graded puts (`total ≤ −12`) are rare. The timing gate's
-risk-off **tactical put** path (§6) is the escape valve.
+The universe is curated long, but **cross-sectional standardization demeans it** (§3),
+so the actionable set — selected by percentile of `|total|` regardless of sign — can
+carry materially more outright puts than the old absolute engine (a relatively-weak
+name now goes clearly negative rather than sitting near 0). The timing gate's risk-off
+**tactical put** path (§6) still adds sub-bar puts on a confirmed-risk-off tape.
+
+### 4.1 Sizing (`applyPickSizing`, P3.4)
+Sizing is **numeric and risk-based**, not the old "Standard / Load the Boat" label.
+For each roster survivor: a per-name risk denominator (the option-aware % of premium
+lost if the underlying hits the stop — `(stopDistFrac·spot·|Δ|)/premium`, capped at
+100%, ATR%-of-underlying fallback, floored at `PICKS_SIZE_VOL_FLOOR`), a conviction
+`tilt = clamp(|total|/strongCut, PICKS_SIZE_TILT_MIN, _MAX)`, then a normalized
+`weight = (1/risk · tilt)/Σ · PICKS_GROSS_TARGET` (Σ weight = the gross target, rest
+cash). Each pick ships a `sizing` block `{weight, riskToStopPct, riskDenom,
+suggestedContracts}`, rendered "size ~X% of book · ~N contracts at $Y" against a
+display-only `PICKS_DISPLAY_ACCOUNT`. Highest-vol survivor → smallest weight (risk parity).
 
 ---
 
@@ -407,8 +442,14 @@ it has to be trustworthy. The fixes:
 ## 9. Tuning & caveats
 
 - Every threshold is a named constant in `scripts/build.mjs`:
-  - **Tiers:** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`, `PICKS_COUNT 10`,
-    `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`).
+  - **Cross-sectional (P3.x, §3/§4):** `PICKS_XSECTIONAL` (master flag, default ON),
+    `PICKS_SECTOR_NEUTRAL` (default ON), `PICKS_Z_CLIP 3.0`, `PICKS_Z_MIN_UNIVERSE 20`,
+    `PICKS_SECTOR_MIN_N 8`, `PICKS_TIER_PCTL_STRONG 0.05`, `PICKS_TIER_PCTL_TRADE 0.12`;
+    per-signal `W_s = oldMax/PICKS_Z_CLIP` (`CONVERTED_SIGNALS` registry).
+  - **Sizing (P3.4, §4.1):** `PICKS_SIZE_RISK_DENOM 'option'`, `PICKS_SIZE_VOL_FLOOR 0.05`,
+    `PICKS_SIZE_TILT_MIN/MAX 0.6/1.4`, `PICKS_GROSS_TARGET 0.80`, `PICKS_DISPLAY_ACCOUNT 25000`.
+  - **Tiers (legacy floor fallback):** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`,
+    `PICKS_COUNT 10`, `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`).
   - **Contract (`pickContractForPick`):** `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,
     `PICKS_OTM_MIN/MAX_PCT −0.20/0.12`, `PICKS_MAX_PREMIUM 35` +
     `PICKS_MAX_PREMIUM_PCT_OF_SPOT 0.12` (cap = max of the two).
@@ -438,6 +479,19 @@ it has to be trustworthy. The fixes:
   validated until forward, gate-era picks accumulate (the 2×2 ablation — ATR-floor /
   no-gate vs ATR-floor / gate-on — needs the modeled option P&L of P0.1). The Grade
   tab's Entry-timing panel labels it "research / unproven" accordingly.
+
+### 9.6 IC bridge — from standardized z to per-signal weights
+The cross-sectional pass (§3) produces a standardized z (mean 0 / unit scale) per
+converted signal per name. `updatePicksAccuracyFile` persists it into the accuracy
+enroll snapshot — `entrySignals[].z` alongside the legacy integer `score` and the
+`contribution` — so it accumulates into `picks-accuracy.json` `closed[]` as outcomes
+resolve. Today signal **weights stay equal** (`W_s = oldMax/PICKS_Z_CLIP`,
+scale-preserving) and `bySignal` is sign-only hit-rate (§8). Once `bySignal` clears
+`PICKS_SIGNAL_MIN_N`, fitting per-signal IC weights from the realized outcomes is a
+**drop-in**: correlate each signal's stored z-vector against the realized win/loss (or
+`optionPnlPct`) and set `W_s ∝ IC_s`. No rescaling needed — the persisted z is already
+cross-sectionally comparable at entry. This is the substrate; it does not turn weights
+on (same discipline as the gate: measure on forward, gate-era data first).
 
 ---
 

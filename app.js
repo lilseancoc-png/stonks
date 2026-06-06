@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-05","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-05","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -9965,7 +9965,9 @@
   var ROSTER_PILLAR_LETTER = { fundamentals:'F', technicals:'T', mechanicals:'M', narrative:'N' };
   var ROSTER_PILLAR_LABEL = { fundamentals:'Fundamentals', technicals:'Technicals', mechanicals:'Mechanicals', narrative:'Narrative' };
   function rosterSign(n){ return n > 0 ? 'sig-pos' : (n < 0 ? 'sig-neg' : 'sig-zero'); }
-  function rosterSignedNum(n){ if (n == null) return '—'; return (n > 0 ? '+' : '') + n; }
+  // Scores/deltas are cross-sectional floats now (P3.1) — round to 1 decimal.
+  function roster1(n){ return (n != null && isFinite(n)) ? (Math.round(Number(n) * 10) / 10) : n; }
+  function rosterSignedNum(n){ if (n == null) return '—'; var r = roster1(n); return (r > 0 ? '+' : '') + r; }
   function rosterStatusBadge(status, sideFlipped){
     var map = { entered:['sig-pos','▲ IN','Newly in the Top 10 this refresh'], held:['','• HELD','Held its Top 10 spot'], 'new':['sig-pos','★ NEW','Newly tracked this refresh'] };
     var m = map[status] || map.held;
@@ -10028,12 +10030,12 @@
     var scoreHtml;
     if (e.status === 'held' && e.priorTotal != null){
       var dc = rosterSign(e.deltaScore);
-      scoreHtml = '<span class="roster-score">' + e.priorTotal + '→' + e.total +
+      scoreHtml = '<span class="roster-score">' + roster1(e.priorTotal) + '→' + roster1(e.total) +
         ' <small class="' + dc + '">(' + rosterSignedNum(e.deltaScore) + ')</small></span>';
     } else if (e.status === 'entered'){
-      scoreHtml = '<span class="roster-score sig-pos">NEW · ' + e.total + '</span>';
+      scoreHtml = '<span class="roster-score sig-pos">NEW · ' + roster1(e.total) + '</span>';
     } else {
-      scoreHtml = '<span class="roster-score">' + e.total + '</span>';
+      scoreHtml = '<span class="roster-score">' + roster1(e.total) + '</span>';
     }
     var summary = '<summary class="roster-row-head">' +
       '<span class="roster-rank">#' + e.rank + '</span>' +
@@ -10056,8 +10058,8 @@
   function rosterExitedRow(e){
     var dc = e.deltaScore != null ? rosterSign(e.deltaScore) : '';
     var scoreHtml = e.curTotal != null
-      ? '<span class="roster-score">' + e.prevTotal + '→' + e.curTotal + ' <small class="' + dc + '">(' + rosterSignedNum(e.deltaScore) + ')</small></span>'
-      : '<span class="roster-score">' + e.prevTotal + '→<small class="muted">untracked</small></span>';
+      ? '<span class="roster-score">' + roster1(e.prevTotal) + '→' + roster1(e.curTotal) + ' <small class="' + dc + '">(' + rosterSignedNum(e.deltaScore) + ')</small></span>'
+      : '<span class="roster-score">' + roster1(e.prevTotal) + '→<small class="muted">untracked</small></span>';
     var tag = e.stillActionable
       ? '<span class="roster-out-tag" title="Still clears the conviction bar — just out-ranked off the Top 10">out-ranked</span>'
       : '<span class="roster-out-tag sig-neg" title="Dropped below the conviction bar">below bar</span>';
@@ -10136,7 +10138,7 @@
       var evCls = entered ? 'sig-pos' : 'sig-neg';
       var evLbl = entered ? 'IN' : 'OUT';
       var evArrow = entered ? '▲' : '▼';
-      var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? c.deltaScore : '');
+      var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? (Math.round(Number(c.deltaScore) * 10) / 10) : '');
       // The AI one-liner is the headline when present; the deterministic whyText
       // is always shown beneath as the auditable reason.
       var aiHtml = c.aiText ? '<span class="acc-pc-ai">' + escapeHtml(c.aiText) + '</span>' : '';
@@ -10145,7 +10147,7 @@
         '<span class="acc-pc-evt ' + evCls + '" title="' + (entered ? 'Crossed onto the actionable list' : 'Dropped off the actionable list') + '">' + evArrow + ' ' + evLbl + '</span>' +
         '<span class="acc-sym">' + escapeHtml(c.symbol || '—') + '</span>' +
         accSidePill(c.side) +
-        '<span class="acc-pc-score ' + evCls + '">' + (c.prevTotal != null ? c.prevTotal : '?') + '→' + (c.total != null ? c.total : '?') + ' (' + ds + ')</span>' +
+        '<span class="acc-pc-score ' + evCls + '">' + (c.prevTotal != null ? (Math.round(Number(c.prevTotal) * 10) / 10) : '?') + '→' + (c.total != null ? (Math.round(Number(c.total) * 10) / 10) : '?') + ' (' + ds + ')</span>' +
         '<span class="acc-pc-reason">' + (aiHtml || whyHtml) + (aiHtml && whyHtml ? whyHtml : '') + '</span>' +
         '<span class="acc-pc-date">' + accDateShort(c.date) + '</span>' +
       '</div>';
@@ -10174,13 +10176,13 @@
     changes.slice(0, MAX_ROWS).forEach(function(c){
       var up = c.direction === 'up';
       var dir = up ? 'sig-pos' : 'sig-neg';
-      var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? c.deltaScore : '');
+      var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? (Math.round(Number(c.deltaScore) * 10) / 10) : '');
       rows += '<div class="acc-gc-row">' +
         '<span class="acc-sym">' + escapeHtml(c.symbol || '—') + '</span>' +
         '<span class="acc-gc-tiers">' + accTierTag(c.oldTier) +
           '<span class="acc-gc-arrow ' + dir + '">' + (up ? '▲' : '▼') + '</span>' +
           accTierTag(c.newTier) + '</span>' +
-        '<span class="acc-gc-score ' + dir + '">' + c.oldTotal + '→' + c.newTotal + ' (' + ds + ')</span>' +
+        '<span class="acc-gc-score ' + dir + '">' + (Math.round(Number(c.oldTotal) * 10) / 10) + '→' + (Math.round(Number(c.newTotal) * 10) / 10) + ' (' + ds + ')</span>' +
         '<span class="acc-gc-why">' + escapeHtml(c.whyText || '') + '</span>' +
         '<span class="acc-gc-date">' + accDateShort(c.date) + '</span>' +
       '</div>';
@@ -10225,8 +10227,8 @@
         '<span>' + accDateShort(c.date) + '</span>' +
         '<span>$' + (Number(c.spot) || 0).toFixed(2) + '</span>' +
         '<span class="' + (dPct == null ? '' : (dPct >= 0 ? 'sig-pos' : 'sig-neg')) + '">' + (dPct == null ? '—' : accPct(dPct)) + '</span>' +
-        '<span>' + (c.score != null ? ((c.score >= 0 ? '+' : '') + c.score) : '—') +
-          (dScore != null && dScore !== 0 ? ' <small class="' + (dScore > 0 ? 'sig-pos' : 'sig-neg') + '">(' + (dScore > 0 ? '+' : '') + dScore + ')</small>' : '') + '</span>' +
+        '<span>' + (c.score != null ? ((c.score >= 0 ? '+' : '') + (Math.round(Number(c.score) * 10) / 10)) : '—') +
+          (dScore != null && dScore !== 0 ? ' <small class="' + (dScore > 0 ? 'sig-pos' : 'sig-neg') + '">(' + (dScore > 0 ? '+' : '') + (Math.round(dScore * 10) / 10) + ')</small>' : '') + '</span>' +
       '</div>';
     });
     return '<details class="acc-checkpoints">' +
@@ -10364,7 +10366,7 @@
           '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
           (desc ? '<span class="acc-contract">' + escapeHtml(desc) + '</span>' : '') +
           accTierTag(e.tier, e.label) +
-          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? e.score : '—')) + '</span>' +
+          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
           '<span class="acc-since ' + (favorable ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + '</span>' +
         '</div>' +
         '<div class="acc-row-meta">' +
@@ -10429,7 +10431,7 @@
             accSidePill(e.side) +
             '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
             accTierTag(e.tier, e.label) +
-            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? e.score : '—')) + '</span>' +
+            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
             '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
           '</div>' +
           '<div class="acc-row-meta">' +
@@ -10727,7 +10729,7 @@
         '</div>'
       : '';
     var alertHtml = x.atFiftyDaySma
-      ? '<div class="pick-entry-alert">⚑ <b>Prime entry:</b> a &plusmn;20-grade name sitting right on its 50D SMA — the highest-probability pullback entry. Watch for the bounce off it on rising volume.</div>'
+      ? '<div class="pick-entry-alert">⚑ <b>Prime entry:</b> a Strong-tier name sitting right on its 50D SMA — the highest-probability pullback entry. Watch for the bounce off it on rising volume.</div>'
       : '';
     var nTr = x.scaleCount || x.tranches.length;
     var stanceBadge = '<span class="pick-entry-stance pick-entry-stance-' + (x.stance === 'full' ? 'full' : 'scale') + '">' +
@@ -11001,14 +11003,42 @@
   // Big tier banner — replaces the old conviction bar. The picks.json shape
   // includes a "recommendation" object with tier/label/conviction/sizing,
   // along with the integer score. Older payloads fall back gracefully.
+  // Risk-based sizing (P3.4): render the numeric p.sizing block as
+  // "size ~X% of book · ~N contracts at $Y", with the % of premium at the stop
+  // in a tooltip. Falls back to the legacy qualitative string ("Standard size" /
+  // "Load the Boat") for older payloads that ship recommendation.sizing only.
+  function pickSizingText(p){
+    var sz = p && p.sizing;
+    if (sz && sz.weight != null) {
+      var pct = (sz.weight * 100).toFixed(1);
+      var n = sz.suggestedContracts;
+      var c = (p && p.contract) || {};
+      var px = (c.mid != null ? c.mid : c.last);
+      var contractsStr = (n >= 1) ? ('~' + n + (n === 1 ? ' contract' : ' contracts')) : '<1 contract';
+      var priceStr = (px != null && isFinite(px)) ? (' at $' + Number(px).toFixed(2)) : '';
+      return 'size ~' + pct + '% of book · ' + contractsStr + priceStr;
+    }
+    var rec = p && p.recommendation;
+    return rec && rec.sizing ? rec.sizing : '';
+  }
+  function pickSizingTitle(p){
+    var sz = p && p.sizing;
+    if (sz && sz.riskToStopPct != null) {
+      return 'Inverse-vol weight · ~' + (sz.riskToStopPct * 100).toFixed(0) + '% of premium at the stop ('
+        + (sz.riskDenom === 'option' ? 'Δ/premium-aware' : 'ATR fallback') + '). Suggested size on a $25k display book — not a live balance.';
+    }
+    return '';
+  }
   function pickTierBadge(p){
     var rec = p && p.recommendation;
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : null);
     var label = rec && rec.label ? rec.label : (total >= 12 ? 'Call' : total <= -12 ? 'Put' : 'No Trade');
     var tier = rec && rec.tier ? rec.tier : (total >= 16 ? 'strong-call' : total >= 12 ? 'call' : total <= -16 ? 'strong-put' : total <= -12 ? 'put' : 'no-trade');
     var conv = rec && rec.conviction ? rec.conviction : '';
-    var size = rec && rec.sizing ? rec.sizing : '';
-    var scoreStr = (total != null) ? ((total >= 0 ? '+' : '') + total) : '—';
+    var size = pickSizingText(p);
+    var sizeTitle = pickSizingTitle(p);
+    // total is now a cross-sectional float — show one decimal, not a raw long float.
+    var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + Number(total).toFixed(1)) : '—';
     return '<div class="pick-tier pick-tier-' + escapeHtml(tier) + '">' +
       '<div class="pick-tier-head">' +
         '<span class="pick-tier-label">' + escapeHtml(label) + '</span>' +
@@ -11017,7 +11047,7 @@
       (conv || size
         ? '<div class="pick-tier-sub">' +
           (conv ? '<span class="pick-tier-conv">' + escapeHtml(conv) + ' conviction</span>' : '') +
-          (size ? '<span class="pick-tier-size">' + escapeHtml(size) + '</span>' : '') +
+          (size ? '<span class="pick-tier-size"' + (sizeTitle ? ' title="' + escapeHtml(sizeTitle) + '"' : '') + '>' + escapeHtml(size) + '</span>' : '') +
           '</div>'
         : '') +
     '</div>';
@@ -11125,7 +11155,10 @@
       if (n < 0) return 'sig-neg';
       return 'sig-zero';
     }
-    function fmtSignedNum(n){ return (n > 0 ? '+' : '') + n; }
+    // Scores are cross-sectional floats now (P3.1) — round to 1 decimal for
+    // display (strips a long float like 2.934), keeping the raw value for the
+    // proportional bars.
+    function fmtSignedNum(n){ var r = Math.round((Number(n) || 0) * 10) / 10; return (r > 0 ? '+' : '') + r; }
     var letter = { fundamentals: 'F', technicals: 'T', mechanicals: 'M', narrative: 'N', timing: 'E' };
     // Precompute scores so the composition bar can size each segment by its
     // share of total |contribution|, and the per-row magnitude bars can scale
@@ -11136,7 +11169,7 @@
       var pk0 = order[pi];
       var pil0 = pillars[pk0];
       if (!pil0) continue;
-      var sc0 = pil0.score | 0;
+      var sc0 = Number(pil0.score) || 0;   // cross-sectional float (was | 0)
       present.push({ key: pk0, score: sc0 });
       sumAbs += Math.abs(sc0);
       if (Math.abs(sc0) > maxAbs) maxAbs = Math.abs(sc0);
@@ -11180,7 +11213,7 @@
       var k = order[i];
       var pil = pillars[k];
       if (!pil) continue;
-      var pscore = pil.score | 0;
+      var pscore = Number(pil.score) || 0;   // cross-sectional float (was | 0)
       // Diverging magnitude bar — fills right (green) for a positive pillar,
       // left (red) for a negative one, scaled against the biggest pillar so
       // the collapsed list reads as a mini bar chart.
@@ -11191,7 +11224,11 @@
       var signals = Array.isArray(pil.signals) ? pil.signals : [];
       for (var j=0; j<signals.length; j++){
         var s = signals[j];
-        var sc = (s && s.score) | 0;
+        // Show the cross-sectional CONTRIBUTION (what actually entered the score)
+        // for converted signals; fall back to the legacy integer score for fixed
+        // signals and on the legacy (non-xsectional) path where contribution is
+        // absent. The value/note below still show the raw reading ("+12.3%").
+        var sc = (s && s.contribution != null) ? Number(s.contribution) : ((s && s.score) | 0);
         var avail = s && s.available !== false;
         var noteTxt = s && s.note ? s.note : (avail ? '' : 'no data');
         var valTxt = s && s.value != null ? String(s.value) : '';
@@ -11233,9 +11270,19 @@
         }
       }
       // Plain-language explainer for the category, shown above its signals so
-      // the breakdown is legible without prior knowledge of the rubric.
+      // the breakdown is legible without prior knowledge of the rubric. On the
+      // cross-sectional path (P3.1 — detected by a contribution field on any
+      // signal) the listed fixed thresholds are the legacy reference: continuous
+      // signals are actually scored RELATIVE to the universe this build, so the ±
+      // value on each row is the standardized contribution that entered the
+      // score. Events and macro factors stay on those fixed thresholds.
       var descTxt = PILLAR_INFO[k] || '';
-      var descHtml = descTxt ? '<p class="pick-pillar-desc">' + escapeHtml(descTxt) + '</p>' : '';
+      var hasXsec = k !== 'timing' && Array.isArray(pil.signals) && pil.signals.some(function(s){ return s && s.contribution != null; });
+      var descHtml = descTxt
+        ? '<p class="pick-pillar-desc">' + escapeHtml(descTxt) +
+            (hasXsec ? ' <em>Scored cross-sectionally this build: continuous signals are standardized against the universe, so each ± below is the relative contribution that entered the score (the thresholds above are the legacy reference); events and macro factors stay fixed.</em>' : '') +
+          '</p>'
+        : '';
       // Entry timing renders a verdict + classified reason list; the four asset
       // pillars render their flat signal list (+ any catalyst chips).
       var pillarBody = (k === 'timing')
@@ -11254,7 +11301,7 @@
     return '<aside class="pick-pillars-panel" aria-label="Score breakdown">' +
       '<div class="pick-pillars-bar">' +
         '<span class="pick-pillars-title">Score breakdown</span>' +
-        '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + total) + '</span>' +
+        '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + Number(total).toFixed(1)) + '</span>' +
       '</div>' +
       leadHtml +
       viz +
@@ -11326,7 +11373,7 @@
     var entryHtml = pickEntryPlanHtml(p);
     var exitHtml = pickExitPlanHtml(p);
     var tierHtml = pickTierBadge(p);
-    // "±20 graded stock at its 50D SMA" alert chip (per spec) — only shown when
+    // Strong-tier stock at its 50D SMA alert chip (per spec) — only shown when
     // the entry engine flags the prime-pullback condition.
     var fiftyHtml = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
       ? '<span class="pick-fifty-alert" title="A Strong-tier name sitting on its 50D SMA — the highest-probability pullback entry">⚑ 50D SMA</span>'
@@ -11382,7 +11429,7 @@
     var sideCls = pickSideClass(p.side);
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
     var total = (p.total != null) ? p.total : (p.score != null ? p.score : null);
-    var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + total) : '—';
+    var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + Number(total).toFixed(1)) : '—';
     var rec = p.recommendation || {};
     var tierLabel = rec.label ? escapeHtml(rec.label) : '';
     if (tierLabel && rec.conviction && rec.conviction !== '—') tierLabel += ' · ' + escapeHtml(rec.conviction);
@@ -11457,6 +11504,7 @@
   function buildGradeCardHtml(g){
     if (!g) return '';
     var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 12;
+    var minConvDisp = Math.round(minConv * 10) / 10;   // percentile cutoff is a float now
     var total = (g.total != null) ? g.total : 0;
     var actionable = Math.abs(total) >= minConv;
     // No-trade names have side === null — keep the card neutral (don't tint it
@@ -11473,8 +11521,8 @@
         '</span>'
       : '';
     var noteHtml = actionable
-      ? '<p class="pick-offlist-note">Clears the |total|&nbsp;&ge;&nbsp;' + minConv + ' actionable threshold. Open the <b>Top Picks</b> grid above for the full contract + entry/exit plan.</p>'
-      : '<p class="pick-offlist-note">Not in today’s top picks — scored in the No&nbsp;Trade band (|total|&nbsp;&lt;&nbsp;' + minConv + '). The 4-pillar breakdown below shows exactly how it graded.</p>';
+      ? '<p class="pick-offlist-note">Clears the actionable bar (|total|&nbsp;&ge;&nbsp;' + minConvDisp + ', the top tier the engine ranks as a trade this build). Open the <b>Top Picks</b> grid above for the full contract + entry/exit plan.</p>'
+      : '<p class="pick-offlist-note">Not in today’s top picks — graded below the actionable bar (|total|&nbsp;&lt;&nbsp;' + minConvDisp + '). The 4-pillar breakdown below shows exactly how it graded.</p>';
     var tierHtml = pickTierBadge(g);
     var pillarsHtml = pickPillarPanel(g);
     var peersHtml = pickPeerList(g);
@@ -11589,7 +11637,7 @@
             var t = g.total;
             var sgn = t > 0 ? 'sig-pos' : t < 0 ? 'sig-neg' : 'sig-zero';
             var lbl = (g.recommendation && g.recommendation.label) ? g.recommendation.label : '';
-            midCol = '<span class="picks-search-grade ' + sgn + '">' + (t >= 0 ? '+' : '') + t +
+            midCol = '<span class="picks-search-grade ' + sgn + '">' + (t >= 0 ? '+' : '') + Number(t).toFixed(1) +
               (lbl ? ' · ' + escapeHtml(lbl) : '') + '</span>';
           } else {
             var spot = SPOTS[sym];
@@ -11789,7 +11837,7 @@
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
         (strongCount > 0
-          ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (|score| ≥ 20)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
+          ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (top ~5% of the universe by conviction this build)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
           : '') +
         '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
         (earningsCount > 0
@@ -12064,19 +12112,24 @@
         var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
         var picksRaw = Array.isArray(data.picks) ? data.picks : [];
         var picks = sortPicks(picksRaw, picksState.sort);
+        var r2 = function(v){ return (v != null && isFinite(v)) ? Number(Number(v).toFixed(2)) : ''; };
         var rows = picks.map(function(p){
           var c = p.contract || {};
           var pl = p.pillars || {};
           var rec = p.recommendation || {};
+          var sz = p.sizing || {};
           return {
             ticker: p.symbol || '',
             tier: rec.label || '',
             side: p.side || '',
-            total: p.total != null ? p.total : (p.score != null ? p.score : ''),
-            fundamentals: pl.fundamentals && pl.fundamentals.score != null ? pl.fundamentals.score : '',
-            technicals: pl.technicals && pl.technicals.score != null ? pl.technicals.score : '',
-            mechanicals: pl.mechanicals && pl.mechanicals.score != null ? pl.mechanicals.score : '',
-            narrative: pl.narrative && pl.narrative.score != null ? pl.narrative.score : '',
+            total: r2(p.total != null ? p.total : p.score),
+            fundamentals: pl.fundamentals && pl.fundamentals.score != null ? r2(pl.fundamentals.score) : '',
+            technicals: pl.technicals && pl.technicals.score != null ? r2(pl.technicals.score) : '',
+            mechanicals: pl.mechanicals && pl.mechanicals.score != null ? r2(pl.mechanicals.score) : '',
+            narrative: pl.narrative && pl.narrative.score != null ? r2(pl.narrative.score) : '',
+            weightPct: sz.weight != null ? Number((sz.weight * 100).toFixed(1)) : '',
+            suggestedContracts: sz.suggestedContracts != null ? sz.suggestedContracts : '',
+            riskToStopPct: sz.riskToStopPct != null ? Number((sz.riskToStopPct * 100).toFixed(1)) : '',
             spot: p.spot != null ? p.spot : '',
             sector: p.sector || '',
             strike: c.strike != null ? c.strike : '',

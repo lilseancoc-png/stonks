@@ -278,6 +278,123 @@ cohorts' `optionExpectancyPct`.
 
 ---
 
+## P3 — cross-sectional standardization + risk-based sizing
+
+Two institutional-pattern reworks of the scorer (P3.1–P3.3, the scoring half) plus
+risk-based sizing (P3.4, the sizing half). The full forward spec lived in the PR
+description; this is the shipped summary. **Gated by `PICKS_XSECTIONAL` (default ON);
+`PICKS_XSECTIONAL=0` falls back to the legacy absolute scorer in-process** (the legacy
+path is what the §9-style validation diffs against). Non-goal: this is **not** a
+market-neutral long/short rebuild — sector-neutral z is the long-only-feasible proxy
+for beta-neutralization; inverse-vol sizing is the diagonal approximation of a risk
+optimizer. Contract filters (§5), exit geometry, and the entry-timing component (§6)
+are unchanged.
+
+### P3.1 Cross-sectional robust z-score
+**Problem.** The engine was an **absolute** scorer — every name judged against fixed
+bars (`EPS growth ≥10% → +1`, `P/E ≤80% of sector median → +1`, …) fit once to a
+19-pick sample. Absolute thresholds go stale the moment the regime drifts (the
+±16/±20 → ±14/±18 → ±12/±16 treadmill), and equal-weight absolute scoring is long-beta
+with extra steps: in a rally every name clears the same bars together and the roster
+fills with one correlated cohort (the 18/19-loss Technology cluster).
+
+**Why it matters.** The institutional pattern is **relative, cross-sectional ranking** —
+each name scored against the rest of the universe *this build*, so "cheap /
+fast-growing / overbought" self-recalibrate every rebuild instead of being chased by
+hand.
+
+**Fix.** Convert the **per-name continuous** signals to a **robust z** (median / 1.4826·MAD,
+winsorized to ±`PICKS_Z_CLIP`), with a per-signal direction and weight: `contribution =
+dir · z · W_s`. The converted set (16 signals): earnings-surprise, EPS/revenue growth,
+analyst-target upside, analyst-revision net, P/E-vs-median (dir −1), FCF **yield**
+(`FCF/marketCap`, signed-log), net-margin Δ, RSI 5-day momentum, RSI level (contrarian),
+52-week range position (contrarian), rvol, unusual-flow ratio, OI C/P ratio, put/call
+ratio (contrarian), social sentiment. Ratios are log-transformed before z. **Kept on
+fixed logic:** discrete events (guidance, major-contract, MACD, streak, S/R breaks,
+SMA-stack, chart pattern, ±2/−3 catalysts, sector narrative, media), market-wide common
+factors (SPY/VIX/DXY/10Y/macro — a cross-sectional z of a constant is 0 for everyone),
+and the two non-monotonic per-name signals (short interest's squeeze override, unusual
+volume's price-set sign). The three contrarian signals (RSI reading, 52-week, P/C) keep
+their **extreme-only dead-band + asymmetric bullish-reversal gate** — z grades the
+tail magnitude only, never linearized through the middle.
+
+> **Shipped as:** the `raw` channel on `_sig`; the `CONVERTED_SIGNALS` registry +
+> `robustZ` (with a secondary-scale fallback when MAD = 0, the common case for sparse
+> signals); `computeCrossSectionalScores(scored, …)` runs once in `scoreAllTickers`
+> after the per-ticker loop, so `buildTopPicks`, `buildGradesIndex`, and `regen-picks`
+> all inherit it. Scale-preserving weights `W_s = oldMax / PICKS_Z_CLIP` (the spec's
+> §3.4 conservative option) keep `total` on a roughly-legacy scale so the secondary
+> ±12/16 / −8 reads stay valid and `grades.json` doesn't lurch.
+
+**Validation.** Each converted signal's z has median ≈ 0 / robust-scale ≈ 1 across the
+universe (verified on the committed build). Spearman(new `|total|` rank, legacy rank) ≈
+0.66–0.69 — high but well below 1.0 (it pushes the chased / one-cohort-floated names
+down without scrambling).
+
+### P3.2 Distribution-relative tiers
+**Problem.** With z-scored inputs the absolute `total` is no longer a fixed-meaning
+number, so the ±12/16 cutoffs are arbitrary.
+
+**Fix.** Tier by **cross-sectional percentile of `|total|`** — top
+`PICKS_TIER_PCTL_STRONG` (5%) → Strong, top `PICKS_TIER_PCTL_TRADE` (12%) → actionable.
+Keep the absolute ±12/16 bars as the **small-universe floor fallback** (universe <
+`PICKS_Z_MIN_UNIVERSE`, or the flag off). This retires the recalibrate-the-constant
+treadmill — the bar tracks the distribution every build by construction.
+
+> **Shipped as:** `tierForScore(score, {strongCut, tradeCut})` with the cutoffs computed
+> in `computeCrossSectionalScores` and threaded out of `scoreAllTickers`;
+> `buildTopPicks`'s actionable filter keys on `recommendation.side` (which encodes the
+> cut) and `writeGradesFile`'s `minConviction` publishes the trade cutoff. On 138 names
+> the percentile tiers yield ≈8 Strong / ≈18 actionable (target ≈7 / ≈16).
+
+**Validation.** Tier counts above; the §7 sector/factor caps bind far less often (see P3.3).
+
+### P3.3 Sector-neutral z *(default on)*
+**Problem.** A whole sector rallying lifts every member's grade in lockstep — the
+documented one-cohort failure mode — which the §7 sector cap only patches *after* the
+score.
+
+**Fix.** When `PICKS_SECTOR_NEUTRAL` is on, run the robust z **within each GICS sector**
+(thin sectors < `PICKS_SECTOR_MIN_N`, ETFs, and null-sector names fall back to the
+universe pool). A name is then scored on how it ranks *against its sector peers*, so an
+entire sector rallying no longer floats every member up together — the long-only-feasible
+proxy for the beta-neutralization a pod runs.
+
+> **Shipped as:** the `sectorNeutral` branch in `computeCrossSectionalScores`. With it
+> on, the roster's top-sector share stays ≤ 2/10 on the committed build and the §7 caps
+> don't bind.
+
+### P3.4 Risk-based position sizing
+**Problem.** Sizing was a qualitative tier label ("Standard" / "Load the Boat") — loading
+a high-conviction *high-vol* name concentrates risk exactly where it's largest, the
+opposite of what a risk desk does.
+
+**Fix.** A numeric per-pick weight, computed **only for roster survivors** (a pure
+post-step in `buildTopPicks`): `risk = max(PICKS_SIZE_VOL_FLOOR, option-aware % of
+premium lost if the underlying hits the stop)` — `(stopDistFrac·spot·|Δ|)/premium`,
+capped at 100% (a long option can't lose more than its premium), ATR%-of-underlying as
+the fallback; `tilt = clamp(|total|/strongCut, PICKS_SIZE_TILT_MIN, _MAX)`;
+`weight = (1/risk · tilt) / Σ · PICKS_GROSS_TARGET` (Σ weight = gross target, the rest
+cash); `suggestedContracts = floor(weight · PICKS_DISPLAY_ACCOUNT / (premium·100))`.
+
+> **Shipped as:** `applyPickSizing(out, chains, strongCut)`; each pick gets a `sizing`
+> block `{ weight, riskToStopPct, riskDenom, suggestedContracts }`, rendered as
+> "size ~X% of book · ~N contracts at $Y" with the % of premium at the stop in a
+> tooltip. `PICKS_DISPLAY_ACCOUNT` (default $25k) is a display input, not a live balance.
+
+**Validation.** Σ weight = `PICKS_GROSS_TARGET`; the highest-risk-to-stop survivor carries
+the smallest weight (risk parity), verified on the committed build.
+
+### IC bridge (rubric §9.6)
+`computeCrossSectionalScores` stamps the standardized z (mean 0 / unit scale) onto each
+converted signal, and the accuracy enroll snapshot (`updatePicksAccuracyFile`) persists
+it into `entrySignals[].z` alongside the legacy integer score. Once `bySignal` clears
+`PICKS_SIGNAL_MIN_N`, fitting per-signal IC weights `W_s` from realized outcomes is a
+literal drop-in (the z is already comparable across signals). Weights stay **equal**
+(`W_s = oldMax/clip`, scale-preserving) until then.
+
+---
+
 ## 3. Ablation & validation protocol (run order)
 
 All of these resolve on **modeled option P&L (P0.1)**, on the 19-pick set plus every
@@ -316,6 +433,19 @@ is labelled.
 | fail-open verdict | `go` | **`wait`** | ✅ `wait` (+ go-only enroll) | P2.2 |
 | `optionExpectancyPct` *(new)* | — | reported alongside underlying | ✅ + win/loss splits | P0.1 |
 | `bySignal.prunable` *(new)* | — | n≥25 & ~50% → flag | ✅ band 0.05 | P2.3 |
+| `PICKS_XSECTIONAL` *(new)* | — | master flag | ✅ ON (`=0` → legacy scorer) | P3.1 |
+| `PICKS_SECTOR_NEUTRAL` *(new)* | — | demean within sector | ✅ ON (`=0` → universe-wide z) | P3.3 |
+| `PICKS_Z_CLIP` *(new)* | — | winsorize each z | ✅ 3.0 | P3.1 |
+| `PICKS_Z_MIN_UNIVERSE` *(new)* | — | floor below which to skip z | ✅ 20 | P3.1/P3.2 |
+| `PICKS_SECTOR_MIN_N` *(new)* | — | thin-sector → universe z | ✅ 8 | P3.3 |
+| `PICKS_TIER_PCTL_STRONG` / `_TRADE` *(new)* | — | percentile tiers | ✅ 0.05 / 0.12 | P3.2 |
+| `PICKS_MIN_CONVICTION` / `PICKS_TIER_STRONG` | ±12 / ±16 bars | small-universe **floor fallback** | ✅ retained as fallback | P3.2 |
+| `W_s` (per signal) *(new)* | — | equal weight | ✅ `oldMax/PICKS_Z_CLIP` (scale-preserving) | P3.1 |
+| `PICKS_SIZE_RISK_DENOM` *(new)* | — | `option` \| `atr` | ✅ `option` | P3.4 |
+| `PICKS_SIZE_VOL_FLOOR` *(new)* | — | min risk denominator | ✅ 0.05 | P3.4 |
+| `PICKS_SIZE_TILT_MIN` / `_MAX` *(new)* | — | conviction tilt band | ✅ 0.6 / 1.4 | P3.4 |
+| `PICKS_GROSS_TARGET` *(new)* | — | Σ weight (rest cash) | ✅ 0.80 | P3.4 |
+| `PICKS_DISPLAY_ACCOUNT` *(new)* | — | display-only book size | ✅ 25000 | P3.4 |
 
 ---
 
