@@ -487,6 +487,18 @@ it has to be trustworthy. The fixes:
   - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 14`, `PICKS_THETA_STOP_PCT
     0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 5` (theta-stop); modeled-option repricer
     `PICKS_OPTION_IV_DECAY_DAYS 30`, `PICKS_OPTION_EARNINGS_CRUSH 0.70`.
+  - **Premium-space exits (P0.3):** `PICKS_OPT_EXITS` (default ON), `PICKS_OPT_TP_PCT 0.6`,
+    `PICKS_OPT_STOP_PCT 0.4` — resolve on modeled option P&L before the underlying TP/cut.
+  - **Earnings-eve exit (P2):** `PICKS_EARNINGS_EXIT` (default ON), `PICKS_EARNINGS_EXIT_DAYS 2`.
+  - **Edge governor (P1.3):** `PICKS_EDGE_GOVERNOR` (default ON), `PICKS_EDGE_MIN_N 15`,
+    `PICKS_EDGE_SCALE_DEFAULT 0.6`, `PICKS_EDGE_SCALE_MIN 0.25`, `PICKS_EDGE_FULL_CUT_EXP −40`.
+  - **Premium-at-risk sizing (P1.5):** `PICKS_SIZE_PREMIUM_RISK` (default ON),
+    `PICKS_SIZE_HOLD_DAYS 10`, `PICKS_SIZE_IV_DROP_CAP 0.10`.
+  - **IV rank (P1.6):** `PICKS_IVRANK_SIGNAL` (default ON), `PICKS_IVRANK_MIN_N 10`,
+    `PICKS_IVRANK_RICH 80`, `PICKS_IVRANK_CHEAP 20` (read as a side-aware timing con/pro).
+  - **Term structure (P2):** `PICKS_TIMING_BACKWARDATION 0.05` (computeEntryTiming soft con).
+  - **Debit verticals (P1.2, DARK):** `PICKS_VERTICALS` (default **OFF**), `PICKS_VERT_IVRANK 70`,
+    `PICKS_VERT_SHORT_DELTA_MIN/MAX 0.20/0.38`, `PICKS_VERT_MIN_CREDIT 0.20`.
   - **Timing gate (`PICKS_TIMING_*`):** knife `RET1D −6`, `RET3D −8`, `DD_ATR −2.5`;
     chase `RSI 70`, `DIST_SMA20 8`, `DIST_SMA20_SOFT 7`, `52W 0.92`, `RET5D 10`,
     `RET3D 10`; volume `VOL_CONFIRM 1.3`, `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`,
