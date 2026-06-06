@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -69,8 +69,21 @@ for (const sym of symbols) {
     if (j && j.chains && j.spot > 0) chains[sym] = j;
   } catch {}
 }
+// P1.6 — attach IV percentiles (from the committed iv-history) before scoring so
+// computeEntryTiming's IV-rank soft read + the picks card's ivPctile populate.
+await attachIvRanks(chains);
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+// P1.3 edge governor: read the live (pre-update) accuracy `closed` set so gross
+// scales by the trailing realized option edge, exactly as the full build threads
+// picksAccuracyPrev.closed. Missing/corrupt → null (governor uses its default).
+let priorClosed = null;
+try {
+  const accRaw = await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8");
+  const accJ = JSON.parse(accRaw);
+  if (accJ && Array.isArray(accJ.closed)) priorClosed = accJ.closed;
+} catch {}
+
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, undefined, { priorClosed });
 const builtAtIso = new Date().toISOString();
 
 // Preserve the day-streak across a render-only regen. We don't wipe data/ here,

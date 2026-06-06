@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-06","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-05","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -10310,6 +10310,15 @@
     // SPY benchmark over each pick's hold — the honest "does this beat buy-and-hold?"
     if (st.expectancyPct != null) chips += chip(accPct(st.expectancyPct), 'expectancy · stock move', st.expectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
     if (st.excessExpectancyPct != null) chips += chip(accPct(st.excessExpectancyPct), 'vs SPY', st.excessExpectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
+    // Fade-the-grade (research): directional expectancy of betting the OPPOSITE
+    // side. A positive number means fading the grade would have paid — i.e. the
+    // signal's directional edge is net negative. Shown only when it's informative.
+    if (st.fadeExpectancyPct != null && st.fadeExpectancyPct > 0) {
+      chips += '<div class="accuracy-chip accuracy-chip-bad" title="Research only: the directional expectancy of betting the OPPOSITE of every grade. Positive = fading the engine would have paid, i.e. the signal has negative directional edge in-sample. Does not feed the engine.">' +
+        '<span class="accuracy-chip-num">' + accPct(st.fadeExpectancyPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">fade-the-grade (research' + (st.fadeWinRate != null ? ' · ' + Math.round(st.fadeWinRate * 100) + '% win' : '') + ')</span>' +
+      '</div>';
+    }
 
     // --- Win rate by tier (the headline "does the score work?" view) --------
     var tierRows = '';
