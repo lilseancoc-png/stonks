@@ -3286,6 +3286,10 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const fomcMeetings = extras?.fomcMeetings || [];
   const fedRate = extras?.fedRate || null;
   const fedwatch = extras?.fedwatch || null;
+  // Prediction-market overlay (Kalshi + Polymarket): { fomc, reports }. FOMC
+  // odds ride along in fomc.predictionMarkets; macro readings attach to their
+  // report rows below by "<subtype>|<date>" key. Absent → calendar unchanged.
+  const predictionMarkets = extras?.predictionMarkets || null;
   // session map: "<SYMBOL>|<YYYY-MM-DD>" → "AM" | "PM" | "TBD" pulled from
   // a fresh Nasdaq-calendar fetch in main(). Overrides the Yahoo-timestamp
   // heuristic (which is unreliable — Yahoo returns midnight UTC for many
@@ -3359,7 +3363,12 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       Number(ev.date.slice(8, 10)),
     );
     if (ms < startMs || ms > cutoffMs) continue;
-    events.push(ev);
+    // Attach a best-effort prediction-market reading (Polymarket) when one was
+    // found for this exact release. Copy the row so the input reportEvents stay
+    // untouched (regen reuses them).
+    const predKey = ev.subtype && ev.date ? ev.subtype + "|" + ev.date : null;
+    const pred = predKey && predictionMarkets?.reports ? predictionMarkets.reports[predKey] : null;
+    events.push(pred ? { ...ev, predictions: [pred] } : ev);
   }
 
   // FOMC meeting decision days. The meeting itself is a calendar event in
@@ -3414,6 +3423,9 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       effectiveRate: fedRate,
       meetings: fomcMeetings,
       probabilities: fedwatch || {},
+      // Prediction-market cross-check on the futures-implied probabilities
+      // above — hike/hold/cut per meeting from Kalshi + Polymarket.
+      predictionMarkets: (predictionMarkets && predictionMarkets.fomc) || {},
     },
   };
 }
@@ -3475,6 +3487,30 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
     } catch (_) {
       // No prior calendar.json (first run) or unreadable JSON — nothing
       // to carry. Calendar still ships with whatever else is in events.
+    }
+  }
+  // FOMC prediction-market carry-forward: if today's Kalshi/Polymarket reads all
+  // flaked, reuse the prior calendar's still-upcoming entries (tagged stale) so
+  // the cross-check doesn't blink out on one bad fetch. Same prior source as the
+  // report salvage above (extras.priorCalendar in the build path, disk on regen).
+  if (!Object.keys((payload.fomc && payload.fomc.predictionMarkets) || {}).length) {
+    try {
+      const prior = extras?.priorCalendar !== undefined
+        ? extras.priorCalendar
+        : JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
+      const priorPm = (prior && prior.fomc && prior.fomc.predictionMarkets) || {};
+      const upcomingDates = new Set(((payload.fomc && payload.fomc.meetings) || []).map((m) => m.date));
+      const carried = {};
+      for (const [date, entry] of Object.entries(priorPm)) {
+        if (!upcomingDates.has(date) || !entry) continue;
+        carried[date] = { ...entry, stale: true };
+      }
+      if (Object.keys(carried).length) {
+        payload.fomc.predictionMarkets = carried;
+        console.log(`    ⚠ prediction markets empty — carried ${Object.keys(carried).length} meeting(s) from prior calendar.json`);
+      }
+    } catch (_) {
+      // No prior calendar.json / unreadable — the widget just omits the overlay.
     }
   }
   const json = JSON.stringify(payload);
@@ -5570,6 +5606,317 @@ export function pickFedwatchBuckets(history, meetingDate, nowIso) {
     week: lookup(7),
     month: lookup(30),
   };
+}
+
+// ============================================================================
+// Prediction markets (Kalshi + Polymarket)
+//
+// A market-based cross-check on the ZQ-futures FedWatch numbers above, plus a
+// best-effort implied-odds reading beside macro releases on the calendar. Both
+// platforms expose FREE, PUBLIC, read-only market-data endpoints (no API key),
+// so this needs no secret and runs in the same bake as everything else.
+//
+//  · Kalshi  — CFTC-regulated US exchange. The KXFEDDECISION series carries one
+//    mutually-exclusive market per rate outcome ("No change" / "25 bps decrease"
+//    / "25 bps increase" / …) per meeting, event-tickered KXFEDDECISION-{YY}{MON}
+//    (the FOMC never meets twice in one calendar month, so the month uniquely
+//    keys the meeting). Public read: GET {base}/events/{ticker}?with_nested_markets=true.
+//  · Polymarket — the Gamma API (gamma-api.polymarket.com) is fully public.
+//    "Fed decision in <month>?" events bundle one binary Yes/No market per
+//    outcome; the market's Yes price is that outcome's probability. The same
+//    public event list also backs the macro-release readings (inflation/jobs).
+//
+// Everything degrades silently: a flaky host, a missing event, or a shape drift
+// yields no prediction data for that slice and the calendar renders exactly as
+// it did before. Hosts/tickers/tags are env-overridable so a Kalshi host move or
+// a Polymarket tag rename is a config fix, not a code change. NOTE: live shapes
+// could not be exercised from the dev sandbox (its egress allowlist blocks both
+// hosts) — the bake runner has open internet, so first-bake output is the
+// verification point; the graceful-degradation above keeps a wrong guess safe.
+// ============================================================================
+
+// Master switch. Public reads need no key, so this is ON by default; set
+// PREDICTION_MARKETS=0 to skip the fetch entirely (e.g. an offline rebuild).
+const PREDICTION_MARKETS_ENABLED = process.env.PREDICTION_MARKETS !== "0";
+// Kalshi public market-data hosts, tried in order until one answers. The 2026
+// quick-start documents external-api.kalshi.com; api.elections.kalshi.com has
+// long served the same public v2 data. KALSHI_API_BASE prepends an override.
+const KALSHI_API_BASES = [
+  process.env.KALSHI_API_BASE,
+  "https://api.elections.kalshi.com/trade-api/v2",
+  "https://external-api.kalshi.com/trade-api/v2",
+].filter(Boolean);
+const POLYMARKET_GAMMA_BASE = process.env.POLYMARKET_GAMMA_BASE || "https://gamma-api.polymarket.com";
+// Polymarket tag slugs to probe for Fed/macro events, in order. A broad
+// volume-ordered pull (below) is the real workhorse; these just add targeted
+// coverage in case a relevant event sits outside the top-volume window.
+const POLYMARKET_TAGS = (process.env.POLYMARKET_TAGS || "fed-rates,fed,interest-rates,inflation,economy")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+// How many upcoming FOMC meetings to price (the widget shows two; a small
+// buffer covers a meeting that lands mid-render). Bounds the request count.
+const PM_FOMC_MEETINGS = Number(process.env.PM_FOMC_MEETINGS) || 3;
+const PM_FETCH_TIMEOUT_MS = 9000;
+const PM_MONTH_CODES = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+const PM_MONTH_NAMES = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+
+// Small JSON GET with a timeout and a polite UA. Returns parsed JSON or null —
+// prediction markets are a non-critical overlay, so failures are swallowed.
+async function fetchPmJson(url) {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        accept: "application/json",
+        "user-agent": "stonks-option-rater/1.0 (+https://github.com/lilseancoc-png/stonks)",
+      },
+      signal: AbortSignal.timeout(PM_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+// Bucket a free-text outcome label ("No change", "25 bps decrease", …) into the
+// hike/hold/cut taxonomy the FedWatch widget already uses. Returns null for an
+// unrecognizable label so it's dropped rather than mis-bucketed. "no cut"/"no
+// hike" are checked as HOLD before the cut/hike keyword tests so a "No cut?"
+// market isn't read as a cut.
+export function classifyRateOutcome(label) {
+  const s = String(label || "").toLowerCase();
+  if (!s) return null;
+  if (/(no change|unchanged|no hike|no cut|no move|\bhold\b|keep|maintain|leave|pause|stay|same|\b0\s*bps)/.test(s)) return "hold";
+  // Hike BEFORE cut: "incrEASE" contains the "ease" cut token, so the hike test
+  // must win first; "decrease" carries no hike token, so it still falls to cut.
+  if (/(increase|hike|raise|higher|\bup\b)/.test(s)) return "hike";
+  if (/(decrease|cut|lower|reduc|ease|down)/.test(s)) return "cut";
+  return null;
+}
+
+// Collapse a list of { label, prob, vol } outcome rows into renormalized
+// hike/hold/cut probabilities (summing to 1 when any bucket is populated, so the
+// mutually-exclusive markets line up with the futures table) while preserving
+// the summed volume. Returns null when nothing classifiable was found.
+export function bucketRateOutcomes(rows) {
+  const acc = { hike: 0, hold: 0, cut: 0 };
+  let matched = 0, vol = 0;
+  for (const r of rows || []) {
+    const bucket = classifyRateOutcome(r && r.label);
+    const p = Number(r && r.prob);
+    if (!bucket || !Number.isFinite(p) || p < 0) continue;
+    acc[bucket] += p;
+    matched++;
+    if (Number.isFinite(r.vol)) vol += r.vol;
+  }
+  if (!matched) return null;
+  const sum = acc.hike + acc.hold + acc.cut;
+  if (sum <= 0) return null;
+  return { hike: acc.hike / sum, hold: acc.hold / sum, cut: acc.cut / sum, vol: vol || null };
+}
+
+function kalshiFedEventTicker(meetingDate) {
+  const yy = meetingDate.slice(2, 4);
+  const mon = PM_MONTH_CODES[Number(meetingDate.slice(5, 7)) - 1];
+  return `KXFEDDECISION-${yy}${mon}`;
+}
+
+// Remember the Kalshi host that first answered so later meetings hit it directly
+// instead of re-probing every base (a far-out meeting with no market yet would
+// otherwise 404 across all bases every time).
+let _kalshiWorkingBase = null;
+async function fetchKalshiFomc(meetingDate) {
+  const ticker = kalshiFedEventTicker(meetingDate);
+  const bases = _kalshiWorkingBase
+    ? [_kalshiWorkingBase, ...KALSHI_API_BASES.filter((b) => b !== _kalshiWorkingBase)]
+    : KALSHI_API_BASES;
+  for (const base of bases) {
+    const json = await fetchPmJson(`${base}/events/${ticker}?with_nested_markets=true`);
+    if (!json) continue;
+    const markets = Array.isArray(json.markets) ? json.markets
+      : Array.isArray(json.event && json.event.markets) ? json.event.markets : null;
+    if (!markets) continue; // 200 but unexpected shape — maybe the wrong host
+    _kalshiWorkingBase = base;
+    const rows = markets.map((mk) => {
+      // Probability: prefer the last trade, else the bid/ask mid. Kalshi prices
+      // are integer cents (1-99) → /100.
+      let cents = Number(mk.last_price);
+      if (!Number.isFinite(cents) || cents <= 0) {
+        const bid = Number(mk.yes_bid), ask = Number(mk.yes_ask);
+        if (Number.isFinite(bid) && Number.isFinite(ask) && (bid > 0 || ask > 0)) cents = (bid + ask) / 2;
+      }
+      return {
+        label: mk.yes_sub_title || mk.subtitle || mk.yes_subtitle || mk.title || "",
+        prob: Number.isFinite(cents) ? cents / 100 : NaN,
+        vol: Number(mk.volume) || 0,
+      };
+    });
+    const bucketed = bucketRateOutcomes(rows);
+    // The event existed on this host; whether or not it had classifiable
+    // markets, other bases serve the same data, so stop here.
+    return bucketed ? { ...bucketed, url: "https://kalshi.com/markets/kxfeddecision" } : null;
+  }
+  return null;
+}
+
+// One broad public pull of active Polymarket events (volume-ordered) merged with
+// a few tag-targeted pulls, deduped + cached for the whole build. Both the FOMC
+// cross-check and the macro readings filter this list locally — no per-meeting
+// or per-release request fan-out.
+let _polymarketEventsCache = null;
+async function loadPolymarketEvents() {
+  if (_polymarketEventsCache) return _polymarketEventsCache;
+  const seen = new Map();
+  const urls = [
+    `${POLYMARKET_GAMMA_BASE}/events?closed=false&active=true&limit=200&order=volume24hr&ascending=false`,
+  ];
+  for (const tag of POLYMARKET_TAGS) {
+    urls.push(`${POLYMARKET_GAMMA_BASE}/events?closed=false&limit=100&tag_slug=${encodeURIComponent(tag)}`);
+  }
+  for (const url of urls) {
+    const json = await fetchPmJson(url);
+    const arr = Array.isArray(json) ? json : (json && Array.isArray(json.data) ? json.data : null);
+    if (!arr) continue;
+    for (const ev of arr) {
+      const id = ev && (ev.id != null ? ev.id : ev.slug);
+      if (id != null && !seen.has(id)) seen.set(id, ev);
+    }
+  }
+  _polymarketEventsCache = [...seen.values()];
+  return _polymarketEventsCache;
+}
+
+// Yes-outcome probability for a Polymarket binary market. outcomes/outcomePrices
+// are parallel arrays, usually JSON-encoded strings ("[\"Yes\",\"No\"]" /
+// "[\"0.62\",\"0.38\"]"). Falls back to last-trade / bid-ask mid. Returns a
+// 0-1 probability or null.
+function polymarketYesPrice(mk) {
+  let outcomes = mk && mk.outcomes, prices = mk && mk.outcomePrices;
+  try { if (typeof outcomes === "string") outcomes = JSON.parse(outcomes); } catch (_) { outcomes = null; }
+  try { if (typeof prices === "string") prices = JSON.parse(prices); } catch (_) { prices = null; }
+  if (Array.isArray(outcomes) && Array.isArray(prices) && outcomes.length === prices.length && prices.length) {
+    const i = outcomes.findIndex((o) => String(o).toLowerCase() === "yes");
+    const p = Number(prices[i >= 0 ? i : 0]);
+    if (Number.isFinite(p)) return p > 1.5 ? p / 100 : p;
+  }
+  const last = Number(mk && (mk.lastTradePrice ?? mk.last_trade_price));
+  if (Number.isFinite(last) && last > 0) return last > 1.5 ? last / 100 : last;
+  const bid = Number(mk && (mk.bestBid ?? mk.best_bid));
+  const ask = Number(mk && (mk.bestAsk ?? mk.best_ask));
+  if (Number.isFinite(bid) && Number.isFinite(ask) && (bid > 0 || ask > 0)) {
+    const mid = (bid + ask) / 2;
+    return mid > 1.5 ? mid / 100 : mid;
+  }
+  return null;
+}
+
+const PM_MARKET_VOL = (mk) => Number(mk && (mk.volume ?? mk.volumeNum ?? mk.volume24hr)) || 0;
+
+async function fetchPolymarketFomc(meetingDate) {
+  const events = await loadPolymarketEvents();
+  if (!events.length) return null;
+  const monthName = PM_MONTH_NAMES[Number(meetingDate.slice(5, 7)) - 1];
+  const year = meetingDate.slice(0, 4);
+  const meetingMs = Date.parse(meetingDate + "T00:00:00Z");
+  // Find the Fed-decision event for THIS meeting: a Fed/rate title naming the
+  // meeting month, disambiguated across years by an end date near the meeting.
+  let best = null, bestGap = Infinity;
+  for (const ev of events) {
+    const title = String(ev.title || ev.question || "").toLowerCase();
+    if (!/fed/.test(title)) continue;
+    if (!/(decision|rate|meeting|fomc|hike|cut|change|bps|basis point)/.test(title)) continue;
+    if (!title.includes(monthName)) continue;
+    const endMs = Date.parse(ev.endDate || ev.end_date || "");
+    let gap = Number.isFinite(endMs) ? Math.abs(endMs - meetingMs) : Infinity;
+    if (!Number.isFinite(endMs) && title.includes(year)) gap = 15 * 86400000; // year in title, no date
+    if (gap > 45 * 86400000) continue; // too far from this meeting to be it
+    if (gap < bestGap) { best = ev; bestGap = gap; }
+  }
+  if (!best) return null;
+  const markets = Array.isArray(best.markets) ? best.markets : [];
+  const rows = [];
+  for (const mk of markets) {
+    const yes = polymarketYesPrice(mk);
+    if (yes == null) continue;
+    rows.push({ label: mk.groupItemTitle || mk.group_item_title || mk.question || "", prob: yes, vol: PM_MARKET_VOL(mk) });
+  }
+  const bucketed = bucketRateOutcomes(rows);
+  if (!bucketed) return null;
+  const url = best.slug ? `https://polymarket.com/event/${best.slug}` : "https://polymarket.com/economy/fed-rates";
+  return { ...bucketed, url };
+}
+
+// Map calendar report subtypes → Polymarket title-keyword matchers for a
+// best-effort "market view". Distributional macro markets don't reduce to one
+// clean number, so we surface the single highest-volume related market as the
+// headline reading. No match → nothing attached (the row renders as before).
+const MACRO_PREDICTION_MATCHERS = {
+  "cpi-yoy": /(\bcpi\b|inflation)/,
+  "cpi-mom": /(\bcpi\b|inflation)/,
+  "core-cpi-yoy": /(core cpi|\bcpi\b|inflation)/,
+  "core-cpi-mom": /(core cpi|\bcpi\b|inflation)/,
+  "ppi-mom": /(\bppi\b|producer price)/,
+  "nfp": /(payroll|nonfarm|non-farm|jobs report|jobs added)/,
+  "unrate": /(unemployment|jobless)/,
+};
+async function fetchMacroPrediction(ev) {
+  const matcher = MACRO_PREDICTION_MATCHERS[ev.subtype];
+  if (!matcher) return null;
+  const events = await loadPolymarketEvents();
+  if (!events.length) return null;
+  const evMs = Date.parse(ev.date + "T00:00:00Z");
+  let best = null, bestVol = -1;
+  for (const pe of events) {
+    const title = String(pe.title || "").toLowerCase();
+    if (!matcher.test(title)) continue;
+    const endMs = Date.parse(pe.endDate || pe.end_date || "");
+    if (Number.isFinite(endMs) && Math.abs(endMs - evMs) > 40 * 86400000) continue; // resolves near this release
+    for (const mk of (Array.isArray(pe.markets) ? pe.markets : [])) {
+      const yes = polymarketYesPrice(mk);
+      if (yes == null) continue;
+      const vol = PM_MARKET_VOL(mk);
+      if (vol > bestVol) {
+        best = {
+          platform: "Polymarket",
+          label: mk.groupItemTitle || mk.question || pe.title || "",
+          prob: yes,
+          url: pe.slug ? `https://polymarket.com/event/${pe.slug}` : "https://polymarket.com/economy",
+        };
+        bestVol = vol;
+      }
+    }
+  }
+  return best;
+}
+
+// Build the prediction-market overlay for the calendar:
+//   { fomc: { <meetingDate>: { kalshi?, polymarket? } }, reports: { "<subtype>|<date>": {...} } }
+// FOMC odds come from both platforms (the headline cross-check); macro readings
+// come from Polymarket only (cleaner binary shape). Imported by regen-calendar.mjs.
+export async function fetchPredictionMarkets(meetings, reportEvents) {
+  const out = { fomc: {}, reports: {} };
+  if (!PREDICTION_MARKETS_ENABLED) return out;
+  const upcoming = [...(meetings || [])]
+    .filter((m) => m && m.date)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, PM_FOMC_MEETINGS);
+  await Promise.all(upcoming.map(async (m) => {
+    const [kalshi, polymarket] = await Promise.all([
+      fetchKalshiFomc(m.date).catch(() => null),
+      fetchPolymarketFomc(m.date).catch(() => null),
+    ]);
+    const entry = {};
+    if (kalshi) entry.kalshi = kalshi;
+    if (polymarket) entry.polymarket = polymarket;
+    if (entry.kalshi || entry.polymarket) out.fomc[m.date] = entry;
+  }));
+  await Promise.all((reportEvents || []).map(async (ev) => {
+    if (!ev || !ev.subtype || !ev.date) return;
+    const pred = await fetchMacroPrediction(ev).catch(() => null);
+    if (pred) out.reports[ev.subtype + "|" + ev.date] = pred;
+  }));
+  const fomcN = Object.keys(out.fomc).length, repN = Object.keys(out.reports).length;
+  console.log(`  · prediction markets: ${fomcN} FOMC meeting${fomcN === 1 ? "" : "s"}, ${repN} macro release${repN === 1 ? "" : "s"}`);
+  return out;
 }
 
 // ============================================================================
@@ -15469,9 +15816,20 @@ async function main() {
   // back to TBD). Builds a SYM|YYYY-MM-DD → AM/PM/TBD map.
   // sessionMap (Nasdaq earnings AM/PM) was fetched in the parallel batch above.
   console.log(`  · ${sessionMap.size} earnings session entries`);
+  // Prediction-market overlay (Kalshi + Polymarket) — a market-based cross-check
+  // on the ZQ-futures FedWatch numbers above + a best-effort odds reading beside
+  // macro releases. Free public reads, no key; degrades to nothing if a host flakes.
+  let predictionMarkets = { fomc: {}, reports: {} };
+  try {
+    console.log("Fetching prediction markets (Kalshi + Polymarket)…");
+    predictionMarkets = await fetchPredictionMarkets(upcomingMeetings, reportEvents);
+  } catch (err) {
+    console.log(`  ⚠ prediction markets skipped: ${err?.message || err}`);
+  }
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
     reportEvents,
     fomcMeetings: upcomingMeetings,
+    predictionMarkets,
     // Use effectiveFedRate (not fedRate) so the widget shows the same
     // value the FedWatch math is actually anchored to — when FRED:DFF
     // fails today we fall back to a cached reading (up to 14d old), and
