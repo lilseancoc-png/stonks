@@ -128,6 +128,17 @@ async function main() {
   } catch (e) {
     console.log(`  ⚠ prediction markets skipped: ${e?.message || e}`);
   }
+  // Mirror the build: roll today's FOMC odds into prediction-history.json and
+  // attach the Δ/sparkline trend. regen never wipes data/, so read/write direct.
+  try {
+    const ph = await build.readPredictionHistory();
+    build.appendPredictionHistory(ph, predictionMarkets.fomc, todayIso);
+    build.prunePredictionHistory(ph, todayIso);
+    await build.writePredictionHistory(ph);
+    predictionMarkets.fomc = build.attachPredictionTrends(predictionMarkets.fomc, ph, todayIso);
+  } catch (e) {
+    console.log(`  ⚠ prediction history skipped: ${e?.message || e}`);
+  }
 
   // Read existing macro headlines so calendar continues to surface them.
   let macroHeadlines = [];
