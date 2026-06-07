@@ -6369,6 +6369,18 @@ const PICKS_TIMING_RISKOFF_SPY = -1.0;      // % SPY day that confirms a risk-of
 const PICKS_TIMING_RISKON_SPY = 0.6;        // % SPY day that confirms a risk-on regime
 const PICKS_TIMING_EARNINGS_DEFER_DAYS = 8; // earnings this close → defer entry → 'wait' (P1.3: 3→8; IV ramps 1-2 weeks out, so a 3-session window let a 21-DTE call bought 4 sessions pre-print still eat the crush)
 const PICKS_TIMING_MIN_BARS = 15;           // need this many confirmed bars or the gate fails OPEN (P2.2: to 'wait', shown-but-not-enrolled)
+// Severity-scaled avoid penalty. The flat -8 knife/chase penalty lets the MOST
+// egregious setups (a +50% / RSI-88 blow-off, a -15% one-day collapse — the biggest
+// historical losers) still clear the bar when the four-pillar grade is high
+// (|subtotal| - 8 can stay above ±12). Scale the penalty PAST -8 by how far beyond
+// its trigger the worst firing read is — severity = max overshoot ratio across the
+// chase/knife reads (e.g. a +50% 5-day run is 5x the 10% chase trigger) — floored at
+// PICKS_TIMING_AVOID_FLOOR so the worst setups are fully neutralized to a no-trade.
+// Continuous: a borderline chase (severity 1, right at the trigger) still gets
+// exactly -8, so it's a strict superset of the old behavior. Still ONE number folded
+// into total (no separate veto). Default ON; =0 reverts to the flat -8.
+const PICKS_TIMING_AVOID_SCALE = process.env.PICKS_TIMING_AVOID_SCALE !== "0"; // default ON
+const PICKS_TIMING_AVOID_FLOOR = Number(process.env.PICKS_TIMING_AVOID_FLOOR ?? -16); // most negative the scaled penalty reaches
 // Risk-off put enablement (user-chosen): the universe is long-biased, so puts
 // almost never clear the -16 grade bar. When the broad tape is CONFIRMED
 // risk-off, relax the put bar to this score AND require a clean bearish entry
@@ -7948,8 +7960,9 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   // Entry timing folded in as a 5th component so the single grade answers
   // "is this a good trade to put on NOW?", not just "is this a good asset?".
   // Direction is the grade's own lean; timing weakens or strengthens conviction
-  // in that direction (bounded -8..+4) but never flips the implied side — a
-  // weak grade whose timing would cross zero is pulled to a flat "no trade".
+  // in that direction (+4 for a clean entry, down to a severity-scaled
+  // PICKS_TIMING_AVOID_FLOOR for a knife/chase) but never flips the implied side
+  // — a weak grade whose timing would cross zero is pulled to a flat "no trade".
   const dirSign = subtotal >= 0 ? 1 : -1;
   const tSide = dirSign > 0 ? "call" : "put";
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
@@ -9639,10 +9652,37 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
 
   // Fold the read into a bounded score contribution so the grade itself can
   // carry "is NOW a good entry?" instead of a separate gate. Knife / chase are
-  // the dominant failure modes → a flat heavy penalty; otherwise the pro/con
-  // tally, clamped so timing nudges conviction without swamping the 4 pillars.
+  // the dominant failure modes → a heavy penalty; otherwise the pro/con tally,
+  // clamped so timing nudges conviction without swamping the 4 pillars.
   // Sign is normalized to the trade direction (+ = good for the trade).
-  const contribution = (knife || chase) ? -8 : Math.max(-8, Math.min(4, score));
+  //
+  // The knife/chase penalty SCALES with severity (PICKS_TIMING_AVOID_SCALE): a
+  // flat -8 lets the most egregious blow-offs survive a high four-pillar grade
+  // (|subtotal| - 8 can stay above the bar), and those extreme chases are the
+  // biggest historical losers. severity = max overshoot ratio across the firing
+  // reads (how many multiples of its own trigger the worst read is), so a +50%
+  // 5-day run (5x the 10% chase trigger) drives the penalty toward the floor and
+  // a -15% one-day collapse (2.5x the -6% knife trigger) likewise. Floored at
+  // PICKS_TIMING_AVOID_FLOOR. At severity 1 (right at the trigger) it's exactly
+  // -8, so this is a strict superset of the flat behavior — still one number.
+  let avoidPenalty = -8;
+  if (PICKS_TIMING_AVOID_SCALE && (knife || chase)) {
+    const ratio = (val, thr) => (Number.isFinite(val) && thr) ? Math.abs(val) / Math.abs(thr) : 0;
+    let sev = 1;
+    if (chase) {
+      if (distSma20 != null && distSma20 > 0) sev = Math.max(sev, ratio(distSma20, PICKS_TIMING_CHASE_DIST_SMA20_SOFT));
+      if (ret5d != null && ret5d > 0) sev = Math.max(sev, ratio(ret5d, PICKS_TIMING_CHASE_RET5D));
+      if (ret3d != null && ret3d > 0) sev = Math.max(sev, ratio(ret3d, PICKS_TIMING_CHASE_RET3D));
+      if (rsi != null) sev = Math.max(sev, ratio(dir > 0 ? rsi : 100 - rsi, PICKS_TIMING_CHASE_RSI));
+    }
+    if (knife) {
+      if (ret1d != null && ret1d < 0) sev = Math.max(sev, ratio(ret1d, PICKS_TIMING_KNIFE_RET1D));
+      if (ret3d != null && ret3d < 0) sev = Math.max(sev, ratio(ret3d, PICKS_TIMING_KNIFE_RET3D));
+      if (adverseInAtr != null && adverseInAtr < 0) sev = Math.max(sev, ratio(adverseInAtr, PICKS_TIMING_KNIFE_DD_ATR));
+    }
+    avoidPenalty = Math.max(PICKS_TIMING_AVOID_FLOOR, -8 * sev);
+  }
+  const contribution = (knife || chase) ? avoidPenalty : Math.max(-8, Math.min(4, score));
 
   return { state, score, contribution, reasons, headline };
 }

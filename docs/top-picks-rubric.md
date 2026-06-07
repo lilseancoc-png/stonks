@@ -29,9 +29,10 @@ win rate (1 win / 18 losses; every loss a stopped-out call):
   selloff), so no name reached the −16 put bar.
 
 The fix folds **entry timing into the grade itself** (§6) as a 5th scoring
-component: a chasing-top / falling-knife read subtracts up to 8 points from
-`total`, so badly-timed names fall below the conviction bar on their own — no
-separate veto, one number. A confirmed risk-off tape still opens a tactical put
+component: a chasing-top / falling-knife read subtracts from `total` (−8 at the
+trigger, scaling deeper toward −16 the more egregious the setup, §6), so badly-timed
+names fall below the conviction bar on their own — no separate veto, one number. A
+confirmed risk-off tape still opens a tactical put
 path.
 
 ---
@@ -41,7 +42,7 @@ path.
 ```
 scoreAllTickers()            every ticker → 6 components → total  (= the GRADE)
    └─ scorePillared()        Fundamentals + Technicals + Mechanicals + Narrative
-                             + Entry timing (computeEntryTiming, −8..+4, §6)
+                             + Entry timing (computeEntryTiming, +4..−16, §6)
                              + IV cost   (computeIvCostContribution, −3..+1.5, §6.7)
 tierForScore(total)          ±12 = Call/Put, ±16 = Strong, else No-Trade
 buildTopPicks()
@@ -149,8 +150,9 @@ direction (without ever flipping the side).
 > credit only fires once a reversal bar confirms the turn (RSI ticking up, MACD
 > histogram >0, or a green session), so a still-falling knife never earns the credit
 > in the first place; and (2) the **entry-timing component (§6), part of `total`**,
-> which still subtracts up to 8 points for a knife-catch / chase (tightening its
-> knife thresholds in a confirmed risk-off tape, §6.3). Layer 1 stops the double
+> which still subtracts for a knife-catch / chase (−8 at the trigger, scaling deeper
+> toward −16 for the worst, §6; and tightening its knife thresholds in a confirmed
+> risk-off tape, §6.3). Layer 1 stops the double
 > book-keeping the old design had (score the crash +8, then claw it back −8); layer
 > 2 remains as the *location/timing* read.
 
@@ -307,10 +309,18 @@ volume, position in the 52-week range, the 20D S/R levels, the broad-market regi
 and a **prediction-market macro-event-risk read** (§6.6).
 
 ### States → score contribution
-The state is informational; what feeds the grade is the bounded `contribution`:
-- **`avoid`** → falling knife or chasing an extended top → **−8**. Drags the name
-  down so it usually falls below the conviction bar and off the roster on its own
-  (no separate veto, no backfill).
+The state is informational; what feeds the grade is the `contribution`:
+- **`avoid`** → falling knife or chasing an extended top → **−8, scaled deeper by
+  severity** (`PICKS_TIMING_AVOID_SCALE`, default ON). A *flat* −8 let the most
+  egregious blow-offs survive a high four-pillar grade (`|subtotal| − 8` can stay
+  above the bar), and those extreme chases/knives are the biggest historical losers.
+  So the penalty scales with how far past its trigger the worst firing read is —
+  `severity = max overshoot ratio` (a +50% 5-day run is 5× the 10% chase trigger; a
+  −15% 1-day drop is 2.5× the −6% knife trigger) → `penalty = max(PICKS_TIMING_AVOID_FLOOR,
+  −8 · severity)`, floored at **−16**. A borderline chase (severity 1, right at the
+  trigger) still gets exactly −8, so it's a strict superset of the old flat penalty.
+  Still **one number** folded into `total` (no separate veto, no backfill); the worst
+  setups are simply neutralized to a no-trade on their own.
 - **`wait`** → no clean entry yet (mixed structure / catalyst imminent / tape
   fighting it) → a small negative from the pro/con tally (clamped to −8..+4).
 - **`go`** → a clean, well-located entry → up to **+4**, strengthening conviction.
@@ -626,8 +636,11 @@ it has to be trustworthy. The fixes:
     `bySignal[].ic` in `picks-accuracy.json` (Pearson; the substrate to refit `W_s` from realized IC, §9.6).
   - **Timing gate (`PICKS_TIMING_*`):** knife `RET1D −6`, `RET3D −8`, `DD_ATR −2.5`;
     chase `RSI 70`, `DIST_SMA20 8`, `DIST_SMA20_SOFT 7`, `52W 0.92`, `RET5D 10`,
-    `RET3D 10`; volume `VOL_CONFIRM 1.3`, `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`,
-    `NEAR_LEVEL_PCT 1.5`; regime `RISKOFF_VIX 20`, `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
+    `RET3D 10`; **avoid-penalty scaling** `AVOID_SCALE` (default ON) + `AVOID_FLOOR −16`
+    (knife/chase penalty = `max(AVOID_FLOOR, −8·severity)`, severity = max overshoot
+    ratio vs the trigger; `AVOID_SCALE=0` → flat −8); volume `VOL_CONFIRM 1.3`,
+    `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`, `NEAR_LEVEL_PCT 1.5`; regime `RISKOFF_VIX 20`,
+    `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
     `EARNINGS_DEFER_DAYS 8`; `MIN_BARS 15` (fail-open → `wait`); risk-off put bar
     `PICKS_RISKOFF_PUT_BAR −8`. **Macro event-risk defer (§6.6):** `PICKS_EVENT_RISK`
     (default ON), `PICKS_TIMING_EVENT_DEFER_DAYS 3`, `PICKS_EVENT_RISK_MAX_PROB 0.70`.
