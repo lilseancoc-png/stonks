@@ -5727,6 +5727,61 @@ main { padding-top: var(--s-2); }
 .fomc-pm-delta.up { color: var(--up, #16a34a); }
 .fomc-pm-delta.down { color: var(--down, #dc2626); }
 .fomc-pm-delta.flat { color: var(--muted); }
+/* Per-meeting tally chips + the all-meetings odds ladder (move tracking). */
+.fomc-meeting-summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 0 0 8px 0;
+}
+.fomc-move-odds {
+  font: 600 11px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .03em;
+}
+.fomc-flag {
+  display: inline-block;
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  background: rgba(234, 179, 8, 0.16);
+  color: var(--warn);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+.fomc-flag-hike { background: rgba(234, 88, 12, 0.18); color: #a04400; border-color: rgba(234, 88, 12, 0.45); }
+.fomc-flag-cut { background: color-mix(in srgb, var(--pos) 16%, transparent); color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, transparent); }
+:root[data-theme="dark"] .fomc-flag-hike { color: #fdba74; }
+.fomc-shift {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .02em;
+  padding: 2px 6px;
+  border-radius: var(--r-1, 4px);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.fomc-shift.hawk { color: var(--neg); }
+.fomc-shift.dove { color: var(--pos); }
+.fomc-ladder-wrap { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
+.fomc-ladder-title {
+  font: 600 11px/1.2 var(--font-mono);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 6px 0;
+}
+.fomc-ladder { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fomc-ladder th, .fomc-ladder td {
+  padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--hairline);
+  font-variant-numeric: tabular-nums;
+}
+.fomc-ladder thead th {
+  font: 600 10px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+.fomc-ladder-meeting { text-align: left !important; font-weight: 600; color: var(--text); white-space: nowrap; }
+.fomc-ladder-move { font-weight: 600; color: var(--text); }
+.fomc-ladder-flag { text-align: right !important; }
+.fomc-ladder tr.is-notable td { background: rgba(234, 179, 8, 0.08); }
+.fomc-ladder-na td { color: var(--muted); font-style: italic; }
+.fomc-legend { margin: var(--s-2) 0 0 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.fomc-legend strong { color: var(--text); font-weight: 600; }
 /* Market-implied pill on a macro report chip. */
 .cal-report-pm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .cal-report-pm-item {
@@ -9873,6 +9928,63 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   color: var(--muted);
   font-size: var(--fs-sm);
   padding: var(--s-2) 0;
+}
+/* "What's moving — and why it matters" context panel. */
+.bonds-context { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-2) 0; }
+.bonds-ctx-quiet { color: var(--muted); font-size: 13px; margin: var(--s-2) 0; }
+.bonds-ctx-headline {
+  font-size: 14px; line-height: 1.5; color: var(--text);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+}
+.bonds-ctx-headline.is-notable { border-left-color: var(--warn); }
+.bonds-ctx-drivers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.bonds-ctx-driver { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.45; color: var(--text); }
+.bonds-ctx-driver-text { flex: 1; min-width: 0; }
+.bonds-ctx-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; transform: translateY(1px); background: var(--muted); }
+.bonds-ctx-dot-print { background: var(--warn); }
+.bonds-ctx-dot-fed { background: var(--accent); }
+.bonds-ctx-dot-fomc { background: var(--accent); }
+.bonds-ctx-dot-feds { background: var(--muted); }
+.bonds-ctx-dot-risk { background: var(--neg); }
+.bonds-ctx-tag {
+  flex: 0 0 auto;
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .03em;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+}
+.bonds-ctx-tag.hawk { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
+.bonds-ctx-tag.dove { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
+.bonds-ctx-fed {
+  font: 500 12px/1.5 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  padding: 6px var(--s-3);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+}
+.bonds-ctx-fed-label {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+.bonds-ctx-moveodds { color: var(--muted); }
+.bonds-ctx-watch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bonds-ctx-watch-label {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+.bonds-ctx-watch-item {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text);
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 .fng-root { display: flex; flex-direction: column; gap: var(--s-5); }
 .fng-headline {
