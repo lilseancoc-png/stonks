@@ -122,9 +122,10 @@ async function main() {
   console.log(`  · ${sessionMap.size} session entries`);
 
   console.log("Fetching prediction markets (Kalshi + Polymarket)…");
-  let predictionMarkets = { fomc: {}, reports: {} };
+  let predictionMarkets = { fomc: {}, reports: {}, earnings: {} };
   try {
-    predictionMarkets = await build.fetchPredictionMarkets(upcomingMeetings, reportEvents);
+    const earningsEvents = build.upcomingEarningsList(chains, todayIso);
+    predictionMarkets = await build.fetchPredictionMarkets(upcomingMeetings, reportEvents, earningsEvents);
   } catch (e) {
     console.log(`  ⚠ prediction markets skipped: ${e?.message || e}`);
   }
