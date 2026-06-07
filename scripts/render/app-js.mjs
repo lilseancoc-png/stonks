@@ -8458,7 +8458,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         rateStaleTag = '<span class="fomc-rate-stale" title="Fed Funds rate unavailable today — using the last persisted reading (max age 14d before the widget hides itself)">Cached · ' + rateDays + 'd</span>';
       }
     }
-    var meetings = (fomc.meetings || []).slice(0, 2);
+    var meetingsAll = (fomc.meetings || []);
+    var meetings = meetingsAll.slice(0, 2);
     var probs = fomc.probabilities || {};
     var pmAll = fomc.predictionMarkets || {};
     var header = '<div class="fomc-head">' +
@@ -8486,9 +8487,45 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     };
     var rows = ['hike','hold','cut'];
     var rowLabel = { hike: 'Hike', hold: 'Hold', cut: 'Cut' };
+    // --- Per-meeting tally helpers (track the odds of a move) --------------
+    // summarize(): current hike/hold/cut + the odds of ANY 25 bps move
+    // (hike + cut = 1 − hold) + a "notable" flag once a hike or cut clears 50%.
+    // shiftChip(): day-over-day move in the dominant direction, in points.
+    var pctTxt = function(n){ return (n == null) ? '—' : Math.round(n * 100) + '%'; };
+    var summarize = function(nowB){
+      if (!nowB) return null;
+      var h = normProb(nowB, 'hike'), ho = normProb(nowB, 'hold'), c = normProb(nowB, 'cut');
+      var move = (h || 0) + (c || 0);
+      var flag = null;
+      if (h != null && h >= 0.5) flag = { key: 'hike', label: 'Hike likely' };
+      else if (c != null && c >= 0.5) flag = { key: 'cut', label: 'Cut likely' };
+      else if (move >= 0.5) flag = { key: 'move', label: 'Move likely' };
+      return { hike: h, hold: ho, cut: c, move: move, flag: flag };
+    };
+    var flagBadge = function(flag){
+      return flag ? '<span class="fomc-flag fomc-flag-' + flag.key + '" title="Odds clear 50% — a notable, market-moving setup">' + escapeHtml(flag.label) + '</span>' : '';
+    };
+    var shiftChip = function(nowB, dayB){
+      if (!nowB || !dayB) return '';
+      var dh = ((normProb(nowB, 'hike') || 0) - (normProb(dayB, 'hike') || 0)) * 100;
+      var dc = ((normProb(nowB, 'cut') || 0) - (normProb(dayB, 'cut') || 0)) * 100;
+      var use = Math.abs(dh) >= Math.abs(dc) ? { d: dh, lbl: 'hike' } : { d: dc, lbl: 'cut' };
+      if (Math.abs(use.d) < 1) return '';
+      var hawkish = (use.lbl === 'hike') ? (use.d > 0) : (use.d < 0);
+      return '<span class="fomc-shift ' + (hawkish ? 'hawk' : 'dove') + '" title="Change in ' + use.lbl + ' odds vs yesterday">' +
+        (use.d > 0 ? '+' : '−') + Math.round(Math.abs(use.d)) + 'pt ' + use.lbl + ' · 1d</span>';
+    };
     var meetingBlocks = meetings.map(function(m){
       var bucket = probs[m.date] || { now: null, day: null, week: null, month: null };
       var allEmpty = !bucket.now && !bucket.day && !bucket.week && !bucket.month;
+      var sumNow = summarize(bucket.now);
+      var summaryRow = sumNow
+        ? '<div class="fomc-meeting-summary">' +
+            '<span class="fomc-move-odds" title="Odds of any 25 bps move (hike + cut)">Move odds ' + pctTxt(sumNow.move) + '</span>' +
+            flagBadge(sumNow.flag) +
+            shiftChip(bucket.now, bucket.day) +
+          '</div>'
+        : '';
       var grid =
         '<table class="fomc-prob-table"><thead><tr>' +
           '<th></th><th>Now</th><th>1d ago</th><th>1w ago</th><th>1m ago</th>' +
@@ -8508,13 +8545,41 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : '';
       return '<div class="fomc-meeting">' +
         '<h3 class="fomc-meeting-title">' + escapeHtml(m.label) + '</h3>' +
+        summaryRow +
         (allEmpty ? '' : '<div class="fomc-prob-cap">Implied by ZQ Fed Funds futures</div>') +
         grid +
         note +
         renderFomcPredictionMarkets(pmAll[m.date]) +
       '</div>';
     }).join('');
-    root.innerHTML = header + meetingBlocks;
+    // --- All-meetings odds ladder: one row per upcoming FOMC date so every
+    // meeting (not just the front two) tallies its current hike/hold/cut and
+    // the odds of a 25 bps move, with a notable flag once a hike or cut > 50%.
+    var ladderRows = meetingsAll.map(function(m){
+      var b = probs[m.date] || {};
+      var s = summarize(b.now);
+      if (!s) return '<tr class="fomc-ladder-na"><td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td><td colspan="5">no snapshot</td></tr>';
+      var rowCls = s.flag ? ' class="is-notable fomc-ladder-' + s.flag.key + '"' : '';
+      var last = s.flag ? flagBadge(s.flag) : shiftChip(b.now, b.day);
+      return '<tr' + rowCls + '>' +
+        '<td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td>' +
+        '<td>' + pctTxt(s.hike) + '</td>' +
+        '<td>' + pctTxt(s.hold) + '</td>' +
+        '<td>' + pctTxt(s.cut) + '</td>' +
+        '<td class="fomc-ladder-move">' + pctTxt(s.move) + '</td>' +
+        '<td class="fomc-ladder-flag">' + last + '</td>' +
+      '</tr>';
+    }).join('');
+    var ladder = meetingsAll.length
+      ? '<div class="fomc-ladder-wrap">' +
+          '<h3 class="fomc-ladder-title">All upcoming meetings · odds of a move</h3>' +
+          '<table class="fomc-ladder"><thead><tr>' +
+            '<th>Meeting</th><th>Hike</th><th>Hold</th><th>Cut</th><th title="Odds of any 25 bps move">Move</th><th></th>' +
+          '</tr></thead><tbody>' + ladderRows + '</tbody></table>' +
+        '</div>'
+      : '';
+    var legend = '<p class="fomc-legend">Odds are the ZQ-futures-implied probability of a 25 bps <strong>hike</strong> / <strong>hold</strong> / <strong>cut</strong> — the standard Fed step (a 25 bps move either way is a “large move”). <strong>Move</strong> = odds of any 25 bps change (hike + cut). A meeting is flagged <span class="fomc-flag fomc-flag-move">notable</span> once a hike or cut clears 50%.</p>';
+    root.innerHTML = header + meetingBlocks + ladder + legend;
   }
   // Prediction-market cross-check (Kalshi + Polymarket) shown beneath the
   // futures-implied table. Each platform's hike/hold/cut is an independent,
@@ -12878,6 +12943,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var eyebrow = document.getElementById('bonds-live-eyebrow');
     if (!macro || (!macro.twoY && !macro.tenY && !macro.thirtyY && !macro.dxy && !macro.vix)) {
       grid.innerHTML = '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
+      renderBondsContext();
       return;
     }
     if (eyebrow && macro.asOf) {
@@ -12996,6 +13062,167 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     html += tile('DXY',       macro.dxy,     'dxy', 'dxy',     function(v){ return v.toFixed(2); });
     html += vixTile(macro.vix);
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
+    renderBondsContext();
+  }
+
+  // --- Bonds & USD context: "why it matters today" ------------------------
+  // Deterministic read correlating the day's yield / dollar move with the
+  // Calendar's FedWatch hike/cut odds (now vs 1d ago), dated economic prints,
+  // FOMC proximity, and a risk-off VIX spike — then names the likely driver.
+  // Reads data/calendar.json (lazy, shared with the Calendar tab via
+  // calendarState); degrades to "no standout catalyst" when nothing lines up.
+  var bondsCtx = { loading: false };
+  function bondsIsoDay(d){ try { return new Date(d).toISOString().slice(0, 10); } catch (_) { return null; } }
+  function bondsDaysFrom(aIso, bIso){
+    var a = Date.parse(aIso + 'T00:00:00Z'), b = Date.parse(bIso + 'T00:00:00Z');
+    return (isFinite(a) && isFinite(b)) ? Math.round((b - a) / 86400000) : null;
+  }
+  function bondsNormBucket(bk){
+    if (!bk) return null;
+    function n(v){ if (v == null) return null; v = Number(v); if (!isFinite(v)) return null; return v > 1.5 ? v / 100 : v; }
+    return { hike: n(bk.hike), hold: n(bk.hold), cut: n(bk.cut) };
+  }
+  // Crude numeric compare of "+0.3%" / "212K" vs consensus → hot/cool/inline.
+  function bondsCmpPrint(actual, consensus){
+    if (actual == null || consensus == null) return null;
+    var a = parseFloat(String(actual).replace(/[^0-9.-]/g, ''));
+    var c = parseFloat(String(consensus).replace(/[^0-9.-]/g, ''));
+    if (!isFinite(a) || !isFinite(c)) return null;
+    return a > c ? 'hot' : a < c ? 'cool' : 'inline';
+  }
+  function renderBondsContext(){
+    var host = document.getElementById('bonds-context');
+    if (!host) return;
+    var macro = (window.STONKS_MANIFEST || {}).macro || null;
+    if (!macro){ host.innerHTML = '<p class="bonds-ctx-quiet">No macro snapshot in the last build.</p>'; return; }
+    var cal = calendarState.data;
+    if (!cal){
+      // Lazy-load the calendar once for the Fed-odds correlation (shared cache).
+      if (!bondsCtx.loading){
+        bondsCtx.loading = true;
+        fetch('data/calendar.json', { cache: 'no-cache' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(j){ calendarState.data = (j && Array.isArray(j.events)) ? j : { events: [], loadError: true }; })
+          .catch(function(){ calendarState.data = { events: [], loadError: true }; })
+          .finally(function(){ bondsCtx.loading = false; renderBondsContext(); });
+      }
+      host.innerHTML = '<p class="bonds-ctx-quiet">Reading the calendar for Fed-rate context…</p>';
+      return;
+    }
+    var todayStr = bondsIsoDay(macro.asOf) || bondsIsoDay(Date.now());
+    var pct = function(n){ return (n == null) ? '—' : Math.round(n * 100) + '%'; };
+    // 1) Lead bond/dollar move (most severe by movement band).
+    var rankSev = { 'normal': 0, 'notable': 1, 'big': 2, 'very-large': 3 };
+    var legs = [
+      { label: '10Y yield', scale: '10y', leg: macro.tenY },
+      { label: '2Y yield',  scale: '2y',  leg: macro.twoY },
+      { label: '30Y yield', scale: '30y', leg: macro.thirtyY },
+      { label: 'DXY',       scale: 'dxy', leg: macro.dxy }
+    ];
+    var moves = [];
+    legs.forEach(function(x){
+      if (!x.leg || x.leg.value == null) return;
+      var signed = (x.scale === 'dxy') ? x.leg.pctChange1d : x.leg.bpsChange1d;
+      if (signed == null || !isFinite(signed)) return;
+      var band = classifyMove(Math.abs(signed), x.scale);
+      moves.push({ label: x.label, scale: x.scale, signed: signed, band: band, sev: band ? rankSev[band.key] : 0 });
+    });
+    moves.sort(function(a, b){ return (b.sev - a.sev) || (Math.abs(b.signed) - Math.abs(a.signed)); });
+    var lead = moves[0] || null;
+    var moveHawkish = lead ? (lead.signed > 0) : null; // rising yields / stronger dollar = hawkish
+    // 2) FedWatch odds + day-over-day shift for the nearest meeting.
+    var fed = cal.fomc || null;
+    var meeting = null, nowB = null, dayB = null;
+    if (fed && fed.meetings && fed.meetings.length){
+      for (var i = 0; i < fed.meetings.length; i++){ if (fed.meetings[i] && fed.meetings[i].date >= todayStr){ meeting = fed.meetings[i]; break; } }
+      if (!meeting) meeting = fed.meetings[0];
+      var pr = meeting ? (fed.probabilities || {})[meeting.date] : null;
+      if (pr){ nowB = bondsNormBucket(pr.now); dayB = bondsNormBucket(pr.day); }
+    }
+    // 3) Candidate drivers, in priority order.
+    var drivers = [];
+    (cal.events || []).forEach(function(e){
+      if (e.type !== 'report' || e.date !== todayStr || e.actual == null || e.actual === '') return;
+      var c = bondsCmpPrint(e.actual, e.consensus);
+      var tail = c === 'hot' ? ' — hotter than expected' : c === 'cool' ? ' — cooler than expected' : '';
+      drivers.push({ kind: 'print', prio: 1,
+        text: escapeHtml(e.title) + ' printed ' + escapeHtml(String(e.actual)) + (e.consensus ? ' (vs ' + escapeHtml(String(e.consensus)) + ' est)' : '') + tail,
+        hawkish: c === 'hot' ? true : c === 'cool' ? false : null });
+    });
+    if (nowB && dayB){
+      var dh = ((nowB.hike || 0) - (dayB.hike || 0)) * 100;
+      var dc = ((nowB.cut || 0) - (dayB.cut || 0)) * 100;
+      if (dh >= 3) drivers.push({ kind: 'fed', prio: 2, text: 'Hike odds for ' + escapeHtml(meeting.label) + ' rose ' + Math.round(dh) + 'pt vs yesterday', hawkish: true });
+      else if (dh <= -3) drivers.push({ kind: 'fed', prio: 2, text: 'Hike odds for ' + escapeHtml(meeting.label) + ' fell ' + Math.round(-dh) + 'pt vs yesterday', hawkish: false });
+      if (dc >= 3) drivers.push({ kind: 'fed', prio: 2, text: 'Cut odds for ' + escapeHtml(meeting.label) + ' rose ' + Math.round(dc) + 'pt vs yesterday', hawkish: false });
+      else if (dc <= -3) drivers.push({ kind: 'fed', prio: 2, text: 'Cut odds for ' + escapeHtml(meeting.label) + ' fell ' + Math.round(-dc) + 'pt vs yesterday', hawkish: true });
+    }
+    if (meeting){
+      var dOut = bondsDaysFrom(todayStr, meeting.date);
+      if (dOut != null && dOut >= 0 && dOut <= 2){
+        drivers.push({ kind: 'fomc', prio: 1, text: 'FOMC decision ' + (dOut === 0 ? 'today' : dOut === 1 ? 'tomorrow' : 'in ' + dOut + ' days') + ' (' + escapeHtml(meeting.label) + ') — markets positioning ahead of it', hawkish: null });
+      }
+    }
+    (cal.events || []).forEach(function(e){
+      if (e.type !== 'fed' || e.date !== todayStr) return;
+      drivers.push({ kind: 'feds', prio: 3, text: escapeHtml(e.title), hawkish: null });
+    });
+    var vix = macro.vix;
+    if (vix && vix.pctChange1d != null && isFinite(vix.pctChange1d) && vix.pctChange1d >= 8){
+      drivers.push({ kind: 'risk', prio: 2, text: 'VIX jumped ' + vix.pctChange1d.toFixed(0) + '% — risk-off bid (possible geopolitical / event shock)', hawkish: false });
+    }
+    drivers.sort(function(a, b){ return a.prio - b.prio; });
+    // 4) Headline.
+    var notable = lead && lead.band && lead.sev >= 1;
+    var catPhrase = { print: 'a fresh economic print', fed: 'a shift in Fed-rate odds', fomc: 'FOMC positioning', feds: 'Fed commentary', risk: 'a risk-off move' };
+    var headline, headClass = '';
+    if (!lead){
+      headline = 'No macro move was captured in the last build.';
+    } else {
+      var absTxt = (lead.scale === 'dxy') ? Math.abs(lead.signed).toFixed(2) + '%' : Math.abs(lead.signed).toFixed(1) + ' bps';
+      var verb = (lead.signed >= 0) ? (lead.scale === 'dxy' ? 'strengthened' : 'rose') : (lead.scale === 'dxy' ? 'weakened' : 'fell');
+      var bandLbl = lead.band ? lead.band.label : 'Normal';
+      if (!notable && !drivers.length){
+        headline = 'Quiet tape — ' + lead.label + ' ' + verb + ' ' + absTxt + ' (' + bandLbl + '). Within the normal daily range with no standout Fed or data catalyst; treat as positioning / noise.';
+      } else {
+        headClass = ' is-notable';
+        headline = lead.label + ' ' + verb + ' ' + absTxt + ' (' + bandLbl + ')';
+        headline += drivers.length
+          ? ' — likely ' + catPhrase[drivers[0].kind] + (drivers.length > 1 ? ' (plus ' + (drivers.length - 1) + ' more below)' : '')
+          : ' — no single catalyst stands out; watch the upcoming data.';
+      }
+    }
+    var out = '<div class="bonds-ctx-headline' + headClass + '">' + headline + '</div>';
+    // 5) Driver bullets.
+    if (drivers.length){
+      out += '<ul class="bonds-ctx-drivers">' + drivers.map(function(d){
+        var tag = d.hawkish === true ? '<span class="bonds-ctx-tag hawk" title="Pushes rates / yields up">↑ rates</span>'
+                : d.hawkish === false ? '<span class="bonds-ctx-tag dove" title="Pushes rates / yields down">↓ rates</span>' : '';
+        return '<li class="bonds-ctx-driver"><span class="bonds-ctx-dot bonds-ctx-dot-' + d.kind + '"></span>' +
+          '<span class="bonds-ctx-driver-text">' + d.text + '</span>' + tag + '</li>';
+      }).join('') + '</ul>';
+    }
+    // 6) Nearest-decision FedWatch snapshot — the explicit Calendar correlation.
+    if (meeting && nowB){
+      var moveOdds = (nowB.hike || 0) + (nowB.cut || 0);
+      out += '<div class="bonds-ctx-fed">' +
+        '<span class="bonds-ctx-fed-label">Nearest decision</span> ' +
+        '<strong>' + escapeHtml(meeting.label) + '</strong> · Hold ' + pct(nowB.hold) + ' · Hike ' + pct(nowB.hike) + ' · Cut ' + pct(nowB.cut) +
+        ' <span class="bonds-ctx-moveodds" title="Odds of any 25 bps move">move odds ' + pct(moveOdds) + '</span>' +
+      '</div>';
+    } else if (cal.loadError){
+      out += '<div class="bonds-ctx-fed bonds-ctx-quiet">Fed-rate odds unavailable (calendar didn’t load) — showing the move only.</div>';
+    }
+    // 7) What to watch — next dated reports / FOMC decisions.
+    var watch = (cal.events || []).filter(function(e){ return (e.type === 'report' || e.type === 'fomc') && e.date > todayStr; })
+      .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }).slice(0, 4);
+    if (watch.length){
+      out += '<div class="bonds-ctx-watch"><span class="bonds-ctx-watch-label">Watch</span>' + watch.map(function(e){
+        var nm = e.type === 'fomc' ? 'FOMC' : (e.title || 'Report');
+        return '<span class="bonds-ctx-watch-item">' + escapeHtml(nm) + ' · ' + escapeHtml(fmtCalendarDate(e.date)) + '</span>';
+      }).join('') + '</div>';
+    }
+    host.innerHTML = out;
   }
 
   // --- Tickers landing grid (filter + spot prices) ------------------------
