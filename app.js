@@ -6695,6 +6695,84 @@
       (up ? 'Price up on this bucket — bullish lean' : 'Price down on this bucket — bearish lean') +
       '">' + (up ? 'Bullish' : 'Bearish') + '</span>';
   }
+  // Context-specific, plain-English justification for a bucket's badges,
+  // derived from THIS bucket's own numbers and the same thresholds the
+  // classifier in lib/volume-flags.mjs gates on. These constants are a hand-kept
+  // mirror of that module's exports (the IIFE can't import it — see CLAUDE.md
+  // "Math is duplicated on purpose"); if you change them there, change them here.
+  var VOL_BIG_MOVE_PCT = 1.2;    // |move| >= 1.2% is a "real" move (MOVE_BIG_PCT)
+  var VOL_HEAVY_MULT = 1.2;      // >= 1.2x expected vol is heavy (MOVE_VOL_HIGH)
+  var VOL_SR_STRONG_MULT = 1.3;  // S/R break >= 1.3x = very-high conviction
+  var VOL_SR_WEAK_MULT = 0.8;    // 0.8-1.3x = medium, < 0.8x = likely fakeout
+  var VOL_EOD_FLAG_MULT = 1.3;   // full-day vol >= 1.3x avg flags the session
+  function volRatioWord(r){
+    return (r != null && isFinite(r)) ? Number(r).toFixed(2) + 'x' : '';
+  }
+  function volMoveWord(p){
+    if (p == null || !isFinite(p)) return '';
+    var v = Number(p);
+    return (v >= 0 ? 'up ' : 'down ') + Math.abs(v).toFixed(2) + '%';
+  }
+  // One- to two-sentence "why" for an hourly bucket. Returns '' when nothing
+  // noteworthy fired (so the caption only shows on buckets that earned a badge).
+  function volExplain(hit){
+    if (!hit || hit.scanMissed) return '';
+    var r = hit.volRatio;
+    var p = hit.priceMovePct;
+    var parts = [];
+    var mc = hit.moveClass;
+    if (mc && mc.conviction && mc.conviction !== 'None' && r != null){
+      var big = p != null && Math.abs(Number(p)) >= VOL_BIG_MOVE_PCT;
+      var heavy = Number(r) >= VOL_HEAVY_MULT;
+      var rW = volRatioWord(r);
+      var mW = volMoveWord(p);
+      var dirWord = p != null ? (Number(p) >= 0 ? 'bullish' : 'bearish') : '';
+      if (big && heavy){
+        parts.push('Traded ' + rW + ' the volume normal for this part of the session on a ' + mW +
+          ' move — both clear the bar (≥' + VOL_HEAVY_MULT.toFixed(1) + 'x volume and ≥' +
+          VOL_BIG_MOVE_PCT.toFixed(1) + '% move), so real participation is driving it, not noise. ' +
+          'Heavy volume behind a decisive move is what makes it an Important Move' +
+          (dirWord ? ', and the ' + (Number(p) >= 0 ? 'gain leans ' : 'drop leans ') + dirWord : '') + '.');
+      } else if (!big && heavy){
+        parts.push('Volume ran ' + rW + ' the session-normal rate but price only moved ' + mW +
+          ' (under the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% bar) — heavy participation without a decisive move yet ' +
+          '(accumulation, distribution, or indecision), so it is a Watch, not a confirmed move.');
+      } else if (big){
+        parts.push('Price moved ' + mW + ' but on only ' + rW + ' of normal volume (under the ' +
+          VOL_HEAVY_MULT.toFixed(1) + 'x bar) — the move is not backed by participation, so treat it as ' +
+          'low-conviction and prone to fading.');
+      }
+    }
+    if (hit.srBreak){
+      var sr = hit.srBreak;
+      var lvl = sr.level != null ? '$' + Number(sr.level).toFixed(2) : 'its level';
+      var levelWord = sr.type === 'upper' ? '20-day resistance ' + lvl : '20-day support ' + lvl;
+      var srW = volRatioWord(r);
+      if (sr.conviction === 'Very High'){
+        parts.push('Price broke ' + levelWord + ' on ' + srW + ' volume (≥' + VOL_SR_STRONG_MULT.toFixed(1) +
+          'x) — a high-conviction ' + (sr.type === 'upper' ? 'bullish' : 'bearish') + ' break.');
+      } else if (sr.conviction === 'Medium'){
+        parts.push('Price crossed ' + levelWord + ' but on just ' + srW + ' volume — medium conviction; ' +
+          'a break usually needs ≥' + VOL_SR_STRONG_MULT.toFixed(1) + 'x volume to trust.');
+      } else if (sr.conviction === 'Low'){
+        parts.push('Price poked through ' + levelWord + ' on only ' + srW + ' volume (under ' +
+          VOL_SR_WEAK_MULT.toFixed(1) + 'x) — likely a fakeout, since breaks without volume tend to reverse.');
+      }
+    }
+    return parts.join(' ');
+  }
+  // "Why" for the end-of-day summary row.
+  function volEodExplain(eod){
+    if (!eod || !eod.flagged) return '';
+    var rW = volRatioWord(eod.ratio);
+    var s = 'The full day traded ' + rW + ' its 20-day average volume (≥' + VOL_EOD_FLAG_MULT.toFixed(1) +
+      'x flags the session as unusually heavy)';
+    if (eod.dayMovePct != null && isFinite(eod.dayMovePct)){
+      s += ' and closed ' + volMoveWord(eod.dayMovePct) + ' vs. yesterday, so the heavy tape leaned ' +
+        (Number(eod.dayMovePct) >= 0 ? 'bullish' : 'bearish');
+    }
+    return s + '.';
+  }
   function filteredVolTickers(){
     var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
     var q = (volState.search || '').trim().toUpperCase();
@@ -6846,6 +6924,8 @@
       );
     }
     if (badges.length) bits.push('<div class="vol-badges">' + badges.join('') + '</div>');
+    var why = volExplain(hit);
+    if (why) bits.push('<div class="vol-why">' + escapeHtml(why) + '</div>');
     return '<div class="vol-bucket">' + bits.join('') + '</div>';
   }
   function renderVolumeFlags(){
@@ -6907,6 +6987,7 @@
           '<span class="vol-eod-vol" title="Full-day volume / 20-day average daily volume · ratio (actual ÷ average)">Day vol ' + fmtVolNum(t.eod.dayVol) + ' / ' + fmtVolNum(t.eod.avg20) + ' · ' + ratio + '</span>' +
           (dayMove ? '<span class="vol-eod-move' + dayCls + '" title="Price change vs. yesterday\'s close">' + dayMove + '</span>' : '') +
           dayDirPill +
+          (function(){ var w = volEodExplain(t.eod); return w ? '<div class="vol-eod-why">' + escapeHtml(w) + '</div>' : ''; })() +
         '</div>';
       }
       return '<article class="vol-row" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +

@@ -10679,6 +10679,12 @@ html::-webkit-scrollbar-thumb:hover {
 .vol-bucket-move { color: var(--text-2); font-size: 0.95em; }
 .vol-bucket-move.is-up { color: var(--up); }
 .vol-bucket-move.is-dn { color: var(--dn); }
+.vol-why {
+  font-size: 0.85em;
+  line-height: 1.45;
+  color: var(--text-3);
+  max-width: 64ch;
+}
 
 .vol-badges {
   display: flex;
@@ -10751,11 +10757,20 @@ html::-webkit-scrollbar-thumb:hover {
   display: flex;
   gap: var(--s-3);
   align-items: baseline;
+  flex-wrap: wrap;
   padding: var(--s-2) var(--s-3);
   background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: var(--r-sm);
   font-variant-numeric: tabular-nums;
+}
+.vol-eod-why {
+  flex-basis: 100%;
+  margin-top: var(--s-1);
+  font-size: 0.85em;
+  line-height: 1.45;
+  color: var(--text-3);
+  font-variant-numeric: normal;
 }
 .vol-eod-label {
   font-weight: 600;
