@@ -2834,6 +2834,26 @@ async function fetchRiskFreeRate(cachedRfr = null) {
 // Source for the rules wired into shouldBuy/buildRecommendationCard:
 // bonds_and_usd primer in the Bonds & USD tab. Graceful degradation: if any
 // leg fails, it is set to null and downstream code omits that line.
+// VIX term structure from the index trio: short (^VIX9D, 9-day), spot (^VIX,
+// 30-day), mid (^VIX3M, 3-month). ratio = spot / mid; ≥1 = backwardation
+// (near-term fear richer than longer-dated — acute stress), <1 = contango
+// (normal). detectMarketRegime treats backwardation as a risk-off confirmer.
+// Returns null when the 3-month leg is missing (can't judge the curve).
+function buildVixTerm(vix, vix9d, vix3m) {
+  const spot = vix && Number.isFinite(vix.value) ? vix.value : null;
+  const short = vix9d && Number.isFinite(vix9d.value) ? vix9d.value : null;
+  const mid = vix3m && Number.isFinite(vix3m.value) ? vix3m.value : null;
+  if (!(spot > 0) || !(mid > 0)) return null;
+  const ratio = spot / mid;
+  return {
+    short,
+    spot,
+    mid,
+    ratio: Math.round(ratio * 1000) / 1000,
+    state: ratio >= 1.0 ? "backwardation" : "contango",
+  };
+}
+
 async function fetchMacroBackdrop() {
   async function fetchLeg(symbol, label, { isYield = false } = {}) {
     try {
@@ -2894,15 +2914,25 @@ async function fetchMacroBackdrop() {
   // never flow through the api/* proxies. That's fine: the build fetches it
   // server-side here exactly like the ^TNX/^TYX yields, and the Bonds & USD
   // tile + Execute-now card read the baked value (they never live-refresh it).
-  const [twoY, tenY, thirtyY, dxy, vix] = await Promise.all([
+  // ^VIX9D (9-day) + ^VIX3M (3-month) join ^VIX so we can read the term-structure
+  // slope (backwardation = acute stress), a sharper risk-off tell than VIX level
+  // alone. Same caret-prefixed index pattern — quote-only, fails SYMBOL_RE so it
+  // never reaches the api/* proxies, fetched server-side here like ^VIX.
+  const [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m] = await Promise.all([
     fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
     fetchLeg("^TNX", "10Y yield", { isYield: true }),
     fetchLeg("^TYX", "30Y yield", { isYield: true }),
     fetchLeg("DX-Y.NYB", "DXY"),
     fetchLeg("^VIX", "VIX"),
+    fetchLeg("^VIX9D", "VIX 9-day"),
+    fetchLeg("^VIX3M", "VIX 3-month"),
   ]);
   if (!twoY && !tenY && !thirtyY && !dxy && !vix) return null;
-  return { twoY, tenY, thirtyY, dxy, vix, asOf: new Date().toISOString() };
+  const vixTerm = buildVixTerm(vix, vix9d, vix3m);
+  if (vixTerm) {
+    console.log(`Macro VIX term: 9d ${vixTerm.short != null ? vixTerm.short.toFixed(1) : "—"} / 30d ${vixTerm.spot.toFixed(1)} / 3m ${vixTerm.mid.toFixed(1)} → ratio ${vixTerm.ratio} (${vixTerm.state})`);
+  }
+  return { twoY, tenY, thirtyY, dxy, vix, vixTerm, asOf: new Date().toISOString() };
 }
 
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
@@ -3413,6 +3443,18 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   }
 
   events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || "").localeCompare(b.symbol || "")));
+  // Attach per-meeting consensus divergence (futures vs Kalshi vs Polymarket) to
+  // the prediction-market block so the widget can flag where the sources disagree.
+  const pmFomc = (predictionMarkets && predictionMarkets.fomc) || {};
+  let pmFomcOut = pmFomc;
+  if (fedwatch && Object.keys(pmFomc).length) {
+    pmFomcOut = {};
+    for (const [date, entry] of Object.entries(pmFomc)) {
+      const futuresNow = fedwatch[date] && fedwatch[date].now;
+      const divergence = computeFomcDivergence(futuresNow, entry.kalshi, entry.polymarket);
+      pmFomcOut[date] = divergence ? { ...entry, divergence } : entry;
+    }
+  }
   return {
     builtAtIso,
     windowDays: CALENDAR_DAYS_AHEAD,
@@ -3424,8 +3466,10 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       meetings: fomcMeetings,
       probabilities: fedwatch || {},
       // Prediction-market cross-check on the futures-implied probabilities
-      // above — hike/hold/cut per meeting from Kalshi + Polymarket.
-      predictionMarkets: (predictionMarkets && predictionMarkets.fomc) || {},
+      // above — hike/hold/cut per meeting from Kalshi + Polymarket, each with a
+      // `divergence` (vs the futures math), `thin` (low-liquidity) flag, and a
+      // `trend` (Δ + sparkline) when history exists.
+      predictionMarkets: pmFomcOut,
     },
   };
 }
@@ -5658,6 +5702,13 @@ const PM_FOMC_MEETINGS = Number(process.env.PM_FOMC_MEETINGS) || 3;
 const PM_FETCH_TIMEOUT_MS = 9000;
 const PM_MONTH_CODES = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 const PM_MONTH_NAMES = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+// Liquidity floors below which a platform's odds are tagged `thin` (noisy — not
+// to be trusted as signal, and de-emphasized in the UI). Kalshi volume is in
+// CONTRACTS, Polymarket in USD, hence the very different scales. A floor of 0
+// disables the tag for that platform. Env-tunable.
+const PM_KALSHI_MIN_VOL = Number(process.env.PM_KALSHI_MIN_VOL ?? 500);
+const PM_POLY_MIN_VOL = Number(process.env.PM_POLY_MIN_VOL ?? 5000);
+const pmIsThin = (vol, floor) => floor > 0 && !(Number(vol) >= floor);
 
 // Small JSON GET with a timeout and a polite UA. Returns parsed JSON or null —
 // prediction markets are a non-critical overlay, so failures are swallowed.
@@ -5753,7 +5804,9 @@ async function fetchKalshiFomc(meetingDate) {
     const bucketed = bucketRateOutcomes(rows);
     // The event existed on this host; whether or not it had classifiable
     // markets, other bases serve the same data, so stop here.
-    return bucketed ? { ...bucketed, url: "https://kalshi.com/markets/kxfeddecision" } : null;
+    return bucketed
+      ? { ...bucketed, thin: pmIsThin(bucketed.vol, PM_KALSHI_MIN_VOL), url: "https://kalshi.com/markets/kxfeddecision" }
+      : null;
   }
   return null;
 }
@@ -5842,7 +5895,7 @@ async function fetchPolymarketFomc(meetingDate) {
   const bucketed = bucketRateOutcomes(rows);
   if (!bucketed) return null;
   const url = best.slug ? `https://polymarket.com/event/${best.slug}` : "https://polymarket.com/economy/fed-rates";
-  return { ...bucketed, url };
+  return { ...bucketed, thin: pmIsThin(bucketed.vol, PM_POLY_MIN_VOL), url };
 }
 
 // Map calendar report subtypes → Polymarket title-keyword matchers for a
@@ -5879,12 +5932,14 @@ async function fetchMacroPrediction(ev) {
           platform: "Polymarket",
           label: mk.groupItemTitle || mk.question || pe.title || "",
           prob: yes,
+          vol,
           url: pe.slug ? `https://polymarket.com/event/${pe.slug}` : "https://polymarket.com/economy",
         };
         bestVol = vol;
       }
     }
   }
+  if (best) best.thin = pmIsThin(best.vol, PM_POLY_MIN_VOL);
   return best;
 }
 
@@ -5917,6 +5972,178 @@ export async function fetchPredictionMarkets(meetings, reportEvents) {
   const fomcN = Object.keys(out.fomc).length, repN = Object.keys(out.reports).length;
   console.log(`  · prediction markets: ${fomcN} FOMC meeting${fomcN === 1 ? "" : "s"}, ${repN} macro release${repN === 1 ? "" : "s"}`);
   return out;
+}
+
+// --- Consensus divergence (#1) ----------------------------------------------
+// Max pairwise spread (in percentage points) across the three rate-odds sources
+// for a meeting — futures (ZQ), Kalshi, Polymarket — over the hike/hold/cut
+// buckets. The interesting signal is DISAGREEMENT: when the futures math and the
+// money-weighted markets diverge, one of them is mispriced. Returns
+// { maxPp, bucket, sources } or null when fewer than two sources are present.
+export function computeFomcDivergence(futuresNow, kalshi, polymarket) {
+  const norm = (o) => {
+    if (!o) return null;
+    const g = (k) => { const v = Number(o[k]); return Number.isFinite(v) ? (v > 1.5 ? v / 100 : v) : null; };
+    const r = { hike: g("hike"), hold: g("hold"), cut: g("cut") };
+    return (r.hike == null && r.hold == null && r.cut == null) ? null : r;
+  };
+  const srcs = [];
+  const f = norm(futuresNow); if (f) srcs.push(["Futures", f]);
+  const k = norm(kalshi); if (k) srcs.push(["Kalshi", k]);
+  const p = norm(polymarket); if (p) srcs.push(["Polymarket", p]);
+  if (srcs.length < 2) return null;
+  let maxPp = 0, bucket = null;
+  for (const key of ["hike", "hold", "cut"]) {
+    const vals = srcs.map(([, o]) => o[key]).filter((v) => v != null);
+    if (vals.length < 2) continue;
+    // Round to integer points BEFORE comparing so a float-noise tie resolves
+    // deterministically to the first bucket (hike→hold→cut), not whichever side
+    // of 0.18 the subtraction happened to land on.
+    const spread = Math.round((Math.max(...vals) - Math.min(...vals)) * 100);
+    if (spread > maxPp) { maxPp = spread; bucket = key; }
+  }
+  return { maxPp, bucket, sources: srcs.map(([n]) => n) };
+}
+
+// --- Prediction-market odds history + trend (#4) ----------------------------
+// Rolling per-meeting snapshots of the Kalshi/Polymarket FOMC odds so the widget
+// can show whether the crowd's rate view is MOVING (Δ vs ~1w ago + a sparkline),
+// not just today's number. Same read-before-wipe / write-after-wipe rule as
+// fedwatch-history.json (main() pre-reads, writeChainFiles wipes data/, then we
+// write back). Bounded per meeting; past meetings dropped.
+const PREDICTION_HISTORY_FILE = "prediction-history.json";
+const PREDICTION_HISTORY_MAX_SNAPSHOTS = 40;
+export async function readPredictionHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, PREDICTION_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && parsed.meetings ? parsed : { meetings: {} };
+  } catch (_) {
+    return { meetings: {} };
+  }
+}
+export async function writePredictionHistory(history) {
+  await writeFile(resolve(DATA_DIR, PREDICTION_HISTORY_FILE), JSON.stringify(history), "utf8");
+}
+export function prunePredictionHistory(history, todayIso) {
+  if (!history?.meetings || !todayIso) return history;
+  for (const date of Object.keys(history.meetings)) {
+    if (date < todayIso) { delete history.meetings[date]; continue; } // past meeting
+    const snaps = history.meetings[date];
+    if (!snaps || typeof snaps !== "object") continue;
+    const dates = Object.keys(snaps).sort();
+    if (dates.length > PREDICTION_HISTORY_MAX_SNAPSHOTS) {
+      const keep = new Set(dates.slice(-PREDICTION_HISTORY_MAX_SNAPSHOTS));
+      for (const d of dates) if (!keep.has(d)) delete snaps[d];
+    }
+  }
+  return history;
+}
+// Append today's prediction-market FOMC odds. Per meeting we store a compact
+// { kalshi?:{hike,hold,cut}, polymarket?:{...} } so the file stays small.
+export function appendPredictionHistory(history, pmFomc, todayIso) {
+  const h = history && history.meetings ? history : { meetings: {} };
+  if (!todayIso) return h;
+  for (const [date, entry] of Object.entries(pmFomc || {})) {
+    if (!entry) continue;
+    const snap = {};
+    for (const plat of ["kalshi", "polymarket"]) {
+      const o = entry[plat];
+      if (o && (Number.isFinite(o.hike) || Number.isFinite(o.hold) || Number.isFinite(o.cut))) {
+        snap[plat] = { hike: o.hike ?? null, hold: o.hold ?? null, cut: o.cut ?? null };
+      }
+    }
+    if (!Object.keys(snap).length) continue;
+    if (!h.meetings[date]) h.meetings[date] = {};
+    h.meetings[date][todayIso] = snap;
+  }
+  return h;
+}
+// Attach a compact trend to each FOMC prediction entry from the rolling history:
+// a hold-probability sparkline series (the most-watched bucket, last ~10 points,
+// as 0-100 ints) + Δ vs the snapshot nearest ~1 week ago. Pure; returns a copy.
+export function attachPredictionTrends(pmFomc, history, todayIso) {
+  if (!pmFomc) return pmFomc;
+  const nowMs = Date.parse(todayIso + "T00:00:00Z");
+  const out = {};
+  for (const [date, entry] of Object.entries(pmFomc)) {
+    const snaps = (history && history.meetings && history.meetings[date]) || null;
+    if (!snaps) { out[date] = entry; continue; }
+    const dates = Object.keys(snaps).sort();
+    const trend = {};
+    for (const plat of ["kalshi", "polymarket"]) {
+      if (!entry[plat]) continue;
+      const series = [];
+      for (const d of dates) {
+        const v = snaps[d] && snaps[d][plat] && snaps[d][plat].hold;
+        if (Number.isFinite(v)) series.push(Math.round(v * 100));
+      }
+      if (series.length < 2) continue;
+      let weekAgo = null;
+      if (Number.isFinite(nowMs)) {
+        for (const d of dates) {
+          if (Date.parse(d + "T00:00:00Z") <= nowMs - 7 * 86400000 && snaps[d][plat] && Number.isFinite(snaps[d][plat].hold)) {
+            weekAgo = snaps[d][plat].hold;
+          }
+        }
+      }
+      const cur = entry[plat].hold;
+      const deltaHold = (weekAgo != null && Number.isFinite(cur)) ? Math.round((cur - weekAgo) * 100) : null;
+      trend[plat] = { hold: series.slice(-10), deltaHold };
+    }
+    out[date] = Object.keys(trend).length ? { ...entry, trend } : entry;
+  }
+  return out;
+}
+
+// --- Macro event-risk timing modifier (#5) ----------------------------------
+// Market-wide entry-timing risk from an IMMINENT, UNCERTAIN macro event, read
+// off the prediction-market odds. "Uncertain" = the top outcome is priced below
+// PICKS_EVENT_RISK_MAX_PROB (a coin-flip the market can't call); "imminent" =
+// within PICKS_TIMING_EVENT_DEFER_DAYS sessions. Buying a debit option straight
+// into such an event is the avoidable loss this targets — so computeEntryTiming
+// defers (→ 'wait') when it fires. A confident event (e.g. a 98%-hold FOMC) does
+// NOT fire, so the roster only stands down ahead of genuinely two-sided prints.
+// Returns { active, label, daysOut, topProb } or { active:false }.
+const PICKS_EVENT_RISK = process.env.PICKS_EVENT_RISK !== "0";
+const PICKS_TIMING_EVENT_DEFER_DAYS = Number(process.env.PICKS_TIMING_EVENT_DEFER_DAYS ?? 3);
+const PICKS_EVENT_RISK_MAX_PROB = Number(process.env.PICKS_EVENT_RISK_MAX_PROB ?? 0.70);
+export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents, todayIso) {
+  if (!PICKS_EVENT_RISK) return { active: false };
+  const nowMs = Date.parse(todayIso + "T00:00:00Z");
+  if (!Number.isFinite(nowMs)) return { active: false };
+  const norm = (p) => (p > 1.5 ? p / 100 : p);
+  const candidates = [];
+  const pmFomc = (predictionMarkets && predictionMarkets.fomc) || {};
+  for (const m of (meetings || [])) {
+    const e = m && pmFomc[m.date];
+    if (!e) continue;
+    let top = null; // the MOST-uncertain platform's top outcome (lowest max)
+    for (const plat of ["kalshi", "polymarket"]) {
+      const o = e[plat];
+      if (!o) continue;
+      const mx = Math.max(Number(o.hike) || 0, Number(o.hold) || 0, Number(o.cut) || 0);
+      if (mx > 0 && (top == null || mx < top)) top = mx;
+    }
+    if (top != null) candidates.push({ label: "FOMC decision", date: m.date, topProb: top });
+  }
+  const pmReports = (predictionMarkets && predictionMarkets.reports) || {};
+  for (const ev of (reportEvents || [])) {
+    const pred = ev && pmReports[ev.subtype + "|" + ev.date];
+    if (!pred || !Number.isFinite(pred.prob)) continue;
+    const p = norm(pred.prob);
+    candidates.push({ label: ev.title || "Macro release", date: ev.date, topProb: Math.max(p, 1 - p) });
+  }
+  let best = null;
+  for (const c of candidates) {
+    const ms = Date.parse(c.date + "T00:00:00Z");
+    if (!Number.isFinite(ms)) continue;
+    const daysOut = Math.round((ms - nowMs) / 86400000);
+    if (daysOut < 0 || daysOut > PICKS_TIMING_EVENT_DEFER_DAYS) continue; // not imminent
+    if (c.topProb >= PICKS_EVENT_RISK_MAX_PROB) continue;                 // market is confident
+    if (!best || daysOut < best.daysOut) best = { active: true, label: c.label, daysOut, topProb: c.topProb };
+  }
+  return best || { active: false };
 }
 
 // ============================================================================
@@ -7706,7 +7933,7 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   const dirSign = subtotal >= 0 ? 1 : -1;
   const tSide = dirSign > 0 ? "call" : "put";
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
-  const et = computeEntryTiming(tSide, data, (data && data.spot) || null, { regime });
+  const et = computeEntryTiming(tSide, data, (data && data.spot) || null, { regime, eventRisk: macroBackdrop && macroBackdrop.eventRisk });
   const tContribution = Number.isFinite(et.contribution) ? et.contribution : 0;
   const total = dirSign * Math.max(0, Math.abs(subtotal) + tContribution);
   const timingDelta = total - subtotal; // exact, so the 5 pillars sum to total
@@ -9036,11 +9263,15 @@ export function detectMarketRegime(marketCtx, macroBackdrop) {
   const vix = macroBackdrop && macroBackdrop.vix ? macroBackdrop.vix : null;
   const vixVal = vix && isFinite(vix.value) ? vix.value : null;
   const vixRising = vix && vix.trend === "rising";
+  // VIX term-structure backwardation (front richer than longer-dated) is an
+  // acute-stress tell — let it confirm risk-off at a lower absolute VIX (≥16)
+  // than the level/trend path needs (≥18/20), and block risk-on while inverted.
+  const backwardation = !!(macroBackdrop && macroBackdrop.vixTerm && macroBackdrop.vixTerm.state === "backwardation");
   const spyOff = spy != null && spy <= PICKS_TIMING_RISKOFF_SPY;
-  const vixOff = vixVal != null && (vixVal >= PICKS_TIMING_RISKOFF_VIX || (vixRising && vixVal >= 18));
+  const vixOff = vixVal != null && (vixVal >= PICKS_TIMING_RISKOFF_VIX || (vixRising && vixVal >= 18) || (backwardation && vixVal >= 16));
   if (spyOff && vixOff) return "risk-off";
   const spyOn = spy != null && spy >= PICKS_TIMING_RISKON_SPY;
-  const vixCalm = vixVal == null || vixVal < 18;
+  const vixCalm = (vixVal == null || vixVal < 18) && !backwardation;
   if (spyOn && vixCalm) return "risk-on";
   return "neutral";
 }
@@ -9286,6 +9517,18 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const catalystImminent = dte != null && dte <= PICKS_TIMING_EARNINGS_DEFER_DAYS;
   if (catalystImminent) con(true, `earnings in ${dte === 0 ? "0" : dte}d — IV crush can sink the trade even when direction is right`);
 
+  // Macro event-risk defer (#5): an imminent, prediction-market-UNCERTAIN macro
+  // event (FOMC / CPI the crowd can't call) is a coin-flip to hold a debit into.
+  // Soft con on the score, hard 'wait' on the verdict (mirrors the earnings
+  // defer). A confident event never fires (computeMacroEventRisk gates on it).
+  const eventRisk = opts.eventRisk || null;
+  const eventDefer = !!(eventRisk && eventRisk.active && Number.isFinite(eventRisk.daysOut) && eventRisk.daysOut <= PICKS_TIMING_EVENT_DEFER_DAYS);
+  if (eventDefer) {
+    const tp = Number(eventRisk.topProb);
+    const tpPct = Number.isFinite(tp) ? Math.round((tp > 1.5 ? tp / 100 : tp) * 100) : null;
+    con(false, `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d is a market coin-flip${tpPct != null ? ` (top outcome ~${tpPct}%)` : ""} — defer entry past the event`);
+  }
+
   // ---- Vol-cost overlays (P1.6 / P2) — direction-AGNOSTIC headwinds for a long
   // debit, applied as SIDE-AWARE soft cons (a con weakens conviction for whichever
   // side, the correct sign for both calls and puts; a directional score signal
@@ -9325,6 +9568,9 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   } else if (catalystImminent) {
     state = "wait";
     headline = `Earnings in ${dte === 0 ? "0" : dte}d — defer entry`;
+  } else if (eventDefer) {
+    state = "wait";
+    headline = `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d — uncertain macro event, defer entry`;
   } else if (strongPros.length > 0 && strongCons.length === 0) {
     state = "go";
     headline = `Clean entry — structure and timing line up for ${dirWord}`;
@@ -9445,6 +9691,7 @@ function _quantile(sortedAsc, p) {
 // distribution (spec §8). regime is reused for the rare timing re-eval on a
 // side flip — it is cross-section-independent for a fixed side.
 function computeCrossSectionalScores(scored, opts = {}) {
+  const eventRisk = opts.eventRisk || null;
   const xsectional = opts.xsectional !== false;
   const sectorNeutral = !!opts.sectorNeutral;
   const regime = opts.regime || null;
@@ -9576,7 +9823,7 @@ function computeCrossSectionalScores(scored, opts = {}) {
       if (newDir === cachedDir && Number.isFinite(timing.rawContribution)) {
         tc = timing.rawContribution;
       } else {
-        const et = computeEntryTiming(newSide, r.data, (r.data && r.data.spot) || null, { regime });
+        const et = computeEntryTiming(newSide, r.data, (r.data && r.data.spot) || null, { regime, eventRisk });
         tc = Number.isFinite(et.contribution) ? et.contribution : 0;
         timing.state = et.state;
         timing.headline = et.headline || "";
@@ -9681,6 +9928,7 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     xsectional: opts.xsectional ?? PICKS_XSECTIONAL,
     sectorNeutral: opts.sectorNeutral ?? PICKS_SECTOR_NEUTRAL,
     regime,
+    eventRisk: macroBackdrop && macroBackdrop.eventRisk,
   });
 
   // Build industry → [{symbol, total, side, tier}, ...] index for peer
@@ -15500,6 +15748,10 @@ async function main() {
   // re-persisted after the wipe so the chain continues.
   const cachedRfr = await readRfrHistory();
   const fedwatchHistoryPrev = await readFedwatchHistory();
+  // Prediction-market odds history (Kalshi/Polymarket FOMC trend) — same
+  // read-before-wipe rule as fedwatch-history: snapshot it now, append + write
+  // after writeChainFiles recreates data/, or the trend resets every build.
+  const predictionHistoryPrev = await readPredictionHistory();
   // Pick-accuracy track record: snapshot the persisted tracker BEFORE
   // writeChainFiles wipes data/, then thread it into updatePicksAccuracyFile
   // after the wipe. The file lives in data/, so without this pre-read the
@@ -15825,6 +16077,29 @@ async function main() {
     predictionMarkets = await fetchPredictionMarkets(upcomingMeetings, reportEvents);
   } catch (err) {
     console.log(`  ⚠ prediction markets skipped: ${err?.message || err}`);
+  }
+  // Roll today's FOMC odds into the rolling history (pre-read before the wipe),
+  // write it back, then attach the Δ/sparkline trend onto the odds the calendar
+  // ships. Best-effort — a failure here just means no trend this build.
+  try {
+    const predictionHistory = predictionHistoryPrev && predictionHistoryPrev.meetings ? predictionHistoryPrev : { meetings: {} };
+    appendPredictionHistory(predictionHistory, predictionMarkets.fomc, todayIso);
+    prunePredictionHistory(predictionHistory, todayIso);
+    await writePredictionHistory(predictionHistory);
+    predictionMarkets.fomc = attachPredictionTrends(predictionMarkets.fomc, predictionHistory, todayIso);
+  } catch (err) {
+    console.log(`  ⚠ prediction history skipped: ${err?.message || err}`);
+  }
+  // Macro event-risk signal (#5) for the entry-timing gate, derived from the
+  // prediction-market odds and read by computeEntryTiming via macroBackdrop.
+  // Picks + grades are scored AFTER this, so the defer applies this build. Not
+  // persisted to macro.json — it's a picks-internal, this-build-only signal.
+  if (macroBackdrop) {
+    macroBackdrop.eventRisk = computeMacroEventRisk(predictionMarkets, upcomingMeetings, reportEvents, todayIso);
+    if (macroBackdrop.eventRisk && macroBackdrop.eventRisk.active) {
+      const er = macroBackdrop.eventRisk;
+      console.log(`  · macro event-risk: ${er.label} in ${er.daysOut}d (top ~${Math.round((er.topProb > 1.5 ? er.topProb / 100 : er.topProb) * 100)}%) — entries deferred`);
+    }
   }
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
     reportEvents,

@@ -5640,6 +5640,35 @@ main { padding-top: var(--s-2); }
   letter-spacing: .04em;
   text-transform: uppercase;
 }
+/* Consensus-divergence badge (futures vs Kalshi vs Polymarket disagree). */
+.fomc-pm-diverge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warn);
+  font: 600 9px/1.4 var(--font-mono);
+  letter-spacing: .03em;
+}
+/* Per-platform volume + thin-liquidity tag. */
+.fomc-pm-vol { font: 500 10px/1 var(--font-mono); color: var(--muted); }
+.fomc-pm-thin, .cal-report-pm-thin {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-3, rgba(127,127,127,.15));
+  color: var(--muted);
+  font: 600 9px/1.5 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.fomc-pm-row.is-thin td, .fomc-pm-row.is-thin .fomc-pm-name a { opacity: .55; }
+.cal-report-pm-item.is-thin { opacity: .7; }
+/* Hold-probability trend cell: tiny sparkline + Δ vs ~1w ago. */
+.fomc-pm-trend { white-space: nowrap; }
+.fomc-pm-spark { vertical-align: middle; color: var(--muted); }
+.fomc-pm-delta { margin-left: 5px; font: 600 10px/1 var(--font-mono); }
+.fomc-pm-delta.up { color: var(--up, #16a34a); }
+.fomc-pm-delta.down { color: var(--down, #dc2626); }
+.fomc-pm-delta.flat { color: var(--muted); }
 /* Market-implied pill on a macro report chip. */
 .cal-report-pm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .cal-report-pm-item {

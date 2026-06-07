@@ -1722,11 +1722,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var vtCls = vtLvl >= 20 ? 'down' : vtLvl <= 14 ? 'up' : 'flat';
       var vtRankTxt = vtRank != null ? ' · ' + vtRank + 'th pct 90d' : '';
       var VIXTONE_TIP = 'CBOE Volatility Index (VIX) — the market\\'s 30-day expected volatility, i.e. ambient fear. Baked at the last build (VIX can\\'t live-refresh). High = rich option premium / risk-off; low = cheap premium / calm tape.';
+      // VIX term structure (9-day vs 30-day vs 3-month). Backwardation (front
+      // richer than longer-dated) is acute stress — it confirms a risk-off
+      // regime at a lower absolute VIX. Shown as a second pill when available.
+      var vterm = (MACRO && MACRO.vixTerm) ? MACRO.vixTerm : null;
+      var curvePill = '';
+      if (vterm && vterm.state) {
+        var inv = vterm.state === 'backwardation';
+        var VTERM_TIP = 'VIX term structure: 9-day ' + (vterm.short != null ? vterm.short.toFixed(1) : '—') +
+          ' / 30-day ' + (vterm.spot != null ? vterm.spot.toFixed(1) : '—') +
+          ' / 3-month ' + (vterm.mid != null ? vterm.mid.toFixed(1) : '—') +
+          '. Backwardation (front > back, ratio ≥ 1) = acute near-term stress; contango = normal.';
+        curvePill = '<span class="opt-exec-bd-pill ' + (inv ? 'down' : 'up') + '" title="' + VTERM_TIP + '"><b>Curve</b> ' +
+          escapeHtml((inv ? 'inverted' : 'normal') + (vterm.ratio != null ? ' · ' + vterm.ratio.toFixed(2) + 'x' : '')) +
+        '</span>';
+      }
       vixToneHtml = '<div class="opt-exec-backdrop">' +
         '<span class="opt-exec-bd-label">Vol regime' + tipChip(VIXTONE_TIP) + '</span>' +
         '<span class="opt-exec-bd-pill ' + vtCls + '"><b>VIX</b> ' +
           escapeHtml(vtLvl.toFixed(1) + ' · ' + vtWord + vtRankTxt) +
         '</span>' +
+        curvePill +
       '</div>';
     }
 
@@ -8381,10 +8397,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var pct = (n != null && isFinite(n))
           ? ' <b>' + ((n > 1.5 ? n / 100 : n) * 100).toFixed(0) + '%</b>' : '';
         var lbl = p && p.label ? ' <span class="cal-report-pm-lbl">' + escapeHtml(p.label) + '</span>' : '';
-        var inner = '<span class="cal-report-pm-plat">' + escapeHtml((p && p.platform) || 'Market') + '</span>' + lbl + pct;
+        var thinTag = (p && p.thin) ? ' <span class="cal-report-pm-thin" title="Low traded volume — noisy, not signal">thin</span>' : '';
+        var inner = '<span class="cal-report-pm-plat">' + escapeHtml((p && p.platform) || 'Market') + '</span>' + lbl + pct + thinTag;
+        var cls = 'cal-report-pm-item' + (p && p.thin ? ' is-thin' : '');
         return (p && p.url)
-          ? '<a class="cal-report-pm-item" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener noreferrer" title="Market-implied odds — opens the source market">' + inner + '</a>'
-          : '<span class="cal-report-pm-item">' + inner + '</span>';
+          ? '<a class="' + cls + '" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener noreferrer" title="Market-implied odds — opens the source market">' + inner + '</a>'
+          : '<span class="' + cls + '">' + inner + '</span>';
       }).join('') + '</div>';
     }
     var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
@@ -8507,25 +8525,70 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var x = n > 1.5 ? n / 100 : n;
       return (x * 100).toFixed(0) + '%';
     };
-    var line = function(name, obj){
+    // Compact volume: Polymarket is USD ($), Kalshi is contracts (plain count).
+    var fmtVol = function(name, v){
+      var abbr = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : String(Math.round(v));
+      return name === 'Polymarket' ? '$' + abbr : abbr;
+    };
+    // Tiny inline sparkline of the hold-probability series (0-100 ints).
+    var spark = function(series){
+      if (!Array.isArray(series) || series.length < 2) return '';
+      var w = 46, h = 14, n = series.length;
+      var min = Math.min.apply(null, series), max = Math.max.apply(null, series);
+      var span = (max - min) || 1;
+      var pts = series.map(function(val, i){
+        var x = (i / (n - 1)) * (w - 2) + 1;
+        var y = h - 1 - ((val - min) / span) * (h - 2);
+        return x.toFixed(1) + ',' + y.toFixed(1);
+      }).join(' ');
+      return '<svg class="fomc-pm-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+        '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+    };
+    var trend = pm.trend || {};
+    var hasTrend = (trend.kalshi && trend.kalshi.hold && trend.kalshi.hold.length >= 2) ||
+                   (trend.polymarket && trend.polymarket.hold && trend.polymarket.hold.length >= 2);
+    var line = function(name, obj, tr){
       if (!obj) return '';
       var nm = obj.url
         ? '<a href="' + escapeHtml(obj.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(name) + '</a>'
         : escapeHtml(name);
-      return '<tr><th class="fomc-pm-name">' + nm + '</th>' +
-        keys.map(function(k){ return '<td>' + fmtPct(obj[k]) + '</td>'; }).join('') +
-      '</tr>';
+      var volChip = (obj.vol != null && isFinite(obj.vol) && obj.vol > 0)
+        ? ' <span class="fomc-pm-vol" title="Traded volume backing these odds">' + escapeHtml(fmtVol(name, obj.vol)) + '</span>' : '';
+      var thinTag = obj.thin
+        ? ' <span class="fomc-pm-thin" title="Low traded volume — treat these odds as noisy, not signal">thin</span>' : '';
+      var cells = keys.map(function(k){ return '<td>' + fmtPct(obj[k]) + '</td>'; }).join('');
+      var trendCell = '';
+      if (hasTrend){
+        if (tr && tr.hold && tr.hold.length >= 2){
+          var d = (tr.deltaHold != null && isFinite(tr.deltaHold)) ? tr.deltaHold : null;
+          var dTxt = d == null ? '' :
+            '<span class="fomc-pm-delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : 'flat') + '" title="Change in the Hold probability vs ~1 week ago">' + (d > 0 ? '+' : '') + d + 'pt</span>';
+          trendCell = '<td class="fomc-pm-trend">' + spark(tr.hold) + dTxt + '</td>';
+        } else {
+          trendCell = '<td class="fomc-pm-trend">—</td>';
+        }
+      }
+      return '<tr class="fomc-pm-row' + (obj.thin ? ' is-thin' : '') + '"><th class="fomc-pm-name">' + nm + volChip + thinTag + '</th>' + cells + trendCell + '</tr>';
     };
     var stale = pm.stale
       ? ' <span class="fomc-pm-stale" title="Live Kalshi/Polymarket reads flaked this build — carried forward from the prior build">Cached</span>'
       : '';
+    // Consensus-divergence badge: how far the futures math, Kalshi, and Polymarket
+    // disagree (max pairwise spread, in points). Disagreement = a mispricing.
+    var dv = pm.divergence;
+    var divBadge = '';
+    if (dv && isFinite(dv.maxPp) && dv.maxPp >= 10){
+      var bkt = dv.bucket === 'hike' ? 'hike' : dv.bucket === 'cut' ? 'cut' : 'hold';
+      divBadge = ' <span class="fomc-pm-diverge" title="The ZQ-futures, Kalshi, and Polymarket odds disagree by up to ' + dv.maxPp + ' points on ' + bkt + ' — when the sources split, one of them is mispriced">⚠ sources disagree · ' + dv.maxPp + 'pt</span>';
+    }
+    var trendHead = hasTrend ? '<th>Hold trend</th>' : '';
     return '<div class="fomc-pm">' +
-      '<div class="fomc-pm-head">Prediction-market odds' + stale + '</div>' +
+      '<div class="fomc-pm-head">Prediction-market odds' + stale + divBadge + '</div>' +
       '<table class="fomc-pm-table"><thead><tr>' +
-        '<th></th><th>Hike</th><th>Hold</th><th>Cut</th>' +
+        '<th></th><th>Hike</th><th>Hold</th><th>Cut</th>' + trendHead +
       '</tr></thead><tbody>' +
-        line('Kalshi', pm.kalshi) +
-        line('Polymarket', pm.polymarket) +
+        line('Kalshi', pm.kalshi, trend.kalshi) +
+        line('Polymarket', pm.polymarket, trend.polymarket) +
       '</tbody></table>' +
     '</div>';
   }
