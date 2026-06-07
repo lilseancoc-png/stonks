@@ -11457,6 +11457,7 @@
     technicals: 'The price chart itself, graded across 11 signals (each −3 … +3). RSI momentum: >50 & rising +1, <50 & falling −1. RSI reading (contrarian): ≥75 overbought −3, ≤25 oversold +3. MACD ±1. A 3-day-plus green/red streak ±1. Confirmed support/resistance breaks: 20D ±1, 50D ±1, 100D ±2. The 52-week read (contrarian): within 5% of the high −1, within 5% of the low +1. Volume confirmation: relative volume ≥1.3× +1, <0.8× −1. The moving-average stack: above the majority of the 20/50/100D SMAs +1, below −1. Plus an AI-read chart pattern: confirmed bullish +1, bearish −1. The contrarian reads mean a name pinned at its 52-week high or running overbought scores negative — stretched charts tend to mean-revert.',
     mechanicals: 'The options and market plumbing around the name, graded across 8 signals (each −3 … +3). Unusual options flow (aggressive bull vs. bear prints) ±1. Open-interest call/put skew: >1.5× calls +1, put-heavy −1. Short interest: a squeeze setup +1, short interest rising −1, falling +1. Hourly volume vs. its 20-day average ±1 by move direction. The broad SPY tape: ≥+0.6% +1, ≤−0.6% −1. Put/call ratio (contrarian): >1.15 fear +2, <0.65 greed −2. VIX tracking: rising & >25 −2, falling from an elevated ≥20 level +1. VIX spot (contrarian): <15 complacency −1, >35 capitulation +2. Extremes read contrarian — heavy put buying or a VIX spike (fear) lean bullish, complacency leans bearish.',
     narrative: 'The story driving the stock, graded across 8 signals (each −3 … +3). AI-read news catalysts: good +2, bad −3 (deliberately asymmetric — one sentiment read is noisy, so good news is weighted lighter than bad). Sector narrative: rides an active strong story ±2, faded by its lifecycle stage and discounted when the story is hype-driven. Social sentiment: net ≥±35% ±1. Media coverage: informational only (0) — sentiment is owned by the catalyst signals, so it is not double-counted here. Macro tail/headwinds +1 / −2. The dollar: a ≥0.9% one-day DXY rise −2, a ≥0.9% fall +1. The 10-year yield: a ≥13 bps one-day rise −2, a ≥13 bps fall +1. Catalysts move stocks faster than indicators, so they carry the most weight here.',
+    ivCost: 'How expensive is this name\'s OWN option vol right now, for a buyer of premium? Scored from its IV rank — where today\'s 30-day implied vol sits within the name\'s own trailing history (0 = its cheapest, 100 = its richest). A long call or put is long premium either way, so this is a direction-agnostic cost: above the name\'s median IV (rank 50) it subtracts conviction (up to −3 at the richest), below it adds a little (up to +1.5 at the cheapest, deliberately smaller — a cheap entry doesn\'t fix a bad trade). It weakens or strengthens conviction for whichever side without ever flipping it, so of two otherwise-equal setups the one whose vol is cheap relative to its own history ranks ahead — you\'re not paying up into a crush. (At an extreme ≥90th percentile the entry-timing gate also blocks the trade outright.)',
     timing: 'Is *now* a good moment to put this trade on, independent of how good the asset is? Reads confirmed daily bars (the in-progress candle is dropped so a mid-session spike can\'t fake a signal) for the two dominant failure modes — catching a falling knife and chasing an extended top — then weighs the setups we want against the ones we don\'t. Volume is central: a breakout or a move the trade\'s way that volume confirms (relative volume ≥1.3×) is real participation, while the same move on thin volume (<0.8×) is a low-conviction drift that tends to fade. A healthy pullback to the 20-day average on drying-up volume with momentum turning back up is the dip-buy we want; a pullback on heavy volume looks like distribution. And an entry sitting right on the 20-day support (calls) or resistance (puts) it can lean on earns credit for a tight, defined-risk stop. It adds up to +4 to conviction for a clean entry, subtracts up to −8 for a poor one (a knife or a chase is a flat −8), and tightens its thresholds when the broad tape is fighting the trade. It nudges the grade up or down without ever flipping the side.',
   };
 
@@ -11523,17 +11524,33 @@
     return out;
   }
 
+  // Expanded body for the IV-cost component (PICKS_IV_SCORE). A single direction-
+  // agnostic line — its score is a float, so it can't ride the flat signal list
+  // (which truncates floats to int). Reuses the timing-group pro/con styling.
+  function pickIvCostPanelBody(pil){
+    var sig = pil && Array.isArray(pil.signals) ? pil.signals[0] : null;
+    var sc = sig ? (Number(sig.score) || 0) : 0;
+    var note = sig && sig.note ? sig.note : 'IV cost';
+    var cls = sc > 0 ? 'is-pro' : (sc < 0 ? 'is-con' : '');
+    var head = sc > 0 ? 'Cheap vol — favorable entry' : (sc < 0 ? 'Rich vol — premium headwind' : 'Vol near its own median');
+    return '<div class="pick-timing-group ' + cls + '">' +
+      '<div class="pick-timing-group-head">' + head + '</div>' +
+      '<ul class="pick-timing-list"><li>' + escapeHtml(note) + '</li></ul>' +
+    '</div>';
+  }
+
   function pickPillarPanel(p){
     var pillars = p && p.pillars;
     if (!pillars) return '';
     var total = (p && p.total != null) ? p.total : (p && p.score != null ? p.score : 0);
-    var order = ['fundamentals','technicals','mechanicals','narrative','timing'];
+    var order = ['fundamentals','technicals','mechanicals','narrative','timing','ivCost'];
     var nice = {
       fundamentals: 'Fundamentals',
       technicals: 'Technicals',
       mechanicals: 'Mechanicals',
       narrative: 'Narrative',
       timing: 'Entry timing',
+      ivCost: 'IV cost',
     };
     function signClass(n){
       if (n > 0) return 'sig-pos';
@@ -11544,7 +11561,7 @@
     // display (strips a long float like 2.934), keeping the raw value for the
     // proportional bars.
     function fmtSignedNum(n){ var r = Math.round((Number(n) || 0) * 10) / 10; return (r > 0 ? '+' : '') + r; }
-    var letter = { fundamentals: 'F', technicals: 'T', mechanicals: 'M', narrative: 'N', timing: 'E' };
+    var letter = { fundamentals: 'F', technicals: 'T', mechanicals: 'M', narrative: 'N', timing: 'E', ivCost: 'V' };
     // Precompute scores so the composition bar can size each segment by its
     // share of total |contribution|, and the per-row magnitude bars can scale
     // against the biggest pillar.
@@ -11668,11 +11685,14 @@
             (hasXsec ? ' <em>Scored cross-sectionally this build: continuous signals are standardized against the universe, so each ± below is the relative contribution that entered the score (the thresholds above are the legacy reference); events and macro factors stay fixed.</em>' : '') +
           '</p>'
         : '';
-      // Entry timing renders a verdict + classified reason list; the four asset
-      // pillars render their flat signal list (+ any catalyst chips).
+      // Entry timing renders a verdict + classified reason list; IV cost renders a
+      // single float-safe note (its score is a float, which the flat list would
+      // truncate to int); the four asset pillars render their flat signal list (+ chips).
       var pillarBody = (k === 'timing')
         ? pickTimingPanelBody(pil, p)
-        : '<ul class="pick-pillar-signals">' + sigList + '</ul>' + catSection;
+        : (k === 'ivCost')
+          ? pickIvCostPanelBody(pil)
+          : '<ul class="pick-pillar-signals">' + sigList + '</ul>' + catSection;
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
         '<summary class="pick-pillar-head">' +
           '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + '</span>' +

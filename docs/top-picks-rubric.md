@@ -39,9 +39,10 @@ path.
 ## 2. Pipeline overview
 
 ```
-scoreAllTickers()            every ticker → 5 components → total  (= the GRADE)
+scoreAllTickers()            every ticker → 6 components → total  (= the GRADE)
    └─ scorePillared()        Fundamentals + Technicals + Mechanicals + Narrative
                              + Entry timing (computeEntryTiming, −8..+4, §6)
+                             + IV cost   (computeIvCostContribution, −3..+1.5, §6.7)
 tierForScore(total)          ±12 = Call/Put, ±16 = Strong, else No-Trade
 buildTopPicks()
    ├─ candidate set          |total| ≥ 12  (+ risk-off "tactical puts", §6)
@@ -439,6 +440,48 @@ of `total`, so a build where it fires shifts grades + the roster, then clears on
 the event passes. (Uses whichever platforms returned odds — currently Polymarket;
 see the Kalshi caveat in §9.)
 
+### 6.7 IV cost as a 6th score component (`computeIvCostContribution`, `PICKS_IV_SCORE`)
+The engine grades like a stock-picker (the 4 pillars are asset quality) but **trades
+short-dated long premium**, where **IV richness is first-order**: you can be right on
+direction and still lose to a vol crush. The own-history IV rank was already read in
+§6.2, but only as a *soft con/pro inside the bounded −8..+4 timing budget* — so it
+rarely re-ranked: two names with the same direction/quality but very different own-IV
+ranks scored ~the same and sat next to each other. The IV-rank **veto** (≥90th pctile)
+gated `go`, but nothing let a cheap-vol name **outrank** a rich-vol one of equal grade.
+
+`computeIvCostContribution(data)` fixes that by folding a **dedicated, continuous,
+direction-AGNOSTIC conviction cost** into `total`, in parallel with timing (the 6th
+component, a non-`PILLAR_KEYS` sibling of `timing`, folded through the same `dirSign`
+clamp). It reads the name's **own** IV rank (real own-history percentile, the same
+source as §6.2; no IV history → 0, no RV proxy since realized vol isn't the premium you
+pay) and centers at the name's **own median IV (rank 50)**:
+
+| own-IV rank | contribution | meaning |
+|---|---|---|
+| 100 (richest of its own history) | −`PICKS_IV_SCORE_MAX` (**−3**) | paying up — penalize conviction |
+| 50 (its median) | 0 | neutral |
+| 0 (cheapest of its own history) | +`PICKS_IV_SCORE_CHEAP_MAX` (**+1.5**) | cheap premium — small credit |
+
+Linear between, **asymmetric** (richness costs more than cheapness rewards — one cheap
+entry doesn't fix a bad trade, the same long-bias defense as the +2/−3 catalyst split).
+Direction-agnostic: a long call or put is long premium either way, so the cost
+**weakens or strengthens conviction for whichever side, never flips it** (for a put,
+`total < 0`, a rich-IV penalty pushes `total` *toward zero* = less bearish conviction).
+So of two otherwise-equal setups the one whose vol is cheap relative to its own history
+ranks ahead — you're not paying up into a crush.
+
+**No double-counting.** When `PICKS_IV_SCORE` is on it **owns** the rich/cheap
+magnitude: the legacy §6.2 in-timing soft con/pro is suppressed, and the ≥90th-pctile
+veto stays as a **pure go-block** (it demotes `go → wait` without also subtracting the
+timing −2 that the dedicated term now carries). Set `PICKS_IV_SCORE=0` to revert to the
+legacy in-timing nudge. Like `timing`, `ivCost` rides into `total` and renders as its
+own breakdown row, but is **excluded from the per-pillar grade-change / roster delta
+accounting** (`GRADE_PILLAR_KEYS`), so the "why it moved" strings are unchanged. The
+structural complement is §5's auto-vertical (finance the long as a debit spread when IV
+is rich) — that's still dark; this term is the always-on **ranking** expression of the
+same "don't overpay for vol" principle. Expect a one-time grade/roster shift on the
+first bake.
+
 ---
 
 ## 7. Ranking & roster construction
@@ -564,9 +607,14 @@ it has to be trustworthy. The fixes:
   - **Premium-at-risk sizing (P1.5):** `PICKS_SIZE_PREMIUM_RISK` (default ON),
     `PICKS_SIZE_HOLD_DAYS 10`, `PICKS_SIZE_IV_DROP_CAP 0.10`.
   - **IV rank (P1.6):** `PICKS_IVRANK_SIGNAL` (default ON), `PICKS_IVRANK_MIN_N 10`,
-    `PICKS_IVRANK_RICH 80`, `PICKS_IVRANK_CHEAP 20` (side-aware timing con/pro), and
-    `PICKS_IVRANK_VETO 90` (default ON; extreme IV → **strong** con that blocks `go`;
-    set 0 to disable the gate).
+    `PICKS_IVRANK_RICH 80`, `PICKS_IVRANK_CHEAP 20` (legacy in-timing con/pro — suppressed
+    when the dedicated IV-cost term is on), and `PICKS_IVRANK_VETO 90` (default ON; extreme
+    IV → blocks `go`; set 0 to disable the gate).
+  - **IV cost in `total` (§6.7):** `PICKS_IV_SCORE` (default **ON**; the dedicated
+    direction-agnostic IV-cost component folded into `total`), `PICKS_IV_SCORE_MAX 3`
+    (max penalty at the richest own-IV), `PICKS_IV_SCORE_CHEAP_MAX 1.5` (max credit at the
+    cheapest). Reuses `PICKS_IVRANK_MIN_N` for the history floor. Set `PICKS_IV_SCORE=0` to
+    revert to the legacy in-timing IV-rank nudge.
   - **Term structure (P2):** `PICKS_TIMING_BACKWARDATION 0.05` (computeEntryTiming soft con).
   - **Debit verticals (P1.2, DARK):** `PICKS_VERTICALS` (default **OFF**), `PICKS_VERT_IVRANK 70`,
     `PICKS_VERT_SHORT_DELTA_MIN/MAX 0.20/0.38`, `PICKS_VERT_MIN_CREDIT 0.20`; auto-engage
@@ -629,6 +677,7 @@ on (same discipline as the gate: measure on forward, gate-era data first).
 
 ## 10. Pointers
 - Code: [`scripts/build.mjs`](../scripts/build.mjs) — `computeEntryTiming`,
+  `computeIvCostContribution` / `buildIvCostPillar` (§6.7 IV-cost component),
   `detectMarketRegime`, `timingBarsFrom`, `buildTopPicks`, `scorePillared`,
   `pickContractForPick`, `buildExitPlan`, `updatePicksAccuracyFile`,
   `resolvePickOutcome`, `modelOptionExit` (P0.1 BS repricer),
