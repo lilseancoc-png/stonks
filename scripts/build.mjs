@@ -6554,6 +6554,59 @@ const SIGNAL_CLUSTER = {
   // (volConf, socialSentiment are singletons — no cluster, scale ×1)
 };
 
+// Horizon-aware pillar weighting (rubric §3.5). The engine grades like a
+// stock-picker (4 pillars of asset quality) but TRADES ~14-day long premium on
+// 30-60 DTE contracts. The pillars do not share that horizon: order flow and
+// price structure lead price over days-to-weeks (the trade's clock), while
+// fundamental factors (EPS/revenue growth, P/E, FCF, net margin) pay off over
+// quarters-to-years and are ~fully priced over a fortnight — they carry near-zero
+// information at the option's horizon yet, equal-weighted, dominated the grade.
+// Scale each pillar's CONTRIBUTION to `total` by its predictive horizon so the
+// score is tilted toward signals that actually move price before the option
+// decays. This is a principled re-weight (microstructure: flow ≳ technicals ≫
+// slow fundamentals at a 1-3 week horizon), NOT a fit to the 19-pick sample; the
+// per-signal IC bridge (§9.6) is the path to replacing these priors with measured
+// weights once forward, gate-era outcomes accumulate. Tunable per pillar; master
+// flag default ON. With it OFF every weight is 1 → byte-identical to the legacy
+// equal-weight sum. Percentile tiers (§4) self-recalibrate to the re-weighted
+// distribution, so this re-ranks the roster without changing how many names ship.
+const PICKS_HORIZON_WEIGHTS = process.env.PICKS_HORIZON_WEIGHTS !== "0"; // default ON
+const PICKS_HW_FUND = Number(process.env.PICKS_HW_FUND ?? 0.6);  // slowest — quarterly/annual factors, mostly priced over a 2-week hold (discounted, not gutted: holds some faster event signals — analyst revisions, guidance, contracts)
+const PICKS_HW_TECH = Number(process.env.PICKS_HW_TECH ?? 1.0);  // RSI/MACD/S&R/momentum — natively the days-to-weeks horizon; the reference weight
+const PICKS_HW_MECH = Number(process.env.PICKS_HW_MECH ?? 1.15); // options flow / OI / unusual volume / put-call — order flow leads price at the shortest horizon (modest boost)
+const PICKS_HW_NARR = Number(process.env.PICKS_HW_NARR ?? 0.9);  // catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount)
+const PICKS_HORIZON_W = { fundamentals: PICKS_HW_FUND, technicals: PICKS_HW_TECH, mechanicals: PICKS_HW_MECH, narrative: PICKS_HW_NARR };
+
+// The horizon multiplier for a pillar (1 = no change). Only the four asset-quality
+// pillars are weighted; `timing` and `ivCost` are already bounded conviction terms
+// folded into total in parallel (not asset-quality reads), so they ride at ×1.
+function horizonWeight(pk) {
+  if (!PICKS_HORIZON_WEIGHTS) return 1;
+  const w = PICKS_HORIZON_W[pk];
+  return Number.isFinite(w) ? w : 1;
+}
+
+// Apply a pillar's horizon weight in place and return its weighted sum. Bakes the
+// weight into each signal's effective `contribution` (the value the card chips and
+// the driver list display) so the per-signal chips stay consistent with the
+// weighted pillar total AND the pillars keep summing to `total` — both invariants
+// hold. `baseOf(sig)` reads the value that entered the score on the caller's path:
+// the cross-sectional z-contribution on the standardized path, the legacy integer
+// `score` otherwise. No-op when the weight is 1 (feature off, or an unweighted
+// pillar): the `contribution` field is left untouched so flag-off output stays
+// byte-identical to the legacy equal-weight sum.
+function applyHorizonWeight(pillar, pk, baseOf) {
+  const hw = horizonWeight(pk);
+  let sum = 0;
+  const sigs = Array.isArray(pillar.signals) ? pillar.signals : [];
+  for (const sig of sigs) {
+    const eff = (baseOf(sig) || 0) * hw;
+    if (hw !== 1) sig.contribution = eff; // bake the pillar weight into the displayed contribution
+    sum += eff;
+  }
+  return sum;
+}
+
 // Fixed-horizon checkpoints (spec): snapshot each tracked pick's underlying spot
 // + current grade score at Day 0 / 2 weeks / 1 month, so the Track-record tab
 // can answer "did the price move the way the score predicted?". Decoupled from
@@ -7955,6 +8008,21 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   const technicals = scoreTechnicals(data, streakRow);
   const mechanicals = scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop);
   const narrative = scoreNarrative(sym, data, narratives, macroBackdrop);
+  // Horizon-aware pillar weighting (§3.5): scale each asset-quality pillar by its
+  // predictive horizon for a ~2-week option BEFORE summing, so slow fundamental
+  // factors no longer dominate a short-dated trade grade. The weight is baked into
+  // each signal's contribution (chips stay consistent with the weighted pillar
+  // total); legacyScore keeps the raw pre-weight sum as the cross-sectional pass's
+  // legacy reference. No-op when PICKS_HORIZON_WEIGHTS is off (all weights 1) →
+  // byte-identical to the legacy equal-weight sum. The cross-sectional path
+  // re-applies the SAME weights to its z-contributions (computeCrossSectionalScores);
+  // here it scores the legacy-fallback / pre-standardization pass.
+  for (const [pk, pillar] of [["fundamentals", fundamentals], ["technicals", technicals], ["mechanicals", mechanicals], ["narrative", narrative]]) {
+    const raw = pillar.score;
+    const weighted = applyHorizonWeight(pillar, pk, (s) => s.score);
+    if (weighted !== raw) pillar.legacyScore = raw;
+    pillar.score = weighted;
+  }
   const subtotal = fundamentals.score + technicals.score + mechanicals.score + narrative.score;
 
   // Entry timing folded in as a 5th component so the single grade answers
@@ -8011,13 +8079,18 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
     ...timing.signals.map((s) => ({ ...s, pillar: "timing" })),
     ...(ivCost ? ivCost.signals.map((s) => ({ ...s, pillar: "ivCost" })) : []),
   ];
+  // Driver weight = the value that entered the score: the horizon-weighted
+  // contribution when set (the 4 asset-quality pillars under §3.5), else the raw
+  // signal score (timing / ivCost, and every signal when the feature is off — then
+  // sigW === s.score, byte-identical to the legacy sort/weight).
+  const sigW = (s) => (s.contribution != null ? Number(s.contribution) : (s.score || 0));
   const drivers = allSignals
-    .filter((s) => s.score !== 0)
-    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .filter((s) => sigW(s) !== 0)
+    .sort((a, b) => Math.abs(sigW(b)) - Math.abs(sigW(a)))
     .slice(0, 8)
     .map((s) => ({
       tag: s.pillar,
-      weight: s.score,
+      weight: sigW(s),
       text: `${s.label}${s.value ? ` (${s.value})` : ""}${s.note ? ` — ${s.note}` : ""}`,
     }));
 
@@ -9938,11 +10011,12 @@ function computeCrossSectionalScores(scored, opts = {}) {
     for (const pk of PILLAR_KEYS) {
       const pillar = r.pillars && r.pillars[pk];
       if (!pillar || !Array.isArray(pillar.signals)) continue;
-      let sum = 0;
-      for (const sig of pillar.signals) {
-        sum += CONVERTED_SIGNALS[sig.key] ? (sig.contribution || 0) : (sig.score || 0);
-      }
       if (pillar.legacyScore === undefined) pillar.legacyScore = pillar.score;
+      // §3.5 horizon weight, baked into each signal's standardized contribution so
+      // the chips remain consistent with the weighted pillar total. With the
+      // feature off (hw=1) this is the prior plain sum and leaves contribution
+      // untouched (byte-identical).
+      const sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0));
       pillar.score = sum;
       subtotal += sum;
     }
@@ -9995,7 +10069,10 @@ function computeCrossSectionalScores(scored, opts = {}) {
       const pillar = r.pillars[pk];
       if (!pillar || !Array.isArray(pillar.signals)) continue;
       for (const s of pillar.signals) {
-        const w = CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0);
+        // Prefer the (now horizon-weighted, §3.5) contribution when present — set on
+        // both converted and fixed signals once a pillar weight ≠ 1 is baked in;
+        // falls back to the raw score for the unweighted/flag-off case.
+        const w = (s.contribution != null) ? Number(s.contribution) : (s.score || 0);
         if (w) all.push({ tag: pk, weight: w, label: s.label, value: s.value, note: s.note });
       }
     }

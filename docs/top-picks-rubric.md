@@ -68,9 +68,10 @@ so a well-timed name outscores a chased one directly.
 
 ## 3. The 4-pillar score (with decorrelation reworks)
 
-Pillar score = sum of its signals; `total` = sum of the four pillars **plus the
-entry-timing component (§6)**, which adds −8..+4 to conviction in the implied
-direction (without ever flipping the side).
+Pillar score = sum of its signals, **scaled by the pillar's horizon weight (§3.5)**;
+`total` = sum of the four (weighted) pillars **plus the entry-timing component (§6)**,
+which adds −8..+4 to conviction in the implied direction (without ever flipping the
+side), **plus the IV-cost component (§6.7)**.
 
 > **Cross-sectional standardization (P3.1/P3.3, default on via `PICKS_XSECTIONAL`).**
 > The per-name **continuous** signals below (growth %, ratios, RSI level, rvol, the
@@ -155,6 +156,50 @@ direction (without ever flipping the side).
 > risk-off tape, §6.3). Layer 1 stops the double
 > book-keeping the old design had (score the crash +8, then claw it back −8); layer
 > 2 remains as the *location/timing* read.
+
+### 3.5 Horizon-aware pillar weighting (`PICKS_HORIZON_WEIGHTS`, default ON)
+
+The engine grades like a **stock-picker** (the four pillars are *asset quality*) but
+**trades ~14-day long premium** on 30–60 DTE contracts. Those two horizons don't
+match. Over a fortnight a single name's move is dominated by order flow, price
+structure and the broad tape; the **slow fundamental factors** (EPS/revenue growth,
+P/E-vs-sector, FCF, net-margin trend) pay off over *quarters-to-years* and are ~fully
+priced over the hold — they carry near-zero information at the option's horizon, yet
+equal-weighted they were the **largest-magnitude pillar** and dominated the grade.
+
+So before the pillars are summed, each is scaled by a **horizon weight** reflecting
+how fast its signals move price:
+
+| Pillar | Weight | Why |
+|---|---|---|
+| Fundamentals | **0.6** (`PICKS_HW_FUND`) | slowest — quarterly/annual factors, mostly priced over a 2-week hold (discounted, not gutted: it still holds the faster *event* signals — analyst revisions, guidance, major contracts) |
+| Technicals | **1.0** (`PICKS_HW_TECH`) | RSI/MACD/S&R/momentum — natively the days-to-weeks horizon; the **reference** weight |
+| Mechanicals | **1.15** (`PICKS_HW_MECH`) | options flow / OI / unusual volume / put-call — **order flow leads price** at the shortest horizon (modest boost) |
+| Narrative | **0.9** (`PICKS_HW_NARR`) | catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount) |
+
+This is a **principled** re-weight from market-microstructure priors (flow ≳
+technicals ≫ slow fundamentals at a 1–3 week horizon), **not** a fit to the 19-pick
+sample — the per-signal **IC bridge** (§9.6) is the path to *replacing* these priors
+with measured weights once forward, gate-era outcomes accumulate. Mechanics:
+
+- Applied in **both** scoring paths — `scorePillared` (legacy/pre-standardization)
+  and `computeCrossSectionalScores` (the cross-sectional recompute, §3) — via
+  `applyHorizonWeight`, which **bakes the weight into each signal's `contribution`**
+  so the card's per-signal chips stay consistent with the weighted pillar total
+  *and* the pillars keep summing to `total` (both invariants hold). The raw integer
+  `score` on each signal is left untouched (so `buildPickForecast`'s by-key reads are
+  unchanged), and the standardized `z` (the IC-bridge feature) is never scaled.
+- `timing` and `ivCost` ride at **×1** — they are bounded *conviction* terms folded
+  into `total` in parallel (§6/§6.7), not asset-quality reads.
+- **Percentile tiers (§4) self-recalibrate** to the re-weighted distribution, so this
+  **re-ranks** the roster without changing how many names ship. Measured on the
+  committed universe: the slow-fundamental-floated names fall (RDDT +8.6→+4.9, LLY
+  +11.0→+8.2, the big banks pulled down), names whose bearish grade rested on weak
+  fundamentals are pulled toward zero, and the actionable count is unchanged.
+- Gated by `PICKS_HORIZON_WEIGHTS`; set `=0` (or any pillar weight to `1`) to revert.
+  With it off the output is **byte-identical** to the legacy equal-weight sum
+  (verified: 0/138 grades differ). Expect a **one-time grade/roster shift** on the
+  first bake after this ships, like every other scoring rework here.
 
 ---
 
@@ -590,6 +635,10 @@ it has to be trustworthy. The fixes:
     `PICKS_SECTOR_NEUTRAL` (default ON), `PICKS_Z_CLIP 3.0`, `PICKS_Z_MIN_UNIVERSE 20`,
     `PICKS_SECTOR_MIN_N 8`, `PICKS_TIER_PCTL_STRONG 0.05`, `PICKS_TIER_PCTL_TRADE 0.12`;
     per-signal `W_s = oldMax/PICKS_Z_CLIP` (`CONVERTED_SIGNALS` registry).
+  - **Horizon-aware pillar weights (§3.5):** `PICKS_HORIZON_WEIGHTS` (master flag,
+    default ON), `PICKS_HW_FUND 0.6`, `PICKS_HW_TECH 1.0`, `PICKS_HW_MECH 1.15`,
+    `PICKS_HW_NARR 0.9` (`horizonWeight`/`applyHorizonWeight`; `timing`/`ivCost` ride
+    at ×1). Set the master flag `=0` to revert to the legacy equal-weight pillar sum.
   - **Sizing (P3.4, §4.1):** `PICKS_SIZE_RISK_DENOM 'option'`, `PICKS_SIZE_VOL_FLOOR 0.05`,
     `PICKS_SIZE_TILT_MIN/MAX 0.6/1.4`, `PICKS_GROSS_TARGET 0.80`, `PICKS_DISPLAY_ACCOUNT 25000`,
     `PICKS_SIZE_FULL_ROSTER_N 5` (P0.4 thin-roster gross ramp).
@@ -691,6 +740,7 @@ on (same discipline as the gate: measure on forward, gate-era data first).
 ## 10. Pointers
 - Code: [`scripts/build.mjs`](../scripts/build.mjs) — `computeEntryTiming`,
   `computeIvCostContribution` / `buildIvCostPillar` (§6.7 IV-cost component),
+  `horizonWeight` / `applyHorizonWeight` (§3.5 horizon-aware pillar weighting),
   `detectMarketRegime`, `timingBarsFrom`, `buildTopPicks`, `scorePillared`,
   `pickContractForPick`, `buildExitPlan`, `updatePicksAccuracyFile`,
   `resolvePickOutcome`, `modelOptionExit` (P0.1 BS repricer),
