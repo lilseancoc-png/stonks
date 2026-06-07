@@ -302,7 +302,8 @@ Direction-normalized so the same code handles calls and puts (a put's "good" mov
 is down): multi-day returns `ret1d/ret3d/ret5d`, drawdown from the 20-bar extreme
 in ATR units, extension beyond the 20D SMA, RSI + 5-day RSI change, MACD, relative
 volume, position in the 52-week range, the 20D S/R levels, the broad-market regime
-(SPY day move + VIX, §6.3), and days-to-earnings.
+(SPY day move + VIX level **and term-structure slope**, §6.3), days-to-earnings,
+and a **prediction-market macro-event-risk read** (§6.6).
 
 ### States → score contribution
 The state is informational; what feeds the grade is the bounded `contribution`:
@@ -378,6 +379,14 @@ otherwise `wait`.
 Regime is conservative — **risk-off requires both** a ≥1% SPY drop **and** an
 elevated/rising VIX; risk-on requires a firm SPY up day with a calm VIX.
 
+- **VIX term-structure backwardation.** `detectMarketRegime` also reads the VIX
+  curve (`^VIX9D` / `^VIX` / `^VIX3M`, fetched in `fetchMacroBackdrop` →
+  `macroBackdrop.vixTerm`; `ratio` = 30-day ÷ 3-month, `state` = **backwardation**
+  when ratio ≥ 1). An **inverted** curve (near-term fear richer than longer-dated
+  = acute stress) **confirms risk-off at a lower absolute VIX** (≥ 16, vs the ≥ 18
+  rising / ≥ 20 level paths) and **blocks risk-on** while inverted. Degrades to the
+  VIX-level-only regime if the 9-day / 3-month legs fail to fetch (`buildVixTerm`
+  returns null without the 3-month leg).
 - A tape **against** the trade is a strong con (single names rarely fight the index);
   a tape **with** it is a soft pro.
 - **Knife-threshold tightening (against the tape).** A long bought *into* a confirmed
@@ -413,6 +422,22 @@ the grade isn't dinged either — pure graceful degradation, just not endorsed.
 - Backtested at each pick's actual entry date, the gate **drops 16 of 19** resolved
   picks and, with §8's go-only tracking, would have enrolled ~2 of the 18 losses
   instead of all 18.
+
+### 6.6 Macro event-risk defer (prediction-market-driven)
+`computeMacroEventRisk` reads the Kalshi/Polymarket FOMC + macro-release odds (the
+same overlay the Calendar tab shows) and flags an **imminent, market-uncertain**
+event: an FOMC decision or a CPI / jobs print within `PICKS_TIMING_EVENT_DEFER_DAYS`
+(**3**) sessions whose **top outcome is priced below `PICKS_EVENT_RISK_MAX_PROB`
+(70%)** — a coin-flip the crowd can't call. When it fires, `computeEntryTiming` adds
+a **soft con** and forces the verdict to **`wait`** (a hard defer, mirroring the
+earnings defer in §6.2): you don't buy a debit option straight into a two-sided macro
+print. A *confident* event (e.g. a 98%-hold FOMC) does **not** fire, so the roster
+only stands down ahead of genuinely uncertain prints. Computed once per build from
+the prediction-market overlay and threaded via `macroBackdrop.eventRisk`; gated by
+`PICKS_EVENT_RISK` (default ON). Because it rides the timing contribution it is part
+of `total`, so a build where it fires shifts grades + the roster, then clears once
+the event passes. (Uses whichever platforms returned odds — currently Polymarket;
+see the Kalshi caveat in §9.)
 
 ---
 
@@ -556,7 +581,19 @@ it has to be trustworthy. The fixes:
     `RET3D 10`; volume `VOL_CONFIRM 1.3`, `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`,
     `NEAR_LEVEL_PCT 1.5`; regime `RISKOFF_VIX 20`, `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
     `EARNINGS_DEFER_DAYS 8`; `MIN_BARS 15` (fail-open → `wait`); risk-off put bar
-    `PICKS_RISKOFF_PUT_BAR −8`.
+    `PICKS_RISKOFF_PUT_BAR −8`. **Macro event-risk defer (§6.6):** `PICKS_EVENT_RISK`
+    (default ON), `PICKS_TIMING_EVENT_DEFER_DAYS 3`, `PICKS_EVENT_RISK_MAX_PROB 0.70`.
+  - **VIX index term structure (regime, §6.3):** `^VIX9D` / `^VIX3M` fetched alongside
+    `^VIX` in `fetchMacroBackdrop` → `macroBackdrop.vixTerm` (`ratio` = `^VIX`/`^VIX3M`,
+    `state` backwardation/contango); backwardation (ratio ≥ 1) confirms risk-off at
+    VIX ≥ 16 in `detectMarketRegime`. No env knob — degrades to VIX-level-only if the
+    9-day / 3-month legs fail. *(Distinct from the per-ticker IV `PICKS_TIMING_BACKWARDATION`
+    above — that's a single name's own option curve; this is the market-wide VIX curve.)*
+  - **Prediction-market overlay (Calendar + event-risk source):** `KALSHI_API_BASE`,
+    `POLYMARKET_GAMMA_BASE`, `POLYMARKET_TAGS`, `PM_FOMC_MEETINGS 3`,
+    `PM_KALSHI_MIN_VOL`/`PM_POLY_MIN_VOL` (liquidity floors → `thin`), `PREDICTION_MARKETS=0`
+    to disable. **Caveat: Kalshi is not resolving in production** (the public host/ticker
+    guess returns nothing — Polymarket alone is feeding the odds + event-risk); see §9 note.
   - **Analyst rating changes:** `ANALYST_REVISION_WINDOW_DAYS 90` (Fundamentals §3).
   - **Accuracy:** `PICKS_ACCURACY_ENROLL_TOP_N 5`, `PICKS_SIGNAL_MIN_N 25`,
     `PICKS_SIGNAL_PRUNE_BAND 0.05` (prunable flag), and the `PICKS_ACCURACY_AB` env
@@ -595,7 +632,8 @@ on (same discipline as the gate: measure on forward, gate-era data first).
   `detectMarketRegime`, `timingBarsFrom`, `buildTopPicks`, `scorePillared`,
   `pickContractForPick`, `buildExitPlan`, `updatePicksAccuracyFile`,
   `resolvePickOutcome`, `modelOptionExit` (P0.1 BS repricer),
-  `bullishReversalConfirmed` (P1.2), `factorOfTicker`/`FACTOR_OF_SECTOR` (P2.1).
+  `bullishReversalConfirmed` (P1.2), `factorOfTicker`/`FACTOR_OF_SECTOR` (P2.1),
+  `buildVixTerm` (§6.3 VIX term structure), `computeMacroEventRisk` (§6.6).
 - Render: [`scripts/render/app-js.mjs`](../scripts/render/app-js.mjs) —
   `pickTimingBanner` / `pickTimingBadge` (the card) and `buildExecuteNowCard` (the
   live Grade-tab sibling). The expandable score breakdown is `pickPillarPanel`,
