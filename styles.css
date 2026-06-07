@@ -3158,6 +3158,28 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .opt-pc-ylabel, .opt-pc-xlabel { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .opt-pc-ylabel { text-anchor: end; }
 .opt-pc-spotlabel { fill: var(--neg); font-size: 11px; text-anchor: end; font-variant-numeric: tabular-nums; }
+/* Analyst price-forecast cone (1Y range) — green upside / red downside wedges
+   fanning from the current price to the analyst high/avg/low 1-year targets. */
+.opt-pc-key-fan { background: linear-gradient(90deg, var(--pos), var(--neg)); }
+.opt-pc-fan-area { stroke: none; }
+.opt-pc-fan-up-0 { stop-color: var(--pos); stop-opacity: 0.05; }
+.opt-pc-fan-up-1 { stop-color: var(--pos); stop-opacity: 0.32; }
+.opt-pc-fan-dn-0 { stop-color: var(--neg); stop-opacity: 0.05; }
+.opt-pc-fan-dn-1 { stop-color: var(--neg); stop-opacity: 0.32; }
+.opt-pc-fan-hi  { stroke: var(--pos); stroke-width: 1.3; vector-effect: non-scaling-stroke; opacity: 0.9; }
+.opt-pc-fan-lo  { stroke: var(--neg); stroke-width: 1.3; vector-effect: non-scaling-stroke; opacity: 0.9; }
+.opt-pc-fan-avg { stroke: var(--muted); stroke-width: 1.1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: 0.9; }
+.opt-pc-fan-sep { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.6; }
+.opt-pc-fan-origin { fill: var(--text-strong); stroke: var(--surface); stroke-width: 1.5; }
+.opt-pc-fan-cur { fill: var(--muted); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.opt-pc-fan-pill rect { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+.opt-pc-fan-pill.up rect  { fill: color-mix(in srgb, var(--pos) 16%, var(--surface-2)); stroke: color-mix(in srgb, var(--pos) 50%, transparent); }
+.opt-pc-fan-pill.dn rect  { fill: color-mix(in srgb, var(--neg) 16%, var(--surface-2)); stroke: color-mix(in srgb, var(--neg) 50%, transparent); }
+.opt-pc-fan-pill-t { font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; fill: var(--text-strong); }
+.opt-pc-fan-pill.up .opt-pc-fan-pill-t { fill: var(--pos); }
+.opt-pc-fan-pill.dn .opt-pc-fan-pill-t { fill: var(--neg); }
+.opt-pc-fan-pill.avg .opt-pc-fan-pill-t { fill: var(--text); }
+.opt-pc-fan-pill-p { font-size: 9px; font-weight: 600; font-variant-numeric: tabular-nums; fill: var(--text); }
 .opt-tech-chart-foot { font-size: 11px; color: var(--muted); line-height: 1.4; }
 
 /* Hover crosshair + tooltip — the hit rect catches moves over empty gaps; the
