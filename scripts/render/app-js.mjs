@@ -6686,8 +6686,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // (populated by the volume pass in scripts/scan-unusual.mjs). See
   // lib/volume-flags.mjs for the flag classification rules.
   var VOLUME_FLAGS = MANIFEST.volumeFlags || null;
-  var volState = { search: '', filter: 'all', sort: 'ratio' };
+  // Ticker -> curated sector label (Semis / Software / Bank / Space / ETF / …)
+  // from the build manifest (MANIFEST.sectors). Used to group the flag list
+  // under collapsible sector sections so a long scan stays scannable. (Sections
+  // are ordered by flagged-ticker count below, not MANIFEST.sectorOrder — that's
+  // a separate coarse-GICS taxonomy that doesn't match these labels.)
+  var VOL_SECTOR_OF = MANIFEST.sectors || {};
+  // group: render under sector headers; expand: per-symbol detail open-state;
+  // allExpanded: whether the "Expand all" toggle is currently on;
+  // sectorCollapsed: per-sector collapsed sections.
+  var volState = { search: '', filter: 'all', sort: 'ratio', group: true, expand: {}, allExpanded: false, sectorCollapsed: {} };
   var VOL_SR_RANK = { 'Strong Alert': 3, 'Watch': 2, 'Likely Fakeout': 1 };
+  var VOL_CONV_RANK = { 'Very High': 4, 'High': 3, 'Medium': 2, 'Low': 1, 'None': 0 };
 
   function fmtVolNum(n){
     if (n == null || !isFinite(n)) return '—';
@@ -6946,6 +6956,109 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (why) bits.push('<div class="vol-why">' + escapeHtml(why) + '</div>');
     return '<div class="vol-bucket">' + bits.join('') + '</div>';
   }
+  // One representative summary of a ticker's flags for the collapsed card head:
+  // the highest-conviction badge, peak hour ratio, EOD ratio, and a single
+  // bullish/bearish lean (the EOD day move if flagged, else the largest-|move|
+  // flagged hour).
+  function volTickerSummary(t){
+    var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+    var peakRatio = 0, topBadge = null, topRank = -1, hourlyCount = 0, srCount = 0, leanMove = null;
+    for (var i = 0; i < buckets.length; i++){
+      var b = buckets[i];
+      if (!b || b.scanMissed) continue;
+      if (b.volRatio != null && isFinite(b.volRatio) && b.volRatio > peakRatio) peakRatio = b.volRatio;
+      if (b.hourlyFlagged) hourlyCount++;
+      if (b.moveClass && b.moveClass.conviction && b.moveClass.conviction !== 'None'){
+        var r = VOL_CONV_RANK[b.moveClass.conviction] || 0;
+        if (r > topRank){ topRank = r; topBadge = { action: b.moveClass.action, conviction: b.moveClass.conviction, type: 'move' }; }
+      }
+      if (b.srBreak){
+        srCount++;
+        var r2 = VOL_CONV_RANK[b.srBreak.conviction] || 0;
+        if (r2 > topRank){ topRank = r2; topBadge = { action: b.srBreak.action, conviction: b.srBreak.conviction, type: 'sr', srType: b.srBreak.type }; }
+      }
+      if (b.hourlyFlagged && b.priceMovePct != null && isFinite(b.priceMovePct)){
+        if (leanMove == null || Math.abs(b.priceMovePct) > Math.abs(leanMove)) leanMove = b.priceMovePct;
+      }
+    }
+    var eodFlagged = !!(t.eod && t.eod.flagged);
+    var dayMove = eodFlagged && t.eod.dayMovePct != null ? Number(t.eod.dayMovePct) : null;
+    return {
+      peakRatio: peakRatio || null,
+      topBadge: topBadge,
+      eodFlagged: eodFlagged,
+      eodRatio: eodFlagged && t.eod.ratio != null ? Number(t.eod.ratio) : null,
+      dayMovePct: dayMove,
+      lean: dayMove != null ? dayMove : leanMove,
+      hourlyCount: hourlyCount,
+      srCount: srCount,
+      sector: VOL_SECTOR_OF[t.symbol] || 'Other',
+    };
+  }
+  // The EOD summary row — rendered inside an expanded card body.
+  function volEodRowHtml(t){
+    if (!t.eod || !t.eod.flagged) return '';
+    var ratio = t.eod.ratio != null ? Number(t.eod.ratio).toFixed(2) + 'x' : '—';
+    var dayMove = t.eod.dayMovePct != null
+      ? (t.eod.dayMovePct >= 0 ? '+' : '') + Number(t.eod.dayMovePct).toFixed(2) + '%'
+      : '';
+    var dayCls = t.eod.dayMovePct == null ? '' : (t.eod.dayMovePct >= 0 ? ' is-up' : ' is-dn');
+    var w = volEodExplain(t.eod);
+    return '<div class="vol-eod is-flagged">' +
+      '<span class="vol-eod-label">EOD</span>' +
+      '<span class="vol-eod-vol" title="Full-day volume / 20-day average daily volume · ratio (actual ÷ average)">Day vol ' + fmtVolNum(t.eod.dayVol) + ' / ' + fmtVolNum(t.eod.avg20) + ' · ' + ratio + '</span>' +
+      (dayMove ? '<span class="vol-eod-move' + dayCls + '" title="Price change vs. yesterday\\'s close">' + dayMove + '</span>' : '') +
+      volDirectionPill(t.eod.dayMovePct) +
+      (w ? '<div class="vol-eod-why">' + escapeHtml(w) + '</div>' : '') +
+    '</div>';
+  }
+  // A ticker as a collapsible card: a one-line summary head (always shown) +
+  // a detail body (hour buckets + EOD + the per-bucket "why") shown only when
+  // expanded. Collapsed-by-default is what keeps a long scan short.
+  function volTickerCard(t){
+    var sym = String(t.symbol);
+    var sum = volTickerSummary(t);
+    var expanded = volState.expand[sym] === true;
+    var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
+    var chips = [];
+    if (sum.topBadge){
+      var cls = sum.topBadge.type === 'sr'
+        ? 'vol-sr-' + (sum.topBadge.srType || 'upper') + ' ' + volConvictionCls(sum.topBadge.conviction)
+        : volConvictionCls(sum.topBadge.conviction);
+      chips.push('<span class="vol-pill-badge ' + cls + '">' + escapeHtml(sum.topBadge.action || '') + '</span>');
+    } else if (sum.eodFlagged){
+      chips.push('<span class="vol-pill-badge vol-conv-medium">EOD</span>');
+    }
+    var dirPill = volDirectionPill(sum.lean);
+    if (dirPill) chips.push(dirPill);
+    var stats = [];
+    if (sum.peakRatio) stats.push('peak ' + sum.peakRatio.toFixed(2) + 'x');
+    if (sum.eodRatio) stats.push('EOD ' + sum.eodRatio.toFixed(2) + 'x');
+    if (sum.dayMovePct != null) stats.push((sum.dayMovePct >= 0 ? '+' : '') + sum.dayMovePct.toFixed(2) + '%');
+    var statStr = stats.join(' · ');
+    var head =
+      '<button type="button" class="vol-row-head" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
+        '<span class="vol-row-caret" aria-hidden="true">' + (expanded ? '▾' : '▸') + '</span>' +
+        '<span class="vol-symbol">' + escapeHtml(sym) + '</span>' +
+        (spot ? '<span class="vol-spot">' + spot + '</span>' : '') +
+        '<span class="vol-row-summary">' +
+          chips.join('') +
+          (statStr ? '<span class="vol-row-stats">' + escapeHtml(statStr) + '</span>' : '') +
+        '</span>' +
+      '</button>';
+    var body = '';
+    if (expanded){
+      var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+      body = '<div class="vol-row-body">' +
+        (t.avg20 != null ? '<div class="vol-row-meta" title="20-day average daily volume — the baseline each row compares against">20D avg: ' + fmtVolNum(t.avg20) + '</div>' : '') +
+        buckets.map(volBucketHtml).join('') +
+        volEodRowHtml(t) +
+      '</div>';
+    }
+    return '<article class="vol-row ' + (expanded ? 'is-expanded' : 'is-collapsed') + '" role="listitem" data-symbol="' + escapeHtml(sym) + '">' +
+      head + body +
+    '</article>';
+  }
   function renderVolumeFlags(){
     var list = $('vol-list');
     var empty = $('vol-empty');
@@ -6989,35 +7102,39 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     if (noResults) noResults.hidden = true;
-    list.innerHTML = tickers.map(function(t){
-      var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
-      var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
-      var eodHtml = '';
-      if (t.eod && t.eod.flagged){
-        var ratio = t.eod.ratio != null ? Number(t.eod.ratio).toFixed(2) + 'x' : '—';
-        var dayMove = t.eod.dayMovePct != null
-          ? (t.eod.dayMovePct >= 0 ? '+' : '') + Number(t.eod.dayMovePct).toFixed(2) + '%'
-          : '';
-        var dayCls = t.eod.dayMovePct == null ? '' : (t.eod.dayMovePct >= 0 ? ' is-up' : ' is-dn');
-        var dayDirPill = volDirectionPill(t.eod.dayMovePct);
-        eodHtml = '<div class="vol-eod is-flagged">' +
-          '<span class="vol-eod-label">EOD</span>' +
-          '<span class="vol-eod-vol" title="Full-day volume / 20-day average daily volume · ratio (actual ÷ average)">Day vol ' + fmtVolNum(t.eod.dayVol) + ' / ' + fmtVolNum(t.eod.avg20) + ' · ' + ratio + '</span>' +
-          (dayMove ? '<span class="vol-eod-move' + dayCls + '" title="Price change vs. yesterday\\'s close">' + dayMove + '</span>' : '') +
-          dayDirPill +
-          (function(){ var w = volEodExplain(t.eod); return w ? '<div class="vol-eod-why">' + escapeHtml(w) + '</div>' : ''; })() +
-        '</div>';
+    if (volState.group){
+      // Partition the filtered tickers by sector, ordered by the manifest's
+      // canonical sector order with any leftovers (ETF / Other) appended alpha.
+      var bySector = {};
+      for (var gi = 0; gi < tickers.length; gi++){
+        var sec = VOL_SECTOR_OF[tickers[gi].symbol] || 'Other';
+        (bySector[sec] = bySector[sec] || []).push(tickers[gi]);
       }
-      return '<article class="vol-row" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
-        '<header class="vol-row-head">' +
-          '<span class="vol-symbol">' + escapeHtml(t.symbol) + '</span>' +
-          (spot ? '<span class="vol-spot">' + spot + '</span>' : '') +
-          (t.avg20 != null ? '<span class="vol-avg20" title="20-day average daily volume — the baseline each row compares against">20D avg: ' + fmtVolNum(t.avg20) + '</span>' : '') +
-        '</header>' +
-        buckets.map(volBucketHtml).join('') +
-        eodHtml +
-      '</article>';
-    }).join('');
+      // Most-active sectors first (by flagged-ticker count), then alphabetical.
+      var order = Object.keys(bySector).sort(function(a, b){
+        var d = bySector[b].length - bySector[a].length;
+        return d !== 0 ? d : a.localeCompare(b);
+      });
+      list.innerHTML = order.map(function(sec){
+        var arr = bySector[sec];
+        var collapsed = volState.sectorCollapsed[sec] === true;
+        var bull = 0, bear = 0;
+        arr.forEach(function(t){ var l = volTickerSummary(t).lean; if (l != null){ if (l > 0) bull++; else if (l < 0) bear++; } });
+        var bias = bull > bear ? 'mostly bullish' : (bear > bull ? 'mostly bearish' : 'mixed');
+        var biasCls = bull > bear ? 'pos' : (bear > bull ? 'neg' : '');
+        var head =
+          '<button type="button" class="vol-sector-head" aria-expanded="' + (collapsed ? 'false' : 'true') + '" data-sector="' + escapeHtml(sec) + '">' +
+            '<span class="vol-sector-caret" aria-hidden="true">' + (collapsed ? '▸' : '▾') + '</span>' +
+            '<span class="vol-sector-name">' + escapeHtml(sec) + '</span>' +
+            '<span class="vol-sector-count">' + arr.length + '</span>' +
+            '<span class="vol-sector-bias ' + biasCls + '">' + bias + '</span>' +
+          '</button>';
+        var bodyCards = collapsed ? '' : '<div class="vol-sector-cards">' + arr.map(volTickerCard).join('') + '</div>';
+        return '<section class="vol-sector-group">' + head + bodyCards + '</section>';
+      }).join('');
+    } else {
+      list.innerHTML = tickers.map(volTickerCard).join('');
+    }
   }
   function bindVolumeControls(){
     var search = $('vol-search-input');
@@ -7059,6 +7176,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       sortSel.addEventListener('change', function(){
         volState.sort = sortSel.value || 'ratio';
         renderVolumeFlags();
+      });
+    }
+    var groupBtn = $('vol-group-btn');
+    if (groupBtn){
+      groupBtn.addEventListener('click', function(){
+        volState.group = !volState.group;
+        groupBtn.classList.toggle('is-on', volState.group);
+        groupBtn.setAttribute('aria-pressed', volState.group ? 'true' : 'false');
+        renderVolumeFlags();
+      });
+    }
+    var expandBtn = $('vol-expand-btn');
+    if (expandBtn){
+      expandBtn.addEventListener('click', function(){
+        volState.allExpanded = !volState.allExpanded;
+        volState.expand = {};
+        if (volState.allExpanded){
+          filteredVolTickers().forEach(function(t){ volState.expand[t.symbol] = true; });
+        }
+        expandBtn.classList.toggle('is-on', volState.allExpanded);
+        expandBtn.setAttribute('aria-pressed', volState.allExpanded ? 'true' : 'false');
+        expandBtn.textContent = volState.allExpanded ? 'Collapse all' : 'Expand all';
+        renderVolumeFlags();
+      });
+    }
+    // Delegated toggles on the list — bound once; survives innerHTML re-renders.
+    var listEl = $('vol-list');
+    if (listEl){
+      listEl.addEventListener('click', function(ev){
+        var secHead = ev.target.closest && ev.target.closest('.vol-sector-head');
+        if (secHead){
+          var sec = secHead.getAttribute('data-sector');
+          if (sec != null) volState.sectorCollapsed[sec] = !volState.sectorCollapsed[sec];
+          renderVolumeFlags();
+          return;
+        }
+        var head = ev.target.closest && ev.target.closest('.vol-row-head');
+        if (head){
+          var row = head.closest('.vol-row');
+          var sym = row && row.getAttribute('data-symbol');
+          if (sym){ volState.expand[sym] = !volState.expand[sym]; renderVolumeFlags(); }
+        }
       });
     }
   }
