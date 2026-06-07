@@ -3042,7 +3042,10 @@ async function fetchMacroBackdrop() {
   // slope (backwardation = acute stress), a sharper risk-off tell than VIX level
   // alone. Same caret-prefixed index pattern — quote-only, fails SYMBOL_RE so it
   // never reaches the api/* proxies, fetched server-side here like ^VIX.
-  const [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m] = await Promise.all([
+  // CL=F (WTI crude) + GC=F (gold) feed the commodity / geopolitical-shock regime
+  // axis (computeMacroRegime). They're also swept by the correlations engine, but
+  // that's a separate batch — the regime needs them on macroBackdrop directly.
+  const [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m, crude, gold] = await Promise.all([
     fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
     fetchLeg("^TNX", "10Y yield", { isYield: true }),
     fetchLeg("^TYX", "30Y yield", { isYield: true }),
@@ -3050,13 +3053,15 @@ async function fetchMacroBackdrop() {
     fetchLeg("^VIX", "VIX"),
     fetchLeg("^VIX9D", "VIX 9-day"),
     fetchLeg("^VIX3M", "VIX 3-month"),
+    fetchLeg("CL=F", "WTI crude"),
+    fetchLeg("GC=F", "Gold"),
   ]);
   if (!twoY && !tenY && !thirtyY && !dxy && !vix) return null;
   const vixTerm = buildVixTerm(vix, vix9d, vix3m);
   if (vixTerm) {
     console.log(`Macro VIX term: 9d ${vixTerm.short != null ? vixTerm.short.toFixed(1) : "—"} / 30d ${vixTerm.spot.toFixed(1)} / 3m ${vixTerm.mid.toFixed(1)} → ratio ${vixTerm.ratio} (${vixTerm.state})`);
   }
-  return { twoY, tenY, thirtyY, dxy, vix, vixTerm, asOf: new Date().toISOString() };
+  return { twoY, tenY, thirtyY, dxy, vix, vixTerm, crude, gold, asOf: new Date().toISOString() };
 }
 
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
@@ -6709,10 +6714,12 @@ const PICKS_RISKOFF_PUT_BAR = -8;
 
 // ---- Cross-asset macro-stress regime (PICKS_MACRO_REGIME) --------------------
 // The legacy detectMarketRegime reads only the SPY day move + VIX. But a
-// coordinated risk-off / financial-conditions-TIGHTENING tape shows up across
-// FOUR assets at once — equity vol (VIX), the dollar (DXY), the long end
-// (10Y/30Y yields) and the Fed PATH (FedWatch hike-odds repricing hawkish) —
-// usually BEFORE the S&P prints a -1% day. computeMacroRegime fuses those four
+// coordinated risk-off / financial-conditions-TIGHTENING tape shows up across many
+// assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
+// yields), the Fed PATH (FedWatch hike-odds repricing hawkish), plus a COMMODITY /
+// geopolitical-shock axis (a crude spike + gold safe-haven bid) and a geopolitical-
+// NEWS axis (a strong war/conflict narrative) — the last two fire on a geopolitical
+// shock usually BEFORE it bleeds into VIX/yields. computeMacroRegime fuses those six
 // axes (each -2..+2, negative = risk-off) into one gauge so the engine: (1) flips
 // detectMarketRegime to risk-off on the cross-asset signal even without an SPY
 // -1% day; (2) tilts the whole book bearish in proportion to each name's beta (a
@@ -6728,6 +6735,25 @@ const PICKS_MACRO_YIELD_BPS_1D_STRONG = Number(process.env.PICKS_MACRO_YIELD_BPS
 const PICKS_MACRO_FED_DRIFT_PT = Number(process.env.PICKS_MACRO_FED_DRIFT_PT ?? 5); // net hawkish drift (pt, hike−cut, avg of the front meetings) over the lookback that flags tightening (-1); 2× → -2
 const PICKS_MACRO_FED_LOOKBACK = Number(process.env.PICKS_MACRO_FED_LOOKBACK ?? 5); // FedWatch snapshots back to measure the hawkish drift
 const PICKS_MACRO_FED_MEETINGS = Number(process.env.PICKS_MACRO_FED_MEETINGS ?? 3); // nearest N future meetings averaged for the drift
+// Commodity / geopolitical-shock axis. A war / supply shock shows up in crude
+// (and a safe-haven gold bid) within minutes — usually BEFORE it bleeds into the
+// VIX/yield axes — so a sharp commodity spike flags risk-off on its own. Stress-only
+// & asymmetric: only a SPIKE counts (a gradual demand-driven grind, or a drop, is
+// not risk-off — rising oil is not always risk-off). Reuses the CL=F/GC=F legs.
+const PICKS_MACRO_COMMODITY = process.env.PICKS_MACRO_COMMODITY !== "0"; // axis on by default
+const PICKS_MACRO_OIL_1D = Number(process.env.PICKS_MACRO_OIL_1D ?? 4);          // % crude 1d that flags a supply/geopolitical spike (-1)
+const PICKS_MACRO_OIL_1D_STRONG = Number(process.env.PICKS_MACRO_OIL_1D_STRONG ?? 8); // ... an acute shock (-2)
+const PICKS_MACRO_OIL_5D = Number(process.env.PICKS_MACRO_OIL_5D ?? 12);         // % crude 5d run that flags a sustained spike (-1)
+const PICKS_MACRO_GOLD_1D = Number(process.env.PICKS_MACRO_GOLD_1D ?? 3);        // % gold 1d that flags a safe-haven bid (-1; confirms oil → -2)
+const PICKS_MACRO_GOLD_5D = Number(process.env.PICKS_MACRO_GOLD_5D ?? 6);        // % gold 5d run safe-haven bid (-1)
+// Geopolitical-NEWS axis (PICKS_MACRO_NEWS). A strong active war/conflict narrative
+// (from the AI narrative layer) flags systemic risk even before it fully prices in.
+// Conflict themes (war/invasion/missile/…) score regardless of the narrative's
+// equity sentiment; softer geopolitical themes (sanctions/OPEC/named flashpoints)
+// only when the narrative is bearish. Stress-only, like the commodity axis.
+const PICKS_MACRO_NEWS = process.env.PICKS_MACRO_NEWS !== "0"; // axis on by default
+const PICKS_MACRO_GEO_MIN_STR = Number(process.env.PICKS_MACRO_GEO_MIN_STR ?? 45);    // min narrative strength to count (-1)
+const PICKS_MACRO_GEO_STRONG_STR = Number(process.env.PICKS_MACRO_GEO_STRONG_STR ?? 65); // strong narrative → acute (-2)
 // Composite → state. riskOffAxes = number of axes at ≤ -1; riskOnAxes at ≥ +1.
 const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many risk-off axes → risk-off
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
@@ -8410,7 +8436,8 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   signals.push(tenYSignal);
 
   // 9. Cross-asset Macro Regime (PICKS_MACRO_REGIME): the holistic, BETA-WEIGHTED
-  // read of the four-axis macro gauge (VIX + DXY + long yields + Fed path),
+  // read of the macro gauge (VIX + DXY + long yields + Fed path + commodity/geopolitical
+  // shock + geopolitical news),
   // distinct from the per-name LEVEL signals 7/8 above (which are uniform across
   // names and so can't re-rank a cross-sectional engine). In a confirmed risk-off
   // tape this subtracts a beta-scaled bearish tilt — bigger on high-beta growth,
@@ -9863,7 +9890,39 @@ function fedHawkishDrift(fedwatchHistory) {
 // Pure + exported so the full build (main) and the offline regen-picks can both
 // attach it to macroBackdrop.macroRegime. Returns null when the feature is off or
 // there's no macro backdrop (callers fall back to the SPY+VIX-only regime).
-export function computeMacroRegime(macroBackdrop, fedwatchHistory) {
+// Hard-conflict terms — a strong active narrative naming actual conflict signals
+// systemic risk regardless of the narrative's equity sentiment (war = uncertainty).
+const GEO_CONFLICT_RE = /\b(war|warfare|conflict|invasion|invade|military|missile|airstrike|air ?strike|attack|troops|nuclear|hostilit|escalat|ceasefire|wartime|combat|blockade|strait of hormuz)\b/i;
+// Softer geopolitical flashpoints — count only when the narrative is bearish (a
+// sanctions/OPEC theme can be framed bullishly for some sector without being
+// systemic risk-off).
+const GEO_THEME_RE = /\b(sanction|embargo|geopolit|iran|israel|gaza|hamas|hezbollah|ukrain|russia|taiwan|north korea|middle east|red sea|houthi|opec|oil shock|tariff war)\b/i;
+
+// Market-wide geopolitical-news stress from the AI narrative layer (PICKS_MACRO_NEWS).
+// Scans the active narratives for a strong war/conflict (or bearish geopolitical)
+// theme and returns a stress-only axis score (0 / -1 / -2) + label. Pure (no AI/network
+// — narratives are already built this bake).
+function computeGeoNewsStress(narratives) {
+  if (!PICKS_MACRO_NEWS) return { score: 0, label: "geo-news off" };
+  if (!Array.isArray(narratives) || !narratives.length) return { score: 0, label: "no geopolitical narrative" };
+  let worst = null;
+  for (const n of narratives) {
+    if (!n || n.status !== "active") continue;
+    const str = Number(n.strength) || 0;
+    if (str < PICKS_MACRO_GEO_MIN_STR) continue;
+    const name = `${n.name || ""}`;
+    const conflict = GEO_CONFLICT_RE.test(name);
+    const theme = GEO_THEME_RE.test(name);
+    // Conflict counts regardless of sentiment; a soft geopolitical theme only when bearish.
+    if (!conflict && !(theme && n.sentiment === "bearish")) continue;
+    if (!worst || str > worst.strength) worst = { name, strength: str };
+  }
+  if (!worst) return { score: 0, label: "no active risk-off geopolitical narrative" };
+  const s = worst.strength >= PICKS_MACRO_GEO_STRONG_STR ? -2 : -1;
+  return { score: s, label: `Geopolitical news: "${worst.name}" (str ${worst.strength})` };
+}
+
+export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null) {
   if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
   const axes = {};
   const drivers = [];
@@ -9928,7 +9987,42 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory) {
     } else axes.fed = { score: 0, label: "no Fed-path data" };
   }
 
-  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score];
+  // --- Commodity / geopolitical-shock axis (crude spike + gold haven bid) -----
+  // Stress-only & asymmetric: only a sharp SPIKE is risk-off (a gradual grind or a
+  // drop is not — rising oil is not always risk-off). Crude leads; a gold safe-haven
+  // bid alongside upgrades the read (the classic war/supply-shock signature).
+  if (PICKS_MACRO_COMMODITY) {
+    const oil = macroBackdrop.crude, au = macroBackdrop.gold;
+    const o1 = oil && isFinite(oil.pctChange1d) ? oil.pctChange1d : null;
+    const o5 = oil && isFinite(oil.pctChange5d) ? oil.pctChange5d : null;
+    const g1 = au && isFinite(au.pctChange1d) ? au.pctChange1d : null;
+    const g5 = au && isFinite(au.pctChange5d) ? au.pctChange5d : null;
+    const oilSpike = o1 != null && o1 >= PICKS_MACRO_OIL_1D;
+    const oilShock = o1 != null && o1 >= PICKS_MACRO_OIL_1D_STRONG;
+    const oilRun = o5 != null && o5 >= PICKS_MACRO_OIL_5D;
+    const goldHaven = (g1 != null && g1 >= PICKS_MACRO_GOLD_1D) || (g5 != null && g5 >= PICKS_MACRO_GOLD_5D);
+    let s = 0, label = "commodities calm";
+    if (oilShock || (oilSpike && goldHaven)) {
+      s = -2;
+      label = `Crude ${o1 >= 0 ? "+" : ""}${o1.toFixed(1)}%${goldHaven && g1 != null ? ` · gold +${g1.toFixed(1)}%` : ""} — supply/geopolitical shock`;
+    } else if (oilSpike || oilRun || goldHaven) {
+      s = -1;
+      label = (oilSpike || oilRun)
+        ? `Crude ${o1 != null ? (o1 >= 0 ? "+" : "") + o1.toFixed(1) : "+" + o5.toFixed(1)}% — oil spiking`
+        : `Gold safe-haven bid ${g1 != null ? "+" + g1.toFixed(1) : "+" + g5.toFixed(1)}%`;
+    }
+    axes.commodity = (oil || au) ? { score: s, label } : { score: 0, label: "no commodity data" };
+    if (s <= -1) drivers.push(label.split(" — ")[0]);
+  } else axes.commodity = { score: 0, label: "commodity axis off" };
+
+  // --- Geopolitical-news axis (AI narrative layer) ---------------------------
+  {
+    const geo = computeGeoNewsStress(narratives);
+    axes.geo = geo;
+    if (geo.score <= -1) drivers.push(geo.label.split(" (")[0]);
+  }
+
+  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score];
   const stress = arr.reduce((a, b) => a + b, 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
@@ -10002,7 +10096,8 @@ export function detectMarketRegime(marketCtx, macroBackdrop) {
     if (spyOn && vixCalm) base = "risk-on";
   }
   // Cross-asset macro override (PICKS_MACRO_REGIME). A coordinated risk-off /
-  // tightening tape (VIX + DXY + long yields + Fed path) establishes risk-off
+  // tightening tape (VIX + DXY + long yields + Fed path + commodity/geopolitical
+  // shock + geopolitical news) establishes risk-off
   // even without an SPY -1% day — that's the whole point: position into the
   // building stress before the index capitulates — and never lets a lone green
   // SPY print read risk-on while the macro is stressed. macroBackdrop.macroRegime
@@ -17332,7 +17427,7 @@ async function main() {
     // scoring (detectMarketRegime + the differential narrative tilt) and the
     // roster (de-grossing, call cap, tactical-put bar). Like eventRisk it's a
     // picks-internal, this-build-only signal — not persisted to macro.json.
-    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory);
+    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives);
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
       const m = macroBackdrop.macroRegime;
       console.log(`  · macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);

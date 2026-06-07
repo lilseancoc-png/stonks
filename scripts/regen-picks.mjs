@@ -54,7 +54,7 @@ if (macroBackdrop) {
     const fwRaw = await readFile(resolve(DATA_DIR, "fedwatch-history.json"), "utf8");
     fedwatchHistory = JSON.parse(fwRaw);
   } catch {}
-  macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory);
+  macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, narratives);
   if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
     const m = macroBackdrop.macroRegime;
     console.log(`Macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);

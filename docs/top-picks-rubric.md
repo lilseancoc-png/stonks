@@ -501,14 +501,23 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
 
 - **Cross-asset macro-stress override (`PICKS_MACRO_REGIME`, default ON).** A
   coordinated risk-off / financial-conditions-**tightening** tape shows up across
-  four assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
-  yields) and the **Fed path** (FedWatch hike-odds repricing hawkish) — usually
-  *before* the S&P prints a −1% day. `computeMacroRegime(macroBackdrop, fedwatchHistory)`
-  fuses those four axes (each **−2..+2**, negative = risk-off) into one gauge:
+  many assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
+  yields), the **Fed path** (FedWatch hike-odds repricing hawkish), plus a **commodity
+  / geopolitical-shock** axis and a **geopolitical-news** axis — usually
+  *before* the S&P prints a −1% day. `computeMacroRegime(macroBackdrop, fedwatchHistory, narratives)`
+  fuses those six axes (each **−2..+2**, negative = risk-off) into one gauge:
     - **VIX** — level / trend / term-structure backwardation (reuses the reads below).
     - **DXY** — 1d ≥ `PICKS_MACRO_DXY_1D` (0.6%) or a rising-trend 5d ≥ `PICKS_MACRO_DXY_5D` → −1; ≥ `PICKS_MACRO_DXY_1D_STRONG` (0.9%) → −2.
     - **Long yields** — worst of 10Y/30Y: 1d ≥ `PICKS_MACRO_YIELD_BPS_1D` (10 bps) or a confirmed rising trend → −1; ≥ `PICKS_MACRO_YIELD_BPS_1D_STRONG` (16 bps) → −2.
     - **Fed path** — net hawkish drift `(hike−cut)` averaged over the nearest `PICKS_MACRO_FED_MEETINGS` (3) meetings vs `PICKS_MACRO_FED_LOOKBACK` (5) snapshots back: ≥ `PICKS_MACRO_FED_DRIFT_PT` (5 pt) → −1; 2× → −2 (reads `data/fedwatch-history.json`).
+    - **Commodity / geopolitical shock** (`PICKS_MACRO_COMMODITY`, default ON) — a war / supply shock spikes crude (and bids gold) within *minutes*, usually before VIX/yields react. **Stress-only & asymmetric** (only a sharp spike counts — a gradual demand-driven grind, or a drop, is **not** risk-off): crude 1d ≥ `PICKS_MACRO_OIL_1D` (4%) or 5d ≥ `PICKS_MACRO_OIL_5D` (12%) → −1; ≥ `PICKS_MACRO_OIL_1D_STRONG` (8%) **or** a crude spike *with* a gold safe-haven bid (gold 1d ≥ `PICKS_MACRO_GOLD_1D` 3% / 5d ≥ `PICKS_MACRO_GOLD_5D` 6%) → −2. Reads the `CL=F`/`GC=F` legs now on `macroBackdrop`.
+    - **Geopolitical news** (`PICKS_MACRO_NEWS`, default ON) — a strong active war/conflict narrative from the AI narrative layer flags systemic risk before it fully prices in. **Stress-only**: a `GEO_CONFLICT_RE` theme (war/invasion/missile/…) scores regardless of the narrative's equity sentiment; a softer `GEO_THEME_RE` flashpoint (sanctions/OPEC/named region) only when **bearish**. Strength ≥ `PICKS_MACRO_GEO_MIN_STR` (45) → −1; ≥ `PICKS_MACRO_GEO_STRONG_STR` (65) → −2. (`computeGeoNewsStress`, pure — no extra AI/network.)
+
+  > **Geopolitical shocks need ~no VIX move to register.** The two new axes are the
+  > direct, fast tells of a war / supply shock (oil + headlines), so one event can put
+  > the gauge at 2 risk-off axes → **risk-off** on an otherwise calm VIX/yields tape —
+  > exactly the "an Iran war should tilt the book" case. Both fire only on a genuine
+  > spike / strong narrative, so they're dormant in normal conditions.
 
   `riskOffAxes` = axes at ≤ −1. **`risk-off`** when `riskOffAxes ≥ PICKS_MACRO_RISKOFF_AXES`
   (2); **`severe-risk-off`** when `≥ PICKS_MACRO_SEVERE_AXES` (3) **and** the composite
@@ -811,7 +820,11 @@ it has to be trustworthy. The fixes:
     (default ON), `PICKS_TIMING_EVENT_DEFER_DAYS 3`, `PICKS_EVENT_RISK_MAX_PROB 0.70`.
   - **Cross-asset macro regime (§6.3):** `PICKS_MACRO_REGIME` (master flag, default ON),
     axes `PICKS_MACRO_DXY_1D 0.6` / `_1D_STRONG 0.9` / `_5D 1.0`, `PICKS_MACRO_YIELD_BPS_1D 10`
-    / `_1D_STRONG 16`, `PICKS_MACRO_FED_DRIFT_PT 5` / `_LOOKBACK 5` / `_MEETINGS 3`; states
+    / `_1D_STRONG 16`, `PICKS_MACRO_FED_DRIFT_PT 5` / `_LOOKBACK 5` / `_MEETINGS 3`; commodity
+    axis `PICKS_MACRO_COMMODITY` (default ON), `PICKS_MACRO_OIL_1D 4` / `_OIL_1D_STRONG 8` /
+    `_OIL_5D 12`, `PICKS_MACRO_GOLD_1D 3` / `_GOLD_5D 6` (reads `macroBackdrop.crude`/`.gold`,
+    the `CL=F`/`GC=F` legs); geopolitical-news axis `PICKS_MACRO_NEWS` (default ON),
+    `PICKS_MACRO_GEO_MIN_STR 45` / `_GEO_STRONG_STR 65` (`computeGeoNewsStress`, `GEO_CONFLICT_RE`/`GEO_THEME_RE`); states
     `PICKS_MACRO_RISKOFF_AXES 2`, `PICKS_MACRO_SEVERE_AXES 3` + `PICKS_MACRO_SEVERE_STRESS −4`,
     `PICKS_MACRO_RISKON_AXES 2`; book tilt `PICKS_MACRO_TILT` (default ON), `_TILT_BASE 4` /
     `_TILT_SEVERE 8` / `_TILT_RISKON 2`, beta clamp `_TILT_BETA_FLOOR 0.5` / `_TILT_BETA_CAP 1.6`;

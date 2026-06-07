@@ -13193,7 +13193,7 @@
       var mCls = (macro.state === 'risk-on') ? ' picks-summary-call' : ' picks-summary-put';
       var drv = (macro.drivers && macro.drivers.length) ? macro.drivers.join(' · ') : '';
       var grossTxt = (macro.grossMult != null && macro.grossMult < 1) ? ' Gross cut to ~' + Math.round(macro.grossMult * 100) + '% of target.' : '';
-      var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields and the Fed path (FedWatch hike-odds drift). ' +
+      var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields, the Fed path (FedWatch hike-odds drift), a commodity / geopolitical-shock axis (a crude spike + gold safe-haven bid) and a geopolitical-news axis (a strong war/conflict narrative). ' +
         (macro.state === 'risk-on' ? 'A clean risk-on tape leans the list long.' :
           (severe ? 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), tactical puts open wider, calls are capped, and gross is cut.' :
             'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.')) +
