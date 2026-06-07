@@ -48,7 +48,7 @@
     "bpsChange5d": null,
     "trend": "rising",
     "rankPct": null,
-    "rankSamples": 8
+    "rankSamples": 9
   },
   "vixTerm": {
     "short": 23.92,
@@ -57,10 +57,10 @@
     "ratio": 0.986,
     "state": "contango"
   },
-  "asOf": "2026-06-07T00:31:27.505Z",
+  "asOf": "2026-06-07T16:46:01.872Z",
   "previousClose": {
-    "date": "2026-06-05",
-    "asOf": "2026-06-06T03:08:44.719Z",
+    "date": "2026-06-06",
+    "asOf": "2026-06-07T00:31:27.505Z",
     "twoY": null,
     "tenY": 4.5360003,
     "thirtyY": 4.999,
