@@ -3307,6 +3307,29 @@ function classifyMacroEvent(publisher, title) {
   return "macro";
 }
 
+// The upcoming-earnings list ({symbol, name, date}) within the calendar window,
+// derived from each ticker's confirmed nextEarningsDate. Shared by main() /
+// regen-calendar to fetch the per-name Polymarket "beat" reading BEFORE the
+// calendar payload is built — buildCalendarPayload re-derives the same dates
+// from chains and attaches the reading by SYMBOL|date. The window math here must
+// stay aligned with the earnings loop in buildCalendarPayload (same start/cutoff).
+export function upcomingEarningsList(chains, todayIso, daysAhead = CALENDAR_DAYS_AHEAD) {
+  const startMs = Date.parse(String(todayIso) + "T00:00:00Z");
+  if (!Number.isFinite(startMs)) return [];
+  const cutoffMs = startMs + daysAhead * 86400000;
+  const out = [];
+  for (const [sym, data] of Object.entries(chains || {})) {
+    const dateStr = data?.fundamentals?.nextEarningsDate;
+    if (!dateStr || typeof dateStr !== "string") continue;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+    if (!m) continue;
+    const eventMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (eventMs < startMs || eventMs > cutoffMs) continue;
+    out.push({ symbol: sym, name: data?.fundamentals?.name || null, date: `${m[1]}-${m[2]}-${m[3]}` });
+  }
+  return out;
+}
+
 function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const today = new Date();
   const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
@@ -3341,6 +3364,11 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       if (fresh) session = fresh;
     }
     const implied = computeImpliedMoveForDate(data, date);
+    // Best-effort Polymarket "will they beat?" reading, matched at fetch time and
+    // keyed by SYMBOL|date (same overlay object as the macro-report readings).
+    // Absent for most names — Polymarket only lists earnings markets for a few
+    // mega-caps in season — so the chip is unchanged when nothing matched.
+    const earnPred = predictionMarkets?.earnings ? predictionMarkets.earnings[sym + "|" + date] : null;
     events.push({
       type: "earnings",
       date,
@@ -3349,6 +3377,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       session,
       source: "Yahoo Finance",
       ...(implied ? { impliedMovePct: implied.pct } : {}),
+      ...(earnPred ? { predictions: [earnPred] } : {}),
     });
   }
 
@@ -5696,6 +5725,13 @@ const POLYMARKET_GAMMA_BASE = process.env.POLYMARKET_GAMMA_BASE || "https://gamm
 // coverage in case a relevant event sits outside the top-volume window.
 const POLYMARKET_TAGS = (process.env.POLYMARKET_TAGS || "fed-rates,fed,interest-rates,inflation,economy")
   .split(",").map((s) => s.trim()).filter(Boolean);
+// Polymarket tag slugs that surface single-stock EARNINGS markets ("Will <co>
+// beat earnings?", "<co> up/down on earnings"). Pulled into the SAME shared
+// event pool as the macro tags above, so fetchEarningsPrediction filters it
+// locally — no per-ticker request fan-out. Earnings markets are seasonal and
+// mega-cap-only on Polymarket, so most tickers match nothing (chip unchanged).
+const POLYMARKET_EARNINGS_TAGS = (process.env.POLYMARKET_EARNINGS_TAGS || "earnings")
+  .split(",").map((s) => s.trim()).filter(Boolean);
 // How many upcoming FOMC meetings to price (the widget shows two; a small
 // buffer covers a meeting that lands mid-render). Bounds the request count.
 const PM_FOMC_MEETINGS = Number(process.env.PM_FOMC_MEETINGS) || 3;
@@ -5822,7 +5858,7 @@ async function loadPolymarketEvents() {
   const urls = [
     `${POLYMARKET_GAMMA_BASE}/events?closed=false&active=true&limit=200&order=volume24hr&ascending=false`,
   ];
-  for (const tag of POLYMARKET_TAGS) {
+  for (const tag of [...POLYMARKET_TAGS, ...POLYMARKET_EARNINGS_TAGS]) {
     urls.push(`${POLYMARKET_GAMMA_BASE}/events?closed=false&limit=100&tag_slug=${encodeURIComponent(tag)}`);
   }
   for (const url of urls) {
@@ -5943,12 +5979,102 @@ async function fetchMacroPrediction(ev) {
   return best;
 }
 
+// --- Earnings "beat" prediction (Polymarket) --------------------------------
+// Normalize a company long-name to a core matchable token for Polymarket title
+// matching: lowercase, strip the corporate suffixes / share-class noise that
+// never appears in a market title ("NVIDIA Corporation" → "nvidia"; "Meta
+// Platforms, Inc." → "meta platforms"). Returns "" when nothing usable remains.
+function normalizeCompanyName(name) {
+  let s = String(name || "").toLowerCase();
+  if (!s) return "";
+  s = s.replace(/[.,&]/g, " ");
+  s = s.replace(/\b(corporation|corp|incorporated|inc|company|co|holdings?|group|the|plc|ltd|limited|sa|nv|ag|class\s+[a-c]|cl\s+[a-c]|adr|common\s+stock)\b/g, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
+const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// True when a Polymarket title plausibly names THIS company — matches the
+// normalized long-name (or its lead token for multi-word names like "meta
+// platforms"), or the ticker as a standalone token (≥3 chars only; 1-2 char
+// tickers collide with ordinary words). The earnings-keyword + date-proximity
+// checks in fetchEarningsPrediction are what keep this from over-matching; this
+// is only the name gate.
+function companyMatchesTitle(title, normName, sym) {
+  const t = String(title || "").toLowerCase();
+  if (!t) return false;
+  if (normName) {
+    if (t.includes(normName)) return true;
+    const lead = normName.split(" ")[0];
+    if (lead && lead.length >= 4 && new RegExp("\\b" + reEsc(lead) + "\\b").test(t)) return true;
+  }
+  if (sym && sym.length >= 3 && new RegExp("\\b" + reEsc(sym.toLowerCase()) + "\\b").test(t)) return true;
+  return false;
+}
+// A beat/miss/estimate market (vs a price-direction one). Ranked ABOVE direction
+// markets so the reading we surface answers "will they beat?" when such a market
+// is open; a pure direction market is still surfaced (labeled by its own
+// question) when no beat market exists.
+const EARNINGS_BEAT_RE = /\b(beat|miss|exceed|surpass|top)\b|above .*(estimate|expectation|consensus)|\beps\b/;
+// Secondary guard that the matched market is actually about earnings (not some
+// other open market on the same company, e.g. a product-launch market).
+const EARNINGS_REL_RE = /(earnings|\beps\b|\bbeat\b|\bmiss\b)/;
+const PM_EARNINGS_NEAR_DAYS = Number(process.env.PM_EARNINGS_NEAR_DAYS ?? 21);
+// Best-effort Polymarket reading for one ticker's upcoming earnings. Filters the
+// shared event pool for an OPEN market that (a) names the company, (b) is
+// earnings-related, and (c) resolves near the report date — preferring a
+// beat/miss market over a price-direction one, ties broken by traded volume.
+// Returns { platform, label, prob, vol, url, thin } | null — same shape as
+// fetchMacroPrediction, so it renders through the identical calendar pill.
+// `eventsOverride` is a test seam (inject a mocked event pool); production
+// callers omit it and the shared cached Polymarket pull is used.
+export async function fetchEarningsPrediction(sym, companyName, dateIso, eventsOverride = null) {
+  const events = eventsOverride || await loadPolymarketEvents();
+  if (!events.length) return null;
+  const evMs = Date.parse(String(dateIso) + "T00:00:00Z");
+  if (!Number.isFinite(evMs)) return null;
+  const normName = normalizeCompanyName(companyName);
+  if (!normName && !(sym && sym.length >= 3)) return null; // nothing safe to match on
+  let best = null;
+  for (const pe of events) {
+    const evTitle = String(pe.title || "");
+    if (!companyMatchesTitle(evTitle, normName, sym)) continue;
+    const endMs = Date.parse(pe.endDate || pe.end_date || "");
+    if (Number.isFinite(endMs) && Math.abs(endMs - evMs) > PM_EARNINGS_NEAR_DAYS * 86400000) continue; // resolves near THIS report
+    for (const mk of (Array.isArray(pe.markets) ? pe.markets : [])) {
+      const q = String(mk.question || mk.groupItemTitle || evTitle || "");
+      if (!EARNINGS_REL_RE.test((evTitle + " " + q).toLowerCase())) continue;
+      const yes = polymarketYesPrice(mk);
+      if (yes == null) continue;
+      const vol = PM_MARKET_VOL(mk);
+      // Rank beat/miss markets ahead of everything, then by volume.
+      const rank = (EARNINGS_BEAT_RE.test(q.toLowerCase()) ? 1e15 : 0) + vol;
+      if (!best || rank > best.rank) {
+        best = {
+          rank,
+          platform: "Polymarket",
+          label: (q || evTitle).slice(0, 80),
+          prob: yes,
+          vol,
+          url: pe.slug ? `https://polymarket.com/event/${pe.slug}` : "https://polymarket.com/markets/earnings",
+        };
+      }
+    }
+  }
+  if (!best) return null;
+  delete best.rank;
+  best.thin = pmIsThin(best.vol, PM_POLY_MIN_VOL);
+  return best;
+}
+
 // Build the prediction-market overlay for the calendar:
-//   { fomc: { <meetingDate>: { kalshi?, polymarket? } }, reports: { "<subtype>|<date>": {...} } }
+//   { fomc: { <meetingDate>: { kalshi?, polymarket? } },
+//     reports:  { "<subtype>|<date>": {...} },
+//     earnings: { "<SYMBOL>|<date>": {...} } }
 // FOMC odds come from both platforms (the headline cross-check); macro readings
-// come from Polymarket only (cleaner binary shape). Imported by regen-calendar.mjs.
-export async function fetchPredictionMarkets(meetings, reportEvents) {
-  const out = { fomc: {}, reports: {} };
+// and the per-ticker earnings "beat" reading come from Polymarket only (cleaner
+// binary shape). earningsEvents is [{symbol, name, date}] (see
+// upcomingEarningsList). Imported by regen-calendar.mjs.
+export async function fetchPredictionMarkets(meetings, reportEvents, earningsEvents = []) {
+  const out = { fomc: {}, reports: {}, earnings: {} };
   if (!PREDICTION_MARKETS_ENABLED) return out;
   const upcoming = [...(meetings || [])]
     .filter((m) => m && m.date)
@@ -5969,8 +6095,13 @@ export async function fetchPredictionMarkets(meetings, reportEvents) {
     const pred = await fetchMacroPrediction(ev).catch(() => null);
     if (pred) out.reports[ev.subtype + "|" + ev.date] = pred;
   }));
-  const fomcN = Object.keys(out.fomc).length, repN = Object.keys(out.reports).length;
-  console.log(`  · prediction markets: ${fomcN} FOMC meeting${fomcN === 1 ? "" : "s"}, ${repN} macro release${repN === 1 ? "" : "s"}`);
+  await Promise.all((earningsEvents || []).map(async (ev) => {
+    if (!ev || !ev.symbol || !ev.date) return;
+    const pred = await fetchEarningsPrediction(ev.symbol, ev.name, ev.date).catch(() => null);
+    if (pred) out.earnings[ev.symbol + "|" + ev.date] = pred;
+  }));
+  const fomcN = Object.keys(out.fomc).length, repN = Object.keys(out.reports).length, earnN = Object.keys(out.earnings).length;
+  console.log(`  · prediction markets: ${fomcN} FOMC meeting${fomcN === 1 ? "" : "s"}, ${repN} macro release${repN === 1 ? "" : "s"}, ${earnN} earnings`);
   return out;
 }
 
@@ -16299,10 +16430,11 @@ async function main() {
   // Prediction-market overlay (Kalshi + Polymarket) — a market-based cross-check
   // on the ZQ-futures FedWatch numbers above + a best-effort odds reading beside
   // macro releases. Free public reads, no key; degrades to nothing if a host flakes.
-  let predictionMarkets = { fomc: {}, reports: {} };
+  let predictionMarkets = { fomc: {}, reports: {}, earnings: {} };
   try {
     console.log("Fetching prediction markets (Kalshi + Polymarket)…");
-    predictionMarkets = await fetchPredictionMarkets(upcomingMeetings, reportEvents);
+    const earningsEvents = upcomingEarningsList(chains, todayIso);
+    predictionMarkets = await fetchPredictionMarkets(upcomingMeetings, reportEvents, earningsEvents);
   } catch (err) {
     console.log(`  ⚠ prediction markets skipped: ${err?.message || err}`);
   }

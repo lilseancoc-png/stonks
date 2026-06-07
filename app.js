@@ -8356,6 +8356,24 @@
                 s === 'PM' ? 'After market close' : 'Time not supplied';
     return ' <span class="cal-session cal-session-' + s.toLowerCase() + '" title="' + title + '">' + s + '</span>';
   }
+  // Market-implied prediction pill(s) (Polymarket/Kalshi) attached at bake time.
+  // Shared by the macro-report chip and the earnings chip — same data shape
+  // ({platform,label,prob,vol,url,thin}). Returns '' when none are present.
+  function renderCalPmLine(predictions){
+    if (!Array.isArray(predictions) || !predictions.length) return '';
+    return '<div class="cal-report-pm">' + predictions.map(function(p){
+      var n = (p && p.prob != null) ? Number(p.prob) : null;
+      var pct = (n != null && isFinite(n))
+        ? ' <b>' + ((n > 1.5 ? n / 100 : n) * 100).toFixed(0) + '%</b>' : '';
+      var lbl = p && p.label ? ' <span class="cal-report-pm-lbl">' + escapeHtml(p.label) + '</span>' : '';
+      var thinTag = (p && p.thin) ? ' <span class="cal-report-pm-thin" title="Low traded volume — noisy, not signal">thin</span>' : '';
+      var inner = '<span class="cal-report-pm-plat">' + escapeHtml((p && p.platform) || 'Market') + '</span>' + lbl + pct + thinTag;
+      var cls = 'cal-report-pm-item' + (p && p.thin ? ' is-thin' : '');
+      return (p && p.url)
+        ? '<a class="' + cls + '" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener noreferrer" title="Market-implied odds — opens the source market">' + inner + '</a>'
+        : '<span class="' + cls + '">' + inner + '</span>';
+    }).join('') + '</div>';
+  }
   function renderReportChip(e){
     var fmt = function(v){ return (v == null || v === '') ? '—' : String(v); };
     var has = function(v){ return v != null && v !== ''; };
@@ -8372,21 +8390,7 @@
     // Best-effort market-implied reading (Polymarket) attached at bake time when
     // a related market resolves near this release. Rendered as a small pill below
     // the figures; omitted entirely when no market was matched.
-    var pmLine = '';
-    if (Array.isArray(e.predictions) && e.predictions.length){
-      pmLine = '<div class="cal-report-pm">' + e.predictions.map(function(p){
-        var n = (p && p.prob != null) ? Number(p.prob) : null;
-        var pct = (n != null && isFinite(n))
-          ? ' <b>' + ((n > 1.5 ? n / 100 : n) * 100).toFixed(0) + '%</b>' : '';
-        var lbl = p && p.label ? ' <span class="cal-report-pm-lbl">' + escapeHtml(p.label) + '</span>' : '';
-        var thinTag = (p && p.thin) ? ' <span class="cal-report-pm-thin" title="Low traded volume — noisy, not signal">thin</span>' : '';
-        var inner = '<span class="cal-report-pm-plat">' + escapeHtml((p && p.platform) || 'Market') + '</span>' + lbl + pct + thinTag;
-        var cls = 'cal-report-pm-item' + (p && p.thin ? ' is-thin' : '');
-        return (p && p.url)
-          ? '<a class="' + cls + '" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener noreferrer" title="Market-implied odds — opens the source market">' + inner + '</a>'
-          : '<span class="' + cls + '">' + inner + '</span>';
-      }).join('') + '</div>';
-    }
+    var pmLine = renderCalPmLine(e.predictions);
     var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
     // Stale tag: writeCalendarFile carries forward in-window report rows
     // from the prior calendar.json when BLS + FRED both come back empty
@@ -8662,6 +8666,16 @@
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
         }
         var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+        // Earnings chips can carry a Polymarket "beat" reading (predictions[]).
+        // When present, stack it on its own row beneath the head (the base chip
+        // is a single flex row; 'has-pm' switches it to a column).
+        var pmLine = renderCalPmLine(e.predictions);
+        if (pmLine){
+          return '<div class="' + cls + ' has-pm">' +
+              '<div class="cal-chip-head">' + label + src + '</div>' +
+              pmLine +
+            '</div>';
+        }
         return '<div class="' + cls + '">' + label + src + '</div>';
       }).join('');
       return '<div class="cal-day">' +

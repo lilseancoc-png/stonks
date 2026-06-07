@@ -5692,6 +5692,10 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   color: var(--muted);
 }
 .cal-report-pm-lbl { color: var(--muted); }
+/* A flat chip (earnings) carrying a market-implied prediction line: switch to a
+   stacked layout so the pill sits on its own row beneath the head. */
+.cal-chip.has-pm { flex-direction: column; align-items: stretch; }
+.cal-chip-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .calendar-empty {
   padding: var(--s-5) var(--s-3);
   text-align: center;
