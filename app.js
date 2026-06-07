@@ -8514,7 +8514,8 @@
     // --- Per-meeting tally helpers (track the odds of a move) --------------
     // summarize(): current hike/hold/cut + the odds of ANY 25 bps move
     // (hike + cut = 1 − hold) + a "notable" flag once a hike or cut clears 50%.
-    // shiftChip(): day-over-day move in the dominant direction, in points.
+    // movementChip(): directional ▲/▼ indicator — did the odds move up or down
+    // vs a prior snapshot, with the magnitude in points and the window used.
     var pctTxt = function(n){ return (n == null) ? '—' : Math.round(n * 100) + '%'; };
     var summarize = function(nowB){
       if (!nowB) return null;
@@ -8529,15 +8530,29 @@
     var flagBadge = function(flag){
       return flag ? '<span class="fomc-flag fomc-flag-' + flag.key + '" title="Odds clear 50% — a notable, market-moving setup">' + escapeHtml(flag.label) + '</span>' : '';
     };
-    var shiftChip = function(nowB, dayB){
-      if (!nowB || !dayB) return '';
-      var dh = ((normProb(nowB, 'hike') || 0) - (normProb(dayB, 'hike') || 0)) * 100;
-      var dc = ((normProb(nowB, 'cut') || 0) - (normProb(dayB, 'cut') || 0)) * 100;
-      var use = Math.abs(dh) >= Math.abs(dc) ? { d: dh, lbl: 'hike' } : { d: dc, lbl: 'cut' };
-      if (Math.abs(use.d) < 1) return '';
-      var hawkish = (use.lbl === 'hike') ? (use.d > 0) : (use.d < 0);
-      return '<span class="fomc-shift ' + (hawkish ? 'hawk' : 'dove') + '" title="Change in ' + use.lbl + ' odds vs yesterday">' +
-        (use.d > 0 ? '+' : '−') + Math.round(Math.abs(use.d)) + 'pt ' + use.lbl + ' · 1d</span>';
+    // Whether the odds for this meeting moved UP or DOWN, and by how much, vs a
+    // prior snapshot. Tracks the currently-dominant side (hike or cut) so the
+    // arrow matches the headline number the user is reading. Same-day re-bakes
+    // leave the 1d bucket equal to now (no move), so we fall back 1d → 1w → 1m
+    // to the first window with a material (≥1 pt) change; if all three are flat
+    // the rate view is genuinely stable and we say so. ▲ = that side's odds rose,
+    // ▼ = fell; hawk/dove color = whether the net effect is toward tightening.
+    var movementChip = function(b){
+      if (!b || !b.now) return '';
+      var side = (normProb(b.now, 'hike') || 0) >= (normProb(b.now, 'cut') || 0) ? 'hike' : 'cut';
+      var refs = [['day','1d'], ['week','1w'], ['month','1m']];
+      for (var i = 0; i < refs.length; i++){
+        var rb = b[refs[i][0]];
+        if (!rb) continue;
+        var d = ((normProb(b.now, side) || 0) - (normProb(rb, side) || 0)) * 100;
+        if (Math.abs(d) < 1) continue;
+        var up = d > 0;
+        var hawkish = (side === 'hike') ? up : !up;
+        var mag = Math.round(Math.abs(d));
+        return '<span class="fomc-shift ' + (hawkish ? 'hawk' : 'dove') + '" title="' + side + ' odds ' + (up ? 'up' : 'down') + ' ' + mag + ' pts vs ' + refs[i][1] + ' ago">' +
+          (up ? '▲' : '▼') + ' ' + mag + 'pt ' + side + ' · ' + refs[i][1] + '</span>';
+      }
+      return '<span class="fomc-shift flat" title="No material change in odds across the past day, week, or month">▬ flat</span>';
     };
     var meetingBlocks = meetings.map(function(m){
       var bucket = cumProbs[m.date] || { now: null, day: null, week: null, month: null };
@@ -8547,7 +8562,7 @@
         ? '<div class="fomc-meeting-summary">' +
             '<span class="fomc-move-odds" title="Odds the rate is any distance from today (hike + cut)">Move odds ' + pctTxt(sumNow.move) + '</span>' +
             flagBadge(sumNow.flag) +
-            shiftChip(bucket.now, bucket.day) +
+            movementChip(bucket) +
           '</div>'
         : '';
       var grid =
@@ -8582,23 +8597,23 @@
     var ladderRows = meetingsAll.map(function(m){
       var b = cumProbs[m.date] || {};
       var s = summarize(b.now);
-      if (!s) return '<tr class="fomc-ladder-na"><td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td><td colspan="5">no snapshot</td></tr>';
+      if (!s) return '<tr class="fomc-ladder-na"><td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td><td colspan="6">no snapshot</td></tr>';
       var rowCls = s.flag ? ' class="is-notable fomc-ladder-' + s.flag.key + '"' : '';
-      var last = s.flag ? flagBadge(s.flag) : shiftChip(b.now, b.day);
       return '<tr' + rowCls + '>' +
         '<td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td>' +
         '<td>' + pctTxt(s.hike) + '</td>' +
         '<td>' + pctTxt(s.hold) + '</td>' +
         '<td>' + pctTxt(s.cut) + '</td>' +
         '<td class="fomc-ladder-move">' + pctTxt(s.move) + '</td>' +
-        '<td class="fomc-ladder-flag">' + last + '</td>' +
+        '<td class="fomc-ladder-trend">' + movementChip(b) + '</td>' +
+        '<td class="fomc-ladder-flag">' + flagBadge(s.flag) + '</td>' +
       '</tr>';
     }).join('');
     var ladder = meetingsAll.length
       ? '<div class="fomc-ladder-wrap">' +
           '<h3 class="fomc-ladder-title">All upcoming meetings · cumulative odds vs today</h3>' +
           '<table class="fomc-ladder"><thead><tr>' +
-            '<th>Meeting</th><th>Hike</th><th>Hold</th><th>Cut</th><th title="Odds of any net change vs today">Move</th><th></th>' +
+            '<th>Meeting</th><th>Hike</th><th>Hold</th><th>Cut</th><th title="Odds of any net change vs today">Move</th><th title="Did the odds move up or down vs 1d / 1w / 1m ago">Trend</th><th></th>' +
           '</tr></thead><tbody>' + ladderRows + '</tbody></table>' +
         '</div>'
       : '';
