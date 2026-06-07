@@ -7047,6 +7047,7 @@ const CHART_PATTERN_META = {
   "Bull Flag":                  { type: "Bullish Continuation", direction: "bullish" },
   "Ascending Triangle":         { type: "Bullish Continuation", direction: "bullish" },
   "Double Bottom":              { type: "Bullish Reversal",     direction: "bullish" },
+  "Double Top":                 { type: "Bearish Reversal",     direction: "bearish" },
   "Descending Triangle":        { type: "Bearish Continuation", direction: "bearish" },
 };
 const CHART_PATTERN_NAMES = Object.keys(CHART_PATTERN_META);
@@ -14827,7 +14828,7 @@ const CHART_PATTERN_SYSTEM_PROMPT =
   "bottom = volume, plus any moving-average overlays named in the accompanying " +
   "text — only the ones listed there are drawn. The right edge is " +
   "the most recent action; reversal patterns most often complete there. Decide " +
-  "whether the recent price action forms one of these 7 classic chart patterns:\n" +
+  "whether the recent price action forms one of these 8 classic chart patterns:\n" +
   "1. Cup and Handle (Bullish Continuation) — a rounded U-shaped bottom (the " +
   "cup) followed by a small downward-drifting consolidation (the handle); " +
   "bullish on a breakout above the handle, strongest when the breakout comes on " +
@@ -14847,7 +14848,13 @@ const CHART_PATTERN_SYSTEM_PROMPT =
   "6. Double Bottom (Bullish Reversal) — two distinct troughs at roughly the " +
   "same price level forming a W; signals a reversal higher once the middle peak " +
   "is cleared.\n" +
-  "7. Descending Triangle (Bearish Continuation) — a flat horizontal support " +
+  "7. Double Top (Bearish Reversal) — two distinct peaks at roughly the same " +
+  "price level (within a few percent) separated by a moderate trough (valley), " +
+  "forming an M; signals a reversal lower. Confirmed when price breaks BELOW the " +
+  "support line connecting the trough (the neckline) — most reliable when that " +
+  "break comes on rising volume. The measured-move target is roughly the neckline " +
+  "minus the peak-to-neckline height.\n" +
+  "8. Descending Triangle (Bearish Continuation) — a flat horizontal support " +
   "line with a falling series of lower highs above it; sellers in control, often " +
   "breaks down.\n\n" +
   "Report a pattern in one of TWO stages — this is the key job: catch it EARLY.\n" +

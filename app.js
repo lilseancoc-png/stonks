@@ -2272,7 +2272,7 @@
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
     resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.',
     sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.',
-    chartPattern: 'A classic chart formation identified by AI from the 1-month intraday (30-minute) chart — the timeframe where short-horizon reversals show up — one of 7 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1). Re-rated about twice a day. Context only — confirm on your own chart before trading.'
+    chartPattern: 'A classic chart formation identified by AI from the 1-month intraday (30-minute) chart — the timeframe where short-horizon reversals show up — one of 8 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom, Double Top), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1). Re-rated about twice a day. Context only — confirm on your own chart before trading.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -4079,12 +4079,27 @@
       if (hh != null && hh > hi) hi = hh;
     }
     if (spot != null && isFinite(spot)){ lo = Math.min(lo, spot); hi = Math.max(hi, spot); }
+    // Analyst price-forecast cone (1Y range only): a green upside wedge + red
+    // downside wedge fanning from the current price to the analyst high / avg /
+    // low 1-year targets, à la TradingView's "Price target" widget. Expand the
+    // y-domain to span the full target range (this compresses the historical
+    // line just like TradingView), and reserve a slice of the plot width on the
+    // right for the cone + price pills.
+    var fc = (opts.forecast && isFinite(opts.forecast.high) && isFinite(opts.forecast.low)
+              && isFinite(opts.forecast.avg) && opts.forecast.high > opts.forecast.low
+              && spot != null && isFinite(spot)) ? opts.forecast : null;
+    if (fc){ lo = Math.min(lo, fc.low); hi = Math.max(hi, fc.high); }
     if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return { svg: '', legend: '' };
     var padv = (hi - lo) * 0.05; lo -= padv; hi += padv;
     var L = PC_LAYOUT;
     var W = L.W, H = L.H, padL = L.padL, padR = L.padR, padT = L.padT, priceBot = L.priceBot, volTop = L.volTop, volBot = L.volBot;
     var plotW = W - padL - padR;
-    function xAt(i){ return padL + (dN === 1 ? plotW / 2 : ((i - s0) / (dN - 1)) * plotW); }
+    // When a forecast cone is present the historical series occupies only the
+    // left portion; the cone gets ~26% and the price pills a fixed gutter.
+    var fcLabelW = fc ? 98 : 0;
+    var fcConeW = fc ? Math.round(plotW * 0.26) : 0;
+    var histW = plotW - fcConeW - fcLabelW;
+    function xAt(i){ return padL + (dN === 1 ? histW / 2 : ((i - s0) / (dN - 1)) * histW); }
     function yAt(val){ return padT + (1 - (val - lo) / (hi - lo)) * (priceBot - padT); }
     function pts(arr){
       var s = '', started = false;
@@ -4127,14 +4142,18 @@
         volPath += 'M' + vx + ' ' + volBot.toFixed(1) + 'L' + vx + ' ' + (volBot - vh).toFixed(1);
       }
     }
-    var barW = Math.max(1, (plotW / dN) * 0.6).toFixed(2);
+    var barW = Math.max(1, (histW / dN) * 0.6).toFixed(2);
     var vol = volPath ? '<path class="opt-pc-vol" style="stroke-width:' + barW + '" d="' + volPath + '" />' : '';
-    // spot line + label
+    // spot line + label — when a forecast cone is drawn the line stops at the
+    // cone origin (the cone's avg/hi/lo lines take over to the right).
     var spotEl = '';
     if (spot != null && isFinite(spot)){
       var sy = yAt(spot).toFixed(1);
-      spotEl = '<line class="opt-pc-spot" x1="' + padL + '" y1="' + sy + '" x2="' + (W - padR) + '" y2="' + sy + '" />' +
-        '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">spot $' + fmt(spot) + '</text>';
+      var spotX2 = fc ? (padL + histW) : (W - padR);
+      spotEl = '<line class="opt-pc-spot" x1="' + padL + '" y1="' + sy + '" x2="' + spotX2 + '" y2="' + sy + '" />' +
+        (fc
+          ? '<text class="opt-pc-fan-cur" text-anchor="end" x="' + (padL + histW - 4).toFixed(1) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">$' + fmt(spot) + '</text>'
+          : '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">spot $' + fmt(spot) + '</text>');
     }
     // x labels (first / mid / last of the window)
     var xlabels = '';
@@ -4159,6 +4178,42 @@
       if (ptsB) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma200"></i>' + pB + 'D SMA</span>';
     }
     legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-spot"></i>Spot</span>';
+    // Analyst price-forecast cone — wedges + price pills in the reserved right
+    // slice. Drawn from the current price out to the analyst high / avg / low.
+    var fanDefs = '', fanEl = '', fanLabels = '', fcXlabel = '';
+    if (fc){
+      legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-fan"></i>Analyst 1Y target</span>';
+      var xb = padL + histW, xr = xb + fcConeW;
+      var avgC = Math.max(fc.low, Math.min(fc.high, fc.avg));   // keep avg inside [low,high]
+      var ySpot = yAt(spot), yHigh = yAt(fc.high), yAvg = yAt(avgC), yLow = yAt(fc.low);
+      var X = function(x){ return x.toFixed(1); }, Y = function(y){ return y.toFixed(1); };
+      fanDefs =
+        '<defs>' +
+          '<linearGradient id="opt-pc-fan-up" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" class="opt-pc-fan-up-0"/><stop offset="100%" class="opt-pc-fan-up-1"/></linearGradient>' +
+          '<linearGradient id="opt-pc-fan-dn" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" class="opt-pc-fan-dn-0"/><stop offset="100%" class="opt-pc-fan-dn-1"/></linearGradient>' +
+        '</defs>';
+      fanEl =
+        '<line class="opt-pc-fan-sep" x1="' + X(xb) + '" y1="' + padT + '" x2="' + X(xb) + '" y2="' + priceBot + '"/>' +
+        '<path class="opt-pc-fan-area" fill="url(#opt-pc-fan-up)" d="M' + X(xb) + ',' + Y(ySpot) + 'L' + X(xr) + ',' + Y(yHigh) + 'L' + X(xr) + ',' + Y(yAvg) + 'Z"/>' +
+        '<path class="opt-pc-fan-area" fill="url(#opt-pc-fan-dn)" d="M' + X(xb) + ',' + Y(ySpot) + 'L' + X(xr) + ',' + Y(yAvg) + 'L' + X(xr) + ',' + Y(yLow) + 'Z"/>' +
+        '<line class="opt-pc-fan-hi" x1="' + X(xb) + '" y1="' + Y(ySpot) + '" x2="' + X(xr) + '" y2="' + Y(yHigh) + '"/>' +
+        '<line class="opt-pc-fan-lo" x1="' + X(xb) + '" y1="' + Y(ySpot) + '" x2="' + X(xr) + '" y2="' + Y(yLow) + '"/>' +
+        '<line class="opt-pc-fan-avg" x1="' + X(xb) + '" y1="' + Y(ySpot) + '" x2="' + X(xr) + '" y2="' + Y(yAvg) + '"/>' +
+        '<circle class="opt-pc-fan-origin" cx="' + X(xb) + '" cy="' + Y(ySpot) + '" r="3"/>';
+      var pctOf = function(p){ var u = (p - spot) / spot * 100; return (u >= 0 ? '+' : '') + u.toFixed(1) + '%'; };
+      var pill = function(yv, cls, tag, price){
+        var yy = Math.max(padT + 9, Math.min(priceBot - 9, yv));
+        return '<g class="opt-pc-fan-pill ' + cls + '" transform="translate(' + X(xr + 4) + ',' + Y(yy) + ')">' +
+          '<rect x="0" y="-9.5" width="' + (fcLabelW - 6) + '" height="19" rx="4"/>' +
+          '<text class="opt-pc-fan-pill-t" x="5" y="-1.5">' + tag + '</text>' +
+          '<text class="opt-pc-fan-pill-p" x="5" y="7">$' + fmt(price) + '</text>' +
+        '</g>';
+      };
+      fanLabels = pill(yHigh, 'up', 'Max ' + pctOf(fc.high), fc.high) +
+                  pill(yLow, 'dn', 'Min ' + pctOf(fc.low), fc.low) +
+                  pill(yAvg, 'avg', 'Avg ' + pctOf(avgC), avgC);
+      fcXlabel = '<text class="opt-pc-xlabel" text-anchor="middle" x="' + X((xb + xr) / 2) + '" y="' + (volBot + 12) + '">1Y forecast' + (fc.n ? ' · ' + fc.n + ' analysts' : '') + '</text>';
+    }
     var aria = intraday ? '30-minute intraday bars, ' + dN + ' points' : 'daily, ' + dN + ' sessions';
     // Hover points — one [x, y, dateRaw, close, vol(, high, low)] per visible bar
     // with a finite close, pre-projected to SVG coords so attachPriceChartHover
@@ -4178,7 +4233,7 @@
     // Crosshair scaffolding: a transparent hit rect so moves over empty gaps
     // still fire, plus a hidden overlay (vertical + horizontal rules + focus
     // dot) the handler repositions onto the nearest bar.
-    var hitEl = '<rect class="opt-pc-hit" x="' + padL + '" y="' + padT + '" width="' + plotW + '" height="' + (volBot - padT) + '" />';
+    var hitEl = '<rect class="opt-pc-hit" x="' + padL + '" y="' + padT + '" width="' + histW + '" height="' + (volBot - padT) + '" />';
     var hoverEl =
       '<g class="opt-pc-hover" style="display:none">' +
         '<line class="opt-pc-cross-x" y1="' + padT + '" y2="' + volBot + '" />' +
@@ -4186,9 +4241,9 @@
         '<circle class="opt-pc-cross-dot" r="3.5" />' +
       '</g>';
     var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + '">' +
-      grid + hitEl + band + vol + smaBEl + smaAEl +
+      fanDefs + grid + hitEl + band + vol + smaBEl + smaAEl +
       '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
-      spotEl + xlabels + hoverEl +
+      fanEl + spotEl + xlabels + fcXlabel + fanLabels + hoverEl +
       '</svg>';
     return { svg: svg, legend: legend, points: hoverPts, intraday: intraday };
   }
@@ -4197,7 +4252,7 @@
   // visible; 3M and 1Y draw the DAILY series with range-adaptive SMAs. CSS-only
   // switching via hidden radios. Falls back to daily slices for 1W/1M when a
   // ticker has no intraday series (older payload / failed fetch).
-  function priceChartCard(daily, intra, spot){
+  function priceChartCard(daily, intra, spot, forecast){
     var hasDaily = daily && daily.c && daily.c.length >= 2;
     var hasIntra = intra && intra.c && intra.c.length >= 2;
     if (!hasDaily && !hasIntra) return '';
@@ -4229,6 +4284,8 @@
         // no longer than 3M (≤63 sessions) so it wouldn't differ. (Never the
         // intraday 1W/1M, whose "bars" are intraday-point sentinels.)
         if (rg.key === '1y' && dN <= 63) continue;
+        // Analyst 1-year price-target cone rides on the 1Y range only.
+        if (rg.key === '1y' && forecast) opts.forecast = forecast;
       }
       var id = 'opt-pc-r-' + rg.key;
       radios += '<input type="radio" name="opt-pc-range" id="' + id + '" class="opt-pc-radio"' + (rg.key === def ? ' checked' : '') + '>';
@@ -4349,8 +4406,15 @@
 
     // Price chart first — the actual picture, so the chart-pattern read below
     // can be checked against it by eye. Drawn from the baked priceSeries; older
-    // ticker JSON (pre-priceSeries) simply omits it.
-    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot);
+    // ticker JSON (pre-priceSeries) simply omits it. The 1Y range also carries an
+    // analyst price-target cone when consensus targets are on file (≥3 analysts).
+    var fund = state.fundamentals || {};
+    var forecast = null;
+    if (spot && fund.targetHighPrice > 0 && fund.targetLowPrice > 0 && fund.targetMeanPrice > 0 &&
+        fund.targetHighPrice >= fund.targetLowPrice && (fund.numberOfAnalystOpinions || 0) >= 3){
+      forecast = { high: fund.targetHighPrice, avg: fund.targetMeanPrice, low: fund.targetLowPrice, n: fund.numberOfAnalystOpinions };
+    }
+    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot, forecast);
 
     // AI-identified chart pattern — a full-width banner above the indicator
     // cards. Renders only when a full build has attached technicals.chartPattern;
