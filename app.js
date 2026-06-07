@@ -8588,6 +8588,30 @@
       timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
     }).format(d);
   }
+  // 'YYYY-MM' -> 'June 2026' (full, for the section header).
+  function fmtCalendarMonth(ym){
+    var parts = String(ym || '').split('-');
+    if (parts.length < 2) return ym || '';
+    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, 1));
+    if (isNaN(d.getTime())) return ym;
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(d);
+  }
+  // 'YYYY-MM' -> 'Jun' (short, for the jump-nav chips).
+  function fmtCalendarMonthShort(ym){
+    var parts = String(ym || '').split('-');
+    if (parts.length < 2) return ym || '';
+    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, 1));
+    if (isNaN(d.getTime())) return ym;
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short' }).format(d);
+  }
+  // 'YYYY-MM-DD' -> 'Dec 31, 2026' (for the eyebrow window-end label).
+  function fmtCalendarDateShort(dateStr){
+    var parts = String(dateStr || '').split('-');
+    if (parts.length !== 3) return dateStr || '';
+    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(d);
+  }
   function renderCalendar(){
     var root = $('calendar-root');
     var empty = $('calendar-empty');
@@ -8611,7 +8635,12 @@
                  calendarState.type === 'fomc' ? 'FOMC' :
                  calendarState.type === 'earnings' ? 'Earnings' :
                  calendarState.type === 'catalysts' ? 'Catalysts' : 'Macro');
-      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') + filterLabel;
+      // Show the window end ("… · through Dec 31, 2026") only in the unfiltered
+      // view, where it explains the horizon; older calendar.json without
+      // windowEnd just omits it.
+      var windowLabel = (calendarState.type === 'all' && data.windowEnd)
+        ? ' · through ' + fmtCalendarDateShort(data.windowEnd) : '';
+      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') + filterLabel + windowLabel;
     }
     if (!filtered.length){
       root.innerHTML = '';
@@ -8621,19 +8650,21 @@
           ? 'Couldn’t load the calendar — refresh the page to try again.'
           : data.events.length
             ? 'No events match this filter.'
-            : 'No events in the next 30 days.';
+            : 'No upcoming events.';
       }
       return;
     }
     if (empty) empty.hidden = true;
-    // Group by date for the timeline. Each group renders a date header + chips.
+    // Group events by date, then bucket those dates into months for a
+    // month-sectioned timeline (sticky month headers + a jump-nav).
     var groups = {};
     var dateOrder = [];
     filtered.forEach(function(e){
       if (!groups[e.date]){ groups[e.date] = []; dateOrder.push(e.date); }
       groups[e.date].push(e);
     });
-    root.innerHTML = dateOrder.map(function(date){
+    // Render one date row (date header + its event chips).
+    function renderDayRow(date){
       var rows = groups[date].map(function(e){
         if (e.type === 'report') return renderReportChip(e);
         var cls = 'cal-chip cal-' + e.type;
@@ -8682,7 +8713,35 @@
         '<div class="cal-date">' + escapeHtml(fmtCalendarDate(date)) + '</div>' +
         '<div class="cal-chips">' + rows + '</div>' +
       '</div>';
+    }
+    // Bucket the (date-sorted) dates into month groups, preserving order.
+    var monthsOrder = [];
+    var monthDates = {};
+    dateOrder.forEach(function(date){
+      var ym = date.slice(0, 7);
+      if (!monthDates[ym]){ monthDates[ym] = []; monthsOrder.push(ym); }
+      monthDates[ym].push(date);
+    });
+    // Jump-nav only earns its space when the window spans more than one month.
+    var nav = monthsOrder.length > 1
+      ? '<div class="cal-month-nav" role="navigation" aria-label="Jump to month">' +
+          monthsOrder.map(function(ym){
+            return '<button type="button" class="cal-month-nav-item" data-cal-month="' + ym + '">' +
+              escapeHtml(fmtCalendarMonthShort(ym)) + '</button>';
+          }).join('') +
+        '</div>'
+      : '';
+    var sections = monthsOrder.map(function(ym){
+      var count = monthDates[ym].reduce(function(n, d){ return n + groups[d].length; }, 0);
+      return '<section class="cal-month" id="cal-month-' + ym + '">' +
+        '<div class="cal-month-head">' +
+          '<span class="cal-month-name">' + escapeHtml(fmtCalendarMonth(ym)) + '</span>' +
+          '<span class="cal-month-count">' + count + ' event' + (count === 1 ? '' : 's') + '</span>' +
+        '</div>' +
+        monthDates[ym].map(renderDayRow).join('') +
+      '</section>';
     }).join('');
+    root.innerHTML = nav + sections;
   }
   function bindCalendarControls(){
     var typeFilter = document.querySelector('.calendar-type-filter');
@@ -8698,6 +8757,22 @@
           p.setAttribute('aria-checked', on ? 'true' : 'false');
         });
         renderCalendar();
+      });
+    }
+    // Month jump-nav: delegate clicks on the calendar root so it survives every
+    // re-render (renderCalendar replaces root.innerHTML). Smooth-scrolls the
+    // chosen month section to the top (scroll-margin-top clears the sticky bar).
+    var calRoot = document.getElementById('calendar-root');
+    if (calRoot){
+      calRoot.addEventListener('click', function(ev){
+        var item = ev.target.closest && ev.target.closest('.cal-month-nav-item');
+        if (!item) return;
+        var ym = item.getAttribute('data-cal-month');
+        var section = ym ? document.getElementById('cal-month-' + ym) : null;
+        if (section && typeof section.scrollIntoView === 'function'){
+          try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+          catch (_) { section.scrollIntoView(); }
+        }
       });
     }
   }

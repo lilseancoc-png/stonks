@@ -44,7 +44,9 @@ async function main() {
     new Date().getUTCMonth(),
     new Date().getUTCDate(),
   );
-  const cutoffMs = todayMs + 30 * 86400000;
+  // Rest-of-year horizon, shared with build.mjs so regen matches the full bake.
+  const cutoffMs = build.calendarCutoffMs(todayMs);
+  const calDays = Math.round((cutoffMs - todayMs) / 86400000);
 
   console.log("Fetching macro report releases (BLS)…");
   const reportEvents = await build.fetchMacroReleases(todayMs, cutoffMs);
@@ -118,7 +120,12 @@ async function main() {
   }
 
   console.log("Fetching earnings AM/PM sessions (Nasdaq)…");
-  const sessionMap = await build.fetchNasdaqEarningsSessions(todayMs, 30);
+  // Only fetch the dates curated tickers actually report on across the window
+  // (mirrors build.mjs main()) rather than walking every weekday for months.
+  const earnSessionDates = Array.from(new Set(
+    build.upcomingEarningsList(chains, todayIso, calDays).map((e) => e.date),
+  ));
+  const sessionMap = await build.fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates);
   console.log(`  · ${sessionMap.size} session entries`);
 
   console.log("Fetching prediction markets (Kalshi + Polymarket)…");

@@ -5311,6 +5311,61 @@ main { padding-top: var(--s-2); }
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
 .calendar-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
+/* Month jump-nav — chips that scroll to each month section. Only rendered
+   when the window spans more than one month. */
+.cal-month-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: var(--s-2);
+}
+.cal-month-nav-item {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.cal-month-nav-item:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+/* Each month groups its date rows under one sticky header. */
+.cal-month { display: flex; flex-direction: column; scroll-margin-top: 64px; }
+.cal-month + .cal-month { margin-top: var(--s-3); }
+.cal-month-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  /* Stay visible while scrolling the month's events. Sits just below the
+     sticky .site-header (z 60), matching the Grade tab's sticky chain header. */
+  position: sticky;
+  top: 56px;
+  z-index: 4;
+  background: var(--surface);
+}
+.cal-month-name {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--text-strong);
+  letter-spacing: .01em;
+}
+.cal-month-count {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .cal-day {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -5319,7 +5374,9 @@ main { padding-top: var(--s-2); }
   padding: var(--s-2) 0;
   border-top: 1px solid var(--border);
 }
-.cal-day:first-child { border-top: none; }
+/* The first day row of each month sits right under the month header's own
+   bottom border, so drop its top border to avoid a doubled hairline. */
+.cal-month-head + .cal-day { border-top: none; }
 .cal-date {
   font: 600 12px/1.2 var(--font-mono);
   color: var(--muted);

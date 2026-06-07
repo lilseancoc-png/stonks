@@ -3288,14 +3288,30 @@ async function writeIvHistory(historyMap) {
   return bytes;
 }
 
-// Unified 30-day-forward macro + earnings calendar. Pulls confirmed
+// Unified rest-of-year macro + earnings calendar. Pulls confirmed
 // next-earnings dates straight out of each ticker's fundamentals (already
 // fetched) and merges them with future-dated macro headlines (Fed
 // announcements, BLS releases, SEC press) from the same RSS digest the
 // narratives engine consumes. Macro feeds publish historical items too —
-// we only keep the ones whose pubDate falls in [today, +30 days].
+// we only keep the ones whose pubDate falls in [today, end of year].
 const CALENDAR_FILE = "calendar.json";
+// Minimum forward window (a floor, not the horizon). The calendar now spans
+// the rest of the current calendar year (see calendarCutoffMs); this floor
+// only kicks in late in December so the window doesn't collapse to a day or
+// two — it then spills the floor's worth of days into early next year.
 const CALENDAR_DAYS_AHEAD = 30;
+
+// Calendar horizon: the end of the current calendar year (Dec 31, inclusive),
+// or CALENDAR_DAYS_AHEAD out — whichever is later. Returns an epoch-ms cutoff
+// the event filters compare against with `eventMs > cutoffMs` (so an event ON
+// the cutoff day is kept). Shared by buildCalendarPayload, the catalyst
+// validator, main(), and regen-calendar.mjs so every window-clip agrees.
+export function calendarCutoffMs(startMs) {
+  const d = new Date(startMs);
+  const endOfYear = Date.UTC(d.getUTCFullYear(), 11, 31); // Dec 31 00:00 UTC
+  const floor = startMs + CALENDAR_DAYS_AHEAD * 86400000;
+  return Math.max(endOfYear, floor);
+}
 // RSS publishers carry items of mixed event types; tag them so the UI
 // can color-code chips without having to NLP the title at render time.
 function classifyMacroEvent(publisher, title) {
@@ -3307,12 +3323,15 @@ function classifyMacroEvent(publisher, title) {
   return "macro";
 }
 
-// The upcoming-earnings list ({symbol, name, date}) within the calendar window,
+// The upcoming-earnings list ({symbol, name, date}) within `daysAhead`,
 // derived from each ticker's confirmed nextEarningsDate. Shared by main() /
-// regen-calendar to fetch the per-name Polymarket "beat" reading BEFORE the
-// calendar payload is built — buildCalendarPayload re-derives the same dates
-// from chains and attaches the reading by SYMBOL|date. The window math here must
-// stay aligned with the earnings loop in buildCalendarPayload (same start/cutoff).
+// regen-calendar for two purposes: (1) the per-name Polymarket "beat" reading,
+// fetched with the near-term default (Polymarket only lists earnings markets a
+// few weeks out, so there's no point querying months ahead); and (2) the exact
+// set of dates to fetch Nasdaq AM/PM sessions for, called with the full
+// rest-of-year window. buildCalendarPayload re-derives the same dates from
+// chains and attaches each reading by SYMBOL|date — a far-dated earnings event
+// simply finds no Polymarket match, which is the intended graceful behavior.
 export function upcomingEarningsList(chains, todayIso, daysAhead = CALENDAR_DAYS_AHEAD) {
   const startMs = Date.parse(String(todayIso) + "T00:00:00Z");
   if (!Number.isFinite(startMs)) return [];
@@ -3333,7 +3352,7 @@ export function upcomingEarningsList(chains, todayIso, daysAhead = CALENDAR_DAYS
 function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const today = new Date();
   const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  const cutoffMs = startMs + CALENDAR_DAYS_AHEAD * 86400000;
+  const cutoffMs = calendarCutoffMs(startMs);
   const events = [];
   const reportEvents = extras?.reportEvents || [];
   const fomcMeetings = extras?.fomcMeetings || [];
@@ -3486,7 +3505,11 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   }
   return {
     builtAtIso,
-    windowDays: CALENDAR_DAYS_AHEAD,
+    // Actual span of this build's window (days) + the inclusive end date the UI
+    // shows in the eyebrow ("… · through Dec 31"). The window is rest-of-year,
+    // so windowDays is no longer a fixed constant.
+    windowDays: Math.round((cutoffMs - startMs) / 86400000),
+    windowEnd: new Date(cutoffMs).toISOString().slice(0, 10),
     events,
     // Top-of-page FOMC widget data. Rendered separately from the event
     // timeline; the same FOMC dates still appear in `events` as chips.
@@ -3540,7 +3563,7 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
         : JSON.parse(await readFile(resolve(DATA_DIR, CALENDAR_FILE), "utf8"));
       const today = new Date(builtAtIso || Date.now());
       const startMs = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-      const cutoffMs = startMs + CALENDAR_DAYS_AHEAD * 86400000;
+      const cutoffMs = calendarCutoffMs(startMs);
       const carried = [];
       for (const ev of (prior?.events || [])) {
         if (ev?.type !== "report" || !ev?.date) continue;
@@ -4595,8 +4618,9 @@ function computeReleaseSchedule(year) {
   return { empSit, cpi, ppi, jolts };
 }
 
-// Combine current + next year so the 30-day calendar window survives a
-// year boundary cleanly.
+// Combine current + next year so the rest-of-year calendar window survives a
+// year boundary cleanly (the late-December floor in calendarCutoffMs spills
+// into next January, so next year's release dates must be available too).
 function buildReleaseSchedule(asOf) {
   const yearNow = asOf.getUTCFullYear();
   const a = computeReleaseSchedule(yearNow);
@@ -5070,10 +5094,12 @@ export async function fetchEffectiveFedFundsRate() {
 // === Nasdaq earnings calendar (AM / PM session) ======================
 // Free public endpoint, no key required. Returns rows shaped like
 // { symbol, time: "time-pre-market" | "time-after-hours" | "time-not-supplied", ... }.
-// We pull every weekday in the calendar window in parallel (Nasdaq
-// caches aggressively at the edge, so the parallel burst is cheap) and
-// build a Map<"SYM|YYYY-MM-DD", "AM"|"PM"|"TBD">.
-export async function fetchNasdaqEarningsSessions(startMs, windowDays) {
+// Preferred call form passes `explicitDates` — only the days curated tickers
+// actually report on — so a rest-of-year window fetches a few dozen days, not
+// ~150 weekdays. Falls back to a weekday walk of [startMs, startMs+windowDays)
+// when no list is given. Either way the dates are fetched with bounded
+// concurrency, building a Map<"SYM|YYYY-MM-DD", "AM"|"PM"|"TBD">.
+export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitDates) {
   const headers = {
     "user-agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -5083,14 +5109,35 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays) {
     origin: "https://www.nasdaq.com",
   };
   const out = new Map();
-  const dates = [];
-  for (let i = 0; i < windowDays; i++) {
-    const d = new Date(startMs + i * 86400000);
-    const wd = d.getUTCDay();
-    if (wd === 0 || wd === 6) continue; // earnings only print on weekdays
-    dates.push(d.toISOString().slice(0, 10));
+  // Preferred path: the caller hands us the exact dates curated tickers report
+  // on (derived from each name's nextEarningsDate). The session map is ONLY
+  // ever consumed for those dates, so over a rest-of-year window this fetches a
+  // few dozen days instead of walking ~150 weekdays — far cheaper and kinder to
+  // Nasdaq. Falls back to the legacy weekday walk when no list is supplied.
+  let dates;
+  if (Array.isArray(explicitDates) && explicitDates.length) {
+    const seen = new Set();
+    dates = [];
+    for (const ds of explicitDates) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) continue;
+      const wd = new Date(ds + "T00:00:00Z").getUTCDay();
+      if (wd === 0 || wd === 6) continue; // earnings only print on weekdays
+      if (seen.has(ds)) continue;
+      seen.add(ds);
+      dates.push(ds);
+    }
+  } else {
+    dates = [];
+    for (let i = 0; i < windowDays; i++) {
+      const d = new Date(startMs + i * 86400000);
+      const wd = d.getUTCDay();
+      if (wd === 0 || wd === 6) continue; // earnings only print on weekdays
+      dates.push(d.toISOString().slice(0, 10));
+    }
   }
-  await Promise.all(dates.map(async (date) => {
+  // Bounded concurrency: a months-long date list would otherwise burst dozens
+  // of simultaneous requests at Nasdaq, which rate-limits / WAF-blocks bursts.
+  await runPooled(dates, 8, async (date) => {
     try {
       const url = `https://api.nasdaq.com/api/calendar/earnings?date=${date}`;
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
@@ -5110,7 +5157,7 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays) {
     } catch (_) {
       // network / WAF block — fall through silently
     }
-  }));
+  });
   return out;
 }
 
@@ -14202,11 +14249,11 @@ HARD GUARDRAILS (apply to both sources):
 - DO NOT include the next earnings date — earnings already get their own dedicated calendar entry from a separate data source. Skip any "next earnings" / "Q? earnings on …" mentions.
 - DO NOT include broad macro events (FOMC, CPI, NFP, jobs report, Fed meetings) — those have their own dedicated calendar entries. Catalysts are TICKER-SPECIFIC corporate events.
 - date: ABSOLUTE date in "YYYY-MM-DD" format. If the article gives a relative phrase ("next Tuesday", "later this month", "Q3"), convert it to an absolute date using the article's published date as the reference point and the supplied "Today's date" anchor. If you cannot pin it to a specific calendar day within 1-2 days of confidence, SKIP the event — do not emit a vague range.
-- Only emit events whose date falls between "Today's date" and 30 days forward. Drop anything farther out or already in the past.
+- Only emit events whose date falls between "Today's date" and the end of the current calendar year (December 31). Drop anything in the next year, or already in the past.
 - title: 2-8 word plain-English label. Example: "FDA PDUFA decision on drug X", "NASA lunar lander contract award", "Q2 product launch event", "Antitrust ruling expected", "Shareholder vote on merger". Be concrete — name the specific event, not "important news".
 - category: must be exactly one of "fda" (PDUFA dates, advisory committee votes, trial readouts), "contract" (government / large customer contract awards, supply deals), "launch" (product launches, model unveilings, store openings, vehicle deliveries starting, major developer/customer conferences like WWDC / GTC / Build / I/O / Connect / re:Invent / Dreamforce / MAX where new products and features are unveiled), "court" (rulings, verdicts, antitrust decisions, settlements), "trial" (clinical trial data readouts that aren't PDUFA), "merger" (M&A close dates, shareholder votes, regulatory approval deadlines), "investor" (investor day, analyst day, capital markets day, AI day), "guidance" (pre-announced guidance update, preliminary results), or "other" (anything else date-anchored that doesn't fit above).
 - confidence: "high" if you know the exact date (whether stated in the article OR remembered from background knowledge with high certainty). "medium" if you know the date as a window ("week of June 5", "early June") and picked a representative day. "low" if you had to do meaningful interpretation. Drop "low" items unless they are unusually material — quality beats quantity.
-- Max 3 catalysts per ticker. Pick the most material if more qualify.
+- Max 5 catalysts per ticker (the window is the rest of the year, so a name can legitimately have several dated events). Pick the most material if more qualify.
 
 GENERAL RULES.
 - Output ONLY the JSON object. No fences, no preamble, no postscript.
@@ -14506,11 +14553,11 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
   // content into them — overwhelmingly the next-earnings print and far-dated
   // events — despite the prompt forbidding both. Strip those here rather than
   // trusting a prompt the model clearly ignores: (1) earnings prints get their
-  // own dedicated calendar entry, never a catalyst; (2) catalysts are the
-  // next-30-day window only (same CALENDAR_DAYS_AHEAD the calendar render uses).
+  // own dedicated calendar entry, never a catalyst; (2) catalysts are clipped
+  // to the rest-of-year window (same calendarCutoffMs the calendar render uses).
   const _catNow = new Date();
   const catWindowStartMs = Date.UTC(_catNow.getUTCFullYear(), _catNow.getUTCMonth(), _catNow.getUTCDate());
-  const catWindowEndMs = catWindowStartMs + CALENDAR_DAYS_AHEAD * 86400000;
+  const catWindowEndMs = calendarCutoffMs(catWindowStartMs);
   const nextEarnDate = fundamentals?.nextEarningsDate ? String(fundamentals.nextEarningsDate).slice(0, 10) : null;
   for (const c of rawCatalysts) {
     const date = String(c?.date || "").trim();
@@ -14518,7 +14565,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     const title = String(c?.title || "").trim();
     if (!title) continue;
     // Drop the next-earnings print (own calendar entry) and anything outside the
-    // forward 30-day window — the two rules the model violates most.
+    // rest-of-year window — the two rules the model violates most.
     if (/\bearnings\b/i.test(title)) continue;
     if (nextEarnDate && date === nextEarnDate) continue;
     const eventMs = Date.parse(date + "T00:00:00Z");
@@ -14529,7 +14576,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     if (seenCatalystKeys.has(key)) continue;
     seenCatalystKeys.add(key);
     catalysts.push({ date, title: title.slice(0, 160), category, confidence });
-    if (catalysts.length >= 3) break;
+    if (catalysts.length >= 5) break;
   }
 
   // Major-Contract + Guidance signals, folded in when AI_SIGNALS_COMBINED is on.
@@ -16323,7 +16370,14 @@ async function main() {
     new Date().getUTCMonth(),
     new Date().getUTCDate(),
   );
-  const cutoffMs = todayMs + CALENDAR_DAYS_AHEAD * 86400000;
+  const cutoffMs = calendarCutoffMs(todayMs);
+  const calDays = Math.round((cutoffMs - todayMs) / 86400000);
+  // Distinct dates curated tickers actually report on, across the full window —
+  // the only dates the Nasdaq AM/PM session fetch needs. Avoids walking every
+  // weekday of a months-long window (see fetchNasdaqEarningsSessions).
+  const earnSessionDates = Array.from(new Set(
+    upcomingEarningsList(chains, new Date(todayMs).toISOString().slice(0, 10), calDays).map((e) => e.date),
+  ));
   // These calendar sources hit DIFFERENT hosts — FRED/BLS (macro releases),
   // NY Fed EFFR (Fed Funds rate), the Fed's FOMC calendar page, and Nasdaq
   // (earnings sessions) — with no data dependency on one another, so fetch
@@ -16348,7 +16402,7 @@ async function main() {
       return [macro, rate];
     })(),
     fetchFomcSchedule(),
-    fetchNasdaqEarningsSessions(todayMs, CALENDAR_DAYS_AHEAD),
+    fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates),
   ]);
   console.log(`  · ${reportEvents.length} report rows`);
   if (fedRate) console.log(`  · Fed Funds ${fedRate.rate}% as of ${fedRate.asOf}`);
@@ -16474,7 +16528,7 @@ async function main() {
     sessionMap,
     priorCalendar,
   });
-  console.log(`wrote data/calendar.json — ${calendarInfo.count} events (next ${CALENDAR_DAYS_AHEAD}d), ${calendarInfo.bytes} bytes`);
+  console.log(`wrote data/calendar.json — ${calendarInfo.count} events (through ${new Date(cutoffMs).toISOString().slice(0, 10)}), ${calendarInfo.bytes} bytes`);
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
