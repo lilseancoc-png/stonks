@@ -16449,7 +16449,14 @@ async function main() {
       capturedAt: todayIso,
     };
   }
-  const snapshot = await fetchFedwatchSnapshot(upcomingMeetings, currentRateNum);
+  // Anchor the probability math to the FOMC's target-range MIDPOINT (e.g.
+  // 3.625% for a 3.50–3.75 band), not the effective rate itself — that's the
+  // base CME FedWatch measures hike/hold/cut against, so our numbers line up
+  // with theirs. EFFR usually sits a few bp below the midpoint inside the band.
+  const anchorRate = Number.isFinite(currentRateNum)
+    ? Math.round((currentRateNum - 0.125) / 0.25) * 0.25 + 0.125
+    : currentRateNum;
+  const snapshot = await fetchFedwatchSnapshot(upcomingMeetings, anchorRate);
   let snapshotCount = 0;
   for (const [meetingDate, buckets] of Object.entries(snapshot)) {
     if (!buckets?.now) continue;
