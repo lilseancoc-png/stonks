@@ -201,6 +201,49 @@ with measured weights once forward, gate-era outcomes accumulate. Mechanics:
   (verified: 0/138 grades differ). Expect a **one-time grade/roster shift** on the
   first bake after this ships, like every other scoring rework here.
 
+### 3.5.1 Regime-aware overlay (`PICKS_HW_REGIME`, default ON)
+
+The base weights above are calibrated for a **normal/calm** tape, where single-name
+fundamentals and narrative *can* carry a 2-week option. But when the macro tape is
+**imploding** that stops being true: cross-asset correlation runs to 1, dispersion
+compresses, and the whole universe trades on macro / flow / vol — idiosyncratic
+fundamentals & narrative carry near-zero information at the option's horizon. So the
+two **slow** pillars (Fundamentals + Narrative) flex with the **regime band**
+(`picksRegimeBand` — the macro-stress state from §6.3, with the `severe` distinction
+`detectMarketRegime` collapses restored):
+
+| Regime band | Fund + Narr multiplier | Effect |
+|---|---|---|
+| `risk-on` (clean) | **×1.2** (`PICKS_HW_SLOW_RISKON`) | dispersion returns — stories carry a touch more |
+| `neutral` | **×1** | base weights (the common case — **dormant**, byte-identical) |
+| `risk-off` | **×0.67** (`PICKS_HW_SLOW_RISKOFF`) | discount the slow pillars; lean on tech/flow/timing/IV |
+| `severe` (imploding) | **×0.5** (`PICKS_HW_SLOW_SEVERE`) | halve them — only fast factors carry in a crisis |
+
+So Fundamentals runs 0.6 in a calm tape but **0.4 in risk-off / 0.3 in a severe
+tape**; Narrative runs 0.9 → **0.6 / 0.45**. Cutting the slow pillars re-tilts the
+**relative** weight of the whole grade toward technicals, flow, entry-timing and IV
+cost (the percentile tiers self-recalibrate, §4), without touching their absolute
+magnitudes.
+
+- **The macro-regime tilt is exempt** (`HORIZON_WEIGHT_EXEMPT`). The beta-weighted
+  bearish `Macro Regime` tilt (§6.3) is a *fixed* signal living in the Narrative
+  pillar, but it is a regime **conviction lever**, not an asset-quality read — so it
+  rides at **×1** like `timing`/`ivCost`, never discounted by the (regime-cut)
+  narrative weight. This is essential in risk-off: cutting the narrative pillar must
+  **not** also cut the bearish tilt it carries. (The tilt only fires in a non-neutral
+  regime, so neutral output stays byte-identical.)
+- **IV cost flexes too** (§6.7) — the richness *penalty* scales **×1.4 in risk-off /
+  ×1.7 in severe** (`PICKS_IV_SCORE_RISKOFF_MULT` / `_SEVERE_MULT`): buying long
+  premium into a vol spike is far more punishing. Cheap-side credit unchanged.
+- **Dormant in neutral.** Because most days are neutral, this is a *conditional
+  overlay*, not a blanket re-tune — it activates only when the tape is genuinely
+  stressed or euphoric. Gated by `PICKS_HW_REGIME`; `=0` reverts to the flat §3.5
+  weights (and re-applies the legacy ×0.9 to the macro tilt). Measured on the
+  committed risk-off universe: the roster re-ranks within the bearish set and top
+  conviction compresses (NKE 15.9→13.8), as put theses resting on slow
+  fundamentals/narrative (e.g. OKLO) are discounted under put theses with
+  technical/flow/timing confirmation.
+
 ---
 
 ## 4. Tiers (`tierForScore`)
@@ -574,6 +617,10 @@ pay) and centers at the name's **own median IV (rank 50)**:
 
 Linear between, **asymmetric** (richness costs more than cheapness rewards — one cheap
 entry doesn't fix a bad trade, the same long-bias defense as the +2/−3 catalyst split).
+The richness penalty additionally **scales with the regime** (§3.5.1, gated by
+`PICKS_HW_REGIME`): ×1.4 in risk-off, ×1.7 in a severe/imploding tape (`PICKS_IV_SCORE_RISKOFF_MULT`
+/ `_SEVERE_MULT`) — paying up for premium into a vol spike is the worst time to do it.
+Cheap-side credit and the neutral/risk-on tape are unchanged (×1).
 Direction-agnostic: a long call or put is long premium either way, so the cost
 **weakens or strengthens conviction for whichever side, never flips it** (for a put,
 `total < 0`, a rich-IV penalty pushes `total` *toward zero* = less bearish conviction).
@@ -694,6 +741,11 @@ it has to be trustworthy. The fixes:
     default ON), `PICKS_HW_FUND 0.6`, `PICKS_HW_TECH 1.0`, `PICKS_HW_MECH 1.15`,
     `PICKS_HW_NARR 0.9` (`horizonWeight`/`applyHorizonWeight`; `timing`/`ivCost` ride
     at ×1). Set the master flag `=0` to revert to the legacy equal-weight pillar sum.
+  - **Regime-aware overlay (§3.5.1):** `PICKS_HW_REGIME` (master flag, default ON),
+    slow-pillar (Fund+Narr) multipliers `PICKS_HW_SLOW_RISKOFF 0.67` / `PICKS_HW_SLOW_SEVERE 0.5`
+    / `PICKS_HW_SLOW_RISKON 1.2`; macro-tilt exemption `HORIZON_WEIGHT_EXEMPT` (rides ×1);
+    IV-cost richness regime scale `PICKS_IV_SCORE_RISKOFF_MULT 1.4` / `PICKS_IV_SCORE_SEVERE_MULT 1.7`
+    (`picksRegimeBand`). Dormant (byte-identical) in the neutral regime; `=0` reverts.
   - **Sizing (P3.4, §4.1):** `PICKS_SIZE_RISK_DENOM 'option'`, `PICKS_SIZE_VOL_FLOOR 0.05`,
     `PICKS_SIZE_TILT_MIN/MAX 0.6/1.4`, `PICKS_GROSS_TARGET 0.80`, `PICKS_DISPLAY_ACCOUNT 25000`,
     `PICKS_SIZE_FULL_ROSTER_N 5` (P0.4 thin-roster gross ramp).
@@ -727,7 +779,8 @@ it has to be trustworthy. The fixes:
   - **IV cost in `total` (§6.7):** `PICKS_IV_SCORE` (default **ON**; the dedicated
     direction-agnostic IV-cost component folded into `total`), `PICKS_IV_SCORE_MAX 3`
     (max penalty at the richest own-IV), `PICKS_IV_SCORE_CHEAP_MAX 1.5` (max credit at the
-    cheapest). Reuses `PICKS_IVRANK_MIN_N` for the history floor. Set `PICKS_IV_SCORE=0` to
+    cheapest), regime richness scale `PICKS_IV_SCORE_RISKOFF_MULT 1.4` / `PICKS_IV_SCORE_SEVERE_MULT 1.7`
+    (§3.5.1). Reuses `PICKS_IVRANK_MIN_N` for the history floor. Set `PICKS_IV_SCORE=0` to
     revert to the legacy in-timing IV-rank nudge.
   - **Term structure (P2):** `PICKS_TIMING_BACKWARDATION 0.05` (computeEntryTiming soft con).
   - **Debit verticals (P1.2, DARK):** `PICKS_VERTICALS` (default **OFF**), `PICKS_VERT_IVRANK 70`,

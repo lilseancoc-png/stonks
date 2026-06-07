@@ -6861,6 +6861,13 @@ const PICKS_IVRANK_VETO = Number(process.env.PICKS_IVRANK_VETO ?? 90);
 const PICKS_IV_SCORE = process.env.PICKS_IV_SCORE !== "0"; // default ON
 const PICKS_IV_SCORE_MAX = Number(process.env.PICKS_IV_SCORE_MAX ?? 3);        // max penalty at the richest own-IV (rank 100)
 const PICKS_IV_SCORE_CHEAP_MAX = Number(process.env.PICKS_IV_SCORE_CHEAP_MAX ?? 1.5); // max credit at the cheapest own-IV (rank 0)
+// Regime overlay on the IV-cost RICHNESS penalty (§3.5 regime overlay, gated by
+// PICKS_HW_REGIME). Buying long premium into a vol spike is far more punishing than
+// in a calm tape, so the rich-side penalty scales up when the macro tape is
+// imploding. The cheap-side credit is unchanged, and both stay ×1 in neutral/risk-on
+// (the common case) so this is dormant unless the tape is actually stressed.
+const PICKS_IV_SCORE_RISKOFF_MULT = Number(process.env.PICKS_IV_SCORE_RISKOFF_MULT ?? 1.4); // ×rich penalty in risk-off
+const PICKS_IV_SCORE_SEVERE_MULT = Number(process.env.PICKS_IV_SCORE_SEVERE_MULT ?? 1.7);   // …and in a severe / imploding tape
 // P2 — IV term-structure slope gate (computeEntryTiming soft con). Backwardation
 // (front-month IV richer than the back by ≥ this fraction) = buying the most
 // expensive point on the curve, a vol headwind for a naked long debit.
@@ -6937,13 +6944,54 @@ const PICKS_HW_MECH = Number(process.env.PICKS_HW_MECH ?? 1.15); // options flow
 const PICKS_HW_NARR = Number(process.env.PICKS_HW_NARR ?? 0.9);  // catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount)
 const PICKS_HORIZON_W = { fundamentals: PICKS_HW_FUND, technicals: PICKS_HW_TECH, mechanicals: PICKS_HW_MECH, narrative: PICKS_HW_NARR };
 
+// Regime-aware horizon weighting (§3.5 regime overlay). In a CALM/neutral tape the
+// base weights hold — single-name fundamentals & narrative CAN carry a 2-week option.
+// But when the macro tape is IMPLODING (risk-off / severe) cross-asset correlation
+// → 1 and idiosyncratic fundamentals/narrative stop carrying (the whole universe
+// trades on macro/flow/vol), so the two SLOW pillars are discounted further and the
+// grade leans on technicals/flow/timing/IV. In a clean risk-on tape dispersion
+// returns and stories carry a touch more. DORMANT (byte-identical) in the neutral
+// regime — the common case — so this is a conditional overlay, not a blanket re-tune.
+const PICKS_HW_REGIME = process.env.PICKS_HW_REGIME !== "0"; // default ON
+const PICKS_HW_SLOW_RISKOFF = Number(process.env.PICKS_HW_SLOW_RISKOFF ?? 0.67); // ×base on Fund+Narr in risk-off
+const PICKS_HW_SLOW_SEVERE = Number(process.env.PICKS_HW_SLOW_SEVERE ?? 0.5);    // ×base in a severe / imploding tape
+const PICKS_HW_SLOW_RISKON = Number(process.env.PICKS_HW_SLOW_RISKON ?? 1.2);    // ×base in a clean risk-on tape (stories carry)
+const PICKS_HW_SLOW_PILLARS = new Set(["fundamentals", "narrative"]);
+// The macro-regime tilt (scoreNarrative signal `macroRegime`) is a beta-weighted
+// regime CONVICTION lever — the risk-off re-ranking signal — not an asset-quality
+// narrative read, so like `timing`/`ivCost` it rides at ×1 and is never discounted by
+// the narrative horizon weight. This matters most in risk-off, where cutting the
+// narrative weight must NOT also cut the bearish tilt that pillar carries. (Only fires
+// in a non-neutral regime, so neutral output stays byte-identical.)
+const HORIZON_WEIGHT_EXEMPT = new Set(["macroRegime"]);
+
+// Resolve the weighting REGIME BAND, restoring the severe distinction that
+// detectMarketRegime collapses into "risk-off". Returns
+// 'severe' | 'risk-off' | 'risk-on' | 'neutral'.
+function picksRegimeBand(regime, macroBackdrop) {
+  if (!PICKS_HW_REGIME) return "neutral";
+  const mrState = macroBackdrop && macroBackdrop.macroRegime && macroBackdrop.macroRegime.state;
+  if (mrState === "severe-risk-off") return "severe";
+  if (regime === "risk-off" || regime === "risk-on") return regime;
+  return "neutral";
+}
+
 // The horizon multiplier for a pillar (1 = no change). Only the four asset-quality
 // pillars are weighted; `timing` and `ivCost` are already bounded conviction terms
-// folded into total in parallel (not asset-quality reads), so they ride at ×1.
-function horizonWeight(pk) {
+// folded into total in parallel (not asset-quality reads), so they ride at ×1. The
+// two SLOW pillars (Fund, Narr) additionally flex with the regime band (above).
+function horizonWeight(pk, band) {
   if (!PICKS_HORIZON_WEIGHTS) return 1;
-  const w = PICKS_HORIZON_W[pk];
-  return Number.isFinite(w) ? w : 1;
+  let w = PICKS_HORIZON_W[pk];
+  if (!Number.isFinite(w)) return 1;
+  if (PICKS_HW_REGIME && band && band !== "neutral" && PICKS_HW_SLOW_PILLARS.has(pk)) {
+    const m = band === "severe" ? PICKS_HW_SLOW_SEVERE
+            : band === "risk-off" ? PICKS_HW_SLOW_RISKOFF
+            : band === "risk-on" ? PICKS_HW_SLOW_RISKON
+            : 1;
+    w *= m;
+  }
+  return w;
 }
 
 // Apply a pillar's horizon weight in place and return its weighted sum. Bakes the
@@ -6955,13 +7003,17 @@ function horizonWeight(pk) {
 // `score` otherwise. No-op when the weight is 1 (feature off, or an unweighted
 // pillar): the `contribution` field is left untouched so flag-off output stays
 // byte-identical to the legacy equal-weight sum.
-function applyHorizonWeight(pillar, pk, baseOf) {
-  const hw = horizonWeight(pk);
+function applyHorizonWeight(pillar, pk, baseOf, band) {
+  const hw = horizonWeight(pk, band);
   let sum = 0;
   const sigs = Array.isArray(pillar.signals) ? pillar.signals : [];
   for (const sig of sigs) {
-    const eff = (baseOf(sig) || 0) * hw;
-    if (hw !== 1) sig.contribution = eff; // bake the pillar weight into the displayed contribution
+    // HORIZON_WEIGHT_EXEMPT signals (the macro-regime tilt) are regime conviction
+    // levers, not asset quality — they ride at ×1 even when the pillar is weighted.
+    // Gated by PICKS_HW_REGIME so =0 is a clean revert to the legacy weighted sum.
+    const w = (PICKS_HW_REGIME && HORIZON_WEIGHT_EXEMPT.has(sig.key)) ? 1 : hw;
+    const eff = (baseOf(sig) || 0) * w;
+    if (w !== 1) sig.contribution = eff; // bake the pillar weight into the displayed contribution
     sum += eff;
   }
   return sum;
@@ -8395,9 +8447,15 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   // byte-identical to the legacy equal-weight sum. The cross-sectional path
   // re-applies the SAME weights to its z-contributions (computeCrossSectionalScores);
   // here it scores the legacy-fallback / pre-standardization pass.
+  // Resolve the market regime ONCE up front: it both selects the regime-aware
+  // horizon weights (§3.5 overlay — slow pillars discounted in an imploding tape)
+  // and feeds the entry-timing read below. detectMarketRegime collapses severe into
+  // "risk-off"; picksRegimeBand restores the severe distinction for the weighting.
+  const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  const regimeBand = picksRegimeBand(regime, macroBackdrop);
   for (const [pk, pillar] of [["fundamentals", fundamentals], ["technicals", technicals], ["mechanicals", mechanicals], ["narrative", narrative]]) {
     const raw = pillar.score;
-    const weighted = applyHorizonWeight(pillar, pk, (s) => s.score);
+    const weighted = applyHorizonWeight(pillar, pk, (s) => s.score, regimeBand);
     if (weighted !== raw) pillar.legacyScore = raw;
     pillar.score = weighted;
   }
@@ -8411,14 +8469,13 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   // — a weak grade whose timing would cross zero is pulled to a flat "no trade".
   const dirSign = subtotal >= 0 ? 1 : -1;
   const tSide = dirSign > 0 ? "call" : "put";
-  const regime = detectMarketRegime(marketCtx, macroBackdrop);
   const et = computeEntryTiming(tSide, data, (data && data.spot) || null, { regime, eventRisk: macroBackdrop && macroBackdrop.eventRisk });
   const tContribution = Number.isFinite(et.contribution) ? et.contribution : 0;
   // IV cost (PICKS_IV_SCORE) — a direction-agnostic conviction cost folded in
   // PARALLEL with timing (own-IV richness is expensive for whichever side). It
   // adds another bounded contribution to the SAME dirSign clamp, so "how rich is
   // this name's own vol right now" always moves total/ranking, not just go/wait.
-  const ivRead = computeIvCostContribution(data);
+  const ivRead = computeIvCostContribution(data, regimeBand);
   const ivc = ivRead && Number.isFinite(ivRead.contribution) ? ivRead.contribution : 0;
   const total = dirSign * Math.max(0, Math.abs(subtotal) + tContribution + ivc);
   const foldDelta = total - subtotal;
@@ -10387,12 +10444,20 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
 // at the name's own median IV (rank 50): richer → ≤0 penalty (−MAX at rank 100),
 // cheaper → ≥0 credit (+CHEAP_MAX at rank 0), asymmetric so richness costs more than
 // cheapness rewards. Returns { contribution, pctile } or null when it doesn't apply.
-export function computeIvCostContribution(data) {
+export function computeIvCostContribution(data, band) {
   if (!PICKS_IV_SCORE) return null;
   const ivr = data && data.ivRank;
   if (!ivr || !Number.isFinite(ivr.pctile) || !(ivr.n >= PICKS_IVRANK_MIN_N)) return null;
   const t = (ivr.pctile - 50) / 50; // −1 (cheapest own-IV) … +1 (richest own-IV)
-  const contribution = t >= 0 ? -PICKS_IV_SCORE_MAX * t : -PICKS_IV_SCORE_CHEAP_MAX * t;
+  // Regime overlay: scale up the RICHNESS penalty when the tape is imploding (buying
+  // premium into a vol spike), leaving the cheap-side credit unchanged. ×1 in
+  // neutral/risk-on (dormant unless the tape is actually stressed).
+  let richMult = 1;
+  if (PICKS_HW_REGIME) {
+    if (band === "severe") richMult = PICKS_IV_SCORE_SEVERE_MULT;
+    else if (band === "risk-off") richMult = PICKS_IV_SCORE_RISKOFF_MULT;
+  }
+  const contribution = t >= 0 ? -PICKS_IV_SCORE_MAX * t * richMult : -PICKS_IV_SCORE_CHEAP_MAX * t;
   return { contribution, pctile: ivr.pctile, n: ivr.n };
 }
 
@@ -10522,6 +10587,7 @@ function computeCrossSectionalScores(scored, opts = {}) {
   const xsectional = opts.xsectional !== false;
   const sectorNeutral = !!opts.sectorNeutral;
   const regime = opts.regime || null;
+  const regimeBand = opts.regimeBand || "neutral"; // §3.5 regime overlay — same band scorePillared used
   if (!xsectional || !Array.isArray(scored) || scored.length < PICKS_Z_MIN_UNIVERSE) {
     return { applied: false, strongCut: PICKS_TIER_STRONG, tradeCut: PICKS_MIN_CONVICTION };
   }
@@ -10633,7 +10699,7 @@ function computeCrossSectionalScores(scored, opts = {}) {
       // the chips remain consistent with the weighted pillar total. With the
       // feature off (hw=1) this is the prior plain sum and leaves contribution
       // untouched (byte-identical).
-      const sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0));
+      const sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0), regimeBand);
       pillar.score = sum;
       subtotal += sum;
     }
@@ -10773,6 +10839,7 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     xsectional: opts.xsectional ?? PICKS_XSECTIONAL,
     sectorNeutral: opts.sectorNeutral ?? PICKS_SECTOR_NEUTRAL,
     regime,
+    regimeBand: picksRegimeBand(regime, macroBackdrop), // §3.5 regime overlay (slow-pillar flex)
     eventRisk: macroBackdrop && macroBackdrop.eventRisk,
   });
 
