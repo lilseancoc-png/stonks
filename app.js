@@ -12640,8 +12640,25 @@
     // this build. Makes the "How the market tape moves the picks" explainer concrete:
     // risk-off shrinks the list, tilts it to puts, and sizes down; risk-on leans long.
     var regime = (picks[0] && picks[0].entryRegime) || null;
+    // Cross-asset macro gauge (PICKS_MACRO_REGIME), stashed on rosterMeta: a
+    // coordinated risk-off tape across VIX + DXY + long yields + the Fed path,
+    // which can establish risk-off even without an S&P -1% day, tilts the book
+    // bearish in proportion to beta, de-grosses, and (when severe) caps calls.
+    var macro = (data.rosterMeta && data.rosterMeta.macroRegime) || null;
     var regimeChip = '';
-    if (regime === 'risk-off' || regime === 'risk-on' || regime === 'neutral'){
+    if (macro && (macro.state === 'risk-off' || macro.state === 'severe-risk-off' || macro.state === 'risk-on')){
+      var severe = macro.state === 'severe-risk-off';
+      var mLbl = severe ? 'Severe risk-off' : (macro.state === 'risk-on' ? 'Risk-on' : 'Risk-off');
+      var mCls = (macro.state === 'risk-on') ? ' picks-summary-call' : ' picks-summary-put';
+      var drv = (macro.drivers && macro.drivers.length) ? macro.drivers.join(' · ') : '';
+      var grossTxt = (macro.grossMult != null && macro.grossMult < 1) ? ' Gross cut to ~' + Math.round(macro.grossMult * 100) + '% of target.' : '';
+      var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields and the Fed path (FedWatch hike-odds drift). ' +
+        (macro.state === 'risk-on' ? 'A clean risk-on tape leans the list long.' :
+          (severe ? 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), tactical puts open wider, calls are capped, and gross is cut.' :
+            'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.')) +
+        (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + ' Establishes the tape even without an S&P -1% day.';
+      regimeChip = '<div class="picks-summary-chip' + mCls + '" title="' + mTitle + '"><span class="picks-summary-num">' + (macro.state === 'risk-on' ? '' : '⚠ ') + mLbl + '</span><span class="picks-summary-lbl">macro tape' + (drv ? ' · ' + drv : '') + '</span></div>';
+    } else if (regime === 'risk-off' || regime === 'risk-on' || regime === 'neutral'){
       var rLbl = regime === 'risk-off' ? 'Risk-off' : (regime === 'risk-on' ? 'Risk-on' : 'Neutral');
       var rCls = regime === 'risk-off' ? ' picks-summary-put' : (regime === 'risk-on' ? ' picks-summary-call' : '');
       var rTitle = 'Today’s market regime, derived from the S&P move + the VIX. Risk-off (a sell-off) pulls grades down, makes entry timing stricter, opens reduced-size tactical puts, and holds more cash; risk-on is a tailwind that leans the list long. See “How the grade works” above.';
@@ -12669,6 +12686,7 @@
     if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> clean setup' + (picks.length === 1 ? '' : 's') + ' cleared the bar today');
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
     if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
+    if (rm && rm.macroCallCapped && rm.macroCallCapped.length) noteBits.push('<b>' + rm.macroCallCapped.length + '</b> call' + (rm.macroCallCapped.length === 1 ? '' : 's') + ' capped — severe risk-off tape');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';

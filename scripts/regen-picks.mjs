@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -41,6 +41,25 @@ try {
   const raw = await readFile(resolve(DATA_DIR, "macro.json"), "utf8");
   macroBackdrop = JSON.parse(raw);
 } catch {}
+
+// Cross-asset macro-stress regime (PICKS_MACRO_REGIME): the full build attaches
+// this to macroBackdrop before scoring (computeMacroRegime over the macro backdrop
+// + the FedWatch hawkish drift). Reproduce it offline from the committed
+// data/macro.json + data/fedwatch-history.json so a regen's picks/grades reflect
+// the same risk-off tilt, de-grossing and tactical puts. Missing/stale FedWatch →
+// the Fed axis just reads "no data" (graceful); a null macroBackdrop skips it.
+if (macroBackdrop) {
+  let fedwatchHistory = null;
+  try {
+    const fwRaw = await readFile(resolve(DATA_DIR, "fedwatch-history.json"), "utf8");
+    fedwatchHistory = JSON.parse(fwRaw);
+  } catch {}
+  macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory);
+  if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
+    const m = macroBackdrop.macroRegime;
+    console.log(`Macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
+  }
+}
 
 // The hourly scanner writes data/volume-flags.json (underlying hourly volume vs
 // 20D-average hourly volume). Picks use it for the "unusual volume" signal —

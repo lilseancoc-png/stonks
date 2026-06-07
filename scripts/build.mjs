@@ -6566,6 +6566,47 @@ const PICKS_TIMING_AVOID_FLOOR = Number(process.env.PICKS_TIMING_AVOID_FLOOR ?? 
 // breaking down NOW, in a tape that backs it. Reduced-size, clearly tagged.
 const PICKS_RISKOFF_PUT_BAR = -8;
 
+// ---- Cross-asset macro-stress regime (PICKS_MACRO_REGIME) --------------------
+// The legacy detectMarketRegime reads only the SPY day move + VIX. But a
+// coordinated risk-off / financial-conditions-TIGHTENING tape shows up across
+// FOUR assets at once — equity vol (VIX), the dollar (DXY), the long end
+// (10Y/30Y yields) and the Fed PATH (FedWatch hike-odds repricing hawkish) —
+// usually BEFORE the S&P prints a -1% day. computeMacroRegime fuses those four
+// axes (each -2..+2, negative = risk-off) into one gauge so the engine: (1) flips
+// detectMarketRegime to risk-off on the cross-asset signal even without an SPY
+// -1% day; (2) tilts the whole book bearish in proportion to each name's beta (a
+// fixed narrative signal that re-ranks calls→puts); (3) de-grosses; and (4) caps
+// calls + relaxes the tactical-put bar in a SEVERE tape. Master flag, default ON.
+const PICKS_MACRO_REGIME = process.env.PICKS_MACRO_REGIME !== "0";
+// Per-axis trigger thresholds (one-day moves; the 5-day trend confirms a softer 1d).
+const PICKS_MACRO_DXY_1D = Number(process.env.PICKS_MACRO_DXY_1D ?? 0.6);          // % dollar 1d that flags tightening (-1)
+const PICKS_MACRO_DXY_1D_STRONG = Number(process.env.PICKS_MACRO_DXY_1D_STRONG ?? 0.9); // ... a sharp dollar spike (-2)
+const PICKS_MACRO_DXY_5D = Number(process.env.PICKS_MACRO_DXY_5D ?? 1.0);          // % dollar 5d that, on a rising trend, flags tightening (-1)
+const PICKS_MACRO_YIELD_BPS_1D = Number(process.env.PICKS_MACRO_YIELD_BPS_1D ?? 10);       // long-yield bps 1d that flags tightening (-1)
+const PICKS_MACRO_YIELD_BPS_1D_STRONG = Number(process.env.PICKS_MACRO_YIELD_BPS_1D_STRONG ?? 16); // ... a yield spike (-2)
+const PICKS_MACRO_FED_DRIFT_PT = Number(process.env.PICKS_MACRO_FED_DRIFT_PT ?? 5); // net hawkish drift (pt, hike−cut, avg of the front meetings) over the lookback that flags tightening (-1); 2× → -2
+const PICKS_MACRO_FED_LOOKBACK = Number(process.env.PICKS_MACRO_FED_LOOKBACK ?? 5); // FedWatch snapshots back to measure the hawkish drift
+const PICKS_MACRO_FED_MEETINGS = Number(process.env.PICKS_MACRO_FED_MEETINGS ?? 3); // nearest N future meetings averaged for the drift
+// Composite → state. riskOffAxes = number of axes at ≤ -1; riskOnAxes at ≥ +1.
+const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many risk-off axes → risk-off
+const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
+const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
+const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes (and zero risk-off) → can lift to risk-on
+// Differential bearish tilt folded into the DIRECTIONAL narrative pillar (so it can
+// flip a marginal call to a put and survives the cross-sectional demean — fixed
+// signals aren't z-scored), scaled by each name's beta. Negative in risk-off.
+const PICKS_MACRO_TILT = process.env.PICKS_MACRO_TILT !== "0"; // the re-ranking lever, default ON
+const PICKS_MACRO_TILT_BASE = Number(process.env.PICKS_MACRO_TILT_BASE ?? 4);     // points of bearish tilt at beta 1.0 in plain risk-off
+const PICKS_MACRO_TILT_SEVERE = Number(process.env.PICKS_MACRO_TILT_SEVERE ?? 8); // ... in severe-risk-off
+const PICKS_MACRO_TILT_RISKON = Number(process.env.PICKS_MACRO_TILT_RISKON ?? 2); // smaller bullish tilt in a clean risk-on tape
+const PICKS_MACRO_TILT_BETA_FLOOR = Number(process.env.PICKS_MACRO_TILT_BETA_FLOOR ?? 0.5); // beta clamp [floor, cap] for the tilt weight
+const PICKS_MACRO_TILT_BETA_CAP = Number(process.env.PICKS_MACRO_TILT_BETA_CAP ?? 1.6);
+// Gross de-risking + call cap in a macro-stress tape (a desk cuts SIZE, not just side).
+const PICKS_MACRO_GROSS_RISKOFF = Number(process.env.PICKS_MACRO_GROSS_RISKOFF ?? 0.6); // deployed-gross multiplier in risk-off
+const PICKS_MACRO_GROSS_SEVERE = Number(process.env.PICKS_MACRO_GROSS_SEVERE ?? 0.4);   // ... in severe-risk-off
+const PICKS_MACRO_SEVERE_CALL_CAP = Number(process.env.PICKS_MACRO_SEVERE_CALL_CAP ?? 3); // max calls shipped in a severe tape
+const PICKS_MACRO_SEVERE_PUT_BAR = Number(process.env.PICKS_MACRO_SEVERE_PUT_BAR ?? -5);  // relaxed tactical-put bar in severe (vs PICKS_RISKOFF_PUT_BAR)
+
 // Pick accuracy tracker (spec): log every pick when it appears, mark it to
 // market on each build using the fresh underlying spot, and resolve it when
 // the stock reaches the take-profit (win), the cut (loss), or the contract
@@ -8175,6 +8216,23 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   }
   signals.push(tenYSignal);
 
+  // 9. Cross-asset Macro Regime (PICKS_MACRO_REGIME): the holistic, BETA-WEIGHTED
+  // read of the four-axis macro gauge (VIX + DXY + long yields + Fed path),
+  // distinct from the per-name LEVEL signals 7/8 above (which are uniform across
+  // names and so can't re-rank a cross-sectional engine). In a confirmed risk-off
+  // tape this subtracts a beta-scaled bearish tilt — bigger on high-beta growth,
+  // smaller on defensives — so the whole long book is discounted and the highest-
+  // beta marginal calls flip to puts. A fixed signal (not z-scored), so the
+  // differential survives the cross-sectional demean and folds into the
+  // directional subtotal in both scoring paths. 0 when neutral / flag off.
+  const macroTilt = computeMacroTilt(sym, data, macroBackdrop);
+  if (macroTilt) {
+    signals.push(_sig("macroRegime", "Macro Regime", macroTilt.score, {
+      value: (macroBackdrop && macroBackdrop.macroRegime && macroBackdrop.macroRegime.state) || null,
+      note: macroTilt.note,
+    }));
+  }
+
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
 }
@@ -9566,6 +9624,167 @@ function atrPctFrom(h, l, c) {
 // Broad-market regime from the SPY day move + the VIX level/trend. Deliberately
 // conservative: risk-off needs BOTH a ≥1% SPY drop AND an elevated/rising VIX,
 // so the risk-off put path (buildTopPicks) only opens when the tape confirms.
+// Net hawkish drift in the Fed PATH, in percentage points (hike−cut), averaged
+// over the nearest PICKS_MACRO_FED_MEETINGS *future* meetings, measured from each
+// meeting's latest FedWatch snapshot vs ~PICKS_MACRO_FED_LOOKBACK snapshots back.
+// Positive = the market is repricing the Fed MORE hawkish (hike odds rising / cut
+// odds collapsing) = financial-conditions tightening = a risk-off tell. Reads the
+// committed data/fedwatch-history.json shape ({meetings:{date:{snapDate:{hike,hold,cut}}}}).
+// Returns null when there isn't enough history to measure a drift (graceful).
+function fedHawkishDrift(fedwatchHistory) {
+  const meetings = fedwatchHistory && fedwatchHistory.meetings;
+  if (!meetings || typeof meetings !== "object") return null;
+  // Latest snapshot date across all meetings ≈ "today" (we aren't passed nowIso).
+  let latestSnap = "";
+  for (const md of Object.keys(meetings)) {
+    for (const sd of Object.keys(meetings[md] || {})) if (sd > latestSnap) latestSnap = sd;
+  }
+  if (!latestSnap) return null;
+  const future = Object.keys(meetings).filter((md) => md >= latestSnap).sort();
+  const near = future.slice(0, PICKS_MACRO_FED_MEETINGS);
+  const hc = (b) => (Number(b.hike) || 0) - (Number(b.cut) || 0);
+  const drifts = [];
+  for (const md of near) {
+    const snaps = meetings[md] || {};
+    const dates = Object.keys(snaps).sort();
+    if (dates.length < 2) continue;
+    const lastD = dates[dates.length - 1];
+    const prevD = dates[Math.max(0, dates.length - 1 - PICKS_MACRO_FED_LOOKBACK)];
+    const now = snaps[lastD], prev = snaps[prevD];
+    if (!now || !prev || lastD === prevD) continue;
+    drifts.push((hc(now) - hc(prev)) * 100); // probability → percentage points
+  }
+  if (!drifts.length) return null;
+  return drifts.reduce((a, b) => a + b, 0) / drifts.length;
+}
+
+// Fuse the four cross-asset macro axes (VIX, DXY, long yields, Fed path) into one
+// regime gauge. Each axis scores -2..+2 (negative = risk-off / tightening). The
+// composite both establishes the regime (used by detectMarketRegime, independent
+// of the SPY day move) and drives the differential book tilt + de-grossing.
+// Pure + exported so the full build (main) and the offline regen-picks can both
+// attach it to macroBackdrop.macroRegime. Returns null when the feature is off or
+// there's no macro backdrop (callers fall back to the SPY+VIX-only regime).
+export function computeMacroRegime(macroBackdrop, fedwatchHistory) {
+  if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
+  const axes = {};
+  const drivers = [];
+
+  // --- VIX axis (level + trend + term-structure backwardation) ---------------
+  {
+    const vix = macroBackdrop.vix;
+    const term = macroBackdrop.vixTerm;
+    if (vix && isFinite(vix.value)) {
+      const v = vix.value, rising = vix.trend === "rising";
+      const backward = !!(term && term.state === "backwardation");
+      let s = 0, label = `VIX ${v.toFixed(1)} (${vix.trend || "flat"})`;
+      if ((rising && v >= 25) || (backward && v >= 20)) { s = -2; label = `VIX ${v.toFixed(1)} ${backward ? "inverted curve" : "rising"} — acute stress`; }
+      else if (v >= PICKS_TIMING_RISKOFF_VIX || (rising && v >= 18) || backward) { s = -1; label = `VIX ${v.toFixed(1)} elevated/rising`; }
+      else if (v < 14) { s = 1; label = `VIX ${v.toFixed(1)} calm`; }
+      axes.vix = { score: s, label };
+      if (s <= -1) drivers.push(`VIX ${v.toFixed(1)}${rising ? " ↑" : ""}`);
+    } else axes.vix = { score: 0, label: "no VIX" };
+  }
+
+  // --- DXY axis (a rising dollar = global tightening / flight to USD) ---------
+  {
+    const dxy = macroBackdrop.dxy;
+    if (dxy && isFinite(dxy.pctChange1d)) {
+      const d1 = dxy.pctChange1d, d5 = Number(dxy.pctChange5d) || 0, rising = dxy.trend === "rising";
+      let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
+      if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
+      else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
+      else if (d1 <= -PICKS_MACRO_DXY_1D) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
+      axes.dxy = { score: s, label };
+      if (s <= -1) drivers.push(`DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}%`);
+    } else axes.dxy = { score: 0, label: "no DXY" };
+  }
+
+  // --- Long-yield axis (worst of 10Y/30Y; spiking yields pressure risk) ------
+  {
+    const legs = [macroBackdrop.tenY, macroBackdrop.thirtyY].filter((x) => x && isFinite(x.bpsChange1d));
+    if (legs.length) {
+      const up = Math.max(...legs.map((l) => l.bpsChange1d));   // most positive (tightening)
+      const dn = Math.min(...legs.map((l) => l.bpsChange1d));   // most negative (easing)
+      const ten = macroBackdrop.tenY;
+      const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D;
+      let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
+      if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
+      else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
+      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
+      axes.yields = { score: s, label };
+      if (s <= -1) drivers.push(`10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)}bps`);
+    } else axes.yields = { score: 0, label: "no yields" };
+  }
+
+  // --- Fed-path axis (FedWatch hawkish repricing) ----------------------------
+  {
+    const drift = fedHawkishDrift(fedwatchHistory);
+    if (drift != null) {
+      let s = 0, label = `Fed path ${drift >= 0 ? "+" : ""}${drift.toFixed(0)}pt`;
+      if (drift >= 2 * PICKS_MACRO_FED_DRIFT_PT) { s = -2; label = `Fed repricing hawkish +${drift.toFixed(0)}pt — sharp`; }
+      else if (drift >= PICKS_MACRO_FED_DRIFT_PT) { s = -1; label = `Fed repricing hawkish +${drift.toFixed(0)}pt`; }
+      else if (drift <= -PICKS_MACRO_FED_DRIFT_PT) { s = 1; label = `Fed repricing dovish ${drift.toFixed(0)}pt`; }
+      axes.fed = { score: s, label };
+      if (s <= -1) drivers.push(`Fed hawkish +${drift.toFixed(0)}pt`);
+    } else axes.fed = { score: 0, label: "no Fed-path data" };
+  }
+
+  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score];
+  const stress = arr.reduce((a, b) => a + b, 0);
+  const riskOffAxes = arr.filter((x) => x <= -1).length;
+  const riskOnAxes = arr.filter((x) => x >= 1).length;
+  let state = "neutral";
+  if (riskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
+  else if (riskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
+  else if (riskOnAxes >= PICKS_MACRO_RISKON_AXES && riskOffAxes === 0) state = "risk-on";
+  const summary = state === "neutral"
+    ? "Cross-asset macro neutral"
+    : `Cross-asset macro ${state}${drivers.length ? ` — ${drivers.join(", ")}` : ""}`;
+  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers, summary };
+}
+
+// Clamp a name's tilt weight to [floor, cap]. Prefer the real fundamentals beta;
+// fall back to the high-beta factor-cluster membership / defensive GICS sector
+// when beta is missing, so every name gets a sensible rate/risk sensitivity.
+function macroBetaWeight(sym, data) {
+  const b = data && data.fundamentals && Number(data.fundamentals.beta);
+  let w;
+  if (Number.isFinite(b) && b > 0) {
+    w = b;
+  } else {
+    const sector = (data && data.fundamentals && data.fundamentals.sector) || "";
+    if (factorOfTicker(sym)) w = 1.4;                                   // semis/software/mega-cap-tech complex
+    else if (/staples|utilit|health/i.test(sector)) w = 0.7;           // classic defensives
+    else w = 1.0;
+  }
+  return Math.max(PICKS_MACRO_TILT_BETA_FLOOR, Math.min(PICKS_MACRO_TILT_BETA_CAP, w));
+}
+
+// Directional, beta-weighted macro tilt (rounded to an integer score so it folds
+// like every other fixed narrative signal). Negative in risk-off (bearish for the
+// whole book, hardest on high-beta), small positive in a clean risk-on tape.
+// Returns { score, weight, note } or null when there's no tilt to apply.
+function computeMacroTilt(sym, data, macroBackdrop) {
+  if (!PICKS_MACRO_TILT || !PICKS_MACRO_REGIME) return null;
+  const mr = macroBackdrop && macroBackdrop.macroRegime;
+  if (!mr) return null;
+  let mag = 0, sign = 0;
+  if (mr.state === "severe-risk-off") { mag = PICKS_MACRO_TILT_SEVERE; sign = -1; }
+  else if (mr.state === "risk-off") { mag = PICKS_MACRO_TILT_BASE; sign = -1; }
+  else if (mr.state === "risk-on") { mag = PICKS_MACRO_TILT_RISKON; sign = 1; }
+  else return null;
+  const weight = macroBetaWeight(sym, data);
+  const score = Math.round(sign * mag * weight);
+  if (!score) return null;
+  const dirTxt = sign < 0 ? "headwind" : "tailwind";
+  return {
+    score,
+    weight,
+    note: `${mr.summary} — beta ${weight.toFixed(2)} ${dirTxt} (book ${sign < 0 ? "tilted bearish" : "leaned long"})`,
+  };
+}
+
 export function detectMarketRegime(marketCtx, macroBackdrop) {
   const spy = marketCtx && isFinite(marketCtx.spyMove) ? marketCtx.spyMove : null;
   const vix = macroBackdrop && macroBackdrop.vix ? macroBackdrop.vix : null;
@@ -9577,11 +9796,26 @@ export function detectMarketRegime(marketCtx, macroBackdrop) {
   const backwardation = !!(macroBackdrop && macroBackdrop.vixTerm && macroBackdrop.vixTerm.state === "backwardation");
   const spyOff = spy != null && spy <= PICKS_TIMING_RISKOFF_SPY;
   const vixOff = vixVal != null && (vixVal >= PICKS_TIMING_RISKOFF_VIX || (vixRising && vixVal >= 18) || (backwardation && vixVal >= 16));
-  if (spyOff && vixOff) return "risk-off";
-  const spyOn = spy != null && spy >= PICKS_TIMING_RISKON_SPY;
-  const vixCalm = (vixVal == null || vixVal < 18) && !backwardation;
-  if (spyOn && vixCalm) return "risk-on";
-  return "neutral";
+  let base = "neutral";
+  if (spyOff && vixOff) base = "risk-off";
+  else {
+    const spyOn = spy != null && spy >= PICKS_TIMING_RISKON_SPY;
+    const vixCalm = (vixVal == null || vixVal < 18) && !backwardation;
+    if (spyOn && vixCalm) base = "risk-on";
+  }
+  // Cross-asset macro override (PICKS_MACRO_REGIME). A coordinated risk-off /
+  // tightening tape (VIX + DXY + long yields + Fed path) establishes risk-off
+  // even without an SPY -1% day — that's the whole point: position into the
+  // building stress before the index capitulates — and never lets a lone green
+  // SPY print read risk-on while the macro is stressed. macroBackdrop.macroRegime
+  // is attached upstream by computeMacroRegime; absent (flag off / no FedWatch on
+  // a regen) → the pure SPY+VIX behavior above (graceful, byte-identical).
+  const mr = PICKS_MACRO_REGIME && macroBackdrop && macroBackdrop.macroRegime;
+  if (mr) {
+    if (mr.state === "risk-off" || mr.state === "severe-risk-off") return "risk-off";
+    if (base === "neutral" && mr.state === "risk-on") return "risk-on";
+  }
+  return base;
 }
 
 // Whole days until the next earnings report (≥0), or null. Earnings inside the
@@ -10408,7 +10642,7 @@ export function computeEdgeScale(closed) {
   return Math.max(PICKS_EDGE_SCALE_MIN, 1 - t * (1 - PICKS_EDGE_SCALE_MIN));
 }
 
-function applyPickSizing(picks, chains, strongCut, edgeScale = 1) {
+function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 1) {
   if (!Array.isArray(picks) || !picks.length) return;
   const strong = (Number.isFinite(strongCut) && strongCut > 0) ? strongCut : PICKS_TIER_STRONG;
   const rows = [];
@@ -10479,7 +10713,10 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1) {
   // P1.3 edge governor: further scale gross by the trailing realized option edge —
   // a measured-negative-edge book deploys toward the floor, not the full target.
   const eScale = Number.isFinite(edgeScale) ? Math.max(0, Math.min(1, edgeScale)) : 1;
-  const grossTarget = PICKS_GROSS_TARGET * Math.min(1, rows.length / PICKS_SIZE_FULL_ROSTER_N) * eScale;
+  // Macro de-grossing (PICKS_MACRO_REGIME): scale the deployed gross down in a
+  // risk-off / severe-risk-off tape (1 when neutral / feature off).
+  const rScale = Number.isFinite(regimeGross) ? Math.max(0, Math.min(1, regimeGross)) : 1;
+  const grossTarget = PICKS_GROSS_TARGET * Math.min(1, rows.length / PICKS_SIZE_FULL_ROSTER_N) * eScale * rScale;
   for (const row of rows) {
     const weight = sumW > 0 ? (row.rawW / sumW) * grossTarget : (grossTarget / rows.length);
     // weight already sums to the gross target (cash is the remainder), so the
@@ -10497,6 +10734,10 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1) {
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   const { scored, peerIndex, marketCtx, tierCutoffs } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  // Severe cross-asset macro stress (≥3 risk-off axes): cut size harder, cap calls,
+  // and relax the tactical-put bar so the roster genuinely tilts to puts/cash.
+  const macroState = (macroBackdrop && macroBackdrop.macroRegime && macroBackdrop.macroRegime.state) || null;
+  const severe = macroState === "severe-risk-off";
   // The actionable bar is the percentile trade cutoff (P3.2) when the
   // standardizer applied, else the legacy ±PICKS_MIN_CONVICTION (tierCutoffs
   // defaults to the legacy constants on the small-universe / flag-off path).
@@ -10516,10 +10757,13 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     .filter((s) => s.recommendation && s.recommendation.side)
     .map((s) => ({ r: s, side: s.recommendation.side, tactical: false }));
   if (regime === "risk-off") {
+    // Relax the tactical-put bar in a SEVERE tape so more weak names become
+    // shortable candidates (still gated on a clean 'go' breakdown below).
+    const putBar = severe ? PICKS_MACRO_SEVERE_PUT_BAR : PICKS_RISKOFF_PUT_BAR;
     const seen = new Set(candSet.map((c) => c.r.sym));
     for (const s of scored) {
       if (seen.has(s.sym)) continue;
-      if (s.total <= PICKS_RISKOFF_PUT_BAR && s.total > -tradeCut) {
+      if (s.total <= putBar && s.total > -tradeCut) {
         candSet.push({ r: s, side: "put", tactical: true });
       }
     }
@@ -10548,15 +10792,23 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const candidates = tradeable.slice(0, PICKS_COUNT * 4);
   const out = [];
   let vetoed = 0; // count dropped-by-gate for the roster note
+  let callCount = 0; // for the severe-tape call cap
   const sectorCounts = {}; // enforce the per-sector concentration cap
   const skippedSectorCapped = [];
   const factorCounts = {}; // enforce the broader cross-sector factor cap (P2.1)
   const skippedFactorCapped = [];
+  const skippedMacroCallCapped = [];
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
     const side = cand.side;
     if (!side) continue; // no-trade, shouldn't be here but defend anyway
+    // Severe-tape call cap: in a confirmed severe risk-off tape don't fight the
+    // index with more than a handful of longs — fill the rest with puts / cash.
+    if (severe && side === "call" && callCount >= PICKS_MACRO_SEVERE_CALL_CAP) {
+      skippedMacroCallCapped.push({ symbol: r.sym });
+      continue;
+    }
     // Tradeable contract precomputed in the P1.4 candidacy gate above (every
     // candidate here already cleared requireClean); reused, not recomputed.
     const contract = cand.contract;
@@ -10664,6 +10916,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     };
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
+    if (side === "call") callCount += 1;
     if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
     if (factor) factorCounts[factor] = (factorCounts[factor] || 0) + 1;
   }
@@ -10687,7 +10940,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // edge (opts.priorClosed = the pre-update accuracy `closed` set threaded by the
   // caller). 1 when the governor is off or there's no prior record.
   const edgeScale = computeEdgeScale(opts.priorClosed || null);
-  applyPickSizing(out, chains, tierCutoffs && tierCutoffs.strongCut, edgeScale);
+  // Macro de-grossing: a desk cuts SIZE in a tightening tape, not just direction.
+  // Multiply the deployed gross by the regime multiplier (1 when neutral / off).
+  const macroGross = severe ? PICKS_MACRO_GROSS_SEVERE
+    : (regime === "risk-off" ? PICKS_MACRO_GROSS_RISKOFF : 1);
+  applyPickSizing(out, chains, tierCutoffs && tierCutoffs.strongCut, edgeScale, macroGross);
   // Roster construction meta (gate drops + sector-cap skips) so the UI can show
   // an honest "only N clean setups today / M capped" note. Stashed on a
   // non-enumerable so JSON.stringify(picks) is unchanged but writeTopPicksFile
@@ -10700,7 +10957,21 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       sectorCounts,
       factorCapped: skippedFactorCapped,
       factorCounts,
+      macroCallCapped: skippedMacroCallCapped, // severe-tape call cap skips
       edgeScale: Number(edgeScale.toFixed(3)), // P1.3 — gross multiplier from realized option edge
+      // Cross-asset macro regime gauge (PICKS_MACRO_REGIME) so the picks UI can
+      // show WHY the roster tilted: state, the four axes, drivers, and the gross
+      // multiplier applied. Null when the feature is off / no macro backdrop.
+      macroRegime: (macroBackdrop && macroBackdrop.macroRegime)
+        ? {
+            state: macroBackdrop.macroRegime.state,
+            stress: macroBackdrop.macroRegime.stress,
+            riskOffAxes: macroBackdrop.macroRegime.riskOffAxes,
+            drivers: macroBackdrop.macroRegime.drivers,
+            summary: macroBackdrop.macroRegime.summary,
+            grossMult: Number(macroGross.toFixed(2)),
+          }
+        : null,
     },
     enumerable: false,
   });
@@ -16527,6 +16798,16 @@ async function main() {
     if (macroBackdrop.eventRisk && macroBackdrop.eventRisk.active) {
       const er = macroBackdrop.eventRisk;
       console.log(`  · macro event-risk: ${er.label} in ${er.daysOut}d (top ~${Math.round((er.topProb > 1.5 ? er.topProb / 100 : er.topProb) * 100)}%) — entries deferred`);
+    }
+    // Cross-asset macro-stress regime (PICKS_MACRO_REGIME) — fused from the macro
+    // backdrop (VIX/DXY/yields) + the FedWatch hawkish drift. Threaded into
+    // scoring (detectMarketRegime + the differential narrative tilt) and the
+    // roster (de-grossing, call cap, tactical-put bar). Like eventRisk it's a
+    // picks-internal, this-build-only signal — not persisted to macro.json.
+    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory);
+    if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
+      const m = macroBackdrop.macroRegime;
+      console.log(`  · macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
     }
   }
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
