@@ -426,8 +426,24 @@ Structure / momentum / **volume** / location accumulate as signed pros & cons:
   call, resistance for a put) earns credit for a tight, well-defined stop — the
   structural complement to the ATR-floor cut (§5). Not credited while chasing or
   breaking the wrong way.
+- **Ex-dividend nudge (soft, ±1, side-aware).** A long *call* held across the
+  ex-dividend date eats the open gap-down by the dividend (plus early-assignment risk
+  on a slightly-ITM strike) → −1; a long *put* benefits from the same gap → +1. The
+  drop is already priced into the option via the forward, so this is a small nudge,
+  **not** a hard defer like earnings (ex-div is not an IV-crush event), and it only
+  fires for a real dividend payer (`PICKS_TIMING_EXDIV_MIN_YIELD` = 1.0% annual) with
+  the ex-date within `PICKS_TIMING_EXDIV_DEFER_DAYS` (2) sessions — so the no-yield
+  majority never trips it. Reads `fundamentals.exDivDate` (Yahoo `calendarEvents`).
+- **Holiday/weekend theta drag (soft, −1, side-agnostic).** A long debit decays on
+  calendar days but the underlying only moves on trading days, so entering right
+  before a long weekend / holiday-shortened stretch is dead premium bleed. Counts
+  non-trading calendar days (weekend or NYSE holiday) in the next
+  `PICKS_TIMING_DEADDAYS_WINDOW` (5); a normal Mon–Fri week peaks at 2, so only a
+  market holiday in the window pushes it to `PICKS_TIMING_DEADDAYS_CON` (3) → a −1 con
+  that pulls borderline names below the absolute floor (don't pay a long weekend's
+  theta on a thin thesis). Direction-agnostic — theta is a long-debit cost either way.
 
-The soft volume/defined-risk reads tune the bounded `contribution` (and thus `total`)
+The soft volume/defined-risk/ex-div/dead-days reads tune the bounded `contribution` (and thus `total`)
 without by themselves flipping the verdict — `go` = a strong pro with no strong con;
 otherwise `wait`.
 
@@ -727,7 +743,10 @@ it has to be trustworthy. The fixes:
     `RET3D 10`; **avoid-penalty scaling** `AVOID_SCALE` (default ON) + `AVOID_FLOOR −16`
     (knife/chase penalty = `max(AVOID_FLOOR, −8·severity)`, severity = max overshoot
     ratio vs the trigger; `AVOID_SCALE=0` → flat −8); volume `VOL_CONFIRM 1.3`,
-    `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`, `NEAR_LEVEL_PCT 1.5`; regime `RISKOFF_VIX 20`,
+    `VOL_LIGHT 0.8`, `VOL_HEAVY 1.5`, `NEAR_LEVEL_PCT 1.5`; **ex-div nudge**
+    `EXDIV_DEFER_DAYS 2` + `EXDIV_MIN_YIELD 1.0` (side-aware soft ±1, payers only);
+    **holiday/weekend theta** `DEADDAYS_WINDOW 5` + `DEADDAYS_CON 3` (side-agnostic
+    soft −1, NYSE holiday calendar 2025–2027); regime `RISKOFF_VIX 20`,
     `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
     `EARNINGS_DEFER_DAYS 8`; `MIN_BARS 15` (fail-open → `wait`); risk-off put bar
     `PICKS_RISKOFF_PUT_BAR −8`. **Macro event-risk defer (§6.6):** `PICKS_EVENT_RISK`
