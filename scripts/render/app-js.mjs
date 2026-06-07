@@ -2865,7 +2865,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','picks','heatmap','calendar','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track'];
+    var valid = ['home','tickers','narratives','picks','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -2877,6 +2877,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       bonds: 'bonds-usd', usd: 'bonds-usd',
       pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
       ticker: 'tickers',
+      global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
     };
     function resolveTab(t){
       if (!t) return null;
@@ -3018,6 +3019,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
       if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
+      if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       if (name === 'oi' && typeof renderOI === 'function') renderOI();
       if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
@@ -3341,6 +3343,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
     html += buildExecuteNowCard({ input: input, buy: buy });
+    // Overnight foreign-peer read for the underlying (Korea/Japan/Taiwan +
+    // global tape). Lazy-fills once data/correlations.json lands.
+    html += buildOvernightPeerWidget(input.ticker || input.symbol || state.symbol);
     html += buildRecommendationCard({
       input: input, sGrade: sGrade, dGrade: dGrade, tGrade: tGrade,
       daysToExpiry: daysToExpiry, extrinsicRatio: extrinsicRatio, mid: mid,
@@ -8377,6 +8382,194 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     stratRenderTemplates();
   }
 
+  // --- Overnight markets / correlations -----------------------------------
+  // Foreign lead-lag signals from data/correlations.json: per-region tiles of
+  // overnight foreign moves, a derived risk tone, and the broad backdrop.
+  // Shared with the Grade tab's per-ticker "overnight peer read" widget.
+  var overnightState = { data: null, loading: false };
+  function loadOvernight(){
+    if (overnightState.data || overnightState.loading){ renderOvernight(); refreshOvernightWidgets(); return; }
+    overnightState.loading = true;
+    fetch('data/correlations.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        overnightState.data = (json && json.markets) ? json : { markets: {}, map: {}, regions: [], broad: [], tone: null };
+        overnightState.loading = false;
+        renderOvernight();
+        refreshOvernightWidgets();
+      })
+      .catch(function(){
+        overnightState.data = { markets: {}, map: {}, regions: [], broad: [], tone: null, loadError: true };
+        overnightState.loading = false;
+        renderOvernight();
+        refreshOvernightWidgets();
+      });
+  }
+  function ovnMoveCls(x){ if (x == null || !isFinite(x)) return 'ovn-flat'; if (x > 0.05) return 'ovn-up'; if (x < -0.05) return 'ovn-dn'; return 'ovn-flat'; }
+  function ovnSignPct(x, dp){
+    if (x == null || !isFinite(x)) return '—';
+    var d = (dp == null) ? 2 : dp;
+    return (x > 0 ? '+' : '') + x.toFixed(d) + '%';
+  }
+  function ovnEsc(s){ return (typeof escapeHtml === 'function') ? escapeHtml(String(s)) : String(s); }
+  // US tickers a given foreign symbol leads (strongest |corr| first).
+  function overnightFlagsFor(fsym){
+    var d = overnightState.data, out = [];
+    if (!d || !d.map) return out;
+    for (var t in d.map){
+      var peers = d.map[t].peers || [];
+      for (var i = 0; i < peers.length; i++){
+        if (peers[i].sym === fsym){ out.push({ sym: t, corr: peers[i].corr }); break; }
+      }
+    }
+    out.sort(function(a, b){ return Math.abs(b.corr || 0) - Math.abs(a.corr || 0); });
+    return out;
+  }
+  function overnightTile(fsym){
+    var d = overnightState.data; var m = d.markets[fsym]; if (!m) return '';
+    var flags = overnightFlagsFor(fsym).slice(0, 6);
+    var flagHtml = flags.length
+      ? '<div class="ovn-tile-flags"><span class="ovn-tile-flags-lbl">flags</span> ' + flags.map(function(f){
+          return '<button type="button" class="ovn-flag" data-go-ticker="' + ovnEsc(f.sym) + '" title="r ' + (f.corr == null ? '—' : f.corr) + '">' + ovnEsc(f.sym) + '</button>';
+        }).join('') + '</div>'
+      : '';
+    var lead = m.lead ? '<div class="ovn-tile-lead">' + ovnEsc(m.lead) + '</div>' : '';
+    return '<div class="ovn-tile ' + ovnMoveCls(m.chPct) + '">' +
+      '<div class="ovn-tile-top"><span class="ovn-tile-name">' + ovnEsc(m.name) + '</span>' +
+      '<span class="ovn-tile-ch">' + ovnSignPct(m.chPct) + '</span></div>' +
+      lead + flagHtml +
+      '</div>';
+  }
+  function bindOvernightFlagJumps(rootEl){
+    if (!rootEl) return;
+    var btns = rootEl.querySelectorAll('[data-go-ticker]');
+    btns.forEach(function(b){
+      b.addEventListener('click', function(){
+        var s = b.getAttribute('data-go-ticker');
+        if (!s) return;
+        try {
+          var gt = document.querySelector('[data-page-tab="grade"]');
+          if (gt) gt.click();
+          if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(s);
+        } catch (_) {}
+      });
+    });
+  }
+  function renderOvernight(){
+    var root = document.getElementById('overnight-root');
+    var toneEl = document.getElementById('overnight-tone');
+    var broadEl = document.getElementById('overnight-broad');
+    var eyebrow = document.getElementById('overnight-eyebrow');
+    if (!root) return;
+    var d = overnightState.data;
+    if (overnightState.loading && !d){ root.textContent = 'Loading overnight markets…'; return; }
+    if (!d || !d.markets || !Object.keys(d.markets).length){
+      root.innerHTML = '<p class="overnight-empty">' + (d && d.loadError ? 'Couldn’t load overnight market data.' : 'Overnight market data will populate on the next market build.') + '</p>';
+      if (toneEl) toneEl.hidden = true;
+      if (broadEl) broadEl.innerHTML = '';
+      return;
+    }
+    if (toneEl){
+      if (d.tone && d.tone.label){
+        var cls = d.tone.label.indexOf('off') >= 0 ? 'ovn-dn' : (d.tone.label.indexOf('on') >= 0 ? 'ovn-up' : 'ovn-flat');
+        var reasons = (d.tone.reasons || []).map(ovnEsc).join(' · ');
+        toneEl.className = 'overnight-tone ' + cls;
+        toneEl.innerHTML = '<span class="ovn-tone-label">Overnight tape: ' + ovnEsc(d.tone.label) + '</span>' + (reasons ? '<span class="ovn-tone-why">' + reasons + '</span>' : '');
+        toneEl.hidden = false;
+      } else { toneEl.hidden = true; }
+    }
+    if (broadEl){
+      var bsyms = d.broad && d.broad.length ? d.broad : [];
+      broadEl.innerHTML = bsyms.map(function(s){
+        var m = d.markets[s]; if (!m) return '';
+        return '<span class="ovn-chip ' + ovnMoveCls(m.chPct) + '"><span class="ovn-chip-name">' + ovnEsc(m.name) + '</span><span class="ovn-chip-ch">' + ovnSignPct(m.chPct) + '</span></span>';
+      }).join('');
+    }
+    var regions = d.regions || [];
+    var html = '';
+    for (var i = 0; i < regions.length; i++){
+      var tiles = (regions[i].symbols || []).map(overnightTile).join('');
+      if (!tiles) continue;
+      html += '<section class="ovn-region"><h3 class="ovn-region-title">' + ovnEsc(regions[i].region) + '</h3><div class="ovn-region-grid">' + tiles + '</div></section>';
+    }
+    root.innerHTML = html || '<p class="overnight-empty">No overnight markets available.</p>';
+    if (eyebrow){
+      var anyAsOf = null;
+      for (var k in d.markets){ if (d.markets[k].asOf){ anyAsOf = d.markets[k].asOf; break; } }
+      eyebrow.textContent = (d.stale ? 'last-good · ' : '') + (anyAsOf ? 'sessions through ' + anyAsOf : '');
+    }
+    bindOvernightFlagJumps(root);
+  }
+  // --- Per-ticker overnight peer read (Grade tab) -------------------------
+  function overnightImplied(peer){
+    if (!peer || peer.beta == null || peer.chPct == null || !isFinite(peer.beta) || !isFinite(peer.chPct)) return null;
+    return Math.round(peer.beta * peer.chPct * 10) / 10;
+  }
+  function overnightWidgetBody(sym){
+    var d = overnightState.data;
+    if (!d || !d.markets || !Object.keys(d.markets).length) return '';
+    var out = '';
+    var entry = d.map ? d.map[sym] : null;
+    if (entry && entry.peers && entry.peers.length){
+      var ranked = entry.peers.slice().filter(function(p){ return p.corr != null; }).sort(function(a, b){ return Math.abs(b.corr) - Math.abs(a.corr); });
+      var lead = ranked.length ? ranked[0] : entry.peers[0];
+      var implied = overnightImplied(lead);
+      var headCls = implied == null ? 'ovn-flat' : ovnMoveCls(implied);
+      var head = '<div class="ovn-w-head ' + headCls + '">';
+      if (lead && lead.chPct != null){
+        head += '<b>' + ovnEsc(lead.name) + '</b> ' + ovnSignPct(lead.chPct);
+        if (lead.corr != null) head += ' <span class="ovn-w-r">r ' + lead.corr + '</span>';
+        if (implied != null) head += ' → implies <b>' + ovnSignPct(implied, 1) + '</b> ' + ovnEsc(sym);
+      } else {
+        head += 'Overnight peers';
+      }
+      head += '</div>';
+      out += head;
+      out += '<div class="ovn-w-peers">';
+      for (var i = 0; i < entry.peers.length; i++){
+        var p = entry.peers[i];
+        var imp = overnightImplied(p);
+        out += '<div class="ovn-w-row ' + ovnMoveCls(p.chPct) + '">' +
+          '<span class="ovn-w-peer">' + ovnEsc(p.name) + '</span>' +
+          '<span class="ovn-w-ch">' + ovnSignPct(p.chPct) + '</span>' +
+          '<span class="ovn-w-stat">' + (p.corr == null ? 'r —' : 'r ' + p.corr) + (p.beta == null ? '' : ' · β ' + p.beta) + '</span>' +
+          '<span class="ovn-w-imp">' + (imp == null ? '' : '≈ ' + ovnSignPct(imp, 1)) + '</span>' +
+          '</div>';
+      }
+      out += '</div>';
+    }
+    if (d.broad && d.broad.length){
+      var chips = d.broad.map(function(s){
+        var m = d.markets[s]; if (!m) return '';
+        return '<span class="ovn-chip ' + ovnMoveCls(m.chPct) + '"><span class="ovn-chip-name">' + ovnEsc(m.name) + '</span><span class="ovn-chip-ch">' + ovnSignPct(m.chPct) + '</span></span>';
+      }).join('');
+      out += '<div class="ovn-w-broad">' + (entry ? '' : '<span class="ovn-w-nopeer">No direct foreign peer — global tape:</span> ') + chips + '</div>';
+    }
+    return out;
+  }
+  function buildOvernightPeerWidget(sym){
+    if (!sym) return '';
+    sym = String(sym).toUpperCase();
+    if (!overnightState.data && !overnightState.loading && typeof loadOvernight === 'function') loadOvernight();
+    var body;
+    if (overnightState.data){
+      body = overnightWidgetBody(sym);
+      if (!body) return '';
+    } else {
+      body = '<div class="ovn-w-loading">Loading overnight read…</div>';
+    }
+    return '<div class="ovn-widget" data-overnight-sym="' + ovnEsc(sym) + '">' +
+      '<h4 class="ovn-w-title">Overnight peer read</h4>' + body + '</div>';
+  }
+  function refreshOvernightWidgets(){
+    var nodes = document.querySelectorAll('[data-overnight-sym]');
+    if (!nodes || !nodes.length) return;
+    nodes.forEach(function(n){
+      var body = overnightWidgetBody(n.getAttribute('data-overnight-sym'));
+      n.innerHTML = '<h4 class="ovn-w-title">Overnight peer read</h4>' + (body || '<div class="ovn-w-loading">No overnight peers mapped.</div>');
+    });
+  }
+
   // --- Calendar tab -------------------------------------------------------
   var calendarState = { data: null, loading: false, type: 'all' };
   function loadCalendar(){
@@ -13017,6 +13210,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ['narratives', 'Narratives'],
       ['picks', 'Top picks'],
       ['calendar', 'Calendar'],
+      ['overnight', 'Overnight markets'],
       ['flow', 'Unusual flow'],
       ['oi', 'Gamma OI'],
       ['grade', 'Grade a contract'],
@@ -13564,6 +13758,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindCsvExports();
     bindCmdPalette();
     bindPinCompare();
+    // Prefetch overnight correlations so the Grade tab's per-ticker peer read
+    // is ready the moment a contract is graded (and the Overnight tab is warm).
+    if (typeof loadOvernight === 'function') loadOvernight();
 
     // Bind to the OPTION-TYPE group specifically. The page has several
     // [role="radiogroup"] elements (calendar/flow/volume filters) that sort

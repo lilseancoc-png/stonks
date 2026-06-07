@@ -88,6 +88,7 @@
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="streaks" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   </div>
   <div class="page-tab-menu" role="menu" id="page-tab-menu-macro" aria-labelledby="page-tab-trigger-macro" data-group="macro" hidden>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="overnight" aria-controls="page-pane-overnight" id="page-tab-overnight">Overnight markets</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="fear-greed" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="bonds-usd" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="f13" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
@@ -989,6 +990,19 @@
     </div>
     <div id="calendar-root" class="calendar-root">Loading calendar…</div>
     <div id="calendar-empty" class="calendar-empty" hidden>No upcoming events.</div>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-overnight" role="tabpanel" aria-labelledby="page-tab-overnight" hidden>
+  <section class="card" id="overnight-section">
+    <header class="card-header">
+      <h2 class="card-title">Overnight markets</h2>
+      <span class="card-eyebrow" id="overnight-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Asian cash markets and FX trade and close <em>before</em> the US opens, so an overnight move in a foreign peer is a leading read on its US counterpart — Samsung &amp; SK Hynix selling off in Seoul flags memory names like MU; a yen-carry unwind in Tokyo flags broad US risk. Each tile shows a foreign symbol&rsquo;s last completed session move and the US tickers it leads (click a tag to grade it). Captured at build time &mdash; the 9:30&nbsp;ET build is the first to see the just-closed Asian session.</p>
+    <div id="overnight-tone" class="overnight-tone" hidden></div>
+    <div id="overnight-broad" class="overnight-broad" aria-label="Global backdrop"></div>
+    <div id="overnight-root" class="overnight-root">Loading overnight markets&hellip;</div>
+    <p class="hint">Correlation (r) and sensitivity (&beta;) are computed from up to 150 trading days of daily-return overlap; &beta; &times; the peer&rsquo;s move is a rough implied read, not a forecast. Foreign closes can lag the US session by up to a day. Not financial advice.</p>
   </section>
   </div>
   <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
