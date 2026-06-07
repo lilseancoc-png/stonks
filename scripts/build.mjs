@@ -3042,7 +3042,10 @@ async function fetchMacroBackdrop() {
   // slope (backwardation = acute stress), a sharper risk-off tell than VIX level
   // alone. Same caret-prefixed index pattern — quote-only, fails SYMBOL_RE so it
   // never reaches the api/* proxies, fetched server-side here like ^VIX.
-  const [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m] = await Promise.all([
+  // CL=F (WTI crude) + GC=F (gold) feed the commodity / geopolitical-shock regime
+  // axis (computeMacroRegime). They're also swept by the correlations engine, but
+  // that's a separate batch — the regime needs them on macroBackdrop directly.
+  const [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m, crude, gold] = await Promise.all([
     fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
     fetchLeg("^TNX", "10Y yield", { isYield: true }),
     fetchLeg("^TYX", "30Y yield", { isYield: true }),
@@ -3050,13 +3053,15 @@ async function fetchMacroBackdrop() {
     fetchLeg("^VIX", "VIX"),
     fetchLeg("^VIX9D", "VIX 9-day"),
     fetchLeg("^VIX3M", "VIX 3-month"),
+    fetchLeg("CL=F", "WTI crude"),
+    fetchLeg("GC=F", "Gold"),
   ]);
   if (!twoY && !tenY && !thirtyY && !dxy && !vix) return null;
   const vixTerm = buildVixTerm(vix, vix9d, vix3m);
   if (vixTerm) {
     console.log(`Macro VIX term: 9d ${vixTerm.short != null ? vixTerm.short.toFixed(1) : "—"} / 30d ${vixTerm.spot.toFixed(1)} / 3m ${vixTerm.mid.toFixed(1)} → ratio ${vixTerm.ratio} (${vixTerm.state})`);
   }
-  return { twoY, tenY, thirtyY, dxy, vix, vixTerm, asOf: new Date().toISOString() };
+  return { twoY, tenY, thirtyY, dxy, vix, vixTerm, crude, gold, asOf: new Date().toISOString() };
 }
 
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
@@ -6709,10 +6714,12 @@ const PICKS_RISKOFF_PUT_BAR = -8;
 
 // ---- Cross-asset macro-stress regime (PICKS_MACRO_REGIME) --------------------
 // The legacy detectMarketRegime reads only the SPY day move + VIX. But a
-// coordinated risk-off / financial-conditions-TIGHTENING tape shows up across
-// FOUR assets at once — equity vol (VIX), the dollar (DXY), the long end
-// (10Y/30Y yields) and the Fed PATH (FedWatch hike-odds repricing hawkish) —
-// usually BEFORE the S&P prints a -1% day. computeMacroRegime fuses those four
+// coordinated risk-off / financial-conditions-TIGHTENING tape shows up across many
+// assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
+// yields), the Fed PATH (FedWatch hike-odds repricing hawkish), plus a COMMODITY /
+// geopolitical-shock axis (a crude spike + gold safe-haven bid) and a geopolitical-
+// NEWS axis (a strong war/conflict narrative) — the last two fire on a geopolitical
+// shock usually BEFORE it bleeds into VIX/yields. computeMacroRegime fuses those six
 // axes (each -2..+2, negative = risk-off) into one gauge so the engine: (1) flips
 // detectMarketRegime to risk-off on the cross-asset signal even without an SPY
 // -1% day; (2) tilts the whole book bearish in proportion to each name's beta (a
@@ -6728,6 +6735,25 @@ const PICKS_MACRO_YIELD_BPS_1D_STRONG = Number(process.env.PICKS_MACRO_YIELD_BPS
 const PICKS_MACRO_FED_DRIFT_PT = Number(process.env.PICKS_MACRO_FED_DRIFT_PT ?? 5); // net hawkish drift (pt, hike−cut, avg of the front meetings) over the lookback that flags tightening (-1); 2× → -2
 const PICKS_MACRO_FED_LOOKBACK = Number(process.env.PICKS_MACRO_FED_LOOKBACK ?? 5); // FedWatch snapshots back to measure the hawkish drift
 const PICKS_MACRO_FED_MEETINGS = Number(process.env.PICKS_MACRO_FED_MEETINGS ?? 3); // nearest N future meetings averaged for the drift
+// Commodity / geopolitical-shock axis. A war / supply shock shows up in crude
+// (and a safe-haven gold bid) within minutes — usually BEFORE it bleeds into the
+// VIX/yield axes — so a sharp commodity spike flags risk-off on its own. Stress-only
+// & asymmetric: only a SPIKE counts (a gradual demand-driven grind, or a drop, is
+// not risk-off — rising oil is not always risk-off). Reuses the CL=F/GC=F legs.
+const PICKS_MACRO_COMMODITY = process.env.PICKS_MACRO_COMMODITY !== "0"; // axis on by default
+const PICKS_MACRO_OIL_1D = Number(process.env.PICKS_MACRO_OIL_1D ?? 4);          // % crude 1d that flags a supply/geopolitical spike (-1)
+const PICKS_MACRO_OIL_1D_STRONG = Number(process.env.PICKS_MACRO_OIL_1D_STRONG ?? 8); // ... an acute shock (-2)
+const PICKS_MACRO_OIL_5D = Number(process.env.PICKS_MACRO_OIL_5D ?? 12);         // % crude 5d run that flags a sustained spike (-1)
+const PICKS_MACRO_GOLD_1D = Number(process.env.PICKS_MACRO_GOLD_1D ?? 3);        // % gold 1d that flags a safe-haven bid (-1; confirms oil → -2)
+const PICKS_MACRO_GOLD_5D = Number(process.env.PICKS_MACRO_GOLD_5D ?? 6);        // % gold 5d run safe-haven bid (-1)
+// Geopolitical-NEWS axis (PICKS_MACRO_NEWS). A strong active war/conflict narrative
+// (from the AI narrative layer) flags systemic risk even before it fully prices in.
+// Conflict themes (war/invasion/missile/…) score regardless of the narrative's
+// equity sentiment; softer geopolitical themes (sanctions/OPEC/named flashpoints)
+// only when the narrative is bearish. Stress-only, like the commodity axis.
+const PICKS_MACRO_NEWS = process.env.PICKS_MACRO_NEWS !== "0"; // axis on by default
+const PICKS_MACRO_GEO_MIN_STR = Number(process.env.PICKS_MACRO_GEO_MIN_STR ?? 45);    // min narrative strength to count (-1)
+const PICKS_MACRO_GEO_STRONG_STR = Number(process.env.PICKS_MACRO_GEO_STRONG_STR ?? 65); // strong narrative → acute (-2)
 // Composite → state. riskOffAxes = number of axes at ≤ -1; riskOnAxes at ≥ +1.
 const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many risk-off axes → risk-off
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
@@ -6861,6 +6887,13 @@ const PICKS_IVRANK_VETO = Number(process.env.PICKS_IVRANK_VETO ?? 90);
 const PICKS_IV_SCORE = process.env.PICKS_IV_SCORE !== "0"; // default ON
 const PICKS_IV_SCORE_MAX = Number(process.env.PICKS_IV_SCORE_MAX ?? 3);        // max penalty at the richest own-IV (rank 100)
 const PICKS_IV_SCORE_CHEAP_MAX = Number(process.env.PICKS_IV_SCORE_CHEAP_MAX ?? 1.5); // max credit at the cheapest own-IV (rank 0)
+// Regime overlay on the IV-cost RICHNESS penalty (§3.5 regime overlay, gated by
+// PICKS_HW_REGIME). Buying long premium into a vol spike is far more punishing than
+// in a calm tape, so the rich-side penalty scales up when the macro tape is
+// imploding. The cheap-side credit is unchanged, and both stay ×1 in neutral/risk-on
+// (the common case) so this is dormant unless the tape is actually stressed.
+const PICKS_IV_SCORE_RISKOFF_MULT = Number(process.env.PICKS_IV_SCORE_RISKOFF_MULT ?? 1.4); // ×rich penalty in risk-off
+const PICKS_IV_SCORE_SEVERE_MULT = Number(process.env.PICKS_IV_SCORE_SEVERE_MULT ?? 1.7);   // …and in a severe / imploding tape
 // P2 — IV term-structure slope gate (computeEntryTiming soft con). Backwardation
 // (front-month IV richer than the back by ≥ this fraction) = buying the most
 // expensive point on the curve, a vol headwind for a naked long debit.
@@ -6937,13 +6970,54 @@ const PICKS_HW_MECH = Number(process.env.PICKS_HW_MECH ?? 1.15); // options flow
 const PICKS_HW_NARR = Number(process.env.PICKS_HW_NARR ?? 0.9);  // catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount)
 const PICKS_HORIZON_W = { fundamentals: PICKS_HW_FUND, technicals: PICKS_HW_TECH, mechanicals: PICKS_HW_MECH, narrative: PICKS_HW_NARR };
 
+// Regime-aware horizon weighting (§3.5 regime overlay). In a CALM/neutral tape the
+// base weights hold — single-name fundamentals & narrative CAN carry a 2-week option.
+// But when the macro tape is IMPLODING (risk-off / severe) cross-asset correlation
+// → 1 and idiosyncratic fundamentals/narrative stop carrying (the whole universe
+// trades on macro/flow/vol), so the two SLOW pillars are discounted further and the
+// grade leans on technicals/flow/timing/IV. In a clean risk-on tape dispersion
+// returns and stories carry a touch more. DORMANT (byte-identical) in the neutral
+// regime — the common case — so this is a conditional overlay, not a blanket re-tune.
+const PICKS_HW_REGIME = process.env.PICKS_HW_REGIME !== "0"; // default ON
+const PICKS_HW_SLOW_RISKOFF = Number(process.env.PICKS_HW_SLOW_RISKOFF ?? 0.67); // ×base on Fund+Narr in risk-off
+const PICKS_HW_SLOW_SEVERE = Number(process.env.PICKS_HW_SLOW_SEVERE ?? 0.5);    // ×base in a severe / imploding tape
+const PICKS_HW_SLOW_RISKON = Number(process.env.PICKS_HW_SLOW_RISKON ?? 1.2);    // ×base in a clean risk-on tape (stories carry)
+const PICKS_HW_SLOW_PILLARS = new Set(["fundamentals", "narrative"]);
+// The macro-regime tilt (scoreNarrative signal `macroRegime`) is a beta-weighted
+// regime CONVICTION lever — the risk-off re-ranking signal — not an asset-quality
+// narrative read, so like `timing`/`ivCost` it rides at ×1 and is never discounted by
+// the narrative horizon weight. This matters most in risk-off, where cutting the
+// narrative weight must NOT also cut the bearish tilt that pillar carries. (Only fires
+// in a non-neutral regime, so neutral output stays byte-identical.)
+const HORIZON_WEIGHT_EXEMPT = new Set(["macroRegime"]);
+
+// Resolve the weighting REGIME BAND, restoring the severe distinction that
+// detectMarketRegime collapses into "risk-off". Returns
+// 'severe' | 'risk-off' | 'risk-on' | 'neutral'.
+function picksRegimeBand(regime, macroBackdrop) {
+  if (!PICKS_HW_REGIME) return "neutral";
+  const mrState = macroBackdrop && macroBackdrop.macroRegime && macroBackdrop.macroRegime.state;
+  if (mrState === "severe-risk-off") return "severe";
+  if (regime === "risk-off" || regime === "risk-on") return regime;
+  return "neutral";
+}
+
 // The horizon multiplier for a pillar (1 = no change). Only the four asset-quality
 // pillars are weighted; `timing` and `ivCost` are already bounded conviction terms
-// folded into total in parallel (not asset-quality reads), so they ride at ×1.
-function horizonWeight(pk) {
+// folded into total in parallel (not asset-quality reads), so they ride at ×1. The
+// two SLOW pillars (Fund, Narr) additionally flex with the regime band (above).
+function horizonWeight(pk, band) {
   if (!PICKS_HORIZON_WEIGHTS) return 1;
-  const w = PICKS_HORIZON_W[pk];
-  return Number.isFinite(w) ? w : 1;
+  let w = PICKS_HORIZON_W[pk];
+  if (!Number.isFinite(w)) return 1;
+  if (PICKS_HW_REGIME && band && band !== "neutral" && PICKS_HW_SLOW_PILLARS.has(pk)) {
+    const m = band === "severe" ? PICKS_HW_SLOW_SEVERE
+            : band === "risk-off" ? PICKS_HW_SLOW_RISKOFF
+            : band === "risk-on" ? PICKS_HW_SLOW_RISKON
+            : 1;
+    w *= m;
+  }
+  return w;
 }
 
 // Apply a pillar's horizon weight in place and return its weighted sum. Bakes the
@@ -6955,13 +7029,17 @@ function horizonWeight(pk) {
 // `score` otherwise. No-op when the weight is 1 (feature off, or an unweighted
 // pillar): the `contribution` field is left untouched so flag-off output stays
 // byte-identical to the legacy equal-weight sum.
-function applyHorizonWeight(pillar, pk, baseOf) {
-  const hw = horizonWeight(pk);
+function applyHorizonWeight(pillar, pk, baseOf, band) {
+  const hw = horizonWeight(pk, band);
   let sum = 0;
   const sigs = Array.isArray(pillar.signals) ? pillar.signals : [];
   for (const sig of sigs) {
-    const eff = (baseOf(sig) || 0) * hw;
-    if (hw !== 1) sig.contribution = eff; // bake the pillar weight into the displayed contribution
+    // HORIZON_WEIGHT_EXEMPT signals (the macro-regime tilt) are regime conviction
+    // levers, not asset quality — they ride at ×1 even when the pillar is weighted.
+    // Gated by PICKS_HW_REGIME so =0 is a clean revert to the legacy weighted sum.
+    const w = (PICKS_HW_REGIME && HORIZON_WEIGHT_EXEMPT.has(sig.key)) ? 1 : hw;
+    const eff = (baseOf(sig) || 0) * w;
+    if (w !== 1) sig.contribution = eff; // bake the pillar weight into the displayed contribution
     sum += eff;
   }
   return sum;
@@ -8358,7 +8436,8 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   signals.push(tenYSignal);
 
   // 9. Cross-asset Macro Regime (PICKS_MACRO_REGIME): the holistic, BETA-WEIGHTED
-  // read of the four-axis macro gauge (VIX + DXY + long yields + Fed path),
+  // read of the macro gauge (VIX + DXY + long yields + Fed path + commodity/geopolitical
+  // shock + geopolitical news),
   // distinct from the per-name LEVEL signals 7/8 above (which are uniform across
   // names and so can't re-rank a cross-sectional engine). In a confirmed risk-off
   // tape this subtracts a beta-scaled bearish tilt — bigger on high-beta growth,
@@ -8395,9 +8474,15 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   // byte-identical to the legacy equal-weight sum. The cross-sectional path
   // re-applies the SAME weights to its z-contributions (computeCrossSectionalScores);
   // here it scores the legacy-fallback / pre-standardization pass.
+  // Resolve the market regime ONCE up front: it both selects the regime-aware
+  // horizon weights (§3.5 overlay — slow pillars discounted in an imploding tape)
+  // and feeds the entry-timing read below. detectMarketRegime collapses severe into
+  // "risk-off"; picksRegimeBand restores the severe distinction for the weighting.
+  const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  const regimeBand = picksRegimeBand(regime, macroBackdrop);
   for (const [pk, pillar] of [["fundamentals", fundamentals], ["technicals", technicals], ["mechanicals", mechanicals], ["narrative", narrative]]) {
     const raw = pillar.score;
-    const weighted = applyHorizonWeight(pillar, pk, (s) => s.score);
+    const weighted = applyHorizonWeight(pillar, pk, (s) => s.score, regimeBand);
     if (weighted !== raw) pillar.legacyScore = raw;
     pillar.score = weighted;
   }
@@ -8411,14 +8496,13 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   // — a weak grade whose timing would cross zero is pulled to a flat "no trade".
   const dirSign = subtotal >= 0 ? 1 : -1;
   const tSide = dirSign > 0 ? "call" : "put";
-  const regime = detectMarketRegime(marketCtx, macroBackdrop);
   const et = computeEntryTiming(tSide, data, (data && data.spot) || null, { regime, eventRisk: macroBackdrop && macroBackdrop.eventRisk });
   const tContribution = Number.isFinite(et.contribution) ? et.contribution : 0;
   // IV cost (PICKS_IV_SCORE) — a direction-agnostic conviction cost folded in
   // PARALLEL with timing (own-IV richness is expensive for whichever side). It
   // adds another bounded contribution to the SAME dirSign clamp, so "how rich is
   // this name's own vol right now" always moves total/ranking, not just go/wait.
-  const ivRead = computeIvCostContribution(data);
+  const ivRead = computeIvCostContribution(data, regimeBand);
   const ivc = ivRead && Number.isFinite(ivRead.contribution) ? ivRead.contribution : 0;
   const total = dirSign * Math.max(0, Math.abs(subtotal) + tContribution + ivc);
   const foldDelta = total - subtotal;
@@ -9806,7 +9890,39 @@ function fedHawkishDrift(fedwatchHistory) {
 // Pure + exported so the full build (main) and the offline regen-picks can both
 // attach it to macroBackdrop.macroRegime. Returns null when the feature is off or
 // there's no macro backdrop (callers fall back to the SPY+VIX-only regime).
-export function computeMacroRegime(macroBackdrop, fedwatchHistory) {
+// Hard-conflict terms — a strong active narrative naming actual conflict signals
+// systemic risk regardless of the narrative's equity sentiment (war = uncertainty).
+const GEO_CONFLICT_RE = /\b(war|warfare|conflict|invasion|invade|military|missile|airstrike|air ?strike|attack|troops|nuclear|hostilit|escalat|ceasefire|wartime|combat|blockade|strait of hormuz)\b/i;
+// Softer geopolitical flashpoints — count only when the narrative is bearish (a
+// sanctions/OPEC theme can be framed bullishly for some sector without being
+// systemic risk-off).
+const GEO_THEME_RE = /\b(sanction|embargo|geopolit|iran|israel|gaza|hamas|hezbollah|ukrain|russia|taiwan|north korea|middle east|red sea|houthi|opec|oil shock|tariff war)\b/i;
+
+// Market-wide geopolitical-news stress from the AI narrative layer (PICKS_MACRO_NEWS).
+// Scans the active narratives for a strong war/conflict (or bearish geopolitical)
+// theme and returns a stress-only axis score (0 / -1 / -2) + label. Pure (no AI/network
+// — narratives are already built this bake).
+function computeGeoNewsStress(narratives) {
+  if (!PICKS_MACRO_NEWS) return { score: 0, label: "geo-news off" };
+  if (!Array.isArray(narratives) || !narratives.length) return { score: 0, label: "no geopolitical narrative" };
+  let worst = null;
+  for (const n of narratives) {
+    if (!n || n.status !== "active") continue;
+    const str = Number(n.strength) || 0;
+    if (str < PICKS_MACRO_GEO_MIN_STR) continue;
+    const name = `${n.name || ""}`;
+    const conflict = GEO_CONFLICT_RE.test(name);
+    const theme = GEO_THEME_RE.test(name);
+    // Conflict counts regardless of sentiment; a soft geopolitical theme only when bearish.
+    if (!conflict && !(theme && n.sentiment === "bearish")) continue;
+    if (!worst || str > worst.strength) worst = { name, strength: str };
+  }
+  if (!worst) return { score: 0, label: "no active risk-off geopolitical narrative" };
+  const s = worst.strength >= PICKS_MACRO_GEO_STRONG_STR ? -2 : -1;
+  return { score: s, label: `Geopolitical news: "${worst.name}" (str ${worst.strength})` };
+}
+
+export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null) {
   if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
   const axes = {};
   const drivers = [];
@@ -9871,7 +9987,42 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory) {
     } else axes.fed = { score: 0, label: "no Fed-path data" };
   }
 
-  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score];
+  // --- Commodity / geopolitical-shock axis (crude spike + gold haven bid) -----
+  // Stress-only & asymmetric: only a sharp SPIKE is risk-off (a gradual grind or a
+  // drop is not — rising oil is not always risk-off). Crude leads; a gold safe-haven
+  // bid alongside upgrades the read (the classic war/supply-shock signature).
+  if (PICKS_MACRO_COMMODITY) {
+    const oil = macroBackdrop.crude, au = macroBackdrop.gold;
+    const o1 = oil && isFinite(oil.pctChange1d) ? oil.pctChange1d : null;
+    const o5 = oil && isFinite(oil.pctChange5d) ? oil.pctChange5d : null;
+    const g1 = au && isFinite(au.pctChange1d) ? au.pctChange1d : null;
+    const g5 = au && isFinite(au.pctChange5d) ? au.pctChange5d : null;
+    const oilSpike = o1 != null && o1 >= PICKS_MACRO_OIL_1D;
+    const oilShock = o1 != null && o1 >= PICKS_MACRO_OIL_1D_STRONG;
+    const oilRun = o5 != null && o5 >= PICKS_MACRO_OIL_5D;
+    const goldHaven = (g1 != null && g1 >= PICKS_MACRO_GOLD_1D) || (g5 != null && g5 >= PICKS_MACRO_GOLD_5D);
+    let s = 0, label = "commodities calm";
+    if (oilShock || (oilSpike && goldHaven)) {
+      s = -2;
+      label = `Crude ${o1 >= 0 ? "+" : ""}${o1.toFixed(1)}%${goldHaven && g1 != null ? ` · gold +${g1.toFixed(1)}%` : ""} — supply/geopolitical shock`;
+    } else if (oilSpike || oilRun || goldHaven) {
+      s = -1;
+      label = (oilSpike || oilRun)
+        ? `Crude ${o1 != null ? (o1 >= 0 ? "+" : "") + o1.toFixed(1) : "+" + o5.toFixed(1)}% — oil spiking`
+        : `Gold safe-haven bid ${g1 != null ? "+" + g1.toFixed(1) : "+" + g5.toFixed(1)}%`;
+    }
+    axes.commodity = (oil || au) ? { score: s, label } : { score: 0, label: "no commodity data" };
+    if (s <= -1) drivers.push(label.split(" — ")[0]);
+  } else axes.commodity = { score: 0, label: "commodity axis off" };
+
+  // --- Geopolitical-news axis (AI narrative layer) ---------------------------
+  {
+    const geo = computeGeoNewsStress(narratives);
+    axes.geo = geo;
+    if (geo.score <= -1) drivers.push(geo.label.split(" (")[0]);
+  }
+
+  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score];
   const stress = arr.reduce((a, b) => a + b, 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
@@ -9945,7 +10096,8 @@ export function detectMarketRegime(marketCtx, macroBackdrop) {
     if (spyOn && vixCalm) base = "risk-on";
   }
   // Cross-asset macro override (PICKS_MACRO_REGIME). A coordinated risk-off /
-  // tightening tape (VIX + DXY + long yields + Fed path) establishes risk-off
+  // tightening tape (VIX + DXY + long yields + Fed path + commodity/geopolitical
+  // shock + geopolitical news) establishes risk-off
   // even without an SPY -1% day — that's the whole point: position into the
   // building stress before the index capitulates — and never lets a lone green
   // SPY print read risk-on while the macro is stressed. macroBackdrop.macroRegime
@@ -10387,12 +10539,20 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
 // at the name's own median IV (rank 50): richer → ≤0 penalty (−MAX at rank 100),
 // cheaper → ≥0 credit (+CHEAP_MAX at rank 0), asymmetric so richness costs more than
 // cheapness rewards. Returns { contribution, pctile } or null when it doesn't apply.
-export function computeIvCostContribution(data) {
+export function computeIvCostContribution(data, band) {
   if (!PICKS_IV_SCORE) return null;
   const ivr = data && data.ivRank;
   if (!ivr || !Number.isFinite(ivr.pctile) || !(ivr.n >= PICKS_IVRANK_MIN_N)) return null;
   const t = (ivr.pctile - 50) / 50; // −1 (cheapest own-IV) … +1 (richest own-IV)
-  const contribution = t >= 0 ? -PICKS_IV_SCORE_MAX * t : -PICKS_IV_SCORE_CHEAP_MAX * t;
+  // Regime overlay: scale up the RICHNESS penalty when the tape is imploding (buying
+  // premium into a vol spike), leaving the cheap-side credit unchanged. ×1 in
+  // neutral/risk-on (dormant unless the tape is actually stressed).
+  let richMult = 1;
+  if (PICKS_HW_REGIME) {
+    if (band === "severe") richMult = PICKS_IV_SCORE_SEVERE_MULT;
+    else if (band === "risk-off") richMult = PICKS_IV_SCORE_RISKOFF_MULT;
+  }
+  const contribution = t >= 0 ? -PICKS_IV_SCORE_MAX * t * richMult : -PICKS_IV_SCORE_CHEAP_MAX * t;
   return { contribution, pctile: ivr.pctile, n: ivr.n };
 }
 
@@ -10522,6 +10682,7 @@ function computeCrossSectionalScores(scored, opts = {}) {
   const xsectional = opts.xsectional !== false;
   const sectorNeutral = !!opts.sectorNeutral;
   const regime = opts.regime || null;
+  const regimeBand = opts.regimeBand || "neutral"; // §3.5 regime overlay — same band scorePillared used
   if (!xsectional || !Array.isArray(scored) || scored.length < PICKS_Z_MIN_UNIVERSE) {
     return { applied: false, strongCut: PICKS_TIER_STRONG, tradeCut: PICKS_MIN_CONVICTION };
   }
@@ -10633,7 +10794,7 @@ function computeCrossSectionalScores(scored, opts = {}) {
       // the chips remain consistent with the weighted pillar total. With the
       // feature off (hw=1) this is the prior plain sum and leaves contribution
       // untouched (byte-identical).
-      const sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0));
+      const sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0), regimeBand);
       pillar.score = sum;
       subtotal += sum;
     }
@@ -10769,10 +10930,12 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
   // further change. Fails open to the legacy absolute totals from scorePillared
   // when the flag is off or the universe is below the standardization floor.
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  const regimeBand = picksRegimeBand(regime, macroBackdrop); // §3.5.1 regime overlay (slow-pillar flex)
   const tierCutoffs = computeCrossSectionalScores(scored, {
     xsectional: opts.xsectional ?? PICKS_XSECTIONAL,
     sectorNeutral: opts.sectorNeutral ?? PICKS_SECTOR_NEUTRAL,
     regime,
+    regimeBand,
     eventRisk: macroBackdrop && macroBackdrop.eventRisk,
   });
 
@@ -10805,8 +10968,10 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
   // broad-market regime for the execution-timing gate + risk-off put path.
   // tierCutoffs carries the percentile cutoffs (P3.2) so buildTopPicks's
   // actionable filter and writeGradesFile's minConviction track them.
-  // buildGradesIndex destructures { scored, peerIndex, tierCutoffs }.
-  return { scored, peerIndex, marketCtx, tierCutoffs };
+  // regimeBand (§3.5.1) rides out so the picks/grades payloads can surface WHICH
+  // weighting was in force on the card breakdown.
+  // buildGradesIndex destructures { scored, peerIndex, tierCutoffs, regimeBand }.
+  return { scored, peerIndex, marketCtx, tierCutoffs, regimeBand };
 }
 
 // Risk-based position sizing (P3.4). For each surviving pick: a per-name risk
@@ -10936,7 +11101,7 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
-  const { scored, peerIndex, marketCtx, tierCutoffs } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
+  const { scored, peerIndex, marketCtx, tierCutoffs, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
   // Severe cross-asset macro stress (≥3 risk-off axes): cut size harder, cap calls,
   // and relax the tactical-put bar so the roster genuinely tilts to puts/cash.
@@ -11162,6 +11327,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       factorCapped: skippedFactorCapped,
       factorCounts,
       macroCallCapped: skippedMacroCallCapped, // severe-tape call cap skips
+      // §3.5.1 — which regime weighting was in force this build (neutral / risk-off /
+      // severe / risk-on), so the card breakdown can explain WHY the slow pillars
+      // were discounted or boosted.
+      regimeBand,
       edgeScale: Number(edgeScale.toFixed(3)), // P1.3 — gross multiplier from realized option edge
       // Cross-asset macro regime gauge (PICKS_MACRO_REGIME) so the picks UI can
       // show WHY the roster tilted: state, the four axes, drivers, and the gross
@@ -11191,7 +11360,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 // (contract / entryPlan / exitPlan / analysis / thesis) are intentionally
 // omitted since off-list names have no recommended contract.
 export function buildGradesIndex(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, opts = {}) {
-  const { scored, peerIndex, tierCutoffs } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
+  const { scored, peerIndex, tierCutoffs, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const grades = {};
   for (const r of scored) {
     const sector = r.data?.fundamentals?.sector || null;
@@ -11233,6 +11402,10 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
   // "actionable" gate reads — without changing the serialized grades shape. Falls
   // back to the legacy ±12 bar on the small-universe / flag-off path.
   Object.defineProperty(grades, "tierCutoffs", { value: tierCutoffs || null, enumerable: false });
+  // §3.5.1 regime band — stashed non-enumerable (like tierCutoffs) so the grades
+  // shape is unchanged; writeGradesFile lifts it into the published payload so the
+  // grade-any-ticker breakdown can show the active weighting.
+  Object.defineProperty(grades, "regimeBand", { value: regimeBand || "neutral", enumerable: false });
   return grades;
 }
 
@@ -11246,7 +11419,8 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
   // searched name actionable / no-trade, so it must track the live cutoff.
   const minConviction = (grades && grades.tierCutoffs && Number.isFinite(grades.tierCutoffs.tradeCut))
     ? grades.tierCutoffs.tradeCut : PICKS_MIN_CONVICTION;
-  const payload = { builtAtIso, minConviction, grades };
+  const regimeBand = (grades && grades.regimeBand) || "neutral"; // §3.5.1 — active weighting regime
+  const payload = { builtAtIso, minConviction, regimeBand, grades };
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, GRADES_FILE), json, "utf8");
   return { bytes: json.length, count: Object.keys(grades).length, grades };
@@ -17253,7 +17427,7 @@ async function main() {
     // scoring (detectMarketRegime + the differential narrative tilt) and the
     // roster (de-grossing, call cap, tactical-put bar). Like eventRisk it's a
     // picks-internal, this-build-only signal — not persisted to macro.json.
-    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory);
+    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives);
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
       const m = macroBackdrop.macroRegime;
       console.log(`  · macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);

@@ -12449,6 +12449,35 @@
     '</div>';
   }
 
+  // The market-regime weighting band in force this build (§3.5.1). Global per build,
+  // so it's read from whichever payload is loaded — the picks roster meta first,
+  // then the grade-index payload (the grade-any-ticker search). Defaults to neutral
+  // (the common case + any legacy payload without the field).
+  function activeRegimeBand(){
+    var pm = (typeof picksState !== 'undefined' && picksState.data && picksState.data.rosterMeta) || null;
+    if (pm && pm.regimeBand) return pm.regimeBand;
+    var gd = (typeof picksGradesState !== 'undefined' && picksGradesState.data) || null;
+    if (gd && gd.regimeBand) return gd.regimeBand;
+    return 'neutral';
+  }
+  // A one-line banner on the score breakdown explaining how the active market
+  // regime is re-weighting the grade — so it's obvious WHY a slow-pillar score
+  // shifted when the tape turned. Empty in the neutral tape (the base weights, no
+  // banner needed).
+  var REGIME_WEIGHT_NOTE = {
+    'risk-off': { cls: 'pp-regime-off', ico: '⚠', txt: 'Risk-off tape — Fundamentals & Narrative weighted down (×0.67), leaning on Technicals, Mechanicals, Entry timing & IV cost. In a falling market single-name stories carry less.' },
+    'severe':   { cls: 'pp-regime-severe', ico: '⚠', txt: 'Severe risk-off tape — Fundamentals & Narrative halved (×0.5); in a crisis only the fast factors (price, flow, timing, vol) carry, and rich premium is penalized harder.' },
+    'risk-on':  { cls: 'pp-regime-on', ico: '↑', txt: 'Risk-on tape — Fundamentals & Narrative weighted up (×1.2); in a calm, trending market single-name stories carry more.' },
+  };
+  function regimeWeightNote(band){
+    var m = REGIME_WEIGHT_NOTE[band];
+    if (!m) return '';
+    return '<div class="pick-pillars-regime ' + m.cls + '" title="Grade weighting flexes with the market regime — see the Top Picks rubric §3.5.1">' +
+      '<span class="ppr-ico" aria-hidden="true">' + m.ico + '</span>' +
+      '<span class="ppr-txt">' + escapeHtml(m.txt) + '</span>' +
+    '</div>';
+  }
+
   function pickPillarPanel(p){
     var pillars = p && p.pillars;
     if (!pillars) return '';
@@ -12619,6 +12648,7 @@
         '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + Number(total).toFixed(1)) + '</span>' +
       '</div>' +
       leadHtml +
+      regimeWeightNote(activeRegimeBand()) +
       viz +
       body +
     '</aside>';
@@ -13163,7 +13193,7 @@
       var mCls = (macro.state === 'risk-on') ? ' picks-summary-call' : ' picks-summary-put';
       var drv = (macro.drivers && macro.drivers.length) ? macro.drivers.join(' · ') : '';
       var grossTxt = (macro.grossMult != null && macro.grossMult < 1) ? ' Gross cut to ~' + Math.round(macro.grossMult * 100) + '% of target.' : '';
-      var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields and the Fed path (FedWatch hike-odds drift). ' +
+      var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields, the Fed path (FedWatch hike-odds drift), a commodity / geopolitical-shock axis (a crude spike + gold safe-haven bid) and a geopolitical-news axis (a strong war/conflict narrative). ' +
         (macro.state === 'risk-on' ? 'A clean risk-on tape leans the list long.' :
           (severe ? 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), tactical puts open wider, calls are capped, and gross is cut.' :
             'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.')) +
