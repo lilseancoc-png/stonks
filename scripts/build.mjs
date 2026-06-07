@@ -6469,6 +6469,26 @@ const PICKS_IVRANK_CHEAP = Number(process.env.PICKS_IVRANK_CHEAP ?? 20);  // ≤
 // suppresses risk-off "tactical puts" bought into a VIX/IV spike (long vol after the
 // move). Default 90; set 0 to disable the gate (keep only the soft con).
 const PICKS_IVRANK_VETO = Number(process.env.PICKS_IVRANK_VETO ?? 90);
+// Dedicated IV-COST scoring term folded into `total` (not just the timing gate).
+// The IV-rank soft con/pro above only nudges the bounded −8..+4 timing budget, so it
+// rarely re-ranks: two names with the same direction/quality but very different own-
+// IV ranks score ~the same and sit next to each other. For a long-premium buyer IV
+// richness is first-order (right on direction, wrong on vol = a crush loss), so this
+// makes "how expensive is this name's own vol right now" a CONTINUOUS, direction-
+// AGNOSTIC conviction term: a cost that always moves total (a cheap-vol name outranks
+// a rich-vol one of equal grade), not just a go/wait gate. Centered at the name's own
+// median IV (rank 50): above → penalty (≤0, scaled to −MAX at rank 100), below →
+// credit (≥0, scaled to +CHEAP_MAX at rank 0). Asymmetric (rich hurts more than cheap
+// helps — one cheap entry doesn't fix a bad trade, the same long-bias-defense logic as
+// the +2/−3 catalyst split). Folds in PARALLEL with timing via the same dirSign clamp,
+// so it weakens conviction for whichever side, never flips it. When ON it OWNS the
+// rich/cheap magnitude — the timing soft con/pro is suppressed to avoid double-counting
+// (the ≥90 VETO stays, as a pure gate). Set 0 to revert to the legacy in-timing nudge.
+// Reuses data.ivRank (real own-history IV percentile, ≥ PICKS_IVRANK_MIN_N entries);
+// no IV history → 0 (graceful, no RV proxy — RV ≠ IV for a premium-cost read).
+const PICKS_IV_SCORE = process.env.PICKS_IV_SCORE !== "0"; // default ON
+const PICKS_IV_SCORE_MAX = Number(process.env.PICKS_IV_SCORE_MAX ?? 3);        // max penalty at the richest own-IV (rank 100)
+const PICKS_IV_SCORE_CHEAP_MAX = Number(process.env.PICKS_IV_SCORE_CHEAP_MAX ?? 1.5); // max credit at the cheapest own-IV (rank 0)
 // P2 — IV term-structure slope gate (computeEntryTiming soft con). Backwardation
 // (front-month IV richer than the back by ≥ this fraction) = buying the most
 // expensive point on the curve, a vol headwind for a naked long debit.
@@ -7935,8 +7955,23 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
   const et = computeEntryTiming(tSide, data, (data && data.spot) || null, { regime, eventRisk: macroBackdrop && macroBackdrop.eventRisk });
   const tContribution = Number.isFinite(et.contribution) ? et.contribution : 0;
-  const total = dirSign * Math.max(0, Math.abs(subtotal) + tContribution);
-  const timingDelta = total - subtotal; // exact, so the 5 pillars sum to total
+  // IV cost (PICKS_IV_SCORE) — a direction-agnostic conviction cost folded in
+  // PARALLEL with timing (own-IV richness is expensive for whichever side). It
+  // adds another bounded contribution to the SAME dirSign clamp, so "how rich is
+  // this name's own vol right now" always moves total/ranking, not just go/wait.
+  const ivRead = computeIvCostContribution(data);
+  const ivc = ivRead && Number.isFinite(ivRead.contribution) ? ivRead.contribution : 0;
+  const total = dirSign * Math.max(0, Math.abs(subtotal) + tContribution + ivc);
+  const foldDelta = total - subtotal;
+  // Split the fold delta between timing and IV. When the clamp doesn't bite (every
+  // SHIPPING pick — |subtotal| dwarfs the small fold terms) these are exact and the
+  // 5 graded pillars + timing + ivCost sum to total; in the rare clamped no-trade
+  // (total=0) timing absorbs the residual, so with ivc===0 timingDelta is byte-
+  // identical to the legacy `total − subtotal` (PICKS_IV_SCORE off ⇒ no change).
+  const ivDelta = dirSign * ivc;
+  const timingDelta = foldDelta - ivDelta;
+  const ivCost = buildIvCostPillar(ivRead, dirSign);
+  if (ivCost) ivCost.score = ivDelta; // exact signed delta into total
   const timing = {
     score: timingDelta,
     signals: [{ key: "entryTiming", label: et.headline || "Entry timing", score: timingDelta }],
@@ -7961,6 +7996,7 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
     ...mechanicals.signals.map((s) => ({ ...s, pillar: "mechanicals" })),
     ...narrative.signals.map((s) => ({ ...s, pillar: "narrative" })),
     ...timing.signals.map((s) => ({ ...s, pillar: "timing" })),
+    ...(ivCost ? ivCost.signals.map((s) => ({ ...s, pillar: "ivCost" })) : []),
   ];
   const drivers = allSignals
     .filter((s) => s.score !== 0)
@@ -7972,9 +8008,16 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
       text: `${s.label}${s.value ? ` (${s.value})` : ""}${s.note ? ` — ${s.note}` : ""}`,
     }));
 
+  // ivCost is a non-PILLAR_KEYS sibling of timing: it rides into `total` and renders
+  // as its own row, but is excluded from the per-pillar delta accounting (GRADE_PILLAR_KEYS)
+  // exactly like timing, so grade-change / roster "why" strings are unchanged. Omitted
+  // entirely when there's no IV read so legacy / no-data payloads are byte-identical.
+  const pillars = { fundamentals, technicals, mechanicals, narrative, timing };
+  if (ivCost) pillars.ivCost = ivCost;
+
   return {
     total,
-    pillars: { fundamentals, technicals, mechanicals, narrative, timing },
+    pillars,
     recommendation,
     drivers,
   };
@@ -9542,10 +9585,22 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     // put" into a VIX/IV spike — long vol after the move). Side-aware: a con weakens
     // conviction for whichever side, never flips it.
     if (PICKS_IVRANK_VETO > 0 && ivr.pctile >= PICKS_IVRANK_VETO) {
-      con(true, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — extreme premium; don't buy a naked long here (wait for vol to come in, or trade it defined-risk)`);
-    } else if (ivr.pctile >= PICKS_IVRANK_RICH) {
+      const vetoMsg = `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — extreme premium; don't buy a naked long here (wait for vol to come in, or trade it defined-risk)`;
+      if (PICKS_IV_SCORE) {
+        // The dedicated IV-cost term (folded into total) OWNS the rich-IV magnitude,
+        // so here the veto must only block `go` (the gate) — adding con(true)'s −2 on
+        // top would double-count the same rich-IV read. Push the reason + strongCon
+        // directly so it still demotes go→wait without touching the timing score.
+        reasons.push(`- ${vetoMsg}`);
+        strongCons.push(vetoMsg);
+      } else {
+        con(true, vetoMsg);
+      }
+    } else if (!PICKS_IV_SCORE && ivr.pctile >= PICKS_IVRANK_RICH) {
+      // Legacy in-timing soft con/pro — only when the dedicated IV-cost term is OFF.
+      // When it's ON, the continuous IV-cost term subsumes these (no double-count).
       con(false, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — rich premium, a vol headwind for a long debit`);
-    } else if (ivr.pctile <= PICKS_IVRANK_CHEAP) {
+    } else if (!PICKS_IV_SCORE && ivr.pctile <= PICKS_IVRANK_CHEAP) {
       pro(false, `IV at the ${ivr.pctile}th percentile of its ${ivr.n}-day range — cheap premium for a long debit`);
     }
   }
@@ -9590,6 +9645,48 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const contribution = (knife || chase) ? -8 : Math.max(-8, Math.min(4, score));
 
   return { state, score, contribution, reasons, headline };
+}
+
+// Dedicated IV-cost conviction term (PICKS_IV_SCORE), folded into `total` alongside
+// timing. Direction-AGNOSTIC: a long debit is expensive regardless of call/put, so
+// this returns a single contribution that the dirSign clamp in scorePillared /
+// computeCrossSectionalScores applies as a CONVICTION cost (weakens whichever side,
+// never flips it). Reads the name's own IV rank (real own-history percentile, the
+// same source as the timing soft con); no IV history → 0 (graceful — deliberately
+// no RV proxy, since realized vol isn't the premium you pay). Continuous and centered
+// at the name's own median IV (rank 50): richer → ≤0 penalty (−MAX at rank 100),
+// cheaper → ≥0 credit (+CHEAP_MAX at rank 0), asymmetric so richness costs more than
+// cheapness rewards. Returns { contribution, pctile } or null when it doesn't apply.
+export function computeIvCostContribution(data) {
+  if (!PICKS_IV_SCORE) return null;
+  const ivr = data && data.ivRank;
+  if (!ivr || !Number.isFinite(ivr.pctile) || !(ivr.n >= PICKS_IVRANK_MIN_N)) return null;
+  const t = (ivr.pctile - 50) / 50; // −1 (cheapest own-IV) … +1 (richest own-IV)
+  const contribution = t >= 0 ? -PICKS_IV_SCORE_MAX * t : -PICKS_IV_SCORE_CHEAP_MAX * t;
+  return { contribution, pctile: ivr.pctile, n: ivr.n };
+}
+
+// Build the non-pillar `pillars.ivCost` component from a raw IV-cost read + the
+// trade's direction sign. `score` is the signed delta the term adds to `total`
+// (dirSign · raw), so it renders/sums in the same signed frame as the other pillars;
+// `raw` is the direction-agnostic contribution the re-fold reuses. Mirrors the shape
+// of pillars.timing so pickPillarPanel can render it as a sibling row. Returns null
+// when there's no IV-cost read (so legacy / no-data names omit the key entirely and
+// render byte-identically).
+function buildIvCostPillar(ivRead, dirSign) {
+  if (!ivRead || !Number.isFinite(ivRead.contribution) || ivRead.contribution === 0) return null;
+  const raw = ivRead.contribution;
+  const score = dirSign * raw; // signed delta into total (set exactly by the caller's fold)
+  const rich = raw < 0;
+  const note = rich
+    ? `IV at the ${ivRead.pctile}th pctile of its ${ivRead.n}-day range — rich premium, a vol headwind for a long debit`
+    : `IV at the ${ivRead.pctile}th pctile of its ${ivRead.n}-day range — cheap premium for a long debit`;
+  return {
+    score,
+    raw,
+    pctile: ivRead.pctile,
+    signals: [{ key: "ivCost", label: "IV cost", score, value: `${ivRead.pctile}th pctile`, note }],
+  };
 }
 
 // Resolve the most specific peer group for a ticker — the curated sub-industry
@@ -9815,6 +9912,7 @@ function computeCrossSectionalScores(scored, opts = {}) {
     // WRONG trade, so recompute computeEntryTiming for the new side (cheap, only
     // the flipped minority; cross-section-independent for a fixed side).
     const timing = r.pillars && r.pillars.timing;
+    const ivCost = r.pillars && r.pillars.ivCost; // non-PILLAR_KEYS IV-cost sibling (may be absent)
     const newDir = subtotal >= 0 ? 1 : -1;
     const newSide = newDir > 0 ? "call" : "put";
     let tc = 0;
@@ -9832,11 +9930,20 @@ function computeCrossSectionalScores(scored, opts = {}) {
         timing.rawContribution = tc;
       }
     }
-    const total = newDir * Math.max(0, Math.abs(subtotal) + tc);
+    // IV cost is direction-AGNOSTIC (own-IV richness costs the same for a call or a
+    // put), so unlike timing it needs NO side-flip recompute — reuse the raw read,
+    // re-fold it in parallel through the same clamp, and re-derive its signed delta.
+    const ivc = ivCost && Number.isFinite(ivCost.raw) ? ivCost.raw : 0;
+    const total = newDir * Math.max(0, Math.abs(subtotal) + tc + ivc);
+    const ivDelta = newDir * ivc;
     if (timing) {
-      const timingDelta = total - subtotal;
+      const timingDelta = (total - subtotal) - ivDelta; // residual after IV → exact when unclamped
       timing.score = timingDelta;
       if (Array.isArray(timing.signals) && timing.signals[0]) timing.signals[0].score = timingDelta;
+    }
+    if (ivCost) {
+      ivCost.score = ivDelta;
+      if (Array.isArray(ivCost.signals) && ivCost.signals[0]) ivCost.signals[0].score = ivDelta;
     }
     r.total = total;
 
@@ -9854,6 +9961,10 @@ function computeCrossSectionalScores(scored, opts = {}) {
     }
     if (timing && timing.score) {
       all.push({ tag: "timing", weight: timing.score, label: timing.headline || "Entry timing", value: null, note: "" });
+    }
+    if (ivCost && ivCost.score) {
+      const ivSig = Array.isArray(ivCost.signals) && ivCost.signals[0];
+      all.push({ tag: "ivCost", weight: ivCost.score, label: (ivSig && ivSig.label) || "IV cost", value: (ivSig && ivSig.value) || null, note: (ivSig && ivSig.note) || "" });
     }
     r.drivers = all
       .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
