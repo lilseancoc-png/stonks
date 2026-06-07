@@ -48,16 +48,23 @@
     "bpsChange5d": null,
     "trend": "rising",
     "rankPct": null,
-    "rankSamples": 7
+    "rankSamples": 8
   },
-  "asOf": "2026-06-06T03:08:44.719Z",
+  "vixTerm": {
+    "short": 23.92,
+    "spot": 21.51,
+    "mid": 21.82,
+    "ratio": 0.986,
+    "state": "contango"
+  },
+  "asOf": "2026-06-07T00:31:27.505Z",
   "previousClose": {
-    "date": "2026-06-04",
-    "asOf": "2026-06-05T02:45:49.298Z",
+    "date": "2026-06-05",
+    "asOf": "2026-06-06T03:08:44.719Z",
     "twoY": null,
-    "tenY": 4.477,
-    "thirtyY": 4.9779997,
-    "dxy": 99.418,
-    "vix": 15.4
+    "tenY": 4.5360003,
+    "thirtyY": 4.999,
+    "dxy": 100.071,
+    "vix": 21.51
   }
 }
