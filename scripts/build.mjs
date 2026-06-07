@@ -1560,6 +1560,10 @@ async function fetchFundamentals(symbol) {
     fiscalYearEndMonth,
     nextEarningsDate: nextEarnings,
     nextEarningsSession,
+    // Next ex-dividend date (calendarEvents preferred, summaryDetail fallback) —
+    // a calendar date, used by the entry-timing ex-div nudge. isoDate tolerates
+    // the Date / {raw} / string shapes Yahoo returns; null for non-payers.
+    exDivDate: isoDate(ev?.exDividendDate ?? sd?.exDividendDate),
     growthEstimateCurQ: tq ? pct(tq.growth) : null,
     growthEstimateCurY: ty ? pct(ty.growth) : null,
     revenueEstimateCurQ: tq?.revenueEstimate ? num(tq.revenueEstimate.avg) : null,
@@ -6547,6 +6551,23 @@ const PICKS_TIMING_RISKOFF_SPY = -1.0;      // % SPY day that confirms a risk-of
 const PICKS_TIMING_RISKON_SPY = 0.6;        // % SPY day that confirms a risk-on regime
 const PICKS_TIMING_EARNINGS_DEFER_DAYS = 8; // earnings this close → defer entry → 'wait' (P1.3: 3→8; IV ramps 1-2 weeks out, so a 3-session window let a 21-DTE call bought 4 sessions pre-print still eat the crush)
 const PICKS_TIMING_MIN_BARS = 15;           // need this many confirmed bars or the gate fails OPEN (P2.2: to 'wait', shown-but-not-enrolled)
+// Ex-dividend nudge (side-aware SOFT, not a defer). A long call held across the
+// ex-date eats the open gap-down by the dividend (+ early-assignment risk on a
+// slightly-ITM strike); a long put benefits. The drop is already priced into the
+// option via the forward, so the residual edge is small → a ±1 nudge, never a
+// hard 'wait', and only for names paying a real dividend (so the no-yield majority
+// never trips it). Unlike earnings, ex-div is NOT an IV-crush event.
+const PICKS_TIMING_EXDIV_DEFER_DAYS = Number(process.env.PICKS_TIMING_EXDIV_DEFER_DAYS ?? 2); // ex-div within this many days → the nudge
+const PICKS_TIMING_EXDIV_MIN_YIELD = Number(process.env.PICKS_TIMING_EXDIV_MIN_YIELD ?? 1.0); // annual dividend yield % floor to bother nudging
+// Holiday/weekend theta drag (side-AGNOSTIC soft). A long debit decays on calendar
+// days but the underlying only moves on trading days, so entering right before a
+// long weekend / holiday-shortened stretch is dead premium bleed. Count non-trading
+// calendar days in the immediate forward window; a normal Mon–Fri week never reaches
+// the threshold (max 2 over a weekend) — only a market holiday in the window pushes
+// it to ≥3 → a soft con that pulls borderline names below the absolute floor so we
+// don't pay a long weekend's theta on a thin thesis.
+const PICKS_TIMING_DEADDAYS_WINDOW = Number(process.env.PICKS_TIMING_DEADDAYS_WINDOW ?? 5); // calendar days to look ahead
+const PICKS_TIMING_DEADDAYS_CON = Number(process.env.PICKS_TIMING_DEADDAYS_CON ?? 3);       // non-trading days ahead that trips the con
 // Severity-scaled avoid penalty. The flat -8 knife/chase penalty lets the MOST
 // egregious setups (a +50% / RSI-88 blow-off, a -15% one-day collapse — the biggest
 // historical losers) still clear the bar when the four-pillar grade is high
@@ -9830,6 +9851,44 @@ function daysToEarningsFrom(data) {
   return d >= -1 ? Math.max(0, Math.round(d)) : null;
 }
 
+// Whole days until the next ex-dividend date (≥0), or null. Mirrors
+// daysToEarningsFrom — a calendar date, parsed at 16:00Z so a same-day ex-date
+// reads 0 rather than rolling negative.
+function daysToExDivFrom(data) {
+  const iso = data && data.fundamentals && data.fundamentals.exDivDate;
+  if (!iso || typeof iso !== "string") return null;
+  const t = Date.parse(iso.length <= 10 ? `${iso}T16:00:00Z` : iso);
+  if (!Number.isFinite(t)) return null;
+  const d = (t - Date.now()) / 86400000;
+  return d >= -1 ? Math.max(0, Math.round(d)) : null;
+}
+
+// NYSE full-day market holidays (observed dates) for the build's relevant window.
+// Used ONLY by the timing dead-days theta read, which degrades gracefully — a
+// missing far-future year just under-counts holidays (weekends still count), so
+// this never has to be exhaustive beyond the next ~year.
+const NYSE_HOLIDAYS = new Set([
+  // 2025
+  "2025-01-01", "2025-01-20", "2025-02-17", "2025-04-18", "2025-05-26", "2025-06-19", "2025-07-04", "2025-09-01", "2025-11-27", "2025-12-25",
+  // 2026
+  "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25", "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+  // 2027
+  "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+]);
+// Count non-trading calendar days (weekend or NYSE holiday) in the next
+// `horizonDays` from nowMs. A normal Mon–Fri week peaks at 2 (one weekend); a
+// market holiday inside the window pushes it to ≥3, which is what the dead-days
+// con keys on.
+function nonTradingDaysAhead(nowMs, horizonDays) {
+  let count = 0;
+  for (let i = 1; i <= horizonDays; i++) {
+    const d = new Date(nowMs + i * 86400000);
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6 || NYSE_HOLIDAYS.has(d.toISOString().slice(0, 10))) count++;
+  }
+  return count;
+}
+
 // The gate. Returns { state:'go'|'wait'|'avoid', score, reasons:[], headline }.
 //   avoid → the entry is a falling knife or a chase of an extended top: DROP it.
 //   wait  → no clean entry yet (mixed structure / catalyst imminent / tape
@@ -10069,6 +10128,31 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     const tp = Number(eventRisk.topProb);
     const tpPct = Number.isFinite(tp) ? Math.round((tp > 1.5 ? tp / 100 : tp) * 100) : null;
     con(false, `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d is a market coin-flip${tpPct != null ? ` (top outcome ~${tpPct}%)` : ""} — defer entry past the event`);
+  }
+
+  // ---- Ex-dividend nudge (side-aware, soft) ----------------------------------
+  // A long call held across the ex-date eats the open gap-down by the dividend
+  // (+ early-assignment risk on a slightly-ITM strike); a long put benefits. The
+  // gap is priced into the option via the forward, so this is a small ±1 nudge,
+  // never a hard defer — and only for names paying a real dividend, so the
+  // no-yield majority never trips it.
+  const exDivDays = daysToExDivFrom(data);
+  const divYield = Number.isFinite(f.dividendYield) ? f.dividendYield : null;
+  if (exDivDays != null && exDivDays <= PICKS_TIMING_EXDIV_DEFER_DAYS &&
+      divYield != null && divYield >= PICKS_TIMING_EXDIV_MIN_YIELD) {
+    const inDays = exDivDays === 0 ? "0" : exDivDays;
+    if (dir > 0) con(false, `ex-dividend in ${inDays}d (${divYield.toFixed(1)}% yield) — the stock gaps down by the dividend on the ex-date, a small headwind for a long call`);
+    else pro(false, `ex-dividend in ${inDays}d (${divYield.toFixed(1)}% yield) — the ex-date gap-down works for a long put`);
+  }
+
+  // ---- Holiday/weekend theta drag (side-agnostic, soft) ----------------------
+  // A long debit decays on calendar days but the underlying only moves on trading
+  // days, so entering right before a long weekend / holiday-shortened stretch is
+  // dead premium bleed. A normal week never trips this (≤2 weekend days in the
+  // window); only a market holiday inside it pushes the count to the threshold.
+  const deadDays = nonTradingDaysAhead(Date.now(), PICKS_TIMING_DEADDAYS_WINDOW);
+  if (deadDays >= PICKS_TIMING_DEADDAYS_CON) {
+    con(false, `${deadDays} non-trading days in the next ${PICKS_TIMING_DEADDAYS_WINDOW} — a long weekend/holiday bleeds theta with no underlying move`);
   }
 
   // ---- Vol-cost overlays (P1.6 / P2) — direction-AGNOSTIC headwinds for a long
