@@ -5761,6 +5761,18 @@ main { padding-top: var(--s-2); }
 }
 .fomc-shift.hawk { color: var(--neg); }
 .fomc-shift.dove { color: var(--pos); }
+.fomc-shift.flat { color: var(--muted); }
+.fomc-live {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  color: var(--pos);
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
+  border-radius: 999px;
+  white-space: nowrap;
+  align-self: center;
+  margin-left: auto;
+}
 .fomc-ladder-wrap { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
 .fomc-ladder-title {
   font: 600 11px/1.2 var(--font-mono);
@@ -5777,6 +5789,7 @@ main { padding-top: var(--s-2); }
 }
 .fomc-ladder-meeting { text-align: left !important; font-weight: 600; color: var(--text); white-space: nowrap; }
 .fomc-ladder-move { font-weight: 600; color: var(--text); }
+.fomc-ladder-trend { text-align: right !important; white-space: nowrap; }
 .fomc-ladder-flag { text-align: right !important; }
 .fomc-ladder tr.is-notable td { background: rgba(234, 179, 8, 0.08); }
 .fomc-ladder-na td { color: var(--muted); font-style: italic; }

@@ -8410,6 +8410,117 @@
       pmLine +
     '</div>';
   }
+  // ====================================================================
+  // Live FedWatch recompute — tracks CME continuously between hourly bakes.
+  // --------------------------------------------------------------------
+  // The baked fomc.probabilities[*].now buckets are only as fresh as the last
+  // build; CME FedWatch is continuous, so our numbers drift from CME purely on
+  // timing. On calendar load we refetch live ZQ Fed Funds futures (/api/fed-
+  // futures) and recompute the "now" implied-rate path in the browser, then
+  // re-render. This DUPLICATES the server math (scripts/build.mjs
+  // fetchFedwatchSnapshot / probsFromDelta / postMeetingDaysInMonth /
+  // zqSymbolForMonthKey) because app.js is a generated IIFE that can't import it
+  // — keep the two in sync (same convention as the duplicated greeks). Only the
+  // "now" bucket is refreshed; the 1d/1w/1m history columns + the Trend stay
+  // baked. Fails closed: any error leaves the baked render untouched.
+  var FOMC_CME_MONTH_CODES = ['F','G','H','J','K','M','N','Q','U','V','X','Z'];
+  function zqSymbolForMonthKey(yyyymm){
+    var y = Number(yyyymm.slice(0,4)), m = Number(yyyymm.slice(5,7)) - 1;
+    return 'ZQ' + FOMC_CME_MONTH_CODES[m] + String(y).slice(-2) + '.CBT';
+  }
+  function addMonthKey(yyyymm){
+    var y = Number(yyyymm.slice(0,4)), m = Number(yyyymm.slice(5,7)) + 1;
+    if (m > 12){ m = 1; y += 1; }
+    return y + '-' + String(m).padStart(2,'0');
+  }
+  function postMeetingDaysInMonth(dateStr){
+    var y = Number(dateStr.slice(0,4)), mIdx = Number(dateStr.slice(5,7)) - 1, meetingDay = Number(dateStr.slice(8,10));
+    var daysInMonth = new Date(Date.UTC(y, mIdx + 1, 0)).getUTCDate();
+    return { meetingDay: meetingDay, daysInMonth: daysInMonth, postDays: daysInMonth - meetingDay };
+  }
+  // Identical to build.mjs probsFromDelta: a (pre,post) rate delta -> the CME
+  // hike/hold/cut triple, 25 bps step, linear between adjacent quantized moves.
+  function probsFromDeltaLive(delta){
+    var clamp = function(x){ return Math.max(0, Math.min(1, x)); };
+    var hike = 0, cut = 0;
+    if (delta > 0) hike = clamp(delta / 0.25);
+    else if (delta < 0) cut = clamp(-delta / 0.25);
+    return { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+  }
+  // EFFR -> FOMC target-range midpoint (e.g. 3.62 -> 3.625), CME's anchor base.
+  function fedTargetMidpoint(rate){ return Math.round((rate - 0.125) / 0.25) * 0.25 + 0.125; }
+  // The exact ZQ contract symbols the recompute needs for these meeting dates.
+  function fomcLiveSymbols(meetingDates){
+    var set = {};
+    meetingDates.forEach(function(d){
+      var mk = d.slice(0,7);
+      set[zqSymbolForMonthKey(mk)] = 1;
+      set[zqSymbolForMonthKey(addMonthKey(mk))] = 1;
+    });
+    set['ZQ=F'] = 1; // front-month fallback
+    return Object.keys(set);
+  }
+  // Recompute fresh "now" MARGINAL buckets per meeting from a {symbol: price}
+  // map. Mirrors fetchFedwatchSnapshot's "now" pass: prefer the next month's
+  // contract as a direct post-rate read, else invert the meeting month using
+  // the chained pre-rate; chain forward; stop if a contract is missing.
+  function computeLiveFomcBuckets(fomc, prices){
+    var meetings = (fomc.meetings || []).map(function(m){ return m.date; }).filter(Boolean).sort();
+    if (!meetings.length) return null;
+    var rate = fomc.effectiveRate && fomc.effectiveRate.rate;
+    if (typeof rate !== 'number' || !isFinite(rate)) return null;
+    var frontMonthKey = meetings[0].slice(0,7);
+    var priceForMonth = function(mk){
+      var p = prices[zqSymbolForMonthKey(mk)];
+      if (p == null && mk === frontMonthKey) p = prices['ZQ=F'];
+      return (p != null && isFinite(p)) ? Number(p) : null;
+    };
+    var out = {}, preRate = fedTargetMidpoint(rate), any = false;
+    for (var i = 0; i < meetings.length; i++){
+      var date = meetings[i], monthKey = date.slice(0,7);
+      var pm = postMeetingDaysInMonth(date);
+      var postRate = null;
+      var nextPrice = priceForMonth(addMonthKey(monthKey));
+      if (nextPrice != null) postRate = 100 - nextPrice;
+      if (postRate == null && pm.postDays > 0){
+        var thisPrice = priceForMonth(monthKey);
+        if (thisPrice != null){ var impliedAvg = 100 - thisPrice; postRate = (impliedAvg * pm.daysInMonth - preRate * pm.meetingDay) / pm.postDays; }
+      }
+      if (postRate == null || !isFinite(postRate)) break; // chain broken — stop
+      out[date] = probsFromDeltaLive(postRate - preRate);
+      preRate = postRate; any = true;
+    }
+    return any ? out : null;
+  }
+  var fomcLiveState = { inFlight: false };
+  function refreshFomcLive(fomc){
+    if (!fomc || !fomc.meetings || !fomc.meetings.length) return;
+    if (!fomc.effectiveRate || typeof fomc.effectiveRate.rate !== 'number') return;
+    // Throttle: skip if we applied a live snapshot < 20s ago, or one's in flight.
+    if (fomc._liveAtMs && (Date.now() - fomc._liveAtMs) < 20000) return;
+    if (fomcLiveState.inFlight) return;
+    var dates = fomc.meetings.map(function(m){ return m.date; }).filter(Boolean);
+    var symbols = fomcLiveSymbols(dates);
+    if (!symbols.length) return;
+    fomcLiveState.inFlight = true;
+    fetch('/api/fed-futures?symbols=' + encodeURIComponent(symbols.join(',')), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        fomcLiveState.inFlight = false;
+        if (!j || !j.prices) return;
+        var fresh = computeLiveFomcBuckets(fomc, j.prices);
+        if (!fresh) return;
+        if (!fomc.probabilities) fomc.probabilities = {};
+        Object.keys(fresh).forEach(function(d){
+          if (!fomc.probabilities[d]) fomc.probabilities[d] = { now: null, day: null, week: null, month: null };
+          fomc.probabilities[d].now = fresh[d];
+        });
+        fomc._liveAtMs = Date.now();
+        fomc._liveAsOf = j.fetchedAt || new Date().toISOString();
+        renderFomcWidget(fomc); // re-render only — NOT re-kicked, so no loop
+      })
+      .catch(function(){ fomcLiveState.inFlight = false; });
+  }
   function renderFomcWidget(fomc){
     var root = $('fomc-widget');
     if (!root) return;
@@ -8444,6 +8555,17 @@
     var meetings = meetingsAll.slice(0, 2);
     var probs = fomc.probabilities || {};
     var pmAll = fomc.predictionMarkets || {};
+    // "Live" badge once the in-browser recompute (refreshFomcLive) has replaced
+    // the baked "now" odds with live-futures-implied ones, so the user knows the
+    // table tracks CME in real time rather than the last hourly build.
+    var liveTag = '';
+    if (fomc._liveAsOf){
+      var liveT = Date.parse(fomc._liveAsOf);
+      if (isFinite(liveT)){
+        var liveHhmm = new Date(liveT).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        liveTag = '<span class="fomc-live" title="Odds recomputed in your browser from live ZQ Fed Funds futures — tracks CME between hourly builds">● Live · ' + escapeHtml(liveHhmm) + '</span>';
+      }
+    }
     var header = '<div class="fomc-head">' +
       (rateValue != null
         ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span>' + rateStaleTag + '</div>'
@@ -8451,6 +8573,7 @@
       (meetings.length
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + ' · 14:00 ET</span></div>'
         : '') +
+      liveTag +
       '</div>';
     // Normalize a probability to [0, 1] for the bar width; return null
     // when no snapshot exists for that bucket so we can render "—".
@@ -8514,7 +8637,8 @@
     // --- Per-meeting tally helpers (track the odds of a move) --------------
     // summarize(): current hike/hold/cut + the odds of ANY 25 bps move
     // (hike + cut = 1 − hold) + a "notable" flag once a hike or cut clears 50%.
-    // shiftChip(): day-over-day move in the dominant direction, in points.
+    // movementChip(): directional ▲/▼ indicator — did the odds move up or down
+    // vs a prior snapshot, with the magnitude in points and the window used.
     var pctTxt = function(n){ return (n == null) ? '—' : Math.round(n * 100) + '%'; };
     var summarize = function(nowB){
       if (!nowB) return null;
@@ -8529,15 +8653,29 @@
     var flagBadge = function(flag){
       return flag ? '<span class="fomc-flag fomc-flag-' + flag.key + '" title="Odds clear 50% — a notable, market-moving setup">' + escapeHtml(flag.label) + '</span>' : '';
     };
-    var shiftChip = function(nowB, dayB){
-      if (!nowB || !dayB) return '';
-      var dh = ((normProb(nowB, 'hike') || 0) - (normProb(dayB, 'hike') || 0)) * 100;
-      var dc = ((normProb(nowB, 'cut') || 0) - (normProb(dayB, 'cut') || 0)) * 100;
-      var use = Math.abs(dh) >= Math.abs(dc) ? { d: dh, lbl: 'hike' } : { d: dc, lbl: 'cut' };
-      if (Math.abs(use.d) < 1) return '';
-      var hawkish = (use.lbl === 'hike') ? (use.d > 0) : (use.d < 0);
-      return '<span class="fomc-shift ' + (hawkish ? 'hawk' : 'dove') + '" title="Change in ' + use.lbl + ' odds vs yesterday">' +
-        (use.d > 0 ? '+' : '−') + Math.round(Math.abs(use.d)) + 'pt ' + use.lbl + ' · 1d</span>';
+    // Whether the odds for this meeting moved UP or DOWN, and by how much, vs a
+    // prior snapshot. Tracks the currently-dominant side (hike or cut) so the
+    // arrow matches the headline number the user is reading. Same-day re-bakes
+    // leave the 1d bucket equal to now (no move), so we fall back 1d → 1w → 1m
+    // to the first window with a material (≥1 pt) change; if all three are flat
+    // the rate view is genuinely stable and we say so. ▲ = that side's odds rose,
+    // ▼ = fell; hawk/dove color = whether the net effect is toward tightening.
+    var movementChip = function(b){
+      if (!b || !b.now) return '';
+      var side = (normProb(b.now, 'hike') || 0) >= (normProb(b.now, 'cut') || 0) ? 'hike' : 'cut';
+      var refs = [['day','1d'], ['week','1w'], ['month','1m']];
+      for (var i = 0; i < refs.length; i++){
+        var rb = b[refs[i][0]];
+        if (!rb) continue;
+        var d = ((normProb(b.now, side) || 0) - (normProb(rb, side) || 0)) * 100;
+        if (Math.abs(d) < 1) continue;
+        var up = d > 0;
+        var hawkish = (side === 'hike') ? up : !up;
+        var mag = Math.round(Math.abs(d));
+        return '<span class="fomc-shift ' + (hawkish ? 'hawk' : 'dove') + '" title="' + side + ' odds ' + (up ? 'up' : 'down') + ' ' + mag + ' pts vs ' + refs[i][1] + ' ago">' +
+          (up ? '▲' : '▼') + ' ' + mag + 'pt ' + side + ' · ' + refs[i][1] + '</span>';
+      }
+      return '<span class="fomc-shift flat" title="No material change in odds across the past day, week, or month">▬ flat</span>';
     };
     var meetingBlocks = meetings.map(function(m){
       var bucket = cumProbs[m.date] || { now: null, day: null, week: null, month: null };
@@ -8547,7 +8685,7 @@
         ? '<div class="fomc-meeting-summary">' +
             '<span class="fomc-move-odds" title="Odds the rate is any distance from today (hike + cut)">Move odds ' + pctTxt(sumNow.move) + '</span>' +
             flagBadge(sumNow.flag) +
-            shiftChip(bucket.now, bucket.day) +
+            movementChip(bucket) +
           '</div>'
         : '';
       var grid =
@@ -8582,23 +8720,23 @@
     var ladderRows = meetingsAll.map(function(m){
       var b = cumProbs[m.date] || {};
       var s = summarize(b.now);
-      if (!s) return '<tr class="fomc-ladder-na"><td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td><td colspan="5">no snapshot</td></tr>';
+      if (!s) return '<tr class="fomc-ladder-na"><td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td><td colspan="6">no snapshot</td></tr>';
       var rowCls = s.flag ? ' class="is-notable fomc-ladder-' + s.flag.key + '"' : '';
-      var last = s.flag ? flagBadge(s.flag) : shiftChip(b.now, b.day);
       return '<tr' + rowCls + '>' +
         '<td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td>' +
         '<td>' + pctTxt(s.hike) + '</td>' +
         '<td>' + pctTxt(s.hold) + '</td>' +
         '<td>' + pctTxt(s.cut) + '</td>' +
         '<td class="fomc-ladder-move">' + pctTxt(s.move) + '</td>' +
-        '<td class="fomc-ladder-flag">' + last + '</td>' +
+        '<td class="fomc-ladder-trend">' + movementChip(b) + '</td>' +
+        '<td class="fomc-ladder-flag">' + flagBadge(s.flag) + '</td>' +
       '</tr>';
     }).join('');
     var ladder = meetingsAll.length
       ? '<div class="fomc-ladder-wrap">' +
           '<h3 class="fomc-ladder-title">All upcoming meetings · cumulative odds vs today</h3>' +
           '<table class="fomc-ladder"><thead><tr>' +
-            '<th>Meeting</th><th>Hike</th><th>Hold</th><th>Cut</th><th title="Odds of any net change vs today">Move</th><th></th>' +
+            '<th>Meeting</th><th>Hike</th><th>Hold</th><th>Cut</th><th title="Odds of any net change vs today">Move</th><th title="Did the odds move up or down vs 1d / 1w / 1m ago">Trend</th><th></th>' +
           '</tr></thead><tbody>' + ladderRows + '</tbody></table>' +
         '</div>'
       : '';
@@ -8735,6 +8873,7 @@
     }
     var data = calendarState.data || { events: [] };
     renderFomcWidget(data.fomc || null);
+    refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
     var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
     if (eyebrow){
       var filterLabel = calendarState.type === 'all' ? '' :

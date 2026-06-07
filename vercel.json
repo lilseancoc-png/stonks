@@ -24,6 +24,9 @@
     },
     "api/fed-rate.js": {
       "maxDuration": 10
+    },
+    "api/fed-futures.js": {
+      "maxDuration": 15
     }
   },
   "headers": [
