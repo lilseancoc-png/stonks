@@ -432,9 +432,48 @@ without by themselves flipping the verdict — `go` = a strong pro with no stron
 otherwise `wait`.
 
 ### 6.3 Market overlay & risk-off puts (`detectMarketRegime`)
-Regime is conservative — **risk-off requires both** a ≥1% SPY drop **and** an
-elevated/rising VIX; risk-on requires a firm SPY up day with a calm VIX.
+The **base** regime is conservative — **risk-off requires both** a ≥1% SPY drop
+**and** an elevated/rising VIX; risk-on requires a firm SPY up day with a calm VIX.
 
+- **Cross-asset macro-stress override (`PICKS_MACRO_REGIME`, default ON).** A
+  coordinated risk-off / financial-conditions-**tightening** tape shows up across
+  four assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
+  yields) and the **Fed path** (FedWatch hike-odds repricing hawkish) — usually
+  *before* the S&P prints a −1% day. `computeMacroRegime(macroBackdrop, fedwatchHistory)`
+  fuses those four axes (each **−2..+2**, negative = risk-off) into one gauge:
+    - **VIX** — level / trend / term-structure backwardation (reuses the reads below).
+    - **DXY** — 1d ≥ `PICKS_MACRO_DXY_1D` (0.6%) or a rising-trend 5d ≥ `PICKS_MACRO_DXY_5D` → −1; ≥ `PICKS_MACRO_DXY_1D_STRONG` (0.9%) → −2.
+    - **Long yields** — worst of 10Y/30Y: 1d ≥ `PICKS_MACRO_YIELD_BPS_1D` (10 bps) or a confirmed rising trend → −1; ≥ `PICKS_MACRO_YIELD_BPS_1D_STRONG` (16 bps) → −2.
+    - **Fed path** — net hawkish drift `(hike−cut)` averaged over the nearest `PICKS_MACRO_FED_MEETINGS` (3) meetings vs `PICKS_MACRO_FED_LOOKBACK` (5) snapshots back: ≥ `PICKS_MACRO_FED_DRIFT_PT` (5 pt) → −1; 2× → −2 (reads `data/fedwatch-history.json`).
+
+  `riskOffAxes` = axes at ≤ −1. **`risk-off`** when `riskOffAxes ≥ PICKS_MACRO_RISKOFF_AXES`
+  (2); **`severe-risk-off`** when `≥ PICKS_MACRO_SEVERE_AXES` (3) **and** the composite
+  `stress ≤ PICKS_MACRO_SEVERE_STRESS` (−4); `risk-on` only when ≥2 risk-on axes and
+  zero risk-off axes. `detectMarketRegime` returns **risk-off** whenever the composite
+  is (severe-)risk-off — *independent of the SPY day move* — so the engine positions
+  into the building stress before the index capitulates, and never reads risk-on while
+  the macro is stressed. Attached to `macroBackdrop.macroRegime` upstream (`main()` +
+  `regen-picks.mjs`); absent (flag off / no FedWatch on a regen) → the pure SPY+VIX
+  behavior, byte-identical.
+- **Differential book tilt (`PICKS_MACRO_TILT`, default ON) — the re-ranking lever.**
+  A *uniform* macro nudge can't re-rank a cross-sectional engine (it demeans away, §3).
+  So in a (severe-)risk-off tape `computeMacroTilt` adds a **beta-weighted bearish
+  tilt** as a **fixed** `Macro Regime` signal in the Narrative pillar (fixed signals
+  aren't z-scored, so the differential survives the demean and folds into the
+  directional subtotal in **both** scoring paths). Magnitude = `−PICKS_MACRO_TILT_BASE`
+  (4) in risk-off, `−PICKS_MACRO_TILT_SEVERE` (8) in severe, `+PICKS_MACRO_TILT_RISKON`
+  (2) in risk-on, **× the name's beta** (real `fundamentals.beta`, else a factor-cluster /
+  defensive-sector proxy, clamped `[PICKS_MACRO_TILT_BETA_FLOOR 0.5, _CAP 1.6]`). So the
+  whole long book is discounted, hardest on high-beta growth, and the highest-beta
+  marginal **calls flip to puts** while weak names go clearly negative (more graded +
+  tactical puts).
+- **De-grossing + severe-tape guards.** A desk cuts *size* in a tightening tape, not
+  just side. `applyPickSizing` scales the deployed gross by `PICKS_MACRO_GROSS_RISKOFF`
+  (0.6) / `PICKS_MACRO_GROSS_SEVERE` (0.4). In a **severe** tape the roster also **caps
+  calls** at `PICKS_MACRO_SEVERE_CALL_CAP` (3, the rest fill with puts / cash) and
+  **relaxes the tactical-put bar** to `PICKS_MACRO_SEVERE_PUT_BAR` (−5, vs the −8 below).
+  The gauge (state, four axes, drivers, gross multiplier) rides on
+  `rosterMeta.macroRegime` and renders in the Top Picks summary chip.
 - **VIX term-structure backwardation.** `detectMarketRegime` also reads the VIX
   curve (`^VIX9D` / `^VIX` / `^VIX3M`, fetched in `fetchMacroBackdrop` →
   `macroBackdrop.vixTerm`; `ratio` = 30-day ÷ 3-month, `state` = **backwardation**
@@ -693,6 +732,15 @@ it has to be trustworthy. The fixes:
     `EARNINGS_DEFER_DAYS 8`; `MIN_BARS 15` (fail-open → `wait`); risk-off put bar
     `PICKS_RISKOFF_PUT_BAR −8`. **Macro event-risk defer (§6.6):** `PICKS_EVENT_RISK`
     (default ON), `PICKS_TIMING_EVENT_DEFER_DAYS 3`, `PICKS_EVENT_RISK_MAX_PROB 0.70`.
+  - **Cross-asset macro regime (§6.3):** `PICKS_MACRO_REGIME` (master flag, default ON),
+    axes `PICKS_MACRO_DXY_1D 0.6` / `_1D_STRONG 0.9` / `_5D 1.0`, `PICKS_MACRO_YIELD_BPS_1D 10`
+    / `_1D_STRONG 16`, `PICKS_MACRO_FED_DRIFT_PT 5` / `_LOOKBACK 5` / `_MEETINGS 3`; states
+    `PICKS_MACRO_RISKOFF_AXES 2`, `PICKS_MACRO_SEVERE_AXES 3` + `PICKS_MACRO_SEVERE_STRESS −4`,
+    `PICKS_MACRO_RISKON_AXES 2`; book tilt `PICKS_MACRO_TILT` (default ON), `_TILT_BASE 4` /
+    `_TILT_SEVERE 8` / `_TILT_RISKON 2`, beta clamp `_TILT_BETA_FLOOR 0.5` / `_TILT_BETA_CAP 1.6`;
+    de-gross `PICKS_MACRO_GROSS_RISKOFF 0.6` / `_GROSS_SEVERE 0.4`; severe guards
+    `PICKS_MACRO_SEVERE_CALL_CAP 3`, `PICKS_MACRO_SEVERE_PUT_BAR −5`. (`computeMacroRegime` /
+    `computeMacroTilt` / `fedHawkishDrift` / `macroBetaWeight`.)
   - **VIX index term structure (regime, §6.3):** `^VIX9D` / `^VIX3M` fetched alongside
     `^VIX` in `fetchMacroBackdrop` → `macroBackdrop.vixTerm` (`ratio` = `^VIX`/`^VIX3M`,
     `state` backwardation/contango); backwardation (ratio ≥ 1) confirms risk-off at
@@ -745,7 +793,9 @@ on (same discipline as the gate: measure on forward, gate-era data first).
   `pickContractForPick`, `buildExitPlan`, `updatePicksAccuracyFile`,
   `resolvePickOutcome`, `modelOptionExit` (P0.1 BS repricer),
   `bullishReversalConfirmed` (P1.2), `factorOfTicker`/`FACTOR_OF_SECTOR` (P2.1),
-  `buildVixTerm` (§6.3 VIX term structure), `computeMacroEventRisk` (§6.6).
+  `buildVixTerm` (§6.3 VIX term structure), `computeMacroEventRisk` (§6.6),
+  `computeMacroRegime` / `computeMacroTilt` / `fedHawkishDrift` / `macroBetaWeight`
+  (§6.3 cross-asset macro-stress regime + differential book tilt).
 - Render: [`scripts/render/app-js.mjs`](../scripts/render/app-js.mjs) —
   `pickTimingBanner` / `pickTimingBadge` (the card) and `buildExecuteNowCard` (the
   live Grade-tab sibling). The expandable score breakdown is `pickPillarPanel`,
