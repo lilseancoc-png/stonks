@@ -8515,7 +8515,7 @@
           '<span class="ovn-w-peer">' + ovnEsc(p.name) + '</span>' +
           '<span class="ovn-w-ch">' + ovnSignPct(p.chPct) + '</span>' +
           '<span class="ovn-w-stat">' + (p.corr == null ? 'r —' : 'r ' + p.corr) + (p.beta == null ? '' : ' · β ' + p.beta) + '</span>' +
-          '<span class="ovn-w-imp">' + (imp == null ? '' : '≈ ' + ovnSignPct(imp, 1)) + '</span>' +
+          '<span class="ovn-w-imp ' + ovnMoveCls(imp) + '">' + (imp == null ? '' : '≈ ' + ovnSignPct(imp, 1)) + '</span>' +
           '</div>';
       }
       out += '</div>';

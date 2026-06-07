@@ -188,6 +188,18 @@ export const GLOBAL_MARKETS = {
   "ES=F":      { name: "S&P 500 futures",     region: "US futures",  type: "future", lead: "Overnight S&P" },
   "NQ=F":      { name: "Nasdaq 100 futures",  region: "US futures",  type: "future", lead: "Overnight Nasdaq" },
   "^VIX":      { name: "VIX",                 region: "US futures",  type: "vol",    lead: "Equity vol (up = risk-off)" },
+  // Commodities — cross-asset drivers for non-tech sectors (energy, materials,
+  // industrials, power, logistics). β sign encodes the direction per name
+  // (oil up helps producers, hurts fuel-heavy logistics → negative β there).
+  "CL=F":      { name: "WTI crude",          region: "Commodities", type: "commodity", lead: "Oil — energy + fuel cost" },
+  "GC=F":      { name: "Gold",               region: "Commodities", type: "commodity", lead: "Safe haven / real rates" },
+  "SI=F":      { name: "Silver",             region: "Commodities", type: "commodity", lead: "Precious + industrial" },
+  "HG=F":      { name: "Copper",             region: "Commodities", type: "commodity", lead: "Dr. Copper — global growth" },
+  "NG=F":      { name: "Natural gas",        region: "Commodities", type: "commodity", lead: "Power / heating" },
+  // Long-end rate (banks NIM / curve, plus duration-sensitive homebuilders & TLT)
+  "^TYX":      { name: "US 30Y yield",       region: "FX & rates",  type: "rate",   lead: "Long-end / curve" },
+  // Crypto — risk-appetite proxy for crypto-levered brokers/names
+  "BTC-USD":   { name: "Bitcoin",            region: "Crypto",      type: "crypto", lead: "Crypto risk appetite" },
 };
 
 // Curated peer GROUPS — each is an ordered list of GLOBAL_MARKETS keys that
@@ -200,6 +212,16 @@ export const GLOBAL_PEER_GROUPS = {
   arm_ip:  ["9984.T", "2330.TW", "^TWII"],                 // Arm / SoftBank
   china:   ["^HSI"],                                       // China / HK tech
   korea:   ["^KS11", "005930.KS", "000660.KS"],            // Korea-tracking ETF
+  // Cross-asset (non-tech) — commodity / rate / crypto drivers. β sign carries
+  // the direction, so a single group serves both same- and inverse-direction
+  // names (e.g. oil producers vs fuel-burning logistics, banks vs duration).
+  energy:      ["CL=F", "^GDAXI"],                  // crude (USO tracks it ~1:1)
+  metals:      ["GC=F", "SI=F", "DX-Y.NYB"],        // gold/silver vs the dollar
+  industrials: ["HG=F", "^GDAXI", "^HSI"],          // copper + global-growth proxy
+  power:       ["NG=F", "CL=F"],                     // nat gas / power
+  logistics:   ["CL=F"],                            // fuel cost (inverse β to oil)
+  rates:       ["^TNX", "^TYX"],                     // banks +β / homebuilders & TLT −β
+  crypto:      ["BTC-USD"],                          // crypto beta
 };
 
 // US ticker → peer group. Only names with a genuine foreign lead are listed;
@@ -222,6 +244,23 @@ export const GLOBAL_PEER_OF_TICKER = {
   BABA: "china", KWEB: "china",
   // Korea ETF
   EWY: "korea",
+  // --- Cross-asset (commodities / rates / crypto) ---
+  // Energy — oil (USO tracks crude; producers would map here too if tracked)
+  USO: "energy",
+  // Logistics — fuel is a top cost line, so a crude spike is a headwind (−β)
+  FDX: "logistics", UPS: "logistics",
+  // Metals — precious + the dollar (GLD/SLV ~1:1, MP rare-earth materials)
+  GLD: "metals", SLV: "metals", MP: "metals",
+  // Industrials — copper "Dr. Copper" + global growth
+  CAT: "industrials", DE: "industrials",
+  // Power — nat-gas-heavy generation
+  VST: "power",
+  // Rate-sensitive — banks (steeper curve / higher NIM = +β) and the
+  // duration trade (long bond TLT, homebuilder LEN = −β to yields)
+  JPM: "rates", BAC: "rates", C: "rates", GS: "rates", COF: "rates", MS: "rates",
+  TLT: "rates", LEN: "rates",
+  // Crypto-levered broker
+  HOOD: "crypto",
 };
 
 // Broad overnight backdrop shown for EVERY ticker (and as the Overnight tab's
