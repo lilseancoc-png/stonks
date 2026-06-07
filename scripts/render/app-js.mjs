@@ -7059,11 +7059,86 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       head + body +
     '</article>';
   }
+  // Aggregate market-breadth banner: across the currently-visible flagged set,
+  // how many sectors (and tickers) are leaning bullish vs bearish — a one-glance
+  // "is the whole tape risk-on or risk-off right now?" read. Sector lean is the
+  // same bull-vs-bear count the sector headers use; ticker lean is volTickerSummary.
+  function volSummaryHtml(tickers){
+    if (!tickers || !tickers.length) return '';
+    var tBull = 0, tBear = 0;
+    var bySector = {};
+    for (var i = 0; i < tickers.length; i++){
+      var t = tickers[i];
+      var lean = volTickerSummary(t).lean;
+      var sec = VOL_SECTOR_OF[t.symbol] || 'Other';
+      var rec = bySector[sec] || (bySector[sec] = { bull: 0, bear: 0 });
+      if (lean != null){
+        if (lean > 0){ tBull++; rec.bull++; }
+        else if (lean < 0){ tBear++; rec.bear++; }
+      }
+    }
+    var secBull = 0, secBear = 0, secMixed = 0;
+    Object.keys(bySector).forEach(function(s){
+      var r = bySector[s];
+      if (r.bull > r.bear) secBull++;
+      else if (r.bear > r.bull) secBear++;
+      else secMixed++;
+    });
+    var directional = secBull + secBear;
+    var bearShare = directional ? secBear / directional : 0.5;
+    var tone, cls, sub;
+    if (!directional){
+      tone = 'No clear lean'; cls = 'is-mixed';
+      sub = 'flagged sectors show no directional bias';
+    } else if (bearShare >= 0.65){
+      tone = 'Broadly bearish'; cls = 'is-bear';
+      sub = secBear + ' of ' + directional + ' directional sectors leaning down on heavy volume';
+    } else if (bearShare > 0.52){
+      tone = 'Leaning bearish'; cls = 'is-bear';
+      sub = secBear + ' of ' + directional + ' directional sectors leaning down';
+    } else if (bearShare <= 0.35){
+      tone = 'Broadly bullish'; cls = 'is-bull';
+      sub = secBull + ' of ' + directional + ' directional sectors leaning up on heavy volume';
+    } else if (bearShare < 0.48){
+      tone = 'Leaning bullish'; cls = 'is-bull';
+      sub = secBull + ' of ' + directional + ' directional sectors leaning up';
+    } else {
+      tone = 'Mixed / two-sided'; cls = 'is-mixed';
+      sub = 'sectors split roughly evenly between buyers and sellers';
+    }
+    var bearPct = directional ? Math.round(bearShare * 100) : 50;
+    var bullPct = 100 - bearPct;
+    var barLabel = directional
+      ? (bearPct + '% of directional sectors bearish, ' + bullPct + '% bullish')
+      : 'no directional sectors';
+    var legend = [];
+    if (secBear) legend.push('<span class="vol-summary-stat"><b class="neg">' + secBear + '</b> bearish</span>');
+    if (secBull) legend.push('<span class="vol-summary-stat"><b class="pos">' + secBull + '</b> bullish</span>');
+    if (secMixed) legend.push('<span class="vol-summary-stat muted"><b>' + secMixed + '</b> mixed</span>');
+    var tickerTotal = tBull + tBear;
+    var tickerBreadth = tickerTotal
+      ? '<span class="vol-summary-tickers">' +
+          (tBear >= tBull ? tBear : tBull) + '/' + tickerTotal + ' flagged tickers ' + (tBear >= tBull ? 'down' : 'up') +
+        '</span>'
+      : '';
+    return '<div class="vol-summary ' + cls + '">' +
+      '<div class="vol-summary-head">' +
+        '<span class="vol-summary-tone">' + tone + '</span>' +
+        '<span class="vol-summary-sub">' + escapeHtml(sub) + '</span>' +
+      '</div>' +
+      '<div class="vol-summary-bar" role="img" aria-label="' + escapeHtml(barLabel) + '">' +
+        '<span class="vol-summary-seg bear" style="width:' + bearPct + '%"></span>' +
+        '<span class="vol-summary-seg bull" style="width:' + bullPct + '%"></span>' +
+      '</div>' +
+      '<div class="vol-summary-legend">' + legend.join('') + tickerBreadth + '</div>' +
+    '</div>';
+  }
   function renderVolumeFlags(){
     var list = $('vol-list');
     var empty = $('vol-empty');
     var noResults = $('vol-no-results');
     var eyebrow = $('vol-eyebrow');
+    var summary = $('vol-summary');
     if (!list) return;
     var allTickers = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
     if (eyebrow){
@@ -7082,6 +7157,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (!allTickers.length){
       list.innerHTML = '';
+      if (summary) summary.innerHTML = '';
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
@@ -7095,6 +7171,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tickers = filteredVolTickers();
     if (!tickers.length){
       list.innerHTML = '';
+      if (summary) summary.innerHTML = '';
       if (noResults){
         noResults.hidden = false;
         noResults.textContent = 'No tickers match these filters.';
@@ -7102,6 +7179,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     if (noResults) noResults.hidden = true;
+    if (summary) summary.innerHTML = volSummaryHtml(tickers);
     if (volState.group){
       // Partition the filtered tickers by sector, ordered by the manifest's
       // canonical sector order with any leftovers (ETF / Other) appended alpha.

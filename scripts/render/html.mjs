@@ -405,6 +405,7 @@ function volumeFlagsSection() {
         </select>
       </label>
     </div>
+    <div id="vol-summary" aria-live="polite"></div>
     <div id="vol-list" class="vol-list" role="list"></div>
     <div id="vol-empty" class="vol-empty" hidden>No volume or S/R-break flags in the latest scan.</div>
     <div id="vol-no-results" class="vol-empty" hidden>No tickers match these filters.</div>
