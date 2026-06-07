@@ -8485,6 +8485,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var bar = '<span class="fomc-prob-bar mag-' + key + '" style="--mag:' + n.toFixed(3) + '" aria-hidden="true"></span>';
       return '<td>' + bar + '<span>' + pct + '</span></td>';
     };
+    // --- Cumulative (CME-style) transform -----------------------------------
+    // The raw probs buckets are MARGINAL: each meeting odds of a 25 bps move
+    // AT that meeting, conditional on the implied path so far. CME FedWatch
+    // instead reports CUMULATIVE odds — the probability the target rate is
+    // higher / unchanged / lower than TODAY by each meeting, accumulating every
+    // meeting in between. We reconstruct that with the standard FedWatch
+    // binomial tree: walk meetings in date order, branching each step by that
+    // meeting marginal hike (+1) / cut (−1) / hold (0), then read off
+    // P(net>0)=hike, P(net=0)=hold, P(net<0)=cut. Run once per lookback column so
+    // 1d/1w/1m stay cumulative too. The raw marginal probs is left untouched —
+    // the prediction-market divergence is a per-meeting (marginal) cross-check.
+    var cumulateCol = function(orderedMeetings, colKey){
+      var dist = { 0: 1 };            // net-25bps-steps → probability
+      var out = {};                   // meeting.date → {hike,hold,cut} | null
+      orderedMeetings.forEach(function(m){
+        var b = probs[m.date] && probs[m.date][colKey];
+        var h = normProb(b, 'hike'), c = normProb(b, 'cut');
+        if (!b || (h == null && c == null)){
+          out[m.date] = null;         // no snapshot — carry dist, render "—"
+          return;
+        }
+        h = h || 0; c = c || 0;
+        var hold = Math.max(0, 1 - h - c);
+        var next = {};
+        var add = function(k, p){ if (p) next[k] = (next[k] || 0) + p; };
+        for (var k in dist){ var ik = Number(k), pk = dist[k]; add(ik + 1, pk * h); add(ik - 1, pk * c); add(ik, pk * hold); }
+        dist = next;
+        var up = 0, flat = 0, down = 0;
+        for (var kk in dist){ var n = Number(kk); if (n > 0) up += dist[kk]; else if (n < 0) down += dist[kk]; else flat += dist[kk]; }
+        out[m.date] = { hike: up, hold: flat, cut: down };
+      });
+      return out;
+    };
+    var cumByCol = {};
+    ['now','day','week','month'].forEach(function(col){ cumByCol[col] = cumulateCol(meetingsAll, col); });
+    var cumProbs = {};
+    meetingsAll.forEach(function(m){
+      cumProbs[m.date] = {
+        now: cumByCol.now[m.date], day: cumByCol.day[m.date],
+        week: cumByCol.week[m.date], month: cumByCol.month[m.date],
+      };
+    });
     var rows = ['hike','hold','cut'];
     var rowLabel = { hike: 'Hike', hold: 'Hold', cut: 'Cut' };
     // --- Per-meeting tally helpers (track the odds of a move) --------------
@@ -8516,12 +8558,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (use.d > 0 ? '+' : '−') + Math.round(Math.abs(use.d)) + 'pt ' + use.lbl + ' · 1d</span>';
     };
     var meetingBlocks = meetings.map(function(m){
-      var bucket = probs[m.date] || { now: null, day: null, week: null, month: null };
+      var bucket = cumProbs[m.date] || { now: null, day: null, week: null, month: null };
       var allEmpty = !bucket.now && !bucket.day && !bucket.week && !bucket.month;
       var sumNow = summarize(bucket.now);
       var summaryRow = sumNow
         ? '<div class="fomc-meeting-summary">' +
-            '<span class="fomc-move-odds" title="Odds of any 25 bps move (hike + cut)">Move odds ' + pctTxt(sumNow.move) + '</span>' +
+            '<span class="fomc-move-odds" title="Odds the rate is any distance from today (hike + cut)">Move odds ' + pctTxt(sumNow.move) + '</span>' +
             flagBadge(sumNow.flag) +
             shiftChip(bucket.now, bucket.day) +
           '</div>'
@@ -8546,7 +8588,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return '<div class="fomc-meeting">' +
         '<h3 class="fomc-meeting-title">' + escapeHtml(m.label) + '</h3>' +
         summaryRow +
-        (allEmpty ? '' : '<div class="fomc-prob-cap">Implied by ZQ Fed Funds futures</div>') +
+        (allEmpty ? '' : '<div class="fomc-prob-cap">Cumulative vs today · implied by ZQ Fed Funds futures</div>') +
         grid +
         note +
         renderFomcPredictionMarkets(pmAll[m.date]) +
@@ -8556,7 +8598,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // meeting (not just the front two) tallies its current hike/hold/cut and
     // the odds of a 25 bps move, with a notable flag once a hike or cut > 50%.
     var ladderRows = meetingsAll.map(function(m){
-      var b = probs[m.date] || {};
+      var b = cumProbs[m.date] || {};
       var s = summarize(b.now);
       if (!s) return '<tr class="fomc-ladder-na"><td class="fomc-ladder-meeting">' + escapeHtml(m.label) + '</td><td colspan="5">no snapshot</td></tr>';
       var rowCls = s.flag ? ' class="is-notable fomc-ladder-' + s.flag.key + '"' : '';
@@ -8572,13 +8614,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }).join('');
     var ladder = meetingsAll.length
       ? '<div class="fomc-ladder-wrap">' +
-          '<h3 class="fomc-ladder-title">All upcoming meetings · odds of a move</h3>' +
+          '<h3 class="fomc-ladder-title">All upcoming meetings · cumulative odds vs today</h3>' +
           '<table class="fomc-ladder"><thead><tr>' +
-            '<th>Meeting</th><th>Hike</th><th>Hold</th><th>Cut</th><th title="Odds of any 25 bps move">Move</th><th></th>' +
+            '<th>Meeting</th><th>Hike</th><th>Hold</th><th>Cut</th><th title="Odds of any net change vs today">Move</th><th></th>' +
           '</tr></thead><tbody>' + ladderRows + '</tbody></table>' +
         '</div>'
       : '';
-    var legend = '<p class="fomc-legend">Odds are the ZQ-futures-implied probability of a 25 bps <strong>hike</strong> / <strong>hold</strong> / <strong>cut</strong> — the standard Fed step (a 25 bps move either way is a “large move”). <strong>Move</strong> = odds of any 25 bps change (hike + cut). A meeting is flagged <span class="fomc-flag fomc-flag-move">notable</span> once a hike or cut clears 50%.</p>';
+    var legend = '<p class="fomc-legend">CME-style <strong>cumulative</strong> probabilities implied by ZQ Fed Funds futures — the odds the target rate is higher (<strong>hike</strong>), unchanged (<strong>hold</strong>), or lower (<strong>cut</strong>) than today by each meeting, accumulated across every meeting in between (25 bps = one step). <strong>Move</strong> = odds of any net change (hike + cut). A meeting is flagged <span class="fomc-flag fomc-flag-move">notable</span> once a hike or cut clears 50%.</p>';
     root.innerHTML = header + meetingBlocks + ladder + legend;
   }
   // Prediction-market cross-check (Kalshi + Polymarket) shown beneath the
