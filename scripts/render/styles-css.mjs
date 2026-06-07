@@ -7932,6 +7932,36 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .pick-pillars-lead.sig-neg { color: var(--neg); }
 .pick-pillars-lead.sig-zero { color: var(--muted-strong); }
 
+/* Regime-weighting banner (§3.5.1) — explains how the live market tape is
+   re-weighting the grade (slow pillars discounted in risk-off, boosted in
+   risk-on). Hidden in the neutral tape (no element emitted). */
+.pick-pillars-regime {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font: 500 10.5px/1.4 var(--font-sans);
+  padding: 6px 8px;
+  margin: 0 0 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted-strong);
+}
+.pick-pillars-regime .ppr-ico { flex: 0 0 auto; font-size: 11px; line-height: 1.3; }
+.pick-pillars-regime.pp-regime-off,
+.pick-pillars-regime.pp-regime-severe {
+  border-color: color-mix(in srgb, var(--neg) 35%, var(--border));
+  background: color-mix(in srgb, var(--neg) 9%, var(--surface));
+}
+.pick-pillars-regime.pp-regime-off .ppr-ico,
+.pick-pillars-regime.pp-regime-severe .ppr-ico { color: var(--neg); }
+.pick-pillars-regime.pp-regime-severe { background: color-mix(in srgb, var(--neg) 15%, var(--surface)); }
+.pick-pillars-regime.pp-regime-on {
+  border-color: color-mix(in srgb, var(--pos) 35%, var(--border));
+  background: color-mix(in srgb, var(--pos) 9%, var(--surface));
+}
+.pick-pillars-regime.pp-regime-on .ppr-ico { color: var(--pos); }
+
 /* ===== Track record (pick accuracy) tab ============================== */
 .acc-ok { color: var(--pos); font-weight: 600; }
 .acc-bad { color: var(--neg); font-weight: 600; }

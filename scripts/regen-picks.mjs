@@ -144,7 +144,9 @@ await writeFile(
 const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
 await writeFile(
   resolve(DATA_DIR, "grades.json"),
-  JSON.stringify({ builtAtIso, minConviction: PICKS_MIN_CONVICTION, grades }),
+  // regimeBand (§3.5.1) is stashed non-enumerable on grades — lift it into the
+  // payload so the grade-any-ticker breakdown shows the active weighting.
+  JSON.stringify({ builtAtIso, minConviction: PICKS_MIN_CONVICTION, regimeBand: grades.regimeBand || "neutral", grades }),
   "utf8",
 );
 console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers.`);

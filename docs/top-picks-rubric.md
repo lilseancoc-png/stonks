@@ -243,6 +243,11 @@ magnitudes.
   conviction compresses (NKE 15.9→13.8), as put theses resting on slow
   fundamentals/narrative (e.g. OKLO) are discounted under put theses with
   technical/flow/timing confirmation.
+- **Surfaced on the card.** The active band rides on `picks.json`
+  (`rosterMeta.regimeBand`) and the `grades.json` payload, and the score-breakdown
+  panel renders a one-line banner (`regimeWeightNote` / `.pick-pillars-regime`,
+  read via `activeRegimeBand`) when it's non-neutral — so a grade that moved
+  because the *tape* turned (not the name) is self-explanatory. Hidden in neutral.
 
 ---
 

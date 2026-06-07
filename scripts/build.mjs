@@ -10835,11 +10835,12 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
   // further change. Fails open to the legacy absolute totals from scorePillared
   // when the flag is off or the universe is below the standardization floor.
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
+  const regimeBand = picksRegimeBand(regime, macroBackdrop); // §3.5.1 regime overlay (slow-pillar flex)
   const tierCutoffs = computeCrossSectionalScores(scored, {
     xsectional: opts.xsectional ?? PICKS_XSECTIONAL,
     sectorNeutral: opts.sectorNeutral ?? PICKS_SECTOR_NEUTRAL,
     regime,
-    regimeBand: picksRegimeBand(regime, macroBackdrop), // §3.5 regime overlay (slow-pillar flex)
+    regimeBand,
     eventRisk: macroBackdrop && macroBackdrop.eventRisk,
   });
 
@@ -10872,8 +10873,10 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
   // broad-market regime for the execution-timing gate + risk-off put path.
   // tierCutoffs carries the percentile cutoffs (P3.2) so buildTopPicks's
   // actionable filter and writeGradesFile's minConviction track them.
-  // buildGradesIndex destructures { scored, peerIndex, tierCutoffs }.
-  return { scored, peerIndex, marketCtx, tierCutoffs };
+  // regimeBand (§3.5.1) rides out so the picks/grades payloads can surface WHICH
+  // weighting was in force on the card breakdown.
+  // buildGradesIndex destructures { scored, peerIndex, tierCutoffs, regimeBand }.
+  return { scored, peerIndex, marketCtx, tierCutoffs, regimeBand };
 }
 
 // Risk-based position sizing (P3.4). For each surviving pick: a per-name risk
@@ -11003,7 +11006,7 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 
 }
 
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
-  const { scored, peerIndex, marketCtx, tierCutoffs } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
+  const { scored, peerIndex, marketCtx, tierCutoffs, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
   // Severe cross-asset macro stress (≥3 risk-off axes): cut size harder, cap calls,
   // and relax the tactical-put bar so the roster genuinely tilts to puts/cash.
@@ -11229,6 +11232,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       factorCapped: skippedFactorCapped,
       factorCounts,
       macroCallCapped: skippedMacroCallCapped, // severe-tape call cap skips
+      // §3.5.1 — which regime weighting was in force this build (neutral / risk-off /
+      // severe / risk-on), so the card breakdown can explain WHY the slow pillars
+      // were discounted or boosted.
+      regimeBand,
       edgeScale: Number(edgeScale.toFixed(3)), // P1.3 — gross multiplier from realized option edge
       // Cross-asset macro regime gauge (PICKS_MACRO_REGIME) so the picks UI can
       // show WHY the roster tilted: state, the four axes, drivers, and the gross
@@ -11258,7 +11265,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 // (contract / entryPlan / exitPlan / analysis / thesis) are intentionally
 // omitted since off-list names have no recommended contract.
 export function buildGradesIndex(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, opts = {}) {
-  const { scored, peerIndex, tierCutoffs } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
+  const { scored, peerIndex, tierCutoffs, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const grades = {};
   for (const r of scored) {
     const sector = r.data?.fundamentals?.sector || null;
@@ -11300,6 +11307,10 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
   // "actionable" gate reads — without changing the serialized grades shape. Falls
   // back to the legacy ±12 bar on the small-universe / flag-off path.
   Object.defineProperty(grades, "tierCutoffs", { value: tierCutoffs || null, enumerable: false });
+  // §3.5.1 regime band — stashed non-enumerable (like tierCutoffs) so the grades
+  // shape is unchanged; writeGradesFile lifts it into the published payload so the
+  // grade-any-ticker breakdown can show the active weighting.
+  Object.defineProperty(grades, "regimeBand", { value: regimeBand || "neutral", enumerable: false });
   return grades;
 }
 
@@ -11313,7 +11324,8 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
   // searched name actionable / no-trade, so it must track the live cutoff.
   const minConviction = (grades && grades.tierCutoffs && Number.isFinite(grades.tierCutoffs.tradeCut))
     ? grades.tierCutoffs.tradeCut : PICKS_MIN_CONVICTION;
-  const payload = { builtAtIso, minConviction, grades };
+  const regimeBand = (grades && grades.regimeBand) || "neutral"; // §3.5.1 — active weighting regime
+  const payload = { builtAtIso, minConviction, regimeBand, grades };
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, GRADES_FILE), json, "utf8");
   return { bytes: json.length, count: Object.keys(grades).length, grades };
