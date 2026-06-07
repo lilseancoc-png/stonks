@@ -385,6 +385,38 @@ cash); `suggestedContracts = floor(weight · PICKS_DISPLAY_ACCOUNT / (premium·1
 **Validation.** Σ weight = `PICKS_GROSS_TARGET`; the highest-risk-to-stop survivor carries
 the smallest weight (risk parity), verified on the committed build.
 
+### P3.5 Horizon-aware pillar weighting *(shipped)*
+**Problem.** The score is a stock-picker's 4-pillar grade, but the product trades
+~14-day long premium. Those horizons don't match: over a fortnight a name's move is
+dominated by flow + price structure + the tape, while the **fundamental** pillar
+(EPS/revenue growth, P/E, FCF, net-margin) pays off over quarters and is ~fully
+priced over the hold — near-zero information at the option's horizon. Equal-weighted,
+it was the **largest-magnitude pillar** and dominated the grade, tilting the engine
+toward slow factors a 2-week option can't monetize.
+
+**Why it matters.** The loss-attribution diagnostic says losses are *direction*-driven;
+all the contract/IV/exit machinery is downstream of "can the score call 2-week
+direction?". Leaning that score on the slowest-horizon pillar is the root of the
+mismatch.
+
+**Fix.** Scale each asset-quality pillar by a horizon weight before summing
+(`PICKS_HW_FUND 0.6` / `PICKS_HW_TECH 1.0` / `PICKS_HW_MECH 1.15` / `PICKS_HW_NARR
+0.9`); `timing`/`ivCost` ride ×1. A **principled** microstructure prior (flow ≳
+technicals ≫ slow fundamentals at 1–3 weeks), **not** a fit to N=19 — the IC bridge
+(§9.6) replaces it with measured weights once forward outcomes accumulate.
+
+> **Shipped as:** `horizonWeight` + `applyHorizonWeight` in `build.mjs`, applied in
+> both `scorePillared` and `computeCrossSectionalScores`. The weight is baked into each
+> signal's `contribution` (chips stay consistent with the weighted pillar total; raw
+> integer `score` and the IC-bridge `z` untouched). Gated by `PICKS_HORIZON_WEIGHTS`
+> (default ON); `=0` → byte-identical to the legacy equal-weight sum (verified 0/138
+> grades differ). Percentile tiers self-recalibrate, so the actionable count is
+> unchanged — it re-ranks (RDDT +8.6→+4.9, LLY +11.0→+8.2, banks pulled down).
+
+**Validation.** `bySignal`/per-pillar IC on modeled option P&L once gate-era picks
+resolve: the weighted score should show higher rank-IC vs 2-week option outcomes than
+the equal-weight one. Until then it's a labelled prior, same discipline as the gate.
+
 ### IC bridge (rubric §9.6)
 `computeCrossSectionalScores` stamps the standardized z (mean 0 / unit scale) onto each
 converted signal, and the accuracy enroll snapshot (`updatePicksAccuracyFile`) persists
