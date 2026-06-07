@@ -147,6 +147,87 @@ export const SECTORS = {
   FLY: "Space",
 };
 
+// ---------------------------------------------------------------------------
+// Global market correlations — overnight foreign-market lead-lag signals.
+//
+// Asian cash markets and FX close/move BEFORE the US opens, so an overnight
+// move in a foreign peer is a leading read on its US counterpart (Samsung /
+// SK Hynix down hard overnight → MU likely follows; a yen-carry unwind in
+// Tokyo → broad US risk-off). The bake fetches these symbols, snapshots the
+// last completed session's move, and computes a trailing return correlation +
+// sensitivity (beta) of each US name against its mapped foreign peers. Written
+// to data/correlations.json and surfaced on the Overnight tab + the Grade
+// tab's per-ticker "overnight peer read".
+//
+// Symbols are Yahoo tickers; chart() in this build talks to Yahoo directly so
+// it is NOT bound by lib/yahoo.mjs::SYMBOL_RE (that allowlist only guards the
+// public /api proxies, which intentionally can't reach these). region/type
+// drive the tab's grouping; `lead` is a one-line human note.
+export const GLOBAL_MARKETS = {
+  // South Korea — memory / foundry complex (closes ~02:00 ET)
+  "^KS11":     { name: "KOSPI",               region: "South Korea", type: "index",  lead: "Korea broad market" },
+  "005930.KS": { name: "Samsung Electronics", region: "South Korea", type: "equity", lead: "DRAM/NAND + foundry" },
+  "000660.KS": { name: "SK Hynix",            region: "South Korea", type: "equity", lead: "DRAM + HBM (AI memory)" },
+  // Taiwan — logic foundry (closes ~01:00 ET)
+  "^TWII":     { name: "TAIEX",               region: "Taiwan",      type: "index",  lead: "Taiwan broad market" },
+  "2330.TW":   { name: "TSMC",                region: "Taiwan",      type: "equity", lead: "Leading-edge foundry" },
+  // Japan — semicap + Arm parent + risk barometer (closes ~02:00 ET)
+  "^N225":     { name: "Nikkei 225",          region: "Japan",       type: "index",  lead: "Japan broad / risk tone" },
+  "8035.T":    { name: "Tokyo Electron",      region: "Japan",       type: "equity", lead: "Wafer-fab equipment" },
+  "6857.T":    { name: "Advantest",           region: "Japan",       type: "equity", lead: "ATE / chip test" },
+  "9984.T":    { name: "SoftBank Group",      region: "Japan",       type: "equity", lead: "Arm parent" },
+  // Hong Kong / China (closes ~04:00 ET)
+  "^HSI":      { name: "Hang Seng",           region: "China",       type: "index",  lead: "China / HK tech" },
+  // Europe (closes ~11:30 ET — concurrent with the US morning, not overnight)
+  "^GDAXI":    { name: "DAX",                 region: "Europe",      type: "index",  lead: "Germany / EU broad" },
+  // FX & rates — yen carry, the dollar, US 10Y
+  "JPY=X":     { name: "USD/JPY",             region: "FX & rates",  type: "fx",     lead: "Yen carry (down = unwind = risk-off)" },
+  "DX-Y.NYB":  { name: "Dollar index (DXY)",  region: "FX & rates",  type: "fx",     lead: "Broad USD" },
+  "^TNX":      { name: "US 10Y yield",        region: "FX & rates",  type: "rate",   lead: "Long rates / valuations" },
+  // US overnight futures + vol — the most direct pre-open read
+  "ES=F":      { name: "S&P 500 futures",     region: "US futures",  type: "future", lead: "Overnight S&P" },
+  "NQ=F":      { name: "Nasdaq 100 futures",  region: "US futures",  type: "future", lead: "Overnight Nasdaq" },
+  "^VIX":      { name: "VIX",                 region: "US futures",  type: "vol",    lead: "Equity vol (up = risk-off)" },
+};
+
+// Curated peer GROUPS — each is an ordered list of GLOBAL_MARKETS keys that
+// lead a US sub-industry, most-specific signal first.
+export const GLOBAL_PEER_GROUPS = {
+  memory:  ["000660.KS", "005930.KS", "^KS11", "2330.TW"], // DRAM / NAND / HBM
+  hbm_gpu: ["000660.KS", "2330.TW", "005930.KS", "^TWII"], // accelerators: HBM (Hynix) + foundry (TSMC)
+  foundry: ["2330.TW", "^TWII", "005930.KS"],              // logic / analog / RF — TSMC-led
+  semicap: ["8035.T", "6857.T", "2330.TW", "^TWII"],       // fab equipment + test
+  arm_ip:  ["9984.T", "2330.TW", "^TWII"],                 // Arm / SoftBank
+  china:   ["^HSI"],                                       // China / HK tech
+  korea:   ["^KS11", "005930.KS", "000660.KS"],            // Korea-tracking ETF
+};
+
+// US ticker → peer group. Only names with a genuine foreign lead are listed;
+// every other ticker falls back to the broad overnight backdrop (futures + FX).
+export const GLOBAL_PEER_OF_TICKER = {
+  // Memory / storage
+  MU: "memory", SNDK: "memory", STX: "memory", DRAM: "memory",
+  // GPU / accelerator / AI silicon (HBM + foundry exposed)
+  NVDA: "hbm_gpu", AMD: "hbm_gpu", AVGO: "hbm_gpu", MRVL: "hbm_gpu",
+  ALAB: "hbm_gpu", SMCI: "hbm_gpu", SMH: "hbm_gpu",
+  // Logic / analog / RF / optical — foundry takers
+  TSM: "foundry", QCOM: "foundry", NXPI: "foundry", ON: "foundry", TXN: "foundry",
+  INTC: "foundry", SWKS: "foundry", GLW: "foundry", COHR: "foundry", LITE: "foundry",
+  AAOI: "foundry", CBRS: "foundry", TSEM: "foundry",
+  // Semicap (fab equipment / mask / test)
+  AMAT: "semicap", LRCX: "semicap", ASML: "semicap", PLAB: "semicap",
+  // Arm IP
+  ARM: "arm_ip",
+  // China tech
+  BABA: "china", KWEB: "china",
+  // Korea ETF
+  EWY: "korea",
+};
+
+// Broad overnight backdrop shown for EVERY ticker (and as the Overnight tab's
+// header strip): US futures, the yen carry, the dollar, vol and long rates.
+export const GLOBAL_BROAD_SIGNALS = ["ES=F", "NQ=F", "JPY=X", "^VIX", "DX-Y.NYB", "^TNX"];
+
 // Taxonomy — the sectors and sub-industries the narratives card paints.
 // Structured Sector → Sector overview → Sub-industry narratives, so this list
 // controls the tab strip across the top.
@@ -12841,6 +12922,235 @@ async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null) {
   return { bytes: json.length, count: payload.tickers.length, eodPreserved };
 }
 
+// ---------------------------------------------------------------------------
+// Global market correlations (data/correlations.json) — see GLOBAL_MARKETS.
+const GLOBAL_HISTORY_DAYS = 365;
+const GLOBAL_CORR_MAX_OBS = 150;  // trailing common trading days for corr/beta
+const GLOBAL_CORR_MIN_OBS = 30;   // below this, corr/beta are not reported
+const GLOBAL_FETCH_CONCURRENCY = 4;
+
+// One foreign symbol: ~1y of daily closes + the last completed session's move
+// and chart meta (currency / display name). Non-fatal at the caller — a failed
+// symbol is simply absent from the snapshot (graceful degradation, like a
+// skipped ticker in the main chain sweep).
+async function fetchGlobalMarketBars(symbol) {
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - GLOBAL_HISTORY_DAYS * 24 * 3600 * 1000);
+  const result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+  const bars = quotes
+    .filter((q) => q && q.close != null)
+    .map((q) => ({ c: q.close, t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null }))
+    .filter((b) => b.t);
+  if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);
+  const last = bars[bars.length - 1];
+  const prev = bars[bars.length - 2];
+  const chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
+  const meta = result?.meta || {};
+  return {
+    bars,
+    last: last.c,
+    prevClose: prev.c,
+    chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
+    asOf: last.t,
+    currency: meta.currency || null,
+    yName: meta.shortName || meta.longName || null,
+  };
+}
+
+async function fetchAllGlobalMarkets() {
+  const out = {};
+  const syms = Object.keys(GLOBAL_MARKETS);
+  await runPooled(syms, GLOBAL_FETCH_CONCURRENCY, async (sym) => {
+    try {
+      out[sym] = await fetchGlobalMarketBars(sym);
+      // Small politeness gap so the foreign sweep doesn't bunch against Yahoo.
+      await new Promise((r) => setTimeout(r, 120));
+    } catch (err) {
+      console.log(`    ⚠ global market ${sym} fetch failed: ${err.message}`);
+    }
+  });
+  return out;
+}
+
+// Daily simple returns keyed by date string, computed within one close series.
+function returnsByDate(bars) {
+  const m = new Map();
+  if (!Array.isArray(bars)) return m;
+  for (let i = 1; i < bars.length; i++) {
+    const a = bars[i - 1], b = bars[i];
+    if (a && b && a.c && b.t) m.set(b.t, b.c / a.c - 1);
+  }
+  return m;
+}
+
+// Pearson correlation + OLS sensitivity (beta = slope of the US return on the
+// foreign return) over the trailing common trading days. Same-date pairing:
+// since Asia closes earlier the same calendar day, a contemporaneous pairing
+// already captures the overnight lead. Returns nulls when too few overlaps.
+function corrBetaReturns(usBars, fBars) {
+  const usR = returnsByDate(usBars);
+  const fR = returnsByDate(fBars);
+  const dates = [];
+  for (const t of usR.keys()) if (fR.has(t)) dates.push(t);
+  dates.sort();
+  const use = dates.slice(-GLOBAL_CORR_MAX_OBS);
+  const n = use.length;
+  if (n < GLOBAL_CORR_MIN_OBS) return { corr: null, beta: null, n };
+  let sx = 0, sy = 0;
+  for (const t of use) { sx += fR.get(t); sy += usR.get(t); }
+  const mx = sx / n, my = sy / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (const t of use) {
+    const dx = fR.get(t) - mx, dy = usR.get(t) - my;
+    sxy += dx * dy; sxx += dx * dx; syy += dy * dy;
+  }
+  if (sxx <= 0 || syy <= 0) return { corr: null, beta: null, n };
+  return {
+    corr: Math.round((sxy / Math.sqrt(sxx * syy)) * 100) / 100,
+    beta: Math.round((sxy / sxx) * 100) / 100,
+    n,
+  };
+}
+
+// US close series for correlation — prefers the in-memory _bars (full history,
+// freshest; survives writeChainFiles, which destructures rather than deletes)
+// and falls back to the persisted compact priceSeries so the builder is reusable
+// without a live build.
+function usBarsForCorrelation(data) {
+  if (Array.isArray(data?._bars) && data._bars.length > 1) {
+    return data._bars.map((b) => ({ c: b.c, t: b.t })).filter((b) => b.c != null && b.t);
+  }
+  const ps = data?.priceSeries;
+  if (ps && Array.isArray(ps.t) && Array.isArray(ps.c) && ps.t.length === ps.c.length) {
+    const out = [];
+    for (let i = 0; i < ps.t.length; i++) if (ps.t[i] && ps.c[i] != null) out.push({ c: ps.c[i], t: ps.t[i] });
+    return out;
+  }
+  return [];
+}
+
+// Derived risk tone from the broad overnight backdrop. Futures direction, a VIX
+// spike, and a yen bid (USD/JPY down = carry unwind) each vote risk-on/off.
+function deriveGlobalTone(markets) {
+  const reasons = [];
+  let score = 0;
+  const es = markets["ES=F"], nq = markets["NQ=F"], vix = markets["^VIX"], jpy = markets["JPY=X"];
+  const fut = [es, nq].filter((m) => m && m.chPct != null);
+  if (fut.length) {
+    const a = fut.reduce((s, m) => s + m.chPct, 0) / fut.length;
+    if (a <= -0.4) { score -= 1; reasons.push(`US futures soft (${a.toFixed(2)}%)`); }
+    else if (a >= 0.4) { score += 1; reasons.push(`US futures firm (+${a.toFixed(2)}%)`); }
+  }
+  if (vix && vix.chPct != null) {
+    if (vix.chPct >= 5) { score -= 1; reasons.push(`VIX +${vix.chPct.toFixed(1)}%`); }
+    else if (vix.chPct <= -5) { score += 1; reasons.push(`VIX ${vix.chPct.toFixed(1)}%`); }
+  }
+  if (jpy && jpy.chPct != null) {
+    // USD/JPY down => yen stronger => carry unwind => risk-off.
+    if (jpy.chPct <= -0.6) { score -= 1; reasons.push(`yen bid (USD/JPY ${jpy.chPct.toFixed(2)}%) — carry unwind`); }
+    else if (jpy.chPct >= 0.6) { score += 1; reasons.push(`yen soft (USD/JPY +${jpy.chPct.toFixed(2)}%)`); }
+  }
+  let label = "mixed";
+  if (score >= 2) label = "risk-on";
+  else if (score <= -2) label = "risk-off";
+  else if (score === 1) label = "leaning risk-on";
+  else if (score === -1) label = "leaning risk-off";
+  return { label, score, reasons };
+}
+
+export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior = null) {
+  globalMarkets = globalMarkets || {};
+  const haveSyms = Object.keys(globalMarkets);
+  // Too little came back — keep last-good rather than blanking the tab.
+  if (haveSyms.length < 3) {
+    if (prior && prior.map) return { ...prior, stale: true };
+    return {
+      builtAtIso, builtAt: nyTimestamp(), markets: {}, regions: [],
+      broad: GLOBAL_BROAD_SIGNALS, map: {}, tone: { label: "mixed", score: 0, reasons: [] }, stale: true,
+    };
+  }
+  // Snapshot every fetched foreign symbol.
+  const markets = {};
+  for (const sym of haveSyms) {
+    const meta = GLOBAL_MARKETS[sym] || {};
+    const g = globalMarkets[sym];
+    markets[sym] = {
+      sym,
+      name: meta.name || g.yName || sym,
+      region: meta.region || "Other",
+      type: meta.type || "index",
+      lead: meta.lead || null,
+      last: g.last == null ? null : Math.round(g.last * 100) / 100,
+      chPct: g.chPct,
+      cur: g.currency || null,
+      asOf: g.asOf || null,
+    };
+  }
+  // Region grouping for the tab (in GLOBAL_MARKETS declaration order).
+  const regionOrder = [];
+  const regionBy = {};
+  for (const sym of Object.keys(GLOBAL_MARKETS)) {
+    if (!markets[sym]) continue;
+    const r = markets[sym].region;
+    if (!regionBy[r]) { regionBy[r] = []; regionOrder.push(r); }
+    regionBy[r].push(sym);
+  }
+  const regions = regionOrder.map((r) => ({ region: r, symbols: regionBy[r] }));
+  // Per-US-ticker peer correlations.
+  const map = {};
+  for (const [sym, group] of Object.entries(GLOBAL_PEER_OF_TICKER)) {
+    const data = chains[sym];
+    if (!data) continue;
+    const peerSyms = GLOBAL_PEER_GROUPS[group] || [];
+    const usBars = usBarsForCorrelation(data);
+    const peers = [];
+    for (const fsym of peerSyms) {
+      if (!globalMarkets[fsym]) continue;
+      const stats = usBars.length ? corrBetaReturns(usBars, globalMarkets[fsym].bars) : { corr: null, beta: null, n: 0 };
+      peers.push({
+        sym: fsym,
+        name: (GLOBAL_MARKETS[fsym] || {}).name || fsym,
+        corr: stats.corr, beta: stats.beta, n: stats.n,
+        chPct: markets[fsym] ? markets[fsym].chPct : null,
+      });
+    }
+    if (peers.length) map[sym] = { group, peers };
+  }
+  return {
+    builtAtIso,
+    builtAt: nyTimestamp(),
+    markets,
+    regions,
+    broad: GLOBAL_BROAD_SIGNALS.filter((s) => markets[s]),
+    map,
+    tone: deriveGlobalTone(markets),
+  };
+}
+
+// Read BEFORE writeChainFiles wipes data/ so a thin foreign sweep can fall back
+// to the last-good snapshot instead of blanking the Overnight tab.
+async function readPriorCorrelations() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, "correlations.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (_) { /* missing / first build */ }
+  return null;
+}
+
+async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = null) {
+  const payload = buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "correlations.json"), json, "utf8");
+  return {
+    bytes: json.length,
+    symbols: Object.keys(payload.markets || {}).length,
+    mapped: Object.keys(payload.map || {}).length,
+    stale: !!payload.stale,
+  };
+}
+
 // News-aware AI take per ticker. Runs after chains are fetched. The model
 // sees recent headlines + spot price and returns a one-paragraph plain-English
 // read plus a sentiment tag the runtime uses to nudge a borderline (Fair)
@@ -16436,6 +16746,17 @@ async function main() {
       }`);
     }
   }
+  // Overnight foreign-market sweep (Korea / Japan / Taiwan / China / Europe +
+  // FX + US futures) for the correlations engine. Non-fatal: a flaky Yahoo here
+  // just leaves data/correlations.json on its last-good snapshot.
+  console.log("Fetching global overnight markets…");
+  let globalMarkets = {};
+  try {
+    globalMarkets = await fetchAllGlobalMarkets();
+    console.log(`Got ${Object.keys(globalMarkets).length} / ${Object.keys(GLOBAL_MARKETS).length} global markets.`);
+  } catch (err) {
+    console.log(`Global markets sweep failed: ${err.message}`);
+  }
   if (AI_COMBINED) {
     await attachTickerJudgments(chains, macroBackdrop);
   } else {
@@ -16506,6 +16827,9 @@ async function main() {
   // refresh script and stored in data/heatmap.json. Snapshot it before
   // writeChainFiles wipes data/, then thread it back into writeHeatmapFile.
   const priorHeatmapEod = await readPriorHeatmapEodSummary();
+  // Prior correlations snapshot — fall back to it if tonight's foreign sweep
+  // came back too thin (graceful degradation; data/ is about to be wiped).
+  const priorCorrelations = await readPriorCorrelations();
   // Load persisted last-good readings BEFORE writeChainFiles wipes data/.
   // Without these reads the caches would never serve a value across builds
   // — the file is gone by the time the post-wipe code tries to read it.
@@ -16677,6 +17001,8 @@ async function main() {
   console.log(`wrote data/streaks.json — ${streaksInfo.count} tickers, ${streaksInfo.bytes} bytes`);
   const heatmapInfo = await writeHeatmapFile(chains, builtAtIso, priorHeatmapEod);
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}`);
+  const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
+  console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   await writeTrendFiles({
     narratives: trends.narratives,
     sectorOverviews: trends.sectorOverviews || {},
