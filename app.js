@@ -8410,6 +8410,117 @@
       pmLine +
     '</div>';
   }
+  // ====================================================================
+  // Live FedWatch recompute — tracks CME continuously between hourly bakes.
+  // --------------------------------------------------------------------
+  // The baked fomc.probabilities[*].now buckets are only as fresh as the last
+  // build; CME FedWatch is continuous, so our numbers drift from CME purely on
+  // timing. On calendar load we refetch live ZQ Fed Funds futures (/api/fed-
+  // futures) and recompute the "now" implied-rate path in the browser, then
+  // re-render. This DUPLICATES the server math (scripts/build.mjs
+  // fetchFedwatchSnapshot / probsFromDelta / postMeetingDaysInMonth /
+  // zqSymbolForMonthKey) because app.js is a generated IIFE that can't import it
+  // — keep the two in sync (same convention as the duplicated greeks). Only the
+  // "now" bucket is refreshed; the 1d/1w/1m history columns + the Trend stay
+  // baked. Fails closed: any error leaves the baked render untouched.
+  var FOMC_CME_MONTH_CODES = ['F','G','H','J','K','M','N','Q','U','V','X','Z'];
+  function zqSymbolForMonthKey(yyyymm){
+    var y = Number(yyyymm.slice(0,4)), m = Number(yyyymm.slice(5,7)) - 1;
+    return 'ZQ' + FOMC_CME_MONTH_CODES[m] + String(y).slice(-2) + '.CBT';
+  }
+  function addMonthKey(yyyymm){
+    var y = Number(yyyymm.slice(0,4)), m = Number(yyyymm.slice(5,7)) + 1;
+    if (m > 12){ m = 1; y += 1; }
+    return y + '-' + String(m).padStart(2,'0');
+  }
+  function postMeetingDaysInMonth(dateStr){
+    var y = Number(dateStr.slice(0,4)), mIdx = Number(dateStr.slice(5,7)) - 1, meetingDay = Number(dateStr.slice(8,10));
+    var daysInMonth = new Date(Date.UTC(y, mIdx + 1, 0)).getUTCDate();
+    return { meetingDay: meetingDay, daysInMonth: daysInMonth, postDays: daysInMonth - meetingDay };
+  }
+  // Identical to build.mjs probsFromDelta: a (pre,post) rate delta -> the CME
+  // hike/hold/cut triple, 25 bps step, linear between adjacent quantized moves.
+  function probsFromDeltaLive(delta){
+    var clamp = function(x){ return Math.max(0, Math.min(1, x)); };
+    var hike = 0, cut = 0;
+    if (delta > 0) hike = clamp(delta / 0.25);
+    else if (delta < 0) cut = clamp(-delta / 0.25);
+    return { hike: hike, hold: clamp(1 - hike - cut), cut: cut };
+  }
+  // EFFR -> FOMC target-range midpoint (e.g. 3.62 -> 3.625), CME's anchor base.
+  function fedTargetMidpoint(rate){ return Math.round((rate - 0.125) / 0.25) * 0.25 + 0.125; }
+  // The exact ZQ contract symbols the recompute needs for these meeting dates.
+  function fomcLiveSymbols(meetingDates){
+    var set = {};
+    meetingDates.forEach(function(d){
+      var mk = d.slice(0,7);
+      set[zqSymbolForMonthKey(mk)] = 1;
+      set[zqSymbolForMonthKey(addMonthKey(mk))] = 1;
+    });
+    set['ZQ=F'] = 1; // front-month fallback
+    return Object.keys(set);
+  }
+  // Recompute fresh "now" MARGINAL buckets per meeting from a {symbol: price}
+  // map. Mirrors fetchFedwatchSnapshot's "now" pass: prefer the next month's
+  // contract as a direct post-rate read, else invert the meeting month using
+  // the chained pre-rate; chain forward; stop if a contract is missing.
+  function computeLiveFomcBuckets(fomc, prices){
+    var meetings = (fomc.meetings || []).map(function(m){ return m.date; }).filter(Boolean).sort();
+    if (!meetings.length) return null;
+    var rate = fomc.effectiveRate && fomc.effectiveRate.rate;
+    if (typeof rate !== 'number' || !isFinite(rate)) return null;
+    var frontMonthKey = meetings[0].slice(0,7);
+    var priceForMonth = function(mk){
+      var p = prices[zqSymbolForMonthKey(mk)];
+      if (p == null && mk === frontMonthKey) p = prices['ZQ=F'];
+      return (p != null && isFinite(p)) ? Number(p) : null;
+    };
+    var out = {}, preRate = fedTargetMidpoint(rate), any = false;
+    for (var i = 0; i < meetings.length; i++){
+      var date = meetings[i], monthKey = date.slice(0,7);
+      var pm = postMeetingDaysInMonth(date);
+      var postRate = null;
+      var nextPrice = priceForMonth(addMonthKey(monthKey));
+      if (nextPrice != null) postRate = 100 - nextPrice;
+      if (postRate == null && pm.postDays > 0){
+        var thisPrice = priceForMonth(monthKey);
+        if (thisPrice != null){ var impliedAvg = 100 - thisPrice; postRate = (impliedAvg * pm.daysInMonth - preRate * pm.meetingDay) / pm.postDays; }
+      }
+      if (postRate == null || !isFinite(postRate)) break; // chain broken — stop
+      out[date] = probsFromDeltaLive(postRate - preRate);
+      preRate = postRate; any = true;
+    }
+    return any ? out : null;
+  }
+  var fomcLiveState = { inFlight: false };
+  function refreshFomcLive(fomc){
+    if (!fomc || !fomc.meetings || !fomc.meetings.length) return;
+    if (!fomc.effectiveRate || typeof fomc.effectiveRate.rate !== 'number') return;
+    // Throttle: skip if we applied a live snapshot < 20s ago, or one's in flight.
+    if (fomc._liveAtMs && (Date.now() - fomc._liveAtMs) < 20000) return;
+    if (fomcLiveState.inFlight) return;
+    var dates = fomc.meetings.map(function(m){ return m.date; }).filter(Boolean);
+    var symbols = fomcLiveSymbols(dates);
+    if (!symbols.length) return;
+    fomcLiveState.inFlight = true;
+    fetch('/api/fed-futures?symbols=' + encodeURIComponent(symbols.join(',')), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        fomcLiveState.inFlight = false;
+        if (!j || !j.prices) return;
+        var fresh = computeLiveFomcBuckets(fomc, j.prices);
+        if (!fresh) return;
+        if (!fomc.probabilities) fomc.probabilities = {};
+        Object.keys(fresh).forEach(function(d){
+          if (!fomc.probabilities[d]) fomc.probabilities[d] = { now: null, day: null, week: null, month: null };
+          fomc.probabilities[d].now = fresh[d];
+        });
+        fomc._liveAtMs = Date.now();
+        fomc._liveAsOf = j.fetchedAt || new Date().toISOString();
+        renderFomcWidget(fomc); // re-render only — NOT re-kicked, so no loop
+      })
+      .catch(function(){ fomcLiveState.inFlight = false; });
+  }
   function renderFomcWidget(fomc){
     var root = $('fomc-widget');
     if (!root) return;
@@ -8444,6 +8555,17 @@
     var meetings = meetingsAll.slice(0, 2);
     var probs = fomc.probabilities || {};
     var pmAll = fomc.predictionMarkets || {};
+    // "Live" badge once the in-browser recompute (refreshFomcLive) has replaced
+    // the baked "now" odds with live-futures-implied ones, so the user knows the
+    // table tracks CME in real time rather than the last hourly build.
+    var liveTag = '';
+    if (fomc._liveAsOf){
+      var liveT = Date.parse(fomc._liveAsOf);
+      if (isFinite(liveT)){
+        var liveHhmm = new Date(liveT).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        liveTag = '<span class="fomc-live" title="Odds recomputed in your browser from live ZQ Fed Funds futures — tracks CME between hourly builds">● Live · ' + escapeHtml(liveHhmm) + '</span>';
+      }
+    }
     var header = '<div class="fomc-head">' +
       (rateValue != null
         ? '<div class="fomc-rate"><span class="fomc-rate-label">Effective Fed Funds Rate</span><span class="fomc-rate-value">' + escapeHtml(rateValue) + '%</span><span class="fomc-rate-asof">as of ' + escapeHtml(rate.asOf || '') + '</span>' + rateStaleTag + '</div>'
@@ -8451,6 +8573,7 @@
       (meetings.length
         ? '<div class="fomc-next"><span class="fomc-next-label">Next FOMC</span><span class="fomc-next-value">' + escapeHtml(meetings[0].label) + ' · 14:00 ET</span></div>'
         : '') +
+      liveTag +
       '</div>';
     // Normalize a probability to [0, 1] for the bar width; return null
     // when no snapshot exists for that bucket so we can render "—".
@@ -8750,6 +8873,7 @@
     }
     var data = calendarState.data || { events: [] };
     renderFomcWidget(data.fomc || null);
+    refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
     var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
     if (eyebrow){
       var filterLabel = calendarState.type === 'all' ? '' :
