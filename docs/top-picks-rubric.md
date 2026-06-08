@@ -278,11 +278,26 @@ Scores stay on a roughly-legacy scale via the scale-preserving weights
 > tape the engine still mints a full roster — it can never say "nothing worth buying
 > today." The cutoffs are therefore **floored** at an absolute bar:
 > `strongCut = max(pctl 5%, PICKS_ABS_STRONG_FLOOR)`, `tradeCut = max(pctl 12%,
-> PICKS_ABS_TRADE_FLOOR)` (defaults = the legacy ±16/±12; env-set to 0 to disable).
+> PICKS_ABS_TRADE_FLOOR)` (defaults **9 / 6**; env-set to 0 to disable).
 > A name must clear **both** the rank **and** the floor, so when the top-12% `|total|`
 > sits below the floor the actionable set shrinks — the roster honestly ships **fewer
-> than 10, or 0**. (Measured on a recent weak/risk-off tape: 10 force-fed names with
-> conviction down to ~7.9 → 4, one graded call + three tactical puts.)
+> than 10, or 0**.
+>
+> The floor lives on the standardizer's compressed `|total|` scale (§3.4), **not**
+> the legacy ±12/±16 conviction bars. Horizon weighting (Fund ×0.6 …) + the z-clip
+> weight (`W = oldMax/PICKS_Z_CLIP`) pull the achievable `|total|` well below the old
+> absolute scale: on the live ~138-name universe the natural top-12% runs **~4
+> (neutral) / ~7 (risk-off) / ~12 (severe)**. The original defaults (= the legacy
+> `PICKS_MIN_CONVICTION` 12 / `PICKS_TIER_STRONG` 16) therefore sat *above* the
+> achievable max outside a severe tape and bound in **every** regime — zeroing the
+> graded roster (not merely shrinking it) and bypassing the percentile tiers except
+> under severe stress (graded picks only shipped when the macro tilt inflated
+> magnitudes to ~12). Recalibrated to **6 / 9** (decoupled from the conviction bars):
+> the floor now backstops only the calmest tapes (neutral ~top-decile clears 6), the
+> percentile takes over as dispersion rises (risk-off top-12% ~7 > 6 → graded puts,
+> not just sub-bar tactical ones), and severe is unchanged (floor < its ~12 cutoff).
+> Measured on the committed universe: **neutral 0 → 5 graded calls, risk-off 7
+> tactical puts → 10 graded puts, severe 10 graded puts (unchanged)**.
 
 The universe is curated long, but **cross-sectional standardization demeans it** (§3),
 so the actionable set — selected by percentile of `|total|` regardless of sign — can
@@ -764,8 +779,8 @@ it has to be trustworthy. The fixes:
     `PICKS_SIZE_TILT_MIN/MAX 0.6/1.4`, `PICKS_GROSS_TARGET 0.80`, `PICKS_DISPLAY_ACCOUNT 25000`,
     `PICKS_SIZE_FULL_ROSTER_N 5` (P0.4 thin-roster gross ramp).
   - **Absolute floor (P0.4, §4):** `PICKS_ABS_STRONG_FLOOR` / `PICKS_ABS_TRADE_FLOOR`
-    (default ±16/±12; env-set to 0 to disable) — the absolute bar the percentile cutoffs
-    are `Math.max`'d against so the roster can honestly ship 0.
+    (default 9 / 6 on the compressed standardizer scale; env-set to 0 to disable) — the
+    absolute bar the percentile cutoffs are `Math.max`'d against so the roster can honestly ship 0.
   - **Tiers (legacy floor fallback):** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`,
     `PICKS_COUNT 10`, `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`).
   - **Contract (`pickContractForPick`):** `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,
