@@ -12682,11 +12682,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var items = '';
     for (var i=0; i<peers.length; i++){
       var q = peers[i];
-      var t = q && q.total != null ? q.total : 0;
+      var t = q && q.total != null ? Number(q.total) : 0;
+      if (!isFinite(t)) t = 0;
+      // Scores are cross-sectional floats (P3.1) — round to 1 decimal like the
+      // pillar panel does, else the raw 18-digit float overflows its column and
+      // collides with the tier label.
+      var tStr = (t >= 0 ? '+' : '') + t.toFixed(1);
       var cls = q && q.tier ? 'pick-peer-' + escapeHtml(q.tier) : 'pick-peer-no-trade';
       items += '<li class="pick-peer ' + cls + '">' +
         '<span class="pick-peer-sym">' + escapeHtml(q.symbol || '—') + '</span>' +
-        '<span class="pick-peer-score">' + (t>=0?'+':'') + t + '</span>' +
+        '<span class="pick-peer-score">' + tStr + '</span>' +
         '<span class="pick-peer-tier">' + escapeHtml(q && q.label ? q.label : '—') + '</span>' +
       '</li>';
     }
