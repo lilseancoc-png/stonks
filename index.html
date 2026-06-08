@@ -51,6 +51,7 @@
 </div>
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
   <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief">Brief</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
@@ -114,6 +115,15 @@
         <p class="landing-section-sub">Where the next trade comes from — what's hot, what's lining up, what's on the calendar.</p>
       </header>
       <div class="landing-grid">
+        <button type="button" class="landing-card" data-go="brief" aria-label="Read the market brief">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Market brief</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat" id="land-stat-brief">AM · PM</div>
+          <div class="landing-card-sub" id="land-sub-brief">daily digest</div>
+          <p class="landing-card-desc">A pre-market and post-close read on what's interesting — overnight moves, the day's movers, notable flow, what's next.</p>
+        </button>
         <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
           <header class="landing-card-head">
             <span class="landing-card-eyebrow">Top picks</span>
@@ -223,6 +233,16 @@
       </div>
     </section>
     <p class="landing-foot">Or jump anywhere with the tab strip above · press <kbd>⌘K</kbd> for the command palette.</p>
+  </div>
+  <div class="page-pane" id="page-pane-brief" role="tabpanel" aria-labelledby="page-tab-brief" hidden>
+  <section class="card" id="brief-section">
+    <header class="card-header">
+      <h2 class="card-title">Market brief</h2>
+      <span class="card-eyebrow" id="brief-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="Two digests per trading day, written by Google Gemini (default gemini-2.5-flash-lite; override AI_BRIEF_MODEL). The morning brief is minted around the open from overnight &amp; foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the top picks; the closing brief is minted after the 4pm ET close from the day's breadth, biggest movers, unusual flow and what's next. Headlines are AI prose grounded in the numbers shown; the chips and stats are computed, not generated.">i</span>-written pre-market and post-close digest &mdash; the overnight setup, the day&rsquo;s biggest movers, notable options flow, and what&rsquo;s on deck. Ticker chips are clickable. Not financial advice.</p>
+    <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
+  </section>
   </div>
   <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers" hidden>
   <section class="card" id="tickers-section">

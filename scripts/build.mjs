@@ -13730,6 +13730,364 @@ function classifyAiError(err, attempt) {
   }
   return AI_RETRY_BACKOFF_MS[attempt] ?? 5000;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Market briefs — a morning (pre-market) and an afternoon (post-close) digest
+// that summarize / point out the interesting things happening in the tape.
+// Modeled on the heatmap EOD recap (one Flash-Lite call, JSON schema, generated
+// at most once per ET window and carried forward), but holistic: each brief
+// fuses overnight & foreign moves, the day's breadth + biggest movers, unusual
+// options flow, macro levels (10Y / dollar / VIX), CNN Fear & Greed, the
+// calendar, and the model's top picks into a headline + summary + a few
+// highlight bullets. Written to data/briefs.json, rendered on the Brief tab.
+// Self-skips without GEMINI_API_KEY; a keyless build still carries forward any
+// brief a prior keyed build produced (read-before-wipe in main()).
+const BRIEFS_FILE = "briefs.json";
+const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-2.5-flash-lite";
+// The morning brief is minted by the first build of the ET day (the 9:30 open
+// run); only builds BEFORE this hour will create a missing morning brief, so a
+// noon+ build never back-fills a stale "morning" read. The afternoon brief
+// mirrors the heatmap EOD trigger — minted only after the 16:00 ET close.
+const BRIEF_MORNING_CUTOFF_ET_HOUR = 12;
+const BRIEF_EOD_TRIGGER_ET_HOUR = 16;
+
+// ET wall-clock hour (0-23), DST-safe. build.mjs already has etDateKey(); this
+// is its hour sibling, used only by the brief window gating.
+function etHourNY(d = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/New_York", hour: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const h = parts.find((p) => p.type === "hour");
+  return h ? Number(h.value) : -1;
+}
+
+async function readPriorBriefs() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, BRIEFS_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (_) { /* missing / unreadable — first run or wiped */ }
+  return null;
+}
+
+// Compact formatters shared by the brief signal-gatherer + prompt.
+function briefPctStr(v, digits = 2) {
+  if (!Number.isFinite(v)) return null;
+  return (v >= 0 ? "+" : "") + v.toFixed(digits) + "%";
+}
+function briefBpsStr(v) {
+  if (!Number.isFinite(v)) return null;
+  return (v >= 0 ? "+" : "") + v.toFixed(1) + "bp";
+}
+// First sentence / clause of a longer note, trimmed for chips + prompt lines.
+function briefClause(text, max = 110) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  const cut = s.search(/(?:\s[—–-]\s|;|\.\s)/);
+  const head = cut > 20 ? s.slice(0, cut) : s;
+  return head.length > max ? head.slice(0, max - 1).trim() + "…" : head;
+}
+
+// Build the deterministic fact block for a brief. `kind` is "morning" or
+// "afternoon"; the two share macro / Fear & Greed / picks / calendar but pull
+// different market context (overnight foreign moves vs the day's breadth +
+// movers + flow). The returned object is BOTH stashed onto the brief for
+// rendering (briefRenderFields) and fed verbatim to the prompt builder, so the
+// model only ever narrates facts we computed. Pure — exported for testing.
+export function gatherBriefSignals(kind, ctx) {
+  const {
+    chains = {}, fearGreed = null, macro = null, correlations = null,
+    unusual = null, picks = [], calendar = {},
+  } = ctx || {};
+
+  // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
+  let fng = null;
+  if (fearGreed && Number.isFinite(fearGreed.score)) {
+    const prev = Number(fearGreed?.previous?.close);
+    fng = {
+      score: Math.round(fearGreed.score),
+      rating: fearGreed.rating || null,
+      prevClose: Number.isFinite(prev) ? Math.round(prev) : null,
+      delta: Number.isFinite(prev) ? Math.round(fearGreed.score - prev) : null,
+    };
+  }
+
+  // Macro strip: 10Y yield, the dollar, VIX with their 1-day change.
+  const macroArr = [];
+  if (macro?.tenY?.value != null) macroArr.push({ label: "10Y yield", value: Number(macro.tenY.value).toFixed(2) + "%", change: briefBpsStr(macro.tenY.bpsChange1d) });
+  if (macro?.dxy?.value != null) macroArr.push({ label: "Dollar (DXY)", value: Number(macro.dxy.value).toFixed(2), change: briefPctStr(macro.dxy.pctChange1d) });
+  if (macro?.vix?.value != null) macroArr.push({ label: "VIX", value: Number(macro.vix.value).toFixed(2), change: briefPctStr(macro.vix.pctChange1d) });
+
+  // Top model picks (picks.json is already conviction-ranked).
+  const pickArr = (Array.isArray(picks) ? picks : []).slice(0, 3).map((p) => ({
+    symbol: p.symbol,
+    side: p.side,
+    conviction: Number.isFinite(p.conviction) ? Math.round(p.conviction) : null,
+    note: briefClause(p.thesis),
+  })).filter((p) => p.symbol);
+
+  // Calendar chips — today's catalysts (morning) vs what's coming (afternoon).
+  const cal = calendar || {};
+  const events = [];
+  if (kind === "morning") {
+    for (const e of (cal.todayEarnings || [])) events.push({ label: `${e.sym} earnings`, detail: e.session && e.session !== "TBD" ? e.session : "today" });
+    for (const r of (cal.todayReports || [])) events.push({ label: briefClause(r.title, 60), detail: "today" });
+  } else {
+    for (const e of (cal.upcomingEarn || []).slice(0, 5)) events.push({ label: `${e.sym} earnings`, detail: e.date + (e.session && e.session !== "TBD" ? ` ${e.session}` : "") });
+    for (const r of (cal.upcomingReports || []).slice(0, 4)) events.push({ label: briefClause(r.title, 60), detail: String(r.date || "") });
+  }
+  if (cal.nextFomc && Number.isFinite(cal.nextFomc.daysOut)) {
+    events.push({ label: "FOMC decision", detail: `${cal.nextFomc.date} · ${cal.nextFomc.daysOut}d` });
+  }
+
+  const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
+
+  if (kind === "morning") {
+    // Overnight risk tone + the biggest foreign / futures moves.
+    if (correlations?.tone) {
+      signals.tone = {
+        label: correlations.tone.label || null,
+        reasons: Array.isArray(correlations.tone.reasons) ? correlations.tone.reasons.slice(0, 3) : [],
+      };
+    }
+    const mk = correlations?.markets ? Object.values(correlations.markets) : [];
+    signals.overnight = mk
+      .filter((m) => m && Number.isFinite(m.chPct))
+      .sort((a, b) => Math.abs(b.chPct) - Math.abs(a.chPct))
+      .slice(0, 6)
+      .map((m) => ({ sym: m.sym, name: m.name, region: m.region, chPct: Math.round(m.chPct * 100) / 100 }));
+  } else {
+    // Breadth + biggest movers from the day's confirmed 1-day % moves.
+    const moves = [];
+    for (const [sym, d] of Object.entries(chains)) {
+      const m = d?.technicals?.volume?.priceMove1dPct;
+      if (Number.isFinite(m)) moves.push({ sym, chPct: Math.round(m * 100) / 100 });
+    }
+    moves.sort((a, b) => b.chPct - a.chPct);
+    let up = 0, down = 0, flat = 0;
+    for (const m of moves) { if (m.chPct > 0.05) up++; else if (m.chPct < -0.05) down++; else flat++; }
+    signals.breadth = { up, down, flat };
+    signals.movers = {
+      gainers: moves.filter((m) => m.chPct > 0).slice(0, 5),
+      losers: moves.filter((m) => m.chPct < 0).slice(-5).reverse(),
+    };
+    // Notable unusual flow — top tickers by this session's volume delta, with
+    // the hottest contract's side + AI note.
+    const ut = unusual && Array.isArray(unusual.tickers) ? unusual.tickers.slice() : [];
+    ut.sort((a, b) => (b.topDelta || 0) - (a.topDelta || 0));
+    signals.flow = ut.slice(0, 4).map((t) => {
+      const c = Array.isArray(t.contracts) && t.contracts.length ? t.contracts[0] : null;
+      return { sym: t.symbol, side: c?.side || null, note: briefClause(c?.note, 120) };
+    }).filter((f) => f.sym);
+  }
+  return signals;
+}
+
+// Keep only the deterministic fields worth rendering as chips/stats on the card.
+function briefRenderFields(s) {
+  const out = {};
+  if (s.fearGreed) out.fearGreed = s.fearGreed;
+  if (s.macro && s.macro.length) out.macro = s.macro;
+  if (s.tone) out.tone = s.tone;
+  if (s.overnight && s.overnight.length) out.overnight = s.overnight;
+  if (s.breadth) out.breadth = s.breadth;
+  if (s.movers && (s.movers.gainers.length || s.movers.losers.length)) out.movers = s.movers;
+  if (s.flow && s.flow.length) out.flow = s.flow;
+  if (s.picks && s.picks.length) out.picks = s.picks;
+  if (s.events && s.events.length) out.events = s.events;
+  return out;
+}
+
+function briefSystemPrompt(kind) {
+  const common =
+    " Write (1) a one-sentence headline, (2) a 2-4 sentence summary in plain English, and " +
+    "(3) 3 to 5 highlight bullets — each a SHORT label (1-3 words) plus one sentence — calling out the " +
+    "most interesting and actionable things. Cite specific magnitudes and tickers FROM THE SUPPLIED FACTS only. " +
+    "Never invent news, earnings, analyst actions, or numbers beyond the facts given. Be factual and terse. " +
+    "No emojis, no markdown, no hype, no buy/sell advice, no quotes around tickers.";
+  if (kind === "morning") {
+    return (
+      "You are a markets-desk analyst writing a concise PRE-MARKET brief for US options traders, " +
+      "published around the opening bell. You receive structured facts: how overnight foreign markets and " +
+      "US futures traded, the risk tone, key macro levels (10Y yield, the dollar, VIX), the CNN Fear & Greed " +
+      "reading, today's earnings + economic calendar, and the model's current top option picks. Frame it as " +
+      "the setup for today's session and what happened overnight." + common
+    );
+  }
+  return (
+    "You are a markets-desk analyst writing a concise POST-MARKET closing brief for US options traders, " +
+    "published just after the 4pm ET close. You receive structured facts: the day's breadth " +
+    "(advancers/decliners), the biggest gainers and losers, notable unusual options flow, where macro levels " +
+    "(10Y yield, the dollar, VIX) and the CNN Fear & Greed reading closed, the model's top option picks, and " +
+    "what's on the calendar next. Frame it as what happened today and what to watch next." + common
+  );
+}
+
+// Render the deterministic signal block into the plain-text fact sheet the model
+// narrates. Exported for testing alongside gatherBriefSignals.
+export function briefUserMessage(kind, dateKey, signals) {
+  const lines = [];
+  lines.push(`Date (ET): ${dateKey}`);
+  lines.push(`Brief: ${kind === "morning" ? "pre-market / morning" : "post-market / closing"}`);
+  if (signals.fearGreed) {
+    const f = signals.fearGreed;
+    lines.push(
+      `Fear & Greed: ${f.score}${f.rating ? ` (${f.rating})` : ""}` +
+      `${f.prevClose != null ? `, prior close ${f.prevClose}${f.delta != null ? ` (${f.delta >= 0 ? "+" : ""}${f.delta})` : ""}` : ""}.`,
+    );
+  }
+  if (signals.macro && signals.macro.length) {
+    lines.push("Macro: " + signals.macro.map((m) => `${m.label} ${m.value}${m.change ? ` (${m.change})` : ""}`).join(", ") + ".");
+  }
+  if (kind === "morning") {
+    if (signals.tone) lines.push(`Overnight tone: ${signals.tone.label}${signals.tone.reasons.length ? ` — ${signals.tone.reasons.join("; ")}` : ""}.`);
+    if (signals.overnight && signals.overnight.length) {
+      lines.push("Overnight / foreign moves:");
+      for (const m of signals.overnight) lines.push(`- ${m.name || m.sym}${m.region ? ` (${m.region})` : ""}: ${briefPctStr(m.chPct)}`);
+    }
+  } else {
+    if (signals.breadth) lines.push(`Tape breadth: ${signals.breadth.up} up, ${signals.breadth.down} down, ${signals.breadth.flat} flat.`);
+    if (signals.movers) {
+      if (signals.movers.gainers.length) lines.push("Top gainers: " + signals.movers.gainers.map((m) => `${m.sym} ${briefPctStr(m.chPct)}`).join(", "));
+      if (signals.movers.losers.length) lines.push("Top losers: " + signals.movers.losers.map((m) => `${m.sym} ${briefPctStr(m.chPct)}`).join(", "));
+    }
+    if (signals.flow && signals.flow.length) {
+      lines.push("Notable options flow:");
+      for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
+    }
+  }
+  if (signals.picks && signals.picks.length) {
+    lines.push("Top model picks:");
+    for (const p of signals.picks) lines.push(`- ${p.symbol} ${p.side}${p.conviction != null ? ` (conviction ${p.conviction})` : ""}: ${p.note}`);
+  }
+  if (signals.events && signals.events.length) {
+    lines.push(kind === "morning" ? "On the calendar today / next:" : "Coming up:");
+    for (const e of signals.events) lines.push(`- ${e.label}${e.detail ? ` — ${e.detail}` : ""}`);
+  }
+  lines.push("");
+  lines.push("Return JSON matching the schema (headline, summary, highlights[] of {label, text}).");
+  return lines.join("\n");
+}
+
+const BRIEF_SCHEMA = {
+  type: "object",
+  properties: {
+    headline: { type: "string" },
+    summary: { type: "string" },
+    highlights: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { label: { type: "string" }, text: { type: "string" } },
+        required: ["label", "text"],
+      },
+    },
+  },
+  required: ["headline", "summary", "highlights"],
+};
+
+async function generateBrief(ai, kind, dateKey, signals) {
+  const userMessage = briefUserMessage(kind, dateKey, signals);
+  const system = briefSystemPrompt(kind);
+  let response, lastErr;
+  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+    try {
+      await acquireAiSlot();
+      response = await ai.models.generateContent({
+        model: AI_BRIEF_MODEL,
+        config: {
+          systemInstruction: system,
+          temperature: 0.4,
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json",
+          responseSchema: BRIEF_SCHEMA,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+        contents: userMessage,
+      });
+      recordAiUsage({ model: AI_BRIEF_MODEL, callType: `brief-${kind}`, usage: response?.usageMetadata });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const wait = classifyAiError(err, attempt);
+      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
+      console.log(`    ⌛ brief(${kind}) AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const jsonText = firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped;
+  const parsed = JSON.parse(jsonText);
+  const headline = String(parsed?.headline || "").replace(/\s+/g, " ").trim();
+  const summary = String(parsed?.summary || "").replace(/\s+/g, " ").trim();
+  if (!headline || !summary) throw new Error("empty headline/summary in brief response");
+  const highlights = (Array.isArray(parsed?.highlights) ? parsed.highlights : [])
+    .map((h) => ({
+      label: String(h?.label || "").replace(/\s+/g, " ").trim(),
+      text: String(h?.text || "").replace(/\s+/g, " ").trim(),
+    }))
+    .filter((h) => h.text)
+    .slice(0, 6);
+  return { headline, summary, highlights };
+}
+
+// Generate / carry-forward the morning + afternoon market briefs and write
+// data/briefs.json. Called from main() AFTER picks.json + the calendar data
+// exist and BEFORE writeAiUsageState() so the brief's token usage is recorded.
+// `briefsPrev` is the pre-wipe snapshot, so each brief is minted at most once
+// per ET day and reused by later builds. Never throws — a failure leaves the
+// tab on its last-good content.
+async function buildMarketBriefs(opts) {
+  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar } = opts;
+  const now = new Date();
+  const todayEt = etDateKey(now);
+  const hourEt = etHourNY(now);
+  // Carry forward whatever the prior file holds for TODAY; drop stale days.
+  let morning = briefsPrev?.morning && briefsPrev.morning.date === todayEt ? briefsPrev.morning : null;
+  let afternoon = briefsPrev?.afternoon && briefsPrev.afternoon.date === todayEt ? briefsPrev.afternoon : null;
+  const haveKey = !!process.env.GEMINI_API_KEY;
+  const wantMorning = !morning && hourEt >= 0 && hourEt < BRIEF_MORNING_CUTOFF_ET_HOUR;
+  const wantAfternoon = !afternoon && hourEt >= BRIEF_EOD_TRIGGER_ET_HOUR;
+  let generated = 0;
+  if (haveKey && (wantMorning || wantAfternoon)) {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    if (wantMorning) {
+      try {
+        const signals = gatherBriefSignals("morning", { chains, fearGreed, macro, correlations, unusual, picks, calendar });
+        const gen = await generateBrief(ai, "morning", todayEt, signals);
+        morning = { kind: "morning", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
+        generated++;
+        console.log(`[briefs] morning brief generated for ${todayEt}`);
+      } catch (err) {
+        console.warn(`[briefs] morning generation failed: ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+    if (wantAfternoon) {
+      try {
+        const signals = gatherBriefSignals("afternoon", { chains, fearGreed, macro, correlations, unusual, picks, calendar });
+        const gen = await generateBrief(ai, "afternoon", todayEt, signals);
+        afternoon = { kind: "afternoon", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
+        generated++;
+        console.log(`[briefs] afternoon brief generated for ${todayEt}`);
+      } catch (err) {
+        console.warn(`[briefs] afternoon generation failed: ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+  }
+  // Always (re)write so a brief survives the data/ wipe across builds.
+  const payload = { builtAtIso };
+  if (morning) payload.morning = morning;
+  if (afternoon) payload.afternoon = afternoon;
+  await writeFile(resolve(DATA_DIR, BRIEFS_FILE), JSON.stringify(payload), "utf8");
+  return { morning: !!morning, afternoon: !!afternoon, generated };
+}
+
 const AI_SYSTEM_PROMPT =
   "You are an options-savvy financial news summarizer. " +
   "Given a US-listed ticker, its current share price, and a handful of recent " +
@@ -17152,6 +17510,10 @@ async function main() {
   // wipes data/ — so without this pre-read the salvage silently never fires and
   // a FRED/BLS outage ships a blank macro calendar. Threaded in via extras.priorCalendar.
   const priorCalendar = await readPriorCalendar();
+  // Prior market briefs (morning + closing digest) — read BEFORE writeChainFiles
+  // wipes data/, so each brief is minted once per ET day and carried forward by
+  // later builds. Threaded into buildMarketBriefs near the end of main().
+  const briefsPrev = await readPriorBriefs();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
@@ -17587,6 +17949,40 @@ async function main() {
     console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
   } catch (err) {
     console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Market briefs (morning + post-close digest) — generated at most once per ET
+  // window and carried forward, mirroring the heatmap EOD recap. Built from the
+  // data already in memory: overnight correlations, the day's breadth + movers,
+  // unusual flow, macro levels, Fear & Greed, the calendar, and the top picks.
+  // Runs BEFORE writeAiUsageState so the brief's token usage is persisted.
+  try {
+    const briefTodayIso = etDateKey();
+    let picksForBrief = [];
+    try {
+      const pj = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8"));
+      picksForBrief = Array.isArray(pj?.picks) ? pj.picks : [];
+    } catch (_) { /* no picks.json yet — brief omits the picks block */ }
+    // Pure rebuild of the correlations payload (no fetch — reuses the already-
+    // fetched globalMarkets + chains bars) for the overnight signal block.
+    const briefCorrelations = buildCorrelationsPayload(chains, globalMarkets, builtAtIso, priorCorrelations);
+    const sess = (sym, date) => sessionMap.get(`${sym}|${date}`) || "TBD";
+    const allEarn = upcomingEarningsList(chains, briefTodayIso, 14);
+    const calForBrief = {
+      todayEarnings: allEarn.filter((e) => e.date === briefTodayIso).map((e) => ({ sym: e.symbol, session: sess(e.symbol, e.date) })),
+      upcomingEarn: allEarn.filter((e) => e.date > briefTodayIso).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6).map((e) => ({ sym: e.symbol, date: e.date, session: sess(e.symbol, e.date) })),
+      todayReports: (reportEvents || []).filter((r) => String(r.date) === briefTodayIso).map((r) => ({ title: r.title })),
+      upcomingReports: (reportEvents || []).filter((r) => String(r.date) > briefTodayIso).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 5).map((r) => ({ title: r.title, date: r.date })),
+      nextFomc: upcomingMeetings && upcomingMeetings[0]
+        ? { date: upcomingMeetings[0].date, daysOut: Math.max(0, Math.round((Date.parse(upcomingMeetings[0].date + "T00:00:00Z") - Date.parse(briefTodayIso + "T00:00:00Z")) / 86400000)) }
+        : null,
+    };
+    const briefRes = await buildMarketBriefs({
+      briefsPrev, builtAtIso, chains, fearGreed, macro: macroBackdrop,
+      correlations: briefCorrelations, unusual, picks: picksForBrief, calendar: calForBrief,
+    });
+    console.log(`wrote data/${BRIEFS_FILE} — morning:${briefRes.morning ? "yes" : "no"} afternoon:${briefRes.afternoon ? "yes" : "no"}${briefRes.generated ? ` (${briefRes.generated} generated this run)` : ""}`);
+  } catch (err) {
+    console.warn(`[briefs] skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Persist AI usage now (rather than at the very end) so a hang/timeout in
   // the slow EDGAR fetch below can't leave data/ai-usage.json missing —

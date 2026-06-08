@@ -11856,6 +11856,93 @@ html::-webkit-scrollbar-thumb:hover {
 .heatmap-eod-chip.pos span { color: color-mix(in srgb, var(--pos) 80%, var(--text)); }
 .heatmap-eod-chip.neg span { color: color-mix(in srgb, var(--neg) 80%, var(--text)); }
 
+/* ── Market brief tab ─────────────────────────────────────────────────── */
+.brief-root { display: flex; flex-direction: column; gap: var(--s-3); }
+.brief-empty {
+  margin: 8px 0;
+  font: 400 0.9rem/1.5 var(--font-sans);
+  color: var(--muted);
+}
+.brief-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left-width: 3px;
+  border-left-color: var(--border-strong);
+}
+.brief-card[data-kind="morning"] { border-left-color: var(--accent); }
+.brief-card[data-kind="afternoon"] { border-left-color: var(--pos); }
+.brief-card-head { display: flex; flex-direction: column; gap: 6px; }
+.brief-card-titles { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.brief-kind {
+  font: 700 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--muted-strong);
+}
+.brief-kind-morning { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.brief-kind-afternoon { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.brief-date { font: 600 0.72rem/1 var(--font-mono); color: var(--muted-strong); }
+.brief-stamp { font: 600 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.brief-headline { margin: 0; font: 700 1.05rem/1.35 var(--font-sans); color: var(--text-strong); }
+.brief-summary { margin: 0; font: 400 0.92rem/1.55 var(--font-sans); color: var(--text); }
+.brief-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.brief-stat {
+  display: inline-flex; flex-direction: column; gap: 2px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+}
+.brief-stat-label { font: 600 8px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.brief-stat-val { font: 700 0.8rem/1.1 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.brief-stat-val .pos { color: var(--pos); }
+.brief-stat-val .neg { color: var(--neg); }
+.brief-stat-chg { color: var(--muted); font-weight: 500; }
+.brief-highlights { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.brief-hl { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font: 400 0.88rem/1.45 var(--font-sans); color: var(--text); }
+.brief-hl-label {
+  flex: none;
+  font: 700 0.66rem/1.3 var(--font-mono);
+  text-transform: uppercase; letter-spacing: .04em;
+  color: var(--accent);
+  min-width: 84px;
+}
+.brief-hl-text { flex: 1 1 200px; }
+.brief-block { display: flex; flex-direction: column; gap: 6px; }
+.brief-block-title { margin: 0; font: 700 0.7rem/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted-strong); }
+.brief-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.brief-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-pill); padding: 3px 9px;
+  font: 600 0.72rem/1 var(--font-mono); color: var(--text);
+  cursor: pointer; font-variant-numeric: tabular-nums;
+}
+button.brief-chip:hover { border-color: var(--border-strong); background: var(--surface-3); }
+.brief-chip span { color: var(--muted); font-weight: 500; }
+.brief-chip.pos { color: var(--pos); }
+.brief-chip.neg { color: var(--neg); }
+.brief-chip.pos span { color: color-mix(in srgb, var(--pos) 80%, var(--text)); }
+.brief-chip.neg span { color: color-mix(in srgb, var(--neg) 80%, var(--text)); }
+.brief-chip.foreign { cursor: default; }
+.brief-chip.flow span, .brief-chip.pick span { text-transform: uppercase; letter-spacing: .03em; color: var(--accent); }
+.brief-events { display: flex; flex-wrap: wrap; gap: 5px; }
+.brief-event {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-1); padding: 4px 9px;
+}
+.brief-event-label { font: 600 0.72rem/1.2 var(--font-sans); color: var(--text); }
+.brief-event-detail { font: 600 0.66rem/1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
 @media (max-width: 640px) {
   .heatmap-root {
     height: 60vh;
