@@ -6754,6 +6754,12 @@ const PICKS_MACRO_REGIME = process.env.PICKS_MACRO_REGIME !== "0";
 // restore the legacy per-name market-wide signals (rows back, scored).
 const PICKS_TAPE_DEDUPE = process.env.PICKS_TAPE_DEDUPE !== "0";
 // Per-axis trigger thresholds (one-day moves; the 5-day trend confirms a softer 1d).
+// VIX axis: the level (≥20) + term-structure inversion are the path-independent
+// ANCHORS; the 5-day `trend` only CONFIRMS them. A 1-day VIX drop ≤ this (%) is
+// vol actively unwinding (a risk-ON tell), so it cancels a lagging "rising" 5d
+// trend — a sub-20 VIX that spiked then snapped back intraweek must not read
+// risk-off off the stale weekly trend alone (its `trend` still says "rising").
+const PICKS_MACRO_VIX_REVERSAL_1D = Number(process.env.PICKS_MACRO_VIX_REVERSAL_1D ?? -8);
 const PICKS_MACRO_DXY_1D = Number(process.env.PICKS_MACRO_DXY_1D ?? 0.6);          // % dollar 1d that flags tightening (-1)
 const PICKS_MACRO_DXY_1D_STRONG = Number(process.env.PICKS_MACRO_DXY_1D_STRONG ?? 0.9); // ... a sharp dollar spike (-2)
 const PICKS_MACRO_DXY_5D = Number(process.env.PICKS_MACRO_DXY_5D ?? 1.0);          // % dollar 5d that, on a rising trend, flags tightening (-1)
@@ -9972,12 +9978,21 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     const vix = macroBackdrop.vix;
     const term = macroBackdrop.vixTerm;
     if (vix && isFinite(vix.value)) {
-      const v = vix.value, rising = vix.trend === "rising";
+      const v = vix.value;
       const backward = !!(term && term.state === "backwardation");
+      // A sharp 1-day VIX drop is vol actively unwinding (risk-ON), so it cancels
+      // the lagging 5-day "rising" trend: a sub-20, snapping-back VIX no longer
+      // reads risk-off off a stale weekly trend alone. The LEVEL (≥20) and the
+      // curve inversion are unaffected — they're the path-independent anchors;
+      // only the trend-driven escalation is suppressed.
+      const d1 = isFinite(vix.pctChange1d) ? vix.pctChange1d : null;
+      const reversing = d1 != null && d1 <= PICKS_MACRO_VIX_REVERSAL_1D;
+      const rising = vix.trend === "rising" && !reversing;
       let s = 0, label = `VIX ${v.toFixed(1)} (${vix.trend || "flat"})`;
       if ((rising && v >= 25) || (backward && v >= 20)) { s = -2; label = `VIX ${v.toFixed(1)} ${backward ? "inverted curve" : "rising"} — acute stress`; }
-      else if (v >= PICKS_TIMING_RISKOFF_VIX || (rising && v >= 18) || backward) { s = -1; label = `VIX ${v.toFixed(1)} elevated/rising`; }
+      else if (v >= PICKS_TIMING_RISKOFF_VIX || (rising && v >= 18) || backward) { s = -1; label = `VIX ${v.toFixed(1)} ${v >= PICKS_TIMING_RISKOFF_VIX || backward ? "elevated" : "elevated/rising"}`; }
       else if (v < 14) { s = 1; label = `VIX ${v.toFixed(1)} calm`; }
+      else if (reversing && vix.trend === "rising") { label = `VIX ${v.toFixed(1)} cooling — 1d ${d1.toFixed(1)}%`; }
       axes.vix = { score: s, label };
       if (s <= -1) drivers.push(`VIX ${v.toFixed(1)}${rising ? " ↑" : ""}`);
     } else axes.vix = { score: 0, label: "no VIX" };
@@ -9987,7 +10002,12 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   {
     const dxy = macroBackdrop.dxy;
     if (dxy && isFinite(dxy.pctChange1d)) {
-      const d1 = dxy.pctChange1d, d5 = Number(dxy.pctChange5d) || 0, rising = dxy.trend === "rising";
+      const d1 = dxy.pctChange1d, d5 = Number(dxy.pctChange5d) || 0;
+      // Same guard as the VIX axis: a meaningful same-day reversal (an easing
+      // ≥ half the 1d trigger, opposite the trend) cancels the lagging 5-day
+      // "rising" trend, so a dollar that's up on the week but easing today can't
+      // fire risk-off off the stale trend alone. The 1d level paths are untouched.
+      const rising = dxy.trend === "rising" && !(d1 <= -PICKS_MACRO_DXY_1D / 2);
       let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
       if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
       else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
@@ -10004,7 +10024,11 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       const up = Math.max(...legs.map((l) => l.bpsChange1d));   // most positive (tightening)
       const dn = Math.min(...legs.map((l) => l.bpsChange1d));   // most negative (easing)
       const ten = macroBackdrop.tenY;
-      const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D;
+      // Same guard as the VIX axis: if the 10Y itself fell meaningfully today
+      // (≥ half the 1d trigger), cancel the lagging 5-day rising trend so a
+      // week-up/day-down tape doesn't fire risk-off off the stale trend alone.
+      const tenReversing = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d <= -PICKS_MACRO_YIELD_BPS_1D / 2;
+      const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D && !tenReversing;
       let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
       if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
       else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
@@ -10121,7 +10145,11 @@ export function detectMarketRegime(marketCtx, macroBackdrop) {
   const spy = marketCtx && isFinite(marketCtx.spyMove) ? marketCtx.spyMove : null;
   const vix = macroBackdrop && macroBackdrop.vix ? macroBackdrop.vix : null;
   const vixVal = vix && isFinite(vix.value) ? vix.value : null;
-  const vixRising = vix && vix.trend === "rising";
+  // A sharp 1-day VIX drop cancels the lagging 5-day "rising" trend (vol
+  // unwinding = risk-ON), so a snapping-back VIX can't fire vixOff off the
+  // stale trend path. Mirrors the computeMacroRegime VIX axis — keep in sync.
+  const vixReversing = vix && isFinite(vix.pctChange1d) && vix.pctChange1d <= PICKS_MACRO_VIX_REVERSAL_1D;
+  const vixRising = vix && vix.trend === "rising" && !vixReversing;
   // VIX term-structure backwardation (front richer than longer-dated) is an
   // acute-stress tell — let it confirm risk-off at a lower absolute VIX (≥16)
   // than the level/trend path needs (≥18/20), and block risk-on while inverted.
