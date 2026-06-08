@@ -6734,10 +6734,12 @@ const PICKS_MACRO_REGIME = process.env.PICKS_MACRO_REGIME !== "0";
 // SPY-flows / VIX-tracking / VIX-spot / DXY / 10Y / Macro-Tail pillar signals read
 // those same market inputs — but as FIXED (non-z-scored) signals they're a uniform
 // offset across the universe, so they double-count the tape AND re-rank nothing. With
-// this on, ALL SIX are neutralized to informational (kept visible on the card, scored
-// 0) so the tape is read once and expressed once, and the grade is purely per-name.
-// (The beta-weighted Macro Regime tilt is NOT a fixed uniform read, so it stays.)
-// Set =0 to restore the legacy per-name market-wide scores.
+// this on, ALL SIX are DROPPED from the per-name breakdown entirely (not pushed into
+// the pillar) so the tape is read once and expressed once, and the grade is purely
+// per-name. Score-neutral vs the prior "scored 0, kept visible" pass — those rows
+// already contributed 0 — so this only removes the rows; it changes no grade. (The
+// beta-weighted Macro Regime tilt is NOT a fixed uniform read, so it stays.) Set =0 to
+// restore the legacy per-name market-wide signals (rows back, scored).
 const PICKS_TAPE_DEDUPE = process.env.PICKS_TAPE_DEDUPE !== "0";
 // Per-axis trigger thresholds (one-day moves; the 5-day trend confirms a softer 1d).
 const PICKS_MACRO_DXY_1D = Number(process.env.PICKS_MACRO_DXY_1D ?? 0.6);          // % dollar 1d that flags tightening (-1)
@@ -8143,13 +8145,14 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     let note = `SPY ${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}% — flat (<0.6%)`;
     if (spyMove >= 0.6) { s = 1; note = `SPY +${spyMove.toFixed(2)}% — risk-on tape`; }
     else if (spyMove <= -0.6) { s = -1; note = `SPY ${spyMove.toFixed(2)}% — risk-off tape`; }
-    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     spySignal = _sig("spyFlows", "SPY flows", s, {
       value: `${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}%`,
       note,
     });
   }
-  signals.push(spySignal);
+  // Market-wide tape → owned by the regime gauge (§6.3), not the per-name grade.
+  // Dropped from the breakdown entirely when PICKS_TAPE_DEDUPE is on (legacy: scored).
+  if (!PICKS_TAPE_DEDUPE) signals.push(spySignal);
 
   // 6. Put/Call Ratio Extreme: ±2, contrarian. Total put volume / call volume
   // across the nearest expirations. A high ratio (>1.15) is extreme fear —
@@ -8206,13 +8209,14 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     } else if (vix.trend === "falling") {
       note = `VIX ${vix.value.toFixed(1)} falling but already calm (<20) — no edge`;
     }
-    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     vixTrendSignal = _sig("vixTracking", "VIX Tracking", s, {
       value: vix.value.toFixed(1),
       note,
     });
   }
-  signals.push(vixTrendSignal);
+  // Market-wide VIX → owned by the regime gauge; dropped from the per-name breakdown
+  // when PICKS_TAPE_DEDUPE is on (legacy: scored).
+  if (!PICKS_TAPE_DEDUPE) signals.push(vixTrendSignal);
 
   // 8. VIX spot level: extremes only, contrarian. Per spec — VIX very low (<15)
   // = -1 (complacency, downside underpriced); VIX very high (>35) = +2
@@ -8230,13 +8234,14 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
       if (reversalOk) { s = 2; note = `VIX ${vix.value.toFixed(1)} — capitulation (>35) with the turn confirming, contrarian bullish`; }
       else { note = `VIX ${vix.value.toFixed(1)} — capitulation (>35) but no reversal bar yet (held at 0)`; }
     }
-    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — market-wide VIX, owned by the regime gauge (no double-count)"; s = 0; }
     vixSpotSignal = _sig("vixSpot", "VIX Spot", s, {
       value: vix.value.toFixed(1),
       note,
     });
   }
-  signals.push(vixSpotSignal);
+  // Market-wide VIX → owned by the regime gauge; dropped from the per-name breakdown
+  // when PICKS_TAPE_DEDUPE is on (legacy: scored).
+  if (!PICKS_TAPE_DEDUPE) signals.push(vixSpotSignal);
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
@@ -8400,24 +8405,20 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   // Bearish macro dominates when both sides are active — asymmetric weighting
   // matches how the spec values these (+1 vs -2).
   // A macro narrative is MARKET-WIDE (the same -2/+1 for every name), so it's owned
-  // by the regime gauge (§6.3), not the per-name grade — neutralized to informational
-  // under PICKS_TAPE_DEDUPE (kept visible, scored 0), like the SPY/VIX/DXY/10Y reads.
+  // by the regime gauge (§6.3), not the per-name grade — dropped from the breakdown
+  // entirely under PICKS_TAPE_DEDUPE (legacy: scored), like the SPY/VIX/DXY/10Y reads.
   if (macroBear) {
-    const s = PICKS_TAPE_DEDUPE ? 0 : -2;
-    macroSignal = _sig("macro", "Macro Tail/Headwinds", s, {
+    macroSignal = _sig("macro", "Macro Tail/Headwinds", -2, {
       value: "headwind",
-      note: `bearish macro: "${macroBear.name}" (str ${macroBear.strength})` +
-        (PICKS_TAPE_DEDUPE ? " — market-wide, owned by the regime gauge (no double-count)" : ""),
+      note: `bearish macro: "${macroBear.name}" (str ${macroBear.strength})`,
     });
   } else if (macroBull) {
-    const s = PICKS_TAPE_DEDUPE ? 0 : 1;
-    macroSignal = _sig("macro", "Macro Tail/Headwinds", s, {
+    macroSignal = _sig("macro", "Macro Tail/Headwinds", 1, {
       value: "tailwind",
-      note: `bullish macro: "${macroBull.name}" (str ${macroBull.strength})` +
-        (PICKS_TAPE_DEDUPE ? " — market-wide, owned by the regime gauge (no double-count)" : ""),
+      note: `bullish macro: "${macroBull.name}" (str ${macroBull.strength})`,
     });
   }
-  signals.push(macroSignal);
+  if (!PICKS_TAPE_DEDUPE) signals.push(macroSignal);
 
   // 7. DXY strength (1D): a sharp dollar move is a market-wide risk signal. Per
   // spec — only a ≥0.9% one-day move scores; smaller moves are noise (0). A
@@ -8432,13 +8433,14 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     let note = `DXY ${mv >= 0 ? "+" : ""}${mv.toFixed(2)}% — flat (<0.9%)`;
     if (mv >= 0.9) { s = -2; note = `DXY +${mv.toFixed(2)}% — strong dollar, equity headwind`; }
     else if (mv <= -0.9) { s = 1; note = `DXY ${mv.toFixed(2)}% — weak dollar, equity tailwind`; }
-    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     dxySignal = _sig("dxy", "DXY Strength (1D)", s, {
       value: `${mv >= 0 ? "+" : ""}${mv.toFixed(2)}%`,
       note,
     });
   }
-  signals.push(dxySignal);
+  // Market-wide dollar → owned by the regime gauge; dropped from the per-name
+  // breakdown when PICKS_TAPE_DEDUPE is on (legacy: scored).
+  if (!PICKS_TAPE_DEDUPE) signals.push(dxySignal);
 
   // 8. 10-Year Treasury (1D): only a ≥13 bps one-day move scores (per spec).
   // Rising yields pressure growth/risk assets (-2, the heavier side per the
@@ -8452,13 +8454,14 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     let note = `10Y ${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps — flat (<13 bps)`;
     if (bps >= 13) { s = -2; note = `10Y +${bps.toFixed(1)} bps — yields spiking, risk-off`; }
     else if (bps <= -13) { s = 1; note = `10Y ${bps.toFixed(1)} bps — yields falling, easing tailwind`; }
-    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     tenYSignal = _sig("tenY", "10Y Yield (1D)", s, {
       value: `${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps`,
       note,
     });
   }
-  signals.push(tenYSignal);
+  // Market-wide long yields → owned by the regime gauge; dropped from the per-name
+  // breakdown when PICKS_TAPE_DEDUPE is on (legacy: scored).
+  if (!PICKS_TAPE_DEDUPE) signals.push(tenYSignal);
 
   // 9. Cross-asset Macro Regime (PICKS_MACRO_REGIME): the holistic, BETA-WEIGHTED
   // read of the macro gauge (VIX + DXY + long yields + Fed path + commodity/geopolitical
