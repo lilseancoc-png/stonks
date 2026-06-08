@@ -10002,7 +10002,12 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   {
     const dxy = macroBackdrop.dxy;
     if (dxy && isFinite(dxy.pctChange1d)) {
-      const d1 = dxy.pctChange1d, d5 = Number(dxy.pctChange5d) || 0, rising = dxy.trend === "rising";
+      const d1 = dxy.pctChange1d, d5 = Number(dxy.pctChange5d) || 0;
+      // Same guard as the VIX axis: a meaningful same-day reversal (an easing
+      // ≥ half the 1d trigger, opposite the trend) cancels the lagging 5-day
+      // "rising" trend, so a dollar that's up on the week but easing today can't
+      // fire risk-off off the stale trend alone. The 1d level paths are untouched.
+      const rising = dxy.trend === "rising" && !(d1 <= -PICKS_MACRO_DXY_1D / 2);
       let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
       if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
       else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
@@ -10019,7 +10024,11 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       const up = Math.max(...legs.map((l) => l.bpsChange1d));   // most positive (tightening)
       const dn = Math.min(...legs.map((l) => l.bpsChange1d));   // most negative (easing)
       const ten = macroBackdrop.tenY;
-      const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D;
+      // Same guard as the VIX axis: if the 10Y itself fell meaningfully today
+      // (≥ half the 1d trigger), cancel the lagging 5-day rising trend so a
+      // week-up/day-down tape doesn't fire risk-off off the stale trend alone.
+      const tenReversing = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d <= -PICKS_MACRO_YIELD_BPS_1D / 2;
+      const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D && !tenReversing;
       let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
       if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
       else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
