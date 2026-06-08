@@ -25,13 +25,13 @@
     "trend": "flat"
   },
   "dxy": {
-    "value": 100.102,
+    "value": 100.075,
     "prior": 99.19999694824219,
     "prior1d": 100.06999969482422,
     "prior5d": 99.19999694824219,
-    "change5d": 0.9092772978898763,
-    "pctChange1d": 0.03197792072886378,
-    "pctChange5d": 0.9092772978898763,
+    "change5d": 0.8820595551170732,
+    "pctChange1d": 0.004996807425835054,
+    "pctChange5d": 0.8820595551170732,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "rising"
@@ -58,30 +58,30 @@
     "state": "contango"
   },
   "crude": {
-    "value": 92.71,
+    "value": 92.58,
     "prior": 92.16000366210938,
     "prior1d": 90.54000091552734,
     "prior5d": 92.16000366210938,
-    "change5d": 0.5967841970873793,
-    "pctChange1d": 2.3967296913297265,
-    "pctChange5d": 0.5967841970873793,
+    "change5d": 0.45572517491478837,
+    "pctChange1d": 2.25314674601776,
+    "pctChange5d": 0.45572517491478837,
     "bpsChange1d": null,
     "bpsChange5d": null,
-    "trend": "rising"
+    "trend": "flat"
   },
   "gold": {
-    "value": 4363.5,
+    "value": 4374.6,
     "prior": 4475.2001953125,
     "prior1d": 4337.10009765625,
     "prior5d": 4475.2001953125,
-    "change5d": -2.4959820887901096,
-    "pctChange1d": 0.6086994016581815,
-    "pctChange5d": -2.4959820887901096,
+    "change5d": -2.2479484921785673,
+    "pctChange1d": 0.8646307786166879,
+    "pctChange5d": -2.2479484921785673,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "falling"
   },
-  "asOf": "2026-06-07T23:53:45.080Z",
+  "asOf": "2026-06-08T00:40:13.960Z",
   "previousClose": {
     "date": "2026-06-06",
     "asOf": "2026-06-07T00:31:27.505Z",
