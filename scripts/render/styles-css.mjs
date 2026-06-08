@@ -12296,6 +12296,111 @@ html::-webkit-scrollbar-thumb:hover {
 }
 
 /* ===================================================================
+   Gamma exposure (GEX) heatmap — per-ticker strike × expiration grid
+   computed client-side (see computeGex/renderGex in app-js).
+   =================================================================== */
+.gex-card { padding: var(--s-4); margin-bottom: var(--s-4); }
+.gex-card .gex-key-pos { color: var(--up); font-weight: 500; }
+.gex-card .gex-key-neg { color: var(--dn); font-weight: 500; }
+.gex-controls {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+.gex-control { display: flex; flex-direction: column; gap: var(--s-1); }
+.gex-control-label { font-size: 0.78em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.gex-control select {
+  appearance: none; background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-2);
+  padding: var(--s-2) var(--s-3); font: inherit; min-width: 130px; cursor: pointer;
+}
+.gex-control select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.gex-action-btn {
+  background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border);
+  border-radius: var(--r-2); padding: var(--s-2) var(--s-3); font: inherit; cursor: pointer;
+  transition: color var(--xt), border-color var(--xt);
+}
+.gex-action-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.gex-action-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.gex-summary { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-4); }
+.gex-metrics { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.gex-metric {
+  flex: 1 1 150px; min-width: 130px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-3); padding: var(--s-3);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.gex-metric-label { font-size: 0.72em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.gex-metric-val { font-size: 1.25em; font-weight: 600; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.gex-metric-sub { font-size: 0.78em; color: var(--text-3); }
+.gex-metric.is-pos .gex-metric-val { color: var(--up); }
+.gex-metric.is-neg .gex-metric-val { color: var(--dn); }
+.gex-spot-chg { font-size: 0.6em; font-weight: 600; vertical-align: middle; }
+.gex-spot-chg.is-up { color: var(--up); }
+.gex-spot-chg.is-dn { color: var(--dn); }
+
+.gex-keylevels { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.gex-keylevels-label { font-size: 0.72em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.gex-keychip {
+  font-size: 0.82em; font-variant-numeric: tabular-nums;
+  padding: 3px var(--s-2); border-radius: var(--r-pill);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+}
+.gex-keychip.is-pos { border-color: color-mix(in srgb, var(--pos) 40%, var(--border)); }
+.gex-keychip.is-neg { border-color: color-mix(in srgb, var(--neg) 40%, var(--border)); }
+.gex-keychip-exp { color: var(--text-3); }
+
+.gex-grid-wrap {
+  overflow: auto; max-height: 70vh;
+  border: 1px solid var(--border); border-radius: var(--r-3);
+}
+.gex-table { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
+.gex-table th, .gex-table td {
+  padding: 5px var(--s-2); text-align: center; white-space: nowrap;
+  font-size: 0.82em; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+}
+.gex-th-strike, .gex-th-exp {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--surface-2); color: var(--text-2);
+  font-weight: 600; font-size: 0.74em; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.gex-th-exp { display: table-cell; }
+.gex-th-date { display: block; color: var(--text); }
+.gex-th-dte { display: block; font-size: 0.85em; color: var(--text-3); font-weight: 400; }
+.gex-th-strike { left: 0; z-index: 4; text-align: right; }
+.gex-strike {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--surface-2); color: var(--text-2);
+  text-align: right; font-weight: 600;
+}
+.gex-cell { color: var(--text-strong); font-weight: 500; }
+.gex-cell.is-empty { color: var(--text-3); background: transparent; }
+.gex-tr:hover .gex-strike { color: var(--text); }
+.gex-spot-row .gex-spot-strike {
+  background: var(--accent-soft); color: var(--accent-strong); font-weight: 700;
+  border-top: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
+}
+.gex-spot-tag {
+  font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--accent); font-weight: 600;
+}
+.gex-spot-cell { background: color-mix(in srgb, var(--accent) 7%, transparent); border-top: 2px solid var(--accent); border-bottom: 2px solid var(--accent); }
+
+.gex-legend { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-3); justify-content: center; }
+.gex-legend-label { font-size: 0.74em; color: var(--text-3); }
+.gex-legend-bar {
+  width: 180px; height: 8px; border-radius: var(--r-pill);
+  background: linear-gradient(90deg, rgba(255,77,94,0.9), rgba(255,77,94,0.15), var(--surface-2), rgba(22,224,138,0.15), rgba(22,224,138,0.9));
+}
+.gex-empty { padding: var(--s-4); color: var(--text-3); text-align: center; font-style: italic; }
+
+@media (max-width: 640px) {
+  .gex-metric { flex-basis: 120px; min-width: 110px; }
+  .gex-metric-val { font-size: 1.1em; }
+  .gex-table th, .gex-table td { font-size: 0.76em; padding: 4px 6px; }
+}
+
+/* ===================================================================
    Mobile refinements (final pass)
    ===================================================================
    Layered on top of the established mobile blocks higher up in this

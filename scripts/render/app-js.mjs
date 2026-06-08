@@ -2878,6 +2878,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
       ticker: 'tickers',
       global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
+      gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
     };
     function resolveTab(t){
       if (!t) return null;
@@ -3022,6 +3023,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       if (name === 'oi' && typeof renderOI === 'function') renderOI();
+      // Lazy-load the GEX heatmap the first time the tab is opened (it fetches
+      // the selected ticker's chain). Revisits keep the last view; Refresh
+      // re-pulls the live spot.
+      if (name === 'oi' && typeof loadGex === 'function' && !gexState.data && !gexState.loading) loadGex();
       if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
@@ -7667,6 +7672,362 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         body.hidden = !next;
       });
     }
+  }
+
+  // --- Gamma exposure (GEX) heatmap --------------------------------------
+  // Dealer gamma-exposure heatmap, computed entirely in the browser from the
+  // baked per-ticker chain (data/<SYM>.json, lazy-loaded via the shared
+  // fetchChain() — same source the Grade/Strategies tabs use). For each
+  // contract:
+  //   GEX = Γ(BS) × OI × 100 × spot² × 0.01   (dollar-gamma for a 1% move)
+  // Calls add +GEX (dealers assumed long gamma → buy dips / sell rips,
+  // stabilizing); puts add −GEX (dealers short gamma → amplify). Net at a
+  // cell = call GEX − put GEX. Black-Scholes gamma is reused from greeks()
+  // at the top of this file (gamma is type-independent, so we always pass
+  // 'call'); RFR is the build-time risk-free rate. Open interest is
+  // end-of-session data, so this tracks the prior session's positioning —
+  // only spot moves intraday, so we recompute at the live spot from
+  // /api/quote while the market is open. computeGex(entry, spot) is pure
+  // given (chain, spot).
+  var GEX_CONTRACT_MULT = 100;          // shares per contract
+  var GEX_MIN_T_DAYS = 1;               // floor on time-to-expiry so 0DTE ATM gamma stays finite + readable
+  var GEX_MAX_EXPS = 8;                 // near-term expiration columns shown
+  var GEX_EXPIRY_OFFSET_MS = 20 * 3600 * 1000; // ~16:00 ET close vs the midnight-UTC expiration key
+  var GEX_YEAR_MS = 365 * 24 * 3600 * 1000;
+  var GEX_RANGES = { near: 12, mid: 22, wide: 40 }; // strikes shown each side of spot
+  var gexState = {
+    inited: false, loading: false, symbol: null, range: 'mid',
+    entry: null, data: null, builtAtIso: null, spotSource: 'snapshot',
+    liveChange: null, liveChangePct: null, token: 0,
+  };
+
+  function gexFmt(n){
+    if (n == null || !isFinite(n)) return '—';
+    var a = Math.abs(n), s = n < 0 ? '-' : '';
+    if (a >= 1e12) return s + (a / 1e12).toFixed(2) + 'T';
+    if (a >= 1e9)  return s + (a / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6)  return s + (a / 1e6).toFixed(1) + 'M';
+    if (a >= 1e3)  return s + (a / 1e3).toFixed(0) + 'K';
+    return s + Math.round(a);
+  }
+  function gexFmtSigned(n){
+    if (n == null || !isFinite(n)) return '—';
+    return (n > 0 ? '+' : '') + gexFmt(n);
+  }
+  function gexYearsTo(expSec, now){
+    var yrs = ((Number(expSec) * 1000 + GEX_EXPIRY_OFFSET_MS) - now) / GEX_YEAR_MS;
+    return Math.max(yrs, GEX_MIN_T_DAYS / 365);
+  }
+  function gexBuildLabel(){
+    var iso = gexState.builtAtIso;
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + fmtScannedAt(iso);
+    } catch (_) { return ''; }
+  }
+
+  // Total dealer gamma$ across the chain at a hypothetical spot S. Used for
+  // the gamma-flip sweep (we vary S and find where this crosses zero).
+  function gexProfileAt(contracts, S){
+    if (!(S > 0)) return 0;
+    var total = 0, scale = S * S * 0.01 * GEX_CONTRACT_MULT;
+    for (var i = 0; i < contracts.length; i++){
+      var c = contracts[i];
+      var g = greeks('call', S, c.K, c.T, c.sigma, RFR);
+      if (!g || !isFinite(g.gamma)) continue;
+      total += c.sign * g.gamma * c.oi * scale;
+    }
+    return total;
+  }
+  // Gamma flip = the spot level where net dealer gamma crosses zero. Sweep a
+  // band around spot, find sign changes, return the crossing nearest spot
+  // (interpolated). null when the profile never crosses in range.
+  function computeGexFlip(contracts, spot){
+    if (!contracts.length || !(spot > 0)) return null;
+    var lo = spot * 0.80, hi = spot * 1.20, steps = 80;
+    var prevS = lo, prevG = gexProfileAt(contracts, lo), best = null;
+    for (var i = 1; i <= steps; i++){
+      var S = lo + (hi - lo) * i / steps;
+      var G = gexProfileAt(contracts, S);
+      if (isFinite(prevG) && isFinite(G) && prevG !== G &&
+          ((prevG <= 0 && G >= 0) || (prevG >= 0 && G <= 0))){
+        var cross = prevS + (S - prevS) * (0 - prevG) / (G - prevG);
+        if (best === null || Math.abs(cross - spot) < Math.abs(best - spot)) best = cross;
+      }
+      prevS = S; prevG = G;
+    }
+    return best;
+  }
+
+  // Pure: builds the full strike×expiration GEX matrix + summary metrics
+  // from a baked per-ticker entry, evaluated at the given spot.
+  function computeGex(entry, spot){
+    var chains = (entry && entry.chains) || {};
+    var now = Date.now(), dayMs = 86400000;
+    var expKeys = Object.keys(chains).map(Number)
+      .filter(function(s){ return isFinite(s) && s > 0; })
+      .sort(function(a, b){ return a - b; });
+    var exps = [];
+    for (var i = 0; i < expKeys.length && exps.length < GEX_MAX_EXPS; i++){
+      var sec = expKeys[i];
+      var dte = Math.round((sec * 1000 + GEX_EXPIRY_OFFSET_MS - now) / dayMs);
+      if (dte < 0) continue; // already expired — drop the dead column
+      exps.push({ sec: sec, dte: dte, T: gexYearsTo(sec, now), label: fmtOiExpiry(sec) });
+    }
+    var cellMap = {};     // strike(str) -> expSec -> { call, put, net }  (call/put are positive magnitudes)
+    var strikeSet = {};
+    var contracts = [];   // flat list for the flip sweep
+    var totalNet = 0;
+    for (var e = 0; e < exps.length; e++){
+      var ex = exps[e];
+      var ch = chains[String(ex.sec)];
+      if (!ch) continue;
+      var sides = [['call', ch.c, 1], ['put', ch.p, -1]];
+      for (var si = 0; si < 2; si++){
+        var rows = sides[si][1], sgn = sides[si][2];
+        if (!Array.isArray(rows)) continue;
+        for (var r = 0; r < rows.length; r++){
+          var row = rows[r];
+          if (!row) continue;
+          var K = Number(row.s), oi = Number(row.oi), iv = Number(row.iv);
+          if (!(K > 0) || !(oi > 0) || !(iv > 0)) continue;
+          var g = greeks('call', spot, K, ex.T, iv, RFR);
+          if (!g || !isFinite(g.gamma)) continue;
+          var gex = g.gamma * oi * GEX_CONTRACT_MULT * spot * spot * 0.01;
+          if (!isFinite(gex) || gex <= 0) continue;
+          var ks = String(K);
+          strikeSet[ks] = K;
+          var byExp = cellMap[ks] || (cellMap[ks] = {});
+          var cell = byExp[ex.sec] || (byExp[ex.sec] = { call: 0, put: 0, net: 0 });
+          if (sgn > 0) cell.call += gex; else cell.put += gex;
+          cell.net += sgn * gex;
+          totalNet += sgn * gex;
+          contracts.push({ K: K, T: ex.T, sigma: iv, oi: oi, sign: sgn });
+        }
+      }
+    }
+    var strikes = Object.keys(strikeSet).map(function(k){ return strikeSet[k]; })
+      .sort(function(a, b){ return a - b; });
+    // Per-strike aggregate across the shown expirations → walls.
+    var perStrike = strikes.map(function(K){
+      var byExp = cellMap[String(K)] || {}, net = 0, call = 0, put = 0;
+      for (var s in byExp){ net += byExp[s].net; call += byExp[s].call; put += byExp[s].put; }
+      return { strike: K, net: net, call: call, put: put };
+    });
+    var callWall = null, putWall = null;
+    for (var p = 0; p < perStrike.length; p++){
+      var ps = perStrike[p];
+      if (ps.net > 0 && (!callWall || ps.net > callWall.net)) callWall = ps;
+      if (ps.net < 0 && (!putWall || ps.net < putWall.net)) putWall = ps;
+    }
+    // Largest individual (strike, expiration) cells by |net| → key-level chips.
+    var allCells = [];
+    for (var ks2 in cellMap){
+      for (var es in cellMap[ks2]){
+        var c2 = cellMap[ks2][es];
+        allCells.push({ strike: Number(ks2), sec: Number(es), net: c2.net });
+      }
+    }
+    allCells.sort(function(a, b){ return Math.abs(b.net) - Math.abs(a.net); });
+    var topCells = allCells.slice(0, 3);
+    // Robust color scale: 92nd percentile of |cell|, so a few 0DTE outliers
+    // saturate without washing out the rest of the grid.
+    var mags = allCells.map(function(c){ return Math.abs(c.net); })
+      .filter(function(v){ return v > 0; })
+      .sort(function(a, b){ return a - b; });
+    var scaleRef = mags.length ? (mags[Math.min(mags.length - 1, Math.floor(mags.length * 0.92))] || mags[mags.length - 1]) : 1;
+    if (!(scaleRef > 0)) scaleRef = 1;
+    return {
+      exps: exps, strikes: strikes, cellMap: cellMap, perStrike: perStrike,
+      totalNet: totalNet, callWall: callWall, putWall: putWall, topCells: topCells,
+      flip: computeGexFlip(contracts, spot), scaleRef: scaleRef, spot: spot,
+    };
+  }
+
+  function gexPopulateSymbols(){
+    var sel = $('gex-symbol');
+    if (!sel || sel.options.length) return;
+    var syms = SYMBOLS.slice().sort();
+    var html = '';
+    for (var i = 0; i < syms.length; i++){
+      html += '<option value="' + escapeHtml(syms[i]) + '">' + escapeHtml(syms[i]) + '</option>';
+    }
+    sel.innerHTML = html;
+    var def = syms.indexOf('SPY') >= 0 ? 'SPY' : (syms[0] || '');
+    if (def){ sel.value = def; gexState.symbol = def; }
+  }
+
+  function gexSetEyebrow(txt){ var e = $('gex-eyebrow'); if (e) e.textContent = txt || ''; }
+  function gexShowEmpty(msg){
+    var grid = $('gex-grid'), summary = $('gex-summary'), empty = $('gex-empty');
+    if (grid) grid.innerHTML = '';
+    if (summary) summary.innerHTML = '';
+    if (empty){ empty.hidden = false; empty.textContent = msg; }
+  }
+
+  function loadGex(){
+    var sel = $('gex-symbol');
+    if (!gexState.symbol) gexState.symbol = (sel && sel.value) || (SYMBOLS.indexOf('SPY') >= 0 ? 'SPY' : SYMBOLS[0]) || null;
+    if (sel && gexState.symbol && sel.value !== gexState.symbol) sel.value = gexState.symbol;
+    var sym = gexState.symbol;
+    if (!sym){ gexShowEmpty('Pick a ticker to see its gamma exposure.'); return; }
+    var token = ++gexState.token;
+    gexState.loading = true;
+    gexSetEyebrow('Loading ' + sym + '…');
+    fetchChain(sym).then(function(entry){
+      if (token !== gexState.token) return; // user switched tickers mid-flight
+      gexState.loading = false;
+      if (!entry || !entry.chains){ gexShowEmpty('No chain data for ' + sym + '.'); return; }
+      var spot = Number(entry.spot);
+      if (!(spot > 0)){ gexShowEmpty('No spot price for ' + sym + '.'); return; }
+      gexState.entry = entry;
+      gexState.builtAtIso = (MANIFEST && MANIFEST.builtAtIso) || null;
+      gexState.spotSource = 'snapshot';
+      gexState.liveChange = null; gexState.liveChangePct = null;
+      gexState.data = computeGex(entry, spot);
+      renderGex();
+      gexMaybeLiveSpot(sym, token);
+    }).catch(function(){
+      if (token !== gexState.token) return;
+      gexState.loading = false;
+      gexShowEmpty('Could not load the chain for ' + sym + '.');
+    });
+  }
+  // OI is fixed for the session; only spot moves, so refresh the grid at the
+  // live spot when the market is open (best-effort — snapshot spot otherwise).
+  function gexMaybeLiveSpot(sym, token){
+    var st = (typeof getMarketStatus === 'function') ? getMarketStatus() : null;
+    if (st && st.state === 'closed') return;
+    fetch('/api/quote?symbol=' + encodeURIComponent(sym), { cache: 'no-store' })
+      .then(function(resp){ return resp.ok ? resp.json() : null; })
+      .then(function(q){
+        if (!q || token !== gexState.token || gexState.symbol !== sym || !gexState.entry) return;
+        var s = Number(q.spot);
+        if (!(s > 0)) return;
+        gexState.spotSource = 'live';
+        gexState.liveChange = (q.change != null && isFinite(q.change)) ? Number(q.change) : null;
+        gexState.liveChangePct = (q.changePct != null && isFinite(q.changePct)) ? Number(q.changePct) : null;
+        gexState.data = computeGex(gexState.entry, s);
+        renderGex();
+      })
+      .catch(function(){});
+  }
+
+  function gexMetricTile(label, val, cls, sub){
+    return '<div class="gex-metric ' + (cls || '') + '">' +
+      '<span class="gex-metric-label">' + escapeHtml(label) + '</span>' +
+      '<span class="gex-metric-val">' + val + '</span>' +
+      (sub ? '<span class="gex-metric-sub">' + escapeHtml(sub) + '</span>' : '') +
+    '</div>';
+  }
+  function gexSummaryHtml(d, sym){
+    var spot = d.spot;
+    var spotExtra = '';
+    if (gexState.spotSource === 'live' && gexState.liveChange != null){
+      var up = gexState.liveChange >= 0;
+      var pct = gexState.liveChangePct != null ? (up ? '+' : '') + gexState.liveChangePct.toFixed(2) + '%' : '';
+      spotExtra = ' <span class="gex-spot-chg ' + (up ? 'is-up' : 'is-dn') + '">' + (up ? '▲' : '▼') + ' ' +
+        (up ? '+' : '') + gexState.liveChange.toFixed(2) + (pct ? ' · ' + pct : '') + '</span>';
+    }
+    var regime = d.totalNet >= 0 ? 'positive — stabilizing' : 'negative — amplifying';
+    var flipSub = d.flip != null ? (spot >= d.flip ? 'spot above flip' : 'spot below flip') : '';
+    var tiles = [
+      gexMetricTile('Spot', fmtOiStrike(spot) + spotExtra, '', gexState.spotSource === 'live' ? 'live' : 'last session'),
+      gexMetricTile('Total net GEX', gexFmtSigned(d.totalNet), d.totalNet >= 0 ? 'is-pos' : 'is-neg', regime),
+      gexMetricTile('Gamma flip', d.flip != null ? fmtOiStrike(d.flip) : '—', '', flipSub),
+      gexMetricTile('Call wall', d.callWall ? fmtOiStrike(d.callWall.strike) : '—', 'is-pos', d.callWall ? gexFmtSigned(d.callWall.net) : ''),
+      gexMetricTile('Put wall', d.putWall ? fmtOiStrike(d.putWall.strike) : '—', 'is-neg', d.putWall ? gexFmtSigned(d.putWall.net) : ''),
+    ];
+    var chips = '';
+    if (d.topCells && d.topCells.length){
+      chips = '<div class="gex-keylevels"><span class="gex-keylevels-label">Key levels</span>' +
+        d.topCells.map(function(c){
+          return '<span class="gex-keychip ' + (c.net >= 0 ? 'is-pos' : 'is-neg') + '">' +
+            escapeHtml(sym) + ' ' + fmtOiStrike(c.strike) +
+            ' <span class="gex-keychip-exp">' + escapeHtml(fmtOiExpiry(c.sec)) + '</span> ' +
+            gexFmtSigned(c.net) + '</span>';
+        }).join('') + '</div>';
+    }
+    return '<div class="gex-metrics">' + tiles.join('') + '</div>' + chips;
+  }
+
+  function gexSpotRowHtml(spot, ncols){
+    var cells = '';
+    for (var i = 0; i < ncols; i++) cells += '<td class="gex-spot-cell"></td>';
+    return '<tr class="gex-spot-row"><th class="gex-strike gex-spot-strike" scope="row">' +
+      fmtOiStrike(spot) + ' <span class="gex-spot-tag">spot</span></th>' + cells + '</tr>';
+  }
+  function gexGridHtml(d, sym){
+    var span = GEX_RANGES[gexState.range] || GEX_RANGES.mid;
+    var strikes = d.strikes, spot = d.spot, exps = d.exps;
+    if (!strikes.length || !exps.length) return '';
+    var nearestIdx = 0, best = Infinity;
+    for (var i = 0; i < strikes.length; i++){
+      var dd = Math.abs(strikes[i] - spot);
+      if (dd < best){ best = dd; nearestIdx = i; }
+    }
+    var lo = Math.max(0, nearestIdx - span), hi = Math.min(strikes.length - 1, nearestIdx + span);
+    var rows = strikes.slice(lo, hi + 1).reverse(); // high strikes at top
+    var html = '<table class="gex-table"><thead><tr><th class="gex-th-strike" scope="col">Strike</th>';
+    for (var e = 0; e < exps.length; e++){
+      html += '<th class="gex-th-exp" scope="col"><span class="gex-th-date">' + escapeHtml(exps[e].label) +
+        '</span><span class="gex-th-dte">' + exps[e].dte + 'd</span></th>';
+    }
+    html += '</tr></thead><tbody>';
+    var spotShown = false;
+    for (var r = 0; r < rows.length; r++){
+      var K = rows[r];
+      if (!spotShown && K < spot){ html += gexSpotRowHtml(spot, exps.length); spotShown = true; }
+      var byExp = d.cellMap[String(K)] || {};
+      html += '<tr class="gex-tr"><th class="gex-strike" scope="row">' + fmtOiStrike(K) + '</th>';
+      for (var e2 = 0; e2 < exps.length; e2++){
+        var cell = byExp[exps[e2].sec];
+        if (!cell || !isFinite(cell.net) || cell.net === 0){
+          html += '<td class="gex-cell is-empty"></td>';
+          continue;
+        }
+        var net = cell.net, pos = net >= 0;
+        var intensity = Math.min(1, Math.abs(net) / d.scaleRef);
+        var rgb = pos ? '22,224,138' : '255,77,94';
+        var alpha = (0.10 + 0.80 * intensity).toFixed(3);
+        var title = sym + ' ' + fmtOiStrike(K) + ' ' + exps[e2].label + ' · net ' + gexFmtSigned(net) +
+          ' (call +' + gexFmt(cell.call) + ' / put -' + gexFmt(cell.put) + ')';
+        html += '<td class="gex-cell ' + (pos ? 'is-pos' : 'is-neg') + '" style="background:rgba(' + rgb + ',' + alpha + ')" title="' + escapeHtml(title) + '">' + gexFmt(net) + '</td>';
+      }
+      html += '</tr>';
+    }
+    if (!spotShown) html += gexSpotRowHtml(spot, exps.length); // spot below the whole window
+    html += '</tbody></table>';
+    return html;
+  }
+
+  function renderGex(){
+    var grid = $('gex-grid'), summary = $('gex-summary'), empty = $('gex-empty');
+    if (!grid || !summary) return;
+    var d = gexState.data;
+    if (!d || !d.strikes.length){
+      gexShowEmpty('No open interest to plot for ' + (gexState.symbol || 'this ticker') + '.');
+      gexSetEyebrow('');
+      return;
+    }
+    if (empty) empty.hidden = true;
+    var sym = gexState.symbol;
+    var when = gexBuildLabel();
+    gexSetEyebrow(sym + ' · OI ' + (when ? 'as of ' + when : 'snapshot') +
+      ' · ' + (gexState.spotSource === 'live' ? 'live spot' : 'last-session spot'));
+    summary.innerHTML = gexSummaryHtml(d, sym);
+    grid.innerHTML = gexGridHtml(d, sym);
+  }
+
+  function bindGexControls(){
+    if (gexState.inited) return;
+    gexState.inited = true;
+    gexPopulateSymbols();
+    var sel = $('gex-symbol'), range = $('gex-range'), refresh = $('gex-refresh');
+    if (sel) sel.addEventListener('change', function(){ gexState.symbol = sel.value; loadGex(); });
+    if (range) range.addEventListener('change', function(){ gexState.range = range.value || 'mid'; renderGex(); });
+    if (refresh) refresh.addEventListener('click', function(){ if (gexState.symbol) loadGex(); });
   }
 
   // --- Strategies tab -----------------------------------------------------
@@ -13565,7 +13926,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ['calendar', 'Calendar'],
       ['overnight', 'Overnight markets'],
       ['flow', 'Unusual flow'],
-      ['oi', 'Gamma OI'],
+      ['oi', 'Gamma exposure (GEX)'],
       ['grade', 'Grade a contract'],
       ['streaks', 'Streaks'],
       ['fear-greed', 'Fear & Greed'],
@@ -14107,6 +14468,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindVolumeControls();
     renderOI();
     bindOIControls();
+    bindGexControls();
     bindCalendarControls();
     bindCsvExports();
     bindCmdPalette();
