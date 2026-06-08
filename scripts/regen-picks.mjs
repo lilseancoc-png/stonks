@@ -123,7 +123,11 @@ applyPickFirstSeen(picks, priorPicks, builtAtIso);
 
 const out = {
   builtAtIso,
-  minConviction: PICKS_MIN_CONVICTION,
+  // P3.2 — publish the live percentile actionable cutoff (matches build.mjs::
+  // writeTopPicksFile), not the legacy ±PICKS_MIN_CONVICTION — the cross-sectional
+  // rework retired the fixed bar, so a hardcoded 12 here ships an actionable-bar that
+  // disagrees with the tiers the engine actually assigned.
+  minConviction: picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
   rosterMeta: picks.rosterMeta || null,
   picks,
 };
@@ -142,14 +146,21 @@ await writeFile(
 // ticker search). Same 4-pillar scoring as buildTopPicks; kept in step with the
 // regen'd picks. Same minified format as build.mjs::writeGradesFile.
 const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+// minConviction = the live percentile trade cutoff (P3.2), mirroring
+// build.mjs::writeGradesFile exactly — the grade-any-ticker card reads this as the
+// "actionable bar", so a hardcoded ±PICKS_MIN_CONVICTION here makes a searched name
+// that the engine tiered as a Call/Put render as "graded below the actionable bar".
+// tierCutoffs is stashed non-enumerable on grades (like regimeBand below).
+const gradesMinConviction = (grades.tierCutoffs && Number.isFinite(grades.tierCutoffs.tradeCut))
+  ? grades.tierCutoffs.tradeCut : PICKS_MIN_CONVICTION;
 await writeFile(
   resolve(DATA_DIR, "grades.json"),
   // regimeBand (§3.5.1) is stashed non-enumerable on grades — lift it into the
   // payload so the grade-any-ticker breakdown shows the active weighting.
-  JSON.stringify({ builtAtIso, minConviction: PICKS_MIN_CONVICTION, regimeBand: grades.regimeBand || "neutral", grades }),
+  JSON.stringify({ builtAtIso, minConviction: gradesMinConviction, regimeBand: grades.regimeBand || "neutral", grades }),
   "utf8",
 );
-console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers.`);
+console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers (minConviction ${Number(gradesMinConviction).toFixed(2)}).`);
 
 // Grade-change log: diff the regen'd grade index against the live history file.
 // No data/ wipe here, so we read the live grades-history.json directly (the full

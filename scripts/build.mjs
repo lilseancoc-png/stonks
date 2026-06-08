@@ -11399,6 +11399,13 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       // severe / risk-on), so the card breakdown can explain WHY the slow pillars
       // were discounted or boosted.
       regimeBand,
+      // P3.2 — the live percentile actionable / strong |total| cutoffs in force this
+      // build (the same ones tierForScore assigned tiers with). writeTopPicksFile
+      // publishes minConviction = tradeCut so picks.json's actionable bar matches the
+      // tiers (and grades.json, which derives the identical value from tierCutoffs),
+      // instead of the legacy ±PICKS_MIN_CONVICTION the cross-sectional rework retired.
+      tradeCut,
+      strongCut: (tierCutoffs && Number.isFinite(tierCutoffs.strongCut)) ? tierCutoffs.strongCut : PICKS_TIER_STRONG,
       edgeScale: Number(edgeScale.toFixed(3)), // P1.3 — gross multiplier from realized option edge
       // Cross-asset macro regime gauge (PICKS_MACRO_REGIME) so the picks UI can
       // show WHY the roster tilted: state, the four axes, drivers, and the gross
@@ -12173,7 +12180,10 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
     if (Array.isArray(priorPayload?.picks) && priorPayload.picks.length > 0) {
       const stalePayload = {
         builtAtIso,
-        minConviction: PICKS_MIN_CONVICTION,
+        // Reused picks were graded against the prior build's bar — keep that bar so the
+        // stale roster stays self-consistent; fall back to this build's live cutoff,
+        // then the legacy constant.
+        minConviction: priorPayload.minConviction ?? picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
         picks: priorPayload.picks,
         stale: true,
         stalePicksFromIso: priorPayload.builtAtIso || null,
@@ -12194,7 +12204,10 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
 
   const payload = {
     builtAtIso,
-    minConviction: PICKS_MIN_CONVICTION,
+    // P3.2 — the live percentile actionable cutoff this build (matches grades.json's
+    // minConviction, which writeGradesFile derives from the same tierCutoffs). Falls
+    // back to the legacy ±PICKS_MIN_CONVICTION only on the small-universe path.
+    minConviction: picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
     rosterMeta: picks.rosterMeta || null,
     picks,
   };
