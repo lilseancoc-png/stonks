@@ -72,6 +72,18 @@ node scripts/regen-picks.mjs
 # regen-static.mjs never touches data/.
 node scripts/backfill-autopick.mjs
 
+# Read-only diagnostics (no network, no writes — not part of any workflow).
+# Loss attribution for the resolved Top Picks track record: decomposes realized
+# losses into DIRECTION (signal was wrong) vs THETA/VOL (stock was flat/favorable
+# but long premium bled) by repricing each pick with Black-Scholes at exit, IV
+# held constant. Decides the picks-engine roadmap (verticals vs score fixes).
+node scripts/diagnose-pick-losses.mjs
+# A/B parity check for the AI_SIGNALS_COMBINED cost optimization (folding the
+# per-ticker Major-Contract + Guidance extraction into the combined ticker call).
+# Diffs the fundamentals-pillar rows of two data/grades.json snapshots produced
+# with AI_SIGNALS_COMBINED=0 vs =1 (see the file header for how to capture them).
+node scripts/ab-signals-merge.mjs /tmp/grades-off.json /tmp/grades-on.json
+
 # Local serving
 python3 -m http.server 8000   # static only — /api/* endpoints will 404
 npx vercel dev                # full stack including api/quote, api/chain, etc.
@@ -146,7 +158,7 @@ Bake-time tunables to know about:
 ### Cross-build AI caches (token conservation)
 
 The bake runs 8×/trading day (9:30 ET open, then hourly to the 16:00 close), but several Gemini outputs change far more slowly. Two caches cut repeat token spend:
-- `data/chart-pattern-cache.json` — keyed per ticker on a hash of the **confirmed** daily-bar series (the trailing window the model sees, **minus** the last/in-progress bar). Every build after the day's first reuses that first build's pattern when the signature is unchanged, skipping the Gemini call entirely; a new *closed* bar the next session busts the key and forces a fresh read. Deliberate trade-off: a pattern can lag the current session by ~1 trading day — acceptable for daily-timeframe formations, and the price of real same-day cache hits. Follows the same **read-before-wipe / write-after-wipe** rule as the histories below (`readChartPatternCache()` before `writeChainFiles`, `writeChartPatternCache()` after). A keyless build returns the prior cache unchanged rather than clobbering it. Only successfully-detected names are cached, so a failure retries next build.
+- `data/chart-pattern-cache.json` — keyed per ticker on a hash of the **confirmed** daily-bar series (the trailing window the model sees, **minus** the last/in-progress bar). Every build after the day's first reuses that first build's pattern when the signature is unchanged, skipping the Gemini call entirely; a new *closed* bar the next session busts the key and forces a fresh read. Deliberate trade-off: a pattern can lag the current session by ~1 trading day — acceptable for daily-timeframe formations, and the price of real same-day cache hits. Follows the same **read-before-wipe / write-after-wipe** rule as the histories below (`readChartPatternCache()` before `writeChainFiles`, `writeChartPatternCache()` after). A keyless build returns the prior cache unchanged rather than clobbering it. Only successfully-detected names are cached, so a failure retries next build. The detector is **multimodal**: `lib/chart-image.mjs` (a dependency-free, pure-JS-zlib PNG renderer — close-price line + high/low wick band + 50/200D SMA overlays + a volume strip, no rasterized text) renders the bars to an actual chart *image* that Gemini SEES, instead of handing it a text table of numbers. That image is why this one call must stay on `AI_CHART_MODEL=gemini-2.5-flash` (Flash-Lite reads the image poorly — see the env-var table).
 - The unusual-flow scanner's `data/flow-explanations.json` is the analogous per-contract cache (see `scan-unusual.mjs`) — a contract flagged once is explained once and reused free for the rest of the session.
 
 `AI_RPM` (default 100, the per-minute AI pacer in `build.mjs`) is set to `300` in `daily.yml` for the funded Tier-1 project — Flash/Flash-Lite carry 1K-4K RPM quotas, so 300 keeps a wide cushion while shrinking the RPM-paced floor of the per-ticker AI passes. **Leave it unset on a free-tier fork** (Gemma free = 15 RPM; even the default 100 is too high there).
@@ -215,6 +227,7 @@ The `/api/quote`, `/api/chain`, and `/api/fed-rate` endpoints set their own `Cac
 
 - **Keep `CHANGELOG.md` current.** Every substantive change (feature, fix, perf, removal, behavior change) gets a one-line bullet at the **top of the `## [Unreleased]` section** in [`CHANGELOG.md`](CHANGELOG.md) as part of the same change — not a separate follow-up. Use the existing categories (Added / Changed / Fixed / Removed / Perf / Docs), present tense, plain language, and reference the PR (`#NNN`) when there is one. This is bookkeeping the daily/scanner workflows do **not** automate — scheduled `chore:` refresh commits are not changelog-worthy; only human/Claude-authored changes are. Don't skip it.
 - **Generated files are committed.** `index.html`, `app.js`, `styles.css`, every `data/*.json`. Don't add them to `.gitignore`; the workflows commit and push them. Direct hand-edits to `app.js` or `styles.css` will be overwritten on the next build — edit the template strings in `scripts/render/app-js.mjs` / `scripts/render/styles-css.mjs` instead.
+- **`cheatsheet.html` and `chart-patterns.html` are the exception — hand-maintained, NOT generated.** These two standalone reference pages (the "Buyer's manual" and "Chart patterns" field guide, each a self-contained HTML file with inline `<style>`) are linked from the generated nav menu (`scripts/render/html.mjs` ~L863-864) but no script writes them. Unlike `index.html`, a build will **not** overwrite them — edit these files directly, and there is no template to regenerate them from.
 - **Per-ticker JSON keys are compressed.** Each option row is `{ s, b, a, l, iv, oi, v }` (strike, bid, ask, last, IV, OI, volume). See `compressContract()` in `lib/yahoo.mjs` and `scripts/build.mjs`. The browser code expects this shape. The container around the rows is `data/<SYM>.json.chains` — an object keyed by the **stringified epoch-second expiration**, each value `{ c: [...calls], p: [...puts] }` whose elements are those compressed rows (`build.mjs` ~2295). The browser reads `chain.c` / `chain.p` throughout `app-js.mjs`.
 - **Expirations are epoch seconds.** Used as keys throughout (`data/<SYM>.json`, `positions.expiry`, `/api/chain?exp=...`).
 - **Graceful degradation is everywhere.** Yahoo flake → skip that ticker, don't fail the build. Gemini flake → reuse last-good narratives and mark them stale. FRED flake → fall back to `FALLBACK_RISK_FREE_RATE`. Single-position pricing error in the portfolio review → that row degrades, the rest of the review still ships. Preserve this pattern.

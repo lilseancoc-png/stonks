@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Docs
+- **CLAUDE.md — documented three previously-uncovered surfaces.** Noted the two read-only diagnostic scripts (`scripts/diagnose-pick-losses.mjs` loss attribution, `scripts/ab-signals-merge.mjs` A/B parity check), flagged that `cheatsheet.html` / `chart-patterns.html` are hand-maintained standalone pages a build will **not** regenerate (the exception to "all HTML is generated"), and recorded that the chart-pattern detector is multimodal via `lib/chart-image.mjs` (the PNG renderer that forces the Flash-not-Flash-Lite model choice).
+
 ### Fixed
 - **Top Picks — peer comparison scores rendered as raw unrounded floats, overflowing their column.** The "vs … peers" list (e.g. *vs Semiconductors peers*) printed each peer's conviction as a full float (`-10.0575293935550047`), which blew past the fixed 50px score column and collided with the tier label. Cross-sectional scoring (P3.1) made `total` a float, but `pickPeerList` still concatenated it raw while the rest of the panel rounds with `.toFixed(1)`. Now rounded to 1 decimal to match. Render-only.
 
