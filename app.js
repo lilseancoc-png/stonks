@@ -7828,18 +7828,112 @@
     };
   }
 
-  function gexPopulateSymbols(){
-    var sel = $('gex-symbol');
-    if (!sel || sel.options.length) return;
-    var syms = SYMBOLS.slice().sort();
-    var html = '';
-    for (var i = 0; i < syms.length; i++){
-      html += '<option value="' + escapeHtml(syms[i]) + '">' + escapeHtml(syms[i]) + '</option>';
+  // Searchable ticker combobox for the GEX tab (replaces the old <select> so
+  // you can type to find a name across the ~138-symbol universe). Mirrors the
+  // Top-Picks "grade any ticker" combo, but commit loads the heatmap instead
+  // of opening a detail card.
+  var gexSearch = {
+    input: null, listbox: null, items: [], activeIdx: -1, open: false, inited: false,
+    init: function(){
+      if (this.inited) return;
+      this.input = $('gex-symbol');
+      this.listbox = $('gex-symbol-listbox');
+      if (!this.input || !this.listbox) return;
+      this.inited = true;
+      var self = this;
+      this.input.addEventListener('input', function(){ self.filter(); });
+      this.input.addEventListener('focus', function(){ self.filter(); });
+      this.input.addEventListener('keydown', function(e){ self.onKey(e); });
+      this.input.addEventListener('blur', function(){ setTimeout(function(){ self.close(); }, 120); });
+      var clear = $('gex-symbol-clear');
+      if (clear) clear.addEventListener('mousedown', function(e){
+        e.preventDefault(); self.input.value = ''; self.input.focus(); self.filter();
+      });
+      this.listbox.addEventListener('mousedown', function(e){
+        var li = e.target.closest && e.target.closest('li[data-sym]');
+        if (!li) return;
+        e.preventDefault();
+        self.commit(li.getAttribute('data-sym'));
+      });
+      var box = $('gex-symbol-combo');
+      document.addEventListener('pointerdown', function(e){
+        if (!self.open) return;
+        if (box && box.contains(e.target)) return;
+        self.close();
+      });
+      // Seed the default ticker so the field (and gexState) isn't blank.
+      var syms = SYMBOLS.slice().sort();
+      var def = syms.indexOf('SPY') >= 0 ? 'SPY' : (syms[0] || '');
+      if (def){ gexState.symbol = def; this.input.value = def; }
+    },
+    rank: function(q){
+      q = (q || '').trim().toUpperCase();
+      var syms = SYMBOLS.slice().sort();
+      if (!q) return syms.slice(0, 50);
+      var prefix = [], contains = [], sector = [];
+      for (var i = 0; i < syms.length; i++){
+        var sym = syms[i];
+        var sec = (SECTORS[sym] || '').toUpperCase();
+        if (sym.indexOf(q) === 0) prefix.push(sym);
+        else if (sym.indexOf(q) >= 0) contains.push(sym);
+        else if (sec.indexOf(q) >= 0) sector.push(sym);
+      }
+      return prefix.concat(contains, sector).slice(0, 50);
+    },
+    filter: function(){
+      var matches = this.rank(this.input.value);
+      this.items = matches;
+      if (!matches.length){
+        this.listbox.innerHTML = '<li class="combo-empty">No matches</li>';
+      } else {
+        var html = '';
+        for (var i = 0; i < matches.length; i++){
+          var sym = matches[i];
+          var spot = SPOTS[sym];
+          html += '<li role="option" data-sym="' + sym + '" id="gex-symbol-opt-' + sym + '">' +
+            '<span class="combo-sym">' + sym + '</span>' +
+            '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>' +
+            '<span class="combo-sector">' + escapeHtml(SECTORS[sym] || '') + '</span>' +
+          '</li>';
+        }
+        this.listbox.innerHTML = html;
+      }
+      this.activeIdx = -1;
+      this.show();
+    },
+    show: function(){ this.listbox.hidden = false; this.input.setAttribute('aria-expanded', 'true'); this.open = true; },
+    close: function(){
+      this.listbox.hidden = true; this.input.setAttribute('aria-expanded', 'false');
+      this.input.removeAttribute('aria-activedescendant'); this.open = false; this.activeIdx = -1;
+    },
+    move: function(delta){
+      if (!this.items.length) return;
+      this.activeIdx = (this.activeIdx + delta + this.items.length) % this.items.length;
+      var nodes = this.listbox.querySelectorAll('li[data-sym]');
+      for (var i = 0; i < nodes.length; i++) nodes[i].classList.toggle('is-active', i === this.activeIdx);
+      var sym = this.items[this.activeIdx];
+      this.input.setAttribute('aria-activedescendant', 'gex-symbol-opt-' + sym);
+      var active = nodes[this.activeIdx];
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+    },
+    onKey: function(e){
+      if (e.key === 'ArrowDown'){ e.preventDefault(); if (!this.open) this.filter(); else this.move(1); }
+      else if (e.key === 'ArrowUp'){ e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Enter'){
+        if (this.activeIdx >= 0){ e.preventDefault(); this.commit(this.items[this.activeIdx]); }
+        else if (this.items.length === 1){ e.preventDefault(); this.commit(this.items[0]); }
+      }
+      else if (e.key === 'Escape'){ this.close(); }
+    },
+    commit: function(sym){
+      if (!sym) return;
+      this.input.value = sym;
+      this.close();
+      if (sym === gexState.symbol && gexState.data) return; // re-pick of the loaded name — no-op
+      gexState.symbol = sym;
+      loadGex();
     }
-    sel.innerHTML = html;
-    var def = syms.indexOf('SPY') >= 0 ? 'SPY' : (syms[0] || '');
-    if (def){ sel.value = def; gexState.symbol = def; }
-  }
+  };
 
   function gexSetEyebrow(txt){ var e = $('gex-eyebrow'); if (e) e.textContent = txt || ''; }
   function gexShowEmpty(msg){
@@ -7850,9 +7944,13 @@
   }
 
   function loadGex(){
-    var sel = $('gex-symbol');
-    if (!gexState.symbol) gexState.symbol = (sel && sel.value) || (SYMBOLS.indexOf('SPY') >= 0 ? 'SPY' : SYMBOLS[0]) || null;
-    if (sel && gexState.symbol && sel.value !== gexState.symbol) sel.value = gexState.symbol;
+    var input = $('gex-symbol');
+    if (!gexState.symbol){
+      var typed = input && input.value ? input.value.trim().toUpperCase() : '';
+      gexState.symbol = (typed && SYMBOLS.indexOf(typed) >= 0 ? typed : null) ||
+        (SYMBOLS.indexOf('SPY') >= 0 ? 'SPY' : SYMBOLS[0]) || null;
+    }
+    if (input && gexState.symbol && input.value !== gexState.symbol) input.value = gexState.symbol;
     var sym = gexState.symbol;
     if (!sym){ gexShowEmpty('Pick a ticker to see its gamma exposure.'); return; }
     var token = ++gexState.token;
@@ -7904,6 +8002,39 @@
       (sub ? '<span class="gex-metric-sub">' + escapeHtml(sub) + '</span>' : '') +
     '</div>';
   }
+  // Plain-English read of the current dealer-gamma situation, built from the
+  // same metrics shown in the tiles: the net-GEX sign (long vs short gamma →
+  // dampen vs amplify), where spot sits relative to the gamma flip, and the
+  // call/put walls as the levels to watch. Pure given the computed data.
+  function gexNarrative(d, sym){
+    var spot = d.spot;
+    if (!(spot > 0) || d.totalNet == null || !isFinite(d.totalNet)) return '';
+    var pos = d.totalNet >= 0;
+    var lead;
+    if (pos){
+      lead = escapeHtml(sym) + ' dealers are <strong>net long gamma</strong> (' + gexFmtSigned(d.totalNet) +
+        '): they fade the tape — selling rips, buying dips — so expect <strong>volatility to compress</strong> and price to get pinned toward the heaviest strikes.';
+    } else {
+      lead = escapeHtml(sym) + ' dealers are <strong>net short gamma</strong> (' + gexFmtSigned(d.totalNet) +
+        '): they chase the tape — selling weakness, buying strength — so expect <strong>moves to be amplified</strong>, with trends and breakouts running further.';
+    }
+    var bits = [];
+    if (d.flip != null){
+      if (spot >= d.flip){
+        bits.push('Spot ' + fmtOiStrike(spot) + ' is holding <strong>above</strong> the gamma flip at ' + fmtOiStrike(d.flip) +
+          ' (the stabilizing zone); losing it would tip dealers short-gamma and unlock sharper swings.');
+      } else {
+        bits.push('Spot ' + fmtOiStrike(spot) + ' is sitting <strong>below</strong> the gamma flip at ' + fmtOiStrike(d.flip) +
+          ' (the unstable zone); reclaiming it would hand the dampening back to dealers.');
+      }
+    }
+    var levels = [];
+    if (d.callWall && d.callWall.strike >= spot) levels.push('overhead resistance at the ' + fmtOiStrike(d.callWall.strike) + ' call wall');
+    if (d.putWall && d.putWall.strike <= spot) levels.push('support at the ' + fmtOiStrike(d.putWall.strike) + ' put wall');
+    if (levels.length) bits.push('Key magnets: ' + levels.join(' and ') + '.');
+    return '<p class="gex-takeaway ' + (pos ? 'is-pos' : 'is-neg') + '">' + lead + (bits.length ? ' ' + bits.join(' ') : '') + '</p>';
+  }
+
   function gexSummaryHtml(d, sym){
     var spot = d.spot;
     var spotExtra = '';
@@ -7932,7 +8063,7 @@
             gexFmtSigned(c.net) + '</span>';
         }).join('') + '</div>';
     }
-    return '<div class="gex-metrics">' + tiles.join('') + '</div>' + chips;
+    return '<div class="gex-metrics">' + tiles.join('') + '</div>' + gexNarrative(d, sym) + chips;
   }
 
   function gexSpotRowHtml(spot, ncols){
@@ -8006,9 +8137,8 @@
   function bindGexControls(){
     if (gexState.inited) return;
     gexState.inited = true;
-    gexPopulateSymbols();
-    var sel = $('gex-symbol'), range = $('gex-range'), refresh = $('gex-refresh');
-    if (sel) sel.addEventListener('change', function(){ gexState.symbol = sel.value; loadGex(); });
+    gexSearch.init();
+    var range = $('gex-range'), refresh = $('gex-refresh');
     if (range) range.addEventListener('change', function(){ gexState.range = range.value || 'mid'; renderGex(); });
     if (refresh) refresh.addEventListener('click', function(){ if (gexState.symbol) loadGex(); });
   }

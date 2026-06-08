@@ -1125,10 +1125,18 @@
     </header>
     <p class="hint">Dealer <strong>gamma exposure</strong> per strike and expiration — <code>Γ × OI × 100 × spot² × 1%</code>, the dollar-gamma each contract adds for a 1% move, with Black-Scholes gamma computed from the contract's implied vol. Calls add <span class="gex-key-pos">positive</span> gamma (dealers buy dips / sell rips — <strong>stabilizing</strong>); puts add <span class="gex-key-neg">negative</span> gamma (dealers amplify moves). Net GEX at a cell is call GEX − put GEX. Rows are strikes centered on spot; columns are expirations, near-term first. <strong>Total net GEX &gt; 0</strong> pins price toward the largest walls; <strong>&lt; 0</strong> means moves get amplified. The <strong>gamma flip</strong> is the spot level where net dealer gamma crosses zero. Open interest is end-of-session data (published next morning), so this reflects the prior session's positioning; only spot moves intraday, so the grid recomputes at the live spot while the market is open.</p>
     <div class="gex-controls" role="toolbar" aria-label="Gamma exposure controls">
-      <label class="gex-control">
-        <span class="gex-control-label">Ticker</span>
-        <select id="gex-symbol" aria-label="Ticker"></select>
-      </label>
+      <div class="gex-control gex-control-ticker">
+        <span class="gex-control-label" id="gex-symbol-label">Ticker</span>
+        <div class="combo gex-combo" id="gex-symbol-combo">
+          <input type="text" id="gex-symbol" role="combobox"
+                 aria-expanded="false" aria-controls="gex-symbol-listbox"
+                 aria-autocomplete="list" aria-labelledby="gex-symbol-label"
+                 placeholder="Search ticker — e.g. SPY, NVDA…"
+                 autocomplete="off" spellcheck="false">
+          <button type="button" class="combo-clear" id="gex-symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
+          <ul id="gex-symbol-listbox" role="listbox" hidden></ul>
+        </div>
+      </div>
       <label class="gex-control">
         <span class="gex-control-label">Strike range</span>
         <select id="gex-range" aria-label="Strike range">
