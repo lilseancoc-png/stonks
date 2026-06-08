@@ -3006,6 +3006,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
       // instead of the daily build's "2 hours ago" which can be misleading.
       try { renderFreshness(name); } catch (_) {}
+      if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
       if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
       if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
       if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
@@ -9065,6 +9066,167 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
   // Shared with the Grade tab's per-ticker "overnight peer read" widget.
+  // ── Market brief (morning + closing digest) ────────────────────────────
+  // Renders data/briefs.json. The headline/summary/highlights are AI prose;
+  // the stat strip + ticker chips are deterministic facts baked alongside.
+  var briefState = { data: null, loading: false, error: false };
+  function loadBrief(){
+    if (briefState.data || briefState.loading){ renderBrief(); return; }
+    briefState.loading = true;
+    renderBrief();
+    fetch('data/briefs.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        briefState.data = (json && typeof json === 'object') ? json : {};
+        briefState.loading = false;
+        renderBrief();
+      })
+      .catch(function(){
+        briefState.error = true;
+        briefState.loading = false;
+        renderBrief();
+      });
+  }
+  function briefEsc(s){ return (typeof escapeHtml === 'function') ? escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s); }
+  function briefPctCls(v){ return (v > 0) ? 'pos' : (v < 0 ? 'neg' : ''); }
+  function briefFmtPct(v){ if (v == null || isNaN(v)) return ''; return (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
+  function briefMoverChips(list, cls){
+    return (list || []).map(function(m){
+      return '<button type="button" class="brief-chip ' + cls + '" data-sym="' + briefEsc(m.sym) + '">' +
+        briefEsc(m.sym) + ' <span>' + briefEsc(briefFmtPct(m.chPct)) + '</span></button>';
+    }).join('');
+  }
+  function briefStatStrip(b){
+    var chips = [];
+    if (b.fearGreed){
+      var f = b.fearGreed;
+      var d = (f.delta != null) ? ' <span class="' + briefPctCls(f.delta) + '">(' + (f.delta >= 0 ? '+' : '') + f.delta + ')</span>' : '';
+      chips.push('<span class="brief-stat"><span class="brief-stat-label">Fear &amp; Greed</span>' +
+        '<span class="brief-stat-val">' + briefEsc(f.score) + (f.rating ? ' · ' + briefEsc(f.rating) : '') + d + '</span></span>');
+    }
+    (b.macro || []).forEach(function(m){
+      chips.push('<span class="brief-stat"><span class="brief-stat-label">' + briefEsc(m.label) + '</span>' +
+        '<span class="brief-stat-val">' + briefEsc(m.value) + (m.change ? ' <span class="brief-stat-chg">(' + briefEsc(m.change) + ')</span>' : '') + '</span></span>');
+    });
+    if (b.tone && b.tone.label){
+      chips.push('<span class="brief-stat"><span class="brief-stat-label">Overnight</span>' +
+        '<span class="brief-stat-val">' + briefEsc(b.tone.label) + '</span></span>');
+    }
+    if (b.breadth){
+      chips.push('<span class="brief-stat"><span class="brief-stat-label">Breadth</span>' +
+        '<span class="brief-stat-val"><span class="pos">' + (b.breadth.up || 0) + '</span> / <span class="neg">' + (b.breadth.down || 0) + '</span> / ' + (b.breadth.flat || 0) + '</span></span>');
+    }
+    return chips.length ? '<div class="brief-stats">' + chips.join('') + '</div>' : '';
+  }
+  function briefBlock(title, inner){
+    if (!inner) return '';
+    return '<div class="brief-block"><h4 class="brief-block-title">' + briefEsc(title) + '</h4>' + inner + '</div>';
+  }
+  function renderBriefCard(b){
+    if (!b) return '';
+    var when = '';
+    if (b.generatedAtIso){ var dt = new Date(b.generatedAtIso); if (!isNaN(dt.getTime())) when = dt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+    var kindLabel = (b.kind === 'morning') ? 'Pre-market' : 'Post-close';
+    var head = '<header class="brief-card-head">' +
+      '<div class="brief-card-titles">' +
+        '<span class="brief-kind brief-kind-' + briefEsc(b.kind || '') + '">' + briefEsc(kindLabel) + '</span>' +
+        '<span class="brief-date">' + briefEsc(b.date || '') + '</span>' +
+        (when ? '<span class="brief-stamp">' + briefEsc(when) + '</span>' : '') +
+      '</div>' +
+      (b.headline ? '<h3 class="brief-headline">' + briefEsc(b.headline) + '</h3>' : '') +
+    '</header>';
+    var summary = b.summary ? '<p class="brief-summary">' + briefEsc(b.summary) + '</p>' : '';
+    var stats = briefStatStrip(b);
+    var highlights = '';
+    if (Array.isArray(b.highlights) && b.highlights.length){
+      highlights = '<ul class="brief-highlights">' + b.highlights.map(function(h){
+        return '<li class="brief-hl">' + (h.label ? '<span class="brief-hl-label">' + briefEsc(h.label) + '</span>' : '') +
+          '<span class="brief-hl-text">' + briefEsc(h.text) + '</span></li>';
+      }).join('') + '</ul>';
+    }
+    var blocks = [];
+    // Overnight / foreign moves (morning) — non-clickable (foreign symbols).
+    if (Array.isArray(b.overnight) && b.overnight.length){
+      var ovn = b.overnight.map(function(m){
+        return '<span class="brief-chip foreign ' + briefPctCls(m.chPct) + '">' + briefEsc(m.name || m.sym) +
+          ' <span>' + briefEsc(briefFmtPct(m.chPct)) + '</span></span>';
+      }).join('');
+      blocks.push(briefBlock('Overnight & foreign', '<div class="brief-chips">' + ovn + '</div>'));
+    }
+    // Movers (closing).
+    if (b.movers && ((b.movers.gainers && b.movers.gainers.length) || (b.movers.losers && b.movers.losers.length))){
+      var movers = '<div class="brief-chips">' + briefMoverChips(b.movers.gainers, 'pos') + briefMoverChips(b.movers.losers, 'neg') + '</div>';
+      blocks.push(briefBlock('Biggest movers', movers));
+    }
+    // Unusual flow (closing).
+    if (Array.isArray(b.flow) && b.flow.length){
+      var flow = b.flow.map(function(fl){
+        return '<button type="button" class="brief-chip flow" data-sym="' + briefEsc(fl.sym) + '"' + (fl.note ? ' title="' + briefEsc(fl.note) + '"' : '') + '>' +
+          briefEsc(fl.sym) + (fl.side ? ' <span>' + briefEsc(fl.side) + 's</span>' : '') + '</button>';
+      }).join('');
+      blocks.push(briefBlock('Notable flow', '<div class="brief-chips">' + flow + '</div>'));
+    }
+    // Top picks.
+    if (Array.isArray(b.picks) && b.picks.length){
+      var picks = b.picks.map(function(p){
+        return '<button type="button" class="brief-chip pick" data-sym="' + briefEsc(p.symbol) + '"' + (p.note ? ' title="' + briefEsc(p.note) + '"' : '') + '>' +
+          briefEsc(p.symbol) + (p.side ? ' <span>' + briefEsc(p.side) + '</span>' : '') + '</button>';
+      }).join('');
+      blocks.push(briefBlock('Top picks', '<div class="brief-chips">' + picks + '</div>'));
+    }
+    // Calendar.
+    if (Array.isArray(b.events) && b.events.length){
+      var events = b.events.map(function(e){
+        return '<span class="brief-event"><span class="brief-event-label">' + briefEsc(e.label) + '</span>' +
+          (e.detail ? '<span class="brief-event-detail">' + briefEsc(e.detail) + '</span>' : '') + '</span>';
+      }).join('');
+      blocks.push(briefBlock(b.kind === 'morning' ? 'On the calendar' : 'Coming up', '<div class="brief-events">' + events + '</div>'));
+    }
+    return '<article class="brief-card" data-kind="' + briefEsc(b.kind || '') + '">' +
+      head + summary + stats + highlights + blocks.join('') + '</article>';
+  }
+  function bindBriefChips(rootEl){
+    if (!rootEl) return;
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym]');
+    for (var i = 0; i < chips.length; i++){
+      chips[i].addEventListener('click', function(ev){
+        var sym = ev.currentTarget.getAttribute('data-sym');
+        if (!sym) return;
+        try {
+          var gt = document.querySelector('[data-page-tab="grade"]');
+          if (gt) gt.click();
+          setTimeout(function(){ if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); }, 0);
+        } catch (_) {}
+      });
+    }
+  }
+  function renderBrief(){
+    var root = document.getElementById('brief-root');
+    var eyebrow = document.getElementById('brief-eyebrow');
+    if (!root) return;
+    if (briefState.loading && !briefState.data){ root.innerHTML = '<p class="brief-empty">Loading brief…</p>'; return; }
+    if (briefState.error && !briefState.data){ root.innerHTML = '<p class="brief-empty">Brief unavailable right now — try again shortly.</p>'; return; }
+    var data = briefState.data || {};
+    var cards = [];
+    if (data.morning) cards.push(data.morning);
+    if (data.afternoon) cards.push(data.afternoon);
+    if (!cards.length){
+      root.innerHTML = '<p class="brief-empty">No brief yet today — the morning brief posts around the open and the closing brief after 4&nbsp;pm&nbsp;ET.</p>';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    // Latest first (closing brief on top once it exists).
+    cards.sort(function(a, b){ return String(b.generatedAtIso || '').localeCompare(String(a.generatedAtIso || '')); });
+    root.innerHTML = cards.map(renderBriefCard).join('');
+    bindBriefChips(root);
+    if (eyebrow){
+      var latest = cards[0];
+      var w = '';
+      if (latest && latest.generatedAtIso){ var d = new Date(latest.generatedAtIso); if (!isNaN(d.getTime())) w = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+      eyebrow.textContent = w ? ('Updated ' + w) : '';
+    }
+  }
+
   var overnightState = { data: null, loading: false };
   function loadOvernight(){
     if (overnightState.data || overnightState.loading){ renderOvernight(); refreshOvernightWidgets(); return; }
