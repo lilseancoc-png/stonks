@@ -6561,13 +6561,25 @@ const PICKS_TIER_PCTL_TRADE = 0.12;  // top 12% → actionable (Call/Put)
 // Percentile tiers alone always pass ~the same count every build, so the engine
 // can never say "nothing worth buying today" — it force-feeds a roster onto a
 // uniformly weak/expensive tape. A name must now clear BOTH the percentile rank
-// AND this absolute |total| (in the standardizer's roughly-legacy scale, §3.4) to
-// ship. On a junk tape every |total| sits below the floor → tierForScore sets
-// side=null → the candidate set empties → the roster honestly ships 0. Default to
-// the legacy ±12/±16 bars; set the env var to 0 to disable the floor (pure
-// percentile, the old P3.2 behavior).
-const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? PICKS_MIN_CONVICTION);
-const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? PICKS_TIER_STRONG);
+// AND this absolute |total| to ship. On a junk tape every |total| sits below the
+// floor → tierForScore sets side=null → the candidate set empties → the roster
+// honestly ships 0; set the env var to 0 to disable the floor (pure percentile,
+// the old P3.2 behavior).
+//
+// SCALE: the floor lives on the standardizer's |total| scale (§3.4), which is NOT
+// the legacy absolute scale — horizon weighting (#354, Fund ×0.6 …) + the z-clip
+// weight (W = oldMax/PICKS_Z_CLIP) compress it well below the old ±12/±16 bars. On
+// the live ~138-name universe the natural top-12% |total| runs ~4 (neutral) / ~7
+// (risk-off) / ~12 (severe); the old defaults (= PICKS_MIN_CONVICTION 12 /
+// PICKS_TIER_STRONG 16) therefore sat ABOVE the achievable max outside a severe
+// tape and bound in every regime — zeroing the graded roster (not merely shrinking
+// it) and bypassing the percentile system entirely except under severe stress.
+// Recalibrated to the compressed scale (6 / 9, decoupled from the conviction bars):
+// the floor now backstops only the calmest tapes (neutral ~top decile clears 6),
+// lets the percentile take over as dispersion rises (risk-off top-12% ~7 > 6), and
+// still empties on a genuinely flat tape. Tune via the env vars.
+const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? 6);
+const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? 9);
 // Risk-based position sizing (P3.4) — emitted only for roster survivors.
 const PICKS_SIZE_RISK_DENOM = "option"; // 'option' (Δ/premium-aware loss to the stop) | 'atr' (underlying ATR% fallback)
 const PICKS_SIZE_VOL_FLOOR = 0.05;   // min risk denominator (5%) so a near-zero loss-to-stop can't mint an enormous weight
