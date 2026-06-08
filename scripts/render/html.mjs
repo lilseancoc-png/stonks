@@ -322,6 +322,46 @@ function unusualFlowSection() {
   </section>`;
 }
 
+function gexSection() {
+  // Card shell only — the per-ticker gamma-exposure heatmap renders
+  // client-side in scripts/render/app-js.mjs (computeGex/renderGex). It
+  // computes dealer GEX (Γ × OI × 100 × spot² × 1%) for every strike and
+  // expiration from the baked per-ticker chain (data/<SYM>.json, lazy-loaded
+  // via the shared fetchChain()), so it works for any tracked name with no
+  // bake-time data file of its own. The <select> is populated from
+  // MANIFEST.symbols at init.
+  return `<section class="card gex-card" id="gex-section">
+    <header class="card-header">
+      <h2 class="card-title">Gamma exposure (GEX)</h2>
+      <span class="card-eyebrow" id="gex-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Dealer <strong>gamma exposure</strong> per strike and expiration — <code>Γ × OI × 100 × spot² × 1%</code>, the dollar-gamma each contract adds for a 1% move, with Black-Scholes gamma computed from the contract's implied vol. Calls add <span class="gex-key-pos">positive</span> gamma (dealers buy dips / sell rips — <strong>stabilizing</strong>); puts add <span class="gex-key-neg">negative</span> gamma (dealers amplify moves). Net GEX at a cell is call GEX − put GEX. Rows are strikes centered on spot; columns are expirations, near-term first. <strong>Total net GEX &gt; 0</strong> pins price toward the largest walls; <strong>&lt; 0</strong> means moves get amplified. The <strong>gamma flip</strong> is the spot level where net dealer gamma crosses zero. Open interest is end-of-session data (published next morning), so this reflects the prior session's positioning; only spot moves intraday, so the grid recomputes at the live spot while the market is open.</p>
+    <div class="gex-controls" role="toolbar" aria-label="Gamma exposure controls">
+      <label class="gex-control">
+        <span class="gex-control-label">Ticker</span>
+        <select id="gex-symbol" aria-label="Ticker"></select>
+      </label>
+      <label class="gex-control">
+        <span class="gex-control-label">Strike range</span>
+        <select id="gex-range" aria-label="Strike range">
+          <option value="near">Near (±12)</option>
+          <option value="mid" selected>Mid (±22)</option>
+          <option value="wide">Wide (±40)</option>
+        </select>
+      </label>
+      <button type="button" id="gex-refresh" class="gex-action-btn" title="Re-fetch the live spot and recompute">Refresh</button>
+    </div>
+    <div id="gex-summary" class="gex-summary"></div>
+    <div class="gex-grid-wrap"><div id="gex-grid" class="gex-grid" role="region" aria-label="GEX heatmap"></div></div>
+    <div class="gex-legend" aria-hidden="true">
+      <span class="gex-legend-label">Put gamma (−)</span>
+      <span class="gex-legend-bar"></span>
+      <span class="gex-legend-label">Call gamma (+)</span>
+    </div>
+    <div id="gex-empty" class="gex-empty" hidden></div>
+  </section>`;
+}
+
 function oiTrackerSection() {
   // Card shell only — per-ticker rows render client-side from
   // MANIFEST.oi (populated by scripts/scan-oi.mjs). Twice-daily scan,
@@ -848,7 +888,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="heatmap" aria-controls="page-pane-heatmap" id="page-tab-heatmap">Heatmap</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="flow" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="volume" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="oi" aria-controls="page-pane-oi" id="page-tab-oi">Gamma OI</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="oi" aria-controls="page-pane-oi" id="page-tab-oi">Gamma exposure</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="streaks" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   </div>
   <div class="page-tab-menu" role="menu" id="page-tab-menu-macro" aria-labelledby="page-tab-trigger-macro" data-group="macro" hidden>
@@ -1050,6 +1090,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   ${volumeFlagsSection()}
   </div>
   <div class="page-pane" id="page-pane-oi" role="tabpanel" aria-labelledby="page-tab-oi" hidden>
+  ${gexSection()}
   ${oiTrackerSection()}
   </div>
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
