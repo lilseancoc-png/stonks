@@ -126,9 +126,9 @@ side), **plus the IV-cost component (§6.7)**.
 | Open Interest C/P | >1.5× calls +1, <0.67× (puts) −1 |
 | Short Interest % | squeeze setup +1, SI rising −1, SI falling +1 |
 | Unusual Volume | hourly ≥1.3× 20D-avg, ±1 by move direction |
-| SPY flows | ≥+0.6% +1, ≤−0.6% −1 |
+| SPY flows | **0 (informational, `PICKS_TAPE_DEDUPE`)** — would be ≥+0.6% +1 / ≤−0.6% −1, but the broad tape is now read once by the macro-regime gauge (§6.3) and expressed per-name by the beta-weighted Macro Regime tilt. A flat, same-direction, non-z-scored copy here just double-counted it; kept visible, scored 0 |
 | **Put/Call Ratio Extreme** | >1.15 **+2** (fear, contrarian bullish), <0.65 **−2** (greed) — *contrarian; the +2 fear credit is trend-conditioned (P1.2) on a per-name reversal bar* |
-| VIX Tracking | rising & >25 −2; **falling & ≥20 +1** (vol relief from an *elevated* level). The falling-VIX credit is gated on the level — it used to fire at any level, handing a "free" +1 to **every** name on any calm down-drift, uniformly inflating the whole grade |
+| VIX Tracking | **0 (informational, `PICKS_TAPE_DEDUPE`)** — would be rising & >25 −2 / falling & ≥20 +1, but VIX (level/trend) is the regime's own VIX axis (§6.3); a same-direction non-z-scored copy here double-counted it. Kept visible, scored 0. (Distinct from **VIX Spot** below, which is *contrarian* and stays scored.) |
 | **VIX Spot** | <15 −1 (complacency), >35 **+2** (capitulation, contrarian bullish) — *contrarian; the +2 capitulation credit is trend-conditioned (P1.2) on a per-name reversal bar* |
 
 ### Narrative (`scoreNarrative`)
@@ -140,8 +140,8 @@ side), **plus the IV-cost component (§6.7)**.
 | Media Coverage | **0 (informational only)** — it used to add bullish +1 / bearish −2, but its only directional input was the *same* `news.sentiment` the Catalyst signals already score, and it fired only as a subset of them, so it double-counted one AI sentiment read. Kept in the breakdown for transparency; sentiment is owned solely by the Catalyst signals |
 | Negative Catalyst | bearish news −3 (asymmetric) |
 | Macro Tail/Headwinds | bullish macro +1, bearish −2 |
-| DXY (1D) | ≥+0.9% −2, ≤−0.9% +1 |
-| 10Y Yield (1D) | ≥+13 bps −2, ≤−13 bps +1 |
+| DXY (1D) | **0 (informational, `PICKS_TAPE_DEDUPE`)** — would be ≥+0.9% −2 / ≤−0.9% +1, but the dollar is the regime's own DXY axis (§6.3); a same-direction non-z-scored copy here double-counted it. Kept visible, scored 0 |
+| 10Y Yield (1D) | **0 (informational, `PICKS_TAPE_DEDUPE`)** — would be ≥+13 bps −2 / ≤−13 bps +1, but long yields are the regime's own yield axis (§6.3); a same-direction non-z-scored copy here double-counted it. Kept visible, scored 0 |
 
 > **Long-bias / falling-knife defense (two layers).** The *contrarian* signals in
 > **bold** above (RSI-oversold, 52w-low, P/C-fear, VIX-capitulation) used to turn
@@ -831,6 +831,12 @@ it has to be trustworthy. The fixes:
     de-gross `PICKS_MACRO_GROSS_RISKOFF 0.6` / `_GROSS_SEVERE 0.4`; severe guards
     `PICKS_MACRO_SEVERE_CALL_CAP 3`, `PICKS_MACRO_SEVERE_PUT_BAR −5`. (`computeMacroRegime` /
     `computeMacroTilt` / `fedHawkishDrift` / `macroBetaWeight`.)
+  - **Tape de-duplication (§3 Mechanicals/Narrative):** `PICKS_TAPE_DEDUPE` (default ON) —
+    neutralizes the per-name **SPY flows / VIX Tracking / DXY / 10Y** pillar signals to
+    informational (score 0, kept visible), since the regime gauge reads those same series
+    and the beta-weighted tilt expresses them per-name. **VIX Spot** (contrarian) and **Macro
+    Tail/Headwinds** (unique recession/inflation/election themes) are intentionally NOT
+    deduped. `=0` restores the legacy scores.
   - **VIX index term structure (regime, §6.3):** `^VIX9D` / `^VIX3M` fetched alongside
     `^VIX` in `fetchMacroBackdrop` → `macroBackdrop.vixTerm` (`ratio` = `^VIX`/`^VIX3M`,
     `state` backwardation/contango); backwardation (ratio ≥ 1) confirms risk-off at

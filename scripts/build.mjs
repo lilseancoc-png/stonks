@@ -6726,6 +6726,17 @@ const PICKS_RISKOFF_PUT_BAR = -8;
 // fixed narrative signal that re-ranks calls→puts); (3) de-grosses; and (4) caps
 // calls + relaxes the tactical-put bar in a SEVERE tape. Master flag, default ON.
 const PICKS_MACRO_REGIME = process.env.PICKS_MACRO_REGIME !== "0";
+// Tape de-duplication (default ON). The cross-asset regime gauge now reads SPY, VIX,
+// DXY and long yields directly and expresses them per-name through the beta-weighted
+// Macro Regime tilt (which actually re-ranks by beta). The old per-name SPY-flows /
+// VIX-tracking / DXY / 10Y pillar signals read those SAME market series in the SAME
+// direction — but as FIXED (non-z-scored) signals they're a uniform offset across the
+// universe, so they double-count the tape AND don't re-rank anything. With this on
+// they're neutralized to informational (kept visible on the card, scored 0), so the
+// tape is read once and expressed once. NOT touched: VIX Spot (contrarian — opposite
+// thesis to the regime) and Macro Tail/Headwinds (uniquely catches recession/inflation/
+// election macro narratives no regime axis covers). Set =0 to restore the legacy scores.
+const PICKS_TAPE_DEDUPE = process.env.PICKS_TAPE_DEDUPE !== "0";
 // Per-axis trigger thresholds (one-day moves; the 5-day trend confirms a softer 1d).
 const PICKS_MACRO_DXY_1D = Number(process.env.PICKS_MACRO_DXY_1D ?? 0.6);          // % dollar 1d that flags tightening (-1)
 const PICKS_MACRO_DXY_1D_STRONG = Number(process.env.PICKS_MACRO_DXY_1D_STRONG ?? 0.9); // ... a sharp dollar spike (-2)
@@ -8130,6 +8141,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     let note = `SPY ${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}% — flat (<0.6%)`;
     if (spyMove >= 0.6) { s = 1; note = `SPY +${spyMove.toFixed(2)}% — risk-on tape`; }
     else if (spyMove <= -0.6) { s = -1; note = `SPY ${spyMove.toFixed(2)}% — risk-off tape`; }
+    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     spySignal = _sig("spyFlows", "SPY flows", s, {
       value: `${spyMove >= 0 ? "+" : ""}${spyMove.toFixed(2)}%`,
       note,
@@ -8192,6 +8204,7 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     } else if (vix.trend === "falling") {
       note = `VIX ${vix.value.toFixed(1)} falling but already calm (<20) — no edge`;
     }
+    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     vixTrendSignal = _sig("vixTracking", "VIX Tracking", s, {
       value: vix.value.toFixed(1),
       note,
@@ -8409,6 +8422,7 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     let note = `DXY ${mv >= 0 ? "+" : ""}${mv.toFixed(2)}% — flat (<0.9%)`;
     if (mv >= 0.9) { s = -2; note = `DXY +${mv.toFixed(2)}% — strong dollar, equity headwind`; }
     else if (mv <= -0.9) { s = 1; note = `DXY ${mv.toFixed(2)}% — weak dollar, equity tailwind`; }
+    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     dxySignal = _sig("dxy", "DXY Strength (1D)", s, {
       value: `${mv >= 0 ? "+" : ""}${mv.toFixed(2)}%`,
       note,
@@ -8428,6 +8442,7 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     let note = `10Y ${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps — flat (<13 bps)`;
     if (bps >= 13) { s = -2; note = `10Y +${bps.toFixed(1)} bps — yields spiking, risk-off`; }
     else if (bps <= -13) { s = 1; note = `10Y ${bps.toFixed(1)} bps — yields falling, easing tailwind`; }
+    if (PICKS_TAPE_DEDUPE && s !== 0) { note += " — scored once by the market-regime gauge (no double-count)"; s = 0; }
     tenYSignal = _sig("tenY", "10Y Yield (1D)", s, {
       value: `${bps >= 0 ? "+" : ""}${bps.toFixed(1)} bps`,
       note,
