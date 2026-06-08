@@ -55,7 +55,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-07","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-07","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -12664,11 +12664,16 @@
     var items = '';
     for (var i=0; i<peers.length; i++){
       var q = peers[i];
-      var t = q && q.total != null ? q.total : 0;
+      var t = q && q.total != null ? Number(q.total) : 0;
+      if (!isFinite(t)) t = 0;
+      // Scores are cross-sectional floats (P3.1) — round to 1 decimal like the
+      // pillar panel does, else the raw 18-digit float overflows its column and
+      // collides with the tier label.
+      var tStr = (t >= 0 ? '+' : '') + t.toFixed(1);
       var cls = q && q.tier ? 'pick-peer-' + escapeHtml(q.tier) : 'pick-peer-no-trade';
       items += '<li class="pick-peer ' + cls + '">' +
         '<span class="pick-peer-sym">' + escapeHtml(q.symbol || '—') + '</span>' +
-        '<span class="pick-peer-score">' + (t>=0?'+':'') + t + '</span>' +
+        '<span class="pick-peer-score">' + tStr + '</span>' +
         '<span class="pick-peer-tier">' + escapeHtml(q && q.label ? q.label : '—') + '</span>' +
       '</li>';
     }
