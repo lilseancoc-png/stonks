@@ -6504,6 +6504,33 @@
     }
     return out;
   }
+  // Compact dealer gamma-exposure strip shown under each flagged ticker —
+  // net GEX (long vs short gamma), the gamma flip vs spot, and the call/put
+  // walls. Precomputed server-side into UNUSUAL by scripts/scan-unusual.mjs
+  // (lib/gex.mjs, same model as the GEX tab) so there's no per-ticker fetch.
+  // Older scans without t.gex simply render no strip.
+  function flowGexStripHtml(t){
+    var g = t && t.gex;
+    if (!g || g.net == null || !isFinite(g.net)) return '';
+    var spot = Number(t.spot);
+    var pos = g.net >= 0;
+    var flipSub = '';
+    if (g.flip != null && spot > 0) flipSub = spot >= g.flip ? 'spot above' : 'spot below';
+    function metric(label, val, cls, sub){
+      return '<span class="flow-gex-metric' + (cls ? ' ' + cls : '') + '">' +
+        '<span class="flow-gex-label">' + escapeHtml(label) + '</span>' +
+        '<span class="flow-gex-val">' + val + '</span>' +
+        (sub ? '<span class="flow-gex-sub">' + escapeHtml(sub) + '</span>' : '') +
+      '</span>';
+    }
+    return '<div class="flow-gex" title="Dealer gamma exposure from the latest baked chain — same model as the GEX tab">' +
+      '<span class="flow-gex-tag">GEX</span>' +
+      metric('Net', gexFmtSigned(g.net), pos ? 'is-pos' : 'is-neg', pos ? 'stabilizing' : 'amplifying') +
+      metric('Flip', fmtOiStrike(g.flip), '', flipSub) +
+      metric('Call wall', g.callWall ? fmtOiStrike(g.callWall.strike) : '—', 'is-pos', '') +
+      metric('Put wall', g.putWall ? fmtOiStrike(g.putWall.strike) : '—', 'is-neg', '') +
+    '</div>';
+  }
   function renderUnusualFlow(){
     var list = $('flow-list');
     var empty = $('flow-empty');
@@ -6569,6 +6596,7 @@
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
           '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
+        flowGexStripHtml(t) +
         '<div class="' + contractsCls + '"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(function(c){ return flowContractHtml(c, t.symbol); }).join('') +
         '</div>' +
