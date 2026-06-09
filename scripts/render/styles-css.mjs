@@ -10945,6 +10945,55 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--neg);
   border-color: color-mix(in srgb, var(--neg) 45%, transparent);
 }
+/* "Would you follow it?" verdict pill — follow (green/red by side),
+   wait (amber), avoid (muted + dashed, like the scan-gap pills). */
+.vol-pill-badge.vol-verdict { font-weight: 600; }
+.vol-pill-badge.vol-verdict-follow.is-bull {
+  background: var(--pos-soft);
+  color: var(--pos);
+  border-color: color-mix(in srgb, var(--pos) 55%, transparent);
+}
+.vol-pill-badge.vol-verdict-follow.is-bear {
+  background: var(--neg-soft);
+  color: var(--neg);
+  border-color: color-mix(in srgb, var(--neg) 55%, transparent);
+}
+.vol-pill-badge.vol-verdict-wait {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+.vol-pill-badge.vol-verdict-avoid {
+  background: color-mix(in srgb, var(--text-3) 14%, var(--surface-2));
+  color: var(--text-2);
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+/* Expanded-body verdict row — the pill's reasoning in full. */
+.vol-verdict-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  background: var(--surface-2);
+}
+.vol-verdict-row.vol-verdict-follow.is-bull { border-left-color: var(--pos); }
+.vol-verdict-row.vol-verdict-follow.is-bear { border-left-color: var(--neg); }
+.vol-verdict-row.vol-verdict-wait { border-left-color: var(--warn); }
+.vol-verdict-row.vol-verdict-avoid { border-left-color: var(--text-3); }
+.vol-verdict-label { font-weight: 600; font-size: 0.92em; color: var(--text); }
+.vol-verdict-row.vol-verdict-follow.is-bull .vol-verdict-label { color: var(--pos); }
+.vol-verdict-row.vol-verdict-follow.is-bear .vol-verdict-label { color: var(--neg); }
+.vol-verdict-row.vol-verdict-wait .vol-verdict-label { color: var(--warn); }
+.vol-verdict-why {
+  font-size: 0.85em;
+  line-height: 1.45;
+  color: var(--text-3);
+  max-width: 64ch;
+}
 .vol-card .vol-key-up { color: var(--pos); font-weight: 500; }
 .vol-card .vol-key-dn { color: var(--neg); font-weight: 500; }
 .vol-bucket.is-scan-missed { opacity: 0.7; }

@@ -13464,7 +13464,10 @@ async function fetchGlobalMarketBars(symbol) {
   };
 }
 
-async function fetchAllGlobalMarkets() {
+// Exported for scripts/regen-brief.mjs — the pre-market brief re-sweeps the
+// foreign set fresh (the committed correlations.json is from the prior bake
+// and misses the just-closed Asian session).
+export async function fetchAllGlobalMarkets() {
   const out = {};
   const syms = Object.keys(GLOBAL_MARKETS);
   await runPooled(syms, GLOBAL_FETCH_CONCURRENCY, async (sym) => {
@@ -13969,8 +13972,9 @@ function classifyAiError(err, attempt) {
 // brief a prior keyed build produced (read-before-wipe in main()).
 const BRIEFS_FILE = "briefs.json";
 const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-2.5-flash-lite";
-// The morning brief is minted by the first build of the ET day (the 9:30 open
-// run); only builds BEFORE this hour will create a missing morning brief, so a
+// The morning brief is minted PRE-MARKET by the oi-tracker workflow's ~08:30 ET
+// scripts/regen-brief.mjs run (the 9:30 ET open bake backstops it if that run
+// missed); only runs BEFORE this hour will create a missing morning brief, so a
 // noon+ build never back-fills a stale "morning" read. The afternoon brief
 // mirrors the heatmap EOD trigger — minted only after the 16:00 ET close.
 const BRIEF_MORNING_CUTOFF_ET_HOUR = 12;
@@ -13986,7 +13990,8 @@ function etHourNY(d = new Date()) {
   return h ? Number(h.value) : -1;
 }
 
-async function readPriorBriefs() {
+// Exported (with buildMarketBriefs) for scripts/regen-brief.mjs.
+export async function readPriorBriefs() {
   try {
     const raw = await readFile(resolve(DATA_DIR, BRIEFS_FILE), "utf8");
     const parsed = JSON.parse(raw);
@@ -14190,6 +14195,19 @@ export function gatherBriefSignals(kind, ctx) {
   }
   if (pcAdded.length || pcDropped.length) signals.picksChanges = { added: pcAdded.slice(0, 6), dropped: pcDropped.slice(0, 6) };
 
+  // Notable unusual flow — shared by both briefs. Afternoon: the session's
+  // heaviest names. Morning: the prior session's last scan, which reads as
+  // "what positioned into today" — at pre-market data/unusual.json still holds
+  // yesterday's final sweep. Top tickers by session volume delta, with the
+  // hottest contract's side + AI note.
+  const ut = unusual && Array.isArray(unusual.tickers) ? unusual.tickers.slice() : [];
+  ut.sort((a, b) => (b.topDelta || 0) - (a.topDelta || 0));
+  const flow = ut.slice(0, 4).map((t) => {
+    const c = Array.isArray(t.contracts) && t.contracts.length ? t.contracts[0] : null;
+    return { sym: t.symbol, side: c?.side || null, note: briefClause(c?.note, 120) };
+  }).filter((f) => f.sym);
+  if (flow.length) signals.flow = flow;
+
   if (kind === "morning") {
     // Overnight risk tone + the biggest foreign / futures moves.
     if (correlations?.tone) {
@@ -14212,6 +14230,28 @@ export function gatherBriefSignals(kind, ctx) {
       if (m && Number.isFinite(m.chPct)) idxFut.push({ sym: fs, label: m.name || fs, chPct: Math.round(m.chPct * 100) / 100 });
     }
     if (idxFut.length) signals.indexes = idxFut;
+    // Yesterday's confirmed index close — the anchor the overnight read trades
+    // against (at pre-market the committed technicals are the prior session's).
+    const recap = [];
+    for (const [rsym, rlabel] of [["SPY", "S&P 500 (SPY)"], ["QQQ", "Nasdaq 100 (QQQ)"], ["IWM", "Russell 2000 (IWM)"]]) {
+      const mv = chains[rsym]?.technicals?.volume?.priceMove1dPct;
+      if (Number.isFinite(mv)) recap.push({ sym: rsym, label: rlabel, chPct: Math.round(mv * 100) / 100 });
+    }
+    if (recap.length) signals.recap = recap;
+    // Levels to watch — the 20-day support/resistance rails on the index ETFs.
+    const levels = [];
+    for (const lsym of ["SPY", "QQQ"]) {
+      const sr = chains[lsym]?.technicals?.sr;
+      const s20 = Number(sr?.s20), r20 = Number(sr?.r20), lspot = Number(chains[lsym]?.spot);
+      if (!Number.isFinite(s20) && !Number.isFinite(r20)) continue;
+      levels.push({
+        sym: lsym,
+        spot: Number.isFinite(lspot) ? Math.round(lspot * 100) / 100 : null,
+        support: Number.isFinite(s20) ? Math.round(s20 * 100) / 100 : null,
+        resistance: Number.isFinite(r20) ? Math.round(r20 * 100) / 100 : null,
+      });
+    }
+    if (levels.length) signals.levels = levels;
   } else {
     // Breadth + biggest movers from the day's confirmed 1-day % moves.
     const moves = [];
@@ -14227,14 +14267,6 @@ export function gatherBriefSignals(kind, ctx) {
       gainers: moves.filter((m) => m.chPct > 0).slice(0, 5),
       losers: moves.filter((m) => m.chPct < 0).slice(-5).reverse(),
     };
-    // Notable unusual flow — top tickers by this session's volume delta, with
-    // the hottest contract's side + AI note.
-    const ut = unusual && Array.isArray(unusual.tickers) ? unusual.tickers.slice() : [];
-    ut.sort((a, b) => (b.topDelta || 0) - (a.topDelta || 0));
-    signals.flow = ut.slice(0, 4).map((t) => {
-      const c = Array.isArray(t.contracts) && t.contracts.length ? t.contracts[0] : null;
-      return { sym: t.symbol, side: c?.side || null, note: briefClause(c?.note, 120) };
-    }).filter((f) => f.sym);
     // Index scorecard — how the headline index ETFs actually closed.
     const idxClose = [];
     for (const [isym, ilabel] of [["SPY", "S&P 500 (SPY)"], ["QQQ", "Nasdaq 100 (QQQ)"], ["IWM", "Russell 2000 (IWM)"]]) {
@@ -14263,6 +14295,33 @@ export function gatherBriefSignals(kind, ctx) {
       const laggards = secArr.slice().reverse().filter((s) => !leadNames.has(s.name)).slice(0, 3);
       signals.sectors = { leaders, laggards };
     }
+    // 52-week extremes — names that ended the day at (or within 0.5% of) their
+    // 1y high/low. Bars via timingBarsFrom (the same _bars/priceSeries fallback
+    // the timing gate uses) so this also works on a no-fetch regen path.
+    const atHighs = [], atLows = [];
+    for (const [esym, ed] of Object.entries(chains)) {
+      const bars = timingBarsFrom(ed);
+      const espot = Number(ed?.spot);
+      if (!bars || !Number.isFinite(espot) || espot <= 0) continue;
+      let hi = -Infinity, lo = Infinity;
+      for (const v of bars.h) if (Number.isFinite(v) && v > hi) hi = v;
+      for (const v of bars.l) if (Number.isFinite(v) && v > 0 && v < lo) lo = v;
+      if (!(hi > 0) || !(lo > 0) || hi <= lo) continue;
+      if (espot >= hi * 0.995) atHighs.push({ sym: esym, pct: Math.round((espot / hi - 1) * 10000) / 100 });
+      else if (espot <= lo * 1.005) atLows.push({ sym: esym, pct: Math.round((espot / lo - 1) * 10000) / 100 });
+    }
+    atHighs.sort((a, b) => b.pct - a.pct);
+    atLows.sort((a, b) => a.pct - b.pct);
+    if (atHighs.length || atLows.length) signals.extremes = { highs: atHighs.slice(0, 4), lows: atLows.slice(0, 4) };
+    // Volume standouts — heaviest tape vs each name's own 20D average (rvol).
+    const heavy = [];
+    for (const [vsym, vd] of Object.entries(chains)) {
+      const v = vd?.technicals?.volume;
+      if (!v || !Number.isFinite(v.rvol) || v.rvol < 1.5) continue;
+      heavy.push({ sym: vsym, rvol: Math.round(v.rvol * 100) / 100, chPct: Number.isFinite(v.priceMove1dPct) ? Math.round(v.priceMove1dPct * 100) / 100 : null });
+    }
+    heavy.sort((a, b) => b.rvol - a.rvol);
+    if (heavy.length) signals.volume = heavy.slice(0, 5);
   }
   return signals;
 }
@@ -14274,10 +14333,14 @@ function briefRenderFields(s) {
   if (s.macro && s.macro.length) out.macro = s.macro;
   if (s.tone) out.tone = s.tone;
   if (s.indexes && s.indexes.length) out.indexes = s.indexes;
+  if (s.recap && s.recap.length) out.recap = s.recap;
   if (s.overnight && s.overnight.length) out.overnight = s.overnight;
+  if (s.levels && s.levels.length) out.levels = s.levels;
   if (s.breadth) out.breadth = s.breadth;
   if (s.movers && (s.movers.gainers.length || s.movers.losers.length)) out.movers = s.movers;
   if (s.sectors && ((s.sectors.leaders && s.sectors.leaders.length) || (s.sectors.laggards && s.sectors.laggards.length))) out.sectors = s.sectors;
+  if (s.extremes && ((s.extremes.highs && s.extremes.highs.length) || (s.extremes.lows && s.extremes.lows.length))) out.extremes = s.extremes;
+  if (s.volume && s.volume.length) out.volume = s.volume;
   if (s.flow && s.flow.length) out.flow = s.flow;
   if (s.gex && s.gex.length) out.gex = s.gex;
   if (s.picksChanges && ((s.picksChanges.added && s.picksChanges.added.length) || (s.picksChanges.dropped && s.picksChanges.dropped.length))) out.picksChanges = s.picksChanges;
@@ -14288,27 +14351,30 @@ function briefRenderFields(s) {
 
 function briefSystemPrompt(kind) {
   const common =
-    " Write (1) a one-sentence headline, (2) a 2-4 sentence summary in plain English, and " +
-    "(3) 3 to 5 highlight bullets — each a SHORT label (1-3 words) plus one sentence — calling out the " +
+    " Write (1) a one-sentence headline, (2) a 3-5 sentence summary in plain English, and " +
+    "(3) 4 to 6 highlight bullets — each a SHORT label (1-3 words) plus one sentence — calling out the " +
     "most interesting and actionable things. Cite specific magnitudes and tickers FROM THE SUPPLIED FACTS only. " +
     "Never invent news, earnings, analyst actions, or numbers beyond the facts given. Be factual and terse. " +
     "No emojis, no markdown, no hype, no buy/sell advice, no quotes around tickers.";
   if (kind === "morning") {
     return (
       "You are a markets-desk analyst writing a concise PRE-MARKET brief for US options traders, " +
-      "published around the opening bell. You receive structured facts: US index futures (S&P / Nasdaq), how " +
-      "overnight foreign markets traded, the risk tone, key macro levels (10Y yield, the dollar, VIX), the CNN " +
-      "Fear & Greed reading, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot " +
-      "sits vs the gamma flip — short gamma below the flip means dealers amplify moves), any names added to or " +
-      "dropped from the model's actionable top picks, today's earnings + economic calendar, and the model's " +
-      "current top option picks. Frame it as the setup for today's session and what happened overnight." + common
+      "published before the opening bell. You receive structured facts: how the headline index ETFs closed " +
+      "yesterday, US index futures (S&P / Nasdaq), how overnight foreign markets traded, the risk tone, key " +
+      "macro levels (10Y yield, the dollar, VIX), the CNN Fear & Greed reading, the 20-day support/resistance " +
+      "levels to watch on SPY and QQQ, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and " +
+      "where spot sits vs the gamma flip — short gamma below the flip means dealers amplify moves), notable " +
+      "options flow from the prior session, any names added to or dropped from the model's actionable top picks, " +
+      "today's earnings + economic calendar, and the model's current top option picks. Frame it as the setup " +
+      "for today's session: what happened overnight, and what to watch into the bell." + common
     );
   }
   return (
     "You are a markets-desk analyst writing a concise POST-MARKET closing brief for US options traders, " +
     "published just after the 4pm ET close. You receive structured facts: how the headline index ETFs (SPY/QQQ/IWM) " +
     "closed, the day's breadth (advancers/decliners), the sector leaders and laggards, the biggest gainers and " +
-    "losers, notable unusual options flow, where macro levels (10Y yield, the dollar, VIX) and the CNN Fear & " +
+    "losers, names that ended at or near 52-week highs/lows, the heaviest-volume names vs their own 20-day " +
+    "average, notable unusual options flow, where macro levels (10Y yield, the dollar, VIX) and the CNN Fear & " +
     "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
     "vs the gamma flip), any names added to or dropped from the model's actionable top picks, the model's top " +
     "option picks, and what's on the calendar next. Frame it as what happened today and what to watch next." + common
@@ -14336,10 +14402,19 @@ export function briefUserMessage(kind, dateKey, signals) {
       signals.indexes.map((m) => `${m.label} ${briefPctStr(m.chPct)}`).join(", ") + ".");
   }
   if (kind === "morning") {
+    if (signals.recap && signals.recap.length) {
+      lines.push("Yesterday's US close: " + signals.recap.map((m) => `${m.label} ${briefPctStr(m.chPct)}`).join(", ") + ".");
+    }
     if (signals.tone) lines.push(`Overnight tone: ${signals.tone.label}${signals.tone.reasons.length ? ` — ${signals.tone.reasons.join("; ")}` : ""}.`);
     if (signals.overnight && signals.overnight.length) {
       lines.push("Overnight / foreign moves:");
       for (const m of signals.overnight) lines.push(`- ${m.name || m.sym}${m.region ? ` (${m.region})` : ""}: ${briefPctStr(m.chPct)}`);
+    }
+    if (signals.levels && signals.levels.length) {
+      lines.push("Levels to watch (20-day support / resistance):");
+      for (const l of signals.levels) {
+        lines.push(`- ${l.sym}: support ${l.support ?? "n/a"}, resistance ${l.resistance ?? "n/a"}${l.spot != null ? ` (last ${l.spot})` : ""}`);
+      }
     }
   } else {
     if (signals.breadth) lines.push(`Tape breadth: ${signals.breadth.up} up, ${signals.breadth.down} down, ${signals.breadth.flat} flat.`);
@@ -14351,10 +14426,18 @@ export function briefUserMessage(kind, dateKey, signals) {
       if (signals.sectors.leaders && signals.sectors.leaders.length) lines.push("Sector leaders: " + signals.sectors.leaders.map((s) => `${s.name} ${briefPctStr(s.chPct)}`).join(", ") + ".");
       if (signals.sectors.laggards && signals.sectors.laggards.length) lines.push("Sector laggards: " + signals.sectors.laggards.map((s) => `${s.name} ${briefPctStr(s.chPct)}`).join(", ") + ".");
     }
-    if (signals.flow && signals.flow.length) {
-      lines.push("Notable options flow:");
-      for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
+    if (signals.extremes) {
+      const hi = signals.extremes.highs || [], lo = signals.extremes.lows || [];
+      if (hi.length) lines.push("At/near 52-week highs: " + hi.map((e) => e.sym).join(", ") + ".");
+      if (lo.length) lines.push("At/near 52-week lows: " + lo.map((e) => e.sym).join(", ") + ".");
     }
+    if (signals.volume && signals.volume.length) {
+      lines.push("Volume standouts (vs own 20-day average): " + signals.volume.map((v) => `${v.sym} ${v.rvol}x${v.chPct != null ? ` (${briefPctStr(v.chPct)})` : ""}`).join(", ") + ".");
+    }
+  }
+  if (signals.flow && signals.flow.length) {
+    lines.push(kind === "morning" ? "Notable options flow (prior session's last scan):" : "Notable options flow:");
+    for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
   }
   if (signals.gex && signals.gex.length) {
     lines.push("Dealer gamma (GEX) — net positioning at spot:");
@@ -14457,8 +14540,9 @@ async function generateBrief(ai, kind, dateKey, signals) {
 // exist and BEFORE writeAiUsageState() so the brief's token usage is recorded.
 // `briefsPrev` is the pre-wipe snapshot, so each brief is minted at most once
 // per ET day and reused by later builds. Never throws — a failure leaves the
-// tab on its last-good content.
-async function buildMarketBriefs(opts) {
+// tab on its last-good content. Also exported for scripts/regen-brief.mjs (the
+// pre-market mint); the ET-window gating below makes re-running always safe.
+export async function buildMarketBriefs(opts) {
   const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges } = opts;
   const now = new Date();
   const todayEt = etDateKey(now);
