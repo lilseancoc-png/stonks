@@ -31,6 +31,8 @@ render. The pure-measurement items (the 2×2 ablation, signal pruning) ship as t
 | **P2.1** factor/correlation cap | ✅ shipped | `PICKS_MAX_PER_SECTOR 4→3` + `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`). |
 | **P2.2** fail-open to `wait` | ✅ shipped | Fail-open state go→wait; enrollment is go-only for the headline cohort. |
 | **P2.3** prune signals | ◑ substrate | `bySignal.prunable` flag (n≥25 and rate within 0.05 of a coin flip). No auto-drop — it's a hint for the next recalibration. |
+| **Feedback-loop unblock** | ✅ shipped | `PICKS_ACCURACY_AB=1` now set in `daily.yml` (the wait arm finally accumulates; entries stamped `waitKind` earnings/event/structure), plus the **universe-IC substrate**: `data/grades-daily.json` (every name's grade total, once per ET day) + `scripts/diagnose-grade-ic.mjs` (cross-sectional Spearman IC + decile spread at 5/10/14d — ~138 obs/day instead of ~5/build). Addresses meta-problem 1's sample starvation directly. |
+| **Boundary/regime churn** | ✅ shipped | Tier hysteresis (`PICKS_TIER_HYSTERESIS`, incumbent exits at 0.9×tradeCut), asymmetric macro-regime persistence (`PICKS_REGIME_PERSIST`, recovery needs 2 consecutive builds), continuous macro-tilt ramp (`PICKS_MACRO_TILT_RAMP`, |tilt| scales with stress instead of a −4/−8 step), and a direction-concentration cap (`PICKS_MAX_PER_SIDE 8` — no more 10/10-put books on a borderline regime read). Rubric §4/§6.3/§7. |
 
 **Deviation from the doc (P1.1 premium cap).** The doc said "keep the existing
 premium filter." Kept literally, the flat `$35/share` cap is incompatible with a

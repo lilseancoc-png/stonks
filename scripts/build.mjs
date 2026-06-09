@@ -6590,6 +6590,24 @@ const PICKS_TIER_PCTL_TRADE = 0.12;  // top 12% → actionable (Call/Put)
 // still empties on a genuinely flat tape. Tune via the env vars.
 const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? 6);
 const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? 9);
+// Tier hysteresis (churn fix). The percentile cutoffs are recomputed from scratch
+// every build, so a name sitting AT the top-12% boundary flips in/out of the
+// actionable set hourly (the churn log showed names entering and exiting within
+// one build) — noise for a ~14-day-hold product. Schmitt-trigger the boundary:
+// a name ENTERS at the full tradeCut, but an incumbent (actionable last build,
+// same side) only EXITS once it falls below tradeCut × PICKS_TIER_EXIT_FRAC.
+// Needs the prior grade snapshot (gradesHistoryPrev.latest), threaded via
+// opts.priorGrades — absent (first run / small-universe path) → no hysteresis,
+// byte-identical. The published bar (rosterMeta.tradeCut / minConviction) stays
+// the ENTRY bar. Set the flag =0 (or the frac to 1) to disable.
+const PICKS_TIER_HYSTERESIS = process.env.PICKS_TIER_HYSTERESIS !== "0";
+const PICKS_TIER_EXIT_FRAC = Number(process.env.PICKS_TIER_EXIT_FRAC ?? 0.9);
+// Direction-concentration cap. The sector/factor caps bound correlated LONGS, but
+// nothing bounded one-way books: a marginal 2-axis risk-off could tilt the roster
+// 10/10 puts (100% short delta) on a borderline regime read. Cap either side at
+// this many of the PICKS_COUNT slots (the severe-tape call cap still applies on
+// top, it's stricter for calls in a severe tape). 0 disables.
+const PICKS_MAX_PER_SIDE = Number(process.env.PICKS_MAX_PER_SIDE ?? 8);
 // Risk-based position sizing (P3.4) — emitted only for roster survivors.
 const PICKS_SIZE_RISK_DENOM = "option"; // 'option' (Δ/premium-aware loss to the stop) | 'atr' (underlying ATR% fallback)
 const PICKS_SIZE_VOL_FLOOR = 0.05;   // min risk denominator (5%) so a near-zero loss-to-stop can't mint an enormous weight
@@ -6811,6 +6829,25 @@ const PICKS_MACRO_TILT_SEVERE = Number(process.env.PICKS_MACRO_TILT_SEVERE ?? 8)
 const PICKS_MACRO_TILT_RISKON = Number(process.env.PICKS_MACRO_TILT_RISKON ?? 2); // smaller bullish tilt in a clean risk-on tape
 const PICKS_MACRO_TILT_BETA_FLOOR = Number(process.env.PICKS_MACRO_TILT_BETA_FLOOR ?? 0.5); // beta clamp [floor, cap] for the tilt weight
 const PICKS_MACRO_TILT_BETA_CAP = Number(process.env.PICKS_MACRO_TILT_BETA_CAP ?? 1.6);
+// Continuous tilt ramp (churn fix). The old step tilt (−4 risk-off / −8 severe at
+// beta 1) was as large as the rest of the grade (roster totals run ~7-11), so a
+// BORDERLINE 2-axis risk-off flipped the entire book to puts in one build and
+// flipped it back the next. Ramp the magnitude with the stress composite instead:
+// |tilt| = TILT_BASE × |stress| / FULL_STRESS, capped at TILT_SEVERE — so a
+// just-triggered stress −2 tape tilts −2×β (half the old step), the old −4 base is
+// reached at stress −4, and the −8 severe magnitude only at stress −8. Risk-on
+// ramps the same way toward +TILT_RISKON. Set the flag =0 for the legacy step.
+const PICKS_MACRO_TILT_RAMP = process.env.PICKS_MACRO_TILT_RAMP !== "0";
+const PICKS_MACRO_TILT_FULL_STRESS = Number(process.env.PICKS_MACRO_TILT_FULL_STRESS ?? 4); // |stress| at which the ramp reaches TILT_BASE (risk-off) / TILT_RISKON (risk-on)
+// Regime persistence (churn fix). The discrete regime state fed every consumer
+// (tilt, knife thresholds, de-gross, slow-pillar weights) the instant it flipped,
+// so a tape hovering AT the trigger (VIX ~20, Fed drift ~5pt) whipsawed the whole
+// book between long-leaning and all-puts build to build. Asymmetric hysteresis:
+// a move toward MORE risk-off applies immediately (never delay defense); a move
+// toward LESS risk-off (recovering toward neutral / risk-on) must be read on two
+// CONSECUTIVE builds before it takes effect. Prior state comes from the last
+// picks.json rosterMeta (threaded by main()/regen-picks); absent → no persistence.
+const PICKS_REGIME_PERSIST = process.env.PICKS_REGIME_PERSIST !== "0";
 // Gross de-risking + call cap in a macro-stress tape (a desk cuts SIZE, not just side).
 const PICKS_MACRO_GROSS_RISKOFF = Number(process.env.PICKS_MACRO_GROSS_RISKOFF ?? 0.6); // deployed-gross multiplier in risk-off
 const PICKS_MACRO_GROSS_SEVERE = Number(process.env.PICKS_MACRO_GROSS_SEVERE ?? 0.4);   // ... in severe-risk-off
@@ -8575,6 +8612,7 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
     score: timingDelta,
     signals: [{ key: "entryTiming", label: et.headline || "Entry timing", score: timingDelta }],
     state: et.state,
+    deferKind: et.deferKind || null, // why a 'wait' fired ('earnings'/'event'/'structure') — rides into the accuracy A/B cohort
     headline: et.headline || "",
     reasons: Array.isArray(et.reasons) ? et.reasons : [],
     // P3.1 re-fold substrate: timingDelta = total − subtotal is NOT invertible
@@ -10110,6 +10148,34 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   return { state, stress, riskOffAxes, riskOnAxes, axes, drivers, summary };
 }
 
+// Regime persistence (PICKS_REGIME_PERSIST) — asymmetric hysteresis over the
+// discrete macro-regime state, so a tape hovering AT a trigger (VIX ~20, Fed
+// drift ~5pt) can't whipsaw the whole book between long-leaning and all-puts
+// build to build. A move toward MORE risk-off applies immediately (never delay
+// defense); a move toward LESS risk-off (recovering) only takes effect once the
+// same recovered state is read on two CONSECUTIVE builds. `priorMeta` is the
+// previous build's rosterMeta.macroRegime ({state, rawState}) threaded by
+// main()/regen-picks from the pre-wipe picks.json; absent → no persistence
+// (first run / legacy payloads), the raw read stands. Mutates and returns `mr`,
+// stamping `rawState` (this build's instantaneous read — the substrate the NEXT
+// build confirms against) and `persisted: true` when the effective state held.
+export function applyMacroRegimePersistence(mr, priorMeta) {
+  if (!mr || !mr.state) return mr;
+  const RANK = { "severe-risk-off": 0, "risk-off": 1, "neutral": 2, "risk-on": 3 };
+  const raw = mr.state;
+  mr.rawState = raw;
+  if (!PICKS_REGIME_PERSIST || !(raw in RANK)) return mr;
+  const prevEff = priorMeta && priorMeta.state;
+  if (!prevEff || !(prevEff in RANK)) return mr;
+  if (RANK[raw] <= RANK[prevEff]) return mr; // defensive (or unchanged) — apply immediately
+  const prevRaw = (priorMeta.rawState in RANK) ? priorMeta.rawState : prevEff;
+  if (raw === prevRaw) return mr;            // second consecutive build reading the recovery — confirmed
+  mr.state = prevEff;                        // unconfirmed recovery — hold the prior defensive state one build
+  mr.persisted = true;
+  mr.summary = `Cross-asset macro ${prevEff} — holding pending confirmation (this build read ${raw})`;
+  return mr;
+}
+
 // Clamp a name's tilt weight to [floor, cap]. Prefer the real fundamentals beta;
 // fall back to the high-beta factor-cluster membership / defensive GICS sector
 // when beta is missing, so every name gets a sensible rate/risk sensitivity.
@@ -10136,10 +10202,22 @@ function computeMacroTilt(sym, data, macroBackdrop) {
   const mr = macroBackdrop && macroBackdrop.macroRegime;
   if (!mr) return null;
   let mag = 0, sign = 0;
-  if (mr.state === "severe-risk-off") { mag = PICKS_MACRO_TILT_SEVERE; sign = -1; }
-  else if (mr.state === "risk-off") { mag = PICKS_MACRO_TILT_BASE; sign = -1; }
-  else if (mr.state === "risk-on") { mag = PICKS_MACRO_TILT_RISKON; sign = 1; }
-  else return null;
+  const stress = Number.isFinite(mr.stress) ? mr.stress : 0;
+  if (mr.state === "severe-risk-off" || mr.state === "risk-off") {
+    sign = -1;
+    // Continuous ramp (PICKS_MACRO_TILT_RAMP): scale with how DEEP the stress
+    // composite runs instead of a step on the state label, so a borderline
+    // 2-axis risk-off doesn't flip the whole book to puts in one build. Reaches
+    // the old −4 base at stress −4 and the old −8 severe magnitude at stress −8.
+    mag = PICKS_MACRO_TILT_RAMP
+      ? Math.min(PICKS_MACRO_TILT_SEVERE, PICKS_MACRO_TILT_BASE * Math.max(0, -stress) / PICKS_MACRO_TILT_FULL_STRESS)
+      : (mr.state === "severe-risk-off" ? PICKS_MACRO_TILT_SEVERE : PICKS_MACRO_TILT_BASE);
+  } else if (mr.state === "risk-on") {
+    sign = 1;
+    mag = PICKS_MACRO_TILT_RAMP
+      ? PICKS_MACRO_TILT_RISKON * Math.min(1, Math.max(0, stress) / PICKS_MACRO_TILT_FULL_STRESS)
+      : PICKS_MACRO_TILT_RISKON;
+  } else return null;
   const weight = macroBetaWeight(sym, data);
   const score = Math.round(sign * mag * weight);
   if (!score) return null;
@@ -10543,7 +10621,11 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   }
 
   // ---- Collapse to a verdict -------------------------------------------------
-  let state, headline;
+  // deferKind classifies WHY a 'wait' fired — 'earnings' / 'event' (a scheduled
+  // catalyst defer, the discipline working as designed) vs 'structure' (no clean
+  // setup). Stamped onto the accuracy A/B 'wait' cohort so the go-vs-wait read can
+  // separate "stood down for CPI" from "the chart wasn't there". null for go/avoid.
+  let state, headline, deferKind = null;
   if (knife) {
     state = "avoid";
     headline = `Falling knife — don't catch ${dir > 0 ? "it" : "the squeeze"}`;
@@ -10555,18 +10637,22 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     headline = `Structure is against ${dirWord} right now`;
   } else if (catalystImminent) {
     state = "wait";
+    deferKind = "earnings";
     headline = `Earnings in ${dte === 0 ? "0" : dte}d — defer entry`;
   } else if (eventDefer) {
     state = "wait";
+    deferKind = "event";
     headline = `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d — uncertain macro event, defer entry`;
   } else if (strongPros.length > 0 && strongCons.length === 0) {
     state = "go";
     headline = `Clean entry — structure and timing line up for ${dirWord}`;
   } else if (strongPros.length > 0 && strongCons.length > 0) {
     state = "wait";
+    deferKind = "structure";
     headline = "Mixed signals — wait for the next bar to confirm";
   } else {
     state = "wait";
+    deferKind = "structure";
     headline = "No clean entry yet — wait for a setup";
   }
 
@@ -10604,7 +10690,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   }
   const contribution = (knife || chase) ? avoidPenalty : Math.max(-8, Math.min(4, score));
 
-  return { state, score, contribution, reasons, headline };
+  return { state, score, contribution, reasons, headline, deferKind };
 }
 
 // Dedicated IV-cost conviction term (PICKS_IV_SCORE), folded into `total` alongside
@@ -10894,6 +10980,7 @@ function computeCrossSectionalScores(scored, opts = {}) {
         const et = computeEntryTiming(newSide, r.data, (r.data && r.data.spot) || null, { regime, eventRisk });
         tc = Number.isFinite(et.contribution) ? et.contribution : 0;
         timing.state = et.state;
+        timing.deferKind = et.deferKind || null;
         timing.headline = et.headline || "";
         timing.reasons = Array.isArray(et.reasons) ? et.reasons : [];
         timing.side = newSide;
@@ -10957,7 +11044,26 @@ function computeCrossSectionalScores(scored, opts = {}) {
   // |total| below the floor grades no-trade → the roster shrinks (or empties).
   const strongCut = Math.max(_quantile(absSorted, 1 - PICKS_TIER_PCTL_STRONG), PICKS_ABS_STRONG_FLOOR);
   const tradeCut = Math.max(_quantile(absSorted, 1 - PICKS_TIER_PCTL_TRADE), PICKS_ABS_TRADE_FLOOR);
-  for (const r of scored) r.recommendation = tierForScore(r.total, { strongCut, tradeCut });
+  // Tier hysteresis (PICKS_TIER_HYSTERESIS) — Schmitt-trigger the actionable
+  // boundary so a name AT the recomputed percentile cutoff doesn't flip in/out of
+  // the set every build. An INCUMBENT (actionable in the prior build's grade
+  // snapshot, same direction) keeps its tier until |total| falls below
+  // tradeCut × PICKS_TIER_EXIT_FRAC; a fresh entrant still needs the full cut.
+  // opts.priorGrades = the pre-wipe grades-history `latest` map (sym → {total,
+  // tier}); absent → no hysteresis (first run / legacy callers), byte-identical.
+  // The published cutoffs stay the ENTRY bars.
+  const priorGrades = (PICKS_TIER_HYSTERESIS && PICKS_TIER_EXIT_FRAC < 1 && opts.priorGrades && typeof opts.priorGrades === "object")
+    ? opts.priorGrades : null;
+  for (const r of scored) {
+    let cut = tradeCut;
+    if (priorGrades) {
+      const prior = priorGrades[r.sym];
+      const incumbent = prior && prior.tier && prior.tier !== "no-trade" &&
+        Number(prior.total) * r.total > 0; // same side; a sign flip re-qualifies at the full bar
+      if (incumbent) cut = tradeCut * PICKS_TIER_EXIT_FRAC;
+    }
+    r.recommendation = tierForScore(r.total, { strongCut, tradeCut: cut });
+  }
   return { applied: true, strongCut, tradeCut };
 }
 
@@ -11015,6 +11121,9 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     regime,
     regimeBand,
     eventRisk: macroBackdrop && macroBackdrop.eventRisk,
+    // Tier hysteresis — the prior build's grade snapshot (gradesHistoryPrev.latest),
+    // threaded by main()/regen-picks through buildTopPicks/buildGradesIndex opts.
+    priorGrades: opts.priorGrades || null,
   });
 
   // Build industry → [{symbol, total, side, tier}, ...] index for peer
@@ -11245,6 +11354,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const factorCounts = {}; // enforce the broader cross-sector factor cap (P2.1)
   const skippedFactorCapped = [];
   const skippedMacroCallCapped = [];
+  const sideCounts = { call: 0, put: 0 }; // direction-concentration cap (PICKS_MAX_PER_SIDE)
+  const skippedSideCapped = [];
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -11254,6 +11365,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // index with more than a handful of longs — fill the rest with puts / cash.
     if (severe && side === "call" && callCount >= PICKS_MACRO_SEVERE_CALL_CAP) {
       skippedMacroCallCapped.push({ symbol: r.sym });
+      continue;
+    }
+    // Direction-concentration cap: the sector/factor caps bound correlated longs,
+    // but nothing stopped a one-way book — a marginal risk-off could ship 10/10
+    // puts (100% short delta on one regime read). Cap either side; the remaining
+    // slots go to the other side or stay cash (no backfill with worse names).
+    if (PICKS_MAX_PER_SIDE > 0 && (sideCounts[side] || 0) >= PICKS_MAX_PER_SIDE) {
+      skippedSideCapped.push({ symbol: r.sym, side });
       continue;
     }
     // Tradeable contract precomputed in the P1.4 candidacy gate above (every
@@ -11364,6 +11483,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
     out.push(pickPayload);
     if (side === "call") callCount += 1;
+    sideCounts[side] = (sideCounts[side] || 0) + 1;
     if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
     if (factor) factorCounts[factor] = (factorCounts[factor] || 0) + 1;
   }
@@ -11405,6 +11525,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       factorCapped: skippedFactorCapped,
       factorCounts,
       macroCallCapped: skippedMacroCallCapped, // severe-tape call cap skips
+      sideCapped: skippedSideCapped, // direction-concentration cap skips (PICKS_MAX_PER_SIDE)
+      sideCounts,
       // §3.5.1 — which regime weighting was in force this build (neutral / risk-off /
       // severe / risk-on), so the card breakdown can explain WHY the slow pillars
       // were discounted or boosted.
@@ -11423,6 +11545,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       macroRegime: (macroBackdrop && macroBackdrop.macroRegime)
         ? {
             state: macroBackdrop.macroRegime.state,
+            // Regime persistence substrate: this build's instantaneous read (vs the
+            // effective `state`, which may be held by applyMacroRegimePersistence).
+            // The NEXT build reads these back from picks.json to confirm a recovery.
+            rawState: macroBackdrop.macroRegime.rawState || macroBackdrop.macroRegime.state,
+            persisted: !!macroBackdrop.macroRegime.persisted,
             stress: macroBackdrop.macroRegime.stress,
             riskOffAxes: macroBackdrop.macroRegime.riskOffAxes,
             drivers: macroBackdrop.macroRegime.drivers,
@@ -11561,6 +11688,55 @@ export async function readGradesHistory() {
 
 export async function writeGradesHistory(history) {
   await writeFile(resolve(DATA_DIR, GRADES_HISTORY_FILE), JSON.stringify(history), "utf8");
+}
+
+// ---- Daily grade snapshots (data/grades-daily.json) ----------------------
+// One row per ET trading day: every tracked name's grade `total` (2dp). This is
+// the substrate for measuring the SCORE's information coefficient on the WHOLE
+// universe (grade-at-day-D vs realized forward 5/10/14-day returns, ~138 names ×
+// every day) instead of waiting on the ~5-per-build enrolled roster — the
+// feedback loop that decides whether the grade can call 2-week direction at all.
+// Read by the offline diagnostic scripts/diagnose-grade-ic.mjs (no network).
+// Intraday builds UPSERT the current ET day, so the surviving row is the day's
+// LAST build (post-close when the 16:00 bake lands) — consistent with measuring
+// forward returns close-to-close. Same read-before-wipe / write-after-wipe rule
+// as grades-history: main() MUST readGradesDaily() BEFORE writeChainFiles wipes
+// data/; regen-picks (no wipe) reads the live file directly.
+const GRADES_DAILY_FILE = "grades-daily.json";
+const GRADES_DAILY_MAX_DAYS = Number(process.env.GRADES_DAILY_MAX_DAYS ?? 400);
+
+export async function readGradesDaily() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, GRADES_DAILY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.days)) return parsed;
+  } catch {
+    // First run / missing / corrupt — fresh snapshot history.
+  }
+  return { days: [] };
+}
+
+// Pure: upsert today's (ET) row from the freshly-built grade index, prune to the
+// retention window, and return the next payload. ~138 totals/day ≈ a few KB.
+export function appendGradesDaily(prev, gradesIndex, builtAtIso) {
+  const day = etDateKey(new Date(builtAtIso));
+  const totals = {};
+  for (const [sym, g] of Object.entries(gradesIndex || {})) {
+    const t = Number(g && g.total);
+    if (Number.isFinite(t)) totals[sym] = Number(t.toFixed(2));
+  }
+  const days = ((prev && Array.isArray(prev.days)) ? prev.days : [])
+    .filter((d) => d && typeof d.date === "string" && d.date !== day);
+  days.push({ date: day, totals });
+  days.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  while (days.length > GRADES_DAILY_MAX_DAYS) days.shift();
+  return { builtAtIso, days };
+}
+
+export async function writeGradesDaily(payload) {
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, GRADES_DAILY_FILE), json, "utf8");
+  return { bytes: json.length, days: payload.days.length };
 }
 
 // Diff the fresh grade index against the prior lean snapshot, append a change
@@ -12153,10 +12329,11 @@ async function aiGlossRosterForecasts(roster, chains) {
   if (done) console.log(`[picks] AI-glossed ${done}/${slice.length} roster forecasts (${model})`);
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null) {
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null) {
   // priorClosed = the pre-update accuracy `closed` set (P1.3 edge governor), threaded
   // from main()'s pre-wipe picksAccuracyPrev so gross scales by the trailing edge.
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed });
+  // priorGrades = the pre-wipe grades-history `latest` snapshot (tier hysteresis).
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Prior picks snapshot. A full build passes priorPicks (captured by
@@ -12640,8 +12817,25 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
       if (!out[k]) out[k] = { n: 0, wins: 0, winRate: null };
       out[k].n += 1;
       if (e.outcome === "win") out[k].wins += 1;
+      // Sub-split the wait arm by WHY it waited ('earnings'/'event' scheduled-
+      // catalyst defers vs 'structure'), so the A/B can separate discipline that
+      // stood down for a known print from setups the chart genuinely lacked.
+      // Additive — existing readers of byCohort.{go,wait} are unaffected.
+      if (k === "wait") {
+        const wk = e.waitKind || "structure";
+        const sub = out[k].byKind || (out[k].byKind = {});
+        if (!sub[wk]) sub[wk] = { n: 0, wins: 0, winRate: null };
+        sub[wk].n += 1;
+        if (e.outcome === "win") sub[wk].wins += 1;
+      }
     }
-    for (const k of Object.keys(out)) out[k].winRate = out[k].n >= 3 ? Number((out[k].wins / out[k].n).toFixed(3)) : null;
+    for (const k of Object.keys(out)) {
+      out[k].winRate = out[k].n >= 3 ? Number((out[k].wins / out[k].n).toFixed(3)) : null;
+      for (const wk of Object.keys(out[k].byKind || {})) {
+        const s = out[k].byKind[wk];
+        s.winRate = s.n >= 3 ? Number((s.wins / s.n).toFixed(3)) : null;
+      }
+    }
     return out;
   })();
 
@@ -13053,7 +13247,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         if (s && s.key) entrySignals.push({
           key: s.key,
           pillar: pk,
-          score: s.score | 0,
+          // NOT `| 0` — the timing signal's score is a float delta (set by the
+          // re-fold), and bitwise-OR silently truncated it in the stored snapshot,
+          // degrading the substrate the IC bridge reads. Pillar signal scores are
+          // integers by construction (_sig), so they serialize identically.
+          score: Number.isFinite(s.score) ? Number(Number(s.score).toFixed(4)) : 0,
           contribution: Number.isFinite(s.contribution) ? Number(s.contribution.toFixed(4)) : null,
           z: Number.isFinite(s.z) ? Number(s.z.toFixed(3)) : null,
         });
@@ -13070,6 +13268,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       sector: p.sector || null,
       entryRegime: p.entryRegime || "unknown",
       cohort: p.entryTiming?.state === "wait" ? "wait" : "go",
+      // Why a 'wait' fired — 'earnings'/'event' (scheduled-catalyst defer) vs
+      // 'structure' (no clean setup). Lets the go-vs-wait A/B separate "stood
+      // down for CPI" from "the chart wasn't there". null on the go cohort.
+      waitKind: p.entryTiming?.state === "wait" ? (p.entryTiming?.deferKind || "structure") : null,
       entrySignals,
       entryDate: builtAtIso,
       entrySpot: Number(entrySpot.toFixed(2)),
@@ -17713,6 +17915,10 @@ async function main() {
   // lives in data/, so snapshot it now and thread it into diffGradesHistory after
   // the wipe, or the change log resets every build.
   const gradesHistoryPrev = await readGradesHistory();
+  // Same rule for the daily grade snapshots (data/grades-daily.json) — the
+  // universe-IC substrate accumulates across builds, so it must be pre-read
+  // before the wipe or the time series resets every build.
+  const gradesDailyPrev = await readGradesDaily();
   // Same rule for the picks churn log (data/picks-changes.json) — read it now so
   // this build's entered/exited events append to the rolling log instead of
   // resetting it after the wipe.
@@ -18068,10 +18274,16 @@ async function main() {
     // scoring (detectMarketRegime + the differential narrative tilt) and the
     // roster (de-grossing, call cap, tactical-put bar). Like eventRisk it's a
     // picks-internal, this-build-only signal — not persisted to macro.json.
-    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives);
+    // Regime persistence: hold a recovering state one build (asymmetric — moves
+    // toward more risk-off apply immediately). Prior state from the pre-wipe
+    // picks.json rosterMeta.
+    macroBackdrop.macroRegime = applyMacroRegimePersistence(
+      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives),
+      picksPrev?.rosterMeta?.macroRegime || null,
+    );
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
       const m = macroBackdrop.macroRegime;
-      console.log(`  · macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
+      console.log(`  · macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.persisted ? ` [held — this build read ${m.rawState}]` : ""}${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
     }
   }
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
@@ -18091,16 +18303,25 @@ async function main() {
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown
   // for names that don't clear the actionable threshold.
   // Build the grade index once and reuse it for the grades file, the grade-change
   // history diff, and the picks-accuracy checkpoint scores (avoids re-scoring).
-  const gradesIndex = buildGradesIndex(chains, trends.narratives, null, unusual, macroBackdrop, volumeFlags);
+  const gradesIndex = buildGradesIndex(chains, trends.narratives, null, unusual, macroBackdrop, volumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null });
   const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
+  // Daily grade snapshot (universe-IC substrate): upsert today's ET row with every
+  // name's total, so scripts/diagnose-grade-ic.mjs can measure the grade's forward
+  // IC on the whole universe instead of the ~5-per-build enrolled roster.
+  try {
+    const gd = await writeGradesDaily(appendGradesDaily(gradesDailyPrev, gradesIndex, builtAtIso));
+    console.log(`wrote data/grades-daily.json — ${gd.days} day snapshot(s), ${gd.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[grades] daily snapshot skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Grade-change log: diff the fresh index against the pre-wipe snapshot.
   try {
     const gradesHistoryNext = diffGradesHistory(gradesHistoryPrev, gradesIndex, builtAtIso);
