@@ -16,6 +16,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Fixed
+- **`regen-calendar.mjs` anchored FedWatch at raw EFFR instead of the FOMC target-range midpoint.** The full bake (and the browser's live recompute) snap the pre-meeting anchor to the target-range midpoint — the base CME measures hike/hold/cut against — but the calendar regen passed the effective rate straight through, skewing its hike/cut probabilities a few points off the bake's (EFFR prints a few bp below the midpoint) and writing inconsistent snapshots into `data/fedwatch-history.json`. The midpoint snap is now a shared exported helper (`fedTargetRangeMidpoint` in `scripts/build.mjs`) used by both paths.
+- **`regen-picks.mjs` priced contract selection at the hardcoded 4.5% risk-free rate.** The full bake threads the live-fetched 3M T-bill rate into `buildTopPicks` → `pickContractForPick`'s greeks, but the regen path let the `rfr` parameter default to `FALLBACK_RISK_FREE_RATE` — with the real rate currently ~3.6%, a regen could select different contracts than the bake it's meant to reproduce. It now reads the last bake's rate from the committed `data/rfr-history.json` (same offline pattern as `regen-static.mjs`).
+
 ### Added
 - **Volume tab — a pinned "★ Top Picks" group that tracks just the build's current picks.** The Volume & S/R-breaks tab now lifts the names in the current Top Picks roster (`data/picks.json`, lazily fetched on first tab open) into their own accent-highlighted group rendered above every sector — each card carries a Call/Put pick badge, and it always shows every pick regardless of the hourly/SR/EOD flag filter (search still applies). Picks are promoted out of their normal sector group so nothing shows twice. Render-only (`scripts/render/{app-js,styles-css,html}.mjs`).
 
