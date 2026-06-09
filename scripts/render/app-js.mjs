@@ -9252,6 +9252,51 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!inner) return '';
     return '<div class="brief-block"><h4 class="brief-block-title">' + briefEsc(title) + '</h4>' + inner + '</div>';
   }
+  // Index scorecard — tracked ETFs (SPY/QQQ/IWM) are clickable to the Grade tab;
+  // futures (ES=F/NQ=F, morning) carry an "=" so they render as inert chips.
+  function briefIndexChips(list){
+    return '<div class="brief-chips">' + (list || []).map(function(m){
+      var inner = briefEsc(m.label || m.sym) + ' <span>' + briefEsc(briefFmtPct(m.chPct)) + '</span>';
+      var cls = 'brief-chip ' + briefPctCls(m.chPct);
+      if (m.sym && /^[A-Z]{1,5}$/.test(m.sym)) return '<button type="button" class="' + cls + '" data-sym="' + briefEsc(m.sym) + '">' + inner + '</button>';
+      return '<span class="' + cls + ' info">' + inner + '</span>';
+    }).join('') + '</div>';
+  }
+  function briefSectorChips(s){
+    var html = '';
+    (s.leaders || []).forEach(function(x){ html += '<span class="brief-chip pos info">' + briefEsc(x.name) + ' <span>' + briefEsc(briefFmtPct(x.chPct)) + '</span></span>'; });
+    (s.laggards || []).forEach(function(x){ html += '<span class="brief-chip neg info">' + briefEsc(x.name) + ' <span>' + briefEsc(briefFmtPct(x.chPct)) + '</span></span>'; });
+    return '<div class="brief-chips">' + html + '</div>';
+  }
+  function briefGexFmtNet(n){
+    if (n == null || isNaN(n)) return '';
+    var a = Math.abs(n), s = n < 0 ? '-' : '+';
+    if (a >= 1e9) return s + (a / 1e9).toFixed(1) + 'B';
+    if (a >= 1e6) return s + (a / 1e6).toFixed(0) + 'M';
+    if (a >= 1e3) return s + (a / 1e3).toFixed(0) + 'K';
+    return s + Math.round(a);
+  }
+  function briefGexChips(list){
+    return '<div class="brief-chips">' + (list || []).map(function(g){
+      var pos = g.regime === 'positive';
+      var sub = briefGexFmtNet(g.net) + (g.flip != null ? ' · spot ' + (g.flipSide || '') + ' ' + g.flip + ' flip' : '');
+      var tip = pos ? 'Net long gamma — dealers dampen moves (stabilizing)' : 'Net short gamma — dealers amplify moves';
+      return '<span class="brief-chip ' + (pos ? 'pos' : 'neg') + ' info" title="' + briefEsc(tip) + '">' +
+        briefEsc(g.sym) + ' <span>' + briefEsc(sub) + '</span></span>';
+    }).join('') + '</div>';
+  }
+  function briefChurnChips(pc){
+    var html = '';
+    (pc.added || []).forEach(function(p){
+      html += '<button type="button" class="brief-chip pick" data-sym="' + briefEsc(p.symbol) + '"' + (p.note ? ' title="' + briefEsc(p.note) + '"' : '') + '>+ ' +
+        briefEsc(p.symbol) + (p.side ? ' <span>' + briefEsc(p.side) + '</span>' : '') + '</button>';
+    });
+    (pc.dropped || []).forEach(function(p){
+      html += '<button type="button" class="brief-chip neg" data-sym="' + briefEsc(p.symbol) + '"' + (p.note ? ' title="' + briefEsc(p.note) + '"' : '') + '>− ' +
+        briefEsc(p.symbol) + (p.side ? ' <span>' + briefEsc(p.side) + '</span>' : '') + '</button>';
+    });
+    return '<div class="brief-chips">' + html + '</div>';
+  }
   function renderBriefCard(b){
     if (!b) return '';
     var when = '';
@@ -9275,6 +9320,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }).join('') + '</ul>';
     }
     var blocks = [];
+    // Index scorecard — futures (morning) / index-ETF close (closing).
+    if (Array.isArray(b.indexes) && b.indexes.length){
+      blocks.push(briefBlock('Index scorecard', briefIndexChips(b.indexes)));
+    }
     // Overnight / foreign moves (morning) — non-clickable (foreign symbols).
     if (Array.isArray(b.overnight) && b.overnight.length){
       var ovn = b.overnight.map(function(m){
@@ -9288,6 +9337,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var movers = '<div class="brief-chips">' + briefMoverChips(b.movers.gainers, 'pos') + briefMoverChips(b.movers.losers, 'neg') + '</div>';
       blocks.push(briefBlock('Biggest movers', movers));
     }
+    // Sector leaders & laggards (closing).
+    if (b.sectors && ((b.sectors.leaders && b.sectors.leaders.length) || (b.sectors.laggards && b.sectors.laggards.length))){
+      blocks.push(briefBlock('Sector leaders & laggards', briefSectorChips(b.sectors)));
+    }
     // Unusual flow (closing).
     if (Array.isArray(b.flow) && b.flow.length){
       var flow = b.flow.map(function(fl){
@@ -9295,6 +9348,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           briefEsc(fl.sym) + (fl.side ? ' <span>' + briefEsc(fl.side) + 's</span>' : '') + '</button>';
       }).join('');
       blocks.push(briefBlock('Notable flow', '<div class="brief-chips">' + flow + '</div>'));
+    }
+    // Dealer gamma (GEX) — SPY/QQQ net-gamma regime + flip (both briefs).
+    if (Array.isArray(b.gex) && b.gex.length){
+      blocks.push(briefBlock('Dealer gamma (GEX)', briefGexChips(b.gex)));
+    }
+    // Top-Picks churn — names that entered / dropped the actionable set (both briefs).
+    if (b.picksChanges && ((b.picksChanges.added && b.picksChanges.added.length) || (b.picksChanges.dropped && b.picksChanges.dropped.length))){
+      blocks.push(briefBlock('Picks in & out', briefChurnChips(b.picksChanges)));
     }
     // Top picks.
     if (Array.isArray(b.picks) && b.picks.length){
