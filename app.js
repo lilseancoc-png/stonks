@@ -7049,6 +7049,59 @@
       sector: VOL_SECTOR_OF[t.symbol] || 'Other',
     };
   }
+  // "Would you follow it?" verdict — the card's bottom line on whether the
+  // bull or bear case this tape is making is worth following. Deterministic
+  // from the same summary the head shows: direction comes from the S/R break
+  // side when that is the strongest badge (a resistance break IS the bull
+  // case), else the dominant bullish/bearish lean; strength comes from the
+  // highest-conviction badge, mirroring the tiers in lib/volume-flags.mjs.
+  // Returns { verdict: follow|wait|avoid, side: bull|bear|null, label, why }
+  // or null when nothing fired that deserves a call.
+  function volCaseVerdict(sum){
+    if (!sum) return null;
+    var side = null;
+    if (sum.topBadge && sum.topBadge.type === 'sr'){
+      side = sum.topBadge.srType === 'lower' ? 'bear' : 'bull';
+    } else if (sum.lean != null && isFinite(sum.lean) && Math.abs(Number(sum.lean)) >= 0.5){
+      side = Number(sum.lean) > 0 ? 'bull' : 'bear';
+    }
+    var conv = sum.topBadge ? (VOL_CONV_RANK[sum.topBadge.conviction] || 0) : 0;
+    var caseWord = side ? side + ' case' : null;
+    // Likely fakeout — an S/R break without volume is the one setup the rules
+    // explicitly say to fade, so the verdict is a hard "do not follow".
+    if (sum.topBadge && sum.topBadge.type === 'sr' && sum.topBadge.conviction === 'Low'){
+      return { verdict: 'avoid', side: side,
+        label: 'Don\'t follow the ' + caseWord,
+        why: 'The break printed without volume behind it (under ' + VOL_SR_WEAK_MULT.toFixed(1) + 'x) — likely a fakeout, and breaks without participation tend to reverse.' };
+    }
+    if (conv >= 3 && side){
+      return { verdict: 'follow', side: side,
+        label: 'Follow the ' + caseWord,
+        why: 'Heavy volume confirmed the ' + (side === 'bull' ? 'upside' : 'downside') + ' move — real participation is behind it, so this is the side to trade with rather than against.' };
+    }
+    if (conv === 2){
+      return { verdict: 'wait', side: side,
+        label: side ? 'Lean ' + side + ' — wait for confirmation' : 'Wait for confirmation',
+        why: 'Volume is heavy but the move isn\'t decisive yet (accumulation, distribution, or indecision) — wait for price to pick a direction on this participation before following.' };
+    }
+    if (conv === 1 && caseWord){
+      return { verdict: 'avoid', side: side,
+        label: 'Don\'t chase the ' + caseWord,
+        why: 'The move printed on below-normal volume — without participation behind it, the move is prone to fading. Don\'t chase it.' };
+    }
+    if (sum.eodFlagged && side){
+      var bigDay = sum.dayMovePct != null && Math.abs(Number(sum.dayMovePct)) >= VOL_BIG_MOVE_PCT;
+      if (bigDay){
+        return { verdict: 'follow', side: side,
+          label: 'Follow the ' + caseWord,
+          why: 'The full session traded well above average volume and closed with a decisive ' + (side === 'bull' ? 'gain' : 'loss') + ' — heavy participation backed the day\'s direction.' };
+      }
+      return { verdict: 'wait', side: side,
+        label: 'Lean ' + side + ' — wait for confirmation',
+        why: 'The session was unusually heavy but the close wasn\'t decisive — watch for follow-through before trading the ' + caseWord + '.' };
+    }
+    return null;
+  }
   // The EOD summary row — rendered inside an expanded card body.
   function volEodRowHtml(t){
     if (!t.eod || !t.eod.flagged) return '';
@@ -7093,6 +7146,12 @@
     }
     var dirPill = volDirectionPill(sum.lean);
     if (dirPill) chips.push(dirPill);
+    var verdict = volCaseVerdict(sum);
+    if (verdict){
+      chips.push('<span class="vol-pill-badge vol-verdict vol-verdict-' + verdict.verdict +
+        (verdict.side ? ' is-' + verdict.side : '') + '" title="' + escapeHtml(verdict.why) + '">' +
+        escapeHtml(verdict.label) + '</span>');
+    }
     var stats = [];
     if (sum.peakRatio) stats.push('peak ' + sum.peakRatio.toFixed(2) + 'x');
     if (sum.eodRatio) stats.push('EOD ' + sum.eodRatio.toFixed(2) + 'x');
@@ -7111,7 +7170,16 @@
     var body = '';
     if (expanded){
       var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+      // The verdict pill's "why" repeated in full inside the detail body, so
+      // the reasoning is readable without hovering the head pill.
+      var verdictRow = verdict
+        ? '<div class="vol-verdict-row vol-verdict-' + verdict.verdict + (verdict.side ? ' is-' + verdict.side : '') + '">' +
+            '<span class="vol-verdict-label">' + escapeHtml(verdict.label) + '</span>' +
+            '<span class="vol-verdict-why">' + escapeHtml(verdict.why) + '</span>' +
+          '</div>'
+        : '';
       body = '<div class="vol-row-body">' +
+        verdictRow +
         (t.avg20 != null ? '<div class="vol-row-meta" title="20-day average daily volume — the baseline each row compares against">20D avg: ' + fmtVolNum(t.avg20) + '</div>' : '') +
         buckets.map(volBucketHtml).join('') +
         volEodRowHtml(t) +
@@ -9448,6 +9516,11 @@
     if (Array.isArray(b.indexes) && b.indexes.length){
       blocks.push(briefBlock('Index scorecard', briefIndexChips(b.indexes)));
     }
+    // Yesterday's confirmed index close (morning) — the anchor the overnight
+    // futures read trades against.
+    if (Array.isArray(b.recap) && b.recap.length){
+      blocks.push(briefBlock('Yesterday\'s close', briefIndexChips(b.recap)));
+    }
     // Overnight / foreign moves (morning) — non-clickable (foreign symbols).
     if (Array.isArray(b.overnight) && b.overnight.length){
       var ovn = b.overnight.map(function(m){
@@ -9455,6 +9528,18 @@
           ' <span>' + briefEsc(briefFmtPct(m.chPct)) + '</span></span>';
       }).join('');
       blocks.push(briefBlock('Overnight & foreign', '<div class="brief-chips">' + ovn + '</div>'));
+    }
+    // Levels to watch (morning) — 20D support/resistance rails on the index ETFs.
+    if (Array.isArray(b.levels) && b.levels.length){
+      var lv = b.levels.map(function(l){
+        var bits = [];
+        if (l.support != null) bits.push('S ' + l.support);
+        if (l.resistance != null) bits.push('R ' + l.resistance);
+        return '<button type="button" class="brief-chip" data-sym="' + briefEsc(l.sym) + '"' +
+          (l.spot != null ? ' title="Last ' + briefEsc(l.spot) + '"' : '') + '>' +
+          briefEsc(l.sym) + ' <span>' + briefEsc(bits.join(' · ')) + '</span></button>';
+      }).join('');
+      blocks.push(briefBlock('Levels to watch (20D)', '<div class="brief-chips">' + lv + '</div>'));
     }
     // Movers (closing).
     if (b.movers && ((b.movers.gainers && b.movers.gainers.length) || (b.movers.losers && b.movers.losers.length))){
@@ -9465,13 +9550,34 @@
     if (b.sectors && ((b.sectors.leaders && b.sectors.leaders.length) || (b.sectors.laggards && b.sectors.laggards.length))){
       blocks.push(briefBlock('Sector leaders & laggards', briefSectorChips(b.sectors)));
     }
-    // Unusual flow (closing).
+    // 52-week extremes (closing) — names that ended at/near their 1y high/low.
+    if (b.extremes && ((b.extremes.highs && b.extremes.highs.length) || (b.extremes.lows && b.extremes.lows.length))){
+      var ext = '';
+      (b.extremes.highs || []).forEach(function(e){
+        ext += '<button type="button" class="brief-chip pos" data-sym="' + briefEsc(e.sym) + '">' + briefEsc(e.sym) + ' <span>52w high</span></button>';
+      });
+      (b.extremes.lows || []).forEach(function(e){
+        ext += '<button type="button" class="brief-chip neg" data-sym="' + briefEsc(e.sym) + '">' + briefEsc(e.sym) + ' <span>52w low</span></button>';
+      });
+      blocks.push(briefBlock('52-week extremes', '<div class="brief-chips">' + ext + '</div>'));
+    }
+    // Volume standouts (closing) — heaviest tape vs each name's own 20D average.
+    if (Array.isArray(b.volume) && b.volume.length){
+      var hv = b.volume.map(function(v){
+        var sub = (v.rvol != null ? v.rvol + 'x avg vol' : '') + (v.chPct != null ? ' · ' + briefFmtPct(v.chPct) : '');
+        return '<button type="button" class="brief-chip ' + briefPctCls(v.chPct) + '" data-sym="' + briefEsc(v.sym) + '">' +
+          briefEsc(v.sym) + ' <span>' + briefEsc(sub) + '</span></button>';
+      }).join('');
+      blocks.push(briefBlock('Volume standouts', '<div class="brief-chips">' + hv + '</div>'));
+    }
+    // Unusual flow — the session's heaviest names (closing) or the prior
+    // session's last scan (morning).
     if (Array.isArray(b.flow) && b.flow.length){
       var flow = b.flow.map(function(fl){
         return '<button type="button" class="brief-chip flow" data-sym="' + briefEsc(fl.sym) + '"' + (fl.note ? ' title="' + briefEsc(fl.note) + '"' : '') + '>' +
           briefEsc(fl.sym) + (fl.side ? ' <span>' + briefEsc(fl.side) + 's</span>' : '') + '</button>';
       }).join('');
-      blocks.push(briefBlock('Notable flow', '<div class="brief-chips">' + flow + '</div>'));
+      blocks.push(briefBlock(b.kind === 'morning' ? 'Prior-session flow' : 'Notable flow', '<div class="brief-chips">' + flow + '</div>'));
     }
     // Dealer gamma (GEX) — SPY/QQQ net-gamma regime + flip (both briefs).
     if (Array.isArray(b.gex) && b.gex.length){
@@ -9526,7 +9632,7 @@
     if (data.morning) cards.push(data.morning);
     if (data.afternoon) cards.push(data.afternoon);
     if (!cards.length){
-      root.innerHTML = '<p class="brief-empty">No brief yet today — the morning brief posts around the open and the closing brief after 4&nbsp;pm&nbsp;ET.</p>';
+      root.innerHTML = '<p class="brief-empty">No brief yet today — the morning brief posts pre-market (~8:30&nbsp;am&nbsp;ET) and the closing brief after 4&nbsp;pm&nbsp;ET.</p>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }

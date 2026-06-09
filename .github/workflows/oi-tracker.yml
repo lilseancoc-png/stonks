@@ -8,6 +8,10 @@ name: Near-term OI tracker
 # snapshot consumed by the UI) and data/oi-history.json (rolling
 # snapshots used to compute next-run's ΔOI).
 #
+# The pre-market dispatch also mints the day's MORNING market brief
+# (scripts/regen-brief.mjs → data/briefs.json + data/ai-usage.json) —
+# see the "Generate market brief" step below.
+#
 # Scheduling is handled externally by cron-job.org, which POSTs to the
 # workflow_dispatch endpoint twice on weekdays:
 #   • Pre-market scan ~08:30 America/New_York (1h before the bell)
@@ -59,6 +63,17 @@ jobs:
         # the score, but never writes it.
         run: node scripts/scan-oi.mjs
 
+      - name: Generate market brief
+        # Pre-market (~08:30 ET) this mints the day's MORNING brief about an
+        # hour before the bell — the daily bake's first run is the 9:30 open,
+        # too late for a pre-market read. The EOD (~19:00 ET) dispatch only
+        # backfills a missing afternoon brief (the 16:00 bake normally writes
+        # it). buildMarketBriefs gates to once per ET window and self-skips
+        # without GEMINI_API_KEY, so this is always safe to re-run.
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/regen-brief.mjs
+
       - name: Commit refreshed OI snapshot
         run: |
           # set -e so a failed rebase / stash pop fails the workflow
@@ -76,7 +91,7 @@ jobs:
           # inlined MANIFEST). We regenerate them ONCE post-pop so the
           # final index.html reflects the rebased+popped data state
           # cleanly.
-          DATA_PATHS="data/oi-tracker.json data/oi-history.json"
+          DATA_PATHS="data/oi-tracker.json data/oi-history.json data/briefs.json data/ai-usage.json"
           git stash push --include-untracked $DATA_PATHS || true
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
           # Don't swallow stash pop errors — a silent conflict here
