@@ -305,6 +305,19 @@ carry materially more outright puts than the old absolute engine (a relatively-w
 name now goes clearly negative rather than sitting near 0). The timing gate's risk-off
 **tactical put** path (§6) still adds sub-bar puts on a confirmed-risk-off tape.
 
+> **Tier hysteresis (`PICKS_TIER_HYSTERESIS`, default ON) — the boundary-churn fix.**
+> The percentile cutoffs are recomputed from scratch every build, so a name sitting
+> AT the top-12% boundary flipped in/out of the actionable set hourly (the churn log
+> showed names entering and exiting within one build) — noise for a ~14-day-hold
+> product. The boundary is now a **Schmitt trigger**: a name ENTERS at the full
+> `tradeCut`, but an incumbent (actionable in the prior build's grade snapshot, same
+> side) only EXITS once `|total|` falls below `tradeCut × PICKS_TIER_EXIT_FRAC`
+> (0.9). A sign flip re-qualifies at the full bar. Prior state is the same pre-wipe
+> `grades-history.json` `latest` snapshot the churn log diffs against (threaded as
+> `opts.priorGrades` through `buildTopPicks` / `buildGradesIndex` →
+> `scoreAllTickers`); absent (first run / small-universe fallback) → no hysteresis.
+> The published bar (`rosterMeta.tradeCut` / `minConviction`) stays the ENTRY bar.
+
 ### 4.1 Sizing (`applyPickSizing`, P3.4)
 Sizing is **numeric and risk-based**, not the old "Standard / Load the Boat" label.
 For each roster survivor: a per-name risk denominator (the option-aware % of premium
@@ -548,13 +561,32 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
   So in a (severe-)risk-off tape `computeMacroTilt` adds a **beta-weighted bearish
   tilt** as a **fixed** `Macro Regime` signal in the Narrative pillar (fixed signals
   aren't z-scored, so the differential survives the demean and folds into the
-  directional subtotal in **both** scoring paths). Magnitude = `−PICKS_MACRO_TILT_BASE`
-  (4) in risk-off, `−PICKS_MACRO_TILT_SEVERE` (8) in severe, `+PICKS_MACRO_TILT_RISKON`
-  (2) in risk-on, **× the name's beta** (real `fundamentals.beta`, else a factor-cluster /
+  directional subtotal in **both** scoring paths). Magnitude **ramps continuously
+  with the stress composite** (`PICKS_MACRO_TILT_RAMP`, default ON): `|tilt| =
+  PICKS_MACRO_TILT_BASE × |stress| / PICKS_MACRO_TILT_FULL_STRESS` (4 × |stress|/4),
+  capped at `PICKS_MACRO_TILT_SEVERE` (8) — so a just-triggered stress-−2 tape tilts
+  −2, the old −4 base is reached at stress −4, and the −8 severe magnitude only at
+  stress −8; risk-on ramps the same way toward `+PICKS_MACRO_TILT_RISKON` (2). (The
+  old behavior was a **step** on the state label — −4 in *any* risk-off, −8 in severe
+  — which was as large as the rest of the grade, so one borderline 2-axis regime read
+  flipped the entire book to puts; `PICKS_MACRO_TILT_RAMP=0` restores the step.) All
+  **× the name's beta** (real `fundamentals.beta`, else a factor-cluster /
   defensive-sector proxy, clamped `[PICKS_MACRO_TILT_BETA_FLOOR 0.5, _CAP 1.6]`). So the
   whole long book is discounted, hardest on high-beta growth, and the highest-beta
   marginal **calls flip to puts** while weak names go clearly negative (more graded +
   tactical puts).
+- **Regime persistence (`PICKS_REGIME_PERSIST`, default ON) — the whipsaw fix.** The
+  discrete state fed every consumer (tilt, knife thresholds, de-gross, slow-pillar
+  weights) the instant it flipped, so a tape hovering AT a trigger (VIX ~20, Fed
+  drift ~5pt) whipsawed the whole book between long-leaning and all-puts build to
+  build. `applyMacroRegimePersistence` adds **asymmetric hysteresis**: a move toward
+  MORE risk-off applies immediately (never delay defense); a move toward LESS
+  risk-off (recovering toward neutral / risk-on) must be read on **two consecutive
+  builds** before it takes effect. The prior state comes from the previous
+  `picks.json` `rosterMeta.macroRegime` (read pre-wipe by `main()`, directly by
+  `regen-picks`); the instantaneous read rides on `rawState` + a `persisted` flag so
+  the UI/logs can show "holding risk-off pending confirmation". Absent prior →
+  the raw read stands (graceful).
 - **De-grossing + severe-tape guards.** A desk cuts *size* in a tightening tape, not
   just side. `applyPickSizing` scales the deployed gross by `PICKS_MACRO_GROSS_RISKOFF`
   (0.6) / `PICKS_MACRO_GROSS_SEVERE` (0.4). In a **severe** tape the roster also **caps
@@ -686,6 +718,14 @@ first bake.
   `SECTORS` of that complex into one factor and cap it on top of the sector cap;
   unmapped names (banks, pharma, energy, …) rely on the sector cap. Skips →
   `rosterMeta.factorCapped`.
+- **Direction-concentration cap** (`PICKS_MAX_PER_SIDE = 8`). The sector/factor caps
+  bound correlated longs, but nothing bounded a **one-way book**: a marginal 2-axis
+  risk-off could ship the roster 10/10 puts (100% short delta) on one borderline
+  regime read. Either side is now capped at 8 of the `PICKS_COUNT` slots — the
+  remaining slots go to the other side or stay cash (no backfill). The severe-tape
+  call cap (`PICKS_MACRO_SEVERE_CALL_CAP = 3`) still applies on top (stricter for
+  calls in a severe tape). Skips → `rosterMeta.sideCapped`; counts →
+  `rosterMeta.sideCounts`. `0` disables.
 - **No knife backfill.** When the gate drops a candidate, nothing pads its slot
   with a worse-timed name. The roster may ship **fewer than 10** picks — a short
   list is the honest signal that there's little clean to buy today. `rosterMeta`
@@ -750,9 +790,25 @@ it has to be trustworthy. The fixes:
   `PICKS_SIGNAL_MIN_N = 25` decided (guards against reading signal into noise). This
   is the substrate for *eventually* validating the equal-weight score — it does
   **not** feed weights today.
-- **Gate A/B (research, off by default).** With `PICKS_ACCURACY_AB=1`, the top-N
-  `wait` picks are also enrolled tagged `cohort:'wait'` (excluded from the headline,
-  surfaced only under `byCohort`) so the gate can eventually be *proven* go-vs-wait.
+- **Gate A/B (research, ON in production).** With `PICKS_ACCURACY_AB=1` — now set in
+  `daily.yml`, since without it the wait arm stayed n=0 forever and the gate could
+  never be validated — the top-N `wait` picks are also enrolled tagged `cohort:'wait'`
+  (excluded from the headline, surfaced only under `byCohort`). Each wait entry is
+  additionally stamped `waitKind` (`earnings` / `event` — a scheduled-catalyst defer
+  — vs `structure` — no clean setup; from `computeEntryTiming`'s `deferKind`), and
+  `byCohort.wait.byKind` sub-splits the arm so "stood down for CPI" is separable from
+  "the chart wasn't there".
+- **Universe-wide IC substrate (`data/grades-daily.json` + `scripts/diagnose-grade-ic.mjs`).**
+  The enrolled roster accrues ~5 picks/build at best, so per-signal/per-grade IC from
+  the track record alone takes quarters to stabilize. Every build now upserts one row
+  per ET day with EVERY tracked name's grade `total` (~138 names; the day's last —
+  post-close — build wins; ~400-day retention via `GRADES_DAILY_MAX_DAYS`; same
+  read-before-wipe rule as the other accumulating files). The read-only diagnostic
+  joins those snapshots with the committed `priceSeries` closes and reports the
+  grade's cross-sectional **Spearman IC** + **top-vs-bottom-decile forward-return
+  spread** at 5/10/14-trading-day horizons — thousands of observations per quarter,
+  the fast answer to "can the score call 2-week direction?" that gates everything
+  else. Measure-only; it feeds no weights (same discipline as `bySignal`).
 - **Forward-looking:** picks the *old* engine already enrolled stay open and mostly
   resolve as losses regardless of this change. The win-rate improves as they flush
   and only gated `go` picks accumulate — it does **not** retroactively jump.
@@ -782,7 +838,12 @@ it has to be trustworthy. The fixes:
     (default 9 / 6 on the compressed standardizer scale; env-set to 0 to disable) — the
     absolute bar the percentile cutoffs are `Math.max`'d against so the roster can honestly ship 0.
   - **Tiers (legacy floor fallback):** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`,
-    `PICKS_COUNT 10`, `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`).
+    `PICKS_COUNT 10`, `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`),
+    `PICKS_MAX_PER_SIDE 8` (direction-concentration cap, §7; 0 disables).
+  - **Tier hysteresis (§4):** `PICKS_TIER_HYSTERESIS` (default ON), `PICKS_TIER_EXIT_FRAC 0.9`
+    (incumbent exit bar = tradeCut × frac; `=0`/frac 1 → no hysteresis).
+  - **Universe-IC substrate (§8):** `GRADES_DAILY_MAX_DAYS 400` (`data/grades-daily.json`
+    retention; read by `scripts/diagnose-grade-ic.mjs`).
   - **Contract (`pickContractForPick`):** `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,
     `PICKS_OTM_MIN/MAX_PCT −0.20/0.12`, `PICKS_MAX_PREMIUM 35` +
     `PICKS_MAX_PREMIUM_PCT_OF_SPOT 0.12` (cap = max of the two); spread gate
@@ -842,7 +903,12 @@ it has to be trustworthy. The fixes:
     `PICKS_MACRO_GEO_MIN_STR 45` / `_GEO_STRONG_STR 65` (`computeGeoNewsStress`, `GEO_CONFLICT_RE`/`GEO_THEME_RE`); states
     `PICKS_MACRO_RISKOFF_AXES 2`, `PICKS_MACRO_SEVERE_AXES 3` + `PICKS_MACRO_SEVERE_STRESS −4`,
     `PICKS_MACRO_RISKON_AXES 2`; book tilt `PICKS_MACRO_TILT` (default ON), `_TILT_BASE 4` /
-    `_TILT_SEVERE 8` / `_TILT_RISKON 2`, beta clamp `_TILT_BETA_FLOOR 0.5` / `_TILT_BETA_CAP 1.6`;
+    `_TILT_SEVERE 8` / `_TILT_RISKON 2`, beta clamp `_TILT_BETA_FLOOR 0.5` / `_TILT_BETA_CAP 1.6`,
+    continuous ramp `PICKS_MACRO_TILT_RAMP` (default ON) + `PICKS_MACRO_TILT_FULL_STRESS 4`
+    (|tilt| = BASE × |stress|/4, capped at SEVERE; `=0` → legacy step);
+    regime persistence `PICKS_REGIME_PERSIST` (default ON; asymmetric — defensive moves
+    immediate, recovery needs 2 consecutive builds; `applyMacroRegimePersistence`, prior
+    state from `rosterMeta.macroRegime.{state,rawState}`);
     de-gross `PICKS_MACRO_GROSS_RISKOFF 0.6` / `_GROSS_SEVERE 0.4`; severe guards
     `PICKS_MACRO_SEVERE_CALL_CAP 3`, `PICKS_MACRO_SEVERE_PUT_BAR −5`. (`computeMacroRegime` /
     `computeMacroTilt` / `fedHawkishDrift` / `macroBetaWeight`.)
@@ -910,7 +976,10 @@ on (same discipline as the gate: measure on forward, gate-era data first).
   `bullishReversalConfirmed` (P1.2), `factorOfTicker`/`FACTOR_OF_SECTOR` (P2.1),
   `buildVixTerm` (§6.3 VIX term structure), `computeMacroEventRisk` (§6.6),
   `computeMacroRegime` / `computeMacroTilt` / `fedHawkishDrift` / `macroBetaWeight`
-  (§6.3 cross-asset macro-stress regime + differential book tilt).
+  (§6.3 cross-asset macro-stress regime + differential book tilt),
+  `applyMacroRegimePersistence` (§6.3 regime hysteresis),
+  `readGradesDaily` / `appendGradesDaily` / `writeGradesDaily` (§8 universe-IC
+  substrate, measured offline by [`scripts/diagnose-grade-ic.mjs`](../scripts/diagnose-grade-ic.mjs)).
 - Render: [`scripts/render/app-js.mjs`](../scripts/render/app-js.mjs) —
   `pickTimingBanner` / `pickTimingBadge` (the card) and `buildExecuteNowCard` (the
   live Grade-tab sibling). The expandable score breakdown is `pickPillarPanel`,

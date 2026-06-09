@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, readRfrHistory } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -48,18 +48,43 @@ try {
 // data/macro.json + data/fedwatch-history.json so a regen's picks/grades reflect
 // the same risk-off tilt, de-grossing and tactical puts. Missing/stale FedWatch →
 // the Fed axis just reads "no data" (graceful); a null macroBackdrop skips it.
+// Prior picks payload — read EARLY (no wipe here, but buildTopPicks overwrites
+// picks.json below): the regime-persistence read needs the prior
+// rosterMeta.macroRegime, and applyPickFirstSeen later needs the prior picks.
+let priorPicksPayload = null;
+try {
+  const priorRaw = await readFile(resolve(DATA_DIR, "picks.json"), "utf8");
+  const priorParsed = JSON.parse(priorRaw);
+  if (priorParsed && typeof priorParsed === "object") priorPicksPayload = priorParsed;
+} catch {
+  // First run / missing / corrupt — no prior picks.
+}
+const priorPicks = Array.isArray(priorPicksPayload?.picks) ? priorPicksPayload.picks : null;
+
 if (macroBackdrop) {
   let fedwatchHistory = null;
   try {
     const fwRaw = await readFile(resolve(DATA_DIR, "fedwatch-history.json"), "utf8");
     fedwatchHistory = JSON.parse(fwRaw);
   } catch {}
-  macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, narratives);
+  // Same regime persistence as the full build: hold a recovering state one build
+  // (defensive moves apply immediately), confirmed against the prior picks.json.
+  macroBackdrop.macroRegime = applyMacroRegimePersistence(
+    computeMacroRegime(macroBackdrop, fedwatchHistory, narratives),
+    priorPicksPayload?.rosterMeta?.macroRegime || null,
+  );
   if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
     const m = macroBackdrop.macroRegime;
-    console.log(`Macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
+    console.log(`Macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.persisted ? ` [held — this run read ${m.rawState}]` : ""}${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
   }
 }
+
+// Prior whole-universe grade snapshot — read EARLY (before writeGradesHistory
+// overwrites it below): the tier hysteresis (PICKS_TIER_HYSTERESIS) needs each
+// name's prior tier/total, and the churn/roster builders reuse the same snapshot.
+let ghPrev = { latest: {}, changes: [] };
+try { ghPrev = await readGradesHistory(); } catch {}
+const priorGrades = ghPrev.latest || {};
 
 // The hourly scanner writes data/volume-flags.json (underlying hourly volume vs
 // 20D-average hourly volume). Picks use it for the "unusual volume" signal —
@@ -115,23 +140,14 @@ try {
   if (rfr && Number.isFinite(rfr.rate)) riskFreeRate = rfr.rate;
 } catch { /* no rfr-history.json yet — keep the 4.5% fallback */ }
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed });
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades });
 const builtAtIso = new Date().toISOString();
 
-// Preserve the day-streak across a render-only regen. We don't wipe data/ here,
-// so the live picks.json still holds each surviving name's original firstSeen —
-// read it and inherit, exactly as the full build's writeTopPicksFile does (a
+// Preserve the day-streak across a render-only regen. priorPicks was read above
+// (before this overwrite), exactly as the full build's writeTopPicksFile does (a
 // dropped/new name resets to builtAtIso). Without this, regen would emit picks
 // with no firstSeen and the Top Picks tenure chips would vanish until the next
 // full bake. Missing/corrupt file → everything is treated as freshly seen.
-let priorPicks = null;
-try {
-  const priorRaw = await readFile(resolve(DATA_DIR, "picks.json"), "utf8");
-  const priorParsed = JSON.parse(priorRaw);
-  if (Array.isArray(priorParsed?.picks)) priorPicks = priorParsed.picks;
-} catch {
-  // First run / missing / corrupt — no prior firstSeen to inherit.
-}
 applyPickFirstSeen(picks, priorPicks, builtAtIso);
 
 const out = {
@@ -158,7 +174,7 @@ await writeFile(
 // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
 // ticker search). Same 4-pillar scoring as buildTopPicks; kept in step with the
 // regen'd picks. Same minified format as build.mjs::writeGradesFile.
-const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags);
+const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, { priorGrades });
 // minConviction = the live percentile trade cutoff (P3.2), mirroring
 // build.mjs::writeGradesFile exactly — the grade-any-ticker card reads this as the
 // "actionable bar", so a hardcoded ±PICKS_MIN_CONVICTION here makes a searched name
@@ -175,15 +191,21 @@ await writeFile(
 );
 console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers (minConviction ${Number(gradesMinConviction).toFixed(2)}).`);
 
-// Grade-change log: diff the regen'd grade index against the live history file.
-// No data/ wipe here, so we read the live grades-history.json directly (the full
-// build pre-reads it before its wipe instead). Capture the prior snapshot's
-// `latest` BEFORE writeGradesHistory overwrites it — the picks churn log below
-// needs it as the prior grade state.
-let ghPrevLatest = {};
+// Daily grade snapshot (universe-IC substrate) — upsert today's ET row, same as
+// the full build. Read-modify-write on the live file (no wipe here).
 try {
-  const ghPrev = await readGradesHistory();
-  ghPrevLatest = ghPrev.latest || {};
+  const gdPrev = await readGradesDaily();
+  const gd = await writeGradesDaily(appendGradesDaily(gdPrev, grades, builtAtIso));
+  console.log(`Updated grades-daily.json — ${gd.days} day snapshot(s).`);
+} catch (err) {
+  console.warn(`grades-daily.json skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
+// Grade-change log: diff the regen'd grade index against the history snapshot
+// captured ABOVE (before buildTopPicks ran — the full build pre-reads it before
+// its wipe instead). The picks churn log below reuses the same prior `latest`.
+const ghPrevLatest = priorGrades;
+try {
   const ghNext = diffGradesHistory(ghPrev, grades, builtAtIso);
   await writeGradesHistory(ghNext);
   console.log(`Updated grades-history.json — ${ghNext.changes.length} change events.`);

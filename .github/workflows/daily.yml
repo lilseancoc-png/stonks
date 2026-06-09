@@ -76,6 +76,13 @@ jobs:
           # back to its hard-coded Gemma default.
           AI_MODEL: ${{ vars.AI_MODEL }}
           NARRATIVES_MODEL: ${{ vars.NARRATIVES_MODEL }}
+          # Research A/B (rubric §8): also enroll the top-N 'wait'-tagged picks
+          # in the accuracy tracker under cohort:'wait' (tagged with WHY they
+          # waited — earnings/event defer vs structure). Excluded from the
+          # headline win-rate; it only populates byCohort so the timing gate's
+          # go-vs-wait edge can eventually be PROVEN on forward data. Without
+          # this the wait arm stays n=0 forever and the gate stays unvalidated.
+          PICKS_ACCURACY_AB: "1"
           # Cost optimization: fold the per-ticker Major-Contract + Guidance
           # signal extraction into the combined ticker-judgment call instead of
           # a second per-ticker round-trip (~1 fewer flash-lite call/ticker/
