@@ -5694,6 +5694,16 @@ function postMeetingDaysInMonth(meetingDateStr) {
   return { meetingDay, daysInMonth, postDays: daysInMonth - meetingDay };
 }
 
+// EFFR → the FOMC target-range MIDPOINT (e.g. 3.62% → 3.625% for a
+// 3.50–3.75 band) — the base CME FedWatch measures hike/hold/cut against, so
+// our probabilities line up with theirs (EFFR usually prints a few bp below
+// the midpoint inside the band). Every fetchFedwatchSnapshot caller must
+// anchor through this; the browser's live recompute duplicates it as
+// fedTargetMidpoint in scripts/render/app-js.mjs (keep the two in sync).
+export function fedTargetRangeMidpoint(rate) {
+  return Number.isFinite(rate) ? Math.round((rate - 0.125) / 0.25) * 0.25 + 0.125 : rate;
+}
+
 // Convert a (pre-rate, post-rate) delta into the canonical CME hike/hold/cut
 // triple. Assumes a 25bp policy step (the FOMC's standard increment) and
 // linearly interpolates probability between adjacent quantized outcomes:
@@ -17987,9 +17997,7 @@ async function main() {
   // 3.625% for a 3.50–3.75 band), not the effective rate itself — that's the
   // base CME FedWatch measures hike/hold/cut against, so our numbers line up
   // with theirs. EFFR usually sits a few bp below the midpoint inside the band.
-  const anchorRate = Number.isFinite(currentRateNum)
-    ? Math.round((currentRateNum - 0.125) / 0.25) * 0.25 + 0.125
-    : currentRateNum;
+  const anchorRate = fedTargetRangeMidpoint(currentRateNum);
   const snapshot = await fetchFedwatchSnapshot(upcomingMeetings, anchorRate);
   let snapshotCount = 0;
   for (const [meetingDate, buckets] of Object.entries(snapshot)) {

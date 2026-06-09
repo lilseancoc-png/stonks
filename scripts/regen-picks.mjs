@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, readRfrHistory } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -102,7 +102,20 @@ try {
   if (accJ && Array.isArray(accJ.closed)) priorClosed = accJ.closed;
 } catch {}
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, undefined, { priorClosed });
+// Risk-free rate for the contract-selection greeks (pickContractForPick):
+// read the last bake's fetched 3M T-bill rate from the committed
+// data/rfr-history.json — same offline pattern as regen-static.mjs — instead
+// of silently letting buildTopPicks default to the hardcoded 4.5%. Letting it
+// default repriced every candidate contract's delta/theta at a rate that can
+// sit a full point off the live one, so a regen could select different
+// contracts than the bake it was supposed to reproduce.
+let riskFreeRate = FALLBACK_RISK_FREE_RATE;
+try {
+  const rfr = await readRfrHistory();
+  if (rfr && Number.isFinite(rfr.rate)) riskFreeRate = rfr.rate;
+} catch { /* no rfr-history.json yet — keep the 4.5% fallback */ }
+
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed });
 const builtAtIso = new Date().toISOString();
 
 // Preserve the day-streak across a render-only regen. We don't wipe data/ here,

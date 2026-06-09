@@ -94,7 +94,14 @@ async function main() {
   if (fedRate && Number.isFinite(fedRate.rate)) {
     fedwatchHistory.lastKnownFedRate = { rate: fedRate.rate, asOf: fedRate.asOf, capturedAt: todayIso };
   }
-  const snapshot = await build.fetchFedwatchSnapshot(upcomingMeetings, effectiveFedRate?.rate);
+  // Anchor at the FOMC target-range midpoint, exactly as build.mjs main() does
+  // — passing raw EFFR here skewed the regen path's hike/cut probabilities a
+  // few points off the bake's (and CME's) and polluted fedwatch-history.json
+  // with snapshots computed against a different base.
+  const snapshot = await build.fetchFedwatchSnapshot(
+    upcomingMeetings,
+    build.fedTargetRangeMidpoint(effectiveFedRate?.rate),
+  );
   let snapshotCount = 0;
   for (const [meetingDate, buckets] of Object.entries(snapshot)) {
     if (!buckets?.now) continue;
