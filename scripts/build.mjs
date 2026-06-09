@@ -13801,6 +13801,106 @@ function briefClause(text, max = 110) {
   return head.length > max ? head.slice(0, max - 1).trim() + "…" : head;
 }
 
+// Most-moved pillar behind a Top-Picks churn event, for the fact sheet.
+function briefChurnNote(e) {
+  const why = Array.isArray(e?.why) ? e.why.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)) : [];
+  const top = why[0];
+  if (!top || !Number.isFinite(top.delta)) return null;
+  return `${top.pillar} ${top.delta >= 0 ? "+" : ""}${top.delta.toFixed(1)}`;
+}
+
+// Human B/M/K for a signed dealer-gamma dollar figure (fact-sheet + render share).
+function briefGexFmt(n) {
+  if (!Number.isFinite(n)) return "";
+  const a = Math.abs(n), s = n < 0 ? "-" : "+";
+  if (a >= 1e9) return s + (a / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return s + (a / 1e6).toFixed(0) + "M";
+  if (a >= 1e3) return s + (a / 1e3).toFixed(0) + "K";
+  return s + Math.round(a);
+}
+
+// Compact net-dealer-gamma read for the brief, mirroring computeGex() in app-js.
+// Black-Scholes gamma needs only the standard-normal PDF (no erf/ncdf), so the
+// server side stays dependency-free. Per contract GEX = Γ × OI × 100 × spot² × 1%;
+// calls add +, puts −. Net at spot gives the regime; the gamma flip is the spot
+// where net dealer gamma crosses zero.
+const BRIEF_GEX_MAX_EXPS = 8;
+const BRIEF_GEX_MIN_T_DAYS = 1;
+const BRIEF_GEX_EXP_OFFSET_MS = 20 * 3600 * 1000; // ~16:00 ET close vs the midnight-UTC expiry key
+const BRIEF_GEX_YEAR_MS = 365 * 24 * 3600 * 1000;
+function briefNpdf(x) { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
+function briefBsGamma(S, K, T, sigma, r) {
+  if (!(S > 0 && K > 0 && T > 0 && sigma > 0)) return 0;
+  const sqrtT = Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT);
+  const g = briefNpdf(d1) / (S * sigma * sqrtT);
+  return Number.isFinite(g) ? g : 0;
+}
+function briefGexContracts(entry, nowMs) {
+  const chains = (entry && entry.chains) || {};
+  const expKeys = Object.keys(chains).map(Number).filter((s) => Number.isFinite(s) && s > 0).sort((a, b) => a - b);
+  const out = [];
+  let used = 0;
+  for (const sec of expKeys) {
+    if (used >= BRIEF_GEX_MAX_EXPS) break;
+    const dte = Math.round((sec * 1000 + BRIEF_GEX_EXP_OFFSET_MS - nowMs) / 86400000);
+    if (dte < 0) continue; // already expired — skip the dead expiration
+    const yrs = Math.max(((sec * 1000 + BRIEF_GEX_EXP_OFFSET_MS) - nowMs) / BRIEF_GEX_YEAR_MS, BRIEF_GEX_MIN_T_DAYS / 365);
+    const ch = chains[String(sec)];
+    if (!ch) continue;
+    used++;
+    for (const [rows, sign] of [[ch.c, 1], [ch.p, -1]]) {
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) {
+        if (!row) continue;
+        const K = Number(row.s), oi = Number(row.oi), iv = Number(row.iv);
+        if (!(K > 0) || !(oi > 0) || !(iv > 0)) continue;
+        out.push({ K, T: yrs, sigma: iv, oi, sign });
+      }
+    }
+  }
+  return out;
+}
+function briefGexProfileAt(contracts, S, r) {
+  if (!(S > 0)) return 0;
+  const scale = S * S * 0.01 * 100;
+  let total = 0;
+  for (const c of contracts) {
+    const g = briefBsGamma(S, c.K, c.T, c.sigma, r);
+    if (Number.isFinite(g)) total += c.sign * g * c.oi * scale;
+  }
+  return total;
+}
+function computeBriefGex(entry, sym, rfr) {
+  const spot = Number(entry?.spot);
+  if (!(spot > 0)) return null;
+  const contracts = briefGexContracts(entry, Date.now());
+  if (!contracts.length) return null;
+  const net = briefGexProfileAt(contracts, spot, rfr);
+  if (!Number.isFinite(net)) return null;
+  // Gamma flip — sweep ±20% around spot, take the zero-crossing nearest spot.
+  let flip = null;
+  const lo = spot * 0.8, hi = spot * 1.2, steps = 80;
+  let prevS = lo, prevG = briefGexProfileAt(contracts, lo, rfr);
+  for (let i = 1; i <= steps; i++) {
+    const S = lo + (hi - lo) * i / steps;
+    const G = briefGexProfileAt(contracts, S, rfr);
+    if (Number.isFinite(prevG) && Number.isFinite(G) && prevG !== G && ((prevG <= 0 && G >= 0) || (prevG >= 0 && G <= 0))) {
+      const cross = prevS + (S - prevS) * (0 - prevG) / (G - prevG);
+      if (flip === null || Math.abs(cross - spot) < Math.abs(flip - spot)) flip = cross;
+    }
+    prevS = S; prevG = G;
+  }
+  return {
+    sym,
+    spot: Math.round(spot * 100) / 100,
+    net: Math.round(net),
+    regime: net >= 0 ? "positive" : "negative",
+    flip: flip != null ? Math.round(flip * 100) / 100 : null,
+    flipSide: flip != null ? (spot >= flip ? "above" : "below") : null,
+  };
+}
+
 // Build the deterministic fact block for a brief. `kind` is "morning" or
 // "afternoon"; the two share macro / Fear & Greed / picks / calendar but pull
 // different market context (overnight foreign moves vs the day's breadth +
@@ -13811,6 +13911,7 @@ export function gatherBriefSignals(kind, ctx) {
   const {
     chains = {}, fearGreed = null, macro = null, correlations = null,
     unusual = null, picks = [], calendar = {},
+    rfr = FALLBACK_RISK_FREE_RATE, picksChanges = [],
   } = ctx || {};
 
   // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
@@ -13855,6 +13956,28 @@ export function gatherBriefSignals(kind, ctx) {
 
   const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
 
+  // Dealer gamma (GEX) for the headline index ETFs — net regime + gamma flip.
+  // OI is end-of-session either way, so this positioning read is valid for both
+  // the pre-market and the closing brief.
+  const gexArr = [];
+  for (const gsym of ["SPY", "QQQ"]) {
+    const g = computeBriefGex(chains[gsym], gsym, rfr);
+    if (g) gexArr.push(g);
+  }
+  if (gexArr.length) signals.gex = gexArr;
+
+  // Top-Picks churn — names that crossed the actionable conviction bar onto /
+  // off the set this build (data/picks-changes events), with the pillar "why".
+  const churn = Array.isArray(picksChanges) ? picksChanges : [];
+  const pcAdded = [], pcDropped = [];
+  for (const e of churn) {
+    if (!e || !e.symbol) continue;
+    const rec = { symbol: e.symbol, side: e.side || null, tier: e.tier || null, note: briefChurnNote(e) };
+    if (e.event === "entered") pcAdded.push(rec);
+    else if (e.event === "exited") pcDropped.push(rec);
+  }
+  if (pcAdded.length || pcDropped.length) signals.picksChanges = { added: pcAdded.slice(0, 6), dropped: pcDropped.slice(0, 6) };
+
   if (kind === "morning") {
     // Overnight risk tone + the biggest foreign / futures moves.
     if (correlations?.tone) {
@@ -13869,6 +13992,14 @@ export function gatherBriefSignals(kind, ctx) {
       .sort((a, b) => Math.abs(b.chPct) - Math.abs(a.chPct))
       .slice(0, 6)
       .map((m) => ({ sym: m.sym, name: m.name, region: m.region, chPct: Math.round(m.chPct * 100) / 100 }));
+    // Index scorecard — US equity index futures pointing to the open.
+    const idxFut = [];
+    const fm = correlations?.markets || {};
+    for (const fs of ["ES=F", "NQ=F"]) {
+      const m = fm[fs];
+      if (m && Number.isFinite(m.chPct)) idxFut.push({ sym: fs, label: m.name || fs, chPct: Math.round(m.chPct * 100) / 100 });
+    }
+    if (idxFut.length) signals.indexes = idxFut;
   } else {
     // Breadth + biggest movers from the day's confirmed 1-day % moves.
     const moves = [];
@@ -13892,6 +14023,34 @@ export function gatherBriefSignals(kind, ctx) {
       const c = Array.isArray(t.contracts) && t.contracts.length ? t.contracts[0] : null;
       return { sym: t.symbol, side: c?.side || null, note: briefClause(c?.note, 120) };
     }).filter((f) => f.sym);
+    // Index scorecard — how the headline index ETFs actually closed.
+    const idxClose = [];
+    for (const [isym, ilabel] of [["SPY", "S&P 500 (SPY)"], ["QQQ", "Nasdaq 100 (QQQ)"], ["IWM", "Russell 2000 (IWM)"]]) {
+      const mv = chains[isym]?.technicals?.volume?.priceMove1dPct;
+      if (Number.isFinite(mv)) idxClose.push({ sym: isym, label: ilabel, chPct: Math.round(mv * 100) / 100 });
+    }
+    if (idxClose.length) signals.indexes = idxClose;
+    // Sector leaders & laggards — average 1-day move per equity sector (broad
+    // ETFs excluded; sector needs ≥2 names to count).
+    const bySector = new Map();
+    for (const [csym, cd] of Object.entries(chains)) {
+      const sec = SECTORS[csym];
+      if (!sec || sec === "ETF") continue;
+      const mv = cd?.technicals?.volume?.priceMove1dPct;
+      if (!Number.isFinite(mv)) continue;
+      const cur = bySector.get(sec) || { sum: 0, n: 0 };
+      cur.sum += mv; cur.n += 1; bySector.set(sec, cur);
+    }
+    const secArr = [...bySector.entries()]
+      .filter(([, v]) => v.n >= 2)
+      .map(([name, v]) => ({ name, chPct: Math.round((v.sum / v.n) * 100) / 100, n: v.n }))
+      .sort((a, b) => b.chPct - a.chPct);
+    if (secArr.length >= 2) {
+      const leaders = secArr.slice(0, 3);
+      const leadNames = new Set(leaders.map((s) => s.name));
+      const laggards = secArr.slice().reverse().filter((s) => !leadNames.has(s.name)).slice(0, 3);
+      signals.sectors = { leaders, laggards };
+    }
   }
   return signals;
 }
@@ -13902,10 +14061,14 @@ function briefRenderFields(s) {
   if (s.fearGreed) out.fearGreed = s.fearGreed;
   if (s.macro && s.macro.length) out.macro = s.macro;
   if (s.tone) out.tone = s.tone;
+  if (s.indexes && s.indexes.length) out.indexes = s.indexes;
   if (s.overnight && s.overnight.length) out.overnight = s.overnight;
   if (s.breadth) out.breadth = s.breadth;
   if (s.movers && (s.movers.gainers.length || s.movers.losers.length)) out.movers = s.movers;
+  if (s.sectors && ((s.sectors.leaders && s.sectors.leaders.length) || (s.sectors.laggards && s.sectors.laggards.length))) out.sectors = s.sectors;
   if (s.flow && s.flow.length) out.flow = s.flow;
+  if (s.gex && s.gex.length) out.gex = s.gex;
+  if (s.picksChanges && ((s.picksChanges.added && s.picksChanges.added.length) || (s.picksChanges.dropped && s.picksChanges.dropped.length))) out.picksChanges = s.picksChanges;
   if (s.picks && s.picks.length) out.picks = s.picks;
   if (s.events && s.events.length) out.events = s.events;
   return out;
@@ -13921,18 +14084,22 @@ function briefSystemPrompt(kind) {
   if (kind === "morning") {
     return (
       "You are a markets-desk analyst writing a concise PRE-MARKET brief for US options traders, " +
-      "published around the opening bell. You receive structured facts: how overnight foreign markets and " +
-      "US futures traded, the risk tone, key macro levels (10Y yield, the dollar, VIX), the CNN Fear & Greed " +
-      "reading, today's earnings + economic calendar, and the model's current top option picks. Frame it as " +
-      "the setup for today's session and what happened overnight." + common
+      "published around the opening bell. You receive structured facts: US index futures (S&P / Nasdaq), how " +
+      "overnight foreign markets traded, the risk tone, key macro levels (10Y yield, the dollar, VIX), the CNN " +
+      "Fear & Greed reading, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot " +
+      "sits vs the gamma flip — short gamma below the flip means dealers amplify moves), any names added to or " +
+      "dropped from the model's actionable top picks, today's earnings + economic calendar, and the model's " +
+      "current top option picks. Frame it as the setup for today's session and what happened overnight." + common
     );
   }
   return (
     "You are a markets-desk analyst writing a concise POST-MARKET closing brief for US options traders, " +
-    "published just after the 4pm ET close. You receive structured facts: the day's breadth " +
-    "(advancers/decliners), the biggest gainers and losers, notable unusual options flow, where macro levels " +
-    "(10Y yield, the dollar, VIX) and the CNN Fear & Greed reading closed, the model's top option picks, and " +
-    "what's on the calendar next. Frame it as what happened today and what to watch next." + common
+    "published just after the 4pm ET close. You receive structured facts: how the headline index ETFs (SPY/QQQ/IWM) " +
+    "closed, the day's breadth (advancers/decliners), the sector leaders and laggards, the biggest gainers and " +
+    "losers, notable unusual options flow, where macro levels (10Y yield, the dollar, VIX) and the CNN Fear & " +
+    "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
+    "vs the gamma flip), any names added to or dropped from the model's actionable top picks, the model's top " +
+    "option picks, and what's on the calendar next. Frame it as what happened today and what to watch next." + common
   );
 }
 
@@ -13952,6 +14119,10 @@ export function briefUserMessage(kind, dateKey, signals) {
   if (signals.macro && signals.macro.length) {
     lines.push("Macro: " + signals.macro.map((m) => `${m.label} ${m.value}${m.change ? ` (${m.change})` : ""}`).join(", ") + ".");
   }
+  if (signals.indexes && signals.indexes.length) {
+    lines.push((kind === "morning" ? "US index futures: " : "Index close: ") +
+      signals.indexes.map((m) => `${m.label} ${briefPctStr(m.chPct)}`).join(", ") + ".");
+  }
   if (kind === "morning") {
     if (signals.tone) lines.push(`Overnight tone: ${signals.tone.label}${signals.tone.reasons.length ? ` — ${signals.tone.reasons.join("; ")}` : ""}.`);
     if (signals.overnight && signals.overnight.length) {
@@ -13964,9 +14135,28 @@ export function briefUserMessage(kind, dateKey, signals) {
       if (signals.movers.gainers.length) lines.push("Top gainers: " + signals.movers.gainers.map((m) => `${m.sym} ${briefPctStr(m.chPct)}`).join(", "));
       if (signals.movers.losers.length) lines.push("Top losers: " + signals.movers.losers.map((m) => `${m.sym} ${briefPctStr(m.chPct)}`).join(", "));
     }
+    if (signals.sectors) {
+      if (signals.sectors.leaders && signals.sectors.leaders.length) lines.push("Sector leaders: " + signals.sectors.leaders.map((s) => `${s.name} ${briefPctStr(s.chPct)}`).join(", ") + ".");
+      if (signals.sectors.laggards && signals.sectors.laggards.length) lines.push("Sector laggards: " + signals.sectors.laggards.map((s) => `${s.name} ${briefPctStr(s.chPct)}`).join(", ") + ".");
+    }
     if (signals.flow && signals.flow.length) {
       lines.push("Notable options flow:");
       for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
+    }
+  }
+  if (signals.gex && signals.gex.length) {
+    lines.push("Dealer gamma (GEX) — net positioning at spot:");
+    for (const g of signals.gex) {
+      lines.push(`- ${g.sym}: net ${g.regime === "positive" ? "positive (long gamma — dealers dampen moves)" : "negative (short gamma — dealers amplify moves)"} ${briefGexFmt(g.net)}` +
+        `${g.flip != null ? `, spot ${g.flipSide} the ${g.flip} gamma flip` : ""}.`);
+    }
+  }
+  if (signals.picksChanges) {
+    if (signals.picksChanges.added && signals.picksChanges.added.length) {
+      lines.push("Top picks added this session: " + signals.picksChanges.added.map((p) => `${p.symbol}${p.side ? ` ${p.side}` : ""}${p.note ? ` (${p.note})` : ""}`).join(", ") + ".");
+    }
+    if (signals.picksChanges.dropped && signals.picksChanges.dropped.length) {
+      lines.push("Top picks dropped this session: " + signals.picksChanges.dropped.map((p) => `${p.symbol}${p.side ? ` ${p.side}` : ""}`).join(", ") + ".");
     }
   }
   if (signals.picks && signals.picks.length) {
@@ -14057,7 +14247,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
 // per ET day and reused by later builds. Never throws — a failure leaves the
 // tab on its last-good content.
 async function buildMarketBriefs(opts) {
-  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar } = opts;
+  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges } = opts;
   const now = new Date();
   const todayEt = etDateKey(now);
   const hourEt = etHourNY(now);
@@ -14072,7 +14262,7 @@ async function buildMarketBriefs(opts) {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     if (wantMorning) {
       try {
-        const signals = gatherBriefSignals("morning", { chains, fearGreed, macro, correlations, unusual, picks, calendar });
+        const signals = gatherBriefSignals("morning", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges });
         const gen = await generateBrief(ai, "morning", todayEt, signals);
         morning = { kind: "morning", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
         generated++;
@@ -14083,7 +14273,7 @@ async function buildMarketBriefs(opts) {
     }
     if (wantAfternoon) {
       try {
-        const signals = gatherBriefSignals("afternoon", { chains, fearGreed, macro, correlations, unusual, picks, calendar });
+        const signals = gatherBriefSignals("afternoon", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges });
         const gen = await generateBrief(ai, "afternoon", todayEt, signals);
         afternoon = { kind: "afternoon", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
         generated++;
@@ -17916,9 +18106,12 @@ async function main() {
   // log uses (gradesHistoryPrev.latest), so it's immune to the pre-bell pick
   // collapse. Deterministic detection first, then an optional AI one-liner per
   // new event (self-skips without GEMINI_API_KEY), then append + prune + write.
+  // Hoisted so the market briefs below can surface today's entered/exited names.
+  let churnEventsForBrief = [];
   try {
     const churnEvents = buildPicksChanges(gradesHistoryPrev.latest, gradesIndex, builtAtIso, picksChangesPrev);
     await aiExplainPicksChanges(churnEvents, chains);
+    churnEventsForBrief = churnEvents;
     const picksChangesNext = appendPicksChanges(picksChangesPrev, churnEvents, builtAtIso);
     await writePicksChanges(picksChangesNext);
     const entered = churnEvents.filter((e) => e.event === "entered").length;
@@ -17992,6 +18185,7 @@ async function main() {
     const briefRes = await buildMarketBriefs({
       briefsPrev, builtAtIso, chains, fearGreed, macro: macroBackdrop,
       correlations: briefCorrelations, unusual, picks: picksForBrief, calendar: calForBrief,
+      rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksChanges: churnEventsForBrief,
     });
     console.log(`wrote data/${BRIEFS_FILE} — morning:${briefRes.morning ? "yes" : "no"} afternoon:${briefRes.afternoon ? "yes" : "no"}${briefRes.generated ? ` (${briefRes.generated} generated this run)` : ""}`);
   } catch (err) {

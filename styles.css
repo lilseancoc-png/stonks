@@ -11932,7 +11932,7 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
 .brief-chip.neg { color: var(--neg); }
 .brief-chip.pos span { color: color-mix(in srgb, var(--pos) 80%, var(--text)); }
 .brief-chip.neg span { color: color-mix(in srgb, var(--neg) 80%, var(--text)); }
-.brief-chip.foreign { cursor: default; }
+.brief-chip.foreign, .brief-chip.info, span.brief-chip { cursor: default; }
 .brief-chip.flow span, .brief-chip.pick span { text-transform: uppercase; letter-spacing: .03em; color: var(--accent); }
 .brief-events { display: flex; flex-wrap: wrap; gap: 5px; }
 .brief-event {
