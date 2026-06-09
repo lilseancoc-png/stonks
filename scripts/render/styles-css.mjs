@@ -12401,6 +12401,11 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
   padding: var(--s-2) var(--s-3); font: inherit; min-width: 130px; cursor: pointer;
 }
 .gex-control select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* Searchable ticker combobox (replaces the old <select>). Reuses the shared
+   .combo styling; just size it to sit inline with the other GEX controls. */
+.gex-control-ticker { flex: 0 1 280px; min-width: 200px; }
+.gex-combo { flex: none; width: 100%; min-width: 0; }
+.gex-combo input { height: auto; padding-top: var(--s-2); padding-bottom: var(--s-2); }
 .gex-action-btn {
   background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border);
   border-radius: var(--r-2); padding: var(--s-2) var(--s-3); font: inherit; cursor: pointer;
@@ -12436,6 +12441,21 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
 .gex-keychip.is-pos { border-color: color-mix(in srgb, var(--pos) 40%, var(--border)); }
 .gex-keychip.is-neg { border-color: color-mix(in srgb, var(--neg) 40%, var(--border)); }
 .gex-keychip-exp { color: var(--text-3); }
+
+/* Plain-English read of the current dealer-gamma situation (gexNarrative). */
+.gex-takeaway {
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-3);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm); line-height: 1.55;
+}
+.gex-takeaway strong { color: var(--text-strong); font-weight: 600; }
+.gex-takeaway.is-pos { border-left-color: var(--up); }
+.gex-takeaway.is-neg { border-left-color: var(--dn); }
 
 .gex-grid-wrap {
   overflow: auto; max-height: 70vh;
