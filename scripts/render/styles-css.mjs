@@ -2602,6 +2602,60 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   border-radius: var(--r-pill);
   padding: 2px 8px;
 }
+/* Per-ticker dealer gamma-exposure strip (net GEX / flip / call+put walls),
+   precomputed into UNUSUAL by the scanner. Compact horizontal mini-metrics
+   that read as "stats next to the ticker"; stays visible when contracts are
+   collapsed. */
+.flow-gex {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  margin: 8px 0 2px;
+}
+.flow-gex-tag {
+  align-self: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1, 4px);
+  padding: 2px 5px;
+}
+.flow-gex-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 2px 9px;
+  line-height: 1.5;
+}
+.flow-gex-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.flow-gex-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.flow-gex-metric.is-pos .flow-gex-val { color: var(--up); }
+.flow-gex-metric.is-neg .flow-gex-val { color: var(--dn); }
+.flow-gex-sub { font-size: 10px; color: var(--text-3); }
+@media (max-width: 640px){
+  .flow-gex-label { display: none; }
+  .flow-gex { gap: 4px; }
+  .flow-gex-metric { padding: 2px 7px; }
+}
 .flow-contracts {
   display: flex;
   flex-wrap: wrap;

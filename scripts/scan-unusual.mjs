@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
 import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState } from "./build.mjs";
+import { computeGexSummary } from "../lib/gex.mjs";
 import {
   evaluateTicker as evaluateVolumeFlag,
   etDateKey as volEtDateKey,
@@ -711,6 +712,25 @@ async function loadTickerTechnicals(symbol) {
   }
 }
 
+// Compact dealer gamma-exposure read for a flagged ticker, computed from the
+// FULL baked chain in data/<SYM>.json (every expiration/strike build wrote, far
+// richer than the 2-expiration band this scanner fetches) evaluated at the
+// scan's live spot — so the unusual-flow tab can show net GEX / gamma flip /
+// call+put walls next to each ticker with no extra browser fetch. Mirrors the
+// GEX tab's math via lib/gex.mjs. Returns null when the file or chain is
+// missing so the row simply renders without a GEX strip.
+async function loadTickerGex(symbol, spot) {
+  if (!(spot > 0)) return null;
+  try {
+    const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
+    const j = JSON.parse(raw);
+    if (!j?.chains) return null;
+    return computeGexSummary(j.chains, spot);
+  } catch {
+    return null;
+  }
+}
+
 async function loadVolumeHistory() {
   try {
     const raw = await readFile(resolve(DATA_DIR, VOLUME_HISTORY_FILE), "utf8");
@@ -1232,6 +1252,17 @@ async function main() {
   // data/flow-explanations.json; misses incur a Gemini Flash-Lite call.
   const nowSec = Math.floor(nowMs / 1000);
   const flowCache = await attachFlowExplanations(mergedTickers, scannedAt, nowSec);
+
+  // Attach a compact gamma-exposure read to each flagged ticker (net GEX,
+  // gamma flip, call/put walls) computed from the baked full chain at the
+  // scan's live spot. Done after the merge so carried-over rows get a fresh
+  // read too, and best-effort per ticker so a missing per-ticker JSON just
+  // omits the strip rather than failing the row.
+  await Promise.all(
+    mergedTickers.map(async (t) => {
+      t.gex = await loadTickerGex(t.symbol, t.spot);
+    }),
+  );
 
   const contractCount = mergedTickers.reduce((sum, t) => sum + t.contracts.length, 0);
   const hottestDelta = mergedTickers[0]?.topDelta ?? 0;
