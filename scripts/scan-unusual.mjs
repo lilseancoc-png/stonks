@@ -1048,6 +1048,15 @@ async function runVolumePass({
   }
   merged.sort((a, b) => topRatio(b) - topRatio(a));
 
+  // Attach the same compact gamma-exposure read the unusual-flow tab carries
+  // (net GEX, gamma flip, call/put walls) so the Volume tab can show it next
+  // to each ticker too — computed from the baked full chain at the row's spot.
+  await Promise.all(
+    merged.map(async (row) => {
+      row.gex = await loadTickerGex(row.symbol, row.spot);
+    }),
+  );
+
   const summary = {
     tickerCount: merged.length,
     hourlyFlagCount: 0,

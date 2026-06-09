@@ -2602,15 +2602,15 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   padding: 2px 8px;
 }
 /* Per-ticker dealer gamma-exposure strip (net GEX / flip / call+put walls),
-   precomputed into UNUSUAL by the scanner. Compact horizontal mini-metrics
-   that read as "stats next to the ticker"; stays visible when contracts are
-   collapsed. */
+   precomputed by the scanner. Compact horizontal mini-metrics that read as
+   "stats next to the ticker"; shared by the Unusual flow + Volume tab rows
+   (both flex-column with gap, so the strip needs no margin of its own) and
+   stays visible when a row's detail is collapsed. */
 .flow-gex {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
   gap: 6px;
-  margin: 8px 0 2px;
 }
 .flow-gex-tag {
   align-self: center;
