@@ -10,7 +10,7 @@
 // marketState }, ...] }. Missing symbols are silently dropped — partial
 // results beat a 502 when one obscure ticker disappears from Yahoo.
 
-import { yahooFinance, isValidSymbol } from "../lib/yahoo.mjs";
+import { yahooFinance, isValidSymbol, withYahooTimeout } from "../lib/yahoo.mjs";
 
 const MAX_SYMBOLS = 150;
 
@@ -35,17 +35,20 @@ export default async function handler(req, res) {
   if (!symbols.length) return res.status(400).json({ error: "no valid symbols" });
 
   try {
-    const r = await yahooFinance.quote(symbols, {
-      fields: [
-        "regularMarketPrice",
-        "regularMarketPreviousClose",
-        "regularMarketChange",
-        "regularMarketChangePercent",
-        "marketState",
-        "preMarketPrice",
-        "postMarketPrice",
-      ],
-    });
+    const r = await withYahooTimeout(
+      yahooFinance.quote(symbols, {
+        fields: [
+          "regularMarketPrice",
+          "regularMarketPreviousClose",
+          "regularMarketChange",
+          "regularMarketChangePercent",
+          "marketState",
+          "preMarketPrice",
+          "postMarketPrice",
+        ],
+      }),
+      `quotes(${symbols.length})`,
+    );
     const list = Array.isArray(r) ? r : r ? [r] : [];
     const quotes = list
       .map((q) => {
