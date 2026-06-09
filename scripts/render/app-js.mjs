@@ -6522,12 +6522,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return out;
   }
-  // Compact dealer gamma-exposure strip shown under each flagged ticker —
-  // net GEX (long vs short gamma), the gamma flip vs spot, and the call/put
-  // walls. Precomputed server-side into UNUSUAL by scripts/scan-unusual.mjs
-  // (lib/gex.mjs, same model as the GEX tab) so there's no per-ticker fetch.
-  // Older scans without t.gex simply render no strip.
-  function flowGexStripHtml(t){
+  // Compact dealer gamma-exposure strip shown under each flagged ticker on the
+  // Unusual flow + Volume tabs — net GEX (long vs short gamma), the gamma flip
+  // vs spot, and the call/put walls. Precomputed server-side onto each ticker
+  // row by scripts/scan-unusual.mjs (lib/gex.mjs, same model as the GEX tab) so
+  // there's no per-ticker fetch. Older scans without t.gex render no strip.
+  function gexStripHtml(t){
     var g = t && t.gex;
     if (!g || g.net == null || !isFinite(g.net)) return '';
     var spot = Number(t.spot);
@@ -6614,7 +6614,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span class="flow-count">' + t.contracts.length + ' contract' + (t.contracts.length === 1 ? '' : 's') + '</span>' +
           '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
-        flowGexStripHtml(t) +
+        gexStripHtml(t) +
         '<div class="' + contractsCls + '"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(function(c){ return flowContractHtml(c, t.symbol); }).join('') +
         '</div>' +
@@ -7090,7 +7090,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>';
     }
     return '<article class="vol-row ' + (expanded ? 'is-expanded' : 'is-collapsed') + '" role="listitem" data-symbol="' + escapeHtml(sym) + '">' +
-      head + body +
+      head + gexStripHtml(t) + body +
     '</article>';
   }
   // Aggregate market-breadth banner: across the currently-visible flagged set,
