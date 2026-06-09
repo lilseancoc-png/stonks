@@ -3023,6 +3023,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
       if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
+      if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
       if (name === 'oi' && typeof renderOI === 'function') renderOI();
       // Lazy-load the GEX heatmap the first time the tab is opened (it fetches
       // the selected ticker's chain). Revisits keep the last view; Refresh
@@ -6728,8 +6729,45 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var VOL_SECTOR_OF = MANIFEST.sectors || {};
   // group: render under sector headers; expand: per-symbol detail open-state;
   // allExpanded: whether the "Expand all" toggle is currently on;
-  // sectorCollapsed: per-sector collapsed sections.
-  var volState = { search: '', filter: 'all', sort: 'ratio', group: true, expand: {}, allExpanded: false, sectorCollapsed: {} };
+  // sectorCollapsed: per-sector OPEN-state override (sectors collapse by
+  //   default — see volSectorCollapsed — so a key set to false means the
+  //   user opened that one); picksCollapsed: the pinned Top Picks group's
+  //   collapse state (default open).
+  var volState = { search: '', filter: 'all', sort: 'ratio', group: true, expand: {}, allExpanded: false, sectorCollapsed: {}, picksCollapsed: false };
+  // Current Top Picks roster (data/picks.json), lazily fetched the first time
+  // the Volume tab opens so the pinned "Top Picks" group can track just those
+  // names. sides maps SYMBOL -> 'call'/'put'; order preserves picks.json's
+  // conviction rank. Empty until loaded (the group simply doesn't render).
+  var volPicks = { loaded: false, loading: false, sides: {}, order: [] };
+  // Sectors collapse by default — the user opens one to see its tickers. A
+  // sectorCollapsed entry is only written when the user explicitly toggles a
+  // section, so a value of false (not just "missing") means "user opened it".
+  function volSectorCollapsed(sec){ return volState.sectorCollapsed[sec] !== false; }
+  function loadVolumePicks(){
+    if (volPicks.loaded || volPicks.loading) return;
+    volPicks.loading = true;
+    fetch('data/picks.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        var picks = (json && Array.isArray(json.picks)) ? json.picks : [];
+        var sides = {}, order = [];
+        picks.forEach(function(p){
+          if (!p || !p.symbol) return;
+          var sym = String(p.symbol).toUpperCase();
+          if (sides[sym] != null) return;
+          sides[sym] = p.side === 'put' ? 'put' : (p.side === 'call' ? 'call' : 'call');
+          order.push(sym);
+        });
+        volPicks.sides = sides; volPicks.order = order;
+        volPicks.loaded = true; volPicks.loading = false;
+        renderVolumeFlags();
+      })
+      .catch(function(){
+        // Soft-fail: leave the roster empty so the Top Picks group just
+        // doesn't render — the rest of the tab is unaffected.
+        volPicks.loaded = true; volPicks.loading = false;
+      });
+  }
   var VOL_SR_RANK = { 'Strong Alert': 3, 'Watch': 2, 'Likely Fakeout': 1 };
   var VOL_CONV_RANK = { 'Very High': 4, 'High': 3, 'Medium': 2, 'Low': 1, 'None': 0 };
 
@@ -7055,6 +7093,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var expanded = volState.expand[sym] === true;
     var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
     var chips = [];
+    // When this ticker is in the current Top Picks roster, lead with a small
+    // pick-side badge (it renders inside the pinned Top Picks group below).
+    var pickSide = volPicks.sides[sym];
+    if (pickSide){
+      chips.push('<span class="vol-pill-badge vol-pick-side vol-pick-' + pickSide + '" title="In the current Top Picks — ' +
+        (pickSide === 'put' ? 'bearish put idea' : 'bullish call idea') + '">' +
+        (pickSide === 'put' ? 'Put pick' : 'Call pick') + '</span>');
+    }
     if (sum.topBadge){
       var cls = sum.topBadge.type === 'sr'
         ? 'vol-sr-' + (sum.topBadge.srType || 'upper') + ' ' + volConvictionCls(sum.topBadge.conviction)
@@ -7167,6 +7213,46 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="vol-summary-legend">' + legend.join('') + tickerBreadth + '</div>' +
     '</div>';
   }
+  // The current Top Picks tickers, in conviction order, that are present in
+  // the latest scan — search-filtered only (so this pinned watchlist always
+  // shows every pick regardless of the hourly/SR/EOD flag filter).
+  function volPickTickers(){
+    if (!volPicks.order.length) return [];
+    var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
+    var bySym = {};
+    for (var i = 0; i < list.length; i++){ if (list[i] && list[i].symbol) bySym[String(list[i].symbol).toUpperCase()] = list[i]; }
+    var q = (volState.search || '').trim().toUpperCase();
+    var out = [];
+    for (var k = 0; k < volPicks.order.length; k++){
+      var sym = volPicks.order[k];
+      if (q && sym.indexOf(q) < 0) continue;
+      var t = bySym[sym];
+      if (t) out.push(t);
+    }
+    return out;
+  }
+  // The pinned "★ Top Picks" group — rendered first in the list (above the
+  // sector groups) so the build's current picks are always one glance away.
+  // Returns '' when there are no picks to show (roster not loaded, or filtered
+  // out by search).
+  function volTopPicksGroupHtml(){
+    var picks = volPickTickers();
+    if (!picks.length) return '';
+    var open = volState.picksCollapsed !== true; // default expanded
+    var bull = 0, bear = 0;
+    picks.forEach(function(t){ var l = volTickerSummary(t).lean; if (l != null){ if (l > 0) bull++; else if (l < 0) bear++; } });
+    var bias = bull > bear ? 'mostly bullish' : (bear > bull ? 'mostly bearish' : 'mixed');
+    var biasCls = bull > bear ? 'pos' : (bear > bull ? 'neg' : '');
+    var head =
+      '<button type="button" class="vol-sector-head" aria-expanded="' + (open ? 'true' : 'false') + '" data-picks-head="1">' +
+        '<span class="vol-sector-caret" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
+        '<span class="vol-sector-name">★ Top Picks</span>' +
+        '<span class="vol-sector-count">' + picks.length + '</span>' +
+        '<span class="vol-sector-bias ' + biasCls + '">' + bias + '</span>' +
+      '</button>';
+    var bodyCards = open ? '<div class="vol-sector-cards">' + picks.map(volTickerCard).join('') + '</div>' : '';
+    return '<section class="vol-sector-group vol-picks-group">' + head + bodyCards + '</section>';
+  }
   function renderVolumeFlags(){
     var list = $('vol-list');
     var empty = $('vol-empty');
@@ -7203,7 +7289,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (empty) empty.hidden = true;
     var tickers = filteredVolTickers();
-    if (!tickers.length){
+    // The pinned Top Picks group is built from the full scan (not the flag
+    // filter), so it can have content even when nothing else is flagged.
+    var picksHtml = volTopPicksGroupHtml();
+    var hasPicks = !!picksHtml;
+    if (!tickers.length && !hasPicks){
       list.innerHTML = '';
       if (summary) summary.innerHTML = '';
       if (noResults){
@@ -7214,22 +7304,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (noResults) noResults.hidden = true;
     if (summary) summary.innerHTML = volSummaryHtml(tickers);
+    // Promote Top Picks into their own pinned group — drop them from the
+    // sector/flat list below so each name shows in exactly one place.
+    var rest = hasPicks
+      ? tickers.filter(function(t){ return !volPicks.sides[String(t.symbol).toUpperCase()]; })
+      : tickers;
+    var restHtml = '';
     if (volState.group){
       // Partition the filtered tickers by sector, ordered by the manifest's
       // canonical sector order with any leftovers (ETF / Other) appended alpha.
       var bySector = {};
-      for (var gi = 0; gi < tickers.length; gi++){
-        var sec = VOL_SECTOR_OF[tickers[gi].symbol] || 'Other';
-        (bySector[sec] = bySector[sec] || []).push(tickers[gi]);
+      for (var gi = 0; gi < rest.length; gi++){
+        var sec = VOL_SECTOR_OF[rest[gi].symbol] || 'Other';
+        (bySector[sec] = bySector[sec] || []).push(rest[gi]);
       }
       // Most-active sectors first (by flagged-ticker count), then alphabetical.
       var order = Object.keys(bySector).sort(function(a, b){
         var d = bySector[b].length - bySector[a].length;
         return d !== 0 ? d : a.localeCompare(b);
       });
-      list.innerHTML = order.map(function(sec){
+      restHtml = order.map(function(sec){
         var arr = bySector[sec];
-        var collapsed = volState.sectorCollapsed[sec] === true;
+        var collapsed = volSectorCollapsed(sec);
         var bull = 0, bear = 0;
         arr.forEach(function(t){ var l = volTickerSummary(t).lean; if (l != null){ if (l > 0) bull++; else if (l < 0) bear++; } });
         var bias = bull > bear ? 'mostly bullish' : (bear > bull ? 'mostly bearish' : 'mixed');
@@ -7245,8 +7341,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         return '<section class="vol-sector-group">' + head + bodyCards + '</section>';
       }).join('');
     } else {
-      list.innerHTML = tickers.map(volTickerCard).join('');
+      restHtml = rest.map(volTickerCard).join('');
     }
+    list.innerHTML = picksHtml + restHtml;
   }
   function bindVolumeControls(){
     var search = $('vol-search-input');
@@ -7304,8 +7401,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       expandBtn.addEventListener('click', function(){
         volState.allExpanded = !volState.allExpanded;
         volState.expand = {};
+        // Since sectors collapse by default, "Expand all" also opens every
+        // sector container (and the pinned Top Picks group) — otherwise the
+        // expanded per-row detail stays hidden inside a closed section.
+        var visible = filteredVolTickers();
         if (volState.allExpanded){
-          filteredVolTickers().forEach(function(t){ volState.expand[t.symbol] = true; });
+          visible.forEach(function(t){ volState.expand[t.symbol] = true; });
+          visible.forEach(function(t){ volState.sectorCollapsed[VOL_SECTOR_OF[t.symbol] || 'Other'] = false; });
+          volState.picksCollapsed = false;
+        } else {
+          visible.forEach(function(t){ volState.sectorCollapsed[VOL_SECTOR_OF[t.symbol] || 'Other'] = true; });
+          volState.picksCollapsed = true;
         }
         expandBtn.classList.toggle('is-on', volState.allExpanded);
         expandBtn.setAttribute('aria-pressed', volState.allExpanded ? 'true' : 'false');
@@ -7317,10 +7423,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var listEl = $('vol-list');
     if (listEl){
       listEl.addEventListener('click', function(ev){
+        // Pinned Top Picks group header (no data-sector) — check it before the
+        // generic sector head, which it also matches by class.
+        var picksHead = ev.target.closest && ev.target.closest('[data-picks-head]');
+        if (picksHead){
+          volState.picksCollapsed = !volState.picksCollapsed;
+          renderVolumeFlags();
+          return;
+        }
         var secHead = ev.target.closest && ev.target.closest('.vol-sector-head');
         if (secHead){
           var sec = secHead.getAttribute('data-sector');
-          if (sec != null) volState.sectorCollapsed[sec] = !volState.sectorCollapsed[sec];
+          if (sec != null) volState.sectorCollapsed[sec] = !volSectorCollapsed(sec);
           renderVolumeFlags();
           return;
         }
