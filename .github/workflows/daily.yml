@@ -139,13 +139,24 @@ jobs:
           # remote may have a fresher scan / OI snapshot committed while we
           # were running. Restore the remote's copies so we don't clobber them
           # (dropping a rolling oi-history snapshot), then re-run regen-static
-          # so the MANIFEST in index.html matches.
-          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/heatmap.json data/ai-usage.json data/flow-explanations.json data/oi-tracker.json data/oi-history.json"
+          # so the MANIFEST in index.html matches. data/heatmap.json and
+          # data/ai-usage.json are deliberately NOT in this list: the bake
+          # itself writes both (writeHeatmapFile / writeAiUsageState), so
+          # restoring the remote copies would throw away this run's heatmap
+          # rebuild and its recorded Gemini spend on every build.
+          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/flow-explanations.json data/oi-tracker.json data/oi-history.json"
           for attempt in 1 2 3; do
             git fetch origin "$BRANCH"
             git reset --mixed "origin/$BRANCH"
             for f in $SCANNER_FILES; do
-              git show "origin/$BRANCH:$f" > "$f" 2>/dev/null || true
+              # Write to a temp file first: `git show > "$f"` truncates $f
+              # before git show runs, so a path missing on the remote would
+              # blank the locally preserved copy.
+              if git show "origin/$BRANCH:$f" > "$f.fromremote" 2>/dev/null; then
+                mv "$f.fromremote" "$f"
+              else
+                rm -f "$f.fromremote"
+              fi
             done
             node scripts/regen-static.mjs
             git add index.html styles.css app.js

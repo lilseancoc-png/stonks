@@ -583,8 +583,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (pendingUrlState.exp && state.expirations.indexOf(pendingUrlState.exp) !== -1){
         state.currentExp = pendingUrlState.exp;
         var expSel = $('opt-expiry'); if (expSel) expSel.value = String(state.currentExp);
-        populateStrikes();
       }
+      // Rebuild the strike list unconditionally: loadChain populated it before
+      // the radio flip above, so a t=put link whose exp is stale (expired or
+      // missing) would otherwise match k against put rows while the <select>
+      // still holds call options — silently grading the wrong contract.
+      populateStrikes();
       if (pendingUrlState.k != null){
         var chain = state.chains[state.currentExp];
         var rows = chain ? ((getOptType() === 'call' ? chain.c : chain.p) || []) : [];
@@ -2865,7 +2869,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','picks','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track'];
+    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3465,7 +3469,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var pinSnapshot = {
       pinnedAt: Date.now(),
       source: input.source || 'chain',
-      symbol: input.ticker || (input.label || '').split(' ')[0] || '',
+      // Manual labels start with the side ('CALL $310 …'), so the split(' ')
+      // fallback would store 'CALL'/'PUT' as the symbol — wrong card heading
+      // and false de-dupe collisions between different underlyings.
+      symbol: input.ticker || (input.source === 'manual' ? '' : (input.label || '').split(' ')[0]) || '',
       type: input.type,
       strike: input.strike,
       spot: input.spot,
@@ -3595,14 +3602,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (ask < bid) { setStatus('opt-manual-status', 'Ask is below bid — check your numbers.', 'err'); return; }
 
     var expEpoch = etCloseEpochSec(expDateStr);
-    var label = type.toUpperCase() + ' $' + strike + ' · exp ' + expDateStr;
+    // Recover the underlying from the OCC paste box when it still matches the
+    // graded type/strike/expiry — gives the pin-to-compare card a real symbol
+    // instead of an anonymous manual entry.
+    var pasteEl = $('m-paste');
+    var occ = pasteEl ? parseOCC(pasteEl.value || '') : null;
+    var occRoot = occ && occ.type === type && Number(occ.strike) === Number(strike) && occ.expiryISO === expDateStr
+      ? occ.root : null;
+    var label = (occRoot ? occRoot + ' ' : '') + type.toUpperCase() + ' $' + strike + ' · exp ' + expDateStr;
     var built = buildResultHtml({
       type: type, spot: spot, strike: strike, expEpoch: expEpoch,
       bid: bid, ask: ask, last: null,
       iv: (ivRaw && isFinite(ivPct) && ivPct >= 0) ? ivPct/100 : null,
       oi: (oiRaw && isFinite(oi)) ? Math.round(oi) : null,
       volume: (volRaw && isFinite(vol)) ? Math.round(vol) : null,
-      label: label, source: 'manual'
+      label: label, source: 'manual', ticker: occRoot
     });
     $('opt-manual-result').innerHTML = built.html;
     setStatus('opt-manual-status', 'Graded.', 'ok');
@@ -10219,9 +10233,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (!b || !b.now) return '';
       var side = (normProb(b.now, 'hike') || 0) >= (normProb(b.now, 'cut') || 0) ? 'hike' : 'cut';
       var refs = [['day','1d'], ['week','1w'], ['month','1m']];
+      var sawRef = false;
       for (var i = 0; i < refs.length; i++){
         var rb = b[refs[i][0]];
         if (!rb) continue;
+        sawRef = true;
         var d = ((normProb(b.now, side) || 0) - (normProb(rb, side) || 0)) * 100;
         if (Math.abs(d) < 1) continue;
         var up = d > 0;
@@ -10230,6 +10246,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         return '<span class="fomc-shift ' + (hawkish ? 'hawk' : 'dove') + '" title="' + side + ' odds ' + (up ? 'up' : 'down') + ' ' + mag + ' pts vs ' + refs[i][1] + ' ago">' +
           (up ? '▲' : '▼') + ' ' + mag + 'pt ' + side + ' · ' + refs[i][1] + '</span>';
       }
+      // No reference snapshots at all (fresh fedwatch-history) — we can't
+      // claim the odds held steady over windows we never observed.
+      if (!sawRef) return '';
       return '<span class="fomc-shift flat" title="No material change in odds across the past day, week, or month">▬ flat</span>';
     };
     var meetingBlocks = meetings.map(function(m){
@@ -11894,22 +11913,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Grade index for EVERY tracked ticker (data/grades.json) — powers the Top
   // Picks tab's "grade any ticker" search. Lazy-loaded only when the user first
   // uses that search (it's a ~900KB file), then cached for the session.
-  var picksGradesState = { data: null, loading: false };
+  var picksGradesState = { data: null, loading: false, waiters: [] };
   function loadGradesIndex(cb){
     if (picksGradesState.data){ if (cb) cb(picksGradesState.data); return; }
-    if (picksGradesState.loading) return; // a re-render will pick it up on arrival
+    // Queue every caller's callback — the file is ~900KB, so a second caller
+    // (e.g. the search box committing a ticker) routinely arrives while the
+    // first caller's fetch is still in flight. Dropping its callback made the
+    // commit a silent no-op.
+    if (cb) picksGradesState.waiters.push(cb);
+    if (picksGradesState.loading) return;
     picksGradesState.loading = true;
+    function settle(data){
+      picksGradesState.data = data;
+      picksGradesState.loading = false;
+      var waiters = picksGradesState.waiters;
+      picksGradesState.waiters = [];
+      for (var i = 0; i < waiters.length; i++){
+        try { waiters[i](data); } catch (_) {}
+      }
+    }
     fetch('data/grades.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
-        picksGradesState.data = (json && json.grades) ? json : { grades: {}, minConviction: 12 };
-        picksGradesState.loading = false;
-        if (cb) cb(picksGradesState.data);
+        settle((json && json.grades) ? json : { grades: {}, minConviction: 12 });
       })
       .catch(function(){
-        picksGradesState.data = { grades: {}, minConviction: 12, loadError: true };
-        picksGradesState.loading = false;
-        if (cb) cb(picksGradesState.data);
+        settle({ grades: {}, minConviction: 12, loadError: true });
       });
   }
 
@@ -12115,9 +12144,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var el = $('accuracy-roster'); if (!el) return;
     var R = accuracyState.roster;
     if (!R || !Array.isArray(R.roster) || !R.roster.length){ el.innerHTML = ''; return; }
-    // Kick off the grade-index fetch once so the expandable rubrics can render;
-    // re-render the whole section when it arrives.
-    if (!picksGradesState.data && !picksGradesState.loading && typeof loadGradesIndex === 'function'){
+    // Kick off the grade-index fetch (or queue onto an in-flight one — e.g.
+    // the ticker search box may already be loading it) so the expandable
+    // rubrics can render; re-render the whole section when it arrives.
+    if (!picksGradesState.data && typeof loadGradesIndex === 'function'){
       loadGradesIndex(function(){ renderPicksRoster(); });
     }
     var stale = R.stale ? '<div class="roster-stale">Pre-market snapshot — last-good picks carried forward (contracts unpriced until the bell).</div>' : '';
@@ -14524,15 +14554,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var TABS = [
       ['tickers', 'Tickers'],
       ['narratives', 'Narratives'],
+      ['brief', 'Brief'],
       ['picks', 'Top picks'],
+      ['heatmap', 'Heatmap'],
       ['calendar', 'Calendar'],
       ['overnight', 'Overnight markets'],
       ['flow', 'Unusual flow'],
+      ['volume', 'Volume'],
       ['oi', 'Gamma exposure (GEX)'],
       ['grade', 'Grade a contract'],
+      ['strategies', 'Strategies'],
       ['streaks', 'Streaks'],
       ['fear-greed', 'Fear & Greed'],
       ['f13', '13F filings'],
+      ['bonds-usd', 'Bonds & USD'],
+      ['track', 'Track record'],
     ];
 
     function buildCorpus(){

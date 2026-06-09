@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -219,7 +219,7 @@ try {
 try {
   const pcPrev = await readPicksChanges();
   const churn = buildPicksChanges(ghPrevLatest, grades, builtAtIso, pcPrev);
-  const pcNext = appendPicksChanges(pcPrev, churn, builtAtIso);
+  const pcNext = appendPicksChanges(pcPrev, churn, builtAtIso, gradeTradeCut(grades));
   await writePicksChanges(pcNext);
   const entered = churn.filter((e) => e.event === "entered").length;
   console.log(`Updated picks-changes.json — ${entered} in, ${churn.length - entered} out (${pcNext.changes.length} logged).`);

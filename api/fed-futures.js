@@ -19,7 +19,7 @@
 // refreshFomcLive) — app.js is a generated IIFE that can't import this module,
 // the same reason the Black-Scholes greeks are duplicated. Keep them in sync.
 
-import { yahooFinance } from "../lib/yahoo.mjs";
+import { yahooFinance, withYahooTimeout } from "../lib/yahoo.mjs";
 
 // ZQ contract symbols only: ZQ + CME month code (F G H J K M N Q U V X Z) +
 // 2-digit year + .CBT, e.g. ZQF26.CBT — plus the continuous front-month ZQ=F.
@@ -54,9 +54,12 @@ export default async function handler(req, res) {
   try {
     // One batched upstream call (yahoo-finance2's quote() accepts an array),
     // same as /api/quotes — far cheaper than one request per contract.
-    const r = await yahooFinance.quote(symbols, {
-      fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"],
-    });
+    const r = await withYahooTimeout(
+      yahooFinance.quote(symbols, {
+        fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"],
+      }),
+      `fed-futures(${symbols.length})`,
+    );
     const list = Array.isArray(r) ? r : r ? [r] : [];
     const prices = {};
     let marketState = null;

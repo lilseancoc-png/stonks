@@ -2766,12 +2766,18 @@ async function fetchTickerChain(symbol) {
   // ETFs return mostly empty modules, so the renderer hides the card when
   // there's nothing useful to show. fetchFundamentals already logs its own
   // failure line and returns null, so no extra try/catch needed here.
-  const [fundamentals, revenueSegments] = await Promise.all([
+  let [fundamentals, revenueSegments] = await Promise.all([
     fetchFundamentals(symbol),
     fetchRevenueSegments(symbol),
   ]);
-  if (fundamentals && revenueSegments) {
-    fundamentals.segments = revenueSegments;
+  // Attach segments even when the Yahoo fundamentals fetch flaked: the SEC
+  // segment cache LIVES at fundamentals.segments of the per-ticker JSON
+  // (fetchRevenueSegments reads it back next build), so writing
+  // fundamentals: null here would destroy it and force a full multi-MB XBRL
+  // re-download. The renderer hides the fundamentals card when judgment +
+  // metrics are absent, so a segments-only object degrades cleanly.
+  if (revenueSegments) {
+    (fundamentals ?? (fundamentals = {})).segments = revenueSegments;
   }
 
   return {
@@ -9077,7 +9083,7 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
 // and how it stacks up against same-industry peers (with explicit "we'd take
 // X over Y because X +20 vs Y +10" framing). Deterministic (no AI) so the
 // explanation always matches the math.
-function buildPickAnalysis(pick, peers) {
+function buildPickAnalysis(pick, peers, tradeCut = PICKS_MIN_CONVICTION) {
   const symbol = pick.symbol;
   const tier = pick.recommendation?.label || "—";
   const total = pick.total;
@@ -9175,7 +9181,7 @@ function buildPickAnalysis(pick, peers) {
     const sameSideActionable = peers.filter((p) =>
       ((p.side === side && p.side != null) ||
        (side != null && Math.sign(p.total) === Math.sign(total))) &&
-      Math.abs(p.total) >= PICKS_MIN_CONVICTION && Math.abs(p.total) < Math.abs(total)
+      Math.abs(p.total) >= tradeCut && Math.abs(p.total) < Math.abs(total)
     );
     const sameSide = peers.filter((p) =>
       (p.side === side && p.side != null) || (side != null && Math.sign(p.total) === Math.sign(total))
@@ -11480,7 +11486,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       // signal, which stays news-sentiment-driven.
       catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
     };
-    pickPayload.analysis = buildPickAnalysis(pickPayload, peers);
+    pickPayload.analysis = buildPickAnalysis(pickPayload, peers, tradeCut);
     out.push(pickPayload);
     if (side === "call") callCount += 1;
     sideCounts[side] = (sideCounts[side] || 0) + 1;
@@ -11871,6 +11877,22 @@ function picksChangeWhy(prevScores, curScores) {
   return { why, whyText };
 }
 
+// Live actionable bar: the cross-sectional percentile cutoff stashed
+// (non-enumerable) on the grades index by buildGradesIndex (P3.2), else the
+// legacy absolute constant. The churn log, roster snapshot, and pick analysis
+// must gate on the SAME bar picks.json / grades.json publish — under the
+// cross-sectional scorer (default ON) totals never reach the legacy ±12, so
+// gating on the constant misses every real roster change.
+export function gradeTradeCut(gradesIndex) {
+  const tc = gradesIndex ? gradesIndex.tierCutoffs : null;
+  return tc && Number.isFinite(tc.tradeCut) ? tc.tradeCut : PICKS_MIN_CONVICTION;
+}
+
+// 1dp for prose — the percentile cutoff is a float.
+function fmtBar(n) {
+  return String(Math.round(n * 10) / 10);
+}
+
 // Detect names that crossed the actionable conviction bar between the prior grade
 // snapshot (gradesHistoryPrev.latest — lean { total, tier, p }) and the fresh
 // grade index (full pillars). Returns a list of deterministic churn events
@@ -11882,8 +11904,8 @@ export function buildPicksChanges(prevLatest, gradesIndex, builtAtIso, prevLog =
   const priorLatest = (prevLatest && typeof prevLatest === "object") ? prevLatest : {};
   if (!Object.keys(priorLatest).length) return []; // unseeded — don't flood on first run
   const idx = gradesIndex || {};
-  const TH = PICKS_MIN_CONVICTION;
-  const EXIT_TH = TH - PICKS_CHANGES_EXIT_BAND; // dead-band: stay "in" until below this
+  const TH = gradeTradeCut(gradesIndex);
+  const EXIT_TH = Math.max(TH - PICKS_CHANGES_EXIT_BAND, 0); // dead-band: stay "in" until below this
   // Per-symbol in/out state from the rolling log (newest-first, so the first hit
   // wins). This is what makes the dead-band work: we only flip a name's logged
   // state, never re-log the same direction or chatter inside the band.
@@ -11928,8 +11950,8 @@ export function buildPicksChanges(prevLatest, gradesIndex, builtAtIso, prevLog =
       ? cur.drivers.slice(0, 3).map((d) => d && d.text).filter(Boolean)
       : [];
     const barNote = entered
-      ? `Cleared the ±${TH} conviction bar`
-      : (cur ? `Fell below the ±${TH} conviction bar` : "No longer in the tracked universe");
+      ? `Cleared the ±${fmtBar(TH)} conviction bar`
+      : (cur ? `Fell below the ±${fmtBar(TH)} conviction bar` : "No longer in the tracked universe");
     events.push({
       date: builtAtIso,
       symbol: sym,
@@ -11955,14 +11977,14 @@ export function buildPicksChanges(prevLatest, gradesIndex, builtAtIso, prevLog =
 // Prepend this build's events to the rolling log, then prune by age + hard cap.
 // A build that detected no crossings still rewrites the file (refreshing
 // builtAtIso) so the freshness footer in the UI tracks the latest build.
-export function appendPicksChanges(prevLog, newEvents, builtAtIso) {
+export function appendPicksChanges(prevLog, newEvents, builtAtIso, minConviction = PICKS_MIN_CONVICTION) {
   let changes = (prevLog && Array.isArray(prevLog.changes)) ? prevLog.changes.slice() : [];
   if (Array.isArray(newEvents) && newEvents.length) changes = newEvents.concat(changes);
   const cutoffMs = (Date.parse(builtAtIso) || Date.now()) - PICKS_CHANGES_KEEP_DAYS * 86400000;
   changes = changes
     .filter((c) => (Date.parse(c && c.date) || 0) >= cutoffMs)
     .slice(0, PICKS_CHANGES_MAX);
-  return { builtAtIso, minConviction: PICKS_MIN_CONVICTION, changes };
+  return { builtAtIso, minConviction, changes };
 }
 
 // ---- Top-10 roster forecast + diff (data/picks-roster.json) --------------
@@ -12090,6 +12112,7 @@ export function buildPicksRoster(currentPicks, priorPicks, prevLatest, gradesInd
   const prior = Array.isArray(priorPicks) ? priorPicks : [];
   const prevLean = (prevLatest && typeof prevLatest === "object") ? prevLatest : {};
   const idx = (gradesIndex && typeof gradesIndex === "object") ? gradesIndex : {};
+  const rosterTradeCut = gradeTradeCut(gradesIndex);
   const priorBySym = new Map(prior.filter((p) => p && p.symbol).map((p) => [p.symbol, p]));
   const priorTop = new Set(priorBySym.keys());
   const curSyms = new Set(picks.map((p) => p && p.symbol).filter(Boolean));
@@ -12136,12 +12159,12 @@ export function buildPicksRoster(currentPicks, priorPicks, prevLatest, gradesInd
     const prevMap = pillarScoreMap(priorPick);
     const curMap = cur ? pillarScoreMap(cur) : null;
     const { deltas, whyText } = curMap ? rosterPillarDelta(prevMap, curMap) : { deltas: null, whyText: "no longer tracked" };
-    const stillActionable = curTotal != null && Math.abs(curTotal) >= PICKS_MIN_CONVICTION;
+    const stillActionable = curTotal != null && Math.abs(curTotal) >= rosterTradeCut;
     const reason = curTotal == null
       ? "no longer in the tracked universe"
       : stillActionable
         ? "still actionable, but out-ranked off the Top 10"
-        : "fell below the ±" + PICKS_MIN_CONVICTION + " conviction bar";
+        : "fell below the ±" + fmtBar(rosterTradeCut) + " conviction bar";
     exited.push({
       symbol: sym,
       side: priorPick.side || (prevTotal >= 0 ? "call" : "put"),
@@ -12170,7 +12193,7 @@ export function buildPicksRoster(currentPicks, priorPicks, prevLatest, gradesInd
     });
   }
 
-  return { builtAtIso, minConviction: PICKS_MIN_CONVICTION, stale: !!stale, count: roster.length, roster, exited, swaps };
+  return { builtAtIso, minConviction: rosterTradeCut, stale: !!stale, count: roster.length, roster, exited, swaps };
 }
 
 // Hybrid AI polish: write a ONE-sentence plain-English explanation for each new
@@ -12371,6 +12394,14 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
         // stale roster stays self-consistent; fall back to this build's live cutoff,
         // then the legacy constant.
         minConviction: priorPayload.minConviction ?? picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
+        // Keep rosterMeta on the stale write too: the macro-regime hysteresis
+        // (applyMacroRegimePersistence) reads its prior {state, rawState} back
+        // from picks.json's rosterMeta, and the pre-bell builds where this
+        // stale path fires are exactly the boundary it exists to bridge —
+        // dropping it lets an unconfirmed risk-off→neutral recovery apply
+        // immediately on the next build. buildTopPicks stamps rosterMeta even
+        // on an empty roster, so prefer this build's read.
+        rosterMeta: picks.rosterMeta ?? priorPayload.rosterMeta ?? null,
         picks: priorPayload.picks,
         stale: true,
         stalePicksFromIso: priorPayload.builtAtIso || null,
@@ -18425,7 +18456,7 @@ async function main() {
     const churnEvents = buildPicksChanges(gradesHistoryPrev.latest, gradesIndex, builtAtIso, picksChangesPrev);
     await aiExplainPicksChanges(churnEvents, chains);
     churnEventsForBrief = churnEvents;
-    const picksChangesNext = appendPicksChanges(picksChangesPrev, churnEvents, builtAtIso);
+    const picksChangesNext = appendPicksChanges(picksChangesPrev, churnEvents, builtAtIso, gradeTradeCut(gradesIndex));
     await writePicksChanges(picksChangesNext);
     const entered = churnEvents.filter((e) => e.event === "entered").length;
     const exited = churnEvents.length - entered;

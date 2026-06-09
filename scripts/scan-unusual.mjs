@@ -41,6 +41,7 @@ import {
   etMinutesSinceOpen,
   bucketForMinute,
   BUCKETS as VOLUME_BUCKETS,
+  SESSION_OPEN_MIN,
   SESSION_CLOSE_MIN,
 } from "../lib/volume-flags.mjs";
 
@@ -785,7 +786,11 @@ function buildBucketStartLookup(history, todayKey, currentBucket) {
   const map = new Map();
   for (const snap of history.snapshots || []) {
     if (snap.etDate !== todayKey) continue;
-    if (snap.etMin == null || snap.etMin > currentBucket.startMin) continue;
+    // Pre-open snapshots (the ~9:00 ET scan) carry whatever cumulative volume
+    // Yahoo reports before the bell — typically the PRIOR session's full-day
+    // total, not 0 — so using one as a bucket-start baseline clamps
+    // actualBucketVol to ~0 for the rest of the day. Session snapshots only.
+    if (snap.etMin == null || snap.etMin < SESSION_OPEN_MIN || snap.etMin > currentBucket.startMin) continue;
     for (const t of snap.tickers || []) {
       if (!t.symbol || t.cumVol == null) continue;
       const prior = map.get(t.symbol);

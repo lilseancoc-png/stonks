@@ -75,6 +75,8 @@ const QUOTE_FIELDS = [
   "regularMarketChangePercent",
   "marketState",
   "marketCap",
+  "preMarketPrice",
+  "postMarketPrice",
 ];
 
 function sleep(ms) {
@@ -336,11 +338,20 @@ async function main() {
       stale++;
       return row;
     }
-    const ch = Number(q.regularMarketChangePercent);
+    const reg = Number(q.regularMarketPrice);
     const sp =
-      Number(q.regularMarketPrice) ||
+      reg ||
       Number(q.postMarketPrice) ||
       Number(q.preMarketPrice);
+    // Yahoo's regularMarketChangePercent describes the regular session. When
+    // spot has fallen back to a pre/post-market price, re-derive the % off
+    // prevClose so sp and ch share one baseline — same rule as
+    // lib/yahoo.mjs::fetchQuote and api/quotes.js.
+    let ch = Number(q.regularMarketChangePercent);
+    if (!(reg > 0) && sp > 0) {
+      const prevClose = Number(q.regularMarketPreviousClose);
+      ch = prevClose > 0 ? ((sp - prevClose) / prevClose) * 100 : NaN;
+    }
     if (!isFinite(ch)) {
       stale++;
       return row;
@@ -415,6 +426,10 @@ async function main() {
       console.warn(`[heatmap] EOD summary generation failed: ${String(err?.message || err)}`);
       // Leave eodSummary as-is (null). The next hourly run can retry; if
       // all retries fail the heatmap renders without the recap section.
+      // The Gemini call may still have completed (recordAiUsage runs before
+      // the response is validated), so persist the spend to the shared
+      // budget anyway — writeAiUsageState no-ops if nothing was loaded.
+      try { await writeAiUsageState(); } catch (_) { /* best-effort */ }
     }
   } else if (eodSummary) {
     console.log(`[heatmap] reusing existing EOD summary from ${eodSummary.date}`);

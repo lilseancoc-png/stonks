@@ -494,6 +494,18 @@ function fmtBigMoney(n) {
   return `${sign}$${a.toFixed(0)}`;
 }
 
+// Share-count formatter for the beta-weighted delta KPI: spyDeltaWeighted
+// divides dollar delta by SPY's spot, so the number is equivalent SPY
+// SHARES, not dollars — a $ prefix here would overstate exposure ~SPY×.
+function fmtShares(n) {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (a >= 1e6) return `${sign}${(a / 1e6).toFixed(2)}M sh`;
+  if (a >= 1e3) return `${sign}${(a / 1e3).toFixed(1)}K sh`;
+  return `${sign}${a.toFixed(0)} sh`;
+}
+
 function fmtGreek(n, digits = 2) {
   if (n == null || !isFinite(n)) return "—";
   const fixed = Number(n).toFixed(digits);
@@ -576,7 +588,7 @@ function renderRisk() {
         <div class="pf-risk-kpis">
           <div class="pf-risk-kpi">
             <span class="pf-kpi-label">Beta-weighted Δ (SPY)</span>
-            <span class="pf-kpi-value">${betaDelta != null ? fmtBigMoney(betaDelta) : "—"}</span>
+            <span class="pf-kpi-value">${betaDelta != null ? fmtShares(betaDelta) : "—"}</span>
             <span class="pf-kpi-sub">${betaDelta != null ? "Equivalent SPY-share exposure given each name's beta" : "Need SPY spot + beta on positions"}</span>
           </div>
           <div class="pf-risk-kpi">
