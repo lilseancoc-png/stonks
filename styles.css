@@ -10789,6 +10789,21 @@ html::-webkit-scrollbar-thumb:hover {
 .vol-sector-bias.pos { color: var(--pos); }
 .vol-sector-bias.neg { color: var(--neg); }
 .vol-sector-cards { display: grid; gap: var(--s-3); margin-top: var(--s-3); }
+/* Pinned "★ Top Picks" group — the build's current picks, lifted above the
+   sector groups and visually set apart with the accent. */
+.vol-picks-group {
+  background: var(--accent-tint-1);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-md, 10px);
+  padding: var(--s-3) var(--s-3) var(--s-2);
+  margin-bottom: var(--s-4);
+}
+.vol-picks-group .vol-sector-head { border-bottom-color: var(--accent-line); }
+.vol-picks-group .vol-sector-name { color: var(--accent-strong); }
+/* Top-Picks side badge shown on each pinned card. */
+.vol-pick-side { font-weight: 600; }
+.vol-pick-call { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent-line); }
+.vol-pick-put { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); border: 1px solid color-mix(in srgb, var(--neg) 35%, var(--border)); }
 .vol-row {
   background: var(--surface-2);
   border: 1px solid var(--border);
