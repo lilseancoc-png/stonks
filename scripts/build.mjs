@@ -7238,10 +7238,12 @@ function expectedMovePct(iv, dteDays) {
 
 // True if an earnings date (ISO yyyy-mm-dd) falls inside [now, expSec].
 // Returns false on missing/invalid input so missing earnings doesn't kill
-// every pick.
+// every pick. A date-only ISO parses at midnight UTC — the prior evening ET —
+// so it's anchored at 16:00Z (like daysToEarningsFrom) so a same-day print
+// still reads as ahead of us, not already past.
 function earningsInsideWindow(earningsIso, expSec) {
   if (!earningsIso || typeof earningsIso !== "string") return false;
-  const t = Date.parse(earningsIso);
+  const t = Date.parse(earningsIso.length <= 10 ? `${earningsIso}T16:00:00Z` : earningsIso);
   if (!Number.isFinite(t)) return false;
   const earningsSec = Math.floor(t / 1000);
   const nowSec = Math.floor(Date.now() / 1000);
@@ -11321,7 +11323,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   if (regime === "risk-off") {
     // Relax the tactical-put bar in a SEVERE tape so more weak names become
     // shortable candidates (still gated on a clean 'go' breakdown below).
-    const putBar = severe ? PICKS_MACRO_SEVERE_PUT_BAR : PICKS_RISKOFF_PUT_BAR;
+    // The bar must sit ABOVE -tradeCut or the window (-tradeCut, putBar] is
+    // empty — the percentile tradeCut (P3.2) can compress to its floor of 6,
+    // under the fixed -8 bar. Clamp relative to the LIVE cutoff: the less-
+    // negative of the configured bar and -0.8*tradeCut, so the window always
+    // spans the top 20% of the below-bar bearish range. Legacy tradeCut=12
+    // keeps the exact configured bars (-8 / severe -5).
+    const baseBar = severe ? PICKS_MACRO_SEVERE_PUT_BAR : PICKS_RISKOFF_PUT_BAR;
+    const putBar = Math.max(baseBar, -0.8 * tradeCut);
     const seen = new Set(candSet.map((c) => c.r.sym));
     for (const s of scored) {
       if (seen.has(s.sym)) continue;
@@ -11395,8 +11404,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // ship it on a genuinely clean breakdown (timing 'go'), never a marginal one.
     if (cand.tactical && timing.state !== "go") { vetoed += 1; continue; }
 
-    // Tactical puts sit below the -16 grade bar, so tierForScore() would call
-    // them "no-trade". Override the recommendation so the card reads correctly;
+    // Tactical puts sit below the trade cutoff by construction (the window is
+    // (-tradeCut, putBar]), so tierForScore() would call them "no-trade".
+    // Override the recommendation so the card reads correctly;
     // `total` stays the real (negative) grade score for ranking + accuracy.
     const recommendation = cand.tactical
       ? { tier: "tactical-put", label: "Tactical Put", side: "put",
@@ -12541,7 +12551,10 @@ export function resolvePickOutcome(opts) {
   if (haveFresh && ct > 0 && ((isCall && cur <= ct) || (!isCall && cur >= ct))) {
     return { status: "hit-cut", outcome: "loss" };
   }
-  if (expSec > 0 && nowSec >= expSec) {
+  // Yahoo expiry epochs are midnight UTC on the expiry date (≈ the prior evening
+  // ET), so a bare nowSec >= expSec settles a full session early — the +20h pushes
+  // the trigger to ≈16:00 ET on the actual expiry date.
+  if (expSec > 0 && nowSec >= expSec + 20 * 3600) {
     const outcome = be > 0
       ? ((isCall ? ref >= be : ref <= be) ? "win" : "loss")
       : excursionOutcome(mfePct, maePct);
@@ -12684,7 +12697,10 @@ function modelVerticalExit(e, c, exitSpot, exitSec, rfr = FALLBACK_RISK_FREE_RAT
   const Texit = Math.max(0, (exp - exitSec) / yearSecs);
   const hv = Number(e.entryHv);
   const eIso = e.earningsDate;
-  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T16:00:00Z` : eIso) : NaN;
+  // A date-only earningsDate anchors at 21:00Z — after the 16:00 ET close in both
+  // EST/EDT — because prints are AMC by convention: a 16:00Z (noon ET) anchor
+  // would apply the IV-crush haircut to exits made BEFORE the print happened.
+  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T21:00:00Z` : eIso) : NaN;
   const eSec = Number.isFinite(eMs) ? Math.floor(eMs / 1000) : NaN;
   const earningsInHold = Number.isFinite(eSec) && entrySec > 0 && eSec >= entrySec && eSec <= exitSec;
   let entryDebit = 0, exitValue = 0;
@@ -12823,9 +12839,11 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
       if (e.outcome === "win") out[k].wins += 1;
       // Option-P&L lens (P0.2): a cohort's win rate / expectancy on the BS-repriced
       // OPTION result, not the underlying outcome — the metric that actually maps to
-      // capital. Populates only for entries with the entry-option snapshot.
-      const op = Number(e.optionPnlPct);
-      if (isFinite(op)) { out[k].optN += 1; out[k].optSum += op; if (op > 0) out[k].optWins += 1; }
+      // capital. Populates only for entries with the entry-option snapshot —
+      // Number.isFinite (no coercion) so a null optionPnlPct is skipped, not
+      // counted as a 0% result.
+      const op = e.optionPnlPct;
+      if (Number.isFinite(op)) { out[k].optN += 1; out[k].optSum += op; if (op > 0) out[k].optWins += 1; }
     }
     for (const k of Object.keys(out)) {
       const o = out[k];
@@ -12889,17 +12907,9 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
       if (e.outcome === "win") bySignal[k].wins += 1; else bySignal[k].losses += 1;
     }
   }
-  for (const k of Object.keys(bySignal)) {
-    const r = bySignal[k];
-    r.rate = r.n >= PICKS_SIGNAL_MIN_N ? Number((r.wins / r.n).toFixed(3)) : null;
-    // Pruning candidate (P2.3, measure-only): once a signal has a published rate
-    // (n ≥ PICKS_SIGNAL_MIN_N) and that rate is statistically indistinguishable
-    // from a coin flip, it adds variance without edge — flag it for removal rather
-    // than keep it for completeness. Does NOT auto-drop the signal; it's a hint for
-    // the next recalibration. Never add a NEW signal until the existing set is
-    // attributed this way.
-    r.prunable = r.rate != null && Math.abs(r.rate - 0.5) <= PICKS_SIGNAL_PRUNE_BAND;
-  }
+  // (rate/prunable for bySignal are computed AFTER the per-signal IC loop below —
+  // that loop can create keys this fired-when-backed pass never saw, and those
+  // rows must carry the same rate/prunable fields, not ship half-built.)
 
   // Realized expectancy (side-adjusted underlying move, %): the honest "do the
   // winners pay for the losers?" headline that raw win-rate can't answer.
@@ -12945,7 +12955,9 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   const gradeIcStat = pearson(decided.map((e) => [Number(e.score), rawMove(e)]));
   const gradeIc = gradeIcStat ? gradeIcStat.ic : null;
   const gradeIcN = gradeIcStat ? gradeIcStat.n : 0;
-  const gradeIcOptionStat = pearson(decided.map((e) => [Math.abs(Number(e.score)), Number(e.optionPnlPct)]));
+  // Number.isFinite pre-filter (no coercion): a null optionPnlPct must drop the
+  // pick from the corr input, not enter as a fake 0% option result.
+  const gradeIcOptionStat = pearson(decided.filter((e) => Number.isFinite(e.optionPnlPct)).map((e) => [Math.abs(Number(e.score)), e.optionPnlPct]));
   const gradeIcOption = gradeIcOptionStat ? gradeIcOptionStat.ic : null;
 
   // PER-SIGNAL IC: correlate each signal's stored directional contribution (z·dir·W,
@@ -12958,8 +12970,10 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     const sigs = Array.isArray(e.entrySignals) ? e.entrySignals : null;
     if (!sigs) continue;
     const tradeDir = Math.sign(Number(e.score)) || (e.side === "put" ? -1 : 1);
-    const y = isFinite(Number(e.optionPnlPct)) ? Number(e.optionPnlPct) : realizedMovePct(e);
-    if (y == null || !isFinite(y)) continue;
+    // Number.isFinite (no coercion) so a null optionPnlPct actually reaches the
+    // underlying-move fallback instead of coercing to a fake 0% option result.
+    const y = Number.isFinite(e.optionPnlPct) ? e.optionPnlPct : realizedMovePct(e);
+    if (y == null || !Number.isFinite(y)) continue;
     for (const s of sigs) {
       const c = Number(s && s.contribution);
       if (!s || !s.key || !isFinite(c) || c === 0) continue;
@@ -12974,26 +12988,41 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     r.ic = ic ? ic.ic : null;
     r.icN = r._x ? r._x.length : 0;
     delete r._x; delete r._y;
+    // rate/prunable run HERE, after both passes, so keys minted by the IC loop
+    // above carry them too. Pruning candidate (P2.3, measure-only): once a signal
+    // has a published rate (n ≥ PICKS_SIGNAL_MIN_N) and that rate is statistically
+    // indistinguishable from a coin flip, it adds variance without edge — flag it
+    // for removal rather than keep it for completeness. Does NOT auto-drop the
+    // signal; it's a hint for the next recalibration. Never add a NEW signal until
+    // the existing set is attributed this way.
+    r.rate = r.n >= PICKS_SIGNAL_MIN_N ? Number((r.wins / r.n).toFixed(3)) : null;
+    r.prunable = r.rate != null && Math.abs(r.rate - 0.5) <= PICKS_SIGNAL_PRUNE_BAND;
   }
 
   // SPY benchmark over each pick's actual hold window, side-adjusted to the
   // trade's direction → excess = did the name beat the index in the bet's way.
+  // excessExpectancyPct is the mean of PER-PICK excess (realized − SPY) over the
+  // INTERSECTION of picks where both legs resolve — subtracting the two cohort
+  // averages (all-valid-spots vs all-resolvable-SPY-windows) would compare two
+  // different pick sets. avgSpyRetPct stays the full SPY-resolvable cohort.
   const spyMap = closesByDate(spyBars);
   let avgSpyRetPct = null, excessExpectancyPct = null;
   if (spyMap.size) {
     const spyRets = [];
+    const excessRets = [];
     for (const e of decided) {
       const a = closeOnOrBefore(spyMap, e.entryDate);
       const b = closeOnOrBefore(spyMap, e.exitDate);
       if (a > 0 && b > 0) {
         const raw = ((b - a) / a) * 100;
-        spyRets.push(e.side === "put" ? -raw : raw);
+        const spyRet = e.side === "put" ? -raw : raw;
+        spyRets.push(spyRet);
+        const realizedPct = realizedMovePct(e);
+        if (realizedPct != null) excessRets.push(realizedPct - spyRet);
       }
     }
-    if (spyRets.length) {
-      avgSpyRetPct = Number(mean(spyRets).toFixed(2));
-      if (expectancyPct != null) excessExpectancyPct = Number((expectancyPct - avgSpyRetPct).toFixed(2));
-    }
+    if (spyRets.length) avgSpyRetPct = Number(mean(spyRets).toFixed(2));
+    if (excessRets.length) excessExpectancyPct = Number(mean(excessRets).toFixed(2));
   }
 
   // MODELED OPTION expectancy (P0.1): the same decided cohort, but on the BS-
@@ -13001,17 +13030,25 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   // underlying move. The gap between optionExpectancyPct and the underlying
   // expectancyPct above IS the theta + IV-crush tax — a stock that drifts ~flat
   // can still print a deeply negative option result. Entries that predate the
-  // entry-option snapshot have no optionPnlPct and are simply skipped.
-  const optDecided = decided.map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
-  const wOpt = decided.filter((e) => e.outcome === "win").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
-  const lOpt = decided.filter((e) => e.outcome === "loss").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  // entry-option snapshot have no optionPnlPct and are simply skipped —
+  // Number.isFinite (no coercion) so a null snapshot drops out instead of
+  // entering the average as a fake 0% option result.
+  const optDecided = decided.map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
+  const wOpt = decided.filter((e) => e.outcome === "win").map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
+  const lOpt = decided.filter((e) => e.outcome === "loss").map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
   const optionExpectancyPct = optDecided.length ? Number(mean(optDecided).toFixed(2)) : null;
   // Option WIN RATE (P0.2): fraction of repriced picks that made money ON THE
   // OPTION — the honest headline for an options engine. A flat/up stock that still
   // bled the premium counts as a loss here even when the underlying "win" flagged.
   const optionWinRate = optDecided.length ? Number((optDecided.filter((x) => x > 0).length / optDecided.length).toFixed(3)) : null;
 
-  const avg = (arr, f) => (arr.length ? Number((arr.reduce((s, e) => s + (Number(f(e)) || 0), 0) / arr.length).toFixed(1)) : null);
+  // Average over only the entries where f() yields a finite number — entries
+  // missing the field (legacy picks without MFE/MAE tracking) must drop out of
+  // the denominator, not dilute the mean as fake zeros. null when none resolve.
+  const avg = (arr, f) => {
+    const vals = arr.map(f).filter((x) => Number.isFinite(x));
+    return vals.length ? Number((vals.reduce((s, x) => s + x, 0) / vals.length).toFixed(1)) : null;
+  };
   return {
     builtAtIso,
     openCount: open.length,
@@ -13186,12 +13223,18 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     if (resolved) {
       const { status, outcome } = resolved;
       const exitSpot = haveFresh ? Number(cur.toFixed(2)) : (e.lastSpot ?? null);
+      // When resolving on a STALE lastSpot (no fresh quote this build), the price
+      // is from e.lastDate — possibly days old — so the exit timestamp must match
+      // it: stamping builtAtIso/nowSec would reprice the option with less time
+      // value than actually remained when that price printed.
+      const exitSec = haveFresh ? nowSec
+        : (Number.isFinite(Date.parse(e.lastDate)) ? Math.floor(Date.parse(e.lastDate) / 1000) : nowSec);
       // Reprice the contract at exit so the record carries the option P&L, not
       // just the underlying move (P0.1). null on legacy entries without the snapshot.
-      const opt = (exitSpot > 0) ? modelOptionExit(e, exitSpot, nowSec, FALLBACK_RISK_FREE_RATE) : null;
+      const opt = (exitSpot > 0) ? modelOptionExit(e, exitSpot, exitSec, FALLBACK_RISK_FREE_RATE) : null;
       state.closed.unshift({
         ...e,
-        exitDate: builtAtIso,
+        exitDate: new Date(exitSec * 1000).toISOString(),
         exitSpot,
         status,
         outcome,
