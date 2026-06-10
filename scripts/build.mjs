@@ -8111,7 +8111,10 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   const oi = sumCallPutOI(data);
   if (oi && (oi.callOI + oi.putOI) > 0) {
     const denom = Math.max(1, oi.putOI);
-    const ratio = oi.callOI / denom;
+    // Floor at 0.02: the z-pool log transform drops a non-positive raw, so a
+    // true-zero call OI (the maximal bearish read) must land at the clip edge,
+    // not vanish from the pool (cf. unusualFlow's (bull+1)/(bear+1) smoothing).
+    const ratio = Math.max(0.02, oi.callOI / denom);
     let s = 0;
     let note = `${oi.callOI.toLocaleString()} calls vs ${oi.putOI.toLocaleString()} puts`;
     if (ratio >= 1.5) s = 1;
@@ -8236,7 +8239,10 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     { available: false, note: "no option volume data" });
   const pcVol = sumCallPutVolume(data);
   if (pcVol && pcVol.callVol > 0) {
-    const ratio = pcVol.putVol / pcVol.callVol;
+    // Floor at 0.02: the z-pool log transform drops a non-positive raw, so a
+    // true-zero put volume (the maximal greed read, legacy −2) must land at the
+    // clip edge, not vanish (cf. unusualFlow's (bull+1)/(bear+1) smoothing).
+    const ratio = Math.max(0.02, pcVol.putVol / pcVol.callVol);
     let s = 0;
     let note = `P/C ${ratio.toFixed(2)} — neutral positioning`;
     if (ratio > 1.15) {
