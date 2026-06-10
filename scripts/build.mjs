@@ -6832,6 +6832,7 @@ const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2)
 const PICKS_MACRO_SENTIMENT = process.env.PICKS_MACRO_SENTIMENT !== "0"; // default ON
 const PICKS_MACRO_FG_FEAR = Number(process.env.PICKS_MACRO_FG_FEAR ?? 25);   // composite ≤ this → −1 (extreme-fear internals)
 const PICKS_MACRO_FG_GREED = Number(process.env.PICKS_MACRO_FG_GREED ?? 75); // composite ≥ this → +1 (greed internals)
+const PICKS_MACRO_FG_MAX_AGE_HOURS = Number(process.env.PICKS_MACRO_FG_MAX_AGE_HOURS ?? 48); // older snapshot → axis reads "no data"
 // Differential bearish tilt folded into the DIRECTIONAL narrative pillar (so it can
 // flip a marginal call to a put and survives the cross-sectional demean — fixed
 // signals aren't z-scored), scaled by each name's beta. Negative in risk-off.
@@ -7360,7 +7361,12 @@ function summarizeUnusualForSym(sym, unusualPayload) {
 // PICKS_OI_TRACKER_MAX_AGE_DAYS (covers a weekend) reads as "no data" rather
 // than scoring last week's positioning as if it were fresh.
 function oiTrackerRowFor(sym, oiTracker) {
-  if (!PICKS_OI_TRACKER_SIGNALS || !oiTracker || !Array.isArray(oiTracker.tickers)) return null;
+  // The row serves TWO independently-flagged consumers — the mechanicals
+  // signals (PICKS_OI_TRACKER_SIGNALS) and the wall-proximity timing read
+  // (PICKS_TIMING_WALL) — so the reader only bails when BOTH are off; each
+  // consumer gates on its own flag.
+  if (!PICKS_OI_TRACKER_SIGNALS && !PICKS_TIMING_WALL) return null;
+  if (!oiTracker || !Array.isArray(oiTracker.tickers)) return null;
   const scannedMs = Date.parse(oiTracker.scannedAt || "");
   if (!Number.isFinite(scannedMs)) return null;
   if (Date.now() - scannedMs > PICKS_OI_TRACKER_MAX_AGE_DAYS * 86400e3) return null;
@@ -7376,28 +7382,45 @@ function oiTrackerRowFor(sym, oiTracker) {
 function flowPersistFor(sym, flowLog) {
   if (!PICKS_FLOW_PERSIST || !flowLog || !Array.isArray(flowLog.entries)) return null;
   const cutoffMs = Date.now() - PICKS_FLOW_LOG_WINDOW_DAYS * 86400e3;
-  let callPrem = 0, putPrem = 0;
-  const days = new Set();
+  // The log appends one entry per flagged contract PER HOURLY SCAN, and each
+  // entry's premium is the contract's CUMULATIVE session notional — summing
+  // entries raw would count one contract's premium once per scan it stayed
+  // flagged (passing the noise floor by repetition, not size). Dedupe to one
+  // row per contract-day first, keeping the day's max (= final cumulative)
+  // premium; only then aggregate.
+  const byContractDay = new Map();
   for (const e of flowLog.entries) {
     if (!e || e.symbol !== sym) continue;
+    if (e.side !== "call" && e.side !== "put") continue;
     const t = Date.parse(e.scannedAt || "");
     if (!Number.isFinite(t) || t < cutoffMs) continue;
+    const day = String(e.scannedAt).slice(0, 10);
+    const key = `${e.side}|${e.strike}|${e.expSec}|${day}`;
     const prem = Number(e.premium) || 0;
-    if (e.side === "call") callPrem += prem;
-    else if (e.side === "put") putPrem += prem;
-    else continue;
-    days.add(String(e.scannedAt).slice(0, 10));
+    const prev = byContractDay.get(key);
+    if (!prev || prem > prev.prem) byContractDay.set(key, { side: e.side, day, prem });
+  }
+  if (!byContractDay.size) return null;
+  let callPrem = 0, putPrem = 0;
+  const callDays = new Set(), putDays = new Set();
+  for (const r of byContractDay.values()) {
+    if (r.side === "call") { callPrem += r.prem; callDays.add(r.day); }
+    else { putPrem += r.prem; putDays.add(r.day); }
   }
   const total = callPrem + putPrem;
-  if (!(total >= PICKS_FLOW_PERSIST_MIN_PREMIUM) || days.size === 0) return null;
+  if (!(total >= PICKS_FLOW_PERSIST_MIN_PREMIUM)) return null;
   const balance = (callPrem - putPrem) / total; // −1 (all-put) … +1 (all-call)
+  // Persistence = distinct sessions the DOMINANT side was flagged — 3 call
+  // days + 2 put days is 3 days of call persistence, not 5 of either.
+  const days = balance >= 0 ? callDays.size : putDays.size;
+  if (!days) return null;
   return {
     balance,
-    days: days.size,
+    days,
     callPrem,
     putPrem,
     // Continuous raw for the z pool: side balance scaled by persistence.
-    raw: balance * Math.log(1 + days.size),
+    raw: balance * Math.log(1 + days),
   };
 }
 
@@ -8402,12 +8425,18 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   // options positioning LANDED in last night's settlement, net of side —
   // (Σ call ΔOI − Σ put ΔOI) / total OI over the tracker's top-OI strikes on
   // the front two expirations. OI settles T+1, so this is real opened-and-held
-  // positioning, not intraday churn (which unusualFlow owns). Continuous and
-  // well-spread across the universe (live median ≈ 0, tails ±7-9%), so the z
-  // pool does the grading; the legacy ±1 fires at ≈ the 85th percentile.
+  // positioning, not intraday churn (which unusualFlow owns). Known basis
+  // mismatch, accepted: the numerator covers only the tracker's surfaced
+  // top-OI strikes while the denominator is ALL in-band front-two-expiration
+  // OI, so the fraction is attenuated vs a true net-ΔOI ratio — the
+  // PICKS_OI_DELTA_NET_BAR was calibrated empirically on exactly this basis
+  // (live median ≈ 0, tails ±7-9%, the ±1 fires ≈ p85), and the z pool grades
+  // relative position, where a uniform attenuation cancels.
   let oiDeltaSignal = _sig("oiDeltaNet", "OI Build (overnight Δ)", 0,
     { available: false, note: "no fresh OI-tracker snapshot" });
-  const oiRow = data?.oiTrackerRow;
+  // Own-flag gate: the stashed row may exist solely for the wall-proximity
+  // timing read (PICKS_TIMING_WALL) when the mechanicals flag is off.
+  const oiRow = PICKS_OI_TRACKER_SIGNALS ? data?.oiTrackerRow : null;
   if (oiRow && Array.isArray(oiRow.strikes)) {
     const callOiTotal = Number(oiRow.callOiTotal) || 0;
     const putOiTotal = Number(oiRow.putOiTotal) || 0;
@@ -10371,7 +10400,12 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   // overlaps the VIX axis, so it's a confirming vote, never a driver that can
   // tip "severe" on its own. Only the extremes vote; the middle is no signal.
   if (PICKS_MACRO_SENTIMENT) {
-    const fgScore = fearGreed && Number.isFinite(Number(fearGreed.score)) ? Number(fearGreed.score) : null;
+    // Staleness gate (same discipline as the scanner readers): a carried-
+    // forward last-good snapshot keeps the chip alive elsewhere, but a
+    // days-old extreme-fear reading must not keep voting risk-off here.
+    const fgAgeMs = fearGreed && fearGreed.asOf ? Date.now() - Date.parse(fearGreed.asOf) : null;
+    const fgFresh = fgAgeMs == null || (Number.isFinite(fgAgeMs) && fgAgeMs <= PICKS_MACRO_FG_MAX_AGE_HOURS * 3600e3);
+    const fgScore = fgFresh && fearGreed && Number.isFinite(Number(fearGreed.score)) ? Number(fearGreed.score) : null;
     let s = 0;
     let label = fgScore == null ? "no Fear & Greed data" : `Fear & Greed ${fgScore.toFixed(0)} (${fearGreed.rating || "neutral"})`;
     if (fgScore != null && fgScore <= PICKS_MACRO_FG_FEAR) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fear-stressed internals`; }
@@ -10858,12 +10892,13 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       ? ((Number(cw.strike) - spot) / spot) * 100 : null;
     const pwPct = pw && Number.isFinite(Number(pw.strike)) && Number(pw.strike) <= spot
       ? ((spot - Number(pw.strike)) / spot) * 100 : null;
+    const oiTxt = (w) => Number.isFinite(Number(w.oi)) ? ` (${Number(w.oi).toLocaleString()} OI)` : "";
     if (cwPct != null && cwPct <= PICKS_TIMING_WALL_PCT) {
-      if (dir > 0) con(false, `spot ${cwPct.toFixed(1)}% under the $${cw.strike} call wall (${Number(cw.oi).toLocaleString()} OI) — dealer-hedging supply overhead`);
+      if (dir > 0) con(false, `spot ${cwPct.toFixed(1)}% under the $${cw.strike} call wall${oiTxt(cw)} — dealer-hedging supply overhead`);
       else pro(false, `spot ${cwPct.toFixed(1)}% under the $${cw.strike} call wall — overhead supply caps the bounce a put fears`);
     }
     if (pwPct != null && pwPct <= PICKS_TIMING_WALL_PCT) {
-      if (dir > 0) pro(false, `spot ${pwPct.toFixed(1)}% above the $${pw.strike} put wall (${Number(pw.oi).toLocaleString()} OI) — dealer support underfoot`);
+      if (dir > 0) pro(false, `spot ${pwPct.toFixed(1)}% above the $${pw.strike} put wall${oiTxt(pw)} — dealer support underfoot`);
       else con(false, `spot ${pwPct.toFixed(1)}% above the $${pw.strike} put wall — a defended floor fights the downside`);
     }
   }
@@ -11503,7 +11538,11 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
 // negative-edge vertical trigger (buildTopPicks #3) so the two never drift.
 export function realizedOptionEdge(closed) {
   const decided = Array.isArray(closed) ? closed.filter((e) => e && (e.outcome === "win" || e.outcome === "loss") && e.cohort !== "wait") : [];
-  const opt = decided.map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  // Number.isFinite WITHOUT coercion — Number(null) is 0, and a closed entry
+  // carries optionPnlPct: null exactly when the reprice was unmodelable; a
+  // fake 0% here dilutes the measured edge AND counts toward PICKS_EDGE_MIN_N,
+  // flipping basis to "option" prematurely (same family as the stats guards).
+  const opt = decided.map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
   const basis = opt.length >= PICKS_EDGE_MIN_N ? "option" : "underlying";
   const series = opt.length >= PICKS_EDGE_MIN_N ? opt : decided.map(realizedMovePct).filter((x) => x != null);
   if (series.length < PICKS_EDGE_MIN_N) return { exp: null, n: series.length, basis };

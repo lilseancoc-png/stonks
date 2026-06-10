@@ -884,9 +884,12 @@ it has to be trustworthy. The fixes:
     + `gammaSqueeze` (the tracker's 0-5 rule score: ≥4 → +2, 3 → +1; call-side-only by
     construction, fixed signal, deliberately NOT clustered); `PICKS_FLOW_PERSIST`
     (default ON) — `flowPersist` (rolling 7-day `unusual-log.json`: premium-weighted
-    side balance × ln(1+distinct days); ≥60% balance over 2+/4+ days → ±1/±2; raw rides
-    the z pool; `PICKS_FLOW_PERSIST_MIN_PREMIUM 250000` noise floor,
-    `PICKS_FLOW_LOG_WINDOW_DAYS 7`). All three read scanner-owned files staleness-gated
+    side balance × ln(1+days), where entries are first **deduped to one row per
+    contract-day at the day's max premium** — the log appends per hourly scan with
+    cumulative session notional, so raw sums would pass the noise floor by repetition —
+    and **days counts the DOMINANT side's distinct sessions** only; ≥60% balance over
+    2+/4+ days → ±1/±2; raw rides the z pool; `PICKS_FLOW_PERSIST_MIN_PREMIUM 250000`
+    noise floor, `PICKS_FLOW_LOG_WINDOW_DAYS 7`). All three read scanner-owned files staleness-gated
     (`PICKS_OI_TRACKER_MAX_AGE_DAYS 4`) and degrade to "no data". `oiDeltaNet`/`flowPersist`
     join the **flow** decorrelation cluster (one positioning beta read four ways —
     today's prints, OI level, overnight build, multi-day persistence; the 1/√K collapse
