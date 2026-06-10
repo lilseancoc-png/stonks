@@ -249,8 +249,9 @@
     <header class="card-header">
       <h2 class="card-title">All supported tickers</h2>
       <span class="card-eyebrow"><span id="tickers-visible-count">138</span> / 138 symbols</span>
+      <span class="tab-live-state" id="tickers-live-state" aria-live="polite"></span>
     </header>
-    <p class="hint">Every ticker the site tracks. Click any card to grade options on it.</p>
+    <p class="hint">Every ticker the site tracks. Click any card to grade options on it. Prices refresh live every 30s while this tab is open.</p>
     <div class="tickers-controls">
       <div class="tickers-search-wrap">
         <input type="search" id="tickers-search" class="tickers-search" placeholder="Search ticker…" autocomplete="off" aria-label="Search tickers" />
@@ -262,555 +263,969 @@
     </div>
     <div class="tickers-grid" id="tickers-grid"><a class="ticker-card" href="?s=AAOI" data-ticker="AAOI" data-sector="Semis">
       <span class="ticker-sym">AAOI</span>
-      <span class="ticker-spot" data-spot-for="AAOI"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AAOI"></span>
+        <span class="ticker-chg" data-chg-for="AAOI" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=AAPL" data-ticker="AAPL" data-sector="Mega-cap tech">
       <span class="ticker-sym">AAPL</span>
-      <span class="ticker-spot" data-spot-for="AAPL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AAPL"></span>
+        <span class="ticker-chg" data-chg-for="AAPL" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech</span>
     </a><a class="ticker-card" href="?s=ABNB" data-ticker="ABNB" data-sector="Consumer">
       <span class="ticker-sym">ABNB</span>
-      <span class="ticker-spot" data-spot-for="ABNB"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ABNB"></span>
+        <span class="ticker-chg" data-chg-for="ABNB" hidden></span>
+      </span>
       <span class="ticker-sector">Consumer · Travel Services</span>
     </a><a class="ticker-card" href="?s=ACN" data-ticker="ACN" data-sector="IT services">
       <span class="ticker-sym">ACN</span>
-      <span class="ticker-spot" data-spot-for="ACN"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ACN"></span>
+        <span class="ticker-chg" data-chg-for="ACN" hidden></span>
+      </span>
       <span class="ticker-sector">IT services · Information Technology Services</span>
     </a><a class="ticker-card" href="?s=ADBE" data-ticker="ADBE" data-sector="Software">
       <span class="ticker-sym">ADBE</span>
-      <span class="ticker-spot" data-spot-for="ADBE"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ADBE"></span>
+        <span class="ticker-chg" data-chg-for="ADBE" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=ALAB" data-ticker="ALAB" data-sector="Semis">
       <span class="ticker-sym">ALAB</span>
-      <span class="ticker-spot" data-spot-for="ALAB"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ALAB"></span>
+        <span class="ticker-chg" data-chg-for="ALAB" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=AMAT" data-ticker="AMAT" data-sector="Semis">
       <span class="ticker-sym">AMAT</span>
-      <span class="ticker-spot" data-spot-for="AMAT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AMAT"></span>
+        <span class="ticker-chg" data-chg-for="AMAT" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductor Equipment &amp; Materials</span>
     </a><a class="ticker-card" href="?s=AMD" data-ticker="AMD" data-sector="Semis">
       <span class="ticker-sym">AMD</span>
-      <span class="ticker-spot" data-spot-for="AMD"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AMD"></span>
+        <span class="ticker-chg" data-chg-for="AMD" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=AMKR" data-ticker="AMKR" data-sector="Semis">
       <span class="ticker-sym">AMKR</span>
-      <span class="ticker-spot" data-spot-for="AMKR"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AMKR"></span>
+        <span class="ticker-chg" data-chg-for="AMKR" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=AMZN" data-ticker="AMZN" data-sector="Mega-cap tech">
       <span class="ticker-sym">AMZN</span>
-      <span class="ticker-spot" data-spot-for="AMZN"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AMZN"></span>
+        <span class="ticker-chg" data-chg-for="AMZN" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech · Internet Retail</span>
     </a><a class="ticker-card" href="?s=ANET" data-ticker="ANET" data-sector="Networking">
       <span class="ticker-sym">ANET</span>
-      <span class="ticker-spot" data-spot-for="ANET"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ANET"></span>
+        <span class="ticker-chg" data-chg-for="ANET" hidden></span>
+      </span>
       <span class="ticker-sector">Networking · Communication Equipment</span>
     </a><a class="ticker-card" href="?s=APO" data-ticker="APO" data-sector="Asset mgmt">
       <span class="ticker-sym">APO</span>
-      <span class="ticker-spot" data-spot-for="APO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="APO"></span>
+        <span class="ticker-chg" data-chg-for="APO" hidden></span>
+      </span>
       <span class="ticker-sector">Asset mgmt · Asset Management</span>
     </a><a class="ticker-card" href="?s=APP" data-ticker="APP" data-sector="Software">
       <span class="ticker-sym">APP</span>
-      <span class="ticker-spot" data-spot-for="APP"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="APP"></span>
+        <span class="ticker-chg" data-chg-for="APP" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=ARM" data-ticker="ARM" data-sector="Semis">
       <span class="ticker-sym">ARM</span>
-      <span class="ticker-spot" data-spot-for="ARM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ARM"></span>
+        <span class="ticker-chg" data-chg-for="ARM" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=ASML" data-ticker="ASML" data-sector="Semis">
       <span class="ticker-sym">ASML</span>
-      <span class="ticker-spot" data-spot-for="ASML"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ASML"></span>
+        <span class="ticker-chg" data-chg-for="ASML" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductor Equipment &amp; Materials</span>
     </a><a class="ticker-card" href="?s=ASTS" data-ticker="ASTS" data-sector="Space">
       <span class="ticker-sym">ASTS</span>
-      <span class="ticker-spot" data-spot-for="ASTS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ASTS"></span>
+        <span class="ticker-chg" data-chg-for="ASTS" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=AVGO" data-ticker="AVGO" data-sector="Semis">
       <span class="ticker-sym">AVGO</span>
-      <span class="ticker-spot" data-spot-for="AVGO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AVGO"></span>
+        <span class="ticker-chg" data-chg-for="AVGO" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=AXP" data-ticker="AXP" data-sector="Payments">
       <span class="ticker-sym">AXP</span>
-      <span class="ticker-spot" data-spot-for="AXP"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="AXP"></span>
+        <span class="ticker-chg" data-chg-for="AXP" hidden></span>
+      </span>
       <span class="ticker-sector">Payments · Credit Services</span>
     </a><a class="ticker-card" href="?s=BABA" data-ticker="BABA" data-sector="China tech">
       <span class="ticker-sym">BABA</span>
-      <span class="ticker-spot" data-spot-for="BABA"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="BABA"></span>
+        <span class="ticker-chg" data-chg-for="BABA" hidden></span>
+      </span>
       <span class="ticker-sector">China tech · Internet Retail</span>
     </a><a class="ticker-card" href="?s=BAC" data-ticker="BAC" data-sector="Bank">
       <span class="ticker-sym">BAC</span>
-      <span class="ticker-spot" data-spot-for="BAC"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="BAC"></span>
+        <span class="ticker-chg" data-chg-for="BAC" hidden></span>
+      </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
     </a><a class="ticker-card" href="?s=BE" data-ticker="BE" data-sector="Clean energy">
       <span class="ticker-sym">BE</span>
-      <span class="ticker-spot" data-spot-for="BE"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="BE"></span>
+        <span class="ticker-chg" data-chg-for="BE" hidden></span>
+      </span>
       <span class="ticker-sector">Clean energy · Utilities - Renewable</span>
     </a><a class="ticker-card" href="?s=BKSY" data-ticker="BKSY" data-sector="Space">
       <span class="ticker-sym">BKSY</span>
-      <span class="ticker-spot" data-spot-for="BKSY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="BKSY"></span>
+        <span class="ticker-chg" data-chg-for="BKSY" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=BSX" data-ticker="BSX" data-sector="Medical">
       <span class="ticker-sym">BSX</span>
-      <span class="ticker-spot" data-spot-for="BSX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="BSX"></span>
+        <span class="ticker-chg" data-chg-for="BSX" hidden></span>
+      </span>
       <span class="ticker-sector">Medical · Medical Devices</span>
     </a><a class="ticker-card" href="?s=BX" data-ticker="BX" data-sector="Asset mgmt">
       <span class="ticker-sym">BX</span>
-      <span class="ticker-spot" data-spot-for="BX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="BX"></span>
+        <span class="ticker-chg" data-chg-for="BX" hidden></span>
+      </span>
       <span class="ticker-sector">Asset mgmt · Asset Management</span>
     </a><a class="ticker-card" href="?s=C" data-ticker="C" data-sector="Bank">
       <span class="ticker-sym">C</span>
-      <span class="ticker-spot" data-spot-for="C"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="C"></span>
+        <span class="ticker-chg" data-chg-for="C" hidden></span>
+      </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
     </a><a class="ticker-card" href="?s=CAT" data-ticker="CAT" data-sector="Industrial">
       <span class="ticker-sym">CAT</span>
-      <span class="ticker-spot" data-spot-for="CAT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CAT"></span>
+        <span class="ticker-chg" data-chg-for="CAT" hidden></span>
+      </span>
       <span class="ticker-sector">Industrial · Farm &amp; Heavy Construction Machinery</span>
     </a><a class="ticker-card" href="?s=CBRS" data-ticker="CBRS" data-sector="Semis">
       <span class="ticker-sym">CBRS</span>
-      <span class="ticker-spot" data-spot-for="CBRS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CBRS"></span>
+        <span class="ticker-chg" data-chg-for="CBRS" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=CI" data-ticker="CI" data-sector="Insurance">
       <span class="ticker-sym">CI</span>
-      <span class="ticker-spot" data-spot-for="CI"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CI"></span>
+        <span class="ticker-chg" data-chg-for="CI" hidden></span>
+      </span>
       <span class="ticker-sector">Insurance · Healthcare Plans</span>
     </a><a class="ticker-card" href="?s=CLS" data-ticker="CLS" data-sector="Data center">
       <span class="ticker-sym">CLS</span>
-      <span class="ticker-spot" data-spot-for="CLS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CLS"></span>
+        <span class="ticker-chg" data-chg-for="CLS" hidden></span>
+      </span>
       <span class="ticker-sector">Data center · Computer Hardware</span>
     </a><a class="ticker-card" href="?s=COF" data-ticker="COF" data-sector="Bank">
       <span class="ticker-sym">COF</span>
-      <span class="ticker-spot" data-spot-for="COF"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="COF"></span>
+        <span class="ticker-chg" data-chg-for="COF" hidden></span>
+      </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
     </a><a class="ticker-card" href="?s=COHR" data-ticker="COHR" data-sector="Semis">
       <span class="ticker-sym">COHR</span>
-      <span class="ticker-spot" data-spot-for="COHR"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="COHR"></span>
+        <span class="ticker-chg" data-chg-for="COHR" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=COST" data-ticker="COST" data-sector="Retail">
       <span class="ticker-sym">COST</span>
-      <span class="ticker-spot" data-spot-for="COST"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="COST"></span>
+        <span class="ticker-chg" data-chg-for="COST" hidden></span>
+      </span>
       <span class="ticker-sector">Retail · Discount Stores</span>
     </a><a class="ticker-card" href="?s=CRM" data-ticker="CRM" data-sector="Software">
       <span class="ticker-sym">CRM</span>
-      <span class="ticker-spot" data-spot-for="CRM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CRM"></span>
+        <span class="ticker-chg" data-chg-for="CRM" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=CRWD" data-ticker="CRWD" data-sector="Software">
       <span class="ticker-sym">CRWD</span>
-      <span class="ticker-spot" data-spot-for="CRWD"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CRWD"></span>
+        <span class="ticker-chg" data-chg-for="CRWD" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=CRWV" data-ticker="CRWV" data-sector="Software">
       <span class="ticker-sym">CRWV</span>
-      <span class="ticker-spot" data-spot-for="CRWV"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CRWV"></span>
+        <span class="ticker-chg" data-chg-for="CRWV" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=CSCO" data-ticker="CSCO" data-sector="Networking">
       <span class="ticker-sym">CSCO</span>
-      <span class="ticker-spot" data-spot-for="CSCO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="CSCO"></span>
+        <span class="ticker-chg" data-chg-for="CSCO" hidden></span>
+      </span>
       <span class="ticker-sector">Networking · Communication Equipment</span>
     </a><a class="ticker-card" href="?s=DASH" data-ticker="DASH" data-sector="Consumer">
       <span class="ticker-sym">DASH</span>
-      <span class="ticker-spot" data-spot-for="DASH"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="DASH"></span>
+        <span class="ticker-chg" data-chg-for="DASH" hidden></span>
+      </span>
       <span class="ticker-sector">Consumer · Travel Services</span>
     </a><a class="ticker-card" href="?s=DDOG" data-ticker="DDOG" data-sector="Software">
       <span class="ticker-sym">DDOG</span>
-      <span class="ticker-spot" data-spot-for="DDOG"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="DDOG"></span>
+        <span class="ticker-chg" data-chg-for="DDOG" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=DE" data-ticker="DE" data-sector="Industrial">
       <span class="ticker-sym">DE</span>
-      <span class="ticker-spot" data-spot-for="DE"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="DE"></span>
+        <span class="ticker-chg" data-chg-for="DE" hidden></span>
+      </span>
       <span class="ticker-sector">Industrial · Farm &amp; Heavy Construction Machinery</span>
     </a><a class="ticker-card" href="?s=DELL" data-ticker="DELL" data-sector="Hardware">
       <span class="ticker-sym">DELL</span>
-      <span class="ticker-spot" data-spot-for="DELL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="DELL"></span>
+        <span class="ticker-chg" data-chg-for="DELL" hidden></span>
+      </span>
       <span class="ticker-sector">Hardware · Computer Hardware</span>
     </a><a class="ticker-card" href="?s=DIS" data-ticker="DIS" data-sector="Media">
       <span class="ticker-sym">DIS</span>
-      <span class="ticker-spot" data-spot-for="DIS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="DIS"></span>
+        <span class="ticker-chg" data-chg-for="DIS" hidden></span>
+      </span>
       <span class="ticker-sector">Media · Entertainment</span>
     </a><a class="ticker-card" href="?s=DRAM" data-ticker="DRAM" data-sector="Semis">
       <span class="ticker-sym">DRAM</span>
-      <span class="ticker-spot" data-spot-for="DRAM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="DRAM"></span>
+        <span class="ticker-chg" data-chg-for="DRAM" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=EBAY" data-ticker="EBAY" data-sector="E-commerce">
       <span class="ticker-sym">EBAY</span>
-      <span class="ticker-spot" data-spot-for="EBAY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="EBAY"></span>
+        <span class="ticker-chg" data-chg-for="EBAY" hidden></span>
+      </span>
       <span class="ticker-sector">E-commerce · Internet Retail</span>
     </a><a class="ticker-card" href="?s=EL" data-ticker="EL" data-sector="Beauty">
       <span class="ticker-sym">EL</span>
-      <span class="ticker-spot" data-spot-for="EL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="EL"></span>
+        <span class="ticker-chg" data-chg-for="EL" hidden></span>
+      </span>
       <span class="ticker-sector">Beauty · Household &amp; Personal Products</span>
     </a><a class="ticker-card" href="?s=ETSY" data-ticker="ETSY" data-sector="E-commerce">
       <span class="ticker-sym">ETSY</span>
-      <span class="ticker-spot" data-spot-for="ETSY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ETSY"></span>
+        <span class="ticker-chg" data-chg-for="ETSY" hidden></span>
+      </span>
       <span class="ticker-sector">E-commerce · Internet Retail</span>
     </a><a class="ticker-card" href="?s=EWY" data-ticker="EWY" data-sector="ETF">
       <span class="ticker-sym">EWY</span>
-      <span class="ticker-spot" data-spot-for="EWY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="EWY"></span>
+        <span class="ticker-chg" data-chg-for="EWY" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=FDX" data-ticker="FDX" data-sector="Logistics">
       <span class="ticker-sym">FDX</span>
-      <span class="ticker-spot" data-spot-for="FDX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="FDX"></span>
+        <span class="ticker-chg" data-chg-for="FDX" hidden></span>
+      </span>
       <span class="ticker-sector">Logistics · Integrated Freight &amp; Logistics</span>
     </a><a class="ticker-card" href="?s=FIG" data-ticker="FIG" data-sector="Software">
       <span class="ticker-sym">FIG</span>
-      <span class="ticker-spot" data-spot-for="FIG"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="FIG"></span>
+        <span class="ticker-chg" data-chg-for="FIG" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=FLY" data-ticker="FLY" data-sector="Space">
       <span class="ticker-sym">FLY</span>
-      <span class="ticker-spot" data-spot-for="FLY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="FLY"></span>
+        <span class="ticker-chg" data-chg-for="FLY" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=FTNT" data-ticker="FTNT" data-sector="Software">
       <span class="ticker-sym">FTNT</span>
-      <span class="ticker-spot" data-spot-for="FTNT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="FTNT"></span>
+        <span class="ticker-chg" data-chg-for="FTNT" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=GD" data-ticker="GD" data-sector="Defense">
       <span class="ticker-sym">GD</span>
-      <span class="ticker-spot" data-spot-for="GD"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="GD"></span>
+        <span class="ticker-chg" data-chg-for="GD" hidden></span>
+      </span>
       <span class="ticker-sector">Defense · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=GLD" data-ticker="GLD" data-sector="ETF">
       <span class="ticker-sym">GLD</span>
-      <span class="ticker-spot" data-spot-for="GLD"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="GLD"></span>
+        <span class="ticker-chg" data-chg-for="GLD" hidden></span>
+      </span>
       <span class="ticker-sector">ETF · Gold</span>
     </a><a class="ticker-card" href="?s=GLW" data-ticker="GLW" data-sector="Semis">
       <span class="ticker-sym">GLW</span>
-      <span class="ticker-spot" data-spot-for="GLW"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="GLW"></span>
+        <span class="ticker-chg" data-chg-for="GLW" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Communication Equipment</span>
     </a><a class="ticker-card" href="?s=GOOGL" data-ticker="GOOGL" data-sector="Mega-cap tech">
       <span class="ticker-sym">GOOGL</span>
-      <span class="ticker-spot" data-spot-for="GOOGL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="GOOGL"></span>
+        <span class="ticker-chg" data-chg-for="GOOGL" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech · Internet Content &amp; Information</span>
     </a><a class="ticker-card" href="?s=GS" data-ticker="GS" data-sector="Bank">
       <span class="ticker-sym">GS</span>
-      <span class="ticker-spot" data-spot-for="GS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="GS"></span>
+        <span class="ticker-chg" data-chg-for="GS" hidden></span>
+      </span>
       <span class="ticker-sector">Bank · Capital Markets</span>
     </a><a class="ticker-card" href="?s=HD" data-ticker="HD" data-sector="Retail">
       <span class="ticker-sym">HD</span>
-      <span class="ticker-spot" data-spot-for="HD"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="HD"></span>
+        <span class="ticker-chg" data-chg-for="HD" hidden></span>
+      </span>
       <span class="ticker-sector">Retail · Specialty Retail</span>
     </a><a class="ticker-card" href="?s=HIMS" data-ticker="HIMS" data-sector="Telehealth">
       <span class="ticker-sym">HIMS</span>
-      <span class="ticker-spot" data-spot-for="HIMS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="HIMS"></span>
+        <span class="ticker-chg" data-chg-for="HIMS" hidden></span>
+      </span>
       <span class="ticker-sector">Telehealth · Consumer Health Products</span>
     </a><a class="ticker-card" href="?s=HOOD" data-ticker="HOOD" data-sector="Broker">
       <span class="ticker-sym">HOOD</span>
-      <span class="ticker-spot" data-spot-for="HOOD"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="HOOD"></span>
+        <span class="ticker-chg" data-chg-for="HOOD" hidden></span>
+      </span>
       <span class="ticker-sector">Broker · Capital Markets</span>
     </a><a class="ticker-card" href="?s=HUBS" data-ticker="HUBS" data-sector="Software">
       <span class="ticker-sym">HUBS</span>
-      <span class="ticker-spot" data-spot-for="HUBS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="HUBS"></span>
+        <span class="ticker-chg" data-chg-for="HUBS" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=IBKR" data-ticker="IBKR" data-sector="Broker">
       <span class="ticker-sym">IBKR</span>
-      <span class="ticker-spot" data-spot-for="IBKR"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="IBKR"></span>
+        <span class="ticker-chg" data-chg-for="IBKR" hidden></span>
+      </span>
       <span class="ticker-sector">Broker · Capital Markets</span>
     </a><a class="ticker-card" href="?s=IBM" data-ticker="IBM" data-sector="Tech services">
       <span class="ticker-sym">IBM</span>
-      <span class="ticker-spot" data-spot-for="IBM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="IBM"></span>
+        <span class="ticker-chg" data-chg-for="IBM" hidden></span>
+      </span>
       <span class="ticker-sector">Tech services · Information Technology Services</span>
     </a><a class="ticker-card" href="?s=INTC" data-ticker="INTC" data-sector="Semis">
       <span class="ticker-sym">INTC</span>
-      <span class="ticker-spot" data-spot-for="INTC"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="INTC"></span>
+        <span class="ticker-chg" data-chg-for="INTC" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=INTU" data-ticker="INTU" data-sector="Software">
       <span class="ticker-sym">INTU</span>
-      <span class="ticker-spot" data-spot-for="INTU"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="INTU"></span>
+        <span class="ticker-chg" data-chg-for="INTU" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=IWM" data-ticker="IWM" data-sector="ETF">
       <span class="ticker-sym">IWM</span>
-      <span class="ticker-spot" data-spot-for="IWM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="IWM"></span>
+        <span class="ticker-chg" data-chg-for="IWM" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=JPM" data-ticker="JPM" data-sector="Bank">
       <span class="ticker-sym">JPM</span>
-      <span class="ticker-spot" data-spot-for="JPM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="JPM"></span>
+        <span class="ticker-chg" data-chg-for="JPM" hidden></span>
+      </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
     </a><a class="ticker-card" href="?s=KULR" data-ticker="KULR" data-sector="Space">
       <span class="ticker-sym">KULR</span>
-      <span class="ticker-spot" data-spot-for="KULR"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="KULR"></span>
+        <span class="ticker-chg" data-chg-for="KULR" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Electrical Equipment &amp; Parts</span>
     </a><a class="ticker-card" href="?s=KWEB" data-ticker="KWEB" data-sector="ETF">
       <span class="ticker-sym">KWEB</span>
-      <span class="ticker-spot" data-spot-for="KWEB"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="KWEB"></span>
+        <span class="ticker-chg" data-chg-for="KWEB" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=LEN" data-ticker="LEN" data-sector="Homebuilder">
       <span class="ticker-sym">LEN</span>
-      <span class="ticker-spot" data-spot-for="LEN"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="LEN"></span>
+        <span class="ticker-chg" data-chg-for="LEN" hidden></span>
+      </span>
       <span class="ticker-sector">Homebuilder · Residential Construction</span>
     </a><a class="ticker-card" href="?s=LITE" data-ticker="LITE" data-sector="Semis">
       <span class="ticker-sym">LITE</span>
-      <span class="ticker-spot" data-spot-for="LITE"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="LITE"></span>
+        <span class="ticker-chg" data-chg-for="LITE" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=LLY" data-ticker="LLY" data-sector="Pharma">
       <span class="ticker-sym">LLY</span>
-      <span class="ticker-spot" data-spot-for="LLY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="LLY"></span>
+        <span class="ticker-chg" data-chg-for="LLY" hidden></span>
+      </span>
       <span class="ticker-sector">Pharma · Drug Manufacturers - General</span>
     </a><a class="ticker-card" href="?s=LOW" data-ticker="LOW" data-sector="Retail">
       <span class="ticker-sym">LOW</span>
-      <span class="ticker-spot" data-spot-for="LOW"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="LOW"></span>
+        <span class="ticker-chg" data-chg-for="LOW" hidden></span>
+      </span>
       <span class="ticker-sector">Retail · Specialty Retail</span>
     </a><a class="ticker-card" href="?s=LRCX" data-ticker="LRCX" data-sector="Semis">
       <span class="ticker-sym">LRCX</span>
-      <span class="ticker-spot" data-spot-for="LRCX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="LRCX"></span>
+        <span class="ticker-chg" data-chg-for="LRCX" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductor Equipment &amp; Materials</span>
     </a><a class="ticker-card" href="?s=LULU" data-ticker="LULU" data-sector="Apparel">
       <span class="ticker-sym">LULU</span>
-      <span class="ticker-spot" data-spot-for="LULU"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="LULU"></span>
+        <span class="ticker-chg" data-chg-for="LULU" hidden></span>
+      </span>
       <span class="ticker-sector">Apparel · Apparel Retail</span>
     </a><a class="ticker-card" href="?s=LUNR" data-ticker="LUNR" data-sector="Space">
       <span class="ticker-sym">LUNR</span>
-      <span class="ticker-spot" data-spot-for="LUNR"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="LUNR"></span>
+        <span class="ticker-chg" data-chg-for="LUNR" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=MA" data-ticker="MA" data-sector="Payments">
       <span class="ticker-sym">MA</span>
-      <span class="ticker-spot" data-spot-for="MA"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MA"></span>
+        <span class="ticker-chg" data-chg-for="MA" hidden></span>
+      </span>
       <span class="ticker-sector">Payments · Credit Services</span>
     </a><a class="ticker-card" href="?s=MCD" data-ticker="MCD" data-sector="Restaurants">
       <span class="ticker-sym">MCD</span>
-      <span class="ticker-spot" data-spot-for="MCD"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MCD"></span>
+        <span class="ticker-chg" data-chg-for="MCD" hidden></span>
+      </span>
       <span class="ticker-sector">Restaurants · Restaurants</span>
     </a><a class="ticker-card" href="?s=MDB" data-ticker="MDB" data-sector="Software">
       <span class="ticker-sym">MDB</span>
-      <span class="ticker-spot" data-spot-for="MDB"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MDB"></span>
+        <span class="ticker-chg" data-chg-for="MDB" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=META" data-ticker="META" data-sector="Mega-cap tech">
       <span class="ticker-sym">META</span>
-      <span class="ticker-spot" data-spot-for="META"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="META"></span>
+        <span class="ticker-chg" data-chg-for="META" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech · Internet Content &amp; Information</span>
     </a><a class="ticker-card" href="?s=MP" data-ticker="MP" data-sector="Materials">
       <span class="ticker-sym">MP</span>
-      <span class="ticker-spot" data-spot-for="MP"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MP"></span>
+        <span class="ticker-chg" data-chg-for="MP" hidden></span>
+      </span>
       <span class="ticker-sector">Materials · Other Industrial Metals &amp; Mining</span>
     </a><a class="ticker-card" href="?s=MRVL" data-ticker="MRVL" data-sector="Semis">
       <span class="ticker-sym">MRVL</span>
-      <span class="ticker-spot" data-spot-for="MRVL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MRVL"></span>
+        <span class="ticker-chg" data-chg-for="MRVL" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=MS" data-ticker="MS" data-sector="Bank">
       <span class="ticker-sym">MS</span>
-      <span class="ticker-spot" data-spot-for="MS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MS"></span>
+        <span class="ticker-chg" data-chg-for="MS" hidden></span>
+      </span>
       <span class="ticker-sector">Bank · Capital Markets</span>
     </a><a class="ticker-card" href="?s=MSFT" data-ticker="MSFT" data-sector="Mega-cap tech">
       <span class="ticker-sym">MSFT</span>
-      <span class="ticker-spot" data-spot-for="MSFT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MSFT"></span>
+        <span class="ticker-chg" data-chg-for="MSFT" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=MU" data-ticker="MU" data-sector="Semis">
       <span class="ticker-sym">MU</span>
-      <span class="ticker-spot" data-spot-for="MU"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="MU"></span>
+        <span class="ticker-chg" data-chg-for="MU" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=NET" data-ticker="NET" data-sector="Software">
       <span class="ticker-sym">NET</span>
-      <span class="ticker-spot" data-spot-for="NET"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="NET"></span>
+        <span class="ticker-chg" data-chg-for="NET" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=NFLX" data-ticker="NFLX" data-sector="Mega-cap tech">
       <span class="ticker-sym">NFLX</span>
-      <span class="ticker-spot" data-spot-for="NFLX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="NFLX"></span>
+        <span class="ticker-chg" data-chg-for="NFLX" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech · Entertainment</span>
     </a><a class="ticker-card" href="?s=NKE" data-ticker="NKE" data-sector="Apparel">
       <span class="ticker-sym">NKE</span>
-      <span class="ticker-spot" data-spot-for="NKE"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="NKE"></span>
+        <span class="ticker-chg" data-chg-for="NKE" hidden></span>
+      </span>
       <span class="ticker-sector">Apparel · Apparel Retail</span>
     </a><a class="ticker-card" href="?s=NOW" data-ticker="NOW" data-sector="Software">
       <span class="ticker-sym">NOW</span>
-      <span class="ticker-spot" data-spot-for="NOW"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="NOW"></span>
+        <span class="ticker-chg" data-chg-for="NOW" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=NVDA" data-ticker="NVDA" data-sector="Mega-cap tech">
       <span class="ticker-sym">NVDA</span>
-      <span class="ticker-spot" data-spot-for="NVDA"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="NVDA"></span>
+        <span class="ticker-chg" data-chg-for="NVDA" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech · Semiconductors</span>
     </a><a class="ticker-card" href="?s=NVO" data-ticker="NVO" data-sector="Pharma">
       <span class="ticker-sym">NVO</span>
-      <span class="ticker-spot" data-spot-for="NVO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="NVO"></span>
+        <span class="ticker-chg" data-chg-for="NVO" hidden></span>
+      </span>
       <span class="ticker-sector">Pharma · Drug Manufacturers - General</span>
     </a><a class="ticker-card" href="?s=NXPI" data-ticker="NXPI" data-sector="Semis">
       <span class="ticker-sym">NXPI</span>
-      <span class="ticker-spot" data-spot-for="NXPI"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="NXPI"></span>
+        <span class="ticker-chg" data-chg-for="NXPI" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=OKLO" data-ticker="OKLO" data-sector="Nuclear">
       <span class="ticker-sym">OKLO</span>
-      <span class="ticker-spot" data-spot-for="OKLO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="OKLO"></span>
+        <span class="ticker-chg" data-chg-for="OKLO" hidden></span>
+      </span>
       <span class="ticker-sector">Nuclear · Utilities - Renewable</span>
     </a><a class="ticker-card" href="?s=OKTA" data-ticker="OKTA" data-sector="Software">
       <span class="ticker-sym">OKTA</span>
-      <span class="ticker-spot" data-spot-for="OKTA"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="OKTA"></span>
+        <span class="ticker-chg" data-chg-for="OKTA" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=ON" data-ticker="ON" data-sector="Semis">
       <span class="ticker-sym">ON</span>
-      <span class="ticker-spot" data-spot-for="ON"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ON"></span>
+        <span class="ticker-chg" data-chg-for="ON" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=ORCL" data-ticker="ORCL" data-sector="Software">
       <span class="ticker-sym">ORCL</span>
-      <span class="ticker-spot" data-spot-for="ORCL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ORCL"></span>
+        <span class="ticker-chg" data-chg-for="ORCL" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=PANW" data-ticker="PANW" data-sector="Software">
       <span class="ticker-sym">PANW</span>
-      <span class="ticker-spot" data-spot-for="PANW"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="PANW"></span>
+        <span class="ticker-chg" data-chg-for="PANW" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=PL" data-ticker="PL" data-sector="Space">
       <span class="ticker-sym">PL</span>
-      <span class="ticker-spot" data-spot-for="PL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="PL"></span>
+        <span class="ticker-chg" data-chg-for="PL" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=PLAB" data-ticker="PLAB" data-sector="Semis">
       <span class="ticker-sym">PLAB</span>
-      <span class="ticker-spot" data-spot-for="PLAB"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="PLAB"></span>
+        <span class="ticker-chg" data-chg-for="PLAB" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=PLTR" data-ticker="PLTR" data-sector="Software">
       <span class="ticker-sym">PLTR</span>
-      <span class="ticker-spot" data-spot-for="PLTR"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="PLTR"></span>
+        <span class="ticker-chg" data-chg-for="PLTR" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=PYPL" data-ticker="PYPL" data-sector="Payments">
       <span class="ticker-sym">PYPL</span>
-      <span class="ticker-spot" data-spot-for="PYPL"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="PYPL"></span>
+        <span class="ticker-chg" data-chg-for="PYPL" hidden></span>
+      </span>
       <span class="ticker-sector">Payments · Credit Services</span>
     </a><a class="ticker-card" href="?s=QCOM" data-ticker="QCOM" data-sector="Semis">
       <span class="ticker-sym">QCOM</span>
-      <span class="ticker-spot" data-spot-for="QCOM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="QCOM"></span>
+        <span class="ticker-chg" data-chg-for="QCOM" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=QQQ" data-ticker="QQQ" data-sector="ETF">
       <span class="ticker-sym">QQQ</span>
-      <span class="ticker-spot" data-spot-for="QQQ"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="QQQ"></span>
+        <span class="ticker-chg" data-chg-for="QQQ" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=RBLX" data-ticker="RBLX" data-sector="Software">
       <span class="ticker-sym">RBLX</span>
-      <span class="ticker-spot" data-spot-for="RBLX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="RBLX"></span>
+        <span class="ticker-chg" data-chg-for="RBLX" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Electronic Gaming &amp; Multimedia</span>
     </a><a class="ticker-card" href="?s=RDDT" data-ticker="RDDT" data-sector="Social">
       <span class="ticker-sym">RDDT</span>
-      <span class="ticker-spot" data-spot-for="RDDT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="RDDT"></span>
+        <span class="ticker-chg" data-chg-for="RDDT" hidden></span>
+      </span>
       <span class="ticker-sector">Social · Internet Content &amp; Information</span>
     </a><a class="ticker-card" href="?s=RDW" data-ticker="RDW" data-sector="Space">
       <span class="ticker-sym">RDW</span>
-      <span class="ticker-spot" data-spot-for="RDW"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="RDW"></span>
+        <span class="ticker-chg" data-chg-for="RDW" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=RKLB" data-ticker="RKLB" data-sector="Space">
       <span class="ticker-sym">RKLB</span>
-      <span class="ticker-spot" data-spot-for="RKLB"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="RKLB"></span>
+        <span class="ticker-chg" data-chg-for="RKLB" hidden></span>
+      </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
     </a><a class="ticker-card" href="?s=SBUX" data-ticker="SBUX" data-sector="Restaurants">
       <span class="ticker-sym">SBUX</span>
-      <span class="ticker-spot" data-spot-for="SBUX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SBUX"></span>
+        <span class="ticker-chg" data-chg-for="SBUX" hidden></span>
+      </span>
       <span class="ticker-sector">Restaurants · Restaurants</span>
     </a><a class="ticker-card" href="?s=SCHW" data-ticker="SCHW" data-sector="Broker">
       <span class="ticker-sym">SCHW</span>
-      <span class="ticker-spot" data-spot-for="SCHW"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SCHW"></span>
+        <span class="ticker-chg" data-chg-for="SCHW" hidden></span>
+      </span>
       <span class="ticker-sector">Broker · Capital Markets</span>
     </a><a class="ticker-card" href="?s=SHOP" data-ticker="SHOP" data-sector="Software">
       <span class="ticker-sym">SHOP</span>
-      <span class="ticker-spot" data-spot-for="SHOP"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SHOP"></span>
+        <span class="ticker-chg" data-chg-for="SHOP" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=SLV" data-ticker="SLV" data-sector="ETF">
       <span class="ticker-sym">SLV</span>
-      <span class="ticker-spot" data-spot-for="SLV"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SLV"></span>
+        <span class="ticker-chg" data-chg-for="SLV" hidden></span>
+      </span>
       <span class="ticker-sector">ETF · Silver</span>
     </a><a class="ticker-card" href="?s=SMCI" data-ticker="SMCI" data-sector="Semis">
       <span class="ticker-sym">SMCI</span>
-      <span class="ticker-spot" data-spot-for="SMCI"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SMCI"></span>
+        <span class="ticker-chg" data-chg-for="SMCI" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=SMH" data-ticker="SMH" data-sector="ETF">
       <span class="ticker-sym">SMH</span>
-      <span class="ticker-spot" data-spot-for="SMH"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SMH"></span>
+        <span class="ticker-chg" data-chg-for="SMH" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=SNDK" data-ticker="SNDK" data-sector="Storage">
       <span class="ticker-sym">SNDK</span>
-      <span class="ticker-spot" data-spot-for="SNDK"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SNDK"></span>
+        <span class="ticker-chg" data-chg-for="SNDK" hidden></span>
+      </span>
       <span class="ticker-sector">Storage · Semiconductors</span>
     </a><a class="ticker-card" href="?s=SNOW" data-ticker="SNOW" data-sector="Software">
       <span class="ticker-sym">SNOW</span>
-      <span class="ticker-spot" data-spot-for="SNOW"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SNOW"></span>
+        <span class="ticker-chg" data-chg-for="SNOW" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a><a class="ticker-card" href="?s=SPOT" data-ticker="SPOT" data-sector="Media">
       <span class="ticker-sym">SPOT</span>
-      <span class="ticker-spot" data-spot-for="SPOT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SPOT"></span>
+        <span class="ticker-chg" data-chg-for="SPOT" hidden></span>
+      </span>
       <span class="ticker-sector">Media · Entertainment</span>
     </a><a class="ticker-card" href="?s=SPY" data-ticker="SPY" data-sector="ETF">
       <span class="ticker-sym">SPY</span>
-      <span class="ticker-spot" data-spot-for="SPY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SPY"></span>
+        <span class="ticker-chg" data-chg-for="SPY" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=STX" data-ticker="STX" data-sector="Storage">
       <span class="ticker-sym">STX</span>
-      <span class="ticker-spot" data-spot-for="STX"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="STX"></span>
+        <span class="ticker-chg" data-chg-for="STX" hidden></span>
+      </span>
       <span class="ticker-sector">Storage · Semiconductors</span>
     </a><a class="ticker-card" href="?s=SWKS" data-ticker="SWKS" data-sector="Semis">
       <span class="ticker-sym">SWKS</span>
-      <span class="ticker-spot" data-spot-for="SWKS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="SWKS"></span>
+        <span class="ticker-chg" data-chg-for="SWKS" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=TEAM" data-ticker="TEAM" data-sector="Software">
       <span class="ticker-sym">TEAM</span>
-      <span class="ticker-spot" data-spot-for="TEAM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TEAM"></span>
+        <span class="ticker-chg" data-chg-for="TEAM" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=TGT" data-ticker="TGT" data-sector="Retail">
       <span class="ticker-sym">TGT</span>
-      <span class="ticker-spot" data-spot-for="TGT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TGT"></span>
+        <span class="ticker-chg" data-chg-for="TGT" hidden></span>
+      </span>
       <span class="ticker-sector">Retail · Discount Stores</span>
     </a><a class="ticker-card" href="?s=TLT" data-ticker="TLT" data-sector="ETF">
       <span class="ticker-sym">TLT</span>
-      <span class="ticker-spot" data-spot-for="TLT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TLT"></span>
+        <span class="ticker-chg" data-chg-for="TLT" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=TMO" data-ticker="TMO" data-sector="Medical">
       <span class="ticker-sym">TMO</span>
-      <span class="ticker-spot" data-spot-for="TMO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TMO"></span>
+        <span class="ticker-chg" data-chg-for="TMO" hidden></span>
+      </span>
       <span class="ticker-sector">Medical · Medical Devices</span>
     </a><a class="ticker-card" href="?s=TSEM" data-ticker="TSEM" data-sector="Semis">
       <span class="ticker-sym">TSEM</span>
-      <span class="ticker-spot" data-spot-for="TSEM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TSEM"></span>
+        <span class="ticker-chg" data-chg-for="TSEM" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=TSLA" data-ticker="TSLA" data-sector="Mega-cap tech">
       <span class="ticker-sym">TSLA</span>
-      <span class="ticker-spot" data-spot-for="TSLA"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TSLA"></span>
+        <span class="ticker-chg" data-chg-for="TSLA" hidden></span>
+      </span>
       <span class="ticker-sector">Mega-cap tech · Auto Manufacturers</span>
     </a><a class="ticker-card" href="?s=TSM" data-ticker="TSM" data-sector="Semis">
       <span class="ticker-sym">TSM</span>
-      <span class="ticker-spot" data-spot-for="TSM"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TSM"></span>
+        <span class="ticker-chg" data-chg-for="TSM" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=TWLO" data-ticker="TWLO" data-sector="Software">
       <span class="ticker-sym">TWLO</span>
-      <span class="ticker-spot" data-spot-for="TWLO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TWLO"></span>
+        <span class="ticker-chg" data-chg-for="TWLO" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=TXN" data-ticker="TXN" data-sector="Semis">
       <span class="ticker-sym">TXN</span>
-      <span class="ticker-spot" data-spot-for="TXN"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="TXN"></span>
+        <span class="ticker-chg" data-chg-for="TXN" hidden></span>
+      </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
     </a><a class="ticker-card" href="?s=U" data-ticker="U" data-sector="Software">
       <span class="ticker-sym">U</span>
-      <span class="ticker-spot" data-spot-for="U"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="U"></span>
+        <span class="ticker-chg" data-chg-for="U" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=UBS" data-ticker="UBS" data-sector="Bank">
       <span class="ticker-sym">UBS</span>
-      <span class="ticker-spot" data-spot-for="UBS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="UBS"></span>
+        <span class="ticker-chg" data-chg-for="UBS" hidden></span>
+      </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
     </a><a class="ticker-card" href="?s=UNH" data-ticker="UNH" data-sector="Insurance">
       <span class="ticker-sym">UNH</span>
-      <span class="ticker-spot" data-spot-for="UNH"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="UNH"></span>
+        <span class="ticker-chg" data-chg-for="UNH" hidden></span>
+      </span>
       <span class="ticker-sector">Insurance · Healthcare Plans</span>
     </a><a class="ticker-card" href="?s=UPS" data-ticker="UPS" data-sector="Logistics">
       <span class="ticker-sym">UPS</span>
-      <span class="ticker-spot" data-spot-for="UPS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="UPS"></span>
+        <span class="ticker-chg" data-chg-for="UPS" hidden></span>
+      </span>
       <span class="ticker-sector">Logistics · Integrated Freight &amp; Logistics</span>
     </a><a class="ticker-card" href="?s=USO" data-ticker="USO" data-sector="ETF">
       <span class="ticker-sym">USO</span>
-      <span class="ticker-spot" data-spot-for="USO"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="USO"></span>
+        <span class="ticker-chg" data-chg-for="USO" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=UVXY" data-ticker="UVXY" data-sector="ETF">
       <span class="ticker-sym">UVXY</span>
-      <span class="ticker-spot" data-spot-for="UVXY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="UVXY"></span>
+        <span class="ticker-chg" data-chg-for="UVXY" hidden></span>
+      </span>
       <span class="ticker-sector">ETF</span>
     </a><a class="ticker-card" href="?s=V" data-ticker="V" data-sector="Payments">
       <span class="ticker-sym">V</span>
-      <span class="ticker-spot" data-spot-for="V"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="V"></span>
+        <span class="ticker-chg" data-chg-for="V" hidden></span>
+      </span>
       <span class="ticker-sector">Payments · Credit Services</span>
     </a><a class="ticker-card" href="?s=VRT" data-ticker="VRT" data-sector="Data center">
       <span class="ticker-sym">VRT</span>
-      <span class="ticker-spot" data-spot-for="VRT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="VRT"></span>
+        <span class="ticker-chg" data-chg-for="VRT" hidden></span>
+      </span>
       <span class="ticker-sector">Data center · Electrical Equipment &amp; Parts</span>
     </a><a class="ticker-card" href="?s=VST" data-ticker="VST" data-sector="Power">
       <span class="ticker-sym">VST</span>
-      <span class="ticker-spot" data-spot-for="VST"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="VST"></span>
+        <span class="ticker-chg" data-chg-for="VST" hidden></span>
+      </span>
       <span class="ticker-sector">Power · Utilities - Independent Power Producers</span>
     </a><a class="ticker-card" href="?s=WDAY" data-ticker="WDAY" data-sector="Software">
       <span class="ticker-sym">WDAY</span>
-      <span class="ticker-spot" data-spot-for="WDAY"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="WDAY"></span>
+        <span class="ticker-chg" data-chg-for="WDAY" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Applications</span>
     </a><a class="ticker-card" href="?s=WMT" data-ticker="WMT" data-sector="Retail">
       <span class="ticker-sym">WMT</span>
-      <span class="ticker-spot" data-spot-for="WMT"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="WMT"></span>
+        <span class="ticker-chg" data-chg-for="WMT" hidden></span>
+      </span>
       <span class="ticker-sector">Retail · Discount Stores</span>
     </a><a class="ticker-card" href="?s=ZS" data-ticker="ZS" data-sector="Software">
       <span class="ticker-sym">ZS</span>
-      <span class="ticker-spot" data-spot-for="ZS"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="ZS"></span>
+        <span class="ticker-chg" data-chg-for="ZS" hidden></span>
+      </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
     </a></div>
     <div class="tickers-empty" id="tickers-empty" hidden>
@@ -838,9 +1253,11 @@
     <header class="card-header">
       <h2 class="card-title">Top options picks</h2>
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
+      <span class="tab-live-state" id="picks-live-state" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
     <div id="picks-market-note" class="picks-market-note" role="status" aria-live="polite" hidden></div>
+    <div id="picks-live-board" class="picks-live-board" hidden></div>
     <div class="picks-search" role="search">
       <label class="picks-search-label" for="picks-search-input">Grade any ticker</label>
       <div class="combo picks-search-combo" id="picks-search-combo">
@@ -1179,6 +1596,7 @@
         <h2 class="card-title">Near-term OI &amp; gamma squeeze</h2>
       </button>
       <span class="card-eyebrow" id="oi-eyebrow" aria-live="polite"></span>
+      <span class="tab-live-state" id="oi-live-state" aria-live="polite"></span>
     </header>
     <div id="oi-body" class="oi-body">
       <p class="hint">Top 12 highest open-interest strikes (calls + puts) across this week's and next week's expirations, laid out as an <strong>options ladder</strong> — calls and puts grouped on their own sides, each sorted closest-to-spot first and extending outwards. Each ticker carries a <strong>Gamma Squeeze Score</strong> (0–5): heavy near-the-money call OI · C/P ratio ≥ 2:1 · call wall Vol/OI ≥ 1.5× · spot within 10% of the call wall · aggressive ask-side call flow today. A score of <strong>4–5</strong> flags a potential setup. Strikes with <strong>OI &gt; 1000</strong> get a chip; ΔOI day-over-day chips fire at <strong>+30%</strong> (new buying) and <strong>+100%</strong> (very aggressive). Twice-daily scan: pre-market (~08:30 ET) and EOD (~19:00 ET).</p>

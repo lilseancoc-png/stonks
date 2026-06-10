@@ -10843,6 +10843,87 @@ html::-webkit-scrollbar-thumb:hover {
   padding: var(--s-2);
 }
 
+/* ---- Shared auto-live overlays (Tickers grid / Top Picks / OI tab) ----- */
+/* Small "Live · 10:42 AM" status next to a card header's eyebrow. */
+.tab-live-state {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tab-live-state:empty { display: none; }
+.tab-live-state.is-live { color: var(--accent); }
+.tab-live-state.is-error { color: var(--neg); }
+/* Tickers grid: live day-change badge next to the card's spot. */
+.ticker-chg {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ticker-chg.is-up { color: var(--pos); }
+.ticker-chg.is-dn { color: var(--neg); }
+/* Top Picks: "live since pick" board above the grid. */
+.picks-live-board {
+  display: grid;
+  gap: 2px;
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.picks-live-title {
+  color: var(--text-3);
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 2px var(--s-2);
+}
+.picks-live-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 3px var(--s-2);
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.picks-live-sym { font-weight: 700; min-width: 4em; }
+.picks-live-side {
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+}
+.picks-live-side.is-call { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
+.picks-live-side.is-put { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.picks-live-spot { color: var(--text-2); min-width: 5.5em; }
+.picks-live-since.is-pos { color: var(--pos); }
+.picks-live-since.is-neg { color: var(--neg); }
+.picks-live-lvls { color: var(--text-3); font-size: 0.88em; }
+.picks-live-hit {
+  font-weight: 700;
+  font-size: 0.85em;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+}
+.picks-live-hit.is-tp { background: var(--pos-soft); color: var(--pos); }
+.picks-live-hit.is-cut { background: var(--neg-soft); color: var(--neg); }
+/* OI tab: live spot-vs-walls distance in each row head. */
+.oi-live { display: inline-flex; gap: var(--s-2); }
+.oi-live-gap {
+  color: var(--text-3);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.oi-live-gap.is-breach-up { color: var(--pos); font-weight: 600; }
+.oi-live-gap.is-breach-dn { color: var(--neg); font-weight: 600; }
+
 .vol-summary {
   display: grid;
   gap: var(--s-2);
