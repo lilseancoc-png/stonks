@@ -10766,6 +10766,165 @@ html::-webkit-scrollbar-thumb:hover {
 .vol-toggle-pill { border: 1px solid var(--border); }
 .vol-toggle-pill.is-on { border-color: transparent; }
 
+/* Live volume tracking — the opt-in /api/quotes poll + pace leaderboard. */
+.vol-live {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-3);
+}
+.vol-live-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+.vol-live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vol-live-toggle input { accent-color: var(--accent); }
+.vol-live-hint {
+  color: var(--text-3);
+  font-size: 0.85em;
+  flex: 1 1 28ch;
+  min-width: 20ch;
+}
+.vol-live-state {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.vol-live-state.is-live { color: var(--accent); }
+.vol-live-state.is-error { color: var(--neg); }
+.vol-live-board {
+  display: grid;
+  gap: 2px;
+  margin-top: var(--s-3);
+}
+.vol-live-row {
+  display: grid;
+  grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em;
+  gap: var(--s-2);
+  align-items: center;
+  padding: 4px var(--s-2);
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.vol-live-row[data-sym] { cursor: pointer; }
+.vol-live-row[data-sym]:hover { background: var(--surface-3); }
+.vol-live-row[data-sym]:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.vol-live-head-row {
+  color: var(--text-3);
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.vol-live-sym { font-weight: 600; }
+.vol-live-spot { color: var(--text-2); }
+.vol-live-chg.is-up { color: var(--pos); }
+.vol-live-chg.is-dn { color: var(--neg); }
+.vol-live-vol { color: var(--text-2); font-size: 0.92em; }
+.vol-live-pace { font-weight: 600; text-align: right; }
+.vol-live-pace.is-hot { color: var(--neg); }
+.vol-live-pace.is-elevated { color: var(--warn); }
+.vol-live-pace.is-quiet { color: var(--text-3); }
+.vol-live-msg, .vol-live-foot {
+  color: var(--text-3);
+  font-size: 0.85em;
+  padding: var(--s-2);
+}
+
+/* ---- Shared auto-live overlays (Tickers grid / Top Picks / OI tab) ----- */
+/* Small "Live · 10:42 AM" status next to a card header's eyebrow. */
+.tab-live-state {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tab-live-state:empty { display: none; }
+.tab-live-state.is-live { color: var(--accent); }
+.tab-live-state.is-error { color: var(--neg); }
+/* Tickers grid: live day-change badge next to the card's spot. */
+.ticker-chg {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ticker-chg.is-up { color: var(--pos); }
+.ticker-chg.is-dn { color: var(--neg); }
+/* Top Picks: "live since pick" board above the grid. */
+.picks-live-board {
+  display: grid;
+  gap: 2px;
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.picks-live-title {
+  color: var(--text-3);
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 2px var(--s-2);
+}
+.picks-live-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 3px var(--s-2);
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.picks-live-sym { font-weight: 700; min-width: 4em; }
+.picks-live-side {
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+}
+.picks-live-side.is-call { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
+.picks-live-side.is-put { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.picks-live-spot { color: var(--text-2); min-width: 5.5em; }
+.picks-live-since.is-pos { color: var(--pos); }
+.picks-live-since.is-neg { color: var(--neg); }
+.picks-live-lvls { color: var(--text-3); font-size: 0.88em; }
+.picks-live-hit {
+  font-weight: 700;
+  font-size: 0.85em;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+}
+.picks-live-hit.is-tp { background: var(--pos-soft); color: var(--pos); }
+.picks-live-hit.is-cut { background: var(--neg-soft); color: var(--neg); }
+/* OI tab: live spot-vs-walls distance in each row head. */
+.oi-live { display: inline-flex; gap: var(--s-2); }
+.oi-live-gap {
+  color: var(--text-3);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.oi-live-gap.is-breach-up { color: var(--pos); font-weight: 600; }
+.oi-live-gap.is-breach-dn { color: var(--neg); font-weight: 600; }
+
 .vol-summary {
   display: grid;
   gap: var(--s-2);

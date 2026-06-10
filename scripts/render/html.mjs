@@ -19,7 +19,10 @@ function tickersSection({ symbols, sectors, industries }) {
     const subtitle = [sec, ind].filter(Boolean).join(" · ");
     return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}" data-sector="${htmlEscape(sec)}">
       <span class="ticker-sym">${htmlEscape(sym)}</span>
-      <span class="ticker-spot" data-spot-for="${htmlEscape(sym)}"></span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="${htmlEscape(sym)}"></span>
+        <span class="ticker-chg" data-chg-for="${htmlEscape(sym)}" hidden></span>
+      </span>
       ${subtitle ? `<span class="ticker-sector">${htmlEscape(subtitle)}</span>` : ""}
     </a>`;
   }).join("");
@@ -35,8 +38,9 @@ function tickersSection({ symbols, sectors, industries }) {
     <header class="card-header">
       <h2 class="card-title">All supported tickers</h2>
       <span class="card-eyebrow"><span id="tickers-visible-count">${sorted.length}</span> / ${sorted.length} symbols</span>
+      <span class="tab-live-state" id="tickers-live-state" aria-live="polite"></span>
     </header>
-    <p class="hint">Every ticker the site tracks. Click any card to grade options on it.</p>
+    <p class="hint">Every ticker the site tracks. Click any card to grade options on it. Prices refresh live every 30s while this tab is open.</p>
     <div class="tickers-controls">
       <div class="tickers-search-wrap">
         <input type="search" id="tickers-search" class="tickers-search" placeholder="Search ticker…" autocomplete="off" aria-label="Search tickers" />
@@ -81,9 +85,11 @@ function topPicksSection() {
     <header class="card-header">
       <h2 class="card-title">Top options picks</h2>
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
+      <span class="tab-live-state" id="picks-live-state" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
     <div id="picks-market-note" class="picks-market-note" role="status" aria-live="polite" hidden></div>
+    <div id="picks-live-board" class="picks-live-board" hidden></div>
     <div class="picks-search" role="search">
       <label class="picks-search-label" for="picks-search-input">Grade any ticker</label>
       <div class="combo picks-search-combo" id="picks-search-combo">
@@ -399,6 +405,7 @@ function oiTrackerSection() {
         <h2 class="card-title">Near-term OI &amp; gamma squeeze</h2>
       </button>
       <span class="card-eyebrow" id="oi-eyebrow" aria-live="polite"></span>
+      <span class="tab-live-state" id="oi-live-state" aria-live="polite"></span>
     </header>
     <div id="oi-body" class="oi-body">
       <p class="hint">Top 12 highest open-interest strikes (calls + puts) across this week's and next week's expirations, laid out as an <strong>options ladder</strong> — calls and puts grouped on their own sides, each sorted closest-to-spot first and extending outwards. Each ticker carries a <strong>Gamma Squeeze Score</strong> (0–5): heavy near-the-money call OI · C/P ratio ≥ 2:1 · call wall Vol/OI ≥ 1.5× · spot within 10% of the call wall · aggressive ask-side call flow today. A score of <strong>4–5</strong> flags a potential setup. Strikes with <strong>OI &gt; 1000</strong> get a chip; ΔOI day-over-day chips fire at <strong>+30%</strong> (new buying) and <strong>+100%</strong> (very aggressive). Twice-daily scan: pre-market (~08:30 ET) and EOD (~19:00 ET).</p>
@@ -444,6 +451,17 @@ function volumeFlagsSection() {
     <p class="hint">Each row reads <em>Vol actual / expected · ratio</em> — shares traded in that bucket vs. the bucket's share of the 20-day average, and the multiple between them. The trailing % is the price change across the bucket. A flag leans <span class="vol-key-up">bullish</span> when price is up on heavy volume (real demand) and <span class="vol-key-dn">bearish</span> when price is down on heavy volume (real selling pressure).</p>
     <p class="hint">Each card also carries a <strong>follow-the-case verdict</strong> — whether the volume evidence says to <em>follow</em> the bull or bear case (heavy volume confirmed the move), <em>wait for confirmation</em> (heavy participation but no decisive direction yet), or <em>not follow</em> it (a weak move or a likely fakeout, prone to fading). Expand a ticker to read the verdict's reasoning in full.</p>
     <p class="hint">The build's current <strong>★ Top Picks</strong> are pinned in their own group at the top so you can track flow on just those names; the rest are grouped by sector and <strong>collapsed by default</strong> — click a sector header to open it, then a ticker to expand its hour-by-hour breakdown with the reasoning. Each row's one-line summary shows its strongest flag, bullish/bearish lean, peak hour ratio, and EOD move. <em>Group by sector</em> and <em>Expand all</em> toggle the layout.</p>
+    <div class="vol-live" id="vol-live-section">
+      <div class="vol-live-head">
+        <label class="vol-live-toggle">
+          <input type="checkbox" id="vol-live-toggle" />
+          <span>Live tracking</span>
+        </label>
+        <span class="vol-live-hint">Polls live quotes every 30s while this tab is open — every tracked name's cumulative day volume vs. the volume <em>expected by this point of the session</em> (same U-shaped curve as the hourly scan), ranked by pace. ≥1.2× runs hot; ≥1.5× is exceptional.</span>
+        <span class="vol-live-state" id="vol-live-state" aria-live="polite"></span>
+      </div>
+      <div id="vol-live-board" class="vol-live-board" hidden></div>
+    </div>
     <div class="vol-controls" role="toolbar" aria-label="Filter volume flags">
       <label class="vol-search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>

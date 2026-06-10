@@ -3059,6 +3059,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
+      // Volume live tracking mirrors the heatmap pattern: poll only while the
+      // tab is visible AND the user toggled live mode on. Resume on re-entry.
+      if (name === 'volume' && typeof startVolumeLivePolling === 'function') startVolumeLivePolling();
+      if (name !== 'volume' && typeof stopVolumeLivePolling === 'function') stopVolumeLivePolling(false);
+      // Auto-live spot refreshes — poll only while the owning tab is visible.
+      if (name === 'tickers' && typeof startTickersLive === 'function') startTickersLive();
+      if (name !== 'tickers' && typeof stopTickersLive === 'function') stopTickersLive();
+      if (name === 'picks' && typeof startPicksLive === 'function') startPicksLive();
+      if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
+      if (name === 'oi' && typeof startOiLive === 'function') startOiLive();
+      if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name === 'oi' && typeof renderOI === 'function') renderOI();
       // Lazy-load the GEX heatmap the first time the tab is opened (it fetches
       // the selected ticker's chain). Revisits keep the last view; Refresh
@@ -7559,7 +7570,456 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
       });
     }
+    var liveToggle = $('vol-live-toggle');
+    if (liveToggle){
+      liveToggle.checked = volLive.on;
+      liveToggle.addEventListener('change', function(){
+        volLive.on = !!liveToggle.checked;
+        if (volLive.on) startVolumeLivePolling();
+        else stopVolumeLivePolling(true);
+      });
+    }
+    // Clicking a live-board row drops that symbol into the search box so its
+    // scanner card (if flagged) filters into view below. Delegated + bound
+    // once — the board's innerHTML is replaced on every poll.
+    var liveBoard = $('vol-live-board');
+    if (liveBoard){
+      liveBoard.addEventListener('click', function(ev){
+        var row = ev.target.closest && ev.target.closest('.vol-live-row[data-sym]');
+        if (!row) return;
+        var sym = row.getAttribute('data-sym') || '';
+        var search = $('vol-search-input');
+        var clear = $('vol-search-clear');
+        if (search) search.value = sym;
+        if (clear) clear.hidden = !sym;
+        volState.search = sym;
+        renderVolumeFlags();
+      });
+    }
   }
+
+  // --- Live volume tracking ----------------------------------------------
+  // Opt-in poll of /api/quotes (one batched call for the whole curated
+  // universe, every 30s — same cadence + tab-visibility gating as the
+  // heatmap's live overlay). For each name we compare the live cumulative
+  // day volume against the volume EXPECTED by this point of the session,
+  // read off the same U-shaped intraday curve the hourly scanner uses
+  // (execCumFracExpected above — the in-IIFE mirror of lib/volume-flags.mjs).
+  // The result is a live "volume pace" leaderboard that moves between the
+  // hourly scans, plus a live spot refresh on the scanner cards below.
+  // Baseline preference: the scanner's 20D avg (consistent with the flag
+  // math) when the symbol is in the latest scan, else Yahoo's own 10D /
+  // 3-month average daily volume from the quote itself.
+  var VOL_LIVE_POLL_MS = 30000;
+  // Pace is cumVol / (avg * cumFrac) — with only a couple of minutes of
+  // session the denominator is tiny and the ratio is pure noise, so hold
+  // the pace read until a few minutes in.
+  var VOL_LIVE_MIN_ET_MIN = 10;
+  var VOL_LIVE_TOP_N = 15;
+  var volLive = { on: false, timer: null, rows: [], lastAt: null, marketState: null, etMin: null, avg20: null };
+  function volLiveBaseline(sym, q){
+    if (!volLive.avg20){
+      var map = {};
+      var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
+      for (var i = 0; i < list.length; i++){
+        var t = list[i];
+        if (t && t.symbol && t.avg20 != null && isFinite(t.avg20) && t.avg20 > 0){
+          map[String(t.symbol).toUpperCase()] = Number(t.avg20);
+        }
+      }
+      volLive.avg20 = map;
+    }
+    var a = volLive.avg20[sym];
+    if (a != null && a > 0) return a;
+    if (q.avgVol10d != null && isFinite(q.avgVol10d) && q.avgVol10d > 0) return Number(q.avgVol10d);
+    if (q.avgVol3m != null && isFinite(q.avgVol3m) && q.avgVol3m > 0) return Number(q.avgVol3m);
+    return null;
+  }
+  function startVolumeLivePolling(){
+    if (!volLive.on) return;
+    if (volLive.timer) return;
+    var pane = document.getElementById('page-pane-volume');
+    if (!pane || pane.hidden) return;
+    pollVolumeLiveOnce();
+    volLive.timer = setInterval(pollVolumeLiveOnce, VOL_LIVE_POLL_MS);
+  }
+  function stopVolumeLivePolling(clearBoard){
+    if (volLive.timer){
+      clearInterval(volLive.timer);
+      volLive.timer = null;
+    }
+    if (clearBoard){
+      volLive.rows = [];
+      var board = $('vol-live-board');
+      if (board){ board.hidden = true; board.innerHTML = ''; }
+      var stateEl = $('vol-live-state');
+      if (stateEl){ stateEl.className = 'vol-live-state'; stateEl.textContent = ''; }
+    }
+  }
+  function pollVolumeLiveOnce(){
+    var syms = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
+    if (!syms.length){ stopVolumeLivePolling(false); return; }
+    var stateEl = $('vol-live-state');
+    fetch('api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
+        var etMin = execEtMinutesSinceOpen();
+        var frac = etMin == null ? null : execCumFracExpected(etMin);
+        var paceReady = etMin != null && etMin >= VOL_LIVE_MIN_ET_MIN && frac != null && frac > 0;
+        var rows = [];
+        var marketState = null;
+        for (var i = 0; i < quotes.length; i++){
+          var q = quotes[i];
+          if (!q || !q.symbol) continue;
+          if (!marketState && q.marketState) marketState = q.marketState;
+          if (q.dayVolume == null || !isFinite(q.dayVolume)) continue;
+          var sym = String(q.symbol).toUpperCase();
+          var base = volLiveBaseline(sym, q);
+          var expected = (paceReady && base != null) ? base * frac : null;
+          var pace = (expected != null && expected > 0) ? Number(q.dayVolume) / expected : null;
+          rows.push({
+            sym: sym,
+            spot: q.spot,
+            changePct: q.changePct,
+            dayVol: Number(q.dayVolume),
+            expected: expected,
+            pace: pace,
+          });
+        }
+        volLive.rows = rows;
+        volLive.marketState = marketState;
+        volLive.etMin = etMin;
+        volLive.lastAt = new Date();
+        renderVolumeLive();
+        applyVolumeLiveSpots(quotes);
+        if (stateEl){
+          stateEl.className = 'vol-live-state is-live';
+          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' +
+            volLive.lastAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        }
+      })
+      .catch(function(){
+        if (stateEl){
+          stateEl.className = 'vol-live-state is-error';
+          stateEl.textContent = 'Live unavailable — showing last hourly scan';
+        }
+      });
+  }
+  function volLivePaceCls(pace){
+    if (pace == null || !isFinite(pace)) return '';
+    if (pace >= 1.5) return ' is-hot';
+    if (pace >= VOL_HEAVY_MULT) return ' is-elevated';
+    if (pace < 0.8) return ' is-quiet';
+    return '';
+  }
+  function renderVolumeLive(){
+    var board = $('vol-live-board');
+    if (!board) return;
+    if (!volLive.on){ board.hidden = true; return; }
+    var rows = volLive.rows || [];
+    if (!rows.length){
+      board.hidden = false;
+      board.innerHTML = '<div class="vol-live-msg">No live quotes yet.</div>';
+      return;
+    }
+    var anyPace = rows.some(function(r){ return r.pace != null; });
+    if (!anyPace){
+      // Pre-market / first minutes of the session — the pace denominator is
+      // not meaningful yet, so say why instead of showing noise.
+      var why = (volLive.etMin != null && volLive.etMin < 0)
+        ? 'Pre-market — volume pace starts at the 9:30 ET open.'
+        : 'Just after the open — pace stabilizes a few minutes into the session.';
+      board.hidden = false;
+      board.innerHTML = '<div class="vol-live-msg">' + escapeHtml(why) + '</div>';
+      return;
+    }
+    var sorted = rows.slice().sort(function(a, b){
+      var pa = a.pace == null ? -1 : a.pace;
+      var pb = b.pace == null ? -1 : b.pace;
+      return pb - pa;
+    });
+    var top = sorted.slice(0, VOL_LIVE_TOP_N);
+    var afterClose = volLive.etMin != null && volLive.etMin >= 390;
+    var html = ['<div class="vol-live-row vol-live-head-row" aria-hidden="true">' +
+      '<span>Ticker</span><span>Spot</span><span>Day</span>' +
+      '<span>Day vol / expected by now</span><span>Pace</span></div>'];
+    for (var i = 0; i < top.length; i++){
+      var r = top[i];
+      var chg = r.changePct != null && isFinite(r.changePct)
+        ? (r.changePct >= 0 ? '+' : '') + Number(r.changePct).toFixed(2) + '%'
+        : '—';
+      var chgCls = r.changePct == null ? '' : (r.changePct >= 0 ? ' is-up' : ' is-dn');
+      var paceStr = r.pace != null ? r.pace.toFixed(2) + 'x' : '—';
+      html.push('<div class="vol-live-row" data-sym="' + escapeHtml(r.sym) + '" role="button" tabindex="0" ' +
+        'title="Click to filter the flag list below to ' + escapeHtml(r.sym) + '">' +
+        '<span class="vol-live-sym">' + escapeHtml(r.sym) + '</span>' +
+        '<span class="vol-live-spot">' + (r.spot != null ? '$' + Number(r.spot).toFixed(2) : '—') + '</span>' +
+        '<span class="vol-live-chg' + chgCls + '">' + chg + '</span>' +
+        '<span class="vol-live-vol">' + fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + '</span>' +
+        '<span class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + paceStr + '</span>' +
+      '</div>');
+    }
+    var withPace = rows.filter(function(r){ return r.pace != null; }).length;
+    html.push('<div class="vol-live-foot">Top ' + top.length + ' of ' + withPace + ' tracked names by volume pace' +
+      (afterClose ? ' · session closed — pace is the full-day ratio vs the 20D average' : '') + '</div>');
+    board.hidden = false;
+    board.innerHTML = html.join('');
+  }
+  // Refresh the spot shown on each rendered scanner card head so the
+  // hourly-scan cards track price live too while live mode is on.
+  function applyVolumeLiveSpots(quotes){
+    var list = $('vol-list');
+    if (!list) return;
+    for (var i = 0; i < quotes.length; i++){
+      var q = quotes[i];
+      if (!q || !q.symbol || q.spot == null) continue;
+      var row = list.querySelector('.vol-row[data-symbol="' + String(q.symbol).toUpperCase() + '"]');
+      if (!row) continue;
+      var spotEl = row.querySelector('.vol-spot');
+      if (spotEl) spotEl.textContent = '$' + Number(q.spot).toFixed(2);
+    }
+  }
+
+  // --- Shared live-quote poller --------------------------------------------
+  // One factory behind the auto-live spot refreshes on the Tickers grid, Top
+  // Picks, and OI tabs. Polls /api/quotes for a symbol list every 30s while
+  // the owning page pane is visible (start on tab enter, stop on tab leave —
+  // same lifecycle as the Grade tab's chain poll); the endpoint's 30s edge
+  // cache dedupes concurrent viewers upstream, so each distinct symbol set
+  // costs at most ~2 Yahoo calls/min site-wide. The heatmap + volume tabs
+  // keep their own opt-in pollers — live mode changes their layout, so it
+  // stays a user choice there; these three only refresh text in place.
+  function createQuotesPoller(opts){
+    var timer = null;
+    function poll(){
+      var syms = (opts.symbols() || []).filter(Boolean);
+      if (!syms.length) return;
+      fetch('api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' })
+        .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(json){
+          var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
+          if (quotes.length) opts.onQuotes(quotes);
+          else if (opts.onError) opts.onError();
+        })
+        .catch(function(){ if (opts.onError) opts.onError(); });
+    }
+    return {
+      start: function(){
+        if (timer) return;
+        var pane = document.getElementById(opts.paneId);
+        if (!pane || pane.hidden) return;
+        poll();
+        timer = setInterval(poll, 30000);
+      },
+      stop: function(){ if (timer){ clearInterval(timer); timer = null; } },
+      // Immediate re-poll while running — used when the data the symbol list
+      // derives from (e.g. picks.json) finishes loading after start().
+      poke: function(){ if (timer) poll(); },
+    };
+  }
+  function liveStateMark(id, ok){
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (ok){
+      el.className = 'tab-live-state is-live';
+      el.textContent = 'Live · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    } else {
+      el.className = 'tab-live-state is-error';
+      el.textContent = 'Live unavailable';
+    }
+  }
+
+  // --- Tickers grid live prices --------------------------------------------
+  // The grid paints baked manifest spots on load (up to an hour stale
+  // intra-session); while the tab is open this refreshes each card's price
+  // and lights up a live day-change badge.
+  var tickersLivePoller = createQuotesPoller({
+    paneId: 'page-pane-tickers',
+    symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },
+    onQuotes: function(quotes){
+      for (var i = 0; i < quotes.length; i++){
+        var q = quotes[i];
+        if (!q || !q.symbol) continue;
+        var sym = String(q.symbol).toUpperCase();
+        if (q.spot != null && isFinite(q.spot)){
+          var slot = document.querySelector('[data-spot-for="' + sym + '"]');
+          // Match the baked paint's precision rule (>=100 → whole dollars).
+          if (slot) slot.textContent = '$' + Number(q.spot).toFixed(q.spot >= 100 ? 0 : 2);
+        }
+        if (q.changePct != null && isFinite(q.changePct)){
+          var chgEl = document.querySelector('[data-chg-for="' + sym + '"]');
+          if (chgEl){
+            var v = Number(q.changePct);
+            chgEl.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+            chgEl.className = 'ticker-chg ' + (v >= 0 ? 'is-up' : 'is-dn');
+            chgEl.hidden = false;
+          }
+        }
+      }
+      liveStateMark('tickers-live-state', true);
+    },
+    onError: function(){ liveStateMark('tickers-live-state', false); },
+  });
+  function startTickersLive(){ tickersLivePoller.start(); }
+  function stopTickersLive(){ tickersLivePoller.stop(); }
+
+  // --- Top Picks live overlay ----------------------------------------------
+  // ~10 symbols per poll. A compact board above the picks grid tracks each
+  // pick live against its own plan: spot vs the entry reference (favorability
+  // is direction-aware — down is green for a put) and live distance to the
+  // exit plan's take-profit / cut levels, with a badge the moment either
+  // level is crossed intraday.
+  var picksLive = { quotes: {} };
+  function picksLiveSymbols(){
+    var picks = (picksState.data && Array.isArray(picksState.data.picks)) ? picksState.data.picks : [];
+    var seen = {}, out = [];
+    for (var i = 0; i < picks.length; i++){
+      var p = picks[i];
+      if (!p || !p.symbol) continue;
+      var sym = String(p.symbol).toUpperCase();
+      if (seen[sym]) continue;
+      seen[sym] = 1;
+      out.push(sym);
+    }
+    return out;
+  }
+  function renderPicksLive(){
+    var board = document.getElementById('picks-live-board');
+    if (!board) return;
+    var picks = (picksState.data && Array.isArray(picksState.data.picks)) ? picksState.data.picks : [];
+    var rows = [];
+    for (var i = 0; i < picks.length; i++){
+      var p = picks[i];
+      if (!p || !p.symbol) continue;
+      var sym = String(p.symbol).toUpperCase();
+      var q = picksLive.quotes[sym];
+      if (!q || q.spot == null || !isFinite(q.spot)) continue;
+      var spot = Number(q.spot);
+      var isPut = p.side === 'put';
+      var sideLabel = isPut ? 'PUT' : 'CALL';
+      var bits = ['<span class="picks-live-sym">' + escapeHtml(sym) + '</span>' +
+        '<span class="picks-live-side is-' + (isPut ? 'put' : 'call') + '">' + sideLabel + '</span>' +
+        '<span class="picks-live-spot">$' + spot.toFixed(2) + '</span>'];
+      // Move since the pick's entry-reference spot, colored by whether it
+      // favors the trade's direction (a drop is green for a put).
+      var entryRef = (p.spot != null && isFinite(p.spot) && p.spot > 0) ? Number(p.spot) : null;
+      if (entryRef != null){
+        var movePct = (spot - entryRef) / entryRef * 100;
+        var favorable = isPut ? -movePct : movePct;
+        bits.push('<span class="picks-live-since ' + (favorable >= 0 ? 'is-pos' : 'is-neg') + '" ' +
+          'title="Underlying move since the pick\\'s entry reference $' + entryRef.toFixed(2) +
+          ' — green when it favors the ' + sideLabel.toLowerCase() + '">' +
+          (movePct >= 0 ? '+' : '') + movePct.toFixed(2) + '% since pick</span>');
+      }
+      var ep = p.exitPlan || {};
+      var tp = (ep.takeProfit && ep.takeProfit.price != null && isFinite(ep.takeProfit.price)) ? Number(ep.takeProfit.price) : null;
+      var cut = (ep.cut && ep.cut.price != null && isFinite(ep.cut.price)) ? Number(ep.cut.price) : null;
+      var tpHit = tp != null && (isPut ? spot <= tp : spot >= tp);
+      var cutHit = cut != null && (isPut ? spot >= cut : spot <= cut);
+      if (tpHit){
+        bits.push('<span class="picks-live-hit is-tp" title="Spot has crossed the exit plan\\'s take-profit level at $' + tp.toFixed(2) + '">✓ Target hit</span>');
+      } else if (cutHit){
+        bits.push('<span class="picks-live-hit is-cut" title="Spot has crossed the exit plan\\'s cut level at $' + cut.toFixed(2) + ' — the thesis is invalidated">✗ Cut level hit</span>');
+      } else {
+        var lvls = [];
+        if (tp != null && spot > 0) lvls.push('TP $' + tp.toFixed(2) + ' (' + ((tp - spot) / spot * 100).toFixed(1) + '%)');
+        if (cut != null && spot > 0) lvls.push('cut $' + cut.toFixed(2) + ' (' + ((cut - spot) / spot * 100).toFixed(1) + '%)');
+        if (lvls.length) bits.push('<span class="picks-live-lvls" title="Live distance from spot to the exit plan\\'s take-profit and cut levels">' + lvls.join(' · ') + '</span>');
+      }
+      rows.push('<div class="picks-live-row">' + bits.join('') + '</div>');
+      // Also refresh the spot on this pick's detail card if it's rendered.
+      var card = document.getElementById('pick-card-' + sym);
+      if (card){
+        var cardSpot = card.querySelector('.pick-spot');
+        if (cardSpot) cardSpot.textContent = '$' + spot.toFixed(2);
+      }
+    }
+    if (!rows.length){ board.hidden = true; board.innerHTML = ''; return; }
+    board.innerHTML =
+      '<div class="picks-live-title" title="Each pick\\'s underlying tracked live against its own exit plan — refreshed every 30s while this tab is open">Live since pick</div>' +
+      rows.join('');
+    board.hidden = false;
+  }
+  var picksLivePoller = createQuotesPoller({
+    paneId: 'page-pane-picks',
+    symbols: picksLiveSymbols,
+    onQuotes: function(quotes){
+      var map = {};
+      for (var i = 0; i < quotes.length; i++){
+        var q = quotes[i];
+        if (q && q.symbol) map[String(q.symbol).toUpperCase()] = q;
+      }
+      picksLive.quotes = map;
+      renderPicksLive();
+      liveStateMark('picks-live-state', true);
+    },
+    onError: function(){ liveStateMark('picks-live-state', false); },
+  });
+  function startPicksLive(){ picksLivePoller.start(); }
+  function stopPicksLive(){ picksLivePoller.stop(); }
+  function pokePicksLive(){ picksLivePoller.poke(); }
+
+  // --- OI tab: live spot vs walls ------------------------------------------
+  // Open interest itself only updates T+1 (hence the twice-daily scan), but
+  // where spot sits relative to the call/put walls is an intraday read.
+  // Refresh each row's spot and show the live distance to its walls; crossing
+  // a wall is called out explicitly.
+  var oiLive = { quotes: {} };
+  function applyOiLive(){
+    var list = $('oi-list');
+    if (!list) return;
+    var tickers = (OI && Array.isArray(OI.tickers)) ? OI.tickers : [];
+    for (var i = 0; i < tickers.length; i++){
+      var t = tickers[i];
+      if (!t || !t.symbol) continue;
+      var sym = String(t.symbol).toUpperCase();
+      var q = oiLive.quotes[sym];
+      if (!q || q.spot == null || !isFinite(q.spot)) continue;
+      var row = list.querySelector('.oi-row[data-symbol="' + sym + '"]');
+      if (!row) continue;
+      var spot = Number(q.spot);
+      var spotEl = row.querySelector('.oi-spot');
+      if (spotEl) spotEl.textContent = '$' + spot.toFixed(2);
+      var liveEl = row.querySelector('[data-oi-live]');
+      if (!liveEl) continue;
+      var bits = [];
+      var cw = t.callWall && t.callWall.strike != null ? Number(t.callWall.strike) : null;
+      var pw = t.putWall && t.putWall.strike != null ? Number(t.putWall.strike) : null;
+      if (cw != null && spot > 0){
+        bits.push(spot < cw
+          ? '<span class="oi-live-gap">▲ ' + ((cw - spot) / spot * 100).toFixed(1) + '% to call wall</span>'
+          : '<span class="oi-live-gap is-breach-up">above call wall</span>');
+      }
+      if (pw != null && spot > 0){
+        bits.push(spot > pw
+          ? '<span class="oi-live-gap">▼ ' + ((spot - pw) / spot * 100).toFixed(1) + '% to put wall</span>'
+          : '<span class="oi-live-gap is-breach-dn">below put wall</span>');
+      }
+      liveEl.innerHTML = bits.join('');
+      liveEl.hidden = !bits.length;
+    }
+  }
+  var oiLivePoller = createQuotesPoller({
+    paneId: 'page-pane-oi',
+    symbols: function(){
+      var tickers = (OI && Array.isArray(OI.tickers)) ? OI.tickers : [];
+      return tickers.map(function(t){ return t && t.symbol ? String(t.symbol).toUpperCase() : null; });
+    },
+    onQuotes: function(quotes){
+      var map = {};
+      for (var i = 0; i < quotes.length; i++){
+        var q = quotes[i];
+        if (q && q.symbol) map[String(q.symbol).toUpperCase()] = q;
+      }
+      oiLive.quotes = map;
+      applyOiLive();
+      liveStateMark('oi-live-state', true);
+    },
+    onError: function(){ liveStateMark('oi-live-state', false); },
+  });
+  function startOiLive(){ oiLivePoller.start(); }
+  function stopOiLive(){ oiLivePoller.stop(); }
 
   // --- Gamma OI tab -------------------------------------------------------
   // Near-term open-interest tracker. Twice-daily scan (pre-market + EOD)
@@ -7805,6 +8265,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<svg class="oi-row-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>' +
         '<span class="oi-symbol">' + escapeHtml(t.symbol) + '</span>' +
         (spot ? '<span class="oi-spot">' + spot + '</span>' : '') +
+        '<span class="oi-live" data-oi-live="1" hidden></span>' +
         scoreBadge +
         '<span class="oi-summary-bits">' + summaryBits + '</span>' +
       '</button>' +
@@ -7862,6 +8323,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (noResults) noResults.hidden = true;
     list.innerHTML = tickers.map(oiTickerRowHtml).join('');
+    // Re-apply the live spot/wall-distance overlay — a filter/sort re-render
+    // would otherwise blank it until the next 30s poll.
+    if (typeof applyOiLive === 'function') applyOiLive();
   }
 
   function bindOIControls(){
@@ -11930,6 +12394,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
         picksState.loading = false;
         renderPicks();
+        // The live poller may have started before picks.json landed (its
+        // symbol list was empty then) — re-poll now that it has names.
+        if (typeof pokePicksLive === 'function') pokePicksLive();
       })
       .catch(function(){
         // Distinguish load-failure from genuinely-empty so the empty
