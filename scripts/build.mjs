@@ -12750,9 +12750,11 @@ function modelOptionExit(e, exitSpot, exitSec, rfr = FALLBACK_RISK_FREE_RATE) {
     sigma = iv0 + (hv - iv0) * blend;
   }
   // Earnings crush: if a report fell inside the hold, the event premium is gone
-  // by exit — knock IV down a notch.
+  // by exit — knock IV down a notch. A date-only earningsDate anchors at 21:00Z
+  // (after the 16:00 ET close in both EST/EDT) because prints are AMC by
+  // convention — a 16:00Z (noon ET) anchor would crush exits BEFORE the print.
   const eIso = e.earningsDate;
-  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T16:00:00Z` : eIso) : NaN;
+  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T21:00:00Z` : eIso) : NaN;
   const eSec = Number.isFinite(eMs) ? Math.floor(eMs / 1000) : NaN;
   const earningsInHold = Number.isFinite(eSec) && entrySec > 0 && eSec >= entrySec && eSec <= exitSec;
   if (earningsInHold) sigma *= PICKS_OPTION_EARNINGS_CRUSH;
@@ -13208,10 +13210,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         }
       }
     }
-    // Days until the next earnings print (P2 earnings-eve exit). null when unknown.
+    // Days until the next earnings print (P2 earnings-eve exit). null when
+    // unknown. Date-only dates anchor at 21:00Z — the AMC-print convention the
+    // exit-side crush model uses — so "days ahead" counts to the actual print.
     let earningsAheadDays = null;
     if (e.earningsDate) {
-      const eMs = Date.parse(String(e.earningsDate).length <= 10 ? `${e.earningsDate}T16:00:00Z` : e.earningsDate);
+      const eMs = Date.parse(String(e.earningsDate).length <= 10 ? `${e.earningsDate}T21:00:00Z` : e.earningsDate);
       if (Number.isFinite(eMs)) earningsAheadDays = (eMs / 1000 - nowSec) / 86400;
     }
     const resolved = resolvePickOutcome({
