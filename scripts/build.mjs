@@ -7240,6 +7240,63 @@ const PICKS_HW_SLOW_PILLARS = new Set(["fundamentals", "narrative"]);
 // in a non-neutral regime, so neutral output stays byte-identical.)
 const HORIZON_WEIGHT_EXEMPT = new Set(["macroRegime"]);
 
+// ---- v2 determination layer (reliability × evidence): what earns conviction ----
+// The GD post-mortem showed a "Strong Call" can be assembled almost entirely from
+// the LOW-evidence end of the signal set: one AI sentiment pass (+1.8), one AI
+// sector-story read (+1.8), an AI guidance extraction that misread a dividend hike
+// (+1.8), and a thin-chain contrarian P/C read (+1.3) — while the well-evidenced
+// signals (trend structure, revisions, surprise) contributed less than the story
+// did. The horizon weights (§3.5) grade signals by SPEED; this layer grades them
+// by TRUSTWORTHINESS, with three pieces (each independently revertable):
+//   1. SIGNAL_RELIABILITY — a per-signal multiplier on top of the horizon weight.
+//      Single-pass AI reads over headlines are demoted hardest (they are volatile
+//      across reruns and prone to misclassification); AI-extracted but concrete
+//      events less so; deterministic price/flow/fundamental measurements ride ×1.
+//      negativeCatalyst deliberately stays ×1 — a false bullish credit costs money,
+//      a false bearish read just skips a name (asymmetric prudence).
+//   2. PICKS_NARR_CAP — a post-weight cap on the narrative pillar's magnitude:
+//      a story can corroborate a trade but can never outweigh a confirmed trend.
+//   3. The confluence gate in buildTopPicks (PICKS_CONFLUENCE_*) — a shipped pick
+//      must be corroborated by ≥2 independent pillar families aligned with its
+//      side, and may not fight a clearly opposing tape.
+// Like §3.5 these are priors, not fits — the IC bridge (§9.6) replaces them with
+// measured weights once forward outcomes accumulate. PICKS_RELIABILITY=0 (with
+// PICKS_NARR_CAP=0, PICKS_CONFLUENCE_MIN=0) reverts the whole layer.
+const PICKS_RELIABILITY = process.env.PICKS_RELIABILITY !== "0"; // default ON
+const SIGNAL_RELIABILITY = {
+  positiveCatalyst: 0.5,  // one AI sentiment pass over ~5 headlines
+  sectorNarrative: 0.5,   // AI sector-story strength — slow AND model-volatile
+  socialSentiment: 0.5,   // small-sample social read
+  guidance: 0.7,          // AI extraction (dividend-as-guidance class of misreads) / coarse FY proxy
+  majorContract: 0.8,     // AI-extracted but a concrete, checkable event
+  putCallRatio: 0.75,     // contrarian crowd read — conditional even with the liquidity floor
+};
+const PICKS_NARR_CAP = Number(process.env.PICKS_NARR_CAP ?? 2);            // |narrative pillar| ceiling post-weight (0 = off)
+const PICKS_CONFLUENCE_MIN = Number(process.env.PICKS_CONFLUENCE_MIN ?? 2);          // aligned pillars required to ship (0 = off)
+const PICKS_CONFLUENCE_PILLAR_MIN = Number(process.env.PICKS_CONFLUENCE_PILLAR_MIN ?? 0.5); // pillar magnitude that counts as "aligned"
+const PICKS_TREND_OPPOSE_FLOOR = Number(process.env.PICKS_TREND_OPPOSE_FLOOR ?? 0.5); // veto when technicals opposes the side by ≥ this (0 = off)
+
+// Reliability multiplier for one signal (1 = fully trusted / feature off).
+function signalReliability(key) {
+  if (!PICKS_RELIABILITY) return 1;
+  const r = SIGNAL_RELIABILITY[key];
+  return Number.isFinite(r) ? r : 1;
+}
+
+// Cap a pillar's post-weight magnitude at `cap`, rescaling each signal's displayed
+// contribution proportionally so the chips still sum to the pillar total (same
+// invariant applyHorizonWeight keeps). Returns the (possibly clamped) sum.
+function applyPillarCap(pillar, sum, cap) {
+  if (!(cap > 0) || !(Math.abs(sum) > cap)) return sum;
+  const k = cap / Math.abs(sum);
+  const sigs = Array.isArray(pillar.signals) ? pillar.signals : [];
+  for (const sig of sigs) {
+    const base = sig.contribution !== undefined ? sig.contribution : sig.score;
+    sig.contribution = (base || 0) * k;
+  }
+  return Math.sign(sum) * cap;
+}
+
 // Resolve the weighting REGIME BAND, restoring the severe distinction that
 // detectMarketRegime collapses into "risk-off". Returns
 // 'severe' | 'risk-off' | 'risk-on' | 'neutral'.
@@ -7286,7 +7343,9 @@ function applyHorizonWeight(pillar, pk, baseOf, band) {
     // HORIZON_WEIGHT_EXEMPT signals (the macro-regime tilt) are regime conviction
     // levers, not asset quality — they ride at ×1 even when the pillar is weighted.
     // Gated by PICKS_HW_REGIME so =0 is a clean revert to the legacy weighted sum.
-    const w = (PICKS_HW_REGIME && HORIZON_WEIGHT_EXEMPT.has(sig.key)) ? 1 : hw;
+    // The v2 reliability multiplier rides on top (×1 with PICKS_RELIABILITY=0):
+    // horizon weight grades a signal's SPEED, reliability grades its TRUST.
+    const w = ((PICKS_HW_REGIME && HORIZON_WEIGHT_EXEMPT.has(sig.key)) ? 1 : hw) * signalReliability(sig.key);
     const eff = (baseOf(sig) || 0) * w;
     if (w !== 1) sig.contribution = eff; // bake the pillar weight into the displayed contribution
     sum += eff;
@@ -8964,7 +9023,10 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   const regimeBand = picksRegimeBand(regime, macroBackdrop);
   for (const [pk, pillar] of [["fundamentals", fundamentals], ["technicals", technicals], ["mechanicals", mechanicals], ["narrative", narrative]]) {
     const raw = pillar.score;
-    const weighted = applyHorizonWeight(pillar, pk, (s) => s.score, regimeBand);
+    let weighted = applyHorizonWeight(pillar, pk, (s) => s.score, regimeBand);
+    // v2: a story corroborates, it never dominates — cap the narrative pillar's
+    // post-weight magnitude (contributions rescaled so chips keep summing).
+    if (pk === "narrative") weighted = applyPillarCap(pillar, weighted, PICKS_NARR_CAP);
     if (weighted !== raw) pillar.legacyScore = raw;
     pillar.score = weighted;
   }
@@ -11443,7 +11505,9 @@ function computeCrossSectionalScores(scored, opts = {}) {
       // the chips remain consistent with the weighted pillar total. With the
       // feature off (hw=1) this is the prior plain sum and leaves contribution
       // untouched (byte-identical).
-      const sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0), regimeBand);
+      let sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0), regimeBand);
+      // v2 narrative cap — same clamp as the legacy path (scorePillared) applies.
+      if (pk === "narrative") sum = applyPillarCap(pillar, sum, PICKS_NARR_CAP);
       pillar.score = sum;
       subtotal += sum;
     }
@@ -11869,6 +11933,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const skippedMacroCallCapped = [];
   const sideCounts = { call: 0, put: 0 }; // direction-concentration cap (PICKS_MAX_PER_SIDE)
   const skippedSideCapped = [];
+  const skippedConfluence = []; // v2 confluence gate skips (single-story / tape-fighting picks)
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -11904,6 +11969,36 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // A tactical risk-off put sits below the grade bar to begin with, so only
     // ship it on a genuinely clean breakdown (timing 'go'), never a marginal one.
     if (cand.tactical && timing.state !== "go") { vetoed += 1; continue; }
+
+    // v2 confluence gate. A graded pick must be CORROBORATED: at least
+    // PICKS_CONFLUENCE_MIN of the four asset pillars aligned with its side
+    // (magnitude ≥ PICKS_CONFLUENCE_PILLAR_MIN), and the technicals pillar must
+    // not OPPOSE the side by ≥ PICKS_TREND_OPPOSE_FLOOR — a 30-60 DTE long needs
+    // the move to start soon, and fighting the tape is how theta wins (the GD
+    // failure pattern: a "Strong Call" carried almost entirely by one narrative
+    // family). Tactical puts are exempt — their thesis IS the tape (regime +
+    // timing 'go'), not single-name pillar strength, and they sit below the bar
+    // by construction.
+    if (!cand.tactical && PICKS_CONFLUENCE_MIN > 0) {
+      const sgn = side === "call" ? 1 : -1;
+      const aligned = PILLAR_KEYS.filter((pk) => {
+        const sc = (r.pillars && r.pillars[pk] && r.pillars[pk].score) || 0;
+        return sgn * sc >= PICKS_CONFLUENCE_PILLAR_MIN;
+      });
+      const tech = (r.pillars && r.pillars.technicals && r.pillars.technicals.score) || 0;
+      const fightsTape = PICKS_TREND_OPPOSE_FLOOR > 0 && sgn * tech <= -PICKS_TREND_OPPOSE_FLOOR;
+      if (aligned.length < PICKS_CONFLUENCE_MIN || fightsTape) {
+        skippedConfluence.push({
+          symbol: r.sym,
+          side,
+          aligned,
+          technicals: Number(tech.toFixed(2)),
+          reason: fightsTape ? "fights-tape" : "single-family",
+        });
+        vetoed += 1;
+        continue;
+      }
+    }
 
     // Tactical puts sit below the trade cutoff by construction (the window is
     // (-tradeCut, putBar]), so tierForScore() would call them "no-trade".
@@ -12044,6 +12139,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       macroCallCapped: skippedMacroCallCapped, // severe-tape call cap skips
       sideCapped: skippedSideCapped, // direction-concentration cap skips (PICKS_MAX_PER_SIDE)
       sideCounts,
+      confluenceSkipped: skippedConfluence, // v2 confluence gate (single-story / tape-fighting picks)
       // §3.5.1 — which regime weighting was in force this build (neutral / risk-off /
       // severe / risk-on), so the card breakdown can explain WHY the slow pillars
       // were discounted or boosted.

@@ -251,6 +251,47 @@ magnitudes.
 
 ---
 
+### 3.6 Reliability weighting, narrative cap & confluence (the v2 determination layer)
+
+The GD post-mortem (#398) showed a "Strong Call" can be assembled almost entirely
+from the **low-evidence end** of the signal set: one AI sentiment pass (+1.8), one AI
+sector-story read (+1.8), an AI guidance extraction that misread a dividend hike
+(+1.8), and a thin-chain contrarian P/C read (+1.3) — while the well-evidenced
+signals (trend structure, revisions, surprise) contributed less than the story did.
+§3.5 grades signals by **speed**; this layer grades them by **trustworthiness**.
+Three pieces, each independently revertable:
+
+1. **`SIGNAL_RELIABILITY`** (`PICKS_RELIABILITY`, default ON) — a per-signal
+   multiplier folded into `applyHorizonWeight` (so both scoring paths get it and the
+   chips keep summing to the pillar totals). Single-pass AI reads over headlines are
+   demoted hardest — they are volatile across reruns and prone to misclassification:
+   `positiveCatalyst` / `sectorNarrative` / `socialSentiment` ×0.5, `guidance` ×0.7,
+   `majorContract` ×0.8 (AI-extracted but concrete), `putCallRatio` ×0.75 (contrarian
+   even with its liquidity floor). Deterministic price/flow/fundamental measurements
+   ride ×1. **`negativeCatalyst` deliberately stays ×1** — a false bullish credit
+   costs money, a false bearish read just skips a name (asymmetric prudence).
+2. **Narrative cap** (`PICKS_NARR_CAP`, default ±2) — post-weight clamp on the
+   narrative pillar's magnitude, contributions rescaled proportionally (chips still
+   sum). A story can corroborate a trade; it can never outweigh a confirmed trend.
+3. **Confluence gate** (`buildTopPicks`): a graded pick must have ≥
+   `PICKS_CONFLUENCE_MIN` (2) of the four asset pillars aligned with its side at
+   magnitude ≥ `PICKS_CONFLUENCE_PILLAR_MIN` (0.5), and the technicals pillar must
+   not **oppose** the side by ≥ `PICKS_TREND_OPPOSE_FLOOR` (0.5) — a 30–60 DTE long
+   needs the move to start soon, and fighting the tape is how theta wins. Skips are
+   recorded in `rosterMeta.confluenceSkipped` (`single-family` / `fights-tape`).
+   Tactical puts are exempt: their thesis IS the tape (regime + timing `go`), not
+   single-name pillar strength.
+
+Like §3.5 these are **priors, not fits** — the IC bridge (§9.6) is the path to
+replacing them with measured per-signal weights once forward outcomes accumulate.
+Percentile tiers self-recalibrate to the compressed distribution. Known watch item:
+`timing`'s +4 `go` ceiling is now a proportionally larger slice of a shipped pick's
+total — if forward data shows go-state picks underperforming, that ceiling is the
+next candidate to recalibrate. Revert: `PICKS_RELIABILITY=0 PICKS_NARR_CAP=0
+PICKS_CONFLUENCE_MIN=0 PICKS_TREND_OPPOSE_FLOOR=0`.
+
+---
+
 ## 4. Tiers (`tierForScore`)
 
 Tiers are **percentile-relative** (P3.2 — see [`top-picks-improvements.md`](./top-picks-improvements.md)),
