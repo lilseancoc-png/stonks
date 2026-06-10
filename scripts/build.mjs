@@ -11264,9 +11264,9 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 
       // as a % of premium, so a short-DTE / rich-IV contract sizes smaller than a
       // calm one with the same delta-to-stop. Per-share like the delta term.
       if (PICKS_SIZE_PREMIUM_RISK) {
-        const thetaDay = Math.abs(Number(p.contract && p.contract.thetaDay)) || 0;
+        const thetaDay = Math.abs(netThetaDay) || 0;
         const thetaCost = thetaDay * PICKS_SIZE_HOLD_DAYS;
-        const vega = Number(p.contract && p.contract.vega);
+        const vega = netVega;
         const iv = Number(p.contract && p.contract.iv);
         const hv = Number(chains && chains[p.symbol] && chains[p.symbol].technicals && chains[p.symbol].technicals.volRegime && chains[p.symbol].technicals.volRegime.rv30);
         let vegaCost = 0;
@@ -11423,7 +11423,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // top / falling-knife read subtracts up to 8 points there, so badly-timed
     // names fall below the conviction bar and never reach this loop. We read the
     // already-computed timing pillar for the breakdown + the tactical guard.
-    const timing = (r.pillars && r.pillars.timing) || { state: "go", score: 0, headline: "", reasons: [] };
+    // Fail CLOSED (P2.2): a missing timing pillar reads 'wait', not 'go' — it
+    // only gates the tactical-put ship below, and an unknown read must not
+    // green-light a below-bar short.
+    const timing = (r.pillars && r.pillars.timing) || { state: "wait", score: 0, headline: "", reasons: [] };
     // A tactical risk-off put sits below the grade bar to begin with, so only
     // ship it on a genuinely clean breakdown (timing 'go'), never a marginal one.
     if (cand.tactical && timing.state !== "go") { vetoed += 1; continue; }
