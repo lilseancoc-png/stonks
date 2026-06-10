@@ -7566,7 +7566,7 @@
     // once — the board's innerHTML is replaced on every poll.
     var liveBoard = $('vol-live-board');
     if (liveBoard){
-      liveBoard.addEventListener('click', function(ev){
+      var liveRowActivate = function(ev){
         var row = ev.target.closest && ev.target.closest('.vol-live-row[data-sym]');
         if (!row) return;
         var sym = row.getAttribute('data-sym') || '';
@@ -7576,6 +7576,13 @@
         if (clear) clear.hidden = !sym;
         volState.search = sym;
         renderVolumeFlags();
+      };
+      liveBoard.addEventListener('click', liveRowActivate);
+      // The rows are role="button" divs — honor Enter/Space like real buttons.
+      liveBoard.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        ev.preventDefault();
+        liveRowActivate(ev);
       });
     }
   }

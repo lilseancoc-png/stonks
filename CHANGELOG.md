@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- **Mobile layout for the live boards.** On phones the Volume tab's live pace leaderboard reflows — sym/spot/change/pace on one line, the volume detail on its own line below, row separators and 44px-friendly tap padding, desktop column headers and the long explainer hint dropped; the Top Picks "Live since pick" rows give the level distances their own line; the OI live wall-distance read wraps instead of overflowing the row head. Live leaderboard rows also honor Enter/Space like real buttons.
+
 ### Added
 - **Volume tab: gamma stats on the live leaderboard.** Each live volume-pace row now carries a dealer-gamma line — net GEX regime (long γ stabilizing / short γ amplifying), the gamma flip with a live spot-above/below read, call/put wall distances recomputed against the live spot each poll, and the OI tracker's gamma-squeeze score when ≥3. Zero extra fetches: the GEX summary is the one the hourly scanner already bakes onto each volume-flags ticker; only the distances are live.
 - **Auto-live spot refreshes on the Tickers grid, Top Picks, and OI tabs.** A shared `/api/quotes` poller (one batched call every 30s, only while the owning tab is visible — the endpoint's 30s edge cache dedupes viewers upstream) makes three more views live: the Tickers grid's card prices refresh with a new live day-change badge; the Top Picks tab gains a "Live since pick" board tracking each pick's underlying against its own exit plan — direction-aware move since entry plus live distance to the take-profit/cut levels, with a badge the moment either is crossed intraday; and the OI tab's rows show live spot and the live distance to each name's call/put walls (crossing a wall is called out). No new endpoints, no AI cost. (#392)
