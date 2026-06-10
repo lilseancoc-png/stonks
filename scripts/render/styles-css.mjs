@@ -4916,6 +4916,9 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .cmd-palette-results {
   list-style: none; margin: 0; padding: 6px;
   max-height: 50vh; overflow-y: auto;
+  /* Don't chain a results-list overscroll into the (scroll-locked) page —
+     on touch the rubber-band otherwise jiggles the whole backdrop. */
+  overscroll-behavior: contain;
 }
 .cmd-palette-row {
   display: flex; align-items: center; gap: 10px;
@@ -4964,6 +4967,12 @@ body.cmd-palette-open { overflow: hidden; }
 @media (max-width: 640px){
   .cmd-palette-modal { margin: 8vh 16px 0; }
   .cmd-palette-footer { gap: 10px; font-size: 10px; }
+  /* Phone keyboards eat ~40% of the viewport while the palette input is
+     focused; dvh tracks the VISIBLE viewport (vh does not on mobile), so the
+     results list stays reachable instead of running under the keyboard. */
+  .cmd-palette-results { max-height: min(50vh, 42dvh); }
+  /* Match the ≥44px touch-target rule the rest of the mobile block applies. */
+  .cmd-palette-row { min-height: 44px; }
 }
 
 /* === Manual form === */
@@ -12703,6 +12712,23 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
    element. We already handle focus rings via :focus-visible; the
    default grey/blue tap-highlight just looks like a bug on dark UI. */
 html { -webkit-tap-highlight-color: transparent; }
+
+/* Rapid taps on small controls (filter chips, segmented toggles, pagination,
+   the pin/compare buttons) must register as TAPS, not as a double-tap zoom
+   gesture — touch-action: manipulation disables double-tap-to-zoom on the
+   control itself while leaving pinch zoom and scrolling untouched. Links are
+   included; text content is not, so a reader can still double-tap-zoom prose. */
+button, [role="button"], [role="tab"], [role="option"], a, select, label,
+input[type="checkbox"], input[type="radio"], summary {
+  touch-action: manipulation;
+}
+
+/* Flinging a horizontally-scrollable strip to its edge must not chain into
+   the browser's edge-swipe (back/forward navigation on iOS/Android) — that
+   reads as "the site randomly navigated away". Vertical chaining stays. */
+.page-tabs, .narr-tabs {
+  overscroll-behavior-x: contain;
+}
 
 /* Hover-capable pointers only. Touch devices fire :hover on tap and
    then strand the hovered state until the next tap elsewhere — for
