@@ -17,6 +17,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Changed
+- **Volume tab: intro explainers hidden on phones.** The four long hint paragraphs at the top of the Volume tab (intraday distribution / S-R breaks / verdict docs) are desktop reference prose — on ≤640px they pushed the live board and scan a full screen down, so they're now hidden on mobile.
 - **Mobile layout for the live boards.** On phones the Volume tab's live pace leaderboard reflows — sym/spot/change/pace on one line, the volume detail on its own line below, row separators and 44px-friendly tap padding, desktop column headers and the long explainer hint dropped; the Top Picks "Live since pick" rows give the level distances their own line; the OI live wall-distance read wraps instead of overflowing the row head. Live leaderboard rows also honor Enter/Space like real buttons.
 
 ### Added
