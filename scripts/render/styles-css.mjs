@@ -10878,6 +10878,9 @@ html::-webkit-scrollbar-thumb:hover {
    (3+ lines of prose on a phone) is dropped; the leaderboard itself is
    self-explanatory and the tab's hint paragraphs above still document it. */
 @media (max-width: 640px) {
+  /* The Volume tab's intro explainer paragraphs are desktop reference
+     prose — on a phone they push the actual scan a full screen down. */
+  .vol-card > .hint { display: none; }
   .vol-live { padding: var(--s-2) var(--s-3); }
   .vol-live-hint { display: none; }
   .vol-live-state { margin-left: 0; flex-basis: 100%; }
