@@ -10,12 +10,16 @@
 //
 // Everything deterministic is assembled from the committed artifacts of the
 // most recent bake (per-ticker chains/technicals, macro, calendar, picks,
-// unusual flow). Two things a pre-market brief genuinely needs fresher than
+// unusual flow). Three things a pre-market brief genuinely needs fresher than
 // yesterday's 16:00 bake are fetched live, each degrading gracefully:
 //   - the overnight global-markets sweep (Asia just closed, Europe mid-session,
 //     US futures) via fetchAllGlobalMarkets + buildCorrelationsPayload — the
 //     committed correlations.json predates the Asian session entirely
 //   - CNN Fear & Greed (falls back to the committed snapshot)
+//   - the macro-release rows (fetchMacroReleases) — this run races the 8:30 ET
+//     prints and ForexFactory posts actuals within minutes, so a CPI that's
+//     already out reaches the morning brief (falls back to the committed
+//     calendar rows, in which case the next bake's re-mint picks it up)
 //
 // Writes data/briefs.json and data/ai-usage.json (the shared AI budget — the
 // brief call is recorded against the same per-day Gemini totals as the bake).
@@ -30,6 +34,9 @@ import {
   fetchAllGlobalMarkets,
   buildCorrelationsPayload,
   fetchCnnFearGreed,
+  fetchMacroReleases,
+  buildMacroReleaseReads,
+  MACRO_RELEASE_LOOKBACK_DAYS,
   loadAiUsageState,
   writeAiUsageState,
 } from "./build.mjs";
@@ -51,10 +58,14 @@ async function readJson(name) {
 // nextFomc). Calendar `report` events are the BLS/FRED macro releases; the
 // `macro`/`cpi` types are news headlines and deliberately excluded, matching
 // the bake's reportEvents.
-function calendarForBrief(cal, todayEt) {
+function calendarForBrief(cal, todayEt, liveReports) {
   const events = Array.isArray(cal?.events) ? cal.events : [];
   const earn = events.filter((e) => e && e.type === "earnings" && e.symbol && e.date);
-  const reports = events.filter((e) => e && e.type === "report" && e.title && e.date);
+  // Prefer the live macro-release sweep when the caller got one — the
+  // committed calendar.json predates today's 8:30 ET prints (the prior bake
+  // ran ~16:00 yesterday, so today's rows still carry actual=null).
+  const reports = (Array.isArray(liveReports) && liveReports.length ? liveReports : events)
+    .filter((e) => e && e.type === "report" && e.title && e.date);
   const meetings = Array.isArray(cal?.fomc?.meetings) ? cal.fomc.meetings : [];
   const nextMeeting = meetings.find((m) => m && m.date && String(m.date) >= todayEt) || null;
   return {
@@ -63,10 +74,15 @@ function calendarForBrief(cal, todayEt) {
     upcomingEarn: earn.filter((e) => String(e.date) > todayEt)
       .sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 6)
       .map((e) => ({ sym: e.symbol, date: e.date, session: e.session || "TBD" })),
-    todayReports: reports.filter((r) => String(r.date) === todayEt).map((r) => ({ title: r.title })),
+    todayReports: reports.filter((r) => String(r.date) === todayEt)
+      .map((r) => ({ title: r.title, subtype: r.subtype || null, actual: r.actual ?? null, consensus: r.consensus ?? null, previous: r.previous ?? null })),
     upcomingReports: reports.filter((r) => String(r.date) > todayEt)
       .sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 5)
       .map((r) => ({ title: r.title, date: r.date })),
+    // Releases that already printed (today + trailing lookback), classified
+    // actual-vs-consensus — the brief's released-data block + the morning
+    // re-mint trigger in buildMarketBriefs.
+    releases: buildMacroReleaseReads(reports, todayEt),
     nextFomc: nextMeeting
       ? {
         date: nextMeeting.date,
@@ -114,6 +130,27 @@ async function main() {
   try { fearGreed = await fetchCnnFearGreed(); } catch (_) { /* fall through */ }
   if (!fearGreed || !Number.isFinite(fearGreed.score)) fearGreed = await readJson("fear-greed.json");
 
+  // Live macro-release sweep (BLS primary + FRED fallback + ForexFactory fast
+  // actuals) — a third thing a pre-market brief needs fresher than yesterday's
+  // bake: this run fires ~08:30 ET, racing the 8:30 releases, and ForexFactory
+  // posts actuals within minutes. Degrades to the committed calendar rows
+  // (which leaves today's actuals null until the next bake re-mints).
+  let liveReports = null;
+  try {
+    const todayMs = Date.parse(todayEt + "T00:00:00Z");
+    const live = await fetchMacroReleases(
+      todayMs - MACRO_RELEASE_LOOKBACK_DAYS * 86400000,
+      todayMs + 35 * 86400000,
+    );
+    if (Array.isArray(live) && live.length) {
+      liveReports = live;
+      const printed = live.filter((r) => r.actual && String(r.date) === todayEt).length;
+      console.log(`Live macro releases: ${live.length} rows${printed ? ` (${printed} already printed today)` : ""}.`);
+    }
+  } catch (err) {
+    console.warn(`Live macro-release sweep failed (${String(err?.message || err).split("\n")[0]}) — using committed calendar.json rows.`);
+  }
+
   const res = await buildMarketBriefs({
     briefsPrev,
     builtAtIso,
@@ -123,7 +160,7 @@ async function main() {
     correlations,
     unusual,
     picks: Array.isArray(picksJson?.picks) ? picksJson.picks : [],
-    calendar: calendarForBrief(calendarJson, todayEt),
+    calendar: calendarForBrief(calendarJson, todayEt, liveReports),
     rfr: Number.isFinite(rfrJson?.rate) ? rfrJson.rate : FALLBACK_RISK_FREE_RATE,
     // Pre-market there is no new picks churn — the prior bake already narrated
     // its own events, and today's first bake will narrate today's.
