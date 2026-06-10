@@ -6632,8 +6632,16 @@ function factorOfTicker(sym) {
 // "top ~10-13 actionable / very-best = Strong" selectivity is preserved — the
 // removed points were spurious (double-counted / undiscriminating), so lowering
 // the bar by the same offset is ranking-preserving, not a loosening of standards.
-export const PICKS_MIN_CONVICTION = 12;
-const PICKS_TIER_STRONG = 16;
+//   ±12/±16 → ±7/±10 (scale-coherence recalibration: the cross-sectional W_s
+//                     z-clip weights + horizon weighting + the v2 reliability/
+//                     narrative-cap compression moved the live universe max
+//                     |total| to ~8-10, so the old fallbacks sat ABOVE the
+//                     achievable range — if the percentile path ever degraded
+//                     to these (universe < PICKS_Z_MIN_UNIVERSE), the roster
+//                     would silently ship ZERO. 7/10 mirror the live
+//                     percentile cutoffs' scale.)
+export const PICKS_MIN_CONVICTION = 7;
+const PICKS_TIER_STRONG = 10;
 
 // ---- P3.x — cross-sectional standardization + risk-based sizing ------------
 // The fixed bars above (±12/±16) and the per-signal integer thresholds in the
@@ -6687,8 +6695,16 @@ const PICKS_TIER_PCTL_TRADE = 0.12;  // top 12% → actionable (Call/Put)
 // the floor now backstops only the calmest tapes (neutral ~top decile clears 6),
 // lets the percentile take over as dispersion rises (risk-off top-12% ~7 > 6), and
 // still empties on a genuinely flat tape. Tune via the env vars.
-const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? 6);
-const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? 9);
+// Re-derived (6/9 → 5/7.5) after the v2 reliability/narrative-cap compression +
+// the timing/IV fold-scale recalibration shrank the distribution again: on the
+// live universe the post-rescale top-decile |total| runs ~5 (neutral) and the
+// max ~8, so the old 9 strong floor sat above the achievable range (Strong tier
+// unreachable in any neutral tape — the same dead-threshold class of bug the
+// fold-scale fixed) and 6 bound at ~top-7% instead of the documented top-decile
+// backstop. Same intent as before: trade floor ≈ neutral-tape top decile,
+// strong floor reachable only by the genuine outliers.
+const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? 5);
+const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? 7.5);
 // Tier hysteresis (churn fix). The percentile cutoffs are recomputed from scratch
 // every build, so a name sitting AT the top-12% boundary flips in/out of the
 // actionable set hourly (the churn log showed names entering and exiting within
@@ -6855,7 +6871,19 @@ const PICKS_TIMING_DEADDAYS_CON = Number(process.env.PICKS_TIMING_DEADDAYS_CON ?
 // exactly -8, so it's a strict superset of the old behavior. Still ONE number folded
 // into total (no separate veto). Default ON; =0 reverts to the flat -8.
 const PICKS_TIMING_AVOID_SCALE = process.env.PICKS_TIMING_AVOID_SCALE !== "0"; // default ON
-const PICKS_TIMING_AVOID_FLOOR = Number(process.env.PICKS_TIMING_AVOID_FLOOR ?? -16); // most negative the scaled penalty reaches
+const PICKS_TIMING_AVOID_FLOOR = Number(process.env.PICKS_TIMING_AVOID_FLOOR ?? -16); // most negative the scaled penalty reaches (PRE-fold-scale; effective floor is ×PICKS_TIMING_FOLD_SCALE)
+// Scale-coherence recalibration: the timing component's ±4/−8(−16) range and the
+// IV-cost ±3/1.5 range were designed against the legacy ±12/±16 conviction bars
+// (go +4 ≈ a third of the trade bar). The cross-sectional + horizon + reliability
+// reworks compressed the live bars to ~6/9 (PICKS_ABS_TRADE_FLOOR/STRONG_FLOOR)
+// without rescaling these modifiers, silently DOUBLING their share — live builds
+// showed timing carrying 33-61% of shipped picks' totals (one pick was 4.0 timing
+// on a 6.5 total: a timing trade wearing a thesis). The fold scale restores the
+// design share (go +2 ≈ a third of the 6 bar) while keeping the internal severity
+// structure (knife/chase overshoot scaling) untouched. Applied at the single
+// contribution exit of computeEntryTiming, so state/headline/reasons and every
+// downstream consumer (fold, re-fold, display) stay consistent automatically.
+const PICKS_TIMING_FOLD_SCALE = Number(process.env.PICKS_TIMING_FOLD_SCALE ?? 0.5);
 // Risk-off put enablement (user-chosen): the universe is long-biased, so puts
 // almost never clear the -16 grade bar. When the broad tape is CONFIRMED
 // risk-off, relax the put bar to this score AND require a clean bearish entry
@@ -7083,8 +7111,12 @@ const PICKS_IVRANK_VETO = Number(process.env.PICKS_IVRANK_VETO ?? 90);
 // Reuses data.ivRank (real own-history IV percentile, ≥ PICKS_IVRANK_MIN_N entries);
 // no IV history → 0 (graceful, no RV proxy — RV ≠ IV for a premium-cost read).
 const PICKS_IV_SCORE = process.env.PICKS_IV_SCORE !== "0"; // default ON
-const PICKS_IV_SCORE_MAX = Number(process.env.PICKS_IV_SCORE_MAX ?? 3);        // max penalty at the richest own-IV (rank 100)
-const PICKS_IV_SCORE_CHEAP_MAX = Number(process.env.PICKS_IV_SCORE_CHEAP_MAX ?? 1.5); // max credit at the cheapest own-IV (rank 0)
+// Halved 3/1.5 → 1.5/0.75 with the same scale-coherence recalibration as
+// PICKS_TIMING_FOLD_SCALE: these were sized against the legacy ±12/±16 bars
+// (max penalty 25% of the trade bar); against the live ~6 bar the old values
+// were double their designed share of conviction.
+const PICKS_IV_SCORE_MAX = Number(process.env.PICKS_IV_SCORE_MAX ?? 1.5);        // max penalty at the richest own-IV (rank 100)
+const PICKS_IV_SCORE_CHEAP_MAX = Number(process.env.PICKS_IV_SCORE_CHEAP_MAX ?? 0.75); // max credit at the cheapest own-IV (rank 0)
 // Regime overlay on the IV-cost RICHNESS penalty (§3.5 regime overlay, gated by
 // PICKS_HW_REGIME). Buying long premium into a vol spike is far more punishing than
 // in a calm tape, so the rich-side penalty scales up when the macro tape is
@@ -7371,7 +7403,7 @@ const CHECKPOINT_MAX_AGE_DAYS = 35;
 const GRADES_HISTORY_FILE = "grades-history.json";
 const GRADES_HISTORY_KEEP_DAYS = 120;   // prune change events older than this
 const GRADES_HISTORY_MAX_CHANGES = 500; // hard cap on the rolling log
-const GRADE_CHANGE_MIN_DELTA = 3;       // min |Δscore| to log when the tier is unchanged
+const GRADE_CHANGE_MIN_DELTA = 2;       // min |Δscore| to log when the tier is unchanged (3 → 2: on the compressed cross-sectional scale a 3-point move is a whole median nonzero grade, which would mute the log)
 
 // Picks churn log (data/picks-changes.json): why a name ENTERED or LEFT the
 // actionable Top Picks set. Detected on the grade index (a name crossing the
@@ -7396,7 +7428,7 @@ const PICKS_CHANGES_AI_MAX = 12;        // max events per build that get an AI o
 const PICKS_ROSTER_FILE = "picks-roster.json";
 const PICKS_ROSTER_FORECAST_AI_MAX = 10; // max picks/build that get an AI forecast gloss
 // Hysteresis dead-band (anti-jitter): a name ENTERS the log when its |total|
-// clears the +PICKS_MIN_CONVICTION bar (16), but only EXITS once |total| falls
+// clears the +PICKS_MIN_CONVICTION bar, but only EXITS once |total| falls
 // below the bar by this much (i.e. < 14). Combined with the per-symbol in/out
 // state derived from the rolling log, this stops a score parked at the bar from
 // spamming entered/exited every ~3×/day build — the same noise the grade-change
@@ -10061,7 +10093,7 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
 //   tranches:   [ { role, size, price, movePct, label, trigger,
 //                   reasons:{technical,fundamental,mechanical,narrative}, prose } ]
 //   summary:    one-line headline
-function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, exitPlan) {
+function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, exitPlan, strongCut = PICKS_TIER_STRONG) {
   if (!(spot > 0) || (side !== "call" && side !== "put")) return null;
   const isCall = side === "call";
   const t = data?.technicals || {};
@@ -10321,10 +10353,13 @@ function buildEntryPlan(side, spot, data, contract, pillarScores, sym, total, ex
 
   // Full size vs scale: only a very-high-conviction (Strong-tier) pick already
   // sitting on a confluence earns a full-size green light; everything else scales.
-  const stance = (absTotal >= PICKS_TIER_STRONG && atZoneNow && buyZones[0] && buyZones[0].confluence && !isBreakout) ? "full" : "scale";
+  // Strong-tier reads use the LIVE percentile strong cutoff (threaded by the
+  // roster loop), not the legacy fixed constant — the old absTotal≥16 was
+  // unreachable on the compressed scale, so "full" stance was dead code.
+  const stance = (absTotal >= strongCut && atZoneNow && buyZones[0] && buyZones[0].confluence && !isBreakout) ? "full" : "scale";
   // The "Strong-tier graded stock at its 50D SMA" alert — the highest-probability
   // pullback entry in a strong uptrend/downtrend.
-  const atFiftyDaySma = absTotal >= PICKS_TIER_STRONG && fin(sma50) && Math.abs(spot - sma50) / sma50 <= 0.02;
+  const atFiftyDaySma = absTotal >= strongCut && fin(sma50) && Math.abs(spot - sma50) / sma50 <= 0.02;
 
   let sizingRule;
   if (stance === "full") {
@@ -11219,7 +11254,11 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     }
     avoidPenalty = Math.max(PICKS_TIMING_AVOID_FLOOR, -8 * sev);
   }
-  const contribution = (knife || chase) ? avoidPenalty : Math.max(-8, Math.min(4, score));
+  const rawContribution = (knife || chase) ? avoidPenalty : Math.max(-8, Math.min(4, score));
+  // Restore the modifier's designed share of the compressed conviction scale
+  // (see PICKS_TIMING_FOLD_SCALE) — one multiplicative exit point so the
+  // severity structure above is preserved exactly.
+  const contribution = rawContribution * PICKS_TIMING_FOLD_SCALE;
 
   return { state, score, contribution, reasons, headline, deferKind };
 }
@@ -12041,7 +12080,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // Exit ladder first, then the entry plan (which reads the exit cut as its
     // floor/ceiling so it never suggests adding into an already-broken thesis).
     const exitPlan = buildExitPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars, r.sym);
-    const entryPlan = buildEntryPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars, r.sym, r.total, exitPlan);
+    const entryPlan = buildEntryPlan(side, r.data?.spot ?? null, r.data, contract, r.pillars, r.sym, r.total, exitPlan,
+      (tierCutoffs && Number.isFinite(tierCutoffs.strongCut)) ? tierCutoffs.strongCut : PICKS_TIER_STRONG);
 
     const pickPayload = {
       symbol: r.sym,
