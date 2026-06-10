@@ -612,9 +612,14 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
   touched; the gate just gets stricter when the tape disagrees.
 - **Risk-off put path:** because graded puts are rare (§4), in a *confirmed*
   risk-off tape the candidate set is widened to **tactical puts** — names that
-  don't clear the −12 bar but are still bearish-leaning (`total ≤ −8`). A tactical
-  put must additionally pass the gate with a **`go`** (a real, well-timed
-  breakdown) before it ships, and is labelled **"Tactical Put" / reduced size**.
+  don't clear the live trade cutoff but are still bearish-leaning. The sub-bar
+  window is RELATIVE to the live cutoff: `total ∈ (−tradeCut, max(bar, −0.8·tradeCut)]`
+  (bar = `PICKS_RISKOFF_PUT_BAR` −8 plain / `PICKS_MACRO_SEVERE_PUT_BAR` −5 severe) —
+  the `Math.max` clamp keeps the window non-empty under the compressed
+  cross-sectional scale (a fixed −8 vs a tradeCut of ~6 was an EMPTY window, the
+  audit's dead-branch finding) while leaving the legacy ±12 path byte-identical.
+  A tactical put must additionally pass the gate with a **`go`** (a real,
+  well-timed breakdown) before it ships, and is labelled **"Tactical Put" / reduced size**.
   Its `total` stays its true (negative) grade score, so it ranks below every graded
   pick and only fills slots the vetoed calls leave behind.
 
@@ -873,6 +878,44 @@ it has to be trustworthy. The fixes:
     (§3.5.1). Reuses `PICKS_IVRANK_MIN_N` for the history floor. Set `PICKS_IV_SCORE=0` to
     revert to the legacy in-timing IV-rank nudge.
   - **Term structure (P2):** `PICKS_TIMING_BACKWARDATION 0.05` (computeEntryTiming soft con).
+  - **Scanner-data signals (Mechanicals §3):** `PICKS_OI_TRACKER_SIGNALS` (default ON) —
+    `oiDeltaNet` (net call−put ΔOI / total OI over the OI tracker's front-two-expiration
+    top strikes; continuous → z pool, legacy ±1 at `PICKS_OI_DELTA_NET_BAR 0.015` ≈ p85)
+    + `gammaSqueeze` (the tracker's 0-5 rule score: ≥4 → +2, 3 → +1; call-side-only by
+    construction, fixed signal, deliberately NOT clustered); `PICKS_FLOW_PERSIST`
+    (default ON) — `flowPersist` (rolling 7-day `unusual-log.json`: premium-weighted
+    side balance × ln(1+days), where entries are first **deduped to one row per
+    contract-day at the day's max premium** — the log appends per hourly scan with
+    cumulative session notional, so raw sums would pass the noise floor by repetition —
+    and **days counts the DOMINANT side's distinct sessions** only; ≥60% balance over
+    2+/4+ days → ±1/±2; raw rides the z pool; `PICKS_FLOW_PERSIST_MIN_PREMIUM 250000`
+    noise floor, `PICKS_FLOW_LOG_WINDOW_DAYS 7`). All three read scanner-owned files staleness-gated
+    (`PICKS_OI_TRACKER_MAX_AGE_DAYS 4`) and degrade to "no data". `oiDeltaNet`/`flowPersist`
+    join the **flow** decorrelation cluster (one positioning beta read four ways —
+    today's prints, OI level, overnight build, multi-day persistence; the 1/√K collapse
+    is what lets the engine carry all four).
+  - **Scanner-data timing reads (§6):** `PICKS_TIMING_WALL` (default ON) — spot within
+    `PICKS_TIMING_WALL_PCT 2.0`% under the call wall / above the put wall → side-aware
+    soft ±1 (dealer supply overhead / support underfoot; only when the wall is on its
+    expected side of spot — a broken wall is the gammaSqueeze signal's regime);
+    `PICKS_TIMING_OVERNIGHT` (default ON) — the overnight sweep's peer-implied move
+    (|corr|-weighted Σ β·peer-move from `data/correlations.json`, server-side sibling of
+    the Grade tab's live overnight widget) → soft ±1 when |implied| ≥
+    `PICKS_TIMING_OVERNIGHT_MIN_PCT 0.5`% (top-peer |corr| floor
+    `PICKS_TIMING_OVERNIGHT_MIN_CORR 0.15`, staleness gate `PICKS_OVERNIGHT_MAX_AGE_HOURS 36`).
+  - **Equity-internals sentiment axis (regime, §6.3):** `PICKS_MACRO_SENTIMENT`
+    (default ON) — CNN Fear & Greed (`data/fear-greed.json`; the live fetch in a full
+    build) votes as a 7th macro axis: composite ≤ `PICKS_MACRO_FG_FEAR 25` → −1,
+    ≥ `PICKS_MACRO_FG_GREED 75` → +1, capped ±1 (its volatility component overlaps the
+    VIX axis, so it confirms but can never drive severe alone). Reads equity INTERNALS
+    (breadth/strength/momentum) no other axis covers.
+  - **Redundant-signal prune (audit, §3):** `PICKS_PRUNE_REDUNDANT` (default ON) —
+    `volConf` dropped from Technicals (double-read the same 20D rvol `unusualVolume`
+    scores SIGNED, and unsigned volume credits a crash day like a rally);
+    `socialSentiment` informational-only (score 0, raw out of the z pool — it fired
+    31 bullish / 0 bearish across the live universe, a structural long bias). `=0`
+    restores both as scored signals. `PICKS_DECORRELATE` is now default **ON**
+    (1/√K cluster collapse; flip with `=0`).
   - **Debit verticals (P1.2, DARK):** `PICKS_VERTICALS` (default **OFF**), `PICKS_VERT_IVRANK 70`,
     `PICKS_VERT_SHORT_DELTA_MIN/MAX 0.20/0.38`, `PICKS_VERT_MIN_CREDIT 0.20`; auto-engage
     `PICKS_VERT_AUTO` (default **OFF**) + `PICKS_VERT_NEGEDGE_IVRANK 50` (rich-IV / negative-edge

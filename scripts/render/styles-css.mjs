@@ -4839,6 +4839,34 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   .cmd-palette-trigger { padding: 6px 8px; min-width: 0; }
 }
 
+/* Back-to-top — floating button bottom-right, revealed by app.js once the
+   page is scrolled past ~600px. Hidden via opacity (not [hidden]) so the
+   fade transition works; pointer-events gate keeps the invisible button
+   from eating clicks. Sits below the cmd-palette overlay (z 9999). */
+.back-to-top {
+  position: fixed;
+  right: max(var(--s-4), env(safe-area-inset-right, 0px));
+  bottom: max(var(--s-4), env(safe-area-inset-bottom, 0px));
+  z-index: 900;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity .18s ease, transform .18s ease, color .12s ease, border-color .12s ease;
+}
+.back-to-top.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.back-to-top:hover { color: var(--text-strong); border-color: var(--accent); }
+.back-to-top:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); color: var(--text-strong); }
+@media (prefers-reduced-motion: reduce) {
+  .back-to-top { transition: none; transform: none; }
+}
+
 .cmd-palette {
   position: fixed; inset: 0; z-index: 9999;
 }
@@ -4888,6 +4916,9 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .cmd-palette-results {
   list-style: none; margin: 0; padding: 6px;
   max-height: 50vh; overflow-y: auto;
+  /* Don't chain a results-list overscroll into the (scroll-locked) page —
+     on touch the rubber-band otherwise jiggles the whole backdrop. */
+  overscroll-behavior: contain;
 }
 .cmd-palette-row {
   display: flex; align-items: center; gap: 10px;
@@ -4936,6 +4967,12 @@ body.cmd-palette-open { overflow: hidden; }
 @media (max-width: 640px){
   .cmd-palette-modal { margin: 8vh 16px 0; }
   .cmd-palette-footer { gap: 10px; font-size: 10px; }
+  /* Phone keyboards eat ~40% of the viewport while the palette input is
+     focused; dvh tracks the VISIBLE viewport (vh does not on mobile), so the
+     results list stays reachable instead of running under the keyboard. */
+  .cmd-palette-results { max-height: min(50vh, 42dvh); }
+  /* Match the ≥44px touch-target rule the rest of the mobile block applies. */
+  .cmd-palette-row { min-height: 44px; }
 }
 
 /* === Manual form === */
@@ -9154,6 +9191,29 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   font-size: var(--fs-sm);
 }
 .tickers-search:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.tickers-empty {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s-3);
+  margin-top: var(--s-3);
+  padding: var(--s-6) var(--s-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-3);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.tickers-empty[hidden] { display: none; }
+.tickers-empty-reset {
+  appearance: none;
+  padding: 5px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit; font-size: var(--fs-xs); font-weight: 600;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.tickers-empty-reset:hover { border-color: var(--accent); color: var(--text-strong); }
 .tickers-chips {
   display: flex; flex-wrap: wrap; gap: 6px;
 }
@@ -12652,6 +12712,23 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
    element. We already handle focus rings via :focus-visible; the
    default grey/blue tap-highlight just looks like a bug on dark UI. */
 html { -webkit-tap-highlight-color: transparent; }
+
+/* Rapid taps on small controls (filter chips, segmented toggles, pagination,
+   the pin/compare buttons) must register as TAPS, not as a double-tap zoom
+   gesture — touch-action: manipulation disables double-tap-to-zoom on the
+   control itself while leaving pinch zoom and scrolling untouched. Links are
+   included; text content is not, so a reader can still double-tap-zoom prose. */
+button, [role="button"], [role="tab"], [role="option"], a, select, label,
+input[type="checkbox"], input[type="radio"], summary {
+  touch-action: manipulation;
+}
+
+/* Flinging a horizontally-scrollable strip to its edge must not chain into
+   the browser's edge-swipe (back/forward navigation on iOS/Android) — that
+   reads as "the site randomly navigated away". Vertical chaining stays. */
+.page-tabs, .narr-tabs {
+  overscroll-behavior-x: contain;
+}
 
 /* Hover-capable pointers only. Touch devices fire :hover on tap and
    then strand the hovered state until the next tap elsewhere — for

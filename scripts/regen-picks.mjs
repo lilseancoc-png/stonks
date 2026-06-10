@@ -67,10 +67,17 @@ if (macroBackdrop) {
     const fwRaw = await readFile(resolve(DATA_DIR, "fedwatch-history.json"), "utf8");
     fedwatchHistory = JSON.parse(fwRaw);
   } catch {}
+  // CNN Fear & Greed snapshot for the regime's equity-internals sentiment axis
+  // (PICKS_MACRO_SENTIMENT). The full build uses the live fetch; a regen reads
+  // the committed snapshot — missing → the axis reads "no data".
+  let fearGreed = null;
+  try {
+    fearGreed = JSON.parse(await readFile(resolve(DATA_DIR, "fear-greed.json"), "utf8"));
+  } catch {}
   // Same regime persistence as the full build: hold a recovering state one build
   // (defensive moves apply immediately), confirmed against the prior picks.json.
   macroBackdrop.macroRegime = applyMacroRegimePersistence(
-    computeMacroRegime(macroBackdrop, fedwatchHistory, narratives),
+    computeMacroRegime(macroBackdrop, fedwatchHistory, narratives, fearGreed),
     priorPicksPayload?.rosterMeta?.macroRegime || null,
   );
   if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
@@ -93,6 +100,22 @@ let volumeFlags = null;
 try {
   const raw = await readFile(resolve(DATA_DIR, "volume-flags.json"), "utf8");
   volumeFlags = JSON.parse(raw);
+} catch {}
+
+// Scanner-data extras (same set the full build threads): the OI tracker
+// (oiDeltaNet/gammaSqueeze signals + the wall-proximity timing read), the
+// rolling flow log (flowPersist), and the committed overnight correlations
+// (the overnight peer timing read). Each is optional and staleness-gated
+// inside the engine, so a missing/old file just reads "no data".
+const scannerExtras = {};
+try {
+  scannerExtras.oiTracker = JSON.parse(await readFile(resolve(DATA_DIR, "oi-tracker.json"), "utf8"));
+} catch {}
+try {
+  scannerExtras.flowLog = JSON.parse(await readFile(resolve(DATA_DIR, "unusual-log.json"), "utf8"));
+} catch {}
+try {
+  scannerExtras.correlations = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
 } catch {}
 
 const files = await readdir(DATA_DIR);
@@ -140,7 +163,7 @@ try {
   if (rfr && Number.isFinite(rfr.rate)) riskFreeRate = rfr.rate;
 } catch { /* no rfr-history.json yet — keep the 4.5% fallback */ }
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades });
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, ...scannerExtras });
 const builtAtIso = new Date().toISOString();
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above
@@ -174,7 +197,7 @@ await writeFile(
 // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
 // ticker search). Same 4-pillar scoring as buildTopPicks; kept in step with the
 // regen'd picks. Same minified format as build.mjs::writeGradesFile.
-const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, { priorGrades });
+const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, { priorGrades, ...scannerExtras });
 // minConviction = the live percentile trade cutoff (P3.2), mirroring
 // build.mjs::writeGradesFile exactly — the grade-any-ticker card reads this as the
 // "actionable bar", so a hardcoded ±PICKS_MIN_CONVICTION here makes a searched name

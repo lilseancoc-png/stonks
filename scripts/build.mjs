@@ -6826,6 +6826,13 @@ const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
 const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
 const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes (and zero risk-off) → can lift to risk-on
+// Equity-internals sentiment axis (CNN Fear & Greed, data/fear-greed.json).
+// Extremes-only vote, capped ±1 (its volatility component overlaps the VIX
+// axis, so it confirms but can never drive severe alone). =0 disables.
+const PICKS_MACRO_SENTIMENT = process.env.PICKS_MACRO_SENTIMENT !== "0"; // default ON
+const PICKS_MACRO_FG_FEAR = Number(process.env.PICKS_MACRO_FG_FEAR ?? 25);   // composite ≤ this → −1 (extreme-fear internals)
+const PICKS_MACRO_FG_GREED = Number(process.env.PICKS_MACRO_FG_GREED ?? 75); // composite ≥ this → +1 (greed internals)
+const PICKS_MACRO_FG_MAX_AGE_HOURS = Number(process.env.PICKS_MACRO_FG_MAX_AGE_HOURS ?? 48); // older snapshot → axis reads "no data"
 // Differential bearish tilt folded into the DIRECTIONAL narrative pillar (so it can
 // flip a marginal call to a put and survives the cross-sectional demean — fixed
 // signals aren't z-scored), scaled by each name's beta. Negative in risk-off.
@@ -7014,10 +7021,10 @@ const PICKS_VERT_NEGEDGE_IVRANK = Number(process.env.PICKS_VERT_NEGEDGE_IVRANK ?
 // (usually the Tech/AI beta) the universe shares. With this on, each converted
 // signal's contribution is scaled by 1/sqrt(K), K = the firing signals in its
 // cluster for that name (variance scaling: K independent → ~unchanged, K fully
-// collinear → ~1 signal's worth). DARK by default: it changes the grade scale, and
-// we won't ship an unvalidated score change live on a losing engine — the exact
-// scaling is itself a forward-validation target (rubric §9.6 / the IC bridge).
-const PICKS_DECORRELATE = process.env.PICKS_DECORRELATE === "1"; // default OFF
+// collinear → ~1 signal's worth). Default ON (audited clean on the live universe)
+// — and about to matter more as flow-family signals are added to the cluster
+// map. =0 restores the raw (un-collapsed) cluster loading.
+const PICKS_DECORRELATE = process.env.PICKS_DECORRELATE !== "0"; // default ON
 const SIGNAL_CLUSTER = {
   // growth / quality (move together when a company is beating + growing)
   earningsSurprise: "growth", epsGrowth: "growth", revGrowth: "growth",
@@ -7028,10 +7035,51 @@ const SIGNAL_CLUSTER = {
   rsiMomentum: "momentum",
   // mean-reversion / contrarian (already gated, but collinear among themselves)
   rsiReading: "meanrev", fiftyTwoWeek: "meanrev", putCallRatio: "meanrev",
-  // options flow
-  unusualFlow: "flow", oi: "flow",
-  // (volConf, socialSentiment are singletons — no cluster, scale ×1)
+  // options flow — one positioning beta read four ways (today's prints, OI
+  // level, overnight OI build, multi-day flow persistence); the 1/√K collapse
+  // is what lets the engine carry all four without N-weighting the family.
+  unusualFlow: "flow", oi: "flow", oiDeltaNet: "flow", flowPersist: "flow",
+  // (socialSentiment is a singleton — no cluster, scale ×1; gammaSqueeze is a
+  // discrete fixed signal, deliberately NOT clustered — the collapse assumes
+  // converted keys.)
 };
+// Redundant-signal prune (audit: measured on the live 138-name universe).
+// Two signals carry no independent, correctly-signed information:
+//   volConf — double-reads the SAME 20D relative volume unusualVolume already
+//   scores SIGNED, and it's unsigned: 1.3× volume on a -5% day earns the same
+//   +1 as on a rally. Volume-as-confirmation already lives in computeEntryTiming
+//   (VOL_CONFIRM). Dropped from the technicals pillar entirely.
+//   socialSentiment — self-tagged Stocktwits sentiment on a ≥5-message/24h
+//   sample fired 31 bullish / 0 bearish across the whole universe — a
+//   structurally long-biased noise source. Kept INFORMATIONAL (score 0, raw
+//   null so it leaves the z pool) so the chip still shows the reading.
+// =0 restores both as scored signals.
+const PICKS_PRUNE_REDUNDANT = process.env.PICKS_PRUNE_REDUNDANT !== "0"; // default ON
+
+// Scanner-data signals — wire the site's own scanner artifacts into the grade.
+// The intraday/twice-daily scanners produce positioning data the bake-time
+// chain snapshot can't see: overnight ΔOI per strike + gamma walls + the
+// squeeze score (data/oi-tracker.json, scan-oi.mjs), and the rolling 7-day
+// flagged-flow log (data/unusual-log.json, scan-unusual.mjs — today's
+// unusual.json only covers the current session). All scanner-owned files can
+// be days old over a weekend or after a missed workflow run, so every read is
+// staleness-gated and degrades to "no data" (available:false), never throws.
+const PICKS_OI_TRACKER_SIGNALS = process.env.PICKS_OI_TRACKER_SIGNALS !== "0"; // default ON
+const PICKS_FLOW_PERSIST = process.env.PICKS_FLOW_PERSIST !== "0";             // default ON
+const PICKS_OI_TRACKER_MAX_AGE_DAYS = Number(process.env.PICKS_OI_TRACKER_MAX_AGE_DAYS ?? 4); // calendar days; covers a weekend
+const PICKS_FLOW_LOG_WINDOW_DAYS = Number(process.env.PICKS_FLOW_LOG_WINDOW_DAYS ?? 7);       // matches the scanner's own retention
+const PICKS_FLOW_PERSIST_MIN_PREMIUM = Number(process.env.PICKS_FLOW_PERSIST_MIN_PREMIUM ?? 250000); // total $ premium floor — below this the week's flags are noise
+const PICKS_OI_DELTA_NET_BAR = Number(process.env.PICKS_OI_DELTA_NET_BAR ?? 0.015); // |net ΔOI| / total OI for the legacy ±1 (≈ p85 of the live universe)
+// Entry-timing reads from the same data: spot pressed against the OI tracker's
+// call/put wall (dealer-hedging supply/support at the strike), and the
+// overnight peer-implied move from data/correlations.json (the server-side
+// sibling of the Grade tab's live overnight widget). Soft ±1 pros/cons only.
+const PICKS_TIMING_WALL = process.env.PICKS_TIMING_WALL !== "0";               // default ON
+const PICKS_TIMING_WALL_PCT = Number(process.env.PICKS_TIMING_WALL_PCT ?? 2.0); // within this % of a wall = at the level
+const PICKS_TIMING_OVERNIGHT = process.env.PICKS_TIMING_OVERNIGHT !== "0";     // default ON
+const PICKS_OVERNIGHT_MAX_AGE_HOURS = Number(process.env.PICKS_OVERNIGHT_MAX_AGE_HOURS ?? 36);
+const PICKS_TIMING_OVERNIGHT_MIN_PCT = Number(process.env.PICKS_TIMING_OVERNIGHT_MIN_PCT ?? 0.5); // peer-implied |move| % to fire
+const PICKS_TIMING_OVERNIGHT_MIN_CORR = Number(process.env.PICKS_TIMING_OVERNIGHT_MIN_CORR ?? 0.15); // top peer |corr| floor
 
 // Horizon-aware pillar weighting (rubric §3.5). The engine grades like a
 // stock-picker (4 pillars of asset quality) but TRADES ~14-day long premium on
@@ -7238,10 +7286,12 @@ function expectedMovePct(iv, dteDays) {
 
 // True if an earnings date (ISO yyyy-mm-dd) falls inside [now, expSec].
 // Returns false on missing/invalid input so missing earnings doesn't kill
-// every pick.
+// every pick. A date-only ISO parses at midnight UTC — the prior evening ET —
+// so it's anchored at 16:00Z (like daysToEarningsFrom) so a same-day print
+// still reads as ahead of us, not already past.
 function earningsInsideWindow(earningsIso, expSec) {
   if (!earningsIso || typeof earningsIso !== "string") return false;
-  const t = Date.parse(earningsIso);
+  const t = Date.parse(earningsIso.length <= 10 ? `${earningsIso}T16:00:00Z` : earningsIso);
   if (!Number.isFinite(t)) return false;
   const earningsSec = Math.floor(t / 1000);
   const nowSec = Math.floor(Date.now() / 1000);
@@ -7304,6 +7354,103 @@ function summarizeUnusualForSym(sym, unusualPayload) {
     if (prem > topMag) { topMag = prem; topSample = c; }
   }
   return { bullPrem, bearPrem, bullCt, bearCt, topSample };
+}
+
+// One ticker's row from the OI tracker (data/oi-tracker.json, scan-oi.mjs).
+// Staleness-gated: the tracker runs twice on weekdays, so anything older than
+// PICKS_OI_TRACKER_MAX_AGE_DAYS (covers a weekend) reads as "no data" rather
+// than scoring last week's positioning as if it were fresh.
+function oiTrackerRowFor(sym, oiTracker) {
+  // The row serves TWO independently-flagged consumers — the mechanicals
+  // signals (PICKS_OI_TRACKER_SIGNALS) and the wall-proximity timing read
+  // (PICKS_TIMING_WALL) — so the reader only bails when BOTH are off; each
+  // consumer gates on its own flag.
+  if (!PICKS_OI_TRACKER_SIGNALS && !PICKS_TIMING_WALL) return null;
+  if (!oiTracker || !Array.isArray(oiTracker.tickers)) return null;
+  const scannedMs = Date.parse(oiTracker.scannedAt || "");
+  if (!Number.isFinite(scannedMs)) return null;
+  if (Date.now() - scannedMs > PICKS_OI_TRACKER_MAX_AGE_DAYS * 86400e3) return null;
+  return oiTracker.tickers.find((t) => t?.symbol === sym) || null;
+}
+
+// Flow persistence over the scanner's rolling flag log (data/unusual-log.json).
+// Repeated same-side institutional positioning across SESSIONS is a far
+// stronger read than one day's prints (which the unusualFlow signal owns):
+// balance = premium-weighted net side over the window, scaled by how many
+// distinct ET days the name was flagged. Null below the premium floor — a
+// week of sub-$250k flags is noise, not positioning.
+function flowPersistFor(sym, flowLog) {
+  if (!PICKS_FLOW_PERSIST || !flowLog || !Array.isArray(flowLog.entries)) return null;
+  const cutoffMs = Date.now() - PICKS_FLOW_LOG_WINDOW_DAYS * 86400e3;
+  // The log appends one entry per flagged contract PER HOURLY SCAN, and each
+  // entry's premium is the contract's CUMULATIVE session notional — summing
+  // entries raw would count one contract's premium once per scan it stayed
+  // flagged (passing the noise floor by repetition, not size). Dedupe to one
+  // row per contract-day first, keeping the day's max (= final cumulative)
+  // premium; only then aggregate.
+  const byContractDay = new Map();
+  for (const e of flowLog.entries) {
+    if (!e || e.symbol !== sym) continue;
+    if (e.side !== "call" && e.side !== "put") continue;
+    const t = Date.parse(e.scannedAt || "");
+    if (!Number.isFinite(t) || t < cutoffMs) continue;
+    const day = String(e.scannedAt).slice(0, 10);
+    const key = `${e.side}|${e.strike}|${e.expSec}|${day}`;
+    const prem = Number(e.premium) || 0;
+    const prev = byContractDay.get(key);
+    if (!prev || prem > prev.prem) byContractDay.set(key, { side: e.side, day, prem });
+  }
+  if (!byContractDay.size) return null;
+  let callPrem = 0, putPrem = 0;
+  const callDays = new Set(), putDays = new Set();
+  for (const r of byContractDay.values()) {
+    if (r.side === "call") { callPrem += r.prem; callDays.add(r.day); }
+    else { putPrem += r.prem; putDays.add(r.day); }
+  }
+  const total = callPrem + putPrem;
+  if (!(total >= PICKS_FLOW_PERSIST_MIN_PREMIUM)) return null;
+  const balance = (callPrem - putPrem) / total; // −1 (all-put) … +1 (all-call)
+  // Persistence = distinct sessions the DOMINANT side was flagged — 3 call
+  // days + 2 put days is 3 days of call persistence, not 5 of either.
+  const days = balance >= 0 ? callDays.size : putDays.size;
+  if (!days) return null;
+  return {
+    balance,
+    days,
+    callPrem,
+    putPrem,
+    // Continuous raw for the z pool: side balance scaled by persistence.
+    raw: balance * Math.log(1 + days),
+  };
+}
+
+// Peer-implied overnight move for one US ticker from the overnight
+// cross-market sweep (data/correlations.json — map[SYM].peers[] carries each
+// mapped foreign peer's trailing corr, OLS beta, and LAST COMPLETED session
+// move). |corr|-weighted mean of beta·chPct; the β sign carries direction.
+// Server-side sibling of the Grade tab's live buildOvernightPeerWidget — keep
+// the two consistent in spirit. Staleness-gated: the read is only meaningful
+// while "last completed session" still means last night (the 9:30 bake is the
+// first to see the just-closed Asian session).
+function overnightPeerReadFor(sym, correlations) {
+  if (!PICKS_TIMING_OVERNIGHT || !correlations || !correlations.map) return null;
+  const builtMs = Date.parse(correlations.builtAtIso || correlations.builtAt || "");
+  if (!Number.isFinite(builtMs)) return null;
+  if (Date.now() - builtMs > PICKS_OVERNIGHT_MAX_AGE_HOURS * 3600e3) return null;
+  const row = correlations.map[sym];
+  if (!row || !Array.isArray(row.peers) || !row.peers.length) return null;
+  let num = 0, den = 0, top = null;
+  for (const p of row.peers) {
+    const corr = Number(p?.corr), beta = Number(p?.beta), ch = Number(p?.chPct);
+    if (!Number.isFinite(corr) || !Number.isFinite(beta) || !Number.isFinite(ch)) continue;
+    const w = Math.abs(corr);
+    if (w < 0.10) continue; // near-zero correlation carries no overnight information
+    num += beta * ch * w;
+    den += w;
+    if (!top || w > Math.abs(Number(top.corr))) top = p;
+  }
+  if (!den || !top || Math.abs(Number(top.corr)) < PICKS_TIMING_OVERNIGHT_MIN_CORR) return null;
+  return { impliedPct: num / den, topPeer: top.name || top.sym, group: row.group || null };
 }
 
 // ----------------------------------------------------------------------------
@@ -7948,6 +8095,12 @@ function scoreTechnicals(data, streakRow) {
       }
     }
     fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", s, { raw: rangePos, value, note });
+    // Stamp the legacy tail gates (DISTANCE from spot, the toHi/fromLo reads
+    // above) for the cross-sectional dead-band: rangePos is the right z raw,
+    // but on a wide 52w range a name can sit at 96% of RANGE while still >5%
+    // below the high — the two quantities disagree about when the contrarian
+    // extreme actually fires, and the distance read is the scored convention.
+    fiftyTwoSignal.tails = { bull: fromLo >= 0 && fromLo <= 0.05, bear: toHi >= 0 && toHi <= 0.05 };
   }
   signals.push(fiftyTwoSignal);
 
@@ -7966,7 +8119,11 @@ function scoreTechnicals(data, streakRow) {
     else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D avg — low volume / no conviction`; }
     volConfSignal = _sig("volConf", "Volume Confirmation", s, { raw: rv, value: `${rv.toFixed(2)}x`, note });
   }
-  signals.push(volConfSignal);
+  // Pruned (PICKS_PRUNE_REDUNDANT): double-reads the same 20D rvol that
+  // unusualVolume scores signed, and it's unsigned — 1.3x volume on a -5% day
+  // earns the same +1 as on a rally; volume-as-confirmation already lives in
+  // computeEntryTiming (VOL_CONFIRM). Row dropped entirely.
+  if (!PICKS_PRUNE_REDUNDANT) signals.push(volConfSignal);
 
   // 10. Moving-average stack — DECORRELATED. The 20/50/100D SMAs are highly
   // collinear (price is almost always above or below all three at once), so
@@ -8109,7 +8266,10 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   const oi = sumCallPutOI(data);
   if (oi && (oi.callOI + oi.putOI) > 0) {
     const denom = Math.max(1, oi.putOI);
-    const ratio = oi.callOI / denom;
+    // Floor at 0.02: the z-pool log transform drops a non-positive raw, so a
+    // true-zero call OI (the maximal bearish read) must land at the clip edge,
+    // not vanish from the pool (cf. unusualFlow's (bull+1)/(bear+1) smoothing).
+    const ratio = Math.max(0.02, oi.callOI / denom);
     let s = 0;
     let note = `${oi.callOI.toLocaleString()} calls vs ${oi.putOI.toLocaleString()} puts`;
     if (ratio >= 1.5) s = 1;
@@ -8234,7 +8394,10 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     { available: false, note: "no option volume data" });
   const pcVol = sumCallPutVolume(data);
   if (pcVol && pcVol.callVol > 0) {
-    const ratio = pcVol.putVol / pcVol.callVol;
+    // Floor at 0.02: the z-pool log transform drops a non-positive raw, so a
+    // true-zero put volume (the maximal greed read, legacy −2) must land at the
+    // clip edge, not vanish (cf. unusualFlow's (bull+1)/(bear+1) smoothing).
+    const ratio = Math.max(0.02, pcVol.putVol / pcVol.callVol);
     let s = 0;
     let note = `P/C ${ratio.toFixed(2)} — neutral positioning`;
     if (ratio > 1.15) {
@@ -8257,6 +8420,92 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
     });
   }
   signals.push(pcrSignal);
+
+  // 6b. Overnight ΔOI build (scanner-owned data/oi-tracker.json): where new
+  // options positioning LANDED in last night's settlement, net of side —
+  // (Σ call ΔOI − Σ put ΔOI) / total OI over the tracker's top-OI strikes on
+  // the front two expirations. OI settles T+1, so this is real opened-and-held
+  // positioning, not intraday churn (which unusualFlow owns). Known basis
+  // mismatch, accepted: the numerator covers only the tracker's surfaced
+  // top-OI strikes while the denominator is ALL in-band front-two-expiration
+  // OI, so the fraction is attenuated vs a true net-ΔOI ratio — the
+  // PICKS_OI_DELTA_NET_BAR was calibrated empirically on exactly this basis
+  // (live median ≈ 0, tails ±7-9%, the ±1 fires ≈ p85), and the z pool grades
+  // relative position, where a uniform attenuation cancels.
+  let oiDeltaSignal = _sig("oiDeltaNet", "OI Build (overnight Δ)", 0,
+    { available: false, note: "no fresh OI-tracker snapshot" });
+  // Own-flag gate: the stashed row may exist solely for the wall-proximity
+  // timing read (PICKS_TIMING_WALL) when the mechanicals flag is off.
+  const oiRow = PICKS_OI_TRACKER_SIGNALS ? data?.oiTrackerRow : null;
+  if (oiRow && Array.isArray(oiRow.strikes)) {
+    const callOiTotal = Number(oiRow.callOiTotal) || 0;
+    const putOiTotal = Number(oiRow.putOiTotal) || 0;
+    const totalOi = callOiTotal + putOiTotal;
+    if (totalOi > 0) {
+      let callDelta = 0, putDelta = 0;
+      for (const st of oiRow.strikes) {
+        const d = Number(st?.oiDelta);
+        if (!Number.isFinite(d)) continue;
+        if (st.side === "call") callDelta += d;
+        else if (st.side === "put") putDelta += d;
+      }
+      const net = (callDelta - putDelta) / totalOi;
+      let s = 0;
+      if (net >= PICKS_OI_DELTA_NET_BAR) s = 1;
+      else if (net <= -PICKS_OI_DELTA_NET_BAR) s = -1;
+      oiDeltaSignal = _sig("oiDeltaNet", "OI Build (overnight Δ)", s, {
+        raw: net,
+        value: `${net >= 0 ? "+" : ""}${(net * 100).toFixed(2)}% net`,
+        note: `${callDelta >= 0 ? "+" : ""}${callDelta.toLocaleString()} call vs ${putDelta >= 0 ? "+" : ""}${putDelta.toLocaleString()} put ΔOI overnight`,
+      });
+    }
+  }
+  signals.push(oiDeltaSignal);
+
+  // 6c. Gamma-squeeze setup: the OI tracker's 0-5 rule score (concentrated
+  // near-money call OI, hot C/P ratio, wall vol/OI, spot near the call wall,
+  // ask-side call sweeps — see scan-oi.mjs::computeGammaScore). Call-side-only
+  // by construction, so the signal is bullish-bounded: flagged (≥4) +2, 3 +1,
+  // else 0. Rule 2 overlaps the OI C/P signal — accepted: the score is bounded
+  // and the flow-family decorrelation covers the cluster. Discrete event →
+  // fixed signal, not z-converted.
+  let gammaSignal = _sig("gammaSqueeze", "Gamma-Squeeze Setup", 0,
+    { available: false, note: "no fresh OI-tracker snapshot" });
+  if (oiRow && Number.isFinite(Number(oiRow.score))) {
+    const gsc = Number(oiRow.score);
+    const s = gsc >= 4 ? 2 : gsc === 3 ? 1 : 0;
+    const why = Array.isArray(oiRow.reasons) && oiRow.reasons.length
+      ? oiRow.reasons.map((r) => r?.label).filter(Boolean).slice(0, 3).join(" · ")
+      : "no squeeze rules firing";
+    gammaSignal = _sig("gammaSqueeze", "Gamma-Squeeze Setup", s, {
+      value: `${gsc}/5`,
+      note: why,
+    });
+  }
+  signals.push(gammaSignal);
+
+  // 6d. Flow persistence (rolling 7-day unusual-flow log): repeated same-side
+  // flagged flow across SESSIONS. One session's prints are unusualFlow's job;
+  // a name flagged on the same side across 2+/4+ distinct days with real
+  // premium behind it is institutional positioning being built. The continuous
+  // raw (balance × ln(1+days)) rides the z pool; the legacy read needs a ≥60%
+  // premium-weighted side balance.
+  let flowPersistSignal = _sig("flowPersist", "Flow Persistence (7D)", 0,
+    { available: false, note: "no flagged flow this week" });
+  const fp = data?.flowPersist;
+  if (fp) {
+    let s = 0;
+    if (Math.abs(fp.balance) >= 0.6 && fp.days >= 2) {
+      s = Math.sign(fp.balance) * (fp.days >= 4 ? 2 : 1);
+    }
+    const fmtPrem = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : `$${Math.round(v / 1e3)}k`;
+    flowPersistSignal = _sig("flowPersist", "Flow Persistence (7D)", s, {
+      raw: fp.raw,
+      value: `${fmtPrem(fp.callPrem)}C / ${fmtPrem(fp.putPrem)}P · ${fp.days}d`,
+      note: `${fp.balance >= 0 ? "call" : "put"}-side ${(Math.abs(fp.balance) * 100).toFixed(0)}% of flagged premium across ${fp.days} session${fp.days === 1 ? "" : "s"}`,
+    });
+  }
+  signals.push(flowPersistSignal);
 
   // 7. VIX tracking: VIX rising AND > 25 = -2 (vol regime turning against long
   // premium); VIX FALLING FROM AN ELEVATED LEVEL (≥ 20) = +1 (genuine vol relief,
@@ -8395,6 +8644,10 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   signals.push(narSignal);
 
   // 3. Social Sentiment: net ≥35% bullish +1, ≤-35% net -1, requires ≥5 msgs/24h.
+  // Pruned to INFORMATIONAL under PICKS_PRUNE_REDUNDANT: self-tagged Stocktwits
+  // sentiment on this sample fired 31 bullish / 0 bearish across the whole
+  // universe — a structurally long-biased noise source. Score forced 0 and raw
+  // null (out of the z pool); value/note kept so the chip still shows the reading.
   let socSignal = _sig("socialSentiment", "Social Sentiment", 0,
     { available: false, note: "insufficient social messages" });
   const soc = data?.social;
@@ -8404,8 +8657,9 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     let note = `${net >= 0 ? "+" : ""}${net.toFixed(0)}% net (${soc.msgCount24h} msgs/24h)`;
     if (net >= 35) s = 1;
     else if (net <= -35) s = -1;
+    if (PICKS_PRUNE_REDUNDANT) { s = 0; note += " — informational, not scored"; }
     socSignal = _sig("socialSentiment", "Social Sentiment", s, {
-      raw: net,
+      raw: PICKS_PRUNE_REDUNDANT ? null : net,
       value: `${net >= 0 ? "+" : ""}${net.toFixed(0)}% net`,
       note,
     });
@@ -10022,7 +10276,7 @@ function computeGeoNewsStress(narratives) {
   return { score: s, label: `Geopolitical news: "${worst.name}" (str ${worst.strength})` };
 }
 
-export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null) {
+export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null, fearGreed = null) {
   if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
   const axes = {};
   const drivers = [];
@@ -10140,7 +10394,27 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     if (geo.score <= -1) drivers.push(geo.label.split(" (")[0]);
   }
 
-  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score];
+  // --- Equity-internals sentiment axis (CNN Fear & Greed) ---------------------
+  // The composite reads equity INTERNALS (breadth, strength, momentum) that no
+  // other axis covers. Capped at ±1 deliberately — its volatility component
+  // overlaps the VIX axis, so it's a confirming vote, never a driver that can
+  // tip "severe" on its own. Only the extremes vote; the middle is no signal.
+  if (PICKS_MACRO_SENTIMENT) {
+    // Staleness gate (same discipline as the scanner readers): a carried-
+    // forward last-good snapshot keeps the chip alive elsewhere, but a
+    // days-old extreme-fear reading must not keep voting risk-off here.
+    const fgAgeMs = fearGreed && fearGreed.asOf ? Date.now() - Date.parse(fearGreed.asOf) : null;
+    const fgFresh = fgAgeMs == null || (Number.isFinite(fgAgeMs) && fgAgeMs <= PICKS_MACRO_FG_MAX_AGE_HOURS * 3600e3);
+    const fgScore = fgFresh && fearGreed && Number.isFinite(Number(fearGreed.score)) ? Number(fearGreed.score) : null;
+    let s = 0;
+    let label = fgScore == null ? "no Fear & Greed data" : `Fear & Greed ${fgScore.toFixed(0)} (${fearGreed.rating || "neutral"})`;
+    if (fgScore != null && fgScore <= PICKS_MACRO_FG_FEAR) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fear-stressed internals`; }
+    else if (fgScore != null && fgScore >= PICKS_MACRO_FG_GREED) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — greed/risk-on internals`; }
+    axes.sentiment = { score: s, label };
+    if (s <= -1) drivers.push(`F&G ${fgScore.toFixed(0)}`);
+  } else axes.sentiment = { score: 0, label: "sentiment axis off" };
+
+  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.sentiment.score];
   const stress = arr.reduce((a, b) => a + b, 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
@@ -10158,13 +10432,17 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
 // discrete macro-regime state, so a tape hovering AT a trigger (VIX ~20, Fed
 // drift ~5pt) can't whipsaw the whole book between long-leaning and all-puts
 // build to build. A move toward MORE risk-off applies immediately (never delay
-// defense); a move toward LESS risk-off (recovering) only takes effect once the
-// same recovered state is read on two CONSECUTIVE builds. `priorMeta` is the
-// previous build's rosterMeta.macroRegime ({state, rawState}) threaded by
-// main()/regen-picks from the pre-wipe picks.json; absent → no persistence
-// (first run / legacy payloads), the raw read stands. Mutates and returns `mr`,
-// stamping `rawState` (this build's instantaneous read — the substrate the NEXT
-// build confirms against) and `persisted: true` when the effective state held.
+// defense); a move toward LESS risk-off (recovering) only takes effect once two
+// CONSECUTIVE builds both read less severe than the held state — and then steps
+// to the MORE conservative of the two reads, not the most optimistic one.
+// (Requiring the two raw reads to be IDENTICAL would let an alternating
+// neutral/risk-on tape hold risk-off forever — both reads agree the tape
+// recovered, they just disagree how far.) `priorMeta` is the previous build's
+// rosterMeta.macroRegime ({state, rawState}) threaded by main()/regen-picks
+// from the pre-wipe picks.json; absent → no persistence (first run / legacy
+// payloads), the raw read stands. Mutates and returns `mr`, stamping `rawState`
+// (this build's instantaneous read — the substrate the NEXT build confirms
+// against) and `persisted: true` when the effective state deviated from raw.
 export function applyMacroRegimePersistence(mr, priorMeta) {
   if (!mr || !mr.state) return mr;
   const RANK = { "severe-risk-off": 0, "risk-off": 1, "neutral": 2, "risk-on": 3 };
@@ -10175,7 +10453,17 @@ export function applyMacroRegimePersistence(mr, priorMeta) {
   if (!prevEff || !(prevEff in RANK)) return mr;
   if (RANK[raw] <= RANK[prevEff]) return mr; // defensive (or unchanged) — apply immediately
   const prevRaw = (priorMeta.rawState in RANK) ? priorMeta.rawState : prevEff;
-  if (raw === prevRaw) return mr;            // second consecutive build reading the recovery — confirmed
+  if (RANK[prevRaw] > RANK[prevEff]) {
+    // Two consecutive builds both read less severe than the held state —
+    // recovery confirmed. Step to the more severe (conservative) of the two.
+    const step = RANK[raw] <= RANK[prevRaw] ? raw : prevRaw;
+    if (step !== raw) {
+      mr.state = step;
+      mr.persisted = true;
+      mr.summary = `Cross-asset macro ${step} — conservative step on a confirmed recovery (this build read ${raw})`;
+    }
+    return mr;
+  }
   mr.state = prevEff;                        // unconfirmed recovery — hold the prior defensive state one build
   mr.persisted = true;
   mr.summary = `Cross-asset macro ${prevEff} — holding pending confirmation (this build read ${raw})`;
@@ -10589,6 +10877,46 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     con(false, `${deadDays} non-trading days in the next ${PICKS_TIMING_DEADDAYS_WINDOW} — a long weekend/holiday bleeds theta with no underlying move`);
   }
 
+  // ---- Gamma-wall proximity (side-aware, soft) -------------------------------
+  // The OI tracker's call/put walls are the front expirations' heaviest-OI
+  // strikes — where dealer hedging concentrates. Spot pressed just under the
+  // call wall is entering into pinned supply (a chase headwind for calls, a
+  // lid that helps puts); spot sitting just above the put wall has dealer
+  // support underfoot (helps calls, fights puts). Soft ±1 only, and only when
+  // the wall is on its expected side of spot — a wall already broken through
+  // is a different (squeeze) regime that the gammaSqueeze signal owns.
+  const wallRow = PICKS_TIMING_WALL ? data?.oiTrackerRow : null;
+  if (wallRow && spot > 0) {
+    const cw = wallRow.callWall, pw = wallRow.putWall;
+    const cwPct = cw && Number.isFinite(Number(cw.strike)) && Number(cw.strike) >= spot
+      ? ((Number(cw.strike) - spot) / spot) * 100 : null;
+    const pwPct = pw && Number.isFinite(Number(pw.strike)) && Number(pw.strike) <= spot
+      ? ((spot - Number(pw.strike)) / spot) * 100 : null;
+    const oiTxt = (w) => Number.isFinite(Number(w.oi)) ? ` (${Number(w.oi).toLocaleString()} OI)` : "";
+    if (cwPct != null && cwPct <= PICKS_TIMING_WALL_PCT) {
+      if (dir > 0) con(false, `spot ${cwPct.toFixed(1)}% under the $${cw.strike} call wall${oiTxt(cw)} — dealer-hedging supply overhead`);
+      else pro(false, `spot ${cwPct.toFixed(1)}% under the $${cw.strike} call wall — overhead supply caps the bounce a put fears`);
+    }
+    if (pwPct != null && pwPct <= PICKS_TIMING_WALL_PCT) {
+      if (dir > 0) pro(false, `spot ${pwPct.toFixed(1)}% above the $${pw.strike} put wall${oiTxt(pw)} — dealer support underfoot`);
+      else con(false, `spot ${pwPct.toFixed(1)}% above the $${pw.strike} put wall — a defended floor fights the downside`);
+    }
+  }
+
+  // ---- Overnight peer read (side-aware, soft) --------------------------------
+  // The overnight cross-market sweep's peer-implied move for this name
+  // (|corr|-weighted Σ β·peer-move from data/correlations.json). A meaningful
+  // implied move with the trade is a tailwind into the open; against it, a
+  // headwind. Soft ±1 — correlations are modest and the read goes stale within
+  // a session (the reader is staleness-gated).
+  const op = PICKS_TIMING_OVERNIGHT ? data?.overnightPeer : null;
+  if (op && Number.isFinite(op.impliedPct) && Math.abs(op.impliedPct) >= PICKS_TIMING_OVERNIGHT_MIN_PCT) {
+    const sided = op.impliedPct * dir; // >0 = peers lean with the trade
+    const desc = `overnight peers (${op.topPeer}) imply ${op.impliedPct >= 0 ? "+" : ""}${op.impliedPct.toFixed(1)}%`;
+    if (sided > 0) pro(false, `${desc} — the overnight tape leans with the trade`);
+    else con(false, `${desc} — the overnight tape leans against the trade`);
+  }
+
   // ---- Vol-cost overlays (P1.6 / P2) — direction-AGNOSTIC headwinds for a long
   // debit, applied as SIDE-AWARE soft cons (a con weakens conviction for whichever
   // side, the correct sign for both calls and puts; a directional score signal
@@ -10793,9 +11121,16 @@ const CONVERTED_SIGNALS = {
   rsiReading:       { pillar: "technicals",   dir: -1, xf: "id",   oldMax: 3,
                       contrarian: true, gated: true,
                       tailBull: (raw) => raw <= 25, tailBear: (raw) => raw >= 75 },
+  // fiftyTwoWeek's z raw is rangePos, but its dead-band is DISTANCE from spot
+  // (toHi/fromLo ≤5%, the legacy convention) — the signal site stamps `tails`
+  // for that, which the gate below prefers; these lambdas are only the
+  // fallback for rows without the stamp.
   fiftyTwoWeek:     { pillar: "technicals",   dir: -1, xf: "id",   oldMax: 1,
                       contrarian: true, gated: true,
                       tailBull: (raw) => raw <= 0.05, tailBear: (raw) => raw >= 0.95 },
+  // volConf/socialSentiment are DORMANT under PICKS_PRUNE_REDUNDANT (row not
+  // pushed / raw nulled at the signal sites, so they never reach the z pool);
+  // the entries stay so the =0 restore path still standardizes them.
   volConf:          { pillar: "technicals",   dir: +1, xf: "log",  oldMax: 1 },
   unusualFlow:      { pillar: "mechanicals",  dir: +1, xf: "log",  oldMax: 1 },
   oi:               { pillar: "mechanicals",  dir: +1, xf: "log",  oldMax: 1 },
@@ -10803,6 +11138,11 @@ const CONVERTED_SIGNALS = {
                       contrarian: true, gated: true,
                       tailBull: (raw) => raw > 1.15, tailBear: (raw) => raw < 0.65 },
   socialSentiment:  { pillar: "narrative",    dir: +1, xf: "id",   oldMax: 1 },
+  // Scanner-data signals (PICKS_OI_TRACKER_SIGNALS / PICKS_FLOW_PERSIST).
+  // oiDeltaNet is already a bounded, well-spread fraction (net ΔOI / total OI);
+  // flowPersist's raw is balance×ln(1+days) ∈ ~[−2.1, +2.1] — both linear.
+  oiDeltaNet:       { pillar: "mechanicals",  dir: +1, xf: "id",   oldMax: 1 },
+  flowPersist:      { pillar: "mechanicals",  dir: +1, xf: "id",   oldMax: 2 },
 };
 const PILLAR_KEYS = ["fundamentals", "technicals", "mechanicals", "narrative"];
 
@@ -10913,9 +11253,13 @@ function computeCrossSectionalScores(scored, opts = {}) {
         // tail AND extreme vs peers in the fade direction (so a name in the
         // oversold tail but relatively LESS oversold than peers scores 0, not a
         // wrong-signed tilt). The bullish (positive) side needs a reversal bar.
+        // Prefer a signal-stamped `tails` read (fiftyTwoWeek: distance-from-spot,
+        // the legacy convention) over the registry raw-lambdas — the z raw
+        // (rangePos) and the tail gate are different quantities for that signal.
         const raw = e.sig.raw;
-        const bull = reg.tailBull(raw);
-        const bear = reg.tailBear(raw);
+        const tails = e.sig.tails;
+        const bull = tails ? !!tails.bull : reg.tailBull(raw);
+        const bear = tails ? !!tails.bear : reg.tailBear(raw);
         if (!bull && !bear) { e.sig.contribution = 0; continue; }
         if (bull && base <= 0) { e.sig.contribution = 0; continue; }
         if (bear && base >= 0) { e.sig.contribution = 0; continue; }
@@ -11102,6 +11446,13 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     // Attach the hourly volume read (from the hourly scanner's volume-flags.json)
     // so the Unusual Volume mechanical signal can use real hourly-vs-20D data.
     data.hourlyVolume = hourlyVolumeRead(sym, volumeFlags);
+    // Scanner-data stashes (same pattern): the OI tracker row feeds the
+    // oiDeltaNet/gammaSqueeze mechanicals + the wall-proximity timing read,
+    // the flow-log read feeds flowPersist, and the overnight peer read feeds
+    // computeEntryTiming. Each reader is staleness-gated and null-safe.
+    data.oiTrackerRow = oiTrackerRowFor(sym, opts.oiTracker);
+    data.flowPersist = flowPersistFor(sym, opts.flowLog);
+    data.overnightPeer = overnightPeerReadFor(sym, opts.correlations);
     const result = scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorMedianPE, marketCtx, macroBackdrop);
     scored.push({
       sym,
@@ -11187,7 +11538,11 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
 // negative-edge vertical trigger (buildTopPicks #3) so the two never drift.
 export function realizedOptionEdge(closed) {
   const decided = Array.isArray(closed) ? closed.filter((e) => e && (e.outcome === "win" || e.outcome === "loss") && e.cohort !== "wait") : [];
-  const opt = decided.map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  // Number.isFinite WITHOUT coercion — Number(null) is 0, and a closed entry
+  // carries optionPnlPct: null exactly when the reprice was unmodelable; a
+  // fake 0% here dilutes the measured edge AND counts toward PICKS_EDGE_MIN_N,
+  // flipping basis to "option" prematurely (same family as the stats guards).
+  const opt = decided.map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
   const basis = opt.length >= PICKS_EDGE_MIN_N ? "option" : "underlying";
   const series = opt.length >= PICKS_EDGE_MIN_N ? opt : decided.map(realizedMovePct).filter((x) => x != null);
   if (series.length < PICKS_EDGE_MIN_N) return { exp: null, n: series.length, basis };
@@ -11220,9 +11575,19 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 
     // modeled loss-to-stop is smaller — the correct (lower) risk for a defined-risk
     // structure (contract.delta alone is just the long leg).
     let absDelta = Math.abs(Number(c.delta));
+    // Net theta/vega for the premium-at-risk terms below: same leg-netting as
+    // delta — contract.thetaDay/vega alone are just the long leg, and a spread's
+    // short leg offsets both (the whole point of the structure), so sizing off
+    // the long leg overstates a vertical's bleed.
+    let netThetaDay = Number(c.thetaDay);
+    let netVega = Number(c.vega);
     if (c.structure === "debit_vertical" && Array.isArray(c.legs) && c.legs.length > 1) {
       const nd = c.legs.reduce((a, l) => a + (Number(l.delta) || 0) * (Number(l.qty) || 0), 0);
       if (isFinite(nd)) absDelta = Math.abs(nd);
+      const nt = c.legs.reduce((a, l) => a + (Number(l.thetaDay) || 0) * (Number(l.qty) || 0), 0);
+      if (isFinite(nt)) netThetaDay = nt;
+      const nv = c.legs.reduce((a, l) => a + (Number(l.vega) || 0) * (Number(l.qty) || 0), 0);
+      if (isFinite(nv)) netVega = nv;
     }
     const stopFrac = (p.exitPlan && p.exitPlan.cut && Number.isFinite(p.exitPlan.cut.movePct))
       ? Math.abs(p.exitPlan.cut.movePct) / 100      // cut.movePct is a PERCENT → fraction
@@ -11238,9 +11603,9 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 
       // as a % of premium, so a short-DTE / rich-IV contract sizes smaller than a
       // calm one with the same delta-to-stop. Per-share like the delta term.
       if (PICKS_SIZE_PREMIUM_RISK) {
-        const thetaDay = Math.abs(Number(p.contract && p.contract.thetaDay)) || 0;
+        const thetaDay = Math.abs(netThetaDay) || 0;
         const thetaCost = thetaDay * PICKS_SIZE_HOLD_DAYS;
-        const vega = Number(p.contract && p.contract.vega);
+        const vega = netVega;
         const iv = Number(p.contract && p.contract.iv);
         const hv = Number(chains && chains[p.symbol] && chains[p.symbol].technicals && chains[p.symbol].technicals.volRegime && chains[p.symbol].technicals.volRegime.rv30);
         let vegaCost = 0;
@@ -11321,7 +11686,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   if (regime === "risk-off") {
     // Relax the tactical-put bar in a SEVERE tape so more weak names become
     // shortable candidates (still gated on a clean 'go' breakdown below).
-    const putBar = severe ? PICKS_MACRO_SEVERE_PUT_BAR : PICKS_RISKOFF_PUT_BAR;
+    // The bar must sit ABOVE -tradeCut or the window (-tradeCut, putBar] is
+    // empty — the percentile tradeCut (P3.2) can compress to its floor of 6,
+    // under the fixed -8 bar. Clamp relative to the LIVE cutoff: the less-
+    // negative of the configured bar and -0.8*tradeCut, so the window always
+    // spans the top 20% of the below-bar bearish range. Legacy tradeCut=12
+    // keeps the exact configured bars (-8 / severe -5).
+    const baseBar = severe ? PICKS_MACRO_SEVERE_PUT_BAR : PICKS_RISKOFF_PUT_BAR;
+    const putBar = Math.max(baseBar, -0.8 * tradeCut);
     const seen = new Set(candSet.map((c) => c.r.sym));
     for (const s of scored) {
       if (seen.has(s.sym)) continue;
@@ -11390,13 +11762,17 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // top / falling-knife read subtracts up to 8 points there, so badly-timed
     // names fall below the conviction bar and never reach this loop. We read the
     // already-computed timing pillar for the breakdown + the tactical guard.
-    const timing = (r.pillars && r.pillars.timing) || { state: "go", score: 0, headline: "", reasons: [] };
+    // Fail CLOSED (P2.2): a missing timing pillar reads 'wait', not 'go' — it
+    // only gates the tactical-put ship below, and an unknown read must not
+    // green-light a below-bar short.
+    const timing = (r.pillars && r.pillars.timing) || { state: "wait", score: 0, headline: "", reasons: [] };
     // A tactical risk-off put sits below the grade bar to begin with, so only
     // ship it on a genuinely clean breakdown (timing 'go'), never a marginal one.
     if (cand.tactical && timing.state !== "go") { vetoed += 1; continue; }
 
-    // Tactical puts sit below the -16 grade bar, so tierForScore() would call
-    // them "no-trade". Override the recommendation so the card reads correctly;
+    // Tactical puts sit below the trade cutoff by construction (the window is
+    // (-tradeCut, putBar]), so tierForScore() would call them "no-trade".
+    // Override the recommendation so the card reads correctly;
     // `total` stays the real (negative) grade score for ranking + accuracy.
     const recommendation = cand.tactical
       ? { tier: "tactical-put", label: "Tactical Put", side: "put",
@@ -12352,11 +12728,11 @@ async function aiGlossRosterForecasts(roster, chains) {
   if (done) console.log(`[picks] AI-glossed ${done}/${slice.length} roster forecasts (${model})`);
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null) {
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null) {
   // priorClosed = the pre-update accuracy `closed` set (P1.3 edge governor), threaded
   // from main()'s pre-wipe picksAccuracyPrev so gross scales by the trailing edge.
   // priorGrades = the pre-wipe grades-history `latest` snapshot (tier hysteresis).
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades });
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades, ...(scannerExtras || {}) });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Prior picks snapshot. A full build passes priorPicks (captured by
@@ -12541,7 +12917,10 @@ export function resolvePickOutcome(opts) {
   if (haveFresh && ct > 0 && ((isCall && cur <= ct) || (!isCall && cur >= ct))) {
     return { status: "hit-cut", outcome: "loss" };
   }
-  if (expSec > 0 && nowSec >= expSec) {
+  // Yahoo expiry epochs are midnight UTC on the expiry date (≈ the prior evening
+  // ET), so a bare nowSec >= expSec settles a full session early — the +20h pushes
+  // the trigger to ≈16:00 ET on the actual expiry date.
+  if (expSec > 0 && nowSec >= expSec + 20 * 3600) {
     const outcome = be > 0
       ? ((isCall ? ref >= be : ref <= be) ? "win" : "loss")
       : excursionOutcome(mfePct, maePct);
@@ -12684,7 +13063,10 @@ function modelVerticalExit(e, c, exitSpot, exitSec, rfr = FALLBACK_RISK_FREE_RAT
   const Texit = Math.max(0, (exp - exitSec) / yearSecs);
   const hv = Number(e.entryHv);
   const eIso = e.earningsDate;
-  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T16:00:00Z` : eIso) : NaN;
+  // A date-only earningsDate anchors at 21:00Z — after the 16:00 ET close in both
+  // EST/EDT — because prints are AMC by convention: a 16:00Z (noon ET) anchor
+  // would apply the IV-crush haircut to exits made BEFORE the print happened.
+  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T21:00:00Z` : eIso) : NaN;
   const eSec = Number.isFinite(eMs) ? Math.floor(eMs / 1000) : NaN;
   const earningsInHold = Number.isFinite(eSec) && entrySec > 0 && eSec >= entrySec && eSec <= exitSec;
   let entryDebit = 0, exitValue = 0;
@@ -12734,9 +13116,11 @@ function modelOptionExit(e, exitSpot, exitSec, rfr = FALLBACK_RISK_FREE_RATE) {
     sigma = iv0 + (hv - iv0) * blend;
   }
   // Earnings crush: if a report fell inside the hold, the event premium is gone
-  // by exit — knock IV down a notch.
+  // by exit — knock IV down a notch. A date-only earningsDate anchors at 21:00Z
+  // (after the 16:00 ET close in both EST/EDT) because prints are AMC by
+  // convention — a 16:00Z (noon ET) anchor would crush exits BEFORE the print.
   const eIso = e.earningsDate;
-  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T16:00:00Z` : eIso) : NaN;
+  const eMs = eIso ? Date.parse(String(eIso).length <= 10 ? `${eIso}T21:00:00Z` : eIso) : NaN;
   const eSec = Number.isFinite(eMs) ? Math.floor(eMs / 1000) : NaN;
   const earningsInHold = Number.isFinite(eSec) && entrySec > 0 && eSec >= entrySec && eSec <= exitSec;
   if (earningsInHold) sigma *= PICKS_OPTION_EARNINGS_CRUSH;
@@ -12823,9 +13207,11 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
       if (e.outcome === "win") out[k].wins += 1;
       // Option-P&L lens (P0.2): a cohort's win rate / expectancy on the BS-repriced
       // OPTION result, not the underlying outcome — the metric that actually maps to
-      // capital. Populates only for entries with the entry-option snapshot.
-      const op = Number(e.optionPnlPct);
-      if (isFinite(op)) { out[k].optN += 1; out[k].optSum += op; if (op > 0) out[k].optWins += 1; }
+      // capital. Populates only for entries with the entry-option snapshot —
+      // Number.isFinite (no coercion) so a null optionPnlPct is skipped, not
+      // counted as a 0% result.
+      const op = e.optionPnlPct;
+      if (Number.isFinite(op)) { out[k].optN += 1; out[k].optSum += op; if (op > 0) out[k].optWins += 1; }
     }
     for (const k of Object.keys(out)) {
       const o = out[k];
@@ -12889,17 +13275,9 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
       if (e.outcome === "win") bySignal[k].wins += 1; else bySignal[k].losses += 1;
     }
   }
-  for (const k of Object.keys(bySignal)) {
-    const r = bySignal[k];
-    r.rate = r.n >= PICKS_SIGNAL_MIN_N ? Number((r.wins / r.n).toFixed(3)) : null;
-    // Pruning candidate (P2.3, measure-only): once a signal has a published rate
-    // (n ≥ PICKS_SIGNAL_MIN_N) and that rate is statistically indistinguishable
-    // from a coin flip, it adds variance without edge — flag it for removal rather
-    // than keep it for completeness. Does NOT auto-drop the signal; it's a hint for
-    // the next recalibration. Never add a NEW signal until the existing set is
-    // attributed this way.
-    r.prunable = r.rate != null && Math.abs(r.rate - 0.5) <= PICKS_SIGNAL_PRUNE_BAND;
-  }
+  // (rate/prunable for bySignal are computed AFTER the per-signal IC loop below —
+  // that loop can create keys this fired-when-backed pass never saw, and those
+  // rows must carry the same rate/prunable fields, not ship half-built.)
 
   // Realized expectancy (side-adjusted underlying move, %): the honest "do the
   // winners pay for the losers?" headline that raw win-rate can't answer.
@@ -12945,7 +13323,9 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   const gradeIcStat = pearson(decided.map((e) => [Number(e.score), rawMove(e)]));
   const gradeIc = gradeIcStat ? gradeIcStat.ic : null;
   const gradeIcN = gradeIcStat ? gradeIcStat.n : 0;
-  const gradeIcOptionStat = pearson(decided.map((e) => [Math.abs(Number(e.score)), Number(e.optionPnlPct)]));
+  // Number.isFinite pre-filter (no coercion): a null optionPnlPct must drop the
+  // pick from the corr input, not enter as a fake 0% option result.
+  const gradeIcOptionStat = pearson(decided.filter((e) => Number.isFinite(e.optionPnlPct)).map((e) => [Math.abs(Number(e.score)), e.optionPnlPct]));
   const gradeIcOption = gradeIcOptionStat ? gradeIcOptionStat.ic : null;
 
   // PER-SIGNAL IC: correlate each signal's stored directional contribution (z·dir·W,
@@ -12958,8 +13338,10 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     const sigs = Array.isArray(e.entrySignals) ? e.entrySignals : null;
     if (!sigs) continue;
     const tradeDir = Math.sign(Number(e.score)) || (e.side === "put" ? -1 : 1);
-    const y = isFinite(Number(e.optionPnlPct)) ? Number(e.optionPnlPct) : realizedMovePct(e);
-    if (y == null || !isFinite(y)) continue;
+    // Number.isFinite (no coercion) so a null optionPnlPct actually reaches the
+    // underlying-move fallback instead of coercing to a fake 0% option result.
+    const y = Number.isFinite(e.optionPnlPct) ? e.optionPnlPct : realizedMovePct(e);
+    if (y == null || !Number.isFinite(y)) continue;
     for (const s of sigs) {
       const c = Number(s && s.contribution);
       if (!s || !s.key || !isFinite(c) || c === 0) continue;
@@ -12974,26 +13356,41 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     r.ic = ic ? ic.ic : null;
     r.icN = r._x ? r._x.length : 0;
     delete r._x; delete r._y;
+    // rate/prunable run HERE, after both passes, so keys minted by the IC loop
+    // above carry them too. Pruning candidate (P2.3, measure-only): once a signal
+    // has a published rate (n ≥ PICKS_SIGNAL_MIN_N) and that rate is statistically
+    // indistinguishable from a coin flip, it adds variance without edge — flag it
+    // for removal rather than keep it for completeness. Does NOT auto-drop the
+    // signal; it's a hint for the next recalibration. Never add a NEW signal until
+    // the existing set is attributed this way.
+    r.rate = r.n >= PICKS_SIGNAL_MIN_N ? Number((r.wins / r.n).toFixed(3)) : null;
+    r.prunable = r.rate != null && Math.abs(r.rate - 0.5) <= PICKS_SIGNAL_PRUNE_BAND;
   }
 
   // SPY benchmark over each pick's actual hold window, side-adjusted to the
   // trade's direction → excess = did the name beat the index in the bet's way.
+  // excessExpectancyPct is the mean of PER-PICK excess (realized − SPY) over the
+  // INTERSECTION of picks where both legs resolve — subtracting the two cohort
+  // averages (all-valid-spots vs all-resolvable-SPY-windows) would compare two
+  // different pick sets. avgSpyRetPct stays the full SPY-resolvable cohort.
   const spyMap = closesByDate(spyBars);
   let avgSpyRetPct = null, excessExpectancyPct = null;
   if (spyMap.size) {
     const spyRets = [];
+    const excessRets = [];
     for (const e of decided) {
       const a = closeOnOrBefore(spyMap, e.entryDate);
       const b = closeOnOrBefore(spyMap, e.exitDate);
       if (a > 0 && b > 0) {
         const raw = ((b - a) / a) * 100;
-        spyRets.push(e.side === "put" ? -raw : raw);
+        const spyRet = e.side === "put" ? -raw : raw;
+        spyRets.push(spyRet);
+        const realizedPct = realizedMovePct(e);
+        if (realizedPct != null) excessRets.push(realizedPct - spyRet);
       }
     }
-    if (spyRets.length) {
-      avgSpyRetPct = Number(mean(spyRets).toFixed(2));
-      if (expectancyPct != null) excessExpectancyPct = Number((expectancyPct - avgSpyRetPct).toFixed(2));
-    }
+    if (spyRets.length) avgSpyRetPct = Number(mean(spyRets).toFixed(2));
+    if (excessRets.length) excessExpectancyPct = Number(mean(excessRets).toFixed(2));
   }
 
   // MODELED OPTION expectancy (P0.1): the same decided cohort, but on the BS-
@@ -13001,17 +13398,25 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   // underlying move. The gap between optionExpectancyPct and the underlying
   // expectancyPct above IS the theta + IV-crush tax — a stock that drifts ~flat
   // can still print a deeply negative option result. Entries that predate the
-  // entry-option snapshot have no optionPnlPct and are simply skipped.
-  const optDecided = decided.map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
-  const wOpt = decided.filter((e) => e.outcome === "win").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
-  const lOpt = decided.filter((e) => e.outcome === "loss").map((e) => Number(e.optionPnlPct)).filter((x) => isFinite(x));
+  // entry-option snapshot have no optionPnlPct and are simply skipped —
+  // Number.isFinite (no coercion) so a null snapshot drops out instead of
+  // entering the average as a fake 0% option result.
+  const optDecided = decided.map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
+  const wOpt = decided.filter((e) => e.outcome === "win").map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
+  const lOpt = decided.filter((e) => e.outcome === "loss").map((e) => e.optionPnlPct).filter((x) => Number.isFinite(x));
   const optionExpectancyPct = optDecided.length ? Number(mean(optDecided).toFixed(2)) : null;
   // Option WIN RATE (P0.2): fraction of repriced picks that made money ON THE
   // OPTION — the honest headline for an options engine. A flat/up stock that still
   // bled the premium counts as a loss here even when the underlying "win" flagged.
   const optionWinRate = optDecided.length ? Number((optDecided.filter((x) => x > 0).length / optDecided.length).toFixed(3)) : null;
 
-  const avg = (arr, f) => (arr.length ? Number((arr.reduce((s, e) => s + (Number(f(e)) || 0), 0) / arr.length).toFixed(1)) : null);
+  // Average over only the entries where f() yields a finite number — entries
+  // missing the field (legacy picks without MFE/MAE tracking) must drop out of
+  // the denominator, not dilute the mean as fake zeros. null when none resolve.
+  const avg = (arr, f) => {
+    const vals = arr.map(f).filter((x) => Number.isFinite(x));
+    return vals.length ? Number((vals.reduce((s, x) => s + x, 0) / vals.length).toFixed(1)) : null;
+  };
   return {
     builtAtIso,
     openCount: open.length,
@@ -13171,10 +13576,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         }
       }
     }
-    // Days until the next earnings print (P2 earnings-eve exit). null when unknown.
+    // Days until the next earnings print (P2 earnings-eve exit). null when
+    // unknown. Date-only dates anchor at 21:00Z — the AMC-print convention the
+    // exit-side crush model uses — so "days ahead" counts to the actual print.
     let earningsAheadDays = null;
     if (e.earningsDate) {
-      const eMs = Date.parse(String(e.earningsDate).length <= 10 ? `${e.earningsDate}T16:00:00Z` : e.earningsDate);
+      const eMs = Date.parse(String(e.earningsDate).length <= 10 ? `${e.earningsDate}T21:00:00Z` : e.earningsDate);
       if (Number.isFinite(eMs)) earningsAheadDays = (eMs / 1000 - nowSec) / 86400;
     }
     const resolved = resolvePickOutcome({
@@ -13186,12 +13593,18 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     if (resolved) {
       const { status, outcome } = resolved;
       const exitSpot = haveFresh ? Number(cur.toFixed(2)) : (e.lastSpot ?? null);
+      // When resolving on a STALE lastSpot (no fresh quote this build), the price
+      // is from e.lastDate — possibly days old — so the exit timestamp must match
+      // it: stamping builtAtIso/nowSec would reprice the option with less time
+      // value than actually remained when that price printed.
+      const exitSec = haveFresh ? nowSec
+        : (Number.isFinite(Date.parse(e.lastDate)) ? Math.floor(Date.parse(e.lastDate) / 1000) : nowSec);
       // Reprice the contract at exit so the record carries the option P&L, not
       // just the underlying move (P0.1). null on legacy entries without the snapshot.
-      const opt = (exitSpot > 0) ? modelOptionExit(e, exitSpot, nowSec, FALLBACK_RISK_FREE_RATE) : null;
+      const opt = (exitSpot > 0) ? modelOptionExit(e, exitSpot, exitSec, FALLBACK_RISK_FREE_RATE) : null;
       state.closed.unshift({
         ...e,
-        exitDate: builtAtIso,
+        exitDate: new Date(exitSec * 1000).toISOString(),
         exitSpot,
         status,
         outcome,
@@ -13688,6 +14101,9 @@ async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = 
     symbols: Object.keys(payload.markets || {}).length,
     mapped: Object.keys(payload.map || {}).length,
     stale: !!payload.stale,
+    // The full payload rides along so main() can hand the fresh sweep to the
+    // picks engine (the overnight peer timing read) without re-deriving it.
+    payload,
   };
 }
 
@@ -18393,7 +18809,7 @@ async function main() {
     // toward more risk-off apply immediately). Prior state from the pre-wipe
     // picks.json rosterMeta.
     macroBackdrop.macroRegime = applyMacroRegimePersistence(
-      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives),
+      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed),
       picksPrev?.rosterMeta?.macroRegime || null,
     );
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
@@ -18418,14 +18834,23 @@ async function main() {
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null);
+  // Scanner-data extras for the scoring pipeline: the OI tracker + the rolling
+  // flow log (both scanner-owned, pre-read before the wipe) and the overnight
+  // correlations sweep (tonight's fresh payload, falling back to the pre-wipe
+  // snapshot if the foreign sweep came back too thin to write).
+  const scannerExtras = {
+    oiTracker,
+    flowLog: unusualLog,
+    correlations: correlationsInfo?.payload || priorCorrelations,
+  };
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown
   // for names that don't clear the actionable threshold.
   // Build the grade index once and reuse it for the grades file, the grade-change
   // history diff, and the picks-accuracy checkpoint scores (avoids re-scoring).
-  const gradesIndex = buildGradesIndex(chains, trends.narratives, null, unusual, macroBackdrop, volumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null });
+  const gradesIndex = buildGradesIndex(chains, trends.narratives, null, unusual, macroBackdrop, volumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null, ...scannerExtras });
   const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
   // Daily grade snapshot (universe-IC substrate): upsert today's ET row with every
