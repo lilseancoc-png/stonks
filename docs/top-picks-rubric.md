@@ -70,7 +70,7 @@ so a well-timed name outscores a chased one directly.
 
 Pillar score = sum of its signals, **scaled by the pillar's horizon weight (§3.5)**;
 `total` = sum of the four (weighted) pillars **plus the entry-timing component (§6)**,
-which adds −8..+4 to conviction in the implied direction (without ever flipping the
+which adds a bounded contribution (−8..+4 pre-scale, halved by `PICKS_TIMING_FOLD_SCALE` — see §3.7) to conviction in the implied direction (without ever flipping the
 side), **plus the IV-cost component (§6.7)**.
 
 > **Cross-sectional standardization (P3.1/P3.3, default on via `PICKS_XSECTIONAL`).**
@@ -90,7 +90,7 @@ side), **plus the IV-cost component (§6.7)**.
 > asymmetric bullish-reversal gate around the z. Full spec:
 > [`top-picks-improvements.md`](./top-picks-improvements.md) §P3. Below the universe
 > floor (`PICKS_Z_MIN_UNIVERSE`) or with the flag off, every signal uses its fixed
-> threshold and tiers fall back to the absolute ±12/16 bars.
+> threshold and tiers fall back to the absolute ±7/10 bars (recalibrated from ±12/16 to the compressed scale — §3.7).
 
 ### Fundamentals (`scoreFundamentals`)
 | Signal | Scoring |
@@ -292,6 +292,29 @@ PICKS_CONFLUENCE_MIN=0 PICKS_TREND_OPPOSE_FLOOR=0`.
 
 ---
 
+### 3.7 Scale-coherence recalibration (post-v2)
+
+Each scoring rework (cross-sectional `W_s` weights, horizon weighting, the §3.6
+reliability/narrative-cap compression) shrank the live `|total|` distribution, but a
+family of ABSOLUTE thresholds designed against the legacy ±12/±16 bars was never
+rescaled with it. Audit findings + fixes (one coordinated pass, #399):
+
+| Threshold | Was | Now | Why |
+|---|---|---|---|
+| Timing contribution (§6) | −8(−16 floor)..+4 | ×`PICKS_TIMING_FOLD_SCALE` (0.5) at the single exit | timing had silently doubled to 33–61% of shipped picks' totals (one pick was 4.0 timing on 6.5 total — a timing trade wearing a thesis); the fold scale restores the designed ~⅓-of-bar share with the severity structure untouched |
+| IV-cost maxes (§6.7) | −3 / +1.5 | −1.5 / +0.75 | same doubling, same fix |
+| Abs tier floors (§4) | 9 / 6 | **7.5 / 5** | the 9 strong floor sat ABOVE the post-rescale universe max (~8) — the Strong tier was unreachable in any neutral tape; 6 bound at ~top-7% instead of the documented top-decile backstop |
+| Legacy fallback bars | ±12 / ±16 | ±7 / ±10 | above the achievable max — a small-universe build degrading off the percentile path would have shipped ZERO picks |
+| Entry-plan strong reads | `absTotal ≥ 16` (dead) | live `strongCut` threaded into `buildEntryPlan` | "full" stance + the 50D-SMA alert were dead code on the compressed scale |
+| `GRADE_CHANGE_MIN_DELTA` | 3 | 2 | a 3-point move is now a whole median nonzero grade — the change log would go mute |
+
+The percentile tiers and the `putBar = max(−8, −0.8·tradeCut)` guard already
+self-scale and were left alone. Verified post-fix: timing share 0–29% across the
+roster, Strong tier reachable (2 names), pillar-sum invariant 0/138 violations, and
+the book ships both sides again (puts re-entered the top 10).
+
+---
+
 ## 4. Tiers (`tierForScore`)
 
 Tiers are **percentile-relative** (P3.2 — see [`top-picks-improvements.md`](./top-picks-improvements.md)),
@@ -319,7 +342,7 @@ Scores stay on a roughly-legacy scale via the scale-preserving weights
 > tape the engine still mints a full roster — it can never say "nothing worth buying
 > today." The cutoffs are therefore **floored** at an absolute bar:
 > `strongCut = max(pctl 5%, PICKS_ABS_STRONG_FLOOR)`, `tradeCut = max(pctl 12%,
-> PICKS_ABS_TRADE_FLOOR)` (defaults **9 / 6**; env-set to 0 to disable).
+> PICKS_ABS_TRADE_FLOOR)` (defaults **7.5 / 5**, re-derived from 9/6 after the v2 + fold-scale compression — §3.7; env-set to 0 to disable).
 > A name must clear **both** the rank **and** the floor, so when the top-12% `|total|`
 > sits below the floor the actionable set shrinks — the roster honestly ships **fewer
 > than 10, or 0**.
@@ -728,7 +751,7 @@ pay) and centers at the name's **own median IV (rank 50)**:
 
 | own-IV rank | contribution | meaning |
 |---|---|---|
-| 100 (richest of its own history) | −`PICKS_IV_SCORE_MAX` (**−3**) | paying up — penalize conviction |
+| 100 (richest of its own history) | −`PICKS_IV_SCORE_MAX` (**−1.5**, halved from 3 — §3.7) | paying up — penalize conviction |
 | 50 (its median) | 0 | neutral |
 | 0 (cheapest of its own history) | +`PICKS_IV_SCORE_CHEAP_MAX` (**+1.5**) | cheap premium — small credit |
 
@@ -923,7 +946,7 @@ it has to be trustworthy. The fixes:
     when the dedicated IV-cost term is on), and `PICKS_IVRANK_VETO 90` (default ON; extreme
     IV → blocks `go`; set 0 to disable the gate).
   - **IV cost in `total` (§6.7):** `PICKS_IV_SCORE` (default **ON**; the dedicated
-    direction-agnostic IV-cost component folded into `total`), `PICKS_IV_SCORE_MAX 3`
+    direction-agnostic IV-cost component folded into `total`), `PICKS_IV_SCORE_MAX 1.5`
     (max penalty at the richest own-IV), `PICKS_IV_SCORE_CHEAP_MAX 1.5` (max credit at the
     cheapest), regime richness scale `PICKS_IV_SCORE_RISKOFF_MULT 1.4` / `PICKS_IV_SCORE_SEVERE_MULT 1.7`
     (§3.5.1). Reuses `PICKS_IVRANK_MIN_N` for the history floor. Set `PICKS_IV_SCORE=0` to
