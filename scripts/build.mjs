@@ -6218,6 +6218,13 @@ const MACRO_PREDICTION_MATCHERS = {
   "nfp": /(payroll|nonfarm|non-farm|jobs report|jobs added)/,
   "unrate": /(unemployment|jobless)/,
 };
+// US releases only — the keyword matchers above ("inflation", "unemployment",
+// "jobs") also hit Polymarket's foreign-economy markets (e.g. "Argentina
+// Monthly Inflation"), which once attached an Argentina inflation bucket to
+// the US CPI row and tripped the event-risk timing gate off a market about
+// the wrong country. Polymarket titles its US macro markets without naming
+// the country, so a foreign-country blocklist is the reliable gate.
+const PM_FOREIGN_TITLE_RE = /\b(argentina|brazil|mexico|venezuela|colombia|chile|peru|turkey|t[üu]rkiye|india|china|chinese|japan|japanese|eurozone|euro (?:zone|area)|europe|european|germany|german|france|french|italy|italian|spain|spanish|uk|u\.k\.|britain|british|england|canada|canadian|australia|australian|korea|korean|russia|russian|nigeria|egypt|south africa|indonesia|poland|hungary|czech|sweden|swedish|norway|norwegian|switzerland|swiss)\b/;
 async function fetchMacroPrediction(ev) {
   const matcher = MACRO_PREDICTION_MATCHERS[ev.subtype];
   if (!matcher) return null;
@@ -6228,6 +6235,7 @@ async function fetchMacroPrediction(ev) {
   for (const pe of events) {
     const title = String(pe.title || "").toLowerCase();
     if (!matcher.test(title)) continue;
+    if (PM_FOREIGN_TITLE_RE.test(title)) continue;
     const endMs = Date.parse(pe.endDate || pe.end_date || "");
     if (Number.isFinite(endMs) && Math.abs(endMs - evMs) > 40 * 86400000) continue; // resolves near this release
     for (const mk of (Array.isArray(pe.markets) ? pe.markets : [])) {
@@ -6531,6 +6539,12 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
   }
   const pmReports = (predictionMarkets && predictionMarkets.reports) || {};
   for (const ev of (reportEvents || [])) {
+    // A release that already PRINTED is no longer an event risk — there is
+    // nothing left to defer past. The actual lands on the row within minutes
+    // of the 8:30 ET release (ForexFactory fast-actual, fetched before
+    // scoring), so the same-morning bakes stop telling every name to WAIT
+    // for an event that resolved hours ago.
+    if (ev && ev.actual) continue;
     const pred = ev && pmReports[ev.subtype + "|" + ev.date];
     if (!pred || !Number.isFinite(pred.prob)) continue;
     const p = norm(pred.prob);
