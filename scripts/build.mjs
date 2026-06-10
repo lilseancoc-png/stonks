@@ -7014,10 +7014,10 @@ const PICKS_VERT_NEGEDGE_IVRANK = Number(process.env.PICKS_VERT_NEGEDGE_IVRANK ?
 // (usually the Tech/AI beta) the universe shares. With this on, each converted
 // signal's contribution is scaled by 1/sqrt(K), K = the firing signals in its
 // cluster for that name (variance scaling: K independent → ~unchanged, K fully
-// collinear → ~1 signal's worth). DARK by default: it changes the grade scale, and
-// we won't ship an unvalidated score change live on a losing engine — the exact
-// scaling is itself a forward-validation target (rubric §9.6 / the IC bridge).
-const PICKS_DECORRELATE = process.env.PICKS_DECORRELATE === "1"; // default OFF
+// collinear → ~1 signal's worth). Default ON (audited clean on the live universe)
+// — and about to matter more as flow-family signals are added to the cluster
+// map. =0 restores the raw (un-collapsed) cluster loading.
+const PICKS_DECORRELATE = process.env.PICKS_DECORRELATE !== "0"; // default ON
 const SIGNAL_CLUSTER = {
   // growth / quality (move together when a company is beating + growing)
   earningsSurprise: "growth", epsGrowth: "growth", revGrowth: "growth",
@@ -7030,8 +7030,20 @@ const SIGNAL_CLUSTER = {
   rsiReading: "meanrev", fiftyTwoWeek: "meanrev", putCallRatio: "meanrev",
   // options flow
   unusualFlow: "flow", oi: "flow",
-  // (volConf, socialSentiment are singletons — no cluster, scale ×1)
+  // (socialSentiment is a singleton — no cluster, scale ×1)
 };
+// Redundant-signal prune (audit: measured on the live 138-name universe).
+// Two signals carry no independent, correctly-signed information:
+//   volConf — double-reads the SAME 20D relative volume unusualVolume already
+//   scores SIGNED, and it's unsigned: 1.3× volume on a -5% day earns the same
+//   +1 as on a rally. Volume-as-confirmation already lives in computeEntryTiming
+//   (VOL_CONFIRM). Dropped from the technicals pillar entirely.
+//   socialSentiment — self-tagged Stocktwits sentiment on a ≥5-message/24h
+//   sample fired 31 bullish / 0 bearish across the whole universe — a
+//   structurally long-biased noise source. Kept INFORMATIONAL (score 0, raw
+//   null so it leaves the z pool) so the chip still shows the reading.
+// =0 restores both as scored signals.
+const PICKS_PRUNE_REDUNDANT = process.env.PICKS_PRUNE_REDUNDANT !== "0"; // default ON
 
 // Horizon-aware pillar weighting (rubric §3.5). The engine grades like a
 // stock-picker (4 pillars of asset quality) but TRADES ~14-day long premium on
@@ -7950,6 +7962,12 @@ function scoreTechnicals(data, streakRow) {
       }
     }
     fiftyTwoSignal = _sig("fiftyTwoWeek", "52-Week High/Low", s, { raw: rangePos, value, note });
+    // Stamp the legacy tail gates (DISTANCE from spot, the toHi/fromLo reads
+    // above) for the cross-sectional dead-band: rangePos is the right z raw,
+    // but on a wide 52w range a name can sit at 96% of RANGE while still >5%
+    // below the high — the two quantities disagree about when the contrarian
+    // extreme actually fires, and the distance read is the scored convention.
+    fiftyTwoSignal.tails = { bull: fromLo >= 0 && fromLo <= 0.05, bear: toHi >= 0 && toHi <= 0.05 };
   }
   signals.push(fiftyTwoSignal);
 
@@ -7968,7 +7986,11 @@ function scoreTechnicals(data, streakRow) {
     else if (rv < 0.8) { s = -1; note = `${rv.toFixed(2)}x vs 20D avg — low volume / no conviction`; }
     volConfSignal = _sig("volConf", "Volume Confirmation", s, { raw: rv, value: `${rv.toFixed(2)}x`, note });
   }
-  signals.push(volConfSignal);
+  // Pruned (PICKS_PRUNE_REDUNDANT): double-reads the same 20D rvol that
+  // unusualVolume scores signed, and it's unsigned — 1.3x volume on a -5% day
+  // earns the same +1 as on a rally; volume-as-confirmation already lives in
+  // computeEntryTiming (VOL_CONFIRM). Row dropped entirely.
+  if (!PICKS_PRUNE_REDUNDANT) signals.push(volConfSignal);
 
   // 10. Moving-average stack — DECORRELATED. The 20/50/100D SMAs are highly
   // collinear (price is almost always above or below all three at once), so
@@ -8403,6 +8425,10 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
   signals.push(narSignal);
 
   // 3. Social Sentiment: net ≥35% bullish +1, ≤-35% net -1, requires ≥5 msgs/24h.
+  // Pruned to INFORMATIONAL under PICKS_PRUNE_REDUNDANT: self-tagged Stocktwits
+  // sentiment on this sample fired 31 bullish / 0 bearish across the whole
+  // universe — a structurally long-biased noise source. Score forced 0 and raw
+  // null (out of the z pool); value/note kept so the chip still shows the reading.
   let socSignal = _sig("socialSentiment", "Social Sentiment", 0,
     { available: false, note: "insufficient social messages" });
   const soc = data?.social;
@@ -8412,8 +8438,9 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
     let note = `${net >= 0 ? "+" : ""}${net.toFixed(0)}% net (${soc.msgCount24h} msgs/24h)`;
     if (net >= 35) s = 1;
     else if (net <= -35) s = -1;
+    if (PICKS_PRUNE_REDUNDANT) { s = 0; note += " — informational, not scored"; }
     socSignal = _sig("socialSentiment", "Social Sentiment", s, {
-      raw: net,
+      raw: PICKS_PRUNE_REDUNDANT ? null : net,
       value: `${net >= 0 ? "+" : ""}${net.toFixed(0)}% net`,
       note,
     });
@@ -10815,9 +10842,16 @@ const CONVERTED_SIGNALS = {
   rsiReading:       { pillar: "technicals",   dir: -1, xf: "id",   oldMax: 3,
                       contrarian: true, gated: true,
                       tailBull: (raw) => raw <= 25, tailBear: (raw) => raw >= 75 },
+  // fiftyTwoWeek's z raw is rangePos, but its dead-band is DISTANCE from spot
+  // (toHi/fromLo ≤5%, the legacy convention) — the signal site stamps `tails`
+  // for that, which the gate below prefers; these lambdas are only the
+  // fallback for rows without the stamp.
   fiftyTwoWeek:     { pillar: "technicals",   dir: -1, xf: "id",   oldMax: 1,
                       contrarian: true, gated: true,
                       tailBull: (raw) => raw <= 0.05, tailBear: (raw) => raw >= 0.95 },
+  // volConf/socialSentiment are DORMANT under PICKS_PRUNE_REDUNDANT (row not
+  // pushed / raw nulled at the signal sites, so they never reach the z pool);
+  // the entries stay so the =0 restore path still standardizes them.
   volConf:          { pillar: "technicals",   dir: +1, xf: "log",  oldMax: 1 },
   unusualFlow:      { pillar: "mechanicals",  dir: +1, xf: "log",  oldMax: 1 },
   oi:               { pillar: "mechanicals",  dir: +1, xf: "log",  oldMax: 1 },
@@ -10935,9 +10969,13 @@ function computeCrossSectionalScores(scored, opts = {}) {
         // tail AND extreme vs peers in the fade direction (so a name in the
         // oversold tail but relatively LESS oversold than peers scores 0, not a
         // wrong-signed tilt). The bullish (positive) side needs a reversal bar.
+        // Prefer a signal-stamped `tails` read (fiftyTwoWeek: distance-from-spot,
+        // the legacy convention) over the registry raw-lambdas — the z raw
+        // (rangePos) and the tail gate are different quantities for that signal.
         const raw = e.sig.raw;
-        const bull = reg.tailBull(raw);
-        const bear = reg.tailBear(raw);
+        const tails = e.sig.tails;
+        const bull = tails ? !!tails.bull : reg.tailBull(raw);
+        const bear = tails ? !!tails.bear : reg.tailBear(raw);
         if (!bull && !bear) { e.sig.contribution = 0; continue; }
         if (bull && base <= 0) { e.sig.contribution = 0; continue; }
         if (bear && base >= 0) { e.sig.contribution = 0; continue; }
