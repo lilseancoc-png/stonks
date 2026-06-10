@@ -14613,6 +14613,29 @@ const MACRO_TOTAL_CAP = 28;
 const AI_RPM = Number(process.env.AI_RPM) || 100;
 const AI_WINDOW_MS = 60000;
 const AI_SLOT_POLL_BUFFER_MS = 120;
+// Hard DAILY token ceiling (input+output+thought, across all models and all
+// four scripts sharing data/ai-usage.json). The ledger used to be
+// cost-REPORTING only — nothing stopped a runaway retry loop or a misbehaving
+// pass from burning the whole quota. Every AI call funnels through
+// acquireAiSlot (fresh calls AND retries), so the cap is enforced there:
+// once today's recorded spend crosses the ceiling the slot REJECTS, the
+// caller's existing degrade-gracefully catch path kicks in (reuse last-good,
+// skip the gloss), and the build still ships. Sized ~2.5× a normal full day
+// (~10M tokens observed) so it only trips on genuine runaways. 0 disables.
+const AI_DAILY_TOKEN_CAP = Number(process.env.AI_DAILY_TOKEN_CAP ?? 25_000_000);
+let _aiCapLogged = false;
+function aiTokensToday() {
+  if (!_aiUsageState || !_aiUsageState.dates) return 0;
+  const byDate = _aiUsageState.dates[new Date().toISOString().slice(0, 10)];
+  if (!byDate) return 0;
+  let total = 0;
+  for (const byModel of Object.values(byDate)) {
+    for (const b of Object.values(byModel)) {
+      total += (b.inputTokens || 0) + (b.outputTokens || 0) + (b.thoughtTokens || 0);
+    }
+  }
+  return total;
+}
 const _aiSlotTimestamps = [];
 // Serialize acquisition so two callers can't read-then-write the window in
 // parallel and accidentally both grab the last slot.
@@ -14623,6 +14646,16 @@ function acquireAiSlot() {
   _aiSlotChain = new Promise((r) => { release = r; });
   return prev.then(async () => {
     try {
+      if (AI_DAILY_TOKEN_CAP > 0) {
+        const spent = aiTokensToday();
+        if (spent >= AI_DAILY_TOKEN_CAP) {
+          if (!_aiCapLogged) {
+            _aiCapLogged = true;
+            console.log(`  ⚠ AI daily token cap hit (${spent.toLocaleString()} ≥ ${AI_DAILY_TOKEN_CAP.toLocaleString()}) — refusing further AI calls today; deterministic paths continue.`);
+          }
+          throw new Error(`AI daily token cap exceeded (${spent} >= ${AI_DAILY_TOKEN_CAP})`);
+        }
+      }
       while (true) {
         const now = Date.now();
         while (_aiSlotTimestamps.length && now - _aiSlotTimestamps[0] >= AI_WINDOW_MS) {
@@ -14689,9 +14722,10 @@ export function recordAiUsage({ model, callType, symbol, usage, mode }) {
 // NOTE: this is a full read-modify-overwrite of data/ai-usage.json, shared by
 // the daily build, the unusual-flow scanner, and the heatmap refresh. With the
 // three workflows now serialized under one concurrency group they no longer
-// overlap, but even if they did this ledger is cost-reporting ONLY — it is never
-// read to gate or cap an AI call (acquireAiSlot is an in-process RPM pacer), so
-// a lost update can at worst under-count the daily total, never change behavior.
+// overlap. The ledger now ALSO feeds the AI_DAILY_TOKEN_CAP runaway brake in
+// acquireAiSlot (aiTokensToday), so a lost update can under-count the daily
+// total and let the cap trip slightly late — acceptable: the cap is a 2.5×
+// emergency ceiling, not an accounting-grade budget.
 export async function writeAiUsageState() {
   if (!_aiUsageState) return;
   const cutoff = new Date(Date.now() - AI_USAGE_HISTORY_DAYS * 86400000)

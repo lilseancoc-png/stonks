@@ -16,6 +16,20 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Perf
+- **Manifest diet — index.html drops from ~830 KB to ~280 KB.** The full OI-tracker (~440 KB) and volume-flags (~110 KB) payloads no longer ride in the inlined `window.STONKS_MANIFEST`; the browser lazy-fetches `data/oi-tracker.json` / `data/volume-flags.json` on first entry to the OI / Volume tabs (same pattern as briefs/correlations). Only tiny `oiMeta`/`volumeFlagsMeta` stubs stay inline for the freshness banner.
+- **Asset caching:** `app.js`/`styles.css`/`js/*.js` (all `?v=`-busted) now ship `immutable` 1-year cache headers; `index.html` gets a short edge cache; intraday-updated data files (`picks`, `grades`, `oi-tracker`, `volume-flags`, `briefs`, `correlations`, `fear-greed`, `volume-history`) get the same 60s edge rule as `unusual`/`heatmap`.
+- **Volume tab live polling now stops while the browser tab is hidden** (visibilitychange guard, mirroring the heatmap/bonds pollers) — a backgrounded window no longer polls /api/quotes every 30s forever.
+- **data/oi-history.json trimmed 18 MB → ~8 MB:** snapshots no longer store per-contract `vol` (the ΔOI baseline only ever reads `oi`) and retention drops 6 → 4 snapshots (the baseline needs only the latest prior-day snapshot); the committed file was rewritten in place.
+
+### Added
+- **Hard daily AI-spend cap** (`AI_DAILY_TOKEN_CAP`, default 25M tokens/day): every AI call funnels through the shared slot pacer, which now refuses once the day's recorded token spend crosses the ceiling — runaway retry loops can no longer burn the whole Gemini quota; callers degrade gracefully as if keyless.
+- **Stale-tab refresh:** Calendar / Brief / Overnight re-fetch their data in the background when the tab is re-entered after 30+ minutes, instead of serving the first load forever.
+
+### Changed
+- **Dormant portfolio endpoints** (`/api/portfolio-review`, `close-position`, `delete-trade`, `contract`, `config`) now return 503 unless `PORTFOLIO_ENABLED=1` — the Portfolio tab was removed in #269, so the auth/Supabase mutation surface is unreachable until deliberately re-enabled.
+- **Security headers** (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`) on all routes via vercel.json.
+
 ### Changed
 - **Top Picks roster is now execution-cost-aware (P5.1).** Ranking and the roster bar charge the chosen contract's round-trip bid/ask spread as a grade-point debit (zero up to a 3% spread, max 1.25 points at the 10% clean cap) — a clean-fill name now out-ranks an equal-signal name that's expensive to trade, and a marginal pick whose net-of-cost conviction falls below the bar drops from the roster (`rosterMeta.costGated`, no backfill). The published grade in grades.json is untouched; the pick card shows a "−0.7 spread" chip. `PICKS_COST_DEBIT=0` disables.
 - **Live volume Play chip is tap-to-expand instead of hover-only.** The verdict reasoning was a `title` tooltip, invisible on touch devices — the chip is now a real button that toggles the full reasoning inline under the row.
