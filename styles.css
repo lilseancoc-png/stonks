@@ -10811,13 +10811,36 @@ html::-webkit-scrollbar-thumb:hover {
   margin-top: var(--s-3);
 }
 .vol-live-row {
+  padding: 4px var(--s-2);
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.vol-live-main {
   display: grid;
   grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em;
   gap: var(--s-2);
   align-items: center;
-  padding: 4px var(--s-2);
-  border-radius: var(--r-2);
-  font-variant-numeric: tabular-nums;
+}
+/* Per-row dealer-gamma line — scan-time levels, live-spot distances. */
+.vol-live-gex {
+  color: var(--text-3);
+  font-size: 0.82em;
+  margin-top: 1px;
+  line-height: 1.5;
+}
+.vol-live-gex .is-pos { color: var(--pos); }
+.vol-live-gex .is-neg { color: var(--neg); }
+.vol-live-gex .vol-live-squeeze { color: var(--warn); font-weight: 600; }
+.vol-live-gex-tag {
+  display: inline-block;
+  margin-right: var(--s-2);
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text-2);
 }
 .vol-live-row[data-sym] { cursor: pointer; }
 .vol-live-row[data-sym]:hover { background: var(--surface-3); }
