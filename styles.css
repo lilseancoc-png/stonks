@@ -6253,6 +6253,13 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   font-variant-numeric: tabular-nums;
   color: var(--text-strong);
 }
+/* P5.1 execution-cost debit beside the score — the round-trip spread charged
+   against the grade for roster ranking. */
+.ptc-cost {
+  font: 600 11px/1 var(--font-mono);
+  color: var(--warn);
+  white-space: nowrap;
+}
 .pick-tab-card.call .ptc-score { color: var(--pos); }
 .pick-tab-card.put  .ptc-score { color: var(--neg); }
 .ptc-tier {
@@ -10822,10 +10829,14 @@ html::-webkit-scrollbar-thumb:hover {
   align-items: center;
 }
 /* Per-row "Play" verdict chip — execute bullish/bearish or wait-and-see,
-   computed live from the row's move + pace + the scan's S/R break + GEX. */
+   computed live from the row's move + pace + the scan's S/R break + GEX.
+   A real <button>: tapping it expands the reasoning inline (.vol-live-why)
+   — hover tooltips don't exist on touch devices. */
 .vol-live-play {
   justify-self: end;
   padding: 0 7px;
+  background: none;
+  font: inherit;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-pill);
   font-size: 0.8em;
@@ -10834,7 +10845,18 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--text-3);
   text-align: center;
   white-space: nowrap;
-  cursor: help;
+  cursor: pointer;
+}
+.vol-live-play:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.vol-live-play[aria-expanded="true"] { background: var(--surface-3); }
+/* Expanded verdict reasoning under the row. */
+.vol-live-why {
+  color: var(--text-2);
+  font-size: 0.82em;
+  line-height: 1.5;
+  margin-top: 2px;
+  padding: var(--s-1) var(--s-2);
+  border-left: 2px solid var(--border-strong);
 }
 .vol-live-play.is-bull { color: var(--pos); border-color: currentColor; }
 .vol-live-play.is-bear { color: var(--neg); border-color: currentColor; }

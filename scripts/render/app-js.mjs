@@ -7588,6 +7588,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var liveBoard = $('vol-live-board');
     if (liveBoard){
       var liveRowActivate = function(ev){
+        // A tap on the Play chip toggles its inline reasoning instead of
+        // filtering the list — hover tooltips don't exist on touch devices.
+        var chip = ev.target.closest && ev.target.closest('.vol-live-play[data-sym]');
+        if (chip){
+          var chipSym = chip.getAttribute('data-sym') || '';
+          if (chipSym){ volLive.whyOpen[chipSym] = !volLive.whyOpen[chipSym]; renderVolumeLive(); }
+          return;
+        }
         var row = ev.target.closest && ev.target.closest('.vol-live-row[data-sym]');
         if (!row) return;
         var sym = row.getAttribute('data-sym') || '';
@@ -7602,6 +7610,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // The rows are role="button" divs — honor Enter/Space like real buttons.
       liveBoard.addEventListener('keydown', function(ev){
         if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        // Real <button>s (the Play chip) already synthesize a click on
+        // Enter/Space — handling the keydown too would double-toggle.
+        if (ev.target.closest && ev.target.closest('button')) return;
         ev.preventDefault();
         liveRowActivate(ev);
       });
@@ -7626,7 +7637,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // the pace read until a few minutes in.
   var VOL_LIVE_MIN_ET_MIN = 10;
   var VOL_LIVE_TOP_N = 15;
-  var volLive = { on: false, timer: null, rows: [], lastAt: null, marketState: null, etMin: null, avg20: null };
+  var volLive = { on: false, timer: null, rows: [], lastAt: null, marketState: null, etMin: null, avg20: null, whyOpen: {} };
   function volLiveBaseline(sym, q){
     if (!volLive.avg20){
       var map = {};
@@ -7940,9 +7951,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var paceStr = r.pace != null ? r.pace.toFixed(2) + 'x' : '—';
       var gexLine = (r.spot != null && isFinite(r.spot)) ? volLiveGexLine(r.sym, Number(r.spot)) : '';
       var verdict = volLiveVerdict(r);
+      var whyOpen = !!volLive.whyOpen[r.sym];
+      // A button, not a title tooltip — hover doesn't exist on touch devices,
+      // so tapping the chip expands the reasoning inline under the row.
       var playHtml = verdict
-        ? '<span class="vol-live-play ' + verdict.cls + '" title="' + escapeHtml(verdict.title) + '">' + verdict.label + '</span>'
+        ? '<button type="button" class="vol-live-play ' + verdict.cls + '" data-sym="' + escapeHtml(r.sym) + '" ' +
+            'aria-expanded="' + (whyOpen ? 'true' : 'false') + '" ' +
+            'aria-label="' + escapeHtml('Play verdict for ' + r.sym + ' — tap for reasoning') + '">' +
+            verdict.label + '</button>'
         : '<span class="vol-live-play">\\u2014</span>';
+      var whyHtml = (verdict && whyOpen)
+        ? '<div class="vol-live-why">' + escapeHtml(verdict.title) + '</div>'
+        : '';
       html.push('<div class="vol-live-row" data-sym="' + escapeHtml(r.sym) + '" role="button" tabindex="0" ' +
         'title="Click to filter the flag list below to ' + escapeHtml(r.sym) + '">' +
         '<div class="vol-live-main">' +
@@ -7954,6 +7974,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           playHtml +
         '</div>' +
         (gexLine ? '<div class="vol-live-gex" title="Dealer gamma from the latest hourly scan — flip/wall levels are scan-time, distances use the live spot">' + gexLine + '</div>' : '') +
+        whyHtml +
       '</div>');
     }
     var withPace = rows.filter(function(r){ return r.pace != null; }).length;
@@ -14523,7 +14544,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
         '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + streakChip + fiftyChip + '</span>' +
-      '<span class="ptc-score">' + escapeHtml(scoreStr) + '</span>' +
+      '<span class="ptc-score">' + escapeHtml(scoreStr) +
+        (p.costDebit > 0
+          ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
+          : '') +
+      '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
       '<span class="ptc-cta">View judgment →</span>' +
@@ -14950,6 +14975,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
     if (rm && rm.macroCallCapped && rm.macroCallCapped.length) noteBits.push('<b>' + rm.macroCallCapped.length + '</b> call' + (rm.macroCallCapped.length === 1 ? '' : 's') + ' capped — severe risk-off tape');
     if (rm && rm.sideCapped && rm.sideCapped.length) noteBits.push('<b>' + rm.sideCapped.length + '</b> skipped to cap one-direction concentration');
+    if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';

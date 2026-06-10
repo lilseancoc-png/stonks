@@ -6819,6 +6819,30 @@ const PICKS_MAX_PREMIUM_PCT_OF_SPOT = 0.12; // …or up to 12% of spot, whicheve
 // tightest-spread contract among the survivors wins.
 const PICKS_CLEAN_MAX_SPREAD_PCT = Number(process.env.PICKS_CLEAN_MAX_SPREAD_PCT ?? 0.10);
 const PICKS_SPREAD_PEN_REF = Number(process.env.PICKS_SPREAD_PEN_REF ?? 0.10); // spreadPct at which the composite spread penalty saturates to 1
+// Execution-cost debit (P5.1) — make the ROSTER ranking + bar net-of-cost.
+// The spread penalty above decides which contract represents a name, and the
+// clean cap bounds it at 10% — but ACROSS names, ranking was by raw |total|:
+// a pick whose best contract still costs an 8% round-trip out-ranked a
+// slightly-lower-conviction name with a 2% spread, even though the spread tax
+// is charged on every trade regardless of whether the signal is right (the
+// modeled track record charges it on top of option P&L). The debit converts
+// the chosen contract's known, deterministic fill cost into grade points:
+// 0 below PICKS_COST_FREE_SPREAD (a tight spread is the normal cost of doing
+// business), ramping linearly to PICKS_COST_DEBIT_MAX at the clean cap. It
+// adjusts roster ORDER and the roster bar only — never the published grade
+// (grades.json is contract-free by design). A marginal pick whose
+// |total| − debit falls below tradeCut is dropped (rosterMeta.costGated) —
+// same no-backfill philosophy as the other gates. PICKS_COST_DEBIT=0 disables.
+const PICKS_COST_DEBIT = process.env.PICKS_COST_DEBIT !== "0";
+const PICKS_COST_DEBIT_MAX = Number(process.env.PICKS_COST_DEBIT_MAX ?? 1.25);
+const PICKS_COST_FREE_SPREAD = Number(process.env.PICKS_COST_FREE_SPREAD ?? 0.03);
+function executionCostDebit(contract) {
+  if (!PICKS_COST_DEBIT) return 0;
+  const sp = Number(contract?.spreadPct);
+  if (!Number.isFinite(sp) || sp <= PICKS_COST_FREE_SPREAD) return 0;
+  const span = Math.max(1e-9, PICKS_CLEAN_MAX_SPREAD_PCT - PICKS_COST_FREE_SPREAD);
+  return PICKS_COST_DEBIT_MAX * Math.min(1, (sp - PICKS_COST_FREE_SPREAD) / span);
+}
 const PICKS_CLEAN_MIN_OI = 100;           // grade "Light/fair" floor (no OI-bad chip)
 const PICKS_CLEAN_MIN_DTE = 21;           // clears the dte<14 extrinsic trap + dte≤3 crisis through a multi-day hold
 const PICKS_CLEAN_MAX_THETA = 0.025;      // |theta|/mid per day — buffer below the 3%/day theta-bad line
@@ -11988,9 +12012,19 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   }
   let untradeable = 0;
   const tradeable = candSet.filter((c) => { if (c.contract) return true; untradeable += 1; return false; });
-  // Conviction-ranked. Graded picks always outrank tactical puts (lower |total|),
-  // so puts only fill slots the vetoed calls leave behind.
-  tradeable.sort((a, b) => Math.abs(b.r.total) - Math.abs(a.r.total));
+  // P5.1 — net-of-cost conviction. The chosen contract's round-trip spread is a
+  // known, deterministic tax charged whether or not the signal is right, so it
+  // debits the conviction used for ranking + the roster bar (never the
+  // published grade). Ranking on netConviction means a clean-fill name
+  // out-ranks an equal-signal name whose only contract is expensive to trade.
+  for (const c of tradeable) {
+    c.costDebit = executionCostDebit(c.contract);
+    c.netConviction = Math.abs(c.r.total) - c.costDebit;
+  }
+  // Conviction-ranked, net of execution cost. Graded picks always outrank
+  // tactical puts (lower |total|), so puts only fill slots the vetoed calls
+  // leave behind.
+  tradeable.sort((a, b) => b.netConviction - a.netConviction);
   // Score more candidates than we ship — some will be dropped by the timing gate.
   const candidates = tradeable.slice(0, PICKS_COUNT * 4);
   const out = [];
@@ -12004,6 +12038,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const sideCounts = { call: 0, put: 0 }; // direction-concentration cap (PICKS_MAX_PER_SIDE)
   const skippedSideCapped = [];
   const skippedConfluence = []; // v2 confluence gate skips (single-story / tape-fighting picks)
+  const skippedCostGated = []; // P5.1 execution-cost gate skips (net-of-cost conviction below the bar)
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -12027,6 +12062,19 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // candidate here already cleared requireClean); reused, not recomputed.
     const contract = cand.contract;
     if (!contract) continue; // defensive — the candidacy filter already guarantees it
+
+    // P5.1 execution-cost gate: a marginal pick whose net-of-cost conviction
+    // falls below the actionable bar isn't worth its own fill cost — drop it
+    // (no backfill). Tactical puts are exempt: they sit below the bar by
+    // construction and are bounded by their own window + timing-go gate.
+    if (!cand.tactical && cand.costDebit > 0 && cand.netConviction < tradeCut) {
+      skippedCostGated.push({
+        symbol: r.sym, side,
+        spreadPct: contract.spreadPct ?? null,
+        debit: Number(cand.costDebit.toFixed(2)),
+      });
+      continue;
+    }
 
     // Entry timing is already folded into `total` (scorePillared) — a chasing-
     // top / falling-knife read subtracts up to 8 points there, so badly-timed
@@ -12120,6 +12168,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       total: r.total,
       score: r.total,                          // legacy alias
       conviction: Math.abs(r.total),
+      // P5.1 — the execution-cost debit (grade points charged for the chosen
+      // contract's round-trip spread) and the net-of-cost conviction the roster
+      // ranked/gated on. Informational on the card; `total` stays the pure grade.
+      costDebit: Number((cand.costDebit || 0).toFixed(2)),
+      netConviction: Number((cand.netConviction ?? Math.abs(r.total)).toFixed(2)),
       compositeScore: Number(
         (Math.abs(r.total) * (contract.qualityScore ?? 0.5)).toFixed(3),
       ),
@@ -12170,16 +12223,17 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
     if (factor) factorCounts[factor] = (factorCounts[factor] || 0) + 1;
   }
-  // Rank by raw conviction — |total| score, highest first (a +25 always outranks
-  // a +22). `total` now already folds in entry timing, so a well-timed name
-  // outscores a chased one directly; the secondary key just stabilizes exact
-  // ties. Contract quality still only decides WHICH contract represents each
-  // pick, not the order. The roster is intentionally allowed to ship FEWER than
+  // Rank by net-of-cost conviction — |total| minus the P5.1 execution-cost
+  // debit, highest first. `total` already folds in entry timing, so a
+  // well-timed name outscores a chased one directly; the debit then charges
+  // the chosen contract's fill cost so a clean-fill name out-ranks an
+  // equal-signal name that's expensive to trade. The secondary key just
+  // stabilizes exact ties. The roster is intentionally allowed to ship FEWER than
   // PICKS_COUNT: a chasing-top / falling-knife read drags the name below the
   // conviction bar, and nothing backfills with a worse one, so a short list on a
   // junk-entry day is the honest signal that there's little clean to buy.
   out.sort((a, b) =>
-    Math.abs(b.total) - Math.abs(a.total) ||
+    (b.netConviction ?? Math.abs(b.total)) - (a.netConviction ?? Math.abs(a.total)) ||
     ((b.entryTiming?.score || 0) - (a.entryTiming?.score || 0)));
   // Risk-based position sizing (P3.4) — a pure post-step over the roster
   // survivors (never the 120+ off-roster names). Sizes each pick inverse to its
@@ -12211,6 +12265,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       sideCapped: skippedSideCapped, // direction-concentration cap skips (PICKS_MAX_PER_SIDE)
       sideCounts,
       confluenceSkipped: skippedConfluence, // v2 confluence gate (single-story / tape-fighting picks)
+      costGated: skippedCostGated, // P5.1 execution-cost gate (net-of-cost conviction below the bar)
       // §3.5.1 — which regime weighting was in force this build (neutral / risk-off /
       // severe / risk-on), so the card breakdown can explain WHY the slow pillars
       // were discounted or boosted.
