@@ -7,8 +7,11 @@
 // upstream request, so we expose that as ?symbols=AAPL,MSFT,...
 //
 // Returns { quotes: [{ symbol, spot, prevClose, change, changePct,
-// marketState }, ...] }. Missing symbols are silently dropped — partial
-// results beat a 502 when one obscure ticker disappears from Yahoo.
+// marketState, dayVolume, avgVol10d, avgVol3m }, ...] }. Missing symbols
+// are silently dropped — partial results beat a 502 when one obscure
+// ticker disappears from Yahoo. The volume fields power the Volume tab's
+// live-tracking mode (cumulative day volume vs Yahoo's own 10D/3M average
+// baselines); the heatmap overlay ignores them.
 
 import { yahooFinance, isValidSymbol, withYahooTimeout } from "../lib/yahoo.mjs";
 
@@ -45,6 +48,9 @@ export default async function handler(req, res) {
           "marketState",
           "preMarketPrice",
           "postMarketPrice",
+          "regularMarketVolume",
+          "averageDailyVolume10Day",
+          "averageDailyVolume3Month",
         ],
       }),
       `quotes(${symbols.length})`,
@@ -78,6 +84,9 @@ export default async function handler(req, res) {
           change,
           changePct,
           marketState: q?.marketState ?? null,
+          dayVolume: q?.regularMarketVolume ?? null,
+          avgVol10d: q?.averageDailyVolume10Day ?? null,
+          avgVol3m: q?.averageDailyVolume3Month ?? null,
         };
       })
       .filter(Boolean);

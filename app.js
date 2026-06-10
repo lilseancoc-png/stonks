@@ -3041,6 +3041,10 @@
       if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
+      // Volume live tracking mirrors the heatmap pattern: poll only while the
+      // tab is visible AND the user toggled live mode on. Resume on re-entry.
+      if (name === 'volume' && typeof startVolumeLivePolling === 'function') startVolumeLivePolling();
+      if (name !== 'volume' && typeof stopVolumeLivePolling === 'function') stopVolumeLivePolling(false);
       if (name === 'oi' && typeof renderOI === 'function') renderOI();
       // Lazy-load the GEX heatmap the first time the tab is opened (it fetches
       // the selected ticker's chain). Revisits keep the last view; Refresh
@@ -7540,6 +7544,215 @@
           if (sym){ volState.expand[sym] = !volState.expand[sym]; renderVolumeFlags(); }
         }
       });
+    }
+    var liveToggle = $('vol-live-toggle');
+    if (liveToggle){
+      liveToggle.checked = volLive.on;
+      liveToggle.addEventListener('change', function(){
+        volLive.on = !!liveToggle.checked;
+        if (volLive.on) startVolumeLivePolling();
+        else stopVolumeLivePolling(true);
+      });
+    }
+    // Clicking a live-board row drops that symbol into the search box so its
+    // scanner card (if flagged) filters into view below. Delegated + bound
+    // once — the board's innerHTML is replaced on every poll.
+    var liveBoard = $('vol-live-board');
+    if (liveBoard){
+      liveBoard.addEventListener('click', function(ev){
+        var row = ev.target.closest && ev.target.closest('.vol-live-row[data-sym]');
+        if (!row) return;
+        var sym = row.getAttribute('data-sym') || '';
+        var search = $('vol-search-input');
+        var clear = $('vol-search-clear');
+        if (search) search.value = sym;
+        if (clear) clear.hidden = !sym;
+        volState.search = sym;
+        renderVolumeFlags();
+      });
+    }
+  }
+
+  // --- Live volume tracking ----------------------------------------------
+  // Opt-in poll of /api/quotes (one batched call for the whole curated
+  // universe, every 30s — same cadence + tab-visibility gating as the
+  // heatmap's live overlay). For each name we compare the live cumulative
+  // day volume against the volume EXPECTED by this point of the session,
+  // read off the same U-shaped intraday curve the hourly scanner uses
+  // (execCumFracExpected above — the in-IIFE mirror of lib/volume-flags.mjs).
+  // The result is a live "volume pace" leaderboard that moves between the
+  // hourly scans, plus a live spot refresh on the scanner cards below.
+  // Baseline preference: the scanner's 20D avg (consistent with the flag
+  // math) when the symbol is in the latest scan, else Yahoo's own 10D /
+  // 3-month average daily volume from the quote itself.
+  var VOL_LIVE_POLL_MS = 30000;
+  // Pace is cumVol / (avg * cumFrac) — with only a couple of minutes of
+  // session the denominator is tiny and the ratio is pure noise, so hold
+  // the pace read until a few minutes in.
+  var VOL_LIVE_MIN_ET_MIN = 10;
+  var VOL_LIVE_TOP_N = 15;
+  var volLive = { on: false, timer: null, rows: [], lastAt: null, marketState: null, etMin: null, avg20: null };
+  function volLiveBaseline(sym, q){
+    if (!volLive.avg20){
+      var map = {};
+      var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
+      for (var i = 0; i < list.length; i++){
+        var t = list[i];
+        if (t && t.symbol && t.avg20 != null && isFinite(t.avg20) && t.avg20 > 0){
+          map[String(t.symbol).toUpperCase()] = Number(t.avg20);
+        }
+      }
+      volLive.avg20 = map;
+    }
+    var a = volLive.avg20[sym];
+    if (a != null && a > 0) return a;
+    if (q.avgVol10d != null && isFinite(q.avgVol10d) && q.avgVol10d > 0) return Number(q.avgVol10d);
+    if (q.avgVol3m != null && isFinite(q.avgVol3m) && q.avgVol3m > 0) return Number(q.avgVol3m);
+    return null;
+  }
+  function startVolumeLivePolling(){
+    if (!volLive.on) return;
+    if (volLive.timer) return;
+    var pane = document.getElementById('page-pane-volume');
+    if (!pane || pane.hidden) return;
+    pollVolumeLiveOnce();
+    volLive.timer = setInterval(pollVolumeLiveOnce, VOL_LIVE_POLL_MS);
+  }
+  function stopVolumeLivePolling(clearBoard){
+    if (volLive.timer){
+      clearInterval(volLive.timer);
+      volLive.timer = null;
+    }
+    if (clearBoard){
+      volLive.rows = [];
+      var board = $('vol-live-board');
+      if (board){ board.hidden = true; board.innerHTML = ''; }
+      var stateEl = $('vol-live-state');
+      if (stateEl){ stateEl.className = 'vol-live-state'; stateEl.textContent = ''; }
+    }
+  }
+  function pollVolumeLiveOnce(){
+    var syms = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
+    if (!syms.length){ stopVolumeLivePolling(false); return; }
+    var stateEl = $('vol-live-state');
+    fetch('api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
+        var etMin = execEtMinutesSinceOpen();
+        var frac = etMin == null ? null : execCumFracExpected(etMin);
+        var paceReady = etMin != null && etMin >= VOL_LIVE_MIN_ET_MIN && frac != null && frac > 0;
+        var rows = [];
+        var marketState = null;
+        for (var i = 0; i < quotes.length; i++){
+          var q = quotes[i];
+          if (!q || !q.symbol) continue;
+          if (!marketState && q.marketState) marketState = q.marketState;
+          if (q.dayVolume == null || !isFinite(q.dayVolume)) continue;
+          var sym = String(q.symbol).toUpperCase();
+          var base = volLiveBaseline(sym, q);
+          var expected = (paceReady && base != null) ? base * frac : null;
+          var pace = (expected != null && expected > 0) ? Number(q.dayVolume) / expected : null;
+          rows.push({
+            sym: sym,
+            spot: q.spot,
+            changePct: q.changePct,
+            dayVol: Number(q.dayVolume),
+            expected: expected,
+            pace: pace,
+          });
+        }
+        volLive.rows = rows;
+        volLive.marketState = marketState;
+        volLive.etMin = etMin;
+        volLive.lastAt = new Date();
+        renderVolumeLive();
+        applyVolumeLiveSpots(quotes);
+        if (stateEl){
+          stateEl.className = 'vol-live-state is-live';
+          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' +
+            volLive.lastAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        }
+      })
+      .catch(function(){
+        if (stateEl){
+          stateEl.className = 'vol-live-state is-error';
+          stateEl.textContent = 'Live unavailable — showing last hourly scan';
+        }
+      });
+  }
+  function volLivePaceCls(pace){
+    if (pace == null || !isFinite(pace)) return '';
+    if (pace >= 1.5) return ' is-hot';
+    if (pace >= VOL_HEAVY_MULT) return ' is-elevated';
+    if (pace < 0.8) return ' is-quiet';
+    return '';
+  }
+  function renderVolumeLive(){
+    var board = $('vol-live-board');
+    if (!board) return;
+    if (!volLive.on){ board.hidden = true; return; }
+    var rows = volLive.rows || [];
+    if (!rows.length){
+      board.hidden = false;
+      board.innerHTML = '<div class="vol-live-msg">No live quotes yet.</div>';
+      return;
+    }
+    var anyPace = rows.some(function(r){ return r.pace != null; });
+    if (!anyPace){
+      // Pre-market / first minutes of the session — the pace denominator is
+      // not meaningful yet, so say why instead of showing noise.
+      var why = (volLive.etMin != null && volLive.etMin < 0)
+        ? 'Pre-market — volume pace starts at the 9:30 ET open.'
+        : 'Just after the open — pace stabilizes a few minutes into the session.';
+      board.hidden = false;
+      board.innerHTML = '<div class="vol-live-msg">' + escapeHtml(why) + '</div>';
+      return;
+    }
+    var sorted = rows.slice().sort(function(a, b){
+      var pa = a.pace == null ? -1 : a.pace;
+      var pb = b.pace == null ? -1 : b.pace;
+      return pb - pa;
+    });
+    var top = sorted.slice(0, VOL_LIVE_TOP_N);
+    var afterClose = volLive.etMin != null && volLive.etMin >= 390;
+    var html = ['<div class="vol-live-row vol-live-head-row" aria-hidden="true">' +
+      '<span>Ticker</span><span>Spot</span><span>Day</span>' +
+      '<span>Day vol / expected by now</span><span>Pace</span></div>'];
+    for (var i = 0; i < top.length; i++){
+      var r = top[i];
+      var chg = r.changePct != null && isFinite(r.changePct)
+        ? (r.changePct >= 0 ? '+' : '') + Number(r.changePct).toFixed(2) + '%'
+        : '—';
+      var chgCls = r.changePct == null ? '' : (r.changePct >= 0 ? ' is-up' : ' is-dn');
+      var paceStr = r.pace != null ? r.pace.toFixed(2) + 'x' : '—';
+      html.push('<div class="vol-live-row" data-sym="' + escapeHtml(r.sym) + '" role="button" tabindex="0" ' +
+        'title="Click to filter the flag list below to ' + escapeHtml(r.sym) + '">' +
+        '<span class="vol-live-sym">' + escapeHtml(r.sym) + '</span>' +
+        '<span class="vol-live-spot">' + (r.spot != null ? '$' + Number(r.spot).toFixed(2) : '—') + '</span>' +
+        '<span class="vol-live-chg' + chgCls + '">' + chg + '</span>' +
+        '<span class="vol-live-vol">' + fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + '</span>' +
+        '<span class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + paceStr + '</span>' +
+      '</div>');
+    }
+    var withPace = rows.filter(function(r){ return r.pace != null; }).length;
+    html.push('<div class="vol-live-foot">Top ' + top.length + ' of ' + withPace + ' tracked names by volume pace' +
+      (afterClose ? ' · session closed — pace is the full-day ratio vs the 20D average' : '') + '</div>');
+    board.hidden = false;
+    board.innerHTML = html.join('');
+  }
+  // Refresh the spot shown on each rendered scanner card head so the
+  // hourly-scan cards track price live too while live mode is on.
+  function applyVolumeLiveSpots(quotes){
+    var list = $('vol-list');
+    if (!list) return;
+    for (var i = 0; i < quotes.length; i++){
+      var q = quotes[i];
+      if (!q || !q.symbol || q.spot == null) continue;
+      var row = list.querySelector('.vol-row[data-symbol="' + String(q.symbol).toUpperCase() + '"]');
+      if (!row) continue;
+      var spotEl = row.querySelector('.vol-spot');
+      if (spotEl) spotEl.textContent = '$' + Number(q.spot).toFixed(2);
     }
   }
 

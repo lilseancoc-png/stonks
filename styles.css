@@ -10765,6 +10765,84 @@ html::-webkit-scrollbar-thumb:hover {
 .vol-toggle-pill { border: 1px solid var(--border); }
 .vol-toggle-pill.is-on { border-color: transparent; }
 
+/* Live volume tracking — the opt-in /api/quotes poll + pace leaderboard. */
+.vol-live {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-3);
+}
+.vol-live-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+.vol-live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vol-live-toggle input { accent-color: var(--accent); }
+.vol-live-hint {
+  color: var(--text-3);
+  font-size: 0.85em;
+  flex: 1 1 28ch;
+  min-width: 20ch;
+}
+.vol-live-state {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.vol-live-state.is-live { color: var(--accent); }
+.vol-live-state.is-error { color: var(--neg); }
+.vol-live-board {
+  display: grid;
+  gap: 2px;
+  margin-top: var(--s-3);
+}
+.vol-live-row {
+  display: grid;
+  grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em;
+  gap: var(--s-2);
+  align-items: center;
+  padding: 4px var(--s-2);
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.vol-live-row[data-sym] { cursor: pointer; }
+.vol-live-row[data-sym]:hover { background: var(--surface-3); }
+.vol-live-row[data-sym]:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.vol-live-head-row {
+  color: var(--text-3);
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.vol-live-sym { font-weight: 600; }
+.vol-live-spot { color: var(--text-2); }
+.vol-live-chg.is-up { color: var(--pos); }
+.vol-live-chg.is-dn { color: var(--neg); }
+.vol-live-vol { color: var(--text-2); font-size: 0.92em; }
+.vol-live-pace { font-weight: 600; text-align: right; }
+.vol-live-pace.is-hot { color: var(--neg); }
+.vol-live-pace.is-elevated { color: var(--warn); }
+.vol-live-pace.is-quiet { color: var(--text-3); }
+.vol-live-msg, .vol-live-foot {
+  color: var(--text-3);
+  font-size: 0.85em;
+  padding: var(--s-2);
+}
+
 .vol-summary {
   display: grid;
   gap: var(--s-2);
