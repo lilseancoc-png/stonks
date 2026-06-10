@@ -361,6 +361,16 @@ best survivor:
   genuinely overpriced (e.g. earnings-IV-inflated) ATM.
 - **Roster (`requireClean`)** additionally refuses any contract the live Grade-tab
   grader would call "bad" (theta >2.5%/day, dte ≤3, ≥80%-extrinsic with <14 DTE).
+- **Roster composite-quality floor** (`PICKS_CLEAN_MIN_QUALITY`, default 0.5): the
+  winning contract's composite quality (`qualityScore = 1 − composite penalty`)
+  must clear the floor or the selector returns null and the name drops at the
+  P1.4 candidacy gate. The per-gate filters are each pass/fail, so on a thin
+  chain a contract that squeaks under *every* line at once (spread at the 10%
+  cap, OI barely 100+, zero volume, DTE far past the 30–60d sweet spot) used to
+  ship as the chain's sole survivor with nothing to out-rank it — the GD Sep-99d
+  vol-2 contract that motivated this scored 0.40 while legitimate roster picks
+  score 0.61–0.78 (universe p10 ≈ 0.61). Ship fewer picks rather than a
+  structurally untradeable one.
 
 **Structure — single long, or an auto debit vertical in rich IV.** The default
 structure is a single long (`structure:'long'`, `netDebit = mid`). When

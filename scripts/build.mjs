@@ -6775,6 +6775,18 @@ const PICKS_SPREAD_PEN_REF = Number(process.env.PICKS_SPREAD_PEN_REF ?? 0.10); /
 const PICKS_CLEAN_MIN_OI = 100;           // grade "Light/fair" floor (no OI-bad chip)
 const PICKS_CLEAN_MIN_DTE = 21;           // clears the dte<14 extrinsic trap + dte≤3 crisis through a multi-day hold
 const PICKS_CLEAN_MAX_THETA = 0.025;      // |theta|/mid per day — buffer below the 3%/day theta-bad line
+// Composite-quality floor for the roster path. The per-gate filters above are
+// each pass/fail, so a contract that squeaks under EVERY line at once (e.g.
+// spread 9.98% + OI barely 100+ + zero volume + DTE far past the 30-60d sweet
+// spot) still ships when it's the chain's sole survivor — there's nothing to
+// out-rank it. Require the WINNER's composite quality (1 − bestComposite, the
+// `qualityScore` written to picks.json) to clear this floor or return null,
+// which drops the name at the P1.4 candidacy gate (ship fewer picks rather
+// than a structurally bad one). Calibrated against the live distribution:
+// legit roster picks score 0.61-0.78, universe p10 ≈ 0.61; the GD Sep-99d
+// vol-2 contract that motivated this scored 0.40. The pre-bell volume penalty
+// (~0.05 uniform at the 9:30 bake) leaves healthy picks a wide margin.
+const PICKS_CLEAN_MIN_QUALITY = Number(process.env.PICKS_CLEAN_MIN_QUALITY ?? 0.5);
 // Soft penalty when the contract's IV is in the top quintile of the
 // underlying's 30-day realized-vol percentile (buying expensive premium).
 const PICKS_IV_REGIME_HIGH = 70;
@@ -9312,6 +9324,12 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     }
   }
   if (!best) return null;
+
+  // Roster path: even the best survivor must clear the composite-quality
+  // floor — a chain whose only gate-passing contract is a barely-legal one
+  // (spread at the cap, stale OI, no volume, DTE far off the sweet spot)
+  // has no tradeable contract, and the name drops at the candidacy gate.
+  if (requireClean && 1 - bestComposite < PICKS_CLEAN_MIN_QUALITY) return null;
 
   const spreadGrade = gradeSpread(best.spreadPct);
   const oiGrade = gradeLiquidity(best.oi);
