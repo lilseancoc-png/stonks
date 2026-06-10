@@ -10160,13 +10160,17 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
 // discrete macro-regime state, so a tape hovering AT a trigger (VIX ~20, Fed
 // drift ~5pt) can't whipsaw the whole book between long-leaning and all-puts
 // build to build. A move toward MORE risk-off applies immediately (never delay
-// defense); a move toward LESS risk-off (recovering) only takes effect once the
-// same recovered state is read on two CONSECUTIVE builds. `priorMeta` is the
-// previous build's rosterMeta.macroRegime ({state, rawState}) threaded by
-// main()/regen-picks from the pre-wipe picks.json; absent → no persistence
-// (first run / legacy payloads), the raw read stands. Mutates and returns `mr`,
-// stamping `rawState` (this build's instantaneous read — the substrate the NEXT
-// build confirms against) and `persisted: true` when the effective state held.
+// defense); a move toward LESS risk-off (recovering) only takes effect once two
+// CONSECUTIVE builds both read less severe than the held state — and then steps
+// to the MORE conservative of the two reads, not the most optimistic one.
+// (Requiring the two raw reads to be IDENTICAL would let an alternating
+// neutral/risk-on tape hold risk-off forever — both reads agree the tape
+// recovered, they just disagree how far.) `priorMeta` is the previous build's
+// rosterMeta.macroRegime ({state, rawState}) threaded by main()/regen-picks
+// from the pre-wipe picks.json; absent → no persistence (first run / legacy
+// payloads), the raw read stands. Mutates and returns `mr`, stamping `rawState`
+// (this build's instantaneous read — the substrate the NEXT build confirms
+// against) and `persisted: true` when the effective state deviated from raw.
 export function applyMacroRegimePersistence(mr, priorMeta) {
   if (!mr || !mr.state) return mr;
   const RANK = { "severe-risk-off": 0, "risk-off": 1, "neutral": 2, "risk-on": 3 };
@@ -10177,7 +10181,17 @@ export function applyMacroRegimePersistence(mr, priorMeta) {
   if (!prevEff || !(prevEff in RANK)) return mr;
   if (RANK[raw] <= RANK[prevEff]) return mr; // defensive (or unchanged) — apply immediately
   const prevRaw = (priorMeta.rawState in RANK) ? priorMeta.rawState : prevEff;
-  if (raw === prevRaw) return mr;            // second consecutive build reading the recovery — confirmed
+  if (RANK[prevRaw] > RANK[prevEff]) {
+    // Two consecutive builds both read less severe than the held state —
+    // recovery confirmed. Step to the more severe (conservative) of the two.
+    const step = RANK[raw] <= RANK[prevRaw] ? raw : prevRaw;
+    if (step !== raw) {
+      mr.state = step;
+      mr.persisted = true;
+      mr.summary = `Cross-asset macro ${step} — conservative step on a confirmed recovery (this build read ${raw})`;
+    }
+    return mr;
+  }
   mr.state = prevEff;                        // unconfirmed recovery — hold the prior defensive state one build
   mr.persisted = true;
   mr.summary = `Cross-asset macro ${prevEff} — holding pending confirmation (this build read ${raw})`;
@@ -11222,9 +11236,19 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 
     // modeled loss-to-stop is smaller — the correct (lower) risk for a defined-risk
     // structure (contract.delta alone is just the long leg).
     let absDelta = Math.abs(Number(c.delta));
+    // Net theta/vega for the premium-at-risk terms below: same leg-netting as
+    // delta — contract.thetaDay/vega alone are just the long leg, and a spread's
+    // short leg offsets both (the whole point of the structure), so sizing off
+    // the long leg overstates a vertical's bleed.
+    let netThetaDay = Number(c.thetaDay);
+    let netVega = Number(c.vega);
     if (c.structure === "debit_vertical" && Array.isArray(c.legs) && c.legs.length > 1) {
       const nd = c.legs.reduce((a, l) => a + (Number(l.delta) || 0) * (Number(l.qty) || 0), 0);
       if (isFinite(nd)) absDelta = Math.abs(nd);
+      const nt = c.legs.reduce((a, l) => a + (Number(l.thetaDay) || 0) * (Number(l.qty) || 0), 0);
+      if (isFinite(nt)) netThetaDay = nt;
+      const nv = c.legs.reduce((a, l) => a + (Number(l.vega) || 0) * (Number(l.qty) || 0), 0);
+      if (isFinite(nv)) netVega = nv;
     }
     const stopFrac = (p.exitPlan && p.exitPlan.cut && Number.isFinite(p.exitPlan.cut.movePct))
       ? Math.abs(p.exitPlan.cut.movePct) / 100      // cut.movePct is a PERCENT → fraction
