@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Fixed
+- **Entry-timing event gate no longer defers past a macro print that already happened.** `computeMacroEventRisk`'s "already printed" check relied solely on the fast-actual landing on the calendar row, but ForexFactory can lag actuals by hours — so every same-day bake kept stamping "CPI MoM in 0d — defer entry" on the whole roster all afternoon. The gate now also checks the ET wall clock against each event's scheduled print time (BLS 8:30, JOLTS 10:00, FOMC statement 14:00, +15min cushion): once the time has passed, the event is resolved regardless of feed lag. Same-day FOMC (which has no `actual` at all) now clears after 14:15 ET too.
+
 ### Added
 - **Live volume "Play" chip — a per-row execute-or-wait verdict on the Volume tab's live board.** Next to each live row's pace + dealer-gamma read, a new chip says whether the moment supports a bullish play, a bearish play, or wait-and-see. Deterministic and computed from what the board already polls (zero extra fetches): today's live move graded against the scanner's 1.2% real-move bar, the latest 20D S/R break (re-checked against the live spot so a reclaimed level downgrades to fakeout risk), dealer gamma (below-flip amplification, call/put walls within 1% pinning the move), and the OI tracker's squeeze score. Volume pace is the gate — an Execute call needs ≥1.2× participation; a clean setup without it shows "Wait ▲/▼". Hovering the chip lists the full reasoning.
 

@@ -6518,16 +6518,44 @@ export function attachPredictionTrends(pmFomc, history, todayIso) {
 const PICKS_EVENT_RISK = process.env.PICKS_EVENT_RISK !== "0";
 const PICKS_TIMING_EVENT_DEFER_DAYS = Number(process.env.PICKS_TIMING_EVENT_DEFER_DAYS ?? 3);
 const PICKS_EVENT_RISK_MAX_PROB = Number(process.env.PICKS_EVENT_RISK_MAX_PROB ?? 0.70);
-export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents, todayIso) {
+// Scheduled ET release minute per report subtype — the second line of defense
+// behind the ev.actual check below: once the ET wall clock is past a same-day
+// event's print time (+15min cushion for late prints), the event has RESOLVED
+// whether or not the fast-actual landed (the FF feed sometimes lags actuals by
+// hours, which left every same-day-afternoon bake deferring entries "past" a
+// CPI that printed at 8:30). BLS prints at 8:30 ET; JOLTS at 10:00; the FOMC
+// decision statement at 14:00.
+const EVENT_RELEASE_ET_MIN = { jolts: 600, fomc: 840 };
+const EVENT_RELEASE_ET_MIN_DEFAULT = 510; // 8:30 ET
+const EVENT_RESOLVED_BUFFER_MIN = 15;
+export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents, todayIso, nowDate = new Date()) {
   if (!PICKS_EVENT_RISK) return { active: false };
   const nowMs = Date.parse(todayIso + "T00:00:00Z");
   if (!Number.isFinite(nowMs)) return { active: false };
+  // ET wall-clock minutes for the same-day "already printed" check. Only
+  // trusted when the bake is running on the calendar's own ET date — a
+  // backdated todayIso (tests) skips the clock check.
+  let etNowMin = null;
+  try {
+    const etDate = nowDate.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    if (etDate === todayIso) {
+      const [h, mn] = nowDate
+        .toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" })
+        .split(":").map(Number);
+      if (Number.isFinite(h) && Number.isFinite(mn)) etNowMin = (h === 24 ? 0 : h) * 60 + mn;
+    }
+  } catch { /* clock check degrades to date-only */ }
+  const printed = (date, releaseMin) =>
+    date === todayIso && etNowMin != null && etNowMin >= releaseMin + EVENT_RESOLVED_BUFFER_MIN;
   const norm = (p) => (p > 1.5 ? p / 100 : p);
   const candidates = [];
   const pmFomc = (predictionMarkets && predictionMarkets.fomc) || {};
   for (const m of (meetings || [])) {
     const e = m && pmFomc[m.date];
     if (!e) continue;
+    // The decision statement drops at 14:00 ET — a same-day FOMC after that
+    // is resolved, not an event risk (this path has no `actual` to clear it).
+    if (printed(m.date, EVENT_RELEASE_ET_MIN.fomc)) continue;
     let top = null; // the MOST-uncertain platform's top outcome (lowest max)
     for (const plat of ["kalshi", "polymarket"]) {
       const o = e[plat];
@@ -6540,11 +6568,14 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
   const pmReports = (predictionMarkets && predictionMarkets.reports) || {};
   for (const ev of (reportEvents || [])) {
     // A release that already PRINTED is no longer an event risk — there is
-    // nothing left to defer past. The actual lands on the row within minutes
-    // of the 8:30 ET release (ForexFactory fast-actual, fetched before
-    // scoring), so the same-morning bakes stop telling every name to WAIT
-    // for an event that resolved hours ago.
+    // nothing left to defer past. Two ways to know it printed: the actual
+    // landed on the row (ForexFactory fast-actual, fetched before scoring),
+    // or the ET clock is simply past the release's scheduled print time —
+    // the fast-actual feed can lag by hours, and without the clock check
+    // every later bake kept telling every name to WAIT for an event that
+    // resolved that morning.
     if (ev && ev.actual) continue;
+    if (ev && printed(ev.date, EVENT_RELEASE_ET_MIN[ev.subtype] ?? EVENT_RELEASE_ET_MIN_DEFAULT)) continue;
     const pred = ev && pmReports[ev.subtype + "|" + ev.date];
     if (!pred || !Number.isFinite(pred.prob)) continue;
     const p = norm(pred.prob);
