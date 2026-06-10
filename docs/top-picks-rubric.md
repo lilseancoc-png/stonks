@@ -101,7 +101,7 @@ side), **plus the IV-cost component (§6.7)**.
 | Analyst Price Target | ≥+10% upside +1, ≤−10% −1 (needs ≥5 analysts) |
 | **Analyst Rating Changes** | net of recent **upgrades − downgrades** over the trailing ~90d (Yahoo `upgradeDowngradeHistory`, `ANALYST_REVISION_WINDOW_DAYS=90`): ≥3 net upgrades **+2**, 1–2 **+1**, −1/−2 **−1**, ≤−3 **−2**. Only actual up/down *actions* count — the constant "maintain"/"reiterate" stream is ignored. Distinct from the Price Target above: a target is a *level*, a rating change is an *event* (and events move stocks). Most names have no recent change → 0 |
 | P/E vs Sector median | ≤80% of median +1; ≥150% of median with no growth (EPS growth YoY < 5%, or unavailable) −1 |
-| Guidance | AI-read: raised +3, in-line +2, lowered −3. **FY-growth proxy (fallback) is now graded** — ≥10% +2, 0–10% +1, ≤−10% −3 (was a flat +2 for *any* positive estimate, which gave ~the whole universe the same +2 and barely discriminated) |
+| Guidance | AI-read: raised +3, in-line +2, lowered −3. **FY-growth proxy (fallback) is now graded** — ≥10% +2, 0–10% +1, ≤−10% −3 (was a flat +2 for *any* positive estimate, which gave ~the whole universe the same +2 and barely discriminated). **Capital-return guard** (`sanitizeGuidanceDirection`): a dividend/buyback headline is NOT guidance — when the AI's own cited evidence is a capital-return announcement with no guidance language, the direction is downgraded to "none" (→ proxy). Applied at extraction (both AI paths, plus the prompts say so explicitly) *and* at scoring time, so pre-guard committed payloads are also caught (live misfire: "GD Increases Quarterly Dividend" → raised +3) |
 | **Major Contract / Deal** | won +2, lost −3 (AI-read from news). "Won" now also covers, **for a bank/broker/adviser, a lead-underwriter / bookrunner / lead-adviser mandate on a marquee IPO, M&A, or capital raise** (e.g. leading the SpaceX IPO). This is a **discrete** signal (not the holistic `news.sentiment` behind Positive Catalyst), so one concrete win lifts the grade even when the day's coverage nets to neutral — and it is scored **only here**, never also as a Positive Catalyst, to avoid double-counting |
 | Free Cash Flow TTM | positive +1, negative −1 |
 | Net Margin Growth | expanding +1, contracting −1 — **YoY** (vs the same quarter last year) when ≥5 quarters of history, else QoQ (YoY removes the seasonal noise in a QoQ margin compare) |
@@ -127,7 +127,7 @@ side), **plus the IV-cost component (§6.7)**.
 | Short Interest % | squeeze setup +1, SI rising −1, SI falling +1 |
 | Unusual Volume | hourly ≥1.3× 20D-avg, ±1 by move direction |
 | SPY flows | **Dropped (`PICKS_TAPE_DEDUPE`, default ON)** — would be ≥+0.6% +1 / ≤−0.6% −1, but the broad tape is now read once by the macro-regime gauge (§6.3) and expressed per-name by the beta-weighted Macro Regime tilt. A flat, same-direction, non-z-scored copy here just double-counted it; removed from the per-name breakdown entirely (legacy path scores it) |
-| **Put/Call Ratio Extreme** | >1.15 **+2** (fear, contrarian bullish), <0.65 **−2** (greed) — *contrarian; the +2 fear credit is trend-conditioned (P1.2) on a per-name reversal bar* |
+| **Put/Call Ratio Extreme** | >1.15 **+2** (fear, contrarian bullish), <0.65 **−2** (greed) — *contrarian; the +2 fear credit is trend-conditioned (P1.2) on a per-name reversal bar*. **Liquidity floor** (`PICKS_PCR_MIN_VOLUME`, default 3,000 contracts/day across the signal's nearest-4 expirations, ≈ universe p8): a crowd-positioning read needs a crowd — below the floor one institutional hedge flips the ratio (live misfire: GD "extreme fear" +1.3 on <1,000 contracts), so the signal goes unavailable and drops out of the z pool |
 | VIX Tracking | **Dropped (`PICKS_TAPE_DEDUPE`, default ON)** — would be rising & >25 −2 / falling & ≥20 +1, but VIX (level/trend) is the regime's own VIX axis (§6.3); a same-direction non-z-scored copy here double-counted it. Removed from the per-name breakdown entirely (legacy path scores it). (Distinct from **VIX Spot** below, which is *contrarian* and stays scored.) |
 | **VIX Spot** | **Dropped (`PICKS_TAPE_DEDUPE`, default ON)** — would be <15 −1 / >35 +2 (contrarian capitulation, gated on a per-name reversal), but the VIX is market-wide → owned by the regime gauge (§6.3), not the per-name grade. Removed from the per-name breakdown entirely (legacy path scores it) |
 
@@ -251,6 +251,47 @@ magnitudes.
 
 ---
 
+### 3.6 Reliability weighting, narrative cap & confluence (the v2 determination layer)
+
+The GD post-mortem (#398) showed a "Strong Call" can be assembled almost entirely
+from the **low-evidence end** of the signal set: one AI sentiment pass (+1.8), one AI
+sector-story read (+1.8), an AI guidance extraction that misread a dividend hike
+(+1.8), and a thin-chain contrarian P/C read (+1.3) — while the well-evidenced
+signals (trend structure, revisions, surprise) contributed less than the story did.
+§3.5 grades signals by **speed**; this layer grades them by **trustworthiness**.
+Three pieces, each independently revertable:
+
+1. **`SIGNAL_RELIABILITY`** (`PICKS_RELIABILITY`, default ON) — a per-signal
+   multiplier folded into `applyHorizonWeight` (so both scoring paths get it and the
+   chips keep summing to the pillar totals). Single-pass AI reads over headlines are
+   demoted hardest — they are volatile across reruns and prone to misclassification:
+   `positiveCatalyst` / `sectorNarrative` / `socialSentiment` ×0.5, `guidance` ×0.7,
+   `majorContract` ×0.8 (AI-extracted but concrete), `putCallRatio` ×0.75 (contrarian
+   even with its liquidity floor). Deterministic price/flow/fundamental measurements
+   ride ×1. **`negativeCatalyst` deliberately stays ×1** — a false bullish credit
+   costs money, a false bearish read just skips a name (asymmetric prudence).
+2. **Narrative cap** (`PICKS_NARR_CAP`, default ±2) — post-weight clamp on the
+   narrative pillar's magnitude, contributions rescaled proportionally (chips still
+   sum). A story can corroborate a trade; it can never outweigh a confirmed trend.
+3. **Confluence gate** (`buildTopPicks`): a graded pick must have ≥
+   `PICKS_CONFLUENCE_MIN` (2) of the four asset pillars aligned with its side at
+   magnitude ≥ `PICKS_CONFLUENCE_PILLAR_MIN` (0.5), and the technicals pillar must
+   not **oppose** the side by ≥ `PICKS_TREND_OPPOSE_FLOOR` (0.5) — a 30–60 DTE long
+   needs the move to start soon, and fighting the tape is how theta wins. Skips are
+   recorded in `rosterMeta.confluenceSkipped` (`single-family` / `fights-tape`).
+   Tactical puts are exempt: their thesis IS the tape (regime + timing `go`), not
+   single-name pillar strength.
+
+Like §3.5 these are **priors, not fits** — the IC bridge (§9.6) is the path to
+replacing them with measured per-signal weights once forward outcomes accumulate.
+Percentile tiers self-recalibrate to the compressed distribution. Known watch item:
+`timing`'s +4 `go` ceiling is now a proportionally larger slice of a shipped pick's
+total — if forward data shows go-state picks underperforming, that ceiling is the
+next candidate to recalibrate. Revert: `PICKS_RELIABILITY=0 PICKS_NARR_CAP=0
+PICKS_CONFLUENCE_MIN=0 PICKS_TREND_OPPOSE_FLOOR=0`.
+
+---
+
 ## 4. Tiers (`tierForScore`)
 
 Tiers are **percentile-relative** (P3.2 — see [`top-picks-improvements.md`](./top-picks-improvements.md)),
@@ -361,6 +402,16 @@ best survivor:
   genuinely overpriced (e.g. earnings-IV-inflated) ATM.
 - **Roster (`requireClean`)** additionally refuses any contract the live Grade-tab
   grader would call "bad" (theta >2.5%/day, dte ≤3, ≥80%-extrinsic with <14 DTE).
+- **Roster composite-quality floor** (`PICKS_CLEAN_MIN_QUALITY`, default 0.5): the
+  winning contract's composite quality (`qualityScore = 1 − composite penalty`)
+  must clear the floor or the selector returns null and the name drops at the
+  P1.4 candidacy gate. The per-gate filters are each pass/fail, so on a thin
+  chain a contract that squeaks under *every* line at once (spread at the 10%
+  cap, OI barely 100+, zero volume, DTE far past the 30–60d sweet spot) used to
+  ship as the chain's sole survivor with nothing to out-rank it — the GD Sep-99d
+  vol-2 contract that motivated this scored 0.40 while legitimate roster picks
+  score 0.61–0.78 (universe p10 ≈ 0.61). Ship fewer picks rather than a
+  structurally untradeable one.
 
 **Structure — single long, or an auto debit vertical in rich IV.** The default
 structure is a single long (`structure:'long'`, `netDebit = mid`). When
