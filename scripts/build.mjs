@@ -5173,6 +5173,85 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
   return events;
 }
 
+// === Same-day macro release reads ====================================
+// How far back buildMacroReleaseReads looks for a release that already
+// printed — 5 calendar days so a Friday NFP still reads on Monday/Tuesday.
+export const MACRO_RELEASE_LOOKBACK_DAYS = 5;
+
+// Parse the numeric magnitude out of a calendar release string ("+0.5%",
+// "4.2%", "+185K", "7.39M"). Unit-agnostic on purpose: actual / consensus /
+// previous for one release always share a format, so comparing the raw
+// numbers is valid without knowing the unit.
+function parseEconNumber(str) {
+  if (str == null) return null;
+  const m = /-?\d+(?:,\d{3})*(?:\.\d+)?/.exec(String(str).replace(/−/g, "-"));
+  if (!m) return null;
+  const n = Number(m[0].replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+// What "above expectations" means per release, in factual (not buy/sell)
+// language. Inflation prints read hot/cool; payrolls & openings read
+// strong/weak; the unemployment RATE inverts (higher = softer labor market).
+const RELEASE_READ_AXIS = {
+  "cpi-mom": "inflation", "cpi-yoy": "inflation",
+  "core-cpi-mom": "inflation", "core-cpi-yoy": "inflation",
+  "ppi-mom": "inflation",
+  nfp: "labor", jolts: "labor",
+  unrate: "slack",
+};
+function releaseSurpriseRead(subtype, surprise, vsConsensus) {
+  if (surprise === "inline") return vsConsensus ? "in line with expectations" : "in line with the prior reading";
+  const vs = vsConsensus ? "expected" : "the prior reading";
+  const axis = RELEASE_READ_AXIS[subtype] || "generic";
+  const above = surprise === "above";
+  if (axis === "inflation") return above ? `hotter than ${vs}` : `cooler than ${vs}`;
+  if (axis === "labor") return above ? `stronger than ${vs}` : `weaker than ${vs}`;
+  if (axis === "slack") return above ? `softer labor market than ${vs}` : `tighter labor market than ${vs}`;
+  return above ? `above ${vs}` : `below ${vs}`;
+}
+
+// Distill the calendar's report rows into the day-of "prints" — releases
+// dated within the trailing lookback window that already carry an actual —
+// each classified against consensus (falling back to the prior reading when
+// no consensus is available). Pure + deterministic; consumed by the market
+// briefs (signal block + render chips + the morning re-mint trigger), the
+// narrative extractor's source pool, and scripts/regen-brief.mjs. Exported
+// for offline testing.
+export function buildMacroReleaseReads(reportEvents, todayIso, lookbackDays = MACRO_RELEASE_LOOKBACK_DAYS) {
+  const today = String(todayIso || "").slice(0, 10);
+  const todayMs = Date.parse(today + "T00:00:00Z");
+  if (!Number.isFinite(todayMs)) return [];
+  const floorIso = new Date(todayMs - lookbackDays * 86400000).toISOString().slice(0, 10);
+  const out = [];
+  for (const ev of (Array.isArray(reportEvents) ? reportEvents : [])) {
+    if (!ev || ev.type !== "report" || !ev.title || !ev.date) continue;
+    const date = String(ev.date);
+    if (date < floorIso || date > today) continue;
+    const actual = ev.actual != null && ev.actual !== "" ? String(ev.actual) : null;
+    if (!actual) continue; // scheduled but not printed yet
+    const consensus = ev.consensus != null && ev.consensus !== "" ? String(ev.consensus) : null;
+    const previous = ev.previous != null && ev.previous !== "" ? String(ev.previous) : null;
+    const a = parseEconNumber(actual);
+    // Classify vs consensus when we have one; otherwise vs the prior reading.
+    const ref = consensus != null ? parseEconNumber(consensus) : parseEconNumber(previous);
+    let surprise = null;
+    if (a != null && ref != null) {
+      const eps = Math.max(1e-9, Math.abs(ref) * 1e-6);
+      surprise = a > ref + eps ? "above" : a < ref - eps ? "below" : "inline";
+    }
+    const read = surprise ? releaseSurpriseRead(ev.subtype, surprise, consensus != null) : null;
+    const line = `${ev.title} (${date}): actual ${actual}` +
+      (consensus ? ` vs consensus ${consensus}` : "") +
+      (previous ? `, prior ${previous}` : "") +
+      (read ? ` — ${read}` : "");
+    out.push({ subtype: ev.subtype || null, title: ev.title, date, actual, consensus, previous, surprise, read, line });
+  }
+  // Newest first; today's prints lead.
+  out.sort((x, y) => y.date.localeCompare(x.date));
+  return out;
+}
+
 // === Federal Funds Rate (NY Fed EFFR primary + FRED DFF fallback) ====
 // The NY Fed publishes the effective fed funds rate (EFFR) daily at a
 // public JSON endpoint with no auth and no Cloudflare WAF — it's
@@ -14609,7 +14688,12 @@ export function gatherBriefSignals(kind, ctx) {
   const events = [];
   if (kind === "morning") {
     for (const e of (cal.todayEarnings || [])) events.push({ label: `${e.sym} earnings`, detail: e.session && e.session !== "TBD" ? e.session : "today" });
-    for (const r of (cal.todayReports || [])) events.push({ label: briefClause(r.title, 60), detail: "today" });
+    // A report that already printed (8:30 ET releases land before a ~9:30+
+    // morning re-mint) shows its result on the chip instead of "today".
+    for (const r of (cal.todayReports || [])) {
+      const detail = r.actual ? `out: ${r.actual}${r.consensus ? ` vs ${r.consensus} est` : ""}` : "today";
+      events.push({ label: briefClause(r.title, 60), detail });
+    }
   } else {
     for (const e of (cal.upcomingEarn || []).slice(0, 5)) events.push({ label: `${e.sym} earnings`, detail: e.date + (e.session && e.session !== "TBD" ? ` ${e.session}` : "") });
     for (const r of (cal.upcomingReports || []).slice(0, 4)) events.push({ label: briefClause(r.title, 60), detail: String(r.date || "") });
@@ -14619,6 +14703,18 @@ export function gatherBriefSignals(kind, ctx) {
   }
 
   const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
+
+  // Macro data that already PRINTED (today + the trailing lookback window),
+  // classified actual-vs-consensus by buildMacroReleaseReads — both briefs get
+  // this so a hot CPI shapes the narration the same day it lands, not just a
+  // "CPI today" calendar chip.
+  const rel = (Array.isArray(cal.releases) ? cal.releases : []).filter((r) => r && r.actual);
+  if (rel.length) {
+    signals.releases = rel.slice(0, 8).map((r) => ({
+      title: r.title, date: r.date, actual: r.actual,
+      consensus: r.consensus || null, previous: r.previous || null, read: r.read || null,
+    }));
+  }
 
   // Dealer gamma (GEX) for the headline index ETFs — net regime + gamma flip.
   // OI is end-of-session either way, so this positioning read is valid for both
@@ -14778,6 +14874,7 @@ function briefRenderFields(s) {
   const out = {};
   if (s.fearGreed) out.fearGreed = s.fearGreed;
   if (s.macro && s.macro.length) out.macro = s.macro;
+  if (s.releases && s.releases.length) out.releases = s.releases;
   if (s.tone) out.tone = s.tone;
   if (s.indexes && s.indexes.length) out.indexes = s.indexes;
   if (s.recap && s.recap.length) out.recap = s.recap;
@@ -14812,7 +14909,9 @@ function briefSystemPrompt(kind) {
       "levels to watch on SPY and QQQ, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and " +
       "where spot sits vs the gamma flip — short gamma below the flip means dealers amplify moves), notable " +
       "options flow from the prior session, any names added to or dropped from the model's actionable top picks, " +
-      "today's earnings + economic calendar, and the model's current top option picks. Frame it as the setup " +
+      "today's earnings + economic calendar, any economic data that already PRINTED (actual vs consensus vs prior " +
+      "— an 8:30 ET release like CPI may already be out; if so, lead with it and how it sets up the session), " +
+      "and the model's current top option picks. Frame it as the setup " +
       "for today's session: what happened overnight, and what to watch into the bell." + common
     );
   }
@@ -14824,7 +14923,9 @@ function briefSystemPrompt(kind) {
     "average, notable unusual options flow, where macro levels (10Y yield, the dollar, VIX) and the CNN Fear & " +
     "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
     "vs the gamma flip), any names added to or dropped from the model's actionable top picks, the model's top " +
-    "option picks, and what's on the calendar next. Frame it as what happened today and what to watch next." + common
+    "option picks, the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
+    "how the tape traded against it), and what's on the calendar next. Frame it as what happened today and what " +
+    "to watch next." + common
   );
 }
 
@@ -14843,6 +14944,13 @@ export function briefUserMessage(kind, dateKey, signals) {
   }
   if (signals.macro && signals.macro.length) {
     lines.push("Macro: " + signals.macro.map((m) => `${m.label} ${m.value}${m.change ? ` (${m.change})` : ""}`).join(", ") + ".");
+  }
+  if (signals.releases && signals.releases.length) {
+    lines.push("Economic data released (actual vs consensus):");
+    for (const r of signals.releases) {
+      lines.push(`- ${r.title} (${r.date}): ${r.actual}` +
+        `${r.consensus ? ` vs ${r.consensus} expected` : ""}${r.previous ? `, prior ${r.previous}` : ""}${r.read ? ` — ${r.read}` : ""}`);
+    }
   }
   if (signals.indexes && signals.indexes.length) {
     lines.push((kind === "morning" ? "US index futures: " : "Index close: ") +
@@ -14986,7 +15094,11 @@ async function generateBrief(ai, kind, dateKey, signals) {
 // data/briefs.json. Called from main() AFTER picks.json + the calendar data
 // exist and BEFORE writeAiUsageState() so the brief's token usage is recorded.
 // `briefsPrev` is the pre-wipe snapshot, so each brief is minted at most once
-// per ET day and reused by later builds. Never throws — a failure leaves the
+// per ET day and reused by later builds — with ONE exception: a morning brief
+// minted before a same-day macro print (CPI at 8:30 ET, etc.) is re-minted by
+// the next build inside the morning window so the released number reaches the
+// brief the day it lands (bounded by the `releasesSeen` stamp, so at most one
+// extra call per new print set). Never throws — a failure leaves the
 // tab on its last-good content. Also exported for scripts/regen-brief.mjs (the
 // pre-market mint); the ET-window gating below makes re-running always safe.
 export async function buildMarketBriefs(opts) {
@@ -14998,7 +15110,20 @@ export async function buildMarketBriefs(opts) {
   let morning = briefsPrev?.morning && briefsPrev.morning.date === todayEt ? briefsPrev.morning : null;
   let afternoon = briefsPrev?.afternoon && briefsPrev.afternoon.date === todayEt ? briefsPrev.afternoon : null;
   const haveKey = !!process.env.GEMINI_API_KEY;
-  const wantMorning = !morning && hourEt >= 0 && hourEt < BRIEF_MORNING_CUTOFF_ET_HOUR;
+  // Same-day macro prints (subtypes with an actual) — when one lands AFTER the
+  // morning brief was minted (the ~08:30 ET regen-brief run races the 8:30
+  // release; CPI/NFP post minutes later), the next build inside the morning
+  // window re-mints the brief ONCE so the print shapes it the same day. The
+  // minted brief stamps `releasesSeen` so later builds don't re-mint again.
+  const todayPrints = (Array.isArray(calendar?.releases) ? calendar.releases : [])
+    .filter((r) => r && r.actual && String(r.date) === todayEt)
+    .map((r) => r.subtype || r.title)
+    .filter(Boolean)
+    .sort();
+  const morningSeen = Array.isArray(morning?.releasesSeen) ? morning.releasesSeen : [];
+  const morningMissedPrint = !!morning && todayPrints.some((s) => !morningSeen.includes(s));
+  const inMorningWindow = hourEt >= 0 && hourEt < BRIEF_MORNING_CUTOFF_ET_HOUR;
+  const wantMorning = inMorningWindow && (!morning || morningMissedPrint);
   const wantAfternoon = !afternoon && hourEt >= BRIEF_EOD_TRIGGER_ET_HOUR;
   let generated = 0;
   if (haveKey && (wantMorning || wantAfternoon)) {
@@ -15007,9 +15132,10 @@ export async function buildMarketBriefs(opts) {
       try {
         const signals = gatherBriefSignals("morning", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges });
         const gen = await generateBrief(ai, "morning", todayEt, signals);
-        morning = { kind: "morning", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
+        // On failure the catch keeps the prior morning brief (carry-forward).
+        morning = { kind: "morning", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, releasesSeen: todayPrints, ...gen, ...briefRenderFields(signals) };
         generated++;
-        console.log(`[briefs] morning brief generated for ${todayEt}`);
+        console.log(`[briefs] morning brief ${morningMissedPrint ? `re-minted (new macro print: ${todayPrints.filter((s) => !morningSeen.includes(s)).join(", ")})` : "generated"} for ${todayEt}`);
       } catch (err) {
         console.warn(`[briefs] morning generation failed: ${String(err?.message || err).split("\n")[0]}`);
       }
@@ -18193,7 +18319,7 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
     .slice(0, 8);
 }
 
-async function attachMarketNarratives(chains, previousHistory) {
+async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = []) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
     return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: [] };
@@ -18214,9 +18340,23 @@ async function attachMarketNarratives(chains, previousHistory) {
   console.log(`Fetching macro headlines across ${MACRO_FEEDS.length} feeds…`);
   const macroHeadlines = await fetchMacroHeadlines();
   console.log(`  · ${macroHeadlines.length} macro headlines retrieved`);
+  // Same-day macro prints (CPI/PPI/jobs actual vs consensus, classified by
+  // buildMacroReleaseReads) lead the digest as structured pseudo-headlines —
+  // the RSS feeds only carry release TITLES, so without this the model is
+  // asked to judge "did the hot-CPI trigger fire?" without ever seeing the
+  // number. Prompt-only: the returned macroHeadlines stay RSS-only so
+  // calendar.json's headline events don't duplicate its report rows.
+  const releaseItems = (Array.isArray(macroReleaseReads) ? macroReleaseReads : []).map((r) => ({
+    publisher: "BLS data",
+    source: "BLS data",
+    title: r.line,
+    publishedAt: r.date + "T13:30:00Z",
+  }));
+  if (releaseItems.length) console.log(`  · ${releaseItems.length} same-day macro print(s) added to the digest`);
+  const headlinesForPrompt = releaseItems.concat(macroHeadlines);
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
-    const raw = await generateMarketNarratives(ai, chains, previousNames, macroHeadlines);
+    const raw = await generateMarketNarratives(ai, chains, previousNames, headlinesForPrompt);
     const builtAtIso = new Date().toISOString();
     const narratives = annotateNarrativesWithLifespan(raw.narratives, previousHistory, builtAtIso);
     const history = updateTrendHistory(previousHistory, narratives, builtAtIso);
@@ -18496,7 +18636,29 @@ async function main() {
     console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
     return f13Empty;
   });
-  const trends = await attachMarketNarratives(chains, previousHistory);
+  // Macro releases are fetched EARLY (they used to live in the calendar batch
+  // far below) so a day-of print — CPI at 8:30 ET, actual vs consensus, with
+  // ForexFactory's fast actual — reaches the narrative extractor and the
+  // briefs in the SAME build instead of only the calendar tab. The window
+  // starts a few days back so a Friday NFP still reads on Monday; the
+  // calendar payload keeps its today-forward view via the filter below. The
+  // FRED-cascade coupling with fetchEffectiveFedFundsRate is preserved: the
+  // counter is module-level and the rate fetch still runs strictly after
+  // this in the calendar section.
+  const todayMs = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate(),
+  );
+  const cutoffMs = calendarCutoffMs(todayMs);
+  const todayIsoEarly = new Date(todayMs).toISOString().slice(0, 10);
+  console.log("Fetching macro releases (BLS primary · FRED fallback · ForexFactory consensus)…");
+  const reportEventsAll = await fetchMacroReleases(todayMs - MACRO_RELEASE_LOOKBACK_DAYS * 86400000, cutoffMs);
+  const reportEvents = reportEventsAll.filter((r) => String(r.date) >= todayIsoEarly);
+  const macroReleaseReads = buildMacroReleaseReads(reportEventsAll, todayIsoEarly);
+  console.log(`  · ${reportEvents.length} report rows (${macroReleaseReads.length} already printed in the last ${MACRO_RELEASE_LOOKBACK_DAYS}d)`);
+  for (const r of macroReleaseReads) console.log(`    · ${r.line}`);
+  const trends = await attachMarketNarratives(chains, previousHistory, macroReleaseReads);
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
   // Market backdrop — compact per-index snapshot for the Execute now? card so
@@ -18642,16 +18804,12 @@ async function main() {
     : fngHistoryPrev;
   await writeFearGreedHistory(fngHistoryNext);
   console.log(`wrote data/${FNG_HISTORY_FILE} — ${fngHistoryNext.snapshots.length} daily snapshots`);
-  // Calendar extras: structured macro releases (FRED), FOMC schedule,
-  // current effective Fed funds rate, and a fresh CME FedWatch snapshot.
-  // FedWatch history is append-only — today's snapshot lands beside any
-  // prior days so the UI can pick Now / 1d / 1w / 1m buckets.
-  const todayMs = Date.UTC(
-    new Date().getUTCFullYear(),
-    new Date().getUTCMonth(),
-    new Date().getUTCDate(),
-  );
-  const cutoffMs = calendarCutoffMs(todayMs);
+  // Calendar extras: FOMC schedule, current effective Fed funds rate, and a
+  // fresh CME FedWatch snapshot. (Structured macro releases were already
+  // fetched up top, before the narrative pass, so the day's prints could
+  // feed the narratives — reportEvents is reused here.) FedWatch history is
+  // append-only — today's snapshot lands beside any prior days so the UI
+  // can pick Now / 1d / 1w / 1m buckets.
   const calDays = Math.round((cutoffMs - todayMs) / 86400000);
   // Distinct dates curated tickers actually report on, across the full window —
   // the only dates the Nasdaq AM/PM session fetch needs. Avoids walking every
@@ -18659,33 +18817,28 @@ async function main() {
   const earnSessionDates = Array.from(new Set(
     upcomingEarningsList(chains, new Date(todayMs).toISOString().slice(0, 10), calDays).map((e) => e.date),
   ));
-  // These calendar sources hit DIFFERENT hosts — FRED/BLS (macro releases),
-  // NY Fed EFFR (Fed Funds rate), the Fed's FOMC calendar page, and Nasdaq
-  // (earnings sessions) — with no data dependency on one another, so fetch
-  // them concurrently. This overlaps the independent round trips without
-  // raising the request rate to ANY single host (one call each), and each
-  // already degrades gracefully on its own.
+  // These calendar sources hit DIFFERENT hosts — NY Fed EFFR (Fed Funds
+  // rate), the Fed's FOMC calendar page, and Nasdaq (earnings sessions) —
+  // with no data dependency on one another, so fetch them concurrently. This
+  // overlaps the independent round trips without raising the request rate to
+  // ANY single host (one call each), and each already degrades gracefully on
+  // its own.
   //
   // ONE subtlety preserved: macro releases AND the Fed-rate fetch both fall
   // back to FRED (fetchFredSeries), which shares the module-level
   // _fredFirstAttemptFailures cascade counter — deliberately scoped (see
   // ~line 4369) so a FRED cascade in the macro fetch also short-circuits the
-  // Fed-rate fetch. So those two run STRICTLY SEQUENTIAL inside their own lane
-  // (macro → rate, identical to the original ordering, identical counter
-  // semantics); only the two FRED-free fetches (Fed.gov FOMC HTML, Nasdaq)
-  // overlap them. The fifth source (FedWatch/CME ZQ) depends on fedRate + the
-  // FOMC schedule, so it stays sequential after this batch resolves.
-  console.log("Fetching calendar sources (FRED · NY Fed EFFR · FOMC schedule · Nasdaq earnings) in parallel…");
-  const [[reportEvents, fedRate], liveFomc, sessionMap] = await Promise.all([
-    (async () => {
-      const macro = await fetchMacroReleases(todayMs, cutoffMs);
-      const rate = await fetchEffectiveFedFundsRate();
-      return [macro, rate];
-    })(),
+  // Fed-rate fetch. The macro-release fetch now runs much earlier in main()
+  // (before the narrative pass), still STRICTLY BEFORE this rate fetch, so
+  // the counter semantics are identical to the original macro → rate order.
+  // The FedWatch/CME ZQ source depends on fedRate + the FOMC schedule, so it
+  // stays sequential after this batch resolves.
+  console.log("Fetching calendar sources (NY Fed EFFR · FOMC schedule · Nasdaq earnings) in parallel…");
+  const [fedRate, liveFomc, sessionMap] = await Promise.all([
+    fetchEffectiveFedFundsRate(),
     fetchFomcSchedule(),
     fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates),
   ]);
-  console.log(`  · ${reportEvents.length} report rows`);
   if (fedRate) console.log(`  · Fed Funds ${fedRate.rate}% as of ${fedRate.asOf}`);
   // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
   // from that pre-wipe snapshot so the lastKnownFedRate cache actually
@@ -18945,8 +19098,12 @@ async function main() {
     const calForBrief = {
       todayEarnings: allEarn.filter((e) => e.date === briefTodayIso).map((e) => ({ sym: e.symbol, session: sess(e.symbol, e.date) })),
       upcomingEarn: allEarn.filter((e) => e.date > briefTodayIso).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6).map((e) => ({ sym: e.symbol, date: e.date, session: sess(e.symbol, e.date) })),
-      todayReports: (reportEvents || []).filter((r) => String(r.date) === briefTodayIso).map((r) => ({ title: r.title })),
+      todayReports: (reportEvents || []).filter((r) => String(r.date) === briefTodayIso).map((r) => ({ title: r.title, subtype: r.subtype || null, actual: r.actual ?? null, consensus: r.consensus ?? null, previous: r.previous ?? null })),
       upcomingReports: (reportEvents || []).filter((r) => String(r.date) > briefTodayIso).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 5).map((r) => ({ title: r.title, date: r.date })),
+      // Releases that already printed (today + trailing lookback), classified
+      // actual-vs-consensus — feeds the brief's released-data block and the
+      // morning re-mint trigger in buildMarketBriefs.
+      releases: macroReleaseReads,
       nextFomc: upcomingMeetings && upcomingMeetings[0]
         ? { date: upcomingMeetings[0].date, daysOut: Math.max(0, Math.round((Date.parse(upcomingMeetings[0].date + "T00:00:00Z") - Date.parse(briefTodayIso + "T00:00:00Z")) / 86400000)) }
         : null,

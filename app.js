@@ -10093,6 +10093,18 @@
       }).join('') + '</ul>';
     }
     var blocks = [];
+    // Economic data that already printed (CPI/PPI/jobs) — actual vs consensus,
+    // with the hotter/cooler read in the tooltip. Deliberately neutral-colored:
+    // a hot print's equity direction is the AI summary's job, not the chip's.
+    if (Array.isArray(b.releases) && b.releases.length){
+      var rel = b.releases.map(function(r){
+        var sub = briefEsc(r.actual || '');
+        if (r.consensus) sub += ' vs ' + briefEsc(r.consensus) + ' est';
+        return '<span class="brief-chip info"' + (r.read ? ' title="' + briefEsc(r.read) + '"' : '') + '>' +
+          briefEsc(r.title) + ' <span>' + sub + '</span></span>';
+      }).join('');
+      blocks.push(briefBlock('Econ data prints', '<div class="brief-chips">' + rel + '</div>'));
+    }
     // Index scorecard — futures (morning) / index-ETF close (closing).
     if (Array.isArray(b.indexes) && b.indexes.length){
       blocks.push(briefBlock('Index scorecard', briefIndexChips(b.indexes)));
