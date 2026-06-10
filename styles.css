@@ -10817,10 +10817,30 @@ html::-webkit-scrollbar-thumb:hover {
 }
 .vol-live-main {
   display: grid;
-  grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em;
+  grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em 6.5em;
   gap: var(--s-2);
   align-items: center;
 }
+/* Per-row "Play" verdict chip — execute bullish/bearish or wait-and-see,
+   computed live from the row's move + pace + the scan's S/R break + GEX. */
+.vol-live-play {
+  justify-self: end;
+  padding: 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--text-3);
+  text-align: center;
+  white-space: nowrap;
+  cursor: help;
+}
+.vol-live-play.is-bull { color: var(--pos); border-color: currentColor; }
+.vol-live-play.is-bear { color: var(--neg); border-color: currentColor; }
+.vol-live-play.is-wait { color: var(--text-3); }
+.vol-live-play.is-lean-bull { color: var(--pos); opacity: .65; }
+.vol-live-play.is-lean-bear { color: var(--neg); opacity: .65; }
 /* Per-row dealer-gamma line — scan-time levels, live-spot distances. */
 .vol-live-gex {
   color: var(--text-3);
@@ -10891,6 +10911,7 @@ html::-webkit-scrollbar-thumb:hover {
     gap: 2px var(--s-2);
   }
   .vol-live-main .vol-live-pace { margin-left: auto; }
+  .vol-live-main .vol-live-play { order: 4; }
   .vol-live-main .vol-live-vol { flex-basis: 100%; order: 5; font-size: 0.85em; }
   .vol-live-row { padding: 8px var(--s-2); }
   .vol-live-board { gap: 0; }

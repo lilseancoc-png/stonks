@@ -7781,6 +7781,125 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return '<span class="vol-live-gex-tag">GEX</span>' + bits.join(' · ');
   }
+  // Latest confirmed 20D S/R break per symbol from the hourly scan (today's
+  // session only — volume-flags.json resets each day). Most recent bucket wins.
+  function volLiveSrBreakFor(sym){
+    if (!volLive.srMap){
+      var map = {};
+      var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
+      for (var i = 0; i < list.length; i++){
+        var t = list[i];
+        if (!t || !t.symbol || !Array.isArray(t.bucketHits)) continue;
+        var last = null;
+        for (var j = 0; j < t.bucketHits.length; j++){
+          var h = t.bucketHits[j];
+          if (h && h.srBreak && h.srBreak.conviction && h.srBreak.conviction !== 'None') last = h.srBreak;
+        }
+        if (last) map[String(t.symbol).toUpperCase()] = last;
+      }
+      volLive.srMap = map;
+    }
+    return volLive.srMap[sym] || null;
+  }
+  // "Play" verdict for a live row — execute bullish, execute bearish, or wait.
+  // Sibling-in-spirit of the Grade tab's buildExecuteNowCard: that one grades a
+  // specific CONTRACT's entry with full baked technicals; this one grades the
+  // SYMBOL's moment from what the live board already has (zero extra fetches):
+  // today's live move, the live volume pace as the conviction gate, the hourly
+  // scanner's latest 20D S/R break (re-checked against the live spot), dealer
+  // gamma (flip + walls), and the OI tracker's squeeze score. Deliberately
+  // conservative — no volume confirmation means "Wait" no matter how clean the
+  // move looks (the same heavy-volume bar the hourly classifier gates on).
+  function volLiveVerdict(r){
+    var chg = (r.changePct != null && isFinite(r.changePct)) ? Number(r.changePct) : null;
+    var pace = (r.pace != null && isFinite(r.pace)) ? Number(r.pace) : null;
+    if (chg == null || pace == null) return null;
+    var spot = (r.spot != null && isFinite(r.spot) && r.spot > 0) ? Number(r.spot) : null;
+    var bull = 0, bear = 0, why = [];
+    // Live tape — graded against the same 1.2% "real move" bar as the scanner.
+    if (chg >= VOL_BIG_MOVE_PCT){ bull += 2; why.push('up ' + chg.toFixed(2) + '% today (clears the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% real-move bar)'); }
+    else if (chg >= 0.4){ bull += 1; why.push('drifting up ' + chg.toFixed(2) + '% today'); }
+    else if (chg <= -VOL_BIG_MOVE_PCT){ bear += 2; why.push('down ' + Math.abs(chg).toFixed(2) + '% today (clears the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% real-move bar)'); }
+    else if (chg <= -0.4){ bear += 1; why.push('drifting down ' + Math.abs(chg).toFixed(2) + '% today'); }
+    else { why.push('flat on the day (' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%)'); }
+    // Scanner's latest 20D S/R break — only counted while the live spot still
+    // confirms it (an hourly scan's break can be reclaimed between scans).
+    var sr = volLiveSrBreakFor(r.sym);
+    if (sr && (sr.type === 'upper' || sr.type === 'lower') && sr.level != null && isFinite(sr.level)){
+      var lvl = Number(sr.level);
+      var srPts = sr.conviction === 'Very High' ? 2 : sr.conviction === 'Medium' ? 1 : 0;
+      var stillBroken = spot == null ? true : (sr.type === 'upper' ? spot >= lvl : spot <= lvl);
+      var lvlStr = '$' + lvl.toFixed(2);
+      if (!stillBroken){
+        why.push('scanner flagged a break of 20D ' + (sr.type === 'upper' ? 'resistance' : 'support') + ' ' + lvlStr + ' but spot has reclaimed the level — fakeout risk');
+      } else if (sr.type === 'upper'){
+        bull += srPts;
+        why.push('broke 20D resistance ' + lvlStr + ' (' + sr.conviction.toLowerCase() + ' conviction' + (srPts === 0 ? ' — likely fakeout, not counted' : '') + ')');
+      } else {
+        bear += srPts;
+        why.push('broke 20D support ' + lvlStr + ' (' + sr.conviction.toLowerCase() + ' conviction' + (srPts === 0 ? ' — likely fakeout, not counted' : '') + ')');
+      }
+    }
+    // Dealer gamma — below the flip dealers amplify the prevailing move; walls
+    // just over/under the live spot cap the near-term follow-through.
+    var g = volLiveGexFor(r.sym);
+    if (g && spot != null){
+      if (g.flip != null && isFinite(g.flip)){
+        var flipStr = fmtOiStrike(g.flip);
+        if (spot < g.flip){
+          if (bull !== bear){
+            if (bull > bear) bull += 1; else bear += 1;
+            why.push('below the gamma flip ' + flipStr + ' — dealers amplify the move in progress');
+          } else {
+            why.push('below the gamma flip ' + flipStr + ' — moves get amplified once a direction asserts');
+          }
+        } else {
+          why.push('above the gamma flip ' + flipStr + ' — dealers dampen moves, follow-through is harder');
+        }
+      }
+      if (bull > bear && g.callWall && g.callWall.strike != null){
+        var cw = Number(g.callWall.strike);
+        if (spot < cw && (cw - spot) / spot <= 0.01){
+          bull -= 1;
+          why.push('call wall ' + fmtOiStrike(cw) + ' only ' + ((cw - spot) / spot * 100).toFixed(1) + '% above — upside likely pins there');
+        }
+      }
+      if (bear > bull && g.putWall && g.putWall.strike != null){
+        var pw = Number(g.putWall.strike);
+        if (spot > pw && (spot - pw) / spot <= 0.01){
+          bear -= 1;
+          why.push('put wall ' + fmtOiStrike(pw) + ' only ' + ((spot - pw) / spot * 100).toFixed(1) + '% below — downside likely pins there');
+        }
+      }
+    }
+    var squeeze = volLiveSqueezeFor(r.sym);
+    if (squeeze != null && squeeze >= 3 && bull > bear){
+      bull += 1;
+      why.push('gamma-squeeze score ' + squeeze + '/5 adds upside fuel');
+    }
+    // Volume is the gate: an execute call needs participation behind it.
+    var heavy = pace >= VOL_HEAVY_MULT;
+    if (pace < 0.8) why.push('volume pace ' + pace.toFixed(2) + 'x — no participation; quiet-tape moves fade');
+    else if (heavy) why.push('volume pace ' + pace.toFixed(2) + 'x confirms participation');
+    else why.push('volume pace ' + pace.toFixed(2) + 'x — under the ' + VOL_HEAVY_MULT.toFixed(1) + 'x conviction bar');
+    var margin = bull - bear;
+    var afterClose = volLive.etMin != null && volLive.etMin >= 390;
+    var prefix = afterClose ? 'Session closed — this is how the day finished; treat it as a next-open bias, not a fill-now signal. ' : '';
+    var reasons = why.join('; ') + '.';
+    if (margin >= 2 && heavy){
+      return { cls: 'is-bull', label: 'Bullish \\u25b2', title: prefix + 'Execute bullish (calls / long): ' + reasons };
+    }
+    if (margin <= -2 && heavy){
+      return { cls: 'is-bear', label: 'Bearish \\u25bc', title: prefix + 'Execute bearish (puts / short): ' + reasons };
+    }
+    if (margin >= 2){
+      return { cls: 'is-wait is-lean-bull', label: 'Wait \\u25b2', title: prefix + 'Bullish setup, but volume has not confirmed — wait for participation: ' + reasons };
+    }
+    if (margin <= -2){
+      return { cls: 'is-wait is-lean-bear', label: 'Wait \\u25bc', title: prefix + 'Bearish setup, but volume has not confirmed — wait for participation: ' + reasons };
+    }
+    return { cls: 'is-wait', label: 'Wait', title: prefix + 'No edge yet — signals are mixed or too weak to act on: ' + reasons };
+  }
   function renderVolumeLive(){
     var board = $('vol-live-board');
     if (!board) return;
@@ -7811,7 +7930,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var afterClose = volLive.etMin != null && volLive.etMin >= 390;
     var html = ['<div class="vol-live-row vol-live-head-row" aria-hidden="true"><div class="vol-live-main">' +
       '<span>Ticker</span><span>Spot</span><span>Day</span>' +
-      '<span>Day vol / expected by now</span><span>Pace</span></div></div>'];
+      '<span>Day vol / expected by now</span><span>Pace</span><span>Play</span></div></div>'];
     for (var i = 0; i < top.length; i++){
       var r = top[i];
       var chg = r.changePct != null && isFinite(r.changePct)
@@ -7820,6 +7939,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var chgCls = r.changePct == null ? '' : (r.changePct >= 0 ? ' is-up' : ' is-dn');
       var paceStr = r.pace != null ? r.pace.toFixed(2) + 'x' : '—';
       var gexLine = (r.spot != null && isFinite(r.spot)) ? volLiveGexLine(r.sym, Number(r.spot)) : '';
+      var verdict = volLiveVerdict(r);
+      var playHtml = verdict
+        ? '<span class="vol-live-play ' + verdict.cls + '" title="' + escapeHtml(verdict.title) + '">' + verdict.label + '</span>'
+        : '<span class="vol-live-play">\\u2014</span>';
       html.push('<div class="vol-live-row" data-sym="' + escapeHtml(r.sym) + '" role="button" tabindex="0" ' +
         'title="Click to filter the flag list below to ' + escapeHtml(r.sym) + '">' +
         '<div class="vol-live-main">' +
@@ -7828,6 +7951,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span class="vol-live-chg' + chgCls + '">' + chg + '</span>' +
           '<span class="vol-live-vol">' + fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + '</span>' +
           '<span class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + paceStr + '</span>' +
+          playHtml +
         '</div>' +
         (gexLine ? '<div class="vol-live-gex" title="Dealer gamma from the latest hourly scan — flip/wall levels are scan-time, distances use the live spot">' + gexLine + '</div>' : '') +
       '</div>');
