@@ -7175,6 +7175,16 @@ const PICKS_OI_TRACKER_MAX_AGE_DAYS = Number(process.env.PICKS_OI_TRACKER_MAX_AG
 const PICKS_FLOW_LOG_WINDOW_DAYS = Number(process.env.PICKS_FLOW_LOG_WINDOW_DAYS ?? 7);       // matches the scanner's own retention
 const PICKS_FLOW_PERSIST_MIN_PREMIUM = Number(process.env.PICKS_FLOW_PERSIST_MIN_PREMIUM ?? 250000); // total $ premium floor — below this the week's flags are noise
 const PICKS_OI_DELTA_NET_BAR = Number(process.env.PICKS_OI_DELTA_NET_BAR ?? 0.015); // |net ΔOI| / total OI for the legacy ±1 (≈ p85 of the live universe)
+// Liquidity floor for the put/call-ratio contrarian read. The signal's premise
+// is CROWD positioning ("extreme fear marks bottoms") — below a few thousand
+// contracts/day there is no crowd, and one institutional collar/hedge flips
+// the ratio (live example: GD's P/C 3.77 "extreme fear, contrarian bullish"
+// +1.3 came from under 1,000 contracts on the nearest-4 expirations — the
+// 3rd-thinnest chain of the universe). Under the floor the signal is
+// unavailable (no raw → drops out of the cross-sectional z pool too). On the
+// signal's own nearest-4-expirations basis 3,000 catches the universe's thin
+// tail (~p8; median ≈ 15k/day) without silencing the read on normal names.
+const PICKS_PCR_MIN_VOLUME = Number(process.env.PICKS_PCR_MIN_VOLUME ?? 3000);
 // Entry-timing reads from the same data: spot pressed against the OI tracker's
 // call/put wall (dealer-hedging supply/support at the strike), and the
 // overnight peer-implied move from data/correlations.json (the server-side
@@ -7827,7 +7837,13 @@ function scoreFundamentals(data, sectorMedianPE) {
   // (-3) and a mildly negative one isn't called a cut (0).
   let guideSignal = _sig("guidance", "Guidance", 0,
     { available: false, note: "no guidance estimate available" });
-  const aiGuide = data?.aiSignals?.guidance;
+  // Re-apply the capital-return guard at scoring time too: committed per-ticker
+  // payloads from before the guard (or a future unsanitized writer) can still
+  // carry a dividend-as-guidance misread, and regen-picks re-scores from them.
+  const aiGuideRaw = data?.aiSignals?.guidance;
+  const aiGuide = aiGuideRaw
+    ? { ...aiGuideRaw, direction: sanitizeGuidanceDirection(aiGuideRaw.direction, aiGuideRaw.evidence) }
+    : aiGuideRaw;
   const GUIDE_SCORE = { raised: 3, inline: 2, soft: -3, lowered: -3 };
   if (aiGuide && aiGuide.direction && aiGuide.direction !== "none" &&
       GUIDE_SCORE[aiGuide.direction] != null) {
@@ -8498,7 +8514,15 @@ function scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop) {
   let pcrSignal = _sig("putCallRatio", "Put/Call Ratio Extreme", 0,
     { available: false, note: "no option volume data" });
   const pcVol = sumCallPutVolume(data);
-  if (pcVol && pcVol.callVol > 0) {
+  const pcTotalVol = pcVol ? (pcVol.callVol || 0) + (pcVol.putVol || 0) : 0;
+  if (pcVol && pcVol.callVol > 0 && pcTotalVol < PICKS_PCR_MIN_VOLUME) {
+    // Too thin for a positioning read — a "crowd" signal needs a crowd. No raw,
+    // so it also stays out of the cross-sectional z pool.
+    pcrSignal = _sig("putCallRatio", "Put/Call Ratio Extreme", 0, {
+      available: false,
+      note: `${pcTotalVol.toLocaleString("en-US")} contracts today — chain too thin for a crowd-positioning read`,
+    });
+  } else if (pcVol && pcVol.callVol > 0) {
     // Floor at 0.02: the z-pool log transform drops a non-positive raw, so a
     // true-zero put volume (the maximal greed read, legacy −2) must land at the
     // clip edge, not vanish (cf. unusualFlow's (bull+1)/(bear+1) smoothing).
@@ -16320,6 +16344,25 @@ const AI_SIGNALS_SCHEMA = {
   required: ["majorContract", "guidance"],
 };
 
+// Deterministic guard on the AI guidance read: a dividend hike/cut or a
+// buyback announcement is capital-return news, NOT forward operating guidance,
+// but the extractor periodically grabs one as "raised" (live example: "General
+// Dynamics (GD) Increases Quarterly Dividend" → raised, +3 — the heaviest
+// fundamentals signal, enough to push a marginal name over the conviction
+// bar). When the model's own cited evidence is a capital-return headline with
+// no guidance language, downgrade the direction to "none" so scoreFundamentals
+// falls back to the FY-estimate proxy instead of crediting a misread. Applied
+// in BOTH validation sites (attachAiContractGuidance + the AI_SIGNALS_COMBINED
+// fold-in) so the two paths stay byte-identical in shape.
+function sanitizeGuidanceDirection(direction, evidence) {
+  if (!direction || direction === "none") return direction;
+  const ev = String(evidence || "").toLowerCase();
+  if (!ev) return direction;
+  const capitalReturn = /\b(dividend|buyback|repurchase)\b/.test(ev);
+  const guidanceLang = /\b(guidance|guided|guides?|outlook|forecasts?|expects?|targets?|full[- ]year|fiscal|fy ?'?\d{2,4}|raises? (?:its )?(?:annual|20\d\d))\b/.test(ev);
+  return capitalReturn && !guidanceLang ? "none" : direction;
+}
+
 async function attachAiContractGuidance(chains) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — Major Contract + Guidance signals stay on proxy / no-data.");
@@ -16334,6 +16377,7 @@ async function attachAiContractGuidance(chains) {
     "'lost' if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; 'none' if neither is clearly evidenced. " +
     "(2) guidance.direction — the company's most recent forward GUIDANCE: 'raised' (guided up / above expectations), " +
     "'inline' (reaffirmed / in line), 'soft' (modest cut / cautious tone), 'lowered' (guided down materially), or 'none' if no guidance is evident. " +
+    "A dividend increase/cut or a share-buyback announcement is capital-return news, NOT guidance — report 'none' for those. " +
     "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
     "Each evidence string: one short clause citing the headline. No markdown, no preamble.";
   let tagged = 0;
@@ -16394,7 +16438,7 @@ async function attachAiContractGuidance(chains) {
       const gDir = ["raised", "inline", "soft", "lowered", "none"].includes(parsed?.guidance?.direction) ? parsed.guidance.direction : null;
       const aiSignals = {};
       if (mcStatus) aiSignals.majorContract = { status: mcStatus, evidence: String(parsed.majorContract.evidence || "").slice(0, 200) };
-      if (gDir) aiSignals.guidance = { direction: gDir, evidence: String(parsed.guidance.evidence || "").slice(0, 200) };
+      if (gDir) aiSignals.guidance = { direction: sanitizeGuidanceDirection(gDir, parsed.guidance.evidence), evidence: String(parsed.guidance.evidence || "").slice(0, 200) };
       if (Object.keys(aiSignals).length) { data.aiSignals = aiSignals; tagged += 1; }
     } catch {
       // Bad JSON — leave aiSignals unset (proxy / no-data path).
@@ -16762,6 +16806,7 @@ const SIGNALS_PROMPT_SECTION = `
 SIGNALS FIELD — {majorContract, guidance}. ALWAYS include this field. Extract two structured facts from the supplied article material, used by the Fundamentals pillar:
 - majorContract.status — "won" if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. "Goldman Sachs to lead the SpaceX IPO"); "lost" if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; "none" if neither is clearly evidenced.
 - guidance.direction — the company's most recent forward GUIDANCE: "raised" (guided up / above expectations), "inline" (reaffirmed / in line), "soft" (modest cut / cautious tone), "lowered" (guided down materially), or "none" if no guidance is evident.
+A dividend increase/cut or a share-buyback announcement is capital-return news, NOT guidance — report "none" for those.
 Be conservative: only report "won"/"lost"/"raised"/"lowered" when the material clearly supports it; otherwise use "none". Each evidence string: one short clause citing the headline. Read these from the NEWS material only — never infer them from the fundamentals snapshot numbers.`;
 
 const CATALYST_CATEGORIES = ["fda", "contract", "launch", "court", "trial", "merger", "investor", "guidance", "other"];
@@ -17001,7 +17046,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     const gDir = ["raised", "inline", "soft", "lowered", "none"].includes(gd) ? gd : null;
     const sig = {};
     if (mcStatus) sig.majorContract = { status: mcStatus, evidence: String(parsed.signals.majorContract.evidence || "").slice(0, 200) };
-    if (gDir) sig.guidance = { direction: gDir, evidence: String(parsed.signals.guidance.evidence || "").slice(0, 200) };
+    if (gDir) sig.guidance = { direction: sanitizeGuidanceDirection(gDir, parsed.signals.guidance.evidence), evidence: String(parsed.signals.guidance.evidence || "").slice(0, 200) };
     if (Object.keys(sig).length) aiSignals = sig;
   }
 
