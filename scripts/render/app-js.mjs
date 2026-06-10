@@ -7584,7 +7584,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // once — the board's innerHTML is replaced on every poll.
     var liveBoard = $('vol-live-board');
     if (liveBoard){
-      liveBoard.addEventListener('click', function(ev){
+      var liveRowActivate = function(ev){
         var row = ev.target.closest && ev.target.closest('.vol-live-row[data-sym]');
         if (!row) return;
         var sym = row.getAttribute('data-sym') || '';
@@ -7594,6 +7594,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (clear) clear.hidden = !sym;
         volState.search = sym;
         renderVolumeFlags();
+      };
+      liveBoard.addEventListener('click', liveRowActivate);
+      // The rows are role="button" divs — honor Enter/Space like real buttons.
+      liveBoard.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        ev.preventDefault();
+        liveRowActivate(ev);
       });
     }
   }
@@ -7713,6 +7720,64 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (pace < 0.8) return ' is-quiet';
     return '';
   }
+  // Per-symbol gamma stats for the live rows — zero extra fetches. The dealer
+  // GEX summary (net / flip / walls) is the one the hourly scanner bakes onto
+  // each volume-flags ticker (lib/gex.mjs, same model as the GEX tab and the
+  // flag cards' strip below); the squeeze score comes from the twice-daily OI
+  // tracker in the manifest. Levels are scan-time; the distances and the
+  // spot-vs-flip read are recomputed against the LIVE spot each poll.
+  function volLiveGexFor(sym){
+    if (!volLive.gexMap){
+      var map = {};
+      var list = (VOLUME_FLAGS && Array.isArray(VOLUME_FLAGS.tickers)) ? VOLUME_FLAGS.tickers : [];
+      for (var i = 0; i < list.length; i++){
+        var t = list[i];
+        if (t && t.symbol && t.gex) map[String(t.symbol).toUpperCase()] = t.gex;
+      }
+      volLive.gexMap = map;
+    }
+    return volLive.gexMap[sym] || null;
+  }
+  function volLiveSqueezeFor(sym){
+    if (!volLive.squeezeMap){
+      var map = {};
+      var oi = MANIFEST.oi;
+      var list = (oi && Array.isArray(oi.tickers)) ? oi.tickers : [];
+      for (var i = 0; i < list.length; i++){
+        var t = list[i];
+        if (t && t.symbol && t.score != null) map[String(t.symbol).toUpperCase()] = Number(t.score);
+      }
+      volLive.squeezeMap = map;
+    }
+    var s = volLive.squeezeMap[sym];
+    return (s != null && isFinite(s)) ? s : null;
+  }
+  function volLiveGexLine(sym, spot){
+    var g = volLiveGexFor(sym);
+    if (!g || g.net == null || !isFinite(g.net)) return '';
+    var bits = [];
+    var pos = g.net >= 0;
+    bits.push('<span class="' + (pos ? 'is-pos' : 'is-neg') + '">' +
+      (pos ? 'long γ · stabilizing' : 'short γ · amplifying') + '</span>');
+    if (g.flip != null && isFinite(g.flip) && spot > 0){
+      bits.push('flip ' + fmtOiStrike(g.flip) + ' (spot ' + (spot >= g.flip ? 'above' : 'below') + ')');
+    }
+    if (g.callWall && g.callWall.strike != null && spot > 0){
+      var cw = Number(g.callWall.strike);
+      bits.push('call wall ' + fmtOiStrike(cw) +
+        (spot < cw ? ' (+' + ((cw - spot) / spot * 100).toFixed(1) + '%)' : ' (spot above)'));
+    }
+    if (g.putWall && g.putWall.strike != null && spot > 0){
+      var pw = Number(g.putWall.strike);
+      bits.push('put wall ' + fmtOiStrike(pw) +
+        (spot > pw ? ' (−' + ((spot - pw) / spot * 100).toFixed(1) + '%)' : ' (spot below)'));
+    }
+    var squeeze = volLiveSqueezeFor(sym);
+    if (squeeze != null && squeeze >= 3){
+      bits.push('<span class="vol-live-squeeze">squeeze ' + squeeze + '/5</span>');
+    }
+    return '<span class="vol-live-gex-tag">GEX</span>' + bits.join(' · ');
+  }
   function renderVolumeLive(){
     var board = $('vol-live-board');
     if (!board) return;
@@ -7741,9 +7806,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     var top = sorted.slice(0, VOL_LIVE_TOP_N);
     var afterClose = volLive.etMin != null && volLive.etMin >= 390;
-    var html = ['<div class="vol-live-row vol-live-head-row" aria-hidden="true">' +
+    var html = ['<div class="vol-live-row vol-live-head-row" aria-hidden="true"><div class="vol-live-main">' +
       '<span>Ticker</span><span>Spot</span><span>Day</span>' +
-      '<span>Day vol / expected by now</span><span>Pace</span></div>'];
+      '<span>Day vol / expected by now</span><span>Pace</span></div></div>'];
     for (var i = 0; i < top.length; i++){
       var r = top[i];
       var chg = r.changePct != null && isFinite(r.changePct)
@@ -7751,13 +7816,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : '—';
       var chgCls = r.changePct == null ? '' : (r.changePct >= 0 ? ' is-up' : ' is-dn');
       var paceStr = r.pace != null ? r.pace.toFixed(2) + 'x' : '—';
+      var gexLine = (r.spot != null && isFinite(r.spot)) ? volLiveGexLine(r.sym, Number(r.spot)) : '';
       html.push('<div class="vol-live-row" data-sym="' + escapeHtml(r.sym) + '" role="button" tabindex="0" ' +
         'title="Click to filter the flag list below to ' + escapeHtml(r.sym) + '">' +
-        '<span class="vol-live-sym">' + escapeHtml(r.sym) + '</span>' +
-        '<span class="vol-live-spot">' + (r.spot != null ? '$' + Number(r.spot).toFixed(2) : '—') + '</span>' +
-        '<span class="vol-live-chg' + chgCls + '">' + chg + '</span>' +
-        '<span class="vol-live-vol">' + fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + '</span>' +
-        '<span class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + paceStr + '</span>' +
+        '<div class="vol-live-main">' +
+          '<span class="vol-live-sym">' + escapeHtml(r.sym) + '</span>' +
+          '<span class="vol-live-spot">' + (r.spot != null ? '$' + Number(r.spot).toFixed(2) : '—') + '</span>' +
+          '<span class="vol-live-chg' + chgCls + '">' + chg + '</span>' +
+          '<span class="vol-live-vol">' + fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + '</span>' +
+          '<span class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + paceStr + '</span>' +
+        '</div>' +
+        (gexLine ? '<div class="vol-live-gex" title="Dealer gamma from the latest hourly scan — flip/wall levels are scan-time, distances use the live spot">' + gexLine + '</div>' : '') +
       '</div>');
     }
     var withPace = rows.filter(function(r){ return r.pace != null; }).length;

@@ -10811,13 +10811,36 @@ html::-webkit-scrollbar-thumb:hover {
   margin-top: var(--s-3);
 }
 .vol-live-row {
+  padding: 4px var(--s-2);
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.vol-live-main {
   display: grid;
   grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em;
   gap: var(--s-2);
   align-items: center;
-  padding: 4px var(--s-2);
-  border-radius: var(--r-2);
-  font-variant-numeric: tabular-nums;
+}
+/* Per-row dealer-gamma line — scan-time levels, live-spot distances. */
+.vol-live-gex {
+  color: var(--text-3);
+  font-size: 0.82em;
+  margin-top: 1px;
+  line-height: 1.5;
+}
+.vol-live-gex .is-pos { color: var(--pos); }
+.vol-live-gex .is-neg { color: var(--neg); }
+.vol-live-gex .vol-live-squeeze { color: var(--warn); font-weight: 600; }
+.vol-live-gex-tag {
+  display: inline-block;
+  margin-right: var(--s-2);
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text-2);
 }
 .vol-live-row[data-sym] { cursor: pointer; }
 .vol-live-row[data-sym]:hover { background: var(--surface-3); }
@@ -10841,6 +10864,34 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--text-3);
   font-size: 0.85em;
   padding: var(--s-2);
+}
+/* Touch devices: a tapped row strands :hover's tint until the next tap
+   elsewhere — looks like a stuck selection. (Same rationale as the global
+   hover-capable-only block near the end of this file.) */
+@media (hover: none) {
+  .vol-live-row[data-sym]:hover { background: transparent; }
+}
+/* Phone layout: the 5-column grid doesn't fit a ~390px viewport — the
+   volume detail drops to its own line under sym/spot/chg/pace, rows get
+   44px-friendly padding + separators, and the desktop explainer hint
+   (3+ lines of prose on a phone) is dropped; the leaderboard itself is
+   self-explanatory and the tab's hint paragraphs above still document it. */
+@media (max-width: 640px) {
+  .vol-live { padding: var(--s-2) var(--s-3); }
+  .vol-live-hint { display: none; }
+  .vol-live-state { margin-left: 0; flex-basis: 100%; }
+  .vol-live-head-row { display: none; }
+  .vol-live-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px var(--s-2);
+  }
+  .vol-live-main .vol-live-pace { margin-left: auto; }
+  .vol-live-main .vol-live-vol { flex-basis: 100%; order: 5; font-size: 0.85em; }
+  .vol-live-row { padding: 8px var(--s-2); }
+  .vol-live-board { gap: 0; }
+  .vol-live-board .vol-live-row + .vol-live-row { border-top: 1px solid var(--border); border-radius: 0; }
 }
 
 /* ---- Shared auto-live overlays (Tickers grid / Top Picks / OI tab) ----- */
@@ -10913,8 +10964,16 @@ html::-webkit-scrollbar-thumb:hover {
 }
 .picks-live-hit.is-tp { background: var(--pos-soft); color: var(--pos); }
 .picks-live-hit.is-cut { background: var(--neg-soft); color: var(--neg); }
+/* Top Picks live board on phones: each pick's level distances get their
+   own line so the row doesn't squeeze into an unreadable single string. */
+@media (max-width: 640px) {
+  .picks-live-row { padding: 6px var(--s-2); row-gap: 2px; }
+  .picks-live-sym { min-width: 3.5em; }
+  .picks-live-spot { min-width: 0; }
+  .picks-live-lvls { flex-basis: 100%; }
+}
 /* OI tab: live spot-vs-walls distance in each row head. */
-.oi-live { display: inline-flex; gap: var(--s-2); }
+.oi-live { display: inline-flex; flex-wrap: wrap; gap: 2px var(--s-2); }
 .oi-live-gap {
   color: var(--text-3);
   font-size: 0.85em;
