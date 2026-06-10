@@ -4839,6 +4839,34 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   .cmd-palette-trigger { padding: 6px 8px; min-width: 0; }
 }
 
+/* Back-to-top — floating button bottom-right, revealed by app.js once the
+   page is scrolled past ~600px. Hidden via opacity (not [hidden]) so the
+   fade transition works; pointer-events gate keeps the invisible button
+   from eating clicks. Sits below the cmd-palette overlay (z 9999). */
+.back-to-top {
+  position: fixed;
+  right: max(var(--s-4), env(safe-area-inset-right, 0px));
+  bottom: max(var(--s-4), env(safe-area-inset-bottom, 0px));
+  z-index: 900;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity .18s ease, transform .18s ease, color .12s ease, border-color .12s ease;
+}
+.back-to-top.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.back-to-top:hover { color: var(--text-strong); border-color: var(--accent); }
+.back-to-top:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); color: var(--text-strong); }
+@media (prefers-reduced-motion: reduce) {
+  .back-to-top { transition: none; transform: none; }
+}
+
 .cmd-palette {
   position: fixed; inset: 0; z-index: 9999;
 }
@@ -9154,6 +9182,29 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   font-size: var(--fs-sm);
 }
 .tickers-search:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.tickers-empty {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s-3);
+  margin-top: var(--s-3);
+  padding: var(--s-6) var(--s-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-3);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.tickers-empty[hidden] { display: none; }
+.tickers-empty-reset {
+  appearance: none;
+  padding: 5px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit; font-size: var(--fs-xs); font-weight: 600;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.tickers-empty-reset:hover { border-color: var(--accent); color: var(--text-strong); }
 .tickers-chips {
   display: flex; flex-wrap: wrap; gap: 6px;
 }

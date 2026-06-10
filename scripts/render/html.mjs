@@ -47,6 +47,10 @@ function tickersSection({ symbols, sectors, industries }) {
       </div>
     </div>
     <div class="tickers-grid" id="tickers-grid">${cards}</div>
+    <div class="tickers-empty" id="tickers-empty" hidden>
+      <span>No tickers match the current search + sector filter.</span>
+      <button type="button" class="tickers-empty-reset" id="tickers-empty-reset">Clear filters</button>
+    </div>
   </section>`;
 }
 
@@ -1349,6 +1353,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
   <div><a href="https://github.com/lilseancoc-png/stonks" target="_blank" rel="noopener">Source on GitHub</a></div>
 </footer>
+<button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+</button>
 <div id="cmd-palette" class="cmd-palette" hidden role="dialog" aria-modal="true" aria-labelledby="cmd-palette-title">
   <div class="cmd-palette-backdrop" data-cmd-close></div>
   <div class="cmd-palette-modal" role="document">

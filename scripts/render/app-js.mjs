@@ -21,10 +21,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Theme bootstrap. Runs synchronously before the rest of the IIFE binds
   // so we never flash the wrong theme. Defaults to dark — the terminal look
   // is built around the dark palette and is the canonical view — but a
-  // saved 'light' preference still wins so the toggle stays meaningful.
+  // saved preference always wins, and a first-time visitor whose OS asks
+  // for light gets light (an explicit toggle then sticks via localStorage).
   try {
     var saved = localStorage.getItem('stonks-theme');
-    document.documentElement.setAttribute('data-theme', saved || 'dark');
+    var systemLight = !saved && typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: light)').matches;
+    document.documentElement.setAttribute('data-theme', saved || (systemLight ? 'light' : 'dark'));
   } catch (_) {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
@@ -395,6 +398,34 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       document.documentElement.setAttribute('data-theme', next);
       try { localStorage.setItem('stonks-theme', next); } catch (_) {}
     });
+  }
+
+  // --- Back to top ---------------------------------------------------------
+  // Long panes (Tickers grid, Flow tables, Calendar) leave the page tabs far
+  // off-screen; the floating button restores one-click access to the top.
+  function bindBackToTop(){
+    var btn = $('back-to-top'); if (!btn) return;
+    var THRESHOLD = 600;
+    var visible = false, ticking = false;
+    function update(){
+      ticking = false;
+      var show = (window.scrollY || document.documentElement.scrollTop || 0) > THRESHOLD;
+      if (show === visible) return;
+      visible = show;
+      btn.classList.toggle('is-visible', show);
+    }
+    window.addEventListener('scroll', function(){
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    }, { passive: true });
+    btn.addEventListener('click', function(){
+      var smooth = true;
+      try { smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) {}
+      try { window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' }); }
+      catch (_) { window.scrollTo(0, 0); }
+    });
+    update();
   }
 
   // --- Combobox ----------------------------------------------------------
@@ -15055,6 +15086,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
     });
     var state = { query: '', sector: '' };
+    var empty = document.getElementById('tickers-empty');
     function applyFilter(){
       var q = state.query.trim().toUpperCase();
       var sec = state.sector;
@@ -15069,10 +15101,29 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (show) shown++;
       });
       if (visibleCount) visibleCount.textContent = String(shown);
+      if (empty) empty.hidden = shown > 0;
+    }
+    function resetFilters(){
+      state.query = '';
+      state.sector = '';
+      if (search) search.value = '';
+      if (chips) chips.querySelectorAll('.tickers-chip').forEach(function(b){
+        b.classList.toggle('is-active', (b.getAttribute('data-tickers-sector') || '') === '');
+      });
+      applyFilter();
     }
     if (search) {
       search.addEventListener('input', function(){
         state.query = search.value || '';
+        applyFilter();
+      });
+      // Escape clears the filter in place instead of leaving a dead-end
+      // (browsers' native search-clear ✕ is inconsistent across platforms).
+      search.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Escape' || !search.value) return;
+        ev.stopPropagation();
+        search.value = '';
+        state.query = '';
         applyFilter();
       });
     }
@@ -15086,6 +15137,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         applyFilter();
       });
     }
+    var emptyReset = document.getElementById('tickers-empty-reset');
+    if (emptyReset) emptyReset.addEventListener('click', resetFilters);
   }
 
   // --- Bind ---------------------------------------------------------------
@@ -15093,6 +15146,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     renderFreshness();
     try { renderMarketStatus(); } catch (_) {}
     bindThemeToggle();
+    bindBackToTop();
     bindPageTabs();
     bindTabs();
     bindAccuracyTabs();
