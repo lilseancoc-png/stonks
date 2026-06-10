@@ -783,7 +783,22 @@ first bake.
 
 ## 7. Ranking & roster construction
 
-- **Order:** by `|total|` (conviction), ties broken by entry-timing score.
+- **Order:** by **net-of-cost conviction** — `|total|` minus the P5.1
+  execution-cost debit — ties broken by entry-timing score.
+- **Execution-cost debit (P5.1, `executionCostDebit`).** The chosen contract's
+  round-trip spread (`spreadPct`, (ask−bid)/mid) is a known, deterministic tax
+  charged on every trade whether or not the signal is right — the modeled track
+  record charges it on top of option P&L — but ranking ignored it: a pick whose
+  best contract cost an 8% round-trip out-ranked an equal-signal name with a 2%
+  spread. The debit converts fill cost into grade points: 0 at/below
+  `PICKS_COST_FREE_SPREAD` (3%), ramping linearly to `PICKS_COST_DEBIT_MAX`
+  (1.25) at the clean cap (`PICKS_CLEAN_MAX_SPREAD_PCT`, 10%). It adjusts roster
+  **order** and the roster **bar** only — never the published grade
+  (`grades.json` is contract-free by design). A marginal, non-tactical pick whose
+  `|total| − debit` falls below `tradeCut` is dropped (no backfill) →
+  `rosterMeta.costGated`; the per-pick `costDebit`/`netConviction` ship on
+  `picks.json` and surface as a "−0.7 spread" chip on the ranked card.
+  `PICKS_COST_DEBIT=0` disables.
 - **Sector-concentration cap** (`PICKS_MAX_PER_SECTOR = 3`, tightened from 4 in
   P2.1). The equal-weight score systematically over-loads correlated names (the
   failing record was 18/19 losses in Technology), so no more than 3 picks (30% of

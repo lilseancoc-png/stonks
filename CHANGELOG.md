@@ -16,6 +16,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- **Top Picks roster is now execution-cost-aware (P5.1).** Ranking and the roster bar charge the chosen contract's round-trip bid/ask spread as a grade-point debit (zero up to a 3% spread, max 1.25 points at the 10% clean cap) — a clean-fill name now out-ranks an equal-signal name that's expensive to trade, and a marginal pick whose net-of-cost conviction falls below the bar drops from the roster (`rosterMeta.costGated`, no backfill). The published grade in grades.json is untouched; the pick card shows a "−0.7 spread" chip. `PICKS_COST_DEBIT=0` disables.
+- **Live volume Play chip is tap-to-expand instead of hover-only.** The verdict reasoning was a `title` tooltip, invisible on touch devices — the chip is now a real button that toggles the full reasoning inline under the row.
+
 ### Fixed
 - **Entry-timing event gate no longer defers past a macro print that already happened.** `computeMacroEventRisk`'s "already printed" check relied solely on the fast-actual landing on the calendar row, but ForexFactory can lag actuals by hours — so every same-day bake kept stamping "CPI MoM in 0d — defer entry" on the whole roster all afternoon. The gate now also checks the ET wall clock against each event's scheduled print time (BLS 8:30, JOLTS 10:00, FOMC statement 14:00, +15min cushion): once the time has passed, the event is resolved regardless of feed lag. Same-day FOMC (which has no `actual` at all) now clears after 14:15 ET too.
 
