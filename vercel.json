@@ -27,6 +27,9 @@
     },
     "api/fed-futures.js": {
       "maxDuration": 15
+    },
+    "api/macro-live.js": {
+      "maxDuration": 10
     }
   },
   "headers": [

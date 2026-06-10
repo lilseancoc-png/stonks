@@ -3056,6 +3056,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
       if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
       if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
+      // Live macro overlay (yields/DXY/VIX) — poll only while the pane is visible.
+      if (name === 'bonds-usd' && typeof startBondsLivePolling === 'function') startBondsLivePolling();
+      if (name !== 'bonds-usd' && typeof stopBondsLivePolling === 'function') stopBondsLivePolling();
       if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
@@ -15311,6 +15314,45 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (scale === '10y') return absDaily >= 10;
     return false;
   }
+  // --- Bonds & USD live refresh -------------------------------------------
+  // The Live snapshot tiles render from the baked manifest.macro, which goes
+  // stale between hourly bakes (and overnight). While the Bonds & USD pane is
+  // visible we poll /api/macro-live every 30s — a fixed server-side symbol
+  // set, since the caret indices (^TNX, ^VIX, …) and DX-Y.NYB deliberately
+  // fail /api/quotes' SYMBOL_RE — and overlay live value + 1d move onto the
+  // baked legs in renderBondsLive. Same visibility gating as the heatmap /
+  // volume live boards; the overlay is best-effort and a failed poll just
+  // keeps the baked tiles.
+  var BONDS_LIVE_POLL_MS = 30000;
+  var bondsLive = { timer: null, legs: null, fetchedAt: null };
+  function startBondsLivePolling(){
+    if (bondsLive.timer) return;
+    var pane = document.getElementById('page-pane-bonds-usd');
+    if (!pane || pane.hidden) return;
+    pollBondsLiveOnce();
+    bondsLive.timer = setInterval(pollBondsLiveOnce, BONDS_LIVE_POLL_MS);
+  }
+  function stopBondsLivePolling(){
+    if (bondsLive.timer){
+      clearInterval(bondsLive.timer);
+      bondsLive.timer = null;
+    }
+  }
+  function pollBondsLiveOnce(){
+    fetch('api/macro-live', { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        if (!json || !json.legs) return;
+        bondsLive.legs = json.legs;
+        bondsLive.fetchedAt = json.fetchedAt || new Date().toISOString();
+        renderBondsLive();
+      })
+      .catch(function(){ /* baked tiles remain — live overlay is best-effort */ });
+  }
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) stopBondsLivePolling();
+    else startBondsLivePolling();
+  });
   function renderBondsLive(){
     var grid = document.getElementById('bonds-live-grid');
     if (!grid) return;
@@ -15322,10 +15364,38 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       renderBondsContext();
       return;
     }
-    if (eyebrow && macro.asOf) {
+    // Overlay live values (when the /api/macro-live poller has them) onto the
+    // baked legs: value + 1d move go live, while 5d trend, VIX percentile and
+    // the prev-EOD line stay baked — those need history the live endpoint
+    // doesn't fetch. A leg the endpoint couldn't quote keeps its baked tile.
+    var live = bondsLive.legs;
+    if (live){
+      macro = Object.assign({}, macro);
+      var liveKeys = ['twoY', 'tenY', 'thirtyY', 'dxy', 'vix'];
+      for (var lk = 0; lk < liveKeys.length; lk++){
+        var k = liveKeys[lk], lv = live[k];
+        if (!lv || lv.value == null || !isFinite(lv.value)) continue;
+        var baseLeg = macro[k] ? Object.assign({}, macro[k]) : {};
+        baseLeg.value = lv.value;
+        if (lv.pctChange1d != null && isFinite(lv.pctChange1d)) baseLeg.pctChange1d = lv.pctChange1d;
+        if (lv.bpsChange1d != null && isFinite(lv.bpsChange1d)) baseLeg.bpsChange1d = lv.bpsChange1d;
+        // The live 1d move is measured vs Yahoo's previous session close,
+        // which can be a session NEWER than the baked previousClose (e.g.
+        // pre-market before the day's first bake) — carry it so the tile's
+        // "Prev" line matches the baseline the 1d move was computed against.
+        if (lv.prevClose != null && isFinite(lv.prevClose)) baseLeg.livePrevClose = lv.prevClose;
+        macro[k] = baseLeg;
+      }
+    }
+    if (eyebrow) {
       try {
-        var d = new Date(macro.asOf);
-        eyebrow.textContent = 'as of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+        if (live && bondsLive.fetchedAt) {
+          var ld = new Date(bondsLive.fetchedAt);
+          eyebrow.textContent = 'live · ' + ld.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
+        } else if (macro.asOf) {
+          var d = new Date(macro.asOf);
+          eyebrow.textContent = 'as of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+        }
       } catch (_) {}
     }
     function fmtDaily(leg, scale){
@@ -15370,7 +15440,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ? '<span class="bonds-live-alert" title="Alert threshold reached">!</span>'
         : '';
       var prevLine = '';
-      if (prev && prev[key] != null && prev.date) {
+      if (leg.livePrevClose != null) {
+        prevLine = '<span class="bonds-live-prev" title="Previous session close (live quote)">Prev close: ' +
+          escapeHtml(valFmt(leg.livePrevClose)) + '</span>';
+      } else if (prev && prev[key] != null && prev.date) {
         prevLine = '<span class="bonds-live-prev" title="Previous EOD close from data/macro-history.json">Prev ' +
           escapeHtml(prev.date) + ': ' + escapeHtml(valFmt(prev[key])) +
         '</span>';
@@ -15416,7 +15489,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var badge = regime ? '<span class="bonds-live-band band-' + regime.key + '">' + escapeHtml(regime.label) + '</span>' : '';
       var alertChip = alerting ? '<span class="bonds-live-alert" title="VIX in a high-fear regime">!</span>' : '';
       var prevLine = '';
-      if (prev && prev.vix != null && prev.date) {
+      if (leg.livePrevClose != null) {
+        prevLine = '<span class="bonds-live-prev" title="Previous session close (live quote)">Prev close: ' +
+          escapeHtml(leg.livePrevClose.toFixed(2)) + '</span>';
+      } else if (prev && prev.vix != null && prev.date) {
         prevLine = '<span class="bonds-live-prev" title="Previous EOD close from data/macro-history.json">Prev ' +
           escapeHtml(prev.date) + ': ' + escapeHtml(prev.vix.toFixed(2)) + '</span>';
       }
