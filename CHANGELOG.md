@@ -17,6 +17,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Fixed
+- Overnight peer widget: route the correlation/β stats through the same HTML escaper as every neighboring field before they hit `innerHTML` — they're build-written numbers, but the widget was the one spot in the tab trusting `correlations.json` values raw.
 - **Render-only deploys no longer strand returning visitors on a stale `app.js`.** `app.js`/`styles.css` ship under 1-year `immutable` caching keyed on the `?v=` token (#402), but `regen-static.mjs` reused the *prior bake's* `builtAtIso` as that token — so any render-layer change shipped through the regen path rewrote the script under an unchanged URL and cached browsers kept the old one (paired with a fresh manifest) until the next full bake. The regen path now mints a fresh asset-version token; the header's "built at" still shows the data's bake time.
 - **CPI + unemployment tile delta colors were inverted:** rising inflation and rising unemployment rendered green and cooling/falling rendered red — the opposite of the economic coloring the code documented (#406). Both Bonds & USD tiles now color the month-over-month delta by economic direction.
 - Hot stocks: a `structure`-gated verdict chip now says "Poor structure — wait" instead of falling through to a generic "Wait & monitor" — the one gate cause (#407) missing from the labelled-chip chain.
