@@ -58,7 +58,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-10","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-10","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -7647,7 +7647,13 @@
   // the pace read until a few minutes in.
   var VOL_LIVE_MIN_ET_MIN = 10;
   var VOL_LIVE_TOP_N = 15;
-  var volLive = { on: false, timer: null, rows: [], lastAt: null, marketState: null, etMin: null, avg20: null, whyOpen: {} };
+  // "Right now" window: volume traded over the trailing few minutes vs the
+  // volume USUAL for that exact slice of the session (20D avg x the U-curve
+  // fraction covered by the window). Built from the poller's own snapshot
+  // history, so it needs a couple of polls before it lights up.
+  var VOL_NOW_WINDOW_MIN = 10;   // target trailing window
+  var VOL_NOW_MIN_SPAN_MIN = 2;  // minimum span before the read is shown
+  var volLive = { on: false, timer: null, rows: [], lastAt: null, marketState: null, etMin: null, avg20: null, whyOpen: {}, hist: {}, histDate: null };
   function volLiveBaseline(sym, q){
     if (!volLive.avg20){
       var map = {};
@@ -7705,6 +7711,11 @@
         var etMin = execEtMinutesSinceOpen();
         var frac = etMin == null ? null : execCumFracExpected(etMin);
         var paceReady = etMin != null && etMin >= VOL_LIVE_MIN_ET_MIN && frac != null && frac > 0;
+        // Snapshot history powering the "now" window — reset across ET
+        // sessions so a window never spans the overnight gap.
+        var etDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+        if (volLive.histDate !== etDate){ volLive.hist = {}; volLive.histDate = etDate; }
+        var inSession = etMin != null && etMin >= 0 && etMin < 390;
         var rows = [];
         var marketState = null;
         for (var i = 0; i < quotes.length; i++){
@@ -7716,6 +7727,32 @@
           var base = volLiveBaseline(sym, q);
           var expected = (paceReady && base != null) ? base * frac : null;
           var pace = (expected != null && expected > 0) ? Number(q.dayVolume) / expected : null;
+          // "Right now" read: volume traded over the trailing window vs the
+          // volume usual for that exact slice of the session, plus the
+          // window's own price move. Anchor = oldest same-session snapshot
+          // inside VOL_NOW_WINDOW_MIN.
+          var nowRead = null;
+          if (inSession){
+            var hist = volLive.hist[sym] || (volLive.hist[sym] = []);
+            // Yahoo's cumulative volume going backwards means a feed reset —
+            // discard the stale anchors rather than computing a negative window.
+            if (hist.length && Number(q.dayVolume) < hist[hist.length - 1].cumVol) hist.length = 0;
+            while (hist.length && hist[0].etMin < etMin - VOL_NOW_WINDOW_MIN) hist.shift();
+            var anchor = hist.length ? hist[0] : null;
+            if (anchor && base != null && etMin - anchor.etMin >= VOL_NOW_MIN_SPAN_MIN){
+              var spanMin = etMin - anchor.etMin;
+              var nowVol = Math.max(0, Number(q.dayVolume) - anchor.cumVol);
+              var nowExpected = base * Math.max(0, execCumFracExpected(etMin) - execCumFracExpected(anchor.etMin));
+              var nowPace = nowExpected > 0 ? nowVol / nowExpected : null;
+              var nowMovePct = (anchor.spot != null && anchor.spot > 0 && q.spot != null && isFinite(q.spot))
+                ? ((Number(q.spot) - anchor.spot) / anchor.spot) * 100
+                : null;
+              if (nowPace != null && isFinite(nowPace)){
+                nowRead = { spanMin: spanMin, vol: nowVol, expected: nowExpected, pace: nowPace, movePct: nowMovePct };
+              }
+            }
+            hist.push({ etMin: etMin, cumVol: Number(q.dayVolume), spot: (q.spot != null && isFinite(q.spot)) ? Number(q.spot) : null });
+          }
           rows.push({
             sym: sym,
             spot: q.spot,
@@ -7723,6 +7760,7 @@
             dayVol: Number(q.dayVolume),
             expected: expected,
             pace: pace,
+            now: nowRead,
           });
         }
         volLive.rows = rows;
@@ -7843,13 +7881,38 @@
     var pace = (r.pace != null && isFinite(r.pace)) ? Number(r.pace) : null;
     if (chg == null || pace == null) return null;
     var spot = (r.spot != null && isFinite(r.spot) && r.spot > 0) ? Number(r.spot) : null;
+    // The trailing-window read, when the poller has accumulated one — this is
+    // what makes the verdict "at this exact moment" rather than a day recap.
+    var now = (r.now && r.now.pace != null && isFinite(r.now.pace)) ? r.now : null;
     var bull = 0, bear = 0, why = [];
-    // Live tape — graded against the same 1.2% "real move" bar as the scanner.
-    if (chg >= VOL_BIG_MOVE_PCT){ bull += 2; why.push('up ' + chg.toFixed(2) + '% today (clears the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% real-move bar)'); }
-    else if (chg >= 0.4){ bull += 1; why.push('drifting up ' + chg.toFixed(2) + '% today'); }
-    else if (chg <= -VOL_BIG_MOVE_PCT){ bear += 2; why.push('down ' + Math.abs(chg).toFixed(2) + '% today (clears the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% real-move bar)'); }
-    else if (chg <= -0.4){ bear += 1; why.push('drifting down ' + Math.abs(chg).toFixed(2) + '% today'); }
-    else { why.push('flat on the day (' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%)'); }
+    if (now && now.movePct != null && isFinite(now.movePct)){
+      // Live tape graded on the trailing window. The scanner's 1.2% bar is
+      // calibrated to ~hour-long buckets; scale it to the window with
+      // sqrt-of-time (vol scaling), floored so a 2-min window isn't trigger-
+      // happy on noise.
+      var span = Math.max(1, Math.round(now.spanMin));
+      var barNow = Math.max(0.25, VOL_BIG_MOVE_PCT * Math.sqrt(span / 60));
+      var driftNow = barNow / 3;
+      var m = Number(now.movePct);
+      var spanStr = 'last ' + span + ' min';
+      if (m >= barNow){ bull += 2; why.push('up ' + m.toFixed(2) + '% in the ' + spanStr + ' (clears the ' + barNow.toFixed(2) + '% real-move bar for a window this size)'); }
+      else if (m >= driftNow){ bull += 1; why.push('drifting up ' + m.toFixed(2) + '% in the ' + spanStr); }
+      else if (m <= -barNow){ bear += 2; why.push('down ' + Math.abs(m).toFixed(2) + '% in the ' + spanStr + ' (clears the ' + barNow.toFixed(2) + '% real-move bar for a window this size)'); }
+      else if (m <= -driftNow){ bear += 1; why.push('drifting down ' + Math.abs(m).toFixed(2) + '% in the ' + spanStr); }
+      else { why.push('flat in the ' + spanStr + ' (' + (m >= 0 ? '+' : '') + m.toFixed(2) + '%)'); }
+      // Day direction stays as 1-point context — a moment-move with the day
+      // trend behind it beats one fighting it.
+      if (chg >= VOL_BIG_MOVE_PCT){ bull += 1; why.push('up ' + chg.toFixed(2) + '% on the day'); }
+      else if (chg <= -VOL_BIG_MOVE_PCT){ bear += 1; why.push('down ' + Math.abs(chg).toFixed(2) + '% on the day'); }
+    } else {
+      // No window yet (first polls / session closed) — fall back to the day
+      // tape, graded against the same 1.2% "real move" bar as the scanner.
+      if (chg >= VOL_BIG_MOVE_PCT){ bull += 2; why.push('up ' + chg.toFixed(2) + '% today (clears the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% real-move bar)'); }
+      else if (chg >= 0.4){ bull += 1; why.push('drifting up ' + chg.toFixed(2) + '% today'); }
+      else if (chg <= -VOL_BIG_MOVE_PCT){ bear += 2; why.push('down ' + Math.abs(chg).toFixed(2) + '% today (clears the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% real-move bar)'); }
+      else if (chg <= -0.4){ bear += 1; why.push('drifting down ' + Math.abs(chg).toFixed(2) + '% today'); }
+      else { why.push('flat on the day (' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%)'); }
+    }
     // Scanner's latest 20D S/R break — only counted while the live spot still
     // confirms it (an hourly scan's break can be reclaimed between scans).
     var sr = volLiveSrBreakFor(r.sym);
@@ -7905,9 +7968,16 @@
       bull += 1;
       why.push('gamma-squeeze score ' + squeeze + '/5 adds upside fuel');
     }
-    // Volume is the gate: an execute call needs participation behind it.
-    var heavy = pace >= VOL_HEAVY_MULT;
-    if (pace < 0.8) why.push('volume pace ' + pace.toFixed(2) + 'x — no participation; quiet-tape moves fade');
+    // Volume is the gate: an execute call needs participation behind it —
+    // participation RIGHT NOW when the window read exists, else the day pace.
+    var gatePace = now ? Number(now.pace) : pace;
+    var heavy = gatePace >= VOL_HEAVY_MULT;
+    if (now){
+      var nowAmts = fmtVolNum(now.vol) + ' traded vs ' + fmtVolNum(now.expected) + ' usual for this slice of the session';
+      if (gatePace < 0.8) why.push('volume right now ' + gatePace.toFixed(2) + 'x (' + nowAmts + ') — no participation; quiet-tape moves fade');
+      else if (heavy) why.push('volume right now ' + gatePace.toFixed(2) + 'x (' + nowAmts + ') confirms participation');
+      else why.push('volume right now ' + gatePace.toFixed(2) + 'x (' + nowAmts + ') — under the ' + VOL_HEAVY_MULT.toFixed(1) + 'x conviction bar');
+    } else if (pace < 0.8) why.push('volume pace ' + pace.toFixed(2) + 'x — no participation; quiet-tape moves fade');
     else if (heavy) why.push('volume pace ' + pace.toFixed(2) + 'x confirms participation');
     else why.push('volume pace ' + pace.toFixed(2) + 'x — under the ' + VOL_HEAVY_MULT.toFixed(1) + 'x conviction bar');
     var margin = bull - bear;
@@ -7958,7 +8028,7 @@
     var afterClose = volLive.etMin != null && volLive.etMin >= 390;
     var html = ['<div class="vol-live-row vol-live-head-row" aria-hidden="true"><div class="vol-live-main">' +
       '<span>Ticker</span><span>Spot</span><span>Day</span>' +
-      '<span>Day vol / expected by now</span><span>Pace</span><span>Play</span></div></div>'];
+      '<span>Day vol / expected by now</span><span>Pace</span><span>Now</span><span>Play</span></div></div>'];
     for (var i = 0; i < top.length; i++){
       var r = top[i];
       var chg = r.changePct != null && isFinite(r.changePct)
@@ -7966,6 +8036,14 @@
         : '—';
       var chgCls = r.changePct == null ? '' : (r.changePct >= 0 ? ' is-up' : ' is-dn');
       var paceStr = r.pace != null ? r.pace.toFixed(2) + 'x' : '—';
+      var now = (r.now && r.now.pace != null && isFinite(r.now.pace)) ? r.now : null;
+      var nowHtml = now
+        ? '<span class="vol-live-pace vol-live-now' + volLivePaceCls(now.pace) + '" title="' +
+            escapeHtml(fmtVolNum(now.vol) + ' traded in the last ' + Math.max(1, Math.round(now.spanMin)) +
+              ' min vs ' + fmtVolNum(now.expected) + ' usual for this slice of the session (20D avg \u00d7 intraday curve) = ' +
+              now.pace.toFixed(2) + 'x') + '">' + now.pace.toFixed(2) + 'x</span>'
+        : '<span class="vol-live-pace vol-live-now" title="Volume pace over the trailing ~' + VOL_NOW_WINDOW_MIN +
+            ' min vs the usual for this slice of the session — needs a couple of live polls to light up">\u2014</span>';
       var gexLine = (r.spot != null && isFinite(r.spot)) ? volLiveGexLine(r.sym, Number(r.spot)) : '';
       var verdict = volLiveVerdict(r);
       var whyOpen = !!volLive.whyOpen[r.sym];
@@ -7988,6 +8066,7 @@
           '<span class="vol-live-chg' + chgCls + '">' + chg + '</span>' +
           '<span class="vol-live-vol">' + fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + '</span>' +
           '<span class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + paceStr + '</span>' +
+          nowHtml +
           playHtml +
         '</div>' +
         (gexLine ? '<div class="vol-live-gex" title="Dealer gamma from the latest hourly scan — flip/wall levels are scan-time, distances use the live spot">' + gexLine + '</div>' : '') +
@@ -7996,6 +8075,7 @@
     }
     var withPace = rows.filter(function(r){ return r.pace != null; }).length;
     html.push('<div class="vol-live-foot">Top ' + top.length + ' of ' + withPace + ' tracked names by volume pace' +
+      ' · Now = volume over the trailing ~' + VOL_NOW_WINDOW_MIN + ' min vs the usual for that slice of the session (the Play verdict grades this moment, not the day)' +
       (afterClose ? ' · session closed — pace is the full-day ratio vs the 20D average' : '') + '</div>');
     board.hidden = false;
     board.innerHTML = html.join('');
