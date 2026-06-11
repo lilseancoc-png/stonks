@@ -25,13 +25,13 @@
     "trend": "rising"
   },
   "dxy": {
-    "value": 99.923,
+    "value": 99.95,
     "prior": 99.52999877929688,
     "prior1d": 99.91000366210938,
     "prior5d": 99.52999877929688,
-    "change5d": 0.3948570536754337,
-    "pctChange1d": 0.013008044654447,
-    "pctChange5d": 0.3948570536754337,
+    "change5d": 0.42198455325460316,
+    "pctChange1d": 0.040032365553597064,
+    "pctChange5d": 0.42198455325460316,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "flat"
@@ -58,30 +58,44 @@
     "state": "contango"
   },
   "crude": {
-    "value": 91.71,
+    "value": 91.79,
     "prior": 96.0199966430664,
     "prior1d": 88.19999694824219,
     "prior5d": 96.0199966430664,
-    "change5d": -4.488644859141053,
-    "pctChange1d": 3.979595434473266,
-    "pctChange5d": -4.488644859141053,
+    "change5d": -4.405328880389883,
+    "pctChange1d": 4.070298385457447,
+    "pctChange5d": -4.405328880389883,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "falling"
   },
   "gold": {
-    "value": 4109.4,
+    "value": 4105.2,
     "prior": 4436.7001953125,
     "prior1d": 4260,
     "prior5d": 4436.7001953125,
-    "change5d": -7.3771086822206815,
-    "pctChange1d": -3.5352112676056424,
-    "pctChange5d": -7.3771086822206815,
+    "change5d": -7.471773631735125,
+    "pctChange1d": -3.633802816901413,
+    "pctChange5d": -7.471773631735125,
     "bpsChange1d": null,
     "bpsChange5d": null,
     "trend": "falling"
   },
-  "asOf": "2026-06-11T02:25:54.385Z",
+  "asOf": "2026-06-11T02:40:09.608Z",
+  "inflation": {
+    "yoy": 4.5,
+    "prevYoy": 4.1,
+    "yoy3mAgo": 2.9,
+    "refMonth": "2026-05",
+    "trend": "rising"
+  },
+  "unemployment": {
+    "rate": 4.3,
+    "prior": 4.3,
+    "refMonth": "2026-05",
+    "sahm": 0.1,
+    "trend": "flat"
+  },
   "previousClose": {
     "date": "2026-06-09",
     "asOf": "2026-06-09T20:02:37.321Z",
