@@ -15117,7 +15117,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var mCls = (macro.state === 'risk-on') ? ' picks-summary-call' : ' picks-summary-put';
       var drv = (macro.drivers && macro.drivers.length) ? macro.drivers.join(' · ') : '';
       var grossTxt = (macro.grossMult != null && macro.grossMult < 1) ? ' Gross cut to ~' + Math.round(macro.grossMult * 100) + '% of target.' : '';
-      var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields, the Fed path (FedWatch hike-odds drift), a commodity / geopolitical-shock axis (a crude spike + gold safe-haven bid) and a geopolitical-news axis (a strong war/conflict narrative). ' +
+      var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields, the Fed path (FedWatch hike-odds drift), a commodity / geopolitical-shock axis (a crude spike + gold safe-haven bid), a geopolitical-news axis (a strong war/conflict narrative), and an inflation/labor axis (monthly CPI YoY + unemployment — hot or re-accelerating inflation, or a Sahm-triggered labor deterioration). ' +
         (macro.state === 'risk-on' ? 'A clean risk-on tape leans the list long.' :
           (severe ? 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), tactical puts open wider, calls are capped, and gross is cut.' :
             'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.')) +
@@ -15847,12 +15847,70 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         prevLine +
       '</div>';
     }
+    // Monthly BLS prints (CPI YoY + unemployment) — not live quotes, so no 1d
+    // move or alert thresholds; the badge classifies the LEVEL and the sub-line
+    // gives the month-over-month direction. Hidden when the build had no data.
+    function inflationTile(){
+      var inf = macro.inflation;
+      if (!inf || inf.yoy == null || !isFinite(inf.yoy)) return '';
+      var band = inf.yoy >= 4 ? { key: 'very-large', label: 'Hot' }
+        : inf.yoy >= 3 ? { key: 'big', label: 'Above target' }
+        : inf.yoy > 2.5 ? { key: 'notable', label: 'Warm' }
+        : { key: 'normal', label: 'Near target' };
+      var alerting = inf.yoy >= 4 || (inf.yoy >= 3 && inf.trend === 'rising');
+      var delta = (inf.prevYoy != null && isFinite(inf.prevYoy)) ? inf.yoy - inf.prevYoy : null;
+      // Direction colors are economic, not numeric: cooling inflation is the
+      // good (green) direction, re-acceleration the bad (red) one.
+      var deltaLine = delta != null
+        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'up' : delta < -0.05 ? 'down' : 'flat') + '">' +
+            (delta >= 0 ? '+' : '') + delta.toFixed(1) + 'pp vs prior month (' + escapeHtml(inf.trend || 'flat') + ')</span>'
+        : '';
+      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
+        '<div class="bonds-live-tile-head">' +
+          '<span class="bonds-live-label">CPI inflation YoY</span>' +
+          (alerting ? '<span class="bonds-live-alert" title="Inflation hot or re-accelerating — a tightening backdrop that feeds the risk-off side of the macro regime">!</span>' : '') +
+        '</div>' +
+        '<span class="bonds-live-value">' + inf.yoy.toFixed(1) + '%</span>' +
+        deltaLine +
+        '<div class="bonds-live-band-row"><span class="bonds-live-band band-' + band.key + '">' + escapeHtml(band.label) + '</span></div>' +
+        '<span class="bonds-live-prev" title="Monthly BLS print (FRED fallback) — the reference month of the latest reading">' +
+          escapeHtml(inf.refMonth || '') + ' print · monthly</span>' +
+      '</div>';
+    }
+    function unemploymentTile(){
+      var ue = macro.unemployment;
+      if (!ue || ue.rate == null || !isFinite(ue.rate)) return '';
+      var sahm = (ue.sahm != null && isFinite(ue.sahm)) ? ue.sahm : null;
+      var band = sahm != null && sahm >= 0.5 ? { key: 'very-large', label: 'Sahm signal +' + sahm.toFixed(2) + 'pp' }
+        : sahm != null && sahm >= 0.3 ? { key: 'big', label: 'Softening +' + sahm.toFixed(2) + 'pp' }
+        : ue.trend === 'rising' ? { key: 'notable', label: 'Ticking up' }
+        : { key: 'normal', label: 'Stable' };
+      var alerting = sahm != null && sahm >= 0.5;
+      var delta = (ue.prior != null && isFinite(ue.prior)) ? ue.rate - ue.prior : null;
+      var deltaLine = delta != null
+        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'up' : delta < -0.05 ? 'down' : 'flat') + '">' +
+            (delta >= 0 ? '+' : '') + delta.toFixed(1) + 'pp vs prior month</span>'
+        : '';
+      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
+        '<div class="bonds-live-tile-head">' +
+          '<span class="bonds-live-label">Unemployment</span>' +
+          (alerting ? '<span class="bonds-live-alert" title="Sahm rule triggered — the 3-month average unemployment rate is ≥0.5pp above its 12-month low, the classic recession-onset signal; feeds the risk-off side of the macro regime">!</span>' : '') +
+        '</div>' +
+        '<span class="bonds-live-value">' + ue.rate.toFixed(1) + '%</span>' +
+        deltaLine +
+        '<div class="bonds-live-band-row"><span class="bonds-live-band band-' + band.key + '" title="Sahm read: the 3-month average vs its low over the prior 12 months — ≥0.5pp is the classic recession-onset signal">' + escapeHtml(band.label) + '</span></div>' +
+        '<span class="bonds-live-prev" title="Monthly BLS print (FRED fallback) — the reference month of the latest reading">' +
+          escapeHtml(ue.refMonth || '') + ' print · monthly</span>' +
+      '</div>';
+    }
     var html = '';
     html += tile('2Y yield',  macro.twoY,    '2y',  'twoY',    function(v){ return v.toFixed(2) + '%'; });
     html += tile('10Y yield', macro.tenY,    '10y', 'tenY',    function(v){ return v.toFixed(2) + '%'; });
     html += tile('30Y yield', macro.thirtyY, '30y', 'thirtyY', function(v){ return v.toFixed(2) + '%'; });
     html += tile('DXY',       macro.dxy,     'dxy', 'dxy',     function(v){ return v.toFixed(2); });
     html += vixTile(macro.vix);
+    html += inflationTile();
+    html += unemploymentTile();
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
     renderBondsContext();
   }
