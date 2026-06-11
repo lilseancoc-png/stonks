@@ -7241,6 +7241,13 @@ const PICKS_OPT_TRAIL_GIVEBACK = Number(process.env.PICKS_OPT_TRAIL_GIVEBACK ?? 
 // IV crush (the tracker otherwise only crushes IV retroactively at resolution).
 const PICKS_EARNINGS_EXIT = process.env.PICKS_EARNINGS_EXIT !== "0"; // default ON
 const PICKS_EARNINGS_EXIT_DAYS = Number(process.env.PICKS_EARNINGS_EXIT_DAYS ?? 2);
+// Earnings-eve entry VETO (the entry-side mirror of the exit above): the tracker
+// closes positions ≤PICKS_EARNINGS_EXIT_DAYS before a print, so recommending a
+// fresh long debit inside that same window is buying a position the engine's own
+// risk rule says to exit — pure crush exposure. buildTopPicks drops those names
+// from the actionable roster outright (no backfill; the asset grade in grades.json
+// is untouched). The 3-8d defer band stays on the board as a flagged WAIT.
+const PICKS_EARNINGS_VETO_DAYS = Number(process.env.PICKS_EARNINGS_VETO_DAYS ?? PICKS_EARNINGS_EXIT_DAYS);
 // P1.3 — edge governor. Scale the deployed gross by the trailing realized OPTION
 // expectancy: a book with a measured negative edge must not redeploy full gross
 // every build. Below PICKS_EDGE_MIN_N decided option results we can't measure an
@@ -7669,15 +7676,31 @@ function expectedMovePct(iv, dteDays) {
   return iv * Math.sqrt(dteDays / 365) * 100;
 }
 
+// Anchor a date-only earnings ISO at the moment its IV crush is REALIZED, not
+// midnight UTC (which is the prior evening ET) and not the old 16:00Z (noon ET
+// in summer — that dropped a PM print's crush warning hours BEFORE the print).
+// An AM (pre-open) print crushes at that day's open; a PM (post-close) print at
+// the close. Fixed-Z approximations, deliberately a touch LATE (no DST math):
+// AM → 14:30Z (9:30 ET winter / 10:30 summer), PM or unknown → 21:00Z (16:00 ET
+// winter / 17:00 summer) — the defer/crush flags must never clear early.
+function earningsAnchorMs(earningsIso, session) {
+  if (!earningsIso || typeof earningsIso !== "string") return null;
+  if (earningsIso.length > 10) {
+    const t = Date.parse(earningsIso);
+    return Number.isFinite(t) ? t : null;
+  }
+  const tod = session === "AM" ? "14:30:00Z" : "21:00:00Z";
+  const t = Date.parse(`${earningsIso}T${tod}`);
+  return Number.isFinite(t) ? t : null;
+}
+
 // True if an earnings date (ISO yyyy-mm-dd) falls inside [now, expSec].
 // Returns false on missing/invalid input so missing earnings doesn't kill
-// every pick. A date-only ISO parses at midnight UTC — the prior evening ET —
-// so it's anchored at 16:00Z (like daysToEarningsFrom) so a same-day print
-// still reads as ahead of us, not already past.
-function earningsInsideWindow(earningsIso, expSec) {
-  if (!earningsIso || typeof earningsIso !== "string") return false;
-  const t = Date.parse(earningsIso.length <= 10 ? `${earningsIso}T16:00:00Z` : earningsIso);
-  if (!Number.isFinite(t)) return false;
+// every pick. Anchored session-aware via earningsAnchorMs, so a same-day print
+// reads as ahead of us until its crush actually lands (and not after).
+function earningsInsideWindow(earningsIso, expSec, session) {
+  const t = earningsAnchorMs(earningsIso, session);
+  if (t == null) return false;
   const earningsSec = Math.floor(t / 1000);
   const nowSec = Math.floor(Date.now() / 1000);
   return earningsSec >= nowSec && earningsSec <= expSec;
@@ -9434,6 +9457,7 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   const spot = data.spot;
   const nowSec = Math.floor(Date.now() / 1000);
   const earningsIso = data?.fundamentals?.nextEarningsDate || null;
+  const earningsSession = data?.fundamentals?.nextEarningsSession || null;
 
   const exps = Object.keys(data.chains)
     .map(Number)
@@ -9459,7 +9483,7 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     const rows = (side === "call" ? ch?.c : ch?.p) || [];
     if (!rows.length) continue;
     const T = yearsToExpiry(expSec);
-    const earningsBefore = earningsInsideWindow(earningsIso, expSec);
+    const earningsBefore = earningsInsideWindow(earningsIso, expSec, earningsSession);
     for (const row of rows) {
       if (!row || row.s == null) continue;
       if (row.iv == null || !isFinite(row.iv) || row.iv <= 0) continue;
@@ -11016,14 +11040,16 @@ export function detectMarketRegime(marketCtx, macroBackdrop) {
 
 // Whole days until the next earnings report (≥0), or null. Earnings inside the
 // next few sessions defers entry — the post-print IV crush can lose money even
-// when direction is right.
+// when direction is right. Anchored session-aware (earningsAnchorMs) at the
+// moment the crush is realized, so the defer holds right up to the print and
+// clears once it's past (the old midnight/−1d tolerance kept "earnings in 0d"
+// alive through the morning AFTER the crush, blocking the post-print entry).
 function daysToEarningsFrom(data) {
-  const iso = data && data.fundamentals && data.fundamentals.nextEarningsDate;
-  if (!iso || typeof iso !== "string") return null;
-  const t = Date.parse(iso.length <= 10 ? `${iso}T16:00:00Z` : iso);
-  if (!Number.isFinite(t)) return null;
+  const f = data && data.fundamentals;
+  const t = earningsAnchorMs(f && f.nextEarningsDate, f && f.nextEarningsSession);
+  if (t == null) return null;
   const d = (t - Date.now()) / 86400000;
-  return d >= -1 ? Math.max(0, Math.round(d)) : null;
+  return d >= 0 ? Math.max(0, Math.round(d)) : null;
 }
 
 // Whole days until the next ex-dividend date (≥0), or null. Mirrors
@@ -12195,6 +12221,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const candidates = tradeable.slice(0, PICKS_COUNT * 4);
   const out = [];
   let vetoed = 0; // count dropped-by-gate for the roster note
+  const skippedEarningsEve = []; // earnings-eve entry veto (≤PICKS_EARNINGS_VETO_DAYS to the print)
   let callCount = 0; // for the severe-tape call cap
   const sectorCounts = {}; // enforce the per-sector concentration cap
   const skippedSectorCapped = [];
@@ -12253,6 +12280,20 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // A tactical risk-off put sits below the grade bar to begin with, so only
     // ship it on a genuinely clean breakdown (timing 'go'), never a marginal one.
     if (cand.tactical && timing.state !== "go") { vetoed += 1; continue; }
+
+    // Earnings-eve entry veto. The timing fold treats an imminent print as one
+    // strong con (−2 in the pro/con tally), which a couple of aligned pros cancel
+    // — so a name reporting TONIGHT could still ship as a top pick. But the
+    // tracker force-exits ≤PICKS_EARNINGS_EXIT_DAYS pre-print: an engine that
+    // won't HOLD a long debit through the crush must not recommend OPENING one
+    // into it. Hard-drop ≤PICKS_EARNINGS_VETO_DAYS (no backfill); the 3-8d defer
+    // band still ships as a flagged WAIT for the post-print playbook.
+    const earnDays = daysToEarningsFrom(r.data);
+    if (earnDays != null && earnDays <= PICKS_EARNINGS_VETO_DAYS) {
+      skippedEarningsEve.push({ symbol: r.sym, side, daysToEarnings: earnDays });
+      vetoed += 1;
+      continue;
+    }
 
     // v2 confluence gate. A graded pick must be CORROBORATED: at least
     // PICKS_CONFLUENCE_MIN of the four asset pillars aligned with its side
@@ -12432,6 +12473,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       sideCounts,
       confluenceSkipped: skippedConfluence, // v2 confluence gate (single-story / tape-fighting picks)
       costGated: skippedCostGated, // P5.1 execution-cost gate (net-of-cost conviction below the bar)
+      earningsEve: skippedEarningsEve, // earnings-eve entry veto (print ≤PICKS_EARNINGS_VETO_DAYS out — don't open what the exit rule would close)
       // §3.5.1 — which regime weighting was in force this build (neutral / risk-off /
       // severe / risk-on), so the card breakdown can explain WHY the slow pillars
       // were discounted or boosted.

@@ -555,6 +555,20 @@ Structure / momentum / **volume** / location accumulate as signed pros & cons:
   sessions (P1.3 — IV ramps 1–2 weeks out, so 3 was too tight; IV-crush risk →
   forces `wait`). A pick whose contract **expiry falls after** an earnings date is
   additionally flagged `earningsBeforeExpiry` (crush-exposed) on the timing panel.
+  - **Earnings-eve entry veto (hard, roster-level).** The `wait` alone is only one
+    strong con in the tally — a couple of aligned pros cancel it, so a name reporting
+    *tonight* could still grade onto the roster. Since the tracker force-exits
+    ≤`PICKS_EARNINGS_EXIT_DAYS` pre-print (§8), `buildTopPicks` now hard-drops any
+    candidate with earnings ≤`PICKS_EARNINGS_VETO_DAYS` (default = the exit window, 2)
+    — don't *open* what the exit rule would immediately *close*. No backfill; logged
+    to `rosterMeta.earningsEve`. The 3–8d defer band still ships, surfaced as a ⏳ WAIT
+    chip on the card/grid with the entry ladder labelled a post-event playbook.
+  - **Session-aware crush anchor.** Earnings-day math anchors at the moment the
+    crush is *realized* (`earningsAnchorMs`: AM print → the open ~14:30Z, PM/TBD →
+    the close ~21:00Z), not the old 16:00Z (= noon ET in summer) — that anchor
+    cleared a PM print's defer/`earningsInWindow` flags hours **before** the print,
+    and its −1-day tolerance kept "earnings in 0d" deferring the morning **after**
+    the crush had already passed. Mirrored in the browser (`earningsAnchorMsLive`).
 - **Vol-surface gate (strong con) — IV rank as a gate, not a nudge.** The own-history
   IV-rank read is a *soft* con at the rich threshold (`PICKS_IVRANK_RICH` = 80, −1) but
   upgrades to a **strong** con at an extreme percentile (`PICKS_IVRANK_VETO` = **90**,

@@ -967,6 +967,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (pctile <= 70) return { label:'Normal', cls:'fair', note:'realized vol mid-range vs. this name’s recent history' };
     return { label:'Elevated', cls:'bad', note:'realized vol in top 30% — premiums likely rich, expect mean reversion' };
   }
+  // Session-aware earnings anchor: the moment the print's IV crush is REALIZED.
+  // A date-only ISO at midnight UTC is the prior evening ET, and the old 16:00Z
+  // is noon ET in summer — both cleared the crush warning hours before a PM
+  // print actually landed. AM (pre-open) prints crush at the open → 14:30Z;
+  // PM/unknown at the close → 21:00Z (both deliberately a touch late; mirrors
+  // build.mjs::earningsAnchorMs — change one, change the other).
+  function earningsAnchorMsLive(iso, session){
+    if (!iso) return null;
+    var s = String(iso);
+    if (s.length > 10){ var tf = Date.parse(s); return isFinite(tf) ? tf : null; }
+    var t = Date.parse(s + (session === 'AM' ? 'T14:30:00Z' : 'T21:00:00Z'));
+    return isFinite(t) ? t : null;
+  }
   // Days-to-earnings context for the verdict card. Expected move is the
   // volatility-implied ±X by the earnings call assuming the option's IV
   // embeds that risk: spot * iv * sqrt(daysToEarnings / 365). We only show
@@ -974,13 +987,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // IV isn't really capturing the print and the proxy is misleading.
   function computeEarningsContext(fundamentals, spot, iv, expEpoch){
     if (!fundamentals || !fundamentals.nextEarningsDate) return null;
-    var earnDt = new Date(fundamentals.nextEarningsDate + 'T16:00:00Z');
-    if (isNaN(earnDt.getTime())) return null;
+    var anchorMs = earningsAnchorMsLive(fundamentals.nextEarningsDate, fundamentals.nextEarningsSession);
+    if (anchorMs == null) return null;
     var now = Date.now();
-    var daysRaw = (earnDt.getTime() - now) / (24*3600*1000);
-    if (daysRaw < -1) return null;
+    var daysRaw = (anchorMs - now) / (24*3600*1000);
+    if (daysRaw < 0) return null;
     var daysToEarnings = Math.max(0, Math.round(daysRaw));
-    var withinExpiry = !expEpoch || Math.floor(earnDt.getTime() / 1000) <= expEpoch;
+    var withinExpiry = !expEpoch || Math.floor(anchorMs / 1000) <= expEpoch;
     var emAbs = null, emPct = null;
     if (iv > 0 && spot > 0 && daysRaw >= 0 && withinExpiry){
       emAbs = spot * iv * Math.sqrt(daysRaw / 365);
@@ -1593,10 +1606,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var fund = input.fundamentals || null;
     var daysToEarnings = null;
     if (fund && fund.nextEarningsDate){
-      var earnDt = new Date(fund.nextEarningsDate + 'T16:00:00Z');
-      if (!isNaN(earnDt.getTime())){
-        var dRaw = (earnDt.getTime() - Date.now()) / 86400000;
-        if (dRaw >= -1) daysToEarnings = Math.max(0, Math.round(dRaw));
+      var earnMs = earningsAnchorMsLive(fund.nextEarningsDate, fund.nextEarningsSession);
+      if (earnMs != null){
+        var dRaw = (earnMs - Date.now()) / 86400000;
+        if (dRaw >= 0) daysToEarnings = Math.max(0, Math.round(dRaw));
       }
     }
     var daysToFomc = null;
@@ -13939,6 +13952,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var alertHtml = x.atFiftyDaySma
       ? '<div class="pick-entry-alert">⚑ <b>Prime entry:</b> a Strong-tier name sitting right on its 50D SMA — the highest-probability pullback entry. Watch for the bounce off it on rising volume.</div>'
       : '';
+    // Scheduled-catalyst defer: don't let the tranche ladder read as "enter
+    // now" when the timing gate is parked on an imminent earnings/macro event.
+    var det = p && p.entryTiming;
+    var deferAlert = (det && det.state === 'wait' && (det.deferKind === 'earnings' || det.deferKind === 'event'))
+      ? '<div class="pick-entry-defer">⏳ <b>Deferred entry:</b> ' + escapeHtml(det.headline || 'a scheduled catalyst lands inside the defer window') + '. Don\\'t open this position until the event clears — the IV crush around a print loses money even when direction is right. The ladder below is the post-event playbook.</div>'
+      : '';
     var nTr = x.scaleCount || x.tranches.length;
     var stanceBadge = '<span class="pick-entry-stance pick-entry-stance-' + (x.stance === 'full' ? 'full' : 'scale') + '">' +
       (x.stance === 'full' ? 'Full size OK' : ('Scale &middot; ' + nTr + ' tranche' + (nTr === 1 ? '' : 's'))) + '</span>';
@@ -13982,6 +14001,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return '<div class="pick-entry">' +
       '<div class="pick-entry-head">Entry plan</div>' +
+      deferAlert +
       alertHtml +
       stratChip +
       sizingHtml +
@@ -14315,9 +14335,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var aligned = gTotal!=null && ((gTotal>=0?'call':'put')===side);
     var gMag = gTotal==null?0:Math.abs(gTotal);
     var timing = grade && grade.pillars && grade.pillars.timing ? grade.pillars.timing.state : null;
-    var earnIso = posState.chain && posState.chain.fundamentals && posState.chain.fundamentals.nextEarningsDate;
+    var earnFund = posState.chain && posState.chain.fundamentals;
+    var earnIso = earnFund && earnFund.nextEarningsDate;
     var earnDays=null, earnBeforeExp=false;
-    if(earnIso){ var em=Date.parse(String(earnIso).length<=10?(earnIso+'T16:00:00Z'):earnIso); if(isFinite(em)){ earnDays=Math.round((em-Date.now())/86400000); earnBeforeExp = earnDays>=0 && (em/1000)<=o.exp; } }
+    if(earnIso){ var em=earningsAnchorMsLive(earnIso, earnFund.nextEarningsSession); if(em!=null){ earnDays=Math.round((em-Date.now())/86400000); earnBeforeExp = earnDays>=0 && (em/1000)<=o.exp; } }
     var tpPrice=entry*(1+POS_TP/100), cutPrice=entry*(1-POS_STOP/100);
     var gRound = gTotal==null?null:((gTotal>=0?'+':'')+Math.round(gTotal));
     var pnlTxt = isFinite(pnlPct)?((pnlPct>=0?'+':'')+pnlPct.toFixed(0)+'%'):'—';
@@ -14821,6 +14842,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var fiftyHtml = (p.fiftyDayAlert || (p.entryPlan && p.entryPlan.atFiftyDaySma))
       ? '<span class="pick-fifty-alert" title="A Strong-tier name sitting on its 50D SMA — the highest-probability pullback entry">⚑ 50D SMA</span>'
       : '';
+    // Deferred-entry chip: a scheduled catalyst (earnings / FOMC-class event)
+    // inside the defer window means "stalk it, don't open it yet". The grade
+    // stands — this surfaces the timing WAIT on the card header instead of
+    // leaving it buried in the Grade tab's timing panel.
+    var pickEt = p.entryTiming || null;
+    var deferHtml = (pickEt && pickEt.state === 'wait' && (pickEt.deferKind === 'earnings' || pickEt.deferKind === 'event'))
+      ? '<span class="pick-defer-tag" title="Entry deferred — a scheduled catalyst lands inside the defer window. The grade stands, but don\\'t open the position until it clears (IV crush around a print loses money even when direction is right).">⏳ ' + escapeHtml(pickEt.headline || 'Catalyst imminent — defer entry') + '</span>'
+      : '';
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
@@ -14856,6 +14885,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           sectorTag +
           '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
           (p.tactical ? '<span class="pick-tactical-tag" title="Tape-driven tactical put — a confirmed risk-off tape opened this short below the grade bar. Reduced size.">TACTICAL</span>' : '') +
+          deferHtml +
           streakHtml +
           tenureHtml +
           fiftyHtml +
@@ -14896,10 +14926,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ptcDays + 'd</span>';
     }
     var tacticalChip = p.tactical ? '<span class="ptc-tactical" title="Tape-driven tactical put">TACTICAL</span>' : '';
+    // Mirror the detail card's deferred-entry chip on the skimmable grid tile —
+    // a name parked for an imminent catalyst must not read as "enter now".
+    var deferChip = (p.entryTiming && p.entryTiming.state === 'wait' && (p.entryTiming.deferKind === 'earnings' || p.entryTiming.deferKind === 'event'))
+      ? '<span class="ptc-defer" title="' + escapeHtml(p.entryTiming.headline || 'Scheduled catalyst — defer entry') + '">⏳ WAIT</span>'
+      : '';
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + deferChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) +
         (p.costDebit > 0
           ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
