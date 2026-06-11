@@ -25,9 +25,9 @@
 //     morning scan's — it reflects the prior session, NOT today's OI move.
 //
 // Writes:
-//   data/oi-tracker.json    Today's payload (consumed by the UI via
-//                           MANIFEST.oi).
-//   data/oi-history.json    Rolling ~6 snapshots used to compute ΔOI
+//   data/oi-tracker.json    Today's payload (lazy-fetched by the OI tab —
+//                           the manifest carries only the oiMeta stub).
+//   data/oi-history.json    Rolling ~4 snapshots used to compute ΔOI
 //                           against the previous trading-day snapshot.
 //                           Bounded so the file stays small.
 //
@@ -100,13 +100,14 @@ const NEAR_WALL_PCT = 0.10;
 const GAMMA_FLAG_MIN = 4;
 
 // Rolling-history retention. Each snapshot stores per-strike OI for every
-// in-band contract across every ticker, so size grows quickly — bounded
-// retention keeps the committed file under ~1MB even after weeks of
-// twice-daily runs. ~6 snapshots = roughly 3 trading days, more than
-// enough headroom to pick up "yesterday's EOD" even if a dispatch is
-// missed.
+// in-band contract across every ticker (~3 MB/snapshot), and the file is
+// COMMITTED twice a day — every byte here lives in git history forever (it
+// had reached 18 MB at 6 snapshots). The ΔOI baseline only ever needs the
+// most recent PRIOR-DAY snapshot (findPreviousDaySnapshot), so 4 snapshots
+// = today's two + yesterday's two — one full spare day of headroom for a
+// missed dispatch.
 const HISTORY_FILE = "oi-history.json";
-const HISTORY_MAX_SNAPSHOTS = 6;
+const HISTORY_MAX_SNAPSHOTS = 4;
 
 // Politeness between Yahoo expiration fetches per ticker. Same delay
 // scan-unusual.mjs uses.
@@ -241,7 +242,6 @@ function buildPrevOiLookup(snap) {
     if (h.symbol == null || h.strike == null || h.expSec == null || !h.side) continue;
     map.set(`${h.symbol}|${h.side}|${h.strike}|${h.expSec}`, {
       oi: h.oi ?? 0,
-      vol: h.vol ?? 0,
     });
   }
   return map;
@@ -589,9 +589,11 @@ async function main() {
 
       const decorated = result.contracts.map((c) => decorateContract(c, result.spot, prevOiLookup));
 
-      // History persists every in-band contract's raw OI + vol so the
-      // next scan can compute ΔOI for any strike, not just the top 12
-      // we surface today.
+      // History persists every in-band contract's raw OI so the next scan
+      // can compute ΔOI for any strike, not just the top 12 we surface
+      // today. OI only — the baseline lookup (decorateContract) never reads
+      // prior vol, and this file is committed to git twice a day, so every
+      // extra field costs repo history forever (it had grown to 18 MB).
       for (const c of result.contracts) {
         if (c.oi > 0 || c.vol > 0) {
           historyContracts.push({
@@ -600,7 +602,6 @@ async function main() {
             strike: c.strike,
             expSec: c.expSec,
             oi: c.oi,
-            vol: c.vol,
           });
         }
       }

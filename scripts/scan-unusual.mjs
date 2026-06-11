@@ -66,9 +66,12 @@ const DELTA_FAR = 2000;
 const HISTORY_MIN_VOL = 50;
 const POLITENESS_MS = 250;
 // Rolling per-hour snapshot history used to compute hour-over-hour volume
-// deltas. 8 snapshots covers a full 9am-4pm ET session at hourly cadence.
+// deltas. The only reader (buildPrevVolLookup) consumes the MOST RECENT
+// same-session snapshot — older ones are never read — and each snapshot is
+// ~700 KB committed hourly, so every extra slot is pure git-history bloat
+// (the file had grown past 5 MB at 8 slots). 2 = latest + one spare.
 const HISTORY_FILE = "unusual-history.json";
-const HISTORY_MAX_SNAPSHOTS = 8;
+const HISTORY_MAX_SNAPSHOTS = 2;
 // Long-running log of every flagged hit across hourly scans. Used to surface
 // "repeat conviction" — contracts that flag in multiple scans across days,
 // which is a much stronger informed-flow signal than a one-off block. Pruned

@@ -25,12 +25,16 @@ export default async function handler(req, res) {
   }
 
   // exp is the epoch-second expiration baked into data/<SYMBOL>.json keys.
-  // Optional — when omitted Yahoo returns the nearest expiration.
+  // Optional — when omitted Yahoo returns the nearest expiration. Bounded to
+  // a real option-expiry window (a week back for just-expired contracts in a
+  // stale baked page, ~3.2y forward past the longest LEAPS) so garbage epochs
+  // never reach Yahoo.
   let expDate;
   const expRaw = req.query.exp;
   if (expRaw != null && expRaw !== "") {
     const expSec = Number(expRaw);
-    if (!isFinite(expSec) || expSec < 0 || expSec > 4102444800) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!isFinite(expSec) || expSec < nowSec - 7 * 86400 || expSec > nowSec + 1200 * 86400) {
       return res.status(400).json({ error: "invalid exp" });
     }
     expDate = new Date(expSec * 1000);

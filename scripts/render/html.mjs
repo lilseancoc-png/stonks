@@ -396,7 +396,8 @@ function gexSection() {
 
 function oiTrackerSection() {
   // Card shell only — per-ticker rows render client-side from
-  // MANIFEST.oi (populated by scripts/scan-oi.mjs). Twice-daily scan,
+  // data/oi-tracker.json, lazy-fetched on tab entry (populated by
+  // scripts/scan-oi.mjs; the manifest carries only oiMeta). Twice-daily scan,
   // front 2 expirations (this week + next week).
   return `<section class="card oi-card" id="oi-section">
     <header class="card-header oi-card-header">
@@ -440,8 +441,9 @@ function oiTrackerSection() {
 
 function volumeFlagsSection() {
   // Card shell only — the per-ticker rows render client-side from
-  // MANIFEST.volumeFlags (populated by scripts/scan-unusual.mjs's volume
-  // pass). See lib/volume-flags.mjs for the flag classification rules.
+  // data/volume-flags.json, lazy-fetched on tab entry (populated by
+  // scripts/scan-unusual.mjs's volume pass; the manifest carries only
+  // volumeFlagsMeta). See lib/volume-flags.mjs for the classification rules.
   return `<section class="card vol-card" id="vol-section">
     <header class="card-header">
       <h2 class="card-title">Volume &amp; S/R breaks</h2>
@@ -841,10 +843,19 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     spots,
     fearGreed: fearGreed || null,
     macro: macro || null,
-    volumeFlags: volumeFlags || null,
+    // Manifest diet: the full volume-flags + OI-tracker payloads used to be
+    // inlined here (~550 KB of the ~830 KB page \u2014 every visitor paid for two
+    // tabs most never open). The browser now lazy-fetches
+    // data/volume-flags.json + data/oi-tracker.json on tab entry; only the
+    // tiny meta stubs the freshness banner needs stay inline.
+    volumeFlagsMeta: volumeFlags
+      ? { scannedAt: volumeFlags.scannedAt || null, etDate: volumeFlags.etDate || null, marketState: volumeFlags.marketState || null }
+      : null,
     marketBackdrop: marketBackdrop || null,
     nextFomcDates: Array.isArray(nextFomcDates) ? nextFomcDates : [],
-    oi: oi || null,
+    oiMeta: oi
+      ? { scannedAt: oi.scannedAt || null, scanType: oi.scanType || null }
+      : null,
   }).replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   const cacheBust = encodeURIComponent(builtAtIso);
   return `<!doctype html>

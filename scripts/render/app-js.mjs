@@ -200,16 +200,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (tab === 'flow' && UNUSUAL && UNUSUAL.scannedAt) {
       return { iso: UNUSUAL.scannedAt, label: 'hourly unusual-flow scan' };
     }
-    if (tab === 'volume' && MANIFEST.volumeFlags && MANIFEST.volumeFlags.scannedAt) {
-      return { iso: MANIFEST.volumeFlags.scannedAt, label: 'hourly volume/S-R scan' };
+    if (tab === 'volume' && MANIFEST.volumeFlagsMeta && MANIFEST.volumeFlagsMeta.scannedAt) {
+      return { iso: MANIFEST.volumeFlagsMeta.scannedAt, label: 'hourly volume/S-R scan' };
     }
-    if (tab === 'oi' && MANIFEST.oi && MANIFEST.oi.scannedAt) {
-      var oiLabel = MANIFEST.oi.scanType === 'premarket'
+    if (tab === 'oi' && MANIFEST.oiMeta && MANIFEST.oiMeta.scannedAt) {
+      var oiLabel = MANIFEST.oiMeta.scanType === 'premarket'
         ? 'pre-market OI scan'
-        : MANIFEST.oi.scanType === 'eod'
+        : MANIFEST.oiMeta.scanType === 'eod'
         ? 'EOD OI scan'
         : 'OI scan';
-      return { iso: MANIFEST.oi.scannedAt, label: oiLabel };
+      return { iso: MANIFEST.oiMeta.scannedAt, label: oiLabel };
     }
     if (tab === 'fear-greed' && MANIFEST.fearGreed && MANIFEST.fearGreed.asOf) {
       return { iso: MANIFEST.fearGreed.asOf, label: 'CNN Fear & Greed snapshot' };
@@ -3062,6 +3062,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
+      // Lazy data for the Volume tab (manifest diet): the scan payload itself,
+      // plus the OI tracker for the live board's squeeze chips.
+      if (name === 'volume' && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
+      if (name === 'volume' && typeof loadOiData === 'function') loadOiData();
       // Volume live tracking mirrors the heatmap pattern: poll only while the
       // tab is visible AND the user toggled live mode on. Resume on re-entry.
       if (name === 'volume' && typeof startVolumeLivePolling === 'function') startVolumeLivePolling();
@@ -3074,6 +3078,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'oi' && typeof startOiLive === 'function') startOiLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name === 'oi' && typeof renderOI === 'function') renderOI();
+      if (name === 'oi' && typeof loadOiData === 'function') loadOiData();
       // Lazy-load the GEX heatmap the first time the tab is opened (it fetches
       // the selected ticker's chain). Revisits keep the last view; Refresh
       // re-pulls the live spot.
@@ -6776,10 +6781,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
   // --- Volume + S/R break tab --------------------------------------------
   // Hourly volume vs the weighted intraday distribution + 20D S/R break
-  // tracker. Data comes from data/volume-flags.json via MANIFEST.volumeFlags
-  // (populated by the volume pass in scripts/scan-unusual.mjs). See
-  // lib/volume-flags.mjs for the flag classification rules.
-  var VOLUME_FLAGS = MANIFEST.volumeFlags || null;
+  // tracker. Data comes from data/volume-flags.json (populated by the volume
+  // pass in scripts/scan-unusual.mjs), LAZY-FETCHED on first tab entry — the
+  // full payload used to ride in the inline manifest and cost every visitor
+  // ~110 KB up front. The manifest now carries only volumeFlagsMeta (scan
+  // timestamp for the freshness banner). See lib/volume-flags.mjs for the
+  // flag classification rules.
+  var VOLUME_FLAGS = null;
+  var volFlagsLoad = { loaded: false, loading: false };
+  function loadVolumeFlagsData(){
+    if (volFlagsLoad.loaded || volFlagsLoad.loading) return;
+    volFlagsLoad.loading = true;
+    fetch('data/volume-flags.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        VOLUME_FLAGS = json || null;
+        volFlagsLoad.loaded = true; volFlagsLoad.loading = false;
+        // The live board's lazy per-symbol maps were built (empty) before the
+        // data landed — reset so they rebuild from the real scan.
+        volLive.avg20 = null; volLive.gexMap = null; volLive.srMap = null;
+        renderVolumeFlags();
+        renderVolumeLive();
+      })
+      .catch(function(){
+        // Soft-fail: the tab shows its empty state; a tab re-entry retries.
+        volFlagsLoad.loading = false;
+      });
+  }
   // Ticker -> curated sector label (Semis / Software / Bank / Space / ETF / …)
   // from the build manifest (MANIFEST.sectors). Used to group the flag list
   // under collapsible sector sections so a long scan stays scannable. (Sections
@@ -7410,7 +7438,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         empty.hidden = false;
         empty.textContent = VOLUME_FLAGS
           ? 'No volume or S/R-break flags in the latest scan.'
-          : 'Waiting for the first hourly scan to land.';
+          : (volFlagsLoad.loading ? 'Loading the latest volume scan…' : 'Waiting for the first hourly scan to land.');
       }
       return;
     }
@@ -7664,6 +7692,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     pollVolumeLiveOnce();
     volLive.timer = setInterval(pollVolumeLiveOnce, VOL_LIVE_POLL_MS);
   }
+  // Stop the 138-symbol /api/quotes poll while the BROWSER tab is hidden —
+  // the page-tab switch already stops it (tab lifecycle), but a backgrounded
+  // window kept polling forever. Mirrors the heatmap/bonds pollers.
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) stopVolumeLivePolling(false);
+    else if (volLive.on) startVolumeLivePolling();
+  });
   function stopVolumeLivePolling(clearBoard){
     if (volLive.timer){
       clearInterval(volLive.timer);
@@ -7755,7 +7790,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function volLiveSqueezeFor(sym){
     if (!volLive.squeezeMap){
       var map = {};
-      var oi = MANIFEST.oi;
+      var oi = OI; // lazy-loaded oi-tracker.json (loadOiData)
       var list = (oi && Array.isArray(oi.tickers)) ? oi.tickers : [];
       for (var i = 0; i < list.length; i++){
         var t = list[i];
@@ -8240,12 +8275,34 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
   // --- Gamma OI tab -------------------------------------------------------
   // Near-term open-interest tracker. Twice-daily scan (pre-market + EOD)
-  // of front 2 expirations. Data lives at MANIFEST.oi (populated by
-  // scripts/scan-oi.mjs). For each ticker we render a collapsible row
-  // with the gamma squeeze score, call/put walls, C/P ratio, and the top
-  // 12 OI strikes with ΔOI day-over-day vs the prior trading day's
-  // snapshot.
-  var OI = MANIFEST.oi || null;
+  // of front 2 expirations. Data lives at data/oi-tracker.json (populated by
+  // scripts/scan-oi.mjs), LAZY-FETCHED on first tab entry — the full payload
+  // used to ride in the inline manifest at ~440 KB, more than half the page,
+  // paid by every visitor up front. The manifest now carries only oiMeta
+  // (scan timestamp/type for the freshness banner). For each ticker we render
+  // a collapsible row with the gamma squeeze score, call/put walls, C/P
+  // ratio, and the top 12 OI strikes with ΔOI day-over-day vs the prior
+  // trading day's snapshot.
+  var OI = null;
+  var oiLoad = { loaded: false, loading: false };
+  function loadOiData(){
+    if (oiLoad.loaded || oiLoad.loading) return;
+    oiLoad.loading = true;
+    fetch('data/oi-tracker.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        OI = json || null;
+        oiLoad.loaded = true; oiLoad.loading = false;
+        // Rebuild the live board's squeeze map (may have cached empty) and
+        // re-render whichever consumer is on screen.
+        volLive.squeezeMap = null;
+        if (typeof renderOI === 'function') renderOI();
+        if (typeof renderVolumeLive === 'function') renderVolumeLive();
+      })
+      .catch(function(){
+        oiLoad.loading = false; // tab re-entry retries; empty state meanwhile
+      });
+  }
   var oiState = { search: '', flaggedOnly: false, sort: 'score', perRowCollapsed: {}, allCollapsed: true };
 
   function fmtOiNum(n){
@@ -8524,7 +8581,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         empty.hidden = false;
         empty.textContent = OI
           ? 'No tickers carried OI in the latest scan.'
-          : 'Waiting for the first OI scan to land.';
+          : (oiLoad.loading ? 'Loading the latest OI scan…' : 'Waiting for the first OI scan to land.');
       }
       return;
     }
@@ -10136,8 +10193,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Renders data/briefs.json. The headline/summary/highlights are AI prose;
   // the stat strip + ticker chips are deterministic facts baked alongside.
   var briefState = { data: null, loading: false, error: false };
+  // Lazy tab data goes stale while the page sits open (the calendar/brief/
+  // overnight files are regenerated up to hourly): re-fetch in the background
+  // when the tab is re-entered after this window, keeping the old view on
+  // screen until fresh data lands.
+  var TAB_DATA_STALE_MS = 30 * 60 * 1000;
+  function tabDataStale(state){
+    return !!(state.data && state.fetchedAt && (Date.now() - state.fetchedAt > TAB_DATA_STALE_MS));
+  }
   function loadBrief(){
-    if (briefState.data || briefState.loading){ renderBrief(); return; }
+    if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
     briefState.loading = true;
     renderBrief();
     fetch('data/briefs.json', { cache: 'no-cache' })
@@ -10145,6 +10210,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .then(function(json){
         briefState.data = (json && typeof json === 'object') ? json : {};
         briefState.loading = false;
+        briefState.fetchedAt = Date.now();
         renderBrief();
       })
       .catch(function(){
@@ -10406,13 +10472,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
   var overnightState = { data: null, loading: false };
   function loadOvernight(){
-    if (overnightState.data || overnightState.loading){ renderOvernight(); refreshOvernightWidgets(); return; }
+    if ((overnightState.data && !tabDataStale(overnightState)) || overnightState.loading){ renderOvernight(); refreshOvernightWidgets(); return; }
     overnightState.loading = true;
     fetch('data/correlations.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         overnightState.data = (json && json.markets) ? json : { markets: {}, map: {}, regions: [], broad: [], tone: null };
         overnightState.loading = false;
+        overnightState.fetchedAt = Date.now();
         renderOvernight();
         refreshOvernightWidgets();
       })
@@ -10591,7 +10658,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // --- Calendar tab -------------------------------------------------------
   var calendarState = { data: null, loading: false, type: 'all' };
   function loadCalendar(){
-    if (calendarState.data || calendarState.loading) {
+    if ((calendarState.data && !tabDataStale(calendarState)) || calendarState.loading) {
       renderCalendar();
       return;
     }
@@ -10601,6 +10668,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .then(function(json){
         calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
         calendarState.loading = false;
+        calendarState.fetchedAt = Date.now();
         renderCalendar();
       })
       .catch(function(){
