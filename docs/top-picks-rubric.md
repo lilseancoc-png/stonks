@@ -1032,7 +1032,14 @@ it has to be trustworthy. The fixes:
     axis `PICKS_MACRO_COMMODITY` (default ON), `PICKS_MACRO_OIL_1D 4` / `_OIL_1D_STRONG 8` /
     `_OIL_5D 12`, `PICKS_MACRO_GOLD_1D 3` / `_GOLD_5D 6` (reads `macroBackdrop.crude`/`.gold`,
     the `CL=F`/`GC=F` legs); geopolitical-news axis `PICKS_MACRO_NEWS` (default ON),
-    `PICKS_MACRO_GEO_MIN_STR 45` / `_GEO_STRONG_STR 65` (`computeGeoNewsStress`, `GEO_CONFLICT_RE`/`GEO_THEME_RE`); states
+    `PICKS_MACRO_GEO_MIN_STR 45` / `_GEO_STRONG_STR 65` (`computeGeoNewsStress`, `GEO_CONFLICT_RE`/`GEO_THEME_RE`);
+    inflation/labor axis `PICKS_MACRO_INFLATION` (default ON) — monthly CPI YoY + unemployment
+    (BLS `CUUR0000SA0`/`LNS14000000`, FRED `CPIAUCNS`/`UNRATE` fallback, attached to
+    `macroBackdrop.inflation`/`.unemployment` by `fetchInflationLabor`): −1 when CPI YoY ≥
+    `PICKS_MACRO_CPI_HOT 4.0` or re-accelerating (≥ `_CPI_WARM 3.0` and up ≥ `_CPI_REACCEL 0.3`pp
+    vs 3 months ago), −1 when the Sahm read (3-month-avg unemployment vs its 12-month low) ≥
+    `PICKS_MACRO_UE_SAHM 0.5`pp (both → −2, the stagflation tape), +1 only when CPI ≤
+    `_CPI_COOL 2.5` and not rising — slow monthly prints, so a confirming vote like sentiment; states
     `PICKS_MACRO_RISKOFF_AXES 2`, `PICKS_MACRO_SEVERE_AXES 3` + `PICKS_MACRO_SEVERE_STRESS −4`,
     `PICKS_MACRO_RISKON_AXES 2`; book tilt `PICKS_MACRO_TILT` (default ON), `_TILT_BASE 4` /
     `_TILT_SEVERE 8` / `_TILT_RISKON 2`, beta clamp `_TILT_BETA_FLOOR 0.5` / `_TILT_BETA_CAP 1.6`,

@@ -3070,6 +3070,95 @@ async function fetchMacroBackdrop() {
   return { twoY, tenY, thirtyY, dxy, vix, vixTerm, crude, gold, asOf: new Date().toISOString() };
 }
 
+// CPI inflation + unemployment rate — the two monthly prints that frame every
+// yields/DXY/VIX move. Sourced exactly like the calendar's macro rows: BLS is
+// the source of record, FRED's mirror is the fallback (see fetchBlsSeries /
+// fetchFredSeries). Attached to macroBackdrop so (1) the Bonds & USD tab can
+// show the inflation/labor backdrop next to the live legs and (2)
+// computeMacroRegime gets its inflation/labor axis (PICKS_MACRO_INFLATION).
+// Monthly data — refetched every bake but only changes ~once a month, and a
+// failed leg stays null (graceful: tile hidden, axis reads "no data").
+//
+//   inflation:    { yoy, prevYoy, yoy3mAgo, refMonth, trend } — headline CPI
+//                 YoY off the NSA index (BLS CUUR0000SA0 / FRED CPIAUCNS, the
+//                 same series the calendar's "CPI YoY" row reads).
+//   unemployment: { rate, prior, refMonth, sahm, trend } — U-3 rate (BLS
+//                 LNS14000000 / FRED UNRATE). `sahm` is the Sahm-rule read:
+//                 3-month average minus its low over the prior 12 months
+//                 (≥0.5pp is the classic recession-onset signal).
+async function fetchInflationLabor() {
+  const out = { inflation: null, unemployment: null };
+  const round1 = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : null);
+  try {
+    let cpi = await fetchBlsSeries("CUUR0000SA0");
+    if (!cpi.length) cpi = await fetchFredSeries("CPIAUCNS");
+    const yoyAt = (idx) => {
+      const cur = cpi[idx], prior = cpi[idx - 12];
+      return cur && prior && Number.isFinite(prior.value) && prior.value !== 0
+        ? ((cur.value - prior.value) / prior.value) * 100
+        : null;
+    };
+    const i = cpi.length - 1;
+    const yoy = yoyAt(i);
+    if (yoy != null) {
+      const prevYoy = yoyAt(i - 1);
+      const yoy3mAgo = yoyAt(i - 3);
+      out.inflation = {
+        yoy: round1(yoy),
+        prevYoy: round1(prevYoy),
+        yoy3mAgo: round1(yoy3mAgo),
+        refMonth: cpi[i].date.slice(0, 7),
+        trend: prevYoy == null ? "flat"
+          : yoy - prevYoy >= 0.1 ? "rising"
+          : yoy - prevYoy <= -0.1 ? "falling"
+          : "flat",
+      };
+      console.log(`Macro CPI YoY (${out.inflation.refMonth}): ${out.inflation.yoy}%${out.inflation.prevYoy != null ? ` · prior ${out.inflation.prevYoy}% (${out.inflation.trend})` : ""}`);
+    } else {
+      console.warn("Macro CPI: no usable series (BLS + FRED both empty/short)");
+    }
+  } catch (err) {
+    console.warn(`Macro CPI fetch failed: ${err.message}`);
+  }
+  try {
+    let ue = await fetchBlsSeries("LNS14000000");
+    if (!ue.length) ue = await fetchFredSeries("UNRATE");
+    const j = ue.length - 1;
+    if (j >= 0 && Number.isFinite(ue[j].value)) {
+      const avg3 = (idx) => {
+        if (idx < 2) return null;
+        const a = ue[idx].value, b = ue[idx - 1].value, c = ue[idx - 2].value;
+        return Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) ? (a + b + c) / 3 : null;
+      };
+      const cur3 = avg3(j);
+      let low3 = null;
+      for (let k = j - 1; k >= Math.max(2, j - 12); k--) {
+        const v = avg3(k);
+        if (v != null && (low3 == null || v < low3)) low3 = v;
+      }
+      const sahm = cur3 != null && low3 != null ? Math.round((cur3 - low3) * 100) / 100 : null;
+      const prior = j >= 1 && Number.isFinite(ue[j - 1].value) ? round1(ue[j - 1].value) : null;
+      const rate = round1(ue[j].value);
+      out.unemployment = {
+        rate,
+        prior,
+        refMonth: ue[j].date.slice(0, 7),
+        sahm,
+        trend: prior == null ? "flat"
+          : rate - prior >= 0.1 ? "rising"
+          : rate - prior <= -0.1 ? "falling"
+          : "flat",
+      };
+      console.log(`Macro unemployment (${out.unemployment.refMonth}): ${rate}%${prior != null ? ` · prior ${prior}%` : ""}${sahm != null ? ` · Sahm ${sahm >= 0 ? "+" : ""}${sahm}pp` : ""}`);
+    } else {
+      console.warn("Macro unemployment: no usable series (BLS + FRED both empty)");
+    }
+  } catch (err) {
+    console.warn(`Macro unemployment fetch failed: ${err.message}`);
+  }
+  return out;
+}
+
 // Run tickers in parallel with a bounded concurrency cap. Each ticker still
 // paces its own per-expiration Yahoo calls with the 150ms gap inside
 // fetchTickerChain, so the effective request rate is at most TICKER_CONCURRENCY
@@ -6951,9 +7040,12 @@ const PICKS_RISKOFF_PUT_BAR = -8;
 // coordinated risk-off / financial-conditions-TIGHTENING tape shows up across many
 // assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
 // yields), the Fed PATH (FedWatch hike-odds repricing hawkish), plus a COMMODITY /
-// geopolitical-shock axis (a crude spike + gold safe-haven bid) and a geopolitical-
-// NEWS axis (a strong war/conflict narrative) — the last two fire on a geopolitical
-// shock usually BEFORE it bleeds into VIX/yields. computeMacroRegime fuses those six
+// geopolitical-shock axis (a crude spike + gold safe-haven bid), a geopolitical-
+// NEWS axis (a strong war/conflict narrative) — those two fire on a geopolitical
+// shock usually BEFORE it bleeds into VIX/yields — an INFLATION/LABOR axis (the
+// monthly CPI YoY + unemployment prints: hot/re-accelerating inflation or a
+// Sahm-triggered labor deterioration), and the Fear & Greed sentiment axis.
+// computeMacroRegime fuses those eight
 // axes (each -2..+2, negative = risk-off) into one gauge so the engine: (1) flips
 // detectMarketRegime to risk-off on the cross-asset signal even without an SPY
 // -1% day; (2) tilts the whole book bearish in proportion to each name's beta (a
@@ -7014,6 +7106,20 @@ const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
 const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
 const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes (and zero risk-off) → can lift to risk-on
+// Inflation / labor axis (CPI YoY + unemployment, monthly BLS prints attached
+// to macroBackdrop by fetchInflationLabor). Slow monthly data, so it's a
+// confirming vote like sentiment — risk-off when inflation is hot (≥ CPI_HOT
+// YoY) or re-accelerating (≥ CPI_WARM and up ≥ CPI_REACCEL pp vs 3 months ago),
+// or when the labor market is deteriorating (the Sahm read — 3-month-average
+// unemployment ≥ UE_SAHM pp above its low over the prior 12 months, the classic
+// recession-onset signal). Both stressed at once (stagflation tape) sums to -2.
+// Mild risk-on (+1) only when inflation sits near target and isn't rising.
+const PICKS_MACRO_INFLATION = process.env.PICKS_MACRO_INFLATION !== "0"; // axis on by default
+const PICKS_MACRO_CPI_HOT = Number(process.env.PICKS_MACRO_CPI_HOT ?? 4.0);       // CPI YoY ≥ this → hot (-1)
+const PICKS_MACRO_CPI_WARM = Number(process.env.PICKS_MACRO_CPI_WARM ?? 3.0);     // re-acceleration only counts from this level up
+const PICKS_MACRO_CPI_REACCEL = Number(process.env.PICKS_MACRO_CPI_REACCEL ?? 0.3); // pp rise vs 3 months ago that flags re-acceleration (-1)
+const PICKS_MACRO_CPI_COOL = Number(process.env.PICKS_MACRO_CPI_COOL ?? 2.5);     // CPI YoY ≤ this (and not rising) → near target (+1)
+const PICKS_MACRO_UE_SAHM = Number(process.env.PICKS_MACRO_UE_SAHM ?? 0.5);       // Sahm-rule pp threshold → labor deteriorating (-1)
 // Equity-internals sentiment axis (CNN Fear & Greed, data/fear-greed.json).
 // Extremes-only vote, capped ±1 (its volatility component overlaps the VIX
 // axis, so it confirms but can never drive severe alone). =0 disables.
@@ -9065,7 +9171,7 @@ function scoreNarrative(sym, data, narratives, macroBackdrop) {
 
   // 9. Cross-asset Macro Regime (PICKS_MACRO_REGIME): the holistic, BETA-WEIGHTED
   // read of the macro gauge (VIX + DXY + long yields + Fed path + commodity/geopolitical
-  // shock + geopolitical news),
+  // shock + geopolitical news + CPI/unemployment + sentiment),
   // distinct from the per-name LEVEL signals 7/8 above (which are uniform across
   // names and so can't re-rank a cross-sectional engine). In a confirmed risk-off
   // tape this subtracts a beta-scaled bearish tilt — bigger on high-beta growth,
@@ -10681,6 +10787,48 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     if (geo.score <= -1) drivers.push(geo.label.split(" (")[0]);
   }
 
+  // --- Inflation / labor axis (monthly CPI YoY + unemployment) ----------------
+  // Slow monthly prints, so this is a confirming vote like sentiment: hot or
+  // re-accelerating inflation is a tightening backdrop (-1), a Sahm-triggered
+  // labor deterioration is a recession-onset tell (-1) — both at once (the
+  // stagflation tape) sums to -2. Only a near-target, non-rising CPI earns a
+  // mild +1; a merely-OK labor market is no signal on its own.
+  if (PICKS_MACRO_INFLATION) {
+    const inf = macroBackdrop.inflation;
+    const ue = macroBackdrop.unemployment;
+    let s = 0;
+    const bits = [];
+    const stressed = [];
+    if (inf && isFinite(inf.yoy)) {
+      const reaccel = isFinite(inf.yoy3mAgo) && inf.yoy >= PICKS_MACRO_CPI_WARM && (inf.yoy - inf.yoy3mAgo) >= PICKS_MACRO_CPI_REACCEL;
+      if (inf.yoy >= PICKS_MACRO_CPI_HOT || reaccel) {
+        s -= 1;
+        const why = inf.yoy >= PICKS_MACRO_CPI_HOT ? "hot" : "re-accelerating";
+        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY ${why}`);
+        stressed.push(`CPI ${inf.yoy.toFixed(1)}%`);
+      } else if (inf.yoy <= PICKS_MACRO_CPI_COOL && inf.trend !== "rising") {
+        s += 1;
+        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY near target`);
+      } else {
+        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY`);
+      }
+    }
+    if (ue && isFinite(ue.rate)) {
+      if (isFinite(ue.sahm) && ue.sahm >= PICKS_MACRO_UE_SAHM) {
+        s -= 1;
+        bits.push(`unemployment ${ue.rate.toFixed(1)}% — Sahm +${ue.sahm.toFixed(2)}pp, labor deteriorating`);
+        stressed.push(`unemployment ${ue.rate.toFixed(1)}% ↑`);
+      } else {
+        bits.push(`unemployment ${ue.rate.toFixed(1)}%${ue.trend === "rising" ? " (rising)" : ""}`);
+      }
+    }
+    s = Math.max(-2, Math.min(1, s));
+    axes.inflation = (inf || ue)
+      ? { score: s, label: bits.join(" · ") }
+      : { score: 0, label: "no CPI/unemployment data" };
+    if (s <= -1) drivers.push(...stressed);
+  } else axes.inflation = { score: 0, label: "inflation/labor axis off" };
+
   // --- Equity-internals sentiment axis (CNN Fear & Greed) ---------------------
   // The composite reads equity INTERNALS (breadth, strength, momentum) that no
   // other axis covers. Capped at ±1 deliberately — its volatility component
@@ -10701,7 +10849,7 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     if (s <= -1) drivers.push(`F&G ${fgScore.toFixed(0)}`);
   } else axes.sentiment = { score: 0, label: "sentiment axis off" };
 
-  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.sentiment.score];
+  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score];
   const stress = arr.reduce((a, b) => a + b, 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
@@ -18777,6 +18925,14 @@ async function main() {
   // can quote live macro values instead of returning an empty take.
   console.log("Fetching macro backdrop (yields + DXY + VIX)…");
   const macroBackdrop = await fetchMacroBackdrop();
+  // CPI + unemployment (monthly BLS/FRED) join the backdrop — surfaced on the
+  // Bonds & USD tab and feeding computeMacroRegime's inflation/labor axis.
+  // Persisted with the rest of macro.json, so regen-picks sees them too.
+  if (macroBackdrop) {
+    const il = await fetchInflationLabor();
+    if (il.inflation) macroBackdrop.inflation = il.inflation;
+    if (il.unemployment) macroBackdrop.unemployment = il.unemployment;
+  }
   // Read the rolling macro history BEFORE writeChainFiles wipes data/. The
   // 17:00 ET daily slot is the authoritative end-of-day close — at that
   // capture we overwrite today's entry with the EOD print and the prior-day

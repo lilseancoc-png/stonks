@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Added
+- **CPI inflation + unemployment join the macro stack.** The bake now fetches the monthly headline CPI YoY and the U-3 unemployment rate (BLS first, FRED mirror fallback — same source order as the calendar) into `data/macro.json`. The **Bonds & USD** tab shows both as tiles next to yields/DXY/VIX (level badge, month-over-month delta, reference month, and a Sahm-rule read on the unemployment tile), and a new **inflation/labor axis** joins the cross-asset macro regime that grades Top Picks: hot (≥4% YoY) or re-accelerating inflation votes risk-off, a Sahm-triggered labor deterioration (3-month avg ≥0.5pp off its 12-month low) votes risk-off, both at once read as the stagflation tape (−2), and only a near-target, non-rising CPI votes risk-on (`PICKS_MACRO_INFLATION`, default ON).
+
 ### Changed
 - **Mobile sweep across remaining tabs:** the Bonds & USD movement-scale table gets compact phone cells, Overnight peer rows shrink type/gaps and ellipsize long names instead of squeezing the stats, the Tickers sector chips and Heatmap zoom buttons grow to thumb-sized tap targets, and the Gamma-exposure search goes full-width on its own row (same treatment as the Volume tab).
 - **Hot stocks is now a top-level nav tab next to Top picks** (it launched inside the Flow dropdown) — the tactical "what's heavy right now" board sits beside the longer-dated picks instead of being buried in a menu.
