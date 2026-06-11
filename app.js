@@ -355,6 +355,14 @@
     var iso = year + '-' + (mm<10?'0':'') + mm + '-' + (dd<10?'0':'') + dd;
     return { root: m[1], type: m[5]==='C' ? 'call' : 'put', strike: parseInt(m[6],10)/1000, expiryISO: iso };
   }
+  // Chain expiration keys are midnight UTC of the expiry date — ~8 PM ET the
+  // *evening before* the contract's last trading day — but the contract
+  // trades until the 16:00 ET close ~20h later. Add this offset before
+  // differencing a chain key against "now" so greeks/DTE stay live through
+  // the final session instead of going negative at the prior evening.
+  // (Manual entries don't need it — they anchor via etCloseEpochSec below.)
+  var EXPIRY_CLOSE_OFFSET_MS = 20 * 3600 * 1000;
+  var EXPIRY_CLOSE_OFFSET_SEC = EXPIRY_CLOSE_OFFSET_MS / 1000;
   // 16:00 ET on the given YYYY-MM-DD expressed as a UTC epoch (seconds).
   // Resolves the EDT/EST offset for that calendar date via Intl, so DST
   // transitions don't shift theta by an hour for manually-entered contracts.
@@ -2202,7 +2210,7 @@
       }
       if (bestExp){
         var newRowExp = bestExp.row;
-        var Texp = Math.max(0, (bestExp.expEpoch - nowSec) / (365 * 86400));
+        var Texp = Math.max(0, (bestExp.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
         var newDeltaExp = deltaOf(newRowExp, Texp);
         var newSpExp = spreadPctOf(newRowExp);
         return {
@@ -2226,7 +2234,7 @@
     // 2) Far-OTM delta → find a near-ATM strike in the same expiry whose
     //    |delta| sits in the balanced 0.40-0.70 zone with a workable spread.
     if (kinds.indexOf('delta') >= 0 && input.expEpoch){
-      var T = Math.max(0, (input.expEpoch - nowSec) / (365 * 86400));
+      var T = Math.max(0, (input.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
       var rows2 = rowsFor(input.expEpoch);
       var best = null, bestQuality = -Infinity;
       for (var k = 0; k < rows2.length; k++){
@@ -2272,7 +2280,7 @@
         if (score3 < bestSpScore){ bestSpScore = score3; bestSp = { row: rows3[n], sp: sp3 }; }
       }
       if (bestSp){
-        var Tsp = Math.max(0, (input.expEpoch - nowSec) / (365 * 86400));
+        var Tsp = Math.max(0, (input.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
         var newDeltaSp = deltaOf(bestSp.row, Tsp);
         return {
           kind: 'strike',
@@ -3316,7 +3324,10 @@
     var quoteStale = (input.source === 'chain') &&
       ((bid == null || ask == null || bid <= 0 || ask <= 0) || (mkt != null && mkt !== 'REGULAR'));
     var iv = input.iv;
-    var T = (input.expEpoch*1000 - Date.now()) / (365*24*3600*1000);
+    // Manual entries already anchor expEpoch at the 16:00 ET close; chain
+    // rows carry the raw midnight-UTC expiration key and need the offset.
+    var expMs = input.expEpoch*1000 + (input.source === 'manual' ? 0 : EXPIRY_CLOSE_OFFSET_MS);
+    var T = (expMs - Date.now()) / (365*24*3600*1000);
     var g = (T > 0 && iv > 0 && input.spot > 0 && input.strike > 0)
       ? greeks(input.type, input.spot, input.strike, T, iv, RFR) : null;
 
@@ -8943,7 +8954,7 @@
   var GEX_CONTRACT_MULT = 100;          // shares per contract
   var GEX_MIN_T_DAYS = 1;               // floor on time-to-expiry so 0DTE ATM gamma stays finite + readable
   var GEX_MAX_EXPS = 8;                 // near-term expiration columns shown
-  var GEX_EXPIRY_OFFSET_MS = 20 * 3600 * 1000; // ~16:00 ET close vs the midnight-UTC expiration key
+  var GEX_EXPIRY_OFFSET_MS = EXPIRY_CLOSE_OFFSET_MS; // ~16:00 ET close vs the midnight-UTC expiration key (shared constant)
   var GEX_YEAR_MS = 365 * 24 * 3600 * 1000;
   var GEX_RANGES = { near: 12, mid: 22, wide: 40 }; // strikes shown each side of spot
   var gexState = {
@@ -9438,7 +9449,7 @@
   }
   function stratDte(epochSec){
     if (!epochSec) return null;
-    return Math.max(0, Math.round((epochSec * 1000 - Date.now()) / 86400000));
+    return Math.max(0, Math.round((epochSec * 1000 + EXPIRY_CLOSE_OFFSET_MS - Date.now()) / 86400000));
   }
   function stratBsPrice(type, S, K, T, sigma, r){
     if (!(S>0 && K>0 && sigma>0)) return null;
@@ -9653,7 +9664,7 @@
         bid = row.b; ask = row.a; iv = row.iv; oi = row.oi; vol = row.v;
         if (bid != null && ask != null) mid = (bid + ask) / 2;
         else if (row.l != null) mid = row.l;
-        var T = Math.max(0, (L.expSec - nowSec) / (365*86400));
+        var T = Math.max(0, (L.expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365*86400));
         if (iv != null && T > 0){
           g = greeks(L.type, spot, L.strike, T, iv, RFR);
         }
