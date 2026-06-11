@@ -16,6 +16,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Fixed
+- **"Check a position you hold" gets its live pricing back:** `/api/contract` was still 503-gated behind `PORTFOLIO_ENABLED` (a leftover from the portfolio removal in #269), so the Top Picks position checker silently fell back to stale baked chain rows and couldn't price off-band strikes at all. The gate is removed — the endpoint is a pure Yahoo proxy with strict input validation and no auth surface; the Supabase-backed portfolio endpoints stay gated.
+- Drop the incorrect `crossorigin` from the `fonts.googleapis.com` preconnect (the stylesheet fetch is non-CORS, so the CORS-mode connection was opened and never reused).
+
 ### Changed
 - **Hot stocks verdicts are now entry-gated — no more "buy now" at the top of a move or into a falling knife.** A would-be Buy calls/Buy puts must pass an entry-quality gate built from two layers: (1) the baked confirmed-daily-bars timing read (`computeEntryTiming`) now published for **both** sides of every name in `data/grades.json` (new `timing.{call,put}` + `tech` fields, lazy-loaded on tab entry) — falling-knife, extended-chase and imminent-earnings/FOMC reads the live tape can't see; and (2) a live re-check that folds today's move onto the baked multi-day context (2-/4-day confirmed returns + 20D SMA stretch, 52-week extremes and day-range fade from new `/api/quotes` fields `hi52/lo52/dayHi/dayLo`) using the same thresholds as the server gate (single-sourced via `PICKS_TIMING_THRESHOLDS`). Gated names show a labelled amber chip — "Extended — do not chase", "Falling knife — wait", "Squeeze risk — wait", "Event risk — wait", "Fading — wait" — with the full reasoning on tap, and a clean baked `go` read now adds a point of conviction toward execute. (#407)
 

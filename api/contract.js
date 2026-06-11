@@ -15,13 +15,10 @@
 import { fetchContract, isValidSymbol } from "../lib/yahoo.mjs";
 
 export default async function handler(req, res) {
-  // Dormant since #269 — the Portfolio tab was removed from the site, so this
-  // endpoint has no live caller. Gate it hard (503) until deliberately
-  // re-enabled, so the auth + Supabase surface isn't reachable in the
-  // meantime. Set PORTFOLIO_ENABLED=1 on Vercel to re-open it.
-  if (process.env.PORTFOLIO_ENABLED !== "1") {
-    return res.status(503).json({ error: "portfolio endpoints are disabled" });
-  }
+  // NOT gated behind PORTFOLIO_ENABLED: unlike the Supabase-backed portfolio
+  // endpoints, this is a pure Yahoo proxy with no auth surface, and the Top
+  // Picks tab's "Check a position you hold" tool calls it for live marks on
+  // any strike/expiry (including off-band ones the baked chain can't price).
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "method not allowed" });
