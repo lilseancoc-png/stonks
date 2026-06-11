@@ -14201,7 +14201,7 @@
   var posState = { chain: null, symbol: null, bound: false };
   var POS_TP = 60, POS_STOP = 40; // % of entry premium — mirrors the engine's plan
 
-  function posYrs(exp){ return Math.max(1e-6, (Number(exp) - Date.now()/1000) / (365.25*86400)); }
+  function posYrs(exp){ return Math.max(1e-6, (Number(exp) + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000) / (365.25*86400)); }
   function posRows(chain, side, exp){
     var ch = chain && chain.chains && chain.chains[String(exp)];
     if (!ch) return [];
@@ -14236,7 +14236,9 @@
   function posPopulateExpiry(){
     var expSel=$('pos-expiry'); if(!expSel||!posState.chain) return;
     var nowSec=Date.now()/1000;
-    var exps=(posState.chain.expirations||[]).slice().filter(function(e){return Number(e)>nowSec;}).sort(function(a,b){return a-b;});
+    // Chain keys are midnight UTC of the expiry date — keep the expiry-day
+    // contract selectable through its final session (16:00 ET close).
+    var exps=(posState.chain.expirations||[]).slice().filter(function(e){return Number(e)+EXPIRY_CLOSE_OFFSET_SEC>nowSec;}).sort(function(a,b){return a-b;});
     if(!exps.length){ expSel.innerHTML='<option value="">no live expirations</option>'; expSel.disabled=true; return; }
     expSel.innerHTML=exps.map(function(e){return '<option value="'+e+'">'+escapeHtml(fmtExpiryLabel(e))+'</option>';}).join('');
     expSel.disabled=false;
@@ -14287,7 +14289,7 @@
     var mark = (m.bid>0 && m.ask>0) ? (m.bid+m.ask)/2 : (m.last>0?m.last:NaN);
     var pnlPct = isFinite(mark) ? ((mark-entry)/entry)*100 : NaN;
     var dollarPnl = isFinite(mark) ? (mark-entry)*100*o.qty : NaN;
-    var dte = Math.max(0, Math.round((o.exp - Date.now()/1000)/86400));
+    var dte = Math.max(0, Math.round((o.exp + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000)/86400));
     var g = (m.iv>0 && m.spot>0) ? greeks(side, m.spot, o.strike, posYrs(o.exp), m.iv, RFR) : null;
     var thetaPctDay = (g && isFinite(g.thetaDay) && mark>0) ? (Math.abs(g.thetaDay)/mark)*100 : null;
     var grade = (picksGradesState.data && picksGradesState.data.grades) ? picksGradesState.data.grades[o.sym] : null;

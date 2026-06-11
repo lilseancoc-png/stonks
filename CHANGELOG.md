@@ -17,6 +17,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Fixed
+- Unusual-flow history snapshots now stamp `etMin`, which the pre-open baseline guard added earlier in this branch requires — without it the guard rejected *every* snapshot and flagging would have stopped entirely (legacy snapshots age out after one scan, matching the documented self-heal).
+- "Check a position you hold" gets the same 16:00 ET close offset as the grading path: greeks no longer collapse on the contract's final trading day, the expiry-day expiration stays selectable in the dropdown through the close, and its DTE matches the Grade tab.
 - Scanner workflows: guard the `git stash pop` behind a did-we-actually-stash check — a stash push of byte-identical files exits 0 *without* creating an entry, so the unconditional pop failed the job under `set -e` ("No stash entries found") instead of reaching the no-changes path.
 - Align `lib/yahoo.mjs`'s `compressContract` with the `build.mjs` copy (`s: strike ?? null` — a missing strike was silently dropped from the row by `JSON.stringify` instead of shipping as `null`).
 

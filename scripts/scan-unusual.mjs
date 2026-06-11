@@ -1318,6 +1318,9 @@ async function main() {
   history.snapshots.push({
     scannedAt,
     etDate: todayKey,
+    // etMin lets buildPrevVolLookup skip pre-open snapshots next run (legacy
+    // snapshots without it are treated as not-usable and age out in one scan).
+    etMin: etMinutesSinceOpen(new Date(scannedAt)),
     contracts: allCandidates.map((c) => ({
       symbol: c.symbol,
       side: c.side,
