@@ -10825,10 +10825,12 @@ html::-webkit-scrollbar-thumb:hover {
 }
 .vol-live-main {
   display: grid;
-  grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em 6.5em;
+  grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em 4.5em 6.5em;
   gap: var(--s-2);
   align-items: center;
 }
+/* Trailing-window ("Now") volume pace — inherits the Pace heat colors. */
+.vol-live-now { font-size: 0.92em; }
 /* Per-row "Play" verdict chip — execute bullish/bearish or wait-and-see,
    computed live from the row's move + pace + the scan's S/R break + GEX.
    A real <button>: tapping it expands the reasoning inline (.vol-live-why)
@@ -10934,6 +10936,17 @@ html::-webkit-scrollbar-thumb:hover {
     gap: 2px var(--s-2);
   }
   .vol-live-main .vol-live-pace { margin-left: auto; }
+  /* No column headers on the phone layout — label the trailing-window pace
+     inline so it isn't a second bare "1.23x" next to the day pace. */
+  /* The shared .vol-live-pace margin-left:auto would split the row's free
+     space between Pace and Now — only the day pace should carry it. */
+  .vol-live-main .vol-live-now { margin-left: 0; }
+  .vol-live-main .vol-live-now::before {
+    content: 'now ';
+    font-weight: 400;
+    font-size: 0.85em;
+    color: var(--text-3);
+  }
   .vol-live-main .vol-live-play { order: 4; }
   .vol-live-main .vol-live-vol { flex-basis: 100%; order: 5; font-size: 0.85em; }
   .vol-live-row { padding: 8px var(--s-2); }

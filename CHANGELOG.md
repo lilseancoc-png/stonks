@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- **Volume tab Play verdict now grades the current moment, not the day.** The live board keeps a rolling per-symbol snapshot history and adds a **Now** column — shares traded over the trailing ~10 minutes vs. the volume usual for that exact slice of the session (20D avg × the U-curve), with the actual-vs-usual amounts in the tooltip and the expanded reasoning. The Play chip's tape read and its ≥1.2× volume gate use that trailing window when it's warm (sqrt-of-time-scaled real-move bar, day direction kept as 1-point context), falling back to the day-cumulative read for the first polls and after the close.
+
 ### Perf
 - **data/unusual-history.json trimmed 5.3 MB → 1.4 MB:** retention drops 8 → 2 snapshots — the only reader (`buildPrevVolLookup`) consumes just the most recent same-session snapshot, so the other six ~700 KB slots were pure git-history bloat at an hourly commit cadence; the committed file was rewritten in place.
 - **Manifest diet — index.html drops from ~830 KB to ~280 KB.** The full OI-tracker (~440 KB) and volume-flags (~110 KB) payloads no longer ride in the inlined `window.STONKS_MANIFEST`; the browser lazy-fetches `data/oi-tracker.json` / `data/volume-flags.json` on first entry to the OI / Volume tabs (same pattern as briefs/correlations). Only tiny `oiMeta`/`volumeFlagsMeta` stubs stay inline for the freshness banner.
