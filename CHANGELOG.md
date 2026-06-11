@@ -16,6 +16,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- **Mobile sweep across remaining tabs:** the Bonds & USD movement-scale table gets compact phone cells, Overnight peer rows shrink type/gaps and ellipsize long names instead of squeezing the stats, the Tickers sector chips and Heatmap zoom buttons grow to thumb-sized tap targets, and the Gamma-exposure search goes full-width on its own row (same treatment as the Volume tab).
+- **Hot stocks is now a top-level nav tab next to Top picks** (it launched inside the Flow dropdown) — the tactical "what's heavy right now" board sits beside the longer-dated picks instead of being buried in a menu.
+
 ### Added
 - **New "Hot stocks" tab — the live tactical board.** The top 15 names trading the heaviest *right now* (live volume pace vs the U-shaped intraday curve, refreshed every 30s while open — no opt-in toggle), each card with the trailing ~10-min "now" read, the hourly scan's dealer-gamma context (net GEX, flip, walls, squeeze score), and a hard verdict: **Buy calls now / Buy puts now / Wait & monitor** (tap for reasoning). Replaces the Volume tab's opt-in live-tracking board (moved + promoted); Top Picks stays the longer-dated narrative/fundamentals play. Also in the Flow nav menu + a landing card.
 

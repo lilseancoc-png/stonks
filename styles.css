@@ -9236,6 +9236,11 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .tickers-chip:hover { color: var(--text); border-color: var(--border-strong); }
+/* Phone: 3px-vertical chips are sub-30px tap targets — give the sector
+   filter row thumb-sized pills. */
+@media (max-width: 640px) {
+  .tickers-chip { padding: 6px 12px; }
+}
 .tickers-chip.is-active {
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
@@ -10006,6 +10011,13 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   line-height: 1.55;
 }
 .bonds-usd-list li { margin-bottom: var(--s-1, 4px); }
+/* Phone: the 5-column movement-scale table is the widest thing on this tab —
+   compact cells + a smaller base size keep it inside a 390px viewport. */
+@media (max-width: 640px) {
+  .bonds-usd-table { font-size: 11px; }
+  .bonds-usd-table th,
+  .bonds-usd-table td { padding: var(--s-1) var(--s-2); }
+}
 .bonds-live-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -12404,6 +12416,9 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
   }
   .heatmap-legend-bar { flex-basis: 140px; }
   .heatmap-eod-sectors { grid-template-columns: 1fr; }
+  /* Thumb-sized zoom controls — 26px buttons are fiddly on touch. */
+  .heatmap-zoom-btn { min-width: 34px; height: 34px; }
+  .heatmap-controls { gap: var(--s-2); }
 }
 
 /* ---- Gamma OI tab --------------------------------------------------- */
@@ -12825,6 +12840,10 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
   .oi-ladder { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
+  /* Controls: full-width search on its own row (same treatment as the
+     Volume tab), tighter toolbar gaps. */
+  .oi-controls { gap: var(--s-2); }
+  .oi-search { flex: 1 1 100%; min-width: 0; }
   .oi-row-head { gap: var(--s-2); }
   .oi-summary-bits { margin-left: 0; width: 100%; }
   .oi-symbol { font-size: 1em; }
@@ -13183,3 +13202,10 @@ input[type="checkbox"], input[type="radio"], summary {
 .ovn-w-broad{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;}
 .ovn-w-nopeer{color:var(--muted-strong);font-size:.8rem;}
 .ovn-w-loading{color:var(--muted-strong);font-size:.85rem;}
+/* Phone: the 4-column peer rows (name + r + beta + implied) get tight at
+   390px — shrink the type/gaps and let a long peer name ellipsize instead
+   of squeezing the stats columns. */
+@media (max-width: 640px){
+  .ovn-w-row{grid-template-columns:minmax(0,1fr) auto auto auto;gap:.35rem;font-size:.78rem;}
+  .ovn-w-peer{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+}
