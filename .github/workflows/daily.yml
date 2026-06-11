@@ -109,7 +109,6 @@ jobs:
           # degrades gracefully — see fetchFredSeries in scripts/build.mjs.
           # Free key at https://fred.stlouisfed.org/docs/api/api_key.html.
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           # Optional: when set, OpenFIGI batches use the authenticated
           # rate limit (250 req/min, 100 jobs/req → ~25k mappings/min)
           # instead of the unauthenticated 25 req/min cap. Without it,

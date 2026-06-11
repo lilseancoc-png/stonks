@@ -17,6 +17,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Fixed
+- Scanner workflows: guard the `git stash pop` behind a did-we-actually-stash check — a stash push of byte-identical files exits 0 *without* creating an entry, so the unconditional pop failed the job under `set -e` ("No stash entries found") instead of reaching the no-changes path.
+- Align `lib/yahoo.mjs`'s `compressContract` with the `build.mjs` copy (`s: strike ?? null` — a missing strike was silently dropped from the row by `JSON.stringify` instead of shipping as `null`).
+
+### Removed
+- Drop the dead `FMP_API_KEY` env line from `daily.yml` (read nowhere in `scripts/`/`api/`); CLAUDE.md's `AI_RPM` note updated to the actual value (600).
 - **Contract grading no longer dies on expiry day.** Chain expiration keys are midnight UTC of the expiry date (~8 PM ET the evening *before* the last trading day), but the rating path differenced them against "now" raw — so on expiry day the time-to-expiry went negative for the whole session (delta/theta/prob-ITM rendered "IV missing") and the DTE-based warnings ("Expiry crisis", thin-extrinsic) fired a day early every afternoon. The grading path, the find-an-alternative suggestions, and the strategy engine's DTE/net-greeks now share the same ~20h close offset the GEX engine already used (one `EXPIRY_CLOSE_OFFSET_MS` constant); manual entries were already anchored at the 16:00 ET close and are unchanged.
 - Unusual-flow scanner: exclude pre-open (~9:00 ET) snapshots from the option-volume delta baseline, the same way the volume tracker's bucket-start lookup already does — before the bell Yahoo's option `volume` still carries the prior session's total, so the first in-session scan diffed against it and systematically under-flagged contracts that were also active yesterday.
 - Chart-patterns page: the two triangle cards stamped two level labels at identical SVG coordinates ("Resistance (flat top)" over "Breakout level", "Support (flat)" over "Breakdown trigger"), rendering as an unreadable smudge — each pair is one price level, now drawn as a single gold line with a combined label.
