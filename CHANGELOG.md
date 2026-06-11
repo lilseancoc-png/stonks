@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- Top Picks macro-tape chip now surfaces the regime's held-vs-raw state: when hysteresis is holding a more defensive label than the build's instantaneous read (e.g. risk-off on a green rebound day that read neutral), the chip shows "recovering (read neutral)" and the tooltip explains the two-build confirmation rule.
+
 ### Fixed
 - **Top Picks no longer recommends opening a position into that day's earnings print.** A name reporting within `PICKS_EARNINGS_VETO_DAYS` (default 2, mirroring the tracker's pre-earnings forced exit) is hard-dropped from the actionable roster (no backfill; logged to `rosterMeta.earningsEve`) — the timing gate's `wait` was only one con in the pro/con tally, so an earnings-day name (e.g. ADBE on report day) could still ship as a high-conviction pick with an "enter now" ladder. Names 3–8 days out still ship but now wear a ⏳ WAIT defer chip on the card header and grid tile, and their entry plan opens with a "deferred entry — post-event playbook" banner instead of reading as an immediate buy.
 - **Earnings-day math now anchors at the moment the IV crush is realized, session-aware** (`earningsAnchorMs` server-side, `earningsAnchorMsLive` in the browser): AM prints at the open, PM/unknown at the close. The old 16:00Z anchor (= noon ET in summer) cleared a PM print's `earningsInWindow`/defer flags hours *before* the print landed, and its −1-day tolerance kept "earnings in 0d — defer entry" alive through the morning *after* the crush had already passed.
