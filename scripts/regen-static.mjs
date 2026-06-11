@@ -127,6 +127,11 @@ const html = renderHtml({
   marketBackdrop,
   nextFomcDates,
   oi,
+  // builtAtIso above is the PRIOR bake's timestamp (the data's age, shown in
+  // the header), but app.js/styles.css ship under 1-year immutable caching
+  // keyed on the ?v= token — a regen-only deploy rewrites their content, so
+  // it must mint a fresh token or returning visitors keep the old script.
+  assetVersion: new Date().toISOString(),
 });
 const css = renderStylesCss();
 // The committed data/rfr-history.json holds the last fetched 3M T-bill rate

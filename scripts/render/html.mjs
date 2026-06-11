@@ -820,7 +820,7 @@ function strategiesSection() {
   </section>`;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [], oi = null }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [], oi = null, assetVersion = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -872,7 +872,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ? { scannedAt: oi.scannedAt || null, scanType: oi.scanType || null }
       : null,
   }).replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-  const cacheBust = encodeURIComponent(builtAtIso);
+  // app.js/styles.css are served with 1-year immutable caching keyed solely on
+  // this ?v= token. The full bake mints a fresh builtAtIso every run, but
+  // regen-static.mjs reuses the PRIOR bake's builtAtIso (it's the data's bake
+  // time, shown in the header) — so render-only deploys must pass a fresh
+  // assetVersion or cached clients keep the old script under the same URL.
+  const cacheBust = encodeURIComponent(assetVersion || builtAtIso);
   return `<!doctype html>
 <html lang="en">
 <head>

@@ -8182,6 +8182,7 @@
       var gLabel =
         verdict.gate === 'knife' ? (leanBull ? 'Falling knife \u2014 wait' : 'Squeeze risk \u2014 wait') :
         verdict.gate === 'chase' ? 'Extended \u2014 do not chase' :
+        verdict.gate === 'structure' ? 'Poor structure \u2014 wait' :
         verdict.gate === 'catalyst' ? 'Event risk \u2014 wait' :
         verdict.gate === 'fade' ? 'Fading \u2014 wait' :
         'Wait & monitor';
@@ -16006,9 +16007,9 @@
       var alerting = inf.yoy >= 4 || (inf.yoy >= 3 && inf.trend === 'rising');
       var delta = (inf.prevYoy != null && isFinite(inf.prevYoy)) ? inf.yoy - inf.prevYoy : null;
       // Direction colors are economic, not numeric: cooling inflation is the
-      // good (green) direction, re-acceleration the bad (red) one.
+      // good (green = "up" class) direction, re-acceleration the bad (red) one.
       var deltaLine = delta != null
-        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'up' : delta < -0.05 ? 'down' : 'flat') + '">' +
+        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'down' : delta < -0.05 ? 'up' : 'flat') + '">' +
             (delta >= 0 ? '+' : '') + delta.toFixed(1) + 'pp vs prior month (' + escapeHtml(inf.trend || 'flat') + ')</span>'
         : '';
       return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
@@ -16033,8 +16034,10 @@
         : { key: 'normal', label: 'Stable' };
       var alerting = sahm != null && sahm >= 0.5;
       var delta = (ue.prior != null && isFinite(ue.prior)) ? ue.rate - ue.prior : null;
+      // Same economic coloring as the CPI tile: a falling unemployment rate is
+      // the good (green = "up" class) direction, a rising one the bad (red).
       var deltaLine = delta != null
-        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'up' : delta < -0.05 ? 'down' : 'flat') + '">' +
+        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'down' : delta < -0.05 ? 'up' : 'flat') + '">' +
             (delta >= 0 ? '+' : '') + delta.toFixed(1) + 'pp vs prior month</span>'
         : '';
       return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +

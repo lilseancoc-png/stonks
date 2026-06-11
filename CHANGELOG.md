@@ -17,6 +17,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Fixed
+- **Render-only deploys no longer strand returning visitors on a stale `app.js`.** `app.js`/`styles.css` ship under 1-year `immutable` caching keyed on the `?v=` token (#402), but `regen-static.mjs` reused the *prior bake's* `builtAtIso` as that token — so any render-layer change shipped through the regen path rewrote the script under an unchanged URL and cached browsers kept the old one (paired with a fresh manifest) until the next full bake. The regen path now mints a fresh asset-version token; the header's "built at" still shows the data's bake time.
+- **CPI + unemployment tile delta colors were inverted:** rising inflation and rising unemployment rendered green and cooling/falling rendered red — the opposite of the economic coloring the code documented (#406). Both Bonds & USD tiles now color the month-over-month delta by economic direction.
+- Hot stocks: a `structure`-gated verdict chip now says "Poor structure — wait" instead of falling through to a generic "Wait & monitor" — the one gate cause (#407) missing from the labelled-chip chain.
 - **"Check a position you hold" gets its live pricing back:** `/api/contract` was still 503-gated behind `PORTFOLIO_ENABLED` (a leftover from the portfolio removal in #269), so the Top Picks position checker silently fell back to stale baked chain rows and couldn't price off-band strikes at all. The gate is removed — the endpoint is a pure Yahoo proxy with strict input validation and no auth surface; the Supabase-backed portfolio endpoints stay gated.
 - Drop the incorrect `crossorigin` from the `fonts.googleapis.com` preconnect (the stylesheet fetch is non-CORS, so the CORS-mode connection was opened and never reused).
 
