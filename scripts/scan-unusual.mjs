@@ -364,15 +364,21 @@ function buildRepeatLookup(log, nowMs) {
 // snapshot — flagging is then correctly skipped this run (legacy snapshots
 // written before etDate existed have no etDate and are treated as not-today,
 // so the gate self-heals after one scan).
+// Pre-open snapshots (the ~9:00 ET scan) are excluded the same way
+// buildBucketStartLookup excludes them: before the bell Yahoo's option
+// `volume` still carries the PRIOR session's daily total, so diffing the
+// first in-session scan against it yields a large negative delta that
+// suppresses flags for any contract that was also active yesterday.
 function buildPrevVolLookup(history, todayKey) {
   const snaps = history?.snapshots;
   if (!Array.isArray(snaps) || !todayKey) return null;
   let last = null;
   for (let i = snaps.length - 1; i >= 0; i--) {
-    if (snaps[i]?.etDate === todayKey && Array.isArray(snaps[i].contracts)) {
-      last = snaps[i];
-      break;
-    }
+    const s = snaps[i];
+    if (s?.etDate !== todayKey || !Array.isArray(s.contracts)) continue;
+    if (s.etMin == null || s.etMin < SESSION_OPEN_MIN) continue;
+    last = s;
+    break;
   }
   if (!last) return null;
   const map = new Map();
