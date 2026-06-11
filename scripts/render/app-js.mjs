@@ -203,6 +203,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (tab === 'volume' && MANIFEST.volumeFlagsMeta && MANIFEST.volumeFlagsMeta.scannedAt) {
       return { iso: MANIFEST.volumeFlagsMeta.scannedAt, label: 'hourly volume/S-R scan' };
     }
+    if (tab === 'hot' && MANIFEST.volumeFlagsMeta && MANIFEST.volumeFlagsMeta.scannedAt) {
+      // The board itself is live (30s poll); this dates the gamma/S-R context.
+      return { iso: MANIFEST.volumeFlagsMeta.scannedAt, label: 'gamma/S-R context scan — the board itself is live' };
+    }
     if (tab === 'oi' && MANIFEST.oiMeta && MANIFEST.oiMeta.scannedAt) {
       var oiLabel = MANIFEST.oiMeta.scanType === 'premarket'
         ? 'pre-market OI scan'
@@ -3062,14 +3066,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
       if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
       if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
-      // Lazy data for the Volume tab (manifest diet): the scan payload itself,
-      // plus the OI tracker for the live board's squeeze chips.
-      if (name === 'volume' && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
-      if (name === 'volume' && typeof loadOiData === 'function') loadOiData();
-      // Volume live tracking mirrors the heatmap pattern: poll only while the
-      // tab is visible AND the user toggled live mode on. Resume on re-entry.
-      if (name === 'volume' && typeof startVolumeLivePolling === 'function') startVolumeLivePolling();
-      if (name !== 'volume' && typeof stopVolumeLivePolling === 'function') stopVolumeLivePolling(false);
+      // Lazy data (manifest diet): the hourly scan payload backs both the
+      // Volume tab's flag list and the Hot stocks board's avg20/GEX/S-R
+      // context; the OI tracker adds the hot board's squeeze chips.
+      if ((name === 'volume' || name === 'hot') && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
+      if (name === 'hot' && typeof loadOiData === 'function') loadOiData();
+      // Hot stocks is always-live while visible (no opt-in toggle) — start
+      // the 30s /api/quotes poll on entry, stop it on leave.
+      if (name === 'hot' && typeof renderHotStocks === 'function') renderHotStocks();
+      if (name === 'hot' && typeof startHotPolling === 'function') startHotPolling();
+      if (name !== 'hot' && typeof stopHotPolling === 'function') stopHotPolling();
       // Auto-live spot refreshes — poll only while the owning tab is visible.
       if (name === 'tickers' && typeof startTickersLive === 'function') startTickersLive();
       if (name !== 'tickers' && typeof stopTickersLive === 'function') stopTickersLive();
@@ -6797,11 +6803,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .then(function(json){
         VOLUME_FLAGS = json || null;
         volFlagsLoad.loaded = true; volFlagsLoad.loading = false;
-        // The live board's lazy per-symbol maps were built (empty) before the
+        // The hot board's lazy per-symbol maps were built (empty) before the
         // data landed — reset so they rebuild from the real scan.
         volLive.avg20 = null; volLive.gexMap = null; volLive.srMap = null;
         renderVolumeFlags();
-        renderVolumeLive();
+        renderHotStocks();
       })
       .catch(function(){
         // Soft-fail: the tab shows its empty state; a tab re-entry retries.
@@ -7639,61 +7645,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
       });
     }
-    var liveToggle = $('vol-live-toggle');
-    if (liveToggle){
-      liveToggle.checked = volLive.on;
-      liveToggle.addEventListener('change', function(){
-        volLive.on = !!liveToggle.checked;
-        if (volLive.on) startVolumeLivePolling();
-        else stopVolumeLivePolling(true);
-      });
-    }
-    // Clicking a live-board row drops that symbol into the search box so its
-    // scanner card (if flagged) filters into view below. Delegated + bound
-    // once — the board's innerHTML is replaced on every poll.
-    var liveBoard = $('vol-live-board');
-    if (liveBoard){
-      var liveRowActivate = function(ev){
-        // A tap on the Play chip toggles its inline reasoning instead of
-        // filtering the list — hover tooltips don't exist on touch devices.
-        var chip = ev.target.closest && ev.target.closest('.vol-live-play[data-sym]');
-        if (chip){
-          var chipSym = chip.getAttribute('data-sym') || '';
-          if (chipSym){ volLive.whyOpen[chipSym] = !volLive.whyOpen[chipSym]; renderVolumeLive(); }
-          return;
-        }
-        var row = ev.target.closest && ev.target.closest('.vol-live-row[data-sym]');
-        if (!row) return;
-        var sym = row.getAttribute('data-sym') || '';
-        var search = $('vol-search-input');
-        var clear = $('vol-search-clear');
-        if (search) search.value = sym;
-        if (clear) clear.hidden = !sym;
-        volState.search = sym;
-        renderVolumeFlags();
-      };
-      liveBoard.addEventListener('click', liveRowActivate);
-      // The rows are role="button" divs — honor Enter/Space like real buttons.
-      liveBoard.addEventListener('keydown', function(ev){
-        if (ev.key !== 'Enter' && ev.key !== ' ') return;
-        // Real <button>s (the Play chip) already synthesize a click on
-        // Enter/Space — handling the keydown too would double-toggle.
-        if (ev.target.closest && ev.target.closest('button')) return;
-        ev.preventDefault();
-        liveRowActivate(ev);
-      });
-    }
+  }
+  // Hot stocks board — delegated + bound once (innerHTML is replaced every
+  // poll). A tap on a card's verdict chip toggles its reasoning inline.
+  function bindHotBoard(){
+    var board = $('hot-board');
+    if (!board) return;
+    board.addEventListener('click', function(ev){
+      var chip = ev.target.closest && ev.target.closest('.hot-verdict[data-sym]');
+      if (!chip) return;
+      var sym = chip.getAttribute('data-sym') || '';
+      if (sym){ volLive.whyOpen[sym] = !volLive.whyOpen[sym]; renderHotStocks(); }
+    });
   }
 
-  // --- Live volume tracking ----------------------------------------------
-  // Opt-in poll of /api/quotes (one batched call for the whole curated
-  // universe, every 30s — same cadence + tab-visibility gating as the
-  // heatmap's live overlay). For each name we compare the live cumulative
+  // --- Hot stocks tab (live volume pace board) -----------------------------
+  // Always-live while the Hot stocks tab is visible (no opt-in toggle — the
+  // tab IS the live view): /api/quotes for the whole curated universe, one
+  // batched call every 30s — same cadence + tab-visibility gating as the
+  // heatmap's live overlay. For each name we compare the live cumulative
   // day volume against the volume EXPECTED by this point of the session,
   // read off the same U-shaped intraday curve the hourly scanner uses
   // (execCumFracExpected above — the in-IIFE mirror of lib/volume-flags.mjs).
-  // The result is a live "volume pace" leaderboard that moves between the
-  // hourly scans, plus a live spot refresh on the scanner cards below.
+  // The result is the top-15 "trading the heaviest right now" board: pace +
+  // trailing-window read + dealer gamma + a buy-calls/buy-puts/wait verdict
+  // per name, plus a live spot refresh on the Volume tab's scanner cards.
   // Baseline preference: the scanner's 20D avg (consistent with the flag
   // math) when the symbol is in the latest scan, else Yahoo's own 10D /
   // 3-month average daily volume from the quote itself.
@@ -7709,7 +7685,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // history, so it needs a couple of polls before it lights up.
   var VOL_NOW_WINDOW_MIN = 10;   // target trailing window
   var VOL_NOW_MIN_SPAN_MIN = 2;  // minimum span before the read is shown
-  var volLive = { on: false, timer: null, rows: [], lastAt: null, marketState: null, etMin: null, avg20: null, whyOpen: {}, hist: {}, histDate: null };
+  // closed = the tape is not in a live regular session (pre/post, weekend,
+  // holiday) — pace is then the LAST full session vs the 20D average and the
+  // verdicts grade "how it finished", not a fill-now moment.
+  var volLive = { timer: null, rows: [], lastAt: null, marketState: null, etMin: null, closed: false, avg20: null, whyOpen: {}, hist: {}, histDate: null };
   function volLiveBaseline(sym, q){
     if (!volLive.avg20){
       var map = {};
@@ -7728,10 +7707,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (q.avgVol3m != null && isFinite(q.avgVol3m) && q.avgVol3m > 0) return Number(q.avgVol3m);
     return null;
   }
-  function startVolumeLivePolling(){
-    if (!volLive.on) return;
+  function startHotPolling(){
     if (volLive.timer) return;
-    var pane = document.getElementById('page-pane-volume');
+    var pane = document.getElementById('page-pane-hot');
     if (!pane || pane.hidden) return;
     pollVolumeLiveOnce();
     volLive.timer = setInterval(pollVolumeLiveOnce, VOL_LIVE_POLL_MS);
@@ -7740,44 +7718,46 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // the page-tab switch already stops it (tab lifecycle), but a backgrounded
   // window kept polling forever. Mirrors the heatmap/bonds pollers.
   document.addEventListener('visibilitychange', function(){
-    if (document.hidden) stopVolumeLivePolling(false);
-    else if (volLive.on) startVolumeLivePolling();
+    if (document.hidden) stopHotPolling();
+    else startHotPolling();
   });
-  function stopVolumeLivePolling(clearBoard){
+  function stopHotPolling(){
     if (volLive.timer){
       clearInterval(volLive.timer);
       volLive.timer = null;
     }
-    if (clearBoard){
-      volLive.rows = [];
-      var board = $('vol-live-board');
-      if (board){ board.hidden = true; board.innerHTML = ''; }
-      var stateEl = $('vol-live-state');
-      if (stateEl){ stateEl.className = 'vol-live-state'; stateEl.textContent = ''; }
-    }
   }
   function pollVolumeLiveOnce(){
     var syms = Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : [];
-    if (!syms.length){ stopVolumeLivePolling(false); return; }
-    var stateEl = $('vol-live-state');
+    if (!syms.length){ stopHotPolling(); return; }
+    var stateEl = $('hot-live-state');
     fetch('api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
         var etMin = execEtMinutesSinceOpen();
-        var frac = etMin == null ? null : execCumFracExpected(etMin);
-        var paceReady = etMin != null && etMin >= VOL_LIVE_MIN_ET_MIN && frac != null && frac > 0;
+        // Yahoo says REGULAR only during a live session. Anything else (pre/
+        // post, weekend, holiday) means dayVolume is a FULL prior/finished
+        // session — compare it against the whole-day expectation (frac = 1),
+        // not the clock's slice of the curve. Without this, a Saturday poll
+        // (etMin inside 0-390 but tape closed) read Friday's full-day volume
+        // against a mid-morning expectation and everything looked 4x hot.
+        var marketState = null;
+        for (var mi = 0; mi < quotes.length; mi++){
+          if (quotes[mi] && quotes[mi].marketState){ marketState = quotes[mi].marketState; break; }
+        }
+        var regular = marketState === 'REGULAR';
+        var frac = !regular ? 1 : (etMin == null ? null : execCumFracExpected(etMin));
+        var paceReady = frac != null && frac > 0 && (!regular || (etMin != null && etMin >= VOL_LIVE_MIN_ET_MIN));
         // Snapshot history powering the "now" window — reset across ET
         // sessions so a window never spans the overnight gap.
         var etDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
         if (volLive.histDate !== etDate){ volLive.hist = {}; volLive.histDate = etDate; }
-        var inSession = etMin != null && etMin >= 0 && etMin < 390;
+        var inSession = regular && etMin != null && etMin >= 0 && etMin < 390;
         var rows = [];
-        var marketState = null;
         for (var i = 0; i < quotes.length; i++){
           var q = quotes[i];
           if (!q || !q.symbol) continue;
-          if (!marketState && q.marketState) marketState = q.marketState;
           if (q.dayVolume == null || !isFinite(q.dayVolume)) continue;
           var sym = String(q.symbol).toUpperCase();
           var base = volLiveBaseline(sym, q);
@@ -7822,8 +7802,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         volLive.rows = rows;
         volLive.marketState = marketState;
         volLive.etMin = etMin;
+        volLive.closed = !regular;
         volLive.lastAt = new Date();
-        renderVolumeLive();
+        renderHotStocks();
         applyVolumeLiveSpots(quotes);
         if (stateEl){
           stateEl.className = 'vol-live-state is-live';
@@ -7834,7 +7815,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .catch(function(){
         if (stateEl){
           stateEl.className = 'vol-live-state is-error';
-          stateEl.textContent = 'Live unavailable — showing last hourly scan';
+          stateEl.textContent = 'Live unavailable — retrying';
         }
       });
   }
@@ -8037,7 +8018,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     else if (heavy) why.push('volume pace ' + pace.toFixed(2) + 'x confirms participation');
     else why.push('volume pace ' + pace.toFixed(2) + 'x — under the ' + VOL_HEAVY_MULT.toFixed(1) + 'x conviction bar');
     var margin = bull - bear;
-    var afterClose = volLive.etMin != null && volLive.etMin >= 390;
+    var afterClose = volLive.closed || (volLive.etMin != null && volLive.etMin >= 390);
     var prefix = afterClose ? 'Session closed — this is how the day finished; treat it as a next-open bias, not a fill-now signal. ' : '';
     var reasons = why.join('; ') + '.';
     if (margin >= 2 && heavy){
@@ -8054,25 +8035,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return { cls: 'is-wait', label: 'Wait', title: prefix + 'No edge yet — signals are mixed or too weak to act on: ' + reasons };
   }
-  function renderVolumeLive(){
-    var board = $('vol-live-board');
+  // Map the verdict's class tokens to the Hot-stocks call to action. The
+  // underlying volLiveVerdict returns exactly one of: 'is-bull', 'is-bear',
+  // 'is-wait is-lean-bull', 'is-wait is-lean-bear', 'is-wait'.
+  function hotVerdictView(verdict){
+    if (!verdict) return null;
+    if (verdict.cls === 'is-bull') return { cls: 'is-bull', label: 'Buy calls now \\u25b2' };
+    if (verdict.cls === 'is-bear') return { cls: 'is-bear', label: 'Buy puts now \\u25bc' };
+    if (verdict.cls.indexOf('is-lean-bull') >= 0) return { cls: 'is-wait is-lean-bull', label: 'Wait & monitor \\u25b2' };
+    if (verdict.cls.indexOf('is-lean-bear') >= 0) return { cls: 'is-wait is-lean-bear', label: 'Wait & monitor \\u25bc' };
+    return { cls: 'is-wait', label: 'Wait & monitor' };
+  }
+  function renderHotStocks(){
+    var board = $('hot-board');
     if (!board) return;
-    if (!volLive.on){ board.hidden = true; return; }
     var rows = volLive.rows || [];
     if (!rows.length){
-      board.hidden = false;
-      board.innerHTML = '<div class="vol-live-msg">No live quotes yet.</div>';
+      board.innerHTML = '<div class="vol-live-msg">' +
+        (volLive.lastAt ? 'No live quotes available right now.' : 'Loading live quotes\\u2026') +
+        '</div>';
       return;
     }
     var anyPace = rows.some(function(r){ return r.pace != null; });
     if (!anyPace){
-      // Pre-market / first minutes of the session — the pace denominator is
-      // not meaningful yet, so say why instead of showing noise.
-      var why = (volLive.etMin != null && volLive.etMin < 0)
-        ? 'Pre-market — volume pace starts at the 9:30 ET open.'
-        : 'Just after the open — pace stabilizes a few minutes into the session.';
-      board.hidden = false;
-      board.innerHTML = '<div class="vol-live-msg">' + escapeHtml(why) + '</div>';
+      // First minutes of the session — the pace denominator is not
+      // meaningful yet, so say why instead of showing noise.
+      board.innerHTML = '<div class="vol-live-msg">Just after the open — pace stabilizes a few minutes into the session.</div>';
       return;
     }
     var sorted = rows.slice().sort(function(a, b){
@@ -8081,59 +8069,63 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return pb - pa;
     });
     var top = sorted.slice(0, VOL_LIVE_TOP_N);
-    var afterClose = volLive.etMin != null && volLive.etMin >= 390;
-    var html = ['<div class="vol-live-row vol-live-head-row" aria-hidden="true"><div class="vol-live-main">' +
-      '<span>Ticker</span><span>Spot</span><span>Day</span>' +
-      '<span>Day vol / expected by now</span><span>Pace</span><span>Now</span><span>Play</span></div></div>'];
+    var afterClose = volLive.closed || (volLive.etMin != null && volLive.etMin >= 390);
+    var html = [];
     for (var i = 0; i < top.length; i++){
       var r = top[i];
       var chg = r.changePct != null && isFinite(r.changePct)
         ? (r.changePct >= 0 ? '+' : '') + Number(r.changePct).toFixed(2) + '%'
         : '—';
       var chgCls = r.changePct == null ? '' : (r.changePct >= 0 ? ' is-up' : ' is-dn');
-      var paceStr = r.pace != null ? r.pace.toFixed(2) + 'x' : '—';
       var now = (r.now && r.now.pace != null && isFinite(r.now.pace)) ? r.now : null;
-      var nowHtml = now
-        ? '<span class="vol-live-pace vol-live-now' + volLivePaceCls(now.pace) + '" title="' +
-            escapeHtml(fmtVolNum(now.vol) + ' traded in the last ' + Math.max(1, Math.round(now.spanMin)) +
-              ' min vs ' + fmtVolNum(now.expected) + ' usual for this slice of the session (20D avg \\u00d7 intraday curve) = ' +
-              now.pace.toFixed(2) + 'x') + '">' + now.pace.toFixed(2) + 'x</span>'
-        : '<span class="vol-live-pace vol-live-now" title="Volume pace over the trailing ~' + VOL_NOW_WINDOW_MIN +
-            ' min vs the usual for this slice of the session — needs a couple of live polls to light up">\\u2014</span>';
       var gexLine = (r.spot != null && isFinite(r.spot)) ? volLiveGexLine(r.sym, Number(r.spot)) : '';
       var verdict = volLiveVerdict(r);
+      var view = hotVerdictView(verdict);
       var whyOpen = !!volLive.whyOpen[r.sym];
-      // A button, not a title tooltip — hover doesn't exist on touch devices,
-      // so tapping the chip expands the reasoning inline under the row.
-      var playHtml = verdict
-        ? '<button type="button" class="vol-live-play ' + verdict.cls + '" data-sym="' + escapeHtml(r.sym) + '" ' +
+      // The verdict is a button: tapping it expands the reasoning inline —
+      // hover tooltips don't exist on touch devices.
+      var verdictHtml = view
+        ? '<button type="button" class="hot-verdict ' + view.cls + '" data-sym="' + escapeHtml(r.sym) + '" ' +
             'aria-expanded="' + (whyOpen ? 'true' : 'false') + '" ' +
-            'aria-label="' + escapeHtml('Play verdict for ' + r.sym + ' — tap for reasoning') + '">' +
-            verdict.label + '</button>'
-        : '<span class="vol-live-play">\\u2014</span>';
+            'aria-label="' + escapeHtml('Verdict for ' + r.sym + ' — tap for reasoning') + '">' +
+            view.label + '</button>'
+        : '<span class="hot-verdict is-wait">\\u2014</span>';
       var whyHtml = (verdict && whyOpen)
         ? '<div class="vol-live-why">' + escapeHtml(verdict.title) + '</div>'
         : '';
-      html.push('<div class="vol-live-row" data-sym="' + escapeHtml(r.sym) + '" role="button" tabindex="0" ' +
-        'title="Click to filter the flag list below to ' + escapeHtml(r.sym) + '">' +
-        '<div class="vol-live-main">' +
-          '<span class="vol-live-sym">' + escapeHtml(r.sym) + '</span>' +
-          '<span class="vol-live-spot">' + (r.spot != null ? '$' + Number(r.spot).toFixed(2) : '—') + '</span>' +
-          '<span class="vol-live-chg' + chgCls + '">' + chg + '</span>' +
-          '<span class="vol-live-vol">' + fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + '</span>' +
-          '<span class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + paceStr + '</span>' +
-          nowHtml +
-          playHtml +
+      var stats = [
+        '<span class="hot-stat" title="Cumulative day volume vs the volume expected by this point of the session (20D avg \\u00d7 intraday curve)">' +
+          '<b class="vol-live-pace' + volLivePaceCls(r.pace) + '">' + (r.pace != null ? r.pace.toFixed(2) + 'x' : '—') + '</b> pace</span>',
+      ];
+      if (now){
+        stats.push('<span class="hot-stat" title="' +
+          escapeHtml(fmtVolNum(now.vol) + ' traded in the last ' + Math.max(1, Math.round(now.spanMin)) +
+            ' min vs ' + fmtVolNum(now.expected) + ' usual for this slice of the session = ' + now.pace.toFixed(2) + 'x') + '">' +
+          '<b class="vol-live-pace' + volLivePaceCls(now.pace) + '">' + now.pace.toFixed(2) + 'x</b> now</span>');
+      } else if (!afterClose){
+        stats.push('<span class="hot-stat is-warming" title="Volume pace over the trailing ~' + VOL_NOW_WINDOW_MIN +
+          ' min — needs a couple of live polls to light up">\\u2014 now</span>');
+      }
+      stats.push('<span class="hot-vol" title="Day volume / expected by now">' +
+        fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + ' expected</span>');
+      html.push('<article class="hot-row ' + (view ? view.cls.split(' ')[0] : 'is-wait') + '" data-sym="' + escapeHtml(r.sym) + '">' +
+        '<div class="hot-row-head">' +
+          '<span class="hot-rank">' + (i + 1) + '</span>' +
+          '<span class="hot-sym">' + escapeHtml(r.sym) + '</span>' +
+          '<span class="hot-spot">' + (r.spot != null ? '$' + Number(r.spot).toFixed(2) : '—') + '</span>' +
+          '<span class="hot-chg' + chgCls + '">' + chg + '</span>' +
+          verdictHtml +
         '</div>' +
+        '<div class="hot-stats">' + stats.join('') + '</div>' +
         (gexLine ? '<div class="vol-live-gex" title="Dealer gamma from the latest hourly scan — flip/wall levels are scan-time, distances use the live spot">' + gexLine + '</div>' : '') +
         whyHtml +
-      '</div>');
+      '</article>');
     }
     var withPace = rows.filter(function(r){ return r.pace != null; }).length;
-    html.push('<div class="vol-live-foot">Top ' + top.length + ' of ' + withPace + ' tracked names by volume pace' +
-      ' · Now = volume over the trailing ~' + VOL_NOW_WINDOW_MIN + ' min vs the usual for that slice of the session (the Play verdict grades this moment, not the day)' +
-      (afterClose ? ' · session closed — pace is the full-day ratio vs the 20D average' : '') + '</div>');
-    board.hidden = false;
+    html.push('<div class="vol-live-foot">Top ' + top.length + ' of ' + withPace + ' tracked names by live volume pace' +
+      ' · now = the trailing ~' + VOL_NOW_WINDOW_MIN + ' min vs the usual for that slice of the session (the verdict grades this moment, not the day)' +
+      (afterClose ? ' · session closed — pace is the last full session vs the 20D average and verdicts read as next-open bias' : '') +
+      '</div>');
     board.innerHTML = html.join('');
   }
   // Refresh the spot shown on each rendered scanner card head so the
@@ -8415,7 +8407,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         // re-render whichever consumer is on screen.
         volLive.squeezeMap = null;
         if (typeof renderOI === 'function') renderOI();
-        if (typeof renderVolumeLive === 'function') renderVolumeLive();
+        if (typeof renderHotStocks === 'function') renderHotStocks();
       })
       .catch(function(){
         oiLoad.loading = false; // tab re-entry retries; empty state meanwhile
@@ -16118,6 +16110,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindFlowControls();
     renderVolumeFlags();
     bindVolumeControls();
+    bindHotBoard();
     renderOI();
     bindOIControls();
     bindGexControls();

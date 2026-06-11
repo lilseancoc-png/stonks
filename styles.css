@@ -10772,36 +10772,8 @@ html::-webkit-scrollbar-thumb:hover {
 .vol-toggle-pill { border: 1px solid var(--border); }
 .vol-toggle-pill.is-on { border-color: transparent; }
 
-/* Live volume tracking — the opt-in /api/quotes poll + pace leaderboard. */
-.vol-live {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  padding: var(--s-3) var(--s-4);
-  margin-bottom: var(--s-3);
-}
-.vol-live-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s-3);
-}
-.vol-live-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  cursor: pointer;
-  user-select: none;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.vol-live-toggle input { accent-color: var(--accent); }
-.vol-live-hint {
-  color: var(--text-3);
-  font-size: 0.85em;
-  flex: 1 1 28ch;
-  min-width: 20ch;
-}
+/* Live-pace shared bits (used by the Hot stocks tab): the header status
+   chip, pace heat colors, dealer-gamma line, reasoning + msg/foot text. */
 .vol-live-state {
   font: 600 9px/1 var(--font-mono);
   text-transform: uppercase;
@@ -10812,46 +10784,7 @@ html::-webkit-scrollbar-thumb:hover {
 }
 .vol-live-state.is-live { color: var(--accent); }
 .vol-live-state.is-error { color: var(--neg); }
-.vol-live-board {
-  display: grid;
-  gap: 2px;
-  margin-top: var(--s-3);
-}
-.vol-live-row {
-  padding: 4px var(--s-2);
-  border-radius: var(--r-2);
-  font-variant-numeric: tabular-nums;
-}
-.vol-live-main {
-  display: grid;
-  grid-template-columns: 4.5em 5.5em 5em 1fr 4.5em 4.5em 6.5em;
-  gap: var(--s-2);
-  align-items: center;
-}
-/* Trailing-window ("Now") volume pace — inherits the Pace heat colors. */
-.vol-live-now { font-size: 0.92em; }
-/* Per-row "Play" verdict chip — execute bullish/bearish or wait-and-see,
-   computed live from the row's move + pace + the scan's S/R break + GEX.
-   A real <button>: tapping it expands the reasoning inline (.vol-live-why)
-   — hover tooltips don't exist on touch devices. */
-.vol-live-play {
-  justify-self: end;
-  padding: 0 7px;
-  background: none;
-  font: inherit;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-pill);
-  font-size: 0.8em;
-  font-weight: 700;
-  letter-spacing: .02em;
-  color: var(--text-3);
-  text-align: center;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.vol-live-play:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.vol-live-play[aria-expanded="true"] { background: var(--surface-3); }
-/* Expanded verdict reasoning under the row. */
+/* Expanded verdict reasoning under a hot-stocks card. */
 .vol-live-why {
   color: var(--text-2);
   font-size: 0.82em;
@@ -10860,12 +10793,7 @@ html::-webkit-scrollbar-thumb:hover {
   padding: var(--s-1) var(--s-2);
   border-left: 2px solid var(--border-strong);
 }
-.vol-live-play.is-bull { color: var(--pos); border-color: currentColor; }
-.vol-live-play.is-bear { color: var(--neg); border-color: currentColor; }
-.vol-live-play.is-wait { color: var(--text-3); }
-.vol-live-play.is-lean-bull { color: var(--pos); opacity: .65; }
-.vol-live-play.is-lean-bear { color: var(--neg); opacity: .65; }
-/* Per-row dealer-gamma line — scan-time levels, live-spot distances. */
+/* Per-card dealer-gamma line — scan-time levels, live-spot distances. */
 .vol-live-gex {
   color: var(--text-3);
   font-size: 0.82em;
@@ -10886,21 +10814,7 @@ html::-webkit-scrollbar-thumb:hover {
   letter-spacing: .05em;
   color: var(--text-2);
 }
-.vol-live-row[data-sym] { cursor: pointer; }
-.vol-live-row[data-sym]:hover { background: var(--surface-3); }
-.vol-live-row[data-sym]:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.vol-live-head-row {
-  color: var(--text-3);
-  font-size: 0.78em;
-  text-transform: uppercase;
-  letter-spacing: .05em;
-}
-.vol-live-sym { font-weight: 600; }
-.vol-live-spot { color: var(--text-2); }
-.vol-live-chg.is-up { color: var(--pos); }
-.vol-live-chg.is-dn { color: var(--neg); }
-.vol-live-vol { color: var(--text-2); font-size: 0.92em; }
-.vol-live-pace { font-weight: 600; text-align: right; }
+.vol-live-pace { font-weight: 600; }
 .vol-live-pace.is-hot { color: var(--neg); }
 .vol-live-pace.is-elevated { color: var(--warn); }
 .vol-live-pace.is-quiet { color: var(--text-3); }
@@ -10909,48 +10823,11 @@ html::-webkit-scrollbar-thumb:hover {
   font-size: 0.85em;
   padding: var(--s-2);
 }
-/* Touch devices: a tapped row strands :hover's tint until the next tap
-   elsewhere — looks like a stuck selection. (Same rationale as the global
-   hover-capable-only block near the end of this file.) */
-@media (hover: none) {
-  .vol-live-row[data-sym]:hover { background: transparent; }
-}
-/* Phone layout: the 5-column grid doesn't fit a ~390px viewport — the
-   volume detail drops to its own line under sym/spot/chg/pace, rows get
-   44px-friendly padding + separators, and the desktop explainer hint
-   (3+ lines of prose on a phone) is dropped; the leaderboard itself is
-   self-explanatory and the tab's hint paragraphs above still document it. */
+/* Phone layout for the Volume tab. */
 @media (max-width: 640px) {
   /* The Volume tab's intro explainer paragraphs are desktop reference
      prose — on a phone they push the actual scan a full screen down. */
   .vol-card > .hint { display: none; }
-  .vol-live { padding: var(--s-2) var(--s-3); }
-  .vol-live-hint { display: none; }
-  .vol-live-state { margin-left: 0; flex-basis: 100%; }
-  .vol-live-head-row { display: none; }
-  .vol-live-main {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px var(--s-2);
-  }
-  .vol-live-main .vol-live-pace { margin-left: auto; }
-  /* No column headers on the phone layout — label the trailing-window pace
-     inline so it isn't a second bare "1.23x" next to the day pace. */
-  /* The shared .vol-live-pace margin-left:auto would split the row's free
-     space between Pace and Now — only the day pace should carry it. */
-  .vol-live-main .vol-live-now { margin-left: 0; }
-  .vol-live-main .vol-live-now::before {
-    content: 'now ';
-    font-weight: 400;
-    font-size: 0.85em;
-    color: var(--text-3);
-  }
-  .vol-live-main .vol-live-play { order: 4; }
-  .vol-live-main .vol-live-vol { flex-basis: 100%; order: 5; font-size: 0.85em; }
-  .vol-live-row { padding: 8px var(--s-2); }
-  .vol-live-board { gap: 0; }
-  .vol-live-board .vol-live-row + .vol-live-row { border-top: 1px solid var(--border); border-radius: 0; }
   /* Controls: full-width search on its own row, wrappable pill groups with
      thumb-sized targets, and the sort select stretched to the row width. */
   .vol-card { padding: var(--s-3); }
@@ -11405,6 +11282,101 @@ html::-webkit-scrollbar-thumb:hover {
   padding: var(--s-4);
   text-align: center;
   color: var(--text-3);
+}
+
+/* ---- Hot stocks tab ------------------------------------------------------ */
+/* The always-live top-15-by-volume-pace board. Reuses the shared live-pace
+   bits above (.vol-live-state, .vol-live-pace heat colors, .vol-live-gex,
+   .vol-live-why, .vol-live-msg/.vol-live-foot). */
+.hot-card { padding: var(--s-4); }
+.hot-board { display: grid; gap: var(--s-3); margin-top: var(--s-2); }
+.hot-row {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.hot-row.is-bull { border-left-color: var(--pos); }
+.hot-row.is-bear { border-left-color: var(--neg); }
+.hot-row.is-wait { border-left-color: var(--warn); }
+.hot-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.hot-rank {
+  flex: none;
+  align-self: center;
+  min-width: 1.8em;
+  text-align: center;
+  font-size: 0.78em;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  padding: 1px 4px;
+}
+.hot-sym { font-weight: 700; font-size: 1.05em; letter-spacing: 0.02em; color: var(--text); }
+.hot-spot { color: var(--text-2); }
+.hot-chg.is-up { color: var(--pos); }
+.hot-chg.is-dn { color: var(--neg); }
+/* The buy-calls / buy-puts / wait call to action. A real <button>: tapping
+   it expands the verdict's reasoning inline (.vol-live-why) — hover
+   tooltips don't exist on touch devices. */
+.hot-verdict {
+  margin-left: auto;
+  padding: 2px 10px;
+  background: none;
+  font: inherit;
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: .02em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hot-verdict:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.hot-verdict[aria-expanded="true"] { background: var(--surface-3); }
+.hot-verdict.is-bull { color: var(--pos); border-color: currentColor; background: var(--pos-soft); }
+.hot-verdict.is-bear { color: var(--neg); border-color: currentColor; background: var(--neg-soft); }
+.hot-verdict.is-wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); background: var(--warn-soft); }
+.hot-verdict.is-lean-bull { color: var(--pos); background: none; opacity: .8; }
+.hot-verdict.is-lean-bear { color: var(--neg); background: none; opacity: .8; }
+.hot-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92em;
+  color: var(--text-2);
+}
+.hot-stat b { font-weight: 600; }
+.hot-stat.is-warming { color: var(--text-3); }
+.hot-vol { color: var(--text-3); }
+/* Phone layout: hide the desktop explainer prose, promote the verdict to a
+   full-width thumb-sized button under the head line. */
+@media (max-width: 640px) {
+  .hot-card { padding: var(--s-3); }
+  .hot-card > .hint { display: none; }
+  .hot-row { padding: var(--s-3); }
+  .hot-row-head { row-gap: var(--s-2); }
+  .hot-chg { margin-left: auto; }
+  .hot-verdict {
+    flex-basis: 100%;
+    margin-left: 0;
+    order: 5;
+    padding: 7px 10px;
+  }
 }
 
 /* ---- Strategies tab ----------------------------------------------------- */
