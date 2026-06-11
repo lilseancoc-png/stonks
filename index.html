@@ -1528,6 +1528,11 @@
         <button type="button" class="vol-pill" data-vol-filter="sr" role="radio" aria-checked="false">S/R breaks</button>
         <button type="button" class="vol-pill" data-vol-filter="eod" role="radio" aria-checked="false">EOD</button>
       </div>
+      <div class="vol-filter vol-lean-filter" role="radiogroup" aria-label="Filter by bullish or bearish lean">
+        <button type="button" class="vol-pill is-on" data-vol-lean="all" role="radio" aria-checked="true">Any lean</button>
+        <button type="button" class="vol-pill" data-vol-lean="bull" role="radio" aria-checked="false" title="Only tickers whose flagged volume leans bullish (price up on the heavy tape)">Bullish</button>
+        <button type="button" class="vol-pill" data-vol-lean="bear" role="radio" aria-checked="false" title="Only tickers whose flagged volume leans bearish (price down on the heavy tape)">Bearish</button>
+      </div>
       <div class="vol-toggles">
         <button type="button" id="vol-group-btn" class="vol-pill vol-toggle-pill is-on" aria-pressed="true" title="Group tickers under collapsible sector sections">Group by sector</button>
         <button type="button" id="vol-expand-btn" class="vol-pill vol-toggle-pill" aria-pressed="false" title="Expand or collapse every ticker's hour-by-hour detail">Expand all</button>
@@ -1536,6 +1541,7 @@
         <span class="vol-sort-label">Sort</span>
         <select id="vol-sort-select" aria-label="Sort volume flags">
           <option value="ratio">Hottest hour ratio</option>
+          <option value="verdict">Verdict (follow first)</option>
           <option value="eod">EOD day ratio</option>
           <option value="dayvol">Day volume</option>
           <option value="move">Largest day move</option>

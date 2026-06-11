@@ -10952,6 +10952,33 @@ html::-webkit-scrollbar-thumb:hover {
   .vol-live-row { padding: 8px var(--s-2); }
   .vol-live-board { gap: 0; }
   .vol-live-board .vol-live-row + .vol-live-row { border-top: 1px solid var(--border); border-radius: 0; }
+  /* Controls: full-width search on its own row, wrappable pill groups with
+     thumb-sized targets, and the sort select stretched to the row width. */
+  .vol-card { padding: var(--s-3); }
+  .vol-controls { gap: var(--s-2); }
+  .vol-search { flex: 1 1 100%; min-width: 0; }
+  .vol-filter { flex-wrap: wrap; }
+  .vol-pill { padding: var(--s-2) 10px; min-height: 36px; }
+  .vol-sort { flex: 1 1 100%; }
+  .vol-sort select { flex: 1; min-width: 0; }
+  /* Flag cards: ticker + spot on the first line, the chips/stats summary on
+     its own full-width line below (margin-left:auto right-ragged wrapping
+     reads broken at ~390px), with taller tap targets throughout. */
+  .vol-row { padding: var(--s-3); }
+  .vol-row-head { row-gap: var(--s-1); padding: var(--s-1) 0; }
+  .vol-row-summary { flex-basis: 100%; margin-left: 0; }
+  .vol-sector-head { padding: var(--s-2) 0; min-height: 40px; }
+  /* Hour buckets: label + price move share the first line, the volume
+     actual/expected detail drops to its own line (same pattern as the live
+     board's phone rows). */
+  .vol-bucket-row { row-gap: 2px; }
+  .vol-bucket-label { min-width: 0; }
+  .vol-bucket-move { margin-left: auto; }
+  .vol-bucket-vol { flex-basis: 100%; order: 3; font-size: 0.85em; }
+  /* Breadth banner: tighter, and the ticker-breadth stat wraps under the
+     legend instead of fighting margin-left:auto for space. */
+  .vol-summary { padding: var(--s-2) var(--s-3); }
+  .vol-summary-tickers { margin-left: 0; flex-basis: 100%; }
 }
 
 /* ---- Shared auto-live overlays (Tickers grid / Top Picks / OI tab) ----- */

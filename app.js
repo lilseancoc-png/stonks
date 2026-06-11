@@ -6802,7 +6802,7 @@
   //   default — see volSectorCollapsed — so a key set to false means the
   //   user opened that one); picksCollapsed: the pinned Top Picks group's
   //   collapse state (default open).
-  var volState = { search: '', filter: 'all', sort: 'ratio', group: true, expand: {}, allExpanded: false, sectorCollapsed: {}, picksCollapsed: false };
+  var volState = { search: '', filter: 'all', lean: 'all', sort: 'ratio', group: true, expand: {}, allExpanded: false, sectorCollapsed: {}, picksCollapsed: false };
   // Current Top Picks roster (data/picks.json), lazily fetched the first time
   // the Volume tab opens so the pinned "Top Picks" group can track just those
   // names. sides maps SYMBOL -> 'call'/'put'; order preserves picks.json's
@@ -6961,6 +6961,14 @@
       if (volState.filter === 'sr' && !hasSr) continue;
       if (volState.filter === 'eod' && !hasEod) continue;
       if (volState.filter === 'all' && !hasHourly && !hasSr && !hasEod) continue;
+      // Direction filter — same |move| >= 0.5% bar the lean pill itself uses,
+      // so "Bullish" shows exactly the tickers wearing a Bullish pill.
+      if (volState.lean !== 'all'){
+        var lean = volTickerSummary(t).lean;
+        if (lean == null || !isFinite(lean) || Math.abs(Number(lean)) < 0.5) continue;
+        if (volState.lean === 'bull' && Number(lean) <= 0) continue;
+        if (volState.lean === 'bear' && Number(lean) >= 0) continue;
+      }
       out.push(t);
     }
     function topRatio(t){
@@ -6996,8 +7004,20 @@
       }
       return m;
     }
+    // Actionability rank for the verdict sort: Follow > Wait > Avoid > none,
+    // tiebroken by hour ratio so the hottest follow-worthy tape leads.
+    function verdictRank(t){
+      var v = volCaseVerdict(volTickerSummary(t));
+      if (!v) return 0;
+      return v.verdict === 'follow' ? 3 : v.verdict === 'wait' ? 2 : 1;
+    }
     if (volState.sort === 'ratio'){
       out.sort(function(a, b){ return topRatio(b) - topRatio(a); });
+    } else if (volState.sort === 'verdict'){
+      out.sort(function(a, b){
+        var diff = verdictRank(b) - verdictRank(a);
+        return diff !== 0 ? diff : topRatio(b) - topRatio(a);
+      });
     } else if (volState.sort === 'eod'){
       out.sort(function(a, b){
         var ea = (a.eod && a.eod.ratio != null) ? Number(a.eod.ratio) : -1;
@@ -7510,6 +7530,24 @@
         var pills = filterGroup.querySelectorAll('.vol-pill');
         pills.forEach(function(p){
           var on = p.getAttribute('data-vol-filter') === v;
+          p.classList.toggle('is-on', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderVolumeFlags();
+      });
+    }
+    // Bullish/bearish lean filter — its own group (and state) so it stacks
+    // with the flag-type filter instead of replacing it.
+    var leanGroup = document.querySelector('.vol-lean-filter');
+    if (leanGroup){
+      leanGroup.addEventListener('click', function(ev){
+        var btn = ev.target.closest && ev.target.closest('.vol-pill');
+        if (!btn) return;
+        var v = btn.getAttribute('data-vol-lean') || 'all';
+        volState.lean = v;
+        var pills = leanGroup.querySelectorAll('.vol-pill');
+        pills.forEach(function(p){
+          var on = p.getAttribute('data-vol-lean') === v;
           p.classList.toggle('is-on', on);
           p.setAttribute('aria-checked', on ? 'true' : 'false');
         });
