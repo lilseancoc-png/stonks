@@ -7035,6 +7035,24 @@ const PICKS_TIMING_FOLD_SCALE = Number(process.env.PICKS_TIMING_FOLD_SCALE ?? 0.
 // breaking down NOW, in a tape that backs it. Reduced-size, clearly tagged.
 const PICKS_RISKOFF_PUT_BAR = -8;
 
+// Single-source threshold mirror for the browser. The Hot-stocks board's live
+// entry gate (hotEntryGate in scripts/render/app-js.mjs) re-runs the knife/chase
+// reads with TODAY'S live move folded onto the baked multi-day context, and
+// renderAppJs interpolates this object into the generated app.js — so the live
+// gate always grades against the same named thresholds as computeEntryTiming
+// above (no hand-kept copy to drift, unlike the documented greeks duplication).
+export const PICKS_TIMING_THRESHOLDS = Object.freeze({
+  knifeRet1d: PICKS_TIMING_KNIFE_RET1D,
+  knifeRet3d: PICKS_TIMING_KNIFE_RET3D,
+  chaseRsi: PICKS_TIMING_CHASE_RSI,
+  chaseDistSma20: PICKS_TIMING_CHASE_DIST_SMA20,
+  chaseDistSma20Soft: PICKS_TIMING_CHASE_DIST_SMA20_SOFT,
+  chase52w: PICKS_TIMING_CHASE_52W,
+  chaseRet5d: PICKS_TIMING_CHASE_RET5D,
+  chaseRet3d: PICKS_TIMING_CHASE_RET3D,
+  volConfirm: PICKS_TIMING_VOL_CONFIRM,
+});
+
 // ---- Cross-asset macro-stress regime (PICKS_MACRO_REGIME) --------------------
 // The legacy detectMarketRegime reads only the SPY day move + VIX. But a
 // coordinated risk-off / financial-conditions-TIGHTENING tape shows up across many
@@ -12461,12 +12479,67 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 export function buildGradesIndex(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, opts = {}) {
   const { scored, peerIndex, tierCutoffs, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const grades = {};
+  // Both-sides entry-gate read for the Hot-stocks board's verdict gate
+  // (hotEntryGate in the generated app.js). scorePillared already ran
+  // computeEntryTiming for the grade's OWN side (pillars.timing); the live
+  // board can lean either way per name, so the opposite side gets one extra
+  // pure gate call here. Published compact (state/kind/deferKind/headline) so
+  // the browser can demote a would-be "buy now" that the confirmed daily bars
+  // grade as a falling knife / extended chase / imminent-catalyst entry.
+  const gateRegime = regimeBand === "severe" ? "risk-off"
+    : (regimeBand === "risk-on" || regimeBand === "risk-off") ? regimeBand : "neutral";
+  const gateEventRisk = (macroBackdrop && macroBackdrop.eventRisk) || null;
+  const compactTiming = (t) => {
+    if (!t || !t.state) return null;
+    const head = t.headline || "";
+    return {
+      state: t.state,
+      // why an 'avoid' fired — the board labels knives and chases differently
+      kind: t.state === "avoid"
+        ? (/knife/i.test(head) ? "knife" : /chas/i.test(head) ? "chase" : "structure")
+        : null,
+      deferKind: t.deferKind || null,
+      headline: head,
+    };
+  };
   for (const r of scored) {
     const sector = r.data?.fundamentals?.sector || null;
     const peerGroup = peerGroupOf(r.sym, r.data);
     const peers = (peerIndex[peerGroup] || [])
       .filter((p) => p.symbol !== r.sym)
       .slice(0, 5);
+    const ownTiming = (r.pillars && r.pillars.timing) || null;
+    const ownSide = (ownTiming && ownTiming.side) || (r.total >= 0 ? "call" : "put");
+    const spotVal = r.data?.spot ?? null;
+    const otherTiming = computeEntryTiming(ownSide === "call" ? "put" : "call", r.data, spotVal, {
+      regime: gateRegime,
+      eventRisk: gateEventRisk,
+    });
+    // Live-gate substrate: the last CONFIRMED closes' 2-/4-day returns + the
+    // 20D SMA. The browser folds TODAY'S live %change on top (live ret3d ≈
+    // ret2 + chg, ret5d ≈ ret4 + chg — the live change is vs the same last
+    // confirmed close these end at), closing the one-day lag the confirmed-bars
+    // gate above deliberately carries. Same drop-the-in-progress-bar convention
+    // as computeEntryTiming.
+    let hotTech = null;
+    const gateBars = timingBarsFrom(r.data);
+    if (gateBars) {
+      const cAll = gateBars.c.filter((x) => Number.isFinite(x));
+      if (cAll.length >= PICKS_TIMING_MIN_BARS) {
+        const c = cAll.slice(0, -1);
+        const n = c.length;
+        const lastC = c[n - 1];
+        const retK = (k) => (n > k && c[n - 1 - k] > 0
+          ? Math.round(((lastC - c[n - 1 - k]) / c[n - 1 - k]) * 10000) / 100
+          : null);
+        const sma20v = r.data?.technicals?.sma?.sma20;
+        hotTech = {
+          sma20: Number.isFinite(sma20v) ? Math.round(sma20v * 100) / 100 : null,
+          ret2: retK(2),
+          ret4: retK(4),
+        };
+      }
+    }
     grades[r.sym] = {
       symbol: r.sym,
       side: r.recommendation?.side || null,
@@ -12494,6 +12567,13 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
       // powers the Narrative-breakdown Catalysts section on the grade-any-ticker
       // search card + Track-record roster. Not part of the score.
       catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
+      // Hot-stocks entry gate (see the block comment above the loop): the
+      // confirmed-daily-bars gate read for BOTH sides + the live-gate substrate.
+      timing: {
+        call: compactTiming(ownSide === "call" ? ownTiming : otherTiming),
+        put: compactTiming(ownSide === "put" ? ownTiming : otherTiming),
+      },
+      tech: hotTech,
     };
   }
   // Stash the percentile tier cutoffs (P3.2) on a non-enumerable so writeGradesFile

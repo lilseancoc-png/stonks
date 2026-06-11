@@ -7,11 +7,14 @@
 // upstream request, so we expose that as ?symbols=AAPL,MSFT,...
 //
 // Returns { quotes: [{ symbol, spot, prevClose, change, changePct,
-// marketState, dayVolume, avgVol10d, avgVol3m }, ...] }. Missing symbols
-// are silently dropped — partial results beat a 502 when one obscure
-// ticker disappears from Yahoo. The volume fields power the Volume tab's
-// live-tracking mode (cumulative day volume vs Yahoo's own 10D/3M average
-// baselines); the heatmap overlay ignores them.
+// marketState, dayVolume, avgVol10d, avgVol3m, hi52, lo52, dayHi, dayLo },
+// ...] }. Missing symbols are silently dropped — partial results beat a 502
+// when one obscure ticker disappears from Yahoo. The volume fields power the
+// Volume tab's live-tracking mode (cumulative day volume vs Yahoo's own
+// 10D/3M average baselines); the 52-week extremes + day range feed the Hot
+// stocks board's entry gate (don't chase a name pinned at its 52w extreme /
+// a move that has already retraced most of its day range); the heatmap
+// overlay ignores them all.
 
 import { yahooFinance, isValidSymbol, withYahooTimeout } from "../lib/yahoo.mjs";
 
@@ -51,6 +54,10 @@ export default async function handler(req, res) {
           "regularMarketVolume",
           "averageDailyVolume10Day",
           "averageDailyVolume3Month",
+          "fiftyTwoWeekHigh",
+          "fiftyTwoWeekLow",
+          "regularMarketDayHigh",
+          "regularMarketDayLow",
         ],
       }),
       `quotes(${symbols.length})`,
@@ -87,6 +94,10 @@ export default async function handler(req, res) {
           dayVolume: q?.regularMarketVolume ?? null,
           avgVol10d: q?.averageDailyVolume10Day ?? null,
           avgVol3m: q?.averageDailyVolume3Month ?? null,
+          hi52: q?.fiftyTwoWeekHigh ?? null,
+          lo52: q?.fiftyTwoWeekLow ?? null,
+          dayHi: q?.regularMarketDayHigh ?? null,
+          dayLo: q?.regularMarketDayLow ?? null,
         };
       })
       .filter(Boolean);
