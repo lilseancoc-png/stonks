@@ -7110,7 +7110,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   color: var(--muted);
 }
 /* Compact pills on the head row + the scannable grid card. */
-.pick-timing-pill, .ptc-tactical, .pick-tactical-tag {
+.pick-timing-pill, .ptc-tactical, .pick-tactical-tag, .ptc-defer, .pick-defer-tag {
   font: 700 9px/1 var(--font-mono);
   letter-spacing: .05em;
   padding: 3px 6px;
@@ -7120,6 +7120,10 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .pick-timing-pos.pick-timing-pill { background: color-mix(in srgb, var(--pos) 18%, var(--surface)); color: var(--pos); border: 1px solid color-mix(in srgb, var(--pos) 40%, var(--border)); }
 .pick-timing-fair.pick-timing-pill { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); }
 .ptc-tactical, .pick-tactical-tag { background: color-mix(in srgb, var(--neg) 16%, var(--surface)); color: var(--neg); border: 1px solid color-mix(in srgb, var(--neg) 38%, var(--border)); }
+/* Deferred-entry chip — a scheduled catalyst (earnings/FOMC-class event) parks
+   the entry; warn-tinted so a WAIT name can't read as "enter now" while skimming. */
+.ptc-defer, .pick-defer-tag { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); }
+.pick-defer-tag { white-space: normal; line-height: 1.35; }
 /* Honest roster note above the picks grid (short list / gated / sector-capped). */
 .picks-roster-note {
   grid-column: 1 / -1;
@@ -7561,7 +7565,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   color: var(--muted);
   margin-bottom: 6px;
 }
-.pick-entry-alert {
+.pick-entry-alert, .pick-entry-defer {
   font: 400 11.5px/1.45 var(--font-sans);
   color: var(--text-strong);
   padding: 7px 9px;
@@ -7572,6 +7576,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   border-radius: var(--r-1);
   background: color-mix(in srgb, var(--warn) 9%, var(--surface));
 }
+.pick-entry-defer b { color: var(--warn); }
 .pick-entry-strat {
   padding: 7px 9px;
   margin-bottom: 7px;
