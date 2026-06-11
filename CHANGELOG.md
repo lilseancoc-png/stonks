@@ -17,6 +17,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Changed
+- **Mobile sweep across remaining tabs:** the Bonds & USD movement-scale table gets compact phone cells, Overnight peer rows shrink type/gaps and ellipsize long names instead of squeezing the stats, the Tickers sector chips and Heatmap zoom buttons grow to thumb-sized tap targets, and the Gamma-exposure search goes full-width on its own row (same treatment as the Volume tab).
 - **Hot stocks is now a top-level nav tab next to Top picks** (it launched inside the Flow dropdown) — the tactical "what's heavy right now" board sits beside the longer-dated picks instead of being buried in a menu.
 
 ### Added
