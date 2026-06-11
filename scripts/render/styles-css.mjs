@@ -11364,6 +11364,11 @@ html::-webkit-scrollbar-thumb:hover {
 .hot-verdict.is-wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); background: var(--warn-soft); }
 .hot-verdict.is-lean-bull { color: var(--pos); background: none; opacity: .8; }
 .hot-verdict.is-lean-bear { color: var(--neg); background: none; opacity: .8; }
+/* Gated wait — a would-be execute demoted by the entry-quality gate (extended
+   chase / falling knife / imminent catalyst / day-range fade). Amber like a
+   plain wait but filled + full-opacity: "the tape fired and we are
+   deliberately standing down" should read louder than an ordinary lean. */
+.hot-verdict.is-gated { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); background: var(--warn-soft); opacity: 1; }
 .hot-stats {
   display: flex;
   flex-wrap: wrap;

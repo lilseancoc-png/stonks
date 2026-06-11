@@ -3053,6 +3053,12 @@
       // context; the OI tracker adds the hot board's squeeze chips.
       if ((name === 'volume' || name === 'hot') && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
       if (name === 'hot' && typeof loadOiData === 'function') loadOiData();
+      // The hot board's entry gate (anti-chase / anti-knife) reads the baked
+      // daily-bar timing states + 20D context from grades.json — lazy-loaded
+      // here and cached for the session; re-render once it lands.
+      if (name === 'hot' && typeof loadGradesIndex === 'function'){
+        loadGradesIndex(function(){ if (typeof renderHotStocks === 'function') renderHotStocks(); });
+      }
       // Hot stocks is always-live while visible (no opt-in toggle) — start
       // the 30s /api/quotes poll on entry, stop it on leave.
       if (name === 'hot' && typeof renderHotStocks === 'function') renderHotStocks();
@@ -7652,6 +7658,10 @@
   // The result is the top-15 "trading the heaviest right now" board: pace +
   // trailing-window read + dealer gamma + a buy-calls/buy-puts/wait verdict
   // per name, plus a live spot refresh on the Volume tab's scanner cards.
+  // Execute verdicts pass through an entry-quality gate (hotEntryGate below —
+  // baked daily-bar knife/chase/catalyst reads from grades.json + a live
+  // extension/fade re-check) so the board never says "buy now" at the top of
+  // an extended move or into a falling knife.
   // Baseline preference: the scanner's 20D avg (consistent with the flag
   // math) when the symbol is in the latest scan, else Yahoo's own 10D /
   // 3-month average daily volume from the quote itself.
@@ -7779,6 +7789,11 @@
             expected: expected,
             pace: pace,
             now: nowRead,
+            // Entry-gate inputs (hotEntryGate): 52-week extremes + day range.
+            hi52: (q.hi52 != null && isFinite(q.hi52)) ? Number(q.hi52) : null,
+            lo52: (q.lo52 != null && isFinite(q.lo52)) ? Number(q.lo52) : null,
+            dayHi: (q.dayHi != null && isFinite(q.dayHi)) ? Number(q.dayHi) : null,
+            dayLo: (q.dayLo != null && isFinite(q.dayLo)) ? Number(q.dayLo) : null,
           });
         }
         volLive.rows = rows;
@@ -7886,6 +7901,115 @@
     }
     return volLive.srMap[sym] || null;
   }
+  // Entry-quality gate for the hot-board verdict — the anti-"buy the top" /
+  // anti-"catch the falling knife" layer. Direction-aware (lean = +1 when the
+  // tally leans bullish, -1 bearish). Two sources, zero extra fetches:
+  //  (1) the baked daily-bar entry gate from data/grades.json (the server's
+  //      computeEntryTiming over CONFIRMED multi-day bars — the knife / chase /
+  //      imminent-earnings/FOMC reads a live-tape board cannot see), lazy-loaded
+  //      on tab entry and refreshed by every hourly bake; and
+  //  (2) a live re-check that folds TODAY'S move onto that baked multi-day
+  //      context (grades.json tech: 2-/4-day confirmed returns + the 20D SMA;
+  //      52-week extremes from the live quote) using the SAME named thresholds
+  //      as the server gate (HOT_GATE_T, interpolated from
+  //      PICKS_TIMING_THRESHOLDS in scripts/build.mjs — single-source, no
+  //      hand-kept copy). This is what catches the blow-off or collapse
+  //      happening RIGHT NOW that the confirmed-bars bake is a day behind on.
+  // Plus a day-range fade read: a would-be entry whose spot has already given
+  // back most of the day's move in its direction is buying a fading move.
+  // Missing inputs (grades.json not loaded yet / a field absent) skip their
+  // check silently — the gate degrades to fewer reads, never guesses.
+  var HOT_GATE_T = {"knifeRet1d":-6,"knifeRet3d":-8,"chaseRsi":70,"chaseDistSma20":8,"chaseDistSma20Soft":7,"chase52w":0.92,"chaseRet5d":10,"chaseRet3d":10,"volConfirm":1.3};
+  function hotGradeFor(sym){
+    var gd = (picksGradesState && picksGradesState.data) ? picksGradesState.data : null;
+    return (gd && gd.grades && gd.grades[sym]) ? gd.grades[sym] : null;
+  }
+  function hotEntryGate(r, lean, gatePace){
+    var out = { go: false, goReason: '', block: false, kind: null, reasons: [] };
+    var dirWord = lean > 0 ? 'calls' : 'puts';
+    var spot = (r.spot != null && isFinite(r.spot) && r.spot > 0) ? Number(r.spot) : null;
+    var chg = (r.changePct != null && isFinite(r.changePct)) ? Number(r.changePct) : null;
+    var g = hotGradeFor(r.sym);
+    // The chip can only show one label — knife outranks chase outranks
+    // catalyst outranks fade. Every firing reason still rides into the
+    // expandable "why" text.
+    var GATE_RANK = { knife: 4, chase: 3, structure: 3, catalyst: 2, fade: 1 };
+    function fire(kind, txt){
+      out.block = true;
+      out.reasons.push(txt);
+      if (!out.kind || (GATE_RANK[kind] || 0) > (GATE_RANK[out.kind] || 0)) out.kind = kind;
+    }
+    // (1) baked daily-bar gate for the side the board is leaning toward
+    var bt = (g && g.timing) ? (lean > 0 ? g.timing.call : g.timing.put) : null;
+    if (bt && bt.state === 'avoid'){
+      fire(bt.kind === 'knife' ? 'knife' : bt.kind === 'structure' ? 'structure' : 'chase',
+        'confirmed daily bars grade this entry avoid \u2014 ' + (bt.headline || 'poor entry'));
+    } else if (bt && bt.state === 'wait' && (bt.deferKind === 'earnings' || bt.deferKind === 'event')){
+      fire('catalyst', (bt.headline || 'scheduled catalyst imminent \u2014 defer entry') +
+        ' \u2014 IV crush / event whipsaw can lose money even when direction is right');
+    } else if (bt && bt.state === 'go'){
+      out.go = true;
+      out.goReason = 'confirmed daily bars grade this a clean entry for ' + dirWord +
+        (bt.headline ? ' (' + bt.headline.toLowerCase() + ')' : '');
+    }
+    // (2) live re-check — today's tape folded onto the baked multi-day context
+    var t = HOT_GATE_T;
+    var tech = (g && g.tech) ? g.tech : null;
+    var mDir = chg != null ? chg * lean : null; // + = today's move is WITH the lean
+    var dist20 = (tech && tech.sma20 != null && tech.sma20 > 0 && spot != null)
+      ? ((spot - tech.sma20) / tech.sma20) * 100 * lean
+      : null;
+    if (mDir != null){
+      if (mDir <= t.knifeRet1d){
+        fire('knife', lean > 0
+          ? ('down ' + Math.abs(chg).toFixed(1) + '% today \u2014 a falling knife; a short bounce is not a base')
+          : ('up ' + Math.abs(chg).toFixed(1) + '% today \u2014 a squeeze; shorting into it is catching a knife'));
+      }
+      var ret2 = (tech && tech.ret2 != null && isFinite(tech.ret2)) ? Number(tech.ret2) * lean : null;
+      if (ret2 != null && gatePace != null && isFinite(gatePace) && gatePace >= t.volConfirm &&
+          (ret2 + mDir) <= t.knifeRet3d){
+        fire('knife', (lean > 0 ? 'down ' : 'up ') + Math.abs(ret2 + mDir).toFixed(1) +
+          '% over 3 sessions on heavy volume \u2014 the move against ' + dirWord + ' is accelerating, not exhausted');
+      }
+      var ret4 = (tech && tech.ret4 != null && isFinite(tech.ret4)) ? Number(tech.ret4) * lean : null;
+      var stretched = dist20 != null && dist20 >= t.chaseDistSma20Soft;
+      if (stretched && ret4 != null && (ret4 + mDir) >= t.chaseRet5d){
+        fire('chase', (lean > 0 ? 'up ' : 'down ') + Math.abs(ret4 + mDir).toFixed(1) +
+          '% over 5 sessions and ' + dist20.toFixed(0) + '% past the 20D SMA \u2014 extended; ' +
+          (lean > 0 ? 'buying here is paying the top of the move' : 'fresh puts here are chasing the bottom of the move'));
+      } else if (stretched && mDir >= t.chaseRet3d){
+        fire('chase', 'a ' + (chg >= 0 ? '+' : '') + chg.toFixed(1) + '% blow-off day while already ' +
+          dist20.toFixed(0) + '% past the 20D SMA \u2014 extended; wait for a pullback');
+      }
+    }
+    // 52-week-extreme chase (server chaseA): hot RSI pinned at the extreme /
+    // stretched past the 20D SMA. RSI is the baked read (up to ~1h old) — a
+    // corroborator, not a live print.
+    var rsi = (g && g.rsi != null && isFinite(g.rsi)) ? Number(g.rsi) : null;
+    var rsiHot = rsi != null && (lean > 0 ? rsi >= t.chaseRsi : rsi <= 100 - t.chaseRsi);
+    var ext52 = (r.hi52 != null && r.lo52 != null && r.hi52 > r.lo52 && spot != null)
+      ? (spot - r.lo52) / (r.hi52 - r.lo52)
+      : null;
+    if (ext52 != null && lean < 0) ext52 = 1 - ext52;
+    if (rsiHot && ((dist20 != null && dist20 >= t.chaseDistSma20) || (ext52 != null && ext52 >= t.chase52w))){
+      fire('chase', 'RSI ' + rsi.toFixed(0) +
+        (ext52 != null && ext52 >= t.chase52w
+          ? ' with spot pinned at the 52-week ' + (lean > 0 ? 'high' : 'low')
+          : ' and ' + dist20.toFixed(0) + '% past the 20D SMA') +
+        ' \u2014 ' + (lean > 0 ? 'overbought' : 'washed out') + ' and stretched; entries this late tend to mean-revert');
+    }
+    // Day-range fade — the move already gave back most of its day range.
+    if (spot != null && r.dayHi != null && r.dayLo != null && r.dayHi > r.dayLo &&
+        (r.dayHi - r.dayLo) / spot >= 0.01){
+      var posR = (spot - r.dayLo) / (r.dayHi - r.dayLo);
+      if (lean > 0 && posR <= 0.35){
+        fire('fade', 'spot has retraced to the bottom third of the day range \u2014 the up-move is fading, not extending');
+      } else if (lean < 0 && posR >= 0.65){
+        fire('fade', 'spot has bounced into the top third of the day range \u2014 the down-move is fading, not extending');
+      }
+    }
+    return out;
+  }
   // "Play" verdict for a live row — execute bullish, execute bearish, or wait.
   // Sibling-in-spirit of the Grade tab's buildExecuteNowCard: that one grades a
   // specific CONTRACT's entry with full baked technicals; this one grades the
@@ -7987,9 +8111,22 @@
       bull += 1;
       why.push('gamma-squeeze score ' + squeeze + '/5 adds upside fuel');
     }
+    // Entry-quality gate (anti-chase / anti-knife — see hotEntryGate above),
+    // graded for the side the tally is leaning toward. A clean baked 'go' adds
+    // one point of conviction; a firing gate demotes a would-be execute to a
+    // labelled wait below — it never flips the lean.
+    var gatePace = now ? Number(now.pace) : pace;
+    var lean = bull > bear ? 1 : bear > bull ? -1 : 0;
+    var entryGate = lean !== 0 ? hotEntryGate(r, lean, gatePace) : null;
+    if (entryGate && entryGate.go && !entryGate.block){
+      if (lean > 0) bull += 1; else bear += 1;
+      why.push(entryGate.goReason);
+    }
+    if (entryGate && entryGate.reasons.length){
+      why = entryGate.reasons.concat(why);
+    }
     // Volume is the gate: an execute call needs participation behind it —
     // participation RIGHT NOW when the window read exists, else the day pace.
-    var gatePace = now ? Number(now.pace) : pace;
     var heavy = gatePace >= VOL_HEAVY_MULT;
     if (now){
       var nowAmts = fmtVolNum(now.vol) + ' traded vs ' + fmtVolNum(now.expected) + ' usual for this slice of the session';
@@ -8003,6 +8140,17 @@
     var afterClose = volLive.closed || (volLive.etMin != null && volLive.etMin >= 390);
     var prefix = afterClose ? 'Session closed — this is how the day finished; treat it as a next-open bias, not a fill-now signal. ' : '';
     var reasons = why.join('; ') + '.';
+    // A firing entry gate outranks volume confirmation: a heavy-volume move
+    // can still be the top of a chase or a knife bounce, and those are the two
+    // entries that lose the most. The lean survives (the arrow stays) but the
+    // call to action is a deliberate stand-down, not an execute.
+    var gateKind = (entryGate && entryGate.block) ? entryGate.kind : null;
+    if (margin >= 2 && gateKind){
+      return { cls: 'is-wait is-lean-bull is-gated', gate: gateKind, label: 'Wait \u25b2', title: prefix + 'Tape leans bullish, but the entry quality is poor — do not buy the top of a move or catch a falling knife: ' + reasons };
+    }
+    if (margin <= -2 && gateKind){
+      return { cls: 'is-wait is-lean-bear is-gated', gate: gateKind, label: 'Wait \u25bc', title: prefix + 'Tape leans bearish, but the entry quality is poor — chasing an extended slide (or shorting a squeeze) gives it right back: ' + reasons };
+    }
     if (margin >= 2 && heavy){
       return { cls: 'is-bull', label: 'Bullish \u25b2', title: prefix + 'Execute bullish (calls / long): ' + reasons };
     }
@@ -8018,14 +8166,29 @@
     return { cls: 'is-wait', label: 'Wait', title: prefix + 'No edge yet — signals are mixed or too weak to act on: ' + reasons };
   }
   // Map the verdict's class tokens to the Hot-stocks call to action. The
-  // underlying volLiveVerdict returns exactly one of: 'is-bull', 'is-bear',
-  // 'is-wait is-lean-bull', 'is-wait is-lean-bear', 'is-wait'.
+  // underlying volLiveVerdict returns one of: 'is-bull', 'is-bear',
+  // 'is-wait is-lean-bull', 'is-wait is-lean-bear', 'is-wait' — the lean-*
+  // forms optionally carrying ' is-gated' + a gate kind ('knife' / 'chase' /
+  // 'structure' / 'catalyst' / 'fade') when the entry-quality gate demoted a
+  // would-be execute. Gated chips say WHY the board is standing down.
   function hotVerdictView(verdict){
     if (!verdict) return null;
     if (verdict.cls === 'is-bull') return { cls: 'is-bull', label: 'Buy calls now \u25b2' };
     if (verdict.cls === 'is-bear') return { cls: 'is-bear', label: 'Buy puts now \u25bc' };
-    if (verdict.cls.indexOf('is-lean-bull') >= 0) return { cls: 'is-wait is-lean-bull', label: 'Wait & monitor \u25b2' };
-    if (verdict.cls.indexOf('is-lean-bear') >= 0) return { cls: 'is-wait is-lean-bear', label: 'Wait & monitor \u25bc' };
+    var leanBull = verdict.cls.indexOf('is-lean-bull') >= 0;
+    var leanBear = verdict.cls.indexOf('is-lean-bear') >= 0;
+    if (verdict.gate && (leanBull || leanBear)){
+      var arrow = leanBull ? ' \u25b2' : ' \u25bc';
+      var gLabel =
+        verdict.gate === 'knife' ? (leanBull ? 'Falling knife \u2014 wait' : 'Squeeze risk \u2014 wait') :
+        verdict.gate === 'chase' ? 'Extended \u2014 do not chase' :
+        verdict.gate === 'catalyst' ? 'Event risk \u2014 wait' :
+        verdict.gate === 'fade' ? 'Fading \u2014 wait' :
+        'Wait & monitor';
+      return { cls: verdict.cls, label: gLabel + arrow };
+    }
+    if (leanBull) return { cls: 'is-wait is-lean-bull', label: 'Wait & monitor \u25b2' };
+    if (leanBear) return { cls: 'is-wait is-lean-bear', label: 'Wait & monitor \u25bc' };
     return { cls: 'is-wait', label: 'Wait & monitor' };
   }
   function renderHotStocks(){
@@ -8106,6 +8269,7 @@
     var withPace = rows.filter(function(r){ return r.pace != null; }).length;
     html.push('<div class="vol-live-foot">Top ' + top.length + ' of ' + withPace + ' tracked names by live volume pace' +
       ' · now = the trailing ~' + VOL_NOW_WINDOW_MIN + ' min vs the usual for that slice of the session (the verdict grades this moment, not the day)' +
+      ' · buy calls/puts is entry-gated: an extended multi-day run (do not buy the top), a falling knife / squeeze, a fading day-range, or imminent earnings/FOMC demotes it to a labelled wait \u2014 tap the chip for the reasoning' +
       (afterClose ? ' · session closed — pace is the last full session vs the 20D average and verdicts read as next-open bias' : '') +
       '</div>');
     board.innerHTML = html.join('');
