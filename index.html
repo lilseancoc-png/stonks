@@ -85,6 +85,7 @@
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="heatmap" aria-controls="page-pane-heatmap" id="page-tab-heatmap">Heatmap</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="flow" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="volume" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="hot" aria-controls="page-pane-hot" id="page-tab-hot">Hot stocks</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="oi" aria-controls="page-pane-oi" id="page-tab-oi">Gamma exposure</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="streaks" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   </div>
@@ -141,6 +142,15 @@
           <div class="landing-card-stat" id="land-stat-flow">—</div>
           <div class="landing-card-sub">flagged today</div>
           <p class="landing-card-desc">Options prints with abnormal volume vs the prior session — who's pricing in what.</p>
+        </button>
+        <button type="button" class="landing-card landing-card-hot" data-go="hot" aria-label="View hot stocks">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Hot stocks</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat">Top 15</div>
+          <div class="landing-card-sub">by live volume pace</div>
+          <p class="landing-card-desc">What's trading the heaviest right now — live volume pace, dealer gamma, and a buy-calls / buy-puts / wait verdict per name.</p>
         </button>
         <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
           <header class="landing-card-head">
@@ -1505,17 +1515,7 @@
     <p class="hint">Each row reads <em>Vol actual / expected · ratio</em> — shares traded in that bucket vs. the bucket's share of the 20-day average, and the multiple between them. The trailing % is the price change across the bucket. A flag leans <span class="vol-key-up">bullish</span> when price is up on heavy volume (real demand) and <span class="vol-key-dn">bearish</span> when price is down on heavy volume (real selling pressure).</p>
     <p class="hint">Each card also carries a <strong>follow-the-case verdict</strong> — whether the volume evidence says to <em>follow</em> the bull or bear case (heavy volume confirmed the move), <em>wait for confirmation</em> (heavy participation but no decisive direction yet), or <em>not follow</em> it (a weak move or a likely fakeout, prone to fading). Expand a ticker to read the verdict's reasoning in full.</p>
     <p class="hint">The build's current <strong>★ Top Picks</strong> are pinned in their own group at the top so you can track flow on just those names; the rest are grouped by sector and <strong>collapsed by default</strong> — click a sector header to open it, then a ticker to expand its hour-by-hour breakdown with the reasoning. Each row's one-line summary shows its strongest flag, bullish/bearish lean, peak hour ratio, and EOD move. <em>Group by sector</em> and <em>Expand all</em> toggle the layout.</p>
-    <div class="vol-live" id="vol-live-section">
-      <div class="vol-live-head">
-        <label class="vol-live-toggle">
-          <input type="checkbox" id="vol-live-toggle" />
-          <span>Live tracking</span>
-        </label>
-        <span class="vol-live-hint">Polls live quotes every 30s while this tab is open — every tracked name's cumulative day volume vs. the volume <em>expected by this point of the session</em> (same U-shaped curve as the hourly scan), ranked by pace. ≥1.2× runs hot; ≥1.5× is exceptional. Each row carries the latest scan's dealer-gamma read (net GEX, flip, call/put walls + the OI tracker's squeeze score when ≥3) with flip/wall distances recomputed against the live spot. The <strong>Now</strong> column is the same read over just the trailing ~10 minutes — shares traded in that window vs. the volume <em>usual</em> for that exact slice of the session (hover/tap for the amounts). The <strong>Play</strong> chip is an execute-or-wait read graded <em>at this moment</em>: it goes <em>Bullish</em>/<em>Bearish</em> only when the trailing-window move (day move until the window warms up), the scanner's S/R break, and the dealer-gamma backdrop line up <em>and</em> the right-now volume confirms (≥1.2×); anything less is a Wait (tap the chip for the full reasoning).</span>
-        <span class="vol-live-state" id="vol-live-state" aria-live="polite"></span>
-      </div>
-      <div id="vol-live-board" class="vol-live-board" hidden></div>
-    </div>
+    <p class="hint">Looking for the live pace leaderboard? It moved to the <strong>Hot stocks</strong> tab — the top names trading the heaviest <em>right now</em>, with dealer gamma and a buy-calls / buy-puts / wait verdict per name.</p>
     <div class="vol-controls" role="toolbar" aria-label="Filter volume flags">
       <label class="vol-search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -1528,6 +1528,11 @@
         <button type="button" class="vol-pill" data-vol-filter="sr" role="radio" aria-checked="false">S/R breaks</button>
         <button type="button" class="vol-pill" data-vol-filter="eod" role="radio" aria-checked="false">EOD</button>
       </div>
+      <div class="vol-filter vol-lean-filter" role="radiogroup" aria-label="Filter by bullish or bearish lean">
+        <button type="button" class="vol-pill is-on" data-vol-lean="all" role="radio" aria-checked="true">Any lean</button>
+        <button type="button" class="vol-pill" data-vol-lean="bull" role="radio" aria-checked="false" title="Only tickers whose flagged volume leans bullish (price up on the heavy tape)">Bullish</button>
+        <button type="button" class="vol-pill" data-vol-lean="bear" role="radio" aria-checked="false" title="Only tickers whose flagged volume leans bearish (price down on the heavy tape)">Bearish</button>
+      </div>
       <div class="vol-toggles">
         <button type="button" id="vol-group-btn" class="vol-pill vol-toggle-pill is-on" aria-pressed="true" title="Group tickers under collapsible sector sections">Group by sector</button>
         <button type="button" id="vol-expand-btn" class="vol-pill vol-toggle-pill" aria-pressed="false" title="Expand or collapse every ticker's hour-by-hour detail">Expand all</button>
@@ -1536,6 +1541,7 @@
         <span class="vol-sort-label">Sort</span>
         <select id="vol-sort-select" aria-label="Sort volume flags">
           <option value="ratio">Hottest hour ratio</option>
+          <option value="verdict">Verdict (follow first)</option>
           <option value="eod">EOD day ratio</option>
           <option value="dayvol">Day volume</option>
           <option value="move">Largest day move</option>
@@ -1548,6 +1554,17 @@
     <div id="vol-list" class="vol-list" role="list"></div>
     <div id="vol-empty" class="vol-empty" hidden>No volume or S/R-break flags in the latest scan.</div>
     <div id="vol-no-results" class="vol-empty" hidden>No tickers match these filters.</div>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-hot" role="tabpanel" aria-labelledby="page-tab-hot" hidden>
+  <section class="card hot-card" id="hot-section">
+    <header class="card-header">
+      <h2 class="card-title">Hot stocks</h2>
+      <span class="vol-live-state" id="hot-live-state" aria-live="polite"></span>
+    </header>
+    <p class="hint">The <strong>15 names trading the heaviest right now</strong>, refreshed every 30s while this tab is open. <strong>Pace</strong> is cumulative day volume vs. the volume <em>expected by this point of the session</em> (the same U-shaped 25/14/11/11/14/25% intraday curve the hourly scanner uses) — ≥1.2× runs hot, ≥1.5× is exceptional. <strong>Now</strong> is the same read over just the trailing ~10 minutes, so you can tell a name that is heavy <em>at this moment</em> from one coasting on a busy open.</p>
+    <p class="hint">Each card carries the latest hourly scan's <strong>dealer-gamma read</strong> — net GEX (long γ pins price, short γ amplifies moves), the gamma flip, call/put walls with live-spot distances, and the OI tracker's squeeze score when ≥3 — plus a <strong>verdict</strong>: <span class="vol-key-up">Buy calls now</span> / <span class="vol-key-dn">Buy puts now</span> when the move, the S/R-break picture, and the gamma backdrop line up <em>and</em> right-now volume confirms (≥1.2×), otherwise <em>Wait &amp; monitor</em>. Tap a verdict for its full reasoning. These are <em>moment</em> reads for short-dated tactical trades — for the longer-dated, narrative-driven play see <strong>Top Picks</strong>.</p>
+    <div id="hot-board" class="hot-board" aria-live="polite"></div>
   </section>
   </div>
   <div class="page-pane" id="page-pane-oi" role="tabpanel" aria-labelledby="page-tab-oi" hidden>

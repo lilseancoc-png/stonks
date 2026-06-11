@@ -16,6 +16,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Added
+- **New "Hot stocks" tab — the live tactical board.** The top 15 names trading the heaviest *right now* (live volume pace vs the U-shaped intraday curve, refreshed every 30s while open — no opt-in toggle), each card with the trailing ~10-min "now" read, the hourly scan's dealer-gamma context (net GEX, flip, walls, squeeze score), and a hard verdict: **Buy calls now / Buy puts now / Wait & monitor** (tap for reasoning). Replaces the Volume tab's opt-in live-tracking board (moved + promoted); Top Picks stays the longer-dated narrative/fundamentals play. Also in the Flow nav menu + a landing card.
+
+- **Volume tab: bullish/bearish lean filter + "Verdict (follow first)" sort.** A second pill group filters the flag list to tickers whose heavy-volume lean is bullish or bearish (same ≥0.5% bar as the lean pill itself), and a new sort option ranks cards by follow-the-case verdict (Follow > Wait > Avoid, hottest hour ratio as tiebreak) so the actionable tape sorts to the top.
+
+### Fixed
+- **Live volume pace no longer misreads a closed tape:** when Yahoo's market state isn't REGULAR (pre/post-market, weekends, holidays), pace now compares the last full session's volume against the whole-day expectation instead of the clock's slice of the intraday curve — a Saturday poll used to show everything ~4× "hot" — and verdicts are framed as next-open bias.
+
+### Changed
+- **Volume tab phone layout reworked:** full-width search with wrappable thumb-sized filter pills and a stretched sort select; flag cards put ticker + spot on the first line with the chips/stats summary on its own line; hour buckets drop the volume actual/expected detail to a second line (label + price move stay on the first); taller tap targets on card and sector headers; tighter breadth-banner spacing.
+
 ### Perf
 - **data/unusual-history.json trimmed 5.3 MB → 1.4 MB:** retention drops 8 → 2 snapshots — the only reader (`buildPrevVolLookup`) consumes just the most recent same-session snapshot, so the other six ~700 KB slots were pure git-history bloat at an hourly commit cadence; the committed file was rewritten in place.
 - **Manifest diet — index.html drops from ~830 KB to ~280 KB.** The full OI-tracker (~440 KB) and volume-flags (~110 KB) payloads no longer ride in the inlined `window.STONKS_MANIFEST`; the browser lazy-fetches `data/oi-tracker.json` / `data/volume-flags.json` on first entry to the OI / Volume tabs (same pattern as briefs/correlations). Only tiny `oiMeta`/`volumeFlagsMeta` stubs stay inline for the freshness banner.
