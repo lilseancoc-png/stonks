@@ -15294,13 +15294,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var mLbl = severe ? 'Severe risk-off' : (macro.state === 'risk-on' ? 'Risk-on' : 'Risk-off');
       var mCls = (macro.state === 'risk-on') ? ' picks-summary-call' : ' picks-summary-put';
       var drv = (macro.drivers && macro.drivers.length) ? macro.drivers.join(' · ') : '';
+      // Held-vs-raw: the regime has asymmetric hysteresis (a recovery needs two
+      // consecutive builds to confirm), so on a rebound day the effective label
+      // can sit one notch more defensive than this build's instantaneous read.
+      // Surface that so a green tape under a risk-off chip reads as "recovering,
+      // unconfirmed" rather than a contradiction.
+      var heldRaw = (macro.persisted && macro.rawState && macro.rawState !== macro.state)
+        ? (macro.rawState === 'severe-risk-off' ? 'severe risk-off' : macro.rawState)
+        : null;
       var grossTxt = (macro.grossMult != null && macro.grossMult < 1) ? ' Gross cut to ~' + Math.round(macro.grossMult * 100) + '% of target.' : '';
       var mTitle = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields, the Fed path (FedWatch hike-odds drift), a commodity / geopolitical-shock axis (a crude spike + gold safe-haven bid), a geopolitical-news axis (a strong war/conflict narrative), and an inflation/labor axis (monthly CPI YoY + unemployment — hot or re-accelerating inflation, or a Sahm-triggered labor deterioration). ' +
         (macro.state === 'risk-on' ? 'A clean risk-on tape leans the list long.' :
           (severe ? 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), tactical puts open wider, calls are capped, and gross is cut.' :
             'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.')) +
-        (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + ' Establishes the tape even without an S&P -1% day.';
-      regimeChip = '<div class="picks-summary-chip' + mCls + '" title="' + mTitle + '"><span class="picks-summary-num">' + (macro.state === 'risk-on' ? '' : '⚠ ') + mLbl + '</span><span class="picks-summary-lbl">macro tape' + (drv ? ' · ' + drv : '') + '</span></div>';
+        (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + ' Establishes the tape even without an S&P -1% day.' +
+        (heldRaw ? ' HELD DEFENSIVE: this build actually read ' + heldRaw + ' — the label only steps down once two consecutive builds confirm the recovery, so one green bounce after a sell-off cannot whipsaw the whole book.' : '');
+      regimeChip = '<div class="picks-summary-chip' + mCls + '" title="' + mTitle + '"><span class="picks-summary-num">' + (macro.state === 'risk-on' ? '' : '⚠ ') + mLbl + '</span><span class="picks-summary-lbl">macro tape' + (heldRaw ? ' · recovering (read ' + heldRaw + ')' : '') + (drv ? ' · ' + drv : '') + '</span></div>';
     } else if (regime === 'risk-off' || regime === 'risk-on' || regime === 'neutral'){
       var rLbl = regime === 'risk-off' ? 'Risk-off' : (regime === 'risk-on' ? 'Risk-on' : 'Neutral');
       var rCls = regime === 'risk-off' ? ' picks-summary-put' : (regime === 'risk-on' ? ' picks-summary-call' : '');

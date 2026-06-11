@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- Top Picks macro-tape chip now surfaces the regime's held-vs-raw state: when hysteresis is holding a more defensive label than the build's instantaneous read (e.g. risk-off on a green rebound day that read neutral), the chip shows "recovering (read neutral)" and the tooltip explains the two-build confirmation rule.
+
 ### Fixed
 - Unusual-flow history snapshots now stamp `etMin`, which the pre-open baseline guard added earlier in this branch requires — without it the guard rejected *every* snapshot and flagging would have stopped entirely (legacy snapshots age out after one scan, matching the documented self-heal).
 - "Check a position you hold" gets the same 16:00 ET close offset as the grading path: greeks no longer collapse on the contract's final trading day, the expiry-day expiration stays selectable in the dropdown through the close, and its DTE matches the Grade tab.
