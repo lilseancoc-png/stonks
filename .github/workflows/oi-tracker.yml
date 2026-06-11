@@ -92,12 +92,20 @@ jobs:
           # final index.html reflects the rebased+popped data state
           # cleanly.
           DATA_PATHS="data/oi-tracker.json data/oi-history.json data/briefs.json data/ai-usage.json"
+          # A push of byte-identical files exits 0 WITHOUT creating a
+          # stash entry, so an unconditional pop would die on "No stash
+          # entries found" under set -e. Count entries to pop only what
+          # we pushed.
+          STASH_BEFORE=$(git stash list | wc -l)
           git stash push --include-untracked $DATA_PATHS || true
+          STASH_AFTER=$(git stash list | wc -l)
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
           # Don't swallow stash pop errors — a silent conflict here
           # means the freshly-scanned files get discarded and the job
           # ends green with nothing committed.
-          git stash pop
+          if [ "$STASH_AFTER" -gt "$STASH_BEFORE" ]; then
+            git stash pop
+          fi
           # Regenerate static files NOW, after the rebase + stash pop,
           # so the inlined MANIFEST reflects whatever just landed on
           # main plus our fresh OI scan. Doing it here instead of

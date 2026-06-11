@@ -373,6 +373,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var iso = year + '-' + (mm<10?'0':'') + mm + '-' + (dd<10?'0':'') + dd;
     return { root: m[1], type: m[5]==='C' ? 'call' : 'put', strike: parseInt(m[6],10)/1000, expiryISO: iso };
   }
+  // Chain expiration keys are midnight UTC of the expiry date — ~8 PM ET the
+  // *evening before* the contract's last trading day — but the contract
+  // trades until the 16:00 ET close ~20h later. Add this offset before
+  // differencing a chain key against "now" so greeks/DTE stay live through
+  // the final session instead of going negative at the prior evening.
+  // (Manual entries don't need it — they anchor via etCloseEpochSec below.)
+  var EXPIRY_CLOSE_OFFSET_MS = 20 * 3600 * 1000;
+  var EXPIRY_CLOSE_OFFSET_SEC = EXPIRY_CLOSE_OFFSET_MS / 1000;
   // 16:00 ET on the given YYYY-MM-DD expressed as a UTC epoch (seconds).
   // Resolves the EDT/EST offset for that calendar date via Intl, so DST
   // transitions don't shift theta by an hour for manually-entered contracts.
@@ -2220,7 +2228,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       if (bestExp){
         var newRowExp = bestExp.row;
-        var Texp = Math.max(0, (bestExp.expEpoch - nowSec) / (365 * 86400));
+        var Texp = Math.max(0, (bestExp.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
         var newDeltaExp = deltaOf(newRowExp, Texp);
         var newSpExp = spreadPctOf(newRowExp);
         return {
@@ -2244,7 +2252,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // 2) Far-OTM delta → find a near-ATM strike in the same expiry whose
     //    |delta| sits in the balanced 0.40-0.70 zone with a workable spread.
     if (kinds.indexOf('delta') >= 0 && input.expEpoch){
-      var T = Math.max(0, (input.expEpoch - nowSec) / (365 * 86400));
+      var T = Math.max(0, (input.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
       var rows2 = rowsFor(input.expEpoch);
       var best = null, bestQuality = -Infinity;
       for (var k = 0; k < rows2.length; k++){
@@ -2290,7 +2298,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (score3 < bestSpScore){ bestSpScore = score3; bestSp = { row: rows3[n], sp: sp3 }; }
       }
       if (bestSp){
-        var Tsp = Math.max(0, (input.expEpoch - nowSec) / (365 * 86400));
+        var Tsp = Math.max(0, (input.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
         var newDeltaSp = deltaOf(bestSp.row, Tsp);
         return {
           kind: 'strike',
@@ -3334,7 +3342,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var quoteStale = (input.source === 'chain') &&
       ((bid == null || ask == null || bid <= 0 || ask <= 0) || (mkt != null && mkt !== 'REGULAR'));
     var iv = input.iv;
-    var T = (input.expEpoch*1000 - Date.now()) / (365*24*3600*1000);
+    // Manual entries already anchor expEpoch at the 16:00 ET close; chain
+    // rows carry the raw midnight-UTC expiration key and need the offset.
+    var expMs = input.expEpoch*1000 + (input.source === 'manual' ? 0 : EXPIRY_CLOSE_OFFSET_MS);
+    var T = (expMs - Date.now()) / (365*24*3600*1000);
     var g = (T > 0 && iv > 0 && input.spot > 0 && input.strike > 0)
       ? greeks(input.type, input.spot, input.strike, T, iv, RFR) : null;
 
@@ -8200,6 +8211,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var gLabel =
         verdict.gate === 'knife' ? (leanBull ? 'Falling knife \\u2014 wait' : 'Squeeze risk \\u2014 wait') :
         verdict.gate === 'chase' ? 'Extended \\u2014 do not chase' :
+        verdict.gate === 'structure' ? 'Poor structure \\u2014 wait' :
         verdict.gate === 'catalyst' ? 'Event risk \\u2014 wait' :
         verdict.gate === 'fade' ? 'Fading \\u2014 wait' :
         'Wait & monitor';
@@ -8960,7 +8972,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var GEX_CONTRACT_MULT = 100;          // shares per contract
   var GEX_MIN_T_DAYS = 1;               // floor on time-to-expiry so 0DTE ATM gamma stays finite + readable
   var GEX_MAX_EXPS = 8;                 // near-term expiration columns shown
-  var GEX_EXPIRY_OFFSET_MS = 20 * 3600 * 1000; // ~16:00 ET close vs the midnight-UTC expiration key
+  var GEX_EXPIRY_OFFSET_MS = EXPIRY_CLOSE_OFFSET_MS; // ~16:00 ET close vs the midnight-UTC expiration key (shared constant)
   var GEX_YEAR_MS = 365 * 24 * 3600 * 1000;
   var GEX_RANGES = { near: 12, mid: 22, wide: 40 }; // strikes shown each side of spot
   var gexState = {
@@ -9455,7 +9467,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function stratDte(epochSec){
     if (!epochSec) return null;
-    return Math.max(0, Math.round((epochSec * 1000 - Date.now()) / 86400000));
+    return Math.max(0, Math.round((epochSec * 1000 + EXPIRY_CLOSE_OFFSET_MS - Date.now()) / 86400000));
   }
   function stratBsPrice(type, S, K, T, sigma, r){
     if (!(S>0 && K>0 && sigma>0)) return null;
@@ -9670,7 +9682,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         bid = row.b; ask = row.a; iv = row.iv; oi = row.oi; vol = row.v;
         if (bid != null && ask != null) mid = (bid + ask) / 2;
         else if (row.l != null) mid = row.l;
-        var T = Math.max(0, (L.expSec - nowSec) / (365*86400));
+        var T = Math.max(0, (L.expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365*86400));
         if (iv != null && T > 0){
           g = greeks(L.type, spot, L.strike, T, iv, RFR);
         }
@@ -10877,7 +10889,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var head = '<div class="ovn-w-head ' + headCls + '">';
       if (lead && lead.chPct != null){
         head += '<b>' + ovnEsc(lead.name) + '</b> ' + ovnSignPct(lead.chPct);
-        if (lead.corr != null) head += ' <span class="ovn-w-r">r ' + lead.corr + '</span>';
+        if (lead.corr != null) head += ' <span class="ovn-w-r">r ' + ovnEsc(String(lead.corr)) + '</span>';
         if (implied != null) head += ' → implies <b>' + ovnSignPct(implied, 1) + '</b> ' + ovnEsc(sym);
       } else {
         head += 'Overnight peers';
@@ -10891,7 +10903,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         out += '<div class="ovn-w-row ' + ovnMoveCls(p.chPct) + '">' +
           '<span class="ovn-w-peer">' + ovnEsc(p.name) + '</span>' +
           '<span class="ovn-w-ch">' + ovnSignPct(p.chPct) + '</span>' +
-          '<span class="ovn-w-stat">' + (p.corr == null ? 'r —' : 'r ' + p.corr) + (p.beta == null ? '' : ' · β ' + p.beta) + '</span>' +
+          '<span class="ovn-w-stat">' + (p.corr == null ? 'r —' : 'r ' + ovnEsc(String(p.corr))) + (p.beta == null ? '' : ' · β ' + ovnEsc(String(p.beta))) + '</span>' +
           '<span class="ovn-w-imp ' + ovnMoveCls(imp) + '">' + (imp == null ? '' : '≈ ' + ovnSignPct(imp, 1)) + '</span>' +
           '</div>';
       }
@@ -14207,7 +14219,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var posState = { chain: null, symbol: null, bound: false };
   var POS_TP = 60, POS_STOP = 40; // % of entry premium — mirrors the engine's plan
 
-  function posYrs(exp){ return Math.max(1e-6, (Number(exp) - Date.now()/1000) / (365.25*86400)); }
+  function posYrs(exp){ return Math.max(1e-6, (Number(exp) + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000) / (365.25*86400)); }
   function posRows(chain, side, exp){
     var ch = chain && chain.chains && chain.chains[String(exp)];
     if (!ch) return [];
@@ -14242,7 +14254,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function posPopulateExpiry(){
     var expSel=$('pos-expiry'); if(!expSel||!posState.chain) return;
     var nowSec=Date.now()/1000;
-    var exps=(posState.chain.expirations||[]).slice().filter(function(e){return Number(e)>nowSec;}).sort(function(a,b){return a-b;});
+    // Chain keys are midnight UTC of the expiry date — keep the expiry-day
+    // contract selectable through its final session (16:00 ET close).
+    var exps=(posState.chain.expirations||[]).slice().filter(function(e){return Number(e)+EXPIRY_CLOSE_OFFSET_SEC>nowSec;}).sort(function(a,b){return a-b;});
     if(!exps.length){ expSel.innerHTML='<option value="">no live expirations</option>'; expSel.disabled=true; return; }
     expSel.innerHTML=exps.map(function(e){return '<option value="'+e+'">'+escapeHtml(fmtExpiryLabel(e))+'</option>';}).join('');
     expSel.disabled=false;
@@ -14293,7 +14307,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var mark = (m.bid>0 && m.ask>0) ? (m.bid+m.ask)/2 : (m.last>0?m.last:NaN);
     var pnlPct = isFinite(mark) ? ((mark-entry)/entry)*100 : NaN;
     var dollarPnl = isFinite(mark) ? (mark-entry)*100*o.qty : NaN;
-    var dte = Math.max(0, Math.round((o.exp - Date.now()/1000)/86400));
+    var dte = Math.max(0, Math.round((o.exp + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000)/86400));
     var g = (m.iv>0 && m.spot>0) ? greeks(side, m.spot, o.strike, posYrs(o.exp), m.iv, RFR) : null;
     var thetaPctDay = (g && isFinite(g.thetaDay) && mark>0) ? (Math.abs(g.thetaDay)/mark)*100 : null;
     var grade = (picksGradesState.data && picksGradesState.data.grades) ? picksGradesState.data.grades[o.sym] : null;
@@ -16024,9 +16038,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var alerting = inf.yoy >= 4 || (inf.yoy >= 3 && inf.trend === 'rising');
       var delta = (inf.prevYoy != null && isFinite(inf.prevYoy)) ? inf.yoy - inf.prevYoy : null;
       // Direction colors are economic, not numeric: cooling inflation is the
-      // good (green) direction, re-acceleration the bad (red) one.
+      // good (green = "up" class) direction, re-acceleration the bad (red) one.
       var deltaLine = delta != null
-        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'up' : delta < -0.05 ? 'down' : 'flat') + '">' +
+        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'down' : delta < -0.05 ? 'up' : 'flat') + '">' +
             (delta >= 0 ? '+' : '') + delta.toFixed(1) + 'pp vs prior month (' + escapeHtml(inf.trend || 'flat') + ')</span>'
         : '';
       return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
@@ -16051,8 +16065,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : { key: 'normal', label: 'Stable' };
       var alerting = sahm != null && sahm >= 0.5;
       var delta = (ue.prior != null && isFinite(ue.prior)) ? ue.rate - ue.prior : null;
+      // Same economic coloring as the CPI tile: a falling unemployment rate is
+      // the good (green = "up" class) direction, a rising one the bad (red).
       var deltaLine = delta != null
-        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'up' : delta < -0.05 ? 'down' : 'flat') + '">' +
+        ? '<span class="bonds-live-change ' + (delta > 0.05 ? 'down' : delta < -0.05 ? 'up' : 'flat') + '">' +
             (delta >= 0 ? '+' : '') + delta.toFixed(1) + 'pp vs prior month</span>'
         : '';
       return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
