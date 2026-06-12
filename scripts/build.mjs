@@ -15652,6 +15652,168 @@ function computeBriefGex(entry, sym, rfr) {
   };
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Historical Playbook — pattern registry + deterministic cue detector.
+// The registry is distilled from docs/historical-playbook.md (the canonical
+// reference): one compact recognition + typical-reaction line per pattern that
+// the brief prompt can quote. detectPlaybookCues runs cheap deterministic
+// screens over the SAME computed signals the brief already uses (macro legs,
+// Fear & Greed, confirmed 1-day moves, rvol, the ET calendar date) and only
+// patterns whose cue fires reach the prompt — the model judges whether the
+// tape genuinely resembles one, and writes the optional `analog` block into
+// the brief if (and only if) it does. Patterns with no reliable price/calendar
+// proxy (pandemics, tariffs, bank runs) live in the doc but get no detector:
+// flagging them off headlines we don't have would just invite hallucination.
+const HISTORICAL_PLAYBOOK = {
+  war: {
+    name: "Geopolitical shock / war",
+    recognition: "Conflict escalation — oil and gold spike together, VIX jumps, broad risk-off.",
+    reaction: "Short-term decline and volatility, defense up / travel-energy-sensitive down; if contained, equities have typically recovered within months (Gulf War 1990-91, Iraq 2003, Ukraine 2022).",
+  },
+  oilShock: {
+    name: "Oil supply disruption",
+    recognition: "Crude spikes >20-30% in short order on supply/geopolitical news; energy-sector volatility.",
+    reaction: "Inflation fears and input-cost pressure weigh on the broad tape while energy rallies (1973 embargo, 1990 Gulf War, 2022 Russia sanctions).",
+  },
+  volEvent: {
+    name: "1987-style volatility event",
+    recognition: "Crash-scale single-day loss or VIX panic spike after a strong run; forced/mechanical selling (then portfolio insurance, now dealer short gamma and leverage).",
+    reaction: "Panic selling met by a quick policy response; rare, but 1987's losses were recovered within ~2 years. Watch liquidity and circuit-breaker proximity.",
+  },
+  nasdaq4: {
+    name: "Nasdaq -4% day",
+    recognition: "A >4% one-day Nasdaq loss, often a small next-day bounce, with high VIX and tech concentration.",
+    reaction: "Historically high odds (~90% per some studies) the crash-day low gets tested or breached within ~5 sessions — follow-through selling rather than a V-bottom.",
+  },
+  mania: {
+    name: "Mania / bubble euphoria",
+    recognition: "Extreme greed sentiment, stretched valuations, surging retail participation and FOMO narratives (Minsky: displacement, boom, euphoria, panic).",
+    reaction: "Sharp rises can run further than expected but resolve in crashes (1999-2000 dot-com, 2021 meme/SPAC); forward returns from euphoric readings are historically poor.",
+  },
+  squeeze: {
+    name: "Short squeeze",
+    recognition: "Explosive single-name rally on multiples of normal volume from oversold levels, consistent with forced short covering (high short interest / days-to-cover names).",
+    reaction: "Days-to-weeks of outsized gains, then a frequent sharp reversal once covering exhausts (GME/AMC Jan 2021, VW 2008).",
+  },
+  tripleWitching: {
+    name: "Triple witching",
+    recognition: "Third Friday of Mar/Jun/Sep/Dec — stock options, index options and index futures all expire; volume often ~2x normal.",
+    reaction: "Erratic swings with NO directional bias, heaviest into the final hour as positions square and roll; larger impact when it overlaps rebalances or news.",
+  },
+  santa: {
+    name: "Santa Claus rally window",
+    recognition: "Last 5 trading days of December plus the first 2 of January.",
+    reaction: "Positive seasonal bias (S&P 500 avg ~+1.3%, positive ~75-80% of years); a FAILED Santa rally has itself been a caution sign some years.",
+  },
+  sellInMay: {
+    name: "Sell in May seasonal",
+    recognition: "Entering the May-October stretch that has historically lagged November-April.",
+    reaction: "Summer underperformance bias on lighter volume — a bias, not a rule; use to temper sizing, not as a standalone signal.",
+  },
+  septemberWeak: {
+    name: "September weakness",
+    recognition: "September — historically the weakest month for US equities.",
+    reaction: "Net selling-pressure bias across the month; like all seasonals it is a tendency, not a guarantee.",
+  },
+  wwdc: {
+    name: "WWDC sell-the-news",
+    recognition: "Apple's June developer conference window — pre-event hype in AAPL and suppliers, post-keynote stall or reversal despite positive news.",
+    reaction: "Buy-the-rumor / sell-the-news: run-up into the keynote, then a fade or consolidation in AAPL and the semis complex.",
+  },
+  econEvent: {
+    name: "Macro data reaction",
+    recognition: "A scheduled release (CPI, jobs, FOMC, GDP) just printed — the surprise vs consensus is what moves markets, not the level.",
+    reaction: "Volatility spike around the print; in rate-sensitive regimes good news can be bad news (strong data delays cuts). Post-event drift varies by release and regime.",
+  },
+};
+
+// Deterministic trigger thresholds for the tape-based cues.
+const PLAYBOOK_OIL_1D = 4;        // % crude 1d — supply-shock scale move
+const PLAYBOOK_OIL_5D = 10;       // % crude 5d
+const PLAYBOOK_GOLD_1D = 2;       // % gold 1d — safe-haven bid
+const PLAYBOOK_VIX_LEVEL = 30;    // VIX level — panic regime
+const PLAYBOOK_VIX_SPIKE_1D = 25; // % VIX 1d
+const PLAYBOOK_NDX_DROP_1D = -4;  // % QQQ 1d
+const PLAYBOOK_FNG_MANIA = 85;    // Fear & Greed extreme greed
+const PLAYBOOK_FNG_PANIC = 10;    // Fear & Greed capitulation
+const PLAYBOOK_SQUEEZE_CH = 15;   // % single-name 1d
+const PLAYBOOK_SQUEEZE_RVOL = 4;  // x own 20D average volume
+const PLAYBOOK_MAX_CUES = 4;      // prompt budget — tape shocks rank ahead of seasonals
+
+// Day-of-month of the third Friday (triple witching) for an ET year/month.
+function thirdFridayDay(year, monthIdx) {
+  const firstDow = new Date(Date.UTC(year, monthIdx, 1)).getUTCDay();
+  return 1 + ((5 - firstDow + 7) % 7) + 14;
+}
+
+// Screen the brief's inputs for active playbook patterns. Pure given ctx —
+// exported for testing alongside gatherBriefSignals. Returns cues ordered
+// tape-shock-first (each { id, name, cue, recognition, reaction }), capped at
+// PLAYBOOK_MAX_CUES so the prompt stays bounded.
+export function detectPlaybookCues(ctx, now = new Date()) {
+  const { chains = {}, macro = null, fearGreed = null, calendar = {} } = ctx || {};
+  const cues = [];
+  const pct = (v) => briefPctStr(Number(v)) ?? "n/a";
+  const add = (id, cue) => {
+    const p = HISTORICAL_PLAYBOOK[id];
+    if (p) cues.push({ id, name: p.name, cue, recognition: p.recognition, reaction: p.reaction });
+  };
+  const todayEt = etDateKey(now);
+  const [yy, mm, dd] = todayEt.split("-").map(Number);
+  const crude1d = Number(macro?.crude?.pctChange1d);
+  const crude5d = Number(macro?.crude?.pctChange5d);
+  const gold1d = Number(macro?.gold?.pctChange1d);
+  const vixLvl = Number(macro?.vix?.value);
+  const vix1d = Number(macro?.vix?.pctChange1d);
+  const fng = Number(fearGreed?.score);
+  const qqq1d = Number(chains?.QQQ?.technicals?.volume?.priceMove1dPct);
+
+  // Tape shocks first — these outrank calendar seasonals for the cue budget.
+  if (gold1d >= PLAYBOOK_GOLD_1D && (crude1d >= 3 || vix1d >= 10)) {
+    add("war", `gold ${pct(gold1d)} with crude ${pct(crude1d)} and VIX ${pct(vix1d)} — joint safe-haven + energy + vol bid`);
+  }
+  if (crude1d >= PLAYBOOK_OIL_1D || crude5d >= PLAYBOOK_OIL_5D) {
+    add("oilShock", `WTI crude ${pct(crude1d)} on the day (${pct(crude5d)} on 5d)`);
+  }
+  if (vixLvl >= PLAYBOOK_VIX_LEVEL || vix1d >= PLAYBOOK_VIX_SPIKE_1D || (Number.isFinite(fng) && fng <= PLAYBOOK_FNG_PANIC)) {
+    const bits = [];
+    if (Number.isFinite(vixLvl)) bits.push(`VIX ${vixLvl.toFixed(1)}${Number.isFinite(vix1d) ? ` (${pct(vix1d)} 1d)` : ""}`);
+    if (Number.isFinite(fng) && fng <= PLAYBOOK_FNG_PANIC) bits.push(`Fear & Greed ${Math.round(fng)} (extreme fear)`);
+    add("volEvent", bits.join(", ") || "volatility panic conditions");
+  }
+  if (qqq1d <= PLAYBOOK_NDX_DROP_1D) {
+    add("nasdaq4", `QQQ ${pct(qqq1d)} on the most recent session`);
+  }
+  if (Number.isFinite(fng) && fng >= PLAYBOOK_FNG_MANIA) {
+    add("mania", `Fear & Greed ${Math.round(fng)} (extreme greed)`);
+  }
+  const squeezy = [];
+  for (const [sym, d] of Object.entries(chains)) {
+    const v = d?.technicals?.volume;
+    if (v && Number(v.priceMove1dPct) >= PLAYBOOK_SQUEEZE_CH && Number(v.rvol) >= PLAYBOOK_SQUEEZE_RVOL) {
+      squeezy.push(`${sym} ${pct(v.priceMove1dPct)} on ${Math.round(v.rvol * 10) / 10}x volume`);
+    }
+  }
+  if (squeezy.length) add("squeeze", squeezy.slice(0, 3).join(", "));
+  const printedToday = (Array.isArray(calendar?.releases) ? calendar.releases : [])
+    .filter((r) => r && r.actual && String(r.date) === todayEt);
+  if (printedToday.length) {
+    add("econEvent", printedToday.slice(0, 3).map((r) => `${r.title}: ${r.actual}${r.consensus ? ` vs ${r.consensus} est` : ""}`).join("; "));
+  }
+
+  // Calendar seasonals.
+  if (mm === 3 || mm === 6 || mm === 9 || mm === 12) {
+    const tw = thirdFridayDay(yy, mm - 1);
+    if (dd >= tw - 4 && dd <= tw) add("tripleWitching", `quarterly expiration ${yy}-${String(mm).padStart(2, "0")}-${String(tw).padStart(2, "0")}${dd === tw ? " (today)" : ` (${tw - dd}d out)`}`);
+  }
+  if ((mm === 12 && dd >= 22) || (mm === 1 && dd <= 5)) add("santa", "inside the Santa Claus rally window (last 5 Dec + first 2 Jan sessions)");
+  if (mm === 5) add("sellInMay", "May — start of the historically weak May-October stretch");
+  if (mm === 9) add("septemberWeak", "September — historically the weakest month");
+  if (mm === 6 && dd <= 15) add("wwdc", "early-June WWDC window — watch AAPL and suppliers for a sell-the-news fade");
+
+  return cues.slice(0, PLAYBOOK_MAX_CUES);
+}
+
 // Build the deterministic fact block for a brief. `kind` is "morning" or
 // "afternoon"; the two share macro / Fear & Greed / picks / calendar but pull
 // different market context (overnight foreign moves vs the day's breadth +
@@ -15874,6 +16036,14 @@ export function gatherBriefSignals(kind, ctx) {
     heavy.sort((a, b) => b.rvol - a.rvol);
     if (heavy.length) signals.volume = heavy.slice(0, 5);
   }
+
+  // Historical playbook — deterministic pattern cues (tape shocks + calendar
+  // seasonals). The full entries (recognition + typical reaction) ride here
+  // for the prompt; briefRenderFields strips them down to {id, name, cue} for
+  // the brief JSON the browser renders.
+  const playbook = detectPlaybookCues({ chains, macro, fearGreed, calendar });
+  if (playbook.length) signals.playbook = playbook;
+
   return signals;
 }
 
@@ -15898,6 +16068,8 @@ function briefRenderFields(s) {
   if (s.picksChanges && ((s.picksChanges.added && s.picksChanges.added.length) || (s.picksChanges.dropped && s.picksChanges.dropped.length))) out.picksChanges = s.picksChanges;
   if (s.picks && s.picks.length) out.picks = s.picks;
   if (s.events && s.events.length) out.events = s.events;
+  // Playbook cues ship without the recognition/reaction prose (prompt-only).
+  if (s.playbook && s.playbook.length) out.playbook = s.playbook.map((c) => ({ id: c.id, name: c.name, cue: c.cue }));
   return out;
 }
 
@@ -15907,7 +16079,20 @@ function briefSystemPrompt(kind) {
     "(3) 4 to 6 highlight bullets — each a SHORT label (1-3 words) plus one sentence — calling out the " +
     "most interesting and actionable things. Cite specific magnitudes and tickers FROM THE SUPPLIED FACTS only. " +
     "Never invent news, earnings, analyst actions, or numbers beyond the facts given. Be factual and terse. " +
-    "No emojis, no markdown, no hype, no buy/sell advice, no quotes around tickers.";
+    "No emojis, no markdown, no hype, no buy/sell advice, no quotes around tickers. " +
+    "HISTORICAL PLAYBOOK: when the facts include a 'Historical playbook' section listing active pattern cues, " +
+    "judge whether today's tape GENUINELY resembles one of those historical patterns — a cue firing is a screen, " +
+    "not a confirmed match. If one clearly fits, ALSO return an `analog` object with: pattern (the playbook " +
+    "pattern's name), resemblance (what in TODAY'S supplied facts matches it), history (how past episodes of the " +
+    "analog typically played out — short-term days-to-weeks and 1-3 month reactions for the relevant indices, " +
+    "sectors or assets, with rough probabilities or statistical tendencies where well documented, and common " +
+    "follow-through or reversals), differences (today's 'this time is different' factors — policy backdrop, " +
+    "valuations, liquidity, regime shifts, or unique catalysts that could change the outcome), assessment (how " +
+    "likely a repeat of the core pattern is, the implied directional bias, volatility outlook and rough magnitude, " +
+    "plus sector or asset-class implications), and watch (key levels or indicators from the supplied facts to " +
+    "monitor for confirmation or invalidation). Be probabilistic rather than predictive and acknowledge " +
+    "uncertainty. If NO listed pattern genuinely fits, or no playbook section is supplied, OMIT the analog field " +
+    "entirely — do not force an analogy.";
   if (kind === "morning") {
     return (
       "You are a markets-desk analyst writing a concise PRE-MARKET brief for US options traders, " +
@@ -16025,8 +16210,17 @@ export function briefUserMessage(kind, dateKey, signals) {
     lines.push(kind === "morning" ? "On the calendar today / next:" : "Coming up:");
     for (const e of signals.events) lines.push(`- ${e.label}${e.detail ? ` — ${e.detail}` : ""}`);
   }
+  if (signals.playbook && signals.playbook.length) {
+    lines.push("Historical playbook — pattern cues active today (deterministic screens; judge whether any genuinely fits):");
+    for (const c of signals.playbook) {
+      lines.push(`- ${c.name} — cue: ${c.cue}`);
+      if (c.recognition) lines.push(`  Recognition: ${c.recognition}`);
+      if (c.reaction) lines.push(`  Typical historical reaction: ${c.reaction}`);
+    }
+  }
   lines.push("");
-  lines.push("Return JSON matching the schema (headline, summary, highlights[] of {label, text}).");
+  lines.push("Return JSON matching the schema (headline, summary, highlights[] of {label, text}" +
+    (signals.playbook && signals.playbook.length ? ", plus the optional analog object ONLY if a playbook pattern genuinely fits" : "") + ").");
   return lines.join("\n");
 }
 
@@ -16042,6 +16236,20 @@ const BRIEF_SCHEMA = {
         properties: { label: { type: "string" }, text: { type: "string" } },
         required: ["label", "text"],
       },
+    },
+    // Optional — only when the tape genuinely resembles an active historical-
+    // playbook pattern cue (see briefSystemPrompt + detectPlaybookCues).
+    analog: {
+      type: "object",
+      properties: {
+        pattern: { type: "string" },
+        resemblance: { type: "string" },
+        history: { type: "string" },
+        differences: { type: "string" },
+        assessment: { type: "string" },
+        watch: { type: "string" },
+      },
+      required: ["pattern", "resemblance", "history", "assessment"],
     },
   },
   required: ["headline", "summary", "highlights"],
@@ -16095,7 +16303,19 @@ async function generateBrief(ai, kind, dateKey, signals) {
     }))
     .filter((h) => h.text)
     .slice(0, 6);
-  return { headline, summary, highlights };
+  // Historical-playbook analog — accepted only when cues were actually in the
+  // prompt (no cues → the model was never offered the playbook, so an analog
+  // would be a hallucination) and the core fields are non-empty.
+  let analog = null;
+  if (Array.isArray(signals?.playbook) && signals.playbook.length && parsed?.analog && typeof parsed.analog === "object") {
+    const clean = {};
+    for (const k of ["pattern", "resemblance", "history", "differences", "assessment", "watch"]) {
+      const v = String(parsed.analog[k] || "").replace(/\s+/g, " ").trim();
+      if (v) clean[k] = v;
+    }
+    if (clean.pattern && clean.resemblance && clean.history && clean.assessment) analog = clean;
+  }
+  return analog ? { headline, summary, highlights, analog } : { headline, summary, highlights };
 }
 
 // Generate / carry-forward the morning + afternoon market briefs and write

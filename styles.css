@@ -12488,6 +12488,23 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
 .brief-chip.neg span { color: color-mix(in srgb, var(--neg) 80%, var(--text)); }
 .brief-chip.foreign, .brief-chip.info, span.brief-chip { cursor: default; }
 .brief-chip.flow span, .brief-chip.pick span { text-transform: uppercase; letter-spacing: .03em; color: var(--accent); }
+.brief-analog {
+  display: flex; flex-direction: column; gap: 7px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--r-1);
+  padding: 10px 12px;
+}
+.brief-analog-head { font: 700 0.82rem/1.3 var(--font-sans); color: var(--accent); }
+.brief-analog-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font: 400 0.84rem/1.5 var(--font-sans); color: var(--text); }
+.brief-analog-k {
+  flex: none;
+  font: 700 0.62rem/1.4 var(--font-mono);
+  text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted-strong);
+  min-width: 96px;
+}
+.brief-analog-v { flex: 1 1 220px; }
 .brief-events { display: flex; flex-wrap: wrap; gap: 5px; }
 .brief-event {
   display: inline-flex; align-items: baseline; gap: 6px;

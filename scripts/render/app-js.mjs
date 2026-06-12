@@ -10727,6 +10727,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         briefEsc(g.sym) + ' <span>' + briefEsc(sub) + '</span></span>';
     }).join('') + '</div>';
   }
+  // Historical playbook — the AI analog read (when the brief judged today's
+  // tape genuinely resembles a pattern) plus the deterministic cue chips.
+  function briefAnalogBlock(b){
+    var html = '';
+    if (b.analog && b.analog.pattern){
+      var a = b.analog;
+      var rows = [];
+      function row(label, text){
+        if (!text) return;
+        rows.push('<div class="brief-analog-row"><span class="brief-analog-k">' + briefEsc(label) + '</span>' +
+          '<span class="brief-analog-v">' + briefEsc(text) + '</span></div>');
+      }
+      row('Resembles now', a.resemblance);
+      row('Past episodes', a.history);
+      row('Different now', a.differences);
+      row('Assessment', a.assessment);
+      row('Watch', a.watch);
+      html += '<div class="brief-analog"><div class="brief-analog-head">' + briefEsc(a.pattern) + '</div>' + rows.join('') + '</div>';
+    }
+    if (Array.isArray(b.playbook) && b.playbook.length){
+      html += '<div class="brief-chips">' + b.playbook.map(function(c){
+        return '<span class="brief-chip info"' + (c.cue ? ' title="' + briefEsc(c.cue) + '"' : '') + '>' + briefEsc(c.name) + '</span>';
+      }).join('') + '</div>';
+    }
+    return html ? briefBlock('Historical playbook', html) : '';
+  }
   function briefChurnChips(pc){
     var html = '';
     (pc.added || []).forEach(function(p){
@@ -10762,6 +10788,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }).join('') + '</ul>';
     }
     var blocks = [];
+    // Historical playbook — analog read + active pattern cues, up top: when it
+    // fires it is the most decision-relevant block on the card.
+    blocks.push(briefAnalogBlock(b));
     // Economic data that already printed (CPI/PPI/jobs) — actual vs consensus,
     // with the hotter/cooler read in the tooltip. Deliberately neutral-colored:
     // a hot print's equity direction is the AI summary's job, not the chip's.
