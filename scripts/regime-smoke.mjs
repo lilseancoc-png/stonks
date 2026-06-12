@@ -111,6 +111,17 @@ for (const kind of ["risk-on", "neutral", "risk-off", "severe"]) {
   console.log("");
 }
 
+// Pure gauge-only reads for the gold relief-bounce guard (no roster build):
+// a +3.8% 1d gold pop inside a DOWN week is a retracement, not a haven bid —
+// the commodity axis must stay 0; the same pop with the week confirming
+// must still read −1.
+const goldBounceBd = backdropFor("neutral");
+goldBounceBd.gold = { pctChange1d: 3.8, pctChange5d: -2.1 };
+const mrGoldBounce = computeMacroRegime(goldBounceBd, null, []);
+const goldHavenBd = backdropFor("neutral");
+goldHavenBd.gold = { pctChange1d: 3.8, pctChange5d: 1.2 };
+const mrGoldHaven = computeMacroRegime(goldHavenBd, null, []);
+
 // ---- assertions -----------------------------------------------------------
 const N = results.neutral, R = results["risk-off"], S = results.severe, O = results["risk-on"];
 const putShare = (r) => r.n ? r.puts / r.n : 0;
@@ -136,6 +147,8 @@ const checks = [
   ["severe gross matches 0.80×ramp×0.6×0.4", S.n === 0 || near(S.gross, expectGross(S, 0.4))],
   ["severe de-grosses vs risk-off (regime mult 0.4 vs 0.6, ramp-adjusted)", S.n === 0 || R.n === 0 || (S.gross < R.gross && near(S.gross / R.gross, (0.4 / 0.6) * (Math.min(1, S.n / 5) / Math.min(1, R.n / 5))))],
   ["severe caps calls ≤ 3", S.calls <= 3],
+  ["gold 1d pop inside a down week does NOT fire the commodity axis", mrGoldBounce.axes.commodity.score === 0],
+  ["gold 1d pop with the week confirming still reads a haven bid", mrGoldHaven.axes.commodity.score === -1],
 ];
 console.log("━━━ ASSERTIONS ━━━");
 let pass = 0;
