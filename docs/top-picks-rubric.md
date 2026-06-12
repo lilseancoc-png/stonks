@@ -645,7 +645,14 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
   **and** `riskOffAxes ≤ PICKS_MACRO_RISKON_MAX_OFF` (1) — the old rule demanded
   *zero* dissenting axes across eight, which made risk-on nearly unreachable; a
   clearly positive composite can now carry one dissenter (e.g. a vol crush +
-  dollar/yields easing reads risk-on through a still-hot CPI). `detectMarketRegime` returns **risk-off** whenever the composite
+  dollar/yields easing reads risk-on through a still-hot CPI). The carve-out is
+  for MILD dissent only: risk-on additionally requires the VIX axis itself
+  unstressed (score ≥ 0 — an elevated/rising/backwardated VIX can never be the
+  carried dissenter, mirroring the base path's block-risk-on-while-inverted
+  rule) and no axis at −2 (acute stress). A risk-on read's `drivers`/`summary`
+  list the POSITIVE axes (the stress-axis `drivers` list was always empty under
+  the old zero-dissent rule; naming the lone dissenter as the "driver" of a
+  bullish lean would invert the attribution). `detectMarketRegime` returns **risk-off** whenever the composite
   is (severe-)risk-off — *independent of the SPY day move* — so the engine positions
   into the building stress before the index capitulates, and never reads risk-on while
   the macro is stressed. Attached to `macroBackdrop.macroRegime` upstream (`main()` +

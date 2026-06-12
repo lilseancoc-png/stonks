@@ -11155,9 +11155,14 @@ function computeGeoNewsStress(narratives) {
 
 // Headline-tone regexes for the geo axis. DE-ESCALATION needs resolution
 // language (deal/ceasefire/easing); ESCALATION needs conflict ACTION events
-// (strike/invasion/threat), not mere mentions of a flashpoint.
-const GEO_DEESCALATION_RE = /\b(cease-?fires?|truce|peace (?:deal|talks|plan|agreement|accord)|de-?escalat\w*|nuclear (?:deal|agreement|accord)|close to a (?:nuclear |trade |peace )?deal|reach(?:es|ed)? (?:a )?(?:deal|agreement|accord)|trade (?:deal|agreement|truce)|tariff (?:pause|rollback|exemption|relief|cut)s?|sanctions? (?:lifted|relief|eased)|tensions? eas\w*|talks (?:progress|resume)|diplomatic (?:breakthrough|progress)|hostilities end)\b/i;
-const GEO_ESCALATION_RE = /\b(declares? war|invasions?|invades?|airstrikes?|air strikes?|missile (?:attack|launch|strike|barrage)s?|drone (?:attack|strike)s?|strikes? (?:on|against)|attacks? (?:on|against)|retaliat\w*|escalat(?:es|ed|ion|ing)|new (?:sanctions|tariffs)|tariff (?:threat|hike)s?|threatens? (?:to|with)|blockades?|mobiliz\w*|troops (?:to|deploy|mass)\w*|nuclear test|talks (?:collapse|break ?down)|cease-?fire (?:collapses?|ends|broken))\b/i;
+// (strike/invasion/threat) OR a resolution BREAKING DOWN ("ceasefire
+// collapses", "talks break down") — which is why escalation must be tested
+// FIRST: breakdown headlines name the resolution noun they're breaking, so a
+// de-escalation-first check would count them as the resolution itself.
+// `(?<!de-)` keeps "de-escalation" (hyphen = word boundary) out of the
+// escalation pattern.
+const GEO_DEESCALATION_RE = /\b(cease-?fires?|truce|peace (?:deal|talks|plan|agreement|accord)|de-?escalat\w*|nuclear (?:deal|agreement|accord)|close to (?:a|an) (?:nuclear |trade |peace )?(?:deal|agreement|accord)|reach(?:es|ed)? (?:a |an )?(?:deal|agreement|accord|truce|cease-?fire)|agree(?:s|d)? to (?:a |an )?(?:deal|truce|cease-?fire|agreement)|war (?:settled|ends|is over)|trade (?:deal|agreement|truce)|tariff (?:pause|rollback|exemption|relief|cut)s?|sanctions? (?:lifted|relief|eased)|tensions? eas\w*|talks (?:progress|resume)|diplomatic (?:breakthrough|progress)|hostilities end)\b/i;
+const GEO_ESCALATION_RE = /\b(declares? war|invasions?|invades?|airstrikes?|air strikes?|missile (?:attack|launch|strike|barrage)s?|drone (?:attack|strike)s?|strikes? (?:on|against)|attacks? (?:on|against)|retaliat\w*|(?<!de-)escalat(?:es|ed|ion|ing)|new (?:sanctions|tariffs)|tariff (?:threat|hike)s?|threatens? (?:to|with)|blockades?|mobiliz\w*|troops (?:to|deploy|mass)\w*|nuclear test|(?:talks|deal|truce|cease-?fire) (?:collapse[sd]?|break(?:s|ing)? ?down|fail(?:s|ed|ing)?|stall(?:s|ed|ing)?|end(?:s|ed)?|broken|shattered)|rejects? (?:a |an |the )?(?:deal|truce|cease-?fire|proposal|agreement))\b/i;
 
 // Deterministic headline tone for the geo-news axis (PICKS_MACRO_NEWS): scans
 // the fresh slice of the macro headline slate and nets de-escalation against
@@ -11172,11 +11177,12 @@ export function computeHeadlineGeoTone(macroHeadlines, nowMs = Date.now()) {
     if (!title || !h.publishedAt) continue; // undated items can't pass the freshness gate
     const t = Date.parse(h.publishedAt);
     if (!Number.isFinite(t) || nowMs - t > maxAgeMs) continue;
-    // De-escalation checked FIRST and exclusively: "de-escalation" would
-    // otherwise also match the escalation pattern through the hyphen's word
-    // boundary, and a single headline must cast a single vote.
-    if (GEO_DEESCALATION_RE.test(title)) { deesc++; if (!deescTitle) deescTitle = title; }
-    else if (GEO_ESCALATION_RE.test(title)) { esc++; if (!escTitle) escTitle = title; }
+    // Escalation checked FIRST and exclusively (one headline, one vote):
+    // breakdown headlines name the resolution they're breaking ("Ceasefire
+    // collapses as strikes resume"), so de-escalation-first would invert the
+    // vote. Erring toward escalation is also the defensive failure mode.
+    if (GEO_ESCALATION_RE.test(title)) { esc++; if (!escTitle) escTitle = title; }
+    else if (GEO_DEESCALATION_RE.test(title)) { deesc++; if (!deescTitle) deescTitle = title; }
   }
   if (deesc > esc) return { score: 1, deesc, esc, label: `De-escalation headlines (${deesc}): "${deescTitle}"` };
   if (esc > deesc) return { score: -1, deesc, esc, label: `Escalation headlines (${esc}): "${escTitle}"` };
@@ -11323,7 +11329,9 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       label = tone.label;
     }
     axes.geo = { score: s, label };
-    if (s <= -1) drivers.push(label.split(" (")[0]);
+    // When a de-escalation slate merely EASED a still-stressed narrative read,
+    // the stress driver is the narrative — not the easing headlines.
+    if (s <= -1) drivers.push((tone.score > 0 ? geo.label : label).split(" (")[0]);
   }
 
   // --- Inflation / labor axis (monthly CPI YoY + unemployment) ----------------
@@ -11405,11 +11413,25 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   // Risk-on no longer demands unanimity (zero dissenting axes across eight was
   // nearly unreachable): enough risk-on axes + a clearly positive net composite
   // can carry one dissenter, so the gauge flips risk-on as fast as it flips off.
-  else if (riskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS && riskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF) state = "risk-on";
+  // The carve-out is for MILD dissent only: never read risk-on while the vol
+  // axis itself is stressed (elevated/rising/backwardated VIX — mirrors the
+  // base SPY+VIX path's "block risk-on while inverted") or any axis is acute
+  // (−2); the dissenter this carries is a slow −1 like a hot CPI.
+  else if (
+    riskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS &&
+    riskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF && axes.vix.score >= 0 && !arr.some((x) => x <= -2)
+  ) state = "risk-on";
+  // `drivers` collects the STRESS axes (≤ −1). For a risk-on read attribute
+  // the positive axes instead — pre-relaxation risk-on implied zero stress
+  // axes so this list was always empty; now it would name the lone dissenter
+  // as the "driver" of a bullish lean.
+  const driverList = state === "risk-on"
+    ? Object.values(axes).filter((a) => a && a.score >= 1).map((a) => String(a.label).split(" — ")[0])
+    : drivers;
   const summary = state === "neutral"
     ? "Cross-asset macro neutral"
-    : `Cross-asset macro ${state}${drivers.length ? ` — ${drivers.join(", ")}` : ""}`;
-  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers, summary };
+    : `Cross-asset macro ${state}${driverList.length ? ` — ${driverList.join(", ")}` : ""}`;
+  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers: driverList, summary };
 }
 
 // Regime persistence (PICKS_REGIME_PERSIST) — asymmetric hysteresis over the
@@ -19704,7 +19726,13 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
 async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = []) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
-    return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: [] };
+    // The headline slate is pure RSS (no key needed) and feeds the macro
+    // regime's headline-tone axis — fetch it anyway so a keyless bake doesn't
+    // persist [] into trends.json and silently disable that axis (plus the
+    // briefs' and regen-picks' committed-slate fallbacks).
+    let keylessHeadlines = [];
+    try { keylessHeadlines = await fetchMacroHeadlines(); } catch (_) { /* degrade to empty */ }
+    return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: keylessHeadlines };
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
