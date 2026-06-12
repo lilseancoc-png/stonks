@@ -11296,7 +11296,14 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     const oilSpike = o1 != null && o1 >= PICKS_MACRO_OIL_1D;
     const oilShock = o1 != null && o1 >= PICKS_MACRO_OIL_1D_STRONG;
     const oilRun = o5 != null && o5 >= PICKS_MACRO_OIL_5D;
-    const goldHaven = (g1 != null && g1 >= PICKS_MACRO_GOLD_1D) || (g5 != null && g5 >= PICKS_MACRO_GOLD_5D);
+    // A 1d gold pop only reads as HAVEN demand when the weekly tape confirms
+    // (gold not down on the week): a +3% bounce inside a falling week is a
+    // relief-day retracement — e.g. gold gapping back up as a conflict ENDS
+    // while crude drops and vol crushes — not a safe-haven bid, and counting
+    // it fired this axis risk-off on a risk-on tape. Missing 5d data degrades
+    // to the plain 1d read; the 5d-run path is already sustained by definition.
+    const goldWeekDown = g5 != null && g5 < 0;
+    const goldHaven = (g1 != null && g1 >= PICKS_MACRO_GOLD_1D && !goldWeekDown) || (g5 != null && g5 >= PICKS_MACRO_GOLD_5D);
     let s = 0, label = "commodities calm";
     if (oilShock || (oilSpike && goldHaven)) {
       s = -2;

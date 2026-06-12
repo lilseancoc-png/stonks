@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Fixed
+- **A gold relief-bounce no longer tips the tape gauge risk-off**: the cross-asset macro regime's commodity axis now counts a 1-day gold spike as a safe-haven bid only when gold isn't down on the week. A +3.8% bounce inside a falling week — gold gapping back up as the Iran conflict ended, while crude dropped, vol crushed and headlines read de-escalation — was being read as a haven bid and, paired with hot CPI, flipped the whole gauge risk-off on a risk-on tape (2026-06-12). The sustained 5-day-run path is unchanged; `regime-smoke.mjs` gains two guard assertions (14/14 pass). (#415)
+
 ### Changed
 - **The risk-on/risk-off tape gauge now turns fast in BOTH directions**: the fast axes vote symmetrically — a sharp same-day VIX crush below the risk-off band reads +1 (not just "no longer stressed"), the dollar and long yields get falling-trend easing reads mirroring their rising-trend stress reads, and Fear & Greed adds a fast 1-day-swing vote (|Δ| ≥ 10) so a sentiment turn registers before the extremes do. Risk-on no longer demands unanimity across all eight axes (nearly unreachable) — enough risk-on axes plus a clearly positive composite can carry one dissenter — and a neutral→risk-on upgrade applies the same build instead of being held for confirmation (de-hedging out of risk-off still needs two consecutive reads). `regime-smoke.mjs` gains a risk-on scenario; 12/12 assertions. (#414)
 
