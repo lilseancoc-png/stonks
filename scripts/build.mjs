@@ -864,6 +864,8 @@ async function fetchHistoricalBars(symbol) {
   return quotes
     .filter((q) => q && q.close != null && q.high != null && q.low != null)
     .map((q) => ({
+      // Open kept for the earnings-history reaction math (post-print gap).
+      o: q.open ?? null,
       c: q.close,
       h: q.high,
       l: q.low,
@@ -3510,6 +3512,430 @@ async function writeIvHistory(historyMap) {
     bytes += json.length;
   }
   return bytes;
+}
+
+// ===================== Earnings history (per-ticker) =====================
+// Accumulating store behind the Grade tab's "Earnings history" card: for each
+// ticker, the last ~8 reported quarters with announcement date, AM/PM session,
+// EPS vs estimate, the stock's reaction (close-before → reaction-session close,
+// opening gap, 1-week drift) and the option market's read (straddle-implied
+// move + ATM 30d IV going in / coming out). Two data paths feed it:
+//   1. BACKFILL — Yahoo's earnings-dates endpoint (the visualization API the
+//      finance.yahoo.com earnings calendar uses) gives past ANNOUNCEMENT dates
+//      + BMO/AMC + EPS; price reactions are then computed from daily bars
+//      (a one-off ~2y chart fetch when an event predates the standard window).
+//   2. FORWARD ACCUMULATION — every pre-print build stamps the upcoming
+//      event's live ATM IV + straddle-implied move (last build before the
+//      print wins, which is exactly the "going in" read), and post-print
+//      builds resolve the realized reaction from the bars they already have.
+// IV pre/post for BACKFILLED events comes from data/iv-history/ where its
+// coverage reaches; older rows stay null and the page shows them as "—" —
+// graceful degradation, the columns fill as history accrues. Same
+// read-before-wipe / write-after-wipe contract as the other data/ histories.
+const EARNINGS_HISTORY_FILE = "earnings-history.json";
+const EARNINGS_HISTORY_MAX_EVENTS = 12; // ~3 years per ticker
+const EARNINGS_HX_SHOWN_EVENTS = 8; // quarters shipped to the browser
+const EARNINGS_BACKFILL_QUARTERS = 8;
+const EARNINGS_BACKFILL_CONCURRENCY = 4;
+// The pending row (and its ivPre / straddle-implied-move stamps) is only
+// created inside this window before the print. Two reasons: (1) months out,
+// the first expiration past the event is itself months away, so its straddle
+// prices a quarter of vol, not the event; (2) a far-dated estimated earnings
+// date can shift and would leave a ghost row behind. Within the final week
+// the date is confirmed and the post-event expiry hugs the print.
+const EARNINGS_PREPRINT_STAMP_DAYS = 8;
+// Long enough for 8 quarters of reaction sessions + a 1-week tail.
+const EARNINGS_BACKFILL_LOOKBACK_DAYS = 800;
+
+const ehxRound = (n, places = 4) => {
+  const f = 10 ** places;
+  return n != null && isFinite(n) ? Math.round(n * f) / f : null;
+};
+
+export async function readEarningsEventsHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, EARNINGS_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.tickers && typeof parsed.tickers === "object") {
+      return parsed;
+    }
+  } catch (_) { /* first build / cleared — start fresh */ }
+  return { tickers: {} };
+}
+
+export async function writeEarningsEventsHistory(store) {
+  store.updatedAt = new Date().toISOString();
+  const json = JSON.stringify(store);
+  await writeFile(resolve(DATA_DIR, EARNINGS_HISTORY_FILE), json, "utf8");
+  return json.length;
+}
+
+// Past announcement dates + session + EPS from Yahoo's visualization API —
+// the endpoint behind finance.yahoo.com's earnings calendar, and the only
+// free Yahoo surface that returns announcement DATES more than 4 quarters
+// back. Not wrapped by yahoo-finance2, so we go through the instance's
+// internal _fetch (same cookie jar + crumb the wrapped modules use; the
+// POST body rides via fetchOptions). Internal API — if an upgrade breaks
+// it, every caller degrades to forward accumulation only, never throws.
+async function fetchYahooEarningsDates(symbol, size = 20) {
+  const body = {
+    sortType: "DESC",
+    entityIdType: "earnings",
+    sortField: "startdatetime",
+    includeFields: [
+      "ticker", "startdatetime", "startdatetimetype",
+      "epsestimate", "epsactual", "epssurprisepct",
+    ],
+    query: { operator: "and", operands: [{ operator: "eq", operands: ["ticker", symbol] }] },
+    offset: 0,
+    size,
+  };
+  const res = await yahooFinance._fetch(
+    "https://query1.finance.yahoo.com/v1/finance/visualization",
+    { lang: "en-US", region: "US" },
+    {
+      fetchOptions: {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+      },
+    },
+    "json",
+    true, // needsCrumb
+  );
+  const doc = res?.finance?.result?.[0]?.documents?.[0];
+  const cols = (doc?.columns || []).map((c) => c?.id);
+  const rows = Array.isArray(doc?.rows) ? doc.rows : [];
+  const idx = (id) => cols.indexOf(id);
+  const iDate = idx("startdatetime");
+  const iType = idx("startdatetimetype");
+  const iEst = idx("epsestimate");
+  const iAct = idx("epsactual");
+  const iSur = idx("epssurprisepct");
+  const todayIso = etDateKey();
+  const byDate = new Map();
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue;
+    const date = typeof row[iDate] === "string" ? row[iDate].slice(0, 10) : null;
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    // Past rows only — the upcoming event is owned by fundamentals'
+    // nextEarningsDate (fresher, and already session-resolved via Nasdaq).
+    if (date > todayIso) continue;
+    const type = String(row[iType] || "").toUpperCase();
+    const session = type === "BMO" ? "AM" : type === "AMC" ? "PM" : "TBD";
+    const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+    const ev = {
+      date,
+      session,
+      epsActual: num(row[iAct]),
+      epsEstimate: num(row[iEst]),
+      surprisePct: ehxRound(num(row[iSur]), 2),
+    };
+    // Yahoo lists duplicate event records per date — keep the richest.
+    const prev = byDate.get(date);
+    if (!prev || (prev.epsActual == null && ev.epsActual != null)) byDate.set(date, ev);
+  }
+  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+// ~2y of daily bars (with opens) for backfilled events that predate the
+// standard HISTORY_LOOKBACK_DAYS window. Fetched at most once per ticker
+// per backfill pass — steady-state builds never call this.
+async function fetchEarningsBackfillBars(symbol) {
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - EARNINGS_BACKFILL_LOOKBACK_DAYS * 86400000);
+  const result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+  return quotes
+    .filter((q) => q && q.close != null)
+    .map((q) => ({
+      t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
+      o: q.open ?? null,
+      c: q.close,
+      h: q.high ?? null,
+      l: q.low ?? null,
+    }));
+}
+
+// Pure: the stock's reaction to one earnings print, from ascending daily bars
+// [{t:"YYYY-MM-DD", o, c}]. The reaction session is the bar ON the
+// announcement date for an AM (pre-open) print, the first bar AFTER it for a
+// PM/TBD print. Returns null when the bars don't cover both the session
+// before the print and the reaction session. week1Pct (the drift over the 5
+// sessions AFTER the reaction) stays null until those bars exist —
+// week1Done=false tells the caller to recompute on a later build (which also
+// refreshes a movePct first computed off an in-progress intraday bar).
+// Exported for unit testing, like resolvePickOutcome.
+export function computeEarningsReaction(bars, dateIso, session) {
+  if (!Array.isArray(bars) || bars.length < 2 || typeof dateIso !== "string") return null;
+  const isAm = session === "AM";
+  let rIdx = -1;
+  for (let i = 0; i < bars.length; i++) {
+    const t = bars[i]?.t;
+    if (!t) continue;
+    if (isAm ? t >= dateIso : t > dateIso) { rIdx = i; break; }
+  }
+  // rIdx === 0 means the event predates the window (no "close before" bar).
+  if (rIdx <= 0) return null;
+  const prev = bars[rIdx - 1];
+  const r = bars[rIdx];
+  if (!(prev?.c > 0) || !(r?.c > 0)) return null;
+  const out = {
+    closeBefore: ehxRound(prev.c, 2),
+    openAfter: r.o > 0 ? ehxRound(r.o, 2) : null,
+    closeAfter: ehxRound(r.c, 2),
+    movePct: ehxRound(r.c / prev.c - 1),
+    gapPct: r.o > 0 ? ehxRound(r.o / prev.c - 1) : null,
+    week1Pct: null,
+    week1Done: false,
+  };
+  const w = bars[rIdx + 5];
+  if (w?.c > 0) {
+    out.week1Pct = ehxRound(w.c / r.c - 1);
+    out.week1Done = true;
+  }
+  return out;
+}
+
+// Pure: ATM 30d IV just before / just after a print, from iv-history entries
+// (one sample per ET day, last build of the day wins — so the day-of sample is
+// taken at/after the 16:00 close). For a PM print the day-of close sample is
+// still pre-print; for an AM print only the prior day's is. Exported for unit
+// testing.
+export function earningsIvAround(entries, dateIso, session) {
+  const isAm = session === "AM";
+  let pre = null;
+  let post = null;
+  for (const e of entries || []) {
+    if (!e?.date || !(e.iv > 0)) continue;
+    const isPre = isAm ? e.date < dateIso : e.date <= dateIso;
+    if (isPre) pre = e.iv;
+    else if (post == null) post = e.iv;
+  }
+  return { pre, post };
+}
+
+// Upsert one event into a ticker's list, matching within ±3 days so the
+// forward-stamped pending row (dated off fundamentals) and the backfill row
+// (dated off the visualization API) merge instead of duplicating — two real
+// prints are never days apart. Incoming date/session/EPS win when present;
+// the pre-print snapshots (ivPre / impliedMovePct) only overwrite when
+// overwriteStamps is set (the pending re-stamp path, where the LAST pre-print
+// build is the freshest "going in" read).
+function upsertEarningsEvent(events, ev, overwriteStamps = false) {
+  const evMs = Date.parse(ev?.date || "");
+  if (!Number.isFinite(evMs)) return;
+  const near = events.find((e) => {
+    const t = Date.parse(e?.date || "");
+    return Number.isFinite(t) && Math.abs(t - evMs) <= 3 * 86400000;
+  });
+  if (!near) {
+    events.push({ ...ev });
+    return;
+  }
+  if (ev.date && near.date !== ev.date) {
+    // The authoritative date moved — any reaction computed under the old date
+    // is suspect, so force a recompute on this build's resolve pass.
+    near.date = ev.date;
+    delete near.closeBefore; delete near.openAfter; delete near.closeAfter;
+    delete near.movePct; delete near.gapPct; delete near.week1Pct;
+    near.week1Done = false;
+  }
+  if (ev.session && ev.session !== "TBD") near.session = ev.session;
+  else if (!near.session) near.session = ev.session || "TBD";
+  for (const k of ["epsActual", "epsEstimate", "surprisePct"]) {
+    if (ev[k] != null) near[k] = ev[k];
+  }
+  for (const k of ["ivPre", "impliedMovePct"]) {
+    if (ev[k] != null && (overwriteStamps || near[k] == null)) near[k] = ev[k];
+  }
+}
+
+function earningsBackfillNeeded(entry, todayIso) {
+  const past = (entry.events || []).filter((e) => e?.date && e.date <= todayIso);
+  // Below target depth (new ticker / recent IPO / first builds) — keep trying,
+  // but at most once per ET day (entry.backfilledAt gates the caller).
+  if (past.length < EARNINGS_BACKFILL_QUARTERS) return true;
+  // EPS lands on Yahoo within a day of the print — refresh until captured.
+  return past.slice(-2).some((e) => e.epsActual == null);
+}
+
+// The per-build pass: backfill where thin, stamp the upcoming event's
+// pre-print snapshots, resolve passed events from bars + iv-history. Mutates
+// `store` in place (read pre-wipe by main(), written back post-wipe). Network
+// (visualization + the occasional 2y chart) only flows for tickers still
+// backfilling; steady-state builds are pure in-memory work.
+export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
+  const todayIso = etDateKey();
+  const nowMs = Date.now();
+  if (!store.tickers || typeof store.tickers !== "object") store.tickers = {};
+  const syms = Object.keys(chains).filter((s) => chains[s]);
+  let backfilled = 0;
+  let resolved = 0;
+  await runPooled(syms, EARNINGS_BACKFILL_CONCURRENCY, async (sym) => {
+    const data = chains[sym];
+    const entry = (store.tickers[sym] ||= { events: [] });
+    if (!Array.isArray(entry.events)) entry.events = [];
+    let backfillBars = null;
+    if (earningsBackfillNeeded(entry, todayIso) && entry.backfilledAt !== todayIso) {
+      entry.backfilledAt = todayIso;
+      try {
+        const got = await fetchYahooEarningsDates(sym);
+        for (const ev of got) upsertEarningsEvent(entry.events, ev);
+        if (got.length) backfilled++;
+      } catch (err) {
+        console.log(`    ⚠ ${sym} earnings-dates backfill failed: ${err.message}`);
+      }
+      // Events older than the standard 1y bar window need the long fetch.
+      const barsStart = data._bars?.find((b) => b?.t)?.t || null;
+      const needsLongBars = entry.events.some(
+        (e) => e?.date && e.date <= todayIso && !e.week1Done && (!barsStart || e.date <= barsStart),
+      );
+      if (needsLongBars) {
+        try {
+          backfillBars = await fetchEarningsBackfillBars(sym);
+        } catch (err) {
+          console.log(`    ⚠ ${sym} earnings backfill bars failed: ${err.message}`);
+        }
+      }
+    }
+    // Stamp the upcoming print's "going in" read — refreshed every pre-print
+    // build inside the stamp window so the final pre-print build's snapshot
+    // (the hour before the print, with the bake running hourly) is what
+    // sticks. Outside the window no pending row exists at all.
+    const f = data.fundamentals;
+    const nextIso = f?.nextEarningsDate;
+    const nextAnchor = earningsAnchorMs(nextIso, f?.nextEarningsSession);
+    const untilMs = nextAnchor != null ? nextAnchor - nowMs : null;
+    if (nextIso && untilMs != null && untilMs > 0) {
+      // A confirmed date supersedes any future pending row that drifted away
+      // from it (an early estimate that moved) — drop the ghost before it can
+      // later be "resolved" against a session where nothing was announced.
+      const nextMs = Date.parse(nextIso);
+      entry.events = entry.events.filter((e) => {
+        if (!e?.date || e.date <= todayIso) return true;
+        return Math.abs(Date.parse(e.date) - nextMs) <= 3 * 86400000;
+      });
+      if (untilMs <= EARNINGS_PREPRINT_STAMP_DAYS * 86400000) {
+        const ivNow = computeAtm30dIv(data);
+        const implied = computeImpliedMoveForDate(data, nextIso);
+        upsertEarningsEvent(entry.events, {
+          date: nextIso,
+          session: f?.nextEarningsSession || "TBD",
+          ...(ivNow != null ? { ivPre: ehxRound(ivNow) } : {}),
+          ...(implied ? { impliedMovePct: implied.pct } : {}),
+        }, true);
+      }
+    }
+    // Resolve / refresh passed events.
+    const ivEntries = ivHistoryMap?.get?.(sym)?.entries || [];
+    for (const ev of entry.events) {
+      if (!ev?.date || ev.date > todayIso) continue;
+      const anchorMs = earningsAnchorMs(ev.date, ev.session);
+      if (anchorMs != null && anchorMs > nowMs) continue; // today's print hasn't landed yet
+      if (!ev.week1Done) {
+        const barsStart = data._bars?.find((b) => b?.t)?.t || null;
+        const bars = backfillBars && (!barsStart || ev.date <= barsStart) ? backfillBars : data._bars;
+        const rx = computeEarningsReaction(bars, ev.date, ev.session);
+        if (rx) {
+          Object.assign(ev, rx);
+          resolved++;
+        }
+      }
+      if (ev.ivPre == null || ev.ivPost == null) {
+        const { pre, post } = earningsIvAround(ivEntries, ev.date, ev.session);
+        if (ev.ivPre == null && pre != null) ev.ivPre = ehxRound(pre);
+        if (ev.ivPost == null && post != null) ev.ivPost = ehxRound(post);
+      }
+    }
+    entry.events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    if (entry.events.length > EARNINGS_HISTORY_MAX_EVENTS) {
+      entry.events = entry.events.slice(-EARNINGS_HISTORY_MAX_EVENTS);
+    }
+  });
+  console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed.`);
+}
+
+// Attach the browser-facing slice onto each ticker (rides into data/<SYM>.json
+// through writeChainFiles): the last 8 reported quarters + the upcoming print
+// with its live straddle-implied move. qEnd ties each event to the fiscal
+// quarter from fundamentals.earningsHistory (announcement lands 0–100 days
+// after the quarter end) so the page can label the period.
+export function attachEarningsHx(chains, store, nowMs = Date.now()) {
+  const todayIso = etDateKey(new Date(nowMs));
+  for (const [sym, data] of Object.entries(chains)) {
+    if (!data) continue;
+    const events = (store?.tickers?.[sym]?.events || []).filter((e) => e?.date);
+    if (!events.length) continue;
+    const eh = Array.isArray(data.fundamentals?.earningsHistory)
+      ? data.fundamentals.earningsHistory
+      : [];
+    const qEndFor = (dateIso) => {
+      for (let i = eh.length - 1; i >= 0; i--) {
+        const q = eh[i];
+        if (!q?.date || q.date > dateIso) continue;
+        const gap = Date.parse(dateIso) - Date.parse(q.date);
+        return gap <= 100 * 86400000 ? q.date : null;
+      }
+      return null;
+    };
+    const past = [];
+    let pending = null;
+    for (const ev of events) {
+      const anchorMs = earningsAnchorMs(ev.date, ev.session);
+      const isFuture = anchorMs != null ? anchorMs > nowMs : ev.date > todayIso;
+      if (isFuture) {
+        if (!pending) pending = ev; // events are date-sorted: first future = soonest
+        continue;
+      }
+      past.push(ev);
+    }
+    // The upcoming print comes from fundamentals (fresher, session-resolved
+    // via Nasdaq); the stored pending row — which only exists inside the
+    // pre-print stamp window — contributes its snapshots when it matches.
+    const f = data.fundamentals;
+    const nextIso = f?.nextEarningsDate && f.nextEarningsDate >= todayIso ? f.nextEarningsDate : null;
+    const nextSession = nextIso ? f?.nextEarningsSession || "TBD" : null;
+    let next = null;
+    const nextSrc = nextIso ? { date: nextIso, session: nextSession } : pending;
+    if (nextSrc) {
+      const anchor = earningsAnchorMs(nextSrc.date, nextSrc.session) ?? Date.parse(nextSrc.date);
+      if (anchor > nowMs) {
+        const stamped = pending && Math.abs(Date.parse(pending.date) - Date.parse(nextSrc.date)) <= 3 * 86400000
+          ? pending
+          : null;
+        next = {
+          date: nextSrc.date,
+          session: nextSrc.session || "TBD",
+          impliedMovePct: stamped?.impliedMovePct ?? null,
+          ivPre: stamped?.ivPre ?? null,
+          ivNow: data.ivRank?.iv ?? null,
+          daysUntil: Math.max(0, Math.round((anchor - nowMs) / 86400000)),
+        };
+      }
+    }
+    if (!past.length && !next) continue;
+    data.earningsHx = {
+      events: past.slice(-EARNINGS_HX_SHOWN_EVENTS).map((ev) => ({
+        date: ev.date,
+        session: ev.session || "TBD",
+        qEnd: qEndFor(ev.date),
+        epsActual: ev.epsActual ?? null,
+        epsEstimate: ev.epsEstimate ?? null,
+        surprisePct: ev.surprisePct ?? null,
+        ivPre: ev.ivPre ?? null,
+        ivPost: ev.ivPost ?? null,
+        impliedMovePct: ev.impliedMovePct ?? null,
+        closeBefore: ev.closeBefore ?? null,
+        openAfter: ev.openAfter ?? null,
+        closeAfter: ev.closeAfter ?? null,
+        movePct: ev.movePct ?? null,
+        gapPct: ev.gapPct ?? null,
+        week1Pct: ev.week1Pct ?? null,
+      })),
+      next,
+    };
+  }
 }
 
 // Unified rest-of-year macro + earnings calendar. Pulls confirmed
@@ -19159,6 +19585,18 @@ async function main() {
   // ≤1-day lag) BEFORE the wipe, so scoring/computeEntryTiming + the picks card see
   // each name's real implied-vol rank. Mutates chains in-memory; survives the wipe.
   await attachIvRanks(chains);
+  // Earnings history — same read-before-wipe contract. The update pass needs
+  // chains (live IV + straddle for the upcoming print, _bars for reactions)
+  // and the just-collected ivHistory map (pre/post-print IV fills); the
+  // refreshed store is written back after the wipe, and attachEarningsHx puts
+  // the browser-facing slice on each ticker before writeChainFiles persists it.
+  const earningsHxStore = await readEarningsEventsHistory();
+  try {
+    await updateEarningsEventsHistory(earningsHxStore, chains, ivHistory);
+  } catch (err) {
+    console.log(`Earnings-history update failed (keeping prior store): ${err.message}`);
+  }
+  attachEarningsHx(chains, earningsHxStore);
   // Same pattern for the heatmap's EOD recap — generated by the hourly
   // refresh script and stored in data/heatmap.json. Snapshot it before
   // writeChainFiles wipes data/, then thread it back into writeHeatmapFile.
@@ -19402,6 +19840,10 @@ async function main() {
   if (ivHistory.size) {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
+  // Earnings-history store back into the freshly-recreated data/ (pre-read +
+  // updated above, before the wipe).
+  const earningsHxBytes = await writeEarningsEventsHistory(earningsHxStore);
+  console.log(`wrote data/${EARNINGS_HISTORY_FILE} — ${Object.keys(earningsHxStore.tickers).length} tickers, ${earningsHxBytes} bytes`);
   // Fear & Greed: write today's snapshot + the appended per-component
   // history back into the freshly-recreated data/ dir. We always persist
   // history (even with no fresh snapshot) so prior days survive.

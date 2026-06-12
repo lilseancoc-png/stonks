@@ -599,6 +599,7 @@ function optionEvalSection() {
             <div id="opt-fund-net-income-history"   class="opt-fund-eh" hidden></div>
             <div id="opt-fund-net-margin-history"   class="opt-fund-eh" hidden></div>
           </div>
+          <div id="opt-fund-earnings-hx" class="opt-fund-ehx" hidden></div>
           <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
         </section>
       </div>

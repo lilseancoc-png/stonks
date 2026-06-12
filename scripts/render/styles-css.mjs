@@ -3466,6 +3466,84 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   margin: var(--s-3) 0 0; line-height: 1.4;
 }
 
+/* === Earnings history card (Fundamentals tab) === */
+.opt-fund-ehx {
+  margin-top: var(--s-4);
+  padding: var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.opt-ehx-head {
+  display: flex; align-items: baseline; gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+.opt-ehx-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-strong);
+}
+.opt-ehx-sub { font-size: 11px; color: var(--muted); }
+.opt-ehx-next {
+  margin-bottom: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+.opt-ehx-next-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-bottom: 4px;
+}
+.opt-ehx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt-ehx-chip {
+  padding: 2px 8px;
+  font-size: 11px; font-weight: 600; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  font-variant-numeric: tabular-nums;
+}
+.opt-ehx-chip.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.opt-ehx-chip-sub { font-weight: 500; color: var(--muted); }
+.opt-ehx-verdict {
+  margin: var(--s-2) 0 0;
+  font-size: var(--fs-sm); line-height: 1.5; color: var(--text);
+}
+.opt-ehx-recap {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  margin-bottom: var(--s-2);
+  font-size: 11px; color: var(--muted);
+}
+.opt-ehx-stat b { font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.opt-ehx-tablewrap { overflow-x: auto; }
+.opt-ehx-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.opt-ehx-table th {
+  padding: 6px 8px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+.opt-ehx-table th:nth-child(-n+3) { text-align: left; }
+.opt-ehx-table td {
+  padding: 6px 8px;
+  color: var(--text);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.opt-ehx-table tbody tr:last-child td { border-bottom: 0; }
+.opt-ehx-num { text-align: right; }
+.opt-ehx-pos { color: var(--pos); }
+.opt-ehx-neg { color: var(--neg); }
+.opt-ehx-cell-sub { font-size: 10px; color: var(--muted); }
+.opt-ehx-cell-sub.opt-ehx-pos { color: var(--pos); }
+.opt-ehx-cell-sub.opt-ehx-neg { color: var(--neg); }
+.opt-ehx-foot {
+  margin: var(--s-2) 0 0;
+  font-size: 10px; color: var(--muted); line-height: 1.4;
+}
+
 /* === Robinhood-style history charts === */
 .opt-fund-charts {
   margin-top: var(--s-4);
