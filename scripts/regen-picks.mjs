@@ -77,7 +77,7 @@ if (macroBackdrop) {
   // Same regime persistence as the full build: hold a recovering state one build
   // (defensive moves apply immediately), confirmed against the prior picks.json.
   macroBackdrop.macroRegime = applyMacroRegimePersistence(
-    computeMacroRegime(macroBackdrop, fedwatchHistory, narratives, fearGreed),
+    computeMacroRegime(macroBackdrop, fedwatchHistory, narratives, fearGreed, trends.macroHeadlines || []),
     priorPicksPayload?.rosterMeta?.macroRegime || null,
   );
   if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {

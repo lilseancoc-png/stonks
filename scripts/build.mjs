@@ -7485,8 +7485,11 @@ export const PICKS_TIMING_THRESHOLDS = Object.freeze({
 // assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
 // yields), the Fed PATH (FedWatch hike-odds repricing hawkish), plus a COMMODITY /
 // geopolitical-shock axis (a crude spike + gold safe-haven bid), a geopolitical-
-// NEWS axis (a strong war/conflict narrative) — those two fire on a geopolitical
-// shock usually BEFORE it bleeds into VIX/yields — an INFLATION/LABOR axis (the
+// NEWS axis (a strong war/conflict narrative, plus the raw press/wire headline
+// slate's escalation/de-escalation tone — the one axis where MEDIA can vote
+// risk-ON, e.g. a ceasefire/deal headline, before prices react) — those two
+// fire on a geopolitical shock usually BEFORE it bleeds into VIX/yields — an
+// INFLATION/LABOR axis (the
 // monthly CPI YoY + unemployment prints: hot/re-accelerating inflation or a
 // Sahm-triggered labor deterioration), and the Fear & Greed sentiment axis.
 // computeMacroRegime fuses those eight
@@ -7545,11 +7548,23 @@ const PICKS_MACRO_GOLD_5D = Number(process.env.PICKS_MACRO_GOLD_5D ?? 6);       
 const PICKS_MACRO_NEWS = process.env.PICKS_MACRO_NEWS !== "0"; // axis on by default
 const PICKS_MACRO_GEO_MIN_STR = Number(process.env.PICKS_MACRO_GEO_MIN_STR ?? 45);    // min narrative strength to count (-1)
 const PICKS_MACRO_GEO_STRONG_STR = Number(process.env.PICKS_MACRO_GEO_STRONG_STR ?? 65); // strong narrative → acute (-2)
+// Headline tone for the geo-news axis: the raw press/wire macro headline slate
+// (trends.json macroHeadlines, refreshed every bake; same feed the briefs read)
+// scanned deterministically for ESCALATION vs DE-ESCALATION language. Headlines
+// lead both prices and the AI narrative layer — a "close to a deal with Iran"
+// post turns the tape risk-on minutes before any cross-asset axis can see it.
+// A fresh de-escalation slate lifts the geo axis one notch (an active war read
+// eases -2 → -1; a calm tape reads +1 — the one media path that can vote
+// risk-ON); a fresh escalation slate flags -1 before a narrative forms. Only
+// headlines younger than the age cap vote.
+const PICKS_MACRO_HEADLINE_AGE_H = Number(process.env.PICKS_MACRO_HEADLINE_AGE_H ?? 36);
 // Composite → state. riskOffAxes = number of axes at ≤ -1; riskOnAxes at ≥ +1.
 const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many risk-off axes → risk-off
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
 const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
-const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes (and zero risk-off) → can lift to risk-on
+const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes can lift to risk-on...
+const PICKS_MACRO_RISKON_STRESS = Number(process.env.PICKS_MACRO_RISKON_STRESS ?? 2);  // ...when the net composite is at least this positive...
+const PICKS_MACRO_RISKON_MAX_OFF = Number(process.env.PICKS_MACRO_RISKON_MAX_OFF ?? 1); // ...and at most this many axes dissent risk-off (was a hard zero — risk-on was nearly unreachable across 8 axes)
 // Inflation / labor axis (CPI YoY + unemployment, monthly BLS prints attached
 // to macroBackdrop by fetchInflationLabor). Slow monthly data, so it's a
 // confirming vote like sentiment — risk-off when inflation is hot (≥ CPI_HOT
@@ -7570,6 +7585,7 @@ const PICKS_MACRO_UE_SAHM = Number(process.env.PICKS_MACRO_UE_SAHM ?? 0.5);     
 const PICKS_MACRO_SENTIMENT = process.env.PICKS_MACRO_SENTIMENT !== "0"; // default ON
 const PICKS_MACRO_FG_FEAR = Number(process.env.PICKS_MACRO_FG_FEAR ?? 25);   // composite ≤ this → −1 (extreme-fear internals)
 const PICKS_MACRO_FG_GREED = Number(process.env.PICKS_MACRO_FG_GREED ?? 75); // composite ≥ this → +1 (greed internals)
+const PICKS_MACRO_FG_DELTA = Number(process.env.PICKS_MACRO_FG_DELTA ?? 10); // |1d swing| ≥ this votes ±1 even mid-range — sentiment turns fast
 const PICKS_MACRO_FG_MAX_AGE_HOURS = Number(process.env.PICKS_MACRO_FG_MAX_AGE_HOURS ?? 48); // older snapshot → axis reads "no data"
 // Differential bearish tilt folded into the DIRECTIONAL narrative pillar (so it can
 // flip a marginal call to a put and survives the cross-sectional demean — fixed
@@ -11137,7 +11153,43 @@ function computeGeoNewsStress(narratives) {
   return { score: s, label: `Geopolitical news: "${worst.name}" (str ${worst.strength})` };
 }
 
-export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null, fearGreed = null) {
+// Headline-tone regexes for the geo axis. DE-ESCALATION needs resolution
+// language (deal/ceasefire/easing); ESCALATION needs conflict ACTION events
+// (strike/invasion/threat) OR a resolution BREAKING DOWN ("ceasefire
+// collapses", "talks break down") — which is why escalation must be tested
+// FIRST: breakdown headlines name the resolution noun they're breaking, so a
+// de-escalation-first check would count them as the resolution itself.
+// `(?<!de-)` keeps "de-escalation" (hyphen = word boundary) out of the
+// escalation pattern.
+const GEO_DEESCALATION_RE = /\b(cease-?fires?|truce|peace (?:deal|talks|plan|agreement|accord)|de-?escalat\w*|nuclear (?:deal|agreement|accord)|close to (?:a|an) (?:nuclear |trade |peace )?(?:deal|agreement|accord)|reach(?:es|ed)? (?:a |an )?(?:deal|agreement|accord|truce|cease-?fire)|agree(?:s|d)? to (?:a |an )?(?:deal|truce|cease-?fire|agreement)|war (?:settled|ends|is over)|trade (?:deal|agreement|truce)|tariff (?:pause|rollback|exemption|relief|cut)s?|sanctions? (?:lifted|relief|eased)|tensions? eas\w*|talks (?:progress|resume)|diplomatic (?:breakthrough|progress)|hostilities end)\b/i;
+const GEO_ESCALATION_RE = /\b(declares? war|invasions?|invades?|airstrikes?|air strikes?|missile (?:attack|launch|strike|barrage)s?|drone (?:attack|strike)s?|strikes? (?:on|against)|attacks? (?:on|against)|retaliat\w*|(?<!de-)escalat(?:es|ed|ion|ing)|new (?:sanctions|tariffs)|tariff (?:threat|hike)s?|threatens? (?:to|with)|blockades?|mobiliz\w*|troops (?:to|deploy|mass)\w*|nuclear test|(?:talks|deal|truce|cease-?fire) (?:collapse[sd]?|break(?:s|ing)? ?down|fail(?:s|ed|ing)?|stall(?:s|ed|ing)?|end(?:s|ed)?|broken|shattered)|rejects? (?:a |an |the )?(?:deal|truce|cease-?fire|proposal|agreement))\b/i;
+
+// Deterministic headline tone for the geo-news axis (PICKS_MACRO_NEWS): scans
+// the fresh slice of the macro headline slate and nets de-escalation against
+// escalation. Pure (no AI/network — the slate is committed) and exported for
+// testing alongside computeMacroRegime.
+export function computeHeadlineGeoTone(macroHeadlines, nowMs = Date.now()) {
+  if (!PICKS_MACRO_NEWS) return { score: 0, deesc: 0, esc: 0, label: "geo-news off" };
+  const maxAgeMs = PICKS_MACRO_HEADLINE_AGE_H * 3600e3;
+  let deesc = 0, esc = 0, deescTitle = null, escTitle = null;
+  for (const h of Array.isArray(macroHeadlines) ? macroHeadlines : []) {
+    const title = h && h.title;
+    if (!title || !h.publishedAt) continue; // undated items can't pass the freshness gate
+    const t = Date.parse(h.publishedAt);
+    if (!Number.isFinite(t) || nowMs - t > maxAgeMs) continue;
+    // Escalation checked FIRST and exclusively (one headline, one vote):
+    // breakdown headlines name the resolution they're breaking ("Ceasefire
+    // collapses as strikes resume"), so de-escalation-first would invert the
+    // vote. Erring toward escalation is also the defensive failure mode.
+    if (GEO_ESCALATION_RE.test(title)) { esc++; if (!escTitle) escTitle = title; }
+    else if (GEO_DEESCALATION_RE.test(title)) { deesc++; if (!deescTitle) deescTitle = title; }
+  }
+  if (deesc > esc) return { score: 1, deesc, esc, label: `De-escalation headlines (${deesc}): "${deescTitle}"` };
+  if (esc > deesc) return { score: -1, deesc, esc, label: `Escalation headlines (${esc}): "${escTitle}"` };
+  return { score: 0, deesc, esc, label: deesc ? "mixed escalation/de-escalation headlines" : "no geopolitical headline tone" };
+}
+
+export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null, fearGreed = null, macroHeadlines = null) {
   if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
   const axes = {};
   const drivers = [];
@@ -11161,6 +11213,10 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       if ((rising && v >= 25) || (backward && v >= 20)) { s = -2; label = `VIX ${v.toFixed(1)} ${backward ? "inverted curve" : "rising"} — acute stress`; }
       else if (v >= PICKS_TIMING_RISKOFF_VIX || (rising && v >= 18) || backward) { s = -1; label = `VIX ${v.toFixed(1)} ${v >= PICKS_TIMING_RISKOFF_VIX || backward ? "elevated" : "elevated/rising"}`; }
       else if (v < 14) { s = 1; label = `VIX ${v.toFixed(1)} calm`; }
+      // A sharp same-day vol CRUSH below the risk-off band is risk-ON now, not
+      // just "no longer risk-off" — vol unwinding is one of the fastest tells
+      // a tape has flipped (the symmetric twin of the rising/inverted reads).
+      else if (reversing && !backward && v < 18) { s = 1; label = `VIX ${v.toFixed(1)} crushing — 1d ${d1.toFixed(1)}%`; }
       else if (reversing && vix.trend === "rising") { label = `VIX ${v.toFixed(1)} cooling — 1d ${d1.toFixed(1)}%`; }
       axes.vix = { score: s, label };
       if (s <= -1) drivers.push(`VIX ${v.toFixed(1)}${rising ? " ↑" : ""}`);
@@ -11177,10 +11233,13 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       // "rising" trend, so a dollar that's up on the week but easing today can't
       // fire risk-off off the stale trend alone. The 1d level paths are untouched.
       const rising = dxy.trend === "rising" && !(d1 <= -PICKS_MACRO_DXY_1D / 2);
+      // Symmetric twin of `rising`: a falling-trend dollar still counts as
+      // easing unless today meaningfully reverses it upward.
+      const falling = dxy.trend === "falling" && !(d1 >= PICKS_MACRO_DXY_1D / 2);
       let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
       if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
       else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
-      else if (d1 <= -PICKS_MACRO_DXY_1D) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
+      else if (d1 <= -PICKS_MACRO_DXY_1D || (falling && d5 <= -PICKS_MACRO_DXY_5D)) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
       axes.dxy = { score: s, label };
       if (s <= -1) drivers.push(`DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}%`);
     } else axes.dxy = { score: 0, label: "no DXY" };
@@ -11198,10 +11257,14 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       // week-up/day-down tape doesn't fire risk-off off the stale trend alone.
       const tenReversing = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d <= -PICKS_MACRO_YIELD_BPS_1D / 2;
       const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D && !tenReversing;
+      // Symmetric twin: a falling 10Y trend (unless today reverses it upward)
+      // is financial conditions EASING — vote +1, same speed as the rising read.
+      const tenReversingUp = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d >= PICKS_MACRO_YIELD_BPS_1D / 2;
+      const fallingTrend = ten && ten.trend === "falling" && Number(ten.bpsChange5d) <= -PICKS_MACRO_YIELD_BPS_1D && !tenReversingUp;
       let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
       if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
       else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
-      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
+      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D || fallingTrend) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
       axes.yields = { score: s, label };
       if (s <= -1) drivers.push(`10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)}bps`);
     } else axes.yields = { score: 0, label: "no yields" };
@@ -11248,11 +11311,27 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     if (s <= -1) drivers.push(label.split(" — ")[0]);
   } else axes.commodity = { score: 0, label: "commodity axis off" };
 
-  // --- Geopolitical-news axis (AI narrative layer) ---------------------------
+  // --- Geopolitical-news axis (AI narrative layer + raw headline tone) -------
   {
     const geo = computeGeoNewsStress(narratives);
-    axes.geo = geo;
-    if (geo.score <= -1) drivers.push(geo.label.split(" (")[0]);
+    const tone = computeHeadlineGeoTone(macroHeadlines);
+    let s = geo.score, label = geo.label;
+    if (tone.score > 0) {
+      // A fresh de-escalation slate lifts the axis one notch: an active war
+      // narrative eases (-2 → -1) and a calm tape reads risk-ON (+1) — the
+      // one media path that can vote risk-on before prices react.
+      s = Math.min(s + 1, 1);
+      label = s > 0 ? tone.label : `${tone.label} — easing ${geo.label}`;
+    } else if (tone.score < 0 && s === 0) {
+      // Fresh escalation headlines lead the narrative layer (which only
+      // updates when the AI extracts a strong narrative) — flag -1 early.
+      s = -1;
+      label = tone.label;
+    }
+    axes.geo = { score: s, label };
+    // When a de-escalation slate merely EASED a still-stressed narrative read,
+    // the stress driver is the narrative — not the easing headlines.
+    if (s <= -1) drivers.push((tone.score > 0 ? geo.label : label).split(" (")[0]);
   }
 
   // --- Inflation / labor axis (monthly CPI YoY + unemployment) ----------------
@@ -11309,10 +11388,17 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     const fgAgeMs = fearGreed && fearGreed.asOf ? Date.now() - Date.parse(fearGreed.asOf) : null;
     const fgFresh = fgAgeMs == null || (Number.isFinite(fgAgeMs) && fgAgeMs <= PICKS_MACRO_FG_MAX_AGE_HOURS * 3600e3);
     const fgScore = fgFresh && fearGreed && Number.isFinite(Number(fearGreed.score)) ? Number(fearGreed.score) : null;
+    // Fast-swing read: sentiment turns in hours, so a big 1-day composite jump
+    // votes the swing's direction even from mid-range — the extremes-only read
+    // missed the turn until it was already priced. Extremes still take priority.
+    const fgPrev = fgScore != null ? Number(fearGreed?.previous?.close) : null;
+    const fgDelta = fgScore != null && Number.isFinite(fgPrev) ? fgScore - fgPrev : null;
     let s = 0;
     let label = fgScore == null ? "no Fear & Greed data" : `Fear & Greed ${fgScore.toFixed(0)} (${fearGreed.rating || "neutral"})`;
     if (fgScore != null && fgScore <= PICKS_MACRO_FG_FEAR) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fear-stressed internals`; }
     else if (fgScore != null && fgScore >= PICKS_MACRO_FG_GREED) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — greed/risk-on internals`; }
+    else if (fgDelta != null && fgDelta <= -PICKS_MACRO_FG_DELTA) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fast swing toward fear (${fgDelta.toFixed(0)} 1d)`; }
+    else if (fgDelta != null && fgDelta >= PICKS_MACRO_FG_DELTA) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — fast swing toward greed (+${fgDelta.toFixed(0)} 1d)`; }
     axes.sentiment = { score: s, label };
     if (s <= -1) drivers.push(`F&G ${fgScore.toFixed(0)}`);
   } else axes.sentiment = { score: 0, label: "sentiment axis off" };
@@ -11324,11 +11410,28 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   let state = "neutral";
   if (riskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
   else if (riskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
-  else if (riskOnAxes >= PICKS_MACRO_RISKON_AXES && riskOffAxes === 0) state = "risk-on";
+  // Risk-on no longer demands unanimity (zero dissenting axes across eight was
+  // nearly unreachable): enough risk-on axes + a clearly positive net composite
+  // can carry one dissenter, so the gauge flips risk-on as fast as it flips off.
+  // The carve-out is for MILD dissent only: never read risk-on while the vol
+  // axis itself is stressed (elevated/rising/backwardated VIX — mirrors the
+  // base SPY+VIX path's "block risk-on while inverted") or any axis is acute
+  // (−2); the dissenter this carries is a slow −1 like a hot CPI.
+  else if (
+    riskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS &&
+    riskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF && axes.vix.score >= 0 && !arr.some((x) => x <= -2)
+  ) state = "risk-on";
+  // `drivers` collects the STRESS axes (≤ −1). For a risk-on read attribute
+  // the positive axes instead — pre-relaxation risk-on implied zero stress
+  // axes so this list was always empty; now it would name the lone dissenter
+  // as the "driver" of a bullish lean.
+  const driverList = state === "risk-on"
+    ? Object.values(axes).filter((a) => a && a.score >= 1).map((a) => String(a.label).split(" — ")[0])
+    : drivers;
   const summary = state === "neutral"
     ? "Cross-asset macro neutral"
-    : `Cross-asset macro ${state}${drivers.length ? ` — ${drivers.join(", ")}` : ""}`;
-  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers, summary };
+    : `Cross-asset macro ${state}${driverList.length ? ` — ${driverList.join(", ")}` : ""}`;
+  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers: driverList, summary };
 }
 
 // Regime persistence (PICKS_REGIME_PERSIST) — asymmetric hysteresis over the
@@ -11355,6 +11458,11 @@ export function applyMacroRegimePersistence(mr, priorMeta) {
   const prevEff = priorMeta && priorMeta.state;
   if (!prevEff || !(prevEff in RANK)) return mr;
   if (RANK[raw] <= RANK[prevEff]) return mr; // defensive (or unchanged) — apply immediately
+  // Confirmation is only for de-hedging OUT of a defensive state (the book
+  // flips from puts — that's the whipsaw worth damping). An upgrade from
+  // neutral (→ risk-on) carries no such flip, so it applies immediately —
+  // the tape turns risk-on fast and the gauge should too.
+  if (RANK[prevEff] >= RANK["neutral"]) return mr;
   const prevRaw = (priorMeta.rawState in RANK) ? priorMeta.rawState : prevEff;
   if (RANK[prevRaw] > RANK[prevEff]) {
     // Two consecutive builds both read less severe than the held state —
@@ -19618,7 +19726,13 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
 async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = []) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
-    return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: [] };
+    // The headline slate is pure RSS (no key needed) and feeds the macro
+    // regime's headline-tone axis — fetch it anyway so a keyless bake doesn't
+    // persist [] into trends.json and silently disable that axis (plus the
+    // briefs' and regen-picks' committed-slate fallbacks).
+    let keylessHeadlines = [];
+    try { keylessHeadlines = await fetchMacroHeadlines(); } catch (_) { /* degrade to empty */ }
+    return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: keylessHeadlines };
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const lastSnapshot = previousHistory[0];
@@ -20282,7 +20396,7 @@ async function main() {
     // toward more risk-off apply immediately). Prior state from the pre-wipe
     // picks.json rosterMeta.
     macroBackdrop.macroRegime = applyMacroRegimePersistence(
-      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed),
+      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed, trends.macroHeadlines),
       picksPrev?.rosterMeta?.macroRegime || null,
     );
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {

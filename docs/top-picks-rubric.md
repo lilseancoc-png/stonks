@@ -621,13 +621,16 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
   yields), the **Fed path** (FedWatch hike-odds repricing hawkish), plus a **commodity
   / geopolitical-shock** axis and a **geopolitical-news** axis — usually
   *before* the S&P prints a −1% day. `computeMacroRegime(macroBackdrop, fedwatchHistory, narratives)`
-  fuses those six axes (each **−2..+2**, negative = risk-off) into one gauge:
-    - **VIX** — level / trend / term-structure backwardation (reuses the reads below).
-    - **DXY** — 1d ≥ `PICKS_MACRO_DXY_1D` (0.6%) or a rising-trend 5d ≥ `PICKS_MACRO_DXY_5D` → −1; ≥ `PICKS_MACRO_DXY_1D_STRONG` (0.9%) → −2.
-    - **Long yields** — worst of 10Y/30Y: 1d ≥ `PICKS_MACRO_YIELD_BPS_1D` (10 bps) or a confirmed rising trend → −1; ≥ `PICKS_MACRO_YIELD_BPS_1D_STRONG` (16 bps) → −2.
+  fuses those eight axes (each **−2..+2**, negative = risk-off) into one gauge.
+  **The fast axes vote symmetrically** — VIX, the dollar, yields, news and
+  sentiment can all flip a tape risk-ON (or back to neutral) as fast as they
+  flip it off, not just confirm stress:
+    - **VIX** — level / trend / term-structure backwardation (reuses the reads below). Risk-ON: < 14 calm → +1, **or** a sharp same-day crush (1d ≤ `PICKS_MACRO_VIX_REVERSAL_1D`, −8%) below the risk-off band (< 18, no inversion) → +1 — vol unwinding is one of the fastest tells the tape flipped.
+    - **DXY** — 1d ≥ `PICKS_MACRO_DXY_1D` (0.6%) or a rising-trend 5d ≥ `PICKS_MACRO_DXY_5D` → −1; ≥ `PICKS_MACRO_DXY_1D_STRONG` (0.9%) → −2. Symmetric easing: 1d ≤ −0.6% or a falling-trend 5d ≤ −1.0% → +1.
+    - **Long yields** — worst of 10Y/30Y: 1d ≥ `PICKS_MACRO_YIELD_BPS_1D` (10 bps) or a confirmed rising trend → −1; ≥ `PICKS_MACRO_YIELD_BPS_1D_STRONG` (16 bps) → −2. Symmetric easing: 1d ≤ −10 bps or a confirmed falling trend → +1.
     - **Fed path** — net hawkish drift `(hike−cut)` averaged over the nearest `PICKS_MACRO_FED_MEETINGS` (3) meetings vs `PICKS_MACRO_FED_LOOKBACK` (5) snapshots back: ≥ `PICKS_MACRO_FED_DRIFT_PT` (5 pt) → −1; 2× → −2 (reads `data/fedwatch-history.json`).
     - **Commodity / geopolitical shock** (`PICKS_MACRO_COMMODITY`, default ON) — a war / supply shock spikes crude (and bids gold) within *minutes*, usually before VIX/yields react. **Stress-only & asymmetric** (only a sharp spike counts — a gradual demand-driven grind, or a drop, is **not** risk-off): crude 1d ≥ `PICKS_MACRO_OIL_1D` (4%) or 5d ≥ `PICKS_MACRO_OIL_5D` (12%) → −1; ≥ `PICKS_MACRO_OIL_1D_STRONG` (8%) **or** a crude spike *with* a gold safe-haven bid (gold 1d ≥ `PICKS_MACRO_GOLD_1D` 3% / 5d ≥ `PICKS_MACRO_GOLD_5D` 6%) → −2. Reads the `CL=F`/`GC=F` legs now on `macroBackdrop`.
-    - **Geopolitical news** (`PICKS_MACRO_NEWS`, default ON) — a strong active war/conflict narrative from the AI narrative layer flags systemic risk before it fully prices in. **Stress-only**: a `GEO_CONFLICT_RE` theme (war/invasion/missile/…) scores regardless of the narrative's equity sentiment; a softer `GEO_THEME_RE` flashpoint (sanctions/OPEC/named region) only when **bearish**. Strength ≥ `PICKS_MACRO_GEO_MIN_STR` (45) → −1; ≥ `PICKS_MACRO_GEO_STRONG_STR` (65) → −2. (`computeGeoNewsStress`, pure — no extra AI/network.)
+    - **Geopolitical news** (`PICKS_MACRO_NEWS`, default ON) — a strong active war/conflict narrative from the AI narrative layer flags systemic risk before it fully prices in. A `GEO_CONFLICT_RE` theme (war/invasion/missile/…) scores regardless of the narrative's equity sentiment; a softer `GEO_THEME_RE` flashpoint (sanctions/OPEC/named region) only when **bearish**. Strength ≥ `PICKS_MACRO_GEO_MIN_STR` (45) → −1; ≥ `PICKS_MACRO_GEO_STRONG_STR` (65) → −2. (`computeGeoNewsStress`, pure — no extra AI/network.) On top of the narrative read, the axis nets a deterministic **headline tone** from the fresh slice (≤ `PICKS_MACRO_HEADLINE_AGE_H`, 36h) of the press/wire macro headline slate (`trends.json` `macroHeadlines`): a de-escalation slate (`GEO_DEESCALATION_RE` — ceasefire / peace or nuclear or trade deal / tariff relief / tensions easing) **lifts the axis one notch** (a −2 war read eases to −1; a calm tape reads **+1** — the one media path that can vote risk-ON before prices react); an escalation slate (`GEO_ESCALATION_RE` — strikes / invasion / new sanctions or tariffs / talks collapsing) flags −1 even before a narrative forms (`computeHeadlineGeoTone`, pure, exported).
 
   > **Geopolitical shocks need ~no VIX move to register.** The two new axes are the
   > direct, fast tells of a war / supply shock (oil + headlines), so one event can put
@@ -637,8 +640,19 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
 
   `riskOffAxes` = axes at ≤ −1. **`risk-off`** when `riskOffAxes ≥ PICKS_MACRO_RISKOFF_AXES`
   (2); **`severe-risk-off`** when `≥ PICKS_MACRO_SEVERE_AXES` (3) **and** the composite
-  `stress ≤ PICKS_MACRO_SEVERE_STRESS` (−4); `risk-on` only when ≥2 risk-on axes and
-  zero risk-off axes. `detectMarketRegime` returns **risk-off** whenever the composite
+  `stress ≤ PICKS_MACRO_SEVERE_STRESS` (−4); `risk-on` when `riskOnAxes ≥
+  PICKS_MACRO_RISKON_AXES` (2) **and** `stress ≥ PICKS_MACRO_RISKON_STRESS` (+2)
+  **and** `riskOffAxes ≤ PICKS_MACRO_RISKON_MAX_OFF` (1) — the old rule demanded
+  *zero* dissenting axes across eight, which made risk-on nearly unreachable; a
+  clearly positive composite can now carry one dissenter (e.g. a vol crush +
+  dollar/yields easing reads risk-on through a still-hot CPI). The carve-out is
+  for MILD dissent only: risk-on additionally requires the VIX axis itself
+  unstressed (score ≥ 0 — an elevated/rising/backwardated VIX can never be the
+  carried dissenter, mirroring the base path's block-risk-on-while-inverted
+  rule) and no axis at −2 (acute stress). A risk-on read's `drivers`/`summary`
+  list the POSITIVE axes (the stress-axis `drivers` list was always empty under
+  the old zero-dissent rule; naming the lone dissenter as the "driver" of a
+  bullish lean would invert the attribution). `detectMarketRegime` returns **risk-off** whenever the composite
   is (severe-)risk-off — *independent of the SPY day move* — so the engine positions
   into the building stress before the index capitulates, and never reads risk-on while
   the macro is stressed. Attached to `macroBackdrop.macroRegime` upstream (`main()` +
@@ -668,9 +682,11 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
   weights) the instant it flipped, so a tape hovering AT a trigger (VIX ~20, Fed
   drift ~5pt) whipsawed the whole book between long-leaning and all-puts build to
   build. `applyMacroRegimePersistence` adds **asymmetric hysteresis**: a move toward
-  MORE risk-off applies immediately (never delay defense); a move toward LESS
-  risk-off (recovering toward neutral / risk-on) must be read on **two consecutive
-  builds** before it takes effect. The prior state comes from the previous
+  MORE risk-off applies immediately (never delay defense); de-hedging OUT of a
+  defensive state (risk-off/severe recovering toward neutral / risk-on) must be
+  read on **two consecutive builds** before it takes effect — but an upgrade FROM
+  neutral (→ risk-on) carries no put-book flip, so it applies the same build:
+  the tape turns risk-on fast and the gauge follows. The prior state comes from the previous
   `picks.json` `rosterMeta.macroRegime` (read pre-wipe by `main()`, directly by
   `regen-picks`); the instantaneous read rides on `rawState` + a `persisted` flag so
   the UI/logs can show "holding risk-off pending confirmation". Absent prior →
@@ -1009,9 +1025,11 @@ it has to be trustworthy. The fixes:
   - **Equity-internals sentiment axis (regime, §6.3):** `PICKS_MACRO_SENTIMENT`
     (default ON) — CNN Fear & Greed (`data/fear-greed.json`; the live fetch in a full
     build) votes as a 7th macro axis: composite ≤ `PICKS_MACRO_FG_FEAR 25` → −1,
-    ≥ `PICKS_MACRO_FG_GREED 75` → +1, capped ±1 (its volatility component overlaps the
-    VIX axis, so it confirms but can never drive severe alone). Reads equity INTERNALS
-    (breadth/strength/momentum) no other axis covers.
+    ≥ `PICKS_MACRO_FG_GREED 75` → +1; mid-range, a fast 1-day swing |Δ| ≥
+    `PICKS_MACRO_FG_DELTA 10` votes the swing's direction (sentiment turns in hours —
+    the extremes-only read missed the turn until it was priced). Capped ±1 (its
+    volatility component overlaps the VIX axis, so it confirms but can never drive
+    severe alone). Reads equity INTERNALS (breadth/strength/momentum) no other axis covers.
   - **Redundant-signal prune (audit, §3):** `PICKS_PRUNE_REDUNDANT` (default ON) —
     `volConf` dropped from Technicals (double-read the same 20D rvol `unusualVolume`
     scores SIGNED, and unsigned volume credits a crash day like a rally);
@@ -1046,7 +1064,7 @@ it has to be trustworthy. The fixes:
     axis `PICKS_MACRO_COMMODITY` (default ON), `PICKS_MACRO_OIL_1D 4` / `_OIL_1D_STRONG 8` /
     `_OIL_5D 12`, `PICKS_MACRO_GOLD_1D 3` / `_GOLD_5D 6` (reads `macroBackdrop.crude`/`.gold`,
     the `CL=F`/`GC=F` legs); geopolitical-news axis `PICKS_MACRO_NEWS` (default ON),
-    `PICKS_MACRO_GEO_MIN_STR 45` / `_GEO_STRONG_STR 65` (`computeGeoNewsStress`, `GEO_CONFLICT_RE`/`GEO_THEME_RE`);
+    `PICKS_MACRO_GEO_MIN_STR 45` / `_GEO_STRONG_STR 65` (`computeGeoNewsStress`, `GEO_CONFLICT_RE`/`GEO_THEME_RE`), headline tone `PICKS_MACRO_HEADLINE_AGE_H 36` (`computeHeadlineGeoTone`, `GEO_DEESCALATION_RE`/`GEO_ESCALATION_RE`);
     inflation/labor axis `PICKS_MACRO_INFLATION` (default ON) — monthly CPI YoY + unemployment
     (BLS `CUUR0000SA0`/`LNS14000000`, FRED `CPIAUCNS`/`UNRATE` fallback, attached to
     `macroBackdrop.inflation`/`.unemployment` by `fetchInflationLabor`): −1 when CPI YoY ≥
@@ -1055,12 +1073,14 @@ it has to be trustworthy. The fixes:
     `PICKS_MACRO_UE_SAHM 0.5`pp (both → −2, the stagflation tape), +1 only when CPI ≤
     `_CPI_COOL 2.5` and not rising — slow monthly prints, so a confirming vote like sentiment; states
     `PICKS_MACRO_RISKOFF_AXES 2`, `PICKS_MACRO_SEVERE_AXES 3` + `PICKS_MACRO_SEVERE_STRESS −4`,
-    `PICKS_MACRO_RISKON_AXES 2`; book tilt `PICKS_MACRO_TILT` (default ON), `_TILT_BASE 4` /
+    `PICKS_MACRO_RISKON_AXES 2` + `PICKS_MACRO_RISKON_STRESS 2` + `PICKS_MACRO_RISKON_MAX_OFF 1`,
+    sentiment fast-swing `PICKS_MACRO_FG_DELTA 10`; book tilt `PICKS_MACRO_TILT` (default ON), `_TILT_BASE 4` /
     `_TILT_SEVERE 8` / `_TILT_RISKON 2`, beta clamp `_TILT_BETA_FLOOR 0.5` / `_TILT_BETA_CAP 1.6`,
     continuous ramp `PICKS_MACRO_TILT_RAMP` (default ON) + `PICKS_MACRO_TILT_FULL_STRESS 4`
     (|tilt| = BASE × |stress|/4, capped at SEVERE; `=0` → legacy step);
     regime persistence `PICKS_REGIME_PERSIST` (default ON; asymmetric — defensive moves
-    immediate, recovery needs 2 consecutive builds; `applyMacroRegimePersistence`, prior
+    and neutral→risk-on immediate, de-hedging out of risk-off/severe needs 2 consecutive
+    builds; `applyMacroRegimePersistence`, prior
     state from `rosterMeta.macroRegime.{state,rawState}`);
     de-gross `PICKS_MACRO_GROSS_RISKOFF 0.6` / `_GROSS_SEVERE 0.4`; severe guards
     `PICKS_MACRO_SEVERE_CALL_CAP 3`, `PICKS_MACRO_SEVERE_PUT_BAR −5`. (`computeMacroRegime` /
