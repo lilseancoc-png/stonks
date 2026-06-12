@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Added
+- **Earnings history card** on the Grade tab's Fundamentals pane: the last ~8 reported quarters per ticker — announcement date, AM/PM session, fiscal quarter, the stock's reaction (close-before → reaction-session close, opening gap, 1-week drift), the straddle-implied move, and ATM 30d IV going in / coming out — plus a "Next report" banner that compares what options are pricing now against the name's average realized earnings move (cheap / rich / in-line read). Backed by a new accumulating `data/earnings-history.json` (same read-before-wipe pattern as the other histories): past announcement dates + EPS backfill from Yahoo's earnings-dates endpoint, reactions computed from daily bars (one-off ~2y fetch when needed), and implied-move/IV stamps snapshotted live inside the final week before each print, so those columns fill as history accrues.
+
 ### Changed
 - Top Picks macro-tape chip now surfaces the regime's held-vs-raw state: when hysteresis is holding a more defensive label than the build's instantaneous read (e.g. risk-off on a green rebound day that read neutral), the chip shows "recovering (read neutral)" and the tooltip explains the two-build confirmation rule.
 

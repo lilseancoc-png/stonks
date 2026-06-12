@@ -3800,6 +3800,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       state.intradaySeries = entry.intradaySeries || null;
       state.fundamentals = entry.fundamentals || null;
       state.social = entry.social || null;
+      // Earnings history (last ~8 prints + the upcoming one) — baked by
+      // build.mjs' earnings-history pass. Older data (pre-feature) lacks the
+      // field → the card stays hidden.
+      state.earningsHx = entry.earningsHx || null;
       // autoPick — the best call/put the Top Picks engine would select for this
       // name, scored at bake time with the exact pickContractForPick() the
       // picks pipeline uses. Drives the "★ Top-Picks grade" banner. Older data
@@ -4899,6 +4903,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     renderEarningsHistory();
     renderFundamentalHistoryCharts();
     renderRevenueSegments();
+    renderEarningsHx();
     box.hidden = false;
   }
 
@@ -5196,6 +5201,142 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       formatValue: function(v){ return v.toFixed(2); },
       fiscalYearEndMonth: f && f.fiscalYearEndMonth,
     });
+  }
+
+  // "Earnings history" card — the last ~8 prints (date, AM/PM, quarter, the
+  // stock's reaction, the straddle-implied move, IV in/out) plus an upcoming-
+  // report banner that compares what options are pricing now against what the
+  // stock actually did. Data is baked by build.mjs' earnings-history pass;
+  // implied-move + IV columns accumulate from live pre/post-print snapshots,
+  // so older rows can show "—" until enough history is banked.
+  function renderEarningsHx(){
+    var box = $('opt-fund-earnings-hx');
+    if (!box) return;
+    var hx = state.earningsHx;
+    var events = (hx && Array.isArray(hx.events)) ? hx.events.slice() : [];
+    if (!events.length && !(hx && hx.next)){ box.hidden = true; box.innerHTML = ''; return; }
+
+    var isNum = function(v){ return v != null && isFinite(v); };
+    var pct = function(v, signed){
+      if (!isNum(v)) return '—';
+      var p = v * 100;
+      return (signed && p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+    };
+    var ivPct = function(v){ return isNum(v) ? Math.round(v * 100) + '%' : '—'; };
+    var usd = function(v){ return isNum(v) ? '$' + Number(v).toFixed(2) : '—'; };
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var fmtDate = function(iso){
+      if (!iso || iso.length < 10) return '—';
+      var m = parseInt(iso.slice(5,7), 10), d = parseInt(iso.slice(8,10), 10);
+      return MON[m-1] + ' ' + d + ', ' + iso.slice(0,4);
+    };
+    var fmtShortDate = function(iso){
+      if (!iso || iso.length < 10) return null;
+      var m = parseInt(iso.slice(5,7), 10);
+      return MON[m-1] + " '" + iso.slice(2,4);
+    };
+    var toneCls = function(v){ return !isNum(v) ? '' : v > 0 ? ' opt-ehx-pos' : v < 0 ? ' opt-ehx-neg' : ''; };
+    var sessionLabel = function(s){ return s === 'AM' ? 'AM' : s === 'PM' ? 'PM' : '—'; };
+    var avg = function(arr){
+      var xs = arr.filter(isNum);
+      if (!xs.length) return null;
+      var s = 0; for (var i = 0; i < xs.length; i++) s += xs[i];
+      return s / xs.length;
+    };
+
+    // ---- history stats (resolved prints only) ----
+    var moves = events.map(function(e){ return e.movePct; }).filter(isNum);
+    var avgAbsMove = avg(moves.map(Math.abs));
+    var maxAbsMove = moves.length ? Math.max.apply(null, moves.map(Math.abs)) : null;
+    var upCount = moves.filter(function(m){ return m > 0; }).length;
+    var avgDrift = avg(events.map(function(e){ return e.week1Pct; }));
+    var crushes = events.map(function(e){
+      return (isNum(e.ivPre) && isNum(e.ivPost) && e.ivPre > 0) ? (e.ivPost - e.ivPre) / e.ivPre : null;
+    }).filter(isNum);
+    var avgCrush = avg(crushes);
+    var avgIvPre = avg(events.map(function(e){ return e.ivPre; }));
+    var epsRows = events.filter(function(e){ return isNum(e.surprisePct); });
+    var beatCount = epsRows.filter(function(e){ return e.surprisePct > 0; }).length;
+
+    var html = '<div class="opt-ehx-head"><span class="opt-ehx-title">Earnings history</span>' +
+      '<span class="opt-ehx-sub">last ' + events.length + ' report' + (events.length === 1 ? '' : 's') + '</span></div>';
+
+    // ---- upcoming-report banner: compare now vs history ----
+    var next = hx && hx.next;
+    if (next && next.date){
+      var chips = '';
+      chips += '<span class="opt-ehx-chip warn">' + escapeHtml(fmtDate(next.date)) +
+        (next.session === 'AM' ? ' · before open' : next.session === 'PM' ? ' · after close' : '') +
+        (isNum(next.daysUntil) ? ' · ' + (next.daysUntil === 0 ? 'today' : 'in ' + next.daysUntil + 'd') : '') + '</span>';
+      if (isNum(next.impliedMovePct)) chips += '<span class="opt-ehx-chip">options pricing ±' + (next.impliedMovePct * 100).toFixed(1) + '%</span>';
+      if (isNum(next.ivNow)){
+        chips += '<span class="opt-ehx-chip">IV now ' + ivPct(next.ivNow) +
+          (isNum(avgIvPre) ? ' <span class="opt-ehx-chip-sub">vs ' + ivPct(avgIvPre) + ' avg pre-print</span>' : '') + '</span>';
+      }
+      if (isNum(avgAbsMove)) chips += '<span class="opt-ehx-chip">avg realized ±' + (avgAbsMove * 100).toFixed(1) + '%</span>';
+      var verdict = '';
+      if (isNum(next.impliedMovePct) && isNum(avgAbsMove) && avgAbsMove > 0){
+        var ratio = next.impliedMovePct / avgAbsMove;
+        verdict = ratio < 0.8
+          ? 'Options are pricing a smaller swing than this stock has averaged on its last ' + moves.length + ' reports — the market expects a quieter print (or the straddle is cheap).'
+          : ratio > 1.2
+            ? 'Options are pricing a bigger swing than the average of the last ' + moves.length + ' reports — elevated expectations, and long premium needs an outsized move to pay.'
+            : 'Options are pricing roughly in line with what this stock has done on its last ' + moves.length + ' reports.';
+      } else if (!isNum(next.impliedMovePct)){
+        verdict = 'The straddle-implied move is snapshotted during the final week before the report — check back as the date nears.';
+      }
+      html += '<div class="opt-ehx-next"><div class="opt-ehx-next-label">Next report</div>' +
+        '<div class="opt-ehx-chips">' + chips + '</div>' +
+        (verdict ? '<p class="opt-ehx-verdict">' + escapeHtml(verdict) + '</p>' : '') + '</div>';
+    }
+
+    // ---- past-prints recap chips ----
+    if (moves.length){
+      var recap = '';
+      recap += '<span class="opt-ehx-stat">closed higher <b>' + upCount + '/' + moves.length + '</b> next session</span>';
+      if (isNum(maxAbsMove)) recap += '<span class="opt-ehx-stat">biggest move <b>±' + (maxAbsMove * 100).toFixed(1) + '%</b></span>';
+      if (epsRows.length) recap += '<span class="opt-ehx-stat">beat EPS <b>' + beatCount + '/' + epsRows.length + '</b></span>';
+      if (isNum(avgDrift)) recap += '<span class="opt-ehx-stat">avg 1-wk drift <b class="' + (avgDrift >= 0 ? 'opt-ehx-pos' : 'opt-ehx-neg') + '">' + pct(avgDrift, true) + '</b></span>';
+      if (isNum(avgCrush)) recap += '<span class="opt-ehx-stat">avg IV crush <b>' + pct(avgCrush, true) + '</b></span>';
+      html += '<div class="opt-ehx-recap">' + recap + '</div>';
+    }
+
+    // ---- the table (newest first) ----
+    if (events.length){
+      events.reverse();
+      var rows = events.map(function(e){
+        var qLabel = e.qEnd ? 'Q end ' + fmtShortDate(e.qEnd) : '—';
+        var eps = '';
+        if (isNum(e.epsActual)){
+          eps = ' title="EPS ' + e.epsActual.toFixed(2) +
+            (isNum(e.epsEstimate) ? ' vs est ' + e.epsEstimate.toFixed(2) : '') +
+            (isNum(e.surprisePct) ? ' (' + (e.surprisePct >= 0 ? '+' : '') + e.surprisePct.toFixed(1) + '%)' : '') + '"';
+        }
+        var openCell = usd(e.openAfter);
+        if (isNum(e.gapPct)) openCell += ' <span class="opt-ehx-cell-sub' + toneCls(e.gapPct) + '">' + pct(e.gapPct, true) + '</span>';
+        return '<tr' + eps + '>' +
+          '<td>' + escapeHtml(fmtDate(e.date)) + '</td>' +
+          '<td>' + sessionLabel(e.session) + '</td>' +
+          '<td>' + escapeHtml(qLabel) + '</td>' +
+          '<td class="opt-ehx-num' + toneCls(e.movePct) + '">' + pct(e.movePct, true) + '</td>' +
+          '<td class="opt-ehx-num">' + (isNum(e.impliedMovePct) ? '±' + (e.impliedMovePct * 100).toFixed(1) + '%' : '—') + '</td>' +
+          '<td class="opt-ehx-num">' + ivPct(e.ivPre) + '</td>' +
+          '<td class="opt-ehx-num">' + ivPct(e.ivPost) + '</td>' +
+          '<td class="opt-ehx-num">' + usd(e.closeBefore) + '</td>' +
+          '<td class="opt-ehx-num">' + openCell + '</td>' +
+          '<td class="opt-ehx-num' + toneCls(e.week1Pct) + '">' + pct(e.week1Pct, true) + '</td>' +
+          '</tr>';
+      }).join('');
+      html += '<div class="opt-ehx-tablewrap"><table class="opt-ehx-table">' +
+        '<thead><tr><th>Date</th><th>Time</th><th>Period</th><th>Price effect</th><th>Implied move</th>' +
+        '<th>IV pre</th><th>IV post</th><th>Close before</th><th>Open after</th><th>1-wk after</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table></div>';
+      html += '<p class="opt-ehx-foot">Price effect = close before the report → close of the reaction session. ' +
+        'Implied move and IV pre/post are snapshotted live around each print, so older reports may show "—" until history accumulates. Hover a row for EPS vs estimate.</p>';
+    }
+
+    box.innerHTML = html;
+    box.hidden = false;
   }
 
   function renderFundamentalHistoryCharts(){
