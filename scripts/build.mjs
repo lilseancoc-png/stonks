@@ -7485,8 +7485,11 @@ export const PICKS_TIMING_THRESHOLDS = Object.freeze({
 // assets at once — equity vol (VIX), the dollar (DXY), the long end (10Y/30Y
 // yields), the Fed PATH (FedWatch hike-odds repricing hawkish), plus a COMMODITY /
 // geopolitical-shock axis (a crude spike + gold safe-haven bid), a geopolitical-
-// NEWS axis (a strong war/conflict narrative) — those two fire on a geopolitical
-// shock usually BEFORE it bleeds into VIX/yields — an INFLATION/LABOR axis (the
+// NEWS axis (a strong war/conflict narrative, plus the raw press/wire headline
+// slate's escalation/de-escalation tone — the one axis where MEDIA can vote
+// risk-ON, e.g. a ceasefire/deal headline, before prices react) — those two
+// fire on a geopolitical shock usually BEFORE it bleeds into VIX/yields — an
+// INFLATION/LABOR axis (the
 // monthly CPI YoY + unemployment prints: hot/re-accelerating inflation or a
 // Sahm-triggered labor deterioration), and the Fear & Greed sentiment axis.
 // computeMacroRegime fuses those eight
@@ -7545,6 +7548,16 @@ const PICKS_MACRO_GOLD_5D = Number(process.env.PICKS_MACRO_GOLD_5D ?? 6);       
 const PICKS_MACRO_NEWS = process.env.PICKS_MACRO_NEWS !== "0"; // axis on by default
 const PICKS_MACRO_GEO_MIN_STR = Number(process.env.PICKS_MACRO_GEO_MIN_STR ?? 45);    // min narrative strength to count (-1)
 const PICKS_MACRO_GEO_STRONG_STR = Number(process.env.PICKS_MACRO_GEO_STRONG_STR ?? 65); // strong narrative → acute (-2)
+// Headline tone for the geo-news axis: the raw press/wire macro headline slate
+// (trends.json macroHeadlines, refreshed every bake; same feed the briefs read)
+// scanned deterministically for ESCALATION vs DE-ESCALATION language. Headlines
+// lead both prices and the AI narrative layer — a "close to a deal with Iran"
+// post turns the tape risk-on minutes before any cross-asset axis can see it.
+// A fresh de-escalation slate lifts the geo axis one notch (an active war read
+// eases -2 → -1; a calm tape reads +1 — the one media path that can vote
+// risk-ON); a fresh escalation slate flags -1 before a narrative forms. Only
+// headlines younger than the age cap vote.
+const PICKS_MACRO_HEADLINE_AGE_H = Number(process.env.PICKS_MACRO_HEADLINE_AGE_H ?? 36);
 // Composite → state. riskOffAxes = number of axes at ≤ -1; riskOnAxes at ≥ +1.
 const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many risk-off axes → risk-off
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
@@ -11137,7 +11150,37 @@ function computeGeoNewsStress(narratives) {
   return { score: s, label: `Geopolitical news: "${worst.name}" (str ${worst.strength})` };
 }
 
-export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null, fearGreed = null) {
+// Headline-tone regexes for the geo axis. DE-ESCALATION needs resolution
+// language (deal/ceasefire/easing); ESCALATION needs conflict ACTION events
+// (strike/invasion/threat), not mere mentions of a flashpoint.
+const GEO_DEESCALATION_RE = /\b(cease-?fires?|truce|peace (?:deal|talks|plan|agreement|accord)|de-?escalat\w*|nuclear (?:deal|agreement|accord)|close to a (?:nuclear |trade |peace )?deal|reach(?:es|ed)? (?:a )?(?:deal|agreement|accord)|trade (?:deal|agreement|truce)|tariff (?:pause|rollback|exemption|relief|cut)s?|sanctions? (?:lifted|relief|eased)|tensions? eas\w*|talks (?:progress|resume)|diplomatic (?:breakthrough|progress)|hostilities end)\b/i;
+const GEO_ESCALATION_RE = /\b(declares? war|invasions?|invades?|airstrikes?|air strikes?|missile (?:attack|launch|strike|barrage)s?|drone (?:attack|strike)s?|strikes? (?:on|against)|attacks? (?:on|against)|retaliat\w*|escalat(?:es|ed|ion|ing)|new (?:sanctions|tariffs)|tariff (?:threat|hike)s?|threatens? (?:to|with)|blockades?|mobiliz\w*|troops (?:to|deploy|mass)\w*|nuclear test|talks (?:collapse|break ?down)|cease-?fire (?:collapses?|ends|broken))\b/i;
+
+// Deterministic headline tone for the geo-news axis (PICKS_MACRO_NEWS): scans
+// the fresh slice of the macro headline slate and nets de-escalation against
+// escalation. Pure (no AI/network — the slate is committed) and exported for
+// testing alongside computeMacroRegime.
+export function computeHeadlineGeoTone(macroHeadlines, nowMs = Date.now()) {
+  if (!PICKS_MACRO_NEWS) return { score: 0, deesc: 0, esc: 0, label: "geo-news off" };
+  const maxAgeMs = PICKS_MACRO_HEADLINE_AGE_H * 3600e3;
+  let deesc = 0, esc = 0, deescTitle = null, escTitle = null;
+  for (const h of Array.isArray(macroHeadlines) ? macroHeadlines : []) {
+    const title = h && h.title;
+    if (!title || !h.publishedAt) continue; // undated items can't pass the freshness gate
+    const t = Date.parse(h.publishedAt);
+    if (!Number.isFinite(t) || nowMs - t > maxAgeMs) continue;
+    // De-escalation checked FIRST and exclusively: "de-escalation" would
+    // otherwise also match the escalation pattern through the hyphen's word
+    // boundary, and a single headline must cast a single vote.
+    if (GEO_DEESCALATION_RE.test(title)) { deesc++; if (!deescTitle) deescTitle = title; }
+    else if (GEO_ESCALATION_RE.test(title)) { esc++; if (!escTitle) escTitle = title; }
+  }
+  if (deesc > esc) return { score: 1, deesc, esc, label: `De-escalation headlines (${deesc}): "${deescTitle}"` };
+  if (esc > deesc) return { score: -1, deesc, esc, label: `Escalation headlines (${esc}): "${escTitle}"` };
+  return { score: 0, deesc, esc, label: deesc ? "mixed escalation/de-escalation headlines" : "no geopolitical headline tone" };
+}
+
+export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null, fearGreed = null, macroHeadlines = null) {
   if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
   const axes = {};
   const drivers = [];
@@ -11248,11 +11291,25 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     if (s <= -1) drivers.push(label.split(" — ")[0]);
   } else axes.commodity = { score: 0, label: "commodity axis off" };
 
-  // --- Geopolitical-news axis (AI narrative layer) ---------------------------
+  // --- Geopolitical-news axis (AI narrative layer + raw headline tone) -------
   {
     const geo = computeGeoNewsStress(narratives);
-    axes.geo = geo;
-    if (geo.score <= -1) drivers.push(geo.label.split(" (")[0]);
+    const tone = computeHeadlineGeoTone(macroHeadlines);
+    let s = geo.score, label = geo.label;
+    if (tone.score > 0) {
+      // A fresh de-escalation slate lifts the axis one notch: an active war
+      // narrative eases (-2 → -1) and a calm tape reads risk-ON (+1) — the
+      // one media path that can vote risk-on before prices react.
+      s = Math.min(s + 1, 1);
+      label = s > 0 ? tone.label : `${tone.label} — easing ${geo.label}`;
+    } else if (tone.score < 0 && s === 0) {
+      // Fresh escalation headlines lead the narrative layer (which only
+      // updates when the AI extracts a strong narrative) — flag -1 early.
+      s = -1;
+      label = tone.label;
+    }
+    axes.geo = { score: s, label };
+    if (s <= -1) drivers.push(label.split(" (")[0]);
   }
 
   // --- Inflation / labor axis (monthly CPI YoY + unemployment) ----------------
@@ -20282,7 +20339,7 @@ async function main() {
     // toward more risk-off apply immediately). Prior state from the pre-wipe
     // picks.json rosterMeta.
     macroBackdrop.macroRegime = applyMacroRegimePersistence(
-      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed),
+      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed, trends.macroHeadlines),
       picksPrev?.rosterMeta?.macroRegime || null,
     );
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
