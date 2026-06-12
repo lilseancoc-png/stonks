@@ -10,7 +10,7 @@
 //
 // Everything deterministic is assembled from the committed artifacts of the
 // most recent bake (per-ticker chains/technicals, macro, calendar, picks,
-// unusual flow). Three things a pre-market brief genuinely needs fresher than
+// unusual flow). Four things a pre-market brief genuinely needs fresher than
 // yesterday's 16:00 bake are fetched live, each degrading gracefully:
 //   - the overnight global-markets sweep (Asia just closed, Europe mid-session,
 //     US futures) via fetchAllGlobalMarkets + buildCorrelationsPayload — the
@@ -20,6 +20,9 @@
 //     prints and ForexFactory posts actuals within minutes, so a CPI that's
 //     already out reaches the morning brief (falls back to the committed
 //     calendar rows, in which case the next bake's re-mint picks it up)
+//   - the market-wide press/wire headline slate (fetchMacroHeadlines) — the
+//     overnight headlines are the brief's tape-driver input (falls back to
+//     the slate committed in trends.json by yesterday's last bake)
 //
 // Writes data/briefs.json and data/ai-usage.json (the shared AI budget — the
 // brief call is recorded against the same per-day Gemini totals as the bake).
@@ -34,6 +37,7 @@ import {
   fetchAllGlobalMarkets,
   buildCorrelationsPayload,
   fetchCnnFearGreed,
+  fetchMacroHeadlines,
   fetchMacroReleases,
   buildMacroReleaseReads,
   MACRO_RELEASE_LOOKBACK_DAYS,
@@ -151,6 +155,22 @@ async function main() {
     console.warn(`Live macro-release sweep failed (${String(err?.message || err).split("\n")[0]}) — using committed calendar.json rows.`);
   }
 
+  // Live press/wire headline sweep — the overnight slate (a geopolitical
+  // headline that moved futures, a pre-market policy post) is exactly what a
+  // pre-market tape-driver read needs, and the committed trends.json slate is
+  // from yesterday's last bake. Degrades to that committed slate.
+  let headlines = [];
+  try {
+    headlines = await fetchMacroHeadlines();
+    console.log(`Live macro headlines: ${headlines.length}.`);
+  } catch (err) {
+    console.warn(`Macro headline sweep failed (${String(err?.message || err).split("\n")[0]}) — using committed trends.json slate.`);
+  }
+  if (!headlines.length) {
+    const trends = await readJson("trends.json");
+    if (Array.isArray(trends?.macroHeadlines)) headlines = trends.macroHeadlines;
+  }
+
   const res = await buildMarketBriefs({
     briefsPrev,
     builtAtIso,
@@ -165,6 +185,7 @@ async function main() {
     // Pre-market there is no new picks churn — the prior bake already narrated
     // its own events, and today's first bake will narrate today's.
     picksChanges: [],
+    headlines,
   });
   await writeAiUsageState();
   console.log(`wrote data/briefs.json — morning:${res.morning ? "yes" : "no"} afternoon:${res.afternoon ? "yes" : "no"}${res.generated ? ` (${res.generated} generated this run)` : " (carry-forward only)"}`);
