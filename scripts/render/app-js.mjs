@@ -10803,6 +10803,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }).join('');
       blocks.push(briefBlock('Econ data prints', '<div class="brief-chips">' + rel + '</div>'));
     }
+    // Market-wide press/wire headlines — the media slate the AI's tape-driver
+    // read judged (morning: the overnight headlines; closing: the session's).
+    if (Array.isArray(b.headlines) && b.headlines.length){
+      var hls = b.headlines.map(function(h){
+        var t = '';
+        if (h.at){ var hd = new Date(h.at); if (!isNaN(hd.getTime())) t = hd.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+        var meta = [h.source, t].filter(Boolean).join(' · ');
+        return '<li class="brief-hline"><span class="brief-hline-title">' + briefEsc(h.title) + '</span>' +
+          (meta ? '<span class="brief-hline-meta">' + briefEsc(meta) + '</span>' : '') + '</li>';
+      }).join('');
+      blocks.push(briefBlock('Headlines on the tape', '<ul class="brief-hlines">' + hls + '</ul>'));
+    }
     // Index scorecard — futures (morning) / index-ETF close (closing).
     if (Array.isArray(b.indexes) && b.indexes.length){
       blocks.push(briefBlock('Index scorecard', briefIndexChips(b.indexes)));

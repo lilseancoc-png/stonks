@@ -15824,7 +15824,7 @@ export function gatherBriefSignals(kind, ctx) {
   const {
     chains = {}, fearGreed = null, macro = null, correlations = null,
     unusual = null, picks = [], calendar = {},
-    rfr = FALLBACK_RISK_FREE_RATE, picksChanges = [],
+    rfr = FALLBACK_RISK_FREE_RATE, picksChanges = [], headlines = [],
   } = ctx || {};
 
   // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
@@ -15873,6 +15873,24 @@ export function gatherBriefSignals(kind, ctx) {
   }
 
   const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
+
+  // Market-wide press/wire headlines — the media input behind headline-driven
+  // tape moves (a geopolitical de-escalation lifting everything, a tariff
+  // threat knocking it all down). Same filtered macro feed the narrative
+  // engine reads. Morning: the overnight + prior-session slate that set up
+  // the open (36h); afternoon: the headlines the session actually traded
+  // against (24h). Already sorted newest-first by fetchMacroHeadlines.
+  const hlMaxAgeMs = (kind === "morning" ? 36 : 24) * 3600000;
+  const hlNow = Date.now();
+  const hlArr = (Array.isArray(headlines) ? headlines : [])
+    .filter((h) => {
+      if (!h || !h.title || !h.publishedAt) return false;
+      const t = Date.parse(h.publishedAt);
+      return Number.isFinite(t) && hlNow - t <= hlMaxAgeMs;
+    })
+    .slice(0, 8)
+    .map((h) => ({ title: briefClause(h.title, 160), source: h.publisher || h.source || null, at: h.publishedAt }));
+  if (hlArr.length) signals.headlines = hlArr;
 
   // Macro data that already PRINTED (today + the trailing lookback window),
   // classified actual-vs-consensus by buildMacroReleaseReads — both briefs get
@@ -16053,6 +16071,7 @@ function briefRenderFields(s) {
   if (s.fearGreed) out.fearGreed = s.fearGreed;
   if (s.macro && s.macro.length) out.macro = s.macro;
   if (s.releases && s.releases.length) out.releases = s.releases;
+  if (s.headlines && s.headlines.length) out.headlines = s.headlines;
   if (s.tone) out.tone = s.tone;
   if (s.indexes && s.indexes.length) out.indexes = s.indexes;
   if (s.recap && s.recap.length) out.recap = s.recap;
@@ -16092,7 +16111,14 @@ function briefSystemPrompt(kind) {
     "plus sector or asset-class implications), and watch (key levels or indicators from the supplied facts to " +
     "monitor for confirmation or invalidation). Be probabilistic rather than predictive and acknowledge " +
     "uncertainty. If NO listed pattern genuinely fits, or no playbook section is supplied, OMIT the analog field " +
-    "entirely — do not force an analogy.";
+    "entirely — do not force an analogy. " +
+    "TAPE DRIVERS: when the facts include a 'Market-wide headlines' section, judge whether any headline plausibly " +
+    "explains the broad tape's direction — e.g. a geopolitical de-escalation or trade-deal headline lifting risk " +
+    "assets across the board, or a tariff/conflict headline knocking them down. If one clearly does, attribute the " +
+    "move to it in the summary and ALSO include one highlight labeled 'Tape driver' naming the headline and the " +
+    "reaction it drove. Direction and timing must both line up — never force a connection, never treat a headline " +
+    "as the driver when the move predates it or points the other way, and skip the highlight entirely when the " +
+    "tape is better explained by data prints, earnings, or positioning.";
   if (kind === "morning") {
     return (
       "You are a markets-desk analyst writing a concise PRE-MARKET brief for US options traders, " +
@@ -16104,6 +16130,7 @@ function briefSystemPrompt(kind) {
       "options flow from the prior session, any names added to or dropped from the model's actionable top picks, " +
       "today's earnings + economic calendar, any economic data that already PRINTED (actual vs consensus vs prior " +
       "— an 8:30 ET release like CPI may already be out; if so, lead with it and how it sets up the session), " +
+      "the overnight market-wide press/wire headlines (Fed, policy, geopolitics, trade), " +
       "and the model's current top option picks. Frame it as the setup " +
       "for today's session: what happened overnight, and what to watch into the bell." + common
     );
@@ -16117,7 +16144,8 @@ function briefSystemPrompt(kind) {
     "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
     "vs the gamma flip), any names added to or dropped from the model's actionable top picks, the model's top " +
     "option picks, the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
-    "how the tape traded against it), and what's on the calendar next. Frame it as what happened today and what " +
+    "how the tape traded against it), the day's market-wide press/wire headlines (Fed, policy, geopolitics, " +
+    "trade), and what's on the calendar next. Frame it as what happened today and what " +
     "to watch next." + common
   );
 }
@@ -16143,6 +16171,17 @@ export function briefUserMessage(kind, dateKey, signals) {
     for (const r of signals.releases) {
       lines.push(`- ${r.title} (${r.date}): ${r.actual}` +
         `${r.consensus ? ` vs ${r.consensus} expected` : ""}${r.previous ? `, prior ${r.previous}` : ""}${r.read ? ` — ${r.read}` : ""}`);
+    }
+  }
+  if (signals.headlines && signals.headlines.length) {
+    lines.push("Market-wide headlines (press/wire, newest first — judge which, if any, explain the tape):");
+    for (const h of signals.headlines) {
+      let stamp = "";
+      if (h.at) {
+        const d = new Date(h.at);
+        if (!isNaN(d.getTime())) stamp = " " + d.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET";
+      }
+      lines.push(`- [${h.source || "wire"}${stamp}] ${h.title}`);
     }
   }
   if (signals.indexes && signals.indexes.length) {
@@ -16330,7 +16369,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
 // tab on its last-good content. Also exported for scripts/regen-brief.mjs (the
 // pre-market mint); the ET-window gating below makes re-running always safe.
 export async function buildMarketBriefs(opts) {
-  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges } = opts;
+  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines } = opts;
   const now = new Date();
   const todayEt = etDateKey(now);
   const hourEt = etHourNY(now);
@@ -16358,7 +16397,7 @@ export async function buildMarketBriefs(opts) {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     if (wantMorning) {
       try {
-        const signals = gatherBriefSignals("morning", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges });
+        const signals = gatherBriefSignals("morning", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines });
         const gen = await generateBrief(ai, "morning", todayEt, signals);
         // On failure the catch keeps the prior morning brief (carry-forward).
         morning = { kind: "morning", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, releasesSeen: todayPrints, ...gen, ...briefRenderFields(signals) };
@@ -16370,7 +16409,7 @@ export async function buildMarketBriefs(opts) {
     }
     if (wantAfternoon) {
       try {
-        const signals = gatherBriefSignals("afternoon", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges });
+        const signals = gatherBriefSignals("afternoon", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines });
         const gen = await generateBrief(ai, "afternoon", todayEt, signals);
         afternoon = { kind: "afternoon", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
         generated++;
@@ -16455,7 +16494,10 @@ function parseRssItems(xml, max) {
   return out;
 }
 
-async function fetchMacroHeadlines() {
+// Exported for scripts/regen-brief.mjs — the pre-market morning brief needs
+// the OVERNIGHT headline slate, which the committed trends.json (last bake,
+// ~16:00 ET yesterday) predates entirely.
+export async function fetchMacroHeadlines() {
   // Several gov feeds (BLS especially) drop requests from default Node fetch
   // because the User-Agent looks like a bot. Sending a realistic desktop UA
   // plus the headers a browser would normally send (Accept-Language, Referer)
@@ -16502,7 +16544,12 @@ async function fetchMacroHeadlines() {
   // "Inherited a house and now what?") that have nothing to do with what's
   // moving markets. Score each item: keep ones whose title/description hit a
   // macro-relevant keyword and aren't obvious personal-finance Q&A.
-  const MACRO_KEYWORDS = /\b(cpi|inflation|deflation|fed|fomc|powell|rate(?:\s+hike|\s+cut|\s+decision)?|interest rate|treasury|yield|bond|10-year|2-year|nonfarm|jobs report|jobless|payroll|unemployment|gdp|recession|tariff|trade war|opec|oil price|crude|brent|wti|dollar|usd|dxy|gold|copper|sentiment|consumer confidence|retail sales|housing starts|pmi|ism|durable goods|ppi|earnings season|s&p ?500|nasdaq|dow jones|stocks?|equities|bear market|bull market|rally|sell-?off|china|tariffs|sanctions|war|geopolit|stimulus|debt ceiling|deficit|treasury|congress|white house|election|biden|trump|harris)\b/i;
+  // Two keyword families: classic macro/data terms, plus the geopolitical /
+  // policy-headline terms that move the whole tape between data prints (a
+  // White House post about an Iran deal or a surprise tariff threat re-rates
+  // every risk asset at once — exactly the headlines the brief's tape-driver
+  // read needs to see).
+  const MACRO_KEYWORDS = /\b(cpi|inflation|deflation|fed|fomc|powell|rate(?:\s+hike|\s+cut|\s+decision)?|interest rate|treasury|yield|bond|10-year|2-year|nonfarm|jobs report|jobless|payroll|unemployment|gdp|recession|tariff|trade war|trade (?:deal|talks|agreement|truce)|opec|oil price|crude|brent|wti|dollar|usd|dxy|gold|copper|sentiment|consumer confidence|retail sales|housing starts|pmi|ism|durable goods|ppi|earnings season|s&p ?500|nasdaq|dow jones|stocks?|equities|bear market|bull market|rally|sell-?off|china|tariffs|sanctions|war|geopolit|iran|israel|gaza|russia|ukraine|taiwan|north korea|middle east|cease-?fire|truce|peace (?:deal|talks|plan|agreement)|nuclear (?:deal|talks|program|agreement)|missile|air ?strike|strait of hormuz|nato|pentagon|executive order|shutdown|stimulus|debt ceiling|deficit|treasury|congress|white house|election|biden|trump|harris)\b/i;
   const PERSONAL_FINANCE_BLOCKLIST = /\b(my (?:husband|wife|son|daughter|kids?|family|aunt|uncle|grandkids?|grandchildren|inheritance|trust|cpa|attorney|spouse|partner)|i'?m \d{2}|inherited|my (?:401k|ira|roth)|should i (?:sell|buy|invest|retire)|family trust|estate planning|how do i (?:protect|leave|pass on)|advice column|moneyist|dear moneyist|how should i invest)\b/i;
   const filtered = fresh.filter((it) => {
     const haystack = `${it.title || ""} ${it.description || ""}`;
@@ -20385,6 +20432,9 @@ async function main() {
       briefsPrev, builtAtIso, chains, fearGreed, macro: macroBackdrop,
       correlations: briefCorrelations, unusual, picks: picksForBrief, calendar: calForBrief,
       rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksChanges: churnEventsForBrief,
+      // The same filtered press/wire slate the narrative engine just read —
+      // the brief's tape-driver input (fetched fresh by this bake).
+      headlines: trends.macroHeadlines || [],
     });
     console.log(`wrote data/${BRIEFS_FILE} — morning:${briefRes.morning ? "yes" : "no"} afternoon:${briefRes.afternoon ? "yes" : "no"}${briefRes.generated ? ` (${briefRes.generated} generated this run)` : ""}`);
   } catch (err) {

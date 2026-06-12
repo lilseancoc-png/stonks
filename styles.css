@@ -12513,6 +12513,14 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
 }
 .brief-event-label { font: 600 0.72rem/1.2 var(--font-sans); color: var(--text); }
 .brief-event-detail { font: 600 0.66rem/1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.brief-hlines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.brief-hline {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-1); padding: 4px 9px;
+}
+.brief-hline-title { font: 500 0.72rem/1.35 var(--font-sans); color: var(--text); flex: 1 1 240px; }
+.brief-hline-meta { font: 600 0.62rem/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
 
 @media (max-width: 640px) {
   .heatmap-root {
