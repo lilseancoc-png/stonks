@@ -7562,7 +7562,9 @@ const PICKS_MACRO_HEADLINE_AGE_H = Number(process.env.PICKS_MACRO_HEADLINE_AGE_H
 const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many risk-off axes → risk-off
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
 const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
-const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes (and zero risk-off) → can lift to risk-on
+const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes can lift to risk-on...
+const PICKS_MACRO_RISKON_STRESS = Number(process.env.PICKS_MACRO_RISKON_STRESS ?? 2);  // ...when the net composite is at least this positive...
+const PICKS_MACRO_RISKON_MAX_OFF = Number(process.env.PICKS_MACRO_RISKON_MAX_OFF ?? 1); // ...and at most this many axes dissent risk-off (was a hard zero — risk-on was nearly unreachable across 8 axes)
 // Inflation / labor axis (CPI YoY + unemployment, monthly BLS prints attached
 // to macroBackdrop by fetchInflationLabor). Slow monthly data, so it's a
 // confirming vote like sentiment — risk-off when inflation is hot (≥ CPI_HOT
@@ -7583,6 +7585,7 @@ const PICKS_MACRO_UE_SAHM = Number(process.env.PICKS_MACRO_UE_SAHM ?? 0.5);     
 const PICKS_MACRO_SENTIMENT = process.env.PICKS_MACRO_SENTIMENT !== "0"; // default ON
 const PICKS_MACRO_FG_FEAR = Number(process.env.PICKS_MACRO_FG_FEAR ?? 25);   // composite ≤ this → −1 (extreme-fear internals)
 const PICKS_MACRO_FG_GREED = Number(process.env.PICKS_MACRO_FG_GREED ?? 75); // composite ≥ this → +1 (greed internals)
+const PICKS_MACRO_FG_DELTA = Number(process.env.PICKS_MACRO_FG_DELTA ?? 10); // |1d swing| ≥ this votes ±1 even mid-range — sentiment turns fast
 const PICKS_MACRO_FG_MAX_AGE_HOURS = Number(process.env.PICKS_MACRO_FG_MAX_AGE_HOURS ?? 48); // older snapshot → axis reads "no data"
 // Differential bearish tilt folded into the DIRECTIONAL narrative pillar (so it can
 // flip a marginal call to a put and survives the cross-sectional demean — fixed
@@ -11204,6 +11207,10 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       if ((rising && v >= 25) || (backward && v >= 20)) { s = -2; label = `VIX ${v.toFixed(1)} ${backward ? "inverted curve" : "rising"} — acute stress`; }
       else if (v >= PICKS_TIMING_RISKOFF_VIX || (rising && v >= 18) || backward) { s = -1; label = `VIX ${v.toFixed(1)} ${v >= PICKS_TIMING_RISKOFF_VIX || backward ? "elevated" : "elevated/rising"}`; }
       else if (v < 14) { s = 1; label = `VIX ${v.toFixed(1)} calm`; }
+      // A sharp same-day vol CRUSH below the risk-off band is risk-ON now, not
+      // just "no longer risk-off" — vol unwinding is one of the fastest tells
+      // a tape has flipped (the symmetric twin of the rising/inverted reads).
+      else if (reversing && !backward && v < 18) { s = 1; label = `VIX ${v.toFixed(1)} crushing — 1d ${d1.toFixed(1)}%`; }
       else if (reversing && vix.trend === "rising") { label = `VIX ${v.toFixed(1)} cooling — 1d ${d1.toFixed(1)}%`; }
       axes.vix = { score: s, label };
       if (s <= -1) drivers.push(`VIX ${v.toFixed(1)}${rising ? " ↑" : ""}`);
@@ -11220,10 +11227,13 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       // "rising" trend, so a dollar that's up on the week but easing today can't
       // fire risk-off off the stale trend alone. The 1d level paths are untouched.
       const rising = dxy.trend === "rising" && !(d1 <= -PICKS_MACRO_DXY_1D / 2);
+      // Symmetric twin of `rising`: a falling-trend dollar still counts as
+      // easing unless today meaningfully reverses it upward.
+      const falling = dxy.trend === "falling" && !(d1 >= PICKS_MACRO_DXY_1D / 2);
       let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
       if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
       else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
-      else if (d1 <= -PICKS_MACRO_DXY_1D) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
+      else if (d1 <= -PICKS_MACRO_DXY_1D || (falling && d5 <= -PICKS_MACRO_DXY_5D)) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
       axes.dxy = { score: s, label };
       if (s <= -1) drivers.push(`DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}%`);
     } else axes.dxy = { score: 0, label: "no DXY" };
@@ -11241,10 +11251,14 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       // week-up/day-down tape doesn't fire risk-off off the stale trend alone.
       const tenReversing = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d <= -PICKS_MACRO_YIELD_BPS_1D / 2;
       const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D && !tenReversing;
+      // Symmetric twin: a falling 10Y trend (unless today reverses it upward)
+      // is financial conditions EASING — vote +1, same speed as the rising read.
+      const tenReversingUp = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d >= PICKS_MACRO_YIELD_BPS_1D / 2;
+      const fallingTrend = ten && ten.trend === "falling" && Number(ten.bpsChange5d) <= -PICKS_MACRO_YIELD_BPS_1D && !tenReversingUp;
       let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
       if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
       else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
-      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
+      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D || fallingTrend) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
       axes.yields = { score: s, label };
       if (s <= -1) drivers.push(`10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)}bps`);
     } else axes.yields = { score: 0, label: "no yields" };
@@ -11366,10 +11380,17 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     const fgAgeMs = fearGreed && fearGreed.asOf ? Date.now() - Date.parse(fearGreed.asOf) : null;
     const fgFresh = fgAgeMs == null || (Number.isFinite(fgAgeMs) && fgAgeMs <= PICKS_MACRO_FG_MAX_AGE_HOURS * 3600e3);
     const fgScore = fgFresh && fearGreed && Number.isFinite(Number(fearGreed.score)) ? Number(fearGreed.score) : null;
+    // Fast-swing read: sentiment turns in hours, so a big 1-day composite jump
+    // votes the swing's direction even from mid-range — the extremes-only read
+    // missed the turn until it was already priced. Extremes still take priority.
+    const fgPrev = fgScore != null ? Number(fearGreed?.previous?.close) : null;
+    const fgDelta = fgScore != null && Number.isFinite(fgPrev) ? fgScore - fgPrev : null;
     let s = 0;
     let label = fgScore == null ? "no Fear & Greed data" : `Fear & Greed ${fgScore.toFixed(0)} (${fearGreed.rating || "neutral"})`;
     if (fgScore != null && fgScore <= PICKS_MACRO_FG_FEAR) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fear-stressed internals`; }
     else if (fgScore != null && fgScore >= PICKS_MACRO_FG_GREED) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — greed/risk-on internals`; }
+    else if (fgDelta != null && fgDelta <= -PICKS_MACRO_FG_DELTA) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fast swing toward fear (${fgDelta.toFixed(0)} 1d)`; }
+    else if (fgDelta != null && fgDelta >= PICKS_MACRO_FG_DELTA) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — fast swing toward greed (+${fgDelta.toFixed(0)} 1d)`; }
     axes.sentiment = { score: s, label };
     if (s <= -1) drivers.push(`F&G ${fgScore.toFixed(0)}`);
   } else axes.sentiment = { score: 0, label: "sentiment axis off" };
@@ -11381,7 +11402,10 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   let state = "neutral";
   if (riskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
   else if (riskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
-  else if (riskOnAxes >= PICKS_MACRO_RISKON_AXES && riskOffAxes === 0) state = "risk-on";
+  // Risk-on no longer demands unanimity (zero dissenting axes across eight was
+  // nearly unreachable): enough risk-on axes + a clearly positive net composite
+  // can carry one dissenter, so the gauge flips risk-on as fast as it flips off.
+  else if (riskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS && riskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF) state = "risk-on";
   const summary = state === "neutral"
     ? "Cross-asset macro neutral"
     : `Cross-asset macro ${state}${drivers.length ? ` — ${drivers.join(", ")}` : ""}`;
@@ -11412,6 +11436,11 @@ export function applyMacroRegimePersistence(mr, priorMeta) {
   const prevEff = priorMeta && priorMeta.state;
   if (!prevEff || !(prevEff in RANK)) return mr;
   if (RANK[raw] <= RANK[prevEff]) return mr; // defensive (or unchanged) — apply immediately
+  // Confirmation is only for de-hedging OUT of a defensive state (the book
+  // flips from puts — that's the whipsaw worth damping). An upgrade from
+  // neutral (→ risk-on) carries no such flip, so it applies immediately —
+  // the tape turns risk-on fast and the gauge should too.
+  if (RANK[prevEff] >= RANK["neutral"]) return mr;
   const prevRaw = (priorMeta.rawState in RANK) ? priorMeta.rawState : prevEff;
   if (RANK[prevRaw] > RANK[prevEff]) {
     // Two consecutive builds both read less severe than the held state —

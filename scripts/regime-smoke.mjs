@@ -62,6 +62,14 @@ function backdropFor(kind) {
     b.thirtyY = { bpsChange1d: 4 };
     b.crude = { pctChange1d: 0.3, pctChange5d: 1 };
     b.gold = { pctChange1d: 0.1, pctChange5d: 0.5 };
+  } else if (kind === "risk-on") {
+    b.vix = { value: 15.2, trend: "rising", pctChange1d: -12 }; // sharp crush <18 → +1
+    b.vixTerm = { state: "contango", ratio: 0.94 };
+    b.dxy = { pctChange1d: -0.7, pctChange5d: -1.2, trend: "falling" }; // ≤−0.6 → +1
+    b.tenY = { bpsChange1d: -12, bpsChange5d: -15, trend: "falling" };  // ≤−10bps → +1
+    b.thirtyY = { bpsChange1d: -10 };
+    b.crude = { pctChange1d: 0.3, pctChange5d: 1 };
+    b.gold = { pctChange1d: 0.1, pctChange5d: 0.5 };
   } else { // severe
     b.vix = { value: 30, trend: "rising" };          // ≥25 rising → −2
     b.vixTerm = { state: "backwardation", ratio: 1.08 };
@@ -78,7 +86,7 @@ function backdropFor(kind) {
 const spyMove = chains?.SPY?.technicals?.volume?.priceMove1dPct ?? null;
 const results = {};
 
-for (const kind of ["neutral", "risk-off", "severe"]) {
+for (const kind of ["risk-on", "neutral", "risk-off", "severe"]) {
   const bd = backdropFor(kind);
   const mr = bd.macroRegime;
   const regime = detectMarketRegime({ spyMove }, bd);
@@ -104,7 +112,7 @@ for (const kind of ["neutral", "risk-off", "severe"]) {
 }
 
 // ---- assertions -----------------------------------------------------------
-const N = results.neutral, R = results["risk-off"], S = results.severe;
+const N = results.neutral, R = results["risk-off"], S = results.severe, O = results["risk-on"];
 const putShare = (r) => r.n ? r.puts / r.n : 0;
 // Expected deployed gross = PICKS_GROSS_TARGET(0.80) × rosterRamp(min(1,n/5)) ×
 // edgeDefault(0.6, priorClosed=null) × regimeMult. Ramp saturates at n≥5.
@@ -116,6 +124,8 @@ const near = (a, b) => Math.abs(a - b) < 2e-3;
 // absolute-floor calibration (which is under review). The roster size / put-share
 // at a given floor is a printed diagnostic above, not a hard assertion.
 const checks = [
+  ["gauge risk-on classifies risk-on (vol crush + dollar/yields easing, carries one dissenter)", O.mr.state === "risk-on"],
+  ["detectMarketRegime lifts to risk-on", O.regime === "risk-on"],
   ["gauge neutral classifies neutral", N.mr.state === "neutral"],
   ["gauge risk-off classifies risk-off", R.mr.state === "risk-off"],
   ["gauge severe classifies severe-risk-off", S.mr.state === "severe-risk-off"],
