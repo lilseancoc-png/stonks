@@ -6711,6 +6711,13 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   letter-spacing: .08em;
   color: var(--muted);
 }
+/* "● live" badge next to the Greeks label — the row recomputes from the polled
+   spot every 30s while the Top Picks tab is open. */
+.pick-greeks-live {
+  margin-left: 5px;
+  color: var(--pos);
+  letter-spacing: .04em;
+}
 .pick-stat-value {
   font: 800 16px/1.1 var(--font-mono);
   color: var(--text-strong);

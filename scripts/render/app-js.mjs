@@ -8620,11 +8620,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (lvls.length) bits.push('<span class="picks-live-lvls" title="Live distance from spot to the exit plan\\'s take-profit and cut levels">' + lvls.join(' · ') + '</span>');
       }
       rows.push('<div class="picks-live-row">' + bits.join('') + '</div>');
-      // Also refresh the spot on this pick's detail card if it's rendered.
+      // Also refresh the spot + recompute the contract's greeks on this pick's
+      // detail card if it's rendered.
       var card = document.getElementById('pick-card-' + sym);
       if (card){
         var cardSpot = card.querySelector('.pick-spot');
         if (cardSpot) cardSpot.textContent = '$' + spot.toFixed(2);
+        var gslot = card.querySelector('[data-live-greeks="' + sym + '"]');
+        if (gslot){
+          gslot.innerHTML = liveGreeksRow(p, spot);
+          // Promote the static "Greeks" label to "● live" once a poll lands.
+          var glabel = gslot.parentNode && gslot.parentNode.querySelector('.pick-stat-label');
+          if (glabel && glabel.querySelector('.pick-greeks-live') == null){
+            glabel.innerHTML = 'Greeks <span class="pick-greeks-live" title="Recomputed live from the polled spot — refreshed every 30s while this tab is open">● live</span>';
+          }
+        }
       }
     }
     if (!rows.length){ board.hidden = true; board.innerHTML = ''; return; }
@@ -14044,6 +14054,29 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Build a contract block — the recommended strike/expiry the daily build
   // picked for this signal stack. Returns '' if no contract was attached
   // (older builds, or signals too weak for a confident strike pick).
+  // Live greeks for a pick's recommended contract, recomputed from a given spot
+  // (the polled live spot on the Top Picks tab, else the baked entry spot) with
+  // the same Black-Scholes the Grade tab uses. Returns the inner HTML of the
+  // greek-cell row (Δ Γ Θ V IV); falls back to the baked contract values when a
+  // live compute isn't possible (missing IV / expiry / spot). The poller swaps
+  // this into the [data-live-greeks] slot every 30s so the greeks track spot.
+  function liveGreeksRow(p, spot){
+    var c = p && p.contract; if (!c) return '';
+    var side = p.side === 'put' ? 'put' : 'call';
+    var K = Number(c.strike), iv = Number(c.iv), exp = Number(c.expiry), S = Number(spot);
+    var g = (S > 0 && K > 0 && iv > 0 && exp > 0) ? greeks(side, S, K, posYrs(exp), iv, RFR) : null;
+    var delta = g ? g.delta : (isFinite(c.delta) ? Number(c.delta) : null);
+    var thetaDay = g ? g.thetaDay : (isFinite(c.thetaDay) ? Number(c.thetaDay) : null);
+    var gamma = g ? g.gamma : null;
+    var vega = g ? g.vega : null;
+    var cells = [];
+    if (delta != null && isFinite(delta)) cells.push('<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + delta.toFixed(2) + '</span>');
+    if (gamma != null && isFinite(gamma)) cells.push('<span title="Gamma — ' + escapeHtml(TIPS.gamma) + '"><b>Γ</b> ' + gamma.toFixed(4) + '</span>');
+    if (thetaDay != null && isFinite(thetaDay)) cells.push('<span title="Theta (per share, per day) — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + thetaDay.toFixed(2) + '/d</span>');
+    if (vega != null && isFinite(vega)) cells.push('<span title="Vega (per 1 vol pt) — ' + escapeHtml(TIPS.vega) + '"><b>V</b> $' + vega.toFixed(2) + '</span>');
+    if (isFinite(iv)) cells.push('<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (iv * 100).toFixed(0) + '%</span>');
+    return cells.join('');
+  }
   function pickContractHtml(p){
     var c = p && p.contract;
     if (!c || c.strike == null || !c.expiryLabel) return '';
@@ -14093,21 +14126,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="pick-stat-value">' + escapeHtml(beVal || '—') + '</div>' +
       '<div class="pick-stat-sub">' + escapeHtml(beSub || '') + '</div>' +
     '</div>';
-    var deltaCell = '';
-    if (c.delta != null && isFinite(c.delta)){
-      deltaCell = '<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + Number(c.delta).toFixed(2) + '</span>';
-    }
-    var thetaCell = '';
-    if (c.thetaDay != null && isFinite(c.thetaDay)){
-      thetaCell = '<span title="Theta — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + Number(c.thetaDay).toFixed(2) + '/d</span>';
-    }
-    var ivCell = '';
-    if (c.iv != null && isFinite(c.iv)){
-      ivCell = '<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (Number(c.iv) * 100).toFixed(0) + '%</span>';
-    }
+    // Live greeks (Δ Γ Θ V IV) — recomputed from the polled live spot when this
+    // tab's poller has a quote for the name, else the baked entry spot. The slot
+    // is patched in place every 30s by renderPicksLive (data-live-greeks).
+    var symU = String(p.symbol || '').toUpperCase();
+    var liveQ = picksLive.quotes[symU];
+    var greekSpot = (liveQ && liveQ.spot != null && isFinite(liveQ.spot)) ? Number(liveQ.spot) : p.spot;
+    var isLiveGreeks = !!(liveQ && liveQ.spot != null && isFinite(liveQ.spot));
     stats += '<div class="pick-stat pick-stat-greeks">' +
-      '<div class="pick-stat-label">Greeks</div>' +
-      '<div class="pick-stat-greek-row">' + [deltaCell, thetaCell, ivCell].filter(Boolean).join('') + '</div>' +
+      '<div class="pick-stat-label">Greeks' + (isLiveGreeks ? ' <span class="pick-greeks-live" title="Recomputed live from the polled spot — refreshed every 30s while this tab is open">● live</span>' : '') + '</div>' +
+      '<div class="pick-stat-greek-row" data-live-greeks="' + escapeHtml(symU) + '">' + liveGreeksRow(p, greekSpot) + '</div>' +
     '</div>';
     stats += '</div>';
     // Risk/reward — required breakeven move vs IV-implied 1σ expected
