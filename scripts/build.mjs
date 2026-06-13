@@ -7291,8 +7291,14 @@ const PICKS_MAX_SPREAD_PCT = 0.18;  // tight bid/ask
 const PICKS_MIN_OI = 50;            // need real two-sided market
 const PICKS_MIN_DTE = 14;           // 14d+ per spec
 const PICKS_MAX_DTE = 120;          // soft-scoring reference only (not a hard cap)
-const PICKS_IDEAL_DTE_LO = 30;
-const PICKS_IDEAL_DTE_HI = 60;
+// Long-horizon rework: the ideal (zero-penalty) DTE band moved 30-60 → 45-90 so a
+// durable thesis is bought on a contract with runway to play out instead of a
+// near-dated option that hits the theta cliff before the thesis can. Paired with
+// the measured-hold extension (PICKS_ACCURACY_MAX_HOLD_DAYS 14→30 below) so the
+// vehicle's clock and the thesis's clock are aligned. Still well inside the
+// MAX_EXPIRATIONS=10 reach for liquid names and the PICKS_MAX_DTE=120 soft cap.
+const PICKS_IDEAL_DTE_LO = Number(process.env.PICKS_IDEAL_DTE_LO ?? 45);
+const PICKS_IDEAL_DTE_HI = Number(process.env.PICKS_IDEAL_DTE_HI ?? 90);
 // Delta target (P1.1). Moved off the cheap, fragile 0.20-0.40 OTM band — where an
 // ~8% adverse underlying move is ≈ -70% on the option — to a near-the-money
 // 0.45-0.65 band (target 0.55). A slightly-ITM contract has far less theta drag
@@ -7454,6 +7460,16 @@ const PICKS_TIMING_AVOID_FLOOR = Number(process.env.PICKS_TIMING_AVOID_FLOOR ?? 
 // contribution exit of computeEntryTiming, so state/headline/reasons and every
 // downstream consumer (fold, re-fold, display) stay consistent automatically.
 const PICKS_TIMING_FOLD_SCALE = Number(process.env.PICKS_TIMING_FOLD_SCALE ?? 0.5);
+// Asymmetric fold (long-horizon rework): timing should be a tactical ENTRY overlay,
+// not a core-grade driver. A clean 'go' was manufacturing up to +4×0.5 = +2 of
+// conviction — enough to carry a thin-thesis momentum name onto the roster purely
+// on "today is a clean entry bar" (the track record showed timing carrying 33-61%
+// of some shipped picks' totals). Scale the POSITIVE (go-credit) side DOWN harder
+// so the grade reflects the durable thesis, while the NEGATIVE side (the knife /
+// chasing-top penalty, the genuine risk control) keeps the full PICKS_TIMING_FOLD_SCALE
+// — we still defer a bad entry, we just stop a good entry bar from inflating a weak
+// asset's grade. Set equal to PICKS_TIMING_FOLD_SCALE to restore the symmetric fold.
+const PICKS_TIMING_FOLD_SCALE_POS = Number(process.env.PICKS_TIMING_FOLD_SCALE_POS ?? 0.35);
 // Risk-off put enablement (user-chosen): the universe is long-biased, so puts
 // almost never clear the -16 grade bar. When the broad tape is CONFIRMED
 // risk-off, relax the put bar to this score AND require a clean bearish entry
@@ -7587,6 +7603,24 @@ const PICKS_MACRO_FG_FEAR = Number(process.env.PICKS_MACRO_FG_FEAR ?? 25);   // 
 const PICKS_MACRO_FG_GREED = Number(process.env.PICKS_MACRO_FG_GREED ?? 75); // composite ≥ this → +1 (greed internals)
 const PICKS_MACRO_FG_DELTA = Number(process.env.PICKS_MACRO_FG_DELTA ?? 10); // |1d swing| ≥ this votes ±1 even mid-range — sentiment turns fast
 const PICKS_MACRO_FG_MAX_AGE_HOURS = Number(process.env.PICKS_MACRO_FG_MAX_AGE_HOURS ?? 48); // older snapshot → axis reads "no data"
+// Equity-INTERNALS divergence read (breadth + credit). The composite F&G number
+// (above) can sit in mid-range "fear" while its breadth and junk-bond (credit)
+// COMPONENTS are in extreme fear — the late-cycle "index/mega-caps holding, the
+// broad tape + high-yield bleeding underneath" signature the headline number
+// masks (CNN averages the seven components, then we read only the average). This
+// does NOT vote into the binary risk-off/neutral/risk-on STATE machine: breadth +
+// credit can stay washed-out for weeks in a grind-higher tape, so letting them
+// flip the regime would manufacture a near-permanent bear lean. Instead it raises
+// a graded `fragile` flag on an otherwise-neutral tape, which partially
+// de-grosses + tightens the per-side cap downstream (a desk that trims size when
+// internals are weak but price isn't confirming the break yet). Default ON.
+const PICKS_MACRO_FG_INTERNALS = process.env.PICKS_MACRO_FG_INTERNALS !== "0"; // default ON
+const PICKS_MACRO_FG_INTERNALS_EXTREME = Number(process.env.PICKS_MACRO_FG_INTERNALS_EXTREME ?? 25); // breadth AND credit component ≤ this (CNN extreme-fear band) = internals washed out
+// Multi-day sentiment DETERIORATION: the composite has collapsed ≥ TREND_PT vs a
+// week/month ago AND now sits in fear territory (< TREND_FLOOR) — the slow 65→33
+// slide the 1-day-delta read above is blind to. Also raises `fragile`.
+const PICKS_MACRO_FG_TREND_PT = Number(process.env.PICKS_MACRO_FG_TREND_PT ?? 20);   // composite drop vs week/month-ago that flags a deteriorating tape
+const PICKS_MACRO_FG_TREND_FLOOR = Number(process.env.PICKS_MACRO_FG_TREND_FLOOR ?? 45); // …and the composite must now be below this (in CNN "fear") to count, not merely off a high
 // Differential bearish tilt folded into the DIRECTIONAL narrative pillar (so it can
 // flip a marginal call to a put and survives the cross-sectional demean — fixed
 // signals aren't z-scored), scaled by each name's beta. Negative in risk-off.
@@ -7620,6 +7654,16 @@ const PICKS_MACRO_GROSS_RISKOFF = Number(process.env.PICKS_MACRO_GROSS_RISKOFF ?
 const PICKS_MACRO_GROSS_SEVERE = Number(process.env.PICKS_MACRO_GROSS_SEVERE ?? 0.4);   // ... in severe-risk-off
 const PICKS_MACRO_SEVERE_CALL_CAP = Number(process.env.PICKS_MACRO_SEVERE_CALL_CAP ?? 3); // max calls shipped in a severe tape
 const PICKS_MACRO_SEVERE_PUT_BAR = Number(process.env.PICKS_MACRO_SEVERE_PUT_BAR ?? -5);  // relaxed tactical-put bar in severe (vs PICKS_RISKOFF_PUT_BAR)
+// "Fragile" neutral tape (PICKS_MACRO_FG_INTERNALS): the binary regime reads
+// neutral on price/vol, but breadth + credit internals are washed out (or the
+// composite is collapsing) — a deteriorating-but-not-confirmed tape. Rather than
+// the all-or-nothing cliff (neutral = every brake off), trim SIZE partially and
+// tighten the dominant-side cap, without forcing the bearish tilt / puts that a
+// CONFIRMED risk-off applies. This is the graded middle between "max long" and
+// "all risk-off". Set GROSS_FRAGILE=1 + MAX_PER_SIDE_FRAGILE=PICKS_MAX_PER_SIDE to
+// disable the de-risking while keeping the flag visible.
+const PICKS_MACRO_GROSS_FRAGILE = Number(process.env.PICKS_MACRO_GROSS_FRAGILE ?? 0.8); // deployed-gross multiplier on a fragile neutral tape
+const PICKS_MAX_PER_SIDE_FRAGILE = Number(process.env.PICKS_MAX_PER_SIDE_FRAGILE ?? 6);  // tighter per-side cap on a fragile neutral tape (vs PICKS_MAX_PER_SIDE)
 
 // Pick accuracy tracker (spec): log every pick when it appears, mark it to
 // market on each build using the fresh underlying spot, and resolve it when
@@ -7631,7 +7675,7 @@ const PICKS_MACRO_SEVERE_PUT_BAR = Number(process.env.PICKS_MACRO_SEVERE_PUT_BAR
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
-const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
+const PICKS_ACCURACY_MAX_HOLD_DAYS = Number(process.env.PICKS_ACCURACY_MAX_HOLD_DAYS ?? 30); // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days. Long-horizon rework: 14→30 so the tracker measures the (now longer-DTE) thesis on a horizon it can actually resolve on, instead of force-closing every pick at 2 weeks. The theta-aware stop (PICKS_THETA_STOP_PCT) still cuts a position that's bleeding premium with no thesis progress, so this lengthens the runway WITHOUT removing the decay guard.
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every shipped pick now enrolls (full-roster); the per-thesis dedup bounds the open list. Kept for reference / any external readers.
 // Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
 // pick that goes nowhere on a ≥21-DTE contract hits day 14 with ~7 DTE left — the
@@ -7792,6 +7836,7 @@ const SIGNAL_CLUSTER = {
   // growth / quality (move together when a company is beating + growing)
   earningsSurprise: "growth", epsGrowth: "growth", revGrowth: "growth",
   analystTarget: "growth", analystRevisions: "growth", netMargin: "growth",
+  durability: "growth", // multi-quarter beat/margin consistency (long-horizon rework)
   // value
   peVsSector: "value", fcf: "value",
   // trend-momentum
@@ -7818,6 +7863,16 @@ const SIGNAL_CLUSTER = {
 //   null so it leaves the z pool) so the chip still shows the reading.
 // =0 restores both as scored signals.
 const PICKS_PRUNE_REDUNDANT = process.env.PICKS_PRUNE_REDUNDANT !== "0"; // default ON
+// Thesis-durability signal (long-horizon rework). Every fundamental signal today is
+// a SINGLE-period snapshot (latest surprise, latest YoY growth, latest margin) — the
+// engine has no read of multi-quarter CONSISTENCY, which is the essence of a durable
+// thesis (a name that beats every quarter and grows margins quarter after quarter is
+// a different animal from one that had a single good print). This adds a slow,
+// multi-quarter persistence read (earnings-beat consistency over the last ~4 quarters
+// + net-margin trend) into the fundamentals pillar, z-scored cross-sectionally like
+// the other converted signals and clustered with the growth family (1/√K collapse, so
+// it doesn't inflate the growth factor's loading). Default ON; =0 drops the signal.
+const PICKS_DURABILITY_SIGNAL = process.env.PICKS_DURABILITY_SIGNAL !== "0"; // default ON
 
 // Scanner-data signals — wire the site's own scanner artifacts into the grade.
 // The intraday/twice-daily scanners produce positioning data the bake-time
@@ -7871,7 +7926,7 @@ const PICKS_TIMING_OVERNIGHT_MIN_CORR = Number(process.env.PICKS_TIMING_OVERNIGH
 // equal-weight sum. Percentile tiers (§4) self-recalibrate to the re-weighted
 // distribution, so this re-ranks the roster without changing how many names ship.
 const PICKS_HORIZON_WEIGHTS = process.env.PICKS_HORIZON_WEIGHTS !== "0"; // default ON
-const PICKS_HW_FUND = Number(process.env.PICKS_HW_FUND ?? 0.6);  // slowest — quarterly/annual factors, mostly priced over a 2-week hold (discounted, not gutted: holds some faster event signals — analyst revisions, guidance, contracts)
+const PICKS_HW_FUND = Number(process.env.PICKS_HW_FUND ?? 0.8);  // slowest — quarterly/annual factors. Long-horizon rework: raised 0.6→0.8 to lift the durable/thesis share of the grade, paired with the longer DTE band + measured-hold extension below (re-weighting fundamentals WITHOUT giving the thesis time to resolve would just size 2-week bets on signals that don't move price in 2 weeks). Still < the technicals reference (1.0): fundamentals corroborate a durable thesis, momentum still leads the option's clock.
 const PICKS_HW_TECH = Number(process.env.PICKS_HW_TECH ?? 1.0);  // RSI/MACD/S&R/momentum — natively the days-to-weeks horizon; the reference weight
 const PICKS_HW_MECH = Number(process.env.PICKS_HW_MECH ?? 1.15); // options flow / OI / unusual volume / put-call — order flow leads price at the shortest horizon (modest boost)
 const PICKS_HW_NARR = Number(process.env.PICKS_HW_NARR ?? 0.9);  // catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount)
@@ -7930,6 +7985,16 @@ const SIGNAL_RELIABILITY = {
   putCallRatio: 0.75,     // contrarian crowd read — conditional even with the liquidity floor
 };
 const PICKS_NARR_CAP = Number(process.env.PICKS_NARR_CAP ?? 2);            // |narrative pillar| ceiling post-weight (0 = off)
+// Technicals-pillar cap (long-horizon rework). Same "a single family can corroborate
+// but never dominate" discipline as the narrative cap, applied to the fastest pillar.
+// The technicals pillar is ~100% momentum (MACD + streak + SMA stack + chart pattern
+// + RSI), and uncapped it ran as much as ~6× the fundamentals pillar on pure-momentum
+// names (e.g. a name with technicals +4.66 vs fundamentals +0.82) — a momentum chase
+// wearing a thesis. Cap its post-weight magnitude so a durable, multi-pillar setup
+// out-ranks a one-week rip. Tiers are percentile (self-recalibrating), so this
+// re-ranks the roster toward thesis-driven names without changing how many ship.
+// 0 = off (uncapped, legacy).
+const PICKS_TECH_CAP = Number(process.env.PICKS_TECH_CAP ?? 3.5);          // |technicals pillar| ceiling post-weight (0 = off)
 const PICKS_CONFLUENCE_MIN = Number(process.env.PICKS_CONFLUENCE_MIN ?? 2);          // aligned pillars required to ship (0 = off)
 const PICKS_CONFLUENCE_PILLAR_MIN = Number(process.env.PICKS_CONFLUENCE_PILLAR_MIN ?? 0.5); // pillar magnitude that counts as "aligned"
 const PICKS_TREND_OPPOSE_FLOOR = Number(process.env.PICKS_TREND_OPPOSE_FLOOR ?? 0.5); // veto when technicals opposes the side by ≥ this (0 = off)
@@ -8709,6 +8774,48 @@ function scoreFundamentals(data, sectorMedianPE) {
     });
   }
   signals.push(marginSignal);
+
+  // 11. Thesis Durability (long-horizon rework): a multi-quarter CONSISTENCY read
+  // the single-period signals above lack. Two slow, durable components:
+  //   • earnings-beat consistency — the fraction of the last ~4 quarters the company
+  //     beat estimates (a serial beater is a different, more durable thesis than a
+  //     one-quarter pop), mapped to [-1,+1];
+  //   • net-margin trend — is the margin structurally rising or falling (YoY when we
+  //     have ≥5 quarters, else first→last), as a secondary tilt.
+  // The blended raw is z-scored cross-sectionally (CONVERTED_SIGNALS) and clustered
+  // with the growth family (1/√K collapse) so it adds persistence information without
+  // inflating the growth factor's loading. available:false (raw null) when we don't
+  // have ≥3 quarters of surprise history → it simply drops out of the z pool.
+  if (PICKS_DURABILITY_SIGNAL) {
+    let durSignal = _sig("durability", "Thesis Durability", 0,
+      { available: false, note: "insufficient multi-quarter history" });
+    const ehDur = eh
+      .filter((r) => r && isFinite(r.surprisePct))
+      .sort((a, b) => (new Date(a.date || 0)) - (new Date(b.date || 0)));
+    if (ehDur.length >= 3) {
+      const beats = ehDur.filter((r) => Number(r.surprisePct) > 0).length;
+      const beatFrac = beats / ehDur.length;       // 0..1
+      let raw = 2 * beatFrac - 1;                   // -1..+1 (all-beat → +1, all-miss → -1)
+      const bits = [`${beats}/${ehDur.length} qtrs beat`];
+      // Net-margin trend (reuse the YoY-preferring read; nmh is newest→oldest).
+      if (nmh.length >= 2) {
+        const recentM = Number(nmh[0].value);
+        const baseM = nmh.length >= 5 ? Number(nmh[4].value) : Number(nmh[nmh.length - 1].value);
+        if (isFinite(recentM) && isFinite(baseM)) {
+          const mt = recentM > baseM + 0.25 ? 1 : (recentM < baseM - 0.25 ? -1 : 0);
+          raw = raw * 0.7 + mt * 0.3;
+          bits.push(`net margin ${mt > 0 ? "rising" : mt < 0 ? "falling" : "flat"}`);
+        }
+      }
+      const s = raw >= 0.4 ? 1 : (raw <= -0.4 ? -1 : 0);
+      durSignal = _sig("durability", "Thesis Durability", s, {
+        raw,
+        value: `${(beatFrac * 100).toFixed(0)}% beat`,
+        note: bits.join(" · "),
+      });
+    }
+    signals.push(durSignal);
+  }
 
   const score = signals.reduce((sum, s) => sum + s.score, 0);
   return { score, signals };
@@ -9701,6 +9808,9 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
     // v2: a story corroborates, it never dominates — cap the narrative pillar's
     // post-weight magnitude (contributions rescaled so chips keep summing).
     if (pk === "narrative") weighted = applyPillarCap(pillar, weighted, PICKS_NARR_CAP);
+    // Long-horizon rework: same discipline on the fastest pillar — momentum can
+    // corroborate but not dominate a durable thesis (see PICKS_TECH_CAP).
+    if (pk === "technicals") weighted = applyPillarCap(pillar, weighted, PICKS_TECH_CAP);
     if (weighted !== raw) pillar.legacyScore = raw;
     pillar.score = weighted;
   }
@@ -11386,6 +11496,14 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   // other axis covers. Capped at ±1 deliberately — its volatility component
   // overlaps the VIX axis, so it's a confirming vote, never a driver that can
   // tip "severe" on its own. Only the extremes vote; the middle is no signal.
+  // Equity-internals divergence (breadth + credit) + multi-day deterioration —
+  // computed alongside the sentiment axis (shares its freshness + composite reads)
+  // but deliberately kept OUT of the binary state machine (`arr` below). Breadth and
+  // credit can stay washed-out for weeks in a grind-higher tape, so letting them flip
+  // the regime would manufacture a near-permanent bear lean; instead this raises a
+  // graded `fragile` flag on an otherwise-neutral tape (partial de-gross + tighter
+  // side cap downstream). See PICKS_MACRO_FG_INTERNALS.
+  let internalsStress = false, internalsLabel = null;
   if (PICKS_MACRO_SENTIMENT) {
     // Staleness gate (same discipline as the scanner readers): a carried-
     // forward last-good snapshot keeps the chip alive elsewhere, but a
@@ -11406,6 +11524,29 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     else if (fgDelta != null && fgDelta >= PICKS_MACRO_FG_DELTA) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — fast swing toward greed (+${fgDelta.toFixed(0)} 1d)`; }
     axes.sentiment = { score: s, label };
     if (s <= -1) drivers.push(`F&G ${fgScore.toFixed(0)}`);
+    // Internals divergence: the composite can read mid-range "fear" while its
+    // breadth + junk-bond (credit) COMPONENTS are in extreme fear — the late-cycle
+    // "index holding, the broad tape + credit bleeding underneath" tape the headline
+    // number masks. Flags fragile (not a state vote). OR a multi-day collapse vs the
+    // week/month ago that's now in fear territory (the slow 65→33 slide the 1-day
+    // delta read misses).
+    if (PICKS_MACRO_FG_INTERNALS && fgScore != null && fearGreed && fearGreed.components) {
+      const breadth = Number(fearGreed.components?.breadth?.score);
+      const credit = Number(fearGreed.components?.junkBond?.score);
+      const bothExtreme = Number.isFinite(breadth) && Number.isFinite(credit) &&
+        breadth <= PICKS_MACRO_FG_INTERNALS_EXTREME && credit <= PICKS_MACRO_FG_INTERNALS_EXTREME;
+      const wk = Number(fearGreed?.previous?.week);
+      const mo = Number(fearGreed?.previous?.month);
+      const ref = Number.isFinite(mo) ? mo : (Number.isFinite(wk) ? wk : null);
+      const collapsing = ref != null && (ref - fgScore) >= PICKS_MACRO_FG_TREND_PT && fgScore < PICKS_MACRO_FG_TREND_FLOOR;
+      if (bothExtreme || collapsing) {
+        internalsStress = true;
+        const bits = [];
+        if (bothExtreme) bits.push(`breadth ${breadth.toFixed(0)} + credit ${credit.toFixed(0)} extreme-fear`);
+        if (collapsing) bits.push(`F&G ${fgScore.toFixed(0)} ↓${(ref - fgScore).toFixed(0)} vs ${Number.isFinite(mo) ? "1mo" : "1wk"}`);
+        internalsLabel = `Deteriorating internals — ${bits.join(", ")}`;
+      }
+    }
   } else axes.sentiment = { score: 0, label: "sentiment axis off" };
 
   const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score];
@@ -11433,10 +11574,17 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   const driverList = state === "risk-on"
     ? Object.values(axes).filter((a) => a && a.score >= 1).map((a) => String(a.label).split(" — ")[0])
     : drivers;
-  const summary = state === "neutral"
+  // Internals only colour a NEUTRAL read — a confirmed risk-off already de-grosses
+  // harder than fragile would, and a clean risk-on shouldn't be second-guessed by a
+  // slow breadth/credit lag. (The effective state may still be revised by
+  // applyMacroRegimePersistence; buildTopPicks recomputes fragile from the final
+  // regime, so this is just the substrate.)
+  const fragile = state === "neutral" && internalsStress;
+  const baseSummary = state === "neutral"
     ? "Cross-asset macro neutral"
     : `Cross-asset macro ${state}${driverList.length ? ` — ${driverList.join(", ")}` : ""}`;
-  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers: driverList, summary };
+  const summary = fragile ? `${baseSummary} · fragile (${internalsLabel})` : baseSummary;
+  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers: driverList, summary, internalsStress, internalsLabel, fragile };
 }
 
 // Regime persistence (PICKS_REGIME_PERSIST) — asymmetric hysteresis over the
@@ -12043,8 +12191,14 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const rawContribution = (knife || chase) ? avoidPenalty : Math.max(-8, Math.min(4, score));
   // Restore the modifier's designed share of the compressed conviction scale
   // (see PICKS_TIMING_FOLD_SCALE) — one multiplicative exit point so the
-  // severity structure above is preserved exactly.
-  const contribution = rawContribution * PICKS_TIMING_FOLD_SCALE;
+  // severity structure above is preserved exactly. Asymmetric (long-horizon
+  // rework): the POSITIVE (clean-entry 'go' credit) side is scaled down harder
+  // (PICKS_TIMING_FOLD_SCALE_POS) so a good entry bar can't inflate a thin-thesis
+  // name's grade, while the NEGATIVE side (knife / chasing-top penalty — the real
+  // risk control) keeps the full scale and still pushes a badly-timed name below
+  // the bar. Both knobs equal ⇒ the prior symmetric fold.
+  const foldScale = rawContribution >= 0 ? PICKS_TIMING_FOLD_SCALE_POS : PICKS_TIMING_FOLD_SCALE;
+  const contribution = rawContribution * foldScale;
 
   return { state, score, contribution, reasons, headline, deferKind };
 }
@@ -12139,6 +12293,7 @@ const CONVERTED_SIGNALS = {
   peVsSector:       { pillar: "fundamentals", dir: -1, xf: "log",  oldMax: 1 },
   fcf:              { pillar: "fundamentals", dir: +1, xf: "slog", oldMax: 1 },
   netMargin:        { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 1 },
+  durability:       { pillar: "fundamentals", dir: +1, xf: "id",   oldMax: 1 }, // multi-quarter consistency (long-horizon rework)
   rsiMomentum:      { pillar: "technicals",   dir: +1, xf: "id",   oldMax: 1 },
   rsiReading:       { pillar: "technicals",   dir: -1, xf: "id",   oldMax: 3,
                       contrarian: true, gated: true,
@@ -12333,6 +12488,8 @@ function computeCrossSectionalScores(scored, opts = {}) {
       let sum = applyHorizonWeight(pillar, pk, (s) => CONVERTED_SIGNALS[s.key] ? (s.contribution || 0) : (s.score || 0), regimeBand);
       // v2 narrative cap — same clamp as the legacy path (scorePillared) applies.
       if (pk === "narrative") sum = applyPillarCap(pillar, sum, PICKS_NARR_CAP);
+      // Long-horizon rework: technicals cap, same clamp the legacy path applies.
+      if (pk === "technicals") sum = applyPillarCap(pillar, sum, PICKS_TECH_CAP);
       pillar.score = sum;
       subtotal += sum;
     }
@@ -12689,6 +12846,17 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // and relax the tactical-put bar so the roster genuinely tilts to puts/cash.
   const macroState = (macroBackdrop && macroBackdrop.macroRegime && macroBackdrop.macroRegime.state) || null;
   const severe = macroState === "severe-risk-off";
+  // "Fragile" neutral tape: price/vol read neutral, but breadth + credit internals
+  // are washed out (or the composite is collapsing). Trim size + tighten the
+  // dominant-side cap WITHOUT forcing the bearish tilt a confirmed risk-off applies
+  // (PICKS_MACRO_FG_INTERNALS). Recomputed from the EFFECTIVE regime here (not the
+  // raw flag) so a tape persisted into risk-off / lifted to risk-on isn't also
+  // double-counted as fragile.
+  const fragile = regime === "neutral" &&
+    !!(macroBackdrop && macroBackdrop.macroRegime && macroBackdrop.macroRegime.internalsStress);
+  const maxPerSide = (fragile && PICKS_MAX_PER_SIDE_FRAGILE > 0)
+    ? Math.min(PICKS_MAX_PER_SIDE || Infinity, PICKS_MAX_PER_SIDE_FRAGILE)
+    : PICKS_MAX_PER_SIDE;
   // The actionable bar is the percentile trade cutoff (P3.2) when the
   // standardizer applied, else the legacy ±PICKS_MIN_CONVICTION (tierCutoffs
   // defaults to the legacy constants on the small-universe / flag-off path).
@@ -12786,8 +12954,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // but nothing stopped a one-way book — a marginal risk-off could ship 10/10
     // puts (100% short delta on one regime read). Cap either side; the remaining
     // slots go to the other side or stay cash (no backfill with worse names).
-    if (PICKS_MAX_PER_SIDE > 0 && (sideCounts[side] || 0) >= PICKS_MAX_PER_SIDE) {
-      skippedSideCapped.push({ symbol: r.sym, side });
+    if (maxPerSide > 0 && (sideCounts[side] || 0) >= maxPerSide) {
+      skippedSideCapped.push({ symbol: r.sym, side, fragile: fragile && maxPerSide < PICKS_MAX_PER_SIDE });
       continue;
     }
     // Tradeable contract precomputed in the P1.4 candidacy gate above (every
@@ -12993,7 +13161,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // Macro de-grossing: a desk cuts SIZE in a tightening tape, not just direction.
   // Multiply the deployed gross by the regime multiplier (1 when neutral / off).
   const macroGross = severe ? PICKS_MACRO_GROSS_SEVERE
-    : (regime === "risk-off" ? PICKS_MACRO_GROSS_RISKOFF : 1);
+    : (regime === "risk-off" ? PICKS_MACRO_GROSS_RISKOFF
+    : (fragile ? PICKS_MACRO_GROSS_FRAGILE : 1));
   applyPickSizing(out, chains, tierCutoffs && tierCutoffs.strongCut, edgeScale, macroGross);
   // Roster construction meta (gate drops + sector-cap skips) so the UI can show
   // an honest "only N clean setups today / M capped" note. Stashed on a
@@ -13041,6 +13210,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
             drivers: macroBackdrop.macroRegime.drivers,
             summary: macroBackdrop.macroRegime.summary,
             grossMult: Number(macroGross.toFixed(2)),
+            // Graded "fragile" neutral (PICKS_MACRO_FG_INTERNALS): breadth + credit
+            // internals deteriorating beneath a calm price/vol surface — partial
+            // de-gross + tighter side cap, surfaced so the picks UI can explain WHY
+            // the roster trimmed long exposure without going risk-off.
+            fragile,
+            internalsLabel: macroBackdrop.macroRegime.internalsLabel || null,
           }
         : null,
     },

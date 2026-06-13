@@ -15749,6 +15749,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + ' Establishes the tape even without an S&P -1% day.' +
         (heldRaw ? ' HELD DEFENSIVE: this build actually read ' + heldRaw + ' — the label only steps down once two consecutive builds confirm the recovery, so one green bounce after a sell-off cannot whipsaw the whole book.' : '');
       regimeChip = '<div class="picks-summary-chip' + mCls + '" title="' + mTitle + '"><span class="picks-summary-num">' + (macro.state === 'risk-on' ? '' : '⚠ ') + mLbl + '</span><span class="picks-summary-lbl">macro tape' + (heldRaw ? ' · recovering (read ' + heldRaw + ')' : '') + (drv ? ' · ' + drv : '') + '</span></div>';
+    } else if (macro && macro.fragile){
+      // Graded "fragile" NEUTRAL: price/vol read neutral, but breadth + credit
+      // internals are deteriorating beneath calm mega-caps (the late-cycle
+      // narrowing signature). Not risk-off — the engine doesn't flip to puts — but
+      // it trims size + caps the long side rather than leaning maximally long.
+      var fGross = (macro.grossMult != null && macro.grossMult < 1)
+        ? ' Gross trimmed to ~' + Math.round(macro.grossMult * 100) + '% of target and the long side capped tighter.' : '';
+      var fTitle = 'Fragile neutral tape — the S&P and the VIX read neutral, but the market\\'s INTERNALS are deteriorating: ' +
+        (macro.internalsLabel || 'breadth + credit weak') + '. The broad tape and high-yield credit are bleeding underneath calm mega-caps (the classic late-cycle "narrowing" before a roll). The engine does NOT flip to puts — price isn\\'t confirming a break yet — but it trims size and caps how many longs it stacks instead of leaning maximally long into weakening internals.' + fGross;
+      regimeChip = '<div class="picks-summary-chip picks-summary-warn" title="' + fTitle + '"><span class="picks-summary-num">⚠ Fragile</span><span class="picks-summary-lbl">market tape · internals weak</span></div>';
     } else if (regime === 'risk-off' || regime === 'risk-on' || regime === 'neutral'){
       var rLbl = regime === 'risk-off' ? 'Risk-off' : (regime === 'risk-on' ? 'Risk-on' : 'Neutral');
       var rCls = regime === 'risk-off' ? ' picks-summary-put' : (regime === 'risk-on' ? ' picks-summary-call' : '');
@@ -15778,7 +15788,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
     if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
     if (rm && rm.macroCallCapped && rm.macroCallCapped.length) noteBits.push('<b>' + rm.macroCallCapped.length + '</b> call' + (rm.macroCallCapped.length === 1 ? '' : 's') + ' capped — severe risk-off tape');
-    if (rm && rm.sideCapped && rm.sideCapped.length) noteBits.push('<b>' + rm.sideCapped.length + '</b> skipped to cap one-direction concentration');
+    if (rm && rm.sideCapped && rm.sideCapped.length){
+      var fragCap = rm.sideCapped.some(function(x){ return x && x.fragile; });
+      noteBits.push('<b>' + rm.sideCapped.length + '</b> skipped to cap one-direction concentration' + (fragCap ? ' (fragile tape — weak internals)' : ''));
+    }
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
