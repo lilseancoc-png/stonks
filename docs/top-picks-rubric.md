@@ -313,6 +313,43 @@ self-scale and were left alone. Verified post-fix: timing share 0–29% across t
 roster, Strong tier reachable (2 names), pillar-sum invariant 0/138 violations, and
 the book ships both sides again (puts re-entered the top 10).
 
+### 3.8 Long-horizon + tape-aware rework
+
+A coordinated pass to make the grade read as a **durable, climate-aware thesis**
+rather than a short-horizon momentum chase. Diagnosed against the live roster (the
+technicals pillar ran as much as ~6× fundamentals on pure-momentum names; entry
+timing carried a large share of some shipped totals; the macro gauge was blind to
+the breadth/credit deterioration the headline F&G composite masks). All knobs
+env-overridable; tiers are percentile-relative so roster *size* is preserved while
+*composition* shifts — expect a one-time grade/roster shift on the first bake.
+
+| Lever | Was | Now | Why |
+|---|---|---|---|
+| Technicals pillar cap (`PICKS_TECH_CAP`) | uncapped | **3.5** | the fastest, ~100%-momentum pillar could dominate a thin thesis (e.g. tech +4.66 vs fund +0.82); same "a family corroborates, never dominates" clamp as the narrative cap |
+| Timing fold — positive side (`PICKS_TIMING_FOLD_SCALE_POS`) | 0.5 (symmetric) | **0.35** | a clean `go` was manufacturing conviction; demote the entry-credit so the grade reflects the *thesis*, while the knife/chase **penalty** keeps the full `PICKS_TIMING_FOLD_SCALE` (the risk control stays) |
+| Fundamentals horizon weight (`PICKS_HW_FUND`) | 0.6 | **0.8** | lift the durable share — but only **paired** with the longer hold below (re-weighting fundamentals on a 2-week-held option just sizes bets on signals that don't move price in 2 weeks) |
+| Ideal DTE band (`PICKS_IDEAL_DTE_LO/HI`) | 30–60 | **45–90** | give a durable thesis contract runway instead of buying the theta cliff |
+| Measured hold (`PICKS_ACCURACY_MAX_HOLD_DAYS`) | 14 | **30** | the tracker measures the (now longer-DTE) thesis on a horizon it can resolve on; the theta-stop still cuts a position bleeding with no progress |
+| **Thesis Durability** signal (`PICKS_DURABILITY_SIGNAL`) | — | **new** | the one multi-period read the fundamentals pillar lacked: earnings-beat consistency over ~4 quarters + net-margin trend, z-scored cross-sectionally and clustered with the growth family (1/√K) |
+
+**Tape-internals → "fragile" graded sub-state (`PICKS_MACRO_FG_INTERNALS`, §6.3).**
+The cross-asset gauge's sentiment axis read only the headline Fear & Greed
+*composite* at its 25/75 extremes — so a 33.5 "fear" reading with **breadth 20.8 and
+junk-bond credit 7.8 in extreme fear** (the late-cycle "index holding, internals
+bleeding" tape), and a month-long 65→33 slide, cast a **zero** vote and left the
+neutral branch applying *zero* risk management. The gauge now reads the F&G
+**components** (breadth + credit) and its multi-day trend — but, because breadth and
+credit can stay washed-out for weeks in a grind-higher tape, these do **not** vote
+into the binary state machine (that would manufacture a near-permanent bear lean).
+Instead an otherwise-neutral tape with washed-out internals (or a ≥20pt composite
+collapse vs a month ago, now < 45) is flagged **`fragile`**: a graded middle that
+trims deployed gross to `PICKS_MACRO_GROSS_FRAGILE` (~0.8) and tightens the per-side
+cap to `PICKS_MAX_PER_SIDE_FRAGILE` (6), so the roster stops stacking maximally long
+into weakening internals — *without* the bearish tilt / tactical puts a **confirmed**
+risk-off applies (price/vol aren't confirming the break yet). Surfaced as the amber
+"⚠ Fragile" market-tape chip. On 2026-06-12 this took the roster from 8 calls / 2
+puts to 6 / 2 at 80% gross.
+
 ---
 
 ## 4. Tiers (`tierForScore`)
