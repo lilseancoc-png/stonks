@@ -58,7 +58,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-12","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-12","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -13144,14 +13144,39 @@
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
   // to refresh.
-  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, openSym: null, sorted: [] };
+  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, openSym: null, sorted: [], live: null };
+  // Build a SYMBOL|side -> open track-record entry map from picks-accuracy.json so
+  // each pick card can show how its contract has performed since it first listed.
+  // Every shipped pick is enrolled the moment it appears (one open entry per
+  // thesis), so this is a clean 1:1 lookup; on a collision keep the earliest entry
+  // (the true "since it appeared" anchor).
+  function buildPicksLiveMap(acc){
+    var m = {};
+    var open = acc && Array.isArray(acc.open) ? acc.open : null;
+    if (!open) return m;
+    for (var i = 0; i < open.length; i++){
+      var e = open[i]; if (!e || !e.symbol) continue;
+      var k = e.symbol + '|' + (e.side === 'put' ? 'put' : 'call');
+      if (!m[k] || (Date.parse(e.entryDate) || 0) < (Date.parse(m[k].entryDate) || 0)) m[k] = e;
+    }
+    return m;
+  }
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
+    // Live track-record marks for the per-card "since it appeared" chip — best
+    // effort, never blocks (or fails) the picks render.
+    var pAcc = fetch('data/picks-accuracy.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
     fetch('data/picks.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        return pAcc;
+      })
+      .then(function(acc){
+        picksState.live = buildPicksLiveMap(acc);
         picksState.loading = false;
         renderPicks();
         // The live poller may have started before picks.json landed (its
@@ -13166,6 +13191,24 @@
         picksState.loading = false;
         renderPicks();
       });
+  }
+  // Modeled contract P&L since a pick first listed, read from the live map. Returns
+  // { pnl, days, html } or null. Shared by the grid tile + the detail card.
+  function pickLiveChip(p, compact){
+    if (!picksState.live) return null;
+    var live = picksState.live[p.symbol + '|' + (p.side === 'put' ? 'put' : 'call')];
+    if (!live) return null;
+    var lp = Number(live.optionPnlPct);
+    var heldD = live.entryDate ? Math.max(0, Math.floor((Date.now() - Date.parse(live.entryDate)) / 86400000)) : null;
+    if (!isFinite(lp) || heldD == null || heldD < 1){
+      // Same-build debut — nothing to show but the round-trip cost; badge it.
+      return { pnl: null, days: heldD, html: '<span class="ptc-live ptc-live-new" title="Just listed — now tracking this contract\'s modeled P&L in the track record.">tracking</span>' };
+    }
+    var sign = lp >= 0 ? 'sig-pos' : 'sig-neg';
+    var num = (lp >= 0 ? '+' : '') + lp.toFixed(compact ? 0 : 1) + '%';
+    var tip = 'Modeled contract P&L since this pick first appeared ' + heldD + ' day' + (heldD === 1 ? '' : 's') + ' ago — Black-Scholes, enter at ask / exit at bid, IV decayed toward HV, earnings crush. No options-price feed, so a model not a realized fill.';
+    var html = '<span class="ptc-live ' + sign + '" title="' + tip + '">' + (compact ? '' : 'contract ') + num + ' · ' + heldD + 'd</span>';
+    return { pnl: lp, days: heldD, html: html };
   }
 
   // Grade index for EVERY tracked ticker (data/grades.json) — powers the Top
@@ -13650,6 +13693,15 @@
     chips += chip(String(st.wins || 0), 'wins', 'accuracy-chip-good');
     chips += chip(String(st.losses || 0), 'losses', 'accuracy-chip-bad');
     chips += chip(String(open.length), 'open');
+    // Live open-book modeled contract P&L — how the positions currently on the
+    // list are doing right now (unrealized), not just the resolved history.
+    if (st.openOptionN) {
+      chips += '<div class="accuracy-chip' + (st.openOptionAvgPnlPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="' + optTip + ' Average across the ' + st.openOptionN + ' open position' + (st.openOptionN === 1 ? '' : 's') + ' currently on the list (unrealized) — ' + (st.openOptionUp || 0) + ' in the green.">' +
+        '<span class="accuracy-chip-num">' + accPct(st.openOptionAvgPnlPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">open book · contract (modeled · ' + st.openOptionN + ')</span>' +
+      '</div>';
+    }
     if (st.avgMfePct != null) chips += chip(accPct(st.avgMfePct), 'avg peak gain');
     if (st.avgMaePct != null) chips += chip('-' + Number(st.avgMaePct).toFixed(1) + '%', 'avg drawdown');
     // Realized expectancy (side-adjusted underlying move, not option P&L) + the
@@ -13736,8 +13788,10 @@
       var isCall = e.side !== 'put';
       var entry = Number(e.entrySpot) || 0;
       var last = Number(e.lastSpot) || entry;
-      var chg = entry > 0 ? (last - entry) / entry * 100 : 0;
-      var favorable = isCall ? chg >= 0 : chg <= 0;
+      var chg = entry > 0 ? (last - entry) / entry * 100 : 0;       // underlying move (context)
+      var favorableStock = isCall ? chg >= 0 : chg <= 0;
+      var optPnl = Number(e.optionPnlPct);
+      var haveOpt = isFinite(optPnl);                                // modeled live contract mark
       var expMs = Number(e.contract && e.contract.expiry) * 1000;
       var dleft = isFinite(expMs) ? Math.round((expMs - nowMs) / 86400000) : (e.contract && e.contract.dte);
       var tp = Number(e.takeProfit), ct = Number(e.cut);
@@ -13745,6 +13799,15 @@
       var targets = '';
       if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
       if (isFinite(ct)) targets += '<span class="acc-target acc-target-cut">Cut $' + ct.toFixed(2) + '</span>';
+      // Lead with the modeled CONTRACT P&L — the engine trades the option, so that
+      // is the honest mark; the underlying move rides as context on the meta line.
+      var headPnl = haveOpt
+        ? '<span class="acc-since ' + (optPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L since entry (Black-Scholes, enter at ask / exit at bid, IV decayed toward HV, earnings crush). No options-price feed — a model, not a realized fill.">' + accPct(optPnl) + ' <span class="acc-since-tag">contract</span></span>'
+        : '<span class="acc-since ' + (favorableStock ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + ' <span class="acc-since-tag">stock</span></span>';
+      // Contract peak/dip when we have the modeled marks, else the underlying excursion.
+      var peakDip = (isFinite(e.optHiPct) || isFinite(e.optLoPct))
+        ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
+        : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>';
       return '<div class="acc-row acc-row-open">' +
         '<div class="acc-row-head">' +
           accSidePill(e.side) +
@@ -13752,13 +13815,13 @@
           (desc ? '<span class="acc-contract">' + escapeHtml(desc) + '</span>' : '') +
           accTierTag(e.tier, e.label) +
           '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
-          '<span class="acc-since ' + (favorable ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + '</span>' +
+          headPnl +
         '</div>' +
         '<div class="acc-row-meta">' +
           '<span>Entered ' + accDateShort(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
-          '<span>Now $' + last.toFixed(2) + '</span>' +
+          '<span>Now $' + last.toFixed(2) + (entry > 0 ? ' · stock ' + accPct(chg) : '') + '</span>' +
           (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
-          '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
+          peakDip +
         '</div>' +
         (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
         accCheckpointsBlock(e) +
@@ -13778,18 +13841,22 @@
       symOrder.forEach(function(s){
         var list = bySym[s];
         if (list.length === 1){ openRows += accOpenRow(list[0]); return; }
-        var avg = 0, n = 0, sides = {};
+        // Prefer the modeled CONTRACT P&L for the group average (consistent with
+        // the per-row lead); fall back to the underlying move on legacy entries.
+        var avg = 0, n = 0, optAvg = 0, optN = 0, sides = {};
         list.forEach(function(e){
           var entry = Number(e.entrySpot) || 0, last = Number(e.lastSpot) || entry;
           if (entry > 0){ avg += (last - entry) / entry * 100; n++; }
+          var op = Number(e.optionPnlPct); if (isFinite(op)){ optAvg += op; optN++; }
           sides[e.side === 'put' ? 'put' : 'call'] = 1;
         });
-        avg = n ? avg / n : 0;
+        var useOpt = optN > 0;
+        avg = useOpt ? (optAvg / optN) : (n ? avg / n : 0);
         var sideStr = Object.keys(sides).map(function(k){ return k === 'put' ? 'PUT' : 'CALL'; }).join('/');
         var summary = '<span class="acc-dd-sym">' + escapeHtml(s) + '</span>' +
           '<span class="acc-dd-count">' + list.length + ' contracts</span>' +
           '<span class="acc-dd-side">' + sideStr + '</span>' +
-          '<span class="acc-dd-avg ' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '">avg ' + accPct(avg) + '</span>';
+          '<span class="acc-dd-avg ' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + (useOpt ? 'Average modeled contract P&L across this ticker\'s open positions.' : 'Average underlying move across this ticker\'s open positions.') + '">avg ' + accPct(avg) + (useOpt ? ' contract' : '') + '</span>';
         openRows += '<details class="acc-dd">' +
           '<summary class="acc-dd-summary">' + summary + '</summary>' +
           '<div class="acc-dd-body">' + list.map(accOpenRow).join('') + '</div>' +
@@ -13810,6 +13877,13 @@
         var held = accDaysBetween(e.entryDate, e.exitDate);
         var entry = Number(e.entrySpot) || 0;
         var exit = Number(e.exitSpot);
+        var rOptPnl = Number(e.optionPnlPct);
+        var rHaveOpt = isFinite(rOptPnl);
+        // Lead the resolved row with the modeled CONTRACT result (what the trade
+        // actually returned), underlying entry→exit demoted to context.
+        var rHeadPnl = rHaveOpt
+          ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
+          : '';
         closedRows += '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
           '<div class="acc-row-head">' +
             '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
@@ -13818,6 +13892,7 @@
             accTierTag(e.tier, e.label) +
             '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
             '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
+            rHeadPnl +
           '</div>' +
           '<div class="acc-row-meta">' +
             '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
@@ -15014,6 +15089,10 @@
     var deferHtml = (pickEt && pickEt.state === 'wait' && (pickEt.deferKind === 'earnings' || pickEt.deferKind === 'event'))
       ? '<span class="pick-defer-tag" title="Entry deferred — a scheduled catalyst lands inside the defer window. The grade stands, but don\'t open the position until it clears (IV crush around a print loses money even when direction is right).">⏳ ' + escapeHtml(pickEt.headline || 'Catalyst imminent — defer entry') + '</span>'
       : '';
+    // Live "since it appeared" contract mark (track record) — surfaced on the
+    // detail header so the judgment page shows how the trade has actually done.
+    var liveDetail = pickLiveChip(p, false);
+    var liveDetailHtml = liveDetail ? liveDetail.html : '';
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
@@ -15050,6 +15129,7 @@
           '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
           (p.tactical ? '<span class="pick-tactical-tag" title="Tape-driven tactical put — a confirmed risk-off tape opened this short below the grade bar. Reduced size.">TACTICAL</span>' : '') +
           deferHtml +
+          liveDetailHtml +
           streakHtml +
           tenureHtml +
           fiftyHtml +
@@ -15090,6 +15170,10 @@
         ptcDays + 'd</span>';
     }
     var tacticalChip = p.tactical ? '<span class="ptc-tactical" title="Tape-driven tactical put">TACTICAL</span>' : '';
+    // Live "since it appeared" contract mark from the track record (every shipped
+    // pick enrolls the moment it lists). Reads its modeled option P&L since entry.
+    var liveInfo = pickLiveChip(p, true);
+    var liveChip = liveInfo ? liveInfo.html : '';
     // Mirror the detail card's deferred-entry chip on the skimmable grid tile —
     // a name parked for an imminent catalyst must not read as "enter now".
     var deferChip = (p.entryTiming && p.entryTiming.state === 'wait' && (p.entryTiming.deferKind === 'earnings' || p.entryTiming.deferKind === 'event'))
@@ -15098,7 +15182,7 @@
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + deferChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + deferChip + liveChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) +
         (p.costDebit > 0
           ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
