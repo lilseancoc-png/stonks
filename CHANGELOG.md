@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Added
+- **"Check a position you hold" now reads the whole ticker, not just the greeks**: the held-contract evaluator on the Top Picks tab now folds the AI news take, the AI-read chart pattern, the grade's ranked drivers (narrative / fundamentals / mechanicals / technicals), entry-timing detail, and crowd-sentiment chatter into the read — all from data already loaded for the ticker. A new "The full picture" panel surfaces each strand as a tone-tagged factor (supports / against), and a net news-+-chart "tilt" can escalate a soft hold/wait into a **TRIM / DE-RISK** when the wider tape turns against the position before the premium stop hits (or reinforce the hold when it backs it). Greeks/theta, the grade-flip and premium TP/stop rules are unchanged.
+
 ### Changed
 - **Track record now grades every pick on its CONTRACT, the moment it lists**: every shipped Top Pick is enrolled in the track record the second it appears on the list — the full roster (calls + puts, `go` AND `wait`), not just the top-5 endorsed `go` subset the old gate enrolled. Each open pick is marked to market on its **option** each build (Black-Scholes, enter-at-ask / exit-at-bid, the same repricer used at resolution), so the open rows and the Top Picks cards now lead with the modeled contract P&L since the pick first appeared (underlying move demoted to context), and the Scorecard gains a live "open book · contract" chip. The headline win-rate/expectancy now cover every name the engine showed (the go-vs-wait split stays visible as the Advanced byCohort A/B). All prior track-record data was wiped to start the contract-graded record clean (`picks-accuracy.json`, `grades-history.json`, `picks-changes.json`, `picks-roster.json`). Rubric §8 updated.
 

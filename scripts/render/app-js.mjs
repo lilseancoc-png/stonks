@@ -14607,6 +14607,84 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
   }
 
+  // Pull the rest of the ticker's picture into the read. Everything here is
+  // already loaded: posState.chain is the full per-ticker JSON (the AI news
+  // take, technicals.chartPattern, crowd social) and the grade carries the
+  // ranked cross-sectional drivers + entry-timing detail. We tag each strand
+  // as supporting / fighting the held side and sum a net "tilt" (+ favors the
+  // position, − fights it) from the two signals that are NOT already their own
+  // hard-rule branch — the AI news tone and the chart pattern — so a tape
+  // turning against a not-yet-stopped position can still surface a trim.
+  // side: call→bullish, put→bearish.
+  function posContext(o, grade){
+    var side=o.side, sideWord=side==='put'?'put':'call', sign=side==='put'?-1:1;
+    var chain=posState.chain||{};
+    var factors=[], tilt=0;
+    function add(tone,label,text){ if(text) factors.push({ tone:tone, label:label, text:text }); }
+
+    // AI news take (per-ticker) — sentiment tilts; paragraph + headlines inform.
+    var news=chain.news;
+    if(news && (news.sentiment||news.paragraph)){
+      var ns=news.sentiment||'neutral';
+      var nsSign=ns==='bullish'?1:ns==='bearish'?-1:0;
+      if(nsSign!==0) tilt += (nsSign===sign?1:-1);
+      var nsTxt='News tone '+(nsSign===0?'neutral':(nsSign===sign?'supports your '+sideWord:'works against your '+sideWord))+'.';
+      if(news.paragraph) nsTxt += ' '+String(news.paragraph);
+      if(news.headlines && news.headlines.length){
+        var hls=news.headlines.slice(0,2).map(function(h){return String(h&&h.title||'').trim();}).filter(Boolean);
+        if(hls.length) nsTxt += ' Latest: “'+hls.join('” · “')+'”.';
+      }
+      add(nsSign===0?'info':(nsSign===sign?'good':'bad'), 'News', nsTxt);
+    }
+
+    // AI-read chart pattern — confirmed counts double, a forming pattern half.
+    var cp=chain.technicals && chain.technicals.chartPattern;
+    if(cp && cp.direction && cp.direction!=='neutral'){
+      var cpSign=cp.direction==='bullish'?1:-1, cpAligned=cpSign===sign;
+      var cpConfirmed=cp.stage && cp.stage!=='forming';
+      tilt += (cpConfirmed?2:1)*(cpAligned?1:-1);
+      var cpTxt=(cp.pattern||'Chart pattern')+' — '+cp.direction+', '+(cpConfirmed?'confirmed':'still forming')+(cp.confidence?', '+cp.confidence+' confidence':'')+'. '+(cpAligned?'Aligns with':'Cuts against')+' your '+sideWord+'.';
+      if(cp.confirm) cpTxt += ' Confirms on '+cp.confirm+'.';
+      if(cp.target) cpTxt += ' Target '+cp.target+'.';
+      add(cpAligned?'good':'bad', 'Chart pattern', cpTxt);
+    }
+
+    // The grade's ranked drivers (news, fundamentals, mechanicals, technicals,
+    // narrative, timing) — normalize each to the held side, surface the
+    // strongest for and against. This is the "everything else" channel: it
+    // already folds in narrative/sector, flow, guidance, RSI, etc.
+    if(grade && Array.isArray(grade.drivers) && grade.drivers.length){
+      var forD=[], against=[];
+      for(var i=0;i<grade.drivers.length;i++){
+        var dr=grade.drivers[i], w=Number(dr&&dr.weight)||0; if(!w||!dr.text) continue;
+        (w*sign>0?forD:against).push({ s:Math.abs(w), text:String(dr.text) });
+      }
+      forD.sort(function(a,b){return b.s-a.s;}); against.sort(function(a,b){return b.s-a.s;});
+      if(forD.length) add('good','Supports', forD.slice(0,2).map(function(d){return d.text;}).join(' · '));
+      if(against.length) add('bad','Against', against.slice(0,2).map(function(d){return d.text;}).join(' · '));
+    }
+
+    // Entry-timing detail (the multi-day knife / chase reads behind the state).
+    var tm=grade && grade.pillars && grade.pillars.timing;
+    if(tm && (tm.headline || (tm.reasons && tm.reasons.length))){
+      var tmTxt=String(tm.headline||'');
+      if(tm.reasons && tm.reasons.length){
+        var tmReasons=tm.reasons.map(function(r){return String(r).replace(/^[-\s]+/,'').trim();}).filter(Boolean).join('; ');
+        if(tmReasons) tmTxt += (tmTxt?' ':'')+tmReasons+'.';
+      }
+      add(tm.state==='go'?'good':tm.state==='avoid'?'bad':'info', 'Entry timing', tmTxt);
+    }
+
+    // Crowd / social chatter — informational, only when there's a real skew.
+    var soc=chain.social;
+    if(soc && (soc.msgCount24h||0)>=5 && soc.bullishPct!=null){
+      var net=Math.round((soc.bullishPct||0)-(soc.bearishPct||0));
+      if(Math.abs(net)>=15) add('info','Crowd',(net>0?'+':'')+net+'% net '+(net>0?'bullish':'bearish')+' social chatter over the last 24h ('+soc.msgCount24h+' messages) — informational, not scored.');
+    }
+
+    return { factors:factors, tilt:tilt };
+  }
+
   function posDecision(o){
     var side=o.side, sideWord=side==='put'?'put':'call', entry=o.entry, m=o.mark;
     var mark = (m.bid>0 && m.ask>0) ? (m.bid+m.ask)/2 : (m.last>0?m.last:NaN);
@@ -14648,6 +14726,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       reasons.push('Not at the +'+POS_TP+'% target or the −'+POS_STOP+'% stop. '+(grade?('Grade '+gRound+(aligned?' still leans your way':' has weakened against your side')+'.'):(o.sym+' isn’t in the tracked grade set — premium plan only, no grade read.')));
     }
 
+    // Fold in the rest of the ticker's picture — AI news take, chart pattern,
+    // the grade's ranked drivers, entry-timing detail and crowd chatter — and
+    // let it nudge the soft states. When the position isn't already at a hard
+    // sell rule, a tape clearly fighting the held side (news + chart pattern,
+    // tilt ≤ −2) argues for trimming before the premium stop even hits; a
+    // clearly supportive one reinforces the hold.
+    var ctx = posContext(o, grade);
+    var hardSell = (tone==='good' || tone==='bad');
+    if(!hardSell){
+      if(ctx.tilt <= -2){
+        action='TRIM / DE-RISK'; tone='warn';
+        headline='Grade hasn’t flipped, but the news & chart have turned against your '+sideWord+'.';
+        reasons.unshift('The wider picture — the AI news take and the chart pattern — is leaning against your '+sideWord+', even though you’re not at the −'+POS_STOP+'% stop. Trimming to lock in / cut risk and re-assessing beats adding here.');
+      } else if(ctx.tilt >= 2){
+        reasons.push('The news take and the chart pattern both back your '+sideWord+' — the wider picture supports staying in.');
+      }
+    }
+
     if(earnBeforeExp && earnDays!=null) reasons.push('⚠ Earnings ~'+earnDays+' day'+(earnDays===1?'':'s')+' out, before your expiry — an IV crush can gut a long even on a correct call. Consider closing into the print.');
     if(dte<=7) reasons.push('⚠ Only '+dte+' day'+(dte===1?'':'s')+' to expiry — gamma & theta are steep; small underlying moves swing the premium hard.');
     else if(thetaPctDay!=null && thetaPctDay>=2.5) reasons.push('⚠ Time decay ≈'+thetaPctDay.toFixed(1)+'%/day of the current premium — a flat price still bleeds you.');
@@ -14655,7 +14751,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return { sym:o.sym, side:side, strike:o.strike, exp:o.exp, entry:entry, qty:o.qty, mark:mark,
       pnlPct:pnlPct, dollarPnl:dollarPnl, dte:dte, src:m.src, marketState:m.marketState,
       gRound:gRound, tier:(grade&&grade.recommendation&&grade.recommendation.label)||null, timing:timing, aligned:aligned, hasGrade:!!grade,
-      tpPrice:tpPrice, cutPrice:cutPrice, action:action, tone:tone, headline:headline, reasons:reasons };
+      tpPrice:tpPrice, cutPrice:cutPrice, action:action, tone:tone, headline:headline, reasons:reasons, context:ctx };
+  }
+
+  // Render the gathered context strands (news / chart pattern / drivers /
+  // timing / crowd) as a tone-tagged list below the verdict reasons.
+  function posFactorsHtml(ctx){
+    if(!ctx || !ctx.factors || !ctx.factors.length) return '';
+    var lis=ctx.factors.map(function(f){
+      return '<li class="pos-factor pos-factor-'+f.tone+'">'+
+        '<span class="pos-factor-label">'+escapeHtml(f.label)+'</span>'+
+        '<span class="pos-factor-text">'+escapeHtml(f.text)+'</span></li>';
+    }).join('');
+    return '<div class="pos-context"><div class="pos-context-title">The full picture — news, narrative, chart &amp; timing</div>'+
+      '<ul class="pos-factors">'+lis+'</ul></div>';
   }
 
   function posRender(d){
@@ -14682,6 +14791,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (d.timing?stat('timing', String(d.timing).toUpperCase()):'')+
       '</div>'+
       reasons+
+      posFactorsHtml(d.context)+
       '<p class="pos-foot">Plan levels: take-profit ~$'+d.tpPrice.toFixed(2)+' (+'+POS_TP+'%) · stop ~$'+d.cutPrice.toFixed(2)+' (−'+POS_STOP+'%). Mark is the live mid, greeks modeled. The grade is relative &amp; research/unproven — not financial advice.</p>';
   }
 
