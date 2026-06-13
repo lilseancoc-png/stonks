@@ -8398,6 +8398,17 @@ function _sig(key, label, score, opts) {
     key,
     label,
     score: score | 0,
+    // Default the displayed `contribution` to the integer score (the equal-weight
+    // base). Later steps overwrite it — the cross-sectional pass sets the
+    // z-contribution for converted signals, and `applyHorizonWeight` re-bakes the
+    // pillar/reliability weight for any signal whose effective weight ≠ 1. The one
+    // case nothing overwrites is a FIXED signal in a pillar weighted ×1 (Technicals
+    // at HW_TECH=1.0 with reliability 1.0 → w===1): without this default its
+    // `contribution` stayed `undefined` (omitted from JSON → NaN on read), so the
+    // chart-pillar's per-signal chips didn't sum to the pillar total. Seeding it to
+    // `score` here is correct (eff = score × 1 = score) and never touches any grade
+    // total (totals are summed from `eff`/`baseOf`, never read back off this field).
+    contribution: score | 0,
     // P3.1 raw channel: the continuous underlying magnitude this signal reads
     // (e.g. the +12.3% EPS-growth value, the P/E-vs-median ratio), so the
     // universe-wide cross-sectional pass can standardize it. null for discrete /
