@@ -7632,7 +7632,7 @@ const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
 const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
-const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // only enroll the top-N ranked picks each build, so the open list can't balloon as the top-10 rotates
+const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every shipped pick now enrolls (full-roster); the per-thesis dedup bounds the open list. Kept for reference / any external readers.
 // Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
 // pick that goes nowhere on a ≥21-DTE contract hits day 14 with ~7 DTE left — the
 // theta cliff — recorded as ~breakeven on the underlying while the OPTION is deep
@@ -7648,12 +7648,10 @@ const PICKS_THETA_STOP_MIN_HOLD_DAYS = 5;    // don't theta-stop before this man
 const PICKS_OPTION_IV_DECAY_DAYS = 30;       // hold length over which entry IV fully decays toward HV
 const PICKS_OPTION_EARNINGS_CRUSH = 0.70;    // …and knock IV to 70% if an earnings print fell inside the hold
 const PICKS_ACCURACY_FLAT_BAND_PCT = 0.5; // |MFE−MAE| within this → flat/inconclusive (null outcome), NOT a win or loss
-// Research A/B: when set, ALSO enroll the top-N 'wait' picks (tagged
-// cohort:'wait'), tracked by the same machinery but EXCLUDED from the headline
-// win-rate/expectancy — surfaced only as the `byCohort` go-vs-wait comparison, so
-// we can eventually PROVE the timing gate earns its keep. OFF by default: it
-// roughly doubles the open list, and the comparison is noise until many more
-// than the current sample of decided picks accrue.
+// RETIRED flag (kept defined for any external readers): full-roster enrollment
+// now always tracks 'wait' picks too — tagged cohort:'wait' and INCLUDED in the
+// headline (every name the engine showed is graded), with the go-vs-wait split
+// still surfaced as the `byCohort` A/B. No env flag gates the wait arm anymore.
 const PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT = process.env.PICKS_ACCURACY_AB === "1";
 
 // ---- P0.3 / P1.x / P2 additions (quant-review follow-ups) -------------------
@@ -14355,11 +14353,14 @@ function closeOnOrBefore(map, iso) {
 // so the benchmark can answer "did the pick beat the index over its hold?". When
 // absent (regen without SPY on disk), the benchmark fields degrade to null.
 export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = null) {
-  // ALL resolved win/loss entries (used for the go-vs-wait byCohort A/B).
+  // ALL resolved win/loss entries.
   const decidedAll = closed.filter((e) => e.outcome === "win" || e.outcome === "loss");
-  // Headline metrics = ENDORSED entries only — 'wait' picks ship (badged) but are
-  // never marked-to-market as if we bought them, so they can't drag the record.
-  const decided = decidedAll.filter((e) => e.cohort !== "wait");
+  // Headline metrics now cover EVERY shipped pick (full-roster enrollment) — the
+  // record grades every name the engine put on the list, endorsed ('go') or
+  // deferred ('wait'). The go-vs-wait split stays visible as the byCohort A/B
+  // below (computed over the same decidedAll), so the timing gate's edge is still
+  // measurable; it just no longer hides 'wait' picks from the headline.
+  const decided = decidedAll;
   const wins = decided.filter((e) => e.outcome === "win").length;
   const losses = decided.length - wins;
   const winRate = decided.length ? Number((wins / decided.length).toFixed(3)) : null;
@@ -14392,9 +14393,10 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   const byTier = cohort((e) => e.tier);
   const bySector = cohort((e) => e.sector);
   const byRegime = cohort((e) => e.entryRegime || "unknown");
-  // go-vs-wait A/B (research; only populated when PICKS_ACCURACY_AB is on, else
-  // every decided entry is 'go'). Computed over decidedAll so the 'wait' arm is
-  // visible even though it's excluded from the headline above.
+  // go-vs-wait A/B (research). Now that every shipped pick enrolls (full-roster),
+  // both arms populate organically — the 'wait' arm no longer needs PICKS_ACCURACY_AB
+  // to exist. Computed over decidedAll (same set as the headline) so the gate's
+  // marginal edge stays measurable as a cohort split.
   const byCohort = (() => {
     const out = {};
     for (const e of decidedAll) {
@@ -14585,9 +14587,23 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     const vals = arr.map(f).filter((x) => Number.isFinite(x));
     return vals.length ? Number((vals.reduce((s, x) => s + x, 0) / vals.length).toFixed(1)) : null;
   };
+
+  // Live OPEN-book modeled contract P&L — the unrealized mark across every open
+  // pick (each marked live by modelOptionExit in updatePicksAccuracyFile). The
+  // scorecard's "here's how the current book is doing right now" read, separate
+  // from the resolved history. Entries without the entry-option snapshot drop out.
+  const openOpt = (open || []).map((e) => e && e.optionPnlPct).filter((x) => Number.isFinite(x));
+  const openOptionN = openOpt.length;
+  const openOptionAvgPnlPct = openOptionN ? Number((openOpt.reduce((s, x) => s + x, 0) / openOptionN).toFixed(2)) : null;
+  const openOptionUp = openOpt.filter((x) => x > 0).length;
+
   return {
     builtAtIso,
     openCount: open.length,
+    // Live open-book modeled contract P&L (unrealized; the current positions).
+    openOptionN,
+    openOptionAvgPnlPct,
+    openOptionUp,
     closedCount: closed.length,
     decided: decided.length,
     wins,
@@ -14744,6 +14760,24 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         }
       }
     }
+    // Live modeled CONTRACT mark for the OPEN display (P0.1 basis: enter at the
+    // ask, exit at the bid, entry IV decayed toward HV, earnings crush) — the SAME
+    // repricer used at resolution, so the live open mark flows continuously into
+    // the closed record (the resolution branch below overwrites optionPnlPct with
+    // its own exit mark). This is what makes the track record grade the contract
+    // live, not just the underlying. Running peak/dip on this basis give the option
+    // MFE/MAE the open row leads with. No fresh quote → carry the last mark; legacy
+    // entries (no entry-option snapshot) → modelOptionExit returns null and the row
+    // falls back to the underlying move.
+    if (haveFresh) {
+      const liveOpt = modelOptionExit(e, cur, nowSec, FALLBACK_RISK_FREE_RATE);
+      if (liveOpt && Number.isFinite(liveOpt.optionPnlPct)) {
+        e.optionPnlPct = liveOpt.optionPnlPct;
+        e.optionPremiumLast = liveOpt.premiumExit;
+        e.optHiPct = Number.isFinite(e.optHiPct) ? Math.max(Number(e.optHiPct), liveOpt.optionPnlPct) : liveOpt.optionPnlPct;
+        e.optLoPct = Number.isFinite(e.optLoPct) ? Math.min(Number(e.optLoPct), liveOpt.optionPnlPct) : liveOpt.optionPnlPct;
+      }
+    }
     // Days until the next earnings print (P2 earnings-eve exit). null when
     // unknown. Date-only dates anchor at 21:00Z — the AMC-print convention the
     // exit-side crush model uses — so "days ahead" counts to the actual print.
@@ -14788,18 +14822,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     }
   }
 
-  // Enroll picks not already tracked. Only the top-N ranked picks are eligible,
-  // so the open list can't balloon as the top-10 rotates. Names already open
-  // keep being tracked regardless of where they rank today — we only gate what
-  // gets newly enrolled.
-  //
-  // Execution-timing filter: only enroll picks the gate marked 'go' — the ones
-  // the engine actually endorsed executing NOW. A 'wait' pick still SHIPS in the
-  // roster (badged, for transparency) but is NOT marked-to-market here: we told
-  // the user to defer, so grading ourselves as if we bought it would punish the
-  // very discipline the gate exists to enforce. Picks with no entryTiming (older
-  // builds / fail-open reads) keep the legacy behavior and enroll. This is what
-  // makes the track record reflect endorsed entries, not every name on the list.
+  // Enroll EVERY pick the moment it ships on the roster — the track record grades
+  // the contract the user actually saw on the Top Picks list, so it tracks the
+  // whole roster (calls + puts, 'go' AND 'wait'), not the endorsed subset the old
+  // top-N/go-only gate enrolled. Names already open keep being tracked regardless
+  // of where they rank today; the per-thesis dedup below is the only enrollment
+  // gate now. The entry-timing state still rides on each entry as `cohort`
+  // (go/wait) so the gate A/B (byCohort) stays measurable — it just no longer
+  // decides what enrolls.
   //
   // Dedup is contract-level: we skip any pick whose exact contract is already
   // open OR already resolved, so the same contract is never enrolled twice. A
@@ -14817,22 +14847,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // governs the CLOSED/resolved set, so genuinely distinct realized trades stay
   // distinct in the history.
   const openTheses = new Set(stillOpen.map((e) => `${e.symbol}:${e.side}`));
-  // Track record = the ENDORSED ('go') subset of the shipped roster (P2.2 / §8
-  // go-only enrollment). Entry timing is folded into the grade, but a name can
-  // still ship as 'wait' (mixed structure, catalyst imminent, or a fail-open read
-  // on thin data) — enrolling those would grade ourselves on names we told the
-  // user to defer or had no read on, dinging a number we didn't earn. A pick with
-  // no entryTiming at all (legacy payloads) keeps the legacy behavior and enrolls.
-  // When the A/B flag is on, also enroll top-N 'wait'-tagged picks under a
-  // separate cohort; computePicksAccuracyStats keeps them out of the headline.
-  const goPicks = picks.filter((p) => (p?.entryTiming?.state ?? "go") === "go");
-  const waitPicks = PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT
-    ? picks.filter((p) => p?.entryTiming?.state === "wait")
-    : [];
-  const enrollable = [
-    ...goPicks.slice(0, PICKS_ACCURACY_ENROLL_TOP_N),
-    ...waitPicks.slice(0, PICKS_ACCURACY_ENROLL_TOP_N),
-  ];
+  // Full-roster enrollment: every shipped pick is tracked, in roster order. The
+  // per-thesis dedup above (one open entry per symbol:side) is what keeps the open
+  // list bounded as pickContractForPick churns strikes — not a top-N cap. Entry
+  // timing rides on as the `cohort` (go/wait) for the byCohort A/B, but every name
+  // on the list is now marked to market on its contract, endorsed or deferred.
+  const enrollable = picks;
   for (const p of enrollable) {
     if (!p || (p.side !== "call" && p.side !== "put")) continue;
     const c = p.contract || {};
@@ -14869,7 +14889,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         });
       }
     }
-    stillOpen.push({
+    const newEntry = {
       key,
       symbol: p.symbol,
       side: p.side,
@@ -14923,6 +14943,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       mfePct: 0,
       maePct: 0,
       optMfePct: 0, // peak modeled option gain over the hold (for the trailing TP)
+      // Live modeled CONTRACT mark + its running peak/dip (set on the debut build
+      // below and refreshed each later build by the open-loop mark above). On day 0
+      // this is ≈ the round-trip spread cost — honest: a single-leg long is down the
+      // bid/ask the instant you'd flip it. null on legacy / no-snapshot entries.
+      optionPnlPct: null,
+      optionPremiumLast: null,
+      optHiPct: null,
+      optLoPct: null,
       samples: 1,
       checkpoints: [{
         mark: "day0",
@@ -14932,7 +14960,17 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         deltaSpotPct: 0,
         deltaScore: 0,
       }],
-    });
+    };
+    // Mark the contract the moment it enrolls so the card/row shows a number on
+    // the pick's debut build (same repricer as the open-loop + resolution paths).
+    const liveOpt0 = modelOptionExit(newEntry, newEntry.entrySpot, nowSec, FALLBACK_RISK_FREE_RATE);
+    if (liveOpt0 && Number.isFinite(liveOpt0.optionPnlPct)) {
+      newEntry.optionPnlPct = liveOpt0.optionPnlPct;
+      newEntry.optionPremiumLast = liveOpt0.premiumExit;
+      newEntry.optHiPct = liveOpt0.optionPnlPct;
+      newEntry.optLoPct = liveOpt0.optionPnlPct;
+    }
+    stillOpen.push(newEntry);
     seenKeys.add(key);
     openTheses.add(thesisKey);
   }

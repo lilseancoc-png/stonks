@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- **Track record now grades every pick on its CONTRACT, the moment it lists**: every shipped Top Pick is enrolled in the track record the second it appears on the list — the full roster (calls + puts, `go` AND `wait`), not just the top-5 endorsed `go` subset the old gate enrolled. Each open pick is marked to market on its **option** each build (Black-Scholes, enter-at-ask / exit-at-bid, the same repricer used at resolution), so the open rows and the Top Picks cards now lead with the modeled contract P&L since the pick first appeared (underlying move demoted to context), and the Scorecard gains a live "open book · contract" chip. The headline win-rate/expectancy now cover every name the engine showed (the go-vs-wait split stays visible as the Advanced byCohort A/B). All prior track-record data was wiped to start the contract-graded record clean (`picks-accuracy.json`, `grades-history.json`, `picks-changes.json`, `picks-roster.json`). Rubric §8 updated.
+
 ### Fixed
 - **A gold relief-bounce no longer tips the tape gauge risk-off**: the cross-asset macro regime's commodity axis now counts a 1-day gold spike as a safe-haven bid only when gold isn't down on the week. A +3.8% bounce inside a falling week — gold gapping back up as the Iran conflict ended, while crude dropped, vol crushed and headlines read de-escalation — was being read as a haven bid and, paired with hot CPI, flipped the whole gauge risk-off on a risk-on tape (2026-06-12). The sustained 5-day-run path is unchanged; `regime-smoke.mjs` gains two guard assertions (14/14 pass). (#415)
 

@@ -6325,6 +6325,23 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   background: color-mix(in srgb, var(--muted) 16%, transparent);
   white-space: nowrap;
 }
+/* Live "since it appeared" modeled-contract mark, read from the track record.
+   Mono, tabular, color-coded by sign (sig-pos/sig-neg set the hue); the "new"
+   variant (same-build debut) is a muted, neutral badge. */
+.ptc-live {
+  flex: 0 0 auto;
+  font: 700 9px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+  padding: 3px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.ptc-live-new {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
 .ptc-score {
   grid-area: score;
   align-self: start;
@@ -6693,6 +6710,13 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   text-transform: uppercase;
   letter-spacing: .08em;
   color: var(--muted);
+}
+/* "● live" badge next to the Greeks label — the row recomputes from the polled
+   spot every 30s while the Top Picks tab is open. */
+.pick-greeks-live {
+  margin-left: 5px;
+  color: var(--pos);
+  letter-spacing: .04em;
 }
 .pick-stat-value {
   font: 800 16px/1.1 var(--font-mono);
@@ -8409,6 +8433,17 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   margin-left: auto;
   font: 700 13px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+/* Small muted "contract" / "stock" label inside the lead P&L chip, so it's clear
+   whether the headline number is the modeled option mark or the underlying move. */
+.acc-since-tag {
+  font: 600 8px/1 var(--font-sans);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .acc-grade {
   margin-left: auto;

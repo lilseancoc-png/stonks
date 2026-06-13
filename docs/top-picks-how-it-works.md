@@ -203,12 +203,16 @@ right-tail-driven). The underlying cut is the deeper of structural support and a
 
 ## 8. Accuracy tracking (the feedback loop)
 
-Every shipped `go` pick is enrolled and marked-to-market each build. The Track-record
-tab leads with the **modeled option win-rate / expectancy** (the engine trades options,
-so it's graded on the option — entering at the ask, exiting at the bid), with the
-underlying move and a SPY benchmark as context. Outcomes are broken out by tier,
-**sector**, and **regime at entry**, and a per-signal hit-rate accumulates as the
-substrate for eventually replacing the equal-weight scoring with measured weights.
+**Every shipped pick is enrolled the second it appears on the list** — the whole
+roster (calls + puts, `go` and `wait`), each marked to market on its **contract**
+every build (Black-Scholes, enter at ask / exit at bid). So the open rows and the
+pick cards lead with the modeled contract P&L since the pick first listed, and the
+Track-record tab leads with the **modeled option win-rate / expectancy** (the engine
+trades options, so it's graded on the option), with the underlying move and a SPY
+benchmark as context. Outcomes are broken out by tier, **sector**, and **regime at
+entry**, the go-vs-wait split is surfaced as an A/B, and a per-signal hit-rate
+accumulates as the substrate for eventually replacing the equal-weight scoring with
+measured weights.
 
 ---
 

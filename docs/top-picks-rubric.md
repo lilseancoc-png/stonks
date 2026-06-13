@@ -729,10 +729,12 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
 
 ### 6.4 Fail-open
 Missing spot / technicals / fewer than 15 confirmed bars → **`wait`** with score 0
-(P2.2). The name still **ships** (badged) so it's never silently dropped, but a
-fail-open read no longer mints an endorsed `go` (or a track-record entry) on the
-names with the *least* data and the *most* knife risk. The contribution stays 0, so
-the grade isn't dinged either — pure graceful degradation, just not endorsed.
+(P2.2). The name still **ships** (badged) so it's never silently dropped, and a
+fail-open read no longer mints an endorsed `go` on the names with the *least* data
+and the *most* knife risk. (Under full-roster enrollment, §8, such a name — if it
+clears the grade bar — still enrolls in the track record as a `cohort:'wait'` entry,
+separable from `go` in the `byCohort` A/B.) The contribution stays 0, so the grade
+isn't dinged either — pure graceful degradation, just not endorsed.
 
 ### 6.5 Worked examples (from the loss data)
 - **CRM** calls bought $205–210 (+18% in 3 days, +16% above the 20D SMA) → chase B →
@@ -874,10 +876,26 @@ it has to be trustworthy. The fixes:
   `symbol:side` that already has an **open** entry is skipped; the contract-level key
   still governs the **closed** set, so genuinely distinct realized trades stay
   distinct.
-- **`go`-only enrollment.** Only the top-5 `go` picks enroll. A `wait` pick ships
-  (badged) but is **not** marked-to-market — grading ourselves on a name we said to
-  *wait* on would punish the discipline the gate enforces. The win-rate reflects
-  *endorsed* entries.
+- **Full-roster enrollment — every pick, the moment it lists.** Every shipped pick
+  is enrolled the second it appears on the Top Picks list: the whole roster, calls
+  **and** puts, `go` **and** `wait`, not just the top-5 endorsed `go` subset the old
+  gate tracked. The track record grades the *contract the user actually saw*, so it
+  has to cover the whole list. The per-thesis dedup above is the only enrollment
+  gate now (one open entry per `symbol:side`, so a churning strike can't re-enroll a
+  live thesis); the retired `PICKS_ACCURACY_ENROLL_TOP_N` cap no longer bounds it.
+  Headline win-rate/expectancy therefore reflect **every** name the engine put on
+  the list, endorsed or deferred — the go-vs-wait split stays visible as the
+  `byCohort` A/B so the timing gate's marginal edge is still measurable.
+- **Live contract mark-to-market (open picks).** An open pick is repriced on its
+  **option** every build (`modelOptionExit`, the SAME Black-Scholes repricer used at
+  resolution — enter at ask, exit at bid, entry IV decayed toward HV, earnings
+  crush), and the live `optionPnlPct` + running peak/dip persist on the entry. So the
+  Track-record open rows and the Top Picks cards now **lead with the modeled contract
+  P&L since the pick first appeared** (the underlying move demoted to context), and
+  the Scorecard carries a live "open book · contract" aggregate across the current
+  positions. The open mark flows continuously into the closed record (resolution just
+  stamps its own exit mark over it). A day-0 debut shows ≈ the round-trip spread cost —
+  honest: a single-leg long is down the bid/ask the instant you'd flip it.
 - **Resolution** (`resolvePickOutcome`): TP (win), cut (loss), expiry (vs breakeven),
   the **theta-stop** (P1.4 — cut when modeled daily theta > `PICKS_THETA_STOP_PCT`
   = 2.5%/day of remaining premium, gated to held ≥ 5d and modeled at a loss), or the
@@ -891,10 +909,11 @@ it has to be trustworthy. The fixes:
   `excessExpectancyPct` (vs SPY over each pick's actual hold). These are the honest
   "is the engine adding value vs buy-and-hold?" headline.
 - **Modeled option expectancy + win rate (P0.1/P0.2).** We still have no options-price
-  feed, so the tracker reprices the *same* contract with Black-Scholes at exit
-  (`modelOptionExit`: remaining DTE, the real exit spot, entry IV decayed toward
-  realized HV over the hold, an earnings-crush haircut if a print fell inside the
-  hold) → per-pick `optionPnlPct` and a cohort `optionExpectancyPct` + `optionWinRate`
+  feed, so the tracker reprices the *same* contract with Black-Scholes (`modelOptionExit`:
+  remaining DTE, the real spot, entry IV decayed toward realized HV over the hold, an
+  earnings-crush haircut if a print fell inside the hold) — **both live on every open
+  pick each build** (the unrealized mark the open rows / cards lead with) **and** at
+  exit → per-pick `optionPnlPct` and a cohort `optionExpectancyPct` + `optionWinRate`
   (the **headline** the Track-record tab now leads with — the engine trades options, so
   it's graded on the option, with the underlying win rate demoted to context). **Honest
   fills (P0.1):** the repricer **enters at the ASK and exits at the BID** (haircutting
@@ -914,14 +933,14 @@ it has to be trustworthy. The fixes:
   `PICKS_SIGNAL_MIN_N = 25` decided (guards against reading signal into noise). This
   is the substrate for *eventually* validating the equal-weight score — it does
   **not** feed weights today.
-- **Gate A/B (research, ON in production).** With `PICKS_ACCURACY_AB=1` — now set in
-  `daily.yml`, since without it the wait arm stayed n=0 forever and the gate could
-  never be validated — the top-N `wait` picks are also enrolled tagged `cohort:'wait'`
-  (excluded from the headline, surfaced only under `byCohort`). Each wait entry is
-  additionally stamped `waitKind` (`earnings` / `event` — a scheduled-catalyst defer
-  — vs `structure` — no clean setup; from `computeEntryTiming`'s `deferKind`), and
-  `byCohort.wait.byKind` sub-splits the arm so "stood down for CPI" is separable from
-  "the chart wasn't there".
+- **Gate A/B (research, now always-on).** Full-roster enrollment means the `wait`
+  arm populates organically (no `PICKS_ACCURACY_AB` flag required), so the go-vs-wait
+  comparison is always live — but, unlike before, `wait` picks are now **included** in
+  the headline (every name the engine showed is graded), with the split surfaced as
+  the `byCohort` A/B rather than hidden from the headline. Each wait entry is stamped
+  `waitKind` (`earnings` / `event` — a scheduled-catalyst defer — vs `structure` — no
+  clean setup; from `computeEntryTiming`'s `deferKind`), and `byCohort.wait.byKind`
+  sub-splits the arm so "stood down for CPI" is separable from "the chart wasn't there".
 - **Universe-wide IC substrate (`data/grades-daily.json` + `scripts/diagnose-grade-ic.mjs`).**
   The enrolled roster accrues ~5 picks/build at best, so per-signal/per-grade IC from
   the track record alone takes quarters to stabilize. Every build now upserts one row
@@ -933,9 +952,12 @@ it has to be trustworthy. The fixes:
   spread** at 5/10/14-trading-day horizons — thousands of observations per quarter,
   the fast answer to "can the score call 2-week direction?" that gates everything
   else. Measure-only; it feeds no weights (same discipline as `bySignal`).
-- **Forward-looking:** picks the *old* engine already enrolled stay open and mostly
-  resolve as losses regardless of this change. The win-rate improves as they flush
-  and only gated `go` picks accumulate — it does **not** retroactively jump.
+- **Clean slate.** When full-roster + live-contract grading shipped, the entire
+  track record was **wiped** (`picks-accuracy.json`, `grades-history.json`,
+  `picks-changes.json`, `picks-roster.json`) so the contract-graded record starts
+  fresh — the prior open book was the retired go-only-top-5, stock-move-led tracker
+  and would have polluted the new headline. The record rebuilds from the first bake
+  after the wipe, enrolling the current roster on its contracts.
 
 ---
 
@@ -1107,9 +1129,10 @@ it has to be trustworthy. The fixes:
     to disable. **Caveat: Kalshi is not resolving in production** (the public host/ticker
     guess returns nothing — Polymarket alone is feeding the odds + event-risk); see §9 note.
   - **Analyst rating changes:** `ANALYST_REVISION_WINDOW_DAYS 90` (Fundamentals §3).
-  - **Accuracy:** `PICKS_ACCURACY_ENROLL_TOP_N 5`, `PICKS_SIGNAL_MIN_N 25`,
-    `PICKS_SIGNAL_PRUNE_BAND 0.05` (prunable flag), and the `PICKS_ACCURACY_AB` env
-    flag for the go-vs-wait research cohort.
+  - **Accuracy:** `PICKS_ACCURACY_ENROLL_TOP_N 5` (**retired** as the enroll gate —
+    full-roster enrollment now tracks every shipped pick; the per-thesis dedup bounds
+    the open list), `PICKS_SIGNAL_MIN_N 25`, `PICKS_SIGNAL_PRUNE_BAND 0.05` (prunable
+    flag). `PICKS_ACCURACY_AB` is now moot (the `wait` arm always enrolls).
 - Numbers are tuned to a **19-pick sample** and should be revisited once
   `picks-accuracy.json` carries gate-era outcomes. **`bySignal` is the path to that
   recalibration — it does not feed weights until the sample is large.**

@@ -8620,11 +8620,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (lvls.length) bits.push('<span class="picks-live-lvls" title="Live distance from spot to the exit plan\\'s take-profit and cut levels">' + lvls.join(' · ') + '</span>');
       }
       rows.push('<div class="picks-live-row">' + bits.join('') + '</div>');
-      // Also refresh the spot on this pick's detail card if it's rendered.
+      // Also refresh the spot + recompute the contract's greeks on this pick's
+      // detail card if it's rendered.
       var card = document.getElementById('pick-card-' + sym);
       if (card){
         var cardSpot = card.querySelector('.pick-spot');
         if (cardSpot) cardSpot.textContent = '$' + spot.toFixed(2);
+        var gslot = card.querySelector('[data-live-greeks="' + sym + '"]');
+        if (gslot){
+          gslot.innerHTML = liveGreeksRow(p, spot);
+          // Promote the static "Greeks" label to "● live" once a poll lands.
+          var glabel = gslot.parentNode && gslot.parentNode.querySelector('.pick-stat-label');
+          if (glabel && glabel.querySelector('.pick-greeks-live') == null){
+            glabel.innerHTML = 'Greeks <span class="pick-greeks-live" title="Recomputed live from the polled spot — refreshed every 30s while this tab is open">● live</span>';
+          }
+        }
       }
     }
     if (!rows.length){ board.hidden = true; board.innerHTML = ''; return; }
@@ -13162,14 +13172,39 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Lazy-fetched on first activation; cached client-side for the rest of
   // the session. Rebuilds every daily build, so a hard reload is enough
   // to refresh.
-  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, openSym: null, sorted: [] };
+  var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, openSym: null, sorted: [], live: null };
+  // Build a SYMBOL|side -> open track-record entry map from picks-accuracy.json so
+  // each pick card can show how its contract has performed since it first listed.
+  // Every shipped pick is enrolled the moment it appears (one open entry per
+  // thesis), so this is a clean 1:1 lookup; on a collision keep the earliest entry
+  // (the true "since it appeared" anchor).
+  function buildPicksLiveMap(acc){
+    var m = {};
+    var open = acc && Array.isArray(acc.open) ? acc.open : null;
+    if (!open) return m;
+    for (var i = 0; i < open.length; i++){
+      var e = open[i]; if (!e || !e.symbol) continue;
+      var k = e.symbol + '|' + (e.side === 'put' ? 'put' : 'call');
+      if (!m[k] || (Date.parse(e.entryDate) || 0) < (Date.parse(m[k].entryDate) || 0)) m[k] = e;
+    }
+    return m;
+  }
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
+    // Live track-record marks for the per-card "since it appeared" chip — best
+    // effort, never blocks (or fails) the picks render.
+    var pAcc = fetch('data/picks-accuracy.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
     fetch('data/picks.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        return pAcc;
+      })
+      .then(function(acc){
+        picksState.live = buildPicksLiveMap(acc);
         picksState.loading = false;
         renderPicks();
         // The live poller may have started before picks.json landed (its
@@ -13184,6 +13219,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         picksState.loading = false;
         renderPicks();
       });
+  }
+  // Modeled contract P&L since a pick first listed, read from the live map. Returns
+  // { pnl, days, html } or null. Shared by the grid tile + the detail card.
+  function pickLiveChip(p, compact){
+    if (!picksState.live) return null;
+    var live = picksState.live[p.symbol + '|' + (p.side === 'put' ? 'put' : 'call')];
+    if (!live) return null;
+    var lp = Number(live.optionPnlPct);
+    var heldD = live.entryDate ? Math.max(0, Math.floor((Date.now() - Date.parse(live.entryDate)) / 86400000)) : null;
+    if (!isFinite(lp) || heldD == null || heldD < 1){
+      // Same-build debut — nothing to show but the round-trip cost; badge it.
+      return { pnl: null, days: heldD, html: '<span class="ptc-live ptc-live-new" title="Just listed — now tracking this contract\\'s modeled P&L in the track record.">tracking</span>' };
+    }
+    var sign = lp >= 0 ? 'sig-pos' : 'sig-neg';
+    var num = (lp >= 0 ? '+' : '') + lp.toFixed(compact ? 0 : 1) + '%';
+    var tip = 'Modeled contract P&L since this pick first appeared ' + heldD + ' day' + (heldD === 1 ? '' : 's') + ' ago — Black-Scholes, enter at ask / exit at bid, IV decayed toward HV, earnings crush. No options-price feed, so a model not a realized fill.';
+    var html = '<span class="ptc-live ' + sign + '" title="' + tip + '">' + (compact ? '' : 'contract ') + num + ' · ' + heldD + 'd</span>';
+    return { pnl: lp, days: heldD, html: html };
   }
 
   // Grade index for EVERY tracked ticker (data/grades.json) — powers the Top
@@ -13668,6 +13721,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     chips += chip(String(st.wins || 0), 'wins', 'accuracy-chip-good');
     chips += chip(String(st.losses || 0), 'losses', 'accuracy-chip-bad');
     chips += chip(String(open.length), 'open');
+    // Live open-book modeled contract P&L — how the positions currently on the
+    // list are doing right now (unrealized), not just the resolved history.
+    if (st.openOptionN) {
+      chips += '<div class="accuracy-chip' + (st.openOptionAvgPnlPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="' + optTip + ' Average across the ' + st.openOptionN + ' open position' + (st.openOptionN === 1 ? '' : 's') + ' currently on the list (unrealized) — ' + (st.openOptionUp || 0) + ' in the green.">' +
+        '<span class="accuracy-chip-num">' + accPct(st.openOptionAvgPnlPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">open book · contract (modeled · ' + st.openOptionN + ')</span>' +
+      '</div>';
+    }
     if (st.avgMfePct != null) chips += chip(accPct(st.avgMfePct), 'avg peak gain');
     if (st.avgMaePct != null) chips += chip('-' + Number(st.avgMaePct).toFixed(1) + '%', 'avg drawdown');
     // Realized expectancy (side-adjusted underlying move, not option P&L) + the
@@ -13754,8 +13816,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var isCall = e.side !== 'put';
       var entry = Number(e.entrySpot) || 0;
       var last = Number(e.lastSpot) || entry;
-      var chg = entry > 0 ? (last - entry) / entry * 100 : 0;
-      var favorable = isCall ? chg >= 0 : chg <= 0;
+      var chg = entry > 0 ? (last - entry) / entry * 100 : 0;       // underlying move (context)
+      var favorableStock = isCall ? chg >= 0 : chg <= 0;
+      var optPnl = Number(e.optionPnlPct);
+      var haveOpt = isFinite(optPnl);                                // modeled live contract mark
       var expMs = Number(e.contract && e.contract.expiry) * 1000;
       var dleft = isFinite(expMs) ? Math.round((expMs - nowMs) / 86400000) : (e.contract && e.contract.dte);
       var tp = Number(e.takeProfit), ct = Number(e.cut);
@@ -13763,6 +13827,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var targets = '';
       if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
       if (isFinite(ct)) targets += '<span class="acc-target acc-target-cut">Cut $' + ct.toFixed(2) + '</span>';
+      // Lead with the modeled CONTRACT P&L — the engine trades the option, so that
+      // is the honest mark; the underlying move rides as context on the meta line.
+      var headPnl = haveOpt
+        ? '<span class="acc-since ' + (optPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L since entry (Black-Scholes, enter at ask / exit at bid, IV decayed toward HV, earnings crush). No options-price feed — a model, not a realized fill.">' + accPct(optPnl) + ' <span class="acc-since-tag">contract</span></span>'
+        : '<span class="acc-since ' + (favorableStock ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + ' <span class="acc-since-tag">stock</span></span>';
+      // Contract peak/dip when we have the modeled marks, else the underlying excursion.
+      var peakDip = (isFinite(e.optHiPct) || isFinite(e.optLoPct))
+        ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
+        : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>';
       return '<div class="acc-row acc-row-open">' +
         '<div class="acc-row-head">' +
           accSidePill(e.side) +
@@ -13770,13 +13843,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (desc ? '<span class="acc-contract">' + escapeHtml(desc) + '</span>' : '') +
           accTierTag(e.tier, e.label) +
           '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
-          '<span class="acc-since ' + (favorable ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + '</span>' +
+          headPnl +
         '</div>' +
         '<div class="acc-row-meta">' +
           '<span>Entered ' + accDateShort(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
-          '<span>Now $' + last.toFixed(2) + '</span>' +
+          '<span>Now $' + last.toFixed(2) + (entry > 0 ? ' · stock ' + accPct(chg) : '') + '</span>' +
           (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
-          '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
+          peakDip +
         '</div>' +
         (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
         accCheckpointsBlock(e) +
@@ -13796,18 +13869,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       symOrder.forEach(function(s){
         var list = bySym[s];
         if (list.length === 1){ openRows += accOpenRow(list[0]); return; }
-        var avg = 0, n = 0, sides = {};
+        // Prefer the modeled CONTRACT P&L for the group average (consistent with
+        // the per-row lead); fall back to the underlying move on legacy entries.
+        var avg = 0, n = 0, optAvg = 0, optN = 0, sides = {};
         list.forEach(function(e){
           var entry = Number(e.entrySpot) || 0, last = Number(e.lastSpot) || entry;
           if (entry > 0){ avg += (last - entry) / entry * 100; n++; }
+          var op = Number(e.optionPnlPct); if (isFinite(op)){ optAvg += op; optN++; }
           sides[e.side === 'put' ? 'put' : 'call'] = 1;
         });
-        avg = n ? avg / n : 0;
+        var useOpt = optN > 0;
+        avg = useOpt ? (optAvg / optN) : (n ? avg / n : 0);
         var sideStr = Object.keys(sides).map(function(k){ return k === 'put' ? 'PUT' : 'CALL'; }).join('/');
         var summary = '<span class="acc-dd-sym">' + escapeHtml(s) + '</span>' +
           '<span class="acc-dd-count">' + list.length + ' contracts</span>' +
           '<span class="acc-dd-side">' + sideStr + '</span>' +
-          '<span class="acc-dd-avg ' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '">avg ' + accPct(avg) + '</span>';
+          '<span class="acc-dd-avg ' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + (useOpt ? 'Average modeled contract P&L across this ticker\\'s open positions.' : 'Average underlying move across this ticker\\'s open positions.') + '">avg ' + accPct(avg) + (useOpt ? ' contract' : '') + '</span>';
         openRows += '<details class="acc-dd">' +
           '<summary class="acc-dd-summary">' + summary + '</summary>' +
           '<div class="acc-dd-body">' + list.map(accOpenRow).join('') + '</div>' +
@@ -13828,6 +13905,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var held = accDaysBetween(e.entryDate, e.exitDate);
         var entry = Number(e.entrySpot) || 0;
         var exit = Number(e.exitSpot);
+        var rOptPnl = Number(e.optionPnlPct);
+        var rHaveOpt = isFinite(rOptPnl);
+        // Lead the resolved row with the modeled CONTRACT result (what the trade
+        // actually returned), underlying entry→exit demoted to context.
+        var rHeadPnl = rHaveOpt
+          ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
+          : '';
         closedRows += '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
           '<div class="acc-row-head">' +
             '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
@@ -13836,6 +13920,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             accTierTag(e.tier, e.label) +
             '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
             '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
+            rHeadPnl +
           '</div>' +
           '<div class="acc-row-meta">' +
             '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
@@ -13969,6 +14054,29 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Build a contract block — the recommended strike/expiry the daily build
   // picked for this signal stack. Returns '' if no contract was attached
   // (older builds, or signals too weak for a confident strike pick).
+  // Live greeks for a pick's recommended contract, recomputed from a given spot
+  // (the polled live spot on the Top Picks tab, else the baked entry spot) with
+  // the same Black-Scholes the Grade tab uses. Returns the inner HTML of the
+  // greek-cell row (Δ Γ Θ V IV); falls back to the baked contract values when a
+  // live compute isn't possible (missing IV / expiry / spot). The poller swaps
+  // this into the [data-live-greeks] slot every 30s so the greeks track spot.
+  function liveGreeksRow(p, spot){
+    var c = p && p.contract; if (!c) return '';
+    var side = p.side === 'put' ? 'put' : 'call';
+    var K = Number(c.strike), iv = Number(c.iv), exp = Number(c.expiry), S = Number(spot);
+    var g = (S > 0 && K > 0 && iv > 0 && exp > 0) ? greeks(side, S, K, posYrs(exp), iv, RFR) : null;
+    var delta = g ? g.delta : (isFinite(c.delta) ? Number(c.delta) : null);
+    var thetaDay = g ? g.thetaDay : (isFinite(c.thetaDay) ? Number(c.thetaDay) : null);
+    var gamma = g ? g.gamma : null;
+    var vega = g ? g.vega : null;
+    var cells = [];
+    if (delta != null && isFinite(delta)) cells.push('<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + delta.toFixed(2) + '</span>');
+    if (gamma != null && isFinite(gamma)) cells.push('<span title="Gamma — ' + escapeHtml(TIPS.gamma) + '"><b>Γ</b> ' + gamma.toFixed(4) + '</span>');
+    if (thetaDay != null && isFinite(thetaDay)) cells.push('<span title="Theta (per share, per day) — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + thetaDay.toFixed(2) + '/d</span>');
+    if (vega != null && isFinite(vega)) cells.push('<span title="Vega (per 1 vol pt) — ' + escapeHtml(TIPS.vega) + '"><b>V</b> $' + vega.toFixed(2) + '</span>');
+    if (isFinite(iv)) cells.push('<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (iv * 100).toFixed(0) + '%</span>');
+    return cells.join('');
+  }
   function pickContractHtml(p){
     var c = p && p.contract;
     if (!c || c.strike == null || !c.expiryLabel) return '';
@@ -14018,21 +14126,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="pick-stat-value">' + escapeHtml(beVal || '—') + '</div>' +
       '<div class="pick-stat-sub">' + escapeHtml(beSub || '') + '</div>' +
     '</div>';
-    var deltaCell = '';
-    if (c.delta != null && isFinite(c.delta)){
-      deltaCell = '<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + Number(c.delta).toFixed(2) + '</span>';
-    }
-    var thetaCell = '';
-    if (c.thetaDay != null && isFinite(c.thetaDay)){
-      thetaCell = '<span title="Theta — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + Number(c.thetaDay).toFixed(2) + '/d</span>';
-    }
-    var ivCell = '';
-    if (c.iv != null && isFinite(c.iv)){
-      ivCell = '<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (Number(c.iv) * 100).toFixed(0) + '%</span>';
-    }
+    // Live greeks (Δ Γ Θ V IV) — recomputed from the polled live spot when this
+    // tab's poller has a quote for the name, else the baked entry spot. The slot
+    // is patched in place every 30s by renderPicksLive (data-live-greeks).
+    var symU = String(p.symbol || '').toUpperCase();
+    var liveQ = picksLive.quotes[symU];
+    var greekSpot = (liveQ && liveQ.spot != null && isFinite(liveQ.spot)) ? Number(liveQ.spot) : p.spot;
+    var isLiveGreeks = !!(liveQ && liveQ.spot != null && isFinite(liveQ.spot));
     stats += '<div class="pick-stat pick-stat-greeks">' +
-      '<div class="pick-stat-label">Greeks</div>' +
-      '<div class="pick-stat-greek-row">' + [deltaCell, thetaCell, ivCell].filter(Boolean).join('') + '</div>' +
+      '<div class="pick-stat-label">Greeks' + (isLiveGreeks ? ' <span class="pick-greeks-live" title="Recomputed live from the polled spot — refreshed every 30s while this tab is open">● live</span>' : '') + '</div>' +
+      '<div class="pick-stat-greek-row" data-live-greeks="' + escapeHtml(symU) + '">' + liveGreeksRow(p, greekSpot) + '</div>' +
     '</div>';
     stats += '</div>';
     // Risk/reward — required breakeven move vs IV-implied 1σ expected
@@ -15032,6 +15135,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var deferHtml = (pickEt && pickEt.state === 'wait' && (pickEt.deferKind === 'earnings' || pickEt.deferKind === 'event'))
       ? '<span class="pick-defer-tag" title="Entry deferred — a scheduled catalyst lands inside the defer window. The grade stands, but don\\'t open the position until it clears (IV crush around a print loses money even when direction is right).">⏳ ' + escapeHtml(pickEt.headline || 'Catalyst imminent — defer entry') + '</span>'
       : '';
+    // Live "since it appeared" contract mark (track record) — surfaced on the
+    // detail header so the judgment page shows how the trade has actually done.
+    var liveDetail = pickLiveChip(p, false);
+    var liveDetailHtml = liveDetail ? liveDetail.html : '';
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
@@ -15068,6 +15175,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
           (p.tactical ? '<span class="pick-tactical-tag" title="Tape-driven tactical put — a confirmed risk-off tape opened this short below the grade bar. Reduced size.">TACTICAL</span>' : '') +
           deferHtml +
+          liveDetailHtml +
           streakHtml +
           tenureHtml +
           fiftyHtml +
@@ -15108,6 +15216,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ptcDays + 'd</span>';
     }
     var tacticalChip = p.tactical ? '<span class="ptc-tactical" title="Tape-driven tactical put">TACTICAL</span>' : '';
+    // Live "since it appeared" contract mark from the track record (every shipped
+    // pick enrolls the moment it lists). Reads its modeled option P&L since entry.
+    var liveInfo = pickLiveChip(p, true);
+    var liveChip = liveInfo ? liveInfo.html : '';
     // Mirror the detail card's deferred-entry chip on the skimmable grid tile —
     // a name parked for an imminent catalyst must not read as "enter now".
     var deferChip = (p.entryTiming && p.entryTiming.state === 'wait' && (p.entryTiming.deferKind === 'earnings' || p.entryTiming.deferKind === 'event'))
@@ -15116,7 +15228,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + deferChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + deferChip + liveChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) +
         (p.costDebit > 0
           ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
