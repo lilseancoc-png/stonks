@@ -7986,15 +7986,23 @@ const SIGNAL_RELIABILITY = {
 };
 const PICKS_NARR_CAP = Number(process.env.PICKS_NARR_CAP ?? 2);            // |narrative pillar| ceiling post-weight (0 = off)
 // Technicals-pillar cap (long-horizon rework). Same "a single family can corroborate
-// but never dominate" discipline as the narrative cap, applied to the fastest pillar.
-// The technicals pillar is ~100% momentum (MACD + streak + SMA stack + chart pattern
-// + RSI), and uncapped it ran as much as ~6× the fundamentals pillar on pure-momentum
-// names (e.g. a name with technicals +4.66 vs fundamentals +0.82) — a momentum chase
-// wearing a thesis. Cap its post-weight magnitude so a durable, multi-pillar setup
-// out-ranks a one-week rip. Tiers are percentile (self-recalibrating), so this
-// re-ranks the roster toward thesis-driven names without changing how many ship.
-// 0 = off (uncapped, legacy).
-const PICKS_TECH_CAP = Number(process.env.PICKS_TECH_CAP ?? 3.5);          // |technicals pillar| ceiling post-weight (0 = off)
+// but never dominate" discipline as the narrative cap, applied to the fastest pillar:
+// uncapped it ran as much as ~6× the fundamentals pillar on pure-momentum names — a
+// momentum chase wearing a thesis. BUT the point-in-time IC backtest over the
+// committed priceSeries (scripts/diagnose-signal-ic.mjs, ~25k name-date obs) showed
+// forward return is monotonically INCREASING in the reconstructed tech score — the
+// tech±4/±5 tail had the BEST 10-30d returns, and the cross-sectional decile spread is
+// positive in both up AND down tapes — so a tight cap demotes exactly the names most
+// likely to move (on the UNDERLYING). The cap survives only on the option-specific
+// rationale the backtest can't see (the most-extended names carry the richest IV /
+// worst crush) + pillar balance. So the cap is set GENTLE (4.5): it clips only a
+// genuinely degenerate single-pillar reading (legacy max was ±5/±6) while preserving
+// the directional signal the data validated. Recalibrated from 3.5 after the backtest
+// (#419 shipped 3.5; this loosens it). Tiers are percentile, so this only re-ranks.
+// 0 = off (uncapped). Regime-aware capping (tight in down/fragile tapes, loose in up
+// tapes — matching the backtest's regime split) is the natural next step, left for a
+// validated follow-up.
+const PICKS_TECH_CAP = Number(process.env.PICKS_TECH_CAP ?? 4.5);          // |technicals pillar| ceiling post-weight (0 = off)
 const PICKS_CONFLUENCE_MIN = Number(process.env.PICKS_CONFLUENCE_MIN ?? 2);          // aligned pillars required to ship (0 = off)
 const PICKS_CONFLUENCE_PILLAR_MIN = Number(process.env.PICKS_CONFLUENCE_PILLAR_MIN ?? 0.5); // pillar magnitude that counts as "aligned"
 const PICKS_TREND_OPPOSE_FLOOR = Number(process.env.PICKS_TREND_OPPOSE_FLOOR ?? 0.5); // veto when technicals opposes the side by ≥ this (0 = off)
