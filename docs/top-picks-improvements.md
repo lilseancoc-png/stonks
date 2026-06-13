@@ -406,10 +406,12 @@ direction?". Leaning that score on the slowest-horizon pillar is the root of the
 mismatch.
 
 **Fix.** Scale each asset-quality pillar by a horizon weight before summing
-(`PICKS_HW_FUND 0.6` / `PICKS_HW_TECH 1.0` / `PICKS_HW_MECH 1.15` / `PICKS_HW_NARR
+(`PICKS_HW_FUND 0.8` / `PICKS_HW_TECH 1.0` / `PICKS_HW_MECH 1.05` / `PICKS_HW_NARR
 0.9`); `timing`/`ivCost` ride ×1. A **principled** microstructure prior (flow ≳
 technicals ≫ slow fundamentals at 1–3 weeks), **not** a fit to N=19 — the IC bridge
-(§9.6) replaces it with measured weights once forward outcomes accumulate.
+(§9.6) replaces it with measured weights once forward outcomes accumulate. *(Fund/Mech
+re-tuned 0.6→0.8 / 1.15→1.05 in the swing-extended horizon retune — rubric §3.8 — which
+lengthened the product clock to a ~3–4 week hold on 45–75 DTE.)*
 
 > **Shipped as:** `horizonWeight` + `applyHorizonWeight` in `build.mjs`, applied in
 > both `scorePillared` and `computeCrossSectionalScores`. The weight is baked into each

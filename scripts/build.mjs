@@ -767,7 +767,7 @@ const STRIKE_BAND = 0.50;
 // chain-fetch wall clock. 10 keeps the near-dated weeklies plus the front 1-2
 // standard monthlies (~46 DTE for the most liquid, weekly-heavy names; further
 // out for monthly-only names) — comfortably covering the picks engine's ideal
-// 30-60 DTE window and never beyond its PICKS_MAX_DTE=120 soft cap, so Top
+// 45-75 DTE window and never beyond its PICKS_MAX_DTE=120 soft cap, so Top
 // Picks / autoPick are unaffected. The far-dated tail beyond slot 10 is dropped
 // from the baked IV term-structure chart + expiration dropdown, but the Grade
 // tab still live-fetches any specific expiration via /api/chain on demand.
@@ -7254,7 +7254,7 @@ const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? 7.5)
 // Tier hysteresis (churn fix). The percentile cutoffs are recomputed from scratch
 // every build, so a name sitting AT the top-12% boundary flips in/out of the
 // actionable set hourly (the churn log showed names entering and exiting within
-// one build) — noise for a ~14-day-hold product. Schmitt-trigger the boundary:
+// one build) — noise for a ~3-4 week-hold product. Schmitt-trigger the boundary:
 // a name ENTERS at the full tradeCut, but an incumbent (actionable last build,
 // same side) only EXITS once it falls below tradeCut × PICKS_TIER_EXIT_FRAC.
 // Needs the prior grade snapshot (gradesHistoryPrev.latest), threaded via
@@ -7289,10 +7289,10 @@ const PICKS_SIZE_FULL_ROSTER_N = Number(process.env.PICKS_SIZE_FULL_ROSTER_N ?? 
 // rather ship fewer picks than recommend a structurally bad one.
 const PICKS_MAX_SPREAD_PCT = 0.18;  // tight bid/ask
 const PICKS_MIN_OI = 50;            // need real two-sided market
-const PICKS_MIN_DTE = 14;           // 14d+ per spec
-const PICKS_MAX_DTE = 120;          // soft-scoring reference only (not a hard cap)
-const PICKS_IDEAL_DTE_LO = 30;
-const PICKS_IDEAL_DTE_HI = 60;
+const PICKS_MIN_DTE = Number(process.env.PICKS_MIN_DTE ?? 21);   // swing-extended (~3-4wk hold): 21d+ floor so a longer-dated contract carries the multi-week thesis (was 14)
+const PICKS_MAX_DTE = Number(process.env.PICKS_MAX_DTE ?? 120);  // soft-scoring reference only (not a hard cap); kept at 120 to stay inside the baked 10-expiration envelope
+const PICKS_IDEAL_DTE_LO = Number(process.env.PICKS_IDEAL_DTE_LO ?? 45); // swing-extended sweet-spot floor (was 30)
+const PICKS_IDEAL_DTE_HI = Number(process.env.PICKS_IDEAL_DTE_HI ?? 75); // swing-extended sweet-spot ceiling (was 60)
 // Delta target (P1.1). Moved off the cheap, fragile 0.20-0.40 OTM band — where an
 // ~8% adverse underlying move is ≈ -70% on the option — to a near-the-money
 // 0.45-0.65 band (target 0.55). A slightly-ITM contract has far less theta drag
@@ -7359,11 +7359,11 @@ function executionCostDebit(contract) {
   return PICKS_COST_DEBIT_MAX * Math.min(1, (sp - PICKS_COST_FREE_SPREAD) / span);
 }
 const PICKS_CLEAN_MIN_OI = 100;           // grade "Light/fair" floor (no OI-bad chip)
-const PICKS_CLEAN_MIN_DTE = 21;           // clears the dte<14 extrinsic trap + dte≤3 crisis through a multi-day hold
+const PICKS_CLEAN_MIN_DTE = Number(process.env.PICKS_CLEAN_MIN_DTE ?? 30); // swing-extended roster floor (was 21): 30d+ so a ~3-4wk hold still exits with weeks of extrinsic left
 const PICKS_CLEAN_MAX_THETA = 0.025;      // |theta|/mid per day — buffer below the 3%/day theta-bad line
 // Composite-quality floor for the roster path. The per-gate filters above are
 // each pass/fail, so a contract that squeaks under EVERY line at once (e.g.
-// spread 9.98% + OI barely 100+ + zero volume + DTE far past the 30-60d sweet
+// spread 9.98% + OI barely 100+ + zero volume + DTE far past the 45-75d sweet
 // spot) still ships when it's the chain's sole survivor — there's nothing to
 // out-rank it. Require the WINNER's composite quality (1 − bestComposite, the
 // `qualityScore` written to picks.json) to clear this floor or return null,
@@ -7453,7 +7453,7 @@ const PICKS_TIMING_AVOID_FLOOR = Number(process.env.PICKS_TIMING_AVOID_FLOOR ?? 
 // structure (knife/chase overshoot scaling) untouched. Applied at the single
 // contribution exit of computeEntryTiming, so state/headline/reasons and every
 // downstream consumer (fold, re-fold, display) stay consistent automatically.
-const PICKS_TIMING_FOLD_SCALE = Number(process.env.PICKS_TIMING_FOLD_SCALE ?? 0.5);
+const PICKS_TIMING_FOLD_SCALE = Number(process.env.PICKS_TIMING_FOLD_SCALE ?? 0.42); // swing-extended: over a ~3-4wk hold the exact entry day matters less, so trim timing's share of total further (was 0.5)
 // Risk-off put enablement (user-chosen): the universe is long-biased, so puts
 // almost never clear the -16 grade bar. When the broad tape is CONFIRMED
 // risk-off, relax the put bar to this score AND require a clean bearish entry
@@ -7631,16 +7631,16 @@ const PICKS_MACRO_SEVERE_PUT_BAR = Number(process.env.PICKS_MACRO_SEVERE_PUT_BAR
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
-const PICKS_ACCURACY_MAX_HOLD_DAYS = 14; // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days
+const PICKS_ACCURACY_MAX_HOLD_DAYS = Number(process.env.PICKS_ACCURACY_MAX_HOLD_DAYS ?? 21); // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days (swing-extended ~3-4wk hold; was 14)
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every shipped pick now enrolls (full-roster); the per-thesis dedup bounds the open list. Kept for reference / any external readers.
-// Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
-// pick that goes nowhere on a ≥21-DTE contract hits day 14 with ~7 DTE left — the
+// Theta-aware time-stop (P1.4). The flat 21-day stop "bleeds theta invisibly": a
+// pick that goes nowhere on a ≥30-DTE contract hits day 21 with ~9 DTE left — the
 // theta cliff — recorded as ~breakeven on the underlying while the OPTION is deep
-// red. So in addition to the 14-day stop, cut a position whose MODELED daily theta
+// red. So in addition to the 21-day stop, cut a position whose MODELED daily theta
 // exceeds this fraction of its remaining premium AND that is held a few days AND is
 // modeled at a loss (never cut a working trade early).
 const PICKS_THETA_STOP_PCT = 0.025;          // 2.5%/day of remaining premium
-const PICKS_THETA_STOP_MIN_HOLD_DAYS = 5;    // don't theta-stop before this many days held
+const PICKS_THETA_STOP_MIN_HOLD_DAYS = Number(process.env.PICKS_THETA_STOP_MIN_HOLD_DAYS ?? 7);    // don't theta-stop before this many days held (give the longer swing thesis room; was 5)
 // Modeled-option-P&L repricer (P0.1). We have no options-price history, so the
 // track record reprices the SAME contract with Black-Scholes at exit to surface
 // the theta + IV-crush tax the underlying-move metric is blind to. Crude
@@ -7702,7 +7702,7 @@ const PICKS_EDGE_FULL_CUT_EXP = Number(process.env.PICKS_EDGE_FULL_CUT_EXP ?? -4
 // typical hold + a modeled IV mean-reversion drop (IV sitting above realized HV
 // that tends to decay), so short-DTE / rich-IV contracts size smaller.
 const PICKS_SIZE_PREMIUM_RISK = process.env.PICKS_SIZE_PREMIUM_RISK !== "0"; // default ON
-const PICKS_SIZE_HOLD_DAYS = Number(process.env.PICKS_SIZE_HOLD_DAYS ?? 10);  // theta bled over a typical hold
+const PICKS_SIZE_HOLD_DAYS = Number(process.env.PICKS_SIZE_HOLD_DAYS ?? 14);  // theta bled over a typical (swing-extended ~3-4wk ≈ 14 trading-day) hold; was 10
 const PICKS_SIZE_IV_DROP_CAP = Number(process.env.PICKS_SIZE_IV_DROP_CAP ?? 0.10); // cap the modeled IV mean-reversion (decimal vol)
 // P1.6 — real IV rank from the per-ticker iv-history series (ATM 30d IV vs its own
 // history). Rich premium is a headwind for a debit buyer (dir −1); cheap a
@@ -7855,11 +7855,11 @@ const PICKS_TIMING_OVERNIGHT_MIN_PCT = Number(process.env.PICKS_TIMING_OVERNIGHT
 const PICKS_TIMING_OVERNIGHT_MIN_CORR = Number(process.env.PICKS_TIMING_OVERNIGHT_MIN_CORR ?? 0.15); // top peer |corr| floor
 
 // Horizon-aware pillar weighting (rubric §3.5). The engine grades like a
-// stock-picker (4 pillars of asset quality) but TRADES ~14-day long premium on
-// 30-60 DTE contracts. The pillars do not share that horizon: order flow and
+// stock-picker (4 pillars of asset quality) but TRADES ~3-4 week (swing-extended)
+// long premium on 45-75 DTE contracts. The pillars do not share that horizon: order flow and
 // price structure lead price over days-to-weeks (the trade's clock), while
 // fundamental factors (EPS/revenue growth, P/E, FCF, net margin) pay off over
-// quarters-to-years and are ~fully priced over a fortnight — they carry near-zero
+// quarters-to-years and are largely priced over a few weeks — they carry less
 // information at the option's horizon yet, equal-weighted, dominated the grade.
 // Scale each pillar's CONTRIBUTION to `total` by its predictive horizon so the
 // score is tilted toward signals that actually move price before the option
@@ -7871,14 +7871,14 @@ const PICKS_TIMING_OVERNIGHT_MIN_CORR = Number(process.env.PICKS_TIMING_OVERNIGH
 // equal-weight sum. Percentile tiers (§4) self-recalibrate to the re-weighted
 // distribution, so this re-ranks the roster without changing how many names ship.
 const PICKS_HORIZON_WEIGHTS = process.env.PICKS_HORIZON_WEIGHTS !== "0"; // default ON
-const PICKS_HW_FUND = Number(process.env.PICKS_HW_FUND ?? 0.6);  // slowest — quarterly/annual factors, mostly priced over a 2-week hold (discounted, not gutted: holds some faster event signals — analyst revisions, guidance, contracts)
+const PICKS_HW_FUND = Number(process.env.PICKS_HW_FUND ?? 0.8);  // swing-extended (~3-4wk hold): slower factors get more room to pay off than over a fortnight, so less discounted than the old 0.6 (still < tech — quarterly factors are largely priced; holds the faster event signals — analyst revisions, guidance, contracts)
 const PICKS_HW_TECH = Number(process.env.PICKS_HW_TECH ?? 1.0);  // RSI/MACD/S&R/momentum — natively the days-to-weeks horizon; the reference weight
-const PICKS_HW_MECH = Number(process.env.PICKS_HW_MECH ?? 1.15); // options flow / OI / unusual volume / put-call — order flow leads price at the shortest horizon (modest boost)
+const PICKS_HW_MECH = Number(process.env.PICKS_HW_MECH ?? 1.05); // options flow / OI / unusual volume / put-call — order flow leads price at the shortest horizon; over a ~3-4wk hold it leads less of the move, so the boost is trimmed toward the technicals reference (was 1.15)
 const PICKS_HW_NARR = Number(process.env.PICKS_HW_NARR ?? 0.9);  // catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount)
 const PICKS_HORIZON_W = { fundamentals: PICKS_HW_FUND, technicals: PICKS_HW_TECH, mechanicals: PICKS_HW_MECH, narrative: PICKS_HW_NARR };
 
 // Regime-aware horizon weighting (§3.5 regime overlay). In a CALM/neutral tape the
-// base weights hold — single-name fundamentals & narrative CAN carry a 2-week option.
+// base weights hold — single-name fundamentals & narrative CAN carry a few-week option.
 // But when the macro tape is IMPLODING (risk-off / severe) cross-asset correlation
 // → 1 and idiosyncratic fundamentals/narrative stop carrying (the whole universe
 // trades on macro/flow/vol), so the two SLOW pillars are discounted further and the
@@ -9681,7 +9681,7 @@ function scorePillared(sym, data, narratives, streakRow, unusualPayload, sectorM
   const mechanicals = scoreMechanicals(sym, data, unusualPayload, marketCtx, macroBackdrop);
   const narrative = scoreNarrative(sym, data, narratives, macroBackdrop);
   // Horizon-aware pillar weighting (§3.5): scale each asset-quality pillar by its
-  // predictive horizon for a ~2-week option BEFORE summing, so slow fundamental
+  // predictive horizon for a ~3-4 week option BEFORE summing, so slow fundamental
   // factors no longer dominate a short-dated trade grade. The weight is baked into
   // each signal's contribution (chips stay consistent with the weighted pillar
   // total); legacyScore keeps the raw pre-weight sum as the cross-sectional pass's
@@ -9911,9 +9911,9 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   const candidates = [];
   for (const expSec of exps) {
     const dte = (expSec - nowSec) / 86400;
-    // Spec floors DTE at ~14d ("≥14 days to expiry"); no max — longer-dated
-    // monthlies stay eligible (the soft quality score still prefers 30-60d).
-    // The roster (requireClean) path floors at 21d for a hold buffer.
+    // Spec floors DTE at ~21d ("≥21 days to expiry"); no max — longer-dated
+    // monthlies stay eligible (the soft quality score still prefers 45-75d).
+    // The roster (requireClean) path floors at 30d for a hold buffer.
     if (dte < minDte) continue;
     // Standard monthlies only (third Friday) per spec — weeklies carry
     // thinner OI and wider spreads, and the monthly series is what stays
@@ -12731,7 +12731,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // universe of TRADEABLE names (not merely graded names) and the slice below can't
   // be filled by high-grade names we can't actually trade out of. The contract is
   // reused in the loop (no double compute). Spread-crossing is a first-order cost
-  // on a 30-60 DTE near-the-money option — bigger than most of the directional edge.
+  // on a 45-75 DTE near-the-money option — bigger than most of the directional edge.
   // Negative-edge → prefer defined-risk structures (#3). Measured off the same
   // prior-closed set the gross governor uses; null/positive edge ⇒ no change. Only
   // bites when PICKS_VERT_AUTO is on AND the book has ≥ PICKS_EDGE_MIN_N decided with
@@ -12837,7 +12837,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // v2 confluence gate. A graded pick must be CORROBORATED: at least
     // PICKS_CONFLUENCE_MIN of the four asset pillars aligned with its side
     // (magnitude ≥ PICKS_CONFLUENCE_PILLAR_MIN), and the technicals pillar must
-    // not OPPOSE the side by ≥ PICKS_TREND_OPPOSE_FLOOR — a 30-60 DTE long needs
+    // not OPPOSE the side by ≥ PICKS_TREND_OPPOSE_FLOOR — a 45-75 DTE long needs
     // the move to start soon, and fighting the tape is how theta wins (the GD
     // failure pattern: a "Strong Call" carried almost entirely by one narrative
     // family). Tactical puts are exempt — their thesis IS the tape (regime +
@@ -14039,7 +14039,7 @@ export function excursionOutcome(mfePct, maePct) {
 // so the resolution rules can be unit-tested without touching the data dir.
 //
 // Order matters: a clean TP/cut hit wins; then the time-based exits (expiry /
-// 14-day time-stop) fire even on a build with no fresh quote; finally a symbol
+// 21-day time-stop) fire even on a build with no fresh quote; finally a symbol
 // that has genuinely left the curated universe is dropped. A transient fetch
 // miss (still in TICKERS, no fresh quote, not expired/timed-out) returns null
 // so the pick stays open and is retried next build — a single Yahoo flake must
@@ -14107,10 +14107,10 @@ export function resolvePickOutcome(opts) {
     return { status: "pre-earnings", outcome };
   }
   // Theta-aware time-stop (P1.4): cut a position whose MODELED daily theta exceeds
-  // PICKS_THETA_STOP_PCT of its remaining premium BEFORE the flat 14-day stop — but
+  // PICKS_THETA_STOP_PCT of its remaining premium BEFORE the flat 21-day stop — but
   // only once it's been held a few days AND is modeled at a loss, so a working trade
   // is never cut early. Fires only with the modeled inputs present (a fresh quote +
-  // the entry option snapshot); legacy entries fall through to the 14-day stop.
+  // the entry option snapshot); legacy entries fall through to the 21-day stop.
   if (
     thetaPctDay != null && thetaPctDay >= PICKS_THETA_STOP_PCT &&
     modeledOptPnlPct != null && modeledOptPnlPct < 0 &&

@@ -160,11 +160,11 @@ side), **plus the IV-cost component (§6.7)**.
 ### 3.5 Horizon-aware pillar weighting (`PICKS_HORIZON_WEIGHTS`, default ON)
 
 The engine grades like a **stock-picker** (the four pillars are *asset quality*) but
-**trades ~14-day long premium** on 30–60 DTE contracts. Those two horizons don't
-match. Over a fortnight a single name's move is dominated by order flow, price
+**trades ~3–4 week (swing-extended) long premium** on 45–75 DTE contracts (§3.8). Those two horizons don't
+match. Over a few weeks a single name's move is dominated by order flow, price
 structure and the broad tape; the **slow fundamental factors** (EPS/revenue growth,
-P/E-vs-sector, FCF, net-margin trend) pay off over *quarters-to-years* and are ~fully
-priced over the hold — they carry near-zero information at the option's horizon, yet
+P/E-vs-sector, FCF, net-margin trend) pay off over *quarters-to-years* and are largely
+priced over the hold — they carry less information at the option's horizon than tech/flow, yet
 equal-weighted they were the **largest-magnitude pillar** and dominated the grade.
 
 So before the pillars are summed, each is scaled by a **horizon weight** reflecting
@@ -172,9 +172,9 @@ how fast its signals move price:
 
 | Pillar | Weight | Why |
 |---|---|---|
-| Fundamentals | **0.6** (`PICKS_HW_FUND`) | slowest — quarterly/annual factors, mostly priced over a 2-week hold (discounted, not gutted: it still holds the faster *event* signals — analyst revisions, guidance, major contracts) |
+| Fundamentals | **0.8** (`PICKS_HW_FUND`) | slowest — quarterly/annual factors, largely priced over a few-week hold but given more room than the old fortnight calibration (§3.8; discounted, not gutted: it still holds the faster *event* signals — analyst revisions, guidance, major contracts) |
 | Technicals | **1.0** (`PICKS_HW_TECH`) | RSI/MACD/S&R/momentum — natively the days-to-weeks horizon; the **reference** weight |
-| Mechanicals | **1.15** (`PICKS_HW_MECH`) | options flow / OI / unusual volume / put-call — **order flow leads price** at the shortest horizon (modest boost) |
+| Mechanicals | **1.05** (`PICKS_HW_MECH`) | options flow / OI / unusual volume / put-call — **order flow leads price** at the shortest horizon, but it leads less of a multi-week move, so only a slight boost (trimmed from 1.15, §3.8) |
 | Narrative | **0.9** (`PICKS_HW_NARR`) | catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount) |
 
 This is a **principled** re-weight from market-microstructure priors (flow ≳
@@ -204,7 +204,7 @@ with measured weights once forward, gate-era outcomes accumulate. Mechanics:
 ### 3.5.1 Regime-aware overlay (`PICKS_HW_REGIME`, default ON)
 
 The base weights above are calibrated for a **normal/calm** tape, where single-name
-fundamentals and narrative *can* carry a 2-week option. But when the macro tape is
+fundamentals and narrative *can* carry a few-week option. But when the macro tape is
 **imploding** that stops being true: cross-asset correlation runs to 1, dispersion
 compresses, and the whole universe trades on macro / flow / vol — idiosyncratic
 fundamentals & narrative carry near-zero information at the option's horizon. So the
@@ -276,7 +276,7 @@ Three pieces, each independently revertable:
 3. **Confluence gate** (`buildTopPicks`): a graded pick must have ≥
    `PICKS_CONFLUENCE_MIN` (2) of the four asset pillars aligned with its side at
    magnitude ≥ `PICKS_CONFLUENCE_PILLAR_MIN` (0.5), and the technicals pillar must
-   not **oppose** the side by ≥ `PICKS_TREND_OPPOSE_FLOOR` (0.5) — a 30–60 DTE long
+   not **oppose** the side by ≥ `PICKS_TREND_OPPOSE_FLOOR` (0.5) — a 45–75 DTE long
    needs the move to start soon, and fighting the tape is how theta wins. Skips are
    recorded in `rosterMeta.confluenceSkipped` (`single-family` / `fights-tape`).
    Tactical puts are exempt: their thesis IS the tape (regime + timing `go`), not
@@ -301,7 +301,7 @@ rescaled with it. Audit findings + fixes (one coordinated pass, #399):
 
 | Threshold | Was | Now | Why |
 |---|---|---|---|
-| Timing contribution (§6) | −8(−16 floor)..+4 | ×`PICKS_TIMING_FOLD_SCALE` (0.5) at the single exit | timing had silently doubled to 33–61% of shipped picks' totals (one pick was 4.0 timing on 6.5 total — a timing trade wearing a thesis); the fold scale restores the designed ~⅓-of-bar share with the severity structure untouched |
+| Timing contribution (§6) | −8(−16 floor)..+4 | ×`PICKS_TIMING_FOLD_SCALE` (**0.42**; was 0.5 — swing-extended trim, §3.8) at the single exit | timing had silently doubled to 33–61% of shipped picks' totals (one pick was 4.0 timing on 6.5 total — a timing trade wearing a thesis); the fold scale restores the designed ~⅓-of-bar share with the severity structure untouched, and the swing-extended retune trims it further (the exact entry day matters less over a longer hold) |
 | IV-cost maxes (§6.7) | −3 / +1.5 | −1.5 / +0.75 | same doubling, same fix |
 | Abs tier floors (§4) | 9 / 6 | **7.5 / 5** | the 9 strong floor sat ABOVE the post-rescale universe max (~8) — the Strong tier was unreachable in any neutral tape; 6 bound at ~top-7% instead of the documented top-decile backstop |
 | Legacy fallback bars | ±12 / ±16 | ±7 / ±10 | above the achievable max — a small-universe build degrading off the percentile path would have shipped ZERO picks |
@@ -312,6 +312,37 @@ The percentile tiers and the `putBar = max(−8, −0.8·tradeCut)` guard alread
 self-scale and were left alone. Verified post-fix: timing share 0–29% across the
 roster, Strong tier reachable (2 names), pillar-sum invariant 0/138 violations, and
 the book ships both sides again (puts re-entered the top 10).
+
+---
+
+### 3.8 Swing-extended horizon retune
+
+The §3.5 weights, the contract DTE window, and the hold / time-stop were all
+calibrated for a **~14-day hold on 30–60 DTE** options. This retune lengthens the
+product's clock to a **~3–4 week (swing-extended) hold on 45–75 DTE** options and
+re-tilts the grade to match: the slower factors get more room to pay off over the
+longer hold, and the exact entry day matters less. Every lever is env-overridable
+(set its var back to revert); the changes:
+
+| Lever | Was | Now | Why |
+|---|---|---|---|
+| Contract DTE (loose / roster) | ≥14 / ≥21 | **≥21 / ≥30** (`PICKS_MIN_DTE` / `PICKS_CLEAN_MIN_DTE`) | a longer-dated contract carries the multi-week thesis and exits with weeks of extrinsic left |
+| Ideal DTE window | 30–60 | **45–75** (`PICKS_IDEAL_DTE_LO/HI`) | the composite quality score now favors the swing-extended sweet spot (soft-max `PICKS_MAX_DTE` left at 120 to stay inside the baked 10-expiration envelope) |
+| Time-stop | 14d | **21d** (`PICKS_ACCURACY_MAX_HOLD_DAYS`) | give the multi-week thesis room before the flat time-stop |
+| Theta-stop min-hold | 5d | **7d** (`PICKS_THETA_STOP_MIN_HOLD_DAYS`) | don't theta-stop the longer thesis early |
+| Sizing hold (theta charge) | 10d | **14d** (`PICKS_SIZE_HOLD_DAYS`) | premium-at-risk sizing charges the longer hold's theta |
+| Fundamentals weight | 0.6 | **0.8** (`PICKS_HW_FUND`) | over a few weeks the slow factors carry more than over a fortnight (still < tech — quarterly factors are largely priced) |
+| Mechanicals weight | 1.15 | **1.05** (`PICKS_HW_MECH`) | short-horizon order flow leads less of a multi-week move, so trim the boost toward the tech reference |
+| Timing fold scale | 0.5 | **0.42** (`PICKS_TIMING_FOLD_SCALE`) | the exact entry day matters less over a longer hold, so trim entry timing's share of `total` |
+
+Net effect: the grade leans harder on durable, slower-moving quality and less on
+day-to-day flow / timing, and the engine buys longer-dated contracts it holds longer.
+Like every scoring rework here, **expect a one-time grade/roster shift on the first
+bake after this ships** — the percentile tiers (§4) self-recalibrate, so the actionable
+*count* is roughly unchanged; it re-ranks toward fundamentally-stronger names and the
+selected contracts move out the curve (verified on the committed data: roster contracts
+shifted to 34–69 DTE). Revert any lever via its env var (e.g.
+`PICKS_HW_FUND=0.6 PICKS_IDEAL_DTE_HI=60 PICKS_ACCURACY_MAX_HOLD_DAYS=14`).
 
 ---
 
@@ -372,7 +403,7 @@ name now goes clearly negative rather than sitting near 0). The timing gate's ri
 > **Tier hysteresis (`PICKS_TIER_HYSTERESIS`, default ON) — the boundary-churn fix.**
 > The percentile cutoffs are recomputed from scratch every build, so a name sitting
 > AT the top-12% boundary flipped in/out of the actionable set hourly (the churn log
-> showed names entering and exiting within one build) — noise for a ~14-day-hold
+> showed names entering and exiting within one build) — noise for a ~3–4 week-hold
 > product. The boundary is now a **Schmitt trigger**: a name ENTERS at the full
 > `tradeCut`, but an incumbent (actionable in the prior build's grade snapshot, same
 > side) only EXITS once `|total|` falls below `tradeCut × PICKS_TIER_EXIT_FRAC`
@@ -409,7 +440,7 @@ Once a name is actionable, the engine picks one contract on the graded side. Har
 filters (drop the contract if any fails), then a composite quality score picks the
 best survivor:
 
-- **DTE** ≥ 14 (roster path: ≥ 21); standard monthlies only (third Friday).
+- **DTE** ≥ 21 (roster path: ≥ 30); standard monthlies only (third Friday). *(Swing-extended, §3.8 — was ≥14 / ≥21.)*
 - **|Delta|** 0.45–0.65 (target 0.55) — **near-the-money** (P1.1). Moved off the
   old cheap/fragile 0.20–0.40Δ OTM band, where an ~8% adverse underlying move was
   ≈ −70% on the option; a slightly-ITM contract carries less theta drag and
@@ -430,7 +461,7 @@ best survivor:
   must clear the floor or the selector returns null and the name drops at the
   P1.4 candidacy gate. The per-gate filters are each pass/fail, so on a thin
   chain a contract that squeaks under *every* line at once (spread at the 10%
-  cap, OI barely 100+, zero volume, DTE far past the 30–60d sweet spot) used to
+  cap, OI barely 100+, zero volume, DTE far past the 45–75d sweet spot) used to
   ship as the chain's sole survivor with nothing to out-rank it — the GD Sep-99d
   vol-2 contract that motivated this scored 0.40 while legitimate roster picks
   score 0.61–0.78 (universe p10 ≈ 0.61). Ship fewer picks rather than a
@@ -898,8 +929,8 @@ it has to be trustworthy. The fixes:
   honest: a single-leg long is down the bid/ask the instant you'd flip it.
 - **Resolution** (`resolvePickOutcome`): TP (win), cut (loss), expiry (vs breakeven),
   the **theta-stop** (P1.4 — cut when modeled daily theta > `PICKS_THETA_STOP_PCT`
-  = 2.5%/day of remaining premium, gated to held ≥ 5d and modeled at a loss), or the
-  14-day time-stop.
+  = 2.5%/day of remaining premium, gated to held ≥ 7d and modeled at a loss), or the
+  21-day time-stop.
 - **Honest cohorts.** Win-rate is reported overall and broken down by `byTier`,
   **`bySector`** (the old `byTier` was degenerate — all picks were "strong-call" —
   while losses were 18/19 Technology, hidden by the global rate), and **`byRegime`**
@@ -969,7 +1000,7 @@ it has to be trustworthy. The fixes:
     `PICKS_SECTOR_MIN_N 8`, `PICKS_TIER_PCTL_STRONG 0.05`, `PICKS_TIER_PCTL_TRADE 0.12`;
     per-signal `W_s = oldMax/PICKS_Z_CLIP` (`CONVERTED_SIGNALS` registry).
   - **Horizon-aware pillar weights (§3.5):** `PICKS_HORIZON_WEIGHTS` (master flag,
-    default ON), `PICKS_HW_FUND 0.6`, `PICKS_HW_TECH 1.0`, `PICKS_HW_MECH 1.15`,
+    default ON), `PICKS_HW_FUND 0.8`, `PICKS_HW_TECH 1.0`, `PICKS_HW_MECH 1.05`,
     `PICKS_HW_NARR 0.9` (`horizonWeight`/`applyHorizonWeight`; `timing`/`ivCost` ride
     at ×1). Set the master flag `=0` to revert to the legacy equal-weight pillar sum.
   - **Regime-aware overlay (§3.5.1):** `PICKS_HW_REGIME` (master flag, default ON),
@@ -990,13 +1021,13 @@ it has to be trustworthy. The fixes:
     (incumbent exit bar = tradeCut × frac; `=0`/frac 1 → no hysteresis).
   - **Universe-IC substrate (§8):** `GRADES_DAILY_MAX_DAYS 400` (`data/grades-daily.json`
     retention; read by `scripts/diagnose-grade-ic.mjs`).
-  - **Contract (`pickContractForPick`):** `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,
+  - **Contract (`pickContractForPick`):** `PICKS_MIN_DTE 21` / `PICKS_CLEAN_MIN_DTE 30` (roster) / `PICKS_IDEAL_DTE_LO/HI 45/75` / `PICKS_MAX_DTE 120` (swing-extended, §3.8), `PICKS_DELTA_MIN/IDEAL/MAX 0.45/0.55/0.65`,
     `PICKS_OTM_MIN/MAX_PCT −0.20/0.12`, `PICKS_MAX_PREMIUM 35` +
     `PICKS_MAX_PREMIUM_PCT_OF_SPOT 0.12` (cap = max of the two); spread gate
     `PICKS_CLEAN_MAX_SPREAD_PCT 0.10` (roster) / `PICKS_MAX_SPREAD_PCT 0.18` (loose),
     composite spread penalty saturates at `PICKS_SPREAD_PEN_REF 0.10` (weight 0.24).
-  - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 14`, `PICKS_THETA_STOP_PCT
-    0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 5` (theta-stop); modeled-option repricer
+  - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 21`, `PICKS_THETA_STOP_PCT
+    0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 7` (theta-stop); modeled-option repricer
     `PICKS_OPTION_IV_DECAY_DAYS 30`, `PICKS_OPTION_EARNINGS_CRUSH 0.70`.
   - **Premium-space exits (P0.3):** `PICKS_OPT_EXITS` (default ON), `PICKS_OPT_TP_PCT 0.6`,
     `PICKS_OPT_STOP_PCT 0.4` — resolve on modeled option P&L before the underlying TP/cut.
@@ -1007,7 +1038,7 @@ it has to be trustworthy. The fixes:
   - **Edge governor (P1.3):** `PICKS_EDGE_GOVERNOR` (default ON), `PICKS_EDGE_MIN_N 15`,
     `PICKS_EDGE_SCALE_DEFAULT 0.6`, `PICKS_EDGE_SCALE_MIN 0.25`, `PICKS_EDGE_FULL_CUT_EXP −40`.
   - **Premium-at-risk sizing (P1.5):** `PICKS_SIZE_PREMIUM_RISK` (default ON),
-    `PICKS_SIZE_HOLD_DAYS 10`, `PICKS_SIZE_IV_DROP_CAP 0.10`.
+    `PICKS_SIZE_HOLD_DAYS 14`, `PICKS_SIZE_IV_DROP_CAP 0.10`.
   - **IV rank (P1.6):** `PICKS_IVRANK_SIGNAL` (default ON), `PICKS_IVRANK_MIN_N 10`,
     `PICKS_IVRANK_RICH 80`, `PICKS_IVRANK_CHEAP 20` (legacy in-timing con/pro — suppressed
     when the dedicated IV-cost term is on), and `PICKS_IVRANK_VETO 90` (default ON; extreme
