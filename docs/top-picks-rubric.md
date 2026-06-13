@@ -325,7 +325,7 @@ env-overridable; tiers are percentile-relative so roster *size* is preserved whi
 
 | Lever | Was | Now | Why |
 |---|---|---|---|
-| Technicals pillar cap (`PICKS_TECH_CAP`) | uncapped | **3.5** | the fastest, ~100%-momentum pillar could dominate a thin thesis (e.g. tech +4.66 vs fund +0.82); same "a family corroborates, never dominates" clamp as the narrative cap |
+| Technicals pillar cap (`PICKS_TECH_CAP`) | uncapped | **4.5** | the fastest, ~100%-momentum pillar could dominate a thin thesis (e.g. tech +4.66 vs fund +0.82); same "a family corroborates, never dominates" clamp as the narrative cap. Shipped at 3.5, then **loosened to 4.5** after the IC backtest (below) showed 3.5 was clipping real directional signal — now caps only a degenerate single-pillar reading |
 | Timing fold — positive side (`PICKS_TIMING_FOLD_SCALE_POS`) | 0.5 (symmetric) | **0.35** | a clean `go` was manufacturing conviction; demote the entry-credit so the grade reflects the *thesis*, while the knife/chase **penalty** keeps the full `PICKS_TIMING_FOLD_SCALE` (the risk control stays) |
 | Fundamentals horizon weight (`PICKS_HW_FUND`) | 0.6 | **0.8** | lift the durable share — but only **paired** with the longer hold below (re-weighting fundamentals on a 2-week-held option just sizes bets on signals that don't move price in 2 weeks) |
 | Ideal DTE band (`PICKS_IDEAL_DTE_LO/HI`) | 30–60 | **45–90** | give a durable thesis contract runway instead of buying the theta cliff |
@@ -349,6 +349,25 @@ into weakening internals — *without* the bearish tilt / tactical puts a **conf
 risk-off applies (price/vol aren't confirming the break yet). Surfaced as the amber
 "⚠ Fragile" market-tape chip. On 2026-06-12 this took the roster from 8 calls / 2
 puts to 6 / 2 at 80% gross.
+
+**Offline validation (`scripts/diagnose-signal-ic.mjs`).** Because #416 reset the live
+track record, this rework was validated against the committed `priceSeries` instead:
+a point-in-time cross-sectional IC backtest over ~25k name-date observations. It
+**strongly validated the horizon lengthening** — every trend/momentum signal's IC and
+t-stat grow monotonically from 5d → 30d (the reconstructed tech pillar goes t≈1.3 @5d
+→ t≈8.0 @30d; 60-day momentum and 52-week position reach t≈19–20 @30d), i.e. the engine
+had been trading at the horizon where its own signals are *weakest*. It **supported the
+timing demotion** (pullback-`go` setups had the lowest forward returns, so the `go`
+credit was over-rewarding weak-forward-return entries) but showed the chase *penalty*
+is direction-wrong on the underlying (chasing strength beat buying dips), defensible
+only on the option IV/crush grounds the backtest can't see. And it **contradicted the
+3.5 technicals cap** on direction (extreme-momentum names kept outperforming), which is
+why the cap was loosened to 4.5. The reads are regime-dependent — chasing wins in up
+tapes, knife/buy-the-dip wins in down tapes — so regime-aware capping/timing is the
+natural follow-up. Caveats (in the script header): it measures *underlying* return, not
+option P&L; absolute levels are survivorship-biased (read the rank IC); one ~12-month
+cycle. Re-run it (and `diagnose-grade-ic.mjs` once the live store re-accumulates) before
+pushing the Phase-2 knobs further.
 
 ---
 
