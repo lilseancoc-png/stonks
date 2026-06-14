@@ -11442,6 +11442,28 @@ export function computeHeadlineGeoTone(macroHeadlines, nowMs = Date.now()) {
   return { score: 0, deesc, esc, label: deesc ? "mixed escalation/de-escalation headlines" : "no geopolitical headline tone" };
 }
 
+// Threshold snapshot persisted into picks.json's rosterMeta.macroRegime so the
+// browser's LIVE re-port (computeLiveMacroRegime in scripts/render/app-js.mjs)
+// recomputes the EXACT bake-time regime state intraday — immune to any
+// PICKS_MACRO_* env override drift. Mirrors the consts above; the live re-port
+// uses these instead of re-declaring its own copy. Keep in sync with the axis +
+// state-machine logic in computeMacroRegime (the "duplicate the math on
+// purpose" rule, like the FedWatch live widget).
+const MACRO_LIVE_THRESHOLDS = {
+  vixReversal1d: PICKS_MACRO_VIX_REVERSAL_1D, riskoffVix: PICKS_TIMING_RISKOFF_VIX,
+  dxy1d: PICKS_MACRO_DXY_1D, dxy1dStrong: PICKS_MACRO_DXY_1D_STRONG, dxy5d: PICKS_MACRO_DXY_5D,
+  yieldBps1d: PICKS_MACRO_YIELD_BPS_1D, yieldBps1dStrong: PICKS_MACRO_YIELD_BPS_1D_STRONG,
+  oil1d: PICKS_MACRO_OIL_1D, oil1dStrong: PICKS_MACRO_OIL_1D_STRONG, oil5d: PICKS_MACRO_OIL_5D,
+  gold1d: PICKS_MACRO_GOLD_1D, gold5d: PICKS_MACRO_GOLD_5D,
+  fgFear: PICKS_MACRO_FG_FEAR, fgGreed: PICKS_MACRO_FG_GREED, fgDelta: PICKS_MACRO_FG_DELTA,
+  fgInternalsExtreme: PICKS_MACRO_FG_INTERNALS_EXTREME, fgTrendPt: PICKS_MACRO_FG_TREND_PT, fgTrendFloor: PICKS_MACRO_FG_TREND_FLOOR,
+  riskoffAxes: PICKS_MACRO_RISKOFF_AXES, severeAxes: PICKS_MACRO_SEVERE_AXES, severeStress: PICKS_MACRO_SEVERE_STRESS,
+  riskonAxes: PICKS_MACRO_RISKON_AXES, riskonStress: PICKS_MACRO_RISKON_STRESS, riskonMaxOff: PICKS_MACRO_RISKON_MAX_OFF,
+  clusterDiscount: PICKS_MACRO_CLUSTER_DISCOUNT, axisDecorr: PICKS_MACRO_AXIS_DECORR,
+  grossRiskoff: PICKS_MACRO_GROSS_RISKOFF, grossSevere: PICKS_MACRO_GROSS_SEVERE, grossFragile: PICKS_MACRO_GROSS_FRAGILE,
+  commodityOn: PICKS_MACRO_COMMODITY, sentimentOn: PICKS_MACRO_SENTIMENT, fgInternalsOn: PICKS_MACRO_FG_INTERNALS,
+};
+
 export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null, fearGreed = null, macroHeadlines = null) {
   if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
   const axes = {};
@@ -11735,7 +11757,50 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     ? "Cross-asset macro neutral"
     : `Cross-asset macro ${state}${driverList.length ? ` — ${driverList.join(", ")}` : ""}`;
   const summary = fragile ? `${baseSummary} · fragile (${internalsLabel})` : baseSummary;
-  return { state, stress, riskOffAxes, riskOnAxes, effRiskOffAxes: Number(effRiskOffAxes.toFixed(2)), effRiskOnAxes: Number(effRiskOnAxes.toFixed(2)), axes, drivers: driverList, summary, internalsStress, internalsLabel, fragile };
+  // Baked raw inputs for the browser's LIVE re-port (computeLiveMacroRegime in
+  // scripts/render/app-js.mjs): the FAST price-driven axes (VIX/DXY/yields/
+  // commodity/sentiment) are recomputed intraday from /api/macro-live, but the
+  // trend / 5-day / term-structure / internals reads need price history the
+  // live endpoint doesn't fetch — so we persist those baked legs here and the
+  // browser overlays the live value + 1d move onto them. Slow axes carry their
+  // baked `axes` score; see MACRO_LIVE_THRESHOLDS for the constant snapshot.
+  const numOrNull = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+  const inputs = {
+    vix: macroBackdrop.vix ? {
+      value: numOrNull(macroBackdrop.vix.value),
+      pctChange1d: numOrNull(macroBackdrop.vix.pctChange1d),
+      trend: macroBackdrop.vix.trend || null,
+      backwardation: !!(macroBackdrop.vixTerm && macroBackdrop.vixTerm.state === "backwardation"),
+    } : null,
+    dxy: macroBackdrop.dxy ? {
+      pctChange1d: numOrNull(macroBackdrop.dxy.pctChange1d),
+      pctChange5d: numOrNull(macroBackdrop.dxy.pctChange5d),
+      trend: macroBackdrop.dxy.trend || null,
+    } : null,
+    yields: {
+      ten: macroBackdrop.tenY ? {
+        bpsChange1d: numOrNull(macroBackdrop.tenY.bpsChange1d),
+        bpsChange5d: numOrNull(macroBackdrop.tenY.bpsChange5d),
+        trend: macroBackdrop.tenY.trend || null,
+      } : null,
+      thirty: macroBackdrop.thirtyY ? { bpsChange1d: numOrNull(macroBackdrop.thirtyY.bpsChange1d) } : null,
+    },
+    commodity: {
+      crude: macroBackdrop.crude ? { pctChange1d: numOrNull(macroBackdrop.crude.pctChange1d), pctChange5d: numOrNull(macroBackdrop.crude.pctChange5d) } : null,
+      gold: macroBackdrop.gold ? { pctChange1d: numOrNull(macroBackdrop.gold.pctChange1d), pctChange5d: numOrNull(macroBackdrop.gold.pctChange5d) } : null,
+    },
+    sentiment: fearGreed ? {
+      score: numOrNull(fearGreed.score),
+      prev: numOrNull(fearGreed.previous && fearGreed.previous.close),
+      week: numOrNull(fearGreed.previous && fearGreed.previous.week),
+      month: numOrNull(fearGreed.previous && fearGreed.previous.month),
+      breadth: numOrNull(fearGreed.components && fearGreed.components.breadth && fearGreed.components.breadth.score),
+      credit: numOrNull(fearGreed.components && fearGreed.components.junkBond && fearGreed.components.junkBond.score),
+      rating: fearGreed.rating || null,
+      asOf: fearGreed.asOf || null,
+    } : null,
+  };
+  return { state, stress, riskOffAxes, riskOnAxes, effRiskOffAxes: Number(effRiskOffAxes.toFixed(2)), effRiskOnAxes: Number(effRiskOnAxes.toFixed(2)), axes, drivers: driverList, summary, internalsStress, internalsLabel, fragile, inputs };
 }
 
 // Regime persistence (PICKS_REGIME_PERSIST) — asymmetric hysteresis over the
@@ -13388,6 +13453,15 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
             // the roster trimmed long exposure without going risk-off.
             fragile,
             internalsLabel: macroBackdrop.macroRegime.internalsLabel || null,
+            // LIVE "market tape" substrate (computeLiveMacroRegime in app.js): the
+            // full per-axis breakdown, the baked raw inputs the fast price axes
+            // overlay live values onto, and a threshold snapshot — so the browser
+            // recomputes the regime intraday from /api/macro-live without re-fetching
+            // the slow axes (Fed path / geopolitical news / inflation). Absent on a
+            // regen path with no macro backdrop → the UI shows the baked chip only.
+            axes: macroBackdrop.macroRegime.axes || null,
+            inputs: macroBackdrop.macroRegime.inputs || null,
+            thresholds: MACRO_LIVE_THRESHOLDS,
           }
         : null,
     },
