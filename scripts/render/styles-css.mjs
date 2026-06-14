@@ -6537,6 +6537,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   grid-template-areas:
     "rank head  score"
     "rank tier  tier"
+    "rank con   con"
     "rank meta  meta"
     "rank cta   cta";
   column-gap: 12px;
@@ -6645,6 +6646,31 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   text-transform: uppercase;
   letter-spacing: .03em;
   color: var(--text-strong);
+}
+/* Contract economics line — strike·DTE, premium, move-to-breakeven, earnings
+   flag. Makes the premium / breakeven sorts legible on the grid and lets picks
+   be compared without drilling into each detail page. */
+.ptc-contract {
+  grid-area: con;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  margin-top: 1px;
+  font: 600 11px/1.2 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ptc-con-k { color: var(--text-strong); }
+.ptc-con-prem { color: var(--text); }
+.ptc-con-be { color: var(--muted); }
+/* Breakeven move colored by reachability vs the chain-priced 1σ move (rrRatio). */
+.ptc-con-be-good { color: var(--pos); }
+.ptc-con-be-fair { color: var(--warn); }
+.ptc-con-be-bad  { color: var(--neg); }
+.ptc-con-er {
+  color: var(--warn);
+  font-weight: 700;
+  letter-spacing: .03em;
 }
 .ptc-meta { grid-area: meta; font-size: 11px; color: var(--muted); }
 .ptc-cta {
