@@ -7581,6 +7581,34 @@ const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?
 const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes can lift to risk-on...
 const PICKS_MACRO_RISKON_STRESS = Number(process.env.PICKS_MACRO_RISKON_STRESS ?? 2);  // ...when the net composite is at least this positive...
 const PICKS_MACRO_RISKON_MAX_OFF = Number(process.env.PICKS_MACRO_RISKON_MAX_OFF ?? 1); // ...and at most this many axes dissent risk-off (was a hard zero — risk-on was nearly unreachable across 8 axes)
+// Axis-collinearity decorrelation. The eight axes are summed as if independent,
+// but in a real risk-off event the dollar/rates complex (DXY + long yields + Fed
+// path) moves together, and the fear complex (VIX + the F&G volatility-laden
+// sentiment read) moves together — so ONE macro shock can light up four or five
+// axes at once and the raw "≥2 axes → risk-off" trigger fires on a single
+// double/triple-counted move, not two INDEPENDENT confirmations. (The per-name
+// signal layer already de-dups this via PICKS_TAPE_DEDUPE; the gauge did not.)
+// This splits the axes into correlated CLUSTERS and counts breadth with
+// diminishing weight: the strongest lit axis in a cluster counts 1, each
+// additional same-direction axis in that cluster counts CLUSTER_DISCOUNT. The
+// effective count drives the plain risk-off / risk-on triggers; `stress` (the
+// additive DEPTH composite) is left raw — a −2 VIX and a −2 DXY genuinely is more
+// stress than either alone — and SEVERE keeps its raw-count + deep-stress double
+// gate (it's break-glass, already gated on stress ≤ SEVERE_STRESS which a single
+// mild shock can't reach). So: depth = raw additive stress; breadth = decorrelated
+// effective axis count. =0 restores the legacy independent-axes count byte-for-byte.
+const PICKS_MACRO_AXIS_DECORR = process.env.PICKS_MACRO_AXIS_DECORR !== "0"; // default ON
+const PICKS_MACRO_CLUSTER_DISCOUNT = Number(process.env.PICKS_MACRO_CLUSTER_DISCOUNT ?? 0.5); // weight of each ADDITIONAL same-direction axis within a correlated cluster
+// Correlated-axis clusters (axis key → cluster id). Axes not listed are their own
+// singleton cluster (idiosyncratic dimension: commodity supply shock, geopolitics,
+// the slow monthly inflation/labor print) and always count full. `fed` sits with
+// the dollar/rates tightening complex; `inflation` is kept SEPARATE on purpose —
+// it's a slow monthly BLS series, a different data-generating process from the
+// real-time rates markets even when they correlate in a tightening regime.
+const MACRO_AXIS_CLUSTERS = {
+  vix: "vol", sentiment: "vol",          // fear / volatility complex (F&G's vol component overlaps VIX)
+  dxy: "rates", yields: "rates", fed: "rates", // dollar / long-yield / Fed-path tightening complex
+};
 // Inflation / labor axis (CPI YoY + unemployment, monthly BLS prints attached
 // to macroBackdrop by fetchInflationLabor). Slow monthly data, so it's a
 // confirming vote like sentiment — risk-off when inflation is hot (≥ CPI_HOT
@@ -11561,9 +11589,15 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   const stress = arr.reduce((a, b) => a + b, 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
+  // Breadth = collinearity-aware effective count (PICKS_MACRO_AXIS_DECORR): a
+  // coordinated dollar/rates or vol/fear move no longer counts as N independent
+  // axes. Drives the plain risk-off / risk-on triggers; severe stays on the raw
+  // count + deep-stress double gate (see PICKS_MACRO_AXIS_DECORR). Flag off → raw.
+  const effRiskOffAxes = PICKS_MACRO_AXIS_DECORR ? macroEffectiveAxisCount(axes, -1) : riskOffAxes;
+  const effRiskOnAxes = PICKS_MACRO_AXIS_DECORR ? macroEffectiveAxisCount(axes, 1) : riskOnAxes;
   let state = "neutral";
   if (riskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
-  else if (riskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
+  else if (effRiskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
   // Risk-on no longer demands unanimity (zero dissenting axes across eight was
   // nearly unreachable): enough risk-on axes + a clearly positive net composite
   // can carry one dissenter, so the gauge flips risk-on as fast as it flips off.
@@ -11572,7 +11606,7 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
   // base SPY+VIX path's "block risk-on while inverted") or any axis is acute
   // (−2); the dissenter this carries is a slow −1 like a hot CPI.
   else if (
-    riskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS &&
+    effRiskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS &&
     riskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF && axes.vix.score >= 0 && !arr.some((x) => x <= -2)
   ) state = "risk-on";
   // `drivers` collects the STRESS axes (≤ −1). For a risk-on read attribute
@@ -11592,7 +11626,7 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     ? "Cross-asset macro neutral"
     : `Cross-asset macro ${state}${driverList.length ? ` — ${driverList.join(", ")}` : ""}`;
   const summary = fragile ? `${baseSummary} · fragile (${internalsLabel})` : baseSummary;
-  return { state, stress, riskOffAxes, riskOnAxes, axes, drivers: driverList, summary, internalsStress, internalsLabel, fragile };
+  return { state, stress, riskOffAxes, riskOnAxes, effRiskOffAxes: Number(effRiskOffAxes.toFixed(2)), effRiskOnAxes: Number(effRiskOnAxes.toFixed(2)), axes, drivers: driverList, summary, internalsStress, internalsLabel, fragile };
 }
 
 // Regime persistence (PICKS_REGIME_PERSIST) — asymmetric hysteresis over the
@@ -11693,6 +11727,27 @@ function computeMacroTilt(sym, data, macroBackdrop) {
     weight,
     note: `${mr.summary} — beta ${weight.toFixed(2)} ${dirTxt} (book ${sign < 0 ? "tilted bearish" : "leaned long"})`,
   };
+}
+
+// Collinearity-aware "effective" axis count (PICKS_MACRO_AXIS_DECORR). Counts how
+// many axes are lit in direction `dir` (-1 = risk-off, score ≤ -1; +1 = risk-on,
+// score ≥ +1), but with axes in the same correlated cluster contributing with
+// diminishing weight: the first lit axis in a cluster counts 1, each additional
+// same-direction one counts `discount`. So a coordinated DXY+yields+fed tightening
+// move counts ~2 effective axes, not 3 — two INDEPENDENT confirmations are needed
+// to clear the same bar a single broad shock used to clear alone. Returns a float.
+export function macroEffectiveAxisCount(axes, dir, discount = PICKS_MACRO_CLUSTER_DISCOUNT) {
+  const perCluster = new Map();
+  for (const [key, ax] of Object.entries(axes || {})) {
+    const s = ax && Number.isFinite(ax.score) ? ax.score : 0;
+    const lit = dir < 0 ? s <= -1 : s >= 1;
+    if (!lit) continue;
+    const cluster = MACRO_AXIS_CLUSTERS[key] || key; // unlisted axis = its own singleton cluster
+    perCluster.set(cluster, (perCluster.get(cluster) || 0) + 1);
+  }
+  let eff = 0;
+  for (const n of perCluster.values()) eff += 1 + discount * (n - 1);
+  return eff;
 }
 
 export function detectMarketRegime(marketCtx, macroBackdrop) {

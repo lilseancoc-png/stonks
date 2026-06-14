@@ -694,11 +694,32 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
   > exactly the "an Iran war should tilt the book" case. Both fire only on a genuine
   > spike / strong narrative, so they're dormant in normal conditions.
 
-  `riskOffAxes` = axes at ≤ −1. **`risk-off`** when `riskOffAxes ≥ PICKS_MACRO_RISKOFF_AXES`
-  (2); **`severe-risk-off`** when `≥ PICKS_MACRO_SEVERE_AXES` (3) **and** the composite
-  `stress ≤ PICKS_MACRO_SEVERE_STRESS` (−4); `risk-on` when `riskOnAxes ≥
+  **Breadth is collinearity-aware (`PICKS_MACRO_AXIS_DECORR`, default ON).** The eight
+  axes are not independent: in a real risk-off the dollar/rates complex (DXY + long
+  yields + Fed path) moves together and the fear/vol complex (VIX + the F&G-driven
+  sentiment axis) moves together, so one macro shock can light up four or five axes
+  at once. Counting those as independent confirmations made the raw "≥2 axes →
+  risk-off" trigger fire on a single double/triple-counted move. The gauge therefore
+  splits the axes into correlated **clusters** — `rates` = {DXY, yields, Fed},
+  `vol` = {VIX, sentiment}; commodity / geopolitics / the slow monthly inflation
+  print stay singletons — and counts breadth with diminishing weight: the strongest
+  lit axis in a cluster counts 1, each additional same-direction axis counts
+  `PICKS_MACRO_CLUSTER_DISCOUNT` (0.5). This **effective** count (`effRiskOffAxes` /
+  `effRiskOnAxes`, surfaced in the payload) drives the plain risk-off / risk-on
+  triggers, so a same-cluster-only shock (a dollar bid + rising yields with nothing
+  else) reads ~1.5 effective axes → **neutral**, where the legacy raw count (2) read
+  risk-off. This is a **breadth** correction only — `stress` stays the raw additive
+  DEPTH composite (a −2 VIX and a −2 DXY genuinely is more stress than either alone),
+  and **`severe-risk-off` keeps its RAW-count gate** (it's break-glass, already
+  double-gated on a deep `stress ≤ −4` a single mild shock can't reach). Set the flag
+  =0 to restore the legacy independent-axes count byte-for-byte.
+
+  `riskOffAxes` = raw axes at ≤ −1 (the effective count above is `effRiskOffAxes`).
+  **`risk-off`** when `effRiskOffAxes ≥ PICKS_MACRO_RISKOFF_AXES`
+  (2); **`severe-risk-off`** when raw `riskOffAxes ≥ PICKS_MACRO_SEVERE_AXES` (3) **and** the composite
+  `stress ≤ PICKS_MACRO_SEVERE_STRESS` (−4); `risk-on` when `effRiskOnAxes ≥
   PICKS_MACRO_RISKON_AXES` (2) **and** `stress ≥ PICKS_MACRO_RISKON_STRESS` (+2)
-  **and** `riskOffAxes ≤ PICKS_MACRO_RISKON_MAX_OFF` (1) — the old rule demanded
+  **and** raw `riskOffAxes ≤ PICKS_MACRO_RISKON_MAX_OFF` (1) — the old rule demanded
   *zero* dissenting axes across eight, which made risk-on nearly unreachable; a
   clearly positive composite can now carry one dissenter (e.g. a vol crush +
   dollar/yields easing reads risk-on through a still-hot CPI). The carve-out is

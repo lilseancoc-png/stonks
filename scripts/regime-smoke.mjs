@@ -122,6 +122,23 @@ const goldHavenBd = backdropFor("neutral");
 goldHavenBd.gold = { pctChange1d: 3.8, pctChange5d: 1.2 };
 const mrGoldHaven = computeMacroRegime(goldHavenBd, null, []);
 
+// Collinearity decorrelation (PICKS_MACRO_AXIS_DECORR): a same-CLUSTER-only move —
+// dollar bid + long yields rising, both the rates/tightening complex, with nothing
+// else lit — is ONE macro shock counted twice by the raw ≥2-axis trigger. Under
+// decorrelation it counts ~1.5 effective axes → stays NEUTRAL; flip the flag off
+// and the legacy raw count (2) reads risk-off. (Run twice: `node regime-smoke.mjs`
+// then `PICKS_MACRO_AXIS_DECORR=0 node regime-smoke.mjs` to see the divergence.)
+const ratesOnlyBd = backdropFor("neutral");
+ratesOnlyBd.inflation = { yoy: 2.8, prevYoy: 2.8, yoy3mAgo: 2.8, trend: "flat" }; // neutralize the committed CPI axis to isolate the rates cluster
+ratesOnlyBd.dxy = { pctChange1d: 0.7, pctChange5d: 1.0, trend: "rising" };  // ≥0.6 → −1 (rates)
+ratesOnlyBd.tenY = { bpsChange1d: 14, bpsChange5d: 18, trend: "rising" };   // ≥13bps → −1 (rates)
+ratesOnlyBd.thirtyY = { bpsChange1d: 13 };
+const mrRatesOnly = computeMacroRegime(ratesOnlyBd, null, []);
+const decorrOn = process.env.PICKS_MACRO_AXIS_DECORR !== "0";
+console.log(`━━━ DECORRELATION (PICKS_MACRO_AXIS_DECORR=${decorrOn ? "1" : "0"}) ━━━`);
+console.log(`  rates-only shock (DXY bid + yields rising, same cluster):`);
+console.log(`    raw riskOffAxes=${mrRatesOnly.riskOffAxes}  effRiskOffAxes=${mrRatesOnly.effRiskOffAxes}  → state=${mrRatesOnly.state}\n`);
+
 // ---- assertions -----------------------------------------------------------
 const N = results.neutral, R = results["risk-off"], S = results.severe, O = results["risk-on"];
 const putShare = (r) => r.n ? r.puts / r.n : 0;
@@ -149,6 +166,12 @@ const checks = [
   ["severe caps calls ≤ 3", S.calls <= 3],
   ["gold 1d pop inside a down week does NOT fire the commodity axis", mrGoldBounce.axes.commodity.score === 0],
   ["gold 1d pop with the week confirming still reads a haven bid", mrGoldHaven.axes.commodity.score === -1],
+  // Decorrelation: a same-cluster (rates-only) double move stays neutral with the
+  // flag ON (eff ~1.5 < 2), reads risk-off with it OFF (raw 2). Asserts whichever
+  // branch this run is in, so both `node …` and `PICKS_MACRO_AXIS_DECORR=0 node …`
+  // pass and the diagnostic above shows the divergence.
+  [`same-cluster rates shock reads ${decorrOn ? "neutral (decorr on, eff<2)" : "risk-off (decorr off, raw 2)"}`,
+    decorrOn ? (mrRatesOnly.state === "neutral" && mrRatesOnly.effRiskOffAxes < 2) : mrRatesOnly.state === "risk-off"],
 ];
 console.log("━━━ ASSERTIONS ━━━");
 let pass = 0;
