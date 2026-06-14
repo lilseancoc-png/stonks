@@ -11444,7 +11444,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var t = '';
         if (h.at){ var hd = new Date(h.at); if (!isNaN(hd.getTime())) t = hd.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
         var meta = [h.source, t].filter(Boolean).join(' · ');
-        return '<li class="brief-hline"><span class="brief-hline-title">' + briefEsc(h.title) + '</span>' +
+        // Link to the source article when the feed gave us a permalink (new tab);
+        // degrade to plain text otherwise.
+        var link = (typeof h.link === 'string' && /^https?:\\/\\//i.test(h.link)) ? h.link : '';
+        var titleEl = link
+          ? '<a class="brief-hline-title is-link" href="' + briefEsc(link) + '" target="_blank" rel="noopener noreferrer">' + briefEsc(h.title) + '<span class="brief-hline-ext" aria-hidden="true">↗</span></a>'
+          : '<span class="brief-hline-title">' + briefEsc(h.title) + '</span>';
+        return '<li class="brief-hline">' + titleEl +
           (meta ? '<span class="brief-hline-meta">' + briefEsc(meta) + '</span>' : '') + '</li>';
       }).join('');
       blocks.push(briefBlock('Headlines on the tape', '<ul class="brief-hlines">' + hls + '</ul>'));
@@ -11540,8 +11546,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }).join('');
       blocks.push(briefBlock(b.kind === 'morning' ? 'On the calendar' : 'Coming up', '<div class="brief-events">' + events + '</div>'));
     }
+    // Editorial flow: lead with the story (headline + standfirst summary + the
+    // key takeaways), then the at-a-glance stat strip, then the detailed data
+    // blocks grouped together below a rule so the prose reads first.
+    var blocksHtml = blocks.filter(Boolean).join('');
     return '<article class="brief-card" data-kind="' + briefEsc(b.kind || '') + '">' +
-      head + summary + stats + highlights + blocks.join('') + '</article>';
+      head + summary + highlights + stats +
+      (blocksHtml ? '<div class="brief-blocks">' + blocksHtml + '</div>' : '') +
+    '</article>';
   }
   function bindBriefChips(rootEl){
     if (!rootEl) return;
