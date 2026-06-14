@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   VALID_INDUSTRY_SET,
   resolveNarrativeIndustry,
@@ -821,7 +823,7 @@ function strategiesSection() {
   </section>`;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [], oi = null, assetVersion = null }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [], oi = null, assetVersion = null, dataDir = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -843,36 +845,59 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   // Manifest is embedded inline so the narratives card + combobox can paint
   // on first frame. Per-ticker chain JSON is still lazy-fetched from
   // data/<SYMBOL>.json on demand.
-  const manifestPayload = JSON.stringify({
-    builtAt,
-    builtAtIso,
-    symbols,
+  // --- Manifest split (private-data migration / Path B) ---------------------
+  // The PREMIUM fields (AI narratives, sector overviews, the unusual-flow
+  // snapshot, spots, macro/fear-greed/backdrop) carry the product's value and
+  // must NOT ship inside the committed (public-repo) index.html. When a dataDir
+  // is given (the normal build + regen-static path) they're written to a sidecar
+  // data/manifest.json \u2014 which moves to the private blob store at cutover \u2014 and
+  // the page inlines only the non-sensitive SHELL (ticker list, sector taxonomy,
+  // freshness-stub meta) plus a `deferred` flag so app.js fetches the premium
+  // half. Without dataDir, inline the full manifest (legacy/standalone render).
+  const premiumManifest = {
     narratives: narrativesTagged,
     sectorOverviews: sectorOverviews || {},
     recentlyEnded,
     macroHeadlines,
-    sectors: SECTORS,
-    industries: INDUSTRY_OF_TICKER,
-    sectorOrder: SECTOR_ORDER,
-    industriesBySector: INDUSTRIES_BY_SECTOR,
     unusual: unusual || null,
     spots,
     fearGreed: fearGreed || null,
     macro: macro || null,
-    // Manifest diet: the full volume-flags + OI-tracker payloads used to be
-    // inlined here (~550 KB of the ~830 KB page \u2014 every visitor paid for two
-    // tabs most never open). The browser now lazy-fetches
-    // data/volume-flags.json + data/oi-tracker.json on tab entry; only the
-    // tiny meta stubs the freshness banner needs stay inline.
+    marketBackdrop: marketBackdrop || null,
+  };
+  const shellManifest = {
+    builtAt,
+    builtAtIso,
+    symbols,
+    sectors: SECTORS,
+    industries: INDUSTRY_OF_TICKER,
+    sectorOrder: SECTOR_ORDER,
+    industriesBySector: INDUSTRIES_BY_SECTOR,
+    // Manifest diet: the full volume-flags + OI-tracker payloads are lazy-fetched
+    // on tab entry; only these tiny freshness-stub metas stay inline.
     volumeFlagsMeta: volumeFlags
       ? { scannedAt: volumeFlags.scannedAt || null, etDate: volumeFlags.etDate || null, marketState: volumeFlags.marketState || null }
       : null,
-    marketBackdrop: marketBackdrop || null,
     nextFomcDates: Array.isArray(nextFomcDates) ? nextFomcDates : [],
     oiMeta: oi
       ? { scannedAt: oi.scannedAt || null, scanType: oi.scanType || null }
       : null,
-  }).replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  };
+  let inlineManifest;
+  if (dataDir) {
+    try {
+      writeFileSync(resolve(dataDir, "manifest.json"), JSON.stringify(premiumManifest), "utf8");
+      inlineManifest = { ...shellManifest, deferred: true };
+    } catch (_err) {
+      // Couldn't write the sidecar \u2014 fail SAFE to a full inline manifest so the
+      // page still works (a transient leak beats a blank app).
+      inlineManifest = { ...shellManifest, ...premiumManifest };
+    }
+  } else {
+    inlineManifest = { ...shellManifest, ...premiumManifest };
+  }
+  const manifestPayload = JSON.stringify(inlineManifest)
+    .replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   // app.js/styles.css are served with 1-year immutable caching keyed solely on
   // this ?v= token. The full bake mints a fresh builtAtIso every run, but
   // regen-static.mjs reuses the PRIOR bake's builtAtIso (it's the data's bake

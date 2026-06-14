@@ -127,6 +127,7 @@ const html = renderHtml({
   marketBackdrop,
   nextFomcDates,
   oi,
+  dataDir: DATA_DIR,
   // builtAtIso above is the PRIOR bake's timestamp (the data's age, shown in
   // the header), but app.js/styles.css ship under 1-year immutable caching
   // keyed on the ?v= token — a regen-only deploy rewrites their content, so
