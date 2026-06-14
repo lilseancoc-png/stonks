@@ -58,7 +58,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"cached","asOf":"2026-06-12","ageDays":1};
+  var RFR_META = {"source":"cached","asOf":"2026-06-12","ageDays":2};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -16989,6 +16989,37 @@
       combo.commit(initial.sym);
     }
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
-  else bind();
+  // Premium manifest fields (AI narratives, sector overviews, the unusual-flow
+  // snapshot, spots, macro / fear-greed / backdrop) are externalized to
+  // data/manifest.json (private-data migration) and inlined only as a deferred
+  // shell, so the public-repo index.html carries no product data. Fetch + merge
+  // them before first paint. The gate serves manifest.json only to a valid
+  // session, so a 401/empty result degrades to a no-premium render (shell still
+  // works) rather than a broken app. Legacy index.html (full inline manifest,
+  // without the deferred flag) skips the fetch entirely.
+  function applyManifest(ext){
+    if (!ext || typeof ext !== 'object') return;
+    Object.assign(MANIFEST, ext); // MANIFEST === window.STONKS_MANIFEST (same ref)
+    NARRATIVES = Array.isArray(MANIFEST.narratives) ? MANIFEST.narratives : [];
+    SECTOR_OVERVIEWS = (MANIFEST.sectorOverviews && typeof MANIFEST.sectorOverviews === 'object') ? MANIFEST.sectorOverviews : {};
+    RECENTLY_ENDED = Array.isArray(MANIFEST.recentlyEnded) ? MANIFEST.recentlyEnded : [];
+    MACRO_HEADLINES = Array.isArray(MANIFEST.macroHeadlines) ? MANIFEST.macroHeadlines : [];
+    UNUSUAL = MANIFEST.unusual || null;
+    SPOTS = MANIFEST.spots || {};
+    MACRO = (MANIFEST.macro && typeof MANIFEST.macro === 'object') ? MANIFEST.macro : null;
+    MARKET_BACKDROP = (MANIFEST.marketBackdrop && typeof MANIFEST.marketBackdrop === 'object') ? MANIFEST.marketBackdrop : {};
+  }
+  function startApp(){
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+    else bind();
+  }
+  if (MANIFEST && MANIFEST.deferred) {
+    fetch('data/manifest.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(ext){ if (ext) applyManifest(ext); })
+      .catch(function(){})
+      .then(startApp);
+  } else {
+    startApp();
+  }
 })();

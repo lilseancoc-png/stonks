@@ -1,0 +1,12 @@
+# Files excluded from the Vercel deployment (kept in the repo).
+#
+# Dormant portfolio stack (#269): the Portfolio tab was removed from the site,
+# so these endpoints are unreachable (gated/503) anyway. Excluding them from the
+# deploy keeps the project under Vercel Hobby's 12-serverless-function limit so
+# the live data endpoints + the Discord-gate functions fit. They stay tracked in
+# git — to re-enable the portfolio backend, delete these lines (and re-add their
+# vercel.json `functions` entries if you want custom maxDuration).
+api/config.js
+api/portfolio-review.js
+api/close-position.js
+api/delete-trade.js

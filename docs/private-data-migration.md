@@ -1,0 +1,344 @@
+# Private data migration + Discord-role gating (Path B)
+
+> **Status:** design / pre-implementation. This document is the setup artifact for
+> moving the premium `data/*.json` artifacts out of the public Git repo into a
+> private object store, served through an authentication-gated API, with Discord
+> server-role membership as the entitlement. Nothing here is wired up yet — it is
+> the plan we implement against.
+
+## 1. Goal
+
+Today the site is a fully static, fully public data product:
+
+- All premium output — per-ticker chains, Top Picks, grades, unusual flow, OI
+  tracker, briefs, 13F, correlations — is committed to a **public** GitHub repo
+  as `data/*.json` (~29 MB, 171 files) and served by Vercel as static assets.
+  Every file is a raw `curl` away, and the whole history is clonable on GitHub.
+- The GitHub Actions workflows that regenerate this data run ~16×/weekday. On a
+  **public** repo those minutes are free and unlimited; on a **private** repo
+  they bill against the 2,000-min Free quota.
+
+**Path B solves all three at once:**
+
+1. **Data privacy** — premium JSON lives in a private store, served only through
+   an auth-checked API. Not in the public repo, not directly fetchable.
+2. **Actions stay free** — because the *code* repo can remain **public** (the
+   secret is the data, not the source), so Actions minutes stay unlimited.
+3. **Architectural convergence** — the Discord gate wants premium data behind an
+   authenticated API anyway. Path B builds the gate **once, in its final form**,
+   instead of an interim middleware-over-static-files gate we'd later throw away.
+
+The entitlement is a Discord role **you assign by hand**. The site only ever
+*reads* it (OAuth → "is this user in guild X with role Y?"). No payment code, no
+bot, no role-writing.
+
+## 2. Why this is tractable (the structure that already exists)
+
+The migration is a **"wrap the boundaries"** change, not a rewrite, because:
+
+- **Every script funnels through one `DATA_DIR` constant** (`resolve(ROOT, "data")`).
+  All 79 reads and 54 writes operate on that single local directory. The build
+  never reasons about *where* data lives.
+- **The build is already a black box with hydrate/flush boundaries.** Today:
+  `git checkout` hydrates the prior `data/`, the build mutates it in place
+  (including all the read-before-wipe cross-build accumulation), and
+  `git commit/push` flushes it. **All the internal accumulation logic stays
+  byte-for-byte identical** — we only change what hydrate / flush / serve mean.
+- **The browser has exactly 22 `fetch('data/…')` call sites**, all literal
+  `data/` prefixes. A single Vercel rewrite (`/data/(.*) → /api/data/$1`) repoints
+  every one of them with **zero browser-code changes**.
+
+## 3. Architecture: before → after
+
+### Data flow today
+```
+GitHub Actions (build.mjs / scan-*.mjs)
+   └─ writes local data/*.json
+   └─ git commit + push  ──►  public GitHub repo  ──►  Vercel static deploy
+                                                          └─ browser fetch('data/x.json')  (PUBLIC)
+```
+
+### Data flow under Path B
+```
+GitHub Actions (build.mjs / scan-*.mjs)
+   ├─ sync-data.mjs pull   ◄── PRIVATE object store   (hydrate local data/)
+   ├─ build/scan mutate local data/  (UNCHANGED internals)
+   └─ sync-data.mjs push   ──► PRIVATE object store    (flush owned keys)
+
+Browser
+   └─ fetch('data/x.json')
+        └─ vercel rewrite ──► /api/data/x.json  (serverless)
+              ├─ verify Discord session cookie   ◄── set by /api/auth/discord-callback
+              ├─ if unauthorized → 401
+              └─ else stream bytes from PRIVATE store  (server-side; URL never leaves the server)
+```
+
+The public repo now contains **only code** (`scripts/`, `api/`, `lib/`,
+`index.html`/`app.js`/`styles.css` render output, workflows). `data/` is gitignored.
+
+## 4. Component design
+
+### 4.1 Storage adapter (backend-agnostic)
+
+A thin module `lib/datastore.mjs` exposing a 4-method interface so the backend is
+swappable without touching the pipeline or the API:
+
+```js
+// lib/datastore.mjs
+export interface DataStore {
+  get(key: string): Promise<Buffer | null>;   // null if missing
+  put(key: string, body: Buffer): Promise<void>;
+  list(prefix: string): Promise<string[]>;     // keys under prefix
+  del(key: string): Promise<void>;
+}
+```
+
+- **Chosen backend (v1): Vercel Blob** (`@vercel/blob`) — **decided**. Least friction — same
+  platform as the deploy, `BLOB_READ_WRITE_TOKEN` auto-injected into functions and
+  available to Actions as a secret. **Critical correctness rule:** the gated API
+  must always `get()` blob bytes **server-side** and stream them; never hand a blob
+  URL to the browser (Vercel Blob URLs are unguessable but capability-based — a
+  leaked URL is an open door). The adapter hides the URL inside the server.
+- **Swap target (at scale): Cloudflare R2** (S3-compatible, **zero egress fees**,
+  true private buckets + optional signed URLs). When bandwidth cost shows up, R2 is
+  a one-file adapter swap. Keys/paths stay identical.
+
+Keys mirror today's paths exactly: `picks.json`, `NVDA.json`, `iv-history/NVDA.json`,
+etc. — a 1:1 map from `DATA_DIR` relative paths, so nothing else has to learn new names.
+
+### 4.2 `sync-data.mjs` (the hydrate/flush tool)
+
+```
+node scripts/sync-data.mjs pull                 # store → local data/  (hydrate)
+node scripts/sync-data.mjs push --owner=bake    # local data/ → store (flush owned keys)
+node scripts/sync-data.mjs push --owner=unusual
+node scripts/sync-data.mjs push --owner=oi
+node scripts/sync-data.mjs seed                  # one-time: upload current data/ wholesale
+```
+
+- **pull**: `list("")` → `get` each key → write to local `DATA_DIR` (mkdir -p as
+  needed). This is what makes the prior accumulated state available to the build,
+  replacing `git checkout`.
+- **push --owner=X**: upload the producer's owned keyset (§4.3), with delete-stale
+  **only** inside the prefixes that producer exclusively owns. Upsert single-files.
+- Robustness: bounded concurrency (e.g. 8), per-key retry w/ backoff, and a content
+  hash so unchanged files are skipped on push (most per-ticker files change every
+  bake, but skipping the unchanged ones still trims op count + bandwidth).
+
+### 4.3 Concurrency & ownership model — **the load-bearing piece**
+
+Today the three workflows share a `concurrency: stonks-data-commit` group
+(serialized, never concurrent) and rely on **Git's merge/restore semantics** so a
+wholesale `data/` rebuild by the bake doesn't clobber a concurrent scanner's
+output. A blob store has no merge, so we replicate that ownership explicitly.
+
+**Two invariants make it safe** (both already true / easy to keep):
+
+1. **Keep the shared `concurrency` group** — runs stay serialized, so every run's
+   `pull` at start sees the previous run's `push`. No simultaneous writers.
+2. **Each producer pushes ONLY its own keyset.** Scanner pushes are **upsert-only**
+   (never delete). Only the bake does delete-stale, and only within the per-ticker
+   + `iv-history/` prefixes (the only place keys disappear, when a ticker leaves the
+   universe). This is the exact ownership the Git workflows already encode via
+   `SCANNER_FILES` / per-workflow `DATA_PATHS`.
+
+**Ownership map** (derived from the current workflows):
+
+| Key set | Producer | Push rule |
+|---|---|---|
+| `<SYM>.json` (per-ticker, dynamic) | bake | upload + **delete-stale** within prefix |
+| `iv-history/<SYM>.json` (dynamic) | bake | upload + **delete-stale** within prefix |
+| picks\*, grades\*, calendar, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, prediction-history | bake | upsert |
+| unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete) |
+| oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
+| **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
+| **briefs.json** | bake (`buildMarketBriefs`) **+** oi (`regen-brief`) | upsert; once-per-ET-window gating already in code |
+| **ai-usage.json** | all three (per-day budget) | read-modify-write; serialized so increments don't race |
+
+The three **shared read-modify-write** files (`heatmap`, `briefs`, `ai-usage`) are
+safe because: every run `pull`s latest first, the in-code once-per-window gating
+already prevents double-generation, and the shared `concurrency` group serializes
+the push. No producer deletes another's keys (upsert-only outside the bake's two
+dynamic prefixes), so cross-clobbering is structurally impossible.
+
+> Net: the concurrency model is a faithful re-encoding of the Git ownership we
+> already run, with "push only your keyset, delete-stale only your dynamic prefixes,
+> stay in the serialized concurrency group" as the contract.
+
+### 4.4 Gated read API + rewrite
+
+`api/data/[...path].js` (Vercel catch-all):
+
+1. Parse + **validate** the path: must match `^[A-Za-z0-9_./-]+\.json$`, reject
+   `..`, leading `/`, and anything outside the known key shape (defense vs. store
+   traversal / open-proxy).
+2. **Verify the session** (shared helper, §4.5): valid `stonks_session` cookie →
+   continue; else `401 { error: "auth required" }`.
+3. `store.get(key)` → `200` stream with `Content-Type: application/json` and
+   **`Cache-Control: private, no-store`** (gated content must never hit a shared
+   edge cache — that would leak premium data to unauthenticated users).
+4. Missing key → `404`.
+
+`vercel.json` rewrite so the browser is untouched:
+```json
+{ "rewrites": [{ "source": "/data/(.*)", "destination": "/api/data/$1" }] }
+```
+Remove the old `public, max-age=…` cache headers on `/data/*` (they'd be wrong for
+gated content). Register `api/data/[...path].js` (and the auth fns) under `functions`.
+
+### 4.5 Discord auth layer
+
+New endpoints (repurpose the dormant auth slot; raw Discord OAuth, no Supabase):
+
+| File | Purpose |
+|---|---|
+| `api/auth/discord-login.js` | Set short-lived `state` cookie (CSRF), 302 → Discord authorize (`scope=identify guilds.members.read`). |
+| `api/auth/discord-callback.js` | Validate `state`; exchange `code` → access token; `GET /users/@me/guilds/{GUILD_ID}/member`; check `roles` includes `REQUIRED_ROLE_ID`; on success set signed httpOnly session cookie, 302 `/`; else 302 `/welcome.html?denied=1`. |
+| `api/auth/logout.js` | Clear cookie, 302 `/welcome.html`. |
+| `api/auth/me.js` *(optional)* | `{ authed, name, avatar }` for a "signed in as … · log out" chip. |
+| `lib/session.mjs` | Shared HS256 sign/verify (`jose`, works in both Node fns and Edge middleware). Used by `api/data/*`, `api/auth/*`, and `middleware.js`. |
+
+`middleware.js` (Edge) gates the **page shell** only — `/`, `index.html`,
+`cheatsheet.html`, `chart-patterns.html`, `app.js`, `styles.css`, `js/*` — so a
+non-member never gets the app (and its inlined `STONKS_MANIFEST` narratives). The
+data path enforces auth itself in `api/data/*`. Public: `welcome.html` (hand-made
+landing + "Login with Discord", like `cheatsheet.html`), `favicon.svg`, `/api/auth/*`.
+
+- Cookie: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=43200` (12 h). Lax is
+  required so the post-OAuth top-level redirect carries it.
+- Session length is the **role-revocation latency**: removing a role by hand takes
+  effect within ≤ session length. 12 h is the v1 default; shorten or add periodic
+  `me.js` re-validation later if instant kick matters.
+- CSP needs **no change** — OAuth hops are top-level navigations, `me.js` is a
+  `self` fetch; both already allowed.
+
+### 4.6 Workflow changes
+
+Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`:
+
+- **Add** a step before build/scan: `node scripts/sync-data.mjs pull`
+  (env: store token). Replaces the data that `git checkout` used to supply.
+- **Replace** the entire `git stash/commit/push data` block with
+  `node scripts/sync-data.mjs push --owner=<bake|unusual|oi>`.
+- **Keep** committing the *render output* `index.html`/`app.js`/`styles.css`? →
+  **No** — under Path B those are gated too, but they're still static code, not
+  data. Decision: keep regenerating + committing them to the (public) repo as today
+  (they carry no premium data once the manifest's premium fields move to a gated
+  fetch — see §7 open item), **or** move them behind the store too. Simplest v1:
+  keep them in the repo (they're useless without gated data), and let `middleware.js`
+  gate the page. Revisit if the inlined manifest is deemed too revealing.
+- Keep the shared `concurrency` group (still required, §4.3).
+- Keep `GEMINI_API_KEY`, `AI_*`, `BLS_/FRED_/OPENFIGI_` envs unchanged.
+
+## 5. Migration & cutover (phased, reversible)
+
+1. **Provision** store + token; add Discord app + role (§9 checklist).
+2. **Seed**: `node scripts/sync-data.mjs seed` uploads the current `data/` wholesale.
+3. **Deploy gate to PREVIEW** (this branch): `api/data/*` + rewrite + auth + middleware.
+   Verify on the preview URL (test plan §8) while production still serves static.
+4. **Cut production over**: merge → prod serves data through the gate.
+5. **Flip workflows** to pull/push; stop committing `data/`.
+6. **Stop tracking data**: `git rm -r --cached data/`, add `data/` to `.gitignore`.
+   (Existing history still contains the data — a one-time `git filter-repo` purge is
+   optional and only matters if un-leaking the *past* matters; going forward is
+   protected regardless.)
+7. **Make the repo private only if you still want to** — under Path B you no longer
+   *need* to (code-only public repo keeps Actions free). If you privatise anyway,
+   re-check Actions minutes per the earlier analysis.
+8. Update `CLAUDE.md` (the "generated files are committed / data/ committed" sections
+   change materially) and `CHANGELOG.md`.
+
+Rollback at any step before 6 is trivial (re-enable static serving / revert the
+rewrite). After step 6 the store is the source of truth.
+
+## 6. Local dev & sibling scripts
+
+`regen-static.mjs`, `regen-picks.mjs`, `regen-calendar.mjs`, `regen-brief.mjs`,
+`backfill-autopick.mjs`, `diagnose-*.mjs`, `scan-*.mjs` all read local `DATA_DIR`.
+Add `npm run data:pull` (= `sync-data.mjs pull`) and document "run it once before
+local regen/diagnose." `npx vercel dev` exercises the real gated API locally.
+
+## 7. Security checklist
+
+- [ ] `api/data/*` path validation (regex allowlist, no `..`, `.json` only).
+- [ ] All gated responses `Cache-Control: private, no-store` (no shared edge cache).
+- [ ] Blob URLs **never** sent to the client — server-side `get` + stream only.
+- [ ] OAuth `state` CSRF cookie validated in the callback.
+- [ ] Session cookie `HttpOnly; Secure; SameSite=Lax`; HS256 via `jose`.
+- [ ] Store token (`BLOB_READ_WRITE_TOKEN` / R2 keys) only in Actions secrets +
+      Vercel env — never inlined, never client-side.
+- [ ] `SESSION_SECRET`, `DISCORD_CLIENT_SECRET` server-only.
+- [ ] **Open item:** the inlined `STONKS_MANIFEST` in `index.html` carries premium
+      narratives/sector overviews. `middleware.js` gating the page covers it for
+      non-members; if `index.html` is ever served publicly (e.g. for SEO) those
+      fields must move to a gated `fetch` first (a `scripts/render/html.mjs` change).
+
+## 8. Test plan (on the preview deploy)
+
+- Logged-out `curl <preview>/data/picks.json` → **401**.
+- Logged-out browser → redirected to `/welcome.html`.
+- Discord account **not** in guild → callback denies → `welcome.html?denied=1`.
+- Account in guild **without** role → denied.
+- Account **with** role → cookie set → full app, all 22 data fetches `200`.
+- Expired/old cookie → bounced to `welcome.html`.
+- Workflow dry-run: `pull` hydrates, build runs unchanged, `push --owner=bake`
+  uploads + delete-stales correctly; a simulated concurrent scanner push doesn't
+  clobber bake keys and vice-versa.
+
+## 9. What only you can provision (blockers for implementation)
+
+1. **Object store + token.** Recommended v1: **Vercel Blob** — in the Vercel
+   dashboard, create a Blob store, copy `BLOB_READ_WRITE_TOKEN`; add it as a GitHub
+   Actions secret *and* it's auto-available to functions. (Alt: Cloudflare R2 —
+   bucket + access key/secret + account id; better at scale, slightly more setup.)
+   **→ Decided: Vercel Blob** (R2 remains a drop-in adapter swap if bandwidth cost appears).
+2. **Discord application.** discord.com/developers → New Application → OAuth2: add
+   redirect `https://<your-domain>/api/auth/discord-callback`; copy `CLIENT_ID` +
+   `CLIENT_SECRET`.
+3. **Guild + role IDs.** Enable Developer Mode in Discord; right-click your server →
+   Copy Server ID (`DISCORD_GUILD_ID`); Server Settings → Roles → your gating role →
+   Copy Role ID (`DISCORD_REQUIRED_ROLE_ID`).
+4. **`SESSION_SECRET`** — generate 32+ random bytes (`openssl rand -hex 32`).
+
+Set 1–4 as Vercel env vars (and the store token + `GEMINI_API_KEY` etc. as Actions
+secrets). I'll wire everything to read these names.
+
+## 10. Implementation order (once provisioned)
+
+1. `lib/datastore.mjs` (Vercel Blob adapter) + `scripts/sync-data.mjs` + `seed`.
+2. `lib/session.mjs` + `api/auth/*` + `welcome.html`.
+3. `api/data/[...path].js` + `vercel.json` rewrite/headers + `middleware.js`.
+4. Workflow edits (pull/push) — one workflow first, validate, then the other two.
+5. Cutover steps §5.4–5.8 + `CLAUDE.md`/`CHANGELOG.md`.
+
+Estimated ~1.5–2.5 focused days; §4.3 concurrency is the main risk and is now
+specified up front to de-risk it.
+
+---
+
+## 11. As-built notes (steps 1–3 shipped on the branch)
+
+Refinements made while implementing (supersede the sketch above where they differ):
+
+- **Activation flag `PRIVATE_DATA_ENABLED`** (default off). Instead of a static
+  `vercel.json` rewrite, the `/data/*` → `/api/data/*` routing **and** the page-shell
+  gating both live in `middleware.js` and only engage when the flag is `"1"`. Flag
+  off = today's behavior byte-for-byte (middleware `next()`s immediately, `api/data`
+  hard-404s so a seeded store can't leak pre-cutover). **The whole cutover is a single
+  env-var flip** — no code change — and is reversible. The static `data/*.json` keep
+  serving until the flag flips.
+- **Storage prefix.** `lib/datastore.mjs` namespaces every blob under a prefix derived
+  from `sha256(BLOB_READ_WRITE_TOKEN)` (override `BLOB_PREFIX`) so URLs aren't guessable
+  from the store host; the gate only ever fetches server-side.
+- **Vercel Hobby 12-function limit.** The 4 Discord endpoints are consolidated into one
+  dynamic-route function `api/auth/[action].js` (URLs unchanged), and the 4 dormant
+  portfolio functions are excluded from the deploy via `.vercelignore` (kept in the
+  tree). Deployed serverless count: **9** (7 live + auth + `api/data/[...path].js`).
+- **Edge-safety.** `middleware.js` imports only `lib/session.mjs` (jose + TextEncoder,
+  no `node:crypto`); `lib/datastore.mjs` (node:crypto) is imported only by the Node
+  `api/data` function, never the Edge middleware.
+
+**Still to do (steps 4–5, post-merge):** seed the store (`sync-data.mjs seed` via a
+workflow_dispatch, which must be on `main` to appear), flip the bake/scan workflows to
+`pull`/`push`, then on the preview deploy set `PRIVATE_DATA_ENABLED=1` + test §8, then
+flip it on production, then `git rm --cached data/` + `.gitignore data/`.

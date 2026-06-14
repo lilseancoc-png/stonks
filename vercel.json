@@ -16,12 +16,6 @@
     "api/contract.js": {
       "maxDuration": 10
     },
-    "api/portfolio-review.js": {
-      "maxDuration": 30
-    },
-    "api/config.js": {
-      "maxDuration": 5
-    },
     "api/fed-rate.js": {
       "maxDuration": 10
     },

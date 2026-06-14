@@ -20425,6 +20425,7 @@ async function main() {
     marketBackdrop,
     nextFomcDates,
     oi: oiTracker,
+    dataDir: DATA_DIR,
   });
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<title>stonks · members only</title>
+<meta name="description" content="stonks is members-only — sign in with Discord to access the Option Contract Rater." />
+<meta name="robots" content="noindex" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<!-- Hand-maintained, NOT generated. This is the only public page; the rest of
+     the site is gated behind a Discord-role session. -->
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #12151c; --line: #232838; --ink: #e7ebf3;
+    --muted: #9aa3b5; --accent: #5865f2; --accent-ink: #fff; --bad: #f4708a;
+    --ok: #5ad1a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(1200px 600px at 50% -10%, #161a24 0%, var(--bg) 60%);
+    color: var(--ink);
+    font-family: "Hanken Grotesk", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: grid; place-items: center; padding: 24px;
+  }
+  .card {
+    width: 100%; max-width: 440px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 18px; padding: 34px 30px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.45);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; margin-bottom: 22px; }
+  .brand svg { color: var(--accent); }
+  .brand b { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 19px; letter-spacing: .2px; }
+  .brand span { color: var(--muted); font-size: 12.5px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
+  h1 { font-size: 21px; margin: 0 0 8px; line-height: 1.25; }
+  p.lede { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 24px; }
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 13px 16px; border-radius: 12px; border: 0;
+    background: var(--accent); color: var(--accent-ink); text-decoration: none;
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: filter .15s;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .note { margin-top: 18px; color: var(--muted); font-size: 12.8px; line-height: 1.55; }
+  .msg {
+    display: none; margin: 0 0 20px; padding: 11px 13px; border-radius: 10px;
+    font-size: 13.5px; line-height: 1.5; border: 1px solid;
+  }
+  .msg.show { display: block; }
+  .msg.deny { background: rgba(244,112,138,.08); border-color: rgba(244,112,138,.35); color: #ffd0da; }
+  .foot { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <circle cx="11" cy="11" r="3.3" fill="currentColor"/>
+        <circle cx="11" cy="11" r="9" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="1.4 2.6" opacity="0.55"/>
+      </svg>
+      <b>stonks</b>
+      <span>members only</span>
+    </div>
+
+    <div id="msg" class="msg deny" role="alert"></div>
+
+    <h1>Sign in to continue</h1>
+    <p class="lede">stonks is members-only. Sign in with Discord — you'll get access if you're in the server with the member role.</p>
+
+    <a class="btn" href="/api/auth/discord-login">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
+      Log in with Discord
+    </a>
+
+    <p class="note">Not a member yet? Access comes with the member role in our Discord. Once you have it, sign in here.</p>
+
+    <div class="foot">stonks · Option Contract Rater — research / educational tool, not financial advice.</div>
+  </main>
+
+  <script>
+    // Show a tailored message when Discord bounced the login (?denied=reason).
+    (function () {
+      var reason = new URLSearchParams(location.search).get("denied");
+      if (!reason) return;
+      var map = {
+        role: "You're in the server, but you don't have the member role yet. Ask in Discord to get it, then sign in again.",
+        guild: "That Discord account isn't in our server. Join the server and get the member role, then sign in.",
+        state: "Your sign-in session expired or didn't match. Please try again.",
+        token: "Discord sign-in failed partway through. Please try again.",
+        member: "Couldn't read your server membership. Please try again.",
+        error: "Something went wrong signing you in. Please try again."
+      };
+      var el = document.getElementById("msg");
+      el.textContent = map[reason] || map.error;
+      el.classList.add("show");
+    })();
+  </script>
+</body>
+</html>
