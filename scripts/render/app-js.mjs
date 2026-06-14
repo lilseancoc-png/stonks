@@ -11027,6 +11027,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   var overnightState = { data: null, loading: false };
+  // Freshest session date across the loaded markets — set in renderOvernight,
+  // read by overnightTile for its "as of" lag badge (#2).
+  var ovnMaxAsOf = null;
   function loadOvernight(){
     if ((overnightState.data && !tabDataStale(overnightState)) || overnightState.loading){ renderOvernight(); refreshOvernightWidgets(); return; }
     overnightState.loading = true;
@@ -11052,6 +11055,47 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var d = (dp == null) ? 2 : dp;
     return (x > 0 ? '+' : '') + x.toFixed(d) + '%';
   }
+  // Move string in the convention that fits the instrument: basis points for
+  // yields, vol-points for VIX, otherwise a percent. Accepts any object with
+  // {type, chPct, chgBp, chgPt} — markets AND peers both carry these (#6).
+  function ovnMoveStr(m){
+    if (!m) return '—';
+    if (m.type === 'rate' && m.chgBp != null && isFinite(m.chgBp)) return (m.chgBp > 0 ? '+' : '') + Math.round(m.chgBp) + 'bp';
+    if (m.type === 'vol' && m.chgPt != null && isFinite(m.chgPt)) return (m.chgPt > 0 ? '+' : '') + m.chgPt.toFixed(2) + ' pt';
+    return ovnSignPct(m.chPct);
+  }
+  // Current level, formatted per type (yields in %, USD instruments with $,
+  // foreign cash with its currency code). '' when no level is available (#7).
+  function ovnLevelStr(m){
+    if (!m || m.last == null || !isFinite(m.last)) return '';
+    var v = m.last;
+    if (m.type === 'rate') return v.toFixed(2) + '%';
+    if (m.type === 'vol') return v.toFixed(1);
+    var num = Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
+    if (m.type === 'fx') return num;
+    var usd = (m.cur === 'USD' || !m.cur);
+    if (m.type === 'commodity' || m.type === 'crypto' || m.type === 'future') return (usd ? '$' : '') + num + (usd ? '' : (m.cur ? ' ' + m.cur : ''));
+    return num + (m.cur && m.cur !== 'USD' ? ' ' + m.cur : '');
+  }
+  // Rough significance gate (#3): |r| must clear ~2/sqrt(n) to be distinguishable
+  // from noise. Low-n / near-zero fits render dimmed + asterisked so a 30-obs
+  // r=0.22 doesn't read the same as a 150-obs r=0.85.
+  function ovnSignif(corr, n){
+    if (corr == null || !isFinite(corr) || !n || n < 2) return false;
+    return Math.abs(corr) >= 2 / Math.sqrt(n);
+  }
+  // Lead-vs-co-move tag for non-leading markets (#4); '' for genuine leads.
+  function ovnClassTag(cls){
+    if (cls === 'concurrent') return '<span class="ovn-tag ovn-tag-conc" title="Trades during US hours — co-movement, not an overnight lead">concurrent</span>';
+    if (cls === '24h') return '<span class="ovn-tag ovn-tag-24h" title="Trades around the clock — an overnight gap, but no clean session lead">24h</span>';
+    return '';
+  }
+  function ovnShortDate(iso){
+    if (!iso) return '';
+    var dt = new Date(String(iso) + 'T00:00:00');
+    if (isNaN(dt.getTime())) return String(iso);
+    return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
   function ovnEsc(s){ return (typeof escapeHtml === 'function') ? escapeHtml(String(s)) : String(s); }
   // US tickers a given foreign symbol leads (strongest |corr| first).
   function overnightFlagsFor(fsym){
@@ -11060,7 +11104,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var t in d.map){
       var peers = d.map[t].peers || [];
       for (var i = 0; i < peers.length; i++){
-        if (peers[i].sym === fsym){ out.push({ sym: t, corr: peers[i].corr }); break; }
+        if (peers[i].sym === fsym){ out.push({ sym: t, corr: peers[i].corr, n: peers[i].n }); break; }
       }
     }
     out.sort(function(a, b){ return Math.abs(b.corr || 0) - Math.abs(a.corr || 0); });
@@ -11070,15 +11114,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var d = overnightState.data; var m = d.markets[fsym]; if (!m) return '';
     var flags = overnightFlagsFor(fsym).slice(0, 6);
     var flagHtml = flags.length
-      ? '<div class="ovn-tile-flags"><span class="ovn-tile-flags-lbl">flags</span> ' + flags.map(function(f){
-          return '<button type="button" class="ovn-flag" data-go-ticker="' + ovnEsc(f.sym) + '" title="r ' + (f.corr == null ? '—' : f.corr) + '">' + ovnEsc(f.sym) + '</button>';
+      ? '<div class="ovn-tile-flags"><span class="ovn-tile-flags-lbl">leads</span> ' + flags.map(function(f){
+          // Inline strength (#3/#10): r value beside the ticker, opacity weighted
+          // by |r|, dimmed + asterisked when below significance — visible on touch,
+          // unlike the old hover-only title.
+          var sig = ovnSignif(f.corr, f.n);
+          var op = (f.corr == null) ? '0.45' : Math.max(0.45, Math.min(1, Math.abs(f.corr))).toFixed(2);
+          var rTxt = (f.corr == null) ? '' : '<span class="ovn-flag-r">' + (f.corr > 0 ? '+' : '') + f.corr.toFixed(2) + (sig ? '' : '*') + '</span>';
+          return '<button type="button" class="ovn-flag' + (sig ? '' : ' ovn-flag-weak') + '" style="opacity:' + op + '" data-go-ticker="' + ovnEsc(f.sym) + '" title="r ' + (f.corr == null ? '—' : f.corr) + ' · n ' + (f.n == null ? '—' : f.n) + (sig ? '' : ' (below significance)') + '">' + ovnEsc(f.sym) + rTxt + '</button>';
         }).join('') + '</div>'
       : '';
     var lead = m.lead ? '<div class="ovn-tile-lead">' + ovnEsc(m.lead) + '</div>' : '';
+    var lvl = ovnLevelStr(m);
+    var tag = ovnClassTag(m.sessionClass);
+    var asof = (m.asOf && ovnMaxAsOf && m.asOf !== ovnMaxAsOf)
+      ? '<div class="ovn-tile-asof" title="This market’s last session lags the freshest tile">as of ' + ovnEsc(ovnShortDate(m.asOf)) + '</div>'
+      : '';
     return '<div class="ovn-tile ' + ovnMoveCls(m.chPct) + '">' +
-      '<div class="ovn-tile-top"><span class="ovn-tile-name">' + ovnEsc(m.name) + '</span>' +
-      '<span class="ovn-tile-ch">' + ovnSignPct(m.chPct) + '</span></div>' +
-      lead + flagHtml +
+      '<div class="ovn-tile-top"><span class="ovn-tile-name">' + ovnEsc(m.name) + (tag ? ' ' + tag : '') + '</span>' +
+      '<span class="ovn-tile-ch">' + ovnMoveStr(m) + '</span></div>' +
+      (lvl ? '<div class="ovn-tile-sub"><span class="ovn-tile-level">' + ovnEsc(lvl) + '</span></div>' : '') +
+      lead + flagHtml + asof +
       '</div>';
   }
   function bindOvernightFlagJumps(rootEl){
@@ -11108,8 +11164,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       root.innerHTML = '<p class="overnight-empty">' + (d && d.loadError ? 'Couldn’t load overnight market data.' : 'Overnight market data will populate on the next market build.') + '</p>';
       if (toneEl) toneEl.hidden = true;
       if (broadEl) broadEl.innerHTML = '';
+      if (eyebrow) eyebrow.textContent = '';
       return;
     }
+    // Freshest / oldest session date across all tiles (#2) — drives the eyebrow
+    // range and the per-tile lag badge (set before tiles render).
+    var asOfs = [];
+    for (var ak in d.markets){ if (d.markets[ak] && d.markets[ak].asOf) asOfs.push(d.markets[ak].asOf); }
+    asOfs.sort();
+    ovnMaxAsOf = asOfs.length ? asOfs[asOfs.length - 1] : null;
+    var minAsOf = asOfs.length ? asOfs[0] : null;
     if (toneEl){
       if (d.tone && d.tone.label){
         var cls = d.tone.label.indexOf('off') >= 0 ? 'ovn-dn' : (d.tone.label.indexOf('on') >= 0 ? 'ovn-up' : 'ovn-flat');
@@ -11119,25 +11183,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         toneEl.hidden = false;
       } else { toneEl.hidden = true; }
     }
+    // Repurposed top strip (#8): a distinct "Key levels" summary (name + level +
+    // move) rather than a duplicate of the region tiles' change-only chips.
     if (broadEl){
       var bsyms = d.broad && d.broad.length ? d.broad : [];
-      broadEl.innerHTML = bsyms.map(function(s){
+      var chipsHtml = bsyms.map(function(s){
         var m = d.markets[s]; if (!m) return '';
-        return '<span class="ovn-chip ' + ovnMoveCls(m.chPct) + '"><span class="ovn-chip-name">' + ovnEsc(m.name) + '</span><span class="ovn-chip-ch">' + ovnSignPct(m.chPct) + '</span></span>';
+        var lvl = ovnLevelStr(m);
+        return '<span class="ovn-chip ' + ovnMoveCls(m.chPct) + '" title="' + ovnEsc(m.name) + (lvl ? ' · ' + ovnEsc(lvl) : '') + '">' +
+          '<span class="ovn-chip-name">' + ovnEsc(m.name) + '</span>' +
+          (lvl ? '<span class="ovn-chip-lvl">' + ovnEsc(lvl) + '</span>' : '') +
+          '<span class="ovn-chip-ch">' + ovnMoveStr(m) + '</span></span>';
       }).join('');
+      broadEl.innerHTML = chipsHtml ? ('<span class="ovn-keylvl-lbl">Key levels</span>' + chipsHtml) : '';
+    }
+    // Sort each region's tiles by |move| so the biggest mover leads (#9).
+    function ovnSortByMove(syms){
+      return (syms || []).filter(function(s){ return d.markets[s]; }).sort(function(a, b){
+        var ma = d.markets[a], mb = d.markets[b];
+        return Math.abs((mb && mb.chPct) || 0) - Math.abs((ma && ma.chPct) || 0);
+      });
     }
     var regions = d.regions || [];
     var html = '';
+    var singletons = [];  // lonely single-tile regions roll up into "Other" (#11)
     for (var i = 0; i < regions.length; i++){
-      var tiles = (regions[i].symbols || []).map(overnightTile).join('');
+      var syms = (regions[i].symbols || []).filter(function(s){ return d.markets[s]; });
+      if (!syms.length) continue;
+      if (syms.length === 1){ singletons.push(syms[0]); continue; }
+      var tiles = ovnSortByMove(syms).map(overnightTile).join('');
       if (!tiles) continue;
       html += '<section class="ovn-region"><h3 class="ovn-region-title">' + ovnEsc(regions[i].region) + '</h3><div class="ovn-region-grid">' + tiles + '</div></section>';
     }
+    if (singletons.length){
+      var otherTiles = ovnSortByMove(singletons).map(overnightTile).join('');
+      if (otherTiles) html += '<section class="ovn-region"><h3 class="ovn-region-title">Other markets</h3><div class="ovn-region-grid">' + otherTiles + '</div></section>';
+    }
     root.innerHTML = html || '<p class="overnight-empty">No overnight markets available.</p>';
     if (eyebrow){
-      var anyAsOf = null;
-      for (var k in d.markets){ if (d.markets[k].asOf){ anyAsOf = d.markets[k].asOf; break; } }
-      eyebrow.textContent = (d.stale ? 'last-good · ' : '') + (anyAsOf ? 'sessions through ' + anyAsOf : '');
+      var rangeTxt = ovnMaxAsOf
+        ? (minAsOf && minAsOf !== ovnMaxAsOf ? ('sessions ' + ovnShortDate(minAsOf) + ' – ' + ovnShortDate(ovnMaxAsOf)) : ('sessions through ' + ovnShortDate(ovnMaxAsOf)))
+        : '';
+      eyebrow.textContent = (d.stale ? 'last-good · ' : '') + rangeTxt;
     }
     bindOvernightFlagJumps(root);
   }
@@ -11158,9 +11245,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var headCls = implied == null ? 'ovn-flat' : ovnMoveCls(implied);
       var head = '<div class="ovn-w-head ' + headCls + '">';
       if (lead && lead.chPct != null){
-        head += '<b>' + ovnEsc(lead.name) + '</b> ' + ovnSignPct(lead.chPct);
+        head += '<b>' + ovnEsc(lead.name) + '</b> ' + ovnMoveStr(lead);
         if (lead.corr != null) head += ' <span class="ovn-w-r">r ' + ovnEsc(String(lead.corr)) + '</span>';
-        if (implied != null) head += ' → implies <b>' + ovnSignPct(implied, 1) + '</b> ' + ovnEsc(sym);
+        // "implies" only for a genuinely-leading peer; "co-moves" otherwise (#4).
+        if (implied != null) head += ' → ' + (lead.sessionClass === 'leading' ? 'implies' : 'co-moves') + ' <b>' + ovnSignPct(implied, 1) + '</b> ' + ovnEsc(sym);
       } else {
         head += 'Overnight peers';
       }
@@ -11170,19 +11258,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       for (var i = 0; i < entry.peers.length; i++){
         var p = entry.peers[i];
         var imp = overnightImplied(p);
-        out += '<div class="ovn-w-row ' + ovnMoveCls(p.chPct) + '">' +
-          '<span class="ovn-w-peer">' + ovnEsc(p.name) + '</span>' +
-          '<span class="ovn-w-ch">' + ovnSignPct(p.chPct) + '</span>' +
-          '<span class="ovn-w-stat">' + (p.corr == null ? 'r —' : 'r ' + ovnEsc(String(p.corr))) + (p.beta == null ? '' : ' · β ' + ovnEsc(String(p.beta))) + '</span>' +
+        var psig = ovnSignif(p.corr, p.n);
+        var ptag = (p.sessionClass && p.sessionClass !== 'leading') ? ovnClassTag(p.sessionClass) : '';
+        out += '<div class="ovn-w-row ' + ovnMoveCls(p.chPct) + (psig ? '' : ' ovn-w-weak') + '">' +
+          '<span class="ovn-w-peer">' + ovnEsc(p.name) + (ptag ? ' ' + ptag : '') + '</span>' +
+          '<span class="ovn-w-ch">' + ovnMoveStr(p) + '</span>' +
+          '<span class="ovn-w-stat">' + (p.corr == null ? 'r —' : 'r ' + ovnEsc(String(p.corr)) + (psig ? '' : '*')) + (p.beta == null ? '' : ' · β ' + ovnEsc(String(p.beta))) + (p.n == null ? '' : ' · n ' + ovnEsc(String(p.n))) + '</span>' +
           '<span class="ovn-w-imp ' + ovnMoveCls(imp) + '">' + (imp == null ? '' : '≈ ' + ovnSignPct(imp, 1)) + '</span>' +
           '</div>';
       }
       out += '</div>';
+      // Inline legend (#12) so the widget self-explains where it's used.
+      out += '<div class="ovn-w-legend">r = return correlation · β = sensitivity · n = days sampled · ≈ β × peer move (rough implied, not a forecast) · * below significance</div>';
     }
     if (d.broad && d.broad.length){
       var chips = d.broad.map(function(s){
         var m = d.markets[s]; if (!m) return '';
-        return '<span class="ovn-chip ' + ovnMoveCls(m.chPct) + '"><span class="ovn-chip-name">' + ovnEsc(m.name) + '</span><span class="ovn-chip-ch">' + ovnSignPct(m.chPct) + '</span></span>';
+        var lvl = ovnLevelStr(m);
+        return '<span class="ovn-chip ' + ovnMoveCls(m.chPct) + '"><span class="ovn-chip-name">' + ovnEsc(m.name) + '</span>' + (lvl ? '<span class="ovn-chip-lvl">' + ovnEsc(lvl) + '</span>' : '') + '<span class="ovn-chip-ch">' + ovnMoveStr(m) + '</span></span>';
       }).join('');
       out += '<div class="ovn-w-broad">' + (entry ? '' : '<span class="ovn-w-nopeer">No direct foreign peer — global tape:</span> ') + chips + '</div>';
     }

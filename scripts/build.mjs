@@ -267,6 +267,33 @@ export const GLOBAL_PEER_OF_TICKER = {
 // header strip): US futures, the yen carry, the dollar, vol and long rates.
 export const GLOBAL_BROAD_SIGNALS = ["ES=F", "NQ=F", "JPY=X", "^VIX", "DX-Y.NYB", "^TNX"];
 
+// Types whose latest *daily* bar is a stale / mis-aligned overnight read at the
+// pre-open build, so fetchGlobalMarketBars sources the move from the LIVE quote
+// (regularMarketPrice vs regularMarketPreviousClose) instead — the actual gap a
+// trader expects from an overnight panel. Cash vol (^VIX) and the cash yield
+// indices (^TNX/^TYX) don't trade overnight at all (their daily bar is yesterday's
+// close pre-open); futures/FX/commodities/crypto are 24h, so their daily-bar
+// boundary isn't the US 4pm cash close. The Asian cash equities/indices KEEP the
+// daily-bar path — they've genuinely closed by the 9:30 ET build, so it's correct
+// and leading there.
+export const GLOBAL_QUOTE_TYPES = new Set(["future", "vol", "rate", "fx", "commodity", "crypto"]);
+
+// Session class for the overnight panel's lead-vs-co-move framing:
+//  - "leading"    : a foreign CASH market that closes BEFORE the US open, so its
+//                   move is a genuine leading read on the US session (Asian cash).
+//  - "concurrent" : trades during / overlapping US hours (Europe close ~11:30 ET,
+//                   cash VIX, cash Treasury-yield indices) — co-movement, not a lead.
+//  - "24h"        : continuous instruments (US futures, FX, commodities, crypto) —
+//                   a real overnight gap, but no clean session alignment to call a lead.
+export function globalSessionClass(sym) {
+  const m = GLOBAL_MARKETS[sym] || {};
+  const t = m.type, r = m.region;
+  if (t === "future" || t === "fx" || t === "commodity" || t === "crypto") return "24h";
+  if (t === "vol" || t === "rate") return "concurrent";
+  if (r === "Europe") return "concurrent";
+  return "leading";
+}
+
 // Taxonomy — the sectors and sub-industries the narratives card paints.
 // Structured Sector → Sector overview → Sub-industry narratives, so this list
 // controls the tab strip across the top.
@@ -15339,16 +15366,51 @@ async function fetchGlobalMarketBars(symbol) {
   if (bars.length < 2) throw new Error(`no usable bars for ${symbol}`);
   const last = bars[bars.length - 1];
   const prev = bars[bars.length - 2];
-  const chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
   const meta = result?.meta || {};
+  let lastPx = last.c;
+  let prevClose = prev.c;
+  let chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
+  let asOf = last.t;
+  let currency = meta.currency || null;
+  let yName = meta.shortName || meta.longName || null;
+  // 24h / non-overnight-trading instruments: the daily-bar delta isn't the
+  // overnight gap a trader expects (cash VIX/yields sit at yesterday's close
+  // pre-open; futures/FX/commodities/crypto roll on a non-US-cash boundary).
+  // Use the live quote — that's the actual gap vs the prior settle. Degrades
+  // gracefully to the daily-bar values if the quote call fails.
+  const type = (GLOBAL_MARKETS[symbol] || {}).type;
+  if (GLOBAL_QUOTE_TYPES.has(type)) {
+    try {
+      const q = await yahooFinance.quote(symbol);
+      const qLast = q?.regularMarketPrice;
+      const qPrev = q?.regularMarketPreviousClose;
+      const qChP = q?.regularMarketChangePercent;
+      if (qLast != null && isFinite(qLast)) {
+        lastPx = qLast;
+        if (qPrev != null && isFinite(qPrev) && qPrev !== 0) {
+          prevClose = qPrev;
+          chPct = ((qLast - qPrev) / qPrev) * 100;
+        } else if (qChP != null && isFinite(qChP)) {
+          // regularMarketChangePercent is already in percent units.
+          chPct = qChP;
+        }
+        const qt = q?.regularMarketTime ? new Date(q.regularMarketTime) : null;
+        if (qt && !isNaN(qt.getTime())) asOf = qt.toISOString().slice(0, 10);
+        if (!currency && q?.currency) currency = q.currency;
+        if (!yName && (q?.shortName || q?.longName)) yName = q.shortName || q.longName;
+      }
+    } catch (err) {
+      console.log(`    ⚠ global market ${symbol} quote() failed, using daily-bar delta: ${err.message}`);
+    }
+  }
   return {
     bars,
-    last: last.c,
-    prevClose: prev.c,
+    last: lastPx,
+    prevClose,
     chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
-    asOf: last.t,
-    currency: meta.currency || null,
-    yName: meta.shortName || meta.longName || null,
+    asOf,
+    currency,
+    yName,
   };
 }
 
@@ -15382,9 +15444,14 @@ function returnsByDate(bars) {
 }
 
 // Pearson correlation + OLS sensitivity (beta = slope of the US return on the
-// foreign return) over the trailing common trading days. Same-date pairing:
-// since Asia closes earlier the same calendar day, a contemporaneous pairing
-// already captures the overnight lead. Returns nulls when too few overlaps.
+// foreign return) over the trailing common trading days. Same-date pairing is a
+// genuine overnight LEAD only for markets that close before the US open (Asian
+// cash, sessionClass "leading"); for Europe (closes ~11:30 ET) and the 24h
+// instruments it's contemporaneous CO-MOVEMENT, not a lead — that distinction is
+// carried via each market/peer's sessionClass and surfaced in the client framing
+// (a true lag-1 regression for the non-leading set is a possible follow-up).
+// Reports n (the overlap count) so the client can gate weak/low-n fits. Returns
+// nulls when too few overlaps.
 function corrBetaReturns(usBars, fBars) {
   const usR = returnsByDate(usBars);
   const fR = returnsByDate(fBars);
@@ -15427,32 +15494,66 @@ function usBarsForCorrelation(data) {
   return [];
 }
 
-// Derived risk tone from the broad overnight backdrop. Futures direction, a VIX
-// spike, and a yen bid (USD/JPY down = carry unwind) each vote risk-on/off.
+// Derived risk tone from the broad overnight backdrop. Each signal casts a
+// ±1 risk-on/off vote: US futures direction, a VIX spike, the yen carry, Asian-
+// equity breadth, the 10Y (in bp), copper (Dr. Copper = global growth) and the
+// dollar (a bid tightens financial conditions). Folding in the panel below the
+// headline keeps a 2% Asia selloff / 10bp rate move / copper-DXY swing from being
+// invisible to the tone. Label cutoffs scale with the larger vote pool.
 function deriveGlobalTone(markets) {
   const reasons = [];
   let score = 0;
-  const es = markets["ES=F"], nq = markets["NQ=F"], vix = markets["^VIX"], jpy = markets["JPY=X"];
-  const fut = [es, nq].filter((m) => m && m.chPct != null);
+  const chOf = (s) => (markets[s] && markets[s].chPct != null && isFinite(markets[s].chPct)) ? markets[s].chPct : null;
+  // US futures (ES/NQ avg) — the most direct pre-open read.
+  const fut = [chOf("ES=F"), chOf("NQ=F")].filter((v) => v != null);
   if (fut.length) {
-    const a = fut.reduce((s, m) => s + m.chPct, 0) / fut.length;
+    const a = fut.reduce((s, v) => s + v, 0) / fut.length;
     if (a <= -0.4) { score -= 1; reasons.push(`US futures soft (${a.toFixed(2)}%)`); }
     else if (a >= 0.4) { score += 1; reasons.push(`US futures firm (+${a.toFixed(2)}%)`); }
   }
-  if (vix && vix.chPct != null) {
-    if (vix.chPct >= 5) { score -= 1; reasons.push(`VIX +${vix.chPct.toFixed(1)}%`); }
-    else if (vix.chPct <= -5) { score += 1; reasons.push(`VIX ${vix.chPct.toFixed(1)}%`); }
+  // VIX spike.
+  const vix = chOf("^VIX");
+  if (vix != null) {
+    if (vix >= 5) { score -= 1; reasons.push(`VIX +${vix.toFixed(1)}%`); }
+    else if (vix <= -5) { score += 1; reasons.push(`VIX ${vix.toFixed(1)}%`); }
   }
-  if (jpy && jpy.chPct != null) {
-    // USD/JPY down => yen stronger => carry unwind => risk-off.
-    if (jpy.chPct <= -0.6) { score -= 1; reasons.push(`yen bid (USD/JPY ${jpy.chPct.toFixed(2)}%) — carry unwind`); }
-    else if (jpy.chPct >= 0.6) { score += 1; reasons.push(`yen soft (USD/JPY +${jpy.chPct.toFixed(2)}%)`); }
+  // Yen carry — USD/JPY down => yen stronger => carry unwind => risk-off.
+  const jpy = chOf("JPY=X");
+  if (jpy != null) {
+    if (jpy <= -0.6) { score -= 1; reasons.push(`yen bid (USD/JPY ${jpy.toFixed(2)}%) — carry unwind`); }
+    else if (jpy >= 0.6) { score += 1; reasons.push(`yen soft (USD/JPY +${jpy.toFixed(2)}%)`); }
+  }
+  // Asian-equity breadth (the genuinely-leading closed-session complex).
+  const asia = ["^KS11", "005930.KS", "000660.KS", "^TWII", "2330.TW", "^N225", "8035.T", "6857.T", "9984.T", "^HSI"]
+    .map(chOf).filter((v) => v != null);
+  if (asia.length >= 3) {
+    const a = asia.reduce((s, v) => s + v, 0) / asia.length;
+    if (a <= -0.6) { score -= 1; reasons.push(`Asia weak (${a.toFixed(2)}% avg)`); }
+    else if (a >= 0.6) { score += 1; reasons.push(`Asia firm (+${a.toFixed(2)}% avg)`); }
+  }
+  // 10Y yield shock (in basis points) — a sharp back-up pressures valuations.
+  const tnx = markets["^TNX"];
+  if (tnx && tnx.chgBp != null && isFinite(tnx.chgBp)) {
+    if (tnx.chgBp >= 8) { score -= 1; reasons.push(`10Y +${Math.round(tnx.chgBp)}bp`); }
+    else if (tnx.chgBp <= -8) { score += 1; reasons.push(`10Y ${Math.round(tnx.chgBp)}bp`); }
+  }
+  // Copper — Dr. Copper reads global growth.
+  const cu = chOf("HG=F");
+  if (cu != null) {
+    if (cu <= -1) { score -= 1; reasons.push(`copper ${cu.toFixed(1)}% — growth scare`); }
+    else if (cu >= 1) { score += 1; reasons.push(`copper +${cu.toFixed(1)}% — growth bid`); }
+  }
+  // Dollar (DXY) — a firm bid tightens financial conditions (risk-off).
+  const dxy = chOf("DX-Y.NYB");
+  if (dxy != null) {
+    if (dxy >= 0.5) { score -= 1; reasons.push(`USD firm (+${dxy.toFixed(2)}%)`); }
+    else if (dxy <= -0.5) { score += 1; reasons.push(`USD soft (${dxy.toFixed(2)}%)`); }
   }
   let label = "mixed";
-  if (score >= 2) label = "risk-on";
-  else if (score <= -2) label = "risk-off";
-  else if (score === 1) label = "leaning risk-on";
-  else if (score === -1) label = "leaning risk-off";
+  if (score >= 3) label = "risk-on";
+  else if (score <= -3) label = "risk-off";
+  else if (score >= 1) label = "leaning risk-on";
+  else if (score <= -1) label = "leaning risk-off";
   return { label, score, reasons };
 }
 
@@ -15472,14 +15573,26 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
   for (const sym of haveSyms) {
     const meta = GLOBAL_MARKETS[sym] || {};
     const g = globalMarkets[sym];
+    const type = meta.type || "index";
+    // Yields render in basis points and vol in index points (the % change of the
+    // index value is meaningless for those conventions) — precompute both deltas
+    // from the same last/prevClose the chPct uses.
+    let chgBp = null, chgPt = null;
+    if (g.last != null && g.prevClose != null && isFinite(g.last) && isFinite(g.prevClose)) {
+      if (type === "rate") chgBp = Math.round((g.last - g.prevClose) * 100 * 10) / 10;
+      else if (type === "vol") chgPt = Math.round((g.last - g.prevClose) * 100) / 100;
+    }
     markets[sym] = {
       sym,
       name: meta.name || g.yName || sym,
       region: meta.region || "Other",
-      type: meta.type || "index",
+      type,
+      sessionClass: globalSessionClass(sym),
       lead: meta.lead || null,
       last: g.last == null ? null : Math.round(g.last * 100) / 100,
       chPct: g.chPct,
+      chgBp,
+      chgPt,
       cur: g.currency || null,
       asOf: g.asOf || null,
     };
@@ -15505,11 +15618,16 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
     for (const fsym of peerSyms) {
       if (!globalMarkets[fsym]) continue;
       const stats = usBars.length ? corrBetaReturns(usBars, globalMarkets[fsym].bars) : { corr: null, beta: null, n: 0 };
+      const fm = markets[fsym];
       peers.push({
         sym: fsym,
         name: (GLOBAL_MARKETS[fsym] || {}).name || fsym,
         corr: stats.corr, beta: stats.beta, n: stats.n,
-        chPct: markets[fsym] ? markets[fsym].chPct : null,
+        chPct: fm ? fm.chPct : null,
+        type: fm ? fm.type : ((GLOBAL_MARKETS[fsym] || {}).type || null),
+        chgBp: fm ? fm.chgBp : null,
+        chgPt: fm ? fm.chgPt : null,
+        sessionClass: fm ? fm.sessionClass : globalSessionClass(fsym),
       });
     }
     if (peers.length) map[sym] = { group, peers };

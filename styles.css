@@ -13576,7 +13576,15 @@ input[type="checkbox"], input[type="radio"], summary {
 .ovn-tile-flags{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;font-size:.72rem;color:var(--muted);}
 .ovn-tile-flags-lbl{text-transform:uppercase;letter-spacing:.06em;}
 .ovn-flag{font:inherit;font-size:.72rem;cursor:pointer;border:1px solid var(--border-strong);background:var(--surface);color:var(--text-2);border-radius:6px;padding:.05rem .35rem;}
-.ovn-flag:hover{border-color:var(--accent);color:var(--accent);}
+.ovn-flag:hover{border-color:var(--accent);color:var(--accent);opacity:1 !important;}
+.ovn-flag-r{margin-left:.18rem;font-variant-numeric:tabular-nums;color:var(--muted-strong);}
+.ovn-flag-weak{border-style:dashed;}
+.ovn-tile-sub{display:flex;align-items:baseline;gap:.5rem;}
+.ovn-tile-level{font-variant-numeric:tabular-nums;font-size:.82rem;color:var(--muted-strong);}
+.ovn-tile-asof{font-size:.68rem;color:var(--muted);}
+.ovn-chip-lvl{font-variant-numeric:tabular-nums;color:var(--text-2);}
+.ovn-keylvl-lbl{align-self:center;font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-right:.15rem;}
+.ovn-tag{font-size:.62rem;text-transform:uppercase;letter-spacing:.04em;padding:.02rem .3rem;border-radius:5px;border:1px solid var(--border-strong);color:var(--muted);vertical-align:middle;white-space:nowrap;}
 .overnight-empty{color:var(--muted-strong);}
 .ovn-up .ovn-chip-ch,.ovn-up .ovn-tile-ch,.ovn-up .ovn-w-ch,.ovn-w-head.ovn-up b{color:var(--pos);}
 .ovn-dn .ovn-chip-ch,.ovn-dn .ovn-tile-ch,.ovn-dn .ovn-w-ch,.ovn-w-head.ovn-dn b{color:var(--neg);}
@@ -13597,6 +13605,8 @@ input[type="checkbox"], input[type="radio"], summary {
 .ovn-w-broad{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;}
 .ovn-w-nopeer{color:var(--muted-strong);font-size:.8rem;}
 .ovn-w-loading{color:var(--muted-strong);font-size:.85rem;}
+.ovn-w-weak{opacity:.6;}
+.ovn-w-legend{font-size:.72rem;color:var(--muted);margin-bottom:.55rem;line-height:1.35;}
 /* Phone: the 4-column peer rows (name + r + beta + implied) get tight at
    390px — shrink the type/gaps and let a long peer name ellipsize instead
    of squeezing the stats columns. */
