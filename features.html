@@ -434,5 +434,12 @@
     <span><a href="/">Home</a> &middot; <a href="/privacy.html">Privacy</a> &middot; <a href="/terms.html">Terms</a></span>
   </footer>
 </div>
+<script>
+  // Mark the one-time intro as seen so the app shell ("/") doesn't redirect a
+  // returning visitor back to this page. The Edge middleware also sets this
+  // cookie on the redirect it issues; setting it here covers anyone who lands on
+  // /features.html directly (the nav "What's included" link, a shared URL).
+  try { document.cookie = "stonks_intro_seen=1; path=/; max-age=31536000; samesite=lax"; } catch (e) {}
+</script>
 </body>
 </html>

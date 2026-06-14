@@ -17,9 +17,11 @@
 import { next, rewrite } from "@vercel/edge";
 
 export const config = {
-  // Only /data/* needs the rewrite; everything else (shell, assets, live api,
-  // the self-gating /api/data + /api/auth) passes straight through.
-  matcher: ["/data/:path*"],
+  // /data/* needs the gated rewrite; / and /index.html are matched only so a
+  // first-time, logged-out visitor can be shown the "What's included" intro
+  // once. Everything else (assets, live api, /api/data + /api/auth) passes
+  // straight through.
+  matcher: ["/", "/index.html", "/data/:path*"],
 };
 
 export default function middleware(req) {
@@ -36,5 +38,32 @@ export default function middleware(req) {
     target.search = url.search;
     return rewrite(target);
   }
+
+  // First-visit intro: show a logged-out visitor the "What's included"
+  // (free vs premium) page ONCE before the app, then let them browse freely.
+  // Skipped for:
+  //   · members (a valid-looking session cookie present) — straight to the app,
+  //   · returning visitors (the one-time `stonks_intro_seen` cookie is set),
+  //   · deep links (`/?tab=…`) — honored as-is so shared URLs land where intended.
+  // The cookie is set server-side on the redirect so it shows exactly once with
+  // no JS dependency and no redirect loop; /features.html itself is never
+  // matched here, so it (and the nav link to it) stays reachable anytime.
+  if (path === "/" || path === "/index.html") {
+    if (url.search) return next();
+    const cookie = req.headers.get("cookie") || "";
+    const hasSession = /(?:^|;\s*)stonks_session=/.test(cookie);
+    const hasSeenIntro = /(?:^|;\s*)stonks_intro_seen=/.test(cookie);
+    if (hasSession || hasSeenIntro) return next();
+    const dest = new URL("/features.html", url.origin);
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: dest.toString(),
+        "Set-Cookie": "stonks_intro_seen=1; Path=/; Max-Age=31536000; SameSite=Lax",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   return next();
 }
