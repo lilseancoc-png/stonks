@@ -12713,6 +12713,58 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--muted-strong);
 }
 
+.heatmap-search-input {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 6px 10px;
+  font: inherit;
+  width: 120px;
+  min-width: 90px;
+}
+.heatmap-search-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* Advancers / decliners ribbon between the controls and the map. */
+.heatmap-breadth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 10px;
+}
+.heatmap-breadth:empty { display: none; }
+.heatmap-breadth-bar {
+  display: flex;
+  flex: 1 1 220px;
+  height: 8px;
+  min-width: 180px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.heatmap-breadth-seg { height: 100%; display: block; }
+.heatmap-breadth-seg.pos { background: #16e08a; }
+.heatmap-breadth-seg.neg { background: #ff4d5e; }
+.heatmap-breadth-seg.flat { background: var(--surface-3); }
+.heatmap-breadth-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font: 600 0.72rem/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-strong);
+}
+.heatmap-breadth-stat.pos { color: var(--pos); }
+.heatmap-breadth-stat.neg { color: var(--neg); }
+.heatmap-breadth-stat.flat { color: var(--muted); }
+.heatmap-breadth-stat.zero { color: var(--muted); }
+
 .heatmap-root {
   position: relative;
   width: 100%;
@@ -12848,6 +12900,47 @@ html::-webkit-scrollbar-thumb:hover {
 .heatmap-tile.is-live-up { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
 .heatmap-tile.is-live-down { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neg) 55%, transparent); }
 
+/* "Hot" corner dot for heavy-volume names in performance mode. Redundant in
+   rvol mode (the whole tile already encodes volume) so it's hidden there, and
+   on micro tiles where there's no room. */
+.heatmap-tile.is-hot::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffd24a;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.heatmap-root.hm-mode-rvol .heatmap-tile.is-hot::after,
+.heatmap-tile.is-micro.is-hot::after { display: none; }
+
+/* Stale tile — the hourly refresh couldn't get a fresh quote, so the % shown
+   is the last good print. Dim it and hatch faintly so it doesn't read as
+   current. */
+.heatmap-tile.is-stale {
+  opacity: 0.5;
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.07) 0,
+    rgba(255, 255, 255, 0.07) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+}
+
+/* Search highlight — dim everything, pop the matches. */
+.heatmap-root.is-searching .heatmap-tile { opacity: 0.22; }
+.heatmap-root.is-searching .heatmap-tile.is-search-hit {
+  opacity: 1;
+  z-index: 4;
+  box-shadow: 0 0 0 2px var(--accent), 0 0 14px 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.heatmap-root.is-searching .heatmap-tile.is-stale.is-search-hit { opacity: 1; }
+
 .heatmap-legend {
   display: flex;
   align-items: center;
@@ -12867,6 +12960,14 @@ html::-webkit-scrollbar-thumb:hover {
 }
 .heatmap-legend-label {
   font-variant-numeric: tabular-nums;
+}
+.heatmap-legend-note {
+  flex-basis: 100%;
+  margin-top: 2px;
+  font: 500 0.68rem/1.3 var(--font-sans);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
 }
 
 /* Floating tooltip — positioned via JS using --tip-x / --tip-y (px). */
@@ -12911,6 +13012,14 @@ html::-webkit-scrollbar-thumb:hover {
 }
 .heatmap-tooltip-pct-pos { color: var(--pos); }
 .heatmap-tooltip-pct-neg { color: var(--neg); }
+.heatmap-tooltip-rv-hot { color: #ffd24a; }
+.heatmap-tooltip-stale {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font: 600 0.68rem/1.3 var(--font-mono);
+  color: var(--warn, #e0a44a);
+}
 
 /* ---------------- EOD recap (heatmap) -----------------------------------
    Painted below the legend once scripts/refresh-heatmap.mjs has stamped an

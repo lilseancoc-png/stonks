@@ -15378,10 +15378,17 @@ export function buildHeatmapPayload(chains, builtAtIso) {
     const sector = SECTORS[sym];
     if (!sector || sector === "ETF") continue;
     const f = data?.fundamentals || {};
+    const vol = data?.technicals?.volume || {};
     const mc = Number(f.marketCap);
-    const ch = Number(data?.technicals?.volume?.priceMove1dPct);
+    const ch = Number(vol.priceMove1dPct);
     if (!isFinite(mc) || mc <= 0) continue;
     if (!isFinite(ch)) continue;
+    // Relative volume (last session's volume vs its 20D average). Lets the
+    // heatmap's "Color by → Relative volume" mode + tooltip flag where the
+    // conviction/liquidity is, not just direction. Null when we lack a clean
+    // read so the client falls back to a quiet/gray tile. The client live
+    // overlay recomputes an intraday rvol from /api/quotes when live mode is on.
+    const rvol = Number(vol.rvol);
     tickers.push({
       t: sym,
       n: f.name || sym,
@@ -15390,6 +15397,7 @@ export function buildHeatmapPayload(chains, builtAtIso) {
       mc,
       ch: Math.round(ch * 100) / 100,
       sp: data.spot ?? null,
+      rv: isFinite(rvol) && rvol > 0 ? Math.round(rvol * 100) / 100 : null,
     });
   }
   // Largest market caps first — treemap layout depends on a descending sort.
