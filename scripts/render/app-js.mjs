@@ -7486,6 +7486,76 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       (w ? '<div class="vol-eod-why">' + escapeHtml(w) + '</div>' : '') +
     '</div>';
   }
+  // Canonical session hour-buckets (mirror of lib/volume-flags.mjs BUCKETS) in
+  // session order — the fixed six-column lattice the intraday volume-profile
+  // strip lays every card out on, so the columns always mean the same six hours
+  // regardless of which ones actually flagged.
+  var VOL_PROFILE_BUCKETS = ['9:30-10:30', '10:30-11:30', '11:30-12:30', '12:30-13:30', '13:30-14:30', '14:30-16:00'];
+  // A compact six-column micro bar chart shown on every (collapsed) card: one
+  // column per session hour, height scaled to that hour's volume ratio relative
+  // to the card's own peak, hued by the price direction that hour (green up /
+  // red down), with flagged hours at full saturation and quiet/absent/scan-
+  // missed hours dimmed or hatched, and an S/R-break notch where one fired. It
+  // answers "WHEN did the heavy volume hit?" — front-loaded (open gap reaction)
+  // vs back-loaded (institutional close positioning) vs steady all-day — at a
+  // glance, without expanding the hour-by-hour breakdown. Returns '' for cards
+  // with no usable hourly ratio (e.g. EOD-only flags), so the strip never shows
+  // an empty lattice.
+  function volProfileStripHtml(t){
+    var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+    if (!buckets.length) return '';
+    var byLabel = {};
+    var peak = 0, anyRatio = false, hottest = null;
+    for (var i = 0; i < buckets.length; i++){
+      var b = buckets[i];
+      if (!b || !b.bucketLabel) continue;
+      byLabel[b.bucketLabel] = b;
+      if (!b.scanMissed && b.volRatio != null && isFinite(b.volRatio)){
+        anyRatio = true;
+        if (b.volRatio > peak){ peak = b.volRatio; hottest = b; }
+      }
+    }
+    if (!anyRatio) return '';
+    // Scale heights to the card's own peak (so the session SHAPE reads clearly)
+    // but floor the denominator at 2x so a card whose peak just clears the flag
+    // bar doesn't render a barely-notable hour as a full-height column.
+    var ref = Math.max(peak, 2);
+    var cells = VOL_PROFILE_BUCKETS.map(function(label){
+      var open = label.split('-')[0];
+      var b = byLabel[label];
+      if (!b){
+        return '<span class="vol-profile-cell is-empty" title="' + escapeHtml(open + ' — no flag') + '"></span>';
+      }
+      if (b.scanMissed){
+        return '<span class="vol-profile-cell is-missed" title="' + escapeHtml(open + ' — scan missed') + '"></span>';
+      }
+      var r = (b.volRatio != null && isFinite(b.volRatio)) ? Number(b.volRatio) : 0;
+      var h = Math.round(Math.max(0.12, Math.min(1, r / ref)) * 100);
+      var mv = b.priceMovePct;
+      var dirCls = (mv != null && isFinite(mv) && Math.abs(Number(mv)) >= 0.5)
+        ? (Number(mv) > 0 ? ' is-up' : ' is-dn') : ' is-flat';
+      var stateCls = b.hourlyFlagged ? ' is-flagged' : ' is-quiet';
+      var srMark = '';
+      if (b.srBreak && b.srBreak.conviction && b.srBreak.conviction !== 'None'){
+        srMark = '<span class="vol-profile-sr vol-profile-sr-' + escapeHtml(b.srBreak.type || 'upper') + '" aria-hidden="true"></span>';
+      }
+      var tip = open + ' · ' + (r ? r.toFixed(2) + 'x vol' : 'vol —') +
+        (mv != null && isFinite(mv) ? ' · ' + (Number(mv) >= 0 ? '+' : '') + Number(mv).toFixed(2) + '%' : '') +
+        (b.hourlyFlagged ? ' · flagged' : '') +
+        (b.srBreak && b.srBreak.action ? ' · ' + b.srBreak.action : '');
+      return '<span class="vol-profile-cell' + dirCls + stateCls + '" title="' + escapeHtml(tip) + '">' +
+        srMark +
+        '<span class="vol-profile-bar" style="height:' + h + '%"></span>' +
+      '</span>';
+    }).join('');
+    var aria = hottest
+      ? 'Intraday volume profile — heaviest ' + hottest.bucketLabel + ' at ' + Number(hottest.volRatio).toFixed(2) + 'x expected'
+      : 'Intraday volume profile';
+    return '<div class="vol-profile" role="img" aria-label="' + escapeHtml(aria) + '">' +
+      '<span class="vol-profile-track">' + cells + '</span>' +
+      '<span class="vol-profile-axis" aria-hidden="true"><span>Open</span><span>Mid</span><span>Close</span></span>' +
+    '</div>';
+  }
   // A ticker as a collapsible card: a one-line summary head (always shown) +
   // a detail body (hour buckets + EOD + the per-bucket "why") shown only when
   // expanded. Collapsed-by-default is what keeps a long scan short.
@@ -7553,7 +7623,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>';
     }
     return '<article class="vol-row ' + (expanded ? 'is-expanded' : 'is-collapsed') + '" role="listitem" data-symbol="' + escapeHtml(sym) + '">' +
-      head + gexStripHtml(t) + body +
+      head + volProfileStripHtml(t) + gexStripHtml(t) + body +
     '</article>';
   }
   // Aggregate market-breadth banner: across the currently-visible flagged set,

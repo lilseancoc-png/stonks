@@ -11687,6 +11687,63 @@ html::-webkit-scrollbar-thumb:hover {
 .vol-row-meta { color: var(--text-3); font-size: 0.85em; margin-bottom: var(--s-2); }
 .vol-avg20 { color: var(--text-3); font-size: 0.85em; margin-left: auto; }
 
+/* Intraday volume-profile strip — a six-column micro bar chart (one per
+   session hour bucket) shown on every collapsed card. Column height tracks
+   that hour's volume ratio (relative to the card's peak), hue tracks the price
+   direction that hour, and flagged / S-R / scan-missed hours read distinctly.
+   Surfaces the SHAPE of the session's volume — front-loaded vs back-loaded vs
+   steady — at a glance, without expanding the hour-by-hour breakdown. */
+.vol-profile { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s-1); }
+.vol-profile-track { display: flex; align-items: flex-end; gap: 3px; height: 24px; }
+.vol-profile-cell {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-radius: var(--r-2, 3px);
+  background: var(--surface-3);
+}
+.vol-profile-cell.is-empty { background: color-mix(in srgb, var(--border) 45%, transparent); }
+.vol-profile-cell.is-missed {
+  background: repeating-linear-gradient(45deg, var(--surface-3) 0, var(--surface-3) 3px, transparent 3px, transparent 6px);
+}
+.vol-profile-bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: var(--r-2, 3px);
+  background: var(--text-3);
+}
+.vol-profile-cell.is-up .vol-profile-bar { background: var(--pos); }
+.vol-profile-cell.is-dn .vol-profile-bar { background: var(--neg); }
+.vol-profile-cell.is-flat .vol-profile-bar { background: var(--text-3); }
+/* Quiet (scanned but unflagged) hours are dimmed so the flagged hours read as
+   the loud ones; flagged hours stay fully saturated. */
+.vol-profile-cell.is-quiet .vol-profile-bar { opacity: 0.4; }
+.vol-profile-cell.is-flagged .vol-profile-bar { opacity: 1; }
+/* S/R break marker — a small triangle notch riding the column (up at the top
+   for a resistance break, down at the base for a support break). */
+.vol-profile-sr {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+}
+.vol-profile-sr-upper { top: -2px; border-bottom: 4px solid var(--pos); }
+.vol-profile-sr-lower { bottom: -2px; border-top: 4px solid var(--neg); }
+.vol-profile-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  opacity: 0.75;
+}
+
 .vol-bucket {
   display: flex;
   flex-direction: column;
