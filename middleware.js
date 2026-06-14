@@ -46,15 +46,16 @@ export default function middleware(req) {
   //   · returning visitors (the one-time `stonks_intro_seen` cookie is set),
   //   · deep links (`/?tab=…`) — honored as-is so shared URLs land where intended.
   // The cookie is set server-side on the redirect so it shows exactly once with
-  // no JS dependency and no redirect loop; /features.html itself is never
-  // matched here, so it (and the nav link to it) stays reachable anytime.
+  // no JS dependency and no redirect loop. The intro lives at the in-app
+  // "What's included" tab (?tab=features), which the app honors as a deep link
+  // (the next() branch above) — so the redirect doesn't re-trigger itself.
   if (path === "/" || path === "/index.html") {
     if (url.search) return next();
     const cookie = req.headers.get("cookie") || "";
     const hasSession = /(?:^|;\s*)stonks_session=/.test(cookie);
     const hasSeenIntro = /(?:^|;\s*)stonks_intro_seen=/.test(cookie);
     if (hasSession || hasSeenIntro) return next();
-    const dest = new URL("/features.html", url.origin);
+    const dest = new URL("/?tab=features", url.origin);
     return new Response(null, {
       status: 307,
       headers: {
