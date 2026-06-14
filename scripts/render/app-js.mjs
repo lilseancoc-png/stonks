@@ -11581,6 +11581,198 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
                 s === 'PM' ? 'After market close' : 'Time not supplied';
     return ' <span class="cal-session cal-session-' + s.toLowerCase() + '" title="' + title + '">' + s + '</span>';
   }
+  // ====================================================================
+  // Calendar UX helpers — proximity labelling, the "up next" overview
+  // strip, type glyphs, and ticker navigation. All pure given their args
+  // so the overview selector can be reasoned about / unit-tested directly.
+  // --------------------------------------------------------------------
+  // ET-today as a UTC-midnight ms, so whole-day diffs against the calendar's
+  // date-only (YYYY-MM-DD) events are clean integers in market time.
+  function calEtTodayMs(){
+    try {
+      var s = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      var p = s.split('-');
+      return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    } catch (_) {
+      var d = new Date();
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    }
+  }
+  // Whole days from ET-today to a YYYY-MM-DD (0 = today, 1 = tomorrow, ...).
+  function calDaysFromToday(dateStr, todayMs){
+    var p = String(dateStr || '').split('-');
+    if (p.length !== 3) return null;
+    var ms = Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (isNaN(ms)) return null;
+    return Math.round((ms - todayMs) / 86400000);
+  }
+  // Short proximity label for a day-offset. Empty beyond ~4 weeks (the month
+  // header already carries the longer horizon there).
+  function calRelativeLabel(days){
+    if (days == null) return '';
+    if (days < 0){ var a = Math.abs(days); return a === 1 ? 'Yesterday' : a + 'd ago'; }
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Tomorrow';
+    if (days <= 13) return 'In ' + days + ' days';
+    if (days <= 27){ var w = Math.round(days / 7); return 'In ' + w + ' week' + (w === 1 ? '' : 's'); }
+    return '';
+  }
+  // Small feather-style glyph per event type — gives the timeline a scannable
+  // left rail. stroke=currentColor so each chip's type color flows through.
+  function calEventIcon(type){
+    var paths = {
+      earnings: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="13" y="7" width="3" height="11"/>',
+      report: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h6"/>',
+      fomc: '<path d="M3 21h18"/><path d="M5 21V10M19 21V10M9.5 21V10M14.5 21V10"/><path d="M12 3 3 8h18z"/>',
+      catalyst: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+      macro: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 8h6M8 12h8M8 16h5"/>'
+    };
+    var key = (type === 'earnings' || type === 'report' || type === 'fomc' || type === 'catalyst') ? type : 'macro';
+    return '<svg class="cal-chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[key] || paths.macro) + '</svg>';
+  }
+  // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
+  // by the clickable earnings/catalyst symbols and the overview cards.
+  function calGoToTicker(sym){
+    if (!sym) return;
+    try {
+      var gt = document.querySelector('[data-page-tab="grade"]');
+      if (gt) gt.click();
+      setTimeout(function(){ if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); }, 0);
+    } catch (_) {}
+  }
+  // Clickable ticker pill used inside earnings/catalyst chips.
+  function calChipSymBtn(sym){
+    var s = String(sym || '');
+    if (!s) return '';
+    return '<button type="button" class="cal-chip-sym cal-chip-sym-btn" data-cal-sym="' + escapeHtml(s) + '" title="Open ' + escapeHtml(s) + ' in the Grade tab">' + escapeHtml(s) + '</button>';
+  }
+  // Normalize a 0-1 or 0-100 probability to [0,1]; null when absent.
+  function calNormProb(p, key){
+    if (!p || p[key] == null) return null;
+    var v = Number(p[key]); if (!isFinite(v)) return null;
+    return v > 1.5 ? v / 100 : v;
+  }
+  // The dominant hike/hold/cut outcome for a marginal "now" bucket, as a short
+  // label like "72% hold". Null when no usable snapshot.
+  function calFomcOutcome(now){
+    var h = calNormProb(now, 'hike'), ho = calNormProb(now, 'hold'), c = calNormProb(now, 'cut');
+    if (h == null && ho == null && c == null) return null;
+    var arr = [['hold', ho == null ? -1 : ho], ['cut', c == null ? -1 : c], ['hike', h == null ? -1 : h]];
+    arr.sort(function(a, b){ return b[1] - a[1]; });
+    if (arr[0][1] < 0) return null;
+    return Math.round(arr[0][1] * 100) + '% ' + arr[0][0];
+  }
+  // Pure "what matters next" selector that drives the overview strip. Reads the
+  // FULL (unfiltered) event set + the fomc block so it stays stable across the
+  // type filter. Returns an ordered array of highlight-card descriptors.
+  function buildCalendarOverview(data, todayMs){
+    var events = (data && Array.isArray(data.events)) ? data.events : [];
+    var fomc = data && data.fomc;
+    var cards = [];
+    // 1) Next FOMC — countdown + the dominant decision odds.
+    var meetings = (fomc && Array.isArray(fomc.meetings)) ? fomc.meetings : [];
+    var nextMeeting = null, nextMeetingDays = null;
+    for (var i = 0; i < meetings.length; i++){
+      var md = calDaysFromToday(meetings[i].date, todayMs);
+      if (md != null && md >= 0){ nextMeeting = meetings[i]; nextMeetingDays = md; break; }
+    }
+    if (nextMeeting){
+      var probs = (fomc.probabilities && fomc.probabilities[nextMeeting.date]) || null;
+      var outcome = probs ? calFomcOutcome(probs.now) : null;
+      cards.push({
+        kind: 'fomc', iconType: 'fomc', label: 'Next FOMC',
+        value: nextMeetingDays === 0 ? 'Today' : calRelativeLabel(nextMeetingDays),
+        sub: nextMeeting.label + (outcome ? ' · ' + outcome : ''),
+        scrollTo: 'fomc-widget'
+      });
+    }
+    // 2) Next economic report.
+    var nextReport = null, nextReportDays = null;
+    for (var j = 0; j < events.length; j++){
+      var e = events[j];
+      if (e.type !== 'report') continue;
+      var rd = calDaysFromToday(e.date, todayMs);
+      if (rd == null || rd < 0) continue;
+      if (nextReport == null || rd < nextReportDays){ nextReport = e; nextReportDays = rd; }
+    }
+    if (nextReport){
+      cards.push({
+        kind: 'report', iconType: 'report', label: 'Next data',
+        value: nextReportDays === 0 ? 'Today' : calRelativeLabel(nextReportDays),
+        sub: nextReport.title || 'Economic release'
+      });
+    }
+    // 3) Earnings in the next 7 days — count + biggest implied move.
+    var earn = [];
+    for (var k = 0; k < events.length; k++){
+      var ev = events[k];
+      if (ev.type !== 'earnings') continue;
+      var ed = calDaysFromToday(ev.date, todayMs);
+      if (ed == null || ed < 0 || ed > 6) continue;
+      earn.push(ev);
+    }
+    if (earn.length){
+      var top = null;
+      earn.forEach(function(x){
+        if (x.impliedMovePct != null && isFinite(x.impliedMovePct)){
+          if (!top || x.impliedMovePct > top.impliedMovePct) top = x;
+        }
+      });
+      cards.push({
+        kind: 'earnings', iconType: 'earnings', label: 'Earnings this week',
+        value: String(earn.length),
+        sub: top ? (top.symbol + ' ±' + (top.impliedMovePct * 100).toFixed(1) + '% biggest') : ('across ' + earn.length + ' name' + (earn.length === 1 ? '' : 's')),
+        sym: top ? top.symbol : null
+      });
+    }
+    // 4) Next ticker catalyst (FDA / launch / court / M&A ...), else the horizon.
+    var nextCat = null, nextCatDays = null;
+    for (var m = 0; m < events.length; m++){
+      var c2 = events[m];
+      if (c2.type !== 'catalyst') continue;
+      var cd = calDaysFromToday(c2.date, todayMs);
+      if (cd == null || cd < 0) continue;
+      if (nextCat == null || cd < nextCatDays){ nextCat = c2; nextCatDays = cd; }
+    }
+    if (nextCat){
+      cards.push({
+        kind: 'catalyst', iconType: 'catalyst', label: 'Next catalyst',
+        value: nextCatDays === 0 ? 'Today' : calRelativeLabel(nextCatDays),
+        sub: (nextCat.symbol ? nextCat.symbol + ' · ' : '') + (nextCat.title || 'Catalyst'),
+        sym: nextCat.symbol || null
+      });
+    } else if (events.length){
+      cards.push({
+        kind: 'total', iconType: 'macro', label: 'Events ahead',
+        value: String(events.length),
+        sub: (data && data.windowEnd) ? 'through ' + fmtCalendarDateShort(data.windowEnd) : 'in view'
+      });
+    }
+    return cards;
+  }
+  // Render the overview strip into its own container (above the FOMC widget).
+  function renderCalendarOverview(data){
+    var host = $('calendar-overview');
+    if (!host) return;
+    var cards = buildCalendarOverview(data, calEtTodayMs());
+    if (!cards.length){ host.hidden = true; host.innerHTML = ''; return; }
+    host.hidden = false;
+    host.innerHTML = cards.map(function(c){
+      var clickable = !!(c.scrollTo || c.sym);
+      var tag = clickable ? 'button' : 'div';
+      var attrs = (clickable ? ' type="button"' : '') + ' class="cal-ov-card cal-ov-' + c.kind + '"';
+      if (c.scrollTo) attrs += ' data-cal-scroll="' + escapeHtml(c.scrollTo) + '"';
+      if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
+      return '<' + tag + attrs + '>' +
+          '<span class="cal-ov-icon">' + calEventIcon(c.iconType) + '</span>' +
+          '<span class="cal-ov-body">' +
+            '<span class="cal-ov-label">' + escapeHtml(c.label) + '</span>' +
+            '<span class="cal-ov-value">' + escapeHtml(c.value || '—') + '</span>' +
+            '<span class="cal-ov-sub">' + escapeHtml(c.sub || '') + '</span>' +
+          '</span>' +
+        '</' + tag + '>';
+    }).join('');
+  }
   // Market-implied prediction pill(s) (Polymarket/Kalshi) attached at bake time.
   // Shared by the macro-report chip and the earnings chip — same data shape
   // ({platform,label,prob,vol,url,thin}). Returns '' when none are present.
@@ -11610,7 +11802,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     cells.push('<div class="cal-report-cell"><span class="cal-report-label">Actual</span><span class="cal-report-val">' + escapeHtml(fmt(e.actual)) + '</span></div>');
     cells.push('<div class="cal-report-cell"><span class="cal-report-label">Previous</span><span class="cal-report-val">' + escapeHtml(fmt(e.previous)) + '</span></div>');
     if (has(e.consensus)) cells.push('<div class="cal-report-cell"><span class="cal-report-label">Consensus</span><span class="cal-report-val">' + escapeHtml(fmt(e.consensus)) + '</span></div>');
-    if (has(e.forecast)) cells.push('<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>');
+    // Only surface a distinct Forecast cell when it actually differs from
+    // Consensus — the build currently sets forecast === consensus for most
+    // series, so showing both produced a duplicate column that read as broken.
+    if (has(e.forecast) && String(e.forecast) !== String(e.consensus)) cells.push('<div class="cal-report-cell"><span class="cal-report-label">Forecast</span><span class="cal-report-val">' + escapeHtml(fmt(e.forecast)) + '</span></div>');
     var grid = '<div class="cal-report-grid">' + cells.join('') + '</div>';
     // Best-effort market-implied reading (Polymarket) attached at bake time when
     // a related market resolves near this release. Rendered as a small pill below
@@ -11626,6 +11821,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : '';
     return '<div class="cal-chip cal-report' + (e.stale ? ' is-stale' : '') + '">' +
       '<div class="cal-report-head">' +
+        '<span class="cal-chip-ico">' + calEventIcon('report') + '</span>' +
         '<span class="cal-chip-tag">Report</span> ' +
         '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
         staleTag +
@@ -11857,6 +12053,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         week: cumByCol.week[m.date], month: cumByCol.month[m.date],
       };
     });
+    // --- Headline readout: a single stacked cumulative-odds bar for the NEXT
+    // meeting, so the most-watched number is visual instead of buried in the
+    // table. Built from the same cumProbs the tables read.
+    var headlineHtml = '';
+    if (meetings.length){
+      var hb = cumProbs[meetings[0].date] && cumProbs[meetings[0].date].now;
+      if (hb){
+        var hHike = normProb(hb, 'hike') || 0, hHold = normProb(hb, 'hold') || 0, hCut = normProb(hb, 'cut') || 0;
+        var hTot = hHike + hHold + hCut; if (hTot <= 0) hTot = 1;
+        var hlSeg = function(val, cls, lbl){
+          var frac = val / hTot;
+          if (frac <= 0.001) return '';
+          return '<span class="fomc-hl-seg ' + cls + '" style="flex:' + frac.toFixed(4) + '" title="' + lbl + ' ' + Math.round(frac * 100) + '%"></span>';
+        };
+        var hlKey = function(val, cls, lbl){
+          return '<span class="fomc-hl-key ' + cls + '"><b>' + Math.round((val / hTot) * 100) + '%</b> ' + lbl + '</span>';
+        };
+        headlineHtml = '<div class="fomc-headline">' +
+          '<div class="fomc-hl-top">' +
+            '<span class="fomc-hl-title">' + escapeHtml(meetings[0].label) + ' decision</span>' +
+            '<span class="fomc-hl-cap">cumulative odds vs today</span>' +
+          '</div>' +
+          '<div class="fomc-hl-bar">' + hlSeg(hCut, 'cut', 'Cut') + hlSeg(hHold, 'hold', 'Hold') + hlSeg(hHike, 'hike', 'Hike') + '</div>' +
+          '<div class="fomc-hl-keys">' + hlKey(hCut, 'cut', 'cut') + hlKey(hHold, 'hold', 'hold') + hlKey(hHike, 'hike', 'hike') + '</div>' +
+        '</div>';
+      }
+    }
     var rows = ['hike','hold','cut'];
     var rowLabel = { hike: 'Hike', hold: 'Hold', cut: 'Cut' };
     // --- Per-meeting tally helpers (track the odds of a move) --------------
@@ -11971,7 +12194,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</div>'
       : '';
     var legend = '<p class="fomc-legend">CME-style <strong>cumulative</strong> probabilities implied by ZQ Fed Funds futures — the odds the target rate is higher (<strong>hike</strong>), unchanged (<strong>hold</strong>), or lower (<strong>cut</strong>) than today by each meeting, accumulated across every meeting in between (25 bps = one step). <strong>Move</strong> = odds of any net change (hike + cut). A meeting is flagged <span class="fomc-flag fomc-flag-move">notable</span> once a hike or cut clears 50%.</p>';
-    root.innerHTML = header + meetingBlocks + ladder + legend;
+    root.innerHTML = header + headlineHtml + meetingBlocks + ladder + legend;
   }
   // Prediction-market cross-check (Kalshi + Polymarket) shown beneath the
   // futures-implied table. Each platform's hike/hold/cut is an independent,
@@ -12102,6 +12325,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     var data = calendarState.data || { events: [] };
+    var todayMs = calEtTodayMs();
+    // "Up next" overview + filter-pill counts are driven by the FULL event set
+    // (not the active filter) so they stay stable as the user toggles types.
+    renderCalendarOverview(data);
+    var counts = { all: data.events.length, earnings: 0, catalysts: 0, reports: 0, fomc: 0, macro: 0 };
+    data.events.forEach(function(e){
+      if (e.type === 'earnings') counts.earnings++;
+      else if (e.type === 'catalyst') counts.catalysts++;
+      else if (e.type === 'report') counts.reports++;
+      else if (e.type === 'fomc') counts.fomc++;
+      else counts.macro++;
+    });
+    var filterEl = document.querySelector('.calendar-type-filter');
+    if (filterEl){
+      var pills = filterEl.querySelectorAll('.calendar-pill');
+      for (var pi = 0; pi < pills.length; pi++){
+        var badge = pills[pi].querySelector('.calendar-pill-count');
+        if (!badge) continue;
+        var n = counts[pills[pi].getAttribute('data-cal-type') || 'all'];
+        badge.textContent = (n != null && n > 0) ? String(n) : '';
+      }
+    }
     renderFomcWidget(data.fomc || null);
     refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
     var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
@@ -12151,7 +12396,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
                 '±' + (e.impliedMovePct * 100).toFixed(1) + '%' +
               '</span>'
             : '';
-          label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span>' +
+          label = calChipSymBtn(e.symbol) +
             calendarSessionPill(e.session) + movePill +
             ' <span class="cal-chip-text">earnings</span>';
         } else if (e.type === 'catalyst'){
@@ -12163,7 +12408,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           var confPill = e.confidence === 'low'
             ? ' <span class="cal-chip-conf" title="Date is approximate — interpreted from a relative phrase like \\"next week\\" or \\"early June\\"">soft</span>'
             : '';
-          label = '<span class="cal-chip-sym">' + escapeHtml(e.symbol || '') + '</span> ' +
+          label = calChipSymBtn(e.symbol) + ' ' +
             '<span class="cal-chip-tag">' + escapeHtml(catalystCategoryLabel(e.category)) + '</span>' +
             confPill +
             ' <span class="cal-chip-text">' + escapeHtml(e.title || 'Catalyst') + '</span>';
@@ -12173,20 +12418,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
         }
         var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+        var icon = '<span class="cal-chip-ico">' + calEventIcon(e.type) + '</span>';
         // Earnings chips can carry a Polymarket "beat" reading (predictions[]).
         // When present, stack it on its own row beneath the head (the base chip
         // is a single flex row; 'has-pm' switches it to a column).
         var pmLine = renderCalPmLine(e.predictions);
         if (pmLine){
           return '<div class="' + cls + ' has-pm">' +
-              '<div class="cal-chip-head">' + label + src + '</div>' +
+              '<div class="cal-chip-head">' + icon + label + src + '</div>' +
               pmLine +
             '</div>';
         }
-        return '<div class="' + cls + '">' + label + src + '</div>';
+        return '<div class="' + cls + '">' + icon + label + src + '</div>';
       }).join('');
-      return '<div class="cal-day">' +
-        '<div class="cal-date">' + escapeHtml(fmtCalendarDate(date)) + '</div>' +
+      // Proximity emphasis: highlight today's row, soft-flag the next week.
+      var days = calDaysFromToday(date, todayMs);
+      var dayCls = 'cal-day';
+      if (days === 0) dayCls += ' is-today';
+      else if (days != null && days >= 1 && days <= 6) dayCls += ' is-soon';
+      var rel = calRelativeLabel(days);
+      var relTag = rel
+        ? '<span class="cal-reltag' + (days === 0 ? ' is-today' : '') + '">' + escapeHtml(rel) + '</span>'
+        : '';
+      return '<div class="' + dayCls + '">' +
+        '<div class="cal-date"><span class="cal-date-main">' + escapeHtml(fmtCalendarDate(date)) + '</span>' + relTag + '</div>' +
         '<div class="cal-chips">' + rows + '</div>' +
       '</div>';
     }
@@ -12235,12 +12490,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         renderCalendar();
       });
     }
-    // Month jump-nav: delegate clicks on the calendar root so it survives every
-    // re-render (renderCalendar replaces root.innerHTML). Smooth-scrolls the
-    // chosen month section to the top (scroll-margin-top clears the sticky bar).
+    // Delegate clicks on the calendar root so handlers survive every re-render
+    // (renderCalendar replaces root.innerHTML): the month jump-nav (smooth-
+    // scrolls a month section, clearing the sticky bar via scroll-margin-top)
+    // and clickable ticker symbols in earnings/catalyst chips (→ Grade tab).
     var calRoot = document.getElementById('calendar-root');
     if (calRoot){
       calRoot.addEventListener('click', function(ev){
+        var symBtn = ev.target.closest && ev.target.closest('.cal-chip-sym-btn[data-cal-sym]');
+        if (symBtn){ calGoToTicker(symBtn.getAttribute('data-cal-sym')); return; }
         var item = ev.target.closest && ev.target.closest('.cal-month-nav-item');
         if (!item) return;
         var ym = item.getAttribute('data-cal-month');
@@ -12249,6 +12507,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
           catch (_) { section.scrollIntoView(); }
         }
+      });
+    }
+    // Overview "up next" cards: scroll to the FOMC widget, or open a ticker.
+    var calOv = document.getElementById('calendar-overview');
+    if (calOv){
+      calOv.addEventListener('click', function(ev){
+        var card = ev.target.closest && ev.target.closest('.cal-ov-card');
+        if (!card) return;
+        var scrollId = card.getAttribute('data-cal-scroll');
+        if (scrollId){
+          var target = document.getElementById(scrollId);
+          if (target && typeof target.scrollIntoView === 'function'){
+            try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+            catch (_) { target.scrollIntoView(); }
+          }
+          return;
+        }
+        var sym = card.getAttribute('data-cal-sym');
+        if (sym) calGoToTicker(sym);
       });
     }
   }
