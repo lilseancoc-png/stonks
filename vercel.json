@@ -30,6 +30,18 @@
     },
     "api/macro-live.js": {
       "maxDuration": 10
+    },
+    "api/auth/discord-login.js": {
+      "maxDuration": 10
+    },
+    "api/auth/discord-callback.js": {
+      "maxDuration": 10
+    },
+    "api/auth/logout.js": {
+      "maxDuration": 5
+    },
+    "api/auth/me.js": {
+      "maxDuration": 5
     }
   },
   "headers": [
