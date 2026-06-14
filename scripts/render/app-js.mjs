@@ -14075,16 +14075,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var map = { entered:['sig-pos','▲ IN','Newly in the Top 10 this refresh'], held:['','• HELD','Held its Top 10 spot'], 'new':['sig-pos','★ NEW','Newly tracked this refresh'] };
     var m = map[status] || map.held;
     var flip = sideFlipped ? '<span class="roster-flip" title="Thesis side flipped (call⇄put)">⇄ flipped</span>' : '';
-    return '<span class="roster-status ' + m[0] + '" title="' + m[2] + '">' + m[1] + '</span>' + flip;
+    // Wrap in ONE cell — the optional flip badge would otherwise be a second grid
+    // child and shift every following column (the row head is a fixed-column grid).
+    return '<span class="roster-status-cell">' +
+      '<span class="roster-status ' + m[0] + '" title="' + m[2] + '">' + m[1] + '</span>' + flip +
+    '</span>';
   }
   function rosterForecastPill(f){
-    if (!f) return '';
+    // Always emit exactly one grid cell — the forecast pill AND the optional
+    // earnings badge live inside it. Returning the two as siblings (the old bug)
+    // overflowed the badge into the caret's 16px column and bumped the caret onto
+    // a second row. An absent forecast still emits an empty cell to keep the
+    // row head's column count stable.
+    if (!f) return '<span class="roster-fc-cell"></span>';
     var dir = f.direction || 'neutral';
     var map = { upgrade:['sig-pos','▲','Upgrade likely'], downgrade:['sig-neg','▼','Downgrade risk'], neutral:['sig-zero','→','Holding'] };
     var m = map[dir] || map.neutral;
     var conf = f.confidence ? ' · ' + f.confidence : '';
     var earn = f.earningsCatalyst ? '<span class="roster-earn" title="Earnings before the contract expires — binary catalyst">📅 earnings</span>' : '';
-    return '<span class="roster-fc ' + m[0] + '" title="Rules-based forward read on the conviction score">' + m[1] + ' ' + m[2] + conf + '</span>' + earn;
+    return '<span class="roster-fc-cell">' +
+      '<span class="roster-fc ' + m[0] + '" title="Rules-based forward read on the conviction score">' + m[1] + ' ' + m[2] + conf + '</span>' + earn +
+    '</span>';
   }
   // 4 mini delta chips — how each pillar moved vs. the prior build.
   function rosterDeltaChips(deltas){

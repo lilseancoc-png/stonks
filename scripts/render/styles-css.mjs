@@ -8898,10 +8898,14 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .roster-row-head::-webkit-details-marker { display: none; }
 .roster-row-head .acc-sym { font: 700 12.5px/1 var(--font-sans); }
 .roster-rank { color: var(--muted); font: 600 10px/1 var(--font-mono); }
+.roster-status-cell { display: inline-flex; align-items: center; min-width: 0; }
 .roster-status { font: 700 9.5px/1 var(--font-mono); letter-spacing: .03em; white-space: nowrap; }
-.roster-flip { color: var(--muted-strong); font: 600 9px/1 var(--font-sans); margin-left: 2px; }
+.roster-flip { color: var(--muted-strong); font: 600 9px/1 var(--font-sans); margin-left: 2px; white-space: nowrap; }
 .roster-score { font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .roster-score small { font-size: 10px; }
+/* Forecast + optional earnings badge share ONE grid cell so the badge can't spill
+   into the caret column. Hugs the right edge, next to the expand caret. */
+.roster-fc-cell { display: inline-flex; align-items: center; justify-self: end; min-width: 0; }
 .roster-fc { font: 600 10px/1 var(--font-sans); white-space: nowrap; }
 .roster-earn { color: var(--muted-strong); font: 600 9px/1 var(--font-sans); margin-left: 4px; white-space: nowrap; }
 .roster-expand { color: var(--muted); font-size: 10px; justify-self: end; transition: transform .15s; }
@@ -8952,7 +8956,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
     grid-template-columns: 26px auto auto auto 1fr 14px;
   }
   .roster-score { grid-column: 2 / -1; }
-  .roster-fc { grid-column: 1 / -1; justify-self: start; }
+  .roster-fc-cell { grid-column: 1 / -1; justify-self: start; }
   .roster-row-exited .roster-row-head { grid-template-columns: auto auto auto 1fr 14px; }
   .roster-out-why { grid-column: 1 / -1; white-space: normal; }
 }
