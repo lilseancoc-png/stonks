@@ -1251,6 +1251,109 @@ main {
 }
 
 /* === Narratives === */
+/* Market pulse — cross-sector summary above the sector tabs. Aggregates every
+   real (non-watchlist) narrative into one at-a-glance read: strength-weighted
+   bull/bear tilt, headline counts, and the strongest stories market-wide as
+   click-to-jump chips. The "front page" of the narratives section. */
+.narr-pulse {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--s-3) var(--s-4);
+  margin: var(--s-3) 0 var(--s-2);
+  padding: var(--s-4);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 80%, transparent), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+}
+.narr-pulse[hidden] { display: none; }
+@media (max-width: 720px) { .narr-pulse { grid-template-columns: 1fr; } }
+.narr-pulse-tilt { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.narr-pulse-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
+.narr-pulse-eyebrow {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.narr-pulse-verdict {
+  font-family: var(--font-serif);
+  font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em;
+}
+.narr-pulse-verdict.is-bull { color: var(--pos); }
+.narr-pulse-verdict.is-bear { color: var(--neg); }
+.narr-pulse-verdict.is-mixed { color: var(--warn); }
+.narr-pulse-bar {
+  position: relative; display: flex; height: 9px;
+  border-radius: var(--r-pill); overflow: hidden; background: var(--surface-3);
+}
+.narr-pulse-bar-bull { background: linear-gradient(90deg, color-mix(in srgb, var(--pos) 60%, transparent), var(--pos)); }
+.narr-pulse-bar-bear { background: linear-gradient(90deg, var(--neg), color-mix(in srgb, var(--neg) 60%, transparent)); }
+.narr-pulse-bar-mid {
+  position: absolute; left: 50%; top: -1px; bottom: -1px; width: 2px;
+  transform: translateX(-50%); background: var(--surface); opacity: 0.7;
+}
+.narr-pulse-legend {
+  display: flex; justify-content: space-between; gap: var(--s-2);
+  font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums;
+}
+.narr-pulse-legend .is-bull { color: var(--pos); }
+.narr-pulse-legend .is-bear { color: var(--neg); }
+.narr-pulse-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-2); align-content: center; }
+.narr-pulse-stat {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 8px 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2);
+}
+.narr-pulse-stat-num {
+  font-family: var(--font-mono); font-size: var(--fs-lg); font-weight: 700;
+  font-variant-numeric: tabular-nums; color: var(--text-strong); line-height: 1;
+}
+.narr-pulse-stat-num.is-warn { color: var(--warn); }
+.narr-pulse-stat-num.is-accent { color: var(--accent-strong); }
+.narr-pulse-stat-label {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.narr-pulse-leaders {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column; gap: 6px;
+  padding-top: var(--s-3); margin-top: 2px;
+  border-top: 1px dashed var(--hairline);
+}
+.narr-pulse-leaders-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.narr-pulse-leader-list { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.narr-pulse-leader {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 11px 7px 9px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-left-width: 3px; border-radius: var(--r-2);
+  cursor: pointer; font: inherit; text-align: left;
+  transition: border-color .12s var(--ease-out), background .12s var(--ease-out), transform .12s var(--ease-out);
+}
+.narr-pulse-leader.bullish { border-left-color: var(--pos); }
+.narr-pulse-leader.bearish { border-left-color: var(--neg); }
+.narr-pulse-leader:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  border-left-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+.narr-pulse-leader.bullish:hover { border-left-color: var(--pos); }
+.narr-pulse-leader.bearish:hover { border-left-color: var(--neg); }
+.narr-pulse-leader:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.narr-pulse-leader-rank { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--muted); }
+.narr-pulse-leader-name {
+  font-family: var(--font-serif);
+  font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-strong);
+  white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+}
+.narr-pulse-leader-meta { display: inline-flex; align-items: center; gap: 6px; }
+.narr-pulse-leader-sector { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.narr-pulse-leader-str { font-family: var(--font-mono); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.narr-pulse-leader-str.bullish { color: var(--pos); }
+.narr-pulse-leader-str.bearish { color: var(--neg); }
+
 /* Sector tab strip across the top of the narratives card. Horizontally
    scrollable on narrow viewports so all 11 sectors stay reachable. */
 .narr-tabs {
@@ -1353,9 +1456,10 @@ main {
 }
 .narr-sector-overview-title {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   color: var(--text-strong);
 }
 .narr-sector-overview-stance {
@@ -1383,29 +1487,31 @@ main {
 .narr-sector-overview-thesis {
   margin: 0;
   font-size: var(--fs-md);
-  line-height: 1.55;
+  line-height: 1.65;
   color: var(--text);
+  max-width: 78ch;
 }
 .narr-sector-overview-thesis.muted { color: var(--muted); font-style: italic; }
-.narr-industries { display: flex; flex-direction: column; gap: var(--s-4); }
+.narr-industries { display: flex; flex-direction: column; gap: var(--s-6); }
 .narr-industry {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: var(--s-3);
 }
 .narr-industry-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s-2);
-  padding-bottom: 4px;
-  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 .narr-industry-name {
   margin: 0;
-  font-size: var(--fs-md);
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   color: var(--text-strong);
 }
 .narr-industry-count {
@@ -1418,7 +1524,7 @@ main {
 .narr-industry-list {
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
+  gap: var(--s-4);
 }
 .narr-empties {
   margin-top: var(--s-2);
@@ -1527,7 +1633,7 @@ main {
 .narr-list:empty { display: none; }
 .narr {
   position: relative;
-  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-5);
+  padding: var(--s-4) var(--s-5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
@@ -1553,14 +1659,22 @@ main {
 .narr[data-sent="bearish"] .narr-accent { background: var(--neg); }
 .narr-head {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2);
-  margin-bottom: var(--s-1);
+  margin-bottom: 0;
 }
 .narr-name {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
   color: var(--text-strong);
+}
+/* Metadata strip under the headline — status / timeframe / confidence / tenure.
+   Muted + secondary so the headline and thesis carry the read (editorial feel). */
+.narr-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: var(--s-2) 0 var(--s-1);
 }
 .narr-tag {
   font-size: 11px; font-weight: 600;
@@ -1587,11 +1701,21 @@ main {
   background: var(--accent);
 }
 .narr-thesis {
-  margin: var(--s-1) 0 var(--s-2);
+  margin: var(--s-2) 0;
   color: var(--text);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
+  font-size: var(--fs-md);
+  line-height: 1.7;
+  max-width: 72ch;
 }
+/* Supporting analytics — strength / lifecycle / hype — grouped below the prose
+   behind a hairline so the story reads first and the gauges read as "the data
+   behind it" rather than competing with the headline. */
+.narr-analytics {
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--hairline);
+}
+.narr-analytics .narr-strength { margin-top: 0; }
 .narr-side-row {
   display: flex; flex-wrap: wrap; align-items: center;
   gap: 6px;
@@ -2055,6 +2179,16 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   white-space: nowrap;
 }
 .narr-macro-title { color: var(--text); }
+/* Macro headlines link to their source article when the feed gave us a
+   permalink. Title links read as body text until hover; a small ↗ marks them. */
+a.narr-macro-title {
+  text-decoration: none;
+  transition: color .12s var(--ease-out);
+}
+a.narr-macro-title:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+a.narr-macro-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.narr-macro-ext { margin-left: 4px; font-size: 9px; color: var(--muted); }
+a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 
 /* Macro shell — top-3 pill strip + collapsed full list. Replaces the
    purely-collapsed details so the user can see the freshest macro hits
@@ -2107,6 +2241,20 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   overflow: hidden;
   word-break: break-word;
 }
+/* When the feed gave us a permalink the pill is a real <a> — make it feel
+   clickable (lift + accent border on hover) and badge the publisher with ↗. */
+.narr-macro-pill.is-link {
+  cursor: pointer;
+  transition: border-color .12s var(--ease-out), background .12s var(--ease-out), transform .12s var(--ease-out), box-shadow .12s var(--ease-out);
+}
+.narr-macro-pill.is-link:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  transform: translateY(-1px);
+}
+.narr-macro-pill.is-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.narr-macro-pill-ext { margin-left: 5px; font-size: 9px; color: var(--muted); vertical-align: 1px; }
+.narr-macro-pill.is-link:hover .narr-macro-pill-ext { color: var(--accent-strong); }
 .narr-macro-shell .narr-macro-details {
   border: 0;
   padding: 0;
@@ -6536,6 +6684,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   grid-template-areas:
     "rank head  score"
     "rank tier  tier"
+    "rank con   con"
     "rank meta  meta"
     "rank cta   cta";
   column-gap: 12px;
@@ -6644,6 +6793,31 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   text-transform: uppercase;
   letter-spacing: .03em;
   color: var(--text-strong);
+}
+/* Contract economics line — strike·DTE, premium, move-to-breakeven, earnings
+   flag. Makes the premium / breakeven sorts legible on the grid and lets picks
+   be compared without drilling into each detail page. */
+.ptc-contract {
+  grid-area: con;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  margin-top: 1px;
+  font: 600 11px/1.2 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ptc-con-k { color: var(--text-strong); }
+.ptc-con-prem { color: var(--text); }
+.ptc-con-be { color: var(--muted); }
+/* Breakeven move colored by reachability vs the chain-priced 1σ move (rrRatio). */
+.ptc-con-be-good { color: var(--pos); }
+.ptc-con-be-fair { color: var(--warn); }
+.ptc-con-be-bad  { color: var(--neg); }
+.ptc-con-er {
+  color: var(--warn);
+  font-weight: 700;
+  letter-spacing: .03em;
 }
 .ptc-meta { grid-area: meta; font-size: 11px; color: var(--muted); }
 .ptc-cta {
@@ -12281,6 +12455,132 @@ html::-webkit-scrollbar-thumb:hover {
 .hot-stat b { font-weight: 600; }
 .hot-stat.is-warming { color: var(--text-3); }
 .hot-vol { color: var(--text-3); }
+/* Header rollup — actionable verdict counts + the hottest sectors across the
+   top-N. A stable market read (computed pre-filter). */
+.hot-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 0.86em;
+  font-variant-numeric: tabular-nums;
+}
+.hot-sum-lead { font-weight: 600; color: var(--text-2); }
+.hot-sum-stat {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-weight: 600;
+}
+.hot-sum-stat.is-bull { color: var(--pos); background: var(--pos-soft); }
+.hot-sum-stat.is-bear { color: var(--neg); background: var(--neg-soft); }
+.hot-sum-stat.is-wait { color: var(--warn); background: var(--warn-soft); }
+.hot-sum-sectors { margin-left: auto; color: var(--text-3); }
+/* Sort + filter toolbar — reuses .vol-controls/.vol-pill/.vol-sort styling. */
+.hot-controls { margin-top: var(--s-3); }
+/* Curated-sector tag in the card head. */
+.hot-sector-tag {
+  flex: none;
+  align-self: center;
+  font-size: 0.62em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-3);
+  background: var(--surface-3);
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+/* Pace heat meter — 0..2.5x scale, baseline tick at 1x (40%), fill tinted by
+   the same heat tiers as the numeric pace. */
+.hot-pace-meter {
+  position: relative;
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.hot-pace-base {
+  position: absolute;
+  left: 40%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-strong);
+  z-index: 1;
+}
+.hot-pace-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+}
+.hot-pace-fill.is-hot { background: var(--neg); }
+.hot-pace-fill.is-elevated { background: var(--warn); }
+.hot-pace-fill.is-quiet { background: var(--text-3); }
+/* Per-card tag row: unusual-flow skew + day-range position. */
+.hot-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+.hot-chip-tag {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: 0.9em;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text-3);
+}
+.hot-flow, .hot-range {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+.hot-flow { font-weight: 600; }
+.hot-flow.is-bull { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, var(--border)); }
+.hot-flow.is-bear { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 35%, var(--border)); }
+.hot-flow.is-neutral { color: var(--text-3); }
+.hot-range { color: var(--text-2); gap: 4px; }
+.hot-range-track {
+  position: relative;
+  width: 42px;
+  height: 4px;
+  background: linear-gradient(90deg, var(--neg) 0%, var(--warn) 50%, var(--pos) 100%);
+  opacity: .55;
+  border-radius: var(--r-pill);
+}
+.hot-range-dot {
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  transform: translateY(-50%);
+  background: var(--text);
+  border: 1px solid var(--surface);
+  border-radius: 50%;
+}
+.hot-range-lbl { color: var(--text-3); }
 /* Phone layout: hide the desktop explainer prose, promote the verdict to a
    full-width thumb-sized button under the head line. */
 @media (max-width: 640px) {
@@ -12295,6 +12595,8 @@ html::-webkit-scrollbar-thumb:hover {
     order: 5;
     padding: 7px 10px;
   }
+  .hot-summary { font-size: 0.8em; }
+  .hot-sum-sectors { margin-left: 0; flex-basis: 100%; }
 }
 
 /* ---- Strategies tab ----------------------------------------------------- */
@@ -13347,11 +13649,11 @@ html::-webkit-scrollbar-thumb:hover {
 .brief-card {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--r-2);
-  padding: 16px 18px;
+  border-radius: var(--r-3);
+  padding: 20px 22px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   border-left-width: 3px;
   border-left-color: var(--border-strong);
 }
@@ -13372,8 +13674,8 @@ html::-webkit-scrollbar-thumb:hover {
 .brief-kind-afternoon { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .brief-date { font: 600 0.72rem/1 var(--font-mono); color: var(--muted-strong); }
 .brief-stamp { font: 600 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-.brief-headline { margin: 0; font: 700 1.05rem/1.35 var(--font-sans); color: var(--text-strong); }
-.brief-summary { margin: 0; font: 400 0.92rem/1.55 var(--font-sans); color: var(--text); }
+.brief-headline { margin: 2px 0 0; font: 700 1.4rem/1.3 var(--font-serif); letter-spacing: -0.02em; color: var(--text-strong); }
+.brief-summary { margin: 0; font: 400 1rem/1.7 var(--font-sans); color: var(--text); max-width: 76ch; }
 .brief-stats { display: flex; flex-wrap: wrap; gap: 6px; }
 .brief-stat {
   display: inline-flex; flex-direction: column; gap: 2px;
@@ -13387,8 +13689,13 @@ html::-webkit-scrollbar-thumb:hover {
 .brief-stat-val .pos { color: var(--pos); }
 .brief-stat-val .neg { color: var(--neg); }
 .brief-stat-chg { color: var(--muted); font-weight: 500; }
-.brief-highlights { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.brief-hl { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font: 400 0.88rem/1.45 var(--font-sans); color: var(--text); }
+.brief-highlights { margin: 2px 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.brief-hl {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  font: 400 0.95rem/1.6 var(--font-sans); color: var(--text);
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+}
 .brief-hl-label {
   flex: none;
   font: 700 0.66rem/1.3 var(--font-mono);
@@ -13397,8 +13704,19 @@ html::-webkit-scrollbar-thumb:hover {
   min-width: 84px;
 }
 .brief-hl-text { flex: 1 1 200px; }
-.brief-block { display: flex; flex-direction: column; gap: 6px; }
-.brief-block-title { margin: 0; font: 700 0.7rem/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted-strong); }
+/* Detailed data blocks, grouped below the story behind a rule so the prose
+   (headline / summary / takeaways) reads first. */
+.brief-blocks {
+  display: flex; flex-direction: column; gap: var(--s-4);
+  margin-top: 2px; padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.brief-block { display: flex; flex-direction: column; gap: 8px; }
+.brief-block-title {
+  margin: 0; font: 700 0.72rem/1.2 var(--font-mono);
+  text-transform: uppercase; letter-spacing: .07em; color: var(--muted-strong);
+  padding-bottom: 5px; border-bottom: 1px solid var(--hairline);
+}
 .brief-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .brief-chip {
   display: inline-flex; align-items: center; gap: 4px;
@@ -13440,13 +13758,19 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
 }
 .brief-event-label { font: 600 0.72rem/1.2 var(--font-sans); color: var(--text); }
 .brief-event-detail { font: 600 0.66rem/1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.brief-hlines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.brief-hlines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .brief-hline {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r-1); padding: 4px 9px;
+  border-radius: var(--r-2); padding: 6px 10px;
 }
-.brief-hline-title { font: 500 0.72rem/1.35 var(--font-sans); color: var(--text); flex: 1 1 240px; }
+.brief-hline-title { font: 500 0.8rem/1.4 var(--font-sans); color: var(--text); flex: 1 1 240px; }
+/* Tape headlines link to their source article when the feed gave us a permalink. */
+a.brief-hline-title { text-decoration: none; transition: color .12s var(--ease-out); }
+a.brief-hline-title:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+a.brief-hline-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.brief-hline-ext { margin-left: 4px; font-size: 9px; color: var(--muted); }
+a.brief-hline-title:hover .brief-hline-ext { color: var(--accent-strong); }
 .brief-hline-meta { font: 600 0.62rem/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
 
 @media (max-width: 640px) {
