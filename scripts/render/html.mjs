@@ -308,7 +308,7 @@ function unusualFlowSection() {
       <span class="card-eyebrow" id="flow-eyebrow" aria-live="polite"></span>
     </header>
     <div id="flow-body" class="flow-body">
-      <p class="hint">Block/sweep flow: 5–50% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI. The kind of single-shot directional buying that often signals informed positioning. A 🔥 ×N badge means the same contract has flagged that many times in the last 5 trading days — recurring conviction. Hourly scan, front 3 expirations.</p>
+      <p class="hint">Block/sweep flow: 5–50% OTM contracts that picked up at least 2,000 contracts of volume this hour (4,000 if expiring within 2 weeks) with vol &gt; OI. The kind of single-shot directional buying that often signals informed positioning. Each chip shows the <strong>volume-to-OI multiple</strong> (e.g. 4×, the canonical unusual read) and the <strong>premium that hit this hour</strong>; the bar above sums call vs put premium for a directional lean. A 🔥 ×N badge means the same contract has flagged that many times in the last 5 trading days — recurring conviction. Hourly scan, front 2 expirations.</p>
       <div class="flow-controls" role="toolbar" aria-label="Filter unusual flow">
         <label class="flow-search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -333,7 +333,7 @@ function unusualFlowSection() {
             <option value="delta">Biggest hourly delta</option>
             <option value="contracts">Most contracts</option>
             <option value="volume">Most total volume</option>
-            <option value="premium">Biggest premium</option>
+            <option value="premium">Biggest premium (this hr)</option>
             <option value="repeats">Most 🔥 repeats</option>
             <option value="alpha">A → Z</option>
           </select>
@@ -341,6 +341,7 @@ function unusualFlowSection() {
         <button type="button" id="flow-expand-toggle" class="flow-action-btn" aria-pressed="true">Expand all</button>
         <button type="button" id="flow-export-csv" class="flow-action-btn csv-export-btn" title="Download visible rows as CSV">Export CSV</button>
       </div>
+      <div id="flow-summary" class="flow-summary" hidden></div>
       <div id="flow-list" class="flow-list" role="list"></div>
       <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
       <div id="flow-no-results" class="flow-empty" hidden>No tickers match these filters.</div>

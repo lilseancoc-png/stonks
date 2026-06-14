@@ -6627,8 +6627,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var otmStr = fmtOtm(c.otmPct);
     var otmTag = otmStr ? '<span class="flow-otm">' + escapeHtml(otmStr) + ' OTM</span>' : '';
     var dteTag = c.dte != null ? '<span class="flow-dte' + (c.dte <= 14 ? ' near' : '') + '">' + Number(c.dte) + 'd</span>' : '';
-    var premStr = c.premium != null ? fmtBigDollars(c.premium) : null;
-    var premTag = premStr ? '<span class="flow-prem">' + escapeHtml(premStr) + ' prem</span>' : '';
+    // Volume-to-OI multiple — the canonical "unusual" read (a flagged contract
+    // always has vol > OI, so this is >1×). Brand-new strikes (OI 0) get a
+    // "new" tag rather than a divide-by-zero.
+    var voiRatio = (c.oi != null && c.oi > 0 && c.vol != null) ? (c.vol / c.oi) : null;
+    var voiStr = '';
+    var voiTag = '';
+    if (voiRatio != null && isFinite(voiRatio)){
+      voiStr = (voiRatio >= 10 ? Math.round(voiRatio) : Math.round(voiRatio * 10) / 10) + '×';
+      voiTag = '<span class="flow-voi" title="' + escapeHtml('Volume is ' + voiStr + ' open interest — net-new positioning, not closing existing OI') + '">' + escapeHtml(voiStr) + '</span>';
+    } else if (c.oi === 0 && c.vol > 0){
+      voiTag = '<span class="flow-voi flow-voi-new" title="No prior open interest — a brand-new strike">new</span>';
+    }
+    // Premium that hit this hour (deltaVol × last × 100) sits beside the hourly
+    // delta — the honest "size of this hour's flow". Older scans without
+    // deltaPremium fall back to the day's cumulative premium; the tooltip
+    // carries both.
+    var hourPrem = c.deltaPremium != null ? c.deltaPremium : null;
+    var dayPrem = c.premium != null ? c.premium : null;
+    var premShown = hourPrem != null ? hourPrem : dayPrem;
+    var premStr = premShown != null ? fmtBigDollars(premShown) : null;
+    var premTag = premStr ? '<span class="flow-prem" title="Premium that traded this hour (volume delta × last × 100)">' + escapeHtml(premStr) + '</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
     var tapeCls = String(c.tape || '').replace(/[^a-z0-9_-]/gi, '');
     var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>' : '';
@@ -6643,15 +6662,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? '<span class="flow-flagged" title="' + escapeHtml('First flagged unusual at ' + flaggedLbl + ' ET') + '">\u{2691} ' + escapeHtml(flaggedLbl) + '</span>'
       : '';
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
-    var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
+    var tipVoi = (voiRatio != null && isFinite(voiRatio)) ? ' · vol ' + voiStr + ' OI' : '';
+    var tipHourPrem = hourPrem != null ? ' · ≈' + fmtBigDollars(hourPrem) + ' premium this hour' : '';
+    var tipDayPrem = dayPrem != null ? ' · ' + fmtBigDollars(dayPrem) + ' on the day' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
     var tipRepeat = repeatCount >= 2 ? ' · flagged ' + repeatCount + 'x in last 5 trading days' : '';
     var tipFlagged = flaggedLbl ? ' · flagged ' + flaggedLbl + ' ET' : '';
-    var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
+    var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + tipVoi +
       (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
       tipPrev +
       (c.last != null ? ' · last $' + Number(c.last) : '') +
-      tipPrem + tipTape + tipRepeat + tipFlagged;
+      tipHourPrem + tipDayPrem + tipTape + tipRepeat + tipFlagged;
     var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
     var wrapClass = 'flow-contract' + (c.note ? ' has-note' : '');
     // Build a Grade-this-contract link if we have enough state.
@@ -6677,6 +6698,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="flow-sep">/</span>' +
         '<span class="flow-oi">' + escapeHtml(fmtVolume(c.oi)) + '</span>' +
       '</span>' +
+      voiTag +
       '<span class="flow-delta">' + escapeHtml(deltaStr) + '/hr</span>' +
       premTag +
       tapeTag +
@@ -6800,6 +6822,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var topDelta = contracts.reduce(function(acc, c){ return Math.max(acc, c.deltaVol || 0); }, 0);
       var totalVol = contracts.reduce(function(acc, c){ return acc + (c.vol || 0); }, 0);
       var totalPremium = contracts.reduce(function(acc, c){ return acc + (c.premium || 0); }, 0);
+      // Premium that hit this hour (deltaPremium), falling back to the day's
+      // cumulative premium on older scans that predate the field.
+      var totalDeltaPremium = contracts.reduce(function(acc, c){ return acc + (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)); }, 0);
       var topRepeat = contracts.reduce(function(acc, c){ return Math.max(acc, c.repeatCount || 0); }, 0);
       out.push({
         symbol: t.symbol,
@@ -6808,6 +6833,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         topDelta: topDelta,
         totalVol: totalVol,
         totalPremium: totalPremium,
+        totalDeltaPremium: totalDeltaPremium,
         topRepeat: topRepeat,
       });
     });
@@ -6818,7 +6844,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     } else if (flowState.sort === 'volume'){
       out.sort(function(a, b){ return (b.totalVol || 0) - (a.totalVol || 0); });
     } else if (flowState.sort === 'premium'){
-      out.sort(function(a, b){ return (b.totalPremium || 0) - (a.totalPremium || 0); });
+      out.sort(function(a, b){ return (b.totalDeltaPremium || 0) - (a.totalDeltaPremium || 0); });
     } else if (flowState.sort === 'repeats'){
       out.sort(function(a, b){
         var diff = (b.topRepeat || 0) - (a.topRepeat || 0);
@@ -6856,6 +6882,67 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       metric('Put wall', g.putWall ? fmtOiStrike(g.putWall.strike) : '—', 'is-neg', '') +
     '</div>';
   }
+  // Directional summary bar for the whole (filtered) flagged set: call vs put
+  // premium split + a bull/bear lean, the total premium flagged today, the
+  // contract count, and the single biggest hourly print. Recomputed on every
+  // filter change so it always describes what's on screen. Premium is weighted
+  // by deltaPremium (this hour's dollars), falling back to the day premium and
+  // — when no premium is available at all — to raw contract counts so the lean
+  // still reads. The #flow-summary host ships in the next baked index.html; the
+  // guard makes this a no-op against an older shell.
+  function renderFlowSummary(tickers){
+    var el = $('flow-summary');
+    if (!el) return;
+    var callPrem = 0, putPrem = 0, callN = 0, putN = 0, total = 0;
+    var top = null;
+    (tickers || []).forEach(function(t){
+      (t.contracts || []).forEach(function(c){
+        var dp = (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)) || 0;
+        total += dp;
+        if (c.side === 'put'){ putPrem += dp; putN++; } else { callPrem += dp; callN++; }
+        if (!top || dp > top.dp) top = { dp: dp, sym: t.symbol, c: c };
+      });
+    });
+    var totalContracts = callN + putN;
+    if (!totalContracts){ el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    var denom = callPrem + putPrem;
+    // When no dollar premium is available, fall back to the contract split for
+    // both the bar widths and the lean.
+    var bullBasis = denom > 0 ? callPrem : callN;
+    var bearBasis = denom > 0 ? putPrem : putN;
+    var basisSum = bullBasis + bearBasis;
+    var callPct = basisSum > 0 ? Math.round((bullBasis / basisSum) * 100) : 50;
+    var putPct = 100 - callPct;
+    var leanCls = 'is-neutral', leanLbl = 'Balanced flow';
+    if (bullBasis >= bearBasis * 1.2){ leanCls = 'is-bull'; leanLbl = 'Bullish lean'; }
+    else if (bearBasis >= bullBasis * 1.2){ leanCls = 'is-bear'; leanLbl = 'Bearish lean'; }
+    var totalStr = fmtBigDollars(total) || '$0';
+    var callStr = fmtBigDollars(callPrem) || '$0';
+    var putStr = fmtBigDollars(putPrem) || '$0';
+    var topStr = '';
+    if (top && top.c && top.c.strike != null){
+      var ts = top.c.side === 'put' ? 'P' : 'C';
+      var tp = fmtBigDollars(top.dp);
+      topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + '/hr' : '');
+    }
+    var barLabel = 'Call premium ' + callPct + '%, put premium ' + putPct + '%';
+    el.innerHTML =
+      '<div class="flow-sum-row">' +
+        '<span class="flow-sum-lean ' + leanCls + '">' + leanLbl + '</span>' +
+        '<span class="flow-sum-stat"><strong>' + escapeHtml(totalStr) + '</strong> premium flagged today</span>' +
+        '<span class="flow-sum-stat"><strong>' + totalContracts + '</strong> contract' + (totalContracts === 1 ? '' : 's') + '</span>' +
+        (topStr ? '<span class="flow-sum-top" title="Largest single hourly print">Top print · ' + topStr + '</span>' : '') +
+      '</div>' +
+      '<div class="flow-sum-bar" role="img" aria-label="' + escapeHtml(barLabel) + '">' +
+        '<span class="flow-sum-bar-call" style="width:' + callPct + '%"></span>' +
+        '<span class="flow-sum-bar-put" style="width:' + putPct + '%"></span>' +
+      '</div>' +
+      '<div class="flow-sum-legend">' +
+        '<span class="flow-sum-leg is-call"><span class="flow-sum-dot"></span>Calls ' + escapeHtml(callStr) + ' · ' + callPct + '% · ' + callN + '</span>' +
+        '<span class="flow-sum-leg is-put"><span class="flow-sum-dot"></span>Puts ' + escapeHtml(putStr) + ' · ' + putPct + '% · ' + putN + '</span>' +
+      '</div>';
+  }
   function renderUnusualFlow(){
     var list = $('flow-list');
     var empty = $('flow-empty');
@@ -6881,6 +6968,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (!allTickers.length){
       list.innerHTML = '';
+      renderFlowSummary([]);
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
@@ -6898,6 +6986,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tickers = filteredTickers();
     if (!tickers.length){
       list.innerHTML = '';
+      renderFlowSummary([]);
       if (noResults){
         noResults.hidden = false;
         noResults.textContent = hasFilters
@@ -6907,6 +6996,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     if (noResults) noResults.hidden = true;
+    renderFlowSummary(tickers);
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = deltaTier(t.topDelta || 0);
@@ -16401,9 +16491,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
               dte: c.dte != null ? c.dte : '',
               volume: c.vol != null ? c.vol : '',
               openInterest: c.oi != null ? c.oi : '',
+              volOiRatio: (c.oi != null && c.oi > 0 && c.vol != null) ? Math.round((c.vol / c.oi) * 100) / 100 : '',
               iv: c.iv != null ? c.iv : '',
               tape: c.tape || '',
               hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
+              hourlyPremium: c.deltaPremium != null ? c.deltaPremium : '',
               premium: c.premium != null ? c.premium : '',
               repeats5d: c.repeatCount || 0,
               note: c.note || '',

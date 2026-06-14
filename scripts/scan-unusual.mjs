@@ -220,6 +220,14 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
 
   // Option premium in dollars: vol * last * 100 (each contract = 100 shares).
   const premium = (last != null && vol > 0) ? Math.round(vol * last * 100) : null;
+  // Premium that hit THIS hour — the dollar value of the volume that came in
+  // since the prior snapshot (deltaVol * last * 100). The whole tab is framed
+  // around the hourly delta, so this is the honest "size of this hour's flow",
+  // whereas `premium` above is the full-day cumulative notional. Null when we
+  // have no prior snapshot or the delta is non-positive.
+  const deltaPremium = (last != null && deltaVol != null && deltaVol > 0)
+    ? Math.round(deltaVol * last * 100)
+    : null;
   const tape = tapeTag(bid, ask, last);
 
   return {
@@ -238,6 +246,7 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
     otmPct: Math.round(otmPct * 1000) / 1000,
     dte,
     premium,
+    deltaPremium,
     tape,
     flagged,
     scannedAt,
@@ -1407,6 +1416,7 @@ function stripCandidate(c) {
     otmPct: c.otmPct,
     dte: c.dte,
     premium: c.premium,
+    deltaPremium: c.deltaPremium,
     tape: c.tape,
     scannedAt: c.scannedAt,
   };
