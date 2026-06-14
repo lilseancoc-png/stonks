@@ -1,10 +1,14 @@
-// Vercel serverless function: gated read of a private data/ artifact.
+// Vercel serverless function: tiered read of a private data/ artifact.
 //
-// The premium data/*.json no longer ship as public static files — they live in
-// a private blob store (lib/datastore.mjs) and are streamed from here ONLY to a
-// holder of a valid Discord-role session. The browser still calls
-// fetch('data/<x>.json'); middleware.js rewrites /data/* to this function when
-// the gate is on. See docs/private-data-migration.md §4.4.
+// The data/*.json no longer ship as public static files — they live in a
+// private blob store (lib/datastore.mjs) and are streamed from here. The site
+// is FREEMIUM: free keys (per-ticker chains, calendar, heatmap, 13F, macro,
+// fear-greed, correlations, grades index, …) stream to anyone and are edge-
+// cacheable; PREMIUM keys (picks, briefs, narratives/unusual manifest, volume,
+// OI, track-record histories — see lib/premium-keys.mjs) stream ONLY to a holder
+// of a valid Discord-role session and are never shared-cacheable. The browser
+// still calls fetch('data/<x>.json'); middleware.js rewrites /data/* to this
+// function when the gate is on. See docs/private-data-migration.md §4.4.
 //
 // Activation is behind PRIVATE_DATA_ENABLED: until it's "1" this endpoint is a
 // hard 404 (so a seeded store can't leak before the gate is live), and the site
@@ -12,6 +16,7 @@
 
 import { store } from "../../lib/datastore.mjs";
 import { getSession } from "../../lib/session.mjs";
+import { isPremiumKey } from "../../lib/premium-keys.mjs";
 
 // json-only, no traversal — the cheap-allowlist defense for the store key.
 const KEY_RE = /^[A-Za-z0-9_./-]+\.json$/;
@@ -45,13 +50,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "bad key" });
   }
 
-  // Gated content is never shared-cacheable.
-  res.setHeader("Cache-Control", "private, no-store");
-
-  // Require a valid Discord-role session.
-  const session = await getSession(req).catch(() => null);
-  if (!session) {
-    return res.status(401).json({ error: "auth required" });
+  if (isPremiumKey(key)) {
+    // Premium: never shared-cacheable, and only for a valid Discord-role session.
+    res.setHeader("Cache-Control", "private, no-store");
+    const session = await getSession(req).catch(() => null);
+    if (!session) {
+      return res.status(401).json({ error: "auth required" });
+    }
+  } else {
+    // Free: open to anyone and safe to edge-cache briefly (the data changes at
+    // most a few times an hour, and there's nothing per-user in it).
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=60, s-maxage=120, stale-while-revalidate=600",
+    );
   }
 
   try {

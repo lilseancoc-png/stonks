@@ -845,21 +845,28 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   // Manifest is embedded inline so the narratives card + combobox can paint
   // on first frame. Per-ticker chain JSON is still lazy-fetched from
   // data/<SYMBOL>.json on demand.
-  // --- Manifest split (private-data migration / Path B) ---------------------
-  // The PREMIUM fields (AI narratives, sector overviews, the unusual-flow
-  // snapshot, spots, macro/fear-greed/backdrop) carry the product's value and
-  // must NOT ship inside the committed (public-repo) index.html. When a dataDir
-  // is given (the normal build + regen-static path) they're written to a sidecar
-  // data/manifest.json \u2014 which moves to the private blob store at cutover \u2014 and
-  // the page inlines only the non-sensitive SHELL (ticker list, sector taxonomy,
-  // freshness-stub meta) plus a `deferred` flag so app.js fetches the premium
-  // half. Without dataDir, inline the full manifest (legacy/standalone render).
+  // --- Manifest split (private-data migration / Path B + freemium tiering) ---
+  // The manifest's heavy fields are externalized to sidecars so the committed
+  // (public-repo) index.html carries only a non-sensitive SHELL (ticker list,
+  // sector taxonomy, freshness-stub meta) plus a `deferred` flag. app.js then
+  // fetches the sidecars and merges them before first paint. Two sidecars, by
+  // tier (see lib/premium-keys.mjs):
+  //   \u2022 data/manifest.json (PREMIUM, gated) \u2014 the value-carrying half: AI
+  //     narratives, sector overviews, recently-ended picks, the unusual-flow
+  //     snapshot. Served only to a valid session.
+  //   \u2022 data/manifest-free.json (FREE, public) \u2014 the open-tab half: macro
+  //     headlines, last spots, fear-greed, macro backdrop, market backdrop.
+  //     Powers the free Bonds & USD / Fear & Greed / Grade / Heatmap surfaces
+  //     for everyone, member or not.
+  // Without dataDir, inline the full manifest (legacy/standalone render).
   const premiumManifest = {
     narratives: narrativesTagged,
     sectorOverviews: sectorOverviews || {},
     recentlyEnded,
-    macroHeadlines,
     unusual: unusual || null,
+  };
+  const freeManifest = {
+    macroHeadlines,
     spots,
     fearGreed: fearGreed || null,
     macro: macro || null,
@@ -887,14 +894,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   if (dataDir) {
     try {
       writeFileSync(resolve(dataDir, "manifest.json"), JSON.stringify(premiumManifest), "utf8");
+      writeFileSync(resolve(dataDir, "manifest-free.json"), JSON.stringify(freeManifest), "utf8");
       inlineManifest = { ...shellManifest, deferred: true };
     } catch (_err) {
-      // Couldn't write the sidecar \u2014 fail SAFE to a full inline manifest so the
+      // Couldn't write the sidecars \u2014 fail SAFE to a full inline manifest so the
       // page still works (a transient leak beats a blank app).
-      inlineManifest = { ...shellManifest, ...premiumManifest };
+      inlineManifest = { ...shellManifest, ...freeManifest, ...premiumManifest };
     }
   } else {
-    inlineManifest = { ...shellManifest, ...premiumManifest };
+    inlineManifest = { ...shellManifest, ...freeManifest, ...premiumManifest };
   }
   const manifestPayload = JSON.stringify(inlineManifest)
     .replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
@@ -946,11 +954,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
-      <div id="auth-chip" class="auth-chip" hidden>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
-        <span class="auth-name" id="auth-name"></span>
-        <a class="auth-logout" href="/api/auth/logout" title="Log out">Log out</a>
-      </div>
+      <!-- Auth chip — content (member name + Log out, or a "Log in" CTA) is
+           rendered at runtime by renderAuthChip() from /api/auth/me; hidden by
+           default so nothing flashes before membership resolves. -->
+      <div id="auth-chip" class="auth-chip" hidden></div>
     </nav>
   </div>
 </header>

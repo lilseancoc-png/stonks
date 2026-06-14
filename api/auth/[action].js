@@ -174,11 +174,17 @@ function logout(req, res) {
 // --- session probe -----------------------------------------------------------
 async function me(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
-  if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false });
+  // `enabled` tells the freemium client whether the gate is live at all. When
+  // it's off (legacy fully-public deploy) the client treats everyone as a
+  // member and shows no locks; when it's on, only an authed session unlocks
+  // the premium tabs.
+  const enabled = process.env.PRIVATE_DATA_ENABLED === "1";
+  if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false, enabled });
   const session = await getSession(req).catch(() => null);
-  if (!session) return res.status(200).json({ authed: false });
+  if (!session) return res.status(200).json({ authed: false, enabled });
   return res.status(200).json({
     authed: true,
+    enabled,
     name: session.name || null,
     sub: session.sub || null,
   });

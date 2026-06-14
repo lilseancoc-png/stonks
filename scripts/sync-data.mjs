@@ -47,12 +47,13 @@ const UNUSUAL_EXCLUSIVE = [
 ];
 const OI_EXCLUSIVE = ["oi-tracker.json", "oi-history.json"];
 // Co-owned read-modify-write files (each producer pulls latest, applies its
-// once-per-window update, pushes). Safe under serialized runs. manifest.json is
-// regenerated deterministically by regen-static in EVERY workflow (it carries
-// the bake's narratives from the pulled trends.json + the scanner's fresh
-// unusual snapshot), so all producers push it — last-writer-wins is consistent.
-const UNUSUAL_SHARED = ["heatmap.json", "ai-usage.json", "manifest.json"];
-const OI_SHARED = ["briefs.json", "ai-usage.json", "manifest.json"];
+// once-per-window update, pushes). Safe under serialized runs. manifest.json
+// (premium half) + manifest-free.json (free half) are regenerated
+// deterministically by regen-static in EVERY workflow (they carry the bake's
+// narratives from the pulled trends.json + the scanner's fresh unusual
+// snapshot), so all producers push them — last-writer-wins is consistent.
+const UNUSUAL_SHARED = ["heatmap.json", "ai-usage.json", "manifest.json", "manifest-free.json"];
+const OI_SHARED = ["briefs.json", "ai-usage.json", "manifest.json", "manifest-free.json"];
 
 const SCANNER_EXCLUSIVE = new Set([...UNUSUAL_EXCLUSIVE, ...OI_EXCLUSIVE]);
 
