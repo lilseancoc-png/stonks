@@ -17059,9 +17059,10 @@ function isReputablePublisher(name) {
   return REPUTABLE_PUBLISHERS.some((p) => lc.includes(p.toLowerCase()));
 }
 
-// Very small RSS/Atom parser — enough to read <title>/<pubDate>/<updated>
-// off the feeds we whitelist in MACRO_FEEDS. No XML dependency on purpose;
-// these feeds are well-formed and we only need two fields per item.
+// Very small RSS/Atom parser — enough to read <title>/<pubDate>/<updated> +
+// the article <link> off the feeds we whitelist in MACRO_FEEDS. No XML
+// dependency on purpose; these feeds are well-formed and we only need a few
+// fields per item.
 function parseRssItems(xml, max) {
   if (!xml) return [];
   const out = [];
@@ -17071,11 +17072,12 @@ function parseRssItems(xml, max) {
     if (!titleMatch) continue;
     let title = titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
     // Decode the handful of named/numeric entities RSS feeds commonly use.
-    title = title
+    const decodeEntities = (s) => s
       .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
       .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
       .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
       .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)));
+    title = decodeEntities(title);
     if (!title) continue;
     const dateRaw =
       (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) ||
@@ -17087,7 +17089,35 @@ function parseRssItems(xml, max) {
       const d = new Date(dateRaw.trim());
       if (!isNaN(d.getTime())) publishedAt = d.toISOString();
     }
-    out.push({ title, publishedAt });
+    // Article permalink. RSS 2.0 uses a text-node <link>URL</link>; Atom uses
+    // one or more self-closing <link href="URL" rel="…"/> (prefer rel="alternate",
+    // skip rel="self"). We capture it so the macro feed can cite the source.
+    let link = null;
+    const rssLink = block.match(/<link>\s*([\s\S]*?)\s*<\/link>/i);
+    if (rssLink && /^https?:\/\//i.test(rssLink[1].trim())) {
+      link = rssLink[1].trim();
+    }
+    if (!link) {
+      const atomLinkTags = block.match(/<link\b[^>]*>/gi) || [];
+      let alternate = null;
+      let firstHref = null;
+      for (const tag of atomLinkTags) {
+        const href = (tag.match(/href\s*=\s*"([^"]+)"/i) || tag.match(/href\s*=\s*'([^']+)'/i) || [])[1];
+        if (!href || !/^https?:\/\//i.test(href)) continue;
+        const rel = ((tag.match(/rel\s*=\s*["']([^"']+)["']/i) || [])[1] || "").toLowerCase();
+        if (rel === "self") continue;
+        if (!firstHref) firstHref = href;
+        if ((rel === "alternate" || rel === "") && !alternate) alternate = href;
+      }
+      link = alternate || firstHref || null;
+    }
+    if (link) {
+      link = decodeEntities(link.trim());
+      // Bound the URL so a malformed feed can't bloat the manifest; drop anything
+      // that doesn't parse as an absolute http(s) URL.
+      if (link.length > 500 || !/^https?:\/\//i.test(link)) link = null;
+    }
+    out.push(link ? { title, publishedAt, link } : { title, publishedAt });
     if (out.length >= max) break;
   }
   return out;

@@ -1252,6 +1252,109 @@ main {
 }
 
 /* === Narratives === */
+/* Market pulse — cross-sector summary above the sector tabs. Aggregates every
+   real (non-watchlist) narrative into one at-a-glance read: strength-weighted
+   bull/bear tilt, headline counts, and the strongest stories market-wide as
+   click-to-jump chips. The "front page" of the narratives section. */
+.narr-pulse {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--s-3) var(--s-4);
+  margin: var(--s-3) 0 var(--s-2);
+  padding: var(--s-4);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 80%, transparent), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+}
+.narr-pulse[hidden] { display: none; }
+@media (max-width: 720px) { .narr-pulse { grid-template-columns: 1fr; } }
+.narr-pulse-tilt { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.narr-pulse-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
+.narr-pulse-eyebrow {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.narr-pulse-verdict {
+  font-family: var(--font-serif);
+  font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em;
+}
+.narr-pulse-verdict.is-bull { color: var(--pos); }
+.narr-pulse-verdict.is-bear { color: var(--neg); }
+.narr-pulse-verdict.is-mixed { color: var(--warn); }
+.narr-pulse-bar {
+  position: relative; display: flex; height: 9px;
+  border-radius: var(--r-pill); overflow: hidden; background: var(--surface-3);
+}
+.narr-pulse-bar-bull { background: linear-gradient(90deg, color-mix(in srgb, var(--pos) 60%, transparent), var(--pos)); }
+.narr-pulse-bar-bear { background: linear-gradient(90deg, var(--neg), color-mix(in srgb, var(--neg) 60%, transparent)); }
+.narr-pulse-bar-mid {
+  position: absolute; left: 50%; top: -1px; bottom: -1px; width: 2px;
+  transform: translateX(-50%); background: var(--surface); opacity: 0.7;
+}
+.narr-pulse-legend {
+  display: flex; justify-content: space-between; gap: var(--s-2);
+  font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums;
+}
+.narr-pulse-legend .is-bull { color: var(--pos); }
+.narr-pulse-legend .is-bear { color: var(--neg); }
+.narr-pulse-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-2); align-content: center; }
+.narr-pulse-stat {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 8px 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2);
+}
+.narr-pulse-stat-num {
+  font-family: var(--font-mono); font-size: var(--fs-lg); font-weight: 700;
+  font-variant-numeric: tabular-nums; color: var(--text-strong); line-height: 1;
+}
+.narr-pulse-stat-num.is-warn { color: var(--warn); }
+.narr-pulse-stat-num.is-accent { color: var(--accent-strong); }
+.narr-pulse-stat-label {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.narr-pulse-leaders {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column; gap: 6px;
+  padding-top: var(--s-3); margin-top: 2px;
+  border-top: 1px dashed var(--hairline);
+}
+.narr-pulse-leaders-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.narr-pulse-leader-list { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.narr-pulse-leader {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 11px 7px 9px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-left-width: 3px; border-radius: var(--r-2);
+  cursor: pointer; font: inherit; text-align: left;
+  transition: border-color .12s var(--ease-out), background .12s var(--ease-out), transform .12s var(--ease-out);
+}
+.narr-pulse-leader.bullish { border-left-color: var(--pos); }
+.narr-pulse-leader.bearish { border-left-color: var(--neg); }
+.narr-pulse-leader:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  border-left-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+.narr-pulse-leader.bullish:hover { border-left-color: var(--pos); }
+.narr-pulse-leader.bearish:hover { border-left-color: var(--neg); }
+.narr-pulse-leader:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.narr-pulse-leader-rank { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--muted); }
+.narr-pulse-leader-name {
+  font-family: var(--font-serif);
+  font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-strong);
+  white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+}
+.narr-pulse-leader-meta { display: inline-flex; align-items: center; gap: 6px; }
+.narr-pulse-leader-sector { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.narr-pulse-leader-str { font-family: var(--font-mono); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.narr-pulse-leader-str.bullish { color: var(--pos); }
+.narr-pulse-leader-str.bearish { color: var(--neg); }
+
 /* Sector tab strip across the top of the narratives card. Horizontally
    scrollable on narrow viewports so all 11 sectors stay reachable. */
 .narr-tabs {
@@ -1354,9 +1457,10 @@ main {
 }
 .narr-sector-overview-title {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   color: var(--text-strong);
 }
 .narr-sector-overview-stance {
@@ -1384,29 +1488,31 @@ main {
 .narr-sector-overview-thesis {
   margin: 0;
   font-size: var(--fs-md);
-  line-height: 1.55;
+  line-height: 1.65;
   color: var(--text);
+  max-width: 78ch;
 }
 .narr-sector-overview-thesis.muted { color: var(--muted); font-style: italic; }
-.narr-industries { display: flex; flex-direction: column; gap: var(--s-4); }
+.narr-industries { display: flex; flex-direction: column; gap: var(--s-6); }
 .narr-industry {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: var(--s-3);
 }
 .narr-industry-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s-2);
-  padding-bottom: 4px;
-  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 .narr-industry-name {
   margin: 0;
-  font-size: var(--fs-md);
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   color: var(--text-strong);
 }
 .narr-industry-count {
@@ -1419,7 +1525,7 @@ main {
 .narr-industry-list {
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
+  gap: var(--s-4);
 }
 .narr-empties {
   margin-top: var(--s-2);
@@ -1528,7 +1634,7 @@ main {
 .narr-list:empty { display: none; }
 .narr {
   position: relative;
-  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-5);
+  padding: var(--s-4) var(--s-5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
@@ -1554,14 +1660,22 @@ main {
 .narr[data-sent="bearish"] .narr-accent { background: var(--neg); }
 .narr-head {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2);
-  margin-bottom: var(--s-1);
+  margin-bottom: 0;
 }
 .narr-name {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
   color: var(--text-strong);
+}
+/* Metadata strip under the headline — status / timeframe / confidence / tenure.
+   Muted + secondary so the headline and thesis carry the read (editorial feel). */
+.narr-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: var(--s-2) 0 var(--s-1);
 }
 .narr-tag {
   font-size: 11px; font-weight: 600;
@@ -1588,11 +1702,21 @@ main {
   background: var(--accent);
 }
 .narr-thesis {
-  margin: var(--s-1) 0 var(--s-2);
+  margin: var(--s-2) 0;
   color: var(--text);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
+  font-size: var(--fs-md);
+  line-height: 1.7;
+  max-width: 72ch;
 }
+/* Supporting analytics — strength / lifecycle / hype — grouped below the prose
+   behind a hairline so the story reads first and the gauges read as "the data
+   behind it" rather than competing with the headline. */
+.narr-analytics {
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--hairline);
+}
+.narr-analytics .narr-strength { margin-top: 0; }
 .narr-side-row {
   display: flex; flex-wrap: wrap; align-items: center;
   gap: 6px;
@@ -2056,6 +2180,16 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   white-space: nowrap;
 }
 .narr-macro-title { color: var(--text); }
+/* Macro headlines link to their source article when the feed gave us a
+   permalink. Title links read as body text until hover; a small ↗ marks them. */
+a.narr-macro-title {
+  text-decoration: none;
+  transition: color .12s var(--ease-out);
+}
+a.narr-macro-title:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+a.narr-macro-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.narr-macro-ext { margin-left: 4px; font-size: 9px; color: var(--muted); }
+a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 
 /* Macro shell — top-3 pill strip + collapsed full list. Replaces the
    purely-collapsed details so the user can see the freshest macro hits
@@ -2108,6 +2242,20 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   overflow: hidden;
   word-break: break-word;
 }
+/* When the feed gave us a permalink the pill is a real <a> — make it feel
+   clickable (lift + accent border on hover) and badge the publisher with ↗. */
+.narr-macro-pill.is-link {
+  cursor: pointer;
+  transition: border-color .12s var(--ease-out), background .12s var(--ease-out), transform .12s var(--ease-out), box-shadow .12s var(--ease-out);
+}
+.narr-macro-pill.is-link:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  transform: translateY(-1px);
+}
+.narr-macro-pill.is-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.narr-macro-pill-ext { margin-left: 5px; font-size: 9px; color: var(--muted); vertical-align: 1px; }
+.narr-macro-pill.is-link:hover .narr-macro-pill-ext { color: var(--accent-strong); }
 .narr-macro-shell .narr-macro-details {
   border: 0;
   padding: 0;
