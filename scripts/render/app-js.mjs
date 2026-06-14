@@ -16584,6 +16584,44 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var deferChip = (p.entryTiming && p.entryTiming.state === 'wait' && (p.entryTiming.deferKind === 'earnings' || p.entryTiming.deferKind === 'event'))
       ? '<span class="ptc-defer" title="' + escapeHtml(p.entryTiming.headline || 'Scheduled catalyst — defer entry') + '">⏳ WAIT</span>'
       : '';
+    // Contract economics line — surface the suggested contract's strike/DTE,
+    // premium, and move-to-breakeven right on the skimmable tile. Without it the
+    // "Cheapest premium" / "Smallest move to breakeven" sorts reorder the grid by
+    // data the user can't see, and picks aren't comparable without opening each
+    // detail page. Every actionable pick carries a tradeable contract, so this is
+    // present on real picks; legacy/contract-less payloads just skip the line.
+    var c = p.contract || {};
+    var econ = '';
+    if (c.strike != null && c.dte != null){
+      var prem = pickPremium(p);
+      var premPerContract = (prem != null && isFinite(prem)) ? '$' + (prem * 100).toFixed(0) + ' / contract' : '';
+      var beChip = '';
+      if (c.breakevenMovePct != null && isFinite(c.breakevenMovePct)){
+        var bem = Number(c.breakevenMovePct);
+        // Color the breakeven move by reachability: rrRatio = required move ÷ the
+        // ±1σ move the chain already prices by expiry. ≤0.7 the bet sits inside
+        // what's priced (green), ≤1.0 right at the edge (amber), >1.0 needs more
+        // than the market expects (red). Turns "how far" into "how far vs priced".
+        var rr = c.rrRatio;
+        var rrCls = (rr == null || !isFinite(rr)) ? '' : (rr <= 0.7 ? ' ptc-con-be-good' : (rr <= 1.0 ? ' ptc-con-be-fair' : ' ptc-con-be-bad'));
+        var rrTip = (rr != null && isFinite(rr) && c.expectedMovePct != null && isFinite(c.expectedMovePct))
+          ? ' The chain already prices a ±' + Math.abs(Number(c.expectedMovePct)).toFixed(1) + '% move by expiry — ' +
+            (rr <= 0.7 ? 'this sits comfortably inside it.' : rr <= 1.0 ? 'this is right at the edge of it.' : 'this needs more than the market expects.')
+          : '';
+        beChip = '<span class="ptc-con-be' + rrCls + '" title="' + escapeHtml('Move the stock must make from today just to break even at expiry.' + rrTip) + '">' + (bem >= 0 ? '+' : '') + bem.toFixed(1) + '% BE</span>';
+      }
+      var erChip = c.earningsInWindow
+        ? '<span class="ptc-con-er" title="Earnings land before this contract expires — the post-print IV crush can wipe out a long premium even on a correct directional call.">⚠ ER</span>'
+        : '';
+      var econTitle = 'Suggested contract: $' + c.strike + ' ' + sideLabel + ' · ' + (c.expiryLabel || '') + ' (' + c.dte + 'd)' +
+        (premPerContract ? ' · ' + premPerContract : '') +
+        (c.breakevenMovePct != null && isFinite(c.breakevenMovePct) ? ' · needs ' + (Number(c.breakevenMovePct) >= 0 ? '+' : '') + Number(c.breakevenMovePct).toFixed(1) + '% to break even' : '');
+      econ = '<span class="ptc-contract" title="' + escapeHtml(econTitle) + '">' +
+        '<span class="ptc-con-k">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(String(c.dte)) + 'd</span>' +
+        (prem != null && isFinite(prem) ? '<span class="ptc-con-prem">$' + prem.toFixed(2) + '</span>' : '') +
+        beChip + erChip +
+      '</span>';
+    }
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
@@ -16594,6 +16632,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           : '') +
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
+      econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
       '<span class="ptc-cta">View judgment →</span>' +
     '</button>';
@@ -16957,6 +16996,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var callCount = 0, putCount = 0, strongCount = 0;
     var scoreSum = 0, scoreCount = 0;
     var earningsCount = 0;
+    var beSum = 0, beCount = 0;
     for (var i=0; i<picks.length; i++) {
       var pp = picks[i];
       if (pp.side === 'put') putCount++; else callCount++;
@@ -16965,8 +17005,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var tier = pp.recommendation && pp.recommendation.tier;
       if (tier === 'strong-call' || tier === 'strong-put') strongCount++;
       if (pp.contract && pp.contract.earningsInWindow) earningsCount++;
+      var ppBe = pp.contract && pp.contract.breakevenMovePct;
+      if (ppBe != null && isFinite(ppBe)) { beSum += Math.abs(Number(ppBe)); beCount++; }
     }
     var avgScore = scoreCount > 0 ? (scoreSum / scoreCount).toFixed(1) : '—';
+    var avgBe = beCount > 0 ? (beSum / beCount).toFixed(1) : null;
     // Live market-regime chip — today's tape (S&P move + VIX), shared by every pick
     // this build. Makes the "How the market tape moves the picks" explainer concrete:
     // risk-off shrinks the list, tilts it to puts, and sizes down; risk-on leans long.
@@ -17024,6 +17067,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (top ~5% of the universe by conviction this build)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
           : '') +
         '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
+        (avgBe != null
+          ? '<div class="picks-summary-chip" title="Average move the underlying must make from today to reach breakeven at expiry, across the list — a one-glance read of how far this book needs the tape to travel for the premiums to pay."><span class="picks-summary-num">±' + avgBe + '%</span><span class="picks-summary-lbl">avg to BE</span></div>'
+          : '') +
         (earningsCount > 0
           ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
           : '');
@@ -17328,8 +17374,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             expiry: c.expiryLabel || '',
             dte: c.dte != null ? c.dte : '',
             otmPct: c.otmPct != null ? c.otmPct : '',
+            breakeven: c.breakeven != null ? c.breakeven : '',
+            breakevenMovePct: r2(c.breakevenMovePct),
             delta: c.delta != null ? c.delta : '',
             mid: c.mid != null ? c.mid : '',
+            premiumPerContract: r2(c.mid != null && isFinite(c.mid) ? c.mid * 100 : null),
             iv: c.iv != null ? c.iv : '',
             analysis: (p.analysis || '').replace(/\\r?\\n/g, ' '),
           };
