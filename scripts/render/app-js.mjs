@@ -9592,11 +9592,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<div class="gex-metrics">' + tiles.join('') + '</div>' + gexNarrative(d, sym) + chips;
   }
 
-  function gexSpotRowHtml(spot, ncols){
-    var cells = '';
-    for (var i = 0; i < ncols; i++) cells += '<td class="gex-spot-cell"></td>';
-    return '<tr class="gex-spot-row"><th class="gex-strike gex-spot-strike" scope="row">' +
-      fmtOiStrike(spot) + ' <span class="gex-spot-tag">spot</span></th>' + cells + '</tr>';
+  // Diverging horizontal bar drawn as a cell background for the per-strike
+  // "Net Σ" total column — green extends right of center for net-positive
+  // (call-dominated) gamma, red extends left for net-negative (put-dominated).
+  // |net| is scaled to the largest total in the displayed window.
+  function gexTotalBg(net, maxAbs){
+    var pct = (maxAbs > 0) ? Math.min(100, Math.abs(net) / maxAbs * 100) : 0;
+    var half = (pct / 2).toFixed(2);
+    var a = (0.14 + 0.46 * (pct / 100)).toFixed(3);
+    if (net >= 0){
+      var rEnd = (50 + pct / 2).toFixed(2);
+      return 'linear-gradient(90deg, transparent 50%, rgba(22,224,138,' + a + ') 50%, rgba(22,224,138,' + a + ') ' + rEnd + '%, transparent ' + rEnd + '%)';
+    }
+    var lStart = (50 - pct / 2).toFixed(2);
+    return 'linear-gradient(90deg, transparent ' + lStart + '%, rgba(255,77,94,' + a + ') ' + lStart + '%, rgba(255,77,94,' + a + ') 50%, transparent 50%)';
+  }
+  // A full-width reference line inserted between strike rows: the live spot
+  // and the gamma flip. The body has nexps + 1 columns (the Net Σ total
+  // column plus one per expiration), so the line must span all of them.
+  function gexMarkerRowHtml(level, kind, nexps){
+    var tag = kind === 'spot' ? 'spot' : 'γ-flip';
+    var cells = '<td class="gex-' + kind + '-cell gex-' + kind + '-total"></td>';
+    for (var i = 0; i < nexps; i++) cells += '<td class="gex-' + kind + '-cell"></td>';
+    return '<tr class="gex-' + kind + '-row"><th class="gex-strike gex-' + kind + '-strike" scope="row">' +
+      fmtOiStrike(level) + ' <span class="gex-' + kind + '-tag">' + tag + '</span></th>' + cells + '</tr>';
   }
   function gexGridHtml(d, sym){
     var span = GEX_RANGES[gexState.range] || GEX_RANGES.mid;
@@ -9609,18 +9628,54 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var lo = Math.max(0, nearestIdx - span), hi = Math.min(strikes.length - 1, nearestIdx + span);
     var rows = strikes.slice(lo, hi + 1).reverse(); // high strikes at top
-    var html = '<table class="gex-table"><thead><tr><th class="gex-th-strike" scope="col">Strike</th>';
+    // Per-strike net total (summed across the shown expirations) is the
+    // aggregate gamma profile that drives the walls + flip. Already computed
+    // in d.perStrike; index it by strike and scale the bars to the window max.
+    var psByK = {};
+    for (var pi = 0; pi < d.perStrike.length; pi++){ psByK[String(d.perStrike[pi].strike)] = d.perStrike[pi]; }
+    var maxAbsTotal = 0;
+    for (var ri = 0; ri < rows.length; ri++){
+      var psr = psByK[String(rows[ri])];
+      if (psr && isFinite(psr.net)) maxAbsTotal = Math.max(maxAbsTotal, Math.abs(psr.net));
+    }
+    if (!(maxAbsTotal > 0)) maxAbsTotal = 1;
+    var cw = d.callWall, pw = d.putWall;
+    // Spot + gamma-flip reference lines, inserted at their price level in the
+    // same high-to-low order as the strike rows.
+    var markers = [];
+    if (spot > 0) markers.push({ level: spot, kind: 'spot' });
+    if (d.flip != null && isFinite(d.flip)) markers.push({ level: d.flip, kind: 'flip' });
+    markers.sort(function(a, b){ return b.level - a.level; });
+    var mi = 0;
+    var html = '<table class="gex-table"><thead><tr><th class="gex-th-strike" scope="col">Strike</th>' +
+      '<th class="gex-th-total" scope="col" title="Net dealer gamma at this strike summed across the shown expirations — the aggregate profile"><span class="gex-th-date">Net Σ</span><span class="gex-th-dte">all exp</span></th>';
     for (var e = 0; e < exps.length; e++){
       html += '<th class="gex-th-exp" scope="col"><span class="gex-th-date">' + escapeHtml(exps[e].label) +
         '</span><span class="gex-th-dte">' + exps[e].dte + 'd</span></th>';
     }
     html += '</tr></thead><tbody>';
-    var spotShown = false;
     for (var r = 0; r < rows.length; r++){
       var K = rows[r];
-      if (!spotShown && K < spot){ html += gexSpotRowHtml(spot, exps.length); spotShown = true; }
+      while (mi < markers.length && markers[mi].level > K){
+        html += gexMarkerRowHtml(markers[mi].level, markers[mi].kind, exps.length); mi++;
+      }
+      var isCW = !!(cw && K === cw.strike), isPW = !!(pw && K === pw.strike);
+      var wallTag = isCW ? ' <span class="gex-wall-tag is-call" title="Call wall — heaviest net-positive (call) gamma strike">CW</span>'
+        : (isPW ? ' <span class="gex-wall-tag is-put" title="Put wall — heaviest net-negative (put) gamma strike">PW</span>' : '');
+      html += '<tr class="gex-tr' + (isCW ? ' is-callwall' : '') + (isPW ? ' is-putwall' : '') + '">' +
+        '<th class="gex-strike" scope="row">' + fmtOiStrike(K) + wallTag + '</th>';
+      // Net Σ total column.
+      var ps = psByK[String(K)];
+      var tnet = (ps && isFinite(ps.net)) ? ps.net : 0;
+      if (tnet === 0){
+        html += '<td class="gex-total-cell is-empty"></td>';
+      } else {
+        var ttitle = sym + ' ' + fmtOiStrike(K) + ' · net ' + gexFmtSigned(tnet) +
+          ' (call +' + gexFmt(ps.call) + ' / put -' + gexFmt(ps.put) + ') across ' + exps.length + ' exp';
+        html += '<td class="gex-total-cell ' + (tnet >= 0 ? 'is-pos' : 'is-neg') + '" style="background:' +
+          gexTotalBg(tnet, maxAbsTotal) + '" title="' + escapeHtml(ttitle) + '">' + gexFmtSigned(tnet) + '</td>';
+      }
       var byExp = d.cellMap[String(K)] || {};
-      html += '<tr class="gex-tr"><th class="gex-strike" scope="row">' + fmtOiStrike(K) + '</th>';
       for (var e2 = 0; e2 < exps.length; e2++){
         var cell = byExp[exps[e2].sec];
         if (!cell || !isFinite(cell.net) || cell.net === 0){
@@ -9637,7 +9692,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       html += '</tr>';
     }
-    if (!spotShown) html += gexSpotRowHtml(spot, exps.length); // spot below the whole window
+    while (mi < markers.length){ html += gexMarkerRowHtml(markers[mi].level, markers[mi].kind, exps.length); mi++; }
     html += '</tbody></table>';
     return html;
   }

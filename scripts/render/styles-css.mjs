@@ -13545,7 +13545,7 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
   padding: 5px var(--s-2); text-align: center; white-space: nowrap;
   font-size: 0.82em; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
 }
-.gex-th-strike, .gex-th-exp {
+.gex-th-strike, .gex-th-exp, .gex-th-total {
   position: sticky; top: 0; z-index: 3;
   background: var(--surface-2); color: var(--text-2);
   font-weight: 600; font-size: 0.74em; text-transform: uppercase; letter-spacing: 0.03em;
@@ -13571,6 +13571,37 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
   color: var(--accent); font-weight: 600;
 }
 .gex-spot-cell { background: color-mix(in srgb, var(--accent) 7%, transparent); border-top: 2px solid var(--accent); border-bottom: 2px solid var(--accent); }
+
+/* Per-strike "Net Σ" aggregate column — the gamma profile beside each strike.
+   The diverging bar is drawn as an inline-styled cell background (gexTotalBg);
+   these rules just handle the value's color + the empty/zero state. */
+.gex-total-cell { font-weight: 600; color: var(--text-strong); }
+.gex-total-cell.is-pos { color: var(--accent-strong); }
+.gex-total-cell.is-neg { color: var(--neg); }
+.gex-total-cell.is-empty { color: var(--text-3); background: transparent; }
+
+/* Call / put wall row markers — a CW/PW tag in the strike cell plus an inset
+   accent rail on the sticky strike column. */
+.gex-wall-tag {
+  display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: var(--r-1);
+  font-size: 0.64em; font-weight: 700; letter-spacing: 0.03em; vertical-align: middle;
+}
+.gex-wall-tag.is-call { color: var(--accent-strong); background: var(--accent-soft); }
+.gex-wall-tag.is-put { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.gex-tr.is-callwall .gex-strike { box-shadow: inset 3px 0 0 var(--accent); }
+.gex-tr.is-putwall .gex-strike { box-shadow: inset 3px 0 0 var(--neg); }
+
+/* Gamma-flip reference line — amber + dashed so it reads distinctly from the
+   solid-green spot line (the two often sit close together). */
+.gex-flip-row .gex-flip-strike {
+  background: var(--warn-soft); color: var(--warn); font-weight: 700;
+  border-top: 2px dashed var(--warn); border-bottom: 2px dashed var(--warn);
+}
+.gex-flip-tag {
+  font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--warn); font-weight: 600;
+}
+.gex-flip-cell { background: var(--warn-tint); border-top: 2px dashed var(--warn); border-bottom: 2px dashed var(--warn); }
 
 .gex-legend { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-3); justify-content: center; }
 .gex-legend-label { font-size: 0.74em; color: var(--text-3); }
