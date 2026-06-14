@@ -93,7 +93,7 @@ export interface DataStore {
 }
 ```
 
-- **Default backend (v1): Vercel Blob** (`@vercel/blob`). Least friction — same
+- **Chosen backend (v1): Vercel Blob** (`@vercel/blob`) — **decided**. Least friction — same
   platform as the deploy, `BLOB_READ_WRITE_TOKEN` auto-injected into functions and
   available to Actions as a secret. **Critical correctness rule:** the gated API
   must always `get()` blob bytes **server-side** and stream them; never hand a blob
@@ -291,7 +291,7 @@ local regen/diagnose." `npx vercel dev` exercises the real gated API locally.
    dashboard, create a Blob store, copy `BLOB_READ_WRITE_TOKEN`; add it as a GitHub
    Actions secret *and* it's auto-available to functions. (Alt: Cloudflare R2 —
    bucket + access key/secret + account id; better at scale, slightly more setup.)
-   **→ Decision needed: Vercel Blob (default) or R2?**
+   **→ Decided: Vercel Blob** (R2 remains a drop-in adapter swap if bandwidth cost appears).
 2. **Discord application.** discord.com/developers → New Application → OAuth2: add
    redirect `https://<your-domain>/api/auth/discord-callback`; copy `CLIENT_ID` +
    `CLIENT_SECRET`.
