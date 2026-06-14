@@ -6609,8 +6609,27 @@
     var otmStr = fmtOtm(c.otmPct);
     var otmTag = otmStr ? '<span class="flow-otm">' + escapeHtml(otmStr) + ' OTM</span>' : '';
     var dteTag = c.dte != null ? '<span class="flow-dte' + (c.dte <= 14 ? ' near' : '') + '">' + Number(c.dte) + 'd</span>' : '';
-    var premStr = c.premium != null ? fmtBigDollars(c.premium) : null;
-    var premTag = premStr ? '<span class="flow-prem">' + escapeHtml(premStr) + ' prem</span>' : '';
+    // Volume-to-OI multiple — the canonical "unusual" read (a flagged contract
+    // always has vol > OI, so this is >1×). Brand-new strikes (OI 0) get a
+    // "new" tag rather than a divide-by-zero.
+    var voiRatio = (c.oi != null && c.oi > 0 && c.vol != null) ? (c.vol / c.oi) : null;
+    var voiStr = '';
+    var voiTag = '';
+    if (voiRatio != null && isFinite(voiRatio)){
+      voiStr = (voiRatio >= 10 ? Math.round(voiRatio) : Math.round(voiRatio * 10) / 10) + '×';
+      voiTag = '<span class="flow-voi" title="' + escapeHtml('Volume is ' + voiStr + ' open interest — net-new positioning, not closing existing OI') + '">' + escapeHtml(voiStr) + '</span>';
+    } else if (c.oi === 0 && c.vol > 0){
+      voiTag = '<span class="flow-voi flow-voi-new" title="No prior open interest — a brand-new strike">new</span>';
+    }
+    // Premium that hit this hour (deltaVol × last × 100) sits beside the hourly
+    // delta — the honest "size of this hour's flow". Older scans without
+    // deltaPremium fall back to the day's cumulative premium; the tooltip
+    // carries both.
+    var hourPrem = c.deltaPremium != null ? c.deltaPremium : null;
+    var dayPrem = c.premium != null ? c.premium : null;
+    var premShown = hourPrem != null ? hourPrem : dayPrem;
+    var premStr = premShown != null ? fmtBigDollars(premShown) : null;
+    var premTag = premStr ? '<span class="flow-prem" title="Premium that traded this hour (volume delta × last × 100)">' + escapeHtml(premStr) + '</span>' : '';
     var tapeLbl = tapeLabel(c.tape);
     var tapeCls = String(c.tape || '').replace(/[^a-z0-9_-]/gi, '');
     var tapeTag = tapeLbl ? '<span class="flow-tape tape-' + tapeCls + '" title="' + escapeHtml(tapeTitle(c.tape)) + '">' + escapeHtml(tapeLbl) + '</span>' : '';
@@ -6625,15 +6644,17 @@
       ? '<span class="flow-flagged" title="' + escapeHtml('First flagged unusual at ' + flaggedLbl + ' ET') + '">⚑ ' + escapeHtml(flaggedLbl) + '</span>'
       : '';
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
-    var tipPrem = premStr ? ' · ' + premStr + ' prem' : '';
+    var tipVoi = (voiRatio != null && isFinite(voiRatio)) ? ' · vol ' + voiStr + ' OI' : '';
+    var tipHourPrem = hourPrem != null ? ' · ≈' + fmtBigDollars(hourPrem) + ' premium this hour' : '';
+    var tipDayPrem = dayPrem != null ? ' · ' + fmtBigDollars(dayPrem) + ' on the day' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
     var tipRepeat = repeatCount >= 2 ? ' · flagged ' + repeatCount + 'x in last 5 trading days' : '';
     var tipFlagged = flaggedLbl ? ' · flagged ' + flaggedLbl + ' ET' : '';
-    var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) +
+    var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + tipVoi +
       (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
       tipPrev +
       (c.last != null ? ' · last $' + Number(c.last) : '') +
-      tipPrem + tipTape + tipRepeat + tipFlagged;
+      tipHourPrem + tipDayPrem + tipTape + tipRepeat + tipFlagged;
     var noteHtml = c.note ? '<p class="flow-note">' + escapeHtml(c.note) + '</p>' : '';
     var wrapClass = 'flow-contract' + (c.note ? ' has-note' : '');
     // Build a Grade-this-contract link if we have enough state.
@@ -6659,6 +6680,7 @@
         '<span class="flow-sep">/</span>' +
         '<span class="flow-oi">' + escapeHtml(fmtVolume(c.oi)) + '</span>' +
       '</span>' +
+      voiTag +
       '<span class="flow-delta">' + escapeHtml(deltaStr) + '/hr</span>' +
       premTag +
       tapeTag +
@@ -6782,6 +6804,9 @@
       var topDelta = contracts.reduce(function(acc, c){ return Math.max(acc, c.deltaVol || 0); }, 0);
       var totalVol = contracts.reduce(function(acc, c){ return acc + (c.vol || 0); }, 0);
       var totalPremium = contracts.reduce(function(acc, c){ return acc + (c.premium || 0); }, 0);
+      // Premium that hit this hour (deltaPremium), falling back to the day's
+      // cumulative premium on older scans that predate the field.
+      var totalDeltaPremium = contracts.reduce(function(acc, c){ return acc + (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)); }, 0);
       var topRepeat = contracts.reduce(function(acc, c){ return Math.max(acc, c.repeatCount || 0); }, 0);
       out.push({
         symbol: t.symbol,
@@ -6790,6 +6815,7 @@
         topDelta: topDelta,
         totalVol: totalVol,
         totalPremium: totalPremium,
+        totalDeltaPremium: totalDeltaPremium,
         topRepeat: topRepeat,
       });
     });
@@ -6800,7 +6826,7 @@
     } else if (flowState.sort === 'volume'){
       out.sort(function(a, b){ return (b.totalVol || 0) - (a.totalVol || 0); });
     } else if (flowState.sort === 'premium'){
-      out.sort(function(a, b){ return (b.totalPremium || 0) - (a.totalPremium || 0); });
+      out.sort(function(a, b){ return (b.totalDeltaPremium || 0) - (a.totalDeltaPremium || 0); });
     } else if (flowState.sort === 'repeats'){
       out.sort(function(a, b){
         var diff = (b.topRepeat || 0) - (a.topRepeat || 0);
@@ -6838,6 +6864,67 @@
       metric('Put wall', g.putWall ? fmtOiStrike(g.putWall.strike) : '—', 'is-neg', '') +
     '</div>';
   }
+  // Directional summary bar for the whole (filtered) flagged set: call vs put
+  // premium split + a bull/bear lean, the total premium flagged today, the
+  // contract count, and the single biggest hourly print. Recomputed on every
+  // filter change so it always describes what's on screen. Premium is weighted
+  // by deltaPremium (this hour's dollars), falling back to the day premium and
+  // — when no premium is available at all — to raw contract counts so the lean
+  // still reads. The #flow-summary host ships in the next baked index.html; the
+  // guard makes this a no-op against an older shell.
+  function renderFlowSummary(tickers){
+    var el = $('flow-summary');
+    if (!el) return;
+    var callPrem = 0, putPrem = 0, callN = 0, putN = 0, total = 0;
+    var top = null;
+    (tickers || []).forEach(function(t){
+      (t.contracts || []).forEach(function(c){
+        var dp = (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)) || 0;
+        total += dp;
+        if (c.side === 'put'){ putPrem += dp; putN++; } else { callPrem += dp; callN++; }
+        if (!top || dp > top.dp) top = { dp: dp, sym: t.symbol, c: c };
+      });
+    });
+    var totalContracts = callN + putN;
+    if (!totalContracts){ el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    var denom = callPrem + putPrem;
+    // When no dollar premium is available, fall back to the contract split for
+    // both the bar widths and the lean.
+    var bullBasis = denom > 0 ? callPrem : callN;
+    var bearBasis = denom > 0 ? putPrem : putN;
+    var basisSum = bullBasis + bearBasis;
+    var callPct = basisSum > 0 ? Math.round((bullBasis / basisSum) * 100) : 50;
+    var putPct = 100 - callPct;
+    var leanCls = 'is-neutral', leanLbl = 'Balanced flow';
+    if (bullBasis >= bearBasis * 1.2){ leanCls = 'is-bull'; leanLbl = 'Bullish lean'; }
+    else if (bearBasis >= bullBasis * 1.2){ leanCls = 'is-bear'; leanLbl = 'Bearish lean'; }
+    var totalStr = fmtBigDollars(total) || '$0';
+    var callStr = fmtBigDollars(callPrem) || '$0';
+    var putStr = fmtBigDollars(putPrem) || '$0';
+    var topStr = '';
+    if (top && top.c && top.c.strike != null){
+      var ts = top.c.side === 'put' ? 'P' : 'C';
+      var tp = fmtBigDollars(top.dp);
+      topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + '/hr' : '');
+    }
+    var barLabel = 'Call premium ' + callPct + '%, put premium ' + putPct + '%';
+    el.innerHTML =
+      '<div class="flow-sum-row">' +
+        '<span class="flow-sum-lean ' + leanCls + '">' + leanLbl + '</span>' +
+        '<span class="flow-sum-stat"><strong>' + escapeHtml(totalStr) + '</strong> premium flagged today</span>' +
+        '<span class="flow-sum-stat"><strong>' + totalContracts + '</strong> contract' + (totalContracts === 1 ? '' : 's') + '</span>' +
+        (topStr ? '<span class="flow-sum-top" title="Largest single hourly print">Top print · ' + topStr + '</span>' : '') +
+      '</div>' +
+      '<div class="flow-sum-bar" role="img" aria-label="' + escapeHtml(barLabel) + '">' +
+        '<span class="flow-sum-bar-call" style="width:' + callPct + '%"></span>' +
+        '<span class="flow-sum-bar-put" style="width:' + putPct + '%"></span>' +
+      '</div>' +
+      '<div class="flow-sum-legend">' +
+        '<span class="flow-sum-leg is-call"><span class="flow-sum-dot"></span>Calls ' + escapeHtml(callStr) + ' · ' + callPct + '% · ' + callN + '</span>' +
+        '<span class="flow-sum-leg is-put"><span class="flow-sum-dot"></span>Puts ' + escapeHtml(putStr) + ' · ' + putPct + '% · ' + putN + '</span>' +
+      '</div>';
+  }
   function renderUnusualFlow(){
     var list = $('flow-list');
     var empty = $('flow-empty');
@@ -6863,6 +6950,7 @@
     }
     if (!allTickers.length){
       list.innerHTML = '';
+      renderFlowSummary([]);
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
@@ -6880,6 +6968,7 @@
     var tickers = filteredTickers();
     if (!tickers.length){
       list.innerHTML = '';
+      renderFlowSummary([]);
       if (noResults){
         noResults.hidden = false;
         noResults.textContent = hasFilters
@@ -6889,6 +6978,7 @@
       return;
     }
     if (noResults) noResults.hidden = true;
+    renderFlowSummary(tickers);
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = deltaTier(t.topDelta || 0);
@@ -7468,6 +7558,76 @@
       (w ? '<div class="vol-eod-why">' + escapeHtml(w) + '</div>' : '') +
     '</div>';
   }
+  // Canonical session hour-buckets (mirror of lib/volume-flags.mjs BUCKETS) in
+  // session order — the fixed six-column lattice the intraday volume-profile
+  // strip lays every card out on, so the columns always mean the same six hours
+  // regardless of which ones actually flagged.
+  var VOL_PROFILE_BUCKETS = ['9:30-10:30', '10:30-11:30', '11:30-12:30', '12:30-13:30', '13:30-14:30', '14:30-16:00'];
+  // A compact six-column micro bar chart shown on every (collapsed) card: one
+  // column per session hour, height scaled to that hour's volume ratio relative
+  // to the card's own peak, hued by the price direction that hour (green up /
+  // red down), with flagged hours at full saturation and quiet/absent/scan-
+  // missed hours dimmed or hatched, and an S/R-break notch where one fired. It
+  // answers "WHEN did the heavy volume hit?" — front-loaded (open gap reaction)
+  // vs back-loaded (institutional close positioning) vs steady all-day — at a
+  // glance, without expanding the hour-by-hour breakdown. Returns '' for cards
+  // with no usable hourly ratio (e.g. EOD-only flags), so the strip never shows
+  // an empty lattice.
+  function volProfileStripHtml(t){
+    var buckets = Array.isArray(t.bucketHits) ? t.bucketHits : [];
+    if (!buckets.length) return '';
+    var byLabel = {};
+    var peak = 0, anyRatio = false, hottest = null;
+    for (var i = 0; i < buckets.length; i++){
+      var b = buckets[i];
+      if (!b || !b.bucketLabel) continue;
+      byLabel[b.bucketLabel] = b;
+      if (!b.scanMissed && b.volRatio != null && isFinite(b.volRatio)){
+        anyRatio = true;
+        if (b.volRatio > peak){ peak = b.volRatio; hottest = b; }
+      }
+    }
+    if (!anyRatio) return '';
+    // Scale heights to the card's own peak (so the session SHAPE reads clearly)
+    // but floor the denominator at 2x so a card whose peak just clears the flag
+    // bar doesn't render a barely-notable hour as a full-height column.
+    var ref = Math.max(peak, 2);
+    var cells = VOL_PROFILE_BUCKETS.map(function(label){
+      var open = label.split('-')[0];
+      var b = byLabel[label];
+      if (!b){
+        return '<span class="vol-profile-cell is-empty" title="' + escapeHtml(open + ' — no flag') + '"></span>';
+      }
+      if (b.scanMissed){
+        return '<span class="vol-profile-cell is-missed" title="' + escapeHtml(open + ' — scan missed') + '"></span>';
+      }
+      var r = (b.volRatio != null && isFinite(b.volRatio)) ? Number(b.volRatio) : 0;
+      var h = Math.round(Math.max(0.12, Math.min(1, r / ref)) * 100);
+      var mv = b.priceMovePct;
+      var dirCls = (mv != null && isFinite(mv) && Math.abs(Number(mv)) >= 0.5)
+        ? (Number(mv) > 0 ? ' is-up' : ' is-dn') : ' is-flat';
+      var stateCls = b.hourlyFlagged ? ' is-flagged' : ' is-quiet';
+      var srMark = '';
+      if (b.srBreak && b.srBreak.conviction && b.srBreak.conviction !== 'None'){
+        srMark = '<span class="vol-profile-sr vol-profile-sr-' + escapeHtml(b.srBreak.type || 'upper') + '" aria-hidden="true"></span>';
+      }
+      var tip = open + ' · ' + (r ? r.toFixed(2) + 'x vol' : 'vol —') +
+        (mv != null && isFinite(mv) ? ' · ' + (Number(mv) >= 0 ? '+' : '') + Number(mv).toFixed(2) + '%' : '') +
+        (b.hourlyFlagged ? ' · flagged' : '') +
+        (b.srBreak && b.srBreak.action ? ' · ' + b.srBreak.action : '');
+      return '<span class="vol-profile-cell' + dirCls + stateCls + '" title="' + escapeHtml(tip) + '">' +
+        srMark +
+        '<span class="vol-profile-bar" style="height:' + h + '%"></span>' +
+      '</span>';
+    }).join('');
+    var aria = hottest
+      ? 'Intraday volume profile — heaviest ' + hottest.bucketLabel + ' at ' + Number(hottest.volRatio).toFixed(2) + 'x expected'
+      : 'Intraday volume profile';
+    return '<div class="vol-profile" role="img" aria-label="' + escapeHtml(aria) + '">' +
+      '<span class="vol-profile-track">' + cells + '</span>' +
+      '<span class="vol-profile-axis" aria-hidden="true"><span>Open</span><span>Mid</span><span>Close</span></span>' +
+    '</div>';
+  }
   // A ticker as a collapsible card: a one-line summary head (always shown) +
   // a detail body (hour buckets + EOD + the per-bucket "why") shown only when
   // expanded. Collapsed-by-default is what keeps a long scan short.
@@ -7535,7 +7695,7 @@
       '</div>';
     }
     return '<article class="vol-row ' + (expanded ? 'is-expanded' : 'is-collapsed') + '" role="listitem" data-symbol="' + escapeHtml(sym) + '">' +
-      head + gexStripHtml(t) + body +
+      head + volProfileStripHtml(t) + gexStripHtml(t) + body +
     '</article>';
   }
   // Aggregate market-breadth banner: across the currently-visible flagged set,
@@ -9574,11 +9734,30 @@
     return '<div class="gex-metrics">' + tiles.join('') + '</div>' + gexNarrative(d, sym) + chips;
   }
 
-  function gexSpotRowHtml(spot, ncols){
-    var cells = '';
-    for (var i = 0; i < ncols; i++) cells += '<td class="gex-spot-cell"></td>';
-    return '<tr class="gex-spot-row"><th class="gex-strike gex-spot-strike" scope="row">' +
-      fmtOiStrike(spot) + ' <span class="gex-spot-tag">spot</span></th>' + cells + '</tr>';
+  // Diverging horizontal bar drawn as a cell background for the per-strike
+  // "Net Σ" total column — green extends right of center for net-positive
+  // (call-dominated) gamma, red extends left for net-negative (put-dominated).
+  // |net| is scaled to the largest total in the displayed window.
+  function gexTotalBg(net, maxAbs){
+    var pct = (maxAbs > 0) ? Math.min(100, Math.abs(net) / maxAbs * 100) : 0;
+    var half = (pct / 2).toFixed(2);
+    var a = (0.14 + 0.46 * (pct / 100)).toFixed(3);
+    if (net >= 0){
+      var rEnd = (50 + pct / 2).toFixed(2);
+      return 'linear-gradient(90deg, transparent 50%, rgba(22,224,138,' + a + ') 50%, rgba(22,224,138,' + a + ') ' + rEnd + '%, transparent ' + rEnd + '%)';
+    }
+    var lStart = (50 - pct / 2).toFixed(2);
+    return 'linear-gradient(90deg, transparent ' + lStart + '%, rgba(255,77,94,' + a + ') ' + lStart + '%, rgba(255,77,94,' + a + ') 50%, transparent 50%)';
+  }
+  // A full-width reference line inserted between strike rows: the live spot
+  // and the gamma flip. The body has nexps + 1 columns (the Net Σ total
+  // column plus one per expiration), so the line must span all of them.
+  function gexMarkerRowHtml(level, kind, nexps){
+    var tag = kind === 'spot' ? 'spot' : 'γ-flip';
+    var cells = '<td class="gex-' + kind + '-cell gex-' + kind + '-total"></td>';
+    for (var i = 0; i < nexps; i++) cells += '<td class="gex-' + kind + '-cell"></td>';
+    return '<tr class="gex-' + kind + '-row"><th class="gex-strike gex-' + kind + '-strike" scope="row">' +
+      fmtOiStrike(level) + ' <span class="gex-' + kind + '-tag">' + tag + '</span></th>' + cells + '</tr>';
   }
   function gexGridHtml(d, sym){
     var span = GEX_RANGES[gexState.range] || GEX_RANGES.mid;
@@ -9591,18 +9770,54 @@
     }
     var lo = Math.max(0, nearestIdx - span), hi = Math.min(strikes.length - 1, nearestIdx + span);
     var rows = strikes.slice(lo, hi + 1).reverse(); // high strikes at top
-    var html = '<table class="gex-table"><thead><tr><th class="gex-th-strike" scope="col">Strike</th>';
+    // Per-strike net total (summed across the shown expirations) is the
+    // aggregate gamma profile that drives the walls + flip. Already computed
+    // in d.perStrike; index it by strike and scale the bars to the window max.
+    var psByK = {};
+    for (var pi = 0; pi < d.perStrike.length; pi++){ psByK[String(d.perStrike[pi].strike)] = d.perStrike[pi]; }
+    var maxAbsTotal = 0;
+    for (var ri = 0; ri < rows.length; ri++){
+      var psr = psByK[String(rows[ri])];
+      if (psr && isFinite(psr.net)) maxAbsTotal = Math.max(maxAbsTotal, Math.abs(psr.net));
+    }
+    if (!(maxAbsTotal > 0)) maxAbsTotal = 1;
+    var cw = d.callWall, pw = d.putWall;
+    // Spot + gamma-flip reference lines, inserted at their price level in the
+    // same high-to-low order as the strike rows.
+    var markers = [];
+    if (spot > 0) markers.push({ level: spot, kind: 'spot' });
+    if (d.flip != null && isFinite(d.flip)) markers.push({ level: d.flip, kind: 'flip' });
+    markers.sort(function(a, b){ return b.level - a.level; });
+    var mi = 0;
+    var html = '<table class="gex-table"><thead><tr><th class="gex-th-strike" scope="col">Strike</th>' +
+      '<th class="gex-th-total" scope="col" title="Net dealer gamma at this strike summed across the shown expirations — the aggregate profile"><span class="gex-th-date">Net Σ</span><span class="gex-th-dte">all exp</span></th>';
     for (var e = 0; e < exps.length; e++){
       html += '<th class="gex-th-exp" scope="col"><span class="gex-th-date">' + escapeHtml(exps[e].label) +
         '</span><span class="gex-th-dte">' + exps[e].dte + 'd</span></th>';
     }
     html += '</tr></thead><tbody>';
-    var spotShown = false;
     for (var r = 0; r < rows.length; r++){
       var K = rows[r];
-      if (!spotShown && K < spot){ html += gexSpotRowHtml(spot, exps.length); spotShown = true; }
+      while (mi < markers.length && markers[mi].level > K){
+        html += gexMarkerRowHtml(markers[mi].level, markers[mi].kind, exps.length); mi++;
+      }
+      var isCW = !!(cw && K === cw.strike), isPW = !!(pw && K === pw.strike);
+      var wallTag = isCW ? ' <span class="gex-wall-tag is-call" title="Call wall — heaviest net-positive (call) gamma strike">CW</span>'
+        : (isPW ? ' <span class="gex-wall-tag is-put" title="Put wall — heaviest net-negative (put) gamma strike">PW</span>' : '');
+      html += '<tr class="gex-tr' + (isCW ? ' is-callwall' : '') + (isPW ? ' is-putwall' : '') + '">' +
+        '<th class="gex-strike" scope="row">' + fmtOiStrike(K) + wallTag + '</th>';
+      // Net Σ total column.
+      var ps = psByK[String(K)];
+      var tnet = (ps && isFinite(ps.net)) ? ps.net : 0;
+      if (tnet === 0){
+        html += '<td class="gex-total-cell is-empty"></td>';
+      } else {
+        var ttitle = sym + ' ' + fmtOiStrike(K) + ' · net ' + gexFmtSigned(tnet) +
+          ' (call +' + gexFmt(ps.call) + ' / put -' + gexFmt(ps.put) + ') across ' + exps.length + ' exp';
+        html += '<td class="gex-total-cell ' + (tnet >= 0 ? 'is-pos' : 'is-neg') + '" style="background:' +
+          gexTotalBg(tnet, maxAbsTotal) + '" title="' + escapeHtml(ttitle) + '">' + gexFmtSigned(tnet) + '</td>';
+      }
       var byExp = d.cellMap[String(K)] || {};
-      html += '<tr class="gex-tr"><th class="gex-strike" scope="row">' + fmtOiStrike(K) + '</th>';
       for (var e2 = 0; e2 < exps.length; e2++){
         var cell = byExp[exps[e2].sec];
         if (!cell || !isFinite(cell.net) || cell.net === 0){
@@ -9619,7 +9834,7 @@
       }
       html += '</tr>';
     }
-    if (!spotShown) html += gexSpotRowHtml(spot, exps.length); // spot below the whole window
+    while (mi < markers.length){ html += gexMarkerRowHtml(markers[mi].level, markers[mi].kind, exps.length); mi++; }
     html += '</tbody></table>';
     return html;
   }
@@ -12689,9 +12904,11 @@
     data: null,
     loading: false,
     groupBy: 'sector',
+    colorBy: 'perf',   // 'perf' (% change) | 'rvol' (relative volume)
+    search: '',        // uppercased ticker filter for highlight
     live: false,
     livePollTimer: null,
-    liveOverlay: {},   // symbol -> { ch, sp, marketState, prevSpot }
+    liveOverlay: {},   // symbol -> { ch, sp, rv, hi52, lo52, dayHi, dayLo, marketState, prevSpot }
     bound: false,
     lastRect: null,
     // Zoom/pan. zoom=1 fits the container; pan is in container px applied
@@ -12713,6 +12930,12 @@
   // brightening forever, otherwise a single -8% blowup makes every other
   // negative tile look gray by comparison).
   var HEATMAP_PCT_SAT = 3;
+  // Relative-volume color mode: 1× (average volume) reads neutral/quiet and
+  // saturation maxes out at this multiple. 3× = a clearly heavy session.
+  var HEATMAP_RVOL_SAT = 3;
+  // Tiles at or above this relative volume get a "hot" corner dot in the
+  // performance color mode so heavy-volume names pop without switching modes.
+  var HEATMAP_HOT_RVOL = 2;
   // Below this height in px we hide the % line and shrink the symbol so
   // 100KB-marketcap tickers don't render as illegible noise.
   var HEATMAP_TINY_PX = 36;
@@ -12761,6 +12984,31 @@
       groupSel.addEventListener('change', function(){
         heatmapState.groupBy = groupSel.value === 'industry' ? 'industry' : 'sector';
         renderHeatmap();
+      });
+    }
+    var colorSel = $('heatmap-color-select');
+    if (colorSel){
+      colorSel.value = heatmapState.colorBy;
+      colorSel.addEventListener('change', function(){
+        heatmapState.colorBy = colorSel.value === 'rvol' ? 'rvol' : 'perf';
+        renderHeatmap();
+      });
+    }
+    var searchInput = $('heatmap-search');
+    if (searchInput){
+      searchInput.value = heatmapState.search;
+      searchInput.addEventListener('input', function(){
+        heatmapState.search = (searchInput.value || '').toUpperCase().trim();
+        applyHeatmapSearch();
+      });
+      // Enter zooms+centers the first match so a needle in the small-cap tail
+      // is actually findable.
+      searchInput.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        var root = $('heatmap-root');
+        var hit = root && root.querySelector('.heatmap-tile.is-search-hit');
+        if (hit) heatmapCenterOnTile(hit, 3);
       });
     }
     var liveToggle = $('heatmap-live-toggle');
@@ -13002,6 +13250,138 @@
     var sign = p > 0 ? '+' : '';
     return sign + p.toFixed(2) + '%';
   }
+  function heatmapFmtRvol(rv){
+    if (rv == null || !isFinite(rv) || rv <= 0) return '—';
+    return (rv >= 10 ? Math.round(rv) : rv.toFixed(1)) + '×';
+  }
+  // Map a relative-volume reading to a 0..1 saturation: 1× (average) reads
+  // quiet, HEATMAP_RVOL_SAT× and up pegs to full.
+  function heatmapRvolIntensity(rv){
+    if (rv == null || !isFinite(rv) || rv <= 1) return 0;
+    var v = (rv - 1) / (HEATMAP_RVOL_SAT - 1);
+    return Math.max(0, Math.min(1, v));
+  }
+  // Resolve the divergent-scale {dir,intensity} for a tile given the active
+  // color mode. In rvol mode the hue still tracks direction (so a heavy
+  // gainer is deep green, a heavy loser deep red) while saturation tracks how
+  // far above average the volume ran — quiet names fade to gray regardless of
+  // their move, which is exactly the "where's the action" read.
+  function heatmapPaintParts(ch, rv, colorBy){
+    if (colorBy === 'rvol'){
+      var base = heatmapColorParts(ch);
+      return { dir: base.dir, intensity: heatmapRvolIntensity(rv) };
+    }
+    return heatmapColorParts(ch);
+  }
+  // Live overlay value if present (and finite), else the baked value — the
+  // single source of truth for breadth + recoloring whether or not live mode
+  // is on.
+  function heatmapEffectiveCh(t){
+    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    if (o && o.ch != null && isFinite(o.ch)) return o.ch;
+    return (t.ch != null && isFinite(t.ch)) ? t.ch : null;
+  }
+  function heatmapEffectiveRvol(t){
+    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    if (o && o.rv != null && isFinite(o.rv)) return o.rv;
+    return (t.rv != null && isFinite(t.rv)) ? t.rv : null;
+  }
+
+  // Advancers / decliners ribbon. Recomputed on every render and after each
+  // live poll so it tracks the overlay. Counts mirror the EOD recap's ±0.05%
+  // flat band so the two never disagree.
+  function renderHeatmapBreadth(){
+    var host = $('heatmap-breadth');
+    if (!host) return;
+    var data = heatmapState.data;
+    var tickers = (data && Array.isArray(data.tickers)) ? data.tickers : [];
+    if (!tickers.length || (data && data.loadError)){ host.innerHTML = ''; return; }
+    var up = 0, down = 0, flat = 0, wSum = 0, wTot = 0;
+    for (var i = 0; i < tickers.length; i++){
+      var t = tickers[i];
+      var ch = heatmapEffectiveCh(t);
+      if (ch == null) continue;
+      if (ch > 0.05) up++; else if (ch < -0.05) down++; else flat++;
+      var mc = Number(t.mc);
+      if (isFinite(mc) && mc > 0){ wSum += ch * mc; wTot += mc; }
+    }
+    var total = up + down + flat;
+    if (!total){ host.innerHTML = ''; return; }
+    var avg = wTot > 0 ? wSum / wTot : 0;
+    var pUp = (up / total * 100).toFixed(2);
+    var pFlat = (flat / total * 100).toFixed(2);
+    var pDown = (down / total * 100).toFixed(2);
+    var avgCls = avg > 0.05 ? 'pos' : (avg < -0.05 ? 'neg' : 'zero');
+    host.innerHTML =
+      '<div class="heatmap-breadth-bar" role="img" aria-label="' +
+        up + ' advancing, ' + down + ' declining, ' + flat + ' flat">' +
+        '<span class="heatmap-breadth-seg pos" style="width:' + pUp + '%"></span>' +
+        '<span class="heatmap-breadth-seg flat" style="width:' + pFlat + '%"></span>' +
+        '<span class="heatmap-breadth-seg neg" style="width:' + pDown + '%"></span>' +
+      '</div>' +
+      '<div class="heatmap-breadth-legend">' +
+        '<span class="heatmap-breadth-stat pos">▲ ' + up + ' advancing</span>' +
+        '<span class="heatmap-breadth-stat neg">▼ ' + down + ' declining</span>' +
+        (flat ? '<span class="heatmap-breadth-stat flat">● ' + flat + ' flat</span>' : '') +
+        '<span class="heatmap-breadth-stat ' + avgCls + '">cap-weighted ' + heatmapFmtPct(avg) + '</span>' +
+      '</div>';
+  }
+
+  // The legend swaps its labels to match the active color mode — the bar
+  // (red → gray → green) is reused for both, since rvol mode keeps the
+  // directional hue and only repurposes saturation.
+  function renderHeatmapLegend(){
+    var host = $('heatmap-legend');
+    if (!host) return;
+    if (heatmapState.colorBy === 'rvol'){
+      host.innerHTML =
+        '<span class="heatmap-legend-label">down · heavy</span>' +
+        '<span class="heatmap-legend-bar"></span>' +
+        '<span class="heatmap-legend-label">up · heavy</span>' +
+        '<span class="heatmap-legend-note">gray = quiet (≤1× avg) · saturation = relative volume</span>';
+    } else {
+      host.innerHTML =
+        '<span class="heatmap-legend-label">−3%</span>' +
+        '<span class="heatmap-legend-bar"></span>' +
+        '<span class="heatmap-legend-label">+3%</span>' +
+        '<span class="heatmap-legend-note">● = heavy volume (≥' + HEATMAP_HOT_RVOL + '× avg)</span>';
+    }
+  }
+
+  // Highlight tiles matching the search box (prefix match on the symbol).
+  // Pure class toggling on the existing tiles — no re-render — so typing is
+  // cheap. Empty query clears the highlight.
+  function applyHeatmapSearch(){
+    var root = $('heatmap-root');
+    if (!root) return;
+    var q = heatmapState.search || '';
+    root.classList.toggle('is-searching', !!q);
+    var tiles = root.querySelectorAll('.heatmap-tile');
+    for (var i = 0; i < tiles.length; i++){
+      var sym = (tiles[i].getAttribute('data-sym') || '');
+      var hit = !!q && sym.indexOf(q) === 0;
+      tiles[i].classList.toggle('is-search-hit', hit);
+    }
+  }
+
+  // Zoom to + center a specific tile (used by the search box's Enter key).
+  // Works in content space (zoom=1 coords) so it's independent of the current
+  // view, then re-renders so fonts rasterize crisply at the new scale.
+  function heatmapCenterOnTile(tile, targetZoom){
+    var root = $('heatmap-root');
+    if (!root || !tile) return;
+    var rr = root.getBoundingClientRect();
+    var tr = tile.getBoundingClientRect();
+    var cx = (tr.left + tr.width / 2) - rr.left;
+    var cy = (tr.top + tr.height / 2) - rr.top;
+    var contentX = (cx - heatmapState.panX) / heatmapState.zoom;
+    var contentY = (cy - heatmapState.panY) / heatmapState.zoom;
+    var Z = Math.max(HEATMAP_MIN_ZOOM, Math.min(HEATMAP_MAX_ZOOM, targetZoom || 3));
+    heatmapState.zoom = Z;
+    heatmapState.panX = rr.width / 2 - contentX * Z;
+    heatmapState.panY = rr.height / 2 - contentY * Z;
+    renderHeatmap();
+  }
 
   function renderHeatmap(){
     var root = $('heatmap-root');
@@ -13013,6 +13393,7 @@
       root.classList.add('is-empty');
       root.textContent = 'Heatmap data unavailable — try reloading.';
       if (eyebrow) eyebrow.textContent = '';
+      renderHeatmapBreadth();
       return;
     }
     var tickers = Array.isArray(data.tickers) ? data.tickers : [];
@@ -13020,9 +13401,12 @@
       root.classList.add('is-empty');
       root.textContent = 'No tickers to plot yet — the next daily build will populate this view.';
       if (eyebrow) eyebrow.textContent = '';
+      renderHeatmapBreadth();
       return;
     }
     root.classList.remove('is-empty');
+    root.classList.toggle('hm-mode-rvol', heatmapState.colorBy === 'rvol');
+    renderHeatmapLegend();
 
     // Group by selected key. Within each group, sort descending by market
     // cap so the squarified layout produces predictable, biggest-first
@@ -13090,20 +13474,29 @@
         var tinyCls = isMicro ? ' is-tiny is-micro' :
                        (pxH < HEATMAP_TINY_PX || pxW < 36) ? ' is-tiny' : '';
         var ch = rect.ch;
-        var color = heatmapColorParts(ch);
+        var rv = (rect.rv != null && isFinite(rect.rv)) ? rect.rv : null;
+        var color = heatmapPaintParts(ch, rv, heatmapState.colorBy);
+        var isHot = rv != null && rv >= HEATMAP_HOT_RVOL;
+        var isStale = !!rect.stale;
+        // The value line shows the % move in performance mode and the relative
+        // volume multiple in rvol mode, so the number always matches the color.
+        var valText = heatmapState.colorBy === 'rvol' ? heatmapFmtRvol(rv) : heatmapFmtPct(ch);
         // Font sizing scales with tile dimensions so big sectors stay
         // legible without making tiny ones blow out their box.
         var symSize = Math.min(28 * zoom, Math.max(9, Math.round(Math.min(pxH * 0.42, pxW * 0.22))));
         var pctSize = Math.max(9, Math.round(symSize * 0.72));
         html +=
-          '<button type="button" class="heatmap-tile' + tinyCls + '" ' +
+          '<button type="button" class="heatmap-tile' + tinyCls +
+            (isHot ? ' is-hot' : '') + (isStale ? ' is-stale' : '') + '" ' +
             'data-sym="' + escapeHtml(rect.t) + '" ' +
             'data-name="' + escapeHtml(rect.n || rect.t) + '" ' +
             'data-mc="' + rect.mc + '" ' +
             'data-ch="' + ch + '" ' +
+            'data-rv="' + (rv != null ? rv : '') + '" ' +
             'data-sp="' + (rect.sp != null ? rect.sp : '') + '" ' +
             'data-sec="' + escapeHtml(rect.s || '') + '" ' +
             'data-ind="' + escapeHtml(rect.i || '') + '" ' +
+            (isStale ? 'data-stale="1" ' : '') +
             'data-dir="' + color.dir + '" ' +
             'style="' +
               '--x:' + rect.x.toFixed(3) + ';' +
@@ -13114,9 +13507,10 @@
               '--hm-sym-size:' + symSize + 'px;' +
               '--hm-pct-size:' + pctSize + 'px;' +
             '" ' +
-            'aria-label="' + escapeHtml(rect.t + ', ' + heatmapFmtPct(ch)) + '">' +
+            'aria-label="' + escapeHtml(rect.t + ', ' + heatmapFmtPct(ch) +
+              (rv != null ? ', ' + heatmapFmtRvol(rv) + ' relative volume' : '')) + '">' +
             '<span class="heatmap-tile-sym">' + escapeHtml(rect.t) + '</span>' +
-            '<span class="heatmap-tile-pct">' + escapeHtml(heatmapFmtPct(ch)) + '</span>' +
+            '<span class="heatmap-tile-pct">' + escapeHtml(valText) + '</span>' +
           '</button>';
       }
       html += '</div>';
@@ -13157,6 +13551,11 @@
     // freshly-rendered tiles (otherwise toggling group-by would discard
     // a long-running live overlay).
     applyHeatmapLiveOverlay();
+
+    // Breadth ribbon + search highlight reflect the freshly-built tiles
+    // (and any overlay just applied above).
+    renderHeatmapBreadth();
+    applyHeatmapSearch();
 
     renderHeatmapEodSummary();
   }
@@ -13293,21 +13692,39 @@
       var mc = Number(btn.getAttribute('data-mc'));
       var ch = Number(btn.getAttribute('data-ch'));
       var sp = Number(btn.getAttribute('data-sp'));
+      var rvAttr = Number(btn.getAttribute('data-rv'));
       var sec = btn.getAttribute('data-sec') || '';
       var ind = btn.getAttribute('data-ind') || '';
+      var stale = btn.getAttribute('data-stale') === '1';
+      var live = (heatmapState.liveOverlay && heatmapState.liveOverlay[sym]) || null;
+      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (isFinite(rvAttr) && rvAttr > 0 ? rvAttr : null);
       var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
       var rows = '';
       rows += '<div class="heatmap-tooltip-row"><span>Change</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
+      if (rv != null){
+        var rvCls = rv >= HEATMAP_HOT_RVOL ? ' heatmap-tooltip-rv-hot' : '';
+        rows += '<div class="heatmap-tooltip-row"><span>Rel. volume</span><span class="' + rvCls + '">' + escapeHtml(heatmapFmtRvol(rv)) + ' avg</span></div>';
+      }
       if (isFinite(sp) && sp > 0) rows += '<div class="heatmap-tooltip-row"><span>Spot</span><span>' + escapeHtml(fmtMoney(sp)) + '</span></div>';
+      // Day range + 52-week position only land once the live overlay has polled
+      // /api/quotes — they're not in the baked payload.
+      if (live && isFinite(live.dayLo) && isFinite(live.dayHi) && live.dayHi > live.dayLo){
+        rows += '<div class="heatmap-tooltip-row"><span>Day range</span><span>' + escapeHtml(fmtMoney(live.dayLo) + ' – ' + fmtMoney(live.dayHi)) + '</span></div>';
+      }
+      if (live && isFinite(live.lo52) && isFinite(live.hi52) && live.hi52 > live.lo52 && isFinite(sp) && sp > 0){
+        var pos52 = Math.max(0, Math.min(100, (sp - live.lo52) / (live.hi52 - live.lo52) * 100));
+        rows += '<div class="heatmap-tooltip-row"><span>52-wk range</span><span>' + Math.round(pos52) + '% of range</span></div>';
+      }
       if (isFinite(mc) && mc > 0) rows += '<div class="heatmap-tooltip-row"><span>Market cap</span><span>' + escapeHtml(heatmapFmtBigDollars(mc)) + '</span></div>';
       if (sec) rows += '<div class="heatmap-tooltip-row"><span>Sector</span><span>' + escapeHtml(sec) + '</span></div>';
       if (ind && ind !== sec) rows += '<div class="heatmap-tooltip-row"><span>Industry</span><span>' + escapeHtml(ind) + '</span></div>';
       tooltip.innerHTML =
         '<div class="heatmap-tooltip-head">' + escapeHtml(sym) + '</div>' +
         (name && name !== sym ? '<div class="heatmap-tooltip-name">' + escapeHtml(name) + '</div>' : '') +
-        rows;
+        rows +
+        (stale ? '<div class="heatmap-tooltip-stale">⚠ stale — last good print, no fresh quote</div>' : '');
       var rootRect = root.getBoundingClientRect();
-      var tipW = 240, tipH = 120;
+      var tipW = 240, tipH = 180;
       var x = ev.clientX - rootRect.left + 14;
       var y = ev.clientY - rootRect.top + 14;
       if (x + tipW > rootRect.width) x = ev.clientX - rootRect.left - tipW - 12;
@@ -13368,9 +13785,21 @@
           var q = quotes[i];
           if (!q || !q.symbol || q.changePct == null) continue;
           var prev = heatmapState.liveOverlay[q.symbol];
+          // /api/quotes already returns volume + 52-week extremes; derive an
+          // intraday relative volume (cumulative day volume vs the 10D average)
+          // so rvol mode + the tooltip go live, not just the % move.
+          var dv = Number(q.dayVolume), av = Number(q.avgVol10d);
+          var rv = (isFinite(dv) && dv > 0 && isFinite(av) && av > 0)
+            ? Math.round((dv / av) * 100) / 100
+            : null;
           overlay[q.symbol] = {
             ch: Math.round(Number(q.changePct) * 100) / 100,
             sp: q.spot,
+            rv: rv,
+            hi52: q.hi52 != null ? Number(q.hi52) : null,
+            lo52: q.lo52 != null ? Number(q.lo52) : null,
+            dayHi: q.dayHi != null ? Number(q.dayHi) : null,
+            dayLo: q.dayLo != null ? Number(q.dayLo) : null,
             marketState: q.marketState,
             prevSpot: prev ? prev.sp : null,
           };
@@ -13378,6 +13807,7 @@
         }
         heatmapState.liveOverlay = overlay;
         applyHeatmapLiveOverlay();
+        renderHeatmapBreadth();
         if (stateEl){
           stateEl.className = 'heatmap-live-state is-live';
           stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -13394,6 +13824,7 @@
     var overlay = heatmapState.liveOverlay || {};
     var root = $('heatmap-root');
     if (!root) return;
+    var colorBy = heatmapState.colorBy;
     var tiles = root.querySelectorAll('.heatmap-tile');
     for (var i = 0; i < tiles.length; i++){
       var tile = tiles[i];
@@ -13404,13 +13835,24 @@
       tile.classList.remove('is-live-down');
       if (!live) continue;
       var ch = live.ch;
-      var color = heatmapColorParts(ch);
+      // Live data supersedes the baked row — drop the stale dim if it had one.
+      tile.classList.remove('is-stale');
+      tile.removeAttribute('data-stale');
+      // Prefer the live intraday rvol; fall back to the baked one for the color.
+      var rv = (live.rv != null && isFinite(live.rv))
+        ? live.rv
+        : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
+      var color = heatmapPaintParts(ch, rv, colorBy);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
+      if (live.rv != null && isFinite(live.rv)){
+        tile.setAttribute('data-rv', live.rv);
+        tile.classList.toggle('is-hot', live.rv >= HEATMAP_HOT_RVOL);
+      }
       if (live.sp != null) tile.setAttribute('data-sp', live.sp);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
-      if (pctEl) pctEl.textContent = heatmapFmtPct(ch);
+      if (pctEl) pctEl.textContent = colorBy === 'rvol' ? heatmapFmtRvol(rv) : heatmapFmtPct(ch);
       // Flash a subtle outline when the spot ticked since the last poll
       // so the user can see motion even on small tiles. Cleared on the
       // next poll cycle.
@@ -13615,16 +14057,27 @@
     var map = { entered:['sig-pos','▲ IN','Newly in the Top 10 this refresh'], held:['','• HELD','Held its Top 10 spot'], 'new':['sig-pos','★ NEW','Newly tracked this refresh'] };
     var m = map[status] || map.held;
     var flip = sideFlipped ? '<span class="roster-flip" title="Thesis side flipped (call⇄put)">⇄ flipped</span>' : '';
-    return '<span class="roster-status ' + m[0] + '" title="' + m[2] + '">' + m[1] + '</span>' + flip;
+    // Wrap in ONE cell — the optional flip badge would otherwise be a second grid
+    // child and shift every following column (the row head is a fixed-column grid).
+    return '<span class="roster-status-cell">' +
+      '<span class="roster-status ' + m[0] + '" title="' + m[2] + '">' + m[1] + '</span>' + flip +
+    '</span>';
   }
   function rosterForecastPill(f){
-    if (!f) return '';
+    // Always emit exactly one grid cell — the forecast pill AND the optional
+    // earnings badge live inside it. Returning the two as siblings (the old bug)
+    // overflowed the badge into the caret's 16px column and bumped the caret onto
+    // a second row. An absent forecast still emits an empty cell to keep the
+    // row head's column count stable.
+    if (!f) return '<span class="roster-fc-cell"></span>';
     var dir = f.direction || 'neutral';
     var map = { upgrade:['sig-pos','▲','Upgrade likely'], downgrade:['sig-neg','▼','Downgrade risk'], neutral:['sig-zero','→','Holding'] };
     var m = map[dir] || map.neutral;
     var conf = f.confidence ? ' · ' + f.confidence : '';
     var earn = f.earningsCatalyst ? '<span class="roster-earn" title="Earnings before the contract expires — binary catalyst">📅 earnings</span>' : '';
-    return '<span class="roster-fc ' + m[0] + '" title="Rules-based forward read on the conviction score">' + m[1] + ' ' + m[2] + conf + '</span>' + earn;
+    return '<span class="roster-fc-cell">' +
+      '<span class="roster-fc ' + m[0] + '" title="Rules-based forward read on the conviction score">' + m[1] + ' ' + m[2] + conf + '</span>' + earn +
+    '</span>';
   }
   // 4 mini delta chips — how each pillar moved vs. the prior build.
   function rosterDeltaChips(deltas){
@@ -13767,7 +14220,7 @@
     '</div>';
   }
   // --- Picks in & out log -------------------------------------------------
-  // data/picks-changes.json: why a name crossed the ±16 conviction bar onto
+  // data/picks-changes.json: why a name crossed the conviction bar onto
   // (entered) or off (exited) the actionable Top Picks set this build, with a
   // deterministic pillar-delta "why" and an optional AI one-liner that folds in
   // news. Independent of tracked picks, so it renders regardless of open/closed.
@@ -13798,7 +14251,7 @@
     });
     var more = changes.length > MAX_ROWS ? '<div class="acc-gc-more">+' + (changes.length - MAX_ROWS) + ' older changes</div>' : '';
     // Collapsed by default — the Top-10 roster above is the headline; this is the
-    // long-run chronological history of ±16-bar crossings.
+    // long-run chronological history of conviction-bar crossings.
     el.innerHTML = '<div class="accuracy-group">' +
       '<details class="acc-pc-wrap">' +
         '<summary class="accuracy-group-head">Recent crossings (conviction bar) <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
@@ -13987,7 +14440,14 @@
     // Realized expectancy (side-adjusted underlying move, not option P&L) + the
     // SPY benchmark over each pick's hold — the honest "does this beat buy-and-hold?"
     if (st.expectancyPct != null) chips += chip(accPct(st.expectancyPct), 'expectancy · stock move', st.expectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
-    if (st.excessExpectancyPct != null) chips += chip(accPct(st.excessExpectancyPct), 'vs SPY', st.excessExpectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
+    if (st.excessExpectancyPct != null) {
+      var spyTip = 'Realized stock-move expectancy minus SPY over each pick\'s exact hold window (side-adjusted). Positive = the picks beat simply holding the index.' +
+        (st.avgSpyRetPct != null ? ' SPY returned ' + accPct(st.avgSpyRetPct) + ' across those same windows.' : '');
+      chips += '<div class="accuracy-chip' + (st.excessExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + spyTip + '">' +
+        '<span class="accuracy-chip-num">' + accPct(st.excessExpectancyPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">vs SPY</span>' +
+      '</div>';
+    }
     // Fade-the-grade (research): directional expectancy of betting the OPPOSITE
     // side. A positive number means fading the grade would have paid — i.e. the
     // signal's directional edge is net negative. Shown only when it's informative.
@@ -14004,6 +14464,48 @@
       researchChips += '<div class="accuracy-chip ' + (st.gradeIc >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') + '" title="Research only: Pearson correlation of the signed grade vs the realized underlying move across resolved picks. Positive = a higher grade precedes a better move (predictive); negative = anti-predictive (fading wins). Measured on the retired ~0.30Δ engine until gate-era picks resolve.">' +
         '<span class="accuracy-chip-num">' + st.gradeIc.toFixed(2) + '</span>' +
         '<span class="accuracy-chip-lbl">grade IC (research · ' + (st.gradeIcN || 0) + ')</span>' +
+      '</div>';
+    }
+
+    // --- Win / loss size profile -------------------------------------------
+    // The other half of expectancy that a bare win rate hides: how big the
+    // average winner is vs the average loser, and the payoff ratio between them.
+    // A 40% hit rate can still print money if winners are 2× the losers; a 60%
+    // one can bleed if the losers are fat. Prefer the modeled CONTRACT figures
+    // (what the engine actually trades), falling back to the side-adjusted
+    // underlying move on legacy / pre-snapshot picks. These numbers were already
+    // computed in computePicksAccuracyStats but never surfaced.
+    var payoffBlock = '';
+    var useOptPayoff = (st.avgWinOptionPnlPct != null) || (st.avgLossOptionPnlPct != null);
+    var avgWin = useOptPayoff ? st.avgWinOptionPnlPct : st.avgWinRealizedPct;
+    var avgLoss = useOptPayoff ? st.avgLossOptionPnlPct : st.avgLossRealizedPct;
+    var winMag = (avgWin != null && isFinite(avgWin)) ? Math.abs(Number(avgWin)) : null;
+    var lossMag = (avgLoss != null && isFinite(avgLoss)) ? Math.abs(Number(avgLoss)) : null;
+    if (winMag != null || lossMag != null){
+      var ratio = (winMag != null && lossMag != null && lossMag > 0) ? winMag / lossMag : null;
+      // Back-to-back bar: the loser (red) grows left of center, the winner (green)
+      // right; both scaled to the larger of the two so the asymmetry is the visual.
+      var maxMag = Math.max(winMag || 0, lossMag || 0) || 1;
+      var winW = winMag != null ? Math.round(winMag / maxMag * 100) : 0;
+      var lossW = lossMag != null ? Math.round(lossMag / maxMag * 100) : 0;
+      var payoffTag = useOptPayoff ? 'contract' : 'stock';
+      var ratioTxt = ratio != null ? ((Math.round(ratio * 100) / 100).toFixed(2) + '×') : '—';
+      // Only flag the ratio green when winners are at least as big as losers —
+      // a sub-1 ratio isn't necessarily "bad" (a high win rate can carry it), so
+      // leave it neutral rather than paint it red.
+      var ratioCls = (ratio != null && ratio >= 1) ? 'sig-pos' : '';
+      var payoffTip = 'Average winning trade vs average losing trade, ' + (useOptPayoff ? 'on the modeled contract P&L.' : 'on the side-adjusted underlying move.') + ' The wider the green side relative to the red, the more each winner outweighs each loser.';
+      payoffBlock = '<div class="accuracy-payoff">' +
+        '<div class="accuracy-tiers-head">Win / loss size <span class="payoff-tag" title="' + (useOptPayoff ? 'Modeled contract P&L (Black-Scholes, enter at ask / exit at bid).' : 'Side-adjusted underlying move — no contract snapshot on these picks.') + '">' + payoffTag + '</span></div>' +
+        '<div class="payoff-bar" title="' + payoffTip + '">' +
+          '<div class="payoff-bar-side payoff-bar-loss"><i style="width:' + lossW + '%"></i></div>' +
+          '<div class="payoff-bar-side payoff-bar-win"><i style="width:' + winW + '%"></i></div>' +
+        '</div>' +
+        '<div class="payoff-stats">' +
+          '<div class="payoff-stat"><span class="payoff-num sig-pos">' + (winMag != null ? accPct(avgWin) : '—') + '</span><span class="payoff-lbl">avg win</span></div>' +
+          '<div class="payoff-stat"><span class="payoff-num sig-neg">' + (lossMag != null ? accPct(avgLoss) : '—') + '</span><span class="payoff-lbl">avg loss</span></div>' +
+          '<div class="payoff-stat"><span class="payoff-num ' + ratioCls + '">' + ratioTxt + '</span><span class="payoff-lbl">win : loss</span></div>' +
+        '</div>' +
       '</div>';
     }
 
@@ -14059,7 +14561,7 @@
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
-    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock + advancedBlock;
+    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + payoffBlock + tierBlock + advancedBlock;
 
     // --- Open positions (grouped by ticker; multiple contracts collapse) ----
     var nowMs = Date.now();
@@ -16258,9 +16760,11 @@
               dte: c.dte != null ? c.dte : '',
               volume: c.vol != null ? c.vol : '',
               openInterest: c.oi != null ? c.oi : '',
+              volOiRatio: (c.oi != null && c.oi > 0 && c.vol != null) ? Math.round((c.vol / c.oi) * 100) / 100 : '',
               iv: c.iv != null ? c.iv : '',
               tape: c.tape || '',
               hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
+              hourlyPremium: c.deltaPremium != null ? c.deltaPremium : '',
               premium: c.premium != null ? c.premium : '',
               repeats5d: c.repeatCount || 0,
               note: c.note || '',
