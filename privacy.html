@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy · stonks</title>
+<meta name="description" content="How stonks collects, uses, and protects your personal information.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Hand-maintained, NOT generated (like cheatsheet.html / chart-patterns.html).
+     A build will not overwrite this file — edit it directly. Linked from the
+     nav's "Legal" menu and the site footer in scripts/render/html.mjs. -->
+<style>
+  :root{
+    --bg:#0d0e12;
+    --bg2:#11131a;
+    --surface:#171922;
+    --surface2:#1d2029;
+    --line:#2a2e3a;
+    --line2:#363b49;
+    --ink:#e9e6dd;
+    --muted:#8b8f9c;
+    --faint:#5c606d;
+    --gold:#e6b24a;
+    --gold-dim:#a07e34;
+    --radius:14px;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --disp:'Fraunces',Georgia,serif;
+    --body:'Hanken Grotesk',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--body);
+    line-height:1.65;
+    font-size:15.5px;
+    -webkit-font-smoothing:antialiased;
+    position:relative;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(900px 600px at 12% -5%, rgba(230,178,74,.10), transparent 60%),
+      radial-gradient(800px 700px at 100% 0%, rgba(109,181,240,.06), transparent 55%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative;z-index:1;max-width:840px;margin:0 auto;padding:0 22px 96px}
+
+  .backlink{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);text-decoration:none;
+    margin-top:28px;padding:7px 12px;border:1px solid var(--line);border-radius:7px;
+    transition:color .2s ease,border-color .2s ease,background .2s ease;
+  }
+  .backlink:hover{color:var(--gold);border-color:var(--gold-dim);background:var(--surface)}
+
+  header{padding:26px 0 34px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .kicker{
+    font-family:var(--mono);font-size:11px;letter-spacing:.34em;text-transform:uppercase;
+    color:var(--gold);display:flex;align-items:center;gap:14px;margin:34px 0 18px;
+  }
+  .kicker::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--gold-dim),transparent)}
+  h1{
+    font-family:var(--disp);font-weight:600;font-size:clamp(34px,6vw,58px);
+    line-height:1.0;letter-spacing:-.02em;
+  }
+  h1 em{font-style:italic;color:var(--gold)}
+  .dates{
+    margin-top:20px;display:flex;flex-wrap:wrap;gap:10px 18px;
+    font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--muted);
+  }
+  .dates b{color:var(--ink);font-weight:500}
+  .intro{margin-top:22px;color:var(--muted);font-size:16px;max-width:680px}
+  .intro a{color:var(--gold);text-decoration:none}
+  .intro a:hover{text-decoration:underline}
+
+  nav.toc{
+    margin-top:30px;background:linear-gradient(180deg,var(--surface),var(--bg2));
+    border:1px solid var(--line);border-left:3px solid var(--gold-dim);
+    border-radius:var(--radius);padding:18px 22px 20px;
+  }
+  nav.toc h2{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:12px;
+  }
+  nav.toc ol{list-style:none;display:grid;grid-template-columns:repeat(2,1fr);gap:6px 28px;counter-reset:toc}
+  @media(max-width:640px){nav.toc ol{grid-template-columns:1fr}}
+  nav.toc li{counter-increment:toc;font-size:14px}
+  nav.toc a{color:var(--muted);text-decoration:none;display:flex;gap:10px;align-items:baseline;padding:2px 0}
+  nav.toc a::before{content:counter(toc,decimal-leading-zero);font-family:var(--mono);font-size:10.5px;color:var(--gold-dim);flex:none}
+  nav.toc a:hover{color:var(--gold)}
+
+  section{padding-top:44px;scroll-margin-top:20px}
+  section h2{
+    font-family:var(--disp);font-weight:500;font-size:clamp(22px,3.2vw,29px);letter-spacing:-.01em;
+    padding-bottom:12px;margin-bottom:18px;border-bottom:1px solid var(--line);
+  }
+  section h2 .snum{
+    font-family:var(--mono);font-size:13px;color:var(--gold);margin-right:12px;
+  }
+  h3{
+    font-family:var(--body);font-weight:600;font-size:16.5px;color:var(--ink);
+    margin:24px 0 8px;
+  }
+  p{color:var(--muted);margin-bottom:14px}
+  p strong, li strong{color:var(--ink);font-weight:600}
+  p a, li a{color:var(--gold);text-decoration:none}
+  p a:hover, li a:hover{text-decoration:underline}
+  ul{list-style:none;margin:6px 0 16px;display:grid;gap:9px}
+  ul li{position:relative;padding-left:22px;color:var(--muted)}
+  ul li::before{
+    content:"";position:absolute;left:4px;top:11px;width:5px;height:5px;border-radius:50%;
+    background:var(--gold-dim);
+  }
+  .contact-card{
+    margin-top:18px;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px 22px;
+  }
+  .contact-card .row{display:flex;gap:12px;align-items:baseline;margin-bottom:8px}
+  .contact-card .row:last-child{margin-bottom:0}
+  .contact-card .lab{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);width:80px;flex:none}
+  .contact-card a{color:var(--gold);text-decoration:none}
+  .contact-card a:hover{text-decoration:underline}
+
+  footer.pgfoot{
+    margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:12px 20px;justify-content:space-between;align-items:center;
+    color:var(--faint);font-size:12.5px;
+  }
+  footer.pgfoot a{color:var(--muted);text-decoration:none}
+  footer.pgfoot a:hover{color:var(--gold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="backlink" href="/">&larr; Back to stonks</a>
+
+  <header>
+    <div class="kicker">stonks &middot; legal</div>
+    <h1>Privacy <em>Policy</em></h1>
+    <div class="dates">
+      <span>Effective Date: <b>June 14, 2026</b></span>
+      <span>Last Updated: <b>June 14, 2026</b></span>
+    </div>
+    <p class="intro">Stonks (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) operates the website <a href="https://stonks-indol.vercel.app">https://stonks-indol.vercel.app</a> (the &ldquo;Site&rdquo;) and provides stock market analysis tools, custom formulas, and related services (the &ldquo;Service&rdquo;). This Privacy Policy explains how we collect, use, disclose, and protect your personal information when you use our Site and Service.</p>
+    <p class="intro">By using the Site or Service, you agree to the collection and use of information in accordance with this Privacy Policy.</p>
+  </header>
+
+  <nav class="toc" aria-label="Table of contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#collect">Information We Collect</a></li>
+      <li><a href="#use">How We Use Your Information</a></li>
+      <li><a href="#share">How We Share Your Information</a></li>
+      <li><a href="#cookies">Cookies and Tracking Technologies</a></li>
+      <li><a href="#security">Data Security</a></li>
+      <li><a href="#retention">Data Retention</a></li>
+      <li><a href="#rights">Your Privacy Rights</a></li>
+      <li><a href="#children">Children&rsquo;s Privacy</a></li>
+      <li><a href="#international">International Data Transfers</a></li>
+      <li><a href="#changes">Changes to This Privacy Policy</a></li>
+      <li><a href="#contact">Contact Us</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="collect">
+      <h2><span class="snum">01</span>Information We Collect</h2>
+      <p>We collect several types of information from and about users of our Service, including:</p>
+
+      <h3>Personal Information</h3>
+      <ul>
+        <li>Name, email address, and account credentials when you create an account.</li>
+        <li>Payment information (processed securely through our third-party payment processor; we do not store full credit card details).</li>
+        <li>Billing address and subscription details.</li>
+      </ul>
+
+      <h3>Usage and Technical Information</h3>
+      <ul>
+        <li>Information about how you use the Service (such as features accessed, formulas used, time spent on the Site).</li>
+        <li>Device information, browser type, IP address, and operating system.</li>
+        <li>Cookies and similar tracking technologies (see &ldquo;Cookies and Tracking Technologies&rdquo; below).</li>
+      </ul>
+
+      <h3>Discord Integration</h3>
+      <p>If you choose to connect or link your Discord account with Stonks (for example, to receive subscription-based roles or access community features), we may collect and store your Discord user ID, username, and information about roles or permissions granted through our integration. We use this information to manage access, verify subscriptions, and provide related features.</p>
+
+      <h3>Information from Third Parties</h3>
+      <p>We may receive information about you from third-party services you connect with, such as payment processors or Discord.</p>
+    </section>
+
+    <section id="use">
+      <h2><span class="snum">02</span>How We Use Your Information</h2>
+      <p>We use the information we collect for the following purposes:</p>
+      <ul>
+        <li>To provide, maintain, and improve the Service.</li>
+        <li>To process payments and manage your subscription.</li>
+        <li>To handle Discord integration (such as assigning or removing roles based on your subscription status).</li>
+        <li>To personalize your experience and deliver relevant content and features.</li>
+        <li>To communicate with you (including sending account-related emails and updates).</li>
+        <li>To detect and prevent fraud, security issues, and abuse.</li>
+        <li>To comply with legal obligations.</li>
+        <li>To analyze usage and improve our formulas, tools, and overall product.</li>
+      </ul>
+    </section>
+
+    <section id="share">
+      <h2><span class="snum">03</span>How We Share Your Information</h2>
+      <p>We do not sell your personal information. We may share your information in the following limited circumstances:</p>
+      <ul>
+        <li><strong>Service Providers:</strong> With third-party vendors who help us operate the Service (e.g., payment processors, hosting providers, analytics services, and Discord). These providers are contractually obligated to protect your data.</li>
+        <li><strong>Discord Integration:</strong> When you link your Discord account, we may share limited information (such as your subscription status) with Discord to manage roles and access within our community.</li>
+        <li><strong>Legal Requirements:</strong> When required by law, regulation, or legal process.</li>
+        <li><strong>Business Transfers:</strong> In connection with a merger, acquisition, or sale of assets.</li>
+        <li><strong>With Your Consent:</strong> When you give us permission to share your information.</li>
+      </ul>
+    </section>
+
+    <section id="cookies">
+      <h2><span class="snum">04</span>Cookies and Tracking Technologies</h2>
+      <p>We use cookies and similar technologies to:</p>
+      <ul>
+        <li>Keep you logged in.</li>
+        <li>Understand how users interact with our Site.</li>
+        <li>Improve performance and user experience.</li>
+      </ul>
+      <p>You can control cookies through your browser settings. Note that disabling certain cookies may affect the functionality of the Service.</p>
+    </section>
+
+    <section id="security">
+      <h2><span class="snum">05</span>Data Security</h2>
+      <p>We implement reasonable technical and organizational measures to protect your personal information. However, no method of transmission over the internet or electronic storage is 100% secure. We cannot guarantee absolute security.</p>
+    </section>
+
+    <section id="retention">
+      <h2><span class="snum">06</span>Data Retention</h2>
+      <p>We retain your personal information for as long as necessary to provide the Service, comply with our legal obligations, resolve disputes, and enforce our agreements. When we no longer need your information, we will securely delete or anonymize it.</p>
+    </section>
+
+    <section id="rights">
+      <h2><span class="snum">07</span>Your Privacy Rights</h2>
+      <p>Depending on your location, you may have certain rights regarding your personal information, including:</p>
+      <ul>
+        <li>The right to access the personal information we hold about you.</li>
+        <li>The right to request correction or deletion of your data.</li>
+        <li>The right to opt out of certain data sharing or marketing communications.</li>
+        <li>The right to data portability.</li>
+      </ul>
+      <p>To exercise these rights, please contact us at the email below. We will respond to verifiable requests in accordance with applicable law.</p>
+    </section>
+
+    <section id="children">
+      <h2><span class="snum">08</span>Children&rsquo;s Privacy</h2>
+      <p>Our Service is not directed to individuals under the age of 18. We do not knowingly collect personal information from children under 18. If you believe we have collected information from a child, please contact us so we can take appropriate action.</p>
+    </section>
+
+    <section id="international">
+      <h2><span class="snum">09</span>International Data Transfers</h2>
+      <p>If you are accessing the Service from outside the United States, please note that your information may be transferred to, stored, and processed in the United States, where data protection laws may differ from those in your jurisdiction.</p>
+    </section>
+
+    <section id="changes">
+      <h2><span class="snum">10</span>Changes to This Privacy Policy</h2>
+      <p>We may update this Privacy Policy from time to time. When we do, we will revise the &ldquo;Last Updated&rdquo; date at the top of this page. We encourage you to review this Privacy Policy periodically. Your continued use of the Service after any changes constitutes your acceptance of the revised policy.</p>
+    </section>
+
+    <section id="contact">
+      <h2><span class="snum">11</span>Contact Us</h2>
+      <p>If you have any questions or concerns about this Privacy Policy or our data practices, please contact us at:</p>
+      <div class="contact-card">
+        <div class="row"><span class="lab">Email</span><a href="mailto:support@stonks-indol.vercel.app">support@stonks-indol.vercel.app</a></div>
+        <div class="row"><span class="lab">Discord</span><span>Our community server</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pgfoot">
+    <span>&copy; 2026 stonks &middot; Option Contract Rater</span>
+    <span><a href="/terms.html">Terms of Use</a> &middot; <a href="/">Home</a></span>
+  </footer>
+</div>
+</body>
+</html>
