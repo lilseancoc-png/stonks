@@ -7033,14 +7033,51 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   .vol-sort-label { display: none; }
 }
 
-/* Streaks controls row — sort selector sits just above the two-column
-   bullish/bearish grid. */
+/* Streaks controls row — filter fields + sort selector sit just above the
+   two-column bullish/bearish grid. */
 .streaks-controls {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-3);
   align-items: center;
   margin: 0 0 12px;
+}
+.streaks-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.streaks-field-label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.streaks-field select,
+.streaks-field input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 4px 8px;
+}
+.streaks-field select { cursor: pointer; }
+.streaks-field-search input { width: 9ch; transition: width .15s var(--ease-out); }
+.streaks-field-search input:focus { width: 12ch; }
+.streaks-field select:focus-visible,
+.streaks-field input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+.streaks-sort { margin-left: auto; }
+@media (max-width: 640px) {
+  .streaks-sort { margin-left: 0; }
+  .streaks-field-label { display: none; }
 }
 
 /* Summary strip — small chip row above the cards that shows the shape of
@@ -9295,6 +9332,180 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   font-size: 11px;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
+
+/* Inline count beside each column title. */
+.streaks-col-count {
+  font: 700 11px/1 var(--font-mono);
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, var(--surface));
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Length-mix distribution — stacked bar + legend under the summary chips. */
+.streaks-dist {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 2px 0 var(--s-3);
+}
+.streaks-dist-label {
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.streaks-dist-bar {
+  display: flex;
+  flex: 1 1 160px;
+  min-width: 140px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 6%, var(--surface));
+}
+.streaks-dist-seg { width: var(--w, 0%); height: 100%; transition: width .3s var(--ease-out); }
+.streaks-dist-2 { background: color-mix(in srgb, var(--text) 20%, transparent); }
+.streaks-dist-3 { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.streaks-dist-4 { background: color-mix(in srgb, var(--accent) 78%, transparent); }
+.streaks-dist-5 { background: var(--warn); }
+.streaks-dist-legend { display: inline-flex; gap: 10px; flex-wrap: wrap; }
+.streaks-dist-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 500 10px/1 var(--font-mono);
+  color: var(--muted);
+}
+.streaks-dist-key b { color: var(--text); font-weight: 700; }
+.streaks-dist-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+/* "Just snapped" strip — recently-broken runs (mean-reversion watchlist). */
+.streaks-snapped {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3, 10px);
+  background: color-mix(in srgb, var(--warn) 4%, var(--surface));
+}
+.streaks-snapped-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.streaks-snapped-title {
+  font: 700 12px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-strong);
+}
+.streaks-snapped-sub { font-size: 11px; color: var(--muted); }
+.streaks-snapped-count {
+  margin-left: auto;
+  font: 700 11px/1 var(--font-mono);
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, var(--surface));
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+}
+.streaks-snapped-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.streaks-snap-chip {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 1px 6px;
+  text-align: left;
+  padding: 7px 11px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .12s var(--ease-out), background .12s var(--ease-out), transform .12s var(--ease-out);
+}
+.streaks-snap-chip:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+.streaks-snap-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.streaks-snap-chip.is-green { border-left-color: color-mix(in srgb, var(--pos) 60%, var(--border)); }
+.streaks-snap-chip.is-red { border-left-color: color-mix(in srgb, var(--neg) 60%, var(--border)); }
+.streaks-snap-arrow { grid-row: 1 / span 2; font-size: 13px; }
+.streaks-snap-chip.is-green .streaks-snap-arrow { color: var(--pos); }
+.streaks-snap-chip.is-red .streaks-snap-arrow { color: var(--neg); }
+.streaks-snap-sym { font: 700 13px/1.1 var(--font-mono); color: var(--text-strong); }
+.streaks-snap-run { font: 500 10px/1.2 var(--font-mono); color: var(--muted); grid-column: 2; }
+.streaks-snap-meta { grid-column: 2; font: 500 9px/1.2 var(--font-mono); color: var(--muted); opacity: .85; }
+
+/* Rarity badge — "longest in 3mo" / "3mo high Nd" chip in the card head. */
+.streaks-badge {
+  font: 700 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.streaks-badge-record {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.streaks-badge-ctx {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border: 1px solid var(--border);
+}
+
+/* Meta row — run start date + volume-trend chip, between spark and footer. */
+.streaks-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  min-height: 1px;
+}
+.streaks-meta:empty { display: none; }
+.streaks-since {
+  font: 500 10px/1 var(--font-mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.streaks-vol {
+  font: 600 10px/1 var(--font-mono);
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.streaks-vol.is-rising {
+  color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.streaks-vol.is-falling { color: var(--muted); opacity: .9; }
+
+/* At-risk run — the card and tolerance meter flag a run that's burned most
+   of its tripwire headroom, so it stands out as about-to-snap. */
+.streaks-row.is-at-risk,
+.streaks-row.is-at-risk:hover {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 4%, var(--surface));
+}
+.streaks-tol-meter.is-at-risk .streaks-tol-label { color: var(--warn); }
+.streaks-tol-meter.is-at-risk .streaks-tol-fill { background: var(--warn); }
 
 .tickers-grid {
   display: grid;
