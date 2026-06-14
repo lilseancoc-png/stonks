@@ -8,4 +8,6 @@ node_modules/
 # (public) repo. The build/scan workflows write data/ locally and push it to the
 # store; the gate reads from the store. Restoring the old commit-data model means
 # removing this ignore + reverting the workflow flip + unsetting PRIVATE_DATA_ENABLED.
-data/
+# Leading slash anchors to the repo root ONLY — an unanchored `data/` also matches
+# api/data/ (the gated reader) and any other nested data dir.
+/data/
