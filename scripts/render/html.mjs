@@ -227,16 +227,17 @@ function calendarSection() {
       <h2 class="card-title">Calendar</h2>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Every dated market event through the rest of the year, grouped by month: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus / Forecast values, upcoming FOMC meetings, and the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks.</p>
+    <p class="hint">Every dated market event through the rest of the year, grouped by month with a countdown to what's next: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus values, upcoming FOMC meetings, and the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks. Ticker chips are clickable.</p>
+    <div id="calendar-overview" class="cal-overview" hidden></div>
     <div id="fomc-widget" class="fomc-widget" hidden></div>
     <div class="calendar-controls" role="toolbar" aria-label="Filter calendar">
       <div class="calendar-type-filter" role="radiogroup" aria-label="Filter by event type">
-        <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All</button>
-        <button type="button" class="calendar-pill" data-cal-type="earnings" role="radio" aria-checked="false">Earnings</button>
-        <button type="button" class="calendar-pill" data-cal-type="catalysts" role="radio" aria-checked="false">Catalysts</button>
-        <button type="button" class="calendar-pill" data-cal-type="reports" role="radio" aria-checked="false">Reports</button>
-        <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">FOMC</button>
-        <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro</button>
+        <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="earnings" role="radio" aria-checked="false">Earnings<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="catalysts" role="radio" aria-checked="false">Catalysts<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="reports" role="radio" aria-checked="false">Reports<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="fomc" role="radio" aria-checked="false">FOMC<span class="calendar-pill-count" aria-hidden="true"></span></button>
+        <button type="button" class="calendar-pill" data-cal-type="macro" role="radio" aria-checked="false">Macro<span class="calendar-pill-count" aria-hidden="true"></span></button>
       </div>
       <button type="button" id="calendar-export-csv" class="csv-export-btn" title="Download visible events as CSV">Export CSV</button>
     </div>

@@ -5647,6 +5647,56 @@ main { padding-top: var(--s-2); }
   background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
+/* Live count badge inside each filter pill (populated by renderCalendar). */
+.calendar-pill-count {
+  margin-left: 5px;
+  font: 600 10px/1 var(--font-mono);
+  color: var(--muted);
+}
+.calendar-pill.is-on .calendar-pill-count { color: var(--accent-strong); }
+.calendar-pill-count:empty { display: none; }
+/* "Up next" overview strip — at-a-glance highlight cards above the timeline,
+   driven by the full (unfiltered) event set so it's a stable orientation aid. */
+.cal-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: var(--s-2);
+  margin: var(--s-3) 0 var(--s-2);
+}
+.cal-ov-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  width: 100%;
+}
+button.cal-ov-card { cursor: pointer; transition: border-color var(--dur-1), background var(--dur-1), transform var(--dur-1); }
+button.cal-ov-card:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: var(--surface-3); }
+button.cal-ov-card:active { transform: translateY(1px); }
+button.cal-ov-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cal-ov-fomc, .cal-ov-report { border-left-color: var(--warn); }
+.cal-ov-earnings { border-left-color: var(--accent); }
+.cal-ov-catalyst { border-left-color: var(--pos); }
+.cal-ov-total { border-left-color: var(--muted); }
+.cal-ov-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--r-2); flex: none; margin-top: 1px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.cal-ov-fomc .cal-ov-icon, .cal-ov-report .cal-ov-icon { background: var(--warn-soft); color: var(--warn); }
+.cal-ov-catalyst .cal-ov-icon { background: var(--pos-soft); color: var(--pos); }
+.cal-ov-total .cal-ov-icon { background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--muted-strong); }
+.cal-ov-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-ov-label { font: 600 9px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.cal-ov-value { font: 700 16px/1.15 var(--font-serif); color: var(--text-strong); letter-spacing: -.01em; }
+.cal-ov-sub { font-size: 11px; color: var(--muted-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
 /* Month jump-nav — chips that scroll to each month section. Only rendered
    when the window spans more than one month. */
@@ -5705,7 +5755,7 @@ main { padding-top: var(--s-2); }
 }
 .cal-day {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
+  grid-template-columns: 124px minmax(0, 1fr);
   gap: var(--s-3);
   align-items: start;
   padding: var(--s-2) 0;
@@ -5714,13 +5764,40 @@ main { padding-top: var(--s-2); }
 /* The first day row of each month sits right under the month header's own
    bottom border, so drop its top border to avoid a doubled hairline. */
 .cal-month-head + .cal-day { border-top: none; }
+/* Proximity emphasis — today gets an accent rail + tint; the next week is
+   softly raised so the imminent events read first. */
+.cal-day.is-today {
+  background: linear-gradient(90deg, var(--accent-tint-2), transparent 62%);
+  border-radius: var(--r-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 9px;
+  margin-left: -9px;
+}
+.cal-day.is-soon { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 3%, transparent), transparent 50%); }
 .cal-date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+}
+.cal-date-main {
   font: 600 12px/1.2 var(--font-mono);
   color: var(--muted);
   letter-spacing: .04em;
   text-transform: uppercase;
-  padding-top: 4px;
 }
+.cal-day.is-today .cal-date-main { color: var(--accent-strong); }
+.cal-reltag {
+  align-self: flex-start;
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+.cal-reltag.is-today { color: var(--accent-fg); background: var(--accent); }
 .cal-chips { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .cal-chip {
   display: inline-flex;
@@ -5740,6 +5817,29 @@ main { padding-top: var(--s-2); }
   color: var(--text);
   letter-spacing: .02em;
 }
+/* Leading type glyph — a scannable rail that inherits each chip's color. */
+.cal-chip-ico { display: inline-flex; align-items: center; flex: none; opacity: .9; }
+.cal-chip-icon { display: block; }
+.cal-earnings .cal-chip-ico { color: var(--accent); }
+.cal-fomc .cal-chip-ico { color: var(--warn); }
+.cal-report .cal-chip-ico { color: var(--warn); }
+.cal-catalyst .cal-chip-ico { color: var(--pos); }
+.cal-fed .cal-chip-ico { color: var(--neg); }
+.cal-cpi .cal-chip-ico { color: var(--warn); }
+.cal-sec .cal-chip-ico, .cal-macro .cal-chip-ico { color: var(--muted-strong); }
+/* Clickable ticker symbol inside earnings/catalyst chips → opens the Grade tab. */
+.cal-chip-sym-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: color var(--dur-1), border-color var(--dur-1);
+}
+.cal-chip-sym-btn:hover { color: var(--accent); border-bottom-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.cal-chip-sym-btn:focus-visible { outline: none; color: var(--accent); border-bottom-color: var(--accent); }
 .cal-chip-tag {
   font-size: 10px;
   font-weight: 600;
@@ -5952,6 +6052,40 @@ main { padding-top: var(--s-2); }
   text-transform: uppercase;
 }
 .fomc-rate-missing .fomc-rate-value { color: var(--muted); }
+/* Headline readout — one stacked cumulative-odds bar for the next meeting, so
+   the most-watched number reads at a glance above the detail tables. */
+.fomc-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+}
+.fomc-hl-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.fomc-hl-title { font: 700 13px/1.2 var(--font-serif); color: var(--text-strong); }
+.fomc-hl-cap { font: 600 9px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.fomc-hl-bar {
+  display: flex;
+  height: 12px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.fomc-hl-seg { display: block; height: 100%; min-width: 3px; transition: flex var(--dur-2) var(--ease-out); }
+.fomc-hl-seg.cut { background: var(--pos); }
+.fomc-hl-seg.hold { background: color-mix(in srgb, var(--muted) 52%, var(--surface-3)); }
+.fomc-hl-seg.hike { background: var(--neg); }
+.fomc-hl-keys { display: flex; flex-wrap: wrap; gap: 16px; }
+.fomc-hl-key { display: inline-flex; align-items: center; gap: 5px; font: 600 11px/1 var(--font-mono); color: var(--muted); }
+.fomc-hl-key::before { content: ""; width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.fomc-hl-key.cut::before { background: var(--pos); }
+.fomc-hl-key.hold::before { background: color-mix(in srgb, var(--muted) 52%, var(--surface-3)); }
+.fomc-hl-key.hike::before { background: var(--neg); }
+.fomc-hl-key b { font-size: 13px; color: var(--text); }
+.fomc-hl-key.cut b { color: var(--pos); }
+.fomc-hl-key.hike b { color: var(--neg); }
 .fomc-meeting + .fomc-meeting { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
 .fomc-meeting-title {
   font: 600 12px/1.2 var(--font-mono);
