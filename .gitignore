@@ -1,3 +1,11 @@
 node_modules/
 .DS_Store
 *.log
+
+# Path B private-data migration: the premium data/*.json now live in a private
+# Vercel Blob store (lib/datastore.mjs), hydrated/flushed by scripts/sync-data.mjs
+# and served through the gated /api/data/* — they are NO LONGER committed to this
+# (public) repo. The build/scan workflows write data/ locally and push it to the
+# store; the gate reads from the store. Restoring the old commit-data model means
+# removing this ignore + reverting the workflow flip + unsetting PRIVATE_DATA_ENABLED.
+data/
