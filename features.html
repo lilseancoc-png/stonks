@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What's included · stonks</title>
+<meta name="description" content="Everything stonks offers — what's free to browse and what's unlocked with a premium Discord membership. Top Picks, Briefs, Narratives, live flow, and more.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="favicon.svg">
+<meta property="og:type" content="website">
+<meta property="og:title" content="What's included · stonks">
+<meta property="og:description" content="What's free to browse and what's unlocked with a premium Discord membership.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Hand-maintained, NOT generated (like cheatsheet.html / chart-patterns.html /
+     privacy.html / terms.html). A build will not overwrite this file — edit it
+     directly. Linked from the nav's "Tools" menu and the site footer in
+     scripts/render/html.mjs. The free/premium split here MUST stay in sync with
+     lib/premium-keys.mjs (data tiers) and PREMIUM_TABS in
+     scripts/render/app-js.mjs (the gated tabs). -->
+<style>
+  :root{
+    --bg:#0d0e12;
+    --bg2:#11131a;
+    --surface:#171922;
+    --surface2:#1d2029;
+    --line:#2a2e3a;
+    --line2:#363b49;
+    --ink:#e9e6dd;
+    --muted:#8b8f9c;
+    --faint:#5c606d;
+    --gold:#e6b24a;
+    --gold-dim:#a07e34;
+    --green:#5ad1a8;
+    --green-dim:#2f8266;
+    --blurple:#5865f2;
+    --radius:14px;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --disp:'Fraunces',Georgia,serif;
+    --body:'Hanken Grotesk',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--body);
+    line-height:1.65;
+    font-size:15.5px;
+    -webkit-font-smoothing:antialiased;
+    position:relative;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(900px 600px at 12% -5%, rgba(230,178,74,.10), transparent 60%),
+      radial-gradient(800px 700px at 100% 0%, rgba(90,209,168,.07), transparent 55%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative;z-index:1;max-width:920px;margin:0 auto;padding:0 22px 96px}
+
+  .backlink{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);text-decoration:none;
+    margin-top:28px;padding:7px 12px;border:1px solid var(--line);border-radius:7px;
+    transition:color .2s ease,border-color .2s ease,background .2s ease;
+  }
+  .backlink:hover{color:var(--gold);border-color:var(--gold-dim);background:var(--surface)}
+
+  header.pg{padding:26px 0 34px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .kicker{
+    font-family:var(--mono);font-size:11px;letter-spacing:.34em;text-transform:uppercase;
+    color:var(--gold);display:flex;align-items:center;gap:14px;margin:34px 0 18px;
+  }
+  .kicker::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--gold-dim),transparent)}
+  h1{
+    font-family:var(--disp);font-weight:600;font-size:clamp(34px,6vw,58px);
+    line-height:1.0;letter-spacing:-.02em;
+  }
+  h1 em{font-style:italic;color:var(--gold)}
+  .intro{margin-top:22px;color:var(--muted);font-size:16px;max-width:680px}
+  .intro a{color:var(--gold);text-decoration:none}
+  .intro a:hover{text-decoration:underline}
+
+  nav.toc{
+    margin-top:30px;background:linear-gradient(180deg,var(--surface),var(--bg2));
+    border:1px solid var(--line);border-left:3px solid var(--gold-dim);
+    border-radius:var(--radius);padding:18px 22px 20px;
+  }
+  nav.toc h2{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:12px;
+  }
+  nav.toc ol{list-style:none;display:grid;grid-template-columns:repeat(2,1fr);gap:6px 28px;counter-reset:toc}
+  @media(max-width:640px){nav.toc ol{grid-template-columns:1fr}}
+  nav.toc li{counter-increment:toc;font-size:14px}
+  nav.toc a{color:var(--muted);text-decoration:none;display:flex;gap:10px;align-items:baseline;padding:2px 0}
+  nav.toc a::before{content:counter(toc,decimal-leading-zero);font-family:var(--mono);font-size:10.5px;color:var(--gold-dim);flex:none}
+  nav.toc a:hover{color:var(--gold)}
+
+  section{padding-top:46px;scroll-margin-top:20px}
+  section h2{
+    font-family:var(--disp);font-weight:500;font-size:clamp(22px,3.2vw,29px);letter-spacing:-.01em;
+    padding-bottom:12px;margin-bottom:8px;border-bottom:1px solid var(--line);
+  }
+  section h2 .snum{font-family:var(--mono);font-size:13px;color:var(--gold);margin-right:12px}
+  .sectlede{color:var(--muted);font-size:15px;margin:14px 0 22px;max-width:720px}
+
+  /* Tier badge — FREE (green) / PREMIUM (gold) */
+  .tier{
+    display:inline-flex;align-items:center;gap:6px;flex:none;
+    font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;border:1px solid;
+  }
+  .tier.free{color:var(--green);border-color:rgba(90,209,168,.4);background:rgba(90,209,168,.08)}
+  .tier.prem{color:var(--gold);border-color:rgba(230,178,74,.4);background:rgba(230,178,74,.09)}
+  .tier::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+
+  /* At-a-glance comparison — two columns */
+  .cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px}
+  @media(max-width:680px){.cmp{grid-template-columns:1fr}}
+  .cmp-col{
+    background:linear-gradient(180deg,var(--surface),var(--bg2));
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:20px 22px 22px;display:flex;flex-direction:column;
+  }
+  .cmp-col.free{border-top:3px solid var(--green-dim)}
+  .cmp-col.prem{border-top:3px solid var(--gold-dim)}
+  .cmp-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .cmp-title{font-family:var(--disp);font-weight:600;font-size:21px;letter-spacing:-.01em}
+  .cmp-price{margin:10px 0 2px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .cmp-price b{color:var(--ink);font-weight:500}
+  .cmp-sub{color:var(--faint);font-size:13px;margin-bottom:16px}
+  .cmp-list{list-style:none;display:grid;gap:9px;margin-top:4px}
+  .cmp-list li{position:relative;padding-left:24px;color:var(--muted);font-size:14px;line-height:1.5}
+  .cmp-list li::before{
+    content:"✓";position:absolute;left:2px;top:0;font-family:var(--mono);font-size:12px;font-weight:700;
+  }
+  .cmp-col.free .cmp-list li::before{color:var(--green)}
+  .cmp-col.prem .cmp-list li::before{color:var(--gold)}
+  .cmp-list li b{color:var(--ink);font-weight:600}
+  .cmp-cta{margin-top:auto;padding-top:18px}
+
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:10px;
+    width:100%;padding:12px 16px;border-radius:11px;border:0;
+    font-family:var(--body);font-size:14.5px;font-weight:600;cursor:pointer;text-decoration:none;
+    transition:filter .15s ease,transform .15s ease;
+  }
+  .btn.discord{background:var(--blurple);color:#fff}
+  .btn.discord:hover{filter:brightness(1.08);transform:translateY(-1px)}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line2)}
+  .btn.ghost:hover{border-color:var(--gold-dim);color:var(--gold)}
+
+  /* Feature catalog grid */
+  .grouplabel{
+    font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--faint);margin:26px 0 12px;display:flex;align-items:center;gap:12px;
+  }
+  .grouplabel::after{content:"";flex:1;height:1px;background:var(--line)}
+  .feat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  @media(max-width:680px){.feat-grid{grid-template-columns:1fr}}
+  .feat{
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:15px 17px;display:flex;flex-direction:column;gap:7px;
+    transition:border-color .18s ease,transform .18s ease,background .18s ease;
+  }
+  .feat:hover{border-color:var(--line2);transform:translateY(-1px);background:var(--surface2)}
+  .feat-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .feat-name{font-family:var(--disp);font-weight:600;font-size:16.5px;letter-spacing:-.01em;color:var(--ink)}
+  .feat-desc{color:var(--muted);font-size:13.5px;line-height:1.5}
+
+  /* Numbered steps */
+  .steps{list-style:none;counter-reset:step;display:grid;gap:14px;margin-top:20px}
+  .steps li{counter-increment:step;position:relative;padding-left:46px;color:var(--muted);font-size:14.5px;line-height:1.55}
+  .steps li::before{
+    content:counter(step);position:absolute;left:0;top:-2px;
+    width:30px;height:30px;display:grid;place-items:center;
+    font-family:var(--mono);font-size:13px;font-weight:700;color:var(--gold);
+    border:1px solid var(--gold-dim);border-radius:50%;background:var(--surface);
+  }
+  .steps li b{color:var(--ink);font-weight:600}
+  .steps li a{color:var(--gold);text-decoration:none}
+  .steps li a:hover{text-decoration:underline}
+
+  .ctarow{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px;max-width:480px}
+  .ctarow .btn{width:auto;flex:1 1 200px}
+
+  p{color:var(--muted);margin-bottom:14px}
+  p strong,li strong{color:var(--ink);font-weight:600}
+  p a,li a{color:var(--gold);text-decoration:none}
+  p a:hover,li a:hover{text-decoration:underline}
+  ul.plain{list-style:none;margin:6px 0 16px;display:grid;gap:9px}
+  ul.plain li{position:relative;padding-left:22px;color:var(--muted)}
+  ul.plain li::before{content:"";position:absolute;left:4px;top:11px;width:5px;height:5px;border-radius:50%;background:var(--gold-dim)}
+
+  .callout{
+    margin-top:22px;background:var(--surface);border:1px solid var(--line);
+    border-left:3px solid var(--gold-dim);border-radius:var(--radius);padding:16px 20px;
+    color:var(--muted);font-size:14px;line-height:1.6;
+  }
+  .callout b{color:var(--ink)}
+
+  footer.pgfoot{
+    margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:12px 20px;justify-content:space-between;align-items:center;
+    color:var(--faint);font-size:12.5px;
+  }
+  footer.pgfoot a{color:var(--muted);text-decoration:none}
+  footer.pgfoot a:hover{color:var(--gold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="backlink" href="/">&larr; Back to stonks</a>
+
+  <header class="pg">
+    <div class="kicker">stonks &middot; what's included</div>
+    <h1>Free to browse.<br><em>Premium</em> to unlock.</h1>
+    <p class="intro">stonks is a freemium options desk. Most of it is <strong>free to use right now</strong> — no account, no card. A focused set of members-only tools is unlocked with a <strong>premium Discord membership</strong>. Here's exactly what sits on each side of the line. <a href="/">Start browsing &rarr;</a></p>
+  </header>
+
+  <nav class="toc" aria-label="Table of contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#glance">Free vs Premium at a glance</a></li>
+      <li><a href="#free">What's free</a></li>
+      <li><a href="#premium">What premium unlocks</a></li>
+      <li><a href="#how">How membership works</a></li>
+      <li><a href="#good">Good to know</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="glance">
+      <h2><span class="snum">01</span>Free vs Premium at a glance</h2>
+      <p class="sectlede">The whole app shell, every live quote/chain proxy, and the bulk of the research tabs are open to everyone. Premium adds the highest-signal, freshest, decision-grade layers — the stuff we'd charge for.</p>
+      <div class="cmp">
+        <div class="cmp-col free">
+          <div class="cmp-head">
+            <span class="cmp-title">Free</span>
+            <span class="tier free">No login</span>
+          </div>
+          <div class="cmp-price"><b>$0</b> &middot; browse anytime</div>
+          <div class="cmp-sub">Open to anyone — nothing to sign up for.</div>
+          <ul class="cmp-list">
+            <li><b>Grade a contract</b> — spread, delta, theta + AI conviction on any chain</li>
+            <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
+            <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
+            <li><b>Market heatmap</b> — live map by performance or relative volume</li>
+            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings</li>
+            <li><b>Streaks</b> &amp; the <b>Strategies</b> entry engine</li>
+            <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
+          </ul>
+          <div class="cmp-cta">
+            <a class="btn ghost" href="/">Browse the free site</a>
+          </div>
+        </div>
+        <div class="cmp-col prem">
+          <div class="cmp-head">
+            <span class="cmp-title">Premium</span>
+            <span class="tier prem">Discord member</span>
+          </div>
+          <div class="cmp-price"><b>Members</b> &middot; via Discord role</div>
+          <div class="cmp-sub">Everything in Free, plus the decision-grade layers.</div>
+          <ul class="cmp-list">
+            <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
+            <li><b>Briefs</b> — pre-market &amp; post-close market digests</li>
+            <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
+            <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
+            <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
+            <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
+            <li><b>Hot stocks</b> — live pace board with buy/sell/wait verdicts</li>
+            <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
+          </ul>
+          <div class="cmp-cta">
+            <a class="btn discord" href="/api/auth/discord-login">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
+              Log in with Discord
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="free">
+      <h2><span class="snum">02</span>What's free</h2>
+      <p class="sectlede">No account required — open the site and these are all live. Refreshed automatically through the trading day.</p>
+
+      <div class="grouplabel">Find &amp; act</div>
+      <div class="feat-grid">
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Grade a contract</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Score any specific options contract on bid-ask spread, delta, and theta, with an AI conviction read blending news, fundamentals, technicals, and macro tilt.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Tickers</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Per-ticker option chains, technicals (RSI/MACD/SMA/S&amp;R/IV regime), Greeks, IV term structure, earnings history, and an AI news take — for every tracked symbol.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Calendar</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, PPI, JOLTS), FOMC dates and live FedWatch probabilities — with countdowns and clickable tickers.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Strategies</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">An entry-strategy engine that frames how to express a directional view with defined-risk option structures.</p>
+        </div>
+      </div>
+
+      <div class="grouplabel">Macro &amp; market context</div>
+      <div class="feat-grid">
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Market heatmap</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A Finviz-style map of the curated universe, sized by market cap and colored by performance or relative volume, with a live overlay, breadth ribbon, and ticker search.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Overnight markets</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Cross-market correlations — foreign indices, FX, US futures, commodities, rates, and crypto — and how each maps onto US names overnight.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Fear &amp; Greed</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">CNN's 7-indicator equity-market sentiment index, 0–100, with a redesigned gauge and a scrubbable history.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Bonds &amp; USD</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">How Treasury yields and the dollar shape equities — the yield curve, the 2s10s spread, sparklines, and the Fed anchor.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">13F filings</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A quarterly snapshot of the largest institutional filers — top positions, biggest aggregate holdings, and rotation themes.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Current green/red daily-close streaks for every ticker, a counter-day tolerance bank, rarity context, and a just-snapped mean-reversion strip.</p>
+        </div>
+      </div>
+
+      <div class="grouplabel">Live tools &amp; reference</div>
+      <div class="feat-grid">
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Live quotes &amp; chains</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Real-time spot, option chains, the live Fed Funds rate, and a "check a position you hold" pricer — the live data proxies are open to everyone.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Buyer's manual</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A plain-language field guide to reading an option — what spread, delta, theta, and IV actually mean for the trade.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Chart patterns</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A reference of the common chart formations and what they tend to signal.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="premium">
+      <h2><span class="snum">03</span>What premium unlocks</h2>
+      <p class="sectlede">The members-only layer — the freshest, highest-signal reads we'd put real money behind. These eight tabs (and the data that backs them) are gated behind a valid membership; everything above stays free.</p>
+      <div class="feat-grid">
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a cross-sectional grade, suggested contract, position sizing, move-to-breakeven, and an exit plan. Plus grade <em>any</em> ticker on demand.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A pre-market and a post-close market digest — overnight moves, the day's movers, notable flow, dealer gamma, what's next — written each session.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Narratives</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">AI-built theses on what's driving capital — longs, shorts, the 6-stage lifecycle, a fundamentals-vs-hype gauge, bull/base/bear cases, and cited sources.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Unusual flow</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">Options prints with abnormal volume vs the prior session, the call-vs-put premium skew, and a directional lean — who's pricing in what.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Volume</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">Intraday volume standouts and support/resistance breaks, with an hour-by-hour volume-profile strip on every flagged name.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Gamma exposure</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">The dealer net-gamma (GEX) matrix per strike, the gamma flip line, and the call/put walls — where moves get pinned or amplified.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Hot stocks</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">What's trading heaviest right now — live volume pace, sector context, dealer gamma, flow skew, and a buy-calls / buy-puts / wait verdict per name.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, the scorecard, and the roster's in/out churn over time.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <h2><span class="snum">04</span>How membership works</h2>
+      <p class="sectlede">Premium is unlocked through our Discord server. There's no separate stonks account — your Discord membership <em>is</em> your access.</p>
+      <ol class="steps">
+        <li><b>Join the Discord and get the member role.</b> Premium access rides on a role in our server. Members get it automatically; ask in the server if you don't see it yet.</li>
+        <li><b>Log in with Discord.</b> Hit <a href="/api/auth/discord-login">Log in</a> (or the "Log in" button in the site header). We check your server membership and role — nothing else.</li>
+        <li><b>The premium tabs unlock.</b> Once you hold the role, the eight members-only tabs and their data open up. A non-member just sees a polite upsell where those tabs would be — the rest of the site never locks.</li>
+      </ol>
+      <div class="callout">
+        <b>Privacy &amp; sessions:</b> we only read your Discord user ID, username, and the roles relevant to access. Login mints a short-lived, secure session cookie — sign out anytime. See the <a href="/privacy.html">Privacy Policy</a> for the full detail.
+      </div>
+      <div class="ctarow">
+        <a class="btn discord" href="/api/auth/discord-login">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
+          Log in with Discord
+        </a>
+        <a class="btn ghost" href="/">Keep browsing free</a>
+      </div>
+    </section>
+
+    <section id="good">
+      <h2><span class="snum">05</span>Good to know</h2>
+      <ul class="plain">
+        <li><strong>Refreshed through the day.</strong> The data bakes multiple times each trading day — picks, grades, narratives, heatmap, and flow all update on a schedule, not just once.</li>
+        <li><strong>Sources.</strong> Quotes and chains come from Yahoo Finance; macro from the Fed, BLS, Treasury, and SEC; sentiment from CNN's Fear &amp; Greed index. AI theses and news takes are generated by Google Gemini.</li>
+        <li><strong>Greeks are computed locally.</strong> Black-Scholes math runs in your browser against the live risk-free rate — nothing about a contract you grade is uploaded.</li>
+        <li><strong>Not financial advice.</strong> stonks is a research and educational tool. Nothing here is a recommendation to buy or sell any security. Options carry risk; do your own diligence.</li>
+      </ul>
+      <p>Questions about membership? Ask in the Discord, or see the <a href="/terms.html">Terms of Use</a> and <a href="/privacy.html">Privacy Policy</a>.</p>
+    </section>
+  </main>
+
+  <footer class="pgfoot">
+    <span>&copy; 2026 stonks &middot; Option Contract Rater</span>
+    <span><a href="/">Home</a> &middot; <a href="/privacy.html">Privacy</a> &middot; <a href="/terms.html">Terms</a></span>
+  </footer>
+</div>
+</body>
+</html>
