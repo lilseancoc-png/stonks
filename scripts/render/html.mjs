@@ -1046,6 +1046,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
     <a class="page-tab-menu-item" role="menuitem" href="/cheatsheet.html" style="text-decoration:none">Buyer's manual</a>
     <a class="page-tab-menu-item" role="menuitem" href="/chart-patterns.html" style="text-decoration:none">Chart patterns</a>
+    <a class="page-tab-menu-item" role="menuitem" href="/features.html" style="text-decoration:none">What's included</a>
   </div>
   <div class="page-tab-menu" role="menu" id="page-tab-menu-legal" aria-labelledby="page-tab-trigger-legal" data-group="legal" hidden>
     <a class="page-tab-menu-item" role="menuitem" href="/privacy.html" style="text-decoration:none">Privacy Policy</a>
@@ -1528,7 +1529,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
   <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
-  <div><a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Use</a></div>
+  <div><a href="/features.html">What's included</a> · <a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Use</a></div>
 </footer>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>

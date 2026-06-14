@@ -16488,7 +16488,7 @@ export function gatherBriefSignals(kind, ctx) {
       return Number.isFinite(t) && hlNow - t <= hlMaxAgeMs;
     })
     .slice(0, 8)
-    .map((h) => ({ title: briefClause(h.title, 160), source: h.publisher || h.source || null, at: h.publishedAt }));
+    .map((h) => ({ title: briefClause(h.title, 160), source: h.publisher || h.source || null, at: h.publishedAt, link: (typeof h.link === "string" && /^https?:\/\//i.test(h.link)) ? h.link : null }));
   if (hlArr.length) signals.headlines = hlArr;
 
   // Macro data that already PRINTED (today + the trailing lookback window),
