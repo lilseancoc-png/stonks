@@ -7534,6 +7534,123 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .picks-summary-strong .picks-summary-num { color: var(--accent); }
 .picks-summary-strong .picks-summary-lbl { color: var(--accent); opacity: .85; }
 
+/* --- Live "market tape" — cross-asset macro regime ----------------------- */
+/* display:contents keeps the live-replaced regime chip inline with the other
+   summary chips while its wrapper carries the stable #picks-regime-chip id. */
+.picks-regime-slot { display: contents; }
+.picks-tape-dot { color: var(--pos); font-size: .8em; animation: tape-pulse 2.2s ease-in-out infinite; }
+@keyframes tape-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+.picks-tape { margin: 0 0 14px; }
+.picks-tape[hidden] { display: none; }
+.picks-tape-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+}
+.picks-tape-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-strong);
+  font: inherit;
+}
+.picks-tape-head:hover { background: color-mix(in srgb, var(--text-strong) 4%, transparent); }
+.picks-tape-kicker {
+  font: 700 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+}
+.picks-tape-state {
+  font: 800 13px/1 var(--font-mono);
+  letter-spacing: var(--ls-display);
+  padding: 4px 8px;
+  border-radius: var(--r-1);
+  border: 1px solid var(--border);
+}
+.picks-tape-state.picks-summary-put { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); background: color-mix(in srgb, var(--neg) 6%, var(--surface)); }
+.picks-tape-state.picks-summary-call { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); background: color-mix(in srgb, var(--pos) 6%, var(--surface)); }
+.picks-tape-state.picks-summary-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, var(--border)); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
+.picks-tape-live {
+  margin-left: auto;
+  font: 600 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  white-space: nowrap;
+}
+.picks-tape-live.is-live { color: var(--pos); }
+.picks-tape-live.is-baked { color: var(--muted); }
+.picks-tape-toggle { color: var(--muted); font-size: 12px; }
+.picks-tape-body { display: none; padding: 0 14px 14px; }
+.picks-tape-card.is-open .picks-tape-body { display: block; }
+.picks-tape-summary { margin: 4px 0 10px; font: 400 13px/1.6 var(--font-sans); color: var(--text); }
+.picks-tape-summary b { color: var(--text-strong); font-weight: 700; }
+.picks-tape-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.picks-tape-metrics span {
+  font: 600 10px/1.3 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+}
+.picks-tape-metrics b {
+  font: 800 14px/1 var(--font-mono);
+  color: var(--text-strong);
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.picks-tape-axes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+  gap: 8px;
+}
+.tape-axis {
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-1);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--text-strong) 2%, var(--surface));
+}
+.tape-axis.tape-off { border-left-color: var(--neg); }
+.tape-axis.tape-on { border-left-color: var(--pos); }
+.tape-axis.tape-flat { border-left-color: var(--border); }
+.tape-axis-head { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.tape-axis-name { font: 700 11px/1 var(--font-mono); color: var(--text-strong); text-transform: uppercase; letter-spacing: .04em; }
+.tape-axis-score { margin-left: auto; font: 800 13px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.tape-off .tape-axis-score { color: var(--neg); }
+.tape-on .tape-axis-score { color: var(--pos); }
+.tape-flat .tape-axis-score { color: var(--muted); }
+.tape-axis-badge {
+  font: 700 8px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.tape-axis-badge.is-live { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.tape-axis-badge.is-baked { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.tape-axis-label { font: 500 11px/1.4 var(--font-sans); color: var(--text); }
+.tape-axis-desc { font: 400 9px/1.3 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+.picks-tape-note { margin: 10px 0 0; font: 500 11px/1.5 var(--font-sans); color: var(--text); }
+.picks-tape-note.is-warn { color: var(--warn); }
+.picks-tape-note b { font-weight: 700; }
+.picks-tape-foot { margin: 10px 0 0; font: 400 11px/1.6 var(--font-sans); color: var(--muted); }
+
 /* Mobile: tighten the rank gutter. The score breakdown is now the in-card
    "Grade" tab (a tabpanel inside .pick-main), so it already flows full-width
    beneath the tabs on narrow viewports — no grid reflow needed. */
