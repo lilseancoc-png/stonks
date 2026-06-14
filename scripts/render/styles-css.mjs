@@ -10218,10 +10218,28 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   .bonds-usd-table td { padding: var(--s-1) var(--s-2); }
 }
 .bonds-live-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  margin: var(--s-3) 0;
+}
+.bonds-live-group { display: flex; flex-direction: column; gap: var(--s-2); }
+.bonds-live-group-label {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bonds-live-group-label span {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.7;
+}
+.bonds-live-subgrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--s-3);
-  margin: var(--s-3) 0;
 }
 .bonds-live-tile {
   padding: var(--s-3);
@@ -10325,6 +10343,61 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   font-size: var(--fs-sm);
   padding: var(--s-2) 0;
 }
+/* Per-tile sparkline over the trailing macro-history closes. Neutral muted
+   stroke — for yields/DXY a rising line isn't inherently good or bad. */
+.bonds-spark { color: var(--muted); opacity: 0.85; margin-top: 2px; }
+/* Treasury yield-curve chart (2Y/10Y/30Y, today vs prior close). */
+.bonds-curve {
+  margin: var(--s-1) 0 var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.bonds-curve-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 2px;
+}
+.bonds-curve-title {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.bonds-curve-legend {
+  display: flex; align-items: center; gap: 5px;
+  font: 500 10px/1 var(--font-mono); color: var(--muted);
+}
+.bonds-curve-key { display: inline-block; width: 12px; height: 0; border-top: 2px solid var(--muted); }
+.bonds-curve-key.cur { border-top-color: var(--accent); }
+.bonds-curve-key.prev { border-top-style: dashed; }
+.bonds-curve-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.bonds-curve-cur { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.bonds-curve-prev { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 3; opacity: 0.65; }
+.bonds-curve-dot { fill: var(--accent); }
+.bonds-curve-val { fill: var(--text); font: 600 9px var(--font-mono); text-anchor: middle; }
+.bonds-curve-axis { fill: var(--muted); font: 600 10px var(--font-mono); text-anchor: middle; }
+.bonds-curve-foot { margin-top: 4px; font: 500 11px/1.4 var(--font-mono); color: var(--muted); }
+.bonds-curve-foot strong { color: var(--text); }
+/* Collapsible primer — folds the educational cards under the live dashboard. */
+.bonds-primer { margin-top: var(--s-2); }
+.bonds-primer > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface);
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s-3); flex-wrap: wrap;
+}
+.bonds-primer > summary::-webkit-details-marker { display: none; }
+.bonds-primer > summary:hover { border-color: var(--accent); }
+.bonds-primer[open] > summary {
+  border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+}
+.bonds-primer-summary-title { font-weight: 700; color: var(--text-strong); font-size: var(--fs-md); }
+.bonds-primer-summary-title::before { content: "📖 "; }
+.bonds-primer-summary-hint { color: var(--muted); font-size: 13px; }
+.bonds-primer-body { display: flex; flex-direction: column; margin-top: var(--s-4); }
 /* "What's moving — and why it matters" context panel. */
 .bonds-context { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-2) 0; }
 .bonds-ctx-quiet { color: var(--muted); font-size: 13px; margin: var(--s-2) 0; }

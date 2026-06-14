@@ -16350,11 +16350,72 @@
   // volume live boards; the overlay is best-effort and a failed poll just
   // keeps the baked tiles.
   var BONDS_LIVE_POLL_MS = 30000;
-  var bondsLive = { timer: null, legs: null, fetchedAt: null };
+  var bondsLive = { timer: null, legs: null, fetchedAt: null, fedRate: null };
+  // 90-day macro close history (data/macro-history.json — a FREE key) powers
+  // the per-tile sparklines, the 2s10s spread trend, and the yield-curve
+  // chart's prior line. Fetched once per pane open (lazy, best-effort): a miss
+  // just means the tiles render without their trend lines.
+  var bondsHist = { loading: false, loaded: false, series: null };
+  function loadBondsHistory(){
+    if (bondsHist.loaded || bondsHist.loading) return;
+    bondsHist.loading = true;
+    fetch('data/macro-history.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        var entries = (j && Array.isArray(j.entries)) ? j.entries : [];
+        var keys = ['twoY', 'tenY', 'thirtyY', 'dxy', 'vix'];
+        var series = {};
+        keys.forEach(function(k){
+          series[k] = entries
+            .map(function(e){ return (e && typeof e[k] === 'number' && isFinite(e[k])) ? e[k] : null; })
+            .filter(function(v){ return v != null; });
+        });
+        // 2s10s spread series — only entries with BOTH legs present.
+        series.spread = entries
+          .map(function(e){
+            return (e && typeof e.tenY === 'number' && typeof e.twoY === 'number' && isFinite(e.tenY) && isFinite(e.twoY))
+              ? (e.tenY - e.twoY) : null;
+          })
+          .filter(function(v){ return v != null; });
+        bondsHist.series = series;
+      })
+      .catch(function(){ /* sparklines are best-effort */ })
+      .finally(function(){ bondsHist.loaded = true; bondsHist.loading = false; renderBondsLive(); });
+  }
+  // Current Fed Funds rate (EFFR) — the policy anchor the 2Y yield tracks.
+  // Set ~once per business day, so one fetch per pane open is plenty (no need
+  // to ride the 30s live poll). Best-effort: a miss just hides the tile.
+  function pollBondsFedRateOnce(){
+    if (bondsLive.fedRate) return;
+    fetch('api/fed-rate', { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ if (j && typeof j.rate === 'number' && isFinite(j.rate)){ bondsLive.fedRate = j; renderBondsLive(); } })
+      .catch(function(){ /* tile hidden when unavailable */ });
+  }
+  // Tiny inline sparkline over the trailing macro-history closes (last ~30).
+  // Neutral muted stroke on purpose — for yields/DXY a rising line is not
+  // inherently good or bad, so we don't color it; the tile's 1d/5d figures
+  // already carry direction.
+  function bondsSparkSvg(series){
+    if (!Array.isArray(series) || series.length < 3) return '';
+    var s = series.slice(-30);
+    var w = 64, h = 16, n = s.length;
+    var min = Math.min.apply(null, s), max = Math.max.apply(null, s);
+    var span = (max - min) || 1;
+    var pts = s.map(function(val, i){
+      var x = (i / (n - 1)) * (w - 2) + 1;
+      var y = h - 1 - ((val - min) / span) * (h - 2);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    return '<svg class="bonds-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+      '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
   function startBondsLivePolling(){
-    if (bondsLive.timer) return;
     var pane = document.getElementById('page-pane-bonds-usd');
     if (!pane || pane.hidden) return;
+    loadBondsHistory();
+    pollBondsFedRateOnce();
+    if (bondsLive.timer) return;
     pollBondsLiveOnce();
     bondsLive.timer = setInterval(pollBondsLiveOnce, BONDS_LIVE_POLL_MS);
   }
@@ -16474,6 +16535,7 @@
           escapeHtml(prev.date) + ': ' + escapeHtml(valFmt(prev[key])) +
         '</span>';
       }
+      var sparkHtml = (bondsHist.series && key) ? bondsSparkSvg(bondsHist.series[key]) : '';
       return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
         '<div class="bonds-live-tile-head">' +
           '<span class="bonds-live-label">' + escapeHtml(label) + '</span>' +
@@ -16484,6 +16546,55 @@
         (badge ? '<div class="bonds-live-band-row">' + badge + '</div>' : '') +
         (weekly ? '<span class="bonds-live-change bonds-live-change--sub ' + weekly.dirClass + '">' + escapeHtml(weekly.text) + '</span>' : '') +
         prevLine +
+        sparkHtml +
+      '</div>';
+    }
+    // Fed Funds (EFFR) — the policy anchor. Lazily fetched from /api/fed-rate
+    // (set once per business day). No movement band; the value frames the 2Y
+    // tile next to it. Hidden until the fetch lands (or if it fails).
+    function fedFundsTile(){
+      var fr = bondsLive.fedRate;
+      if (!fr || fr.rate == null || !isFinite(fr.rate)) return '';
+      var asOf = fr.asOf ? ' · ' + escapeHtml(String(fr.asOf)) : '';
+      return '<div class="bonds-live-tile">' +
+        '<div class="bonds-live-tile-head">' +
+          '<span class="bonds-live-label">Fed funds (EFFR)</span>' +
+        '</div>' +
+        '<span class="bonds-live-value">' + fr.rate.toFixed(2) + '%</span>' +
+        '<span class="bonds-live-prev" title="Effective federal funds rate — the Fed&apos;s current policy rate (NY Fed EFFR). The 2Y yield trades as the market&apos;s read on where this is headed.">policy rate' + asOf + '</span>' +
+      '</div>';
+    }
+    // 2s10s spread (10Y − 2Y) — the classic recession signal. Inversion (a
+    // negative spread) is the headline read; the sub-line shows 5d steepening /
+    // flattening from the spread history. Computed from the same legs, so it
+    // tracks the live overlay automatically.
+    function spreadTile(){
+      var t = macro.tenY, two = macro.twoY;
+      if (!t || t.value == null || !isFinite(t.value) || !two || two.value == null || !isFinite(two.value)) return '';
+      var bps = (t.value - two.value) * 100;
+      var inv = bps < 0;
+      var band = inv ? { key: 'very-large', label: 'Inverted' }
+        : bps < 20 ? { key: 'big', label: 'Flat' }
+        : bps < 50 ? { key: 'notable', label: 'Modest' }
+        : { key: 'normal', label: 'Upward' };
+      var sub = '';
+      if (bondsHist.series && bondsHist.series.spread && bondsHist.series.spread.length >= 6){
+        var sp = bondsHist.series.spread;
+        var d5 = (sp[sp.length - 1] - sp[sp.length - 6]) * 100;
+        sub = '<span class="bonds-live-change bonds-live-change--sub ' + (d5 > 0 ? 'up' : d5 < 0 ? 'down' : 'flat') + '">' +
+          (d5 >= 0 ? '+' : '') + d5.toFixed(1) + ' bps 5d (' + (d5 > 0.5 ? 'steepening' : d5 < -0.5 ? 'flattening' : 'flat') + ')</span>';
+      }
+      var sparkHtml = (bondsHist.series) ? bondsSparkSvg(bondsHist.series.spread) : '';
+      return '<div class="bonds-live-tile' + (inv ? ' is-alerting' : '') + '">' +
+        '<div class="bonds-live-tile-head">' +
+          '<span class="bonds-live-label" title="10-year yield minus 2-year yield. A negative spread (inversion) has preceded every modern US recession.">2s10s spread</span>' +
+          (inv ? '<span class="bonds-live-alert" title="Yield curve inverted — the classic recession-onset signal">!</span>' : '') +
+        '</div>' +
+        '<span class="bonds-live-value">' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</span>' +
+        '<div class="bonds-live-band-row"><span class="bonds-live-band band-' + band.key + '">' + escapeHtml(band.label) + '</span></div>' +
+        sub +
+        '<span class="bonds-live-prev" title="10Y − 2Y">10Y &minus; 2Y</span>' +
+        sparkHtml +
       '</div>';
     }
     // VIX regime chip — percentile rank over the 90-day macro history once
@@ -16522,6 +16633,7 @@
         prevLine = '<span class="bonds-live-prev" title="Previous EOD close from data/macro-history.json">Prev ' +
           escapeHtml(prev.date) + ': ' + escapeHtml(prev.vix.toFixed(2)) + '</span>';
       }
+      var sparkHtml = (bondsHist.series) ? bondsSparkSvg(bondsHist.series.vix) : '';
       return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
         '<div class="bonds-live-tile-head">' +
           '<span class="bonds-live-label">VIX</span>' + alertChip +
@@ -16531,6 +16643,7 @@
         (badge ? '<div class="bonds-live-band-row">' + badge + '</div>' : '') +
         (weekly ? '<span class="bonds-live-change bonds-live-change--sub ' + weekly.dirClass + '">' + escapeHtml(weekly.text) + '</span>' : '') +
         prevLine +
+        sparkHtml +
       '</div>';
     }
     // Monthly BLS prints (CPI YoY + unemployment) — not live quotes, so no 1d
@@ -16591,16 +16704,94 @@
           escapeHtml(ue.refMonth || '') + ' print · monthly</span>' +
       '</div>';
     }
+    var pctFmt = function(v){ return v.toFixed(2) + '%'; };
+    // Group 1 — live rates & dollar (30s-polled). Fed funds anchors the row;
+    // the 2s10s spread sits between the yields and DXY.
+    var ratesTiles = '';
+    ratesTiles += fedFundsTile();
+    ratesTiles += tile('2Y yield',  macro.twoY,    '2y',  'twoY',    pctFmt);
+    ratesTiles += tile('10Y yield', macro.tenY,    '10y', 'tenY',    pctFmt);
+    ratesTiles += tile('30Y yield', macro.thirtyY, '30y', 'thirtyY', pctFmt);
+    ratesTiles += spreadTile();
+    ratesTiles += tile('DXY',       macro.dxy,     'dxy', 'dxy',     function(v){ return v.toFixed(2); });
+    ratesTiles += vixTile(macro.vix);
+    // Group 2 — macro backdrop (monthly BLS prints, NOT live). Split out so the
+    // monthly cadence reads clearly distinct from the live rates above.
+    var macroTiles = '';
+    macroTiles += inflationTile();
+    macroTiles += unemploymentTile();
     var html = '';
-    html += tile('2Y yield',  macro.twoY,    '2y',  'twoY',    function(v){ return v.toFixed(2) + '%'; });
-    html += tile('10Y yield', macro.tenY,    '10y', 'tenY',    function(v){ return v.toFixed(2) + '%'; });
-    html += tile('30Y yield', macro.thirtyY, '30y', 'thirtyY', function(v){ return v.toFixed(2) + '%'; });
-    html += tile('DXY',       macro.dxy,     'dxy', 'dxy',     function(v){ return v.toFixed(2); });
-    html += vixTile(macro.vix);
-    html += inflationTile();
-    html += unemploymentTile();
+    if (ratesTiles) {
+      html += '<div class="bonds-live-group">' +
+        '<div class="bonds-live-group-label">Rates &amp; dollar <span>· live</span></div>' +
+        '<div class="bonds-live-subgrid">' + ratesTiles + '</div></div>';
+    }
+    if (macroTiles) {
+      html += '<div class="bonds-live-group">' +
+        '<div class="bonds-live-group-label">Macro backdrop <span>· monthly prints</span></div>' +
+        '<div class="bonds-live-subgrid">' + macroTiles + '</div></div>';
+    }
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
+    renderBondsCurve(macro);
     renderBondsContext();
+  }
+
+  // --- Bonds & USD: Treasury yield-curve chart ----------------------------
+  // A compact SVG of the curve shape across 2Y/10Y/30Y — today's line vs the
+  // prior session's close (macro.previousClose) — so steepening / flattening /
+  // inversion reads at a glance. Hidden unless all three legs are present.
+  function renderBondsCurve(macro){
+    var host = document.getElementById('bonds-curve');
+    if (!host) return;
+    var prev = macro.previousClose || null;
+    var defs = [
+      { label: '2Y',  key: 'twoY' },
+      { label: '10Y', key: 'tenY' },
+      { label: '30Y', key: 'thirtyY' }
+    ];
+    var cur = [], pvv = [], haveAll = true;
+    for (var i = 0; i < defs.length; i++){
+      var leg = macro[defs[i].key];
+      var v = (leg && leg.value != null && isFinite(leg.value)) ? leg.value : null;
+      if (v == null) haveAll = false;
+      cur.push(v);
+      var p = (prev && prev[defs[i].key] != null && isFinite(prev[defs[i].key])) ? prev[defs[i].key] : null;
+      pvv.push(p);
+    }
+    if (!haveAll){ host.hidden = true; host.innerHTML = ''; return; }
+    host.hidden = false;
+    var W = 320, H = 134, padL = 22, padR = 22, padT = 20, padB = 26;
+    var xs = defs.map(function(_, i){ return padL + (W - padL - padR) * (i / (defs.length - 1)); });
+    var all = cur.concat(pvv).filter(function(v){ return v != null && isFinite(v); });
+    var mn = Math.min.apply(null, all), mx = Math.max.apply(null, all);
+    var span = (mx - mn) || 1; mn -= span * 0.18; mx += span * 0.22; span = mx - mn;
+    function yFor(v){ return padT + (H - padT - padB) * (1 - (v - mn) / span); }
+    function poly(arr){
+      var out = [];
+      for (var i = 0; i < arr.length; i++){ if (arr[i] == null) continue; out.push(xs[i].toFixed(1) + ',' + yFor(arr[i]).toFixed(1)); }
+      return out.join(' ');
+    }
+    var prevLine = pvv.every(function(v){ return v != null; })
+      ? '<polyline class="bonds-curve-prev" points="' + poly(pvv) + '" />' : '';
+    var curLine = '<polyline class="bonds-curve-cur" points="' + poly(cur) + '" />';
+    var marks = '';
+    for (var j = 0; j < defs.length; j++){
+      var cy = yFor(cur[j]);
+      marks += '<circle class="bonds-curve-dot" cx="' + xs[j].toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" />';
+      marks += '<text class="bonds-curve-val" x="' + xs[j].toFixed(1) + '" y="' + (cy - 8).toFixed(1) + '">' + cur[j].toFixed(2) + '</text>';
+      marks += '<text class="bonds-curve-axis" x="' + xs[j].toFixed(1) + '" y="' + (H - 8) + '">' + defs[j].label + '</text>';
+    }
+    var bps = (cur[1] - cur[0]) * 100;
+    var shape = bps < 0 ? 'inverted (classic recession signal)' : bps < 50 ? 'flat' : 'upward-sloping';
+    var svg = '<svg class="bonds-curve-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="US Treasury yield curve, 2-year to 30-year">' +
+      prevLine + curLine + marks + '</svg>';
+    host.innerHTML =
+      '<div class="bonds-curve-head">' +
+        '<span class="bonds-curve-title">Yield curve</span>' +
+        '<span class="bonds-curve-legend"><span class="bonds-curve-key cur"></span>today' +
+          (prevLine ? '<span class="bonds-curve-key prev"></span>prev close' : '') + '</span>' +
+      '</div>' + svg +
+      '<div class="bonds-curve-foot">2s10s <strong>' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</strong> · ' + shape + '</div>';
   }
 
   // --- Bonds & USD context: "why it matters today" ------------------------
