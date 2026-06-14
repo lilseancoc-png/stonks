@@ -995,6 +995,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <svg class="page-tab-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
   </div>
+  <div class="page-tab-group" data-group="legal">
+    <button type="button" class="page-tab page-tab-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="page-tab-menu-legal" id="page-tab-trigger-legal">
+      <span class="page-tab-trigger-label">Legal</span>
+      <svg class="page-tab-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
 </nav>
 <!-- Dropdown menus live outside .page-tabs so the strip's edge-fade
      mask-image doesn't clip them. The triggers link to these menus via
@@ -1019,6 +1025,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
     <a class="page-tab-menu-item" role="menuitem" href="/cheatsheet.html" style="text-decoration:none">Buyer's manual</a>
     <a class="page-tab-menu-item" role="menuitem" href="/chart-patterns.html" style="text-decoration:none">Chart patterns</a>
+  </div>
+  <div class="page-tab-menu" role="menu" id="page-tab-menu-legal" aria-labelledby="page-tab-trigger-legal" data-group="legal" hidden>
+    <a class="page-tab-menu-item" role="menuitem" href="/privacy.html" style="text-decoration:none">Privacy Policy</a>
+    <a class="page-tab-menu-item" role="menuitem" href="/terms.html" style="text-decoration:none">Terms of Use</a>
   </div>
 </div>
 <main>
@@ -1497,6 +1507,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
   <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
+  <div><a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Use</a></div>
 </footer>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
