@@ -70,6 +70,7 @@ function narrativesSection() {
       <span class="card-eyebrow" id="narratives-count" aria-live="polite"></span>
     </header>
     <p class="hint">The stories currently driving capital — AI capex, GLP-1, tariffs, rotations. Each sector tab opens to its overview — whose grade is the <em>average of the industry-group grades</em> inside it — then the sub-industry narratives. Every story is placed on its 6-stage <em>lifecycle</em> (catalysts → amplification → validation → peak → challenges → collapse), rated on a <em>fundamentals-vs-hype</em> gauge, and broken into <em>bull / base / bear</em> cases, with a <em>Watch for narrative shift</em> panel of the red flags that would break the thesis.</p>
+    <div id="narratives-pulse" class="narr-pulse" hidden></div>
     <div id="narratives-tabs" class="narr-tabs" role="tablist" aria-label="Market sectors"></div>
     <div id="narratives-panel" class="narr-panel" role="tabpanel"></div>
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
