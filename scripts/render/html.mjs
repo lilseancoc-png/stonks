@@ -513,7 +513,26 @@ function hotStocksSection() {
       <span class="vol-live-state" id="hot-live-state" aria-live="polite"></span>
     </header>
     <p class="hint">The <strong>15 names trading the heaviest right now</strong>, refreshed every 30s while this tab is open. <strong>Pace</strong> is cumulative day volume vs. the volume <em>expected by this point of the session</em> (the same U-shaped 25/14/11/11/14/25% intraday curve the hourly scanner uses) — ≥1.2× runs hot, ≥1.5× is exceptional. <strong>Now</strong> is the same read over just the trailing ~10 minutes, so you can tell a name that is heavy <em>at this moment</em> from one coasting on a busy open.</p>
-    <p class="hint">Each card carries the latest hourly scan's <strong>dealer-gamma read</strong> — net GEX (long γ pins price, short γ amplifies moves), the gamma flip, call/put walls with live-spot distances, and the OI tracker's squeeze score when ≥3 — plus a <strong>verdict</strong>: <span class="vol-key-up">Buy calls now</span> / <span class="vol-key-dn">Buy puts now</span> when the move, the S/R-break picture, and the gamma backdrop line up <em>and</em> right-now volume confirms (≥1.2×), otherwise <em>Wait &amp; monitor</em>. Tap a verdict for its full reasoning. These are <em>moment</em> reads for short-dated tactical trades — for the longer-dated, narrative-driven play see <strong>Top Picks</strong>.</p>
+    <p class="hint">Each card carries the latest hourly scan's <strong>dealer-gamma read</strong> — net GEX (long γ pins price, short γ amplifies moves), the gamma flip, call/put walls with live-spot distances, and the OI tracker's squeeze score when ≥3 — plus the day's <strong>unusual options flow</strong> (call vs. put premium skew) when the name is in the latest flow scan, and a <strong>verdict</strong>: <span class="vol-key-up">Buy calls now</span> / <span class="vol-key-dn">Buy puts now</span> when the move, the S/R-break picture, the gamma backdrop, and the options flow line up <em>and</em> right-now volume confirms (≥1.2×), otherwise <em>Wait &amp; monitor</em>. Tap a verdict for its full reasoning. These are <em>moment</em> reads for short-dated tactical trades — for the longer-dated, narrative-driven play see <strong>Top Picks</strong>.</p>
+    <div id="hot-summary" class="hot-summary" aria-live="polite" hidden></div>
+    <div class="vol-controls hot-controls" role="toolbar" aria-label="Filter and sort hot stocks">
+      <div class="vol-filter" id="hot-filter" role="radiogroup" aria-label="Filter hot stocks by verdict">
+        <button type="button" class="vol-pill is-on" data-hot-filter="all" role="radio" aria-checked="true">All</button>
+        <button type="button" class="vol-pill" data-hot-filter="buy" role="radio" aria-checked="false" title="Only names with a live buy-calls / buy-puts verdict">Buy signals</button>
+        <button type="button" class="vol-pill" data-hot-filter="bull" role="radio" aria-checked="false" title="Names whose tape leans bullish">Bullish</button>
+        <button type="button" class="vol-pill" data-hot-filter="bear" role="radio" aria-checked="false" title="Names whose tape leans bearish">Bearish</button>
+      </div>
+      <label class="vol-sort">
+        <span class="vol-sort-label">Sort</span>
+        <select id="hot-sort-select" aria-label="Sort hot stocks">
+          <option value="pace">Volume pace (day)</option>
+          <option value="now">Volume pace (now)</option>
+          <option value="move">Day move</option>
+          <option value="squeeze">Squeeze score</option>
+          <option value="alpha">A → Z</option>
+        </select>
+      </label>
+    </div>
     <div id="hot-board" class="hot-board" aria-live="polite"></div>
   </section>`;
 }

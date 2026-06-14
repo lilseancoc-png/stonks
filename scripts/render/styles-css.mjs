@@ -12282,6 +12282,132 @@ html::-webkit-scrollbar-thumb:hover {
 .hot-stat b { font-weight: 600; }
 .hot-stat.is-warming { color: var(--text-3); }
 .hot-vol { color: var(--text-3); }
+/* Header rollup — actionable verdict counts + the hottest sectors across the
+   top-N. A stable market read (computed pre-filter). */
+.hot-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 0.86em;
+  font-variant-numeric: tabular-nums;
+}
+.hot-sum-lead { font-weight: 600; color: var(--text-2); }
+.hot-sum-stat {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-weight: 600;
+}
+.hot-sum-stat.is-bull { color: var(--pos); background: var(--pos-soft); }
+.hot-sum-stat.is-bear { color: var(--neg); background: var(--neg-soft); }
+.hot-sum-stat.is-wait { color: var(--warn); background: var(--warn-soft); }
+.hot-sum-sectors { margin-left: auto; color: var(--text-3); }
+/* Sort + filter toolbar — reuses .vol-controls/.vol-pill/.vol-sort styling. */
+.hot-controls { margin-top: var(--s-3); }
+/* Curated-sector tag in the card head. */
+.hot-sector-tag {
+  flex: none;
+  align-self: center;
+  font-size: 0.62em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-3);
+  background: var(--surface-3);
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+/* Pace heat meter — 0..2.5x scale, baseline tick at 1x (40%), fill tinted by
+   the same heat tiers as the numeric pace. */
+.hot-pace-meter {
+  position: relative;
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.hot-pace-base {
+  position: absolute;
+  left: 40%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-strong);
+  z-index: 1;
+}
+.hot-pace-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+}
+.hot-pace-fill.is-hot { background: var(--neg); }
+.hot-pace-fill.is-elevated { background: var(--warn); }
+.hot-pace-fill.is-quiet { background: var(--text-3); }
+/* Per-card tag row: unusual-flow skew + day-range position. */
+.hot-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+.hot-chip-tag {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: 0.9em;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text-3);
+}
+.hot-flow, .hot-range {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+.hot-flow { font-weight: 600; }
+.hot-flow.is-bull { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, var(--border)); }
+.hot-flow.is-bear { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 35%, var(--border)); }
+.hot-flow.is-neutral { color: var(--text-3); }
+.hot-range { color: var(--text-2); gap: 4px; }
+.hot-range-track {
+  position: relative;
+  width: 42px;
+  height: 4px;
+  background: linear-gradient(90deg, var(--neg) 0%, var(--warn) 50%, var(--pos) 100%);
+  opacity: .55;
+  border-radius: var(--r-pill);
+}
+.hot-range-dot {
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  transform: translateY(-50%);
+  background: var(--text);
+  border: 1px solid var(--surface);
+  border-radius: 50%;
+}
+.hot-range-lbl { color: var(--text-3); }
 /* Phone layout: hide the desktop explainer prose, promote the verdict to a
    full-width thumb-sized button under the head line. */
 @media (max-width: 640px) {
@@ -12296,6 +12422,8 @@ html::-webkit-scrollbar-thumb:hover {
     order: 5;
     padding: 7px 10px;
   }
+  .hot-summary { font-size: 0.8em; }
+  .hot-sum-sectors { margin-left: 0; flex-basis: 100%; }
 }
 
 /* ---- Strategies tab ----------------------------------------------------- */

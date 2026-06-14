@@ -8054,6 +8054,29 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (sym){ volLive.whyOpen[sym] = !volLive.whyOpen[sym]; renderHotStocks(); }
     });
   }
+  // Sort select + verdict-filter pills for the hot board. Bound once at boot —
+  // the controls live outside #hot-board so they survive the per-poll innerHTML
+  // swap; they only mutate volLive.sort/filter and re-render.
+  function bindHotControls(){
+    var sortSel = $('hot-sort-select');
+    if (sortSel) sortSel.addEventListener('change', function(){
+      volLive.sort = sortSel.value || 'pace';
+      renderHotStocks();
+    });
+    var filterWrap = $('hot-filter');
+    if (filterWrap) filterWrap.addEventListener('click', function(ev){
+      var btn = ev.target.closest && ev.target.closest('[data-hot-filter]');
+      if (!btn) return;
+      volLive.filter = btn.getAttribute('data-hot-filter') || 'all';
+      var pills = filterWrap.querySelectorAll('[data-hot-filter]');
+      for (var i = 0; i < pills.length; i++){
+        var on = pills[i] === btn;
+        pills[i].classList.toggle('is-on', on);
+        pills[i].setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+      renderHotStocks();
+    });
+  }
 
   // --- Hot stocks tab (live volume pace board) -----------------------------
   // Always-live while the Hot stocks tab is visible (no opt-in toggle — the
@@ -8088,7 +8111,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // closed = the tape is not in a live regular session (pre/post, weekend,
   // holiday) — pace is then the LAST full session vs the 20D average and the
   // verdicts grade "how it finished", not a fill-now moment.
-  var volLive = { timer: null, rows: [], lastAt: null, marketState: null, etMin: null, closed: false, avg20: null, whyOpen: {}, hist: {}, histDate: null };
+  var volLive = { timer: null, rows: [], lastAt: null, marketState: null, etMin: null, closed: false, avg20: null, whyOpen: {}, hist: {}, histDate: null, sort: 'pace', filter: 'all' };
   function volLiveBaseline(sym, q){
     if (!volLive.avg20){
       var map = {};
@@ -8309,6 +8332,71 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return volLive.srMap[sym] || null;
   }
+  // Per-symbol unusual options-flow skew from the latest hourly flow scan
+  // (MANIFEST.unusual — already inlined, zero extra fetches). Same call/put
+  // premium math the Unusual Flow tab's summary bar uses (renderFlowSummary):
+  // prefers this-hour deltaPremium, falls back to cumulative day premium, then
+  // to raw contract counts. Gives the hot board the ONE thing share volume
+  // can't — directional conviction from where the options money is going. Not
+  // cached until UNUSUAL is present so an early call can't pin an empty map.
+  function volLiveFlowFor(sym){
+    if (!volLive.flowMap){
+      if (!(UNUSUAL && Array.isArray(UNUSUAL.tickers))) return null;
+      var map = {};
+      UNUSUAL.tickers.forEach(function(t){
+        if (!t || !t.symbol || !Array.isArray(t.contracts) || !t.contracts.length) return;
+        var callPrem = 0, putPrem = 0, callN = 0, putN = 0;
+        t.contracts.forEach(function(c){
+          var dp = (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)) || 0;
+          if (c.side === 'put'){ putPrem += dp; putN++; } else { callPrem += dp; callN++; }
+        });
+        if (!(callN + putN)) return;
+        var denom = callPrem + putPrem;
+        var bullBasis = denom > 0 ? callPrem : callN;
+        var bearBasis = denom > 0 ? putPrem : putN;
+        var basisSum = bullBasis + bearBasis;
+        var callPct = basisSum > 0 ? Math.round((bullBasis / basisSum) * 100) : 50;
+        var lean = bullBasis >= bearBasis * 1.2 ? 'bull' : (bearBasis >= bullBasis * 1.2 ? 'bear' : 'neutral');
+        map[String(t.symbol).toUpperCase()] = {
+          callPrem: callPrem, putPrem: putPrem, callN: callN, putN: putN,
+          callPct: callPct, putPct: 100 - callPct, lean: lean,
+          total: denom, contracts: callN + putN,
+        };
+      });
+      volLive.flowMap = map;
+    }
+    return volLive.flowMap[sym] || null;
+  }
+  // Compact options-flow chip for a hot card. Empty string when the name isn't
+  // in the latest flow scan (most names won't be — that's the signal).
+  function volLiveFlowChip(sym){
+    var f = volLiveFlowFor(sym);
+    if (!f || !f.total) return '';
+    var cls = f.lean === 'bull' ? 'is-bull' : (f.lean === 'bear' ? 'is-bear' : 'is-neutral');
+    var lbl = f.lean === 'bull' ? 'calls ' + f.callPct + '%' : (f.lean === 'bear' ? 'puts ' + f.putPct + '%' : 'balanced');
+    var dollars = fmtBigDollars(f.total) || '';
+    var tip = (fmtBigDollars(f.callPrem) || '$0') + ' call premium vs ' + (fmtBigDollars(f.putPrem) || '$0') +
+      ' put premium across ' + f.contracts + ' flagged contract' + (f.contracts === 1 ? '' : 's') + ' in today\\u2019s flow scan';
+    return '<span class="hot-flow ' + cls + '" title="' + escapeHtml(tip) + '">' +
+      '<span class="hot-chip-tag">FLOW</span>' + lbl + (dollars ? ' · ' + dollars : '') + '</span>';
+  }
+  // Where the live spot sits inside the day's range — a quick read of whether
+  // the move is holding near its highs (strong) or fading off them (weak),
+  // mirroring the verdict's day-range fade gate. Empty when the range is too
+  // thin to be meaningful.
+  function volLiveRangeChip(r){
+    var spot = (r.spot != null && isFinite(r.spot)) ? Number(r.spot) : null;
+    if (spot == null || r.dayHi == null || r.dayLo == null || !(r.dayHi > r.dayLo)) return '';
+    if ((r.dayHi - r.dayLo) / spot < 0.005) return '';
+    var pos = Math.max(0, Math.min(1, (spot - r.dayLo) / (r.dayHi - r.dayLo)));
+    var pct = Math.round(pos * 100);
+    var word = pos >= 0.66 ? 'near high' : (pos <= 0.34 ? 'near low' : 'mid-range');
+    var tip = 'Spot is ' + pct + '% up the day\\u2019s range ($' + r.dayLo.toFixed(2) + '\\u2013$' + r.dayHi.toFixed(2) + ') \\u2014 ' + word;
+    return '<span class="hot-range" title="' + escapeHtml(tip) + '">' +
+      '<span class="hot-chip-tag">DAY</span>' +
+      '<span class="hot-range-track" aria-hidden="true"><span class="hot-range-dot" style="left:' + pct + '%"></span></span>' +
+      '<span class="hot-range-lbl">' + word + '</span></span>';
+  }
   // Entry-quality gate for the hot-board verdict — the anti-"buy the top" /
   // anti-"catch the falling knife" layer. Direction-aware (lean = +1 when the
   // tally leans bullish, -1 bearish). Two sources, zero extra fetches:
@@ -8519,6 +8607,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       bull += 1;
       why.push('gamma-squeeze score ' + squeeze + '/5 adds upside fuel');
     }
+    // Unusual options flow — the directional conviction the share tape can't
+    // show. A decisive call/put premium skew in today's flow scan corroborates
+    // the lean (same skew model as the Unusual Flow tab's summary bar). Worth at
+    // most one point, on the flow's own side, and only when it agrees with (or
+    // breaks a tie in) the tape — never enough to manufacture a lean against a
+    // clear move. A flow that fights the tape is surfaced as a divergence note.
+    var flow = volLiveFlowFor(r.sym);
+    if (flow && flow.total > 0 && flow.lean !== 'neutral'){
+      if (flow.lean === 'bull' && bull >= bear){
+        bull += 1;
+        why.push('options flow leans bullish \\u2014 ' + flow.callPct + '% of today\\u2019s flagged premium is calls (' + (fmtBigDollars(flow.callPrem) || '$0') + ')');
+      } else if (flow.lean === 'bear' && bear >= bull){
+        bear += 1;
+        why.push('options flow leans bearish \\u2014 ' + flow.putPct + '% of today\\u2019s flagged premium is puts (' + (fmtBigDollars(flow.putPrem) || '$0') + ')');
+      } else {
+        why.push('options flow leans ' + (flow.lean === 'bull' ? 'bullish (' + flow.callPct + '% calls)' : 'bearish (' + flow.putPct + '% puts)') +
+          ' but the share tape is pointing the other way \\u2014 divergence, no edge added');
+      }
+    }
     // Entry-quality gate (anti-chase / anti-knife — see hotEntryGate above),
     // graded for the side the tally is leaning toward. A clean baked 'go' adds
     // one point of conviction; a firing gate demotes a would-be execute to a
@@ -8600,11 +8707,58 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (leanBear) return { cls: 'is-wait is-lean-bear', label: 'Wait & monitor \\u25bc' };
     return { cls: 'is-wait', label: 'Wait & monitor' };
   }
+  // Thin pace meter under each card head — turns the headline metric into a
+  // glanceable bar. Scaled 0..2.5x (the band where pace is meaningful), with a
+  // baseline tick at 1x (= 40% via .hot-pace-base in CSS); fill colored by the
+  // same heat tiers as the numeric pace (.hot-pace-fill is-hot/elevated/quiet).
+  function volLivePaceMeter(pace){
+    if (pace == null || !isFinite(pace)) return '';
+    var w = Math.max(0, Math.min(1, Number(pace) / 2.5)) * 100;
+    var cls = volLivePaceCls(pace).trim();
+    return '<div class="hot-pace-meter" aria-hidden="true">' +
+      '<span class="hot-pace-base"></span>' +
+      '<span class="hot-pace-fill' + (cls ? ' ' + cls : '') + '" style="width:' + w.toFixed(1) + '%"></span>' +
+      '</div>';
+  }
+  // Header rollup over the headline hot set: how many are actionable each way,
+  // how many are waiting, and which sectors are over-represented. Computed from
+  // the pre-filter top-N so it stays a stable market read as the user filters.
+  function renderHotSummary(hotSet, afterClose){
+    var el = $('hot-summary');
+    if (!el) return;
+    if (!hotSet.length){ el.hidden = true; el.innerHTML = ''; return; }
+    var buyCalls = 0, buyPuts = 0, secCount = {};
+    hotSet.forEach(function(r){
+      if (r._view && r._view.cls === 'is-bull') buyCalls++;
+      else if (r._view && r._view.cls === 'is-bear') buyPuts++;
+      var sec = r._sector || 'Other';
+      secCount[sec] = (secCount[sec] || 0) + 1;
+    });
+    var waiting = hotSet.length - buyCalls - buyPuts;
+    var topSecs = Object.keys(secCount)
+      .map(function(k){ return { sec: k, n: secCount[k] }; })
+      .sort(function(a, b){ return b.n - a.n || (a.sec < b.sec ? -1 : 1); })
+      .filter(function(s){ return s.n >= 2; })
+      .slice(0, 3);
+    var secStr = topSecs.length
+      ? topSecs.map(function(s){ return escapeHtml(s.sec) + ' \\u00d7' + s.n; }).join(' \\u00b7 ')
+      : 'spread across sectors';
+    el.hidden = false;
+    el.innerHTML =
+      '<span class="hot-sum-lead">' + (afterClose ? 'How the day finished' : 'Among the ' + hotSet.length + ' hottest names') + '</span>' +
+      '<span class="hot-sum-stat is-bull" title="Names with a live buy-calls verdict">' + buyCalls + ' buy calls</span>' +
+      '<span class="hot-sum-stat is-bear" title="Names with a live buy-puts verdict">' + buyPuts + ' buy puts</span>' +
+      '<span class="hot-sum-stat is-wait" title="Names where volume or entry quality says wait">' + waiting + ' waiting</span>' +
+      '<span class="hot-sum-sectors" title="Sectors most represented in the hot list">Hot sectors: ' + secStr + '</span>';
+  }
   function renderHotStocks(){
     var board = $('hot-board');
     if (!board) return;
+    var summaryEl = $('hot-summary');
+    function clearSummary(){ if (summaryEl){ summaryEl.hidden = true; summaryEl.innerHTML = ''; } }
     var rows = volLive.rows || [];
     if (!rows.length){
+      clearSummary();
       board.innerHTML = '<div class="vol-live-msg">' +
         (volLive.lastAt ? 'No live quotes available right now.' : 'Loading live quotes\\u2026') +
         '</div>';
@@ -8614,27 +8768,65 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!anyPace){
       // First minutes of the session — the pace denominator is not
       // meaningful yet, so say why instead of showing noise.
+      clearSummary();
       board.innerHTML = '<div class="vol-live-msg">Just after the open — pace stabilizes a few minutes into the session.</div>';
       return;
     }
-    var sorted = rows.slice().sort(function(a, b){
-      var pa = a.pace == null ? -1 : a.pace;
-      var pb = b.pace == null ? -1 : b.pace;
-      return pb - pa;
-    });
-    var top = sorted.slice(0, VOL_LIVE_TOP_N);
     var afterClose = volLive.closed || (volLive.etMin != null && volLive.etMin >= 390);
+    // Membership is ALWAYS the top-N by volume pace — that is what "hot" means.
+    // The user's sort only reorders this set, and the filter only narrows it.
+    var hotSet = rows.filter(function(r){ return r.pace != null; })
+      .sort(function(a, b){ return (b.pace == null ? -1 : b.pace) - (a.pace == null ? -1 : a.pace); })
+      .slice(0, VOL_LIVE_TOP_N);
+    // Grade every hot name once — the summary, the verdict filter, and the
+    // cards all read the same memoized verdict/lean/sector off the row.
+    hotSet.forEach(function(r){
+      r._verdict = volLiveVerdict(r);
+      r._view = hotVerdictView(r._verdict);
+      var cls = r._view ? r._view.cls : '';
+      r._lean = (cls.indexOf('is-bull') >= 0 || cls.indexOf('is-lean-bull') >= 0) ? 'bull'
+        : ((cls.indexOf('is-bear') >= 0 || cls.indexOf('is-lean-bear') >= 0) ? 'bear' : 'wait');
+      r._buy = cls === 'is-bull' || cls === 'is-bear';
+      r._sector = SECTORS[r.sym] || '';
+    });
+    renderHotSummary(hotSet, afterClose);
+    var shown = hotSet.filter(function(r){
+      if (volLive.filter === 'buy') return r._buy;
+      if (volLive.filter === 'bull') return r._lean === 'bull';
+      if (volLive.filter === 'bear') return r._lean === 'bear';
+      return true;
+    }).slice().sort(function(a, b){
+      if (volLive.sort === 'now'){
+        var na = (a.now && a.now.pace != null) ? a.now.pace : -1;
+        var nb = (b.now && b.now.pace != null) ? b.now.pace : -1;
+        if (nb !== na) return nb - na;
+      } else if (volLive.sort === 'move'){
+        var ma = (a.changePct != null && isFinite(a.changePct)) ? Math.abs(a.changePct) : -1;
+        var mb = (b.changePct != null && isFinite(b.changePct)) ? Math.abs(b.changePct) : -1;
+        if (mb !== ma) return mb - ma;
+      } else if (volLive.sort === 'squeeze'){
+        var sa = volLiveSqueezeFor(a.sym); sa = (sa == null ? -1 : sa);
+        var sb = volLiveSqueezeFor(b.sym); sb = (sb == null ? -1 : sb);
+        if (sb !== sa) return sb - sa;
+      } else if (volLive.sort === 'alpha'){
+        return a.sym < b.sym ? -1 : (a.sym > b.sym ? 1 : 0);
+      }
+      return (b.pace == null ? -1 : b.pace) - (a.pace == null ? -1 : a.pace);
+    });
+    if (!shown.length){
+      board.innerHTML = '<div class="vol-live-msg">None of the ' + hotSet.length + ' hottest names match this filter right now.</div>';
+      return;
+    }
     var html = [];
-    for (var i = 0; i < top.length; i++){
-      var r = top[i];
+    for (var i = 0; i < shown.length; i++){
+      var r = shown[i];
       var chg = r.changePct != null && isFinite(r.changePct)
         ? (r.changePct >= 0 ? '+' : '') + Number(r.changePct).toFixed(2) + '%'
         : '—';
       var chgCls = r.changePct == null ? '' : (r.changePct >= 0 ? ' is-up' : ' is-dn');
       var now = (r.now && r.now.pace != null && isFinite(r.now.pace)) ? r.now : null;
       var gexLine = (r.spot != null && isFinite(r.spot)) ? volLiveGexLine(r.sym, Number(r.spot)) : '';
-      var verdict = volLiveVerdict(r);
-      var view = hotVerdictView(verdict);
+      var view = r._view;
       var whyOpen = !!volLive.whyOpen[r.sym];
       // The verdict is a button: tapping it expands the reasoning inline —
       // hover tooltips don't exist on touch devices.
@@ -8644,8 +8836,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             'aria-label="' + escapeHtml('Verdict for ' + r.sym + ' — tap for reasoning') + '">' +
             view.label + '</button>'
         : '<span class="hot-verdict is-wait">\\u2014</span>';
-      var whyHtml = (verdict && whyOpen)
-        ? '<div class="vol-live-why">' + escapeHtml(verdict.title) + '</div>'
+      var whyHtml = (r._verdict && whyOpen)
+        ? '<div class="vol-live-why">' + escapeHtml(r._verdict.title) + '</div>'
         : '';
       var stats = [
         '<span class="hot-stat" title="Cumulative day volume vs the volume expected by this point of the session (20D avg \\u00d7 intraday curve)">' +
@@ -8662,22 +8854,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       stats.push('<span class="hot-vol" title="Day volume / expected by now">' +
         fmtVolNum(r.dayVol) + ' / ' + fmtVolNum(r.expected) + ' expected</span>');
+      var tags = volLiveFlowChip(r.sym) + volLiveRangeChip(r);
       html.push('<article class="hot-row ' + (view ? view.cls.split(' ')[0] : 'is-wait') + '" data-sym="' + escapeHtml(r.sym) + '">' +
         '<div class="hot-row-head">' +
           '<span class="hot-rank">' + (i + 1) + '</span>' +
+          (r._sector ? '<span class="hot-sector-tag">' + escapeHtml(r._sector) + '</span>' : '') +
           '<span class="hot-sym">' + escapeHtml(r.sym) + '</span>' +
           '<span class="hot-spot">' + (r.spot != null ? '$' + Number(r.spot).toFixed(2) : '—') + '</span>' +
           '<span class="hot-chg' + chgCls + '">' + chg + '</span>' +
           verdictHtml +
         '</div>' +
+        volLivePaceMeter(r.pace) +
         '<div class="hot-stats">' + stats.join('') + '</div>' +
+        (tags ? '<div class="hot-tags">' + tags + '</div>' : '') +
         (gexLine ? '<div class="vol-live-gex" title="Dealer gamma from the latest hourly scan — flip/wall levels are scan-time, distances use the live spot">' + gexLine + '</div>' : '') +
         whyHtml +
       '</article>');
     }
     var withPace = rows.filter(function(r){ return r.pace != null; }).length;
-    html.push('<div class="vol-live-foot">Top ' + top.length + ' of ' + withPace + ' tracked names by live volume pace' +
+    var filterNote = volLive.filter === 'all' ? '' : ' matching the \\u201c' +
+      ({ buy: 'Buy signals', bull: 'Bullish', bear: 'Bearish' }[volLive.filter] || volLive.filter) + '\\u201d filter';
+    html.push('<div class="vol-live-foot">Showing ' + shown.length + filterNote +
+      ' of the top ' + hotSet.length + ' names by live volume pace (' + withPace + ' tracked)' +
       ' · now = the trailing ~' + VOL_NOW_WINDOW_MIN + ' min vs the usual for that slice of the session (the verdict grades this moment, not the day)' +
+      ' · the verdict folds in the move, the S/R-break picture, dealer gamma, and the day\\u2019s unusual options flow' +
       ' · buy calls/puts is entry-gated: an extended multi-day run (do not buy the top), a falling knife / squeeze, a fading day-range, or imminent earnings/FOMC demotes it to a labelled wait \\u2014 tap the chip for the reasoning' +
       (afterClose ? ' · session closed — pace is the last full session vs the 20D average and verdicts read as next-open bias' : '') +
       '</div>');
@@ -18052,6 +18252,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     renderVolumeFlags();
     bindVolumeControls();
     bindHotBoard();
+    bindHotControls();
     renderOI();
     bindOIControls();
     bindGexControls();
