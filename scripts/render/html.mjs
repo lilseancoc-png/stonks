@@ -9,6 +9,24 @@ import {
   INDUSTRY_OF_TICKER,
   htmlEscape,
 } from '../build.mjs';
+import { DOC_PAGES, DOC_ORDER } from './docs.mjs';
+
+// Reference / legal / info pages (Buyer's manual, Chart patterns, What's
+// included, Privacy, Terms) — formerly standalone .html files, now in-app tabs.
+// Each is emitted as a pane carrying an empty shadow-host + an inert <template>
+// of the page's own <style> + markup; app.js mounts the template into a shadow
+// root on first open (mountDocPane), so each page keeps its bespoke styling
+// with zero collision against the app's global CSS. Source: scripts/render/docs.mjs.
+function docPanesHtml() {
+  return DOC_ORDER.map((key) => {
+    const d = DOC_PAGES[key];
+    if (!d) return '';
+    return `<div class="page-pane doc-pane" id="page-pane-${key}" role="tabpanel" aria-labelledby="page-tab-${key}" hidden>` +
+      `<div class="doc-host" data-doc="${key}"></div>` +
+      `<template data-doc-tpl="${key}"><style>${d.style}</style>${d.body}</template>` +
+      `</div>`;
+  }).join('\n  ');
+}
 
 // Section helpers — relocated from scripts/build.mjs.
 // Each returns the static HTML for one tab pane; renderHtml below stitches
@@ -1044,13 +1062,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-tab-menu" role="menu" id="page-tab-menu-tools" aria-labelledby="page-tab-trigger-tools" data-group="tools" hidden>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="grade" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
-    <a class="page-tab-menu-item" role="menuitem" href="/cheatsheet.html" style="text-decoration:none">Buyer's manual</a>
-    <a class="page-tab-menu-item" role="menuitem" href="/chart-patterns.html" style="text-decoration:none">Chart patterns</a>
-    <a class="page-tab-menu-item" role="menuitem" href="/features.html" style="text-decoration:none">What's included</a>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="cheatsheet" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet">Buyer's manual</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="chart-patterns" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns">Chart patterns</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="features" aria-controls="page-pane-features" id="page-tab-features">What's included</button>
   </div>
   <div class="page-tab-menu" role="menu" id="page-tab-menu-legal" aria-labelledby="page-tab-trigger-legal" data-group="legal" hidden>
-    <a class="page-tab-menu-item" role="menuitem" href="/privacy.html" style="text-decoration:none">Privacy Policy</a>
-    <a class="page-tab-menu-item" role="menuitem" href="/terms.html" style="text-decoration:none">Terms of Use</a>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="privacy" aria-controls="page-pane-privacy" id="page-tab-privacy">Privacy Policy</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="terms" aria-controls="page-pane-terms" id="page-tab-terms">Terms of Use</button>
   </div>
 </div>
 <main>
@@ -1525,11 +1543,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
   ${f13Section()}
   </div>
+  ${docPanesHtml()}
 </main>
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
   <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
-  <div><a href="/features.html">What's included</a> · <a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Use</a></div>
+  <div><a href="/?tab=features">What's included</a> · <a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
