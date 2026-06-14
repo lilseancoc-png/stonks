@@ -34,9 +34,13 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "invalid side" });
   }
 
-  // exp is the epoch-second expiration baked into the position row.
+  // exp is the epoch-second expiration baked into the position row. Bounded to
+  // a real option-expiry window (a week back for a just-expired contract still
+  // showing in a stale page, ~3.2y forward past the longest LEAPS) — the same
+  // clamp api/chain.js uses, so garbage epochs (0, year-2100) never reach Yahoo.
   const expSec = Number(req.query.exp);
-  if (!isFinite(expSec) || expSec < 0 || expSec > 4102444800) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!isFinite(expSec) || expSec < nowSec - 7 * 86400 || expSec > nowSec + 1200 * 86400) {
     return res.status(400).json({ error: "invalid exp" });
   }
 

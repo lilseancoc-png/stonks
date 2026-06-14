@@ -31,7 +31,7 @@ async function main() {
   const rfr = rfrCache && Number.isFinite(rfrCache.rate) ? rfrCache.rate : FALLBACK_RISK_FREE_RATE;
   console.log(`risk-free rate: ${(rfr * 100).toFixed(3)}% (${rfrCache ? "from rfr-history.json" : "fallback"})`);
 
-  let written = 0, missing = 0, callNull = 0, putNull = 0;
+  let written = 0, missing = 0, failed = 0, callNull = 0, putNull = 0;
   for (const sym of TICKERS) {
     const file = resolve(DATA_DIR, `${sym}.json`);
     let data;
@@ -41,19 +41,28 @@ async function main() {
       missing++;
       continue; // no committed data for this ticker — skip
     }
-    const autoPick = {
-      call: pickContractForPick("call", data, rfr),
-      put: pickContractForPick("put", data, rfr),
-    };
-    if (!autoPick.call) callNull++;
-    if (!autoPick.put) putNull++;
-    const { autoPick: _drop, ...rest } = data; // overwrite any prior field
-    await writeFile(file, JSON.stringify({ ...rest, autoPick }), "utf8");
-    written++;
+    // Isolate the per-ticker build + write so one bad file or write fault
+    // doesn't abort the whole run mid-pass (graceful degradation, like the
+    // rest of the pipeline) — leaving some files rewritten and others not.
+    try {
+      const autoPick = {
+        call: pickContractForPick("call", data, rfr),
+        put: pickContractForPick("put", data, rfr),
+      };
+      if (!autoPick.call) callNull++;
+      if (!autoPick.put) putNull++;
+      const { autoPick: _drop, ...rest } = data; // overwrite any prior field
+      await writeFile(file, JSON.stringify({ ...rest, autoPick }), "utf8");
+      written++;
+    } catch (err) {
+      failed++;
+      console.warn(`  · ${sym}: autoPick backfill failed — ${String(err?.message || err)}`);
+    }
   }
   console.log(
     `backfilled autoPick into ${written} files` +
       (missing ? ` (${missing} tickers had no data file)` : "") +
+      (failed ? ` (${failed} failed)` : "") +
       ` — ${callNull} with no qualifying call, ${putNull} with no qualifying put`,
   );
 }
