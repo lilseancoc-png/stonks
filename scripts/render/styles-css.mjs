@@ -478,6 +478,23 @@ button { font: inherit; }
   background: transparent;
 }
 .site-nav { display: inline-flex; gap: var(--s-2); align-items: center; }
+.auth-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2, transparent);
+  color: var(--muted);
+  font-size: 12.5px; line-height: 1;
+}
+.auth-chip svg { color: var(--accent, #5865f2); flex: none; }
+.auth-chip .auth-name { color: var(--text); font-weight: 600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-chip .auth-logout {
+  color: var(--muted); text-decoration: none; font-weight: 600;
+  padding-left: 8px; margin-left: 2px; border-left: 1px solid var(--border);
+}
+.auth-chip .auth-logout:hover { color: var(--text); text-decoration: underline; }
+@media (max-width: 560px) { .auth-chip .auth-name { display: none; } }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px;

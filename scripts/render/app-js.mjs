@@ -17027,7 +17027,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     MACRO = (MANIFEST.macro && typeof MANIFEST.macro === 'object') ? MANIFEST.macro : null;
     MARKET_BACKDROP = (MANIFEST.marketBackdrop && typeof MANIFEST.marketBackdrop === 'object') ? MANIFEST.marketBackdrop : {};
   }
+  // Auth chip — show "signed in as <name> · Log out" once /api/auth/me confirms
+  // a session. Independent of the manifest boot; degrades silently if the gate
+  // isn't configured (me returns {authed:false} -> chip stays hidden).
+  function renderAuthChip(){
+    var chip = document.getElementById('auth-chip');
+    var nameEl = document.getElementById('auth-name');
+    if (!chip || !nameEl) return;
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(me){
+        if (me && me.authed) {
+          nameEl.textContent = me.name || 'member';
+          chip.hidden = false;
+        }
+      })
+      .catch(function(){});
+  }
   function startApp(){
+    renderAuthChip();
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
     else bind();
   }
