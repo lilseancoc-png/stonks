@@ -313,3 +313,32 @@ secrets). I'll wire everything to read these names.
 
 Estimated ~1.5–2.5 focused days; §4.3 concurrency is the main risk and is now
 specified up front to de-risk it.
+
+---
+
+## 11. As-built notes (steps 1–3 shipped on the branch)
+
+Refinements made while implementing (supersede the sketch above where they differ):
+
+- **Activation flag `PRIVATE_DATA_ENABLED`** (default off). Instead of a static
+  `vercel.json` rewrite, the `/data/*` → `/api/data/*` routing **and** the page-shell
+  gating both live in `middleware.js` and only engage when the flag is `"1"`. Flag
+  off = today's behavior byte-for-byte (middleware `next()`s immediately, `api/data`
+  hard-404s so a seeded store can't leak pre-cutover). **The whole cutover is a single
+  env-var flip** — no code change — and is reversible. The static `data/*.json` keep
+  serving until the flag flips.
+- **Storage prefix.** `lib/datastore.mjs` namespaces every blob under a prefix derived
+  from `sha256(BLOB_READ_WRITE_TOKEN)` (override `BLOB_PREFIX`) so URLs aren't guessable
+  from the store host; the gate only ever fetches server-side.
+- **Vercel Hobby 12-function limit.** The 4 Discord endpoints are consolidated into one
+  dynamic-route function `api/auth/[action].js` (URLs unchanged), and the 4 dormant
+  portfolio functions are excluded from the deploy via `.vercelignore` (kept in the
+  tree). Deployed serverless count: **9** (7 live + auth + `api/data/[...path].js`).
+- **Edge-safety.** `middleware.js` imports only `lib/session.mjs` (jose + TextEncoder,
+  no `node:crypto`); `lib/datastore.mjs` (node:crypto) is imported only by the Node
+  `api/data` function, never the Edge middleware.
+
+**Still to do (steps 4–5, post-merge):** seed the store (`sync-data.mjs seed` via a
+workflow_dispatch, which must be on `main` to appear), flip the bake/scan workflows to
+`pull`/`push`, then on the preview deploy set `PRIVATE_DATA_ENABLED=1` + test §8, then
+flip it on production, then `git rm --cached data/` + `.gitignore data/`.

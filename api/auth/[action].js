@@ -1,20 +1,29 @@
-// Vercel serverless function: Discord OAuth callback.
+// Vercel serverless function: Discord OAuth, consolidated.
 //
-// Validates the CSRF state, exchanges the code for an access token, reads the
-// user's membership/roles in OUR guild, and — only if they hold the required
-// role — mints the signed session cookie and redirects into the app. Every
-// failure path lands on /welcome.html?denied=<reason> instead of erroring.
-// See docs/private-data-migration.md §4.5.
+// One dynamic-route function handles all four auth actions so the whole flow
+// costs a SINGLE serverless slot (Vercel Hobby caps at 12). The URLs are
+// unchanged — Vercel routes /api/auth/<action> here with req.query.action:
+//   discord-login    -> start OAuth (redirect to Discord)
+//   discord-callback -> validate, role-check, mint session  (registered redirect URI)
+//   logout           -> clear session
+//   me               -> report session for the "signed in as …" chip
+//
+// Entitlement = a Discord role you assign by hand; we only READ it via
+// `guilds.members.read`. See docs/private-data-migration.md §4.5.
+// INERT until the gate (middleware) is wired up.
 
+import { randomBytes } from "node:crypto";
 import {
   serializeCookie,
   parseCookies,
   signSession,
+  getSession,
   SESSION_COOKIE,
   STATE_COOKIE,
   SESSION_TTL_SEC,
 } from "../../lib/session.mjs";
 
+const DISCORD_AUTHORIZE = "https://discord.com/api/oauth2/authorize";
 const TOKEN_URL = "https://discord.com/api/oauth2/token";
 const memberUrl = (guildId) => `https://discord.com/api/users/@me/guilds/${guildId}/member`;
 
@@ -33,6 +42,47 @@ function redirect(res, location, cookies) {
 }
 
 export default async function handler(req, res) {
+  switch (req.query?.action) {
+    case "discord-login":
+      return login(req, res);
+    case "discord-callback":
+      return callback(req, res);
+    case "logout":
+      return logout(req, res);
+    case "me":
+      return me(req, res);
+    default:
+      return res.status(404).json({ error: "not found" });
+  }
+}
+
+// --- start OAuth -------------------------------------------------------------
+function login(req, res) {
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  if (!clientId) return res.status(503).json({ error: "discord auth not configured" });
+  const redirectUri =
+    process.env.DISCORD_REDIRECT_URI || `${baseUrl(req)}/api/auth/discord-callback`;
+  const state = randomBytes(16).toString("hex");
+  const secure = proto(req) === "https";
+  res.setHeader(
+    "Set-Cookie",
+    serializeCookie(STATE_COOKIE, state, { maxAge: 600, secure, sameSite: "Lax" }),
+  );
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    scope: "identify guilds.members.read",
+    state,
+    redirect_uri: redirectUri,
+    prompt: "consent",
+  });
+  res.statusCode = 302;
+  res.setHeader("Location", `${DISCORD_AUTHORIZE}?${params.toString()}`);
+  res.end();
+}
+
+// --- OAuth callback: role-check + mint session -------------------------------
+async function callback(req, res) {
   const {
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
@@ -56,7 +106,7 @@ export default async function handler(req, res) {
   const code = req.query?.code;
   const state = req.query?.state;
 
-  // CSRF: the returned state must match the one we set pre-redirect.
+  // CSRF: returned state must match the one we set pre-redirect.
   if (!code || !state || !cookies[STATE_COOKIE] || state !== cookies[STATE_COOKIE]) {
     return redirect(res, "/welcome.html?denied=state", clearState);
   }
@@ -110,4 +160,26 @@ export default async function handler(req, res) {
     console.error("discord-callback failed", { message: String(err?.message || err) });
     return redirect(res, "/welcome.html?denied=error", clearState);
   }
+}
+
+// --- logout ------------------------------------------------------------------
+function logout(req, res) {
+  const secure = proto(req) === "https";
+  res.setHeader("Set-Cookie", serializeCookie(SESSION_COOKIE, "", { maxAge: 0, secure }));
+  res.statusCode = 302;
+  res.setHeader("Location", "/welcome.html");
+  res.end();
+}
+
+// --- session probe -----------------------------------------------------------
+async function me(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(200).json({ authed: false });
+  return res.status(200).json({
+    authed: true,
+    name: session.name || null,
+    sub: session.sub || null,
+  });
 }
