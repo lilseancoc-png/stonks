@@ -2957,7 +2957,7 @@
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track'];
+    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -2971,6 +2971,12 @@
       ticker: 'tickers',
       global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
       gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
+      // Reference / legal / info pages (now in-app tabs).
+      'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
+      patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
+      'whats-included': 'features', included: 'features', plans: 'features', pricing: 'features', membership: 'features', premium: 'features',
+      privacypolicy: 'privacy', 'privacy-policy': 'privacy',
+      tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
     };
     function resolveTab(t){
       if (!t) return null;
@@ -3072,6 +3078,46 @@
         }
       } catch (_) {}
     }
+    // Reference / legal / info pages (Buyer's manual, Chart patterns, What's
+    // included, Privacy, Terms) are mounted into a Shadow DOM the first time
+    // their tab opens — each page keeps its own bespoke <style> with zero
+    // collision against the app's global CSS. The page markup + style ride in an
+    // inert <template> in the pane (emitted by scripts/render/html.mjs).
+    var DOC_TAB_SET = { 'cheatsheet':1, 'chart-patterns':1, 'features':1, 'privacy':1, 'terms':1 };
+    function mountDocPane(name){
+      if (!DOC_TAB_SET[name]) return;
+      var pane = document.getElementById('page-pane-' + name);
+      if (!pane) return;
+      var host = pane.querySelector('.doc-host[data-doc="' + name + '"]');
+      if (!host || host.shadowRoot) return; // already mounted
+      var tpl = pane.querySelector('template[data-doc-tpl="' + name + '"]');
+      if (!tpl) return;
+      var sr = host.attachShadow({ mode: 'open' });
+      sr.appendChild(tpl.content.cloneNode(true));
+      try { tpl.parentNode.removeChild(tpl); } catch (_) {}
+      // Off-site links open in a new tab; everything else (in-page anchors,
+      // cross-doc + back-to-app links) is handled by the delegated click below
+      // because fragment navigation and same-origin <a> don't cross the shadow
+      // boundary on their own.
+      var ext = sr.querySelectorAll('a[href^="http"]');
+      for (var i = 0; i < ext.length; i++){ ext[i].setAttribute('target', '_blank'); ext[i].setAttribute('rel', 'noopener noreferrer'); }
+      sr.addEventListener('click', function(ev){
+        var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+        if (!a) return;
+        var href = a.getAttribute('href') || '';
+        if (href.charAt(0) === '#'){
+          ev.preventDefault();
+          var t = sr.getElementById ? sr.getElementById(href.slice(1)) : null;
+          if (t && t.scrollIntoView) { try { t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { t.scrollIntoView(); } }
+          return;
+        }
+        var dm = href.match(/^\/(cheatsheet|chart-patterns|features|privacy|terms)\.html$/);
+        if (dm){ ev.preventDefault(); selectTab(dm[1]); return; }
+        var qm = href.match(/^\/\?tab=([a-z0-9-]+)/i);
+        if (qm){ var rk = resolveTab(qm[1]); if (rk){ ev.preventDefault(); selectTab(rk); } return; }
+        if (href === '/' || href === '/index.html'){ ev.preventDefault(); selectTab('home'); }
+      });
+    }
     function selectTab(name){
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -3083,6 +3129,8 @@
         var pane = paneId ? document.getElementById(paneId) : null;
         if (pane) pane.hidden = !sel;
       });
+      // Lazy-mount the doc page's shadow content on first open of its tab.
+      try { mountDocPane(name); } catch (_) {}
       // Reflect the active selection on the parent group's trigger so the
       // accent underline + halo paint there too when the user is on a
       // collapsed tab. Resolved via data-group on the active item's menu,
