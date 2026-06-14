@@ -12922,9 +12922,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     data: null,
     loading: false,
     groupBy: 'sector',
+    colorBy: 'perf',   // 'perf' (% change) | 'rvol' (relative volume)
+    search: '',        // uppercased ticker filter for highlight
     live: false,
     livePollTimer: null,
-    liveOverlay: {},   // symbol -> { ch, sp, marketState, prevSpot }
+    liveOverlay: {},   // symbol -> { ch, sp, rv, hi52, lo52, dayHi, dayLo, marketState, prevSpot }
     bound: false,
     lastRect: null,
     // Zoom/pan. zoom=1 fits the container; pan is in container px applied
@@ -12946,6 +12948,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // brightening forever, otherwise a single -8% blowup makes every other
   // negative tile look gray by comparison).
   var HEATMAP_PCT_SAT = 3;
+  // Relative-volume color mode: 1× (average volume) reads neutral/quiet and
+  // saturation maxes out at this multiple. 3× = a clearly heavy session.
+  var HEATMAP_RVOL_SAT = 3;
+  // Tiles at or above this relative volume get a "hot" corner dot in the
+  // performance color mode so heavy-volume names pop without switching modes.
+  var HEATMAP_HOT_RVOL = 2;
   // Below this height in px we hide the % line and shrink the symbol so
   // 100KB-marketcap tickers don't render as illegible noise.
   var HEATMAP_TINY_PX = 36;
@@ -12994,6 +13002,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       groupSel.addEventListener('change', function(){
         heatmapState.groupBy = groupSel.value === 'industry' ? 'industry' : 'sector';
         renderHeatmap();
+      });
+    }
+    var colorSel = $('heatmap-color-select');
+    if (colorSel){
+      colorSel.value = heatmapState.colorBy;
+      colorSel.addEventListener('change', function(){
+        heatmapState.colorBy = colorSel.value === 'rvol' ? 'rvol' : 'perf';
+        renderHeatmap();
+      });
+    }
+    var searchInput = $('heatmap-search');
+    if (searchInput){
+      searchInput.value = heatmapState.search;
+      searchInput.addEventListener('input', function(){
+        heatmapState.search = (searchInput.value || '').toUpperCase().trim();
+        applyHeatmapSearch();
+      });
+      // Enter zooms+centers the first match so a needle in the small-cap tail
+      // is actually findable.
+      searchInput.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        var root = $('heatmap-root');
+        var hit = root && root.querySelector('.heatmap-tile.is-search-hit');
+        if (hit) heatmapCenterOnTile(hit, 3);
       });
     }
     var liveToggle = $('heatmap-live-toggle');
@@ -13235,6 +13268,138 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var sign = p > 0 ? '+' : '';
     return sign + p.toFixed(2) + '%';
   }
+  function heatmapFmtRvol(rv){
+    if (rv == null || !isFinite(rv) || rv <= 0) return '—';
+    return (rv >= 10 ? Math.round(rv) : rv.toFixed(1)) + '×';
+  }
+  // Map a relative-volume reading to a 0..1 saturation: 1× (average) reads
+  // quiet, HEATMAP_RVOL_SAT× and up pegs to full.
+  function heatmapRvolIntensity(rv){
+    if (rv == null || !isFinite(rv) || rv <= 1) return 0;
+    var v = (rv - 1) / (HEATMAP_RVOL_SAT - 1);
+    return Math.max(0, Math.min(1, v));
+  }
+  // Resolve the divergent-scale {dir,intensity} for a tile given the active
+  // color mode. In rvol mode the hue still tracks direction (so a heavy
+  // gainer is deep green, a heavy loser deep red) while saturation tracks how
+  // far above average the volume ran — quiet names fade to gray regardless of
+  // their move, which is exactly the "where's the action" read.
+  function heatmapPaintParts(ch, rv, colorBy){
+    if (colorBy === 'rvol'){
+      var base = heatmapColorParts(ch);
+      return { dir: base.dir, intensity: heatmapRvolIntensity(rv) };
+    }
+    return heatmapColorParts(ch);
+  }
+  // Live overlay value if present (and finite), else the baked value — the
+  // single source of truth for breadth + recoloring whether or not live mode
+  // is on.
+  function heatmapEffectiveCh(t){
+    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    if (o && o.ch != null && isFinite(o.ch)) return o.ch;
+    return (t.ch != null && isFinite(t.ch)) ? t.ch : null;
+  }
+  function heatmapEffectiveRvol(t){
+    var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
+    if (o && o.rv != null && isFinite(o.rv)) return o.rv;
+    return (t.rv != null && isFinite(t.rv)) ? t.rv : null;
+  }
+
+  // Advancers / decliners ribbon. Recomputed on every render and after each
+  // live poll so it tracks the overlay. Counts mirror the EOD recap's ±0.05%
+  // flat band so the two never disagree.
+  function renderHeatmapBreadth(){
+    var host = $('heatmap-breadth');
+    if (!host) return;
+    var data = heatmapState.data;
+    var tickers = (data && Array.isArray(data.tickers)) ? data.tickers : [];
+    if (!tickers.length || (data && data.loadError)){ host.innerHTML = ''; return; }
+    var up = 0, down = 0, flat = 0, wSum = 0, wTot = 0;
+    for (var i = 0; i < tickers.length; i++){
+      var t = tickers[i];
+      var ch = heatmapEffectiveCh(t);
+      if (ch == null) continue;
+      if (ch > 0.05) up++; else if (ch < -0.05) down++; else flat++;
+      var mc = Number(t.mc);
+      if (isFinite(mc) && mc > 0){ wSum += ch * mc; wTot += mc; }
+    }
+    var total = up + down + flat;
+    if (!total){ host.innerHTML = ''; return; }
+    var avg = wTot > 0 ? wSum / wTot : 0;
+    var pUp = (up / total * 100).toFixed(2);
+    var pFlat = (flat / total * 100).toFixed(2);
+    var pDown = (down / total * 100).toFixed(2);
+    var avgCls = avg > 0.05 ? 'pos' : (avg < -0.05 ? 'neg' : 'zero');
+    host.innerHTML =
+      '<div class="heatmap-breadth-bar" role="img" aria-label="' +
+        up + ' advancing, ' + down + ' declining, ' + flat + ' flat">' +
+        '<span class="heatmap-breadth-seg pos" style="width:' + pUp + '%"></span>' +
+        '<span class="heatmap-breadth-seg flat" style="width:' + pFlat + '%"></span>' +
+        '<span class="heatmap-breadth-seg neg" style="width:' + pDown + '%"></span>' +
+      '</div>' +
+      '<div class="heatmap-breadth-legend">' +
+        '<span class="heatmap-breadth-stat pos">▲ ' + up + ' advancing</span>' +
+        '<span class="heatmap-breadth-stat neg">▼ ' + down + ' declining</span>' +
+        (flat ? '<span class="heatmap-breadth-stat flat">● ' + flat + ' flat</span>' : '') +
+        '<span class="heatmap-breadth-stat ' + avgCls + '">cap-weighted ' + heatmapFmtPct(avg) + '</span>' +
+      '</div>';
+  }
+
+  // The legend swaps its labels to match the active color mode — the bar
+  // (red → gray → green) is reused for both, since rvol mode keeps the
+  // directional hue and only repurposes saturation.
+  function renderHeatmapLegend(){
+    var host = $('heatmap-legend');
+    if (!host) return;
+    if (heatmapState.colorBy === 'rvol'){
+      host.innerHTML =
+        '<span class="heatmap-legend-label">down · heavy</span>' +
+        '<span class="heatmap-legend-bar"></span>' +
+        '<span class="heatmap-legend-label">up · heavy</span>' +
+        '<span class="heatmap-legend-note">gray = quiet (≤1× avg) · saturation = relative volume</span>';
+    } else {
+      host.innerHTML =
+        '<span class="heatmap-legend-label">−3%</span>' +
+        '<span class="heatmap-legend-bar"></span>' +
+        '<span class="heatmap-legend-label">+3%</span>' +
+        '<span class="heatmap-legend-note">● = heavy volume (≥' + HEATMAP_HOT_RVOL + '× avg)</span>';
+    }
+  }
+
+  // Highlight tiles matching the search box (prefix match on the symbol).
+  // Pure class toggling on the existing tiles — no re-render — so typing is
+  // cheap. Empty query clears the highlight.
+  function applyHeatmapSearch(){
+    var root = $('heatmap-root');
+    if (!root) return;
+    var q = heatmapState.search || '';
+    root.classList.toggle('is-searching', !!q);
+    var tiles = root.querySelectorAll('.heatmap-tile');
+    for (var i = 0; i < tiles.length; i++){
+      var sym = (tiles[i].getAttribute('data-sym') || '');
+      var hit = !!q && sym.indexOf(q) === 0;
+      tiles[i].classList.toggle('is-search-hit', hit);
+    }
+  }
+
+  // Zoom to + center a specific tile (used by the search box's Enter key).
+  // Works in content space (zoom=1 coords) so it's independent of the current
+  // view, then re-renders so fonts rasterize crisply at the new scale.
+  function heatmapCenterOnTile(tile, targetZoom){
+    var root = $('heatmap-root');
+    if (!root || !tile) return;
+    var rr = root.getBoundingClientRect();
+    var tr = tile.getBoundingClientRect();
+    var cx = (tr.left + tr.width / 2) - rr.left;
+    var cy = (tr.top + tr.height / 2) - rr.top;
+    var contentX = (cx - heatmapState.panX) / heatmapState.zoom;
+    var contentY = (cy - heatmapState.panY) / heatmapState.zoom;
+    var Z = Math.max(HEATMAP_MIN_ZOOM, Math.min(HEATMAP_MAX_ZOOM, targetZoom || 3));
+    heatmapState.zoom = Z;
+    heatmapState.panX = rr.width / 2 - contentX * Z;
+    heatmapState.panY = rr.height / 2 - contentY * Z;
+    renderHeatmap();
+  }
 
   function renderHeatmap(){
     var root = $('heatmap-root');
@@ -13246,6 +13411,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       root.classList.add('is-empty');
       root.textContent = 'Heatmap data unavailable — try reloading.';
       if (eyebrow) eyebrow.textContent = '';
+      renderHeatmapBreadth();
       return;
     }
     var tickers = Array.isArray(data.tickers) ? data.tickers : [];
@@ -13253,9 +13419,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       root.classList.add('is-empty');
       root.textContent = 'No tickers to plot yet — the next daily build will populate this view.';
       if (eyebrow) eyebrow.textContent = '';
+      renderHeatmapBreadth();
       return;
     }
     root.classList.remove('is-empty');
+    root.classList.toggle('hm-mode-rvol', heatmapState.colorBy === 'rvol');
+    renderHeatmapLegend();
 
     // Group by selected key. Within each group, sort descending by market
     // cap so the squarified layout produces predictable, biggest-first
@@ -13323,20 +13492,29 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var tinyCls = isMicro ? ' is-tiny is-micro' :
                        (pxH < HEATMAP_TINY_PX || pxW < 36) ? ' is-tiny' : '';
         var ch = rect.ch;
-        var color = heatmapColorParts(ch);
+        var rv = (rect.rv != null && isFinite(rect.rv)) ? rect.rv : null;
+        var color = heatmapPaintParts(ch, rv, heatmapState.colorBy);
+        var isHot = rv != null && rv >= HEATMAP_HOT_RVOL;
+        var isStale = !!rect.stale;
+        // The value line shows the % move in performance mode and the relative
+        // volume multiple in rvol mode, so the number always matches the color.
+        var valText = heatmapState.colorBy === 'rvol' ? heatmapFmtRvol(rv) : heatmapFmtPct(ch);
         // Font sizing scales with tile dimensions so big sectors stay
         // legible without making tiny ones blow out their box.
         var symSize = Math.min(28 * zoom, Math.max(9, Math.round(Math.min(pxH * 0.42, pxW * 0.22))));
         var pctSize = Math.max(9, Math.round(symSize * 0.72));
         html +=
-          '<button type="button" class="heatmap-tile' + tinyCls + '" ' +
+          '<button type="button" class="heatmap-tile' + tinyCls +
+            (isHot ? ' is-hot' : '') + (isStale ? ' is-stale' : '') + '" ' +
             'data-sym="' + escapeHtml(rect.t) + '" ' +
             'data-name="' + escapeHtml(rect.n || rect.t) + '" ' +
             'data-mc="' + rect.mc + '" ' +
             'data-ch="' + ch + '" ' +
+            'data-rv="' + (rv != null ? rv : '') + '" ' +
             'data-sp="' + (rect.sp != null ? rect.sp : '') + '" ' +
             'data-sec="' + escapeHtml(rect.s || '') + '" ' +
             'data-ind="' + escapeHtml(rect.i || '') + '" ' +
+            (isStale ? 'data-stale="1" ' : '') +
             'data-dir="' + color.dir + '" ' +
             'style="' +
               '--x:' + rect.x.toFixed(3) + ';' +
@@ -13347,9 +13525,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
               '--hm-sym-size:' + symSize + 'px;' +
               '--hm-pct-size:' + pctSize + 'px;' +
             '" ' +
-            'aria-label="' + escapeHtml(rect.t + ', ' + heatmapFmtPct(ch)) + '">' +
+            'aria-label="' + escapeHtml(rect.t + ', ' + heatmapFmtPct(ch) +
+              (rv != null ? ', ' + heatmapFmtRvol(rv) + ' relative volume' : '')) + '">' +
             '<span class="heatmap-tile-sym">' + escapeHtml(rect.t) + '</span>' +
-            '<span class="heatmap-tile-pct">' + escapeHtml(heatmapFmtPct(ch)) + '</span>' +
+            '<span class="heatmap-tile-pct">' + escapeHtml(valText) + '</span>' +
           '</button>';
       }
       html += '</div>';
@@ -13390,6 +13569,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // freshly-rendered tiles (otherwise toggling group-by would discard
     // a long-running live overlay).
     applyHeatmapLiveOverlay();
+
+    // Breadth ribbon + search highlight reflect the freshly-built tiles
+    // (and any overlay just applied above).
+    renderHeatmapBreadth();
+    applyHeatmapSearch();
 
     renderHeatmapEodSummary();
   }
@@ -13526,21 +13710,39 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var mc = Number(btn.getAttribute('data-mc'));
       var ch = Number(btn.getAttribute('data-ch'));
       var sp = Number(btn.getAttribute('data-sp'));
+      var rvAttr = Number(btn.getAttribute('data-rv'));
       var sec = btn.getAttribute('data-sec') || '';
       var ind = btn.getAttribute('data-ind') || '';
+      var stale = btn.getAttribute('data-stale') === '1';
+      var live = (heatmapState.liveOverlay && heatmapState.liveOverlay[sym]) || null;
+      var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (isFinite(rvAttr) && rvAttr > 0 ? rvAttr : null);
       var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
       var rows = '';
       rows += '<div class="heatmap-tooltip-row"><span>Change</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
+      if (rv != null){
+        var rvCls = rv >= HEATMAP_HOT_RVOL ? ' heatmap-tooltip-rv-hot' : '';
+        rows += '<div class="heatmap-tooltip-row"><span>Rel. volume</span><span class="' + rvCls + '">' + escapeHtml(heatmapFmtRvol(rv)) + ' avg</span></div>';
+      }
       if (isFinite(sp) && sp > 0) rows += '<div class="heatmap-tooltip-row"><span>Spot</span><span>' + escapeHtml(fmtMoney(sp)) + '</span></div>';
+      // Day range + 52-week position only land once the live overlay has polled
+      // /api/quotes — they're not in the baked payload.
+      if (live && isFinite(live.dayLo) && isFinite(live.dayHi) && live.dayHi > live.dayLo){
+        rows += '<div class="heatmap-tooltip-row"><span>Day range</span><span>' + escapeHtml(fmtMoney(live.dayLo) + ' – ' + fmtMoney(live.dayHi)) + '</span></div>';
+      }
+      if (live && isFinite(live.lo52) && isFinite(live.hi52) && live.hi52 > live.lo52 && isFinite(sp) && sp > 0){
+        var pos52 = Math.max(0, Math.min(100, (sp - live.lo52) / (live.hi52 - live.lo52) * 100));
+        rows += '<div class="heatmap-tooltip-row"><span>52-wk range</span><span>' + Math.round(pos52) + '% of range</span></div>';
+      }
       if (isFinite(mc) && mc > 0) rows += '<div class="heatmap-tooltip-row"><span>Market cap</span><span>' + escapeHtml(heatmapFmtBigDollars(mc)) + '</span></div>';
       if (sec) rows += '<div class="heatmap-tooltip-row"><span>Sector</span><span>' + escapeHtml(sec) + '</span></div>';
       if (ind && ind !== sec) rows += '<div class="heatmap-tooltip-row"><span>Industry</span><span>' + escapeHtml(ind) + '</span></div>';
       tooltip.innerHTML =
         '<div class="heatmap-tooltip-head">' + escapeHtml(sym) + '</div>' +
         (name && name !== sym ? '<div class="heatmap-tooltip-name">' + escapeHtml(name) + '</div>' : '') +
-        rows;
+        rows +
+        (stale ? '<div class="heatmap-tooltip-stale">⚠ stale — last good print, no fresh quote</div>' : '');
       var rootRect = root.getBoundingClientRect();
-      var tipW = 240, tipH = 120;
+      var tipW = 240, tipH = 180;
       var x = ev.clientX - rootRect.left + 14;
       var y = ev.clientY - rootRect.top + 14;
       if (x + tipW > rootRect.width) x = ev.clientX - rootRect.left - tipW - 12;
@@ -13601,9 +13803,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           var q = quotes[i];
           if (!q || !q.symbol || q.changePct == null) continue;
           var prev = heatmapState.liveOverlay[q.symbol];
+          // /api/quotes already returns volume + 52-week extremes; derive an
+          // intraday relative volume (cumulative day volume vs the 10D average)
+          // so rvol mode + the tooltip go live, not just the % move.
+          var dv = Number(q.dayVolume), av = Number(q.avgVol10d);
+          var rv = (isFinite(dv) && dv > 0 && isFinite(av) && av > 0)
+            ? Math.round((dv / av) * 100) / 100
+            : null;
           overlay[q.symbol] = {
             ch: Math.round(Number(q.changePct) * 100) / 100,
             sp: q.spot,
+            rv: rv,
+            hi52: q.hi52 != null ? Number(q.hi52) : null,
+            lo52: q.lo52 != null ? Number(q.lo52) : null,
+            dayHi: q.dayHi != null ? Number(q.dayHi) : null,
+            dayLo: q.dayLo != null ? Number(q.dayLo) : null,
             marketState: q.marketState,
             prevSpot: prev ? prev.sp : null,
           };
@@ -13611,6 +13825,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
         heatmapState.liveOverlay = overlay;
         applyHeatmapLiveOverlay();
+        renderHeatmapBreadth();
         if (stateEl){
           stateEl.className = 'heatmap-live-state is-live';
           stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -13627,6 +13842,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var overlay = heatmapState.liveOverlay || {};
     var root = $('heatmap-root');
     if (!root) return;
+    var colorBy = heatmapState.colorBy;
     var tiles = root.querySelectorAll('.heatmap-tile');
     for (var i = 0; i < tiles.length; i++){
       var tile = tiles[i];
@@ -13637,13 +13853,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       tile.classList.remove('is-live-down');
       if (!live) continue;
       var ch = live.ch;
-      var color = heatmapColorParts(ch);
+      // Live data supersedes the baked row — drop the stale dim if it had one.
+      tile.classList.remove('is-stale');
+      tile.removeAttribute('data-stale');
+      // Prefer the live intraday rvol; fall back to the baked one for the color.
+      var rv = (live.rv != null && isFinite(live.rv))
+        ? live.rv
+        : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
+      var color = heatmapPaintParts(ch, rv, colorBy);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
+      if (live.rv != null && isFinite(live.rv)){
+        tile.setAttribute('data-rv', live.rv);
+        tile.classList.toggle('is-hot', live.rv >= HEATMAP_HOT_RVOL);
+      }
       if (live.sp != null) tile.setAttribute('data-sp', live.sp);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
-      if (pctEl) pctEl.textContent = heatmapFmtPct(ch);
+      if (pctEl) pctEl.textContent = colorBy === 'rvol' ? heatmapFmtRvol(rv) : heatmapFmtPct(ch);
       // Flash a subtle outline when the spot ticked since the last poll
       // so the user can see motion even on small tiles. Cleared on the
       // next poll cycle.

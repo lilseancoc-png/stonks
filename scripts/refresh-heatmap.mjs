@@ -335,8 +335,11 @@ async function main() {
   const nextTickers = priorTickers.map((row) => {
     const q = quotes[row.t];
     if (!q) {
+      // No live quote (Yahoo flake, delisted, renamed): keep the prior row but
+      // flag it stale so the UI can dim it instead of presenting an old % as if
+      // it were current. The next nightly bake rewrites the row outright.
       stale++;
-      return row;
+      return { ...row, stale: true };
     }
     const reg = Number(q.regularMarketPrice);
     const sp =
@@ -363,6 +366,8 @@ async function main() {
       ch: Math.round(ch * 100) / 100,
       sp: isFinite(sp) && sp > 0 ? sp : row.sp,
       mc: isFinite(mc) && mc > 0 ? mc : row.mc,
+      // Clear any stale flag a prior run set — JSON.stringify drops undefined.
+      stale: undefined,
     };
   });
 

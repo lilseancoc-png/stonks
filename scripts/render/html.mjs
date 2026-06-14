@@ -1184,7 +1184,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Market heatmap</h2>
         <span class="card-eyebrow" id="heatmap-eyebrow" aria-live="polite"></span>
       </header>
-      <p class="hint">A Finviz-style market map of our curated tickers. Each tile is sized by market cap and colored by today's % change — deeper green for bigger gainers, deeper red for bigger losers. Grouped by sector. Scroll to zoom (or use the zoom controls), drag to pan when zoomed in, and click a tile to jump to that ticker. ETFs are surfaced on the Bonds &amp; USD tab.</p>
+      <p class="hint">A Finviz-style market map of our curated tickers. Each tile is sized by market cap and colored either by today's % change (deeper green for bigger gainers, deeper red for bigger losers) or by relative volume (saturation tracks how heavy the volume is, hue still shows direction). Grouped by sector. Type in the search box to highlight a name, scroll to zoom (or use the zoom controls), drag to pan when zoomed in, and click a tile to jump to that ticker. ETFs are surfaced on the Bonds &amp; USD tab.</p>
       <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
         <label class="heatmap-control">
           <span class="heatmap-control-label">Group by</span>
@@ -1193,6 +1193,17 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <option value="industry">Industry</option>
           </select>
         </label>
+        <label class="heatmap-control">
+          <span class="heatmap-control-label">Color by</span>
+          <select id="heatmap-color-select" aria-label="Color heatmap by">
+            <option value="perf">Performance</option>
+            <option value="rvol">Rel. volume</option>
+          </select>
+        </label>
+        <div class="heatmap-control heatmap-search-control">
+          <span class="heatmap-control-label">Find</span>
+          <input type="search" id="heatmap-search" class="heatmap-search-input" placeholder="Ticker…" aria-label="Find a ticker on the heatmap" autocomplete="off" spellcheck="false" />
+        </div>
         <label class="heatmap-control heatmap-live-toggle">
           <input type="checkbox" id="heatmap-live-toggle" />
           <span class="heatmap-control-label">Live overlay</span>
@@ -1206,8 +1217,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </div>
         <span class="heatmap-live-state" id="heatmap-live-state" aria-live="polite"></span>
       </div>
+      <div id="heatmap-breadth" class="heatmap-breadth" aria-live="polite"></div>
       <div id="heatmap-root" class="heatmap-root">Loading heatmap…</div>
-      <div class="heatmap-legend" aria-hidden="true">
+      <div class="heatmap-legend" id="heatmap-legend" aria-hidden="true">
         <span class="heatmap-legend-label">−3%</span>
         <span class="heatmap-legend-bar"></span>
         <span class="heatmap-legend-label">+3%</span>
