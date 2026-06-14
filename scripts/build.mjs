@@ -967,6 +967,9 @@ async function fetchIntradayBars(symbol) {
 const STREAK_COUNTER_BREAK_PCT = 1.2;
 const STREAK_CUM_TOLERANCE_BREAK_PCT = 1.5;
 const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
+// How recently a genuine streak must have broken to be surfaced as a
+// "just snapped" mean-reversion candidate (0 = snapped on the latest session).
+const STREAK_SNAPPED_RECENT_SESSIONS = 2;
 
 // Walks daily closes oldest-first, building each day's % change, and
 // simulates the current streak forward. Returns null for tickers without
@@ -983,13 +986,29 @@ export function computeStreakForTicker(symbol, bars) {
     if (!(prev?.c > 0) || !(curr?.c > 0)) continue;
     const changePct = ((curr.c - prev.c) / prev.c) * 100;
     const color = changePct > 0 ? "green" : changePct < 0 ? "red" : "flat";
-    moves.push({ date: curr.t || null, close: curr.c, changePct, color });
+    // idx -> position in `tail` (for volume baseline lookup); volume -> the
+    // session's share volume (used for the streak's volume-trend read).
+    moves.push({ idx: i, date: curr.t || null, close: curr.c, volume: curr.v ?? null, changePct, color });
   }
   if (!moves.length) return null;
 
   // Walk oldest -> newest, restarting the streak whenever a break fires.
   // Whatever streak survives to the end of the loop is the "current" one.
   let streak = null;
+  // Rarity context — the longest GENUINE (>=2 same-direction days) green and
+  // red run anywhere in the 60-session window, so the renderer can flag a
+  // current run as "longest in 3mo" vs a routine length.
+  let maxGreenDays = 0;
+  let maxRedDays = 0;
+  const recordMax = (s) => {
+    if (!s || s.sameDays < 2) return;
+    if (s.direction === "green") maxGreenDays = Math.max(maxGreenDays, s.days);
+    else if (s.direction === "red") maxRedDays = Math.max(maxRedDays, s.days);
+  };
+  // The most-recently-ended genuine streak (a "snapped" run) — captured each
+  // time a real streak breaks, surfaced at the end only if it broke within the
+  // last few sessions. Powers the mean-reversion "Just snapped" view.
+  let priorEnded = null;
   const startStreak = (m) => ({
     direction: m.color,
     days: 1,
@@ -1034,6 +1053,7 @@ export function computeStreakForTicker(symbol, bars) {
     // ≥ 2 same-direction days under its belt; a 1-day "streak" followed
     // by a counter just flips direction.
     if (streak.sameDays < 2) {
+      recordMax(streak);
       streak = startStreak(m);
       continue;
     }
@@ -1045,6 +1065,18 @@ export function computeStreakForTicker(symbol, bars) {
     const breakCumulative = newTolerance >= STREAK_CUM_TOLERANCE_BREAK_PCT;
     const breakConsecutive = newConsecutiveCounter >= STREAK_CONSECUTIVE_COUNTER_BREAK;
     if (breakSingleDay || breakCumulative || breakConsecutive) {
+      recordMax(streak);
+      // The dying streak passed the sameDays>=2 guard above, so it's a real
+      // run worth remembering as a recent break. `endIdx` = the breaking
+      // day's position in `tail`; recency is measured against it at the end.
+      priorEnded = {
+        color: streak.direction,
+        days: streak.days,
+        sameDays: streak.sameDays,
+        cumulativePct: streak.cumulativePct,
+        endIdx: m.idx,
+        brokeBy: breakSingleDay ? "big counter day" : breakCumulative ? "tolerance bank" : "counter days",
+      };
       streak = startStreak(m);
       continue;
     }
@@ -1057,8 +1089,52 @@ export function computeStreakForTicker(symbol, bars) {
     streak.history.push(m);
   }
   if (!streak) return null;
+  // Fold the surviving (current) streak into the rarity context too.
+  recordMax(streak);
 
   const lastMove = streak.history[streak.history.length - 1];
+  const lastIdx = lastMove?.idx;
+
+  // Volume-trend read: average share volume DURING the streak vs the ~20
+  // sessions immediately before it began. A run on rising volume is on
+  // conviction; a fading-volume run is more likely to mean-revert. Both
+  // averages degrade to null when volume is missing (the trend is then
+  // simply omitted from the payload).
+  const avgOf = (arr) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null);
+  const startIdx = streak.history[0]?.idx;
+  const streakVols = streak.history.map((m) => m.volume).filter((v) => v > 0);
+  const baseVols = [];
+  if (Number.isInteger(startIdx)) {
+    for (let j = Math.max(0, startIdx - 20); j < startIdx; j++) {
+      if (tail[j]?.v > 0) baseVols.push(tail[j].v);
+    }
+  }
+  const streakAvgVol = avgOf(streakVols);
+  const baseAvgVol = avgOf(baseVols);
+  let volumeRatio = null;
+  let volumeTrend = null;
+  if (streakAvgVol != null && baseAvgVol > 0) {
+    volumeRatio = streakAvgVol / baseAvgVol;
+    volumeTrend = volumeRatio >= 1.15 ? "rising" : volumeRatio <= 0.85 ? "falling" : "flat";
+  }
+
+  // Surface the snapped streak only if it broke within the last few sessions
+  // (sessionsAgo 0 = snapped today). Older breaks aren't actionable, so drop.
+  let lastEnded = null;
+  if (priorEnded && Number.isInteger(lastIdx) && Number.isInteger(priorEnded.endIdx)) {
+    const sessionsAgo = lastIdx - priorEnded.endIdx;
+    if (sessionsAgo >= 0 && sessionsAgo <= STREAK_SNAPPED_RECENT_SESSIONS) {
+      lastEnded = {
+        color: priorEnded.color,
+        days: priorEnded.days,
+        sameDays: priorEnded.sameDays,
+        cumulativePct: priorEnded.cumulativePct,
+        brokeBy: priorEnded.brokeBy,
+        sessionsAgo,
+      };
+    }
+  }
+
   // History is emitted newest-first to match the existing data contract.
   // Emit the full streak window so the rendered daily moves sum to
   // cumulativePct -- the renderer slices by current.days, and long
@@ -1083,7 +1159,13 @@ export function computeStreakForTicker(symbol, bars) {
       counterBreakPct: STREAK_COUNTER_BREAK_PCT,
       toleranceBreakPct: STREAK_CUM_TOLERANCE_BREAK_PCT,
       counterDaysBreak: STREAK_CONSECUTIVE_COUNTER_BREAK,
+      volumeRatio,
+      volumeTrend,
     },
+    // Longest comparable run (same `days` metric) for each direction over the
+    // ~60-session window — lets the UI flag an unusually long current run.
+    context: { maxGreenDays, maxRedDays, windowSessions: moves.length },
+    lastEnded,
     history: histOut,
   };
 }

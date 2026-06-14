@@ -1246,18 +1246,39 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="card-eyebrow" id="streaks-eyebrow" aria-live="polite"></span>
       </header>
       <p class="hint">Each ticker's current run of green or red daily closes. Streaks of 2+ days survive small counter days (a "tolerance bank" up to 1.5% cumulative, or up to 3 counter days in a row); a single counter day greater than 1.2%, hitting the 1.5% bank, or 4 counter days in a row breaks the run. Same-direction days heal the bank back to zero.</p>
-      <div class="streaks-controls" role="toolbar" aria-label="Sort streaks">
+      <div class="streaks-controls" role="toolbar" aria-label="Filter and sort streaks">
+        <label class="streaks-field streaks-field-search">
+          <span class="streaks-field-label">Find</span>
+          <input id="streaks-search" type="search" inputmode="latin" autocomplete="off" spellcheck="false" placeholder="Ticker…" aria-label="Filter streaks by ticker" />
+        </label>
+        <label class="streaks-field">
+          <span class="streaks-field-label">Min run</span>
+          <select id="streaks-min-select" aria-label="Minimum streak length">
+            <option value="2">2+ days</option>
+            <option value="3">3+ days</option>
+            <option value="4">4+ days</option>
+            <option value="5">5+ days</option>
+          </select>
+        </label>
+        <label class="streaks-field">
+          <span class="streaks-field-label">Sector</span>
+          <select id="streaks-sector-select" aria-label="Filter by sector">
+            <option value="">All sectors</option>
+          </select>
+        </label>
         <label class="streaks-sort">
           <span class="streaks-sort-label">Sort</span>
           <select id="streaks-sort-select" aria-label="Sort streaks">
             <option value="streak">Longest streak</option>
             <option value="cum">Biggest cumulative move</option>
+            <option value="vol">Volume trend</option>
             <option value="last">Last close</option>
-            <option value="tol">Tolerance bank used</option>
+            <option value="tol">Closest to breaking</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>
       </div>
+      <div id="streaks-snapped" class="streaks-snapped" hidden></div>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
       <div id="streaks-footer" class="streaks-footer"></div>
     </section>
