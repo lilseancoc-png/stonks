@@ -39,25 +39,7 @@
     {
       "source": "/data/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=600, stale-while-revalidate=86400" }
-      ]
-    },
-    {
-      "source": "/data/unusual(.*)\\.json",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=60, s-maxage=60, stale-while-revalidate=3600" }
-      ]
-    },
-    {
-      "source": "/data/heatmap\\.json",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=60, s-maxage=60, stale-while-revalidate=3600" }
-      ]
-    },
-    {
-      "source": "/data/(picks|grades|oi-tracker|volume-flags|volume-history|briefs|correlations|fear-greed)\\.json",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=60, s-maxage=60, stale-while-revalidate=3600" }
+        { "key": "Cache-Control", "value": "private, no-store" }
       ]
     },
     {
