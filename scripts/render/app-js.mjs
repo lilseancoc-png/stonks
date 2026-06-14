@@ -496,8 +496,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           var sym = matches[i];
           var sec = SECTORS[sym] || '';
           var spot = SPOTS[sym];
-          html += '<li role="option" data-sym="' + sym + '" id="combo-opt-' + sym + '">' +
-            '<span class="combo-sym">' + sym + '</span>' +
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '" id="combo-opt-' + escapeHtml(sym) + '">' +
+            '<span class="combo-sym">' + escapeHtml(sym) + '</span>' +
             '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>' +
             '<span class="combo-sector">' + escapeHtml(sec) + '</span>' +
           '</li>';
@@ -9351,8 +9351,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         for (var i = 0; i < matches.length; i++){
           var sym = matches[i];
           var spot = SPOTS[sym];
-          html += '<li role="option" data-sym="' + sym + '" id="gex-symbol-opt-' + sym + '">' +
-            '<span class="combo-sym">' + sym + '</span>' +
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '" id="gex-symbol-opt-' + escapeHtml(sym) + '">' +
+            '<span class="combo-sym">' + escapeHtml(sym) + '</span>' +
             '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>' +
             '<span class="combo-sector">' + escapeHtml(SECTORS[sym] || '') + '</span>' +
           '</li>';
@@ -10522,8 +10522,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           var sym = matches[k];
           var sec = SECTORS[sym] || '';
           var spot = SPOTS[sym];
-          html += '<li role="option" data-sym="' + sym + '">'
-            + '<span class="combo-sym">' + sym + '</span>'
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '">'
+            + '<span class="combo-sym">' + escapeHtml(sym) + '</span>'
             + '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>'
             + '<span class="combo-sector">' + escapeHtml(sec) + '</span>'
             + '</li>';
@@ -15529,8 +15529,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             var spot = SPOTS[sym];
             midCol = '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>';
           }
-          html += '<li role="option" data-sym="' + sym + '" id="picks-search-opt-' + sym + '">' +
-            '<span class="combo-sym">' + sym + '</span>' +
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '" id="picks-search-opt-' + escapeHtml(sym) + '">' +
+            '<span class="combo-sym">' + escapeHtml(sym) + '</span>' +
             midCol +
             '<span class="combo-sector">' + escapeHtml(SECTORS[sym] || '') + '</span>' +
           '</li>';
