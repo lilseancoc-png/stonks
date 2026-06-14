@@ -652,6 +652,12 @@ main {
 }
 .page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-1); }
 .page-pane[hidden] { display: none; }
+/* Reference / legal / info pages (Buyer's manual, Chart patterns, What's
+   included, Privacy, Terms) mounted as in-app tabs. The host is a bare block —
+   all visual styling lives inside its shadow root (scripts/render/docs.mjs), so
+   the page keeps its own bespoke look with no collision against the app CSS. */
+.doc-pane { padding: 0; }
+.doc-host { display: block; }
 
 /* Grouped tabs (Flow / Macro / Tools) — secondary destinations collapsed
    behind a dropdown trigger that lives in the same horizontal strip as the
