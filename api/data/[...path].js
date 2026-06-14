@@ -61,10 +61,7 @@ export default async function handler(req, res) {
     res.statusCode = 200;
     return res.end(buf);
   } catch (err) {
-    const detail = String(err?.message || err).slice(0, 300);
-    console.error("data read failed", { key, message: detail });
-    // TEMP DEBUG: surface the error to the authenticated owner so we can see why
-    // store.get() throws on Vercel (token? stream?). Remove once diagnosed.
-    return res.status(502).json({ error: "data unavailable", detail });
+    console.error("data read failed", { key, message: String(err?.message || err) });
+    return res.status(502).json({ error: "data unavailable" });
   }
 }
