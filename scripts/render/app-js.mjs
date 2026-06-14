@@ -14227,7 +14227,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     '</div>';
   }
   // --- Picks in & out log -------------------------------------------------
-  // data/picks-changes.json: why a name crossed the ±16 conviction bar onto
+  // data/picks-changes.json: why a name crossed the conviction bar onto
   // (entered) or off (exited) the actionable Top Picks set this build, with a
   // deterministic pillar-delta "why" and an optional AI one-liner that folds in
   // news. Independent of tracked picks, so it renders regardless of open/closed.
@@ -14258,7 +14258,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     var more = changes.length > MAX_ROWS ? '<div class="acc-gc-more">+' + (changes.length - MAX_ROWS) + ' older changes</div>' : '';
     // Collapsed by default — the Top-10 roster above is the headline; this is the
-    // long-run chronological history of ±16-bar crossings.
+    // long-run chronological history of conviction-bar crossings.
     el.innerHTML = '<div class="accuracy-group">' +
       '<details class="acc-pc-wrap">' +
         '<summary class="accuracy-group-head">Recent crossings (conviction bar) <span class="accuracy-group-n">' + changes.length + '</span></summary>' +
@@ -14447,7 +14447,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Realized expectancy (side-adjusted underlying move, not option P&L) + the
     // SPY benchmark over each pick's hold — the honest "does this beat buy-and-hold?"
     if (st.expectancyPct != null) chips += chip(accPct(st.expectancyPct), 'expectancy · stock move', st.expectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
-    if (st.excessExpectancyPct != null) chips += chip(accPct(st.excessExpectancyPct), 'vs SPY', st.excessExpectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
+    if (st.excessExpectancyPct != null) {
+      var spyTip = 'Realized stock-move expectancy minus SPY over each pick\\'s exact hold window (side-adjusted). Positive = the picks beat simply holding the index.' +
+        (st.avgSpyRetPct != null ? ' SPY returned ' + accPct(st.avgSpyRetPct) + ' across those same windows.' : '');
+      chips += '<div class="accuracy-chip' + (st.excessExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + spyTip + '">' +
+        '<span class="accuracy-chip-num">' + accPct(st.excessExpectancyPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">vs SPY</span>' +
+      '</div>';
+    }
     // Fade-the-grade (research): directional expectancy of betting the OPPOSITE
     // side. A positive number means fading the grade would have paid — i.e. the
     // signal's directional edge is net negative. Shown only when it's informative.
@@ -14464,6 +14471,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       researchChips += '<div class="accuracy-chip ' + (st.gradeIc >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') + '" title="Research only: Pearson correlation of the signed grade vs the realized underlying move across resolved picks. Positive = a higher grade precedes a better move (predictive); negative = anti-predictive (fading wins). Measured on the retired ~0.30Δ engine until gate-era picks resolve.">' +
         '<span class="accuracy-chip-num">' + st.gradeIc.toFixed(2) + '</span>' +
         '<span class="accuracy-chip-lbl">grade IC (research · ' + (st.gradeIcN || 0) + ')</span>' +
+      '</div>';
+    }
+
+    // --- Win / loss size profile -------------------------------------------
+    // The other half of expectancy that a bare win rate hides: how big the
+    // average winner is vs the average loser, and the payoff ratio between them.
+    // A 40% hit rate can still print money if winners are 2× the losers; a 60%
+    // one can bleed if the losers are fat. Prefer the modeled CONTRACT figures
+    // (what the engine actually trades), falling back to the side-adjusted
+    // underlying move on legacy / pre-snapshot picks. These numbers were already
+    // computed in computePicksAccuracyStats but never surfaced.
+    var payoffBlock = '';
+    var useOptPayoff = (st.avgWinOptionPnlPct != null) || (st.avgLossOptionPnlPct != null);
+    var avgWin = useOptPayoff ? st.avgWinOptionPnlPct : st.avgWinRealizedPct;
+    var avgLoss = useOptPayoff ? st.avgLossOptionPnlPct : st.avgLossRealizedPct;
+    var winMag = (avgWin != null && isFinite(avgWin)) ? Math.abs(Number(avgWin)) : null;
+    var lossMag = (avgLoss != null && isFinite(avgLoss)) ? Math.abs(Number(avgLoss)) : null;
+    if (winMag != null || lossMag != null){
+      var ratio = (winMag != null && lossMag != null && lossMag > 0) ? winMag / lossMag : null;
+      // Back-to-back bar: the loser (red) grows left of center, the winner (green)
+      // right; both scaled to the larger of the two so the asymmetry is the visual.
+      var maxMag = Math.max(winMag || 0, lossMag || 0) || 1;
+      var winW = winMag != null ? Math.round(winMag / maxMag * 100) : 0;
+      var lossW = lossMag != null ? Math.round(lossMag / maxMag * 100) : 0;
+      var payoffTag = useOptPayoff ? 'contract' : 'stock';
+      var ratioTxt = ratio != null ? ((Math.round(ratio * 100) / 100).toFixed(2) + '×') : '—';
+      // Only flag the ratio green when winners are at least as big as losers —
+      // a sub-1 ratio isn't necessarily "bad" (a high win rate can carry it), so
+      // leave it neutral rather than paint it red.
+      var ratioCls = (ratio != null && ratio >= 1) ? 'sig-pos' : '';
+      var payoffTip = 'Average winning trade vs average losing trade, ' + (useOptPayoff ? 'on the modeled contract P&L.' : 'on the side-adjusted underlying move.') + ' The wider the green side relative to the red, the more each winner outweighs each loser.';
+      payoffBlock = '<div class="accuracy-payoff">' +
+        '<div class="accuracy-tiers-head">Win / loss size <span class="payoff-tag" title="' + (useOptPayoff ? 'Modeled contract P&L (Black-Scholes, enter at ask / exit at bid).' : 'Side-adjusted underlying move — no contract snapshot on these picks.') + '">' + payoffTag + '</span></div>' +
+        '<div class="payoff-bar" title="' + payoffTip + '">' +
+          '<div class="payoff-bar-side payoff-bar-loss"><i style="width:' + lossW + '%"></i></div>' +
+          '<div class="payoff-bar-side payoff-bar-win"><i style="width:' + winW + '%"></i></div>' +
+        '</div>' +
+        '<div class="payoff-stats">' +
+          '<div class="payoff-stat"><span class="payoff-num sig-pos">' + (winMag != null ? accPct(avgWin) : '—') + '</span><span class="payoff-lbl">avg win</span></div>' +
+          '<div class="payoff-stat"><span class="payoff-num sig-neg">' + (lossMag != null ? accPct(avgLoss) : '—') + '</span><span class="payoff-lbl">avg loss</span></div>' +
+          '<div class="payoff-stat"><span class="payoff-num ' + ratioCls + '">' + ratioTxt + '</span><span class="payoff-lbl">win : loss</span></div>' +
+        '</div>' +
       '</div>';
     }
 
@@ -14519,7 +14568,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
-    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + tierBlock + advancedBlock;
+    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + payoffBlock + tierBlock + advancedBlock;
 
     // --- Open positions (grouped by ticker; multiple contracts collapse) ----
     var nowMs = Date.now();

@@ -8500,6 +8500,57 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 }
 .accuracy-chip-good .accuracy-chip-num { color: var(--pos); }
 .accuracy-chip-bad .accuracy-chip-num { color: var(--neg); }
+/* Tint the whole chip (not just the number) so the scorecard's good/bad split
+   reads at a glance instead of only on close inspection. */
+.accuracy-chip-good { border-color: color-mix(in srgb, var(--pos) 28%, var(--border)); background: color-mix(in srgb, var(--pos) 6%, var(--surface)); }
+.accuracy-chip-bad { border-color: color-mix(in srgb, var(--neg) 28%, var(--border)); background: color-mix(in srgb, var(--neg) 6%, var(--surface)); }
+/* Win / loss size profile — avg winner vs avg loser + the payoff ratio, with a
+   back-to-back bar so the asymmetry is the visual. */
+.accuracy-payoff {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.payoff-tag {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  font: 600 8.5px/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted-strong);
+  background: color-mix(in srgb, var(--muted) 14%, var(--surface));
+  vertical-align: middle;
+}
+.payoff-bar {
+  display: flex;
+  align-items: center;
+  height: 9px;
+  margin: 10px 0 12px;
+}
+.payoff-bar-side { flex: 1 1 0; height: 100%; display: flex; }
+.payoff-bar-loss { justify-content: flex-end; padding-right: 3px; border-right: 1px solid var(--border); }
+.payoff-bar-win { justify-content: flex-start; padding-left: 3px; }
+.payoff-bar-side i { display: block; height: 100%; border-radius: var(--r-pill); }
+.payoff-bar-loss i { background: var(--neg); }
+.payoff-bar-win i { background: var(--pos); }
+.payoff-stats { display: flex; gap: 20px; }
+.payoff-stat { display: flex; flex-direction: column; gap: 3px; }
+.payoff-num {
+  font: 700 15px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+.payoff-num.sig-pos { color: var(--pos); }
+.payoff-num.sig-neg { color: var(--neg); }
+.payoff-lbl {
+  font: 500 9.5px/1.1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+}
 .accuracy-tiers {
   padding: 10px 12px;
   border: 1px solid var(--border);
