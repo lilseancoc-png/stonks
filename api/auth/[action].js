@@ -40,6 +40,15 @@ function redirect(res, location, cookies) {
   res.setHeader("Location", location);
   res.end();
 }
+// Union of the legacy single role ID + an optional comma-separated list, trimmed
+// and de-duped. Holding ANY one of these unlocks the gate.
+function parseRoleIds(single, list) {
+  return new Set(
+    [single, ...String(list || "").split(",")]
+      .map((s) => String(s || "").trim())
+      .filter(Boolean),
+  );
+}
 
 export default async function handler(req, res) {
   switch (req.query?.action) {
@@ -88,13 +97,20 @@ async function callback(req, res) {
     DISCORD_CLIENT_SECRET,
     DISCORD_GUILD_ID,
     DISCORD_REQUIRED_ROLE_ID,
+    DISCORD_REQUIRED_ROLE_IDS,
     SESSION_SECRET,
   } = process.env;
+  // Accept ANY of a set of role IDs so a member can be unlocked by either the
+  // Discord-managed subscription role (auto-granted to paying subscribers, but
+  // un-assignable by hand — even by the owner) OR a normal role you assign
+  // yourself (owner/comp/trial). Sourced from the legacy single
+  // DISCORD_REQUIRED_ROLE_ID plus an optional comma-separated DISCORD_REQUIRED_ROLE_IDS.
+  const requiredRoleIds = parseRoleIds(DISCORD_REQUIRED_ROLE_ID, DISCORD_REQUIRED_ROLE_IDS);
   if (
     !DISCORD_CLIENT_ID ||
     !DISCORD_CLIENT_SECRET ||
     !DISCORD_GUILD_ID ||
-    !DISCORD_REQUIRED_ROLE_ID ||
+    requiredRoleIds.size === 0 ||
     !SESSION_SECRET
   ) {
     return res.status(503).json({ error: "discord auth not configured" });
@@ -139,8 +155,8 @@ async function callback(req, res) {
     const member = await memRes.json();
     const roles = Array.isArray(member.roles) ? member.roles : [];
 
-    // 3) the gate: must hold the required role.
-    if (!roles.includes(DISCORD_REQUIRED_ROLE_ID)) {
+    // 3) the gate: must hold ANY of the accepted roles.
+    if (!roles.some((r) => requiredRoleIds.has(r))) {
       return redirect(res, "/welcome.html?denied=role", clearState);
     }
 
