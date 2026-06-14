@@ -12286,23 +12286,26 @@
   }
   function fngGaugeSvg(score){
     var s = Math.max(0, Math.min(100, Number(score) || 0));
-    // Semicircle gauge: 5 zone arcs + needle. cx=110, cy=110, r=95.
+    // Half-dial gauge: 5 segmented zone arcs, boundary ticks, a tapered
+    // needle pointing at the score, and the big numeric readout tucked into
+    // the open well below the hub (the needle never crosses it). Geometry is
+    // kept compact so there's no dead space under the dial.
     // Angle math: 180° (left, score=0) → 0° (right, score=100).
-    var cx = 110, cy = 110, r = 95;
-    function pol(deg){
-      var rad = deg * Math.PI / 180;
-      return [cx + r * Math.cos(rad), cy - r * Math.sin(rad)];
+    var cx = 110, cy = 96, r = 80, sw = 14;
+    function pol(deg, rad){
+      var a = deg * Math.PI / 180;
+      return [cx + rad * Math.cos(a), cy - rad * Math.sin(a)];
     }
-    function arcPath(fromScore, toScore){
+    function arcPath(fromScore, toScore, rad){
       // 0..100 → 180..0 degrees (left to right across the top half).
       var a1 = 180 - (fromScore * 1.8);
       var a2 = 180 - (toScore * 1.8);
-      var p1 = pol(a1), p2 = pol(a2);
+      var p1 = pol(a1, rad), p2 = pol(a2, rad);
       var large = Math.abs(a1 - a2) > 180 ? 1 : 0;
       // sweep-flag 0 = counter-clockwise; with our y-flip we want 0 here
       // so the arc draws across the top.
       return 'M ' + p1[0].toFixed(2) + ' ' + p1[1].toFixed(2) +
-        ' A ' + r + ' ' + r + ' 0 ' + large + ' 0 ' + p2[0].toFixed(2) + ' ' + p2[1].toFixed(2);
+        ' A ' + rad + ' ' + rad + ' 0 ' + large + ' 0 ' + p2[0].toFixed(2) + ' ' + p2[1].toFixed(2);
     }
     var zones = [
       [0, 24,  'extreme-fear'],
@@ -12311,23 +12314,52 @@
       [55, 75, 'greed'],
       [75, 100,'extreme-greed'],
     ];
-    var arcs = zones.map(function(z){
-      return '<path class="fng-arc fng-arc-' + z[2] + '" d="' + arcPath(z[0], z[1]) + '" />';
+    // Trim a sliver off each inner edge so segments read as distinct bands.
+    var GAP = 0.9;
+    var arcs = zones.map(function(z, i){
+      var from = z[0] + (i === 0 ? 0 : GAP);
+      var to   = z[1] - (i === zones.length - 1 ? 0 : GAP);
+      return '<path class="fng-arc fng-arc-' + z[2] + '" d="' + arcPath(from, to, r) + '" />';
     }).join('');
-    // Needle: line from center to score angle, with a small base disk.
+    // Short radial ticks straddling the band at each zone boundary.
+    var ticks = [24, 44, 55, 75].map(function(b){
+      var ang = 180 - (b * 1.8);
+      var pa = pol(ang, r - sw / 2 - 1);
+      var pb = pol(ang, r + sw / 2 + 1);
+      return '<line class="fng-tick" x1="' + pa[0].toFixed(1) + '" y1="' + pa[1].toFixed(1) +
+        '" x2="' + pb[0].toFixed(1) + '" y2="' + pb[1].toFixed(1) + '" />';
+    }).join('');
+    // Tapered needle: tip at the score, base straddling the hub.
     var needleAng = 180 - (s * 1.8);
-    var nEnd = pol(needleAng);
-    var needle = '<line class="fng-needle" x1="' + cx + '" y1="' + cy + '" x2="' + nEnd[0].toFixed(2) + '" y2="' + nEnd[1].toFixed(2) + '" />' +
-      '<circle class="fng-needle-hub" cx="' + cx + '" cy="' + cy + '" r="6" />';
+    var tip   = pol(needleAng, r - sw / 2 - 2);
+    var baseL = pol(needleAng + 90, 6);
+    var baseR = pol(needleAng - 90, 6);
+    var needle =
+      '<polygon class="fng-needle" points="' +
+        tip[0].toFixed(1) + ',' + tip[1].toFixed(1) + ' ' +
+        baseL[0].toFixed(1) + ',' + baseL[1].toFixed(1) + ' ' +
+        baseR[0].toFixed(1) + ',' + baseR[1].toFixed(1) + '" />' +
+      '<circle class="fng-needle-hub" cx="' + cx + '" cy="' + cy + '" r="8" />' +
+      '<circle class="fng-needle-hub-dot" cx="' + cx + '" cy="' + cy + '" r="3.5" />';
+    // 0 / 100 anchors just past the arc extremes.
+    var ends =
+      '<text class="fng-gauge-end" x="' + (cx - r - 1) + '" y="' + (cy + 13) + '" text-anchor="middle">0</text>' +
+      '<text class="fng-gauge-end" x="' + (cx + r + 1) + '" y="' + (cy + 13) + '" text-anchor="middle">100</text>';
     var band = fngBandFromScore(s);
-    // Text sits BELOW the hub (y=138) so the needle never bisects it.
-    // viewBox extended to 150 to make room.
-    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 150" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
-      arcs + needle +
-      '<text class="fng-gauge-num" x="' + cx + '" y="138" text-anchor="middle">' + Math.round(s) + '</text>' +
+    // Numeric readout sits in the well below the hub so the needle never
+    // bisects it. viewBox is sized just tall enough to hold it.
+    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 132" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
+      arcs + ticks + ends + needle +
+      '<text class="fng-gauge-num" x="' + cx + '" y="128" text-anchor="middle">' + Math.round(s) + '</text>' +
     '</svg>';
   }
+  // Geometry of the last-rendered sparkline (one entry per history point),
+  // captured here so the hover handler can map a mouse x back to a date/score
+  // without re-deriving the layout. Positions are stored as % of the plot box
+  // (the SVG stretches to fill it via preserveAspectRatio="none").
+  var fngSparkGeom = [];
   function fngSparkline(points){
+    fngSparkGeom = [];
     if (!Array.isArray(points) || points.length < 2) return '';
     var w = 600, h = 80, padX = 4, padY = 6;
     var n = points.length;
@@ -12335,6 +12367,16 @@
     var ys = points.map(function(p){
       var v = Math.max(0, Math.min(100, Number(p.score) || 0));
       return padY + (h - padY * 2) * (1 - v / 100);
+    });
+    fngSparkGeom = points.map(function(p, i){
+      var v = Math.max(0, Math.min(100, Number(p.score) || 0));
+      return {
+        xPct: (xs[i] / w) * 100,
+        yPct: (ys[i] / h) * 100,
+        score: Math.round(v),
+        date: p.date || '',
+        band: fngBandFromScore(v),
+      };
     });
     var poly = xs.map(function(x, i){ return x.toFixed(1) + ',' + ys[i].toFixed(1); }).join(' ');
     // Zone bands behind the line so the eye reads green/red regions.
@@ -12352,13 +12394,78 @@
     }).join('');
     var first = points[0].date || '';
     var last = points[n - 1].date || '';
+    // .fng-spark-plot is the mouse target + positioning context; the cursor
+    // guide, marker dot and tooltip are absolutely-positioned siblings of the
+    // (stretched) SVG so they stay un-distorted and track the pointer.
     return '<div class="fng-spark-wrap">' +
-      '<svg class="fng-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="Fear and Greed 1-year history">' +
-        bands +
-        '<polyline class="fng-spark-line" fill="none" points="' + poly + '" />' +
-      '</svg>' +
+      '<div class="fng-spark-plot">' +
+        '<svg class="fng-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="Fear and Greed 1-year history">' +
+          bands +
+          '<polyline class="fng-spark-line" fill="none" points="' + poly + '" />' +
+        '</svg>' +
+        '<div class="fng-spark-cursor" hidden></div>' +
+        '<div class="fng-spark-dot" hidden></div>' +
+        '<div class="fng-spark-tip" role="status" hidden></div>' +
+      '</div>' +
       '<div class="fng-spark-axis"><span>' + escapeHtml(first) + '</span><span>' + escapeHtml(last) + '</span></div>' +
     '</div>';
+  }
+  // Wire up hover/touch scrubbing on the composite-history sparkline: a
+  // vertical guide + dot snap to the nearest data point and a tooltip shows
+  // that day's score, rating and date. Pointer-tracking only (the SVG itself
+  // is inert) so it works regardless of the stretched aspect ratio.
+  function bindFngSparkHover(){
+    var plot = document.querySelector('#fng-root .fng-spark-plot');
+    if (!plot || plot.dataset.hoverBound === '1') return;
+    var cursor = plot.querySelector('.fng-spark-cursor');
+    var dot = plot.querySelector('.fng-spark-dot');
+    var tip = plot.querySelector('.fng-spark-tip');
+    if (!cursor || !dot || !tip) return;
+    function hide(){ cursor.hidden = true; dot.hidden = true; tip.hidden = true; }
+    function show(clientX){
+      var n = fngSparkGeom.length;
+      if (n < 2) return;
+      var rect = plot.getBoundingClientRect();
+      if (!rect.width) return;
+      // Back out the small viewBox x-padding (4 of 600) so the first/last
+      // points sit exactly under the plot edges.
+      var padFrac = 4 / 600;
+      var frac = (clientX - rect.left) / rect.width;
+      var dataFrac = (frac - padFrac) / (1 - 2 * padFrac);
+      dataFrac = Math.max(0, Math.min(1, dataFrac));
+      var idx = Math.round(dataFrac * (n - 1));
+      var g = fngSparkGeom[idx];
+      if (!g) return;
+      cursor.style.left = g.xPct + '%';
+      cursor.hidden = false;
+      dot.style.left = g.xPct + '%';
+      dot.style.top = g.yPct + '%';
+      dot.className = 'fng-spark-dot fng-band-' + g.band;
+      dot.hidden = false;
+      tip.innerHTML =
+        '<span class="fng-spark-tip-top">' +
+          '<span class="fng-spark-tip-score fng-band-' + g.band + '">' + g.score + '</span>' +
+          '<span class="fng-spark-tip-band">' + escapeHtml(fngBandLabel(g.band)) + '</span>' +
+        '</span>' +
+        '<span class="fng-spark-tip-date">' + escapeHtml(g.date) + '</span>';
+      tip.hidden = false;
+      // Position after unhiding so offsetWidth/Height are measurable, then
+      // clamp horizontally and flip above/below the dot to stay in-bounds.
+      var px = (g.xPct / 100) * rect.width;
+      var py = (g.yPct / 100) * rect.height;
+      var tw = tip.offsetWidth, th = tip.offsetHeight;
+      var left = Math.max(tw / 2 + 2, Math.min(rect.width - tw / 2 - 2, px));
+      var top = py - th - 12;
+      if (top < 0) top = py + 16;
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+    }
+    plot.addEventListener('mousemove', function(e){ show(e.clientX); });
+    plot.addEventListener('mouseleave', hide);
+    plot.addEventListener('touchstart', function(e){ if (e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
+    plot.addEventListener('touchmove', function(e){ if (e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
+    plot.addEventListener('touchend', hide);
+    plot.dataset.hoverBound = '1';
   }
   function fngComponentBarHtml(score){
     var v = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
@@ -12368,13 +12475,14 @@
       '<span class="fng-bar-num">' + v + '</span>' +
     '</div>';
   }
-  function fngCompareChip(label, score){
+  function fngCompareChip(label, score, emphasis){
+    var emph = emphasis ? ' fng-chip-now' : '';
     if (score == null || !isFinite(Number(score))) {
-      return '<div class="fng-chip fng-chip-empty"><div class="fng-chip-label">' + escapeHtml(label) + '</div><div class="fng-chip-num">—</div></div>';
+      return '<div class="fng-chip fng-chip-empty' + emph + '"><div class="fng-chip-label">' + escapeHtml(label) + '</div><div class="fng-chip-num">—</div></div>';
     }
     var v = Math.round(Number(score));
     var band = fngBandFromScore(v);
-    return '<div class="fng-chip fng-band-' + band + '">' +
+    return '<div class="fng-chip fng-band-' + band + emph + '">' +
       '<div class="fng-chip-label">' + escapeHtml(label) + '</div>' +
       '<div class="fng-chip-num">' + v + '</div>' +
       '<div class="fng-chip-rating">' + fngBandLabel(band) + '</div>' +
@@ -12420,7 +12528,7 @@
     ];
     var prev = d.previous || {};
     var stripHtml = '<div class="fng-strip">' +
-      fngCompareChip('Now', d.score) +
+      fngCompareChip('Now', d.score, true) +
       fngCompareChip('Prev close', prev.close) +
       fngCompareChip('1 W ago', prev.week) +
       fngCompareChip('1 M ago', prev.month) +
@@ -12450,7 +12558,10 @@
     var sparkHtml = '';
     if (Array.isArray(d.history) && d.history.length > 1) {
       sparkHtml = '<section class="fng-spark-section">' +
-        '<h3 class="fng-section-title">1-year composite history</h3>' +
+        '<div class="fng-section-head">' +
+          '<h3 class="fng-section-title">1-year composite history</h3>' +
+          '<span class="fng-section-hint">Hover for any day\'s reading</span>' +
+        '</div>' +
         fngSparkline(d.history) +
       '</section>';
     }
@@ -12473,6 +12584,7 @@
       '</section>';
     root.dataset.painted = '1';
     fngRendered = true;
+    bindFngSparkHover();
   }
 
   // --- Heatmap tab --------------------------------------------------------
