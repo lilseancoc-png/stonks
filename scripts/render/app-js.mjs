@@ -5383,11 +5383,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     ['home and accessories', 'Home & Accessories'],
   ];
   var SEG_BRAND_PATTERNS = [
-    [/\bI Phone\b/g, 'iPhone'], [/\bI Pad\b/g, 'iPad'],
-    [/\bI Mac\b/g, 'iMac'],     [/\bI Pod\b/g, 'iPod'],
-    [/\bI Tunes\b/g, 'iTunes'], [/\bI Cloud\b/g, 'iCloud'],
-    [/\bAir Pods\b/g, 'AirPods'], [/\bMac Os\b/g, 'macOS'],
-    [/\bI Os\b/g, 'iOS'], [/\bMac Book\b/g, 'MacBook'],
+    [/\\bI Phone\\b/g, 'iPhone'], [/\\bI Pad\\b/g, 'iPad'],
+    [/\\bI Mac\\b/g, 'iMac'],     [/\\bI Pod\\b/g, 'iPod'],
+    [/\\bI Tunes\\b/g, 'iTunes'], [/\\bI Cloud\\b/g, 'iCloud'],
+    [/\\bAir Pods\\b/g, 'AirPods'], [/\\bMac Os\\b/g, 'macOS'],
+    [/\\bI Os\\b/g, 'iOS'], [/\\bMac Book\\b/g, 'MacBook'],
   ];
   function prettifySegmentName(name){
     if (!name) return name;
@@ -8772,7 +8772,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (s == null) return '—';
     var n = Number(s);
     if (!isFinite(n)) return '—';
-    return '$' + (n >= 1000 ? n.toFixed(0) : n.toFixed(2).replace(/\.00$/, ''));
+    return '$' + (n >= 1000 ? n.toFixed(0) : n.toFixed(2).replace(/\\.00$/, ''));
   }
   function fmtOiExpiry(epochSec){
     if (!epochSec) return '';
@@ -14669,7 +14669,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if(tm && (tm.headline || (tm.reasons && tm.reasons.length))){
       var tmTxt=String(tm.headline||'');
       if(tm.reasons && tm.reasons.length){
-        var tmReasons=tm.reasons.map(function(r){return String(r).replace(/^[-\s]+/,'').trim();}).filter(Boolean).join('; ');
+        var tmReasons=tm.reasons.map(function(r){return String(r).replace(/^[-\\s]+/,'').trim();}).filter(Boolean).join('; ');
         if(tmReasons) tmTxt += (tmTxt?' ':'')+tmReasons+'.';
       }
       add(tm.state==='go'?'good':tm.state==='avoid'?'bad':'info', 'Entry timing', tmTxt);

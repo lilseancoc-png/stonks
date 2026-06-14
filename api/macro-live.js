@@ -67,7 +67,7 @@ export default async function handler(req, res) {
 
     // All-null means the upstream batch effectively failed — surface it so
     // the browser keeps the baked tiles rather than overlaying nothing.
-    if (!legs.tenY && !legs.thirtyY && !legs.dxy && !legs.vix) {
+    if (!legs.twoY && !legs.tenY && !legs.thirtyY && !legs.dxy && !legs.vix) {
       return res.status(502).json({ error: "macro quotes unavailable" });
     }
 
