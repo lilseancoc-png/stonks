@@ -342,3 +342,33 @@ Refinements made while implementing (supersede the sketch above where they diffe
 workflow_dispatch, which must be on `main` to appear), flip the bake/scan workflows to
 `pull`/`push`, then on the preview deploy set `PRIVATE_DATA_ENABLED=1` + test §8, then
 flip it on production, then `git rm --cached data/` + `.gitignore data/`.
+
+## 12. Freemium pivot (the gate became a tier, not a wall)
+
+The original design gated the **whole** site. It was later changed to **freemium**:
+most tabs are free, a premium subset stays gated. The wiring:
+
+- **Tier table — `lib/premium-keys.mjs`.** `isPremiumKey(key)` is the single source of
+  truth for which `data/` keys require a session. Premium: `manifest.json` (the premium
+  half), `picks*`, `briefs`, `trends*`, `unusual*`, `volume-flags/-history`,
+  `oi-tracker/-history`, `flow-explanations`, `grades-history/-daily`, plus internal
+  `ai-usage`/`chart-pattern-cache`. Everything else (per-ticker chains, `grades.json`,
+  `calendar`, `heatmap`, `13f`, `macro*`, `fear-greed*`, `correlations`, `streaks`,
+  `manifest-free.json`, …) is **free**. Edge-safe, dependency-free — imported by both
+  `middleware.js` and `api/data`.
+- **`api/data` is tiered**, not all-or-nothing: free keys → `public, s-maxage` (edge
+  cacheable); premium keys → session-or-401 + `private, no-store`.
+- **`middleware.js` shrank** to just the `/data/*` → `/api/data/*` rewrite (flag-gated).
+  The shell + live `/api/*` are open; the Edge layer no longer checks sessions (the
+  function does). Matcher narrowed to `/data/:path*`; the `jose`/session import is gone.
+- **Manifest split by tier.** Supersedes §7's open item: the premium fields go to the
+  gated `data/manifest.json`, the free fields (macro/fear-greed/backdrop/spots/headlines)
+  to a new public `data/manifest-free.json`. `app.js` fetches both before first paint.
+  Keeping `manifest.json` as the *premium* key means the pre-cutover combined file stays
+  gated — no leak window when the flag flips before the first split-aware bake.
+- **Client UI half** (`scripts/render/app-js.mjs`): `PREMIUM_TABS` + `IS_MEMBER` (from
+  `/api/auth/me`'s new `enabled`+`authed`) render a `.premium-lock` upsell card on premium
+  tabs for non-members, a 🔒 on premium nav items, and a "Log in" header chip. Fail-open:
+  ungated or a failed `/me` ⇒ no locks.
+- **`welcome.html`** is no longer a forced wall — it's the login/denied lander, linking
+  back to the free site at `/`.

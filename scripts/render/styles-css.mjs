@@ -495,6 +495,57 @@ button { font: inherit; }
 }
 .auth-chip .auth-logout:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 560px) { .auth-chip .auth-name { display: none; } }
+/* Logged-out "Log in" CTA in the chip slot (freemium). */
+.auth-chip[data-anon] { padding: 0; border: 0; background: transparent; }
+.auth-chip .auth-login {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 13px; border-radius: 999px;
+  background: var(--accent, #5865f2); color: #fff; text-decoration: none;
+  font-size: 12.5px; font-weight: 600; line-height: 1; transition: filter .15s;
+}
+.auth-chip .auth-login:hover { filter: brightness(1.08); }
+.auth-chip .auth-login svg { color: #fff; }
+
+/* --- Freemium gate -------------------------------------------------------- */
+/* Lock glyph on premium nav items, only while the visitor is NOT a member. */
+body:not(.is-member) [data-premium] { position: relative; }
+body:not(.is-member) [data-premium]::after {
+  content: "🔒"; font-size: 9px; line-height: 1;
+  margin-left: 5px; opacity: .65; vertical-align: middle;
+}
+/* A locked premium pane hides its real content and shows only the upsell card. */
+.page-pane.locked > :not(.premium-lock) { display: none !important; }
+.premium-lock { display: none; }
+.page-pane.locked > .premium-lock { display: block; }
+.premium-lock {
+  padding: 48px 18px; display: flex; justify-content: center;
+}
+.premium-lock-card {
+  max-width: 460px; width: 100%; text-align: center;
+  background: var(--surface, var(--panel, #12151c));
+  border: 1px solid var(--border); border-radius: 18px;
+  padding: 36px 30px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.28);
+}
+.premium-lock-badge {
+  width: 54px; height: 54px; margin: 0 auto 16px;
+  display: grid; place-items: center; border-radius: 14px;
+  color: var(--accent, #5865f2);
+  background: color-mix(in srgb, var(--accent, #5865f2) 14%, transparent);
+}
+.premium-lock-title { font-size: 19px; margin: 0 0 8px; line-height: 1.25; }
+.premium-lock-body { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0 0 22px; }
+.premium-lock-cta {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  padding: 12px 22px; border-radius: 12px;
+  background: var(--accent, #5865f2); color: #fff; text-decoration: none;
+  font-size: 14.5px; font-weight: 600; transition: filter .15s;
+}
+.premium-lock-cta:hover { filter: brightness(1.08); }
+.premium-lock-cta svg { color: #fff; }
+.premium-lock-foot { color: var(--muted); font-size: 12.5px; margin: 16px 0 0; }
+.premium-lock-foot a { color: var(--accent, #5865f2); text-decoration: none; }
+.premium-lock-foot a:hover { text-decoration: underline; }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px;

@@ -37,12 +37,6 @@
       ]
     },
     {
-      "source": "/data/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "private, no-store" }
-      ]
-    },
-    {
       "source": "/(index\\.html)?",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=120, s-maxage=300, stale-while-revalidate=3600" }

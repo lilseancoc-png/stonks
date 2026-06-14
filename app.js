@@ -42,6 +42,56 @@
   // caveat in the Execute card — a Powell presser ≤2 sessions out routinely
   // whipsaws multi-percent intraday, so structure-based entries should defer.
   var NEXT_FOMC_DATES = Array.isArray(MANIFEST.nextFomcDates) ? MANIFEST.nextFomcDates : [];
+  // --- Freemium gate (client half) ------------------------------------------
+  // The data layer (api/data + lib/premium-keys) is the real enforcement; this
+  // is the UI half: which tabs are members-only, and whether THIS visitor is a
+  // member. GATE_ON mirrors PRIVATE_DATA_ENABLED (reported by /api/auth/me); we
+  // default to "ungated, everyone's a member" so a legacy public deploy — or a
+  // failed /me probe — never locks the site by accident. applyAuth() flips these
+  // once /me resolves, before the first selectTab().
+  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, hot:1, track:1 };
+  var GATE_ON = false;
+  var IS_MEMBER = true;
+  var AUTH_ME = null;
+  var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
+  function premiumTabLabel(id){
+    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record' })[id] || 'This feature';
+  }
+  // Inject the members-only upsell card into a locked premium pane (idempotent).
+  function ensurePremiumLock(pane, id){
+    if (!pane) return;
+    var lock = pane.querySelector(':scope > .premium-lock');
+    if (!lock){
+      lock = document.createElement('div');
+      lock.className = 'premium-lock';
+      pane.insertBefore(lock, pane.firstChild);
+    }
+    lock.innerHTML =
+      '<div class="premium-lock-card">' +
+        '<div class="premium-lock-badge" aria-hidden="true">' +
+          '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+        '</div>' +
+        '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
+        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, Gamma exposure, Hot stocks, and the full Track Record are unlocked with a Discord membership. Everything else stays free.</p>' +
+        '<a class="premium-lock-cta" href="/api/auth/discord-login">' + DISCORD_ICON_SVG + '<span>Unlock with Discord</span></a>' +
+        '<p class="premium-lock-foot">Already have the role? <a href="/api/auth/discord-login">Log in</a>.</p>' +
+      '</div>';
+  }
+  // Flag the premium tab buttons/menu-items so the nav can paint a lock for
+  // non-members (CSS keys off body.is-member). Safe to call once DOM is ready.
+  function markPremiumNav(){
+    for (var id in PREMIUM_TABS){
+      if (!PREMIUM_TABS.hasOwnProperty(id)) continue;
+      var els = document.querySelectorAll('[data-page-tab="' + id + '"]');
+      for (var i = 0; i < els.length; i++) els[i].setAttribute('data-premium', '1');
+    }
+  }
+  function applyAuth(me){
+    AUTH_ME = me || null;
+    GATE_ON = !!(me && me.enabled);
+    // Ungated -> everyone's a member (no locks). Gated -> need an authed session.
+    IS_MEMBER = !GATE_ON || !!(me && me.authed);
+  }
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
     var m = {};
@@ -478,8 +528,8 @@
           var sym = matches[i];
           var sec = SECTORS[sym] || '';
           var spot = SPOTS[sym];
-          html += '<li role="option" data-sym="' + sym + '" id="combo-opt-' + sym + '">' +
-            '<span class="combo-sym">' + sym + '</span>' +
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '" id="combo-opt-' + escapeHtml(sym) + '">' +
+            '<span class="combo-sym">' + escapeHtml(sym) + '</span>' +
             '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>' +
             '<span class="combo-sector">' + escapeHtml(sec) + '</span>' +
           '</li>';
@@ -3048,57 +3098,72 @@
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
       // instead of the daily build's "2 hours ago" which can be misleading.
       try { renderFreshness(name); } catch (_) {}
-      if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
-      if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
-      if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
-      if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
-      if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
-      // Pause heatmap live polling when navigating away — don't burn
-      // /api/quotes on a tab the user isn't looking at.
-      if (name !== 'heatmap' && typeof stopHeatmapLivePolling === 'function') stopHeatmapLivePolling(false);
-      // Likewise stop the Grade-tab chain poll when leaving Grade — otherwise it
-      // keeps hitting /api/chain and regrading a hidden pane indefinitely.
-      if (name !== 'grade' && typeof stopLivePolling === 'function') stopLivePolling();
-      if (name === 'f13' && typeof loadF13 === 'function') loadF13();
-      if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
-      if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
-      if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
-      // Live macro overlay (yields/DXY/VIX) — poll only while the pane is visible.
-      if (name === 'bonds-usd' && typeof startBondsLivePolling === 'function') startBondsLivePolling();
-      if (name !== 'bonds-usd' && typeof stopBondsLivePolling === 'function') stopBondsLivePolling();
-      if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
-      if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
-      if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
-      // Lazy data (manifest diet): the hourly scan payload backs both the
-      // Volume tab's flag list and the Hot stocks board's avg20/GEX/S-R
-      // context; the OI tracker adds the hot board's squeeze chips.
-      if ((name === 'volume' || name === 'hot') && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
-      if (name === 'hot' && typeof loadOiData === 'function') loadOiData();
-      // The hot board's entry gate (anti-chase / anti-knife) reads the baked
-      // daily-bar timing states + 20D context from grades.json — lazy-loaded
-      // here and cached for the session; re-render once it lands.
-      if (name === 'hot' && typeof loadGradesIndex === 'function'){
-        loadGradesIndex(function(){ if (typeof renderHotStocks === 'function') renderHotStocks(); });
+      // Freemium gate (UI half): a premium tab opened by a non-member renders the
+      // members-only upsell card and starts NONE of its data loaders/pollers (the
+      // /api/data layer 401s the premium files too). The stop-pollers below still
+      // run so leaving a live free tab for a locked one halts its polling.
+      var premiumLocked = !!(PREMIUM_TABS[name] && !IS_MEMBER);
+      if (activeBtn){
+        var lockPaneId = activeBtn.getAttribute('aria-controls');
+        var lockPane = lockPaneId ? document.getElementById(lockPaneId) : null;
+        if (lockPane){
+          if (premiumLocked){ ensurePremiumLock(lockPane, name); lockPane.classList.add('locked'); }
+          else lockPane.classList.remove('locked');
+        }
       }
-      // Hot stocks is always-live while visible (no opt-in toggle) — start
-      // the 30s /api/quotes poll on entry, stop it on leave.
-      if (name === 'hot' && typeof renderHotStocks === 'function') renderHotStocks();
-      if (name === 'hot' && typeof startHotPolling === 'function') startHotPolling();
+      // Stop pollers owned by the tab we're leaving — unconditionally, so a hop
+      // into a locked premium tab still halts the previous tab's polling.
+      // (heatmap /api/quotes, Grade /api/chain, bonds macro-live, hot /api/quotes,
+      // tickers/picks/oi live spot.)
+      if (name !== 'heatmap' && typeof stopHeatmapLivePolling === 'function') stopHeatmapLivePolling(false);
+      if (name !== 'grade' && typeof stopLivePolling === 'function') stopLivePolling();
+      if (name !== 'bonds-usd' && typeof stopBondsLivePolling === 'function') stopBondsLivePolling();
       if (name !== 'hot' && typeof stopHotPolling === 'function') stopHotPolling();
-      // Auto-live spot refreshes — poll only while the owning tab is visible.
-      if (name === 'tickers' && typeof startTickersLive === 'function') startTickersLive();
       if (name !== 'tickers' && typeof stopTickersLive === 'function') stopTickersLive();
-      if (name === 'picks' && typeof startPicksLive === 'function') startPicksLive();
       if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
-      if (name === 'oi' && typeof startOiLive === 'function') startOiLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
-      if (name === 'oi' && typeof renderOI === 'function') renderOI();
-      if (name === 'oi' && typeof loadOiData === 'function') loadOiData();
-      // Lazy-load the GEX heatmap the first time the tab is opened (it fetches
-      // the selected ticker's chain). Revisits keep the last view; Refresh
-      // re-pulls the live spot.
-      if (name === 'oi' && typeof loadGex === 'function' && !gexState.data && !gexState.loading) loadGex();
-      if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
+      if (!premiumLocked){
+        if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
+        if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
+        if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+        if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
+        if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
+        if (name === 'f13' && typeof loadF13 === 'function') loadF13();
+        if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
+        if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
+        if (name === 'bonds-usd' && typeof renderBondsLive === 'function') renderBondsLive();
+        // Live macro overlay (yields/DXY/VIX) — poll only while the pane is visible.
+        if (name === 'bonds-usd' && typeof startBondsLivePolling === 'function') startBondsLivePolling();
+        if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
+        if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
+        if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
+        // Lazy data (manifest diet): the hourly scan payload backs both the
+        // Volume tab's flag list and the Hot stocks board's avg20/GEX/S-R
+        // context; the OI tracker adds the hot board's squeeze chips.
+        if ((name === 'volume' || name === 'hot') && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
+        if (name === 'hot' && typeof loadOiData === 'function') loadOiData();
+        // The hot board's entry gate (anti-chase / anti-knife) reads the baked
+        // daily-bar timing states + 20D context from grades.json — lazy-loaded
+        // here and cached for the session; re-render once it lands.
+        if (name === 'hot' && typeof loadGradesIndex === 'function'){
+          loadGradesIndex(function(){ if (typeof renderHotStocks === 'function') renderHotStocks(); });
+        }
+        // Hot stocks is always-live while visible (no opt-in toggle) — start
+        // the 30s /api/quotes poll on entry, stop it on leave.
+        if (name === 'hot' && typeof renderHotStocks === 'function') renderHotStocks();
+        if (name === 'hot' && typeof startHotPolling === 'function') startHotPolling();
+        // Auto-live spot refreshes — poll only while the owning tab is visible.
+        if (name === 'tickers' && typeof startTickersLive === 'function') startTickersLive();
+        if (name === 'picks' && typeof startPicksLive === 'function') startPicksLive();
+        if (name === 'oi' && typeof startOiLive === 'function') startOiLive();
+        if (name === 'oi' && typeof renderOI === 'function') renderOI();
+        if (name === 'oi' && typeof loadOiData === 'function') loadOiData();
+        // Lazy-load the GEX heatmap the first time the tab is opened (it fetches
+        // the selected ticker's chain). Revisits keep the last view; Refresh
+        // re-pulls the live spot.
+        if (name === 'oi' && typeof loadGex === 'function' && !gexState.data && !gexState.loading) loadGex();
+        if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
+      }
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
       // leave the active tab off-screen — scroll it into view so the user
@@ -5365,11 +5430,11 @@
     ['home and accessories', 'Home & Accessories'],
   ];
   var SEG_BRAND_PATTERNS = [
-    [/I Phone/g, 'iPhone'], [/I Pad/g, 'iPad'],
-    [/I Mac/g, 'iMac'],     [/I Pod/g, 'iPod'],
-    [/I Tunes/g, 'iTunes'], [/I Cloud/g, 'iCloud'],
-    [/Air Pods/g, 'AirPods'], [/Mac Os/g, 'macOS'],
-    [/I Os/g, 'iOS'], [/Mac Book/g, 'MacBook'],
+    [/\bI Phone\b/g, 'iPhone'], [/\bI Pad\b/g, 'iPad'],
+    [/\bI Mac\b/g, 'iMac'],     [/\bI Pod\b/g, 'iPod'],
+    [/\bI Tunes\b/g, 'iTunes'], [/\bI Cloud\b/g, 'iCloud'],
+    [/\bAir Pods\b/g, 'AirPods'], [/\bMac Os\b/g, 'macOS'],
+    [/\bI Os\b/g, 'iOS'], [/\bMac Book\b/g, 'MacBook'],
   ];
   function prettifySegmentName(name){
     if (!name) return name;
@@ -8754,7 +8819,7 @@
     if (s == null) return '—';
     var n = Number(s);
     if (!isFinite(n)) return '—';
-    return '$' + (n >= 1000 ? n.toFixed(0) : n.toFixed(2).replace(/.00$/, ''));
+    return '$' + (n >= 1000 ? n.toFixed(0) : n.toFixed(2).replace(/\.00$/, ''));
   }
   function fmtOiExpiry(epochSec){
     if (!epochSec) return '';
@@ -9333,8 +9398,8 @@
         for (var i = 0; i < matches.length; i++){
           var sym = matches[i];
           var spot = SPOTS[sym];
-          html += '<li role="option" data-sym="' + sym + '" id="gex-symbol-opt-' + sym + '">' +
-            '<span class="combo-sym">' + sym + '</span>' +
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '" id="gex-symbol-opt-' + escapeHtml(sym) + '">' +
+            '<span class="combo-sym">' + escapeHtml(sym) + '</span>' +
             '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>' +
             '<span class="combo-sector">' + escapeHtml(SECTORS[sym] || '') + '</span>' +
           '</li>';
@@ -10504,8 +10569,8 @@
           var sym = matches[k];
           var sec = SECTORS[sym] || '';
           var spot = SPOTS[sym];
-          html += '<li role="option" data-sym="' + sym + '">'
-            + '<span class="combo-sym">' + sym + '</span>'
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '">'
+            + '<span class="combo-sym">' + escapeHtml(sym) + '</span>'
             + '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>'
             + '<span class="combo-sector">' + escapeHtml(sec) + '</span>'
             + '</li>';
@@ -14651,7 +14716,7 @@
     if(tm && (tm.headline || (tm.reasons && tm.reasons.length))){
       var tmTxt=String(tm.headline||'');
       if(tm.reasons && tm.reasons.length){
-        var tmReasons=tm.reasons.map(function(r){return String(r).replace(/^[-s]+/,'').trim();}).filter(Boolean).join('; ');
+        var tmReasons=tm.reasons.map(function(r){return String(r).replace(/^[-\s]+/,'').trim();}).filter(Boolean).join('; ');
         if(tmReasons) tmTxt += (tmTxt?' ':'')+tmReasons+'.';
       }
       add(tm.state==='go'?'good':tm.state==='avoid'?'bad':'info', 'Entry timing', tmTxt);
@@ -15511,8 +15576,8 @@
             var spot = SPOTS[sym];
             midCol = '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>';
           }
-          html += '<li role="option" data-sym="' + sym + '" id="picks-search-opt-' + sym + '">' +
-            '<span class="combo-sym">' + sym + '</span>' +
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '" id="picks-search-opt-' + escapeHtml(sym) + '">' +
+            '<span class="combo-sym">' + escapeHtml(sym) + '</span>' +
             midCol +
             '<span class="combo-sector">' + escapeHtml(SECTORS[sym] || '') + '</span>' +
           '</li>';
@@ -16989,14 +17054,14 @@
       combo.commit(initial.sym);
     }
   }
-  // Premium manifest fields (AI narratives, sector overviews, the unusual-flow
-  // snapshot, spots, macro / fear-greed / backdrop) are externalized to
-  // data/manifest.json (private-data migration) and inlined only as a deferred
-  // shell, so the public-repo index.html carries no product data. Fetch + merge
-  // them before first paint. The gate serves manifest.json only to a valid
-  // session, so a 401/empty result degrades to a no-premium render (shell still
-  // works) rather than a broken app. Legacy index.html (full inline manifest,
-  // without the deferred flag) skips the fetch entirely.
+  // The manifest's heavy fields are externalized to two tiered sidecars so the
+  // public index.html carries no product data: data/manifest-free.json (macro /
+  // fear-greed / backdrop / spots / headlines — served to anyone) and
+  // data/manifest.json (AI narratives, sector overviews, recently-ended, the
+  // unusual snapshot — gated). The boot fetches both and merges each via this
+  // fn before first paint; the premium one 401s for non-members, degrading to a
+  // no-premium render (free tabs still work, premium tabs lock). Legacy index.html
+  // (full inline manifest, no deferred flag) skips the fetches entirely.
   function applyManifest(ext){
     if (!ext || typeof ext !== 'object') return;
     Object.assign(MANIFEST, ext); // MANIFEST === window.STONKS_MANIFEST (same ref)
@@ -17009,17 +17074,62 @@
     MACRO = (MANIFEST.macro && typeof MANIFEST.macro === 'object') ? MANIFEST.macro : null;
     MARKET_BACKDROP = (MANIFEST.marketBackdrop && typeof MANIFEST.marketBackdrop === 'object') ? MANIFEST.marketBackdrop : {};
   }
+  // Auth chip — renders from the already-fetched AUTH_ME (set in the boot). When
+  // signed in: "<name> · Log out". When the gate is on but signed out: a "Log in"
+  // CTA. Gate off (legacy public) -> hidden.
+  function renderAuthChip(){
+    var chip = document.getElementById('auth-chip');
+    if (!chip) return;
+    var me = AUTH_ME;
+    if (me && me.authed){
+      chip.innerHTML =
+        DISCORD_ICON_SVG +
+        '<span class="auth-name">' + escapeHtml(me.name || 'member') + '</span>' +
+        '<a class="auth-logout" href="/api/auth/logout" title="Log out">Log out</a>';
+      chip.removeAttribute('data-anon');
+      chip.hidden = false;
+    } else if (GATE_ON){
+      chip.innerHTML =
+        '<a class="auth-login" href="/api/auth/discord-login">' + DISCORD_ICON_SVG + '<span>Log in</span></a>';
+      chip.setAttribute('data-anon', '1');
+      chip.hidden = false;
+    } else {
+      chip.hidden = true;
+    }
+  }
   function startApp(){
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
-    else bind();
+    var go = function(){
+      if (document.body) document.body.classList.toggle('is-member', IS_MEMBER);
+      try { markPremiumNav(); } catch (_) {}
+      try { renderAuthChip(); } catch (_) {}
+      bind();
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+    else go();
   }
-  if (MANIFEST && MANIFEST.deferred) {
-    fetch('data/manifest.json', { cache: 'no-cache' })
+  // Boot: resolve membership + merge the manifest sidecars BEFORE first paint so
+  // selectTab() sees the right IS_MEMBER and the premium fields are present for
+  // members. /api/auth/me reports {authed,enabled}; the free sidecar serves to
+  // anyone; the premium sidecar 401s for non-members (degrades to no-premium).
+  var bootP = [
+    fetch('/api/auth/me', { cache: 'no-store' })
       .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(ext){ if (ext) applyManifest(ext); })
-      .catch(function(){})
-      .then(startApp);
-  } else {
-    startApp();
+      .then(applyAuth)
+      .catch(function(){ applyAuth(null); })
+  ];
+  if (MANIFEST && MANIFEST.deferred) {
+    bootP.push(
+      fetch('data/manifest-free.json', { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(ext){ if (ext) applyManifest(ext); })
+        .catch(function(){})
+    );
+    bootP.push(
+      fetch('data/manifest.json', { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; }) // 401 for non-members -> null
+        .then(function(ext){ if (ext) applyManifest(ext); })
+        .catch(function(){})
+    );
   }
+  Promise.all(bootP).then(startApp);
 })();
