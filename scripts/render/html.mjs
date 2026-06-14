@@ -1281,6 +1281,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <div class="bonds-live-grid" id="bonds-live-grid">
         <!-- Populated client-side from window.STONKS_MANIFEST.macro -->
       </div>
+      <div class="bonds-curve" id="bonds-curve" hidden>
+        <!-- Treasury yield-curve chart injected client-side from the 2Y/10Y/30Y legs -->
+      </div>
       <p class="hint">Yields and DXY are taken from the last daily build. Each tile shows the 1-day move (basis points for yields, % for DXY) classified against the movement scale below, plus the 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip flags moves that hit the alert thresholds (DXY ±0.6% or 10Y ±10 bps on a daily close).</p>
       <p class="hint"><strong>CPI inflation &amp; unemployment</strong> are monthly BLS prints (the tile shows the reference month) rather than live quotes. Hot or re-accelerating inflation and a deteriorating labor market (the unemployment tile's <em>Sahm</em> read — the 3-month average vs. its low over the prior year; ≥0.5pp is the classic recession-onset signal) feed the cross-asset macro regime that tilts Top Picks risk-off, alongside the VIX, dollar, yields, Fed path, commodity-shock and news axes.</p>
     </section>
@@ -1312,6 +1315,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <p class="hint"><em>Weekly context.</em> DXY weekly moves of 0.5–1.0% are meaningful; 1.5%+ is a strong trend signal. For the 10Y yield, weekly moves of 20–30 bps are significant and 40+ bps signal a clear regime shift. Sustained DXY moves of 2–3%+ over a month can shift the regime for multinationals and commodities.</p>
       <p class="hint"><em>Alert defaults.</em> DXY ±0.6% on a daily close, or the 10Y yield ±10 bps on a daily close. Correlate with volume and a catalyst — moves with both behind them tend to follow through.</p>
     </section>
+    <details class="bonds-primer">
+      <summary class="bonds-primer-summary">
+        <span class="bonds-primer-summary-title">Learn: how bonds &amp; the dollar move stocks</span>
+        <span class="bonds-primer-summary-hint">Primer &mdash; Treasury types, the 2Y/10Y/30Y, DXY, gold &amp; the dollar-stocks relationship</span>
+      </summary>
+      <div class="bonds-primer-body">
     <section class="card">
       <header class="card-header">
         <h2 class="card-title">Bonds, Treasury yields &amp; the US dollar</h2>
@@ -1444,6 +1453,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <p class="hint"><em>Weak dollar</em> — generally bullish for stocks, bullish for commodities, supportive of risk assets. Weak dollar + falling yields often supports strong bull-market rallies.</p>
       <p class="hint"><em>Strong dollar</em> — generally bearish for stocks, tightens financial conditions, hurts risk assets. Strong dollar + rising Treasury yields can create severe market stress.</p>
     </section>
+      </div>
+    </details>
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
   ${f13Section()}
