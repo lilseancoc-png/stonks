@@ -53,6 +53,14 @@ jobs:
         # Offline, deterministic install from the committed lockfile.
         run: npm ci --no-audit --no-fund
 
+      - name: Hydrate data from private store
+        # Path B cutover: pull the last-good snapshot so the scan's delta/history
+        # reads have prior state. No-op until PRIVATE_DATA_ENABLED is set.
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: node scripts/sync-data.mjs pull
+
       - name: Scan for unusual flow
         env:
           # Per-flag AI explanations need a Gemini key; without one the
@@ -78,6 +86,10 @@ jobs:
         run: node scripts/refresh-heatmap.mjs
 
       - name: Commit refreshed unusual flow
+        env:
+          # Flag-off (default): commit data/ to the repo as today. Flag-on
+          # (Path B cutover): data/ lives in the private store, gitignored.
+          PRIVATE_DATA_ENABLED: ${{ vars.PRIVATE_DATA_ENABLED }}
         run: |
           # set -e so a failed rebase / stash pop fails the workflow loudly
           # instead of falling through to a clean-looking "no changes"
@@ -140,10 +152,29 @@ jobs:
           # oi-tracker.yml races us.
           node scripts/regen-static.mjs
           STATIC_PATHS="index.html app.js styles.css"
-          git add $DATA_PATHS $STATIC_PATHS
+          # regen-static now also writes data/manifest.json (the externalized
+          # premium manifest). Flag-off: commit it with the rest of data/ — else
+          # it's left dirty and the next run's `git pull --rebase` aborts. Flag-on
+          # (Path B cutover): data/ (incl. manifest.json) is flushed to the store
+          # by the push step below and is gitignored, so only the render output
+          # (shell + code, public-safe) is committed here.
+          if [ "${PRIVATE_DATA_ENABLED:-0}" = "1" ]; then
+            git add $STATIC_PATHS
+          else
+            git add $DATA_PATHS data/manifest.json $STATIC_PATHS
+          fi
           if ! git diff --cached --quiet; then
             git commit -m "chore: hourly refresh (flow + heatmap) $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           else
             echo "No changes to commit."
           fi
+
+      - name: Flush data to private store
+        # Path B cutover: push the scanner's data (unusual*, volume*,
+        # flow-explanations) + the co-owned heatmap/ai-usage/manifest. Upsert-only
+        # (no delete). No-op until the repo variable is set.
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: node scripts/sync-data.mjs push --owner=unusual

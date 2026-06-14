@@ -55,6 +55,16 @@ jobs:
         # cache above is warm. Cache miss falls back to a normal cold install.
         run: npm ci --no-audit --no-fund
 
+      - name: Hydrate data from private store
+        # Path B cutover: when PRIVATE_DATA_ENABLED is set, data/ no longer lives
+        # in the repo — pull the last-good snapshot from the private blob store so
+        # the build's read-before-wipe accumulation has its prior state. No-op
+        # (skipped) until the repo variable is set, so flag-off = today's behavior.
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: node scripts/sync-data.mjs pull
+
       - name: Build site
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -119,6 +129,10 @@ jobs:
         run: node scripts/build.mjs
 
       - name: Commit refreshed site
+        env:
+          # Flag-off (default): commit data/ to the repo as today. Flag-on
+          # (Path B cutover): data/ lives in the private store, so it's not staged.
+          PRIVATE_DATA_ENABLED: ${{ vars.PRIVATE_DATA_ENABLED }}
         run: |
           set -euo pipefail
           git config user.name "stonks-bot"
@@ -159,7 +173,10 @@ jobs:
             done
             node scripts/regen-static.mjs
             git add index.html styles.css app.js
-            if [ -d data ]; then git add data; fi
+            # Flag-off: commit data/ to the repo as today. Flag-on (Path B
+            # cutover): data/ lives in the private store (flushed by the push step
+            # below) and is gitignored, so it's never staged here.
+            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add data; fi
             if git diff --cached --quiet; then
               echo "No changes to commit (attempt $attempt)."
               exit 0
@@ -174,3 +191,14 @@ jobs:
           done
           echo "Push failed after 3 attempts." >&2
           exit 1
+
+      - name: Flush data to private store
+        # Path B cutover: push the freshly-built data/ (incl. data/manifest.json)
+        # to the private blob store. Bake owns everything except the scanner-
+        # exclusive keys and delete-stales only the per-ticker + iv-history
+        # prefixes. Runs after the commit step so it flushes the final regen-static
+        # state. No-op until the repo variable is set.
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: node scripts/sync-data.mjs push --owner=bake
