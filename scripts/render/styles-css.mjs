@@ -2594,6 +2594,85 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .flow-action-btn:hover { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
 .flow-action-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+/* Directional summary bar — call vs put premium split + lean read */
+.flow-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  margin-bottom: var(--s-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+}
+.flow-summary[hidden] { display: none; }
+.flow-sum-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+}
+.flow-sum-lean {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+}
+.flow-sum-lean.is-bull { color: var(--pos); background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.flow-sum-lean.is-bear { color: var(--neg); background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
+.flow-sum-lean.is-neutral { color: var(--muted); background: color-mix(in srgb, var(--surface-3) 70%, transparent); border-color: var(--border); }
+.flow-sum-stat { font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.flow-sum-stat strong { color: var(--text-strong); font-weight: 700; }
+.flow-sum-top {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+}
+.flow-sum-bar {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.flow-sum-bar-call { background: var(--pos); }
+.flow-sum-bar-put { background: var(--neg); }
+.flow-sum-bar-call, .flow-sum-bar-put { transition: width .2s ease; }
+.flow-sum-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.flow-sum-leg { display: inline-flex; align-items: center; gap: 6px; }
+.flow-sum-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.flow-sum-leg.is-call .flow-sum-dot { background: var(--pos); }
+.flow-sum-leg.is-put .flow-sum-dot { background: var(--neg); }
+
+/* Volume-to-OI multiple badge on each contract chip */
+.flow-voi {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: var(--r-1);
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+.flow-voi.flow-voi-new { color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
+
 .flow-list { display: flex; flex-direction: column; gap: var(--s-2); }
 .flow-list:empty { display: none; }
 .flow-row {
