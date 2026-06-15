@@ -10,6 +10,7 @@ import {
   htmlEscape,
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER } from './docs.mjs';
+import { DISCORD_INVITE_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, What's
 // included, Privacy, Terms) — formerly standalone .html files, now in-app tabs.
@@ -1550,6 +1551,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
   <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
+  <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join our Discord to unlock premium</a></div>
   <div><a href="/?tab=features">What's included</a> · <a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">

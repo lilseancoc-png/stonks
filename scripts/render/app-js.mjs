@@ -1,4 +1,5 @@
 import { FALLBACK_RISK_FREE_RATE, PICKS_TIMING_THRESHOLDS } from '../build.mjs';
+import { DISCORD_INVITE_URL } from '../../lib/links.mjs';
 
 export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRateMeta = null } = {}) {
   // Accept either a bare number (legacy) or the structured payload from
@@ -72,6 +73,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var IS_MEMBER = true;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
+  // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
+  // join the server to purchase the premium role. Surfaced on the lock card +
+  // header so the Discord is findable from anywhere on the site.
+  var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
     return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record' })[id] || 'This feature';
   }
@@ -90,9 +95,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, Gamma exposure, Hot stocks, and the full Track Record are unlocked with a Discord membership. Everything else stays free.</p>' +
-        '<a class="premium-lock-cta" href="/api/auth/discord-login">' + DISCORD_ICON_SVG + '<span>Unlock with Discord</span></a>' +
-        '<p class="premium-lock-foot">Already have the role? <a href="/api/auth/discord-login">Log in</a>.</p>' +
+        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, Gamma exposure, Hot stocks, and the full Track Record are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
+        '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
   }
   // Flag the premium tab buttons/menu-items so the nav can paint a lock for
@@ -19272,8 +19277,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       chip.removeAttribute('data-anon');
       chip.hidden = false;
     } else if (GATE_ON){
+      // Signed-out + gated: surface BOTH a "Join" (the Discord invite — where
+      // premium is purchased) and a "Log in" (for members who already have the
+      // role), so the Discord is findable from the header on every page.
       chip.innerHTML =
-        '<a class="auth-login" href="/api/auth/discord-login">' + DISCORD_ICON_SVG + '<span>Log in</span></a>';
+        '<a class="auth-join" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener" title="Join our Discord to unlock premium">' + DISCORD_ICON_SVG + '<span>Join</span></a>' +
+        '<a class="auth-login" href="/api/auth/discord-login">Log in</a>';
       chip.setAttribute('data-anon', '1');
       chip.hidden = false;
     } else {
