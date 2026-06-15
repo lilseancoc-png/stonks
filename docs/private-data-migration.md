@@ -102,6 +102,20 @@ export interface DataStore {
 - **Swap target (at scale): Cloudflare R2** (S3-compatible, **zero egress fees**,
   true private buckets + optional signed URLs). When bandwidth cost shows up, R2 is
   a one-file adapter swap. Keys/paths stay identical.
+- **As-built: R2 is now the DEFAULT backend; Blob is the fallback.** The Blob free
+  tier counts every `put`/`copy`/`list` as an **"advanced operation"** and caps it at
+  **2,000/month** — but the bake re-uploads the whole `data/` dir (~150–300 objects)
+  on every run, ×8 runs/day, so the cap was exhausted in **~one day** (and hitting
+  100% **locks the store for 30 days**, which would take the entire site's gated data
+  offline). `lib/datastore.mjs` now picks the backend by env: **R2** (SigV4 over its
+  S3 API via the dependency-free `aws4fetch`) when `R2_ACCOUNT_ID` +
+  `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_BUCKET` are set, else **Blob**
+  (`BLOB_READ_WRITE_TOKEN`). R2's free tier — **1M class-A ops/mo, 10 GB, zero
+  egress** — absorbs the ~40k ops/mo this pattern generates. Cutover is a pure
+  env-var flip (set the four R2 vars in Vercel project env **and** GitHub Actions
+  secrets, then `node scripts/sync-data.mjs seed` to copy the current `data/` into
+  the bucket); rollback is unsetting them. Optional `R2_ENDPOINT` overrides the
+  default `https://<account>.r2.cloudflarestorage.com` for any S3-compatible store.
 
 Keys mirror today's paths exactly: `picks.json`, `NVDA.json`, `iv-history/NVDA.json`,
 etc. — a 1:1 map from `DATA_DIR` relative paths, so nothing else has to learn new names.
