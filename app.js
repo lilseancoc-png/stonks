@@ -54,6 +54,10 @@
   var IS_MEMBER = true;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
+  // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
+  // join the server to purchase the premium role. Surfaced on the lock card +
+  // header so the Discord is findable from anywhere on the site.
+  var DISCORD_INVITE_URL = "https://discord.gg/GVYx7qSWxS";
   function premiumTabLabel(id){
     return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record' })[id] || 'This feature';
   }
@@ -72,9 +76,9 @@
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, Gamma exposure, Hot stocks, and the full Track Record are unlocked with a Discord membership. Everything else stays free.</p>' +
-        '<a class="premium-lock-cta" href="/api/auth/discord-login">' + DISCORD_ICON_SVG + '<span>Unlock with Discord</span></a>' +
-        '<p class="premium-lock-foot">Already have the role? <a href="/api/auth/discord-login">Log in</a>.</p>' +
+        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, Gamma exposure, Hot stocks, and the full Track Record are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
+        '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
   }
   // Flag the premium tab buttons/menu-items so the nav can paint a lock for
@@ -108,7 +112,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-14","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-14","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3174,6 +3178,7 @@
         if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+        if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -9276,7 +9281,7 @@
   // market's REACTION to it flows through the price axes immediately). Change
   // computeMacroRegime, change this. baked = data.rosterMeta.macroRegime
   // (carries axes / inputs / thresholds); live = the /api/macro-live legs (+ fng).
-  var macroTape = { legs: null, fetchedAt: null, timer: null, open: false };
+  var macroTape = { legs: null, fetchedAt: null, timer: null, open: true };
   var MACRO_TAPE_POLL_MS = 30000;
 
   function computeLiveMacroRegime(baked, live){
@@ -9526,9 +9531,51 @@
     var sub = 'market tape' + (opts.live ? ' · live' : '') + (heldRaw ? ' · recovering (read ' + heldRaw + ')' : '') + (drv ? ' · ' + drv : '');
     return '<div class="picks-summary-chip ' + meta.cls + '" title="' + macroTapeTooltip(regime, opts) + '"><span class="picks-summary-num">' + liveDot + warnMark + meta.lbl + '</span><span class="picks-summary-lbl">' + sub + '</span></div>';
   }
+  // Plain-language read of the CURRENT regime: what posture the engine is in,
+  // what that does to today's roster, and what would flip it — woven with the
+  // live gross %, the drivers, and the actual call/put split. Tone drives the
+  // callout's accent color.
+  function macroTapeNarrative(regime, roster){
+    var st = regime.state;
+    var gp = (regime.grossMult != null && isFinite(regime.grossMult)) ? Math.round(regime.grossMult * 100) : 100;
+    var drv = (regime.drivers && regime.drivers.length) ? regime.drivers.join(' · ') : '';
+    var rosterTxt = '';
+    if (roster && roster.total){
+      rosterTxt = roster.total + ' pick' + (roster.total === 1 ? '' : 's') + ' (' + roster.calls + ' call' + (roster.calls === 1 ? '' : 's') + ' · ' + roster.puts + ' put' + (roster.puts === 1 ? '' : 's') + ')';
+    }
+    var head, body, change, tone;
+    if (st === 'risk-on'){
+      tone = 'on';
+      head = 'Tailwind — the engine is leaning the book long.';
+      body = 'A clean risk-on tape across the cross-asset axes. Grades get a small bullish tilt (beta-weighted), entry timing reads as a tailwind (a long bought into a rising tape is not penalized), <b>full size</b> is deployed, and the engine opens <b>no tactical puts</b> — which is why today’s list runs call-heavy and sized up' + (rosterTxt ? ': <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'A VIX spike, a sharp dollar or long-yield surge, an oil shock, or fresh <i>escalation</i> headlines would pull the tape back toward neutral / risk-off.';
+    } else if (st === 'severe-risk-off'){
+      tone = 'off';
+      head = 'Acute stress — maximum defense.';
+      body = 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), the tactical-put bar is relaxed so puts open wider, <b>calls are capped</b> (about ≤3 shipped), and gross is cut to <b>~' + gp + '%</b> of target' + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'This is the break-glass tape. Defense applies immediately, but it only steps back down once two consecutive builds confirm the recovery — no whipsaw on one green print.';
+    } else if (st === 'risk-off'){
+      tone = 'off';
+      head = 'Headwind — the engine is playing defense.';
+      body = 'A risk-off / tightening tape. Most grades are <b>discounted</b> (beta-weighted toward the downside), entry timing turns strict (the falling-knife thresholds tighten ~25%), the <b>tactical-put path opens</b> (bearish names that miss the long bar can ship as reduced-size puts), and gross is cut to <b>~' + gp + '%</b> of target' + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'Defense applies <i>immediately</i>; a recovery is <b>held</b> until a fresh build confirms it, so the chip will not whipsaw back to risk-on on one green bounce.';
+    } else if (regime.fragile){
+      tone = 'warn';
+      head = 'Calm on the surface, weak underneath.';
+      body = 'Price and vol read neutral, but the market’s <b>internals are deteriorating</b> (' + escapeHtml(regime.internalsLabel || 'breadth + credit weak') + '). The engine does not flip to puts — price is not confirming a break — but it <b>trims size</b> to ~' + gp + '% and caps the long side rather than leaning maximally long into weakening breadth' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'If price and vol confirm the weakness it tips to risk-off; if breadth and credit repair it returns to a full-size neutral.';
+    } else {
+      tone = 'neutral';
+      head = 'Balanced tape — no coordinated stress.';
+      body = 'No cross-asset axis is lit strongly enough to tilt the book. The engine grades each name on its <b>own merits</b> with full size and no macro tilt — neither a tailwind nor a brake' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'A VIX spike, a dollar / long-yield surge, an oil shock, or escalation headlines would tip it risk-off; a clean vol-crush with a dovish Fed and de-escalation would tip it risk-on.';
+    }
+    return { head: head, body: body, change: change, tone: tone, drivers: drv };
+  }
   function buildMacroTapePanel(regime, opts){
     opts = opts || {};
     var meta = macroStateMeta(regime.state, regime.fragile);
+    var nar = macroTapeNarrative(regime, opts.roster);
     var axes = regime.axes || {};
     var AXIS_DEFS = [
       { k:'vix', name:'VIX', desc:'Equity volatility — the fear gauge' },
@@ -9588,6 +9635,12 @@
       '</button>' +
       '<div class="picks-tape-body">' +
         '<p class="picks-tape-summary">' + summaryLine + '</p>' +
+        '<div class="picks-tape-callout tape-callout-' + nar.tone + '">' +
+          '<p class="picks-tape-callout-head">' + escapeHtml(nar.head) + '</p>' +
+          '<p class="picks-tape-callout-body">' + nar.body + '</p>' +
+          (nar.drivers ? '<p class="picks-tape-callout-meta"><b>Driving it</b> ' + escapeHtml(nar.drivers) + '</p>' : '') +
+          '<p class="picks-tape-callout-meta"><b>What would change it</b> ' + nar.change + '</p>' +
+        '</div>' +
         '<div class="picks-tape-metrics">' +
           '<span title="Sum of the eight axis scores (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
           '<span title="Axes reading risk-off (score ≤ −1).">Risk-off axes <b>' + roff + '</b></span>' +
@@ -9608,6 +9661,8 @@
     var live = (baked && macroTape.legs) ? computeLiveMacroRegime(baked, macroTape.legs) : null;
     var regime = live || baked;
     var isLive = !!live;
+    var roster = { calls: 0, puts: 0, total: picks.length };
+    for (var ri = 0; ri < picks.length; ri++){ if (picks[ri] && picks[ri].side === 'put') roster.puts++; else roster.calls++; }
     var chipSlot = document.getElementById('picks-regime-chip');
     if (chipSlot) chipSlot.innerHTML = buildRegimeChip(regime, entryRegime, { live: isLive, fetchedAt: macroTape.fetchedAt });
     var panel = document.getElementById('picks-tape');
@@ -9615,7 +9670,7 @@
       if (!regime || !regime.axes){ panel.hidden = true; panel.innerHTML = ''; }
       else {
         panel.hidden = false;
-        panel.innerHTML = buildMacroTapePanel(regime, { live: isLive, fetchedAt: macroTape.fetchedAt });
+        panel.innerHTML = buildMacroTapePanel(regime, { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster });
         var head = panel.querySelector('.picks-tape-head');
         if (head) head.addEventListener('click', function(){ macroTape.open = !macroTape.open; renderMacroTape(); });
       }
@@ -9644,6 +9699,144 @@
     macroTape.timer = setInterval(pollMacroTapeOnce, MACRO_TAPE_POLL_MS);
   }
   function stopMacroTapeLive(){ if (macroTape.timer){ clearInterval(macroTape.timer); macroTape.timer = null; } }
+
+  // --- Top Picks: risk-on / risk-off history calendar ----------------------
+  // A month-grid timeline of the cross-asset macro regime that set the engine's
+  // posture each day. Reads data/regime-history.json (one row per ET trading
+  // day, written by the bake) and renders the trailing up-to-2 calendar months;
+  // hover / focus / tap a day to see that session's regime, stress, drivers, and
+  // how the roster leaned. Mirrors the macroStateMeta labels above so the chip,
+  // the tape panel, and this calendar all speak the same language.
+  var regimeHistState = { data: null, loading: false };
+  var REGIME_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var REGIME_WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var REGIME_DOW = ['S','M','T','W','T','F','S'];
+  // Cell color class + label by regime state. Severe is a deeper red than plain
+  // risk-off; a fragile neutral (calm surface, weak internals) gets an amber tone.
+  function regimeCellMeta(d){
+    if (!d) return { cls: 'is-empty', lbl: '' };
+    if (d.state === 'severe-risk-off') return { cls: 'is-severe', lbl: 'Severe risk-off' };
+    if (d.state === 'risk-off') return { cls: 'is-off', lbl: 'Risk-off' };
+    if (d.state === 'risk-on') return { cls: 'is-on', lbl: 'Risk-on' };
+    if (d.fragile) return { cls: 'is-fragile', lbl: 'Fragile neutral' };
+    return { cls: 'is-neutral', lbl: 'Neutral' };
+  }
+  function regimePad2(n){ return n < 10 ? '0' + n : '' + n; }
+  function loadRegimeHistory(){
+    if (regimeHistState.data || regimeHistState.loading){ renderRegimeHistory(); return; }
+    regimeHistState.loading = true;
+    fetch('data/regime-history.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        regimeHistState.data = (json && Array.isArray(json.days)) ? json : { days: [] };
+        regimeHistState.loading = false;
+        renderRegimeHistory();
+      })
+      .catch(function(){
+        regimeHistState.data = { days: [] };
+        regimeHistState.loading = false;
+        renderRegimeHistory();
+      });
+  }
+  function regimeDayDetailHtml(d){
+    if (!d) return '<span class="regime-detail-empty">Hover, tap, or focus a day for that session’s market-regime read.</span>';
+    var meta = regimeCellMeta(d);
+    var parts = (d.date || '').split('-');
+    var y = +parts[0], m = +parts[1], day = +parts[2];
+    var dateLbl = day;
+    if (parts.length === 3){
+      var wd = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
+      dateLbl = REGIME_WEEKDAYS[wd] + ', ' + REGIME_MONTHS[m - 1] + ' ' + day + ' ' + y;
+    }
+    var bits = [];
+    if (d.stress != null && isFinite(d.stress)) bits.push('stress ' + (d.stress > 0 ? '+' : '') + d.stress);
+    if (d.riskOffAxes != null && isFinite(d.riskOffAxes) && d.riskOffAxes > 0) bits.push(d.riskOffAxes + ' risk-off ax' + (d.riskOffAxes === 1 ? 'is' : 'es'));
+    if (d.persisted && d.rawState && d.rawState !== d.state) bits.push('held · read ' + String(d.rawState).replace('severe-risk-off', 'severe risk-off'));
+    var drivers = (d.drivers && d.drivers.length) ? d.drivers : [];
+    var lean = d.picks, leanHtml = '';
+    if (lean && (lean.calls || lean.puts)){
+      leanHtml = '<div class="regime-detail-lean">Picks leaned <b>' + lean.calls + '</b> call' + (lean.calls === 1 ? '' : 's') + ' / <b>' + lean.puts + '</b> put' + (lean.puts === 1 ? '' : 's') + ' that day</div>';
+    } else if (lean && lean.total === 0){
+      leanHtml = '<div class="regime-detail-lean">No actionable picks that day</div>';
+    }
+    return '<div class="regime-detail-head">' +
+        '<span class="regime-badge ' + meta.cls + '">' + escapeHtml(meta.lbl) + '</span>' +
+        '<span class="regime-detail-date">' + escapeHtml(String(dateLbl)) + '</span>' +
+        (bits.length ? '<span class="regime-detail-stress">' + escapeHtml(bits.join(' · ')) + '</span>' : '') +
+      '</div>' +
+      (d.summary ? '<div class="regime-detail-summary">' + escapeHtml(d.summary) + '</div>' : '') +
+      (drivers.length ? '<div class="regime-detail-drivers">' + drivers.map(function(x){ return '<span class="regime-driver">' + escapeHtml(String(x)) + '</span>'; }).join('') + '</div>' : '') +
+      leanHtml;
+  }
+  function renderRegimeHistory(){
+    var host = document.getElementById('picks-regime-hist');
+    if (!host) return;
+    var days = (regimeHistState.data && Array.isArray(regimeHistState.data.days)) ? regimeHistState.data.days : [];
+    if (!days.length){ host.hidden = true; host.innerHTML = ''; return; }
+    var byDate = {};
+    for (var i = 0; i < days.length; i++){ if (days[i] && days[i].date) byDate[days[i].date] = days[i]; }
+    var last = days[days.length - 1];
+    // Trailing up-to-2 calendar months that actually contain data (days is
+    // sorted ascending, so the distinct YYYY-MM in order, last two).
+    var monthSeen = {}, monthList = [];
+    for (var j = 0; j < days.length; j++){
+      var dp = (days[j].date || '').split('-');
+      if (dp.length < 2) continue;
+      var mk = dp[0] + '-' + dp[1];
+      if (!monthSeen[mk]){ monthSeen[mk] = 1; monthList.push({ y: +dp[0], m: +dp[1] }); }
+    }
+    var months = monthList.slice(-2);
+    var monthHtml = months.map(function(mo){
+      var firstDow = new Date(Date.UTC(mo.y, mo.m - 1, 1)).getUTCDay();
+      var nDays = new Date(Date.UTC(mo.y, mo.m, 0)).getUTCDate();
+      var cells = '';
+      for (var b = 0; b < firstDow; b++) cells += '<span class="regime-cell is-blank" aria-hidden="true"></span>';
+      for (var dd = 1; dd <= nDays; dd++){
+        var key = mo.y + '-' + regimePad2(mo.m) + '-' + regimePad2(dd);
+        var rec = byDate[key];
+        var meta = regimeCellMeta(rec);
+        if (rec){
+          var title = REGIME_MONTHS[mo.m - 1] + ' ' + dd + ' — ' + meta.lbl + (rec.stress != null && isFinite(rec.stress) ? ' (stress ' + (rec.stress > 0 ? '+' : '') + rec.stress + ')' : '');
+          cells += '<button type="button" class="regime-cell ' + meta.cls + '" data-date="' + key + '" title="' + escapeHtml(title) + '" aria-label="' + escapeHtml(title) + '"><span class="regime-cell-day">' + dd + '</span></button>';
+        } else {
+          cells += '<span class="regime-cell is-empty"><span class="regime-cell-day">' + dd + '</span></span>';
+        }
+      }
+      var dowHead = REGIME_DOW.map(function(x){ return '<span class="regime-dow" aria-hidden="true">' + x + '</span>'; }).join('');
+      return '<div class="regime-month">' +
+          '<div class="regime-month-title">' + REGIME_MONTHS[mo.m - 1] + ' ' + mo.y + '</div>' +
+          '<div class="regime-grid">' + dowHead + cells + '</div>' +
+        '</div>';
+    }).join('');
+    var legend = '<span class="regime-legend">' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-on"></i>Risk-on</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-neutral"></i>Neutral</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-fragile"></i>Fragile</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-off"></i>Risk-off</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-severe"></i>Severe</span>' +
+      '</span>';
+    host.hidden = false;
+    host.innerHTML =
+      '<details class="regime-wrap" open>' +
+        '<summary class="regime-summary-bar">' +
+          '<span class="regime-title">Risk-on / risk-off history</span>' +
+          legend +
+        '</summary>' +
+        '<p class="regime-hint">The daily cross-asset market-regime read that set the engine’s posture — calmer tapes lean the list long and bigger, stressed tapes shrink it, tilt it toward puts, and size down. Hover, focus, or tap a day for that session’s read.</p>' +
+        '<div class="regime-cal">' + monthHtml + '</div>' +
+        '<div class="regime-detail" id="regime-detail">' + regimeDayDetailHtml(last) + '</div>' +
+      '</details>';
+    var cal = host.querySelector('.regime-cal');
+    var detail = host.querySelector('#regime-detail');
+    if (cal && detail){
+      var show = function(date){ detail.innerHTML = regimeDayDetailHtml((date && byDate[date]) || last); };
+      var pick = function(e){ var t = e.target; var c = (t && t.closest) ? t.closest('.regime-cell[data-date]') : null; if (c) show(c.getAttribute('data-date')); };
+      cal.addEventListener('mouseover', pick);
+      cal.addEventListener('focusin', pick);
+      cal.addEventListener('click', pick);
+      cal.addEventListener('mouseleave', function(){ show(null); });
+    }
+  }
 
   // --- OI tab: live spot vs walls ------------------------------------------
   // Open interest itself only updates T+1 (hence the twice-daily scan), but
@@ -19065,8 +19258,12 @@
       chip.removeAttribute('data-anon');
       chip.hidden = false;
     } else if (GATE_ON){
+      // Signed-out + gated: surface BOTH a "Join" (the Discord invite — where
+      // premium is purchased) and a "Log in" (for members who already have the
+      // role), so the Discord is findable from the header on every page.
       chip.innerHTML =
-        '<a class="auth-login" href="/api/auth/discord-login">' + DISCORD_ICON_SVG + '<span>Log in</span></a>';
+        '<a class="auth-join" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener" title="Join our Discord to unlock premium">' + DISCORD_ICON_SVG + '<span>Join</span></a>' +
+        '<a class="auth-login" href="/api/auth/discord-login">Log in</a>';
       chip.setAttribute('data-anon', '1');
       chip.hidden = false;
     } else {
