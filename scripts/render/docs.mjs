@@ -9,6 +9,8 @@
 // (:root/body → :host, fixed overlays → absolute). Hand-maintained; no build
 // step regenerates this file.
 
+import { DISCORD_INVITE_URL } from "../../lib/links.mjs";
+
 export const DOC_ORDER = ["cheatsheet","chart-patterns","features","privacy","terms"];
 
 export const DOC_PAGES = {
@@ -1148,7 +1150,7 @@ export const DOC_PAGES = {
       <h2><span class="snum">04</span>How membership works</h2>
       <p class="sectlede">Premium is unlocked through our Discord server. There's no separate stonks account — your Discord membership <em>is</em> your access.</p>
       <ol class="steps">
-        <li><b>Join the Discord and get the member role.</b> Premium access rides on a role in our server. Members get it automatically; ask in the server if you don't see it yet.</li>
+        <li><b><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join the Discord</a> and get the member role.</b> Premium access rides on a role in our server. Members get it automatically; ask in the server if you don't see it yet.</li>
         <li><b>Log in with Discord.</b> Hit <a href="/api/auth/discord-login">Log in</a> (or the "Log in" button in the site header). We check your server membership and role — nothing else.</li>
         <li><b>The premium tabs unlock.</b> Once you hold the role, the eight members-only tabs and their data open up. A non-member just sees a polite upsell where those tabs would be — the rest of the site never locks.</li>
       </ol>
@@ -1156,11 +1158,11 @@ export const DOC_PAGES = {
         <b>Privacy &amp; sessions:</b> we only read your Discord user ID, username, and the roles relevant to access. Login mints a short-lived, secure session cookie — sign out anytime. See the <a href="/privacy.html">Privacy Policy</a> for the full detail.
       </div>
       <div class="ctarow">
-        <a class="btn discord" href="/api/auth/discord-login">
+        <a class="btn discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
-          Log in with Discord
+          Join the Discord
         </a>
-        <a class="btn ghost" href="/">Keep browsing free</a>
+        <a class="btn ghost" href="/api/auth/discord-login">Already a member? Log in</a>
       </div>
     </section>
 

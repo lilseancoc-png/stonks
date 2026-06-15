@@ -495,16 +495,22 @@ button { font: inherit; }
 }
 .auth-chip .auth-logout:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 560px) { .auth-chip .auth-name { display: none; } }
-/* Logged-out "Log in" CTA in the chip slot (freemium). */
+/* Logged-out CTAs in the chip slot (freemium): a filled "Join" (the Discord
+   invite — where premium is bought) + a ghost "Log in" for existing members. */
 .auth-chip[data-anon] { padding: 0; border: 0; background: transparent; }
-.auth-chip .auth-login {
+.auth-chip .auth-join {
   display: inline-flex; align-items: center; gap: 7px;
   height: 32px; padding: 0 13px; border-radius: 999px;
   background: var(--accent, #5865f2); color: #fff; text-decoration: none;
   font-size: 12.5px; font-weight: 600; line-height: 1; transition: filter .15s;
 }
-.auth-chip .auth-login:hover { filter: brightness(1.08); }
-.auth-chip .auth-login svg { color: #fff; }
+.auth-chip .auth-join:hover { filter: brightness(1.08); }
+.auth-chip .auth-join svg { color: #fff; }
+.auth-chip .auth-login {
+  color: var(--muted); text-decoration: none; font-weight: 600;
+  font-size: 12.5px; line-height: 1; padding: 0 4px;
+}
+.auth-chip .auth-login:hover { color: var(--text); text-decoration: underline; }
 
 /* --- Freemium gate -------------------------------------------------------- */
 /* Lock glyph on premium nav items, only while the visitor is NOT a member. */
@@ -782,6 +788,14 @@ main {
   border-bottom-color: var(--accent);
   text-decoration: none;
 }
+/* Discord join link in the footer — accented so it stands out as the path to
+   premium without shouting like a button. */
+.site-footer a.foot-discord {
+  color: var(--accent, #5865f2);
+  font-weight: 600;
+  border-bottom-color: transparent;
+}
+.site-footer a.foot-discord:hover { border-bottom-color: var(--accent, #5865f2); }
 
 /* === Status strip ===
    Sits between the header and the page tabs. Three slots laid out like a
