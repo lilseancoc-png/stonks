@@ -9462,9 +9462,19 @@
       ? ORDER.filter(function(k){ return axes[k] && axes[k].score >= 1; }).map(function(k){ return String(axes[k].label).split(' — ')[0]; })
       : ORDER.filter(function(k){ return axes[k] && axes[k].score <= -1; }).map(function(k){ return String(axes[k].label).split(' — ')[0].split(' (')[0]; });
     var fragile = state === 'neutral' && internalsStress;
-    var grossMult = state === 'severe-risk-off' ? T.grossSevere
-      : (state === 'risk-off' ? T.grossRiskoff
-      : (fragile ? T.grossFragile : 1));
+    // De-gross ramps with the stress composite (PICKS_MACRO_GROSS_RAMP) — port of
+    // regimeGrossMult in scripts/build.mjs (keep in sync): 1 at stress 0 → grossRiskoff
+    // at |stress| ≥ tiltFullStress, so a held / borderline risk-off doesn't cut size on
+    // zero measured stress. Severe is a hard step (break-glass); fragile its own step.
+    var grossMult;
+    if (state === 'severe-risk-off') grossMult = T.grossSevere;
+    else if (state === 'risk-off'){
+      grossMult = (T.grossRamp === false)
+        ? T.grossRiskoff
+        : 1 - (1 - T.grossRiskoff) * Math.min(1, Math.max(0, -(Number(stress) || 0)) / (T.tiltFullStress || 4));
+    }
+    else if (fragile) grossMult = T.grossFragile;
+    else grossMult = 1;
 
     // Asymmetric hysteresis vs the BAKED effective state (applyMacroRegimePersistence
     // port): a move toward MORE risk-off applies immediately (never delay defense); a
@@ -9557,7 +9567,12 @@
     } else if (st === 'risk-off'){
       tone = 'off';
       head = 'Headwind — the engine is playing defense.';
-      body = 'A risk-off / tightening tape. Most grades are <b>discounted</b> (beta-weighted toward the downside), entry timing turns strict (the falling-knife thresholds tighten ~25%), the <b>tactical-put path opens</b> (bearish names that miss the long bar can ship as reduced-size puts), and gross is cut to <b>~' + gp + '%</b> of target' + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
+      // The de-gross RAMPS with the measured stress, so a held / borderline risk-off at
+      // low stress deploys near-full size — phrase it correctly (not "cut to ~100%").
+      var roGross = gp >= 99
+        ? '<b>near-full size</b> is deployed — the size cut ramps with the stress, and stress is light right now, so the defensive <i>posture</i> is held without slashing size'
+        : 'gross is cut to <b>~' + gp + '%</b> of target';
+      body = 'A risk-off / tightening tape. Grades are <b>discounted</b> in proportion to the measured stress (beta-weighted toward the downside — lightest when stress is low), entry timing turns strict (the falling-knife thresholds tighten ~25%), the <b>tactical-put path opens</b> (bearish names that miss the long bar can ship as reduced-size puts), and ' + roGross + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
       change = 'Defense applies <i>immediately</i>; a recovery is <b>held</b> until a fresh build confirms it, so the chip will not whipsaw back to risk-on on one green bounce.';
     } else if (regime.fragile){
       tone = 'warn';
@@ -17757,22 +17772,35 @@
     // Summary chips — one-glance shape of today's list (totals by side and
     // tier, average score, earnings-in-window risk).
     var callCount = 0, putCount = 0, strongCount = 0;
-    var scoreSum = 0, scoreCount = 0;
+    // Conviction = magnitude (|grade|); lean = signed average (long vs short tilt).
+    // The two MUST be tracked separately: averaging the SIGNED grade across a
+    // two-sided book nets calls against puts, so a high-conviction balanced book
+    // (strong calls + strong puts) would read ≈0 — meaningless as a "conviction"
+    // stat. The chip shows mean |grade| (always positive); the lean rides in the tooltip.
+    var convSum = 0, leanSum = 0, scoreCount = 0;
     var earningsCount = 0;
     var beSum = 0, beCount = 0;
     for (var i=0; i<picks.length; i++) {
       var pp = picks[i];
       if (pp.side === 'put') putCount++; else callCount++;
       var tot = (pp.total != null ? pp.total : pp.score);
-      if (tot != null && isFinite(tot)) { scoreSum += tot; scoreCount++; }
+      if (tot != null && isFinite(tot)) { convSum += Math.abs(Number(tot)); leanSum += Number(tot); scoreCount++; }
       var tier = pp.recommendation && pp.recommendation.tier;
       if (tier === 'strong-call' || tier === 'strong-put') strongCount++;
       if (pp.contract && pp.contract.earningsInWindow) earningsCount++;
       var ppBe = pp.contract && pp.contract.breakevenMovePct;
       if (ppBe != null && isFinite(ppBe)) { beSum += Math.abs(Number(ppBe)); beCount++; }
     }
-    var avgScore = scoreCount > 0 ? (scoreSum / scoreCount).toFixed(1) : '—';
+    var avgConv = scoreCount > 0 ? (convSum / scoreCount).toFixed(1) : '—';
+    var netLean = scoreCount > 0 ? (leanSum / scoreCount) : null;
+    var leanTxt = netLean == null ? ''
+      : (netLean > 0.2 ? 'a net LONG lean (+' + netLean.toFixed(1) + ' signed avg)'
+      : netLean < -0.2 ? 'a net SHORT lean (' + netLean.toFixed(1) + ' signed avg)'
+      : 'a balanced book (±' + Math.abs(netLean).toFixed(1) + ' signed avg)');
     var avgBe = beCount > 0 ? (beSum / beCount).toFixed(1) : null;
+    // Book-level greek / premium-at-risk aggregate (rosterMeta.book) — surfaces the
+    // long-vega / short-theta carry the per-name sizing hides.
+    var book = (data.rosterMeta && data.rosterMeta.book) || null;
     // Live market-regime chip + the expanded "Market tape" panel below the
     // summary. The chip + panel are filled by renderMacroTape() (just below),
     // which recomputes the cross-asset regime LIVE from /api/macro-live while
@@ -17789,9 +17817,12 @@
         (strongCount > 0
           ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong Call / Strong Put tier (top ~5% of the universe by conviction this build)."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>'
           : '') +
-        '<div class="picks-summary-chip"><span class="picks-summary-num">' + (avgScore >= 0 ? '+' : '') + avgScore + '</span><span class="picks-summary-lbl">avg score</span></div>' +
+        '<div class="picks-summary-chip" title="Average CONVICTION across the list — the mean of |grade| (magnitude only, so calls and puts both count toward strength, never cancelling). ' + (leanTxt ? 'The book has ' + leanTxt + ', shown by the call/put split.' : '') + '"><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">avg conviction</span></div>' +
         (avgBe != null
           ? '<div class="picks-summary-chip" title="Average move the underlying must make from today to reach breakeven at expiry, across the list — a one-glance read of how far this book needs the tape to travel for the premiums to pay."><span class="picks-summary-num">±' + avgBe + '%</span><span class="picks-summary-lbl">avg to BE</span></div>'
+          : '') +
+        (book && book.premiumAtRiskPct != null && isFinite(book.premiumAtRiskPct)
+          ? '<div class="picks-summary-chip" title="Book-level risk on a $' + (book.account ? Math.round(book.account/1000) : 25) + 'k display account, at the suggested contract counts. PREMIUM AT RISK is the total long-premium deployed (most you can lose) as % of the account. Because every pick is a long option, the book is net-LONG-vega and net-SHORT-theta: net Δ ' + (book.netDeltaPct >= 0 ? '+' : '') + book.netDeltaPct + '% of account (delta-adjusted notional, signed), net vega $' + book.netVega + '/vol-pt, theta ' + book.netThetaDay + '/day (' + book.netThetaDayPct + '% of account/day of decay)."><span class="picks-summary-num">' + book.premiumAtRiskPct + '%</span><span class="picks-summary-lbl">prem at risk</span></div>'
           : '') +
         (earningsCount > 0
           ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
@@ -17812,6 +17843,7 @@
       noteBits.push('<b>' + rm.sideCapped.length + '</b> skipped to cap one-direction concentration' + (fragCap ? ' (fragile tape — weak internals)' : ''));
     }
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
+    if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';
