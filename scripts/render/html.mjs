@@ -180,6 +180,7 @@ function topPicksSection() {
     </div>
       <div id="picks-summary" class="picks-summary"></div>
       <div id="picks-tape" class="picks-tape" hidden></div>
+      <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
       <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — nothing cleared both the conviction ranking and the absolute quality floor. A short or empty list is by design: the engine holds cash rather than pad a weak tape.</div>
       <p class="picks-foot">Picks rebuild from scratch on every refresh. Each pick clears the conviction ranking <em>and</em> an absolute quality floor, and has a tradeable near-the-money contract that fits the suggested-contract criteria above. The list can be short, or empty, on a poor day.</p>

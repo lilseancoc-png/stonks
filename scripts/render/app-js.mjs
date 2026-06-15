@@ -3192,6 +3192,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+        if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -9712,6 +9713,144 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     macroTape.timer = setInterval(pollMacroTapeOnce, MACRO_TAPE_POLL_MS);
   }
   function stopMacroTapeLive(){ if (macroTape.timer){ clearInterval(macroTape.timer); macroTape.timer = null; } }
+
+  // --- Top Picks: risk-on / risk-off history calendar ----------------------
+  // A month-grid timeline of the cross-asset macro regime that set the engine's
+  // posture each day. Reads data/regime-history.json (one row per ET trading
+  // day, written by the bake) and renders the trailing up-to-2 calendar months;
+  // hover / focus / tap a day to see that session's regime, stress, drivers, and
+  // how the roster leaned. Mirrors the macroStateMeta labels above so the chip,
+  // the tape panel, and this calendar all speak the same language.
+  var regimeHistState = { data: null, loading: false };
+  var REGIME_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var REGIME_WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var REGIME_DOW = ['S','M','T','W','T','F','S'];
+  // Cell color class + label by regime state. Severe is a deeper red than plain
+  // risk-off; a fragile neutral (calm surface, weak internals) gets an amber tone.
+  function regimeCellMeta(d){
+    if (!d) return { cls: 'is-empty', lbl: '' };
+    if (d.state === 'severe-risk-off') return { cls: 'is-severe', lbl: 'Severe risk-off' };
+    if (d.state === 'risk-off') return { cls: 'is-off', lbl: 'Risk-off' };
+    if (d.state === 'risk-on') return { cls: 'is-on', lbl: 'Risk-on' };
+    if (d.fragile) return { cls: 'is-fragile', lbl: 'Fragile neutral' };
+    return { cls: 'is-neutral', lbl: 'Neutral' };
+  }
+  function regimePad2(n){ return n < 10 ? '0' + n : '' + n; }
+  function loadRegimeHistory(){
+    if (regimeHistState.data || regimeHistState.loading){ renderRegimeHistory(); return; }
+    regimeHistState.loading = true;
+    fetch('data/regime-history.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        regimeHistState.data = (json && Array.isArray(json.days)) ? json : { days: [] };
+        regimeHistState.loading = false;
+        renderRegimeHistory();
+      })
+      .catch(function(){
+        regimeHistState.data = { days: [] };
+        regimeHistState.loading = false;
+        renderRegimeHistory();
+      });
+  }
+  function regimeDayDetailHtml(d){
+    if (!d) return '<span class="regime-detail-empty">Hover, tap, or focus a day for that session’s market-regime read.</span>';
+    var meta = regimeCellMeta(d);
+    var parts = (d.date || '').split('-');
+    var y = +parts[0], m = +parts[1], day = +parts[2];
+    var dateLbl = day;
+    if (parts.length === 3){
+      var wd = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
+      dateLbl = REGIME_WEEKDAYS[wd] + ', ' + REGIME_MONTHS[m - 1] + ' ' + day + ' ' + y;
+    }
+    var bits = [];
+    if (d.stress != null && isFinite(d.stress)) bits.push('stress ' + (d.stress > 0 ? '+' : '') + d.stress);
+    if (d.riskOffAxes != null && isFinite(d.riskOffAxes) && d.riskOffAxes > 0) bits.push(d.riskOffAxes + ' risk-off ax' + (d.riskOffAxes === 1 ? 'is' : 'es'));
+    if (d.persisted && d.rawState && d.rawState !== d.state) bits.push('held · read ' + String(d.rawState).replace('severe-risk-off', 'severe risk-off'));
+    var drivers = (d.drivers && d.drivers.length) ? d.drivers : [];
+    var lean = d.picks, leanHtml = '';
+    if (lean && (lean.calls || lean.puts)){
+      leanHtml = '<div class="regime-detail-lean">Picks leaned <b>' + lean.calls + '</b> call' + (lean.calls === 1 ? '' : 's') + ' / <b>' + lean.puts + '</b> put' + (lean.puts === 1 ? '' : 's') + ' that day</div>';
+    } else if (lean && lean.total === 0){
+      leanHtml = '<div class="regime-detail-lean">No actionable picks that day</div>';
+    }
+    return '<div class="regime-detail-head">' +
+        '<span class="regime-badge ' + meta.cls + '">' + escapeHtml(meta.lbl) + '</span>' +
+        '<span class="regime-detail-date">' + escapeHtml(String(dateLbl)) + '</span>' +
+        (bits.length ? '<span class="regime-detail-stress">' + escapeHtml(bits.join(' · ')) + '</span>' : '') +
+      '</div>' +
+      (d.summary ? '<div class="regime-detail-summary">' + escapeHtml(d.summary) + '</div>' : '') +
+      (drivers.length ? '<div class="regime-detail-drivers">' + drivers.map(function(x){ return '<span class="regime-driver">' + escapeHtml(String(x)) + '</span>'; }).join('') + '</div>' : '') +
+      leanHtml;
+  }
+  function renderRegimeHistory(){
+    var host = document.getElementById('picks-regime-hist');
+    if (!host) return;
+    var days = (regimeHistState.data && Array.isArray(regimeHistState.data.days)) ? regimeHistState.data.days : [];
+    if (!days.length){ host.hidden = true; host.innerHTML = ''; return; }
+    var byDate = {};
+    for (var i = 0; i < days.length; i++){ if (days[i] && days[i].date) byDate[days[i].date] = days[i]; }
+    var last = days[days.length - 1];
+    // Trailing up-to-2 calendar months that actually contain data (days is
+    // sorted ascending, so the distinct YYYY-MM in order, last two).
+    var monthSeen = {}, monthList = [];
+    for (var j = 0; j < days.length; j++){
+      var dp = (days[j].date || '').split('-');
+      if (dp.length < 2) continue;
+      var mk = dp[0] + '-' + dp[1];
+      if (!monthSeen[mk]){ monthSeen[mk] = 1; monthList.push({ y: +dp[0], m: +dp[1] }); }
+    }
+    var months = monthList.slice(-2);
+    var monthHtml = months.map(function(mo){
+      var firstDow = new Date(Date.UTC(mo.y, mo.m - 1, 1)).getUTCDay();
+      var nDays = new Date(Date.UTC(mo.y, mo.m, 0)).getUTCDate();
+      var cells = '';
+      for (var b = 0; b < firstDow; b++) cells += '<span class="regime-cell is-blank" aria-hidden="true"></span>';
+      for (var dd = 1; dd <= nDays; dd++){
+        var key = mo.y + '-' + regimePad2(mo.m) + '-' + regimePad2(dd);
+        var rec = byDate[key];
+        var meta = regimeCellMeta(rec);
+        if (rec){
+          var title = REGIME_MONTHS[mo.m - 1] + ' ' + dd + ' — ' + meta.lbl + (rec.stress != null && isFinite(rec.stress) ? ' (stress ' + (rec.stress > 0 ? '+' : '') + rec.stress + ')' : '');
+          cells += '<button type="button" class="regime-cell ' + meta.cls + '" data-date="' + key + '" title="' + escapeHtml(title) + '" aria-label="' + escapeHtml(title) + '"><span class="regime-cell-day">' + dd + '</span></button>';
+        } else {
+          cells += '<span class="regime-cell is-empty"><span class="regime-cell-day">' + dd + '</span></span>';
+        }
+      }
+      var dowHead = REGIME_DOW.map(function(x){ return '<span class="regime-dow" aria-hidden="true">' + x + '</span>'; }).join('');
+      return '<div class="regime-month">' +
+          '<div class="regime-month-title">' + REGIME_MONTHS[mo.m - 1] + ' ' + mo.y + '</div>' +
+          '<div class="regime-grid">' + dowHead + cells + '</div>' +
+        '</div>';
+    }).join('');
+    var legend = '<span class="regime-legend">' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-on"></i>Risk-on</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-neutral"></i>Neutral</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-fragile"></i>Fragile</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-off"></i>Risk-off</span>' +
+        '<span class="regime-legend-item"><i class="regime-swatch is-severe"></i>Severe</span>' +
+      '</span>';
+    host.hidden = false;
+    host.innerHTML =
+      '<details class="regime-wrap" open>' +
+        '<summary class="regime-summary-bar">' +
+          '<span class="regime-title">Risk-on / risk-off history</span>' +
+          legend +
+        '</summary>' +
+        '<p class="regime-hint">The daily cross-asset market-regime read that set the engine’s posture — calmer tapes lean the list long and bigger, stressed tapes shrink it, tilt it toward puts, and size down. Hover, focus, or tap a day for that session’s read.</p>' +
+        '<div class="regime-cal">' + monthHtml + '</div>' +
+        '<div class="regime-detail" id="regime-detail">' + regimeDayDetailHtml(last) + '</div>' +
+      '</details>';
+    var cal = host.querySelector('.regime-cal');
+    var detail = host.querySelector('#regime-detail');
+    if (cal && detail){
+      var show = function(date){ detail.innerHTML = regimeDayDetailHtml((date && byDate[date]) || last); };
+      var pick = function(e){ var t = e.target; var c = (t && t.closest) ? t.closest('.regime-cell[data-date]') : null; if (c) show(c.getAttribute('data-date')); };
+      cal.addEventListener('mouseover', pick);
+      cal.addEventListener('focusin', pick);
+      cal.addEventListener('click', pick);
+      cal.addEventListener('mouseleave', function(){ show(null); });
+    }
+  }
 
   // --- OI tab: live spot vs walls ------------------------------------------
   // Open interest itself only updates T+1 (hence the twice-daily scan), but
