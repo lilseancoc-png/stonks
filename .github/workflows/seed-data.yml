@@ -1,13 +1,13 @@
 name: Seed / sync private data store
 
 # Manual maintenance tool for the Path B private-data migration
-# (docs/private-data-migration.md). One-time seeding uploads the currently
-# committed data/ into the private blob store; `pull` is a read-only
+# (docs/private-data-migration.md). Seeding uploads the currently committed
+# data/ into the private store (Cloudflare R2); `pull` is a read-only
 # connectivity check (nothing is persisted — the runner is ephemeral).
 #
 # Dispatch from the Actions tab (must be on the default branch to appear).
 # Default is a DRY RUN so the first click is safe — re-run with dry_run=false
-# to actually write. Requires the BLOB_READ_WRITE_TOKEN Actions secret.
+# to actually write. Requires the R2_* Actions secrets.
 on:
   workflow_dispatch:
     inputs:
@@ -44,7 +44,10 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Run sync-data
         env:
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
           set -euo pipefail
           ARGS="${{ inputs.command }}"
