@@ -1,0 +1,37 @@
+name: Migrate data to R2 (one-time)
+
+# One-shot Blob -> R2 cutover. Run it ONCE from the Actions tab
+# ("Run workflow") after adding the R2_* secrets, to copy the current private
+# data/ from Vercel Blob into the R2 bucket so the new backend doesn't start
+# empty (preserves the accumulated histories: track record, grade history,
+# iv-history, earnings-history, …). Safe to re-run (it overwrites in place).
+# Requires BOTH BLOB_READ_WRITE_TOKEN and the four R2_* secrets. Delete this
+# file once the cutover is confirmed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Copy Blob -> R2
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs migrate

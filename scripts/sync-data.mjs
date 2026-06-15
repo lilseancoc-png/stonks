@@ -27,7 +27,7 @@ import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { store } from "../lib/datastore.mjs";
+import { store, createStore } from "../lib/datastore.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -176,15 +176,50 @@ async function seed({ dryRun }) {
   console.log(`seed: ${local.length} file(s) from ${DATA_DIR}`);
 }
 
+// One-time Blob -> R2 cutover: copy every object from the Vercel Blob store
+// into R2, preserving the accumulated histories (track record, grade history,
+// iv-history, …) so the new backend doesn't start empty. Race-free — it does
+// the whole copy in ONE process holding both backends, so it never goes through
+// the local data/ dir. Needs BOTH BLOB_READ_WRITE_TOKEN and the R2_* creds.
+async function migrate({ dryRun }) {
+  const src = createStore({ backend: "blob" });
+  const dst = createStore({ backend: "r2" }); // throws if R2_* incomplete
+  if (!src.hasToken()) {
+    console.error("migrate: source (Vercel Blob) not configured — set BLOB_READ_WRITE_TOKEN");
+    process.exit(1);
+  }
+  const entries = await src.list("");
+  console.log(`migrate: ${entries.length} object(s) Blob -> R2` + (dryRun ? " (dry-run)" : ""));
+  if (dryRun) {
+    for (const e of entries.slice(0, 30)) console.log(`  would copy ${e.key} (${e.size}b)`);
+    if (entries.length > 30) console.log(`  …and ${entries.length - 30} more`);
+    return;
+  }
+  let copied = 0, bytes = 0;
+  await mapLimit(entries, 8, async (e) => {
+    const buf = await src.get(e.key);
+    if (buf == null) return;
+    await dst.put(e.key, buf);
+    copied++;
+    bytes += buf.length;
+  });
+  console.log(`migrate: copied ${copied}/${entries.length} object(s), ${(bytes / 1e6).toFixed(1)} MB into R2`);
+}
+
 async function main() {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
-  if (!store.hasToken()) {
+  // `migrate` validates its own two backends (Blob source + R2 dest); every
+  // other command operates on the single env-selected store.
+  if (cmd !== "migrate" && !store.hasToken()) {
     console.error(
       "sync-data: no private store configured (set R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET for Cloudflare R2, or BLOB_READ_WRITE_TOKEN for Vercel Blob)",
     );
     process.exit(1);
   }
   switch (cmd) {
+    case "migrate":
+      await migrate(opts);
+      break;
     case "pull":
       await pull(opts);
       break;
@@ -200,7 +235,7 @@ async function main() {
       await seed(opts);
       break;
     default:
-      console.error("usage: sync-data.mjs <pull|push --owner=…|seed> [--dry-run]");
+      console.error("usage: sync-data.mjs <pull|push --owner=…|seed|migrate> [--dry-run]");
       process.exit(1);
   }
 }
