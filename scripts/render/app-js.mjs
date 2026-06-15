@@ -16109,13 +16109,34 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function liveGreeksRow(p, spot){
     var c = p && p.contract; if (!c) return '';
     var side = p.side === 'put' ? 'put' : 'call';
-    var K = Number(c.strike), iv = Number(c.iv), exp = Number(c.expiry), S = Number(spot);
-    var g = (S > 0 && K > 0 && iv > 0 && exp > 0) ? greeks(side, S, K, posYrs(exp), iv, RFR) : null;
-    var delta = g ? g.delta : (isFinite(c.delta) ? Number(c.delta) : null);
-    var thetaDay = g ? g.thetaDay : (isFinite(c.thetaDay) ? Number(c.thetaDay) : null);
-    var gamma = g ? g.gamma : null;
-    var vega = g ? g.vega : null;
+    var exp = Number(c.exp || c.expiry), S = Number(spot);
+    var iv = Number(c.iv);
+    var delta, thetaDay, gamma, vega, isSpread = (c.structure === 'debit_vertical' && c.legs && c.legs.length > 1);
+    if (isSpread){
+      // Net greeks across both legs of the debit spread (long qty +1, short qty −1) —
+      // the short wing offsets most of the long's theta + vega, which is the whole
+      // point of the structure. Recomputed live at the polled spot when possible.
+      var nd = 0, nt = 0, ng = 0, nv = 0, ok = false;
+      for (var li = 0; li < c.legs.length; li++){
+        var leg = c.legs[li], lq = Number(leg.qty) || 0, lk = Number(leg.strike), liv = Number(leg.iv);
+        var lg = (S > 0 && lk > 0 && liv > 0 && exp > 0) ? greeks(side, S, lk, posYrs(exp), liv, RFR) : null;
+        var ld = lg ? lg.delta : Number(leg.delta), lt = lg ? lg.thetaDay : Number(leg.thetaDay), lgm = lg ? lg.gamma : null, lv = lg ? lg.vega : Number(leg.vega);
+        if (isFinite(ld)) { nd += ld * lq; ok = true; }
+        if (isFinite(lt)) nt += lt * lq;
+        if (lgm != null && isFinite(lgm)) ng += lgm * lq;
+        if (isFinite(lv)) nv += lv * lq;
+      }
+      delta = ok ? nd : null; thetaDay = nt; gamma = ng; vega = nv;
+    } else {
+      var K = Number(c.strike);
+      var g = (S > 0 && K > 0 && iv > 0 && exp > 0) ? greeks(side, S, K, posYrs(exp), iv, RFR) : null;
+      delta = g ? g.delta : (isFinite(c.delta) ? Number(c.delta) : null);
+      thetaDay = g ? g.thetaDay : (isFinite(c.thetaDay) ? Number(c.thetaDay) : null);
+      gamma = g ? g.gamma : null;
+      vega = g ? g.vega : null;
+    }
     var cells = [];
+    if (isSpread) cells.push('<span title="Net Greeks of the two-leg debit spread (long − short) — the short wing offsets most of the theta and vega."><b>net</b></span>');
     if (delta != null && isFinite(delta)) cells.push('<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + delta.toFixed(2) + '</span>');
     if (gamma != null && isFinite(gamma)) cells.push('<span title="Gamma — ' + escapeHtml(TIPS.gamma) + '"><b>Γ</b> ' + gamma.toFixed(4) + '</span>');
     if (thetaDay != null && isFinite(thetaDay)) cells.push('<span title="Theta (per share, per day) — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + thetaDay.toFixed(2) + '/d</span>');
@@ -16123,10 +16144,38 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (isFinite(iv)) cells.push('<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (iv * 100).toFixed(0) + '%</span>');
     return cells.join('');
   }
+  // Defined-risk spread structure block (PICKS_VERT_AUTO). When a pick ships as a
+  // debit vertical (rich-IV — finance the long by selling an OTM wing), show the two
+  // legs and the CAPPED max-loss / max-profit so the user reads it as the defined-risk
+  // trade it is: max loss = the net debit paid, max profit = strike width − debit. The
+  // capped upside is the price of the slashed theta / IV-crush + smaller premium at risk.
+  function pickVerticalStructureHtml(p, c){
+    if (!c || c.structure !== 'debit_vertical' || c.shortStrike == null) return '';
+    var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var mult = 100;
+    var maxLoss = isFinite(c.maxLoss) ? Number(c.maxLoss) : (isFinite(c.netDebit) ? Number(c.netDebit) : null);
+    var maxProfit = isFinite(c.maxProfit) ? Number(c.maxProfit) : null;
+    var rr = (maxLoss != null && maxProfit != null && maxLoss > 0) ? (maxProfit / maxLoss) : null;
+    var longK = isFinite(c.strike) ? Number(c.strike) : null;
+    var shortK = isFinite(c.shortStrike) ? Number(c.shortStrike) : null;
+    var rows =
+      '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-long">LONG</span><span class="pick-vert-k">$' + escapeHtml(String(longK)) + ' ' + sideLabel + '</span><span class="pick-vert-prem">$' + (isFinite(c.legs && c.legs[0] && c.legs[0].mid) ? Number(c.legs[0].mid).toFixed(2) : '—') + '</span></div>' +
+      '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-short">SHORT</span><span class="pick-vert-k">$' + escapeHtml(String(shortK)) + ' ' + sideLabel + '</span><span class="pick-vert-prem">$' + (isFinite(c.shortMid) ? Number(c.shortMid).toFixed(2) : '—') + '</span></div>';
+    var econ =
+      (maxLoss != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Max loss</div><div class="pick-vert-stat-val pick-vert-loss">$' + (maxLoss * mult).toFixed(0) + '</div></div>' : '') +
+      (maxProfit != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Max profit</div><div class="pick-vert-stat-val pick-vert-profit">$' + (maxProfit * mult).toFixed(0) + '</div></div>' : '') +
+      (rr != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">R / R</div><div class="pick-vert-stat-val">' + rr.toFixed(2) + '×</div></div>' : '');
+    return '<div class="pick-vert" title="Debit vertical (defined-risk spread): the long is financed by selling an OTM wing on the same expiry. Caps the max loss to the net debit and slashes theta + IV-crush vs a naked long — at the cost of a capped max profit (the strike width minus the debit).">' +
+      '<div class="pick-vert-head">⛓ Defined-risk spread <span class="pick-vert-tag">caps loss · cuts theta/vega</span></div>' +
+      '<div class="pick-vert-legs">' + rows + '</div>' +
+      '<div class="pick-vert-econ">' + econ + '</div>' +
+    '</div>';
+  }
   function pickContractHtml(p){
     var c = p && p.contract;
     if (!c || c.strike == null || !c.expiryLabel) return '';
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var isSpread = (c.structure === 'debit_vertical' && c.shortStrike != null);
     var dteTxt = (c.dte != null) ? ' · ' + c.dte + 'd' : '';
     // Stat grid — replaces the dense mono "$8.45 × $8.60 · mid $8.52 / Δ 0.50
     // · Θ ... / Breakeven $... (+8.5%)" trio with a 3-column labeled layout
@@ -16153,8 +16202,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var midN = parseFloat(premiumPrimary.slice(1));
       if (isFinite(midN)) dollarsContract = '$' + (midN * 100).toFixed(0) + ' / contract';
     }
-    stats += '<div class="pick-stat" title="Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.">' +
-      '<div class="pick-stat-label">Premium</div>' +
+    stats += '<div class="pick-stat" title="' + (isSpread ? 'Net debit — the long premium minus the credit from the short wing. ×100 = the cash you pay, and (for a defined-risk spread) the most you can lose.' : 'Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.') + '">' +
+      '<div class="pick-stat-label">' + (isSpread ? 'Net debit' : 'Premium') + '</div>' +
       '<div class="pick-stat-value">' + escapeHtml(premiumPrimary || '—') + '</div>' +
       '<div class="pick-stat-sub">' + escapeHtml(premiumSub || dollarsContract || '') + '</div>' +
     '</div>';
@@ -16244,12 +16293,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (c.otmPct != null && isFinite(c.otmPct)) {
       otmTxt = ' · ' + Math.abs(Number(c.otmPct)).toFixed(1) + '% OTM';
     }
+    var headStrike = isSpread
+      ? '$' + escapeHtml(String(c.strike)) + ' / $' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt
+      : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt;
     return '<div class="pick-contract' + overall + '">' +
       '<div class="pick-contract-head">' +
-        '<span class="pick-contract-label">Suggested ' + sideLabel + '</span>' +
-        '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt + '</span>' +
+        '<span class="pick-contract-label">Suggested ' + (isSpread ? sideLabel + ' spread' : sideLabel) + '</span>' +
+        '<span class="pick-contract-strike">' + headStrike + '</span>' +
         earningsBadge +
       '</div>' +
+      pickVerticalStructureHtml(p, c) +
       stats +
       rr +
       qChips +
@@ -17410,13 +17463,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var erChip = c.earningsInWindow
         ? '<span class="ptc-con-er" title="Earnings land before this contract expires — the post-print IV crush can wipe out a long premium even on a correct directional call.">⚠ ER</span>'
         : '';
+      var isSpread = (c.structure === 'debit_vertical' && c.shortStrike != null);
+      var spreadChip = isSpread
+        ? '<span class="ptc-con-spread" title="Defined-risk debit spread — long $' + escapeHtml(String(c.strike)) + ' financed by a short $' + escapeHtml(String(c.shortStrike)) + ' wing. Caps the max loss to the net debit and cuts theta / IV-crush; the premium shown is the NET debit.">⛓ spread</span>'
+        : '';
+      var kTxt = isSpread
+        ? '$' + escapeHtml(String(c.strike)) + '/' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(String(c.dte)) + 'd'
+        : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(String(c.dte)) + 'd';
       var econTitle = 'Suggested contract: $' + c.strike + ' ' + sideLabel + ' · ' + (c.expiryLabel || '') + ' (' + c.dte + 'd)' +
         (premPerContract ? ' · ' + premPerContract : '') +
         (c.breakevenMovePct != null && isFinite(c.breakevenMovePct) ? ' · needs ' + (Number(c.breakevenMovePct) >= 0 ? '+' : '') + Number(c.breakevenMovePct).toFixed(1) + '% to break even' : '');
       econ = '<span class="ptc-contract" title="' + escapeHtml(econTitle) + '">' +
-        '<span class="ptc-con-k">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(String(c.dte)) + 'd</span>' +
+        '<span class="ptc-con-k">' + kTxt + '</span>' +
         (prem != null && isFinite(prem) ? '<span class="ptc-con-prem">$' + prem.toFixed(2) + '</span>' : '') +
-        beChip + erChip +
+        spreadChip + beChip + erChip +
       '</span>';
     }
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
@@ -17863,6 +17923,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
+    if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';

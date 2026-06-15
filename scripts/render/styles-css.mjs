@@ -6840,6 +6840,55 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   font-weight: 700;
   letter-spacing: .03em;
 }
+/* Defined-risk debit-spread marker on the landing tile (PICKS_VERT_AUTO). */
+.ptc-con-spread {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+/* Defined-risk spread structure block on the pick detail (pickVerticalStructureHtml). */
+.pick-vert {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.pick-vert-head {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pick-vert-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .03em;
+}
+.pick-vert-legs { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.pick-vert-leg {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.pick-vert-side { font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.pick-vert-long  { color: var(--pos); }
+.pick-vert-short { color: var(--neg); }
+.pick-vert-k { color: var(--text); font-variant-numeric: tabular-nums; }
+.pick-vert-prem { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pick-vert-econ { display: flex; gap: 16px; flex-wrap: wrap; padding-top: 6px; border-top: 1px dashed var(--border); }
+.pick-vert-stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.pick-vert-stat-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.pick-vert-loss { color: var(--neg); }
+.pick-vert-profit { color: var(--pos); }
 .ptc-meta { grid-area: meta; font-size: 11px; color: var(--muted); }
 .ptc-cta {
   grid-area: cta;

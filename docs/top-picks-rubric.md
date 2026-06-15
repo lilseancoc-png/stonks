@@ -500,13 +500,21 @@ book), the long is financed by **selling an OTM wing** on the same expiry — a 
 vertical that cuts net vega/theta so you're not buying naked premium when it's
 expensive (the structural complement to the §6 IV gate). `contract.mid`/`breakeven`/
 sizing all repoint to the **net debit** and the modeled-exit repricer nets both legs
-(`modelVerticalExit`). **`PICKS_VERT_AUTO` is DARK by default**: enabling it live needs
-the pick *card* to render two legs (it shows the net debit + breakeven today but not
-the spread structure / capped max-profit), and the loss-attribution diagnostic
-(`scripts/diagnose-pick-losses.mjs`) still shows losses are **direction-driven** (a
-vertical only shrinks a wrong-side loss). Ship the policy wired + sizing-correct;
-flip it on after the card render + forward validation — same discipline as
-`PICKS_VERTICALS`.
+(`modelVerticalExit`). **`PICKS_VERT_AUTO` is now ON by default** (loss-min). The pick
+card renders the two-leg structure + the capped max-loss / max-profit
+(`pickVerticalStructureHtml`), the contract payload carries `maxLoss` (= net debit) /
+`maxProfit` (= strike width − debit) / `spreadWidth` / `shortStrike`, and the detail
+greeks show the **net** of both legs (the short wing offsets most of the long's
+theta + vega). A debit spread caps the max loss to the net debit and slashes the
+theta / IV-crush bleed that the loss diagnostic attributes the bulk of a long-premium
+book's drawdown to — at the cost of a **capped upside** (the spread can't pay more
+than the strike width), which is precisely the trade "minimize losses" calls for. The
+loss-attribution caveat (`scripts/diagnose-pick-losses.mjs`: losses are partly
+direction-driven, and a vertical only *shrinks* a wrong-side loss) is now a point in
+its favour — shrinking every loss is the objective. Engages only in rich IV (rank ≥
+`PICKS_VERT_IVRANK`, or `_NEGEDGE_IVRANK` on a measured-negative-edge book) with a
+liquid credit-financing short wing; otherwise the pick stays a single long. Set
+`PICKS_VERT_AUTO=0` to revert to naked single-leg longs.
 
 **Exit geometry — volatility-aware stop.** `buildExitPlan` sets the take-profit at
 the nearest meaningful S/R (≥ ~half the chain's 1σ move). The cut used to be a flat
@@ -520,8 +528,11 @@ but ordinary volatility doesn't. Null ATR (thin history) → the prior 8% behavi
 
 **Premium-space exits — hard stop + a TRAILING take-profit (let winners run).**
 `resolvePickOutcome` resolves on the MODELED option P&L before the underlying-level
-TP/cut. The downside is a flat hard stop at `−PICKS_OPT_STOP_PCT` (−40% of entry
-premium). The upside is **not** a flat cap: long-premium P&L is right-tail-driven (a
+TP/cut. The downside is a flat hard stop at `−PICKS_OPT_STOP_PCT` (**−35%** of entry
+premium — tightened from −40% to cap the left tail, loss-min) plus an earlier
+**theta-stop** (`PICKS_THETA_STOP_PCT` **2.2%**/day of remaining premium, after
+`PICKS_THETA_STOP_MIN_HOLD_DAYS` **4** days held — both tightened to cut dead-money
+bleeders sooner). The upside is **not** a flat cap: long-premium P&L is right-tail-driven (a
 few big winners pay for the losers), so capping every win at +60% truncates exactly
 those. Instead, once the **peak** modeled gain arms at `PICKS_OPT_TP_PCT` (+60%), the
 exit floor ratchets to `max(peak·(1−PICKS_OPT_TRAIL_GIVEBACK), +60%)` — it locks **at
@@ -972,8 +983,19 @@ first bake.
   (`{vetoed, sectorCapped, sectorCounts, factorCapped, factorCounts}`) rides on
   `picks.json` so the UI shows an honest "only N clean setups · M gated ·
   K sector-capped · L factor-capped" note.
-- `go` picks are the endorsed entries; `wait` picks are shown (badged) with their
-  entry levels so the user can act on confirmation.
+- **Require-go gate (`PICKS_REQUIRE_GO`, default ON — loss-min "trade less").** Entry
+  timing already folds into the grade, but a `wait`-state name (mixed structure,
+  imminent catalyst, extreme own-IV) can still clear the conviction bar and ship as a
+  flagged `WAIT`. A long debit opened without a clean entry is the single most
+  avoidable loss (order flow, theta and IV-crush all work against a poorly-timed long),
+  so a non-tactical candidate whose timing isn't `go` is now **dropped** (logged to
+  `rosterMeta.timingGated` with its `deferKind`, surfaced in the honest roster note as
+  "N deferred for a clean entry") rather than shipped. Tactical puts already require
+  `go`. The grade is untouched — the name still appears in the grade-any-ticker index,
+  just not as an actionable pick. The roster honestly ships shorter on a no-clean-setup
+  day. `=0` restores shipping `wait` picks badged.
+- `go` picks are the endorsed entries (and, with `PICKS_REQUIRE_GO` on, the **only**
+  picks shipped); a `wait` name is deferred, not recommended.
 
 ---
 
@@ -1173,10 +1195,23 @@ it has to be trustworthy. The fixes:
     31 bullish / 0 bearish across the live universe, a structural long bias). `=0`
     restores both as scored signals. `PICKS_DECORRELATE` is now default **ON**
     (1/√K cluster collapse; flip with `=0`).
-  - **Debit verticals (P1.2, DARK):** `PICKS_VERTICALS` (default **OFF**), `PICKS_VERT_IVRANK 70`,
-    `PICKS_VERT_SHORT_DELTA_MIN/MAX 0.20/0.38`, `PICKS_VERT_MIN_CREDIT 0.20`; auto-engage
-    `PICKS_VERT_AUTO` (default **OFF**) + `PICKS_VERT_NEGEDGE_IVRANK 50` (rich-IV / negative-edge
-    default structure — wired + sizing-correct, dark pending the 2-leg card render).
+  - **Debit verticals (P1.2 — now ON, loss-min):** `PICKS_VERT_AUTO` (default **ON**) +
+    `PICKS_VERT_IVRANK 70` / `PICKS_VERT_NEGEDGE_IVRANK 50`, `PICKS_VERT_SHORT_DELTA_MIN/MAX 0.20/0.38`,
+    `PICKS_VERT_MIN_CREDIT 0.20` (master `PICKS_VERTICALS` default OFF — the auto policy is the live
+    path). Rich-IV picks ship as defined-risk debit spreads (capped max loss = net debit, slashed
+    theta/IV-crush, capped max profit = strike width − debit; card render `pickVerticalStructureHtml`).
+    `=0` reverts to naked longs.
+  - **Loss-min selectivity + exits:** `PICKS_REQUIRE_GO` (default **ON** — drop non-`go`
+    non-tactical picks → `rosterMeta.timingGated`); `PICKS_ABS_TRADE_FLOOR 5.5` / `PICKS_ABS_STRONG_FLOOR 8`
+    (raised from 5 / 7.5); `PICKS_OPT_STOP_PCT 0.35` (from 0.40); `PICKS_THETA_STOP_PCT 0.022`
+    (from 0.025) + `PICKS_THETA_STOP_MIN_HOLD_DAYS 4` (from 5); `PICKS_MAX_EARNINGS_RISK 4` (§7).
+  - **IC bridge — now WIRED (`PICKS_SIGNAL_IC_WEIGHT`, default ON, §9.6):** `PICKS_SIGNAL_IC_MIN_N 25`,
+    `PICKS_SIGNAL_IC_GAIN 2.0`, `PICKS_SIGNAL_IC_FLOOR 0.4`, `PICKS_SIGNAL_IC_CAP 1.8`
+    (`buildSignalIcMap` → `opts.signalIc` → `W_s` scaling). No-op until gate-era IC accrues.
+  - **Decorrelation (audit #1, DARK):** `PICKS_DECORRELATE` (default **OFF**) — collapse
+    correlated converted-signal clusters (`SIGNAL_CLUSTER`) by 1/√K so a beta isn't N-weighted.
+  - **IC bridge substrate (measure-only):** `gradeIc`/`gradeIcN`/`gradeIcOption` + per-signal
+    `bySignal[].ic` in `picks-accuracy.json` (Pearson; the realized-IC source `buildSignalIcMap` reads, §9.6).
   - **Decorrelation (audit #1, DARK):** `PICKS_DECORRELATE` (default **OFF**) — collapse
     correlated converted-signal clusters (`SIGNAL_CLUSTER`) by 1/√K so a beta isn't N-weighted.
   - **IC bridge (research, measure-only):** `gradeIc`/`gradeIcN`/`gradeIcOption` + per-signal
@@ -1282,13 +1317,20 @@ The cross-sectional pass (§3) produces a standardized z (mean 0 / unit scale) p
 converted signal per name. `updatePicksAccuracyFile` persists it into the accuracy
 enroll snapshot — `entrySignals[].z` alongside the legacy integer `score` and the
 `contribution` — so it accumulates into `picks-accuracy.json` `closed[]` as outcomes
-resolve. Today signal **weights stay equal** (`W_s = oldMax/PICKS_Z_CLIP`,
-scale-preserving) and `bySignal` is sign-only hit-rate (§8). Once `bySignal` clears
-`PICKS_SIGNAL_MIN_N`, fitting per-signal IC weights from the realized outcomes is a
-**drop-in**: correlate each signal's stored z-vector against the realized win/loss (or
-`optionPnlPct`) and set `W_s ∝ IC_s`. No rescaling needed — the persisted z is already
-cross-sectionally comparable at entry. This is the substrate; it does not turn weights
-on (same discipline as the gate: measure on forward, gate-era data first).
+resolve. **The bridge is now WIRED (`PICKS_SIGNAL_IC_WEIGHT`, default ON) — but a pure
+no-op until forward outcomes accumulate.** `main()` builds a `key→{ic,n}` map from the
+prior `picks-accuracy.json` `stats.bySignal` (`buildSignalIcMap`) and threads it into
+`computeCrossSectionalScores`, which scales each converted signal's weight
+`W_s *= clamp(1 + PICKS_SIGNAL_IC_GAIN·ic, PICKS_SIGNAL_IC_FLOOR, _CAP)` **only** once
+that signal has ≥ `PICKS_SIGNAL_IC_MIN_N` (25) decided outcomes with a measured `ic`:
+a signal that PREDICTS (positive IC) is boosted, one with no / negative measured edge
+is shrunk toward the floor (0.4) — so the engine stops trading as hard on signals that
+don't work. It never flips a signal's **sign** (too aggressive on a thin sample), and
+it's bounded both ways. **Today there is no gate-era IC** (the track record was wiped),
+so `bySignal` carries no `ic` → `buildSignalIcMap` returns null → every `W_s` is
+unchanged → **byte-identical** scoring. "Set up now, bites later": the weights start
+leaning toward measured edge automatically as the closed record accrues, no further
+code change. `=0` reverts to equal `W_s`.
 
 ---
 
