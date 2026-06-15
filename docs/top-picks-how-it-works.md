@@ -126,8 +126,11 @@ Composite states:
    marginal **calls flip to puts**, and weak names go clearly negative. (A *uniform*
    macro nudge can't re-rank a percentile engine — it demeans away. Beta-weighting is
    what makes it differential and survive standardization.)
-3. **Cuts size (de-grosses).** Deployed gross is scaled **×0.6** in risk-off, **×0.4**
-   in severe — a desk cuts size in a tightening tape, not just direction.
+3. **Cuts size (de-grosses).** Deployed gross is scaled toward **×0.6** in risk-off,
+   **×0.4** in severe — a desk cuts size in a tightening tape, not just direction. The
+   risk-off cut now **ramps with the measured stress** (like the tilt) — full size at
+   stress 0, →×0.6 at full stress — so a borderline / held risk-off doesn't slash the
+   book on a coin-flip read (`regimeGrossMult`, `PICKS_MACRO_GROSS_RAMP`).
 4. **Severe-tape guards.** Caps calls at **3** (rest fill with puts/cash) and **relaxes
    the tactical-put bar** (−8 → −5) so more weak names become shortable.
 
