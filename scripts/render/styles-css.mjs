@@ -7594,6 +7594,34 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .picks-tape-card.is-open .picks-tape-body { display: block; }
 .picks-tape-summary { margin: 4px 0 10px; font: 400 13px/1.6 var(--font-sans); color: var(--text); }
 .picks-tape-summary b { color: var(--text-strong); font-weight: 700; }
+/* Condition-aware "what this means right now" callout. */
+.picks-tape-callout {
+  margin: 0 0 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--text-strong) 3%, var(--surface));
+}
+.picks-tape-callout.tape-callout-on { border-left-color: var(--pos); background: color-mix(in srgb, var(--pos) 5%, var(--surface)); }
+.picks-tape-callout.tape-callout-off { border-left-color: var(--neg); background: color-mix(in srgb, var(--neg) 5%, var(--surface)); }
+.picks-tape-callout.tape-callout-warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 5%, var(--surface)); }
+.picks-tape-callout.tape-callout-neutral { border-left-color: var(--border); }
+.picks-tape-callout-head { margin: 0 0 5px; font: 700 13px/1.4 var(--font-sans); color: var(--text-strong); }
+.tape-callout-on .picks-tape-callout-head { color: var(--pos); }
+.tape-callout-off .picks-tape-callout-head { color: var(--neg); }
+.tape-callout-warn .picks-tape-callout-head { color: var(--warn); }
+.picks-tape-callout-body { margin: 0; font: 400 12px/1.65 var(--font-sans); color: var(--text); }
+.picks-tape-callout-body b { color: var(--text-strong); font-weight: 700; }
+.picks-tape-callout-meta { margin: 7px 0 0; font: 400 11px/1.55 var(--font-sans); color: var(--muted); }
+.picks-tape-callout-meta b {
+  display: inline-block;
+  margin-right: 6px;
+  font: 700 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-strong);
+}
 .picks-tape-metrics {
   display: flex;
   flex-wrap: wrap;

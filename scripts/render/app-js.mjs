@@ -9294,7 +9294,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // market's REACTION to it flows through the price axes immediately). Change
   // computeMacroRegime, change this. baked = data.rosterMeta.macroRegime
   // (carries axes / inputs / thresholds); live = the /api/macro-live legs (+ fng).
-  var macroTape = { legs: null, fetchedAt: null, timer: null, open: false };
+  var macroTape = { legs: null, fetchedAt: null, timer: null, open: true };
   var MACRO_TAPE_POLL_MS = 30000;
 
   function computeLiveMacroRegime(baked, live){
@@ -9544,9 +9544,51 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var sub = 'market tape' + (opts.live ? ' · live' : '') + (heldRaw ? ' · recovering (read ' + heldRaw + ')' : '') + (drv ? ' · ' + drv : '');
     return '<div class="picks-summary-chip ' + meta.cls + '" title="' + macroTapeTooltip(regime, opts) + '"><span class="picks-summary-num">' + liveDot + warnMark + meta.lbl + '</span><span class="picks-summary-lbl">' + sub + '</span></div>';
   }
+  // Plain-language read of the CURRENT regime: what posture the engine is in,
+  // what that does to today's roster, and what would flip it — woven with the
+  // live gross %, the drivers, and the actual call/put split. Tone drives the
+  // callout's accent color.
+  function macroTapeNarrative(regime, roster){
+    var st = regime.state;
+    var gp = (regime.grossMult != null && isFinite(regime.grossMult)) ? Math.round(regime.grossMult * 100) : 100;
+    var drv = (regime.drivers && regime.drivers.length) ? regime.drivers.join(' · ') : '';
+    var rosterTxt = '';
+    if (roster && roster.total){
+      rosterTxt = roster.total + ' pick' + (roster.total === 1 ? '' : 's') + ' (' + roster.calls + ' call' + (roster.calls === 1 ? '' : 's') + ' · ' + roster.puts + ' put' + (roster.puts === 1 ? '' : 's') + ')';
+    }
+    var head, body, change, tone;
+    if (st === 'risk-on'){
+      tone = 'on';
+      head = 'Tailwind — the engine is leaning the book long.';
+      body = 'A clean risk-on tape across the cross-asset axes. Grades get a small bullish tilt (beta-weighted), entry timing reads as a tailwind (a long bought into a rising tape is not penalized), <b>full size</b> is deployed, and the engine opens <b>no tactical puts</b> — which is why today’s list runs call-heavy and sized up' + (rosterTxt ? ': <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'A VIX spike, a sharp dollar or long-yield surge, an oil shock, or fresh <i>escalation</i> headlines would pull the tape back toward neutral / risk-off.';
+    } else if (st === 'severe-risk-off'){
+      tone = 'off';
+      head = 'Acute stress — maximum defense.';
+      body = 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), the tactical-put bar is relaxed so puts open wider, <b>calls are capped</b> (about ≤3 shipped), and gross is cut to <b>~' + gp + '%</b> of target' + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'This is the break-glass tape. Defense applies immediately, but it only steps back down once two consecutive builds confirm the recovery — no whipsaw on one green print.';
+    } else if (st === 'risk-off'){
+      tone = 'off';
+      head = 'Headwind — the engine is playing defense.';
+      body = 'A risk-off / tightening tape. Most grades are <b>discounted</b> (beta-weighted toward the downside), entry timing turns strict (the falling-knife thresholds tighten ~25%), the <b>tactical-put path opens</b> (bearish names that miss the long bar can ship as reduced-size puts), and gross is cut to <b>~' + gp + '%</b> of target' + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'Defense applies <i>immediately</i>; a recovery is <b>held</b> until a fresh build confirms it, so the chip will not whipsaw back to risk-on on one green bounce.';
+    } else if (regime.fragile){
+      tone = 'warn';
+      head = 'Calm on the surface, weak underneath.';
+      body = 'Price and vol read neutral, but the market’s <b>internals are deteriorating</b> (' + escapeHtml(regime.internalsLabel || 'breadth + credit weak') + '). The engine does not flip to puts — price is not confirming a break — but it <b>trims size</b> to ~' + gp + '% and caps the long side rather than leaning maximally long into weakening breadth' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'If price and vol confirm the weakness it tips to risk-off; if breadth and credit repair it returns to a full-size neutral.';
+    } else {
+      tone = 'neutral';
+      head = 'Balanced tape — no coordinated stress.';
+      body = 'No cross-asset axis is lit strongly enough to tilt the book. The engine grades each name on its <b>own merits</b> with full size and no macro tilt — neither a tailwind nor a brake' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.';
+      change = 'A VIX spike, a dollar / long-yield surge, an oil shock, or escalation headlines would tip it risk-off; a clean vol-crush with a dovish Fed and de-escalation would tip it risk-on.';
+    }
+    return { head: head, body: body, change: change, tone: tone, drivers: drv };
+  }
   function buildMacroTapePanel(regime, opts){
     opts = opts || {};
     var meta = macroStateMeta(regime.state, regime.fragile);
+    var nar = macroTapeNarrative(regime, opts.roster);
     var axes = regime.axes || {};
     var AXIS_DEFS = [
       { k:'vix', name:'VIX', desc:'Equity volatility — the fear gauge' },
@@ -9606,6 +9648,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</button>' +
       '<div class="picks-tape-body">' +
         '<p class="picks-tape-summary">' + summaryLine + '</p>' +
+        '<div class="picks-tape-callout tape-callout-' + nar.tone + '">' +
+          '<p class="picks-tape-callout-head">' + escapeHtml(nar.head) + '</p>' +
+          '<p class="picks-tape-callout-body">' + nar.body + '</p>' +
+          (nar.drivers ? '<p class="picks-tape-callout-meta"><b>Driving it</b> ' + escapeHtml(nar.drivers) + '</p>' : '') +
+          '<p class="picks-tape-callout-meta"><b>What would change it</b> ' + nar.change + '</p>' +
+        '</div>' +
         '<div class="picks-tape-metrics">' +
           '<span title="Sum of the eight axis scores (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
           '<span title="Axes reading risk-off (score ≤ −1).">Risk-off axes <b>' + roff + '</b></span>' +
@@ -9626,6 +9674,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var live = (baked && macroTape.legs) ? computeLiveMacroRegime(baked, macroTape.legs) : null;
     var regime = live || baked;
     var isLive = !!live;
+    var roster = { calls: 0, puts: 0, total: picks.length };
+    for (var ri = 0; ri < picks.length; ri++){ if (picks[ri] && picks[ri].side === 'put') roster.puts++; else roster.calls++; }
     var chipSlot = document.getElementById('picks-regime-chip');
     if (chipSlot) chipSlot.innerHTML = buildRegimeChip(regime, entryRegime, { live: isLive, fetchedAt: macroTape.fetchedAt });
     var panel = document.getElementById('picks-tape');
@@ -9633,7 +9683,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (!regime || !regime.axes){ panel.hidden = true; panel.innerHTML = ''; }
       else {
         panel.hidden = false;
-        panel.innerHTML = buildMacroTapePanel(regime, { live: isLive, fetchedAt: macroTape.fetchedAt });
+        panel.innerHTML = buildMacroTapePanel(regime, { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster });
         var head = panel.querySelector('.picks-tape-head');
         if (head) head.addEventListener('click', function(){ macroTape.open = !macroTape.open; renderMacroTape(); });
       }
