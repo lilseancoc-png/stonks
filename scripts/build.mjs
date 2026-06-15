@@ -7368,8 +7368,12 @@ const PICKS_TIER_PCTL_TRADE = 0.12;  // top 12% → actionable (Call/Put)
 // fold-scale fixed) and 6 bound at ~top-7% instead of the documented top-decile
 // backstop. Same intent as before: trade floor ≈ neutral-tape top decile,
 // strong floor reachable only by the genuine outliers.
-const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? 5);
-const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? 7.5);
+// Loss-min: nudged up from 5 / 7.5 so a marginal name on a weak tape becomes CASH
+// rather than a trade ("trade less / higher bar"). Paired with the require-go gate
+// below, this is the selectivity half of the loss-minimization pass — fewer, better
+// setups; the roster honestly ships shorter (or empty) on a junk day.
+const PICKS_ABS_TRADE_FLOOR = Number(process.env.PICKS_ABS_TRADE_FLOOR ?? 5.5);
+const PICKS_ABS_STRONG_FLOOR = Number(process.env.PICKS_ABS_STRONG_FLOOR ?? 8);
 // Tier hysteresis (churn fix). The percentile cutoffs are recomputed from scratch
 // every build, so a name sitting AT the top-12% boundary flips in/out of the
 // actionable set hourly (the churn log showed names entering and exiting within
@@ -7388,6 +7392,16 @@ const PICKS_TIER_EXIT_FRAC = Number(process.env.PICKS_TIER_EXIT_FRAC ?? 0.9);
 // this many of the PICKS_COUNT slots (the severe-tape call cap still applies on
 // top, it's stricter for calls in a severe tape). 0 disables.
 const PICKS_MAX_PER_SIDE = Number(process.env.PICKS_MAX_PER_SIDE ?? 8);
+// Require a clean entry ('go') for EVERY shipped pick (loss-min "trade less").
+// Entry timing already folds into the grade, but a 'wait'-state name (mixed
+// structure, an imminent catalyst, extreme own-IV) can still grade onto the
+// roster and ship as a flagged WAIT. A long debit opened without a clean entry is
+// the single most avoidable loss — order flow, theta and IV-crush all work against
+// a poorly-timed long. With this on, a non-tactical candidate whose timing is not
+// 'go' is dropped (logged to rosterMeta.timingGated) rather than shipped badged;
+// tactical puts already require 'go'. The roster honestly ships shorter on a day
+// with no clean setups. Set =0 to restore shipping 'wait' picks (badged).
+const PICKS_REQUIRE_GO = process.env.PICKS_REQUIRE_GO !== "0"; // default ON
 // Risk-based position sizing (P3.4) — emitted only for roster survivors.
 const PICKS_SIZE_RISK_DENOM = "option"; // 'option' (Δ/premium-aware loss to the stop) | 'atr' (underlying ATR% fallback)
 const PICKS_SIZE_VOL_FLOOR = 0.05;   // min risk denominator (5%) so a near-zero loss-to-stop can't mint an enormous weight
@@ -7846,8 +7860,8 @@ const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every
 // red. So in addition to the 14-day stop, cut a position whose MODELED daily theta
 // exceeds this fraction of its remaining premium AND that is held a few days AND is
 // modeled at a loss (never cut a working trade early).
-const PICKS_THETA_STOP_PCT = 0.025;          // 2.5%/day of remaining premium
-const PICKS_THETA_STOP_MIN_HOLD_DAYS = 5;    // don't theta-stop before this many days held
+const PICKS_THETA_STOP_PCT = Number(process.env.PICKS_THETA_STOP_PCT ?? 0.022);          // 2.2%/day of remaining premium (tightened 2.5→2.2 — cut dead-money bleeders sooner)
+const PICKS_THETA_STOP_MIN_HOLD_DAYS = Number(process.env.PICKS_THETA_STOP_MIN_HOLD_DAYS ?? 4); // don't theta-stop before this many days held (tightened 5→4)
 // Modeled-option-P&L repricer (P0.1). We have no options-price history, so the
 // track record reprices the SAME contract with Black-Scholes at exit to surface
 // the theta + IV-crush tax the underlying-move metric is blind to. Crude
@@ -7869,7 +7883,7 @@ const PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT = process.env.PICKS_ACCURACY_AB ===
 // lets us make them regime-aware — the AXIS (premium, not stock) is the fix.
 const PICKS_OPT_EXITS = process.env.PICKS_OPT_EXITS !== "0"; // default ON
 const PICKS_OPT_TP_PCT = Number(process.env.PICKS_OPT_TP_PCT ?? 0.6);   // +60% of entry premium → take profit (or, with the trail on, the ARM + minimum-lock level)
-const PICKS_OPT_STOP_PCT = Number(process.env.PICKS_OPT_STOP_PCT ?? 0.4); // -40% of entry premium → cut
+const PICKS_OPT_STOP_PCT = Number(process.env.PICKS_OPT_STOP_PCT ?? 0.35); // -35% of entry premium → cut (tightened 0.40→0.35 to cap the left tail; loss-min)
 // Let winners run: a TRAILING premium take-profit instead of the flat +60% cap.
 // Long-premium P&L is right-tail-driven — a few big winners pay for the losers — so
 // capping every win at +60% truncates exactly the trades that make the style work.
@@ -7976,12 +7990,15 @@ const PICKS_VERT_MIN_CREDIT = Number(process.env.PICKS_VERT_MIN_CREDIT ?? 0.20);
 // measured negative edge"). When on, pickContractForPick converts a rich-IV long
 // (rank ≥ PICKS_VERT_IVRANK) into a debit vertical without the master PICKS_VERTICALS
 // switch; on a measured-negative-edge book the IV floor drops to PICKS_VERT_NEGEDGE_IVRANK
-// so spreads engage at more moderate IV too. DARK by default (=== "1"): enabling it
-// live needs the pick CARD to render 2 legs (it doesn't yet) — sizing/repricing are
-// already vertical-aware (netDebit + net delta + modelVerticalExit). Same discipline
-// as PICKS_VERTICALS: ship the policy wired + correct, flip it on after the render
-// + forward validation.
-const PICKS_VERT_AUTO = process.env.PICKS_VERT_AUTO === "1"; // default OFF (dark)
+// so spreads engage at more moderate IV too. NOW ON by default (loss-min): the pick
+// card renders the 2-leg spread structure + capped max-profit/loss
+// (pickVerticalStructureHtml), and sizing/repricing are vertical-aware (netDebit +
+// net delta + modelVerticalExit). A debit spread caps the max loss to the (smaller)
+// net debit and slashes theta / IV-crush — the bulk of a long-premium book's losses
+// — at the cost of a capped upside, exactly the trade "minimize losses as much as
+// possible" calls for. Engages only in rich IV with a liquid credit-financing short
+// wing; otherwise the pick stays a single long. Set =0 to revert to naked longs.
+const PICKS_VERT_AUTO = process.env.PICKS_VERT_AUTO !== "0"; // default ON
 const PICKS_VERT_NEGEDGE_IVRANK = Number(process.env.PICKS_VERT_NEGEDGE_IVRANK ?? 50); // negative-edge book → engage spreads at this IV rank
 // Collinearity-collapse decorrelation (audit root-cause #1). The cross-sectional
 // pass z-scores each signal's MARGINAL but never touches the covariance, so a
@@ -10481,6 +10498,15 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     result.shortStrike = shortLeg.strike;
     result.shortMid = shortLeg.mid;
     result.shortDelta = shortLeg.delta;
+    // Defined-risk economics for the card: a debit spread caps both ends. Max loss
+    // = the net debit paid (per share); max profit = the strike width minus the debit
+    // (the spread can't pay more than the distance between the legs). Per-share — the
+    // ×100 multiplier is applied in the render. The capped max profit is the price of
+    // the slashed theta/IV-crush + smaller premium-at-risk.
+    const width = Math.abs(shortLeg.strike - longLeg.strike);
+    result.maxLoss = Number(netDebit.toFixed(2));
+    result.maxProfit = Number(Math.max(0, width - netDebit).toFixed(2));
+    result.spreadWidth = Number(width.toFixed(2));
   }
   return result;
 }
@@ -12664,6 +12690,7 @@ function _quantile(sortedAsc, p) {
 // side flip — it is cross-section-independent for a fixed side.
 function computeCrossSectionalScores(scored, opts = {}) {
   const eventRisk = opts.eventRisk || null;
+  const signalIc = (PICKS_SIGNAL_IC_WEIGHT && opts.signalIc && typeof opts.signalIc === "object") ? opts.signalIc : null; // §9.6 IC bridge
   const xsectional = opts.xsectional !== false;
   const sectorNeutral = !!opts.sectorNeutral;
   const regime = opts.regime || null;
@@ -12698,7 +12725,16 @@ function computeCrossSectionalScores(scored, opts = {}) {
   //    z, then map to a contribution (with the contrarian tail+gate wrappers).
   for (const key of Object.keys(pools)) {
     const reg = CONVERTED_SIGNALS[key];
-    const W = reg.oldMax / PICKS_Z_CLIP; // scale-preserving weight
+    let W = reg.oldMax / PICKS_Z_CLIP; // scale-preserving weight
+    // IC bridge (§9.6, PICKS_SIGNAL_IC_WEIGHT) — scale this signal's weight by its
+    // measured forward IC once enough decided outcomes have accrued: a signal that
+    // predicts is boosted, one with no / negative edge is shrunk toward the floor.
+    // Bounded + never sign-flipping. No-op until opts.signalIc carries a qualifying
+    // entry for this key (today: empty → W unchanged → byte-identical).
+    if (signalIc && signalIc[key] && signalIc[key].n >= PICKS_SIGNAL_IC_MIN_N) {
+      const f = Math.max(PICKS_SIGNAL_IC_FLOOR, Math.min(PICKS_SIGNAL_IC_CAP, 1 + PICKS_SIGNAL_IC_GAIN * signalIc[key].ic));
+      W *= f;
+    }
     const entries = pools[key];
     const universe = _robustStats(entries.map((e) => e.x));
 
@@ -12960,6 +12996,9 @@ function scoreAllTickers(chains, narratives, streaksMap = null, unusualPayload =
     // Tier hysteresis — the prior build's grade snapshot (gradesHistoryPrev.latest),
     // threaded by main()/regen-picks through buildTopPicks/buildGradesIndex opts.
     priorGrades: opts.priorGrades || null,
+    // §9.6 IC bridge — key→{ic,n} from the prior accuracy stats' bySignal (built by
+    // buildSignalIcMap, threaded via scannerExtras). Null today (no gate-era data).
+    signalIc: opts.signalIc || null,
   });
 
   // Build industry → [{symbol, total, side, tier}, ...] index for peer
@@ -13282,6 +13321,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const skippedCostGated = []; // P5.1 execution-cost gate skips (net-of-cost conviction below the bar)
   let earningsRiskCount = 0; // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK)
   const skippedEarningsRisk = [];
+  const skippedTimingGated = []; // require-go gate (PICKS_REQUIRE_GO) — non-'go' non-tactical picks
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -13330,6 +13370,19 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // A tactical risk-off put sits below the grade bar to begin with, so only
     // ship it on a genuinely clean breakdown (timing 'go'), never a marginal one.
     if (cand.tactical && timing.state !== "go") { vetoed += 1; continue; }
+
+    // Require-go gate (PICKS_REQUIRE_GO, loss-min "trade less"): a non-tactical
+    // graded pick must also have a clean 'go' entry. A 'wait' name (mixed
+    // structure, imminent catalyst, extreme own-IV) would otherwise ship badged —
+    // but a long debit opened without a clean entry is the most avoidable loss, so
+    // drop it (logged with its deferKind) rather than recommend it. The grade is
+    // untouched; the name still appears in the grade-any-ticker index, just not as
+    // an actionable pick today.
+    if (PICKS_REQUIRE_GO && !cand.tactical && timing.state !== "go") {
+      skippedTimingGated.push({ symbol: r.sym, side, state: timing.state || "wait", deferKind: timing.deferKind || null });
+      vetoed += 1;
+      continue;
+    }
 
     // Earnings-eve entry veto. The timing fold treats an imminent print as one
     // strong con (−2 in the pro/con tally), which a couple of aligned pros cancel
@@ -13546,6 +13599,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       costGated: skippedCostGated, // P5.1 execution-cost gate (net-of-cost conviction below the bar)
       earningsEve: skippedEarningsEve, // earnings-eve entry veto (print ≤PICKS_EARNINGS_VETO_DAYS out — don't open what the exit rule would close)
       earningsRiskCapped: skippedEarningsRisk, // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK) — too many crush-exposed contracts already
+      timingGated: skippedTimingGated, // require-go gate (PICKS_REQUIRE_GO) — graded names without a clean 'go' entry, deferred not shipped
       // Book-level greek / premium-at-risk aggregate (C): the shipped roster's net
       // delta / vega / theta-per-day + total premium deployed, all as % of the display
       // account, so the UI can surface the long-vega / short-theta carry the per-name
@@ -14823,6 +14877,32 @@ function fillCheckpoints(e, builtAtIso, curSpot, scoreNow, nowSec) {
 // the `rate` is null — raw counts only). Guards against reading signal into noise
 // on the thin early sample.
 const PICKS_SIGNAL_MIN_N = 25;
+// IC bridge (§9.6) — "measure then weight". Once a converted signal has accumulated
+// ≥ PICKS_SIGNAL_IC_MIN_N decided outcomes with a measured forward IC (bySignal[].ic
+// in the prior picks-accuracy.json), scale its cross-sectional weight W_s by that IC:
+// a signal that PREDICTS (positive IC) is boosted, one with no / negative measured
+// edge is shrunk toward the floor — so the engine stops trading as hard on signals
+// that don't work. Bounded + blended (never flips a signal's sign — too aggressive on
+// a thin sample). DEFAULT ON, but a pure NO-OP until forward, gate-era outcomes
+// accumulate (the track record was wiped, so today there is no IC → every multiplier
+// is 1 → byte-identical). "Set up now, bites later." Threaded as opts.signalIc (a map
+// key→{ic,n}) built from picksAccuracyPrev.stats.bySignal. =0 reverts to equal W_s.
+const PICKS_SIGNAL_IC_WEIGHT = process.env.PICKS_SIGNAL_IC_WEIGHT !== "0"; // default ON (no-op w/o data)
+const PICKS_SIGNAL_IC_MIN_N = Number(process.env.PICKS_SIGNAL_IC_MIN_N ?? PICKS_SIGNAL_MIN_N); // decided outcomes before IC re-weights
+const PICKS_SIGNAL_IC_GAIN = Number(process.env.PICKS_SIGNAL_IC_GAIN ?? 2.0);  // W *= clamp(1 + GAIN·ic, FLOOR, CAP)
+const PICKS_SIGNAL_IC_FLOOR = Number(process.env.PICKS_SIGNAL_IC_FLOOR ?? 0.4); // a no-edge / wrong signal floors here, never 0 (still a prior)
+const PICKS_SIGNAL_IC_CAP = Number(process.env.PICKS_SIGNAL_IC_CAP ?? 1.8);     // a strong-IC signal can't run away
+// Build the key→{ic,n} map the IC bridge consumes from the prior accuracy stats'
+// bySignal block. Defensive: only entries with a finite ic + n survive. Empty/absent
+// prior stats → null (the standardizer then leaves every W_s at its equal prior).
+export function buildSignalIcMap(bySignal) {
+  if (!PICKS_SIGNAL_IC_WEIGHT || !bySignal || typeof bySignal !== "object") return null;
+  const out = {};
+  for (const [k, v] of Object.entries(bySignal)) {
+    if (v && Number.isFinite(Number(v.ic)) && Number.isFinite(Number(v.n))) out[k] = { ic: Number(v.ic), n: Number(v.n) };
+  }
+  return Object.keys(out).length ? out : null;
+}
 // A published per-signal hit-rate this close to 0.50 (a coin flip) is treated as
 // "no demonstrated edge" → flagged prunable (P2.3, measure-only).
 const PICKS_SIGNAL_PRUNE_BAND = 0.05;
@@ -15293,12 +15373,16 @@ export async function readPicksAccuracyState() {
       return {
         open: Array.isArray(aj.open) ? aj.open : [],
         closed: Array.isArray(aj.closed) ? aj.closed : [],
+        // §9.6 IC bridge — the prior build's computed accuracy stats (incl. bySignal[].ic),
+        // so main() can build the per-signal IC weight map. Absent on a legacy/fresh
+        // file → null → the bridge stays a no-op (equal weights).
+        stats: aj.stats && typeof aj.stats === "object" ? aj.stats : null,
       };
     }
   } catch {
     // First run / missing / corrupt — fresh tracker.
   }
-  return { open: [], closed: [] };
+  return { open: [], closed: [], stats: null };
 }
 
 // `priorState` is the pre-wipe snapshot from readPicksAccuracyState(). A full
@@ -21244,6 +21328,10 @@ async function main() {
     oiTracker,
     flowLog: unusualLog,
     correlations: correlationsInfo?.payload || priorCorrelations,
+    // §9.6 IC bridge — per-signal forward IC from the prior accuracy stats, so the
+    // cross-sectional weights can lean toward signals that have actually predicted.
+    // No-op until gate-era outcomes accumulate (today: bySignal carries no IC).
+    signalIc: buildSignalIcMap(picksAccuracyPrev?.stats?.bySignal),
   };
   const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
