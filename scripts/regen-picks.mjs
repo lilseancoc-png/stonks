@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -222,6 +222,19 @@ try {
   console.log(`Updated grades-daily.json — ${gd.days} day snapshot(s).`);
 } catch (err) {
   console.warn(`grades-daily.json skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
+// Daily market-regime timeline (Top Picks "risk-on / risk-off history" calendar)
+// — upsert today's ET row from the same macro-regime gauge + roster lean as the
+// full build. Read-modify-write on the live file (no wipe here).
+try {
+  const rhPrev = await readRegimeHistory();
+  let calls = 0, puts = 0;
+  for (const p of picks) { if (p && p.side === "put") puts++; else if (p) calls++; }
+  const rh = await writeRegimeHistory(appendRegimeHistory(rhPrev, macroBackdrop?.macroRegime || null, { calls, puts }, builtAtIso));
+  console.log(`Updated regime-history.json — ${rh.days} day snapshot(s).`);
+} catch (err) {
+  console.warn(`regime-history.json skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
 // Grade-change log: diff the regen'd grade index against the history snapshot

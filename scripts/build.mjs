@@ -13708,6 +13708,77 @@ export async function writeGradesDaily(payload) {
   return { bytes: json.length, days: payload.days.length };
 }
 
+// ---- Daily market-regime timeline (data/regime-history.json) -------------
+// One row per ET trading day: the cross-asset macro-regime gauge that set the
+// engine's posture that day (risk-on / neutral / risk-off / severe-risk-off,
+// plus stress / drivers / a fragile-neutral flag) and the roster's call/put
+// lean. This is the substrate for the Top Picks tab's "risk-on / risk-off
+// history" calendar — hover a day to see that session's read and how the picks
+// leaned. Intraday builds UPSERT the current ET day, so the surviving row is the
+// day's LAST build (the close read by the 16:00 bake). Same read-before-wipe /
+// write-after-wipe rule as grades-daily: main() MUST readRegimeHistory() BEFORE
+// writeChainFiles wipes data/; regen-picks (no wipe) reads the live file.
+const REGIME_HISTORY_FILE = "regime-history.json";
+const REGIME_HISTORY_MAX_DAYS = Number(process.env.REGIME_HISTORY_MAX_DAYS ?? 120);
+
+export async function readRegimeHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.days)) {
+      return { days: parsed.days.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))) };
+    }
+  } catch {
+    // First run / missing / corrupt — fresh timeline.
+  }
+  return { days: [] };
+}
+
+// Pure: upsert today's (ET) row from the macro-regime gauge + the roster lean,
+// prune to the retention window, return the next payload. A null/empty regime
+// (PICKS_MACRO_REGIME off, or a regen with no macro backdrop) carries the prior
+// timeline forward unchanged rather than blanking the day. `lean` is the
+// visible roster's {calls, puts} (from writeTopPicksFile's return).
+export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
+  const days = (prev && Array.isArray(prev.days)) ? prev.days.slice() : [];
+  days.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (!regime || !regime.state) return { days };
+  const day = etDateKey(new Date(builtAtIso));
+  const drivers = Array.isArray(regime.drivers) ? regime.drivers.slice(0, 6).map(String) : [];
+  const calls = lean && Number.isFinite(lean.calls) ? lean.calls : null;
+  const puts = lean && Number.isFinite(lean.puts) ? lean.puts : null;
+  const rec = {
+    date: day,
+    asOf: builtAtIso,
+    state: regime.state,                                      // neutral | risk-on | risk-off | severe-risk-off
+    rawState: regime.rawState || regime.state,
+    persisted: !!regime.persisted,
+    // The engine reads a "fragile neutral" as a calm price/vol surface over
+    // deteriorating breadth + credit internals (state stays neutral). Derive it
+    // the same way so the calendar can flag it distinctly from a clean neutral.
+    fragile: regime.state === "neutral" && !!regime.internalsStress,
+    internalsLabel: regime.internalsLabel || null,
+    stress: Number.isFinite(regime.stress) ? regime.stress : null,
+    riskOffAxes: Number.isFinite(regime.riskOffAxes) ? regime.riskOffAxes : null,
+    summary: typeof regime.summary === "string" ? regime.summary : null,
+    drivers,
+    picks: (calls != null && puts != null) ? { calls, puts, total: calls + puts } : null,
+  };
+  const idx = days.findIndex((d) => d && d.date === day);
+  if (idx >= 0) days[idx] = rec;
+  else days.push(rec);
+  days.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  while (days.length > REGIME_HISTORY_MAX_DAYS) days.shift();
+  return { days };
+}
+
+export async function writeRegimeHistory(payload) {
+  if (!payload || !Array.isArray(payload.days)) return { bytes: 0, days: 0 };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), json, "utf8");
+  return { bytes: json.length, days: payload.days.length };
+}
+
 // Diff the fresh grade index against the prior lean snapshot, append a change
 // event for any ticker whose tier flips OR whose score moves >= the threshold,
 // then refresh the snapshot and prune. A first run (no prior snapshot) just
@@ -14315,6 +14386,18 @@ async function aiGlossRosterForecasts(roster, chains) {
   if (done) console.log(`[picks] AI-glossed ${done}/${slice.length} roster forecasts (${model})`);
 }
 
+// Count the visible roster's call/put lean — threaded into main()'s regime-
+// history row (data/regime-history.json) so the Top Picks risk-on/off calendar
+// can show how the picks leaned on a given day. Picks always carry a side.
+function pickSideLean(picks) {
+  let calls = 0, puts = 0;
+  for (const p of (picks || [])) {
+    if (p && p.side === "put") puts++;
+    else if (p) calls++;
+  }
+  return { calls, puts };
+}
+
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null) {
   // priorClosed = the pre-update accuracy `closed` set (P1.3 edge governor), threaded
   // from main()'s pre-wipe picksAccuracyPrev so gross scales by the trailing edge.
@@ -14374,7 +14457,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
       console.warn(
         `[picks] buildTopPicks returned 0 picks — reusing ${priorPayload.picks.length} from ${priorPayload.builtAtIso || "previous run"} (marked stale)`,
       );
-      return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true };
+      return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks) };
     }
     // No prior picks (first run / unreadable) — fall through to the empty write.
   }
@@ -14394,7 +14477,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   };
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
-  return { bytes: json.length, count: picks.length };
+  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks) };
 }
 
 // Read the prior data/picks.json into memory. main() MUST call this BEFORE
@@ -20615,6 +20698,10 @@ async function main() {
   // universe-IC substrate accumulates across builds, so it must be pre-read
   // before the wipe or the time series resets every build.
   const gradesDailyPrev = await readGradesDaily();
+  // Same rule for the daily market-regime timeline (data/regime-history.json) —
+  // the Top Picks "risk-on / risk-off history" calendar accumulates across builds,
+  // so it must be pre-read before the wipe or the timeline resets every build.
+  const regimeHistoryPrev = await readRegimeHistory();
   // Same rule for the picks churn log (data/picks-changes.json) — read it now so
   // this build's entered/exited events append to the rolling log instead of
   // resetting it after the wipe.
@@ -21044,6 +21131,18 @@ async function main() {
     console.log(`wrote data/grades-daily.json — ${gd.days} day snapshot(s), ${gd.bytes} bytes`);
   } catch (err) {
     console.warn(`[grades] daily snapshot skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Daily market-regime timeline (Top Picks "risk-on / risk-off history"
+  // calendar): upsert today's ET row from the macro-regime gauge that drove this
+  // build's roster + the day's call/put lean (from writeTopPicksFile's return).
+  // Pre-read above (regimeHistoryPrev) before the wipe, same as the grade
+  // histories; carries forward unchanged when there's no macro backdrop.
+  try {
+    const regimeNext = appendRegimeHistory(regimeHistoryPrev, macroBackdrop?.macroRegime || null, picksInfo?.lean || null, builtAtIso);
+    const rh = await writeRegimeHistory(regimeNext);
+    console.log(`wrote data/${REGIME_HISTORY_FILE} — ${rh.days} day snapshot(s), ${rh.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[regime] history skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Grade-change log: diff the fresh index against the pre-wipe snapshot.
   try {
