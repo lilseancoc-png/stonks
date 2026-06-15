@@ -7252,6 +7252,16 @@ const PICKS_MAX_PER_SECTOR = 3;
 // Only the correlated growth complex is mapped; everything else (Banks, Pharma,
 // Energy, …) is left to the GICS sector cap. ETFs / unmapped → no factor cap.
 const PICKS_MAX_PER_FACTOR = 5;
+// Earnings-crush concentration cap. A long single-leg premium whose chosen contract
+// expiry crosses an upcoming earnings print eats the post-report IV crush — a binary
+// vol event the directional thesis can't hedge. The 45–90 DTE rework (§3.8) makes a
+// contract MORE likely to span the next quarterly print, so the roster can quietly
+// stack a majority of crush-exposed names (a desk would never run a book where most
+// positions face an unhedged binary event). Cap how many shipped picks may hold an
+// earnings-in-window contract; beyond it, the candidate is skipped (no backfill) and
+// logged to rosterMeta.earningsRiskCapped. 0 disables. (Distinct from the earnings-EVE
+// veto, PICKS_EARNINGS_VETO_DAYS, which hard-drops a name reporting in ≤2 sessions.)
+const PICKS_MAX_EARNINGS_RISK = Number(process.env.PICKS_MAX_EARNINGS_RISK ?? 4);
 const FACTOR_OF_SECTOR = {
   "Mega-cap tech": "Tech/AI growth",
   "Semis": "Tech/AI growth",
@@ -7787,8 +7797,24 @@ const PICKS_MACRO_TILT_FULL_STRESS = Number(process.env.PICKS_MACRO_TILT_FULL_ST
 // picks.json rosterMeta (threaded by main()/regen-picks); absent → no persistence.
 const PICKS_REGIME_PERSIST = process.env.PICKS_REGIME_PERSIST !== "0";
 // Gross de-risking + call cap in a macro-stress tape (a desk cuts SIZE, not just side).
-const PICKS_MACRO_GROSS_RISKOFF = Number(process.env.PICKS_MACRO_GROSS_RISKOFF ?? 0.6); // deployed-gross multiplier in risk-off
+const PICKS_MACRO_GROSS_RISKOFF = Number(process.env.PICKS_MACRO_GROSS_RISKOFF ?? 0.6); // deployed-gross multiplier in risk-off (at FULL stress)
 const PICKS_MACRO_GROSS_SEVERE = Number(process.env.PICKS_MACRO_GROSS_SEVERE ?? 0.4);   // ... in severe-risk-off
+// Continuous de-gross ramp (lever-coherence fix). The bearish TILT already ramps
+// with the stress composite (PICKS_MACRO_TILT_RAMP) — |tilt| = 0 at stress 0 → full
+// at FULL_STRESS — but the de-gross was a STEP: the instant the discrete state read
+// risk-off it slammed gross to PICKS_MACRO_GROSS_RISKOFF (0.6), regardless of how
+// much stress was actually measured. So a borderline / persistence-HELD risk-off at
+// stress 0 (the recovering tape: VIX crushing, one slow axis lit) cut the book 40%
+// while the directional tilt it expresses was exactly 0 — the size lever and the
+// direction lever disagreeing by construction (40% de-gross on a coin-flip macro
+// read). Ramp the cut with stress the same way the tilt ramps, so the SIZE of the
+// defensive response is proportional to the measured stress: gross = 1 at stress 0,
+// → GROSS_RISKOFF at |stress| ≥ FULL_STRESS, linear between. The persistence still
+// HOLDS the cautious risk-off posture (tactical-put path open, knife thresholds
+// tightened — the binary "are we defensive?" levers), but it no longer cuts size on
+// zero measured stress. Severe stays a hard step (break-glass, already deep-stress
+// gated). =0 → legacy step. Mirrored in the live re-port (scripts/render/app-js.mjs).
+const PICKS_MACRO_GROSS_RAMP = process.env.PICKS_MACRO_GROSS_RAMP !== "0";
 const PICKS_MACRO_SEVERE_CALL_CAP = Number(process.env.PICKS_MACRO_SEVERE_CALL_CAP ?? 3); // max calls shipped in a severe tape
 const PICKS_MACRO_SEVERE_PUT_BAR = Number(process.env.PICKS_MACRO_SEVERE_PUT_BAR ?? -5);  // relaxed tactical-put bar in severe (vs PICKS_RISKOFF_PUT_BAR)
 // "Fragile" neutral tape (PICKS_MACRO_FG_INTERNALS): the binary regime reads
@@ -11461,6 +11487,7 @@ const MACRO_LIVE_THRESHOLDS = {
   riskonAxes: PICKS_MACRO_RISKON_AXES, riskonStress: PICKS_MACRO_RISKON_STRESS, riskonMaxOff: PICKS_MACRO_RISKON_MAX_OFF,
   clusterDiscount: PICKS_MACRO_CLUSTER_DISCOUNT, axisDecorr: PICKS_MACRO_AXIS_DECORR,
   grossRiskoff: PICKS_MACRO_GROSS_RISKOFF, grossSevere: PICKS_MACRO_GROSS_SEVERE, grossFragile: PICKS_MACRO_GROSS_FRAGILE,
+  grossRamp: PICKS_MACRO_GROSS_RAMP, tiltFullStress: PICKS_MACRO_TILT_FULL_STRESS,
   commodityOn: PICKS_MACRO_COMMODITY, sentimentOn: PICKS_MACRO_SENTIMENT, fgInternalsOn: PICKS_MACRO_FG_INTERNALS,
 };
 
@@ -11629,17 +11656,30 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     const bits = [];
     const stressed = [];
     if (inf && isFinite(inf.yoy)) {
-      const reaccel = isFinite(inf.yoy3mAgo) && inf.yoy >= PICKS_MACRO_CPI_WARM && (inf.yoy - inf.yoy3mAgo) >= PICKS_MACRO_CPI_REACCEL;
-      if (inf.yoy >= PICKS_MACRO_CPI_HOT || reaccel) {
+      const d3 = isFinite(inf.yoy3mAgo) ? (inf.yoy - inf.yoy3mAgo) : null; // 3-month momentum (pp)
+      const reaccel = inf.yoy >= PICKS_MACRO_CPI_WARM && d3 != null && d3 >= PICKS_MACRO_CPI_REACCEL;
+      // Vote on the CHANGE, not the LEVEL. A known CPI print is already priced — a
+      // desk trades the surprise / momentum, not the absolute number — so a hot but
+      // FLAT or COOLING reading no longer votes risk-off. The old pure-level rule
+      // (yoy ≥ HOT → −1) kept the axis permanently lit at any elevated level for the
+      // whole month, leaving the gauge one transient shock from risk-off and sticky
+      // on the way out (via the asymmetric hysteresis) — the same near-permanent bear
+      // lean the F&G internals are deliberately kept OUT of the state machine to avoid.
+      // Now −1 fires only when inflation is genuinely WORSENING: re-accelerating off a
+      // warm base, or hot AND still climbing. (True actual-vs-consensus surprise would
+      // need the calendar's consensus threaded onto macroBackdrop.inflation — a follow-up;
+      // momentum is the best change-read available from the BLS/FRED actuals here.)
+      const stillRising = inf.trend === "rising" || (d3 != null && d3 > 0);
+      if (reaccel || (inf.yoy >= PICKS_MACRO_CPI_HOT && stillRising)) {
         s -= 1;
-        const why = inf.yoy >= PICKS_MACRO_CPI_HOT ? "hot" : "re-accelerating";
+        const why = reaccel ? "re-accelerating" : "hot & rising";
         bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY ${why}`);
-        stressed.push(`CPI ${inf.yoy.toFixed(1)}%`);
+        stressed.push(`CPI ${inf.yoy.toFixed(1)}% ↑`);
       } else if (inf.yoy <= PICKS_MACRO_CPI_COOL && inf.trend !== "rising") {
         s += 1;
         bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY near target`);
       } else {
-        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY`);
+        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY${inf.yoy >= PICKS_MACRO_CPI_HOT ? " — elevated but stable (priced in)" : ""}`);
       }
     }
     if (ue && isFinite(ue.rate)) {
@@ -11922,6 +11962,27 @@ export function macroEffectiveAxisCount(axes, dir, discount = PICKS_MACRO_CLUSTE
   let eff = 0;
   for (const n of perCluster.values()) eff += 1 + discount * (n - 1);
   return eff;
+}
+
+// Deployed-gross multiplier for the regime, ramped with the stress composite
+// (PICKS_MACRO_GROSS_RAMP). Mirrors the bearish-tilt ramp so the SIZE and the
+// DIRECTION levers track the same measured stress: in a plain risk-off the cut
+// scales from 1 (stress 0) to PICKS_MACRO_GROSS_RISKOFF at |stress| ≥
+// PICKS_MACRO_TILT_FULL_STRESS, so a borderline / held risk-off at low stress
+// barely de-grosses while a deep one reaches the full cut. Severe is a hard step
+// (break-glass, already double-gated on deep stress); fragile is its own neutral
+// sub-state step. Keep in sync with the live re-port (scripts/render/app-js.mjs
+// computeLiveMacroRegime → grossMult). `severe`/`fragile` are the already-resolved
+// flags; `stress` is the raw composite (negative = risk-off).
+export function regimeGrossMult(regime, severe, fragile, stress) {
+  if (severe) return PICKS_MACRO_GROSS_SEVERE;
+  if (regime === "risk-off") {
+    if (!PICKS_MACRO_GROSS_RAMP) return PICKS_MACRO_GROSS_RISKOFF;
+    const t = Math.min(1, Math.max(0, -(Number(stress) || 0)) / PICKS_MACRO_TILT_FULL_STRESS);
+    return 1 - (1 - PICKS_MACRO_GROSS_RISKOFF) * t;
+  }
+  if (fragile) return PICKS_MACRO_GROSS_FRAGILE;
+  return 1;
 }
 
 export function detectMarketRegime(marketCtx, macroBackdrop) {
@@ -13076,6 +13137,49 @@ function applyPickSizing(picks, chains, strongCut, edgeScale = 1, regimeGross = 
   }
 }
 
+// Book-level greek / premium-at-risk aggregate over the shipped roster (C). Every
+// pick is a long single-leg option (verticals are DARK), so the whole book is
+// net-long-vega / net-short-theta — a structural carry the per-name inverse-risk
+// sizing never surfaced. Sums the position-weighted greeks (using each pick's
+// suggestedContracts × 100 multiplier) and expresses the directional + premium
+// exposure as % of the display account, plus the raw net vega ($/vol-pt) and daily
+// theta bleed. Net delta is side-signed (call +, put −) and delta-adjusted to a
+// notional. Null-safe: a pick with no modeled greeks just doesn't contribute that
+// leg. Returns null on an empty roster. (Single-leg only — if PICKS_VERT_AUTO is ever
+// lit, the leg-net would belong here, like applyPickSizing.)
+export function computeBookRisk(picks, account) {
+  if (!Array.isArray(picks) || !picks.length) return null;
+  const acct = Number(account) > 0 ? Number(account) : PICKS_DISPLAY_ACCOUNT;
+  let grossPremium = 0, netDeltaNotional = 0, netVega = 0, netThetaDay = 0, contractsTotal = 0;
+  for (const p of picks) {
+    const c = p.contract || {};
+    const n = (p.sizing && Number(p.sizing.suggestedContracts)) || 0;
+    if (!(n > 0)) continue;
+    const mult = n * 100; // option contract multiplier
+    contractsTotal += n;
+    const prem = Number(c.mid);
+    if (Number.isFinite(prem)) grossPremium += mult * prem;
+    const spot = Number(p.spot);
+    const dAbs = Math.abs(Number(c.delta));
+    const sideSign = p.side === "put" ? -1 : 1;
+    if (Number.isFinite(dAbs) && Number.isFinite(spot)) netDeltaNotional += mult * dAbs * sideSign * spot;
+    const vega = Number(c.vega);
+    if (Number.isFinite(vega)) netVega += mult * vega;        // long premium → long vega both sides
+    const th = Number(c.thetaDay);
+    if (Number.isFinite(th)) netThetaDay += mult * th;        // long premium → negative theta both sides
+  }
+  return {
+    contracts: contractsTotal,
+    grossPremium: Math.round(grossPremium),
+    premiumAtRiskPct: Number(((grossPremium / acct) * 100).toFixed(1)),  // capital deployed in premium, % of account
+    netDeltaPct: Number(((netDeltaNotional / acct) * 100).toFixed(1)),    // delta-adjusted notional, % of account (signed)
+    netVega: Math.round(netVega),                                         // $ per 1 vol-point move
+    netThetaDay: Math.round(netThetaDay),                                 // $ decay per calendar day (negative)
+    netThetaDayPct: Number(((netThetaDay / acct) * 100).toFixed(2)),      // daily theta bleed, % of account
+    account: acct,
+  };
+}
+
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   const { scored, peerIndex, marketCtx, tierCutoffs, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const regime = detectMarketRegime(marketCtx, macroBackdrop);
@@ -13176,6 +13280,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const skippedSideCapped = [];
   const skippedConfluence = []; // v2 confluence gate skips (single-story / tape-fighting picks)
   const skippedCostGated = []; // P5.1 execution-cost gate skips (net-of-cost conviction below the bar)
+  let earningsRiskCount = 0; // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK)
+  const skippedEarningsRisk = [];
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -13295,6 +13401,15 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       skippedFactorCapped.push({ symbol: r.sym, factor });
       continue;
     }
+    // Earnings-crush concentration cap (C): once the roster already holds
+    // PICKS_MAX_EARNINGS_RISK contracts whose expiry crosses an earnings print,
+    // skip further crush-exposed names — don't run a book where most positions
+    // face an unhedged binary IV-crush event (a side effect of the 45–90 DTE
+    // contracts routinely spanning the next quarterly report). No backfill.
+    if (PICKS_MAX_EARNINGS_RISK > 0 && contract.earningsInWindow && earningsRiskCount >= PICKS_MAX_EARNINGS_RISK) {
+      skippedEarningsRisk.push({ symbol: r.sym, side });
+      continue;
+    }
 
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
     const reasons = r.drivers.map((d) => d.text);
@@ -13373,6 +13488,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     sideCounts[side] = (sideCounts[side] || 0) + 1;
     if (sector) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
     if (factor) factorCounts[factor] = (factorCounts[factor] || 0) + 1;
+    if (contract.earningsInWindow) earningsRiskCount += 1;
   }
   // Rank by net-of-cost conviction — |total| minus the P5.1 execution-cost
   // debit, highest first. `total` already folds in entry timing, so a
@@ -13396,11 +13512,21 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // caller). 1 when the governor is off or there's no prior record.
   const edgeScale = computeEdgeScale(opts.priorClosed || null);
   // Macro de-grossing: a desk cuts SIZE in a tightening tape, not just direction.
-  // Multiply the deployed gross by the regime multiplier (1 when neutral / off).
-  const macroGross = severe ? PICKS_MACRO_GROSS_SEVERE
-    : (regime === "risk-off" ? PICKS_MACRO_GROSS_RISKOFF
-    : (fragile ? PICKS_MACRO_GROSS_FRAGILE : 1));
+  // The cut RAMPS with the stress composite (PICKS_MACRO_GROSS_RAMP) the same way
+  // the bearish tilt does, so the size and direction levers agree: a held / borderline
+  // risk-off at stress 0 barely de-grosses (it expresses zero directional tilt there
+  // too), while a deep risk-off reaches the full PICKS_MACRO_GROSS_RISKOFF cut. (1 when
+  // neutral / off.)
+  const macroStress = (macroBackdrop && macroBackdrop.macroRegime && Number.isFinite(Number(macroBackdrop.macroRegime.stress)))
+    ? Number(macroBackdrop.macroRegime.stress) : 0;
+  const macroGross = regimeGrossMult(regime, severe, fragile, macroStress);
   applyPickSizing(out, chains, tierCutoffs && tierCutoffs.strongCut, edgeScale, macroGross);
+  // Book-level greek / premium-at-risk aggregate (C). Every pick is a long single-leg
+  // option, so the whole roster is net-long-vega / net-short-theta — a structural carry
+  // the per-name sizing never surfaced. Sum the position-weighted greeks across the
+  // shipped roster (against the display account) so the UI can show the book's net
+  // exposure + daily theta bleed at a glance. Pure post-step over the survivors.
+  const book = computeBookRisk(out, PICKS_DISPLAY_ACCOUNT);
   // Roster construction meta (gate drops + sector-cap skips) so the UI can show
   // an honest "only N clean setups today / M capped" note. Stashed on a
   // non-enumerable so JSON.stringify(picks) is unchanged but writeTopPicksFile
@@ -13419,6 +13545,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       confluenceSkipped: skippedConfluence, // v2 confluence gate (single-story / tape-fighting picks)
       costGated: skippedCostGated, // P5.1 execution-cost gate (net-of-cost conviction below the bar)
       earningsEve: skippedEarningsEve, // earnings-eve entry veto (print ≤PICKS_EARNINGS_VETO_DAYS out — don't open what the exit rule would close)
+      earningsRiskCapped: skippedEarningsRisk, // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK) — too many crush-exposed contracts already
+      // Book-level greek / premium-at-risk aggregate (C): the shipped roster's net
+      // delta / vega / theta-per-day + total premium deployed, all as % of the display
+      // account, so the UI can surface the long-vega / short-theta carry the per-name
+      // sizing hides. Null-safe (degrades when greeks are unavailable).
+      book,
       // §3.5.1 — which regime weighting was in force this build (neutral / risk-off /
       // severe / risk-on), so the card breakdown can explain WHY the slow pillars
       // were discounted or boosted.

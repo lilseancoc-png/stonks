@@ -769,12 +769,28 @@ The **base** regime is conservative — **risk-off requires both** a ≥1% SPY d
   the UI/logs can show "holding risk-off pending confirmation". Absent prior →
   the raw read stands (graceful).
 - **De-grossing + severe-tape guards.** A desk cuts *size* in a tightening tape, not
-  just side. `applyPickSizing` scales the deployed gross by `PICKS_MACRO_GROSS_RISKOFF`
-  (0.6) / `PICKS_MACRO_GROSS_SEVERE` (0.4). In a **severe** tape the roster also **caps
-  calls** at `PICKS_MACRO_SEVERE_CALL_CAP` (3, the rest fill with puts / cash) and
-  **relaxes the tactical-put bar** to `PICKS_MACRO_SEVERE_PUT_BAR` (−5, vs the −8 below).
-  The gauge (state, four axes, drivers, gross multiplier) rides on
-  `rosterMeta.macroRegime` and renders in the Top Picks summary chip.
+  just side. `regimeGrossMult` scales the deployed gross toward `PICKS_MACRO_GROSS_RISKOFF`
+  (0.6) / `PICKS_MACRO_GROSS_SEVERE` (0.4). **The risk-off cut now RAMPS with the stress
+  composite (`PICKS_MACRO_GROSS_RAMP`, default ON) — the lever-coherence fix.** The
+  bearish *tilt* already ramped (`|tilt| = 0` at stress 0 → full at `FULL_STRESS`), but
+  the de-gross was a STEP: the instant the discrete state read risk-off it slammed gross
+  to 0.6 *regardless of measured stress*. So a borderline / persistence-**held** risk-off
+  at **stress 0** (the "recovering" tape — VIX crushing, one slow axis lit) cut the book
+  **40%** while the directional tilt it expressed was exactly **0** — the size lever and
+  the direction lever disagreeing by construction (a 40% de-gross on a coin-flip macro
+  read). The cut now scales the same way the tilt does: `gross = 1 − (1 − GROSS_RISKOFF)·
+  min(1, |stress|/FULL_STRESS)` — **1.0 at stress 0, 0.8 at stress −2, 0.6 at −4** — so
+  the SIZE of the defensive response is proportional to the measured stress. The
+  persistence still **holds** the cautious risk-off *posture* (tactical-put path open,
+  knife thresholds tightened — the binary "are we defensive?" levers), but it no longer
+  cuts size on zero stress. **Severe** stays a hard step (break-glass, already deep-stress
+  gated). `=0` → legacy step. **Mirrored in the live re-port** (`computeLiveMacroRegime`
+  in `scripts/render/app-js.mjs`, `regimeGrossMult` is the server source — "duplicate the
+  math on purpose"). In a **severe** tape the roster also **caps calls** at
+  `PICKS_MACRO_SEVERE_CALL_CAP` (3, the rest fill with puts / cash) and **relaxes the
+  tactical-put bar** to `PICKS_MACRO_SEVERE_PUT_BAR` (−5, vs the −8 below). The gauge
+  (state, axes, drivers, gross multiplier) rides on `rosterMeta.macroRegime` and renders
+  in the Top Picks summary chip.
 - **VIX term-structure backwardation.** `detectMarketRegime` also reads the VIX
   curve (`^VIX9D` / `^VIX` / `^VIX3M`, fetched in `fetchMacroBackdrop` →
   `macroBackdrop.vixTerm`; `ratio` = 30-day ÷ 3-month, `state` = **backwardation**
@@ -921,6 +937,27 @@ first bake.
   `SECTORS` of that complex into one factor and cap it on top of the sector cap;
   unmapped names (banks, pharma, energy, …) rely on the sector cap. Skips →
   `rosterMeta.factorCapped`.
+- **Earnings-crush concentration cap** (`PICKS_MAX_EARNINGS_RISK = 4`). A long single-leg
+  premium whose chosen contract expiry crosses an upcoming earnings print eats the
+  post-report IV crush — a binary vol event the directional thesis can't hedge. The 45–90
+  DTE rework (§3.8) makes a contract MORE likely to span the next quarterly print, so the
+  roster could quietly stack a majority of crush-exposed names (a desk would never run a
+  book where most positions face an unhedged binary event). No more than
+  `PICKS_MAX_EARNINGS_RISK` shipped picks may hold an `earningsInWindow` contract; beyond
+  it the candidate is skipped (no backfill) → `rosterMeta.earningsRiskCapped`. `0` disables.
+  Distinct from the earnings-**eve** veto (§6.2, `PICKS_EARNINGS_VETO_DAYS`), which hard-drops
+  a name reporting in ≤2 sessions regardless of count.
+- **Book-level greek / premium-at-risk aggregate** (`computeBookRisk`, surfaced on
+  `rosterMeta.book`). Every pick is a long single-leg option (verticals are DARK), so the
+  whole roster is structurally **net-long-vega / net-short-theta** — a carry the per-name
+  inverse-risk sizing never surfaced. `computeBookRisk` sums the position-weighted greeks
+  (each pick's `suggestedContracts × 100`) into `{ premiumAtRiskPct, netDeltaPct, netVega,
+  netThetaDay, netThetaDayPct }` against `PICKS_DISPLAY_ACCOUNT`: **premium-at-risk** = total
+  long premium deployed (the most the book can lose) as % of account; **net Δ** = side-signed
+  delta-adjusted notional as % of account; **net vega** = $ per vol-point; **net theta/day** =
+  the daily decay bleed. Surfaced as a "prem at risk" summary chip (net greeks in its tooltip).
+  Measure/display only — it does not yet gate or size; it makes the carry visible so the
+  long-premium-only structure (and the case for the dark debit-vertical structure, §5) is auditable.
 - **Direction-concentration cap** (`PICKS_MAX_PER_SIDE = 8`). The sector/factor caps
   bound correlated longs, but nothing bounded a **one-way book**: a marginal 2-axis
   risk-off could ship the roster 10/10 puts (100% short delta) on one borderline
@@ -1166,11 +1203,20 @@ it has to be trustworthy. The fixes:
     `PICKS_MACRO_GEO_MIN_STR 45` / `_GEO_STRONG_STR 65` (`computeGeoNewsStress`, `GEO_CONFLICT_RE`/`GEO_THEME_RE`), headline tone `PICKS_MACRO_HEADLINE_AGE_H 36` (`computeHeadlineGeoTone`, `GEO_DEESCALATION_RE`/`GEO_ESCALATION_RE`);
     inflation/labor axis `PICKS_MACRO_INFLATION` (default ON) — monthly CPI YoY + unemployment
     (BLS `CUUR0000SA0`/`LNS14000000`, FRED `CPIAUCNS`/`UNRATE` fallback, attached to
-    `macroBackdrop.inflation`/`.unemployment` by `fetchInflationLabor`): −1 when CPI YoY ≥
-    `PICKS_MACRO_CPI_HOT 4.0` or re-accelerating (≥ `_CPI_WARM 3.0` and up ≥ `_CPI_REACCEL 0.3`pp
-    vs 3 months ago), −1 when the Sahm read (3-month-avg unemployment vs its 12-month low) ≥
-    `PICKS_MACRO_UE_SAHM 0.5`pp (both → −2, the stagflation tape), +1 only when CPI ≤
-    `_CPI_COOL 2.5` and not rising — slow monthly prints, so a confirming vote like sentiment; states
+    `macroBackdrop.inflation`/`.unemployment` by `fetchInflationLabor`). **Votes on the CHANGE,
+    not the LEVEL** (a known CPI print is already priced — a desk trades the *surprise* /
+    momentum). −1 only when inflation is genuinely WORSENING: re-accelerating (≥ `_CPI_WARM 3.0`
+    and up ≥ `_CPI_REACCEL 0.3`pp vs 3 months ago) **or** hot (≥ `PICKS_MACRO_CPI_HOT 4.0`) **and
+    still rising** — a hot but *flat / cooling* reading reads **0** (priced in). The old pure-level
+    rule (any CPI ≥ 4.0 → −1) kept the axis permanently lit at any elevated level for the whole
+    month, leaving the gauge one transient shock from risk-off and sticky on the way out via the
+    hysteresis — the same near-permanent bear lean the F&G internals are deliberately kept OUT of
+    the state machine to avoid. (True actual-vs-consensus *surprise* would need the calendar
+    consensus threaded onto `macroBackdrop.inflation` — a follow-up; momentum is the best
+    change-read from the BLS/FRED actuals here.) −1 also when the Sahm read (3-month-avg
+    unemployment vs its 12-month low) ≥ `PICKS_MACRO_UE_SAHM 0.5`pp (both → −2, the stagflation
+    tape), +1 only when CPI ≤ `_CPI_COOL 2.5` and not rising — slow monthly prints, a confirming
+    vote like sentiment; states
     `PICKS_MACRO_RISKOFF_AXES 2`, `PICKS_MACRO_SEVERE_AXES 3` + `PICKS_MACRO_SEVERE_STRESS −4`,
     `PICKS_MACRO_RISKON_AXES 2` + `PICKS_MACRO_RISKON_STRESS 2` + `PICKS_MACRO_RISKON_MAX_OFF 1`,
     sentiment fast-swing `PICKS_MACRO_FG_DELTA 10`; book tilt `PICKS_MACRO_TILT` (default ON), `_TILT_BASE 4` /
@@ -1181,9 +1227,16 @@ it has to be trustworthy. The fixes:
     and neutral→risk-on immediate, de-hedging out of risk-off/severe needs 2 consecutive
     builds; `applyMacroRegimePersistence`, prior
     state from `rosterMeta.macroRegime.{state,rawState}`);
-    de-gross `PICKS_MACRO_GROSS_RISKOFF 0.6` / `_GROSS_SEVERE 0.4`; severe guards
-    `PICKS_MACRO_SEVERE_CALL_CAP 3`, `PICKS_MACRO_SEVERE_PUT_BAR −5`. (`computeMacroRegime` /
-    `computeMacroTilt` / `fedHawkishDrift` / `macroBetaWeight`.)
+    de-gross `PICKS_MACRO_GROSS_RISKOFF 0.6` / `_GROSS_SEVERE 0.4`, **continuous de-gross ramp
+    `PICKS_MACRO_GROSS_RAMP` (default ON)** — risk-off gross ramps `1 → GROSS_RISKOFF` over
+    `stress 0 → PICKS_MACRO_TILT_FULL_STRESS` (`regimeGrossMult`, §6.3; `=0` → legacy step;
+    mirrored in the live re-port); severe guards `PICKS_MACRO_SEVERE_CALL_CAP 3`,
+    `PICKS_MACRO_SEVERE_PUT_BAR −5`. (`computeMacroRegime` / `computeMacroTilt` /
+    `regimeGrossMult` / `fedHawkishDrift` / `macroBetaWeight`.)
+  - **Roster caps + book risk (§7):** `PICKS_MAX_EARNINGS_RISK 4` (earnings-crush
+    concentration cap → `rosterMeta.earningsRiskCapped`; 0 disables) and the measure/display
+    `computeBookRisk` → `rosterMeta.book` (net Δ/vega/theta-day + premium-at-risk, % of
+    `PICKS_DISPLAY_ACCOUNT`; surfaced as the "prem at risk" summary chip).
   - **Tape de-duplication (§3 Mechanicals/Narrative):** `PICKS_TAPE_DEDUPE` (default ON) —
     **drops all six** market-wide per-name pillar signals from the breakdown entirely (not
     pushed into the pillar): **SPY flows, VIX Tracking, VIX Spot** (Mechanicals) and **DXY,
