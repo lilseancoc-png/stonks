@@ -179,7 +179,9 @@ async function seed({ dryRun }) {
 async function main() {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
   if (!store.hasToken()) {
-    console.error("sync-data: BLOB_READ_WRITE_TOKEN is not set");
+    console.error(
+      "sync-data: no private store configured (set R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET for Cloudflare R2, or BLOB_READ_WRITE_TOKEN for Vercel Blob)",
+    );
     process.exit(1);
   }
   switch (cmd) {
