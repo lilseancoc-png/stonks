@@ -3206,7 +3206,7 @@ async function fetchInflationLabor() {
     let cpi = await fetchBlsSeries("CUUR0000SA0");
     if (!cpi.length) cpi = await fetchFredSeries("CPIAUCNS");
     const yoyAt = (idx) => {
-      const cur = cpi[idx], prior = cpi[idx - 12];
+      const cur = cpi[idx], prior = yearAgoObs(cpi, idx);
       return cur && prior && Number.isFinite(prior.value) && prior.value !== 0
         ? ((cur.value - prior.value) / prior.value) * 100
         : null;
@@ -5639,6 +5639,30 @@ async function fetchBlsSeries(blsId) {
   }
 }
 
+// Find the observation ~12 calendar months before series[idx] BY DATE rather
+// than by position. The series is oldest-first with YYYY-MM-01 dates; matching
+// on the YYYY-MM prefix one year back means a single missing monthly
+// observation can't silently slip the year-ago anchor to the wrong month.
+// (A positional series[idx-12] on a series with one dropped month lands on the
+// 13-months-ago print — e.g. CPI YoY reads off April-2025 instead of May-2025,
+// inflating the headline by a few tenths.) Returns null when the exact
+// year-ago month is absent, so a YoY degrades to "no data" instead of a wrong
+// number. Shared by formatEconValue (calendar YoY rows) and fetchInflationLabor.
+function yearAgoObs(series, idx) {
+  if (!Array.isArray(series) || idx < 0 || idx >= series.length) return null;
+  const cur = series[idx];
+  if (!cur || typeof cur.date !== "string") return null;
+  const y = Number(cur.date.slice(0, 4));
+  if (!Number.isFinite(y)) return null;
+  const targetYM = `${y - 1}${cur.date.slice(4, 7)}`; // "YYYY-MM", one year back
+  for (let k = idx - 1; k >= 0; k--) {
+    const ym = (series[k]?.date || "").slice(0, 7);
+    if (ym === targetYM) return series[k];
+    if (ym && ym < targetYM) break; // walked past it (oldest-first → older as k falls)
+  }
+  return null;
+}
+
 // Format a release value for display, given the format key from the
 // ECON_REPORTS table and a reference into the time series (newest-last).
 // Returns null when we don't have enough history to compute the metric.
@@ -5673,7 +5697,7 @@ function formatEconValue(format, series, idx) {
     return sign + pct.toFixed(1) + "%";
   }
   if (format === "yoy") {
-    const prevYear = series[idx - 12];
+    const prevYear = yearAgoObs(series, idx);
     if (!prevYear || !Number.isFinite(prevYear.value) || prevYear.value === 0) return null;
     const pct = ((cur.value - prevYear.value) / prevYear.value) * 100;
     const sign = pct >= 0 ? "+" : "";

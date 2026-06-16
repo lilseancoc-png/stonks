@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Fixed
+- **Macro CPI/PPI YoY now anchors the year-ago value BY DATE, not by position — fixes an inflated headline (e.g. CPI showing ~4.5% when the real print was 4.2%).** Both the Bonds & USD inflation tile (`fetchInflationLabor`) and the Calendar's CPI/Core-CPI YoY rows (`formatEconValue`) computed YoY as `series[idx-12]`, which silently assumes a perfectly gap-free monthly series; a single dropped/missing monthly observation slips the anchor to **13 months back** (e.g. the May-2026 index ÷ April-2025 instead of May-2025), inflating the headline by a few tenths. A new shared `yearAgoObs(series, idx)` helper finds the observation exactly 12 months prior by its `YYYY-MM` date and returns null (YoY suppressed, never a wrong number) if that month is genuinely absent. `scripts/build.mjs`; corrects on the next bake.
+
 ### Added
 - **Top Picks — the cross-asset "market tape" barometer now refreshes LIVE intraday.** The risk-on/risk-off rail was a bake-only snapshot ("baked · session"); it now overlays live quotes while the Top Picks tab is open, riding the same 30s `/api/macro-live` poll the regime tape already runs (extended with `?tape=1`, so no new serverless function — Hobby's 12-fn cap). The US-session legs (S&P/Nasdaq futures, USD/JPY, DXY, copper/crude/silver/gold, Bitcoin, VIX, long yields) re-score against their live move; the Asia/EU **cash** indices (DAX/Nikkei/Hang Seng/KOSPI) are closed during US hours so they hold their baked overnight read. Live rows get a pulsing ● dot and the card header flips to a live "● live · H:MM ET" stamp. Best-effort — a failed poll keeps the baked rail. `api/macro-live.js` + `scripts/render/{app-js,styles-css}.mjs`.
 
