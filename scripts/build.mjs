@@ -8304,8 +8304,32 @@ const PICKS_TREND_OPPOSE_FLOOR = Number(process.env.PICKS_TREND_OPPOSE_FLOOR ?? 
 // Tactical puts (sub-bar tape bets) are excluded from elite by construction.
 const PICKS_ELITE_ONLY = process.env.PICKS_ELITE_ONLY !== "0"; // default ON
 const PICKS_ELITE_CONFLUENCE_MIN = Number(process.env.PICKS_ELITE_CONFLUENCE_MIN ?? 3); // of the 4 asset pillars
-const PICKS_ELITE_MIN_POP = Number(process.env.PICKS_ELITE_MIN_POP ?? 0.45);            // probability of profit at expiry
-const PICKS_ELITE_MAX_RR = Number(process.env.PICKS_ELITE_MAX_RR ?? 0.6);              // breakeven move ÷ chain-priced 1σ move
+const PICKS_ELITE_MIN_POP = Number(process.env.PICKS_ELITE_MIN_POP ?? 0.55);            // probability of profit at expiry (raised 0.45→0.55: a clear majority, not a coin flip)
+const PICKS_ELITE_MAX_RR = Number(process.env.PICKS_ELITE_MAX_RR ?? 0.5);              // breakeven move ÷ chain-priced 1σ move (tightened 0.6→0.5: breakeven WELL inside the priced move)
+
+// CAPITAL-PRESERVATION SAFETY FILTER (`PICKS_SAFETY_FILTER`, default ON). The user
+// directive: "make the recommendation as safe as possible using data — if it even has
+// a chance to lose money it shouldn't be a top pick." Nothing literally removes the
+// chance of loss from a directional long, so this maximizes the DATA-MEASURED odds the
+// pick makes money and refuses to recommend at all when the engine's own track record
+// says the strategy is currently losing money. It runs as a hard pre-gate on EVERY
+// non-tactical candidate (independent of PICKS_ELITE_ONLY, so safety holds even with the
+// gauntlet disabled), logged to rosterMeta.safetyGated. The roster honestly ships 0 on a
+// day with nothing this safe — cash is a position. Set =0 to disable.
+//   1. POP ≥ PICKS_SAFETY_MIN_POP — risk-neutral probability of profit at expiry must be
+//      a STRONG majority (the most direct, chain-derived "chance of losing money" read;
+//      pushes the selector toward defined-risk spreads + closer-to-the-money strikes).
+//   2. rrRatio ≤ PICKS_SAFETY_MAX_RR — the breakeven move sits well inside the 1σ move
+//      the chain already prices (a move it's likely to make, not a long-shot).
+//   3. PICKS_SAFETY_BLOCK_NEG_EDGE — when the trailing realized OPTION expectancy is
+//      measurably negative (≥ PICKS_EDGE_MIN_N decided trades, exp < 0), ship ZERO
+//      non-tactical picks: the data says buying these options has lost money, so the
+//      safest action is to recommend nothing. Fail-open until a sample exists (the POP /
+//      RR / contract-quality / elite gates carry the safety bar in the meantime).
+const PICKS_SAFETY_FILTER = process.env.PICKS_SAFETY_FILTER !== "0"; // default ON
+const PICKS_SAFETY_MIN_POP = Number(process.env.PICKS_SAFETY_MIN_POP ?? 0.6);  // strong-majority probability of profit at expiry
+const PICKS_SAFETY_MAX_RR = Number(process.env.PICKS_SAFETY_MAX_RR ?? 0.5);    // breakeven ÷ chain-priced 1σ move
+const PICKS_SAFETY_BLOCK_NEG_EDGE = process.env.PICKS_SAFETY_BLOCK_NEG_EDGE !== "0"; // default ON
 
 // Reliability multiplier for one signal (1 = fully trusted / feature off).
 function signalReliability(key) {
@@ -13475,7 +13499,13 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   let earningsRiskCount = 0; // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK)
   const skippedEarningsRisk = [];
   const skippedTimingGated = []; // require-go gate (PICKS_REQUIRE_GO) — non-'go' non-tactical picks
+  const skippedSafetyGated = []; // capital-preservation safety filter (PICKS_SAFETY_FILTER) — low-POP / breakeven-too-far / negative-edge drops
   const skippedEliteGated = []; // elite gauntlet (PICKS_ELITE_ONLY) — failed the near-sure-thing conjunction
+  // Capital-preservation: when the trailing realized OPTION edge is measurably
+  // negative, the data says buying these options has lost money — the safest action
+  // is to recommend NO non-tactical picks at all (PICKS_SAFETY_BLOCK_NEG_EDGE). Tactical
+  // puts are tape hedges, governed by their own window + 'go' gate, so they're exempt.
+  const blockNonTacticalForEdge = PICKS_SAFETY_FILTER && PICKS_SAFETY_BLOCK_NEG_EDGE && negativeEdge;
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -13577,6 +13607,27 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
           technicals: Number(tech.toFixed(2)),
           reason: fightsTape ? "fights-tape" : "single-family",
         });
+        vetoed += 1;
+        continue;
+      }
+    }
+
+    // CAPITAL-PRESERVATION SAFETY FILTER (PICKS_SAFETY_FILTER, default ON): a
+    // non-tactical pick is only recommended when the chain-derived odds say it's
+    // likely to MAKE money. Runs independent of the elite gauntlet (so safety holds
+    // even with it off) and on top of it (so whichever is stricter binds). Tactical
+    // puts are sub-bar tape hedges, governed by their own window + 'go' gate — exempt.
+    if (PICKS_SAFETY_FILTER && !cand.tactical) {
+      const pop = contract.pop, rr = contract.rrRatio;
+      const fails = [];
+      // The strategy itself is measurably losing money → recommend nothing long.
+      if (blockNonTacticalForEdge) fails.push("negative-edge");
+      // Probability of profit at expiry must be a strong majority (not a coin flip).
+      if (!(Number.isFinite(pop) && pop >= PICKS_SAFETY_MIN_POP)) fails.push("low-pop");
+      // Breakeven must sit well inside the move the chain already prices.
+      if (!(Number.isFinite(rr) && rr <= PICKS_SAFETY_MAX_RR)) fails.push("breakeven-too-far");
+      if (fails.length) {
+        skippedSafetyGated.push({ symbol: r.sym, side, reasons: fails, pop: pop ?? null, rrRatio: rr ?? null });
         vetoed += 1;
         continue;
       }
@@ -13783,6 +13834,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       earningsEve: skippedEarningsEve, // earnings-eve entry veto (print ≤PICKS_EARNINGS_VETO_DAYS out — don't open what the exit rule would close)
       earningsRiskCapped: skippedEarningsRisk, // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK) — too many crush-exposed contracts already
       timingGated: skippedTimingGated, // require-go gate (PICKS_REQUIRE_GO) — graded names without a clean 'go' entry, deferred not shipped
+      safetyGated: skippedSafetyGated, // capital-preservation safety filter (PICKS_SAFETY_FILTER) — low-POP / breakeven-too-far / negative-edge drops
+      safetyFilter: PICKS_SAFETY_FILTER, // surfaced so the UI can explain the capital-preservation bar
       eliteGated: skippedEliteGated, // elite gauntlet (PICKS_ELITE_ONLY) — strong names that still aren't near-sure-things (each with its failing reasons)
       eliteOnly: PICKS_ELITE_ONLY, // surfaced so the UI can explain the high-precision bar + empty days
       // Book-level greek / premium-at-risk aggregate (C): the shipped roster's net

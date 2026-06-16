@@ -18084,11 +18084,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (empty){
         empty.hidden = false;
         var rmE = data.rosterMeta || null;
-        var nHeld = (rmE && rmE.eliteGated && rmE.eliteGated.length) || 0;
+        var nHeld = ((rmE && rmE.eliteGated && rmE.eliteGated.length) || 0) + ((rmE && rmE.safetyGated && rmE.safetyGated.length) || 0);
         empty.textContent = data.loadError
           ? 'Couldn’t load picks — refresh the page to try again.'
-          : (rmE && rmE.eliteOnly)
-            ? ('No top picks today — nothing cleared the near-certain bar' + (nHeld ? ' (' + nHeld + ' strong name' + (nHeld === 1 ? '' : 's') + ' graded high but not almost-guaranteed, so held back)' : '') + '. A top pick only lists when it is as close to a sure thing as a directional option gets — most days that is nothing, and cash is a position.')
+          : (rmE && (rmE.eliteOnly || rmE.safetyFilter))
+            ? ('No top picks today — nothing cleared the safety bar' + (nHeld ? ' (' + nHeld + ' name' + (nHeld === 1 ? '' : 's') + ' graded high but the data didn’t show a strong enough chance of profit, so held back)' : '') + '. A top pick only lists when the odds of making money are clearly in your favour — most days that is nothing, and cash is a position.')
             : 'No high-conviction picks in this build — every ticker scored below the minimum.';
       }
       return;
@@ -18170,6 +18170,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
+    if (rm && rm.safetyGated && rm.safetyGated.length){
+      var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });
+      noteBits.push('<b>' + rm.safetyGated.length + '</b> held back — odds of profit too low (safety filter)' + (negEdgeHeld ? ' · strategy edge negative, standing down' : ''));
+    }
     if (rm && rm.eliteGated && rm.eliteGated.length) noteBits.push('<b>' + rm.eliteGated.length + '</b> strong but not near-certain — held back (elite bar)');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'

@@ -996,6 +996,31 @@ first bake.
   `go`. The grade is untouched — the name still appears in the grade-any-ticker index,
   just not as an actionable pick. The roster honestly ships shorter on a no-clean-setup
   day. `=0` restores shipping `wait` picks badged.
+- **Capital-preservation safety filter (`PICKS_SAFETY_FILTER`, default ON) — "if it
+  even has a chance to lose money, don't recommend it."** A hard pre-gate on **every**
+  non-tactical candidate, run *independent* of the elite gauntlet (so the safety bar
+  holds even with `PICKS_ELITE_ONLY=0`) and on top of it (whichever is stricter binds).
+  Nothing literally removes the chance of loss from a directional long, so this
+  maximizes the **data-measured odds the pick makes money** and refuses to recommend at
+  all when the engine's own record says the strategy is losing money. The three gates
+  (`buildTopPicks`, logged to `rosterMeta.safetyGated` with the failing reasons):
+  1. **POP ≥ `PICKS_SAFETY_MIN_POP` (0.60)** — the risk-neutral **probability of profit
+     at expiry** must be a **strong majority**. The most direct, chain-derived "chance
+     of losing money" read; pushes the selector toward defined-risk spreads + closer
+     strikes. (Stricter than the elite POP floor, so it's the binding one.)
+  2. **rrRatio ≤ `PICKS_SAFETY_MAX_RR` (0.50)** — the breakeven move sits well inside
+     the 1σ move the chain already prices (a move it's *likely* to make, not a long-shot).
+  3. **`PICKS_SAFETY_BLOCK_NEG_EDGE` (default ON)** — when the trailing realized
+     **option** expectancy is *measurably negative* (≥ `PICKS_EDGE_MIN_N` decided trades,
+     `realizedOptionEdge().exp < 0`), ship **zero** non-tactical picks: the data says
+     buying these options has lost money, so the safest action is to recommend nothing.
+     **Fail-open** until a sample exists — the POP / RR / contract-quality / elite gates
+     carry the bar in the meantime (the same `negativeEdge` read that already de-grosses
+     and engages defined-risk verticals now also *gates the roster*).
+  Tactical puts (sub-bar tape hedges, governed by their own window + timing `go`) are
+  **exempt** from all three. The roster honestly ships **0** on a day with nothing this
+  safe — cash is a position. Surfaced in the honest roster note ("N held back — odds of
+  profit too low") and the empty-state copy. `=0` disables the whole filter.
 - **Elite gauntlet (`PICKS_ELITE_ONLY`, default ON) — "a top pick must be almost a
   sure thing."** The strongest selectivity rule: a non-tactical name ships as a Top
   Pick **only if it clears EVERY one** of a stacked, conjunctive gauntlet — fail any
@@ -1008,8 +1033,8 @@ first bake.
   1. **Strong tier** — `|total| ≥ strongCut` (top conviction), not merely the trade bar.
   2. **≥ `PICKS_ELITE_CONFLUENCE_MIN` (3) of 4 pillars aligned** — a broad, corroborated thesis, never one story.
   3. **timing `go`** — a clean, confirmed entry.
-  4. **POP ≥ `PICKS_ELITE_MIN_POP` (0.45)** — the risk-neutral **probability of profit at expiry** (`contract.pop` = P(S_T past breakeven) = N(±d2)) beats ~a coin flip. The most direct "likely to make money" read; it pushes the selector toward **defined-risk spreads** (lower breakeven → higher POP) and closer-to-the-money strikes.
-  5. **rrRatio ≤ `PICKS_ELITE_MAX_RR` (0.6)** — the breakeven move sits **well inside** the move the chain already prices.
+  4. **POP ≥ `PICKS_ELITE_MIN_POP` (0.55, raised from 0.45)** — the risk-neutral **probability of profit at expiry** (`contract.pop` = P(S_T past breakeven) = N(±d2)) is a clear majority, not ~a coin flip. The most direct "likely to make money" read; it pushes the selector toward **defined-risk spreads** (lower breakeven → higher POP) and closer-to-the-money strikes.
+  5. **rrRatio ≤ `PICKS_ELITE_MAX_RR` (0.5, tightened from 0.6)** — the breakeven move sits **well inside** the move the chain already prices.
   6. **No earnings in the contract window** — no unhedgeable binary IV-crush event.
   7. **Tape not fighting the trade** — technicals don't oppose the side.
   Tactical puts (sub-bar tape bets) are excluded from candidacy entirely when elite-only.
@@ -1223,10 +1248,16 @@ it has to be trustworthy. The fixes:
     theta/IV-crush, capped max profit = strike width − debit; card render `pickVerticalStructureHtml`).
     `=0` reverts to naked longs.
   - **Elite gauntlet (§7, "almost a sure thing"):** `PICKS_ELITE_ONLY` (default **ON**) +
-    `PICKS_ELITE_CONFLUENCE_MIN 3`, `PICKS_ELITE_MIN_POP 0.45`, `PICKS_ELITE_MAX_RR 0.6`
+    `PICKS_ELITE_CONFLUENCE_MIN 3`, `PICKS_ELITE_MIN_POP 0.55`, `PICKS_ELITE_MAX_RR 0.5`
     (conjunctive: strong tier ∧ ≥3 pillars ∧ go ∧ POP ∧ rrRatio ∧ no-earnings ∧ tape-not-fighting;
     failures → `rosterMeta.eliteGated`). `contract.pop` = risk-neutral probability of profit at
     expiry (N(±d2), via `ncdf` exported from `lib/greeks.mjs`).
+  - **Capital-preservation safety filter (§7, "if it can lose money, don't recommend it"):**
+    `PICKS_SAFETY_FILTER` (default **ON**) + `PICKS_SAFETY_MIN_POP 0.60`, `PICKS_SAFETY_MAX_RR 0.50`,
+    `PICKS_SAFETY_BLOCK_NEG_EDGE` (default ON). A hard pre-gate on every non-tactical pick,
+    independent of (and stricter than) the elite POP/RR floors; the negative-edge block uses
+    `realizedOptionEdge(opts.priorClosed)` (fail-open below `PICKS_EDGE_MIN_N`). Failures →
+    `rosterMeta.safetyGated` (+ `rosterMeta.safetyFilter`). `=0` disables.
   - **Loss-min selectivity + exits:** `PICKS_REQUIRE_GO` (default **ON** — drop non-`go`
     non-tactical picks → `rosterMeta.timingGated`); `PICKS_ABS_TRADE_FLOOR 5.5` / `PICKS_ABS_STRONG_FLOOR 8`
     (raised from 5 / 7.5); `PICKS_OPT_STOP_PCT 0.35` (from 0.40); `PICKS_THETA_STOP_PCT 0.022`
