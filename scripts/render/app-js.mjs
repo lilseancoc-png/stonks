@@ -9353,6 +9353,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     'BTC-USD':  'Bitcoin — the purest cross-asset risk-appetite proxy. Up = risk-on.',
   };
   var riskBarometer = { open: true };
+  // Live cross-asset overlay for the barometer rail, filled by the same
+  // /api/macro-live poll the regime tape runs (?tape=1). Keyed by Yahoo symbol.
+  // Only REGULAR-session legs override the baked correlations row (the Asia/EU
+  // cash indices are closed during US hours and hold their overnight read).
+  var barometerLive = { markets: null, fetchedAt: null };
 
   function computeLiveMacroRegime(baked, live){
     if (!baked || !baked.axes || !baked.inputs || !baked.thresholds) return null;
@@ -9786,7 +9791,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     renderRiskBarometer();
   }
   function pollMacroTapeOnce(){
-    fetch('api/macro-live?fng=1', { cache: 'no-store' })
+    // ?tape=1 also returns the cross-asset barometer rail in the same batched
+    // upstream call (no extra serverless function — Hobby's 12-fn cap).
+    fetch('api/macro-live?fng=1&tape=1', { cache: 'no-store' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(j){
         if (!j || !j.legs) return;
@@ -9796,6 +9803,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           crude: L.crude, gold: L.gold, fng: j.fng || null,
         };
         macroTape.fetchedAt = j.fetchedAt || new Date().toISOString();
+        if (j.crossAsset && typeof j.crossAsset === 'object'){
+          barometerLive.markets = j.crossAsset;
+          barometerLive.fetchedAt = j.fetchedAt || new Date().toISOString();
+        }
         renderMacroTape();
       })
       .catch(function(){ /* baked chip stays on a failed poll */ });
@@ -9832,6 +9843,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (score <= 45) return { cls: 'rob-off', lbl: 'leaning risk-off', tone: 'off' };
     return { cls: 'rob-flat', lbl: 'neutral', tone: 'flat' };
   }
+  // Overlay one live /api/macro-live cross-asset leg onto the baked
+  // correlations market row. Only REGULAR-session legs override — the Asia/EU
+  // cash indices (^GDAXI/^N225/^HSI/^KS11) are closed during US hours, so their
+  // baked overnight read stands. Returns a shallow clone carrying _live, or the
+  // baked row unchanged. Re-derives every move convention the renderer reads
+  // (chPct, chgBp for yields, chgPt for VIX, last) from value + prevClose.
+  function barometerApplyLive(baked, lv){
+    if (!baked || !lv || lv.marketState !== 'REGULAR') return baked;
+    var v = (lv.value != null && isFinite(lv.value)) ? lv.value : null;
+    if (v == null) return baked;
+    var out = {};
+    for (var k in baked) out[k] = baked[k];
+    out.last = v;
+    if (lv.pctChange1d != null && isFinite(lv.pctChange1d)) out.chPct = lv.pctChange1d;
+    if (lv.bpsChange1d != null && isFinite(lv.bpsChange1d)) out.chgBp = lv.bpsChange1d;
+    if (lv.prevClose != null && isFinite(lv.prevClose)) out.chgPt = v - lv.prevClose;
+    out._live = true;
+    return out;
+  }
   function renderRiskBarometer(){
     var host = document.getElementById('picks-barometer');
     if (!host) return;
@@ -9848,14 +9878,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       return;
     }
+    var liveMkts = barometerLive.markets || null;
     var rows = [];
     for (var i = 0; i < BAROMETER_ASSETS.length; i++){
       var cfg = BAROMETER_ASSETS[i];
-      var m = d.markets[cfg.sym];
-      if (!m) continue;
+      var base = d.markets[cfg.sym];
+      if (!base) continue;
+      var m = (liveMkts && liveMkts[cfg.sym]) ? barometerApplyLive(base, liveMkts[cfg.sym]) : base;
       var sc = barometerScore(cfg, m);
       if (sc == null) continue;
-      rows.push({ cfg: cfg, m: m, score: sc });
+      rows.push({ cfg: cfg, m: m, score: sc, live: !!m._live });
     }
     if (!rows.length){ host.hidden = true; host.innerHTML = ''; return; }
     // Most risk-ON at the top, most risk-OFF at the bottom — a leaderboard read.
@@ -9870,8 +9902,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var pct = Math.max(0, Math.min(100, r.score));
       var tip = BAROMETER_TOOLTIP[r.cfg.sym] || (r.m.lead || '');
       var lvl = ovnLevelStr(r.m);
-      return '<div class="rob-row" title="' + ovnEsc(r.m.name + (tip ? ' — ' + tip : '')) + '">' +
-          '<span class="rob-name">' + ovnEsc(r.m.name) + '</span>' +
+      var liveDot = r.live ? '<span class="rob-live-dot" title="Live — refreshed this session">●</span>' : '';
+      return '<div class="rob-row' + (r.live ? ' is-live' : '') + '" title="' + ovnEsc(r.m.name + (tip ? ' — ' + tip : '')) + '">' +
+          '<span class="rob-name">' + liveDot + ovnEsc(r.m.name) + '</span>' +
           '<span class="rob-rail">' +
             '<span class="rob-rail-track"></span>' +
             '<span class="rob-rail-mid" aria-hidden="true"></span>' +
@@ -9886,13 +9919,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var maxAsOf = null;
     for (var k = 0; k < rows.length; k++){ var ao = rows[k].m.asOf; if (ao && (!maxAsOf || ao > maxAsOf)) maxAsOf = ao; }
     var asOf = maxAsOf ? ('session ' + ovnShortDate(maxAsOf)) : 'last build';
+    // Any live row flips the header to a live stamp; the closed cash indices
+    // stay on their baked overnight read either way.
+    var anyLive = false;
+    for (var li = 0; li < rows.length; li++){ if (rows[li].live){ anyLive = true; break; } }
+    var asofHtml = anyLive
+      ? '<span class="rob-asof is-live"><span class="rob-asof-dot">●</span> live' + (barometerLive.fetchedAt ? ' · ' + ovnEsc(fmtTapeTime(barometerLive.fetchedAt)) : '') + '</span>'
+      : '<span class="rob-asof">baked · ' + staleTxt + ovnEsc(asOf) + '</span>';
     host.hidden = false;
     host.innerHTML =
       '<div class="rob-card' + (open ? ' is-open' : '') + '">' +
         '<button type="button" class="rob-head" aria-expanded="' + (open ? 'true' : 'false') + '">' +
           '<span class="rob-kicker">Cross-asset signals → market tape</span>' +
           '<span class="rob-state ' + cBand.cls + '">' + composite + ' · ' + ovnEsc(cBand.lbl) + '</span>' +
-          '<span class="rob-asof">baked · ' + staleTxt + ovnEsc(asOf) + '</span>' +
+          asofHtml +
           '<span class="rob-toggle" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
         '</button>' +
         '<div class="rob-body">' +
@@ -9902,7 +9942,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<span class="rob-scale-on">RISK-ON</span>' +
           '</div>' +
           '<div class="rob-rows">' + railHtml + '</div>' +
-          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. The futures + Asia/EU breadth + yen carry + copper + Bitcoin among these feed the <b>Global tape</b> axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep, refreshed each build — hover a row for its convention.</p>' +
+          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. The futures + Asia/EU breadth + yen carry + copper + Bitcoin among these feed the <b>Global tape</b> axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep; the US-session legs (futures, FX, metals, crude, Bitcoin, VIX, long yields) refresh <b>live</b> while this tab is open (● dot) — the Asia/EU cash indices stay on their last close. Hover a row for its convention.</p>' +
         '</div>' +
       '</div>';
     var head = host.querySelector('.rob-head');

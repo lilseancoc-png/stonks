@@ -7960,6 +7960,13 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   color: var(--muted);
   white-space: nowrap;
 }
+.rob-asof.is-live { color: var(--pos); }
+.rob-asof-dot {
+  color: var(--pos);
+  font-size: 8px;
+  vertical-align: middle;
+  animation: rob-live-pulse 2s ease-in-out infinite;
+}
 .rob-toggle { color: var(--muted); font-size: 12px; }
 .rob-body { display: none; padding: 4px 14px 14px; }
 .rob-card.is-open .rob-body { display: block; }
@@ -7997,6 +8004,15 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.rob-live-dot {
+  color: var(--pos);
+  font-size: 7px;
+  vertical-align: middle;
+  margin-right: 4px;
+  animation: rob-live-pulse 2s ease-in-out infinite;
+}
+@keyframes rob-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .rob-live-dot, .rob-asof-dot { animation: none; } }
 .rob-rail {
   position: relative;
   height: 14px;

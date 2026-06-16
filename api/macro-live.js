@@ -43,6 +43,36 @@ const LEGS = [
   { key: "gold", symbol: "GC=F", isYield: false },
 ];
 
+// Cross-asset barometer legs for the Top Picks "Cross-asset signals → market
+// tape" rail (renderRiskBarometer in app.js). Only fetched when the caller
+// passes ?tape=1 — the Bonds & USD tab's poll omits it and pays for no extra
+// symbols. Mirrors BAROMETER_ASSETS in scripts/render/app-js.mjs; isYield marks
+// the legs whose 1d move is reported in basis points (the long-end yields).
+// These caret-/=/-prefixed symbols (^GDAXI, ES=F, JPY=X, BTC-USD, …) all fail
+// /api/quotes' SYMBOL_RE on purpose, so — like the macro legs above — they can
+// only be reached through this fixed, no-symbol-input server set. The Asia/EU
+// CASH indices (^GDAXI/^N225/^HSI/^KS11) are closed during US hours, so the
+// browser only overlays a leg whose marketState is REGULAR and leaves the rest
+// on their baked overnight read.
+const CROSS_ASSET_LEGS = [
+  { symbol: "ES=F" },
+  { symbol: "NQ=F" },
+  { symbol: "^GDAXI" },
+  { symbol: "^N225" },
+  { symbol: "^HSI" },
+  { symbol: "^KS11" },
+  { symbol: "^VIX" },
+  { symbol: "^TNX", isYield: true },
+  { symbol: "^TYX", isYield: true },
+  { symbol: "JPY=X" },
+  { symbol: "DX-Y.NYB" },
+  { symbol: "HG=F" },
+  { symbol: "CL=F" },
+  { symbol: "SI=F" },
+  { symbol: "GC=F" },
+  { symbol: "BTC-USD" },
+];
+
 // CNN's 7-component Fear & Greed composite — the same source fetchCnnFearGreed
 // reads in scripts/build.mjs. Best-effort live read for the picks sentiment
 // axis: composite + previous close (extremes / fast-swing votes) plus the
@@ -95,14 +125,24 @@ export default async function handler(req, res) {
   // sentiment axis; the Bonds & USD tab omits it (no extra upstream fetch).
   const fngQ = req.query && req.query.fng;
   const wantFng = (Array.isArray(fngQ) ? fngQ[0] : fngQ) === "1";
+  // The Top Picks cross-asset barometer passes ?tape=1 to also fold in the
+  // cross-asset rail symbols (futures / Asia-EU indices / FX / metals / crypto);
+  // the Bonds & USD tab omits it and quotes only the seven macro legs.
+  const tapeQ = req.query && req.query.tape;
+  const wantTape = (Array.isArray(tapeQ) ? tapeQ[0] : tapeQ) === "1";
+
+  // One batched upstream call covers both sets — union the symbols so a leg in
+  // both (e.g. ^VIX, ^TNX, the dollar) is quoted once.
+  const quoteSymbols = wantTape
+    ? Array.from(new Set([...LEGS.map((l) => l.symbol), ...CROSS_ASSET_LEGS.map((l) => l.symbol)]))
+    : LEGS.map((l) => l.symbol);
 
   try {
     const [quoteR, fngR] = await Promise.allSettled([
       withYahooTimeout(
-        yahooFinance.quote(
-          LEGS.map((l) => l.symbol),
-          { fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"] },
-        ),
+        yahooFinance.quote(quoteSymbols, {
+          fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"],
+        }),
         "macro-live",
       ),
       wantFng ? fetchFearGreedLive() : Promise.resolve(null),
@@ -136,6 +176,32 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: "macro quotes unavailable" });
     }
 
+    // Cross-asset barometer rail (?tape=1). Keyed by the raw Yahoo symbol so the
+    // browser can join it against BAROMETER_ASSETS directly; per-leg marketState
+    // lets the client overlay only REGULAR-session legs and leave closed cash
+    // indices on their baked overnight read. A leg with no finite quote is
+    // dropped (the row keeps its baked value).
+    let crossAsset = null;
+    if (wantTape) {
+      crossAsset = {};
+      for (const { symbol, isYield } of CROSS_ASSET_LEGS) {
+        const q = bySym.get(symbol);
+        const value = q?.regularMarketPrice;
+        if (typeof value !== "number" || !isFinite(value)) continue;
+        const prevRaw = q?.regularMarketPreviousClose;
+        const prevClose = typeof prevRaw === "number" && isFinite(prevRaw) ? prevRaw : null;
+        const pctChange1d = prevClose != null && prevClose !== 0 ? ((value - prevClose) / prevClose) * 100 : null;
+        const bpsChange1d = isYield && prevClose != null ? (value - prevClose) * 100 : null;
+        crossAsset[symbol] = {
+          value,
+          prevClose,
+          pctChange1d,
+          bpsChange1d,
+          marketState: q?.marketState || null,
+        };
+      }
+    }
+
     res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
     return res.status(200).json({
       legs,
@@ -143,6 +209,8 @@ export default async function handler(req, res) {
       // Only present on a ?fng=1 request; null when CNN failed (browser falls
       // back to the baked sentiment axis).
       ...(wantFng ? { fng: fngR.status === "fulfilled" ? fngR.value : null } : {}),
+      // Only present on a ?tape=1 request (the cross-asset barometer rail).
+      ...(wantTape ? { crossAsset } : {}),
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
