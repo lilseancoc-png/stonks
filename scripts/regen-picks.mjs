@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -73,6 +73,13 @@ if (macroBackdrop) {
   let fearGreed = null;
   try {
     fearGreed = JSON.parse(await readFile(resolve(DATA_DIR, "fear-greed.json"), "utf8"));
+  } catch {}
+  // Global cross-asset tape axis (PICKS_MACRO_GLOBAL): the full build feeds the
+  // overnight sweep into the regime — reproduce it offline from the committed
+  // data/correlations.json so a regen's regime matches. Missing → "no data" (0).
+  try {
+    const corr = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
+    macroBackdrop.crossAsset = deriveGlobalTapeAxis(corr && corr.markets ? corr.markets : null);
   } catch {}
   // Same regime persistence as the full build: hold a recovering state one build
   // (defensive moves apply immediately), confirmed against the prior picks.json.
