@@ -71,8 +71,8 @@ export const TICKERS = [
   "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
   "MRVL", "PLAB", "AMAT", "AMKR", "MU", "BE", "OKLO", "SNDK", "GLW",
   "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM", "DRAM",
-  // Space — satellite, lunar lander, in-space mfg, thermal mgmt
-  "LUNR", "PL", "BKSY", "RDW", "KULR",
+  // Space — satellite, lunar lander, in-space mfg, thermal mgmt, launch
+  "LUNR", "PL", "BKSY", "RDW", "KULR", "SPCX",
   // Added coverage — AI silicon, RF/optics, Arm IP, broker, med-tech, DC infra, retail, gaming, travel, launch
   "CBRS", "SWKS", "ARM", "COHR", "IBKR", "TMO", "VRT", "TGT", "RBLX", "ABNB", "FLY",
 ];
@@ -144,6 +144,7 @@ export const SECTORS = {
   GME: "Meme", AMC: "Meme",
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
   LUNR: "Space", PL: "Space", BKSY: "Space", RDW: "Space", KULR: "Space",
+  SPCX: "Space",
   FLY: "Space",
 };
 
@@ -482,6 +483,7 @@ export const INDUSTRY_OF_TICKER = {
   PL: "Aerospace & Defense",
   BKSY: "Aerospace & Defense",
   RDW: "Aerospace & Defense",
+  SPCX: "Aerospace & Defense",
   FLY: "Aerospace & Defense",
   KULR: "Electrical Equipment & Parts",
   VRT: "Electrical Equipment & Parts",
