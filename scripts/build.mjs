@@ -3250,7 +3250,10 @@ async function fetchInflationLabor() {
         if (v != null && (low3 == null || v < low3)) low3 = v;
       }
       const sahm = cur3 != null && low3 != null ? Math.round((cur3 - low3) * 100) / 100 : null;
-      const prior = j >= 1 && Number.isFinite(ue[j - 1].value) ? round1(ue[j - 1].value) : null;
+      // Prior month BY DATE (not ue[j-1]) so a missing observation can't make
+      // the trend read against two months back — same fix as the CPI YoY anchor.
+      const priorObs = prevMonthObs(ue, j);
+      const prior = priorObs && Number.isFinite(priorObs.value) ? round1(priorObs.value) : null;
       const rate = round1(ue[j].value);
       out.unemployment = {
         rate,
@@ -5663,6 +5666,29 @@ function yearAgoObs(series, idx) {
   return null;
 }
 
+// Sibling of yearAgoObs for adjacent-month metrics (MoM change, NFP
+// month-over-month level change): the immediately-prior month BY DATE rather
+// than series[idx-1], so a single missing monthly observation can't make the
+// "previous" read two months back and overstate the change. Returns null when
+// the prior calendar month is absent (metric degrades to "no data").
+function prevMonthObs(series, idx) {
+  if (!Array.isArray(series) || idx <= 0 || idx >= series.length) return null;
+  const cur = series[idx];
+  if (!cur || typeof cur.date !== "string") return null;
+  const y = Number(cur.date.slice(0, 4));
+  const mo = Number(cur.date.slice(5, 7));
+  if (!Number.isFinite(y) || !Number.isFinite(mo)) return null;
+  const py = mo === 1 ? y - 1 : y;
+  const pm = mo === 1 ? 12 : mo - 1;
+  const targetYM = `${py}-${String(pm).padStart(2, "0")}`;
+  for (let k = idx - 1; k >= 0; k--) {
+    const ym = (series[k]?.date || "").slice(0, 7);
+    if (ym === targetYM) return series[k];
+    if (ym && ym < targetYM) break; // walked past it (oldest-first → older as k falls)
+  }
+  return null;
+}
+
 // Format a release value for display, given the format key from the
 // ECON_REPORTS table and a reference into the time series (newest-last).
 // Returns null when we don't have enough history to compute the metric.
@@ -5680,14 +5706,14 @@ function formatEconValue(format, series, idx) {
   if (format === "nfp") {
     // PAYEMS is the headline level (thousands). Report the month-over-month
     // change which is what "Non-Farm Payroll" colloquially refers to.
-    const prev = series[idx - 1];
+    const prev = prevMonthObs(series, idx);
     if (!prev) return null;
     const delta = cur.value - prev.value;
     const sign = delta >= 0 ? "+" : "";
     return sign + Math.round(delta).toLocaleString("en-US") + "K";
   }
   if (format === "mom") {
-    const prev = series[idx - 1];
+    const prev = prevMonthObs(series, idx);
     // Reject NaN / non-finite divisors too, not just exactly 0 — a stray
     // NaN that slipped past the upstream filter would otherwise emit
     // "NaN%" or "Infinity%" into the calendar payload.
