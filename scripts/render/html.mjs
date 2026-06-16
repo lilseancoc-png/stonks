@@ -181,6 +181,7 @@ function topPicksSection() {
     </div>
       <div id="picks-summary" class="picks-summary"></div>
       <div id="picks-tape" class="picks-tape" hidden></div>
+      <div id="picks-barometer" class="picks-barometer" hidden></div>
       <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
       <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — nothing cleared both the conviction ranking and the absolute quality floor. A short or empty list is by design: the engine holds cash rather than pad a weak tape.</div>

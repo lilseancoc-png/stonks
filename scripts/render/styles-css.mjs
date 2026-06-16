@@ -7856,6 +7856,151 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .picks-tape-note b { font-weight: 700; }
 .picks-tape-foot { margin: 10px 0 0; font: 400 11px/1.6 var(--font-sans); color: var(--muted); }
 
+/* --- Risk-on / risk-off barometer (per-asset 0–100 rail) ----------------- */
+.picks-barometer { margin: 0 0 14px; }
+.picks-barometer[hidden] { display: none; }
+.rob-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+}
+.rob-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-strong);
+  font: inherit;
+}
+.rob-head:hover { background: color-mix(in srgb, var(--text-strong) 4%, transparent); }
+.rob-kicker {
+  font: 700 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+}
+.rob-state {
+  font: 800 13px/1 var(--font-mono);
+  letter-spacing: var(--ls-display);
+  padding: 4px 8px;
+  border-radius: var(--r-1);
+  border: 1px solid var(--border);
+}
+.rob-state.rob-off { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); background: color-mix(in srgb, var(--neg) 6%, var(--surface)); }
+.rob-state.rob-on  { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); background: color-mix(in srgb, var(--pos) 6%, var(--surface)); }
+.rob-state.rob-flat { color: var(--muted); }
+.rob-asof {
+  margin-left: auto;
+  font: 600 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rob-toggle { color: var(--muted); font-size: 12px; }
+.rob-body { display: none; padding: 4px 14px 14px; }
+.rob-card.is-open .rob-body { display: block; }
+.rob-loading { padding: 14px; font: 500 12px/1.4 var(--font-sans); color: var(--muted); }
+/* Zone legend, aligned over the rail column. */
+.rob-scale {
+  display: grid;
+  grid-template-columns: var(--rob-name-col, 132px) 1fr;
+  align-items: center;
+  margin: 2px 0 8px;
+  padding-left: 0;
+}
+.rob-scale::before { content: ""; }
+.rob-scale-off, .rob-scale-mid, .rob-scale-on {
+  grid-column: 2;
+  grid-row: 1;
+  font: 700 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.rob-scale-off { justify-self: start;  color: var(--neg); }
+.rob-scale-mid { justify-self: center; color: var(--muted); }
+.rob-scale-on  { justify-self: end;    color: var(--pos); }
+.rob-rows { display: flex; flex-direction: column; gap: 6px; }
+.rob-row {
+  display: grid;
+  grid-template-columns: var(--rob-name-col, 132px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.rob-name {
+  font: 600 11px/1.2 var(--font-sans);
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rob-rail {
+  position: relative;
+  height: 14px;
+  display: block;
+}
+.rob-rail-track {
+  position: absolute;
+  inset: 5px 0;
+  border-radius: var(--r-pill);
+  /* red (risk-off) → neutral → green (risk-on), matching the marker bands. */
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--neg) 32%, var(--surface)) 0%,
+    color-mix(in srgb, var(--neg) 14%, var(--surface)) 30%,
+    color-mix(in srgb, var(--muted) 12%, var(--surface)) 50%,
+    color-mix(in srgb, var(--pos) 14%, var(--surface)) 70%,
+    color-mix(in srgb, var(--pos) 32%, var(--surface)) 100%);
+  border: 1px solid var(--border);
+}
+.rob-rail-mid {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-.5px);
+  background: color-mix(in srgb, var(--text-strong) 22%, transparent);
+}
+.rob-marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  border: 2px solid var(--muted);
+  box-shadow: var(--elev-1);
+}
+.rob-marker.rob-on  { border-color: var(--pos); background: color-mix(in srgb, var(--pos) 22%, var(--surface)); }
+.rob-marker.rob-off { border-color: var(--neg); background: color-mix(in srgb, var(--neg) 22%, var(--surface)); }
+.rob-marker.rob-flat { border-color: var(--muted); }
+.rob-move {
+  font: 700 11px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.rob-move.ovn-up { color: var(--pos); }
+.rob-move.ovn-dn { color: var(--neg); }
+.rob-move.ovn-flat { color: var(--muted); }
+.rob-lvl { font: 500 9px/1 var(--font-mono); color: var(--muted); }
+.rob-foot { margin: 11px 0 0; font: 400 11px/1.6 var(--font-sans); color: var(--muted); }
+@media (max-width: 860px) {
+  .rob-scale, .rob-row { --rob-name-col: 92px; }
+  .rob-lvl { display: none; }
+}
+
 /* Mobile: tighten the rank gutter. The score breakdown is now the in-card
    "Grade" tab (a tabpanel inside .pick-main), so it already flows full-width
    beneath the tabs on narrow viewports — no grid reflow needed. */

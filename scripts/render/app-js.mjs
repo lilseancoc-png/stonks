@@ -3198,6 +3198,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
+        if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
         if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -9303,6 +9304,56 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var macroTape = { legs: null, fetchedAt: null, timer: null, open: true };
   var MACRO_TAPE_POLL_MS = 30000;
 
+  // --- Risk-on / risk-off barometer (Top Picks regime card) ----------------
+  // A per-asset 0..100 rail showing where each cross-asset signal sits on the
+  // risk spectrum (0 = max risk-OFF, 50 = neutral, 100 = max risk-ON), reading
+  // the baked overnight cross-asset moves (data/correlations.json, the same file
+  // the Overnight tab uses). polarity is the risk DIRECTION of an up-move
+  // (+1: up = risk-on; -1: up = risk-off) and mirrors the conventions baked into
+  // deriveGlobalTone() in build.mjs — keep the two in sync if a sign changes.
+  // scale is the move (in the metric's units) that pins the rail to its end:
+  // |move| >= scale gives a fully risk-on/off reading. metric picks the field:
+  // pct = chPct, bp = chgBp (yields, where a % of the yield level is
+  // meaningless). The score is computed client-side (presentation only) so it
+  // needs no rebake and works off the existing correlations.json shape.
+  var BAROMETER_ASSETS = [
+    { sym: 'ES=F',      polarity: 1,  scale: 1.3,  metric: 'pct', group: 'Equities'    },
+    { sym: 'NQ=F',      polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
+    { sym: '^GDAXI',    polarity: 1,  scale: 1.4,  metric: 'pct', group: 'Equities'    },
+    { sym: '^N225',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
+    { sym: '^HSI',      polarity: 1,  scale: 1.8,  metric: 'pct', group: 'Equities'    },
+    { sym: '^KS11',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
+    { sym: '^VIX',      polarity: -1, scale: 12,   metric: 'pct', group: 'Vol & rates' },
+    { sym: '^TNX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
+    { sym: '^TYX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
+    { sym: 'JPY=X',     polarity: 1,  scale: 0.7,  metric: 'pct', group: 'FX'          },
+    { sym: 'DX-Y.NYB',  polarity: -1, scale: 0.6,  metric: 'pct', group: 'FX'          },
+    { sym: 'HG=F',      polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Commodities' },
+    { sym: 'CL=F',      polarity: 1,  scale: 2.5,  metric: 'pct', group: 'Commodities' },
+    { sym: 'SI=F',      polarity: 1,  scale: 2.2,  metric: 'pct', group: 'Commodities' },
+    { sym: 'GC=F',      polarity: -1, scale: 1.2,  metric: 'pct', group: 'Commodities' },
+    { sym: 'BTC-USD',   polarity: 1,  scale: 3.0,  metric: 'pct', group: 'Crypto'      },
+  ];
+  var BAROMETER_TOOLTIP = {
+    'ES=F':     'S&P 500 futures — overnight US large-cap beta. Up = risk-on.',
+    'NQ=F':     'Nasdaq 100 futures — overnight US high-beta tech. Up = risk-on.',
+    '^GDAXI':   'DAX — European equity beta. Up = risk-on.',
+    '^N225':    'Nikkei 225 — Japan equity beta / the classic Asian risk barometer. Up = risk-on.',
+    '^HSI':     'Hang Seng — China / HK equity beta. Up = risk-on.',
+    '^KS11':    'KOSPI — Korea equity beta (memory/exporter-heavy). Up = risk-on.',
+    '^VIX':     'VIX — equity implied vol, the fear gauge. A spike is risk-OFF (inverted).',
+    '^TNX':     '10Y Treasury yield — a sharp back-up pressures valuations / tightens conditions. A jump is risk-OFF (inverted).',
+    '^TYX':     '30Y Treasury yield — the long end / curve. A jump is risk-OFF (inverted).',
+    'JPY=X':    'USD/JPY — the yen carry. Yen weaker (USD/JPY up) = carry-on = risk-on; a yen bid (down) = carry unwind = risk-off.',
+    'DX-Y.NYB': 'Dollar index (DXY) — a broad USD bid tightens global financial conditions. Up = risk-OFF (inverted).',
+    'HG=F':     'Copper (Dr. Copper) — reads global growth. Up = risk-on.',
+    'CL=F':     'WTI crude — on a cross-asset panel, oil firmness co-trades with growth/demand. Up = risk-on.',
+    'SI=F':     'Silver — precious with a heavy industrial-demand leg. Up = risk-on.',
+    'GC=F':     'Gold — the safe-haven / real-rates bid. Up = risk-OFF (inverted).',
+    'BTC-USD':  'Bitcoin — the purest cross-asset risk-appetite proxy. Up = risk-on.',
+  };
+  var riskBarometer = { open: true };
+
   function computeLiveMacroRegime(baked, live){
     if (!baked || !baked.axes || !baked.inputs || !baked.thresholds) return null;
     var T = baked.thresholds, inp = baked.inputs, axes = {};
@@ -9709,6 +9760,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (head) head.addEventListener('click', function(){ macroTape.open = !macroTape.open; renderMacroTape(); });
       }
     }
+    renderRiskBarometer();
   }
   function pollMacroTapeOnce(){
     fetch('api/macro-live?fng=1', { cache: 'no-store' })
@@ -9733,6 +9785,106 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     macroTape.timer = setInterval(pollMacroTapeOnce, MACRO_TAPE_POLL_MS);
   }
   function stopMacroTapeLive(){ if (macroTape.timer){ clearInterval(macroTape.timer); macroTape.timer = null; } }
+
+  // --- Risk-on / risk-off barometer rail -----------------------------------
+  // Map one cross-asset move to a 0..100 risk score. polarity·(move/scale)
+  // clamped to ±1 spans the rail (0 = fully risk-off, 50 = neutral, 100 = fully
+  // risk-on). Returns null when the move is missing so the asset is dropped.
+  function barometerScore(cfg, m){
+    if (!cfg || !m) return null;
+    var move = cfg.metric === 'bp'
+      ? ((m.chgBp != null && isFinite(m.chgBp)) ? m.chgBp : null)
+      : ((m.chPct != null && isFinite(m.chPct)) ? m.chPct : null);
+    if (move == null) return null;
+    var norm = Math.max(-1, Math.min(1, move / cfg.scale));
+    var score = 50 + cfg.polarity * norm * 50;
+    return Math.max(0, Math.min(100, score));
+  }
+  // Score → {cls, lbl, tone} band (mirrors the screenshot's 0–35 / 65–100 zones).
+  function barometerBand(score){
+    if (score == null || !isFinite(score)) return { cls: 'rob-flat', lbl: 'no data', tone: 'flat' };
+    if (score >= 65) return { cls: 'rob-on',  lbl: 'risk-on',  tone: 'on'  };
+    if (score <= 35) return { cls: 'rob-off', lbl: 'risk-off', tone: 'off' };
+    if (score >= 55) return { cls: 'rob-on',  lbl: 'leaning risk-on',  tone: 'on'  };
+    if (score <= 45) return { cls: 'rob-off', lbl: 'leaning risk-off', tone: 'off' };
+    return { cls: 'rob-flat', lbl: 'neutral', tone: 'flat' };
+  }
+  function renderRiskBarometer(){
+    var host = document.getElementById('picks-barometer');
+    if (!host) return;
+    // Self-sufficient: pull the cross-asset file (shared with the Overnight tab)
+    // on first paint if it isn't already loading/loaded.
+    if (!overnightState.data && !overnightState.loading && typeof loadOvernight === 'function') loadOvernight();
+    var d = overnightState.data;
+    if (!d || !d.markets || !Object.keys(d.markets).length){
+      if (overnightState.loading){
+        host.hidden = false;
+        host.innerHTML = '<div class="rob-card"><div class="rob-loading">Loading cross-asset risk read…</div></div>';
+      } else {
+        host.hidden = true; host.innerHTML = '';
+      }
+      return;
+    }
+    var rows = [];
+    for (var i = 0; i < BAROMETER_ASSETS.length; i++){
+      var cfg = BAROMETER_ASSETS[i];
+      var m = d.markets[cfg.sym];
+      if (!m) continue;
+      var sc = barometerScore(cfg, m);
+      if (sc == null) continue;
+      rows.push({ cfg: cfg, m: m, score: sc });
+    }
+    if (!rows.length){ host.hidden = true; host.innerHTML = ''; return; }
+    // Most risk-ON at the top, most risk-OFF at the bottom — a leaderboard read.
+    rows.sort(function(a, b){ return b.score - a.score; });
+    // Composite = equal-weighted mean of the available asset scores.
+    var sum = 0; for (var j = 0; j < rows.length; j++) sum += rows[j].score;
+    var composite = Math.round(sum / rows.length);
+    var cBand = barometerBand(composite);
+    var open = !!riskBarometer.open;
+    var railHtml = rows.map(function(r){
+      var band = barometerBand(r.score);
+      var pct = Math.max(0, Math.min(100, r.score));
+      var tip = BAROMETER_TOOLTIP[r.cfg.sym] || (r.m.lead || '');
+      var lvl = ovnLevelStr(r.m);
+      return '<div class="rob-row" title="' + ovnEsc(r.m.name + (tip ? ' — ' + tip : '')) + '">' +
+          '<span class="rob-name">' + ovnEsc(r.m.name) + '</span>' +
+          '<span class="rob-rail">' +
+            '<span class="rob-rail-track"></span>' +
+            '<span class="rob-rail-mid" aria-hidden="true"></span>' +
+            '<span class="rob-marker ' + band.cls + '" style="left:' + pct.toFixed(1) + '%" title="' + band.lbl + ' · score ' + Math.round(r.score) + '/100"></span>' +
+          '</span>' +
+          '<span class="rob-move ' + ovnMoveCls(r.m.chPct) + '">' + ovnEsc(ovnMoveStr(r.m)) + (lvl ? '<span class="rob-lvl">' + ovnEsc(lvl) + '</span>' : '') + '</span>' +
+        '</div>';
+    }).join('');
+    var staleTxt = d.stale ? 'last-good · ' : '';
+    // Freshest session across the barometer's own rows (independent of whether
+    // the Overnight tab has been opened, which is what sets ovnMaxAsOf).
+    var maxAsOf = null;
+    for (var k = 0; k < rows.length; k++){ var ao = rows[k].m.asOf; if (ao && (!maxAsOf || ao > maxAsOf)) maxAsOf = ao; }
+    var asOf = maxAsOf ? ('session ' + ovnShortDate(maxAsOf)) : 'last build';
+    host.hidden = false;
+    host.innerHTML =
+      '<div class="rob-card' + (open ? ' is-open' : '') + '">' +
+        '<button type="button" class="rob-head" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+          '<span class="rob-kicker">Risk-on / risk-off</span>' +
+          '<span class="rob-state ' + cBand.cls + '">' + composite + ' · ' + ovnEsc(cBand.lbl) + '</span>' +
+          '<span class="rob-asof">baked · ' + staleTxt + ovnEsc(asOf) + '</span>' +
+          '<span class="rob-toggle" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
+        '</button>' +
+        '<div class="rob-body">' +
+          '<div class="rob-scale" aria-hidden="true">' +
+            '<span class="rob-scale-off">RISK-OFF</span>' +
+            '<span class="rob-scale-mid">neutral</span>' +
+            '<span class="rob-scale-on">RISK-ON</span>' +
+          '</div>' +
+          '<div class="rob-rows">' + railHtml + '</div>' +
+          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. Baked from the overnight cross-asset sweep, refreshed each build — hover a row for its convention.</p>' +
+        '</div>' +
+      '</div>';
+    var head = host.querySelector('.rob-head');
+    if (head) head.addEventListener('click', function(){ riskBarometer.open = !riskBarometer.open; renderRiskBarometer(); });
+  }
 
   // --- Top Picks: risk-on / risk-off history calendar ----------------------
   // A month-grid timeline of the cross-asset macro regime that set the engine's
@@ -12508,6 +12660,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<h4 class="ovn-w-title">Overnight peer read</h4>' + body + '</div>';
   }
   function refreshOvernightWidgets(){
+    // The Top Picks risk barometer feeds off the same correlations.json — fill
+    // it in when the file lands (before the per-ticker early-return below).
+    if (typeof renderRiskBarometer === 'function' && document.getElementById('picks-barometer')) renderRiskBarometer();
     var nodes = document.querySelectorAll('[data-overnight-sym]');
     if (!nodes || !nodes.length) return;
     nodes.forEach(function(n){
