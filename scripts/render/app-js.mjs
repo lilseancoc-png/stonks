@@ -5493,7 +5493,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
   }
 
-  var SEG_COLORS = ['#4c8dff','#16e08a','#ffb020','#ff4d5e','#7c6bff','#2dd4d4','#f97316','#6b7280','#ff6fb0'];
+  var SEG_COLORS = ['#5b9bd6','#3ad29a','#e0a83a','#f2645f','#9a86ff','#2dc4c4','#f0884c','#9a9180','#e882b0'];
 
   // Mirror of build.mjs cleanup for previously-cached segment labels that
   // were tokenized before BRAND_CASING_OVERRIDES landed in the parser.
@@ -10968,10 +10968,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var a = (0.14 + 0.46 * (pct / 100)).toFixed(3);
     if (net >= 0){
       var rEnd = (50 + pct / 2).toFixed(2);
-      return 'linear-gradient(90deg, transparent 50%, rgba(22,224,138,' + a + ') 50%, rgba(22,224,138,' + a + ') ' + rEnd + '%, transparent ' + rEnd + '%)';
+      return 'linear-gradient(90deg, transparent 50%, rgba(58,210,154,' + a + ') 50%, rgba(58,210,154,' + a + ') ' + rEnd + '%, transparent ' + rEnd + '%)';
     }
     var lStart = (50 - pct / 2).toFixed(2);
-    return 'linear-gradient(90deg, transparent ' + lStart + '%, rgba(255,77,94,' + a + ') ' + lStart + '%, rgba(255,77,94,' + a + ') 50%, transparent 50%)';
+    return 'linear-gradient(90deg, transparent ' + lStart + '%, rgba(242,100,95,' + a + ') ' + lStart + '%, rgba(242,100,95,' + a + ') 50%, transparent 50%)';
   }
   // A full-width reference line inserted between strike rows: the live spot
   // and the gamma flip. The body has nexps + 1 columns (the Net Σ total
@@ -11050,7 +11050,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
         var net = cell.net, pos = net >= 0;
         var intensity = Math.min(1, Math.abs(net) / d.scaleRef);
-        var rgb = pos ? '22,224,138' : '255,77,94';
+        var rgb = pos ? '58,210,154' : '242,100,95';
         var alpha = (0.10 + 0.80 * intensity).toFixed(3);
         var title = sym + ' ' + fmtOiStrike(K) + ' ' + exps[e2].label + ' · net ' + gexFmtSigned(net) +
           ' (call +' + gexFmt(cell.call) + ' / put -' + gexFmt(cell.put) + ')';
