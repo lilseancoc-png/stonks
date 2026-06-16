@@ -112,7 +112,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-15","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-06-16","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3179,6 +3179,7 @@
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
+        if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
         if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -9284,6 +9285,56 @@
   var macroTape = { legs: null, fetchedAt: null, timer: null, open: true };
   var MACRO_TAPE_POLL_MS = 30000;
 
+  // --- Risk-on / risk-off barometer (Top Picks regime card) ----------------
+  // A per-asset 0..100 rail showing where each cross-asset signal sits on the
+  // risk spectrum (0 = max risk-OFF, 50 = neutral, 100 = max risk-ON), reading
+  // the baked overnight cross-asset moves (data/correlations.json, the same file
+  // the Overnight tab uses). polarity is the risk DIRECTION of an up-move
+  // (+1: up = risk-on; -1: up = risk-off) and mirrors the conventions baked into
+  // deriveGlobalTone() in build.mjs — keep the two in sync if a sign changes.
+  // scale is the move (in the metric's units) that pins the rail to its end:
+  // |move| >= scale gives a fully risk-on/off reading. metric picks the field:
+  // pct = chPct, bp = chgBp (yields, where a % of the yield level is
+  // meaningless). The score is computed client-side (presentation only) so it
+  // needs no rebake and works off the existing correlations.json shape.
+  var BAROMETER_ASSETS = [
+    { sym: 'ES=F',      polarity: 1,  scale: 1.3,  metric: 'pct', group: 'Equities'    },
+    { sym: 'NQ=F',      polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
+    { sym: '^GDAXI',    polarity: 1,  scale: 1.4,  metric: 'pct', group: 'Equities'    },
+    { sym: '^N225',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
+    { sym: '^HSI',      polarity: 1,  scale: 1.8,  metric: 'pct', group: 'Equities'    },
+    { sym: '^KS11',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
+    { sym: '^VIX',      polarity: -1, scale: 12,   metric: 'pct', group: 'Vol & rates' },
+    { sym: '^TNX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
+    { sym: '^TYX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
+    { sym: 'JPY=X',     polarity: 1,  scale: 0.7,  metric: 'pct', group: 'FX'          },
+    { sym: 'DX-Y.NYB',  polarity: -1, scale: 0.6,  metric: 'pct', group: 'FX'          },
+    { sym: 'HG=F',      polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Commodities' },
+    { sym: 'CL=F',      polarity: 1,  scale: 2.5,  metric: 'pct', group: 'Commodities' },
+    { sym: 'SI=F',      polarity: 1,  scale: 2.2,  metric: 'pct', group: 'Commodities' },
+    { sym: 'GC=F',      polarity: -1, scale: 1.2,  metric: 'pct', group: 'Commodities' },
+    { sym: 'BTC-USD',   polarity: 1,  scale: 3.0,  metric: 'pct', group: 'Crypto'      },
+  ];
+  var BAROMETER_TOOLTIP = {
+    'ES=F':     'S&P 500 futures — overnight US large-cap beta. Up = risk-on.',
+    'NQ=F':     'Nasdaq 100 futures — overnight US high-beta tech. Up = risk-on.',
+    '^GDAXI':   'DAX — European equity beta. Up = risk-on.',
+    '^N225':    'Nikkei 225 — Japan equity beta / the classic Asian risk barometer. Up = risk-on.',
+    '^HSI':     'Hang Seng — China / HK equity beta. Up = risk-on.',
+    '^KS11':    'KOSPI — Korea equity beta (memory/exporter-heavy). Up = risk-on.',
+    '^VIX':     'VIX — equity implied vol, the fear gauge. A spike is risk-OFF (inverted).',
+    '^TNX':     '10Y Treasury yield — a sharp back-up pressures valuations / tightens conditions. A jump is risk-OFF (inverted).',
+    '^TYX':     '30Y Treasury yield — the long end / curve. A jump is risk-OFF (inverted).',
+    'JPY=X':    'USD/JPY — the yen carry. Yen weaker (USD/JPY up) = carry-on = risk-on; a yen bid (down) = carry unwind = risk-off.',
+    'DX-Y.NYB': 'Dollar index (DXY) — a broad USD bid tightens global financial conditions. Up = risk-OFF (inverted).',
+    'HG=F':     'Copper (Dr. Copper) — reads global growth. Up = risk-on.',
+    'CL=F':     'WTI crude — on a cross-asset panel, oil firmness co-trades with growth/demand. Up = risk-on.',
+    'SI=F':     'Silver — precious with a heavy industrial-demand leg. Up = risk-on.',
+    'GC=F':     'Gold — the safe-haven / real-rates bid. Up = risk-OFF (inverted).',
+    'BTC-USD':  'Bitcoin — the purest cross-asset risk-appetite proxy. Up = risk-on.',
+  };
+  var riskBarometer = { open: true };
+
   function computeLiveMacroRegime(baked, live){
     if (!baked || !baked.axes || !baked.inputs || !baked.thresholds) return null;
     var T = baked.thresholds, inp = baked.inputs, axes = {};
@@ -9690,6 +9741,7 @@
         if (head) head.addEventListener('click', function(){ macroTape.open = !macroTape.open; renderMacroTape(); });
       }
     }
+    renderRiskBarometer();
   }
   function pollMacroTapeOnce(){
     fetch('api/macro-live?fng=1', { cache: 'no-store' })
@@ -9714,6 +9766,106 @@
     macroTape.timer = setInterval(pollMacroTapeOnce, MACRO_TAPE_POLL_MS);
   }
   function stopMacroTapeLive(){ if (macroTape.timer){ clearInterval(macroTape.timer); macroTape.timer = null; } }
+
+  // --- Risk-on / risk-off barometer rail -----------------------------------
+  // Map one cross-asset move to a 0..100 risk score. polarity·(move/scale)
+  // clamped to ±1 spans the rail (0 = fully risk-off, 50 = neutral, 100 = fully
+  // risk-on). Returns null when the move is missing so the asset is dropped.
+  function barometerScore(cfg, m){
+    if (!cfg || !m) return null;
+    var move = cfg.metric === 'bp'
+      ? ((m.chgBp != null && isFinite(m.chgBp)) ? m.chgBp : null)
+      : ((m.chPct != null && isFinite(m.chPct)) ? m.chPct : null);
+    if (move == null) return null;
+    var norm = Math.max(-1, Math.min(1, move / cfg.scale));
+    var score = 50 + cfg.polarity * norm * 50;
+    return Math.max(0, Math.min(100, score));
+  }
+  // Score → {cls, lbl, tone} band (mirrors the screenshot's 0–35 / 65–100 zones).
+  function barometerBand(score){
+    if (score == null || !isFinite(score)) return { cls: 'rob-flat', lbl: 'no data', tone: 'flat' };
+    if (score >= 65) return { cls: 'rob-on',  lbl: 'risk-on',  tone: 'on'  };
+    if (score <= 35) return { cls: 'rob-off', lbl: 'risk-off', tone: 'off' };
+    if (score >= 55) return { cls: 'rob-on',  lbl: 'leaning risk-on',  tone: 'on'  };
+    if (score <= 45) return { cls: 'rob-off', lbl: 'leaning risk-off', tone: 'off' };
+    return { cls: 'rob-flat', lbl: 'neutral', tone: 'flat' };
+  }
+  function renderRiskBarometer(){
+    var host = document.getElementById('picks-barometer');
+    if (!host) return;
+    // Self-sufficient: pull the cross-asset file (shared with the Overnight tab)
+    // on first paint if it isn't already loading/loaded.
+    if (!overnightState.data && !overnightState.loading && typeof loadOvernight === 'function') loadOvernight();
+    var d = overnightState.data;
+    if (!d || !d.markets || !Object.keys(d.markets).length){
+      if (overnightState.loading){
+        host.hidden = false;
+        host.innerHTML = '<div class="rob-card"><div class="rob-loading">Loading cross-asset risk read…</div></div>';
+      } else {
+        host.hidden = true; host.innerHTML = '';
+      }
+      return;
+    }
+    var rows = [];
+    for (var i = 0; i < BAROMETER_ASSETS.length; i++){
+      var cfg = BAROMETER_ASSETS[i];
+      var m = d.markets[cfg.sym];
+      if (!m) continue;
+      var sc = barometerScore(cfg, m);
+      if (sc == null) continue;
+      rows.push({ cfg: cfg, m: m, score: sc });
+    }
+    if (!rows.length){ host.hidden = true; host.innerHTML = ''; return; }
+    // Most risk-ON at the top, most risk-OFF at the bottom — a leaderboard read.
+    rows.sort(function(a, b){ return b.score - a.score; });
+    // Composite = equal-weighted mean of the available asset scores.
+    var sum = 0; for (var j = 0; j < rows.length; j++) sum += rows[j].score;
+    var composite = Math.round(sum / rows.length);
+    var cBand = barometerBand(composite);
+    var open = !!riskBarometer.open;
+    var railHtml = rows.map(function(r){
+      var band = barometerBand(r.score);
+      var pct = Math.max(0, Math.min(100, r.score));
+      var tip = BAROMETER_TOOLTIP[r.cfg.sym] || (r.m.lead || '');
+      var lvl = ovnLevelStr(r.m);
+      return '<div class="rob-row" title="' + ovnEsc(r.m.name + (tip ? ' — ' + tip : '')) + '">' +
+          '<span class="rob-name">' + ovnEsc(r.m.name) + '</span>' +
+          '<span class="rob-rail">' +
+            '<span class="rob-rail-track"></span>' +
+            '<span class="rob-rail-mid" aria-hidden="true"></span>' +
+            '<span class="rob-marker ' + band.cls + '" style="left:' + pct.toFixed(1) + '%" title="' + band.lbl + ' · score ' + Math.round(r.score) + '/100"></span>' +
+          '</span>' +
+          '<span class="rob-move ' + ovnMoveCls(r.m.chPct) + '">' + ovnEsc(ovnMoveStr(r.m)) + (lvl ? '<span class="rob-lvl">' + ovnEsc(lvl) + '</span>' : '') + '</span>' +
+        '</div>';
+    }).join('');
+    var staleTxt = d.stale ? 'last-good · ' : '';
+    // Freshest session across the barometer's own rows (independent of whether
+    // the Overnight tab has been opened, which is what sets ovnMaxAsOf).
+    var maxAsOf = null;
+    for (var k = 0; k < rows.length; k++){ var ao = rows[k].m.asOf; if (ao && (!maxAsOf || ao > maxAsOf)) maxAsOf = ao; }
+    var asOf = maxAsOf ? ('session ' + ovnShortDate(maxAsOf)) : 'last build';
+    host.hidden = false;
+    host.innerHTML =
+      '<div class="rob-card' + (open ? ' is-open' : '') + '">' +
+        '<button type="button" class="rob-head" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+          '<span class="rob-kicker">Risk-on / risk-off</span>' +
+          '<span class="rob-state ' + cBand.cls + '">' + composite + ' · ' + ovnEsc(cBand.lbl) + '</span>' +
+          '<span class="rob-asof">baked · ' + staleTxt + ovnEsc(asOf) + '</span>' +
+          '<span class="rob-toggle" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
+        '</button>' +
+        '<div class="rob-body">' +
+          '<div class="rob-scale" aria-hidden="true">' +
+            '<span class="rob-scale-off">RISK-OFF</span>' +
+            '<span class="rob-scale-mid">neutral</span>' +
+            '<span class="rob-scale-on">RISK-ON</span>' +
+          '</div>' +
+          '<div class="rob-rows">' + railHtml + '</div>' +
+          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. Baked from the overnight cross-asset sweep, refreshed each build — hover a row for its convention.</p>' +
+        '</div>' +
+      '</div>';
+    var head = host.querySelector('.rob-head');
+    if (head) head.addEventListener('click', function(){ riskBarometer.open = !riskBarometer.open; renderRiskBarometer(); });
+  }
 
   // --- Top Picks: risk-on / risk-off history calendar ----------------------
   // A month-grid timeline of the cross-asset macro regime that set the engine's
@@ -12489,6 +12641,9 @@
       '<h4 class="ovn-w-title">Overnight peer read</h4>' + body + '</div>';
   }
   function refreshOvernightWidgets(){
+    // The Top Picks risk barometer feeds off the same correlations.json — fill
+    // it in when the file lands (before the per-ticker early-return below).
+    if (typeof renderRiskBarometer === 'function' && document.getElementById('picks-barometer')) renderRiskBarometer();
     var nodes = document.querySelectorAll('[data-overnight-sym]');
     if (!nodes || !nodes.length) return;
     nodes.forEach(function(n){
@@ -16090,13 +16245,34 @@
   function liveGreeksRow(p, spot){
     var c = p && p.contract; if (!c) return '';
     var side = p.side === 'put' ? 'put' : 'call';
-    var K = Number(c.strike), iv = Number(c.iv), exp = Number(c.expiry), S = Number(spot);
-    var g = (S > 0 && K > 0 && iv > 0 && exp > 0) ? greeks(side, S, K, posYrs(exp), iv, RFR) : null;
-    var delta = g ? g.delta : (isFinite(c.delta) ? Number(c.delta) : null);
-    var thetaDay = g ? g.thetaDay : (isFinite(c.thetaDay) ? Number(c.thetaDay) : null);
-    var gamma = g ? g.gamma : null;
-    var vega = g ? g.vega : null;
+    var exp = Number(c.exp || c.expiry), S = Number(spot);
+    var iv = Number(c.iv);
+    var delta, thetaDay, gamma, vega, isSpread = (c.structure === 'debit_vertical' && c.legs && c.legs.length > 1);
+    if (isSpread){
+      // Net greeks across both legs of the debit spread (long qty +1, short qty −1) —
+      // the short wing offsets most of the long's theta + vega, which is the whole
+      // point of the structure. Recomputed live at the polled spot when possible.
+      var nd = 0, nt = 0, ng = 0, nv = 0, ok = false;
+      for (var li = 0; li < c.legs.length; li++){
+        var leg = c.legs[li], lq = Number(leg.qty) || 0, lk = Number(leg.strike), liv = Number(leg.iv);
+        var lg = (S > 0 && lk > 0 && liv > 0 && exp > 0) ? greeks(side, S, lk, posYrs(exp), liv, RFR) : null;
+        var ld = lg ? lg.delta : Number(leg.delta), lt = lg ? lg.thetaDay : Number(leg.thetaDay), lgm = lg ? lg.gamma : null, lv = lg ? lg.vega : Number(leg.vega);
+        if (isFinite(ld)) { nd += ld * lq; ok = true; }
+        if (isFinite(lt)) nt += lt * lq;
+        if (lgm != null && isFinite(lgm)) ng += lgm * lq;
+        if (isFinite(lv)) nv += lv * lq;
+      }
+      delta = ok ? nd : null; thetaDay = nt; gamma = ng; vega = nv;
+    } else {
+      var K = Number(c.strike);
+      var g = (S > 0 && K > 0 && iv > 0 && exp > 0) ? greeks(side, S, K, posYrs(exp), iv, RFR) : null;
+      delta = g ? g.delta : (isFinite(c.delta) ? Number(c.delta) : null);
+      thetaDay = g ? g.thetaDay : (isFinite(c.thetaDay) ? Number(c.thetaDay) : null);
+      gamma = g ? g.gamma : null;
+      vega = g ? g.vega : null;
+    }
     var cells = [];
+    if (isSpread) cells.push('<span title="Net Greeks of the two-leg debit spread (long − short) — the short wing offsets most of the theta and vega."><b>net</b></span>');
     if (delta != null && isFinite(delta)) cells.push('<span title="Delta — ' + escapeHtml(TIPS.delta) + '"><b>Δ</b> ' + delta.toFixed(2) + '</span>');
     if (gamma != null && isFinite(gamma)) cells.push('<span title="Gamma — ' + escapeHtml(TIPS.gamma) + '"><b>Γ</b> ' + gamma.toFixed(4) + '</span>');
     if (thetaDay != null && isFinite(thetaDay)) cells.push('<span title="Theta (per share, per day) — ' + escapeHtml(TIPS.theta) + '"><b>Θ</b> $' + thetaDay.toFixed(2) + '/d</span>');
@@ -16104,10 +16280,38 @@
     if (isFinite(iv)) cells.push('<span title="Implied volatility — ' + escapeHtml(TIPS.iv) + '"><b>IV</b> ' + (iv * 100).toFixed(0) + '%</span>');
     return cells.join('');
   }
+  // Defined-risk spread structure block (PICKS_VERT_AUTO). When a pick ships as a
+  // debit vertical (rich-IV — finance the long by selling an OTM wing), show the two
+  // legs and the CAPPED max-loss / max-profit so the user reads it as the defined-risk
+  // trade it is: max loss = the net debit paid, max profit = strike width − debit. The
+  // capped upside is the price of the slashed theta / IV-crush + smaller premium at risk.
+  function pickVerticalStructureHtml(p, c){
+    if (!c || c.structure !== 'debit_vertical' || c.shortStrike == null) return '';
+    var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var mult = 100;
+    var maxLoss = isFinite(c.maxLoss) ? Number(c.maxLoss) : (isFinite(c.netDebit) ? Number(c.netDebit) : null);
+    var maxProfit = isFinite(c.maxProfit) ? Number(c.maxProfit) : null;
+    var rr = (maxLoss != null && maxProfit != null && maxLoss > 0) ? (maxProfit / maxLoss) : null;
+    var longK = isFinite(c.strike) ? Number(c.strike) : null;
+    var shortK = isFinite(c.shortStrike) ? Number(c.shortStrike) : null;
+    var rows =
+      '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-long">LONG</span><span class="pick-vert-k">$' + escapeHtml(String(longK)) + ' ' + sideLabel + '</span><span class="pick-vert-prem">$' + (isFinite(c.legs && c.legs[0] && c.legs[0].mid) ? Number(c.legs[0].mid).toFixed(2) : '—') + '</span></div>' +
+      '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-short">SHORT</span><span class="pick-vert-k">$' + escapeHtml(String(shortK)) + ' ' + sideLabel + '</span><span class="pick-vert-prem">$' + (isFinite(c.shortMid) ? Number(c.shortMid).toFixed(2) : '—') + '</span></div>';
+    var econ =
+      (maxLoss != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Max loss</div><div class="pick-vert-stat-val pick-vert-loss">$' + (maxLoss * mult).toFixed(0) + '</div></div>' : '') +
+      (maxProfit != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Max profit</div><div class="pick-vert-stat-val pick-vert-profit">$' + (maxProfit * mult).toFixed(0) + '</div></div>' : '') +
+      (rr != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">R / R</div><div class="pick-vert-stat-val">' + rr.toFixed(2) + '×</div></div>' : '');
+    return '<div class="pick-vert" title="Debit vertical (defined-risk spread): the long is financed by selling an OTM wing on the same expiry. Caps the max loss to the net debit and slashes theta + IV-crush vs a naked long — at the cost of a capped max profit (the strike width minus the debit).">' +
+      '<div class="pick-vert-head">⛓ Defined-risk spread <span class="pick-vert-tag">caps loss · cuts theta/vega</span></div>' +
+      '<div class="pick-vert-legs">' + rows + '</div>' +
+      '<div class="pick-vert-econ">' + econ + '</div>' +
+    '</div>';
+  }
   function pickContractHtml(p){
     var c = p && p.contract;
     if (!c || c.strike == null || !c.expiryLabel) return '';
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var isSpread = (c.structure === 'debit_vertical' && c.shortStrike != null);
     var dteTxt = (c.dte != null) ? ' · ' + c.dte + 'd' : '';
     // Stat grid — replaces the dense mono "$8.45 × $8.60 · mid $8.52 / Δ 0.50
     // · Θ ... / Breakeven $... (+8.5%)" trio with a 3-column labeled layout
@@ -16134,8 +16338,8 @@
       var midN = parseFloat(premiumPrimary.slice(1));
       if (isFinite(midN)) dollarsContract = '$' + (midN * 100).toFixed(0) + ' / contract';
     }
-    stats += '<div class="pick-stat" title="Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.">' +
-      '<div class="pick-stat-label">Premium</div>' +
+    stats += '<div class="pick-stat" title="' + (isSpread ? 'Net debit — the long premium minus the credit from the short wing. ×100 = the cash you pay, and (for a defined-risk spread) the most you can lose.' : 'Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.') + '">' +
+      '<div class="pick-stat-label">' + (isSpread ? 'Net debit' : 'Premium') + '</div>' +
       '<div class="pick-stat-value">' + escapeHtml(premiumPrimary || '—') + '</div>' +
       '<div class="pick-stat-sub">' + escapeHtml(premiumSub || dollarsContract || '') + '</div>' +
     '</div>';
@@ -16176,6 +16380,17 @@
                 : c.rrRatio <= 1.0 ? 'fair' : 'bad';
       rr = '<div class="pick-contract-rr pick-rr-' + rrCls + '">' +
         'Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · chain prices ±' + exp.toFixed(1) + '%' +
+      '</div>';
+    }
+    // Probability of profit at expiry (risk-neutral P(S_T past breakeven), N(±d2)) —
+    // the most direct "how likely is this to make money" read, and what the elite
+    // gauntlet gates on. Colored by the same bands.
+    var pop = '';
+    if (c.pop != null && isFinite(c.pop)){
+      var popPct = Math.round(Number(c.pop) * 100);
+      var popCls = popPct >= 55 ? 'good' : popPct >= 45 ? 'fair' : 'bad';
+      pop = '<div class="pick-contract-rr pick-rr-' + popCls + '" title="Probability the position is profitable at expiry — the risk-neutral chance the stock finishes past the breakeven, from the contract IV and time to expiry. A long single option is structurally a minority-of-the-time winner; a defined-risk spread or a closer-to-the-money strike raises it.">' +
+        '≈' + popPct + '% chance of profit by expiry' +
       '</div>';
     }
     var liqParts = [];
@@ -16225,14 +16440,19 @@
     if (c.otmPct != null && isFinite(c.otmPct)) {
       otmTxt = ' · ' + Math.abs(Number(c.otmPct)).toFixed(1) + '% OTM';
     }
+    var headStrike = isSpread
+      ? '$' + escapeHtml(String(c.strike)) + ' / $' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt
+      : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt;
     return '<div class="pick-contract' + overall + '">' +
       '<div class="pick-contract-head">' +
-        '<span class="pick-contract-label">Suggested ' + sideLabel + '</span>' +
-        '<span class="pick-contract-strike">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt + '</span>' +
+        '<span class="pick-contract-label">Suggested ' + (isSpread ? sideLabel + ' spread' : sideLabel) + '</span>' +
+        '<span class="pick-contract-strike">' + headStrike + '</span>' +
         earningsBadge +
       '</div>' +
+      pickVerticalStructureHtml(p, c) +
       stats +
       rr +
+      pop +
       qChips +
       (liq ? '<div class="pick-contract-meta">' + liq + '</div>' : '') +
       plain +
@@ -17391,13 +17611,26 @@
       var erChip = c.earningsInWindow
         ? '<span class="ptc-con-er" title="Earnings land before this contract expires — the post-print IV crush can wipe out a long premium even on a correct directional call.">⚠ ER</span>'
         : '';
+      var isSpread = (c.structure === 'debit_vertical' && c.shortStrike != null);
+      var spreadChip = isSpread
+        ? '<span class="ptc-con-spread" title="Defined-risk debit spread — long $' + escapeHtml(String(c.strike)) + ' financed by a short $' + escapeHtml(String(c.shortStrike)) + ' wing. Caps the max loss to the net debit and cuts theta / IV-crush; the premium shown is the NET debit.">⛓ spread</span>'
+        : '';
+      var kTxt = isSpread
+        ? '$' + escapeHtml(String(c.strike)) + '/' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(String(c.dte)) + 'd'
+        : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(String(c.dte)) + 'd';
+      var popChip = '';
+      if (c.pop != null && isFinite(c.pop)){
+        var popP = Math.round(Number(c.pop) * 100);
+        var popC = popP >= 55 ? ' ptc-con-be-good' : popP >= 45 ? ' ptc-con-be-fair' : ' ptc-con-be-bad';
+        popChip = '<span class="ptc-con-pop' + popC + '" title="Probability of profit at expiry — the risk-neutral chance the stock finishes past the breakeven.">≈' + popP + '% PoP</span>';
+      }
       var econTitle = 'Suggested contract: $' + c.strike + ' ' + sideLabel + ' · ' + (c.expiryLabel || '') + ' (' + c.dte + 'd)' +
         (premPerContract ? ' · ' + premPerContract : '') +
         (c.breakevenMovePct != null && isFinite(c.breakevenMovePct) ? ' · needs ' + (Number(c.breakevenMovePct) >= 0 ? '+' : '') + Number(c.breakevenMovePct).toFixed(1) + '% to break even' : '');
       econ = '<span class="ptc-contract" title="' + escapeHtml(econTitle) + '">' +
-        '<span class="ptc-con-k">$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(String(c.dte)) + 'd</span>' +
+        '<span class="ptc-con-k">' + kTxt + '</span>' +
         (prem != null && isFinite(prem) ? '<span class="ptc-con-prem">$' + prem.toFixed(2) + '</span>' : '') +
-        beChip + erChip +
+        spreadChip + popChip + beChip + erChip +
       '</span>';
     }
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
@@ -17762,9 +17995,13 @@
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
         empty.hidden = false;
+        var rmE = data.rosterMeta || null;
+        var nHeld = (rmE && rmE.eliteGated && rmE.eliteGated.length) || 0;
         empty.textContent = data.loadError
           ? 'Couldn’t load picks — refresh the page to try again.'
-          : 'No high-conviction picks in this build — every ticker scored below the minimum.';
+          : (rmE && rmE.eliteOnly)
+            ? ('No top picks today — nothing cleared the near-certain bar' + (nHeld ? ' (' + nHeld + ' strong name' + (nHeld === 1 ? '' : 's') + ' graded high but not almost-guaranteed, so held back)' : '') + '. A top pick only lists when it is as close to a sure thing as a directional option gets — most days that is nothing, and cash is a position.')
+            : 'No high-conviction picks in this build — every ticker scored below the minimum.';
       }
       return;
     }
@@ -17844,6 +18081,8 @@
     }
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
+    if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
+    if (rm && rm.eliteGated && rm.eliteGated.length) noteBits.push('<b>' + rm.eliteGated.length + '</b> strong but not near-certain — held back (elite bar)');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';
