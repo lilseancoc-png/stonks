@@ -232,7 +232,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const longestGreen = allGreens.length ? allGreens.slice().sort(byLongest)[0] : null;
   const longestRed = allReds.length ? allReds.slice().sort(byLongest)[0] : null;
   const avg = (arr) => arr.length
-    ? (arr.reduce((s, t) => s + Math.abs(t.current.cumulativePct), 0) / arr.length)
+    ? (arr.reduce((s, t) => s + Math.abs(Number(t.current && t.current.cumulativePct) || 0), 0) / arr.length)
     : 0;
   const summary = `
     <div class="streaks-summary">

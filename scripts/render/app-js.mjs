@@ -2278,7 +2278,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var bestExp = null, bestExpDist = Infinity;
       for (var i = 0; i < state.expirations.length; i++){
         var exp = state.expirations[i];
-        var dte = Math.round((exp - nowSec) / 86400);
+        var dte = Math.round((exp + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / 86400);
         if (dte < 45) continue;
         var dist = Math.abs(dte - 60);
         if (dist >= bestExpDist) continue;
@@ -2742,7 +2742,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var pts = [];
     for (var i=0; i<state.expirations.length; i++){
       var expSec = state.expirations[i];
-      var dte = Math.max(0, Math.round((expSec - nowSec) / 86400));
+      var dte = Math.max(0, Math.round((expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / 86400));
       var iv = atmIvForExpiration(state.chains[expSec], state.spot);
       if (iv != null) pts.push({ expSec: expSec, dte: dte, iv: iv });
     }
@@ -8331,6 +8331,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function startHotPolling(){
     if (volLive.timer) return;
+    // Respect the premium gate — a non-member sees the lock card, so the
+    // 138-symbol /api/quotes poll must not (re)start behind it. selectTab
+    // already fences the initial load; this guards the visibilitychange resume,
+    // which would otherwise restart polling on a locked tab when the browser
+    // window is re-focused.
+    if (PREMIUM_TABS['hot'] && !IS_MEMBER) return;
     var pane = document.getElementById('page-pane-hot');
     if (!pane || pane.hidden) return;
     pollVolumeLiveOnce();
@@ -18908,9 +18914,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : bps < 50 ? { key: 'notable', label: 'Modest' }
         : { key: 'normal', label: 'Upward' };
       var sub = '';
-      if (bondsHist.series && bondsHist.series.spread && bondsHist.series.spread.length >= 6){
-        var sp = bondsHist.series.spread;
-        var d5 = (sp[sp.length - 1] - sp[sp.length - 6]) * 100;
+      // 5d steepening/flattening: derive from each leg's OWN date-anchored 5d
+      // change (server-computed off contiguous daily bars) rather than a
+      // positional offset into the gap-collapsed spread history — that history
+      // drops any bake-day missing either leg, so sp[len-6] is not reliably "5
+      // trading days ago". spread = 10Y − 2Y, so its 5d bps change is simply the
+      // 10Y's minus the 2Y's. Prefer prior5d (tracks the live overlay's current
+      // value) and fall back to the baked bps delta.
+      var leg5 = function(leg){
+        if (leg.prior5d != null && isFinite(leg.prior5d) && leg.value != null && isFinite(leg.value)) return (leg.value - leg.prior5d) * 100;
+        return isFinite(leg.bpsChange5d) ? leg.bpsChange5d : null;
+      };
+      var t5 = leg5(t), two5 = leg5(two);
+      if (t5 != null && two5 != null){
+        var d5 = t5 - two5;
         sub = '<span class="bonds-live-change bonds-live-change--sub ' + (d5 > 0 ? 'up' : d5 < 0 ? 'down' : 'flat') + '">' +
           (d5 >= 0 ? '+' : '') + d5.toFixed(1) + ' bps 5d (' + (d5 > 0.5 ? 'steepening' : d5 < -0.5 ? 'flattening' : 'flat') + ')</span>';
       }

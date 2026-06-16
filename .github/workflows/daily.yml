@@ -179,7 +179,10 @@ jobs:
             # Flag-off: commit data/ to the repo as today. Flag-on (Path B
             # cutover): data/ lives in the private store (flushed by the push step
             # below) and is gitignored, so it's never staged here.
-            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add data; fi
+            # -f is required because Path B added an unconditional `/data/` to
+            # .gitignore — without it `git add data` no-ops on the ignored path
+            # and the legacy rollback commits render output with no data.
+            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f data; fi
             if git diff --cached --quiet; then
               echo "No changes to commit (attempt $attempt)."
               exit 0

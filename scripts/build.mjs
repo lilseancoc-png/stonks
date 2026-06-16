@@ -3214,8 +3214,14 @@ async function fetchInflationLabor() {
     const i = cpi.length - 1;
     const yoy = yoyAt(i);
     if (yoy != null) {
-      const prevYoy = yoyAt(i - 1);
-      const yoy3mAgo = yoyAt(i - 3);
+      // prevYoy / yoy3mAgo anchor the prior-month and 3-months-ago YoY BY DATE
+      // (not the positional i-1 / i-3) so a single missing monthly CPI
+      // observation can't slip the trend's "previous" to the wrong month —
+      // matters because yoy3mAgo feeds the PICKS_MACRO_INFLATION regime axis.
+      const prevIdx = monthsAgoIdx(cpi, i, 1);
+      const yoy3mIdx = monthsAgoIdx(cpi, i, 3);
+      const prevYoy = prevIdx >= 0 ? yoyAt(prevIdx) : null;
+      const yoy3mAgo = yoy3mIdx >= 0 ? yoyAt(yoy3mIdx) : null;
       out.inflation = {
         yoy: round1(yoy),
         prevYoy: round1(prevYoy),
@@ -5687,6 +5693,33 @@ function prevMonthObs(series, idx) {
     if (ym && ym < targetYM) break; // walked past it (oldest-first → older as k falls)
   }
   return null;
+}
+
+// Index of the observation exactly `n` calendar months before series[idx], BY
+// DATE (its YYYY-MM), or -1 when that month is genuinely absent. Generalizes
+// prevMonthObs (n=1) to arbitrary N-months-back lookups so a consumer that
+// wants "the YoY n months ago" (e.g. the CPI tile's prevYoy / yoy3mAgo trend
+// anchors, which feed the PICKS_MACRO_INFLATION regime axis) can resolve the
+// right index instead of a positional idx-n that a single dropped monthly
+// observation would slip to the wrong month — same fix as the YoY/MoM anchors.
+// Series is oldest-first with YYYY-MM-01 dates.
+function monthsAgoIdx(series, idx, n) {
+  if (!Array.isArray(series) || idx < 0 || idx >= series.length) return -1;
+  const cur = series[idx];
+  if (!cur || typeof cur.date !== "string") return -1;
+  const y = Number(cur.date.slice(0, 4));
+  const mo = Number(cur.date.slice(5, 7));
+  if (!Number.isFinite(y) || !Number.isFinite(mo)) return -1;
+  const total = y * 12 + (mo - 1) - n; // month index, then n months back
+  const ty = Math.floor(total / 12);
+  const tm = (total % 12) + 1;
+  const targetYM = `${ty}-${String(tm).padStart(2, "0")}`;
+  for (let k = idx - 1; k >= 0; k--) {
+    const ym = (series[k]?.date || "").slice(0, 7);
+    if (ym === targetYM) return k;
+    if (ym && ym < targetYM) break; // walked past it (oldest-first → older as k falls)
+  }
+  return -1;
 }
 
 // Format a release value for display, given the format key from the
