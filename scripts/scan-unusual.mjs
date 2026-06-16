@@ -820,12 +820,6 @@ function buildBucketStartLookup(history, todayKey, currentBucket) {
   return map;
 }
 
-// Tolerance (in minutes) for how stale a bucket-start snapshot can be before
-// we treat the bucket as having a "scan gap". Beyond this, the computed
-// actualHourVol is absorbing volume from earlier missed buckets and the row
-// should be flagged in the UI.
-const BUCKET_START_GAP_TOLERANCE_MIN = 15;
-
 // Returns labels of past buckets (bucket.endMin <= etMin) that have NO
 // snapshot inside them in today's history. Used to inject "scan missed"
 // placeholders so the per-bucket list stays honest when cron-job dispatch
@@ -983,9 +977,10 @@ async function runVolumePass({
     const prev = prevLookup.get(r.symbol);
     // Bucket 1 always starts at 0; later buckets resolve from history.
     // bucketStartGap = minutes between the lookup snapshot and the bucket
-    // boundary. Zero means we have a snapshot exactly at the boundary;
-    // anything > BUCKET_START_GAP_TOLERANCE_MIN means a prior hourly scan
-    // was missed and the resulting actualHourVol absorbs earlier volume.
+    // boundary. Zero means we have a snapshot exactly at the boundary; a large
+    // gap means a prior hourly scan was missed and the resulting actualHourVol
+    // absorbs earlier volume. The raw minutes ride on the hit; the UI applies
+    // the staleness threshold client-side (renderVolumeBucketRow in app.js).
     let bucketStartCumVol = null;
     let bucketStartEtMin = null;
     let bucketStartGap = null;

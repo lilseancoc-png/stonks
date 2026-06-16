@@ -137,7 +137,12 @@ jobs:
           if [ "${PRIVATE_DATA_ENABLED:-0}" = "1" ]; then
             git add $STATIC_PATHS
           else
-            git add $DATA_PATHS data/manifest.json $STATIC_PATHS
+            # -f forces past the unconditional `/data/` .gitignore (Path B);
+            # without it this add fails the whole step under set -e. Include
+            # manifest-free.json too (regen-static writes both sidecars) — else
+            # the free sidecar is left dirty and the next run's rebase aborts.
+            git add -f $DATA_PATHS data/manifest.json data/manifest-free.json
+            git add $STATIC_PATHS
           fi
           if ! git diff --cached --quiet; then
             SCAN_LABEL=$(TZ=America/New_York date +%H)

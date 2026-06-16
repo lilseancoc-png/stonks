@@ -395,9 +395,17 @@ async function main() {
   let eodSummary = prior?.eodSummary && prior.eodSummary.date === todayEt
     ? prior.eodSummary
     : null;
+  // Fire after the close. The bare ET-hour gate can miss the day entirely if
+  // the single ~16:00 ET run boots a touch early and reads hourEt=15, so we
+  // also fire the moment the batch reports an after-hours (POST) marketState —
+  // which only occurs once the 16:00 ET bell has rung on a trading day (PRE/
+  // REGULAR precede it; CLOSED is deliberately NOT accepted so a holiday's
+  // all-day CLOSED tape can't mint a recap for a session that never traded).
+  // The !eodSummary + same-day carry-forward above still bound it to once/day.
+  const isPostClose = typeof marketState === "string" && marketState.startsWith("POST");
   const shouldGenerate =
     !eodSummary &&
-    hourEt >= EOD_TRIGGER_ET_HOUR &&
+    (hourEt >= EOD_TRIGGER_ET_HOUR || isPostClose) &&
     !!process.env.GEMINI_API_KEY;
 
   if (shouldGenerate) {
