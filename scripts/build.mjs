@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
-import { greeks, bsPrice, yearsToExpiry } from "../lib/greeks.mjs";
+import { greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
 import { renderPriceChartPng } from "../lib/chart-image.mjs";
 
 // Library prints a survey notice on first use and validates response
@@ -8186,6 +8186,26 @@ const PICKS_TECH_CAP = Number(process.env.PICKS_TECH_CAP ?? 4.5);          // |t
 const PICKS_CONFLUENCE_MIN = Number(process.env.PICKS_CONFLUENCE_MIN ?? 2);          // aligned pillars required to ship (0 = off)
 const PICKS_CONFLUENCE_PILLAR_MIN = Number(process.env.PICKS_CONFLUENCE_PILLAR_MIN ?? 0.5); // pillar magnitude that counts as "aligned"
 const PICKS_TREND_OPPOSE_FLOOR = Number(process.env.PICKS_TREND_OPPOSE_FLOOR ?? 0.5); // veto when technicals opposes the side by ≥ this (0 = off)
+// ELITE GAUNTLET (`PICKS_ELITE_ONLY`, default ON). "A top pick should only be a top
+// pick if it's almost guaranteed to be right and make money." Nothing in markets is
+// literally guaranteed — a long option needs a real move — but this maximizes the
+// PRECISION of the list: a non-tactical name ships ONLY if it clears EVERY one of a
+// stacked, conjunctive gauntlet, else it's not a top pick (it stays in the grade-any-
+// ticker index, just unbadged). The roster honestly ships 0 most days. Each is the
+// strictest sane form of "this is as close to a sure thing as a directional option
+// gets". Set =0 to revert to the ordinary actionable roster.
+//   1. STRONG tier only          — top conviction (|total| ≥ strongCut), not just the trade bar.
+//   2. ≥ PICKS_ELITE_CONFLUENCE_MIN pillars aligned — a broad, corroborated thesis, not one story.
+//   3. timing 'go'               — a clean, confirmed entry (already required; asserted).
+//   4. POP ≥ PICKS_ELITE_MIN_POP — risk-neutral probability of profit at expiry is better than ~a coin flip.
+//   5. rrRatio ≤ PICKS_ELITE_MAX_RR — the breakeven move sits WELL inside what the chain already prices.
+//   6. no earnings in the contract window — no unhedgeable binary IV-crush event.
+//   7. tape not fighting the trade — don't lean against a confirmed macro regime.
+// Tactical puts (sub-bar tape bets) are excluded from elite by construction.
+const PICKS_ELITE_ONLY = process.env.PICKS_ELITE_ONLY !== "0"; // default ON
+const PICKS_ELITE_CONFLUENCE_MIN = Number(process.env.PICKS_ELITE_CONFLUENCE_MIN ?? 3); // of the 4 asset pillars
+const PICKS_ELITE_MIN_POP = Number(process.env.PICKS_ELITE_MIN_POP ?? 0.45);            // probability of profit at expiry
+const PICKS_ELITE_MAX_RR = Number(process.env.PICKS_ELITE_MAX_RR ?? 0.6);              // breakeven move ÷ chain-priced 1σ move
 
 // Reliability multiplier for one signal (1 = fully trusted / feature off).
 function signalReliability(key) {
@@ -10507,6 +10527,19 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     result.maxLoss = Number(netDebit.toFixed(2));
     result.maxProfit = Number(Math.max(0, width - netDebit).toFixed(2));
     result.spreadWidth = Number(width.toFixed(2));
+  }
+  // Risk-neutral probability the position is PROFITABLE at expiry: P(S_T past the
+  // breakeven) = N(d2) for a call / N(−d2) for a put, using the (now spread-aware)
+  // breakeven, the long-leg IV, and the time to expiry. This is the most direct
+  // "how likely is this to make money" read — the substrate for the elite gauntlet
+  // (PICKS_ELITE_MIN_POP) and surfaced on the card. Degrades to null on bad inputs.
+  {
+    const S = Number(data?.spot), BE = Number(result.breakeven), sig = Number(result.iv), T = yearsToExpiry(best.expSec);
+    if (S > 0 && BE > 0 && sig > 0 && T > 0) {
+      const d2 = (Math.log(S / BE) + (rfr - 0.5 * sig * sig) * T) / (sig * Math.sqrt(T));
+      const pop = side === "call" ? ncdf(d2) : ncdf(-d2);
+      if (Number.isFinite(pop)) result.pop = Number(pop.toFixed(3));
+    }
   }
   return result;
 }
@@ -13255,7 +13288,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const candSet = scored
     .filter((s) => s.recommendation && s.recommendation.side)
     .map((s) => ({ r: s, side: s.recommendation.side, tactical: false }));
-  if (regime === "risk-off") {
+  // Tactical puts are sub-bar tape bets — they can never be "almost guaranteed", so
+  // the elite gauntlet excludes them entirely (don't even add them as candidates).
+  if (regime === "risk-off" && !PICKS_ELITE_ONLY) {
     // Relax the tactical-put bar in a SEVERE tape so more weak names become
     // shortable candidates (still gated on a clean 'go' breakdown below).
     // The bar must sit ABOVE -tradeCut or the window (-tradeCut, putBar] is
@@ -13322,6 +13357,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   let earningsRiskCount = 0; // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK)
   const skippedEarningsRisk = [];
   const skippedTimingGated = []; // require-go gate (PICKS_REQUIRE_GO) — non-'go' non-tactical picks
+  const skippedEliteGated = []; // elite gauntlet (PICKS_ELITE_ONLY) — failed the near-sure-thing conjunction
   for (const cand of candidates) {
     if (out.length >= PICKS_COUNT) break;
     const r = cand.r;
@@ -13423,6 +13459,35 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
           technicals: Number(tech.toFixed(2)),
           reason: fightsTape ? "fights-tape" : "single-family",
         });
+        vetoed += 1;
+        continue;
+      }
+    }
+
+    // ELITE GAUNTLET (PICKS_ELITE_ONLY): a non-tactical name is a "top pick" ONLY if
+    // it's as close to a sure thing as a directional option gets — it must clear EVERY
+    // requirement at once (a conjunction, not a score). Anything that fails ANY one is
+    // not a top pick today (still graded in the index, just unbadged). The roster
+    // honestly ships few or zero. Tactical puts (sub-bar tape bets) never qualify.
+    if (PICKS_ELITE_ONLY && !cand.tactical) {
+      const sgn = side === "call" ? 1 : -1;
+      const alignedPillars = PILLAR_KEYS.filter(
+        (pk) => sgn * ((r.pillars && r.pillars[pk] && r.pillars[pk].score) || 0) >= PICKS_CONFLUENCE_PILLAR_MIN,
+      ).length;
+      const tier = r.recommendation && r.recommendation.tier;
+      const tech = (r.pillars && r.pillars.technicals && r.pillars.technicals.score) || 0;
+      const fightsTape = PICKS_TREND_OPPOSE_FLOOR > 0 && sgn * tech <= -PICKS_TREND_OPPOSE_FLOOR;
+      const rr = contract.rrRatio, pop = contract.pop;
+      const fails = [];
+      if (tier !== "strong-call" && tier !== "strong-put") fails.push("not-strong");
+      if (alignedPillars < PICKS_ELITE_CONFLUENCE_MIN) fails.push("thin-confluence");
+      if (timing.state !== "go") fails.push("not-go");
+      if (!(Number.isFinite(pop) && pop >= PICKS_ELITE_MIN_POP)) fails.push("low-pop");
+      if (!(Number.isFinite(rr) && rr <= PICKS_ELITE_MAX_RR)) fails.push("breakeven-too-far");
+      if (contract.earningsInWindow) fails.push("earnings-risk");
+      if (fightsTape) fails.push("fights-tape");
+      if (fails.length) {
+        skippedEliteGated.push({ symbol: r.sym, side, reasons: fails, pop: pop ?? null, rrRatio: rr ?? null, alignedPillars });
         vetoed += 1;
         continue;
       }
@@ -13600,6 +13665,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       earningsEve: skippedEarningsEve, // earnings-eve entry veto (print ≤PICKS_EARNINGS_VETO_DAYS out — don't open what the exit rule would close)
       earningsRiskCapped: skippedEarningsRisk, // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK) — too many crush-exposed contracts already
       timingGated: skippedTimingGated, // require-go gate (PICKS_REQUIRE_GO) — graded names without a clean 'go' entry, deferred not shipped
+      eliteGated: skippedEliteGated, // elite gauntlet (PICKS_ELITE_ONLY) — strong names that still aren't near-sure-things (each with its failing reasons)
+      eliteOnly: PICKS_ELITE_ONLY, // surfaced so the UI can explain the high-precision bar + empty days
       // Book-level greek / premium-at-risk aggregate (C): the shipped roster's net
       // delta / vega / theta-per-day + total premium deployed, all as % of the display
       // account, so the UI can surface the long-vega / short-theta carry the per-name

@@ -6846,6 +6846,8 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   font-weight: 700;
   letter-spacing: .02em;
 }
+/* Probability-of-profit chip on the landing tile (color via .ptc-con-be-*). */
+.ptc-con-pop { font-weight: 700; letter-spacing: .02em; }
 /* Defined-risk spread structure block on the pick detail (pickVerticalStructureHtml). */
 .pick-vert {
   margin: 10px 0 4px;
