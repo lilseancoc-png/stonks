@@ -9501,14 +9501,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     axes.fed = Object.assign({ live: false }, baked.axes.fed || { score: 0, label: 'no Fed-path data' });
     axes.geo = Object.assign({ live: false }, baked.axes.geo || { score: 0, label: 'no geopolitical narrative' });
     axes.inflation = Object.assign({ live: false }, baked.axes.inflation || { score: 0, label: 'inflation/labor axis off' });
+    // Global cross-asset tape axis — baked (correlations.json isn't in macro-live).
+    axes.globalTape = Object.assign({ live: false }, baked.axes.globalTape || { score: 0, label: 'no cross-asset data' });
 
     // Composite → state (computeMacroRegime state machine + macroEffectiveAxisCount).
-    var ORDER = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment'];
+    var ORDER = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var stress = arr.reduce(function(a,b){ return a + b; }, 0);
     var riskOffAxes = arr.filter(function(x){ return x <= -1; }).length;
     var riskOnAxes = arr.filter(function(x){ return x >= 1; }).length;
-    var CLUSTERS = { vix:'vol', sentiment:'vol', dxy:'rates', yields:'rates', fed:'rates' };
+    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', dxy:'rates', yields:'rates', fed:'rates' };
     function effCount(dir){
       var per = {};
       for (var i = 0; i < ORDER.length; i++){
@@ -9668,11 +9670,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
       { k:'commodity', name:'Commodities', desc:'Crude + gold — supply / war shock' },
       { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
+      { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + copper + BTC' },
       { k:'fed', name:'Fed path', desc:'FedWatch hike-odds drift' },
       { k:'geo', name:'Geopolitics', desc:'War / peace headline + narrative' },
       { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
     ];
-    var ORDER = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment'];
+    var ORDER = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var roff = arr.filter(function(x){ return x <= -1; }).length;
     var ron = arr.filter(function(x){ return x >= 1; }).length;
@@ -9682,6 +9685,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var sc = isFinite(a.score) ? a.score : 0;
       var tone = sc <= -1 ? 'off' : (sc >= 1 ? 'on' : 'flat');
       var scoreStr = (sc > 0 ? '+' : '') + sc;
+      // Per-axis mini-meter: the score (−2..+2) as a marker on a risk rail.
+      var axPos = Math.max(0, Math.min(100, 50 + sc * 25));
+      var rail = '<div class="tape-axis-rail" aria-hidden="true">' +
+          '<span class="tape-axis-rail-mid"></span>' +
+          '<span class="tape-axis-rail-mark tape-' + tone + '" style="left:' + axPos + '%"></span>' +
+        '</div>';
       var badge = a.live
         ? '<span class="tape-axis-badge is-live" title="Refreshed live from /api/macro-live">live</span>'
         : '<span class="tape-axis-badge is-baked" title="From the last build — this axis cannot refresh from a price quote">baked</span>';
@@ -9691,14 +9700,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             badge +
             '<span class="tape-axis-score">' + scoreStr + '</span>' +
           '</div>' +
+          rail +
           '<div class="tape-axis-label">' + escapeHtml(a.label || '') + '</div>' +
           '<div class="tape-axis-desc">' + escapeHtml(d.desc) + '</div>' +
         '</div>';
     }).join('');
+    // Headline risk meter — the whole tape on one rail. Position from net stress
+    // (0 = balanced), colored by the effective state; this is the visual gauge.
+    var meterPos = Math.max(2, Math.min(98, 50 + stress * 7));
+    var meterTone = meta.tone === 'off' ? 'off' : (meta.tone === 'on' ? 'on' : (meta.tone === 'fragile' ? 'warn' : 'flat'));
+    var meterHtml = '<div class="tape-meter tape-meter-' + meterTone + '">' +
+        '<div class="tape-meter-scale" aria-hidden="true"><span>RISK-OFF</span><span>neutral</span><span>RISK-ON</span></div>' +
+        '<div class="tape-meter-rail">' +
+          '<span class="tape-meter-mid" aria-hidden="true"></span>' +
+          '<span class="tape-meter-marker" style="left:' + meterPos.toFixed(1) + '%" title="' + escapeHtml(meta.lbl) + ' · net stress ' + (stress > 0 ? '+' : '') + stress + '"></span>' +
+        '</div>' +
+        '<div class="tape-meter-caption"><b>' + escapeHtml(meta.lbl) + '</b> · ' + roff + ' risk-off / ' + ron + ' risk-on axes · net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></div>' +
+      '</div>';
     var grossPct = (regime.grossMult != null && isFinite(regime.grossMult)) ? Math.round(regime.grossMult * 100) : 100;
     var drivers = (regime.drivers && regime.drivers.length) ? escapeHtml(regime.drivers.join(' · ')) : 'none';
     var summaryLine = (regime.state === 'neutral' && !regime.fragile)
-      ? 'Cross-asset macro <b>neutral</b> — no coordinated stress across the eight axes.'
+      ? 'Cross-asset macro <b>neutral</b> — no coordinated stress across the nine axes.'
       : 'Cross-asset macro <b>' + escapeHtml(meta.lbl.toLowerCase()) + '</b>' + (drivers !== 'none' ? ' — ' + drivers : '') + (regime.fragile && regime.state === 'neutral' ? ' · fragile internals' : '');
     var heldNote = (regime.persisted && regime.rawState && regime.rawState !== regime.state)
       ? '<p class="picks-tape-note is-warn">↻ Recovering — the live tape reads <b>' + escapeHtml(regime.rawState) + '</b>, but the engine holds the more defensive <b>' + escapeHtml(regime.state) + '</b> until a build confirms (no whipsaw on one green bounce).</p>'
@@ -9719,6 +9741,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="picks-tape-toggle" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
       '</button>' +
       '<div class="picks-tape-body">' +
+        meterHtml +
         '<p class="picks-tape-summary">' + summaryLine + '</p>' +
         '<div class="picks-tape-callout tape-callout-' + nar.tone + '">' +
           '<p class="picks-tape-callout-head">' + escapeHtml(nar.head) + '</p>' +
@@ -9727,7 +9750,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<p class="picks-tape-callout-meta"><b>What would change it</b> ' + nar.change + '</p>' +
         '</div>' +
         '<div class="picks-tape-metrics">' +
-          '<span title="Sum of the eight axis scores (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
+          '<span title="Sum of the nine axis scores (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
           '<span title="Axes reading risk-off (score ≤ −1).">Risk-off axes <b>' + roff + '</b></span>' +
           '<span title="Axes reading risk-on (score ≥ +1).">Risk-on axes <b>' + ron + '</b></span>' +
           '<span title="Deployed gross vs the neutral-tape target — the engine cuts size in a tightening tape.">Gross deployed <b>' + grossPct + '%</b></span>' +
@@ -9867,7 +9890,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     host.innerHTML =
       '<div class="rob-card' + (open ? ' is-open' : '') + '">' +
         '<button type="button" class="rob-head" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-          '<span class="rob-kicker">Risk-on / risk-off</span>' +
+          '<span class="rob-kicker">Cross-asset signals → market tape</span>' +
           '<span class="rob-state ' + cBand.cls + '">' + composite + ' · ' + ovnEsc(cBand.lbl) + '</span>' +
           '<span class="rob-asof">baked · ' + staleTxt + ovnEsc(asOf) + '</span>' +
           '<span class="rob-toggle" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
@@ -9879,7 +9902,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<span class="rob-scale-on">RISK-ON</span>' +
           '</div>' +
           '<div class="rob-rows">' + railHtml + '</div>' +
-          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. Baked from the overnight cross-asset sweep, refreshed each build — hover a row for its convention.</p>' +
+          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. The futures + Asia/EU breadth + yen carry + copper + Bitcoin among these feed the <b>Global tape</b> axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep, refreshed each build — hover a row for its convention.</p>' +
         '</div>' +
       '</div>';
     var head = host.querySelector('.rob-head');

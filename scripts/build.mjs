@@ -71,8 +71,8 @@ export const TICKERS = [
   "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
   "MRVL", "PLAB", "AMAT", "AMKR", "MU", "BE", "OKLO", "SNDK", "GLW",
   "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM", "DRAM",
-  // Space — satellite, lunar lander, in-space mfg, thermal mgmt
-  "LUNR", "PL", "BKSY", "RDW", "KULR",
+  // Space — satellite, lunar lander, in-space mfg, thermal mgmt, launch
+  "LUNR", "PL", "BKSY", "RDW", "KULR", "SPCX",
   // Added coverage — AI silicon, RF/optics, Arm IP, broker, med-tech, DC infra, retail, gaming, travel, launch
   "CBRS", "SWKS", "ARM", "COHR", "IBKR", "TMO", "VRT", "TGT", "RBLX", "ABNB", "FLY",
 ];
@@ -144,6 +144,7 @@ export const SECTORS = {
   GME: "Meme", AMC: "Meme",
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
   LUNR: "Space", PL: "Space", BKSY: "Space", RDW: "Space", KULR: "Space",
+  SPCX: "Space",
   FLY: "Space",
 };
 
@@ -482,6 +483,7 @@ export const INDUSTRY_OF_TICKER = {
   PL: "Aerospace & Defense",
   BKSY: "Aerospace & Defense",
   RDW: "Aerospace & Defense",
+  SPCX: "Aerospace & Defense",
   FLY: "Aerospace & Defense",
   KULR: "Electrical Equipment & Parts",
   VRT: "Electrical Equipment & Parts",
@@ -7739,9 +7741,24 @@ const PICKS_MACRO_CLUSTER_DISCOUNT = Number(process.env.PICKS_MACRO_CLUSTER_DISC
 // it's a slow monthly BLS series, a different data-generating process from the
 // real-time rates markets even when they correlate in a tightening regime.
 const MACRO_AXIS_CLUSTERS = {
-  vix: "vol", sentiment: "vol",          // fear / volatility complex (F&G's vol component overlaps VIX)
+  vix: "vol", sentiment: "vol", globalTape: "vol", // fear / volatility / cross-asset risk-appetite complex
   dxy: "rates", yields: "rates", fed: "rates", // dollar / long-yield / Fed-path tightening complex
 };
+// Global cross-asset tape axis (PICKS_MACRO_GLOBAL) — the overnight risk-breadth
+// read folded into the regime so the cross-asset sweep doesn't just decorate a
+// tab, it MOVES the gauge. Built from the signals the other axes DON'T already
+// own (US equity futures + foreign-index breadth + the yen carry + copper +
+// Bitcoin) so VIX/DXY/yields/crude/gold stay single-counted; clustered with the
+// vol complex above so a coordinated risk-appetite move isn't triple-counted.
+// Scored deterministically by deriveGlobalTapeAxis() from data/correlations.json's
+// markets, attached to macroBackdrop.crossAsset by main() before computeMacroRegime.
+const PICKS_MACRO_GLOBAL = process.env.PICKS_MACRO_GLOBAL !== "0"; // axis on by default
+const PICKS_MACRO_GLOBAL_FUT = Number(process.env.PICKS_MACRO_GLOBAL_FUT ?? 0.4);   // % ES/NQ avg that votes ±1
+const PICKS_MACRO_GLOBAL_BREADTH = Number(process.env.PICKS_MACRO_GLOBAL_BREADTH ?? 0.6); // % foreign-index avg that votes ±1
+const PICKS_MACRO_GLOBAL_YEN = Number(process.env.PICKS_MACRO_GLOBAL_YEN ?? 0.6);   // % USD/JPY that votes ±1 (up = carry-on)
+const PICKS_MACRO_GLOBAL_COPPER = Number(process.env.PICKS_MACRO_GLOBAL_COPPER ?? 1.0); // % copper that votes ±1 (up = growth)
+const PICKS_MACRO_GLOBAL_BTC = Number(process.env.PICKS_MACRO_GLOBAL_BTC ?? 2.0);   // % Bitcoin that votes ±1 (risk appetite)
+const PICKS_MACRO_GLOBAL_ACUTE = Number(process.env.PICKS_MACRO_GLOBAL_ACUTE ?? 3); // |net sub-votes| ≥ this → ±2 (broad, acute)
 // Inflation / labor axis (CPI YoY + unemployment, monthly BLS prints attached
 // to macroBackdrop by fetchInflationLabor). Slow monthly data, so it's a
 // confirming vote like sentiment — risk-off when inflation is hot (≥ CPI_HOT
@@ -11815,7 +11832,19 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
     }
   } else axes.sentiment = { score: 0, label: "sentiment axis off" };
 
-  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score];
+  // --- Global cross-asset tape axis (overnight risk breadth) -----------------
+  // Folds the cross-asset sweep (futures + foreign breadth + yen carry + copper
+  // + BTC) into the regime so the same signals the Top Picks barometer shows
+  // also MOVE the gauge. Baked (the live re-port carries it — correlations.json
+  // is not in /api/macro-live). Clustered with the vol complex (see CLUSTERS).
+  if (PICKS_MACRO_GLOBAL && macroBackdrop.crossAsset && Number.isFinite(Number(macroBackdrop.crossAsset.score))) {
+    const ca = macroBackdrop.crossAsset;
+    const s = Math.max(-2, Math.min(2, Math.round(Number(ca.score))));
+    axes.globalTape = { score: s, label: ca.label || "cross-asset tape" };
+    if (s <= -1) drivers.push(ca.driver || "global tape risk-off");
+  } else axes.globalTape = { score: 0, label: PICKS_MACRO_GLOBAL ? "no cross-asset data" : "global tape axis off" };
+
+  const arr = [axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score, axes.globalTape.score];
   const stress = arr.reduce((a, b) => a + b, 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
@@ -11898,6 +11927,12 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = 
       rating: fearGreed.rating || null,
       asOf: fearGreed.asOf || null,
     } : null,
+    // Baked cross-asset components (futures/breadth/yen/copper/BTC sub-votes) so
+    // the live re-port can show what feeds the global-tape axis — the axis score
+    // itself carries baked (correlations.json isn't in /api/macro-live).
+    crossAsset: (macroBackdrop.crossAsset && Array.isArray(macroBackdrop.crossAsset.components))
+      ? { score: numOrNull(macroBackdrop.crossAsset.score), components: macroBackdrop.crossAsset.components }
+      : null,
   };
   return { state, stress, riskOffAxes, riskOnAxes, effRiskOffAxes: Number(effRiskOffAxes.toFixed(2)), effRiskOnAxes: Number(effRiskOnAxes.toFixed(2)), axes, drivers: driverList, summary, internalsStress, internalsLabel, fragile, inputs };
 }
@@ -16085,6 +16120,80 @@ function deriveGlobalTone(markets) {
   else if (score >= 1) label = "leaning risk-on";
   else if (score <= -1) label = "leaning risk-off";
   return { label, score, reasons };
+}
+
+// Cross-asset tape axis for the macro regime (PICKS_MACRO_GLOBAL). Reads the
+// correlations `markets` snapshot and scores the overnight risk-breadth on the
+// regime's −2..+2 axis scale, using ONLY the signals the other axes don't own
+// (US futures + foreign-index breadth + yen carry + copper + Bitcoin). Each
+// casts a ±1 sub-vote; their net maps to the axis score (±2 once the breadth is
+// broad/acute). Returns { score, label, driver, components } — `components` is
+// the per-signal detail the tape meter can show. Graceful: too few markets ⇒
+// score 0 (neutral), so a thin/stale sweep never fabricates a regime vote.
+export function deriveGlobalTapeAxis(markets) {
+  markets = markets || {};
+  const chOf = (s) => (markets[s] && markets[s].chPct != null && isFinite(markets[s].chPct)) ? markets[s].chPct : null;
+  const avg = (syms) => {
+    const vals = syms.map(chOf).filter((v) => v != null);
+    return vals.length ? { v: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
+  };
+  const components = [];
+  let votes = 0, present = 0;
+  // US equity futures (the most direct overnight risk proxy).
+  const fut = avg(["ES=F", "NQ=F"]);
+  if (fut) {
+    present++;
+    const v = fut.v >= PICKS_MACRO_GLOBAL_FUT ? 1 : (fut.v <= -PICKS_MACRO_GLOBAL_FUT ? -1 : 0);
+    votes += v;
+    components.push({ key: "futures", label: `US futures ${fut.v >= 0 ? "+" : ""}${fut.v.toFixed(2)}%`, vote: v });
+  }
+  // Foreign-index breadth (Asia + Europe) — the genuinely-leading closed sessions.
+  const breadth = avg(["^N225", "^HSI", "^KS11", "^GDAXI", "^TWII"]);
+  if (breadth && breadth.n >= 2) {
+    present++;
+    const v = breadth.v >= PICKS_MACRO_GLOBAL_BREADTH ? 1 : (breadth.v <= -PICKS_MACRO_GLOBAL_BREADTH ? -1 : 0);
+    votes += v;
+    components.push({ key: "breadth", label: `Global equities ${breadth.v >= 0 ? "+" : ""}${breadth.v.toFixed(2)}% avg`, vote: v });
+  }
+  // Yen carry (USD/JPY up = carry-on = risk-on; a yen bid = unwind = risk-off).
+  const yen = chOf("JPY=X");
+  if (yen != null) {
+    present++;
+    const v = yen >= PICKS_MACRO_GLOBAL_YEN ? 1 : (yen <= -PICKS_MACRO_GLOBAL_YEN ? -1 : 0);
+    votes += v;
+    components.push({ key: "yen", label: `USD/JPY ${yen >= 0 ? "+" : ""}${yen.toFixed(2)}%`, vote: v });
+  }
+  // Copper — Dr. Copper reads global growth (up = risk-on).
+  const cu = chOf("HG=F");
+  if (cu != null) {
+    present++;
+    const v = cu >= PICKS_MACRO_GLOBAL_COPPER ? 1 : (cu <= -PICKS_MACRO_GLOBAL_COPPER ? -1 : 0);
+    votes += v;
+    components.push({ key: "copper", label: `Copper ${cu >= 0 ? "+" : ""}${cu.toFixed(1)}%`, vote: v });
+  }
+  // Bitcoin — the purest cross-asset risk-appetite proxy (volatile → wider gate).
+  const btc = chOf("BTC-USD");
+  if (btc != null) {
+    present++;
+    const v = btc >= PICKS_MACRO_GLOBAL_BTC ? 1 : (btc <= -PICKS_MACRO_GLOBAL_BTC ? -1 : 0);
+    votes += v;
+    components.push({ key: "btc", label: `Bitcoin ${btc >= 0 ? "+" : ""}${btc.toFixed(1)}%`, vote: v });
+  }
+  if (present < 3) return { score: 0, label: "no cross-asset data", driver: null, components };
+  let score = 0;
+  if (votes >= PICKS_MACRO_GLOBAL_ACUTE) score = 2;
+  else if (votes >= 1) score = 1;
+  else if (votes <= -PICKS_MACRO_GLOBAL_ACUTE) score = -2;
+  else if (votes <= -1) score = -1;
+  // Label from the lit drivers in the axis direction (most informative first).
+  const dir = score === 0 ? 0 : (score > 0 ? 1 : -1);
+  const lit = components.filter((c) => c.vote === dir).map((c) => c.label);
+  const tone = score > 0 ? "risk-on" : (score < 0 ? "risk-off" : "mixed");
+  const label = score === 0
+    ? `Global tape mixed (${present} signals)`
+    : `Global tape ${tone}${lit.length ? " — " + lit.slice(0, 3).join(", ") : ""}`;
+  const driver = score <= -1 ? `global tape ${tone}` : null;
+  return { score, label, driver, components };
 }
 
 export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior = null) {
@@ -21361,6 +21470,9 @@ async function main() {
     // Regime persistence: hold a recovering state one build (asymmetric — moves
     // toward more risk-off apply immediately). Prior state from the pre-wipe
     // picks.json rosterMeta.
+    // Fold the overnight cross-asset sweep into the regime as the global-tape
+    // axis (PICKS_MACRO_GLOBAL) — the same markets the Top Picks barometer shows.
+    macroBackdrop.crossAsset = deriveGlobalTapeAxis(correlationsInfo?.payload?.markets || null);
     macroBackdrop.macroRegime = applyMacroRegimePersistence(
       computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed, trends.macroHeadlines),
       picksPrev?.rosterMeta?.macroRegime || null,
