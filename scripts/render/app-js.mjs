@@ -16246,6 +16246,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         'Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · chain prices ±' + exp.toFixed(1) + '%' +
       '</div>';
     }
+    // Probability of profit at expiry (risk-neutral P(S_T past breakeven), N(±d2)) —
+    // the most direct "how likely is this to make money" read, and what the elite
+    // gauntlet gates on. Colored by the same bands.
+    var pop = '';
+    if (c.pop != null && isFinite(c.pop)){
+      var popPct = Math.round(Number(c.pop) * 100);
+      var popCls = popPct >= 55 ? 'good' : popPct >= 45 ? 'fair' : 'bad';
+      pop = '<div class="pick-contract-rr pick-rr-' + popCls + '" title="Probability the position is profitable at expiry — the risk-neutral chance the stock finishes past the breakeven, from the contract IV and time to expiry. A long single option is structurally a minority-of-the-time winner; a defined-risk spread or a closer-to-the-money strike raises it.">' +
+        '≈' + popPct + '% chance of profit by expiry' +
+      '</div>';
+    }
     var liqParts = [];
     if (c.oi != null && isFinite(c.oi)) liqParts.push('OI ' + Number(c.oi).toLocaleString());
     if (c.volume != null && isFinite(c.volume)) liqParts.push('vol ' + Number(c.volume).toLocaleString());
@@ -16305,6 +16316,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       pickVerticalStructureHtml(p, c) +
       stats +
       rr +
+      pop +
       qChips +
       (liq ? '<div class="pick-contract-meta">' + liq + '</div>' : '') +
       plain +
@@ -17470,13 +17482,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var kTxt = isSpread
         ? '$' + escapeHtml(String(c.strike)) + '/' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(String(c.dte)) + 'd'
         : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(String(c.dte)) + 'd';
+      var popChip = '';
+      if (c.pop != null && isFinite(c.pop)){
+        var popP = Math.round(Number(c.pop) * 100);
+        var popC = popP >= 55 ? ' ptc-con-be-good' : popP >= 45 ? ' ptc-con-be-fair' : ' ptc-con-be-bad';
+        popChip = '<span class="ptc-con-pop' + popC + '" title="Probability of profit at expiry — the risk-neutral chance the stock finishes past the breakeven.">≈' + popP + '% PoP</span>';
+      }
       var econTitle = 'Suggested contract: $' + c.strike + ' ' + sideLabel + ' · ' + (c.expiryLabel || '') + ' (' + c.dte + 'd)' +
         (premPerContract ? ' · ' + premPerContract : '') +
         (c.breakevenMovePct != null && isFinite(c.breakevenMovePct) ? ' · needs ' + (Number(c.breakevenMovePct) >= 0 ? '+' : '') + Number(c.breakevenMovePct).toFixed(1) + '% to break even' : '');
       econ = '<span class="ptc-contract" title="' + escapeHtml(econTitle) + '">' +
         '<span class="ptc-con-k">' + kTxt + '</span>' +
         (prem != null && isFinite(prem) ? '<span class="ptc-con-prem">$' + prem.toFixed(2) + '</span>' : '') +
-        spreadChip + beChip + erChip +
+        spreadChip + popChip + beChip + erChip +
       '</span>';
     }
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
@@ -17841,9 +17859,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
         empty.hidden = false;
+        var rmE = data.rosterMeta || null;
+        var nHeld = (rmE && rmE.eliteGated && rmE.eliteGated.length) || 0;
         empty.textContent = data.loadError
           ? 'Couldn’t load picks — refresh the page to try again.'
-          : 'No high-conviction picks in this build — every ticker scored below the minimum.';
+          : (rmE && rmE.eliteOnly)
+            ? ('No top picks today — nothing cleared the near-certain bar' + (nHeld ? ' (' + nHeld + ' strong name' + (nHeld === 1 ? '' : 's') + ' graded high but not almost-guaranteed, so held back)' : '') + '. A top pick only lists when it is as close to a sure thing as a directional option gets — most days that is nothing, and cash is a position.')
+            : 'No high-conviction picks in this build — every ticker scored below the minimum.';
       }
       return;
     }
@@ -17924,6 +17946,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
+    if (rm && rm.eliteGated && rm.eliteGated.length) noteBits.push('<b>' + rm.eliteGated.length + '</b> strong but not near-certain — held back (elite bar)');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';

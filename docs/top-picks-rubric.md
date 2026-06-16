@@ -994,6 +994,25 @@ first bake.
   `go`. The grade is untouched — the name still appears in the grade-any-ticker index,
   just not as an actionable pick. The roster honestly ships shorter on a no-clean-setup
   day. `=0` restores shipping `wait` picks badged.
+- **Elite gauntlet (`PICKS_ELITE_ONLY`, default ON) — "a top pick must be almost a
+  sure thing."** The strongest selectivity rule: a non-tactical name ships as a Top
+  Pick **only if it clears EVERY one** of a stacked, conjunctive gauntlet — fail any
+  single requirement and it is **not** a top pick today (it stays in the grade-any-ticker
+  index, just unbadged). Nothing in markets is literally guaranteed and a long option is
+  structurally a minority-of-the-time winner, so this can't promise certainty — it
+  maximizes the **precision** of the list, which honestly ships **0 most days**. The
+  requirements (`buildTopPicks`, logged to `rosterMeta.eliteGated` with the failing
+  reasons):
+  1. **Strong tier** — `|total| ≥ strongCut` (top conviction), not merely the trade bar.
+  2. **≥ `PICKS_ELITE_CONFLUENCE_MIN` (3) of 4 pillars aligned** — a broad, corroborated thesis, never one story.
+  3. **timing `go`** — a clean, confirmed entry.
+  4. **POP ≥ `PICKS_ELITE_MIN_POP` (0.45)** — the risk-neutral **probability of profit at expiry** (`contract.pop` = P(S_T past breakeven) = N(±d2)) beats ~a coin flip. The most direct "likely to make money" read; it pushes the selector toward **defined-risk spreads** (lower breakeven → higher POP) and closer-to-the-money strikes.
+  5. **rrRatio ≤ `PICKS_ELITE_MAX_RR` (0.6)** — the breakeven move sits **well inside** the move the chain already prices.
+  6. **No earnings in the contract window** — no unhedgeable binary IV-crush event.
+  7. **Tape not fighting the trade** — technicals don't oppose the side.
+  Tactical puts (sub-bar tape bets) are excluded from candidacy entirely when elite-only.
+  The empty-state copy explains the bar ("most days that is nothing, and cash is a
+  position"). `=0` reverts to the ordinary actionable roster.
 - `go` picks are the endorsed entries (and, with `PICKS_REQUIRE_GO` on, the **only**
   picks shipped); a `wait` name is deferred, not recommended.
 
@@ -1201,6 +1220,11 @@ it has to be trustworthy. The fixes:
     path). Rich-IV picks ship as defined-risk debit spreads (capped max loss = net debit, slashed
     theta/IV-crush, capped max profit = strike width − debit; card render `pickVerticalStructureHtml`).
     `=0` reverts to naked longs.
+  - **Elite gauntlet (§7, "almost a sure thing"):** `PICKS_ELITE_ONLY` (default **ON**) +
+    `PICKS_ELITE_CONFLUENCE_MIN 3`, `PICKS_ELITE_MIN_POP 0.45`, `PICKS_ELITE_MAX_RR 0.6`
+    (conjunctive: strong tier ∧ ≥3 pillars ∧ go ∧ POP ∧ rrRatio ∧ no-earnings ∧ tape-not-fighting;
+    failures → `rosterMeta.eliteGated`). `contract.pop` = risk-neutral probability of profit at
+    expiry (N(±d2), via `ncdf` exported from `lib/greeks.mjs`).
   - **Loss-min selectivity + exits:** `PICKS_REQUIRE_GO` (default **ON** — drop non-`go`
     non-tactical picks → `rosterMeta.timingGated`); `PICKS_ABS_TRADE_FLOOR 5.5` / `PICKS_ABS_STRONG_FLOOR 8`
     (raised from 5 / 7.5); `PICKS_OPT_STOP_PCT 0.35` (from 0.40); `PICKS_THETA_STOP_PCT 0.022`
