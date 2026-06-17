@@ -16164,6 +16164,110 @@ export function buildHeatmapPayload(chains, builtAtIso) {
   return { builtAtIso, tickers };
 }
 
+// --- Sector rotation detection -------------------------------------------
+// A sector "rotates" when a strong majority of its names move the same way
+// for several consecutive trading days — a persistent breadth tilt, not a
+// single strong session. We snapshot each sector's CLOSING breadth once per
+// ET trading day (after the bell), keep a rolling window of those snapshots,
+// and flag any sector that has held ≥SECTOR_ROTATION_THRESHOLD of its names in
+// one direction for ≥SECTOR_ROTATION_MIN_DAYS days running. Surfaced as a
+// notification banner on the Heatmap tab.
+const SECTOR_ROTATION_THRESHOLD = 0.70;  // ≥70% of a sector one-directional
+const SECTOR_ROTATION_MIN_TICKERS = 4;   // too few names to call a sector's breadth
+const SECTOR_ROTATION_MIN_DAYS = 2;      // consecutive days to qualify as rotation
+const SECTOR_ROTATION_MAX_DAYS = 40;     // rolling retention of daily snapshots
+
+// One ET day's per-sector closing breadth: only sectors at the ≥70% threshold
+// are stored (a sector absent on a day breaks its streak), keeping the rolling
+// payload small. d='g' (green/up) | 'r' (red/down), p=that direction's share,
+// n=sector ticker count.
+function computeSectorBreadthSnapshot(tickers, etDate) {
+  const map = new Map(); // sector -> { up, down, total }
+  for (const t of tickers || []) {
+    if (!t || t.stale) continue;
+    const ch = Number(t.ch);
+    if (!isFinite(ch)) continue;
+    const sec = t.s || "Other";
+    if (sec === "ETF") continue;
+    let e = map.get(sec);
+    if (!e) { e = { up: 0, down: 0, total: 0 }; map.set(sec, e); }
+    e.total++;
+    if (ch > 0) e.up++;
+    else if (ch < 0) e.down++;
+  }
+  const sectors = {};
+  for (const [sec, e] of map.entries()) {
+    if (e.total < SECTOR_ROTATION_MIN_TICKERS) continue;
+    const pctUp = e.up / e.total;
+    const pctDown = e.down / e.total;
+    if (pctUp >= SECTOR_ROTATION_THRESHOLD) {
+      sectors[sec] = { d: "g", p: Math.round(pctUp * 100) / 100, n: e.total };
+    } else if (pctDown >= SECTOR_ROTATION_THRESHOLD) {
+      sectors[sec] = { d: "r", p: Math.round(pctDown * 100) / 100, n: e.total };
+    }
+  }
+  return { date: etDate, sectors };
+}
+
+// Walk the rolling daily snapshots and emit one alert per sector currently in a
+// ≥SECTOR_ROTATION_MIN_DAYS consecutive-day breadth streak. The streak is the
+// run of consecutive recorded days (= trading days) ending on the latest day in
+// which the sector held the SAME direction.
+function computeRotationAlerts(days) {
+  if (!Array.isArray(days) || !days.length) return [];
+  const latest = days[days.length - 1];
+  const latestSectors = (latest && latest.sectors) || {};
+  const alerts = [];
+  for (const sec of Object.keys(latestSectors)) {
+    const cur = latestSectors[sec];
+    if (!cur || !cur.d) continue;
+    let streak = 0;
+    let since = latest.date;
+    for (let i = days.length - 1; i >= 0; i--) {
+      const e = days[i] && days[i].sectors && days[i].sectors[sec];
+      if (e && e.d === cur.d) { streak++; since = days[i].date; }
+      else break;
+    }
+    if (streak >= SECTOR_ROTATION_MIN_DAYS) {
+      alerts.push({
+        sector: sec,
+        direction: cur.d === "g" ? "green" : "red",
+        days: streak,
+        pct: cur.p,
+        since,
+      });
+    }
+  }
+  alerts.sort((a, b) => (b.days - a.days) || (b.pct - a.pct) || a.sector.localeCompare(b.sector));
+  return alerts;
+}
+
+// Pure: given today's heatmap ticker rows + the prior rolling rotation state,
+// optionally record today's closing-breadth snapshot (once per ET day, after
+// the bell — the CALLER gates `record`), then recompute the active rotation
+// alerts. Shared by the bake (build.mjs) and the hourly heatmap refresh; the
+// upsert-by-date keeps it idempotent if both record the same day.
+export function computeSectorRotation(tickers, priorRotation, etDate, opts = {}) {
+  const record = !!opts.record;
+  let days = (priorRotation && Array.isArray(priorRotation.days))
+    ? priorRotation.days.filter((d) => d && typeof d.date === "string")
+    : [];
+  days = days.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  if (record && etDate) {
+    const today = computeSectorBreadthSnapshot(tickers, etDate);
+    days = days.filter((d) => d.date !== etDate);
+    days.push(today);
+    days.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    while (days.length > SECTOR_ROTATION_MAX_DAYS) days.shift();
+  }
+  const alerts = computeRotationAlerts(days);
+  return {
+    updatedDate: days.length ? days[days.length - 1].date : (etDate || null),
+    days,
+    alerts,
+  };
+}
+
 // Read prior data/heatmap.json's eodSummary BEFORE writeChainFiles wipes
 // the directory. The hourly refresh (scripts/refresh-heatmap.mjs) writes
 // the AI-generated recap there after the 16:00 ET close; without this
@@ -16180,16 +16284,49 @@ async function readPriorHeatmapEodSummary() {
   }
 }
 
-async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null) {
+// Same pre-wipe read for the rolling sector-rotation breadth snapshots — the
+// hourly refresh accumulates them in data/heatmap.json, so the bake must read
+// them before writeChainFiles wipes data/ and carry them forward.
+async function readPriorHeatmapSectorRotation() {
+  try {
+    const priorRaw = await readFile(resolve(DATA_DIR, "heatmap.json"), "utf8");
+    const prior = JSON.parse(priorRaw);
+    return prior?.sectorRotation || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null, priorSectorRotation = null) {
   const payload = buildHeatmapPayload(chains, builtAtIso);
   let eodPreserved = false;
   if (priorEodSummary && priorEodSummary.date && priorEodSummary.date === etDateKey()) {
     payload.eodSummary = priorEodSummary;
     eodPreserved = true;
   }
+  // Sector rotation: carry the rolling daily snapshots forward, and on a
+  // post-close bake (ET hour ≥ 16) record today's closing breadth if it isn't
+  // already logged. The hourly refresh records it too — the upsert-by-date
+  // keeps it idempotent. Earlier-in-day bakes only carry prior state forward,
+  // so we never log an intraday (non-close) breadth as a "day".
+  const todayEt = etDateKey();
+  const recordRotation =
+    etHourNY() >= 16 &&
+    !((priorSectorRotation?.days) || []).some((d) => d && d.date === todayEt);
+  const sectorRotation = computeSectorRotation(
+    payload.tickers, priorSectorRotation, todayEt, { record: recordRotation },
+  );
+  if (sectorRotation && sectorRotation.days.length) {
+    payload.sectorRotation = sectorRotation;
+  }
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "heatmap.json"), json, "utf8");
-  return { bytes: json.length, count: payload.tickers.length, eodPreserved };
+  return {
+    bytes: json.length,
+    count: payload.tickers.length,
+    eodPreserved,
+    rotationAlerts: sectorRotation?.alerts?.length || 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -16691,6 +16828,7 @@ const REPUTABLE_PUBLISHERS = [
   "The Economist", "New York Times", "Washington Post", "Business Insider",
   "Insider", "Investor's Business Daily", "Investopedia", "Morningstar",
   "Dow Jones", "S&P Global", "Moody's", "Fitch", "FactSet", "Refinitiv",
+  "Politico",
   // Free-body financial news (broader coverage of mid-caps + ETFs Yahoo
   // doesn't get from the wires)
   "Motley Fool", "Fool.com", "Zacks", "Benzinga", "InvestorPlace",
@@ -16698,6 +16836,7 @@ const REPUTABLE_PUBLISHERS = [
   "24/7 Wall St", "GuruFocus", "Simply Wall St", "PYMNTS",
   "GlobeNewswire", "PR Newswire", "Business Wire", "Forbes",
   "CNN", "CNN Business",
+  "Investing.com", "Google Finance",
 ];
 
 // Domains that are reliably paywalled / not body-scrapeable. We skip body
@@ -21349,6 +21488,9 @@ async function main() {
   // refresh script and stored in data/heatmap.json. Snapshot it before
   // writeChainFiles wipes data/, then thread it back into writeHeatmapFile.
   const priorHeatmapEod = await readPriorHeatmapEodSummary();
+  // Rolling sector-rotation breadth snapshots — same pre-wipe read so the bake
+  // carries them forward (and records today's close after the bell).
+  const priorHeatmapRotation = await readPriorHeatmapSectorRotation();
   // Prior correlations snapshot — fall back to it if tonight's foreign sweep
   // came back too thin (graceful degradation; data/ is about to be wiped).
   const priorCorrelations = await readPriorCorrelations();
@@ -21556,8 +21698,8 @@ async function main() {
   }
   const streaksInfo = await writeStreaksFile(chains, builtAtIso);
   console.log(`wrote data/streaks.json — ${streaksInfo.count} tickers, ${streaksInfo.bytes} bytes`);
-  const heatmapInfo = await writeHeatmapFile(chains, builtAtIso, priorHeatmapEod);
-  console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}`);
+  const heatmapInfo = await writeHeatmapFile(chains, builtAtIso, priorHeatmapEod, priorHeatmapRotation);
+  console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}${heatmapInfo.rotationAlerts ? ` (${heatmapInfo.rotationAlerts} sector-rotation alert${heatmapInfo.rotationAlerts === 1 ? "" : "s"})` : ""}`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   await writeTrendFiles({

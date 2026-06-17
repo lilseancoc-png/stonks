@@ -14087,6 +14087,68 @@ html::-webkit-scrollbar-thumb:hover {
 }
 
 /* Advancers / decliners ribbon between the controls and the map. */
+/* Sector-rotation notification banner — persistent ≥70% one-way breadth. */
+.heatmap-rotation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-2));
+}
+.heatmap-rotation[hidden] { display: none; }
+.heatmap-rotation-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.heatmap-rotation-icon { font-size: 0.95rem; }
+.heatmap-rotation-title {
+  font: 700 0.82rem/1 var(--font-sans);
+  color: var(--text-strong);
+  letter-spacing: 0.01em;
+}
+.heatmap-rotation-sub {
+  font: 500 0.7rem/1 var(--font-mono);
+  color: var(--muted);
+}
+.heatmap-rotation-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+.heatmap-rotation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font: 600 0.74rem/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+.heatmap-rotation-chip.is-green {
+  border-color: color-mix(in srgb, var(--up) 45%, var(--border));
+  background: color-mix(in srgb, var(--up) 12%, var(--surface-2));
+}
+.heatmap-rotation-chip.is-red {
+  border-color: color-mix(in srgb, var(--dn) 45%, var(--border));
+  background: color-mix(in srgb, var(--dn) 12%, var(--surface-2));
+}
+.heatmap-rotation-chip.is-green .heatmap-rotation-arrow { color: var(--up); }
+.heatmap-rotation-chip.is-red .heatmap-rotation-arrow { color: var(--dn); }
+.heatmap-rotation-sector { color: var(--text-strong); font-weight: 700; }
+.heatmap-rotation-detail { color: var(--muted-strong); }
+
 .heatmap-breadth {
   display: flex;
   flex-wrap: wrap;

@@ -25,7 +25,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
-import { recordAiUsage, loadAiUsageState, writeAiUsageState } from "./build.mjs";
+import { recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -452,18 +452,35 @@ async function main() {
     console.log(`[heatmap] skipping EOD generation (no GEMINI_API_KEY)`);
   }
 
+  // Sector rotation: snapshot today's CLOSING breadth once after the bell (the
+  // first post-close run records it; later runs carry it forward), then
+  // recompute the active rotation alerts. Same after-close gate as the EOD
+  // recap, but no AI / API key needed — it's pure breadth arithmetic.
+  const haveTodaysBreadth = (prior?.sectorRotation?.days || []).some(
+    (d) => d && d.date === todayEt,
+  );
+  const recordRotation =
+    !haveTodaysBreadth && (hourEt >= EOD_TRIGGER_ET_HOUR || isPostClose);
+  const sectorRotation = computeSectorRotation(
+    nextTickers, prior?.sectorRotation, todayEt, { record: recordRotation },
+  );
+  if (recordRotation) {
+    console.log(`[heatmap] recorded sector breadth for ${todayEt}`);
+  }
+
   const payload = {
     builtAtIso,
     refreshedAtIso: builtAtIso,
     marketState,
     tickers: nextTickers,
     ...(eodSummary ? { eodSummary } : {}),
+    ...(sectorRotation && sectorRotation.days.length ? { sectorRotation } : {}),
   };
   await mkdir(dirname(path), { recursive: true });
   const json = JSON.stringify(payload);
   await writeFile(path, json, "utf8");
   console.log(
-    `[heatmap] wrote ${HEATMAP_FILE} — ${refreshed} refreshed, ${stale} kept stale, marketState=${marketState || "—"}, eod=${eodSummary ? eodSummary.date : "—"}, ${json.length} bytes`,
+    `[heatmap] wrote ${HEATMAP_FILE} — ${refreshed} refreshed, ${stale} kept stale, marketState=${marketState || "—"}, eod=${eodSummary ? eodSummary.date : "—"}, rotation=${sectorRotation?.alerts?.length || 0} alert(s), ${json.length} bytes`,
   );
 }
 
