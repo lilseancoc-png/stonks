@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, picksAccuracyResetDue, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -154,12 +154,19 @@ let priorClosed = null;
 // Re-entry suppression: the live `open` set so a name with a tracked position
 // isn't re-picked until it exits (same rule the full build threads as priorOpen).
 let priorOpen = null;
+let priorResetWeek = null; // weekly-reset watermark (see picksAccuracyResetDue)
 try {
   const accRaw = await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8");
   const accJ = JSON.parse(accRaw);
   if (accJ && Array.isArray(accJ.closed)) priorClosed = accJ.closed;
   if (accJ && Array.isArray(accJ.open)) priorOpen = accJ.open;
+  if (accJ && typeof accJ.lastResetWeek === "string") priorResetWeek = accJ.lastResetWeek;
 } catch {}
+// If updatePicksAccuracyFile is about to perform the weekly reset (the marker is
+// behind the current week), start the roster fresh — don't suppress on last week's
+// about-to-be-cleared open set. Mirrors main()'s reset-build handling.
+const resetDueThisRun = picksAccuracyResetDue(priorResetWeek, new Date().toISOString());
+if (resetDueThisRun) priorOpen = [];
 
 // Risk-free rate for the contract-selection greeks (pickContractForPick):
 // read the last bake's fetched 3M T-bill rate from the committed

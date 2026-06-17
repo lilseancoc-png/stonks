@@ -2937,6 +2937,36 @@ function etDateKey(d = new Date()) {
   }).format(d);
 }
 
+// 0 (Sun) .. 6 (Sat) — the ET wall-clock weekday of an instant.
+function etWeekday(d = new Date()) {
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(d);
+  return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[wd] ?? 0;
+}
+
+// ISO date (YYYY-MM-DD, ET) of the most recent `resetDow` (0=Sun..6=Sat) on or
+// before the given instant — the "week-start" key the weekly track-record reset is
+// bucketed on. Day arithmetic runs on the ET calendar date treated as a UTC-midnight
+// value, so subtracting whole days is DST-safe (we never touch a wall-clock instant).
+function etWeekStartKey(d = new Date(), resetDow = 0) {
+  const key = etDateKey(d);                 // YYYY-MM-DD in ET
+  const back = (etWeekday(d) - resetDow + 7) % 7; // days since the most recent reset DOW
+  const base = new Date(key + "T00:00:00Z");
+  base.setUTCDate(base.getUTCDate() - back);
+  return base.toISOString().slice(0, 10);
+}
+
+// The ET week-start key (PICKS_ACCURACY_RESET_DOW) for a build instant, and whether a
+// weekly track-record reset is due (the stored marker is behind the current week).
+// Shared by updatePicksAccuracyFile (which performs the wipe) and main() (which skips
+// re-entry suppression on the reset build so the fresh week's first roster is truly
+// unconstrained by last week's holdings) so the two can never disagree.
+function picksAccuracyWeekKey(builtAtIso) {
+  return etWeekStartKey(new Date(Date.parse(builtAtIso) || Date.now()), PICKS_ACCURACY_RESET_DOW);
+}
+export function picksAccuracyResetDue(lastResetWeek, builtAtIso) {
+  return PICKS_ACCURACY_WEEKLY_RESET && lastResetWeek !== picksAccuracyWeekKey(builtAtIso);
+}
+
 // Read macro-history.json BEFORE writeChainFiles wipes data/. Returns an
 // object of shape { entries: [{ date, asOf, twoY, tenY, thirtyY, dxy }, ...] }
 // sorted oldest→newest. Missing / unreadable file → empty entries.
@@ -8010,6 +8040,17 @@ const PICKS_MAX_PER_SIDE_FRAGILE = Number(process.env.PICKS_MAX_PER_SIDE_FRAGILE
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;   // prune closed entries older than this
 const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
+// Weekly track-record reset (default ON). Start each week from a clean slate so the
+// win/loss record reflects only the CURRENT engine — every scoring/exit rework
+// otherwise leaves a tail of stale outcomes mixed into the stats. Bucketed on the ET
+// week-start day (`PICKS_ACCURACY_RESET_DOW`, default 0 = Sunday): the first build
+// whose stored `lastResetWeek` marker is behind the current week wipes open[] +
+// closed[] + stats and stamps the new marker, idempotent for the rest of the week.
+// Because the data workflows run weekdays only (no weekend bakes), the Sunday reset
+// lands on Monday's open bake in practice. Set `=0` to disable. A one-off immediate
+// wipe is just this firing on the next build (the live file carries no marker yet).
+const PICKS_ACCURACY_WEEKLY_RESET = process.env.PICKS_ACCURACY_WEEKLY_RESET !== "0"; // default ON
+const PICKS_ACCURACY_RESET_DOW = Number(process.env.PICKS_ACCURACY_RESET_DOW ?? 0); // 0=Sun..6=Sat
 const PICKS_ACCURACY_MAX_HOLD_DAYS = Number(process.env.PICKS_ACCURACY_MAX_HOLD_DAYS ?? 30); // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days. Long-horizon rework: 14→30 so the tracker measures the (now longer-DTE) thesis on a horizon it can actually resolve on, instead of force-closing every pick at 2 weeks. The theta-aware stop (PICKS_THETA_STOP_PCT) still cuts a position that's bleeding premium with no thesis progress, so this lengthens the runway WITHOUT removing the decay guard.
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every shipped pick now enrolls (full-roster); the per-thesis dedup bounds the open list. Kept for reference / any external readers.
 // Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
@@ -15824,12 +15865,16 @@ export async function readPicksAccuracyState() {
         // so main() can build the per-signal IC weight map. Absent on a legacy/fresh
         // file → null → the bridge stays a no-op (equal weights).
         stats: aj.stats && typeof aj.stats === "object" ? aj.stats : null,
+        // Weekly-reset watermark (ET week-start key of the last wipe). Absent on a
+        // legacy/fresh file → the next build's reset check treats it as behind the
+        // current week and wipes once (which is exactly the one-off "wipe now").
+        lastResetWeek: typeof aj.lastResetWeek === "string" ? aj.lastResetWeek : null,
       };
     }
   } catch {
     // First run / missing / corrupt — fresh tracker.
   }
-  return { open: [], closed: [], stats: null };
+  return { open: [], closed: [], stats: null, lastResetWeek: null };
 }
 
 // `priorState` is the pre-wipe snapshot from readPicksAccuracyState(). A full
@@ -15852,8 +15897,24 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     ? {
         open: Array.isArray(priorState.open) ? priorState.open : [],
         closed: Array.isArray(priorState.closed) ? priorState.closed : [],
+        lastResetWeek: typeof priorState.lastResetWeek === "string" ? priorState.lastResetWeek : null,
       }
     : await readPicksAccuracyState();
+
+  // Weekly track-record reset (PICKS_ACCURACY_WEEKLY_RESET): if a new week-start
+  // (ET, PICKS_ACCURACY_RESET_DOW = Sunday) has begun since the last reset, wipe the
+  // open + closed record so the win/loss stats reflect only the current week's
+  // engine. Idempotent within a week (the stamped marker short-circuits later
+  // builds); a missing marker (legacy/fresh file) wipes once on the next build —
+  // which is also the one-off "wipe it now". Done BEFORE resolution/enrollment so
+  // this build re-enrolls today's roster into the freshly-cleared record.
+  const weekKey = picksAccuracyWeekKey(builtAtIso);
+  const weeklyReset = picksAccuracyResetDue(state.lastResetWeek, builtAtIso);
+  if (weeklyReset) {
+    console.log(`picks-accuracy: weekly reset — clearing ${state.open.length} open / ${state.closed.length} closed (week ${weekKey}${state.lastResetWeek ? `, was ${state.lastResetWeek}` : ", no prior marker"}).`);
+    state.open = [];
+    state.closed = [];
+  }
 
   const nowSec = Math.floor((Date.parse(builtAtIso) || Date.now()) / 1000);
   const stillOpen = [];
@@ -16176,10 +16237,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // the chains map, e.g. a thin regen). _bars in the full build, priceSeries on regen.
   const spyBars = chains?.SPY?._bars || chains?.SPY?.priceSeries || null;
   const stats = computePicksAccuracyStats(stillOpen, state.closed, builtAtIso, spyBars);
-  const payload = { builtAtIso, open: stillOpen, closed: state.closed, stats };
+  // Stamp the weekly-reset watermark (the current ET week-start key) so this week's
+  // wipe fires only once; carry the prior marker forward on a non-reset build (null
+  // when the feature is off, so re-enabling later wipes once).
+  const lastResetWeek = weeklyReset ? weekKey : (state.lastResetWeek || null);
+  const payload = { builtAtIso, lastResetWeek, open: stillOpen, closed: state.closed, stats };
   const json = JSON.stringify(payload);
   await writeFile(accPath, json, "utf8");
-  return { bytes: json.length, open: stillOpen.length, closed: state.closed.length, ...stats };
+  return { bytes: json.length, open: stillOpen.length, closed: state.closed.length, weeklyReset, lastResetWeek, ...stats };
 }
 
 // Per-ticker daily green/red streaks. Reuses the bars already fetched into
@@ -21897,7 +21962,12 @@ async function main() {
     // No-op until gate-era outcomes accumulate (today: bySignal carries no IC).
     signalIc: buildSignalIcMap(picksAccuracyPrev?.stats?.bySignal),
   };
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null);
+  // On the weekly-reset build the track record is wiped below (updatePicksAccuracyFile),
+  // so the fresh week starts with NO open positions — pass an empty open set to
+  // buildTopPicks so re-entry suppression doesn't constrain the first roster of the
+  // week by last week's (about-to-be-cleared) holdings.
+  const resetDueThisBuild = picksAccuracyResetDue(picksAccuracyPrev?.lastResetWeek ?? null, builtAtIso);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, resetDueThisBuild ? [] : (picksAccuracyPrev?.open ?? null));
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown

@@ -1095,6 +1095,19 @@ first bake.
 The track record is the report card AND the substrate for ever closing the loop, so
 it has to be trustworthy. The fixes:
 
+- **Weekly reset for a fresh look** (`PICKS_ACCURACY_WEEKLY_RESET`, default ON). Every
+  scoring/exit rework otherwise leaves a tail of stale, different-engine outcomes mixed
+  into the win/loss stats. The record is wiped (open[] + closed[] + stats cleared) at
+  the start of each week so the numbers reflect only the **current** engine. Bucketed
+  on the ET week-start day (`PICKS_ACCURACY_RESET_DOW`, default 0 = Sunday): a
+  `lastResetWeek` watermark is stamped into `picks-accuracy.json`, and the first build
+  whose marker is behind the current week-start wipes and re-stamps, idempotent for the
+  rest of the week. Because the data workflows run **weekdays only**, the Sunday reset
+  lands on Monday's open bake in practice. On the reset build, re-entry suppression (§7)
+  is skipped (the open set is about to be cleared) so the fresh week's first roster is
+  unconstrained by last week's holdings. A one-off immediate wipe is just this firing on
+  the next build (the live file carries no marker yet, so it reads as behind). `=0`
+  disables (and stops stamping, so re-enabling later wipes once).
 - **Per-thesis enrollment dedup.** Enrollment keyed on the contract
   (`symbol:side:strike:expiry`) let the *same* thesis re-enroll 2–6× as
   `pickContractForPick` re-picked a slightly different strike/expiry each build (the
@@ -1227,6 +1240,10 @@ it has to be trustworthy. The fixes:
   - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 14`, `PICKS_THETA_STOP_PCT
     0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 5` (theta-stop); modeled-option repricer
     `PICKS_OPTION_IV_DECAY_DAYS 30`, `PICKS_OPTION_EARNINGS_CRUSH 0.70`.
+  - **Weekly track-record reset (§8):** `PICKS_ACCURACY_WEEKLY_RESET` (default ON) +
+    `PICKS_ACCURACY_RESET_DOW 0` (Sunday) — wipe open[]/closed[]/stats at each ET
+    week-start so the record reflects only the current engine (`lastResetWeek` watermark
+    in `picks-accuracy.json`; lands Monday in practice — weekday-only bakes). `=0` disables.
   - **Premium-space exits (P0.3) — symmetric ±20% snap exit:** `PICKS_OPT_EXITS` (default ON),
     `PICKS_OPT_TP_PCT 0.20` / `PICKS_OPT_STOP_PCT 0.20` — resolve on modeled option P&L before
     the underlying TP/cut: hit +20% → take profit instantly, hit −20% → take the loss instantly.
