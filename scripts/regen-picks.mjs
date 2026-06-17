@@ -151,10 +151,14 @@ await attachIvRanks(chains);
 // scales by the trailing realized option edge, exactly as the full build threads
 // picksAccuracyPrev.closed. Missing/corrupt → null (governor uses its default).
 let priorClosed = null;
+// Re-entry suppression: the live `open` set so a name with a tracked position
+// isn't re-picked until it exits (same rule the full build threads as priorOpen).
+let priorOpen = null;
 try {
   const accRaw = await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8");
   const accJ = JSON.parse(accRaw);
   if (accJ && Array.isArray(accJ.closed)) priorClosed = accJ.closed;
+  if (accJ && Array.isArray(accJ.open)) priorOpen = accJ.open;
 } catch {}
 
 // Risk-free rate for the contract-selection greeks (pickContractForPick):
@@ -170,7 +174,7 @@ try {
   if (rfr && Number.isFinite(rfr.rate)) riskFreeRate = rfr.rate;
 } catch { /* no rfr-history.json yet — keep the 4.5% fallback */ }
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, ...scannerExtras });
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, openPositions: priorOpen, ...scannerExtras });
 const builtAtIso = new Date().toISOString();
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above

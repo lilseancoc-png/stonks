@@ -180,10 +180,17 @@ Once a name is actionable, the engine picks one option on the graded side:
 - Refuses anything the live grader would call "bad" (heavy theta, near-expiry,
   mostly-extrinsic).
 
-**Exits:** a hard option stop at **−40%** of premium; a **trailing** take-profit that
-arms at **+60%** and locks in a runner (let winners run, since long-premium P&L is
-right-tail-driven). The underlying cut is the deeper of structural support and a
-~2.5×ATR floor (clamped 5–12%), so routine noise doesn't shake out a good entry.
+**Exits:** a **symmetric ±20% snap exit** on the modeled option P&L — the instant a
+pick is up **+20%** of premium we take the profit, and the instant it's down **−20%**
+we take the loss (no trailing, no hoping it back). The underlying cut is the deeper of
+structural support and a ~2.5×ATR floor (clamped 5–12%), so routine noise doesn't shake
+out a good entry, and a theta-stop still cuts a dead-money bleeder that never reaches
+either ±20% gate.
+
+**One entry per name:** once a ticker ships as a pick it's tracked until it exits
+(TP / stop / expiry / time-stop); it is **not** re-picked in the meantime. A name
+enters once, is followed to resolution, and only then becomes eligible again — so the
+engine can't restack the same thesis build after build.
 
 ---
 
