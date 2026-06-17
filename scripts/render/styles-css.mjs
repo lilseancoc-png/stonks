@@ -1101,10 +1101,10 @@ main {
   margin-bottom: var(--s-1);
 }
 .landing-card-eyebrow {
-  font: 600 var(--fs-xs)/1 var(--font-sans);
+  font: 700 var(--fs-md)/1.1 var(--font-sans);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--muted);
+  letter-spacing: 0.08em;
+  color: var(--text-strong);
 }
 .landing-card-arrow {
   font-size: var(--fs-lg);
