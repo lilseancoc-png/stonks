@@ -7216,17 +7216,46 @@ export function attachPredictionTrends(pmFomc, history, todayIso) {
 }
 
 // --- Macro event-risk timing modifier (#5) ----------------------------------
-// Market-wide entry-timing risk from an IMMINENT, UNCERTAIN macro event, read
-// off the prediction-market odds. "Uncertain" = the top outcome is priced below
-// PICKS_EVENT_RISK_MAX_PROB (a coin-flip the market can't call); "imminent" =
-// within PICKS_TIMING_EVENT_DEFER_DAYS sessions. Buying a debit option straight
-// into such an event is the avoidable loss this targets — so computeEntryTiming
-// defers (→ 'wait') when it fires. A confident event (e.g. a 98%-hold FOMC) does
-// NOT fire, so the roster only stands down ahead of genuinely two-sided prints.
-// Returns { active, label, daysOut, topProb } or { active:false }.
+// Market-wide entry-timing risk from an IMMINENT macro event, anchored to the
+// scheduled macro calendar (FOMC + major BLS prints) and cross-checked against
+// prediction-market odds. "Imminent" = within PICKS_TIMING_EVENT_DEFER_DAYS
+// sessions. Buying a debit option straight into a macro vol event is the
+// avoidable loss this targets — so computeEntryTiming defers (→ 'wait') and the
+// roster refuses naked long premium (verticals-only) when it fires.
+//
+// TWO trigger paths feed the candidate set:
+//  1. ALWAYS-ON scheduled events (PICKS_FOMC_ALWAYS_DEFER) — an upcoming FOMC,
+//     and the major CPI/PPI/jobs prints, are GUARANTEED long-premium vol events:
+//     the post-decision IV crush + a hawkish-guidance / hot-print surprise hit a
+//     debit option no matter how confidently the market has priced the headline
+//     NUMBER. The old design only deferred when the *odds* were a coin-flip, so a
+//     long call sailed straight into a "priced" Fed meeting (high-inflation tape:
+//     the hold is priced, the dots/presser aren't) — exactly the loss this fixes.
+//  2. ODDS-GATED events — any OTHER release whose prediction-market top outcome is
+//     priced below PICKS_EVENT_RISK_MAX_PROB (a coin-flip the crowd can't call).
+//
+// Returns { active, label, daysOut, topProb, alwaysDefer } or { active:false }.
 const PICKS_EVENT_RISK = process.env.PICKS_EVENT_RISK !== "0";
-const PICKS_TIMING_EVENT_DEFER_DAYS = Number(process.env.PICKS_TIMING_EVENT_DEFER_DAYS ?? 3);
+// Anticipate scheduled events EARLIER (widened 3 → 5 days): a Fed meeting is a
+// known date weeks out, so the roster should de-risk into it across the whole
+// pre-meeting week, not only at the 3-day mark.
+const PICKS_TIMING_EVENT_DEFER_DAYS = Number(process.env.PICKS_TIMING_EVENT_DEFER_DAYS ?? 5);
 const PICKS_EVENT_RISK_MAX_PROB = Number(process.env.PICKS_EVENT_RISK_MAX_PROB ?? 0.70);
+// Treat a scheduled FOMC / major macro print as an ALWAYS-ON event risk inside the
+// window (path 1 above), regardless of how confidently the crowd has priced it.
+// Set to 0 to revert to the legacy odds-gated-only behavior.
+const PICKS_FOMC_ALWAYS_DEFER = process.env.PICKS_FOMC_ALWAYS_DEFER !== "0";
+// The report subtypes major enough to be guaranteed vol events (CPI/PPI/payrolls).
+// The lower-impact prints (unemployment rate, JOLTS) stay on the odds-gated path.
+const ALWAYS_DEFER_REPORT_SUBTYPES = new Set([
+  "cpi-mom", "cpi-yoy", "core-cpi-mom", "core-cpi-yoy", "ppi-mom", "nfp",
+]);
+// Into an imminent event, refuse a NAKED long premium pick — ship only a defined-
+// risk debit vertical (capped max loss), else drop the name (no backfill). This is
+// the "avoid long premium" stance: a long single-leg is exactly what eats the
+// IV-crush + surprise the event guarantees. Set to 0 to keep shipping naked longs
+// into events (defer becomes a soft conviction drag only).
+const PICKS_EVENT_NO_NAKED_LONG = process.env.PICKS_EVENT_NO_NAKED_LONG !== "0";
 // Scheduled ET release minute per report subtype — the second line of defense
 // behind the ev.actual check below: once the ET wall clock is past a same-day
 // event's print time (+15min cushion for late prints), the event has RESOLVED
@@ -7260,19 +7289,28 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
   const candidates = [];
   const pmFomc = (predictionMarkets && predictionMarkets.fomc) || {};
   for (const m of (meetings || [])) {
-    const e = m && pmFomc[m.date];
-    if (!e) continue;
+    if (!m || !m.date) continue;
     // The decision statement drops at 14:00 ET — a same-day FOMC after that
     // is resolved, not an event risk (this path has no `actual` to clear it).
     if (printed(m.date, EVENT_RELEASE_ET_MIN.fomc)) continue;
+    const e = pmFomc[m.date];
     let top = null; // the MOST-uncertain platform's top outcome (lowest max)
-    for (const plat of ["kalshi", "polymarket"]) {
-      const o = e[plat];
-      if (!o) continue;
-      const mx = Math.max(Number(o.hike) || 0, Number(o.hold) || 0, Number(o.cut) || 0);
-      if (mx > 0 && (top == null || mx < top)) top = mx;
+    if (e) {
+      for (const plat of ["kalshi", "polymarket"]) {
+        const o = e[plat];
+        if (!o) continue;
+        const mx = Math.max(Number(o.hike) || 0, Number(o.hold) || 0, Number(o.cut) || 0);
+        if (mx > 0 && (top == null || mx < top)) top = mx;
+      }
     }
-    if (top != null) candidates.push({ label: "FOMC decision", date: m.date, topProb: top });
+    // FOMC is an ALWAYS-ON long-premium vol event: defer regardless of crowd odds
+    // (topProb stays informational when prediction-market data exists). Only when
+    // the always-defer policy is off do we fall back to the legacy odds-only path.
+    if (PICKS_FOMC_ALWAYS_DEFER) {
+      candidates.push({ label: "FOMC decision", date: m.date, topProb: top, alwaysDefer: true });
+    } else if (top != null) {
+      candidates.push({ label: "FOMC decision", date: m.date, topProb: top });
+    }
   }
   const pmReports = (predictionMarkets && predictionMarkets.reports) || {};
   for (const ev of (reportEvents || [])) {
@@ -7286,9 +7324,16 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
     if (ev && ev.actual) continue;
     if (ev && printed(ev.date, EVENT_RELEASE_ET_MIN[ev.subtype] ?? EVENT_RELEASE_ET_MIN_DEFAULT)) continue;
     const pred = ev && pmReports[ev.subtype + "|" + ev.date];
-    if (!pred || !Number.isFinite(pred.prob)) continue;
-    const p = norm(pred.prob);
-    candidates.push({ label: ev.title || "Macro release", date: ev.date, topProb: Math.max(p, 1 - p) });
+    const oddsProb = pred && Number.isFinite(pred.prob) ? Math.max(norm(pred.prob), 1 - norm(pred.prob)) : null;
+    // Major CPI/PPI/jobs prints are guaranteed vol events too — always-defer like
+    // the FOMC, with the crowd odds kept only for the card. Lesser releases stay on
+    // the odds-gated path (skipped here when there's no uncertain prediction market).
+    if (PICKS_FOMC_ALWAYS_DEFER && ev && ALWAYS_DEFER_REPORT_SUBTYPES.has(ev.subtype)) {
+      candidates.push({ label: ev.title || "Macro release", date: ev.date, topProb: oddsProb, alwaysDefer: true });
+      continue;
+    }
+    if (oddsProb == null) continue;
+    candidates.push({ label: ev.title || "Macro release", date: ev.date, topProb: oddsProb });
   }
   let best = null;
   for (const c of candidates) {
@@ -7296,8 +7341,10 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
     if (!Number.isFinite(ms)) continue;
     const daysOut = Math.round((ms - nowMs) / 86400000);
     if (daysOut < 0 || daysOut > PICKS_TIMING_EVENT_DEFER_DAYS) continue; // not imminent
-    if (c.topProb >= PICKS_EVENT_RISK_MAX_PROB) continue;                 // market is confident
-    if (!best || daysOut < best.daysOut) best = { active: true, label: c.label, daysOut, topProb: c.topProb };
+    // Odds-gated events only fire when the crowd CAN'T call them; always-defer
+    // (scheduled FOMC / major prints) fire regardless of how confident the odds are.
+    if (!c.alwaysDefer && !(Number.isFinite(c.topProb) && c.topProb < PICKS_EVENT_RISK_MAX_PROB)) continue;
+    if (!best || daysOut < best.daysOut) best = { active: true, label: c.label, daysOut, topProb: c.topProb, alwaysDefer: !!c.alwaysDefer };
   }
   return best || { active: false };
 }
@@ -10580,9 +10627,15 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   // (rich-IV / negative-edge default, #3). On a measured-negative-edge book the IV
   // floor drops so spreads kick in at more moderate IV. Both still require a liquid,
   // credit-financing short wing (else falls through to the single long, graceful).
-  const wantVertical = PICKS_VERTICALS || PICKS_VERT_AUTO;
+  // opts.forceVertical (set by the roster's macro-event gate) overrides the IV-rank
+  // floor: into an imminent FOMC / major print we WANT a defined-risk structure even
+  // when IV isn't rich, because the event is the risk — so attempt the wing regardless
+  // of percentile (it still requires a liquid, credit-financing short leg; if none
+  // exists the pick stays a naked long and the event gate drops it, gracefully).
+  const wantVertical = PICKS_VERTICALS || PICKS_VERT_AUTO || opts.forceVertical;
   const vertIvFloor = opts.negativeEdge ? PICKS_VERT_NEGEDGE_IVRANK : PICKS_VERT_IVRANK;
-  if (wantVertical && Number.isFinite(ivRankPctile) && ivRankPctile >= vertIvFloor) {
+  const ivFloorOk = opts.forceVertical || (Number.isFinite(ivRankPctile) && ivRankPctile >= vertIvFloor);
+  if (wantVertical && ivFloorOk) {
     const sw = pickShortWing(side, data.chains[best.expSec], data.spot, best.row.s, best.expSec, rfr);
     if (sw && sw.mid > 0 && longLeg.mid > 0 && sw.mid / longLeg.mid >= PICKS_VERT_MIN_CREDIT) {
       shortLeg = {
@@ -12510,16 +12563,22 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const catalystImminent = dte != null && dte <= PICKS_TIMING_EARNINGS_DEFER_DAYS;
   if (catalystImminent) con(true, `earnings in ${dte === 0 ? "0" : dte}d — IV crush can sink the trade even when direction is right`);
 
-  // Macro event-risk defer (#5): an imminent, prediction-market-UNCERTAIN macro
-  // event (FOMC / CPI the crowd can't call) is a coin-flip to hold a debit into.
-  // Soft con on the score, hard 'wait' on the verdict (mirrors the earnings
-  // defer). A confident event never fires (computeMacroEventRisk gates on it).
+  // Macro event-risk defer (#5): an imminent scheduled macro vol event. For a
+  // scheduled FOMC / major print (alwaysDefer) the defer fires regardless of the
+  // crowd odds — the IV crush + hawkish-guidance / hot-print surprise hit a long
+  // debit no matter how "priced" the headline number is; for an odds-gated event
+  // it only fires when the crowd can't call it. Soft con on the score, hard 'wait'
+  // on the verdict (mirrors the earnings defer); the roster then refuses naked long
+  // premium into it (PICKS_EVENT_NO_NAKED_LONG, enforced in buildTopPicks).
   const eventRisk = opts.eventRisk || null;
   const eventDefer = !!(eventRisk && eventRisk.active && Number.isFinite(eventRisk.daysOut) && eventRisk.daysOut <= PICKS_TIMING_EVENT_DEFER_DAYS);
   if (eventDefer) {
     const tp = Number(eventRisk.topProb);
     const tpPct = Number.isFinite(tp) ? Math.round((tp > 1.5 ? tp / 100 : tp) * 100) : null;
-    con(false, `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d is a market coin-flip${tpPct != null ? ` (top outcome ~${tpPct}%)` : ""} — defer entry past the event`);
+    const why = eventRisk.alwaysDefer
+      ? `is a guaranteed vol event for long premium${tpPct != null ? ` (top outcome ~${tpPct}%)` : ""} — the IV crush + a guidance/print surprise hit a debit either way`
+      : `is a market coin-flip${tpPct != null ? ` (top outcome ~${tpPct}%)` : ""}`;
+    con(false, `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d ${why} — defer entry past the event`);
   }
 
   // ---- Ex-dividend nudge (side-aware, soft) ----------------------------------
@@ -12646,7 +12705,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   } else if (eventDefer) {
     state = "wait";
     deferKind = "event";
-    headline = `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d — uncertain macro event, defer entry`;
+    headline = `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d — ${eventRisk.alwaysDefer ? "macro vol event ahead" : "uncertain macro event"}, defer entry`;
   } else if (strongPros.length > 0 && strongCons.length === 0) {
     state = "go";
     headline = `Clean entry — structure and timing line up for ${dirWord}`;
@@ -13468,8 +13527,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // a sub-zero expectancy (today: 0 decided ⇒ false ⇒ only the rich-IV path engages).
   const _edge = realizedOptionEdge(opts.priorClosed || null);
   const negativeEdge = _edge.exp != null && _edge.exp < 0;
+  // Macro-event defense: an imminent scheduled vol event (FOMC / major CPI/PPI/jobs
+  // print, computeMacroEventRisk → macroBackdrop.eventRisk). Into it we refuse NAKED
+  // long premium and force the selector to build a defined-risk vertical regardless
+  // of IV rank; a name that can't be built as a capped-loss structure is dropped at
+  // the gate below (PICKS_EVENT_NO_NAKED_LONG). Anticipates the event across the whole
+  // pre-event window (PICKS_TIMING_EVENT_DEFER_DAYS), not just the eve.
+  const eventRisk = (macroBackdrop && macroBackdrop.eventRisk && macroBackdrop.eventRisk.active) ? macroBackdrop.eventRisk : null;
+  const eventImminent = !!(eventRisk && PICKS_EVENT_NO_NAKED_LONG);
   for (const cand of candSet) {
-    cand.contract = pickContractForPick(cand.side, cand.r.data, rfr, { requireClean: true, negativeEdge });
+    cand.contract = pickContractForPick(cand.side, cand.r.data, rfr, { requireClean: true, negativeEdge, forceVertical: eventImminent });
   }
   let untradeable = 0;
   const tradeable = candSet.filter((c) => { if (c.contract) return true; untradeable += 1; return false; });
@@ -13503,6 +13570,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const skippedCostGated = []; // P5.1 execution-cost gate skips (net-of-cost conviction below the bar)
   let earningsRiskCount = 0; // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK)
   const skippedEarningsRisk = [];
+  const skippedEventDeferred = []; // macro-event no-naked-long gate (PICKS_EVENT_NO_NAKED_LONG) — naked longs dropped into an imminent FOMC / major print
   const skippedTimingGated = []; // require-go gate (PICKS_REQUIRE_GO) — non-'go' non-tactical picks
   const skippedSafetyGated = []; // capital-preservation safety filter (PICKS_SAFETY_FILTER) — low-POP / breakeven-too-far / negative-edge drops
   const skippedEliteGated = []; // elite gauntlet (PICKS_ELITE_ONLY) — failed the near-sure-thing conjunction
@@ -13702,6 +13770,17 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       skippedEarningsRisk.push({ symbol: r.sym, side });
       continue;
     }
+    // Macro-event no-naked-long gate: into an imminent FOMC / major macro print
+    // ship ONLY a defined-risk debit vertical (capped max loss) — a naked single-leg
+    // long is exactly what eats the IV crush + hawkish-guidance / hot-print surprise
+    // the event guarantees. The selector was asked to build a vertical (forceVertical
+    // above); if it couldn't find a liquid financing wing the contract is still a
+    // naked long, so drop the name rather than recommend premium into the event.
+    if (eventImminent && contract.structure !== "debit_vertical") {
+      skippedEventDeferred.push({ symbol: r.sym, side, event: eventRisk.label, daysOut: eventRisk.daysOut });
+      vetoed += 1;
+      continue;
+    }
 
     const verb = side === "call" ? "Bullish setup" : "Bearish setup";
     const reasons = r.drivers.map((d) => d.text);
@@ -13838,6 +13917,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       costGated: skippedCostGated, // P5.1 execution-cost gate (net-of-cost conviction below the bar)
       earningsEve: skippedEarningsEve, // earnings-eve entry veto (print ≤PICKS_EARNINGS_VETO_DAYS out — don't open what the exit rule would close)
       earningsRiskCapped: skippedEarningsRisk, // earnings-crush concentration cap (PICKS_MAX_EARNINGS_RISK) — too many crush-exposed contracts already
+      eventDeferred: skippedEventDeferred, // macro-event no-naked-long gate (PICKS_EVENT_NO_NAKED_LONG) — naked longs dropped into an imminent FOMC / major macro print
+      eventRisk: eventRisk ? { label: eventRisk.label, daysOut: eventRisk.daysOut, alwaysDefer: !!eventRisk.alwaysDefer } : null, // the active scheduled macro vol event the roster de-risked into (null when none imminent)
       timingGated: skippedTimingGated, // require-go gate (PICKS_REQUIRE_GO) — graded names without a clean 'go' entry, deferred not shipped
       safetyGated: skippedSafetyGated, // capital-preservation safety filter (PICKS_SAFETY_FILTER) — low-POP / breakeven-too-far / negative-edge drops
       safetyFilter: PICKS_SAFETY_FILTER, // surfaced so the UI can explain the capital-preservation bar

@@ -18732,6 +18732,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
+    if (rm && rm.eventDeferred && rm.eventDeferred.length){
+      var evLbl = (rm.eventRisk && rm.eventRisk.label) || 'a macro event';
+      var evDays = rm.eventRisk && (rm.eventRisk.daysOut === 0 || rm.eventRisk.daysOut) ? rm.eventRisk.daysOut : null;
+      noteBits.push('<b>' + rm.eventDeferred.length + '</b> long' + (rm.eventDeferred.length === 1 ? '' : 's') + ' held back — ' + escapeHtml(evLbl) + (evDays != null ? ' in ' + evDays + 'd' : '') + ' (no naked premium into the event)');
+    } else if (rm && rm.eventRisk){
+      var evL = escapeHtml(rm.eventRisk.label || 'a macro event');
+      var evD = (rm.eventRisk.daysOut === 0 || rm.eventRisk.daysOut) ? rm.eventRisk.daysOut : null;
+      noteBits.push(evL + (evD != null ? ' in ' + evD + 'd' : '') + ' — defined-risk spreads only');
+    }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
     if (rm && rm.safetyGated && rm.safetyGated.length){
       var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });
