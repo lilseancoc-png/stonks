@@ -9400,6 +9400,47 @@
     inflation: 'The inflation/jobs axis reads CPI YoY direction + the unemployment rate. Re-accelerating inflation or a softening labor market tilts risk-OFF.',
   };
 
+  // Live global cross-asset tape axis — a port of deriveGlobalTapeAxis
+  // (scripts/build.mjs). Reads the /api/macro-live ?tape=1 legs (keyed by Yahoo
+  // symbol, { pctChange1d, … }) so the SAME cross-asset moves the barometer rail
+  // shows actually move the regime gauge intraday. A closed foreign cash index's
+  // pctChange1d IS its last completed session (== the baked overnight read), so
+  // including it is correct; the ~24h legs (US futures / yen / copper / BTC)
+  // refresh live. Returns null when the axis is off or < 3 signals are present,
+  // and the caller carries the baked axis. Keep in sync with deriveGlobalTapeAxis.
+  function liveGlobalTapeAxis(legs, T){
+    if (!legs) return null;
+    function ch(s){ var l = legs[s]; return (l && l.pctChange1d != null && isFinite(l.pctChange1d)) ? Number(l.pctChange1d) : null; }
+    function avg(syms){ var vals = []; for (var i = 0; i < syms.length; i++){ var v = ch(syms[i]); if (v != null) vals.push(v); } return vals.length ? { v: vals.reduce(function(a, b){ return a + b; }, 0) / vals.length, n: vals.length } : null; }
+    function th(x, d){ return (x != null && isFinite(x)) ? Number(x) : d; }
+    var futT = th(T.globalFut, 0.4), brT = th(T.globalBreadth, 0.6), yenT = th(T.globalYen, 0.6);
+    var cuT = th(T.globalCopper, 1.0), btcT = th(T.globalBtc, 2.0), acuteT = th(T.globalAcute, 3);
+    var components = [], votes = 0, present = 0;
+    var fut = avg(['ES=F', 'NQ=F']);
+    if (fut){ present++; var fv = fut.v >= futT ? 1 : (fut.v <= -futT ? -1 : 0); votes += fv; components.push({ key: 'futures', label: 'US futures ' + (fut.v >= 0 ? '+' : '') + fut.v.toFixed(2) + '%', vote: fv }); }
+    var breadth = avg(['^N225', '^HSI', '^KS11', '^GDAXI', '^TWII']);
+    if (breadth && breadth.n >= 2){ present++; var bv = breadth.v >= brT ? 1 : (breadth.v <= -brT ? -1 : 0); votes += bv; components.push({ key: 'breadth', label: 'Global equities ' + (breadth.v >= 0 ? '+' : '') + breadth.v.toFixed(2) + '% avg', vote: bv }); }
+    var yen = ch('JPY=X');
+    if (yen != null){ present++; var yv = yen >= yenT ? 1 : (yen <= -yenT ? -1 : 0); votes += yv; components.push({ key: 'yen', label: 'USD/JPY ' + (yen >= 0 ? '+' : '') + yen.toFixed(2) + '%', vote: yv }); }
+    var cu = ch('HG=F');
+    if (cu != null){ present++; var cv = cu >= cuT ? 1 : (cu <= -cuT ? -1 : 0); votes += cv; components.push({ key: 'copper', label: 'Copper ' + (cu >= 0 ? '+' : '') + cu.toFixed(1) + '%', vote: cv }); }
+    var btc = ch('BTC-USD');
+    if (btc != null){ present++; var btcv = btc >= btcT ? 1 : (btc <= -btcT ? -1 : 0); votes += btcv; components.push({ key: 'btc', label: 'Bitcoin ' + (btc >= 0 ? '+' : '') + btc.toFixed(1) + '%', vote: btcv }); }
+    if (present < 3) return null;
+    var score = 0;
+    if (votes >= acuteT) score = 2;
+    else if (votes >= 1) score = 1;
+    else if (votes <= -acuteT) score = -2;
+    else if (votes <= -1) score = -1;
+    var dir = score === 0 ? 0 : (score > 0 ? 1 : -1);
+    var lit = components.filter(function(c){ return c.vote === dir; }).map(function(c){ return c.label; });
+    var tone = score > 0 ? 'risk-on' : (score < 0 ? 'risk-off' : 'mixed');
+    var label = score === 0
+      ? ('Global tape mixed (' + present + ' signals)')
+      : ('Global tape ' + tone + (lit.length ? ' — ' + lit.slice(0, 3).join(', ') : ''));
+    return { score: score, label: label, components: components, live: true };
+  }
+
   function computeLiveMacroRegime(baked, live){
     if (!baked || !baked.axes || !baked.inputs || !baked.thresholds) return null;
     var T = baked.thresholds, inp = baked.inputs, axes = {};
@@ -9547,8 +9588,16 @@
     axes.fed = Object.assign({ live: false }, baked.axes.fed || { score: 0, label: 'no Fed-path data' });
     axes.geo = Object.assign({ live: false }, baked.axes.geo || { score: 0, label: 'no geopolitical narrative' });
     axes.inflation = Object.assign({ live: false }, baked.axes.inflation || { score: 0, label: 'inflation/labor axis off' });
-    // Global cross-asset tape axis — baked (correlations.json isn't in macro-live).
-    axes.globalTape = Object.assign({ live: false }, baked.axes.globalTape || { score: 0, label: 'no cross-asset data' });
+    // Global cross-asset tape axis — recomputed LIVE from the ?tape=1 legs (the
+    // same rows the barometer rail shows), so an intraday risk-appetite swing in
+    // US futures / the yen carry / copper / BTC MOVES the gauge instead of holding
+    // the stale baked overnight read all session. Falls back to baked when the
+    // axis is off (T.globalOn === false) or too few legs returned.
+    (function(){
+      var ca = (live && live.crossAsset && typeof live.crossAsset === 'object') ? live.crossAsset : null;
+      var lt = (T.globalOn !== false && ca) ? liveGlobalTapeAxis(ca, T) : null;
+      axes.globalTape = lt || Object.assign({ live: false }, baked.axes.globalTape || { score: 0, label: 'no cross-asset data' });
+    })();
 
     // Composite → state (computeMacroRegime state machine + macroEffectiveAxisCount).
     var ORDER = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
@@ -9636,7 +9685,7 @@
     else if (st === 'risk-off') body = 'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.';
     else if (regime.fragile) body = 'Fragile neutral tape — price and vol read neutral but breadth and credit internals are deteriorating (' + (regime.internalsLabel || 'breadth + credit weak') + '). Size is trimmed and the long side capped, without flipping to puts.';
     else body = 'A neutral tape — no coordinated cross-asset stress.';
-    var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (VIX, dollar, long yields, crude, gold, Fear and Greed); the slow axes (Fed path, geopolitical news, inflation) stay from the last build.' : '';
+    var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (VIX, dollar, long yields, crude, gold, Fear and Greed, and the global cross-asset tape — futures / yen / copper / BTC); the slow axes (Fed path, geopolitical news, inflation) stay from the last build.' : '';
     var heldNote = (regime.persisted && regime.rawState && regime.rawState !== regime.state) ? ' RECOVERING: the live read is ' + regime.rawState + ' but the chip holds the more defensive state until a build confirms.' : '';
     return base + body + (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + liveNote + heldNote;
   }
@@ -9785,7 +9834,8 @@
       if (sm.credit != null) c.push(tapeChip('credit', String(Math.round(sm.credit))));
       if (sm.month != null) c.push(tapeChip('1mo', String(Math.round(sm.month))));
     } else if (k === 'globalTape' && inp.crossAsset){
-      if (inp.crossAsset.score != null) c.push(tapeChip('tape', tapeSign(inp.crossAsset.score, 0)));
+      // Baked composite for context — the tile badge shows the live recompute.
+      if (inp.crossAsset.score != null) c.push(tapeChip('tape (last build)', tapeSign(inp.crossAsset.score, 0)));
       var comps = inp.crossAsset.components;
       if (Array.isArray(comps) && comps.length) c.push(tapeChip('signals', String(comps.length)));
     }
@@ -10019,7 +10069,7 @@
         '</div>' +
         '<div class="picks-tape-axes">' + tiles + '</div>' +
         heldNote + fragileNote +
-        '<p class="picks-tape-foot">The tape recomputes live from the fast price axes (VIX, dollar, long yields, crude + gold, Fear &amp; Greed) every ~30s while this tab is open. The slow axes — the Fed path, the geopolitical-<i>news</i> read, and monthly inflation / jobs — carry from the last build, so a fresh war or peace-deal <i>headline</i> updates at the next refresh, but the market’s reaction to it flows through the price axes immediately. Risk-off shrinks the list, tilts it toward puts, and sizes it down; risk-on leans it long.</p>' +
+        '<p class="picks-tape-foot">The tape recomputes live from the fast price axes (VIX, dollar, long yields, crude + gold, Fear &amp; Greed, and the global cross-asset tape — overnight futures / yen carry / copper / BTC) every ~30s while this tab is open. The slow axes — the Fed path, the geopolitical-<i>news</i> read, and monthly inflation / jobs — carry from the last build, so a fresh war or peace-deal <i>headline</i> updates at the next refresh, but the market’s reaction to it flows through the price axes immediately. Risk-off shrinks the list, tilts it toward puts, and sizes it down; risk-on leans it long.</p>' +
       '</div>' +
     '</div>';
   }
@@ -10081,6 +10131,10 @@
         macroTape.legs = {
           vix: L.vix, dxy: L.dxy, tenY: L.tenY, thirtyY: L.thirtyY,
           crude: L.crude, gold: L.gold, fng: j.fng || null,
+          // The cross-asset rail legs (futures / foreign breadth / yen / copper /
+          // BTC) also FEED the global-tape regime axis — pass them through so the
+          // live re-port recomputes it instead of holding the baked overnight read.
+          crossAsset: (j.crossAsset && typeof j.crossAsset === 'object') ? j.crossAsset : null,
         };
         macroTape.fetchedAt = j.fetchedAt || new Date().toISOString();
         if (j.crossAsset && typeof j.crossAsset === 'object'){
