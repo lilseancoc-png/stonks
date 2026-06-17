@@ -14184,6 +14184,13 @@ export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
     internalsLabel: regime.internalsLabel || null,
     stress: Number.isFinite(regime.stress) ? regime.stress : null,
     riskOffAxes: Number.isFinite(regime.riskOffAxes) ? regime.riskOffAxes : null,
+    // Per-axis score snapshot (−2..+2 each) so the Market-tape tiles can draw a
+    // daily score trend sparkline. Small (9 ints); graceful when absent.
+    axisScores: (regime.axes && typeof regime.axes === "object")
+      ? Object.fromEntries(
+          Object.entries(regime.axes).map(([k, v]) => [k, (v && Number.isFinite(v.score)) ? v.score : 0]),
+        )
+      : null,
     summary: typeof regime.summary === "string" ? regime.summary : null,
     drivers,
     picks: (calls != null && puts != null) ? { calls, puts, total: calls + puts } : null,
@@ -16050,6 +16057,7 @@ const GLOBAL_HISTORY_DAYS = 365;
 const GLOBAL_CORR_MAX_OBS = 150;  // trailing common trading days for corr/beta
 const GLOBAL_CORR_MIN_OBS = 30;   // below this, corr/beta are not reported
 const GLOBAL_FETCH_CONCURRENCY = 4;
+const CORR_SPARK_BARS = 31;       // trailing closes baked per market for the rail sparkline
 
 // One foreign symbol: ~1y of daily closes + the last completed session's move
 // and chart meta (currency / display name). Non-fatal at the caller — a failed
@@ -16357,6 +16365,17 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
       if (type === "rate") chgBp = Math.round((g.last - g.prevClose) * 100 * 10) / 10;
       else if (type === "vol") chgPt = Math.round((g.last - g.prevClose) * 100) / 100;
     }
+    // Trailing daily closes (oldest→newest, ~31 sessions) so the browser can
+    // draw a per-asset risk-score sparkline on the cross-asset rail with no extra
+    // fetch — it re-derives each session's risk score from consecutive closes
+    // using the same mapping the live marker uses. Omitted when too short;
+    // graceful (old snapshots without it just show no spark / live-only).
+    const closes = Array.isArray(g.bars)
+      ? g.bars
+          .map((b) => (b && b.c != null && isFinite(b.c)) ? Math.round(b.c * 100) / 100 : null)
+          .filter((v) => v != null)
+          .slice(-CORR_SPARK_BARS)
+      : [];
     markets[sym] = {
       sym,
       name: meta.name || g.yName || sym,
@@ -16370,6 +16389,7 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
       chgPt,
       cur: g.currency || null,
       asOf: g.asOf || null,
+      ...(closes.length >= 4 ? { series: closes } : {}),
     };
   }
   // Region grouping for the tab (in GLOBAL_MARKETS declaration order).
