@@ -112,7 +112,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-16","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-06-17","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -2259,7 +2259,7 @@
       var bestExp = null, bestExpDist = Infinity;
       for (var i = 0; i < state.expirations.length; i++){
         var exp = state.expirations[i];
-        var dte = Math.round((exp - nowSec) / 86400);
+        var dte = Math.round((exp + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / 86400);
         if (dte < 45) continue;
         var dist = Math.abs(dte - 60);
         if (dist >= bestExpDist) continue;
@@ -2723,7 +2723,7 @@
     var pts = [];
     for (var i=0; i<state.expirations.length; i++){
       var expSec = state.expirations[i];
-      var dte = Math.max(0, Math.round((expSec - nowSec) / 86400));
+      var dte = Math.max(0, Math.round((expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / 86400));
       var iv = atmIvForExpiration(state.chains[expSec], state.spot);
       if (iv != null) pts.push({ expSec: expSec, dte: dte, iv: iv });
     }
@@ -5474,7 +5474,7 @@
     });
   }
 
-  var SEG_COLORS = ['#4c8dff','#16e08a','#ffb020','#ff4d5e','#7c6bff','#2dd4d4','#f97316','#6b7280','#ff6fb0'];
+  var SEG_COLORS = ['#5b9bd6','#3ad29a','#e0a83a','#f2645f','#9a86ff','#2dc4c4','#f0884c','#9a9180','#e882b0'];
 
   // Mirror of build.mjs cleanup for previously-cached segment labels that
   // were tokenized before BRAND_CASING_OVERRIDES landed in the parser.
@@ -8312,6 +8312,12 @@
   }
   function startHotPolling(){
     if (volLive.timer) return;
+    // Respect the premium gate — a non-member sees the lock card, so the
+    // 138-symbol /api/quotes poll must not (re)start behind it. selectTab
+    // already fences the initial load; this guards the visibilitychange resume,
+    // which would otherwise restart polling on a locked tab when the browser
+    // window is re-focused.
+    if (PREMIUM_TABS['hot'] && !IS_MEMBER) return;
     var pane = document.getElementById('page-pane-hot');
     if (!pane || pane.hidden) return;
     pollVolumeLiveOnce();
@@ -10943,10 +10949,10 @@
     var a = (0.14 + 0.46 * (pct / 100)).toFixed(3);
     if (net >= 0){
       var rEnd = (50 + pct / 2).toFixed(2);
-      return 'linear-gradient(90deg, transparent 50%, rgba(22,224,138,' + a + ') 50%, rgba(22,224,138,' + a + ') ' + rEnd + '%, transparent ' + rEnd + '%)';
+      return 'linear-gradient(90deg, transparent 50%, rgba(58,210,154,' + a + ') 50%, rgba(58,210,154,' + a + ') ' + rEnd + '%, transparent ' + rEnd + '%)';
     }
     var lStart = (50 - pct / 2).toFixed(2);
-    return 'linear-gradient(90deg, transparent ' + lStart + '%, rgba(255,77,94,' + a + ') ' + lStart + '%, rgba(255,77,94,' + a + ') 50%, transparent 50%)';
+    return 'linear-gradient(90deg, transparent ' + lStart + '%, rgba(242,100,95,' + a + ') ' + lStart + '%, rgba(242,100,95,' + a + ') 50%, transparent 50%)';
   }
   // A full-width reference line inserted between strike rows: the live spot
   // and the gamma flip. The body has nexps + 1 columns (the Net Σ total
@@ -11025,7 +11031,7 @@
         }
         var net = cell.net, pos = net >= 0;
         var intensity = Math.min(1, Math.abs(net) / d.scaleRef);
-        var rgb = pos ? '22,224,138' : '255,77,94';
+        var rgb = pos ? '58,210,154' : '242,100,95';
         var alpha = (0.10 + 0.80 * intensity).toFixed(3);
         var title = sym + ' ' + fmtOiStrike(K) + ' ' + exps[e2].label + ' · net ' + gexFmtSigned(net) +
           ' (call +' + gexFmt(cell.call) + ' / put -' + gexFmt(cell.put) + ')';
@@ -18059,11 +18065,11 @@
       if (empty){
         empty.hidden = false;
         var rmE = data.rosterMeta || null;
-        var nHeld = (rmE && rmE.eliteGated && rmE.eliteGated.length) || 0;
+        var nHeld = ((rmE && rmE.eliteGated && rmE.eliteGated.length) || 0) + ((rmE && rmE.safetyGated && rmE.safetyGated.length) || 0);
         empty.textContent = data.loadError
           ? 'Couldn’t load picks — refresh the page to try again.'
-          : (rmE && rmE.eliteOnly)
-            ? ('No top picks today — nothing cleared the near-certain bar' + (nHeld ? ' (' + nHeld + ' strong name' + (nHeld === 1 ? '' : 's') + ' graded high but not almost-guaranteed, so held back)' : '') + '. A top pick only lists when it is as close to a sure thing as a directional option gets — most days that is nothing, and cash is a position.')
+          : (rmE && (rmE.eliteOnly || rmE.safetyFilter))
+            ? ('No top picks today — nothing cleared the safety bar' + (nHeld ? ' (' + nHeld + ' name' + (nHeld === 1 ? '' : 's') + ' graded high but the data didn’t show a strong enough chance of profit, so held back)' : '') + '. A top pick only lists when the odds of making money are clearly in your favour — most days that is nothing, and cash is a position.')
             : 'No high-conviction picks in this build — every ticker scored below the minimum.';
       }
       return;
@@ -18145,6 +18151,10 @@
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
+    if (rm && rm.safetyGated && rm.safetyGated.length){
+      var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });
+      noteBits.push('<b>' + rm.safetyGated.length + '</b> held back — odds of profit too low (safety filter)' + (negEdgeHeld ? ' · strategy edge negative, standing down' : ''));
+    }
     if (rm && rm.eliteGated && rm.eliteGated.length) noteBits.push('<b>' + rm.eliteGated.length + '</b> strong but not near-certain — held back (elite bar)');
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
@@ -18889,9 +18899,20 @@
         : bps < 50 ? { key: 'notable', label: 'Modest' }
         : { key: 'normal', label: 'Upward' };
       var sub = '';
-      if (bondsHist.series && bondsHist.series.spread && bondsHist.series.spread.length >= 6){
-        var sp = bondsHist.series.spread;
-        var d5 = (sp[sp.length - 1] - sp[sp.length - 6]) * 100;
+      // 5d steepening/flattening: derive from each leg's OWN date-anchored 5d
+      // change (server-computed off contiguous daily bars) rather than a
+      // positional offset into the gap-collapsed spread history — that history
+      // drops any bake-day missing either leg, so sp[len-6] is not reliably "5
+      // trading days ago". spread = 10Y − 2Y, so its 5d bps change is simply the
+      // 10Y's minus the 2Y's. Prefer prior5d (tracks the live overlay's current
+      // value) and fall back to the baked bps delta.
+      var leg5 = function(leg){
+        if (leg.prior5d != null && isFinite(leg.prior5d) && leg.value != null && isFinite(leg.value)) return (leg.value - leg.prior5d) * 100;
+        return isFinite(leg.bpsChange5d) ? leg.bpsChange5d : null;
+      };
+      var t5 = leg5(t), two5 = leg5(two);
+      if (t5 != null && two5 != null){
+        var d5 = t5 - two5;
         sub = '<span class="bonds-live-change bonds-live-change--sub ' + (d5 > 0 ? 'up' : d5 < 0 ? 'down' : 'flat') + '">' +
           (d5 >= 0 ? '+' : '') + d5.toFixed(1) + ' bps 5d (' + (d5 > 0.5 ? 'steepening' : d5 < -0.5 ? 'flattening' : 'flat') + ')</span>';
       }
