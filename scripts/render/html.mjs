@@ -9,22 +9,24 @@ import {
   INDUSTRY_OF_TICKER,
   htmlEscape,
 } from '../build.mjs';
-import { DOC_PAGES, DOC_ORDER } from './docs.mjs';
+import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
 import { DISCORD_INVITE_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, What's
 // included, Privacy, Terms) — formerly standalone .html files, now in-app tabs.
 // Each is emitted as a pane carrying an empty shadow-host + an inert <template>
-// of the page's own <style> + markup; app.js mounts the template into a shadow
-// root on first open (mountDocPane), so each page keeps its bespoke styling
-// with zero collision against the app's global CSS. Source: scripts/render/docs.mjs.
+// of the page's own <style> (+ the shared DOC_THEME_OVERRIDE appended last, so
+// the pages are re-skinned onto the app's design tokens) + markup; app.js mounts
+// the template into a shadow root on first open (mountDocPane). The shadow root
+// still isolates the pages' layout CSS from the app's global stylesheet.
+// Source: scripts/render/docs.mjs.
 function docPanesHtml() {
   return DOC_ORDER.map((key) => {
     const d = DOC_PAGES[key];
     if (!d) return '';
     return `<div class="page-pane doc-pane" id="page-pane-${key}" role="tabpanel" aria-labelledby="page-tab-${key}" hidden>` +
       `<div class="doc-host" data-doc="${key}"></div>` +
-      `<template data-doc-tpl="${key}"><style>${d.style}</style>${d.body}</template>` +
+      `<template data-doc-tpl="${key}"><style>${d.style}${DOC_THEME_OVERRIDE}</style>${d.body}</template>` +
       `</div>`;
   }).join('\n  ');
 }

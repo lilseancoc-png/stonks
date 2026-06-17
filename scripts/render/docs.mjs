@@ -2,16 +2,63 @@
 //
 // These were formerly standalone HTML files (cheatsheet.html, chart-patterns.html,
 // features.html, privacy.html, terms.html). They are now mounted into a Shadow
-// DOM per tab (scripts/render/app-js.mjs → mountDocPane) so each page keeps its
-// own bespoke styling with zero collision against the app's global CSS. To edit
-// a page, edit its `style`/`body` below — the markup is the page's original
-// <body>, and the CSS is its original <style> adapted for a shadow root
-// (:root/body → :host, fixed overlays → absolute). Hand-maintained; no build
-// step regenerates this file.
+// DOM per tab (scripts/render/app-js.mjs → mountDocPane) — the shadow root still
+// isolates each page's layout CSS from the app's global stylesheet, but the
+// shared DOC_THEME_OVERRIDE (below) is appended inside every page's <style> so
+// they're re-skinned onto the app's design tokens and read as part of the site
+// (not their own standalone design). To edit a page, edit its `style`/`body`
+// below — the markup is the page's original <body>, and the CSS is its original
+// <style> adapted for a shadow root (:root/body → :host, fixed overlays →
+// absolute). To retune the shared skin (colours/fonts/chrome), edit
+// DOC_THEME_OVERRIDE. Hand-maintained; no build step regenerates this file.
 
 import { DISCORD_INVITE_URL } from "../../lib/links.mjs";
 
 export const DOC_ORDER = ["cheatsheet","chart-patterns","features","privacy","terms"];
+
+// Shared theme override, appended (in source order, so it wins) inside every
+// doc page's <style> by html.mjs. These pages were former standalone HTML files
+// with their own dark palette/fonts/atmosphere, which made them read as a
+// different site once embedded as tabs. This re-skins them onto stonks' shared
+// design tokens — brass accent, ledger surfaces, the same fonts — and, because
+// custom properties inherit across the shadow boundary, makes them follow the
+// app's light/dark toggle too. Token names that collide with app tokens
+// (--bg/--surface/--muted/--warn) are `unset` so they inherit the app value;
+// the rest remap onto app tokens. It also strips the standalone-page chrome
+// (noise + radial atmosphere, the "← Back to stonks" link) and brings the
+// oversized masthead down to the app's heading scale. Edit here to retune the
+// whole doc-tab skin in one place rather than per page.
+export const DOC_THEME_OVERRIDE = `
+/* ── stonks app-theme skin (shared, appended last) ───────────────────── */
+:host{
+  --bg:unset; --surface:unset; --muted:unset; --warn:unset;
+  --bg2:var(--surface);
+  --surface2:var(--surface-2);
+  --line:var(--border);
+  --line2:var(--border-strong);
+  --ink:var(--text-strong);
+  --faint:color-mix(in srgb, var(--muted) 70%, transparent);
+  --gold:var(--accent);
+  --gold-dim:var(--accent-line);
+  --call:var(--pos);
+  --put:var(--neg);
+  --vega:var(--info);
+  --theta:var(--accent-strong);
+  --danger:var(--neg);
+  --green:var(--pos);
+  --green-dim:color-mix(in srgb, var(--pos) 50%, var(--border));
+  /* --blurple is left as the page's Discord brand colour — the "Join Discord"
+     CTA stays recognizable (and white-on-blurple keeps its contrast). */
+  --radius:var(--r-4);
+  --mono:var(--font-mono);
+  --disp:var(--font-serif);
+  --body:var(--font-sans);
+}
+:host::before, :host::after{ content:none !important; background:none !important; }
+.backlink{ display:none !important; }
+header{ padding-top:6px !important; }
+h1{ font-size:clamp(30px,4.5vw,44px) !important; }
+`;
 
 export const DOC_PAGES = {
   "cheatsheet": {
