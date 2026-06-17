@@ -5375,7 +5375,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   background: transparent;
   border: none;
   color: var(--text-strong);
-  font: 500 15px/1.2 inherit;
+  /* Form controls don't inherit font-family, and "inherit" is invalid as a
+     font-family inside the font shorthand (the whole declaration gets
+     dropped), so name the family explicitly or the input falls back to the
+     UA default serif. */
+  font: 500 15px/1.2 var(--font-sans);
   outline: none;
   padding: 0;
 }
