@@ -16612,12 +16612,15 @@
     var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime);
     // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
     var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
+    // Macro-event exposure A/B — did entering near an FOMC / major print cost us, and
+    // did the defined-risk verticals the engine now forces into events beat naked longs?
+    var eventBlock = (st.byEvent && Object.keys(st.byEvent).length > 1) ? cohortBlock('Macro-event exposure — entered near an FOMC / major print vs not', st.byEvent) : '';
     // Demote the research-y chips + cohort breakdowns into a collapsed "Advanced"
     // disclosure so the Scorecard leads with the headline win rate / expectancy
     // and win-rate-by-tier, not a wall of bars.
     var advancedInner = '';
     if (researchChips) advancedInner += '<div class="accuracy-chips accuracy-chips-research">' + researchChips + '</div>';
-    advancedInner += sectorBlock + regimeBlock + abBlock;
+    advancedInner += sectorBlock + regimeBlock + abBlock + eventBlock;
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
@@ -18713,6 +18716,15 @@
     }
     if (rm && rm.costGated && rm.costGated.length) noteBits.push('<b>' + rm.costGated.length + '</b> dropped — option spread too costly for the edge');
     if (rm && rm.earningsRiskCapped && rm.earningsRiskCapped.length) noteBits.push('<b>' + rm.earningsRiskCapped.length + '</b> skipped to cap earnings-crush exposure');
+    if (rm && rm.eventDeferred && rm.eventDeferred.length){
+      var evLbl = (rm.eventRisk && rm.eventRisk.label) || 'a macro event';
+      var evDays = rm.eventRisk && (rm.eventRisk.daysOut === 0 || rm.eventRisk.daysOut) ? rm.eventRisk.daysOut : null;
+      noteBits.push('<b>' + rm.eventDeferred.length + '</b> long' + (rm.eventDeferred.length === 1 ? '' : 's') + ' held back — ' + escapeHtml(evLbl) + (evDays != null ? ' in ' + evDays + 'd' : '') + ' (no naked premium into the event)');
+    } else if (rm && rm.eventRisk){
+      var evL = escapeHtml(rm.eventRisk.label || 'a macro event');
+      var evD = (rm.eventRisk.daysOut === 0 || rm.eventRisk.daysOut) ? rm.eventRisk.daysOut : null;
+      noteBits.push(evL + (evD != null ? ' in ' + evD + 'd' : '') + ' — defined-risk spreads only');
+    }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
     if (rm && rm.safetyGated && rm.safetyGated.length){
       var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });
