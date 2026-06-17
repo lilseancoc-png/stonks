@@ -47,6 +47,7 @@ scoreAllTickers()            every ticker → 6 components → total  (= the GRA
 tierForScore(total)          ±12 = Call/Put, ±16 = Strong, else No-Trade
 buildTopPicks()
    ├─ candidate set          |total| ≥ 12  (+ risk-off "tactical puts", §6)
+   ├─ GATE 0: re-entry       drop names with an OPEN tracked position (§7) — one entry per name
    ├─ ranked by |total|      conviction (entry timing already inside it)
    ├─ GATE 1: contract       pickContractForPick(requireClean) — a tradeable contract
    ├─ GATE 2: sector cap     ≤ 3 per sector + ≤ 5 per factor (§7) — caps correlation
@@ -526,22 +527,24 @@ but ordinary volatility doesn't. Null ATR (thin history) → the prior 8% behavi
 (graceful). This is the structural complement to the timing gate — the gate stops us
 *entering* badly, the ATR floor stops a good entry from being *shaken out* on noise.
 
-**Premium-space exits — hard stop + a TRAILING take-profit (let winners run).**
-`resolvePickOutcome` resolves on the MODELED option P&L before the underlying-level
-TP/cut. The downside is a flat hard stop at `−PICKS_OPT_STOP_PCT` (**−35%** of entry
-premium — tightened from −40% to cap the left tail, loss-min) plus an earlier
-**theta-stop** (`PICKS_THETA_STOP_PCT` **2.2%**/day of remaining premium, after
-`PICKS_THETA_STOP_MIN_HOLD_DAYS` **4** days held — both tightened to cut dead-money
-bleeders sooner). The upside is **not** a flat cap: long-premium P&L is right-tail-driven (a
-few big winners pay for the losers), so capping every win at +60% truncates exactly
-those. Instead, once the **peak** modeled gain arms at `PICKS_OPT_TP_PCT` (+60%), the
-exit floor ratchets to `max(peak·(1−PICKS_OPT_TRAIL_GIVEBACK), +60%)` — it locks **at
-least** the old flat TP and trails a runner upward, exiting only on a `giveback` (33%)
-pullback from the peak. Strictly Pareto over the flat TP (never locks less than +60%);
-the recorded outcome is by the **sign** of the modeled P&L at the trigger, so a violent
-gap back through the floor between build samples is booked as an honest give-back, not
-a phantom win. Peak is tracked as `optMfePct` (the constant-entry-IV mark, same basis
-as the +60/−40 levels). `PICKS_OPT_TRAIL=0` reverts to the legacy flat take-profit.
+**Premium-space exits — symmetric ±20% snap exit.** `resolvePickOutcome` resolves on
+the MODELED option P&L before the underlying-level TP/cut. The rule is now **flat and
+symmetric: the instant the modeled mark reaches +20% we take the profit, the instant
+it reaches −20% we take the loss** (`PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT`, both
+**0.20**) — done tracking, no trailing, no hoping it back. This replaces the prior
+asymmetric **−35% stop / +60% trailing take-profit**. The earlier **theta-stop**
+(`PICKS_THETA_STOP_PCT` **2.2%**/day of remaining premium, after
+`PICKS_THETA_STOP_MIN_HOLD_DAYS` **4** days held) still fires for a dead-money bleeder
+that never reaches either ±20% gate. *Why the change:* the loss diagnostic
+(`scripts/diagnose-pick-losses.mjs`) on the recovered track record showed the resolved
+book averaged **−39% on the option** with the modeled loss bleeding to **−63%** as
+8–20% underlying moves blew clean through the old −35% stop between build samples — a
+tighter symmetric stop caps each loss small, and snapping the +20% gain banks it before
+a high-beta name round-trips the profit. The recorded outcome is by the **sign** of the
+modeled P&L at the trigger. Trailing is preserved but **default OFF**:
+`PICKS_OPT_TRAIL=1` re-arms the let-winners-run design (arm at `PICKS_OPT_TP_PCT`, lock
+`max(peak·(1−PICKS_OPT_TRAIL_GIVEBACK), arm)`, trail a runner up, exit on a 33%-of-peak
+give-back; peak tracked as `optMfePct`).
 
 ---
 
@@ -946,6 +949,23 @@ first bake.
 
 ## 7. Ranking & roster construction
 
+- **Re-entry suppression** (`PICKS_SUPPRESS_OPEN_REENTRY`, default ON). A name that
+  already has an **open tracked position** (it's in `picks-accuracy.json`'s `open[]`
+  from the prior build) is **dropped from candidacy before ranking** — a ticker enters
+  the roster **once**, is tracked to resolution (TP / stop / expiry / time-stop), and
+  only **then** becomes eligible again. Keyed on **symbol** (any side): a name held as a
+  call also blocks a tactical put on it until the call resolves. This kills the dominant
+  historical loss multiplier the loss diagnostic exposed — the old engine restacked the
+  same thesis build after build (CRM ×7, AMAT ×6, TSM ×6 across the recovered open+closed
+  record; **~58%** of all tracked entries were repeats of an already-open name, and **half**
+  of the resolved losses were such repeats), turning one bad macro window into a pile of
+  correlated, redundant losing calls. Suppressed names are recorded in
+  `rosterMeta.heldOpenSuppressed` and their slots go to fresh names; the open set is the
+  pre-wipe `picksAccuracyPrev.open` threaded through `writeTopPicksFile → buildTopPicks`
+  (and the live file in `regen-picks`). Because `buildTopPicks` runs **before** this
+  build's resolutions, suppression is on the *prior* open set — a name that exits this
+  build is eligible again next build (≤1 build, ~1h, of lag — deliberately: don't re-pump
+  a name the same hour it stops out). `=0` reverts.
 - **Order:** by **net-of-cost conviction** — `|total|` minus the P5.1
   execution-cost debit — ties broken by entry-timing score.
 - **Execution-cost debit (P5.1, `executionCostDebit`).** The chosen contract's
@@ -1193,6 +1213,8 @@ it has to be trustworthy. The fixes:
   - **Tiers (legacy floor fallback):** `PICKS_MIN_CONVICTION 12`, `PICKS_TIER_STRONG 16`,
     `PICKS_COUNT 10`, `PICKS_MAX_PER_SECTOR 3`, `PICKS_MAX_PER_FACTOR 5` (`FACTOR_OF_SECTOR`),
     `PICKS_MAX_PER_SIDE 8` (direction-concentration cap, §7; 0 disables).
+  - **Re-entry suppression (§7):** `PICKS_SUPPRESS_OPEN_REENTRY` (default ON) — a name with an
+    open tracked position isn't re-picked until it exits (keyed on symbol; `=0` reverts).
   - **Tier hysteresis (§4):** `PICKS_TIER_HYSTERESIS` (default ON), `PICKS_TIER_EXIT_FRAC 0.9`
     (incumbent exit bar = tradeCut × frac; `=0`/frac 1 → no hysteresis).
   - **Universe-IC substrate (§8):** `GRADES_DAILY_MAX_DAYS 400` (`data/grades-daily.json`
@@ -1205,11 +1227,12 @@ it has to be trustworthy. The fixes:
   - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 14`, `PICKS_THETA_STOP_PCT
     0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 5` (theta-stop); modeled-option repricer
     `PICKS_OPTION_IV_DECAY_DAYS 30`, `PICKS_OPTION_EARNINGS_CRUSH 0.70`.
-  - **Premium-space exits (P0.3):** `PICKS_OPT_EXITS` (default ON), `PICKS_OPT_TP_PCT 0.6`,
-    `PICKS_OPT_STOP_PCT 0.4` — resolve on modeled option P&L before the underlying TP/cut.
-    Trailing take-profit: `PICKS_OPT_TRAIL` (default ON), `PICKS_OPT_TRAIL_GIVEBACK 0.33`
-    (arm at +60%, lock ≥+60%, trail a runner up, exit on a 33%-of-peak give-back; `=0` →
-    legacy flat TP). Tracked via the per-pick `optMfePct` peak.
+  - **Premium-space exits (P0.3) — symmetric ±20% snap exit:** `PICKS_OPT_EXITS` (default ON),
+    `PICKS_OPT_TP_PCT 0.20` / `PICKS_OPT_STOP_PCT 0.20` — resolve on modeled option P&L before
+    the underlying TP/cut: hit +20% → take profit instantly, hit −20% → take the loss instantly.
+    Trailing take-profit is now **default OFF**: `PICKS_OPT_TRAIL=1` (with `PICKS_OPT_TRAIL_GIVEBACK
+    0.33`) re-arms the let-winners-run design (arm at `PICKS_OPT_TP_PCT`, lock ≥ arm, trail a
+    runner up, exit on a 33%-of-peak give-back, tracked via the per-pick `optMfePct` peak).
   - **Earnings-eve exit (P2):** `PICKS_EARNINGS_EXIT` (default ON), `PICKS_EARNINGS_EXIT_DAYS 2`.
   - **Edge governor (P1.3):** `PICKS_EDGE_GOVERNOR` (default ON), `PICKS_EDGE_MIN_N 15`,
     `PICKS_EDGE_SCALE_DEFAULT 0.6`, `PICKS_EDGE_SCALE_MIN 0.25`, `PICKS_EDGE_FULL_CUT_EXP −40`.
@@ -1285,7 +1308,8 @@ it has to be trustworthy. The fixes:
     `rosterMeta.safetyGated` (+ `rosterMeta.safetyFilter`). `=0` disables.
   - **Loss-min selectivity + exits:** `PICKS_REQUIRE_GO` (default **ON** — drop non-`go`
     non-tactical picks → `rosterMeta.timingGated`); `PICKS_ABS_TRADE_FLOOR 5.5` / `PICKS_ABS_STRONG_FLOOR 8`
-    (raised from 5 / 7.5); `PICKS_OPT_STOP_PCT 0.35` (from 0.40); `PICKS_THETA_STOP_PCT 0.022`
+    (raised from 5 / 7.5); `PICKS_OPT_STOP_PCT 0.20` + `PICKS_OPT_TP_PCT 0.20` (symmetric ±20%
+    snap exit, trailing default OFF — §5); `PICKS_THETA_STOP_PCT 0.022`
     (from 0.025) + `PICKS_THETA_STOP_MIN_HOLD_DAYS 4` (from 5); `PICKS_MAX_EARNINGS_RISK 4` (§7).
   - **IC bridge — now WIRED (`PICKS_SIGNAL_IC_WEIGHT`, default ON, §9.6):** `PICKS_SIGNAL_IC_MIN_N 25`,
     `PICKS_SIGNAL_IC_GAIN 2.0`, `PICKS_SIGNAL_IC_FLOOR 0.4`, `PICKS_SIGNAL_IC_CAP 1.8`
@@ -1465,4 +1489,7 @@ the IC bridge rides, so it feeds the same auto-learning loop as the record accru
   whose per-category explainers live in `PILLAR_INFO` and whose Entry-timing
   panel (`pickTimingPanelBody`) renders the verdict + classified `reasons` from
   `pillars.timing`.
+- Loss analysis: [`docs/top-picks-loss-analysis.md`](./top-picks-loss-analysis.md) —
+  the resolved-book post-mortem (run via [`scripts/diagnose-pick-losses.mjs`](../scripts/diagnose-pick-losses.mjs))
+  that motivated re-entry suppression (§7) + the symmetric ±20% snap exit (§5).
 - Changelog: [`CHANGELOG.md`](../CHANGELOG.md).

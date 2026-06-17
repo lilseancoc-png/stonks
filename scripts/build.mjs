@@ -7524,6 +7524,17 @@ const PICKS_TIER_EXIT_FRAC = Number(process.env.PICKS_TIER_EXIT_FRAC ?? 0.9);
 // this many of the PICKS_COUNT slots (the severe-tape call cap still applies on
 // top, it's stricter for calls in a severe tape). 0 disables.
 const PICKS_MAX_PER_SIDE = Number(process.env.PICKS_MAX_PER_SIDE ?? 8);
+// Re-entry suppression (user rule): once a ticker ships as a Top Pick it is
+// enrolled in the track record and tracked until it exits (TP / stop / expiry /
+// time-stop). Until then it is NOT re-picked — a name enters ONCE, is tracked to
+// resolution, and only THEN becomes eligible again. The loss diagnostic showed
+// the old engine stacked the SAME losing thesis over and over (CRM ×7, AMAT ×6,
+// TSM ×6 across the open+closed record; ~58% of all tracked entries were repeats
+// of an already-open name, and HALF of the resolved losses were such repeats) —
+// turning one bad macro window into a pile of correlated, redundant losing calls.
+// Suppressing by SYMBOL (any side) caps each name to one live position at a time.
+// Gated so it's revertible; default ON.
+const PICKS_SUPPRESS_OPEN_REENTRY = process.env.PICKS_SUPPRESS_OPEN_REENTRY !== "0"; // default ON
 // Require a clean entry ('go') for EVERY shipped pick (loss-min "trade less").
 // Entry timing already folds into the grade, but a 'wait'-state name (mixed
 // structure, an imminent catalyst, extreme own-IV) can still grade onto the
@@ -8029,19 +8040,23 @@ const PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT = process.env.PICKS_ACCURACY_AB ===
 // underlying-level TP/cut. Levels are flat (vol/DTE-blind) until a forward sample
 // lets us make them regime-aware — the AXIS (premium, not stock) is the fix.
 const PICKS_OPT_EXITS = process.env.PICKS_OPT_EXITS !== "0"; // default ON
-const PICKS_OPT_TP_PCT = Number(process.env.PICKS_OPT_TP_PCT ?? 0.6);   // +60% of entry premium → take profit (or, with the trail on, the ARM + minimum-lock level)
-const PICKS_OPT_STOP_PCT = Number(process.env.PICKS_OPT_STOP_PCT ?? 0.35); // -35% of entry premium → cut (tightened 0.40→0.35 to cap the left tail; loss-min)
-// Let winners run: a TRAILING premium take-profit instead of the flat +60% cap.
-// Long-premium P&L is right-tail-driven — a few big winners pay for the losers — so
-// capping every win at +60% truncates exactly the trades that make the style work.
-// Once the peak modeled gain ARMS (reaches PICKS_OPT_TP_PCT, +60%), the exit floor
-// ratchets up to max(peak·(1−giveback), +60%): it locks AT LEAST the old flat TP and
-// trails a runner upward, exiting only on a PICKS_OPT_TRAIL_GIVEBACK pullback from the
-// peak. Strictly Pareto over the flat TP (never locks less than +60%). The recorded
-// outcome is by the SIGN of the modeled P&L at the trigger (a violent gap back through
-// the floor between build samples is an honest give-back, not a phantom win). Trips off
-// → the legacy flat take-profit. Needs the entry-option snapshot (gate-era picks).
-const PICKS_OPT_TRAIL = process.env.PICKS_OPT_TRAIL !== "0"; // default ON
+// Symmetric ±20% snap exit (user rule): the instant a pick's MODELED option P&L
+// reaches +20% we take the profit, and the instant it reaches −20% we take the
+// loss — done tracking, no trailing, no hoping it back. A tight symmetric premium
+// stop keeps every realized loss small (the loss diagnostic showed the resolved
+// book bled −63% avg on the option as 8–20% underlying moves blew through the old
+// −35% stop) and banks gains before a high-beta name round-trips them. Both env-
+// overridable; raising the TP / loosening the trail (below) reverts toward the
+// old let-winners-run design.
+const PICKS_OPT_TP_PCT = Number(process.env.PICKS_OPT_TP_PCT ?? 0.20);   // +20% of entry premium → take profit instantly
+const PICKS_OPT_STOP_PCT = Number(process.env.PICKS_OPT_STOP_PCT ?? 0.20); // -20% of entry premium → cut instantly
+// Trailing take-profit (let winners run) — now DEFAULT OFF so +20% is a flat,
+// instant take-profit, not an arming level. When re-enabled (PICKS_OPT_TRAIL=1),
+// once the peak modeled gain ARMS (reaches PICKS_OPT_TP_PCT) the exit floor
+// ratchets up to max(peak·(1−giveback), arm) and trails a runner upward, exiting
+// only on a PICKS_OPT_TRAIL_GIVEBACK pullback from the peak. The recorded outcome
+// is by the SIGN of the modeled P&L at the trigger.
+const PICKS_OPT_TRAIL = process.env.PICKS_OPT_TRAIL === "1"; // default OFF — +20% is an instant flat TP
 const PICKS_OPT_TRAIL_GIVEBACK = Number(process.env.PICKS_OPT_TRAIL_GIVEBACK ?? 0.33); // exit when the modeled gain gives back this fraction of its peak
 // P2 — earnings-eve forward exit. The entry gate defers picks with earnings ≤8d
 // out, so an enrolled pick has room; but if a print creeps within this many
@@ -13515,6 +13530,30 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       }
     }
   }
+  // Re-entry suppression (PICKS_SUPPRESS_OPEN_REENTRY) — drop any candidate whose
+  // SYMBOL already has an OPEN tracked position (opts.openPositions = the pre-wipe
+  // picks-accuracy `open` set threaded by the caller). A name enters the roster
+  // ONCE, is tracked to resolution, and only then becomes eligible again — so the
+  // engine can't restack the same thesis build after build (the dominant historical
+  // loss multiplier). Keyed on symbol (any side), so a name held as a call also
+  // blocks a tactical put on it until that call resolves. Recorded in rosterMeta so
+  // the UI can show "N suppressed — already being tracked". Done BEFORE the contract
+  // compute below so suppressed names cost no work and free their slots for fresh
+  // names. Empty/absent open set (first run / regen without a live file) → no-op.
+  const skippedHeldOpen = [];
+  if (PICKS_SUPPRESS_OPEN_REENTRY && Array.isArray(opts.openPositions) && opts.openPositions.length) {
+    const heldOpen = new Set(
+      opts.openPositions.map((e) => e && e.symbol).filter(Boolean),
+    );
+    if (heldOpen.size) {
+      for (let i = candSet.length - 1; i >= 0; i--) {
+        if (heldOpen.has(candSet[i].r.sym)) {
+          skippedHeldOpen.push({ symbol: candSet[i].r.sym, side: candSet[i].side, tactical: !!candSet[i].tactical });
+          candSet.splice(i, 1);
+        }
+      }
+    }
+  }
   // P1.4 — liquidity as a hard CANDIDACY gate. Compute the tradeable (requireClean)
   // contract up front and DROP names with none BEFORE ranking, so we rank the
   // universe of TRADEABLE names (not merely graded names) and the slice below can't
@@ -13912,6 +13951,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     value: {
       vetoed,
       untradeable, // P1.4 — actionable names dropped for having no tradeable contract
+      heldOpenSuppressed: skippedHeldOpen, // re-entry suppression (PICKS_SUPPRESS_OPEN_REENTRY) — names skipped because they already have an open tracked position
       sectorCapped: skippedSectorCapped,
       sectorCounts,
       factorCapped: skippedFactorCapped,
@@ -14949,11 +14989,13 @@ function pickSideLean(picks) {
   return { calls, puts };
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null) {
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null) {
   // priorClosed = the pre-update accuracy `closed` set (P1.3 edge governor), threaded
   // from main()'s pre-wipe picksAccuracyPrev so gross scales by the trailing edge.
   // priorGrades = the pre-wipe grades-history `latest` snapshot (tier hysteresis).
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades, ...(scannerExtras || {}) });
+  // priorOpen = the pre-wipe accuracy `open` set (re-entry suppression): names with
+  // a live tracked position aren't re-picked until they exit.
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades, openPositions: priorOpen, ...(scannerExtras || {}) });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Prior picks snapshot. A full build passes priorPicks (captured by
@@ -15108,7 +15150,8 @@ export function resolvePickOutcome(opts) {
   // take profit on the upside. Needs a fresh modeled mark; legacy entries (no
   // entry-option snapshot) fall through to the underlying-level checks below.
   if (PICKS_OPT_EXITS && modeledOptPnlPct != null && isFinite(modeledOptPnlPct)) {
-    // Hard initial stop (unchanged) — bounds the left tail.
+    // Hard stop — the instant the modeled mark is down PICKS_OPT_STOP_PCT (−20%),
+    // take the loss. Bounds the left tail tightly.
     if (modeledOptPnlPct <= -PICKS_OPT_STOP_PCT * 100) return { status: "hit-stop-prem", outcome: "loss" };
     if (PICKS_OPT_TRAIL) {
       // Trailing take-profit (let winners run). Once the PEAK modeled gain arms at
@@ -15125,7 +15168,9 @@ export function resolvePickOutcome(opts) {
         }
       }
     } else if (modeledOptPnlPct >= PICKS_OPT_TP_PCT * 100) {
-      return { status: "hit-tp-prem", outcome: "win" }; // legacy flat take-profit
+      // Flat take-profit — the instant the modeled mark is up PICKS_OPT_TP_PCT
+      // (+20%), bank it (the default; trailing off).
+      return { status: "hit-tp-prem", outcome: "win" };
     }
   }
   if (haveFresh && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
@@ -21852,7 +21897,7 @@ async function main() {
     // No-op until gate-era outcomes accumulate (today: bySignal carries no IC).
     signalIc: buildSignalIcMap(picksAccuracyPrev?.stats?.bySignal),
   };
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown

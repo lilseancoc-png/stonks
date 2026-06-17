@@ -17419,11 +17419,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // A held-contract evaluator: price the user's option live (/api/contract,
   // which handles ANY strike/expiry incl. off-band) and turn the engine's
   // current grade + entry-timing + premium exit plan into a hold / trim / sell /
-  // wait read. Reuses the same +60% / -40% premium targets the track record
+  // wait read. Reuses the same symmetric ±20% premium targets the track record
   // resolves on (PICKS_OPT_TP_PCT / PICKS_OPT_STOP_PCT). Tracked tickers only —
   // expirations/strikes come from the baked per-ticker chain. Not advice.
   var posState = { chain: null, symbol: null, bound: false };
-  var POS_TP = 60, POS_STOP = 40; // % of entry premium — mirrors the engine's plan
+  var POS_TP = 20, POS_STOP = 20; // % of entry premium — mirrors the engine's ±20% snap exit
 
   function posYrs(exp){ return Math.max(1e-6, (Number(exp) + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000) / (365.25*86400)); }
   function posRows(chain, side, exp){
