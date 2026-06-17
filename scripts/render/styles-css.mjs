@@ -602,10 +602,27 @@ main {
 /* === Page-level section tabs ===
    Underline indicator — institutional standard. Crisp 2px accent bar on the
    active tab, no decorative chrome. Persists to localStorage. */
+/* Heights of the pinned chrome stack, shared so stacked stickies (the Grade
+   tab's verdict bar) can offset below them. --header-h matches the sticky
+   .site-header; --page-tabs-h the tab strip below it. */
+:root { --header-h: 56px; --page-tabs-h: 48px; }
+/* Full-bleed bar that carries the tab strip and pins it directly under the
+   sticky .site-header, so you can jump tabs from anywhere on the page without
+   scrolling back to the top. Sits below the header (z 60) and the dropdown
+   menus (z 50), which live outside this bar and stay viewport-fixed. The
+   page-coloured backing means it's invisible at rest and just cleanly covers
+   content once it sticks. */
+.page-tabs-bar {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 40;
+  background: var(--bg);
+  margin-bottom: var(--s-4);
+}
 .page-tabs {
   position: relative;
   max-width: var(--w-content);
-  margin: 0 auto var(--s-4);
+  margin: 0 auto;
   padding: 0 var(--s-5);
   display: flex;
   gap: 4px;
@@ -1101,10 +1118,10 @@ main {
   margin-bottom: var(--s-1);
 }
 .landing-card-eyebrow {
-  font: 600 var(--fs-xs)/1 var(--font-sans);
+  font: 700 var(--fs-md)/1.1 var(--font-sans);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--muted);
+  letter-spacing: 0.08em;
+  color: var(--text-strong);
 }
 .landing-card-arrow {
   font-size: var(--fs-lg);
@@ -4368,10 +4385,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 /* === Result panel === */
 .opt-result-wrap { position: relative; }
 .opt-result-sticky {
-  /* Offset by the sticky .site-header height (~56px, matches the live-reveal
-     IntersectionObserver's rootMargin) so the verdict bar doesn't slide under
-     the header when the option chain scrolls. */
-  position: sticky; top: 56px; z-index: 5;
+  /* Offset below the pinned chrome stack (sticky .site-header + the sticky
+     .page-tabs-bar, ~104px; matches the live-reveal IntersectionObserver's
+     rootMargin) so the verdict bar doesn't slide under it when the option
+     chain scrolls. */
+  position: sticky; top: calc(var(--header-h, 56px) + var(--page-tabs-h, 48px)); z-index: 5;
   display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center;
   padding: var(--s-2) var(--s-3);
   margin: 0 calc(-1 * var(--s-3));
@@ -5375,7 +5393,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   background: transparent;
   border: none;
   color: var(--text-strong);
-  font: 500 15px/1.2 inherit;
+  /* Form controls don't inherit font-family, and "inherit" is invalid as a
+     font-family inside the font shorthand (the whole declaration gets
+     dropped), so name the family explicitly or the input falls back to the
+     UA default serif. */
+  font: 500 15px/1.2 var(--font-sans);
   outline: none;
   padding: 0;
 }

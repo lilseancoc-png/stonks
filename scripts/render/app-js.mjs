@@ -3751,7 +3751,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var e = entries[0];
       var stuck = !e.isIntersecting && e.boundingClientRect.top < 0;
       bar.hidden = !stuck;
-    }, { threshold: 0, rootMargin: '-56px 0px 0px 0px' });
+      // -104px = pinned chrome stack (sticky .site-header ~56 + .page-tabs-bar
+      // ~48); keep in sync with .opt-result-sticky's top in styles-css.mjs so
+      // the sticky verdict bar reveals exactly as the main one slides under it.
+    }, { threshold: 0, rootMargin: '-104px 0px 0px 0px' });
     stickyIO.observe(verdictEl);
   }
 

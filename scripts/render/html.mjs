@@ -9,22 +9,24 @@ import {
   INDUSTRY_OF_TICKER,
   htmlEscape,
 } from '../build.mjs';
-import { DOC_PAGES, DOC_ORDER } from './docs.mjs';
+import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
 import { DISCORD_INVITE_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, What's
 // included, Privacy, Terms) — formerly standalone .html files, now in-app tabs.
 // Each is emitted as a pane carrying an empty shadow-host + an inert <template>
-// of the page's own <style> + markup; app.js mounts the template into a shadow
-// root on first open (mountDocPane), so each page keeps its bespoke styling
-// with zero collision against the app's global CSS. Source: scripts/render/docs.mjs.
+// of the page's own <style> (+ the shared DOC_THEME_OVERRIDE appended last, so
+// the pages are re-skinned onto the app's design tokens) + markup; app.js mounts
+// the template into a shadow root on first open (mountDocPane). The shadow root
+// still isolates the pages' layout CSS from the app's global stylesheet.
+// Source: scripts/render/docs.mjs.
 function docPanesHtml() {
   return DOC_ORDER.map((key) => {
     const d = DOC_PAGES[key];
     if (!d) return '';
     return `<div class="page-pane doc-pane" id="page-pane-${key}" role="tabpanel" aria-labelledby="page-tab-${key}" hidden>` +
       `<div class="doc-host" data-doc="${key}"></div>` +
-      `<template data-doc-tpl="${key}"><style>${d.style}</style>${d.body}</template>` +
+      `<template data-doc-tpl="${key}"><style>${d.style}${DOC_THEME_OVERRIDE}</style>${d.body}</template>` +
       `</div>`;
   }).join('\n  ');
 }
@@ -1023,6 +1025,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <span id="freshness-text">Refreshed ${builtAt} (NY)</span>
   <span id="market-status" class="market-status" aria-live="off" hidden></span>
 </div>
+<div class="page-tabs-bar">
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
   <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief">Brief</button>
@@ -1057,6 +1060,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </button>
   </div>
 </nav>
+</div>
 <!-- Dropdown menus live outside .page-tabs so the strip's edge-fade
      mask-image doesn't clip them. The triggers link to these menus via
      aria-controls + getElementById — keeping the markup colocated near the
