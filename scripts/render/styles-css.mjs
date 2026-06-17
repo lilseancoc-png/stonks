@@ -5948,60 +5948,129 @@ button.cal-ov-card:focus-visible { outline: none; box-shadow: var(--focus-ring);
 .cal-ov-value { font: 700 16px/1.15 var(--font-serif); color: var(--text-strong); letter-spacing: -.01em; }
 .cal-ov-sub { font-size: 12px; color: var(--muted-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
-/* Month jump-nav — chips that scroll to each month section. Only rendered
-   when the window spans more than one month. */
-.cal-month-nav {
+/* === Month-grid calendar ===
+   The Calendar tab renders a real wall-calendar month view: a nav bar
+   (‹ June 2026 › + Today), a 7-column day grid with compact per-day event
+   markers, and a detail panel below showing the selected day's full chips.
+   Defaults to the current month; ‹ / › walk the window. */
+.cal-monthbar {
   display: flex;
+  align-items: center;
+  gap: var(--s-2);
   flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: var(--s-2);
 }
-.cal-month-nav-item {
+.cal-nav-btn {
   appearance: none;
   border: 1px solid var(--border);
   background: var(--surface-2);
-  color: var(--muted);
-  padding: 3px 9px;
-  border-radius: var(--r-pill);
-  font: inherit;
-  font-size: 12px;
+  color: var(--text);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  font-size: 19px;
+  line-height: 1;
   cursor: pointer;
   transition: color .12s, background .12s, border-color .12s;
 }
-.cal-month-nav-item:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+.cal-nav-btn:hover:not(:disabled) {
+  color: var(--accent-strong);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
-/* Each month groups its date rows under one sticky header. */
-.cal-month { display: flex; flex-direction: column; scroll-margin-top: 64px; }
-.cal-month + .cal-month { margin-top: var(--s-3); }
-.cal-month-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s-2);
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-  /* Stay visible while scrolling the month's events. Sits just below the
-     sticky .site-header (z 60), matching the Grade tab's sticky chain header. */
-  position: sticky;
-  top: 56px;
-  z-index: 4;
-  background: var(--surface);
-}
-.cal-month-name {
-  font-weight: 700;
-  font-size: 14px;
-  line-height: 1.2;
+.cal-nav-btn:disabled { opacity: .35; cursor: default; }
+.cal-monthbar-label {
+  font: 700 17px/1.1 var(--font-serif);
   color: var(--text-strong);
-  letter-spacing: .01em;
+  letter-spacing: -.01em;
+  min-width: 9.5em;
+  text-align: center;
 }
-.cal-month-count {
+.cal-today-btn {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--accent-tint-2);
+  color: var(--accent-strong);
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  font: 600 12px/1 var(--font-sans);
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.cal-today-btn:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.cal-monthbar-count {
+  margin-left: auto;
   font: 500 12px/1 var(--font-mono);
   color: var(--muted);
   letter-spacing: .04em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.cal-grid-wd {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  padding: 2px 0 6px;
+}
+.cal-cell {
+  appearance: none;
+  text-align: left;
+  font: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  min-height: 88px;
+  padding: 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  color: var(--text);
+}
+button.cal-cell { cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s; }
+button.cal-cell:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--surface-3); }
+button.cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cal-cell.is-out { background: transparent; border-color: transparent; min-height: 0; }
+.cal-cell.is-out .cal-cell-num { color: color-mix(in srgb, var(--muted) 55%, transparent); }
+.cal-cell.is-skel { min-height: 64px; align-items: center; justify-content: center; }
+.cal-cell-num { font: 600 12px/1 var(--font-mono); color: var(--muted-strong); }
+.cal-cell.is-today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-cell.is-today .cal-cell-num { color: var(--accent-strong); }
+.cal-cell.is-selected { background: var(--accent-tint-2); border-color: var(--accent); }
+.cal-cell-events { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-mini {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font: 600 10px/1.25 var(--font-sans);
+  color: var(--text);
+}
+.cal-mini-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--muted); }
+.cal-mini-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-mini-earnings .cal-mini-dot { background: var(--accent); }
+.cal-mini-report .cal-mini-dot, .cal-mini-fomc .cal-mini-dot { background: var(--warn); }
+.cal-mini-catalyst .cal-mini-dot { background: var(--pos); }
+.cal-mini-macro .cal-mini-dot { background: var(--muted-strong); }
+.cal-mini-more { font: 600 10px/1 var(--font-mono); color: var(--muted); padding-left: 10px; }
+/* Selected-day detail — reuses the rich .cal-day / .cal-chip styling below.
+   Spacing comes from the .calendar-root flex column gap, so no margin here. */
+.cal-detail .cal-day { border-top: none; padding-top: 0; }
+.cal-detail-empty {
+  padding: var(--s-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-2);
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
 }
 .cal-day {
   display: grid;
@@ -10803,6 +10872,17 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   .cal-chip-source { display: none; }
   .calendar-controls { gap: var(--s-2); }
   .calendar-pill { min-height: 36px; padding: 6px 12px; }
+  /* Month grid: tighten cells and collapse the per-day markers to colored dots
+     so 7 columns fit a phone. Tapping a day opens its full events below. */
+  .cal-grid { gap: 3px; }
+  .cal-cell { min-height: 52px; padding: 4px; gap: 3px; }
+  .cal-cell.is-out { min-height: 0; }
+  .cal-cell-events { flex-direction: row; flex-wrap: wrap; gap: 3px; }
+  .cal-mini { gap: 0; }
+  .cal-mini-txt { display: none; }
+  .cal-mini-dot { width: 7px; height: 7px; }
+  .cal-mini-more { padding-left: 2px; font-size: 9px; }
+  .cal-monthbar-label { min-width: 0; flex: 1; font-size: 16px; }
 
   /* Flow controls: stack search + filters vertically; keep pills tappable. */
   .flow-controls {
