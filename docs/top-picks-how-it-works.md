@@ -192,6 +192,10 @@ either ±20% gate.
 enters once, is followed to resolution, and only then becomes eligible again — so the
 engine can't restack the same thesis build after build.
 
+**Weekly fresh start:** the track record is wiped at the start of each week (Sunday ET,
+landing on Monday's open bake) so the win/loss numbers always reflect the *current*
+engine rather than a tail of outcomes from before the last tuning change.
+
 ---
 
 ## 7. Roster construction & sizing
