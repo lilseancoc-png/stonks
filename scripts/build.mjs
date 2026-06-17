@@ -11672,6 +11672,11 @@ const MACRO_LIVE_THRESHOLDS = {
   grossRiskoff: PICKS_MACRO_GROSS_RISKOFF, grossSevere: PICKS_MACRO_GROSS_SEVERE, grossFragile: PICKS_MACRO_GROSS_FRAGILE,
   grossRamp: PICKS_MACRO_GROSS_RAMP, tiltFullStress: PICKS_MACRO_TILT_FULL_STRESS,
   commodityOn: PICKS_MACRO_COMMODITY, sentimentOn: PICKS_MACRO_SENTIMENT, fgInternalsOn: PICKS_MACRO_FG_INTERNALS,
+  // Global cross-asset tape axis — recomputed live in the browser from the
+  // /api/macro-live ?tape=1 legs (deriveGlobalTapeAxis port), so these vote
+  // thresholds must ride along with the rest of the snapshot.
+  globalOn: PICKS_MACRO_GLOBAL, globalFut: PICKS_MACRO_GLOBAL_FUT, globalBreadth: PICKS_MACRO_GLOBAL_BREADTH,
+  globalYen: PICKS_MACRO_GLOBAL_YEN, globalCopper: PICKS_MACRO_GLOBAL_COPPER, globalBtc: PICKS_MACRO_GLOBAL_BTC, globalAcute: PICKS_MACRO_GLOBAL_ACUTE,
 };
 
 export function computeMacroRegime(macroBackdrop, fedwatchHistory, narratives = null, fearGreed = null, macroHeadlines = null) {
