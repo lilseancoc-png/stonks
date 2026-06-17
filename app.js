@@ -17572,6 +17572,12 @@
     var mark = (m.bid>0 && m.ask>0) ? (m.bid+m.ask)/2 : (m.last>0?m.last:NaN);
     var pnlPct = isFinite(mark) ? ((mark-entry)/entry)*100 : NaN;
     var dollarPnl = isFinite(mark) ? (mark-entry)*100*o.qty : NaN;
+    // Relative bid/ask spread of the live mark. On a beaten-down option the
+    // spread balloons, so the mid can read well BELOW the last print — which is
+    // why "down 60%" (mid) can look worse than the "down 40%" a stale last trade
+    // implied. The mid is the fairer liquidation value (your real exit is nearer
+    // the bid), but surface the spread + last so the gap is never a mystery.
+    var spreadPct = (m.bid>0 && m.ask>0 && mark>0) ? ((m.ask-m.bid)/mark)*100 : NaN;
     var dte = Math.max(0, Math.round((o.exp + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000)/86400));
     var g = (m.iv>0 && m.spot>0) ? greeks(side, m.spot, o.strike, posYrs(o.exp), m.iv, RFR) : null;
     var thetaPctDay = (g && isFinite(g.thetaDay) && mark>0) ? (Math.abs(g.thetaDay)/mark)*100 : null;
@@ -17631,6 +17637,7 @@
     else if(thetaPctDay!=null && thetaPctDay>=2.5) reasons.push('⚠ Time decay ≈'+thetaPctDay.toFixed(1)+'%/day of the current premium — a flat price still bleeds you.');
 
     return { sym:o.sym, side:side, strike:o.strike, exp:o.exp, entry:entry, qty:o.qty, mark:mark,
+      bid:(m.bid>0?m.bid:NaN), ask:(m.ask>0?m.ask:NaN), last:(m.last>0?m.last:NaN), spreadPct:spreadPct,
       pnlPct:pnlPct, dollarPnl:dollarPnl, dte:dte, src:m.src, marketState:m.marketState,
       gRound:gRound, tier:(grade&&grade.recommendation&&grade.recommendation.label)||null, timing:timing, aligned:aligned, hasGrade:!!grade,
       tpPrice:tpPrice, cutPrice:cutPrice, action:action, tone:tone, headline:headline, reasons:reasons, context:ctx };
@@ -17657,6 +17664,21 @@
     var markTxt = isFinite(d.mark)?('$'+d.mark.toFixed(2)):'—';
     var srcNote = d.src==='build'?' · last build' : (d.marketState && d.marketState!=='REGULAR' ? ' · last close' : '');
     function stat(lbl,val,cls){ return '<div class="pos-stat"><span class="pos-stat-num'+(cls?' '+cls:'')+'">'+val+'</span><span class="pos-stat-lbl">'+lbl+'</span></div>'; }
+    // Mark transparency: bid × ask, last trade, and the relative spread, so the
+    // "now" mid is never a mystery (a wide spread makes the mid read below last).
+    var markDetail = '';
+    var mdBits = [];
+    if(isFinite(d.bid) && isFinite(d.ask)) mdBits.push('bid $'+d.bid.toFixed(2)+' × ask $'+d.ask.toFixed(2));
+    if(isFinite(d.last)) mdBits.push('last $'+d.last.toFixed(2));
+    if(isFinite(d.spreadPct)) mdBits.push('spread '+d.spreadPct.toFixed(0)+'%');
+    if(mdBits.length){
+      // Flag a wide spread that pulls the mid below the last print — the exact
+      // case where the mid-based P&L looks worse than a last-quote P&L.
+      var wide = isFinite(d.spreadPct) && d.spreadPct>=20 && isFinite(d.last) && isFinite(d.mark) && d.last>d.mark*1.05;
+      markDetail = '<div class="pos-mark-detail">'+escapeHtml(mdBits.join(' · '))+
+        (wide?'<span class="pos-mark-note"> — wide spread: “now” is the mid (fair value); your real exit sits nearer the bid, while the last trade ($'+d.last.toFixed(2)+') reads higher.</span>':'')+
+        '</div>';
+    }
     var reasons='<ul class="pos-reasons">'+d.reasons.map(function(r){return '<li>'+escapeHtml(r)+'</li>';}).join('')+'</ul>';
     el.hidden=false;
     el.innerHTML=
@@ -17672,6 +17694,7 @@
         (d.hasGrade?stat('grade'+(d.tier?(' · '+escapeHtml(d.tier)):''), d.gRound, d.aligned?'pos-up':'pos-down'):'')+
         (d.timing?stat('timing', String(d.timing).toUpperCase()):'')+
       '</div>'+
+      markDetail+
       reasons+
       posFactorsHtml(d.context)+
       '<p class="pos-foot">Plan levels: take-profit ~$'+d.tpPrice.toFixed(2)+' (+'+POS_TP+'%) · stop ~$'+d.cutPrice.toFixed(2)+' (−'+POS_STOP+'%). Mark is the live mid, greeks modeled. The grade is relative &amp; research/unproven — not financial advice.</p>';
