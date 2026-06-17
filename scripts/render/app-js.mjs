@@ -12772,6 +12772,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (type === 'catalyst') return 'Catalyst';
     return 'Macro';
   }
+  // Human label for a filter-pill value (the data-cal-type enum) — used in the
+  // empty-month note ("No “Earnings” events in June 2026.").
+  function calendarPillLabel(type){
+    if (type === 'reports') return 'Reports';
+    if (type === 'fomc') return 'FOMC';
+    if (type === 'earnings') return 'Earnings';
+    if (type === 'catalysts') return 'Catalysts';
+    if (type === 'macro') return 'Macro';
+    return 'All';
+  }
   // Sub-label for a ticker catalyst chip, shown next to the symbol. Maps the
   // category enum to a short human tag — keep this synced with the
   // CATALYST_CATEGORIES enum in scripts/build.mjs.
@@ -12838,6 +12848,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (days <= 27){ var w = Math.round(days / 7); return 'In ' + w + ' week' + (w === 1 ? '' : 's'); }
     return '';
   }
+  // ET-today as 'YYYY-MM-DD' (derived from the UTC-midnight ET-today ms) — used
+  // to highlight today's cell and pick a sensible default selection.
+  function calEtTodayYmd(){
+    var d = new Date(calEtTodayMs());
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+  // The current ET month as 'YYYY-MM'.
+  function calTodayYm(){ return calEtTodayYmd().slice(0, 7); }
+  // Shift a 'YYYY-MM' by N months (N may be negative). Pure string math.
+  function calAddMonthsYm(ym, delta){
+    var p = String(ym || '').split('-');
+    var y = Number(p[0]), m = Number(p[1]) - 1 + (delta || 0);
+    y += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+    return y + '-' + String(m + 1).padStart(2, '0');
+  }
   // Small feather-style glyph per event type — gives the timeline a scannable
   // left rail. stroke=currentColor so each chip's type color flows through.
   function calEventIcon(type){
@@ -12850,6 +12875,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     };
     var key = (type === 'earnings' || type === 'report' || type === 'fomc' || type === 'catalyst') ? type : 'macro';
     return '<svg class="cal-chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[key] || paths.macro) + '</svg>';
+  }
+  // Compact short label for a month-grid day-cell marker.
+  function calMiniLabel(e){
+    if (e.type === 'earnings') return e.symbol || 'Earnings';
+    if (e.type === 'catalyst') return e.symbol || catalystCategoryLabel(e.category);
+    if (e.type === 'fomc') return 'FOMC';
+    if (e.type === 'report') return e.title || 'Report';
+    return calendarTypeLabel(e.type);
+  }
+  // Full hover/title text for a grid marker (the cell itself is space-limited).
+  function calMiniTitle(e){
+    if (e.type === 'earnings') return (e.symbol || '') + ' earnings' + (e.session ? ' (' + String(e.session).toUpperCase() + ')' : '');
+    if (e.type === 'catalyst') return (e.symbol ? e.symbol + ' · ' : '') + (e.title || 'Catalyst');
+    return e.title || calendarTypeLabel(e.type);
+  }
+  // One compact event marker for a month-grid day cell. Color flows from the
+  // type via .cal-mini-<type>; the text collapses to a dot on narrow screens
+  // (the title attribute carries the full description either way).
+  function calMiniChip(e){
+    var t = (e.type === 'earnings' || e.type === 'report' || e.type === 'fomc' || e.type === 'catalyst') ? e.type : 'macro';
+    return '<span class="cal-mini cal-mini-' + t + '" title="' + escapeHtml(calMiniTitle(e)) + '">' +
+        '<span class="cal-mini-dot" aria-hidden="true"></span>' +
+        '<span class="cal-mini-txt">' + escapeHtml(calMiniLabel(e)) + '</span>' +
+      '</span>';
   }
   // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
   // by the clickable earnings/catalyst symbols and the overview cards.
@@ -13515,14 +13564,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (isNaN(d.getTime())) return ym;
     return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(d);
   }
-  // 'YYYY-MM' -> 'Jun' (short, for the jump-nav chips).
-  function fmtCalendarMonthShort(ym){
-    var parts = String(ym || '').split('-');
-    if (parts.length < 2) return ym || '';
-    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, 1));
-    if (isNaN(d.getTime())) return ym;
-    return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short' }).format(d);
-  }
   // 'YYYY-MM-DD' -> 'Dec 31, 2026' (for the eyebrow window-end label).
   function fmtCalendarDateShort(dateStr){
     var parts = String(dateStr || '').split('-');
@@ -13537,21 +13578,47 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var eyebrow = $('calendar-eyebrow');
     if (!root) return;
     if (calendarState.loading){
+      var skelCells = '';
+      for (var sk = 0; sk < 42; sk++) skelCells += '<div class="cal-cell is-skel"><span class="skel skel-line sm" style="width:18px"></span></div>';
       root.innerHTML =
-        '<div class="cal-day"><div class="cal-date"><span class="skel skel-line sm" style="width:80px"></span></div>' +
-        '<div class="cal-chips"><span class="skel skel-line" style="width:62%"></span><span class="skel skel-line" style="width:78%"></span></div></div>' +
-        '<div class="cal-day"><div class="cal-date"><span class="skel skel-line sm" style="width:80px"></span></div>' +
-        '<div class="cal-chips"><span class="skel skel-line" style="width:70%"></span></div></div>';
+        '<div class="cal-monthbar"><span class="skel skel-line" style="width:160px;height:20px"></span></div>' +
+        '<div class="cal-grid">' +
+          ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(w){ return '<span class="cal-grid-wd">' + w + '</span>'; }).join('') +
+          skelCells +
+        '</div>';
       if (empty) empty.hidden = true;
       return;
     }
     var data = calendarState.data || { events: [] };
     var todayMs = calEtTodayMs();
-    // "Up next" overview + filter-pill counts are driven by the FULL event set
-    // (not the active filter) so they stay stable as the user toggles types.
+    var todayYmd = calEtTodayYmd();
+    var todayYm = todayYmd.slice(0, 7);
+    if (empty) empty.hidden = true;
+    // The "up next" overview strip and the FOMC widget are month-independent —
+    // they always read the FULL event set, so they stay put as the user walks
+    // months or toggles type filters.
     renderCalendarOverview(data);
-    var counts = { all: data.events.length, earnings: 0, catalysts: 0, reports: 0, fomc: 0, macro: 0 };
+    renderFomcWidget(data.fomc || null);
+    refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
+    // Navigable month window. calendar.json only ever carries today→horizon
+    // events, so the earliest navigable month is the current one (no empty
+    // past months to wander into); the latest is the furthest event's month.
+    var allYms = data.events.map(function(e){ return String(e.date || '').slice(0, 7); }).filter(Boolean);
+    var minEventYm = allYms.length ? allYms.reduce(function(a, b){ return a < b ? a : b; }) : todayYm;
+    var maxEventYm = allYms.length ? allYms.reduce(function(a, b){ return a > b ? a : b; }) : todayYm;
+    var minYm = minEventYm < todayYm ? minEventYm : todayYm;
+    var maxYm = maxEventYm > todayYm ? maxEventYm : todayYm;
+    var viewYm = calendarState.viewYm;
+    if (!viewYm || viewYm < minYm || viewYm > maxYm){
+      viewYm = todayYm < minYm ? minYm : (todayYm > maxYm ? maxYm : todayYm);
+    }
+    calendarState.viewYm = viewYm;
+    // Per-type pill counts, scoped to the VIEWED MONTH so the badges match the
+    // grid the user is looking at.
+    var counts = { all: 0, earnings: 0, catalysts: 0, reports: 0, fomc: 0, macro: 0 };
     data.events.forEach(function(e){
+      if (String(e.date || '').slice(0, 7) !== viewYm) return;
+      counts.all++;
       if (e.type === 'earnings') counts.earnings++;
       else if (e.type === 'catalyst') counts.catalysts++;
       else if (e.type === 'report') counts.reports++;
@@ -13568,44 +13635,39 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         badge.textContent = (n != null && n > 0) ? String(n) : '';
       }
     }
-    renderFomcWidget(data.fomc || null);
-    refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
-    var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    // Eyebrow keeps the whole-window horizon context; the month bar (below)
+    // owns the current-month label + count.
     if (eyebrow){
-      var filterLabel = calendarState.type === 'all' ? '' :
-        ' · ' + (calendarState.type === 'reports' ? 'Reports' :
-                 calendarState.type === 'fomc' ? 'FOMC' :
-                 calendarState.type === 'earnings' ? 'Earnings' :
-                 calendarState.type === 'catalysts' ? 'Catalysts' : 'Macro');
-      // Show the window end ("… · through Dec 31, 2026") only in the unfiltered
-      // view, where it explains the horizon; older calendar.json without
-      // windowEnd just omits it.
-      var windowLabel = (calendarState.type === 'all' && data.windowEnd)
-        ? ' · through ' + fmtCalendarDateShort(data.windowEnd) : '';
-      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') + filterLabel + windowLabel;
+      var totalAll = data.events.length;
+      eyebrow.textContent = totalAll + ' event' + (totalAll === 1 ? '' : 's') +
+        (data.windowEnd ? ' · through ' + fmtCalendarDateShort(data.windowEnd) : '');
     }
-    if (!filtered.length){
-      root.innerHTML = '';
-      if (empty){
-        empty.hidden = false;
-        empty.textContent = data.loadError
-          ? 'Couldn’t load the calendar — refresh the page to try again.'
-          : data.events.length
-            ? 'No events match this filter.'
-            : 'No upcoming events.';
-      }
-      return;
-    }
-    if (empty) empty.hidden = true;
-    // Group events by date, then bucket those dates into months for a
-    // month-sectioned timeline (sticky month headers + a jump-nav).
+    // Filter by type, then group the VIEWED MONTH's events by date.
+    var filtered = data.events.filter(function(e){
+      return String(e.date || '').slice(0, 7) === viewYm && calendarTypeMatches(e.type, calendarState.type);
+    });
     var groups = {};
     var dateOrder = [];
     filtered.forEach(function(e){
       if (!groups[e.date]){ groups[e.date] = []; dateOrder.push(e.date); }
       groups[e.date].push(e);
     });
-    // Render one date row (date header + its event chips).
+    dateOrder.sort();
+    var monthCount = filtered.length;
+    // Resolve the selected day BEFORE building the grid so the chosen cell gets
+    // its highlight (each cell reads calendarState.selectedDate at build time).
+    // Keep a valid prior selection; otherwise default to today (if it's in view
+    // and has events) else the month's first event day.
+    var sel = calendarState.selectedDate;
+    if (sel && sel.slice(0, 7) !== viewYm) sel = null;
+    if (!sel || !(groups[sel] && groups[sel].length)){
+      if (todayYm === viewYm && groups[todayYmd] && groups[todayYmd].length) sel = todayYmd;
+      else if (dateOrder.length) sel = dateOrder[0];
+      else sel = (todayYm === viewYm ? todayYmd : null);
+    }
+    calendarState.selectedDate = sel;
+    // Render one date row (date header + its event chips) — reused verbatim in
+    // the selected-day detail panel below the grid.
     function renderDayRow(date){
       var rows = groups[date].map(function(e){
         if (e.type === 'report') return renderReportChip(e);
@@ -13666,34 +13728,66 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div class="cal-chips">' + rows + '</div>' +
       '</div>';
     }
-    // Bucket the (date-sorted) dates into month groups, preserving order.
-    var monthsOrder = [];
-    var monthDates = {};
-    dateOrder.forEach(function(date){
-      var ym = date.slice(0, 7);
-      if (!monthDates[ym]){ monthDates[ym] = []; monthsOrder.push(ym); }
-      monthDates[ym].push(date);
-    });
-    // Jump-nav only earns its space when the window spans more than one month.
-    var nav = monthsOrder.length > 1
-      ? '<div class="cal-month-nav" role="navigation" aria-label="Jump to month">' +
-          monthsOrder.map(function(ym){
-            return '<button type="button" class="cal-month-nav-item" data-cal-month="' + ym + '">' +
-              escapeHtml(fmtCalendarMonthShort(ym)) + '</button>';
-          }).join('') +
-        '</div>'
-      : '';
-    var sections = monthsOrder.map(function(ym){
-      var count = monthDates[ym].reduce(function(n, d){ return n + groups[d].length; }, 0);
-      return '<section class="cal-month" id="cal-month-' + ym + '">' +
-        '<div class="cal-month-head">' +
-          '<span class="cal-month-name">' + escapeHtml(fmtCalendarMonth(ym)) + '</span>' +
-          '<span class="cal-month-count">' + count + ' event' + (count === 1 ? '' : 's') + '</span>' +
-        '</div>' +
-        monthDates[ym].map(renderDayRow).join('') +
-      '</section>';
-    }).join('');
-    root.innerHTML = nav + sections;
+    // --- Month grid: a 7-column wall calendar for the viewed month ----------
+    function calDayCell(date, dayNum){
+      var evs = groups[date] || [];
+      var isToday = date === todayYmd;
+      var isSel = date === calendarState.selectedDate;
+      var cls = 'cal-cell' + (isToday ? ' is-today' : '') + (isSel ? ' is-selected' : '') + (evs.length ? ' has-events' : '');
+      var markers = '';
+      if (evs.length){
+        var shown = evs.slice(0, 3).map(calMiniChip).join('');
+        var more = evs.length > 3 ? '<span class="cal-mini-more">+' + (evs.length - 3) + '</span>' : '';
+        markers = '<span class="cal-cell-events">' + shown + more + '</span>';
+      }
+      return '<button type="button" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
+          '<span class="cal-cell-num">' + dayNum + '</span>' + markers +
+        '</button>';
+    }
+    var WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var ymp = viewYm.split('-'); var vy = Number(ymp[0]); var vmi = Number(ymp[1]) - 1;
+    var firstWd = new Date(Date.UTC(vy, vmi, 1)).getUTCDay();          // 0=Sun
+    var daysInMonth = new Date(Date.UTC(vy, vmi + 1, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vy, vmi, 0)).getUTCDate();
+    var cells = [];
+    // Leading days from the previous month (dimmed, inert) so week 1 aligns.
+    for (var lead = 0; lead < firstWd; lead++){
+      cells.push('<div class="cal-cell is-out" aria-hidden="true"><span class="cal-cell-num">' + (prevDays - firstWd + 1 + lead) + '</span></div>');
+    }
+    for (var dnum = 1; dnum <= daysInMonth; dnum++){
+      cells.push(calDayCell(viewYm + '-' + String(dnum).padStart(2, '0'), dnum));
+    }
+    // Trailing days from the next month to square off the final week.
+    var trail = 1;
+    while (cells.length % 7 !== 0){
+      cells.push('<div class="cal-cell is-out" aria-hidden="true"><span class="cal-cell-num">' + (trail++) + '</span></div>');
+    }
+    var monthbar = '<div class="cal-monthbar">' +
+        '<button type="button" class="cal-nav-btn" data-cal-nav="prev"' + (viewYm <= minYm ? ' disabled' : '') + ' aria-label="Previous month">‹</button>' +
+        '<span class="cal-monthbar-label">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
+        '<button type="button" class="cal-nav-btn" data-cal-nav="next"' + (viewYm >= maxYm ? ' disabled' : '') + ' aria-label="Next month">›</button>' +
+        (viewYm !== todayYm ? '<button type="button" class="cal-today-btn" data-cal-nav="today">Today</button>' : '') +
+        '<span class="cal-monthbar-count">' + monthCount + ' event' + (monthCount === 1 ? '' : 's') + '</span>' +
+      '</div>';
+    var grid = '<div class="cal-grid" role="grid" aria-label="' + escapeHtml(fmtCalendarMonth(viewYm)) + ' calendar">' +
+        WD.map(function(w){ return '<span class="cal-grid-wd" role="columnheader">' + w + '</span>'; }).join('') +
+        cells.join('') +
+      '</div>';
+    // --- Selected-day detail: the FULL rich chips for the day picked above --
+    var detail;
+    if (sel && groups[sel] && groups[sel].length){
+      detail = '<div class="cal-detail">' + renderDayRow(sel) + '</div>';
+    } else if (monthCount === 0){
+      var what = calendarState.type === 'all' ? '' : '“' + escapeHtml(calendarPillLabel(calendarState.type)) + '” ';
+      detail = '<div class="cal-detail cal-detail-empty">' +
+        (data.loadError
+          ? 'Couldn’t load the calendar — refresh the page to try again.'
+          : 'No ' + what + 'events in ' + escapeHtml(fmtCalendarMonth(viewYm)) + '.') +
+      '</div>';
+    } else {
+      detail = '<div class="cal-detail cal-detail-empty">No events on ' + escapeHtml(fmtCalendarDate(sel)) + ' — pick another day.</div>';
+    }
+    root.innerHTML = monthbar + grid + detail;
   }
   function bindCalendarControls(){
     var typeFilter = document.querySelector('.calendar-type-filter');
@@ -13712,21 +13806,41 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
     }
     // Delegate clicks on the calendar root so handlers survive every re-render
-    // (renderCalendar replaces root.innerHTML): the month jump-nav (smooth-
-    // scrolls a month section, clearing the sticky bar via scroll-margin-top)
-    // and clickable ticker symbols in earnings/catalyst chips (→ Grade tab).
+    // (renderCalendar replaces root.innerHTML): the month nav (‹ prev / next ›
+    // / Today), day-cell selection (fills the detail panel), and clickable
+    // ticker symbols in earnings/catalyst chips (→ Grade tab).
     var calRoot = document.getElementById('calendar-root');
     if (calRoot){
       calRoot.addEventListener('click', function(ev){
-        var symBtn = ev.target.closest && ev.target.closest('.cal-chip-sym-btn[data-cal-sym]');
+        if (!ev.target.closest) return;
+        // Clickable ticker symbol inside an earnings/catalyst chip → Grade tab.
+        var symBtn = ev.target.closest('.cal-chip-sym-btn[data-cal-sym]');
         if (symBtn){ calGoToTicker(symBtn.getAttribute('data-cal-sym')); return; }
-        var item = ev.target.closest && ev.target.closest('.cal-month-nav-item');
-        if (!item) return;
-        var ym = item.getAttribute('data-cal-month');
-        var section = ym ? document.getElementById('cal-month-' + ym) : null;
-        if (section && typeof section.scrollIntoView === 'function'){
-          try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-          catch (_) { section.scrollIntoView(); }
+        // Month navigation: step a month or jump back to today.
+        var navBtn = ev.target.closest('[data-cal-nav]');
+        if (navBtn){
+          if (navBtn.disabled) return;
+          var dir = navBtn.getAttribute('data-cal-nav');
+          if (dir === 'today') calendarState.viewYm = calTodayYm();
+          else calendarState.viewYm = calAddMonthsYm(calendarState.viewYm || calTodayYm(), dir === 'next' ? 1 : -1);
+          calendarState.selectedDate = null; // re-pick a sensible default for the new month
+          renderCalendar();
+          return;
+        }
+        // Day-cell selection → show that day's full events in the detail panel.
+        var cell = ev.target.closest('.cal-cell[data-cal-day]');
+        if (cell){
+          calendarState.selectedDate = cell.getAttribute('data-cal-day');
+          renderCalendar();
+          // On phones the detail sits below the fold under the grid — nudge it
+          // into view so a tap visibly does something.
+          try {
+            if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches){
+              var det = calRoot.querySelector('.cal-detail');
+              if (det && det.scrollIntoView) det.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+          } catch (_) {}
+          return;
         }
       });
     }
