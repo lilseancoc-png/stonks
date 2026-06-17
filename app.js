@@ -9708,6 +9708,53 @@
     var sub = 'market tape' + (opts.live ? ' · live' : '') + (heldRaw ? ' · recovering (read ' + heldRaw + ')' : '') + (drv ? ' · ' + drv : '');
     return '<div class="picks-summary-chip ' + meta.cls + '" title="' + macroTapeTooltip(regime, opts) + '"><span class="picks-summary-num">' + liveDot + warnMark + meta.lbl + '</span><span class="picks-summary-lbl">' + sub + '</span></div>';
   }
+  // Regime-drift reconciliation (bake-timing honesty). The list is baked at most
+  // hourly, but the live cross-asset gauge recomputes every ~30s. When the live
+  // tape has turned MORE DEFENSIVE than the regime this roster was SELECTED and
+  // SIZED under, the frozen picks are out of step with the market — a long-leaning
+  // list bought into a tape that's since flipped is fighting the wind, and the
+  // engine can't re-lean or re-size until the next build. Surface that gap loudly
+  // so the user doesn't act on a stale-regime roster. Fires only in the dangerous
+  // direction: computeLiveMacroRegime's persistence already HOLDS the baked state
+  // on a recovery (live less defensive), so live.state differs from baked.state
+  // ONLY when the tape worsened since the build. The mirror "recovering" case is
+  // already shown as a softer note in the tape panel.
+  var REGIME_RANK = { 'severe-risk-off': 0, 'risk-off': 1, 'neutral': 2, 'risk-on': 3 };
+  function buildRegimeDriftBanner(baked, live, opts){
+    opts = opts || {};
+    if (!opts.live || !baked || !live || !baked.state || !live.state) return '';
+    var from = baked.state, to = live.state;
+    if (!(from in REGIME_RANK) || !(to in REGIME_RANK)) return '';
+    if (REGIME_RANK[to] >= REGIME_RANK[from]) return '';   // not more defensive — nothing to flag
+    var fromLbl = macroStateMeta(from, baked.fragile).lbl;
+    var toLbl = macroStateMeta(to, live.fragile).lbl;
+    var roster = opts.roster || { calls: 0, puts: 0, total: 0 };
+    var calls = roster.calls | 0, puts = roster.puts | 0, total = roster.total | 0;
+    var callHeavy = calls > puts;
+    var when = opts.builtAtIso ? fmtTapeTime(opts.builtAtIso) : '';
+    var liveAt = opts.fetchedAt ? fmtTapeTime(opts.fetchedAt) : '';
+    var split = total ? (calls + ' call' + (calls === 1 ? '' : 's') + ' · ' + puts + ' put' + (puts === 1 ? '' : 's')) : '';
+    var head = '⚠ The tape has turned <b>' + escapeHtml(toLbl.toLowerCase()) + '</b>' +
+      (liveAt ? ' (live, as of ' + escapeHtml(liveAt) + ')' : '') +
+      ' since this list was built' + (when ? ' at <b>' + escapeHtml(when) + '</b>' : '') +
+      ' under a <b>' + escapeHtml(fromLbl.toLowerCase()) + '</b> read.';
+    var body;
+    if (callHeavy){
+      body = 'These picks were selected and sized for a more constructive tape and lean <b>long</b>' +
+        (split ? ' (' + split + ')' : '') +
+        '. A long book bought into a tape that has since turned defensive is fighting the wind — treat the call side with extra caution and tighter stops, and lean on defined-risk over naked premium.';
+    } else if (total){
+      body = 'The list already leans defensive' + (split ? ' (' + split + ')' : '') +
+        ', but the fresh stress is <b>not yet reflected</b> in the selection or position sizing — those were fixed at the last build.';
+    } else {
+      body = 'The selection and sizing were fixed at the last build and do not yet reflect the fresh stress.';
+    }
+    var tail = 'The engine only re-leans and re-sizes on a fresh build — the next one (top of the hour) will reflect the current tape. The live <b>Market tape</b> panel below already does.';
+    return '<div class="picks-regime-drift-card" role="alert">' +
+      '<p class="picks-regime-drift-head">' + head + '</p>' +
+      '<p class="picks-regime-drift-body">' + body + ' ' + tail + '</p>' +
+    '</div>';
+  }
   // Plain-language read of the CURRENT regime: what posture the engine is in,
   // what that does to today's roster, and what would flip it — woven with the
   // live gross %, the drivers, and the actual call/put split. Tone drives the
@@ -10097,6 +10144,16 @@
     for (var ri = 0; ri < picks.length; ri++){ if (picks[ri] && picks[ri].side === 'put') roster.puts++; else roster.calls++; }
     var chipSlot = document.getElementById('picks-regime-chip');
     if (chipSlot) chipSlot.innerHTML = buildRegimeChip(regime, entryRegime, { live: isLive, fetchedAt: macroTape.fetchedAt });
+    // Reconcile the LIVE regime against the regime the frozen roster was built
+    // under — warn when the tape has turned more defensive since the build.
+    var driftSlot = document.getElementById('picks-regime-drift');
+    if (driftSlot){
+      var driftHtml = (isLive && live && baked)
+        ? buildRegimeDriftBanner(baked, live, { live: true, roster: roster, builtAtIso: data.builtAtIso || null, fetchedAt: macroTape.fetchedAt })
+        : '';
+      driftSlot.innerHTML = driftHtml;
+      driftSlot.hidden = !driftHtml;
+    }
     var panel = document.getElementById('picks-tape');
     if (panel){
       if (!regime || !regime.axes){ panel.hidden = true; panel.innerHTML = ''; }

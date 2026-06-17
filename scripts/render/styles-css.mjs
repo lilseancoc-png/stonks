@@ -8586,6 +8586,30 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 }
 .picks-roster-note b { color: var(--text-strong); font-variant-numeric: tabular-nums; }
 
+/* --- Regime-drift banner (bake-timing honesty) -- */
+/* The roster is baked hourly; the live cross-asset gauge recomputes ~30s. When
+   the live tape turns more defensive than the regime the roster was built under,
+   this fires above the grid so the user knows the frozen picks predate the flip. */
+.picks-regime-drift-card {
+  margin: 0 0 10px;
+  padding: 11px 14px;
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--border));
+  border-left: 3px solid var(--warn);
+}
+.picks-regime-drift-head {
+  margin: 0;
+  font: 700 13.5px/1.45 var(--font-sans);
+  color: var(--warn);
+}
+.picks-regime-drift-body {
+  margin: 5px 0 0;
+  font: 500 12.5px/1.55 var(--font-sans);
+  color: var(--text);
+}
+.picks-regime-drift-head b, .picks-regime-drift-body b { color: var(--text-strong); font-weight: 700; }
+
 /* --- Plain-English analysis paragraph -- */
 .pick-analysis {
   margin: 4px 0 4px;
