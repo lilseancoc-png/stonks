@@ -1281,6 +1281,76 @@ main {
   padding: 1px 6px;
 }
 
+/* Collapsible explainer (infoNote() in html.mjs) — the long per-tab "how this
+   works" intros are folded behind this disclosure, defaulted CLOSED so each tab
+   is quick to scan (mobile especially). No information is removed — clicking the
+   summary reveals the full methodology. Mirrors the .picks-howto / .bonds-primer
+   disclosure look so the whole site reads consistently. */
+.info-note {
+  margin: 0 0 var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.info-note > summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  font: 600 13px/1.35 var(--font-sans);
+  color: var(--muted-strong);
+  list-style: none;
+  user-select: none;
+  border-radius: var(--r-2);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  transition: color .12s var(--ease-out), background .12s var(--ease-out);
+}
+.info-note > summary::-webkit-details-marker { display: none; }
+.info-note > summary::before {
+  content: "ⓘ";
+  flex: none;
+  color: var(--accent);
+  font-size: 14px;
+}
+.info-note > summary::after {
+  content: "▸";
+  margin-left: auto;
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform .15s var(--ease-out);
+}
+.info-note[open] > summary::after { transform: rotate(90deg); }
+.info-note > summary:hover {
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.info-note[open] > summary {
+  color: var(--text-strong);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-2) var(--r-2) 0 0;
+}
+.info-note-body {
+  padding: 10px 14px 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.info-note-body p { margin: 0 0 var(--s-2); }
+.info-note-body p:last-child { margin-bottom: 0; }
+.info-note-body em { color: var(--text); font-style: normal; font-weight: 600; }
+.info-note-body b, .info-note-body strong { color: var(--text-strong); font-weight: 600; }
+.info-note-body a { color: var(--accent); }
+.info-note-body code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  padding: 1px 6px;
+}
+
 /* === Narratives === */
 /* Market pulse — cross-sector summary above the sector tabs. Aggregates every
    real (non-watchlist) narrative into one at-a-glance read: strength-weighted
