@@ -10241,6 +10241,8 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .pos-stat-num.pos-up { color: var(--pos); }
 .pos-stat-num.pos-down { color: var(--neg); }
 .pos-stat-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+.pos-mark-detail { font: 500 12px/1.5 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pos-mark-note { font-family: var(--font-sans); color: var(--warn); }
 .pos-reasons { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
 .pos-reasons li { line-height: 1.5; color: var(--text); }
 .pos-context { display: flex; flex-direction: column; gap: 6px; padding-top: 9px; border-top: 1px solid var(--border); }

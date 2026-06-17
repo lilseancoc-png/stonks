@@ -14753,12 +14753,38 @@ export function buildPicksRoster(currentPicks, priorPicks, prevLatest, gradesInd
   return { builtAtIso, minConviction: rosterTradeCut, stale: !!stale, count: roster.length, roster, exited, swaps };
 }
 
+// Wall-clock budget for each of the two non-essential tail-gloss passes
+// (picks-change + roster-forecast one-liners). These run LAST, are purely
+// cosmetic (the deterministic text already ships), and used to be serial `for`
+// loops — so on a Gemini 503-storm day they stalled ~2min each at the very end
+// of the build. We now fire all calls CONCURRENTLY (paced by the shared
+// acquireAiSlot limiter) and race the batch against this budget: anything not
+// finished by the deadline is abandoned and the deterministic text is kept.
+const PICKS_GLOSS_AI_BUDGET_MS = Number(process.env.PICKS_GLOSS_AI_BUDGET_MS) || 30000;
+
+// Run independent AI gloss tasks concurrently, abandoning whatever hasn't
+// settled by budgetMs. Each task mutates its target in place ONLY on success,
+// so an abandoned task is harmless (the deterministic fallback stays). Returns
+// when all tasks settle OR the budget elapses, whichever comes first.
+async function runAiGlossWithBudget(tasks, budgetMs) {
+  if (!tasks.length) return;
+  let timer;
+  const deadline = new Promise((res) => { timer = setTimeout(res, budgetMs); });
+  try {
+    await Promise.race([Promise.allSettled(tasks), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Hybrid AI polish: write a ONE-sentence plain-English explanation for each new
 // churn event, folding in the per-ticker news take + the pillar shifts. Mutates
 // each event's `aiText` in place. Self-skips without GEMINI_API_KEY (the
 // deterministic whyText still ships); per-event failures degrade to no aiText.
 // Capped at PICKS_CHANGES_AI_MAX events/build (churn is normally small) and
-// routed through the shared AI rate-limiter + ai-usage tracker.
+// routed through the shared AI rate-limiter + ai-usage tracker. Calls fire
+// CONCURRENTLY under a wall-clock budget (PICKS_GLOSS_AI_BUDGET_MS) so a 503
+// storm can't stall the build's tail — see runAiGlossWithBudget.
 async function aiExplainPicksChanges(events, chains) {
   if (!Array.isArray(events) || !events.length) return;
   if (!process.env.GEMINI_API_KEY) {
@@ -14769,7 +14795,7 @@ async function aiExplainPicksChanges(events, chains) {
   const model = process.env.AI_PICKS_CHANGE_MODEL || AI_NEWS_MODEL;
   const slice = events.slice(0, PICKS_CHANGES_AI_MAX);
   let done = 0;
-  for (const ev of slice) {
+  const tasks = slice.map(async (ev) => {
     const data = chains?.[ev.symbol] || null;
     const news = data?.news || null;
     const newsBits = [];
@@ -14815,7 +14841,7 @@ async function aiExplainPicksChanges(events, chains) {
     }
     if (!response) {
       if (lastErr) console.warn(`[picks] change-explain failed for ${ev.symbol} — keeping deterministic why (${String(lastErr.message || lastErr).split("\n")[0]})`);
-      continue;
+      return;
     }
     try {
       const txt = String(response.text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
@@ -14827,7 +14853,8 @@ async function aiExplainPicksChanges(events, chains) {
     } catch {
       // Bad JSON — keep the deterministic whyText for this event.
     }
-  }
+  });
+  await runAiGlossWithBudget(tasks, PICKS_GLOSS_AI_BUDGET_MS);
   if (done) console.log(`[picks] AI-explained ${done}/${slice.length} picks-change events (${model})`);
 }
 
@@ -14849,7 +14876,7 @@ async function aiGlossRosterForecasts(roster, chains) {
   const model = process.env.AI_PICKS_FORECAST_MODEL || AI_NEWS_MODEL;
   const slice = roster.slice(0, PICKS_ROSTER_FORECAST_AI_MAX);
   let done = 0;
-  for (const r of slice) {
+  const tasks = slice.map(async (r) => {
     const f = r.forecast || {};
     const data = chains?.[r.symbol] || null;
     const news = data?.news || null;
@@ -14893,7 +14920,7 @@ async function aiGlossRosterForecasts(roster, chains) {
     }
     if (!response) {
       if (lastErr) console.warn(`[picks] forecast-gloss failed for ${r.symbol} — keeping deterministic factors (${String(lastErr.message || lastErr).split("\n")[0]})`);
-      continue;
+      return;
     }
     try {
       const txt = String(response.text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
@@ -14905,7 +14932,8 @@ async function aiGlossRosterForecasts(roster, chains) {
     } catch {
       // Bad JSON — keep the deterministic factors for this pick.
     }
-  }
+  });
+  await runAiGlossWithBudget(tasks, PICKS_GLOSS_AI_BUDGET_MS);
   if (done) console.log(`[picks] AI-glossed ${done}/${slice.length} roster forecasts (${model})`);
 }
 
@@ -16902,6 +16930,16 @@ function logAiUsageSummary() {
 // "Please retry in Xs" hint the API surfaces for rate-limit errors.
 const AI_MAX_ATTEMPTS = 6;
 const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000, 30000, 60000];
+// Ceiling for the 5xx / network backoff specifically. A 503 "high demand" is a
+// load-shed, NOT a quota window — when Gemini is broadly 503-ing (a demand
+// spike that lasts minutes), sleeping 30-60s between retries rarely clears
+// within a single build; it just burns wall-clock on the synchronous critical
+// path (one narratives call ate ~3min of pure backoff on a 503-storm day).
+// Clamp 5xx/network to a short, churn-fast ceiling so we keep retrying briefly,
+// then degrade gracefully (reuse last-good / deterministic text). Genuine 429
+// quota waits are NOT clamped — those honour the API's "retry in Xs" hint
+// (a 60s window) below, since retrying early just re-hits the same wall.
+const AI_5XX_MAX_BACKOFF_MS = 12000;
 
 // Between-pass "miss sweep" wait. After an AI pass, any ticker still missing a
 // result gets one more swing — but only after a pause to let a transient blip
@@ -16935,7 +16973,9 @@ function classifyAiError(err, attempt) {
     // schedule but floored at 15s — 429 quota windows are 60s wide.
     return hinted ?? Math.max(15000, AI_RETRY_BACKOFF_MS[attempt] ?? 15000);
   }
-  return AI_RETRY_BACKOFF_MS[attempt] ?? 5000;
+  // 5xx / network: keep retrying but cap the wait so a 503 storm doesn't stall
+  // the build (see AI_5XX_MAX_BACKOFF_MS).
+  return Math.min(AI_RETRY_BACKOFF_MS[attempt] ?? 5000, AI_5XX_MAX_BACKOFF_MS);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -20679,13 +20719,16 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
 }
 
 // Narrative extraction is a single critical call (vs the 65 per-ticker news
-// calls where one failure is acceptable), so we retry more aggressively here.
-// The default AI_MAX_ATTEMPTS budget for ticker calls is 4 with [2s, 5s, 15s]
-// backoffs — that's ~22s of tolerance, which a single longer network blip can
-// blow through. For narratives we extend to 7 attempts with progressively
-// longer waits, tolerating up to ~3 minutes of intermittent failure.
+// calls where one failure is acceptable), so we retry more aggressively here —
+// MORE attempts, not LONGER sleeps. The old schedule's 30/45/60s tail rungs
+// burned up to ~3min of pure backoff on the synchronous critical path during a
+// Gemini 503 "high demand" storm (and a 503 spike rarely clears inside one
+// build anyway). Keep the extra attempts (7 vs the ticker calls' 6) for blip
+// tolerance, but cap each wait at ~15s so the worst case is ~75s, not ~3min;
+// past that the build degrades gracefully to last-good (stale) narratives.
+// (A genuine 429 quota hint still overrides this via effectiveWait = max(...).)
 const NARRATIVE_MAX_ATTEMPTS = 7;
-const NARRATIVE_RETRY_BACKOFF_MS = [3000, 8000, 20000, 30000, 45000, 60000];
+const NARRATIVE_RETRY_BACKOFF_MS = [3000, 6000, 10000, 15000, 15000, 15000];
 
 async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines) {
   const userMessage = buildNarrativeUserMessage(chains, previousNames, macroHeadlines);
@@ -20737,7 +20780,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       // backoff schedule when the error is transient.
       const wait = classifyAiError(err, attempt);
       if (wait == null || attempt === NARRATIVE_MAX_ATTEMPTS - 1) throw err;
-      const narrativeWait = NARRATIVE_RETRY_BACKOFF_MS[attempt] ?? 60000;
+      const narrativeWait = NARRATIVE_RETRY_BACKOFF_MS[attempt] ?? 15000;
       // Honour the rate-limit hint from classifyAiError when it's larger than
       // our schedule (e.g. a "retry in 30s" hint on attempt 0).
       const effectiveWait = Math.max(wait, narrativeWait);
