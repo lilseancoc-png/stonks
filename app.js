@@ -3732,6 +3732,9 @@
       var e = entries[0];
       var stuck = !e.isIntersecting && e.boundingClientRect.top < 0;
       bar.hidden = !stuck;
+      // -104px = pinned chrome stack (sticky .site-header ~56 + .page-tabs-bar
+      // ~48); keep in sync with .opt-result-sticky's top in styles-css.mjs so
+      // the sticky verdict bar reveals exactly as the main one slides under it.
     }, { threshold: 0, rootMargin: '-104px 0px 0px 0px' });
     stickyIO.observe(verdictEl);
   }
@@ -9288,8 +9291,9 @@
   // market's REACTION to it flows through the price axes immediately). Change
   // computeMacroRegime, change this. baked = data.rosterMeta.macroRegime
   // (carries axes / inputs / thresholds); live = the /api/macro-live legs (+ fng).
-  var macroTape = { legs: null, fetchedAt: null, timer: null, open: true };
+  var macroTape = { legs: null, fetchedAt: null, timer: null, open: true, openAxis: {}, hist: [], lastSampleAt: null };
   var MACRO_TAPE_POLL_MS = 30000;
+  var TAPE_HIST_MAX = 120; // live samples retained for the session sparklines
 
   // --- Risk-on / risk-off barometer (Top Picks regime card) ----------------
   // A per-asset 0..100 rail showing where each cross-asset signal sits on the
@@ -9339,12 +9343,62 @@
     'GC=F':     'Gold — the safe-haven / real-rates bid. Up = risk-OFF (inverted).',
     'BTC-USD':  'Bitcoin — the purest cross-asset risk-appetite proxy. Up = risk-on.',
   };
-  var riskBarometer = { open: true };
+  var riskBarometer = { open: true, sort: 'risk', group: false, liveOnly: false, openSym: {} };
   // Live cross-asset overlay for the barometer rail, filled by the same
   // /api/macro-live poll the regime tape runs (?tape=1). Keyed by Yahoo symbol.
   // Only REGULAR-session legs override the baked correlations row (the Asia/EU
   // cash indices are closed during US hours and hold their overnight read).
   var barometerLive = { markets: null, fetchedAt: null };
+  // Live-accumulated 0..100 risk-score history per rail symbol (filled each
+  // ?tape=1 poll), used as the sparkline source off-hours when no baked
+  // close series is present.
+  var barometerHist = {};
+  var barometerHistAt = null;
+
+  // --- Market-tape interactivity: cross-highlight + drill-down config --------
+  // Which cross-asset rail rows feed each Market-tape axis, so hovering an axis
+  // tile spotlights its underlying signals (and a row spotlights its axis), and
+  // the drill-downs can name the feeders. Axes read off non-price inputs (the
+  // Fed path, the geopolitical NEWS narrative, the inflation/jobs prints, and
+  // CNN Fear & Greed) have no single rail row → [].
+  var AXIS_FEED_SYMS = {
+    vix: ['^VIX'],
+    yields: ['^TNX', '^TYX'],
+    dxy: ['DX-Y.NYB'],
+    commodity: ['CL=F', 'GC=F'],
+    globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^HSI', '^KS11', 'JPY=X', 'HG=F', 'BTC-USD'],
+    sentiment: [], fed: [], geo: [], inflation: [],
+  };
+  // Reverse map: a rail symbol → the axis it feeds (silver feeds neither regime
+  // axis — it rides the rail as a standalone read — so it has no entry).
+  var SYM_FEEDS_AXIS = (function(){
+    var m = {};
+    for (var k in AXIS_FEED_SYMS){
+      if (!AXIS_FEED_SYMS.hasOwnProperty(k)) continue;
+      var arr = AXIS_FEED_SYMS[k];
+      for (var i = 0; i < arr.length; i++) m[arr[i]] = k;
+    }
+    return m;
+  })();
+  // Short display names for the rail symbols (drill-down feeder lists).
+  var BAROMETER_NAME = {
+    'ES=F': 'S&P 500 futures', 'NQ=F': 'Nasdaq 100 futures', '^GDAXI': 'DAX', '^N225': 'Nikkei 225',
+    '^HSI': 'Hang Seng', '^KS11': 'KOSPI', '^VIX': 'VIX', '^TNX': '10Y yield', '^TYX': '30Y yield',
+    'JPY=X': 'USD/JPY', 'DX-Y.NYB': 'Dollar (DXY)', 'HG=F': 'Copper', 'CL=F': 'WTI crude',
+    'SI=F': 'Silver', 'GC=F': 'Gold', 'BTC-USD': 'Bitcoin',
+  };
+  // Plain-language "what this axis measures" (richer than the tile's one-liner).
+  var AXIS_ABOUT = {
+    vix: 'The VIX is the market’s 30-day implied-volatility gauge — the "fear index". A calm, falling VIX leans risk-on; a spike, or an inverted term structure, signals acute stress.',
+    dxy: 'The dollar index (DXY) proxies global financial conditions. A sharp USD bid drains liquidity and tightens conditions worldwide (risk-OFF); a softening dollar eases them.',
+    yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
+    commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a gold haven bid is the classic geopolitical-shock tell (risk-OFF).',
+    sentiment: 'CNN’s Fear & Greed index distills seven equity internals (breadth, momentum, junk-bond demand…). Extreme fear, or a fast swing toward fear, reads risk-OFF.',
+    globalTape: 'The overnight cross-asset tape — US futures + Asia/EU cash + the yen carry + copper + Bitcoin. Broad overnight green leans risk-on; broad red leans risk-OFF.',
+    fed: 'The Fed-path axis tracks FedWatch hike-odds drift. A hawkish repricing (rising hike odds) tightens the expected path (risk-OFF); a dovish drift eases it.',
+    geo: 'The geopolitics axis reads the day’s war/peace headline + narrative. Fresh escalation tilts risk-OFF; de-escalation eases it. Slow axis — updates at the build.',
+    inflation: 'The inflation/jobs axis reads CPI YoY direction + the unemployment rate. Re-accelerating inflation or a softening labor market tilts risk-OFF.',
+  };
 
   function computeLiveMacroRegime(baked, live){
     if (!baked || !baked.axes || !baked.inputs || !baked.thresholds) return null;
@@ -9651,6 +9705,196 @@
     }
     return { head: head, body: body, change: change, tone: tone, drivers: drv };
   }
+
+  // --- Market-tape sparklines + drill-down builders -------------------------
+  // Tiny inline sparkline (oldest→newest). Optional fixed min/max so a score
+  // rail stays comparable tile-to-tile, an optional dashed baseline (the neutral
+  // 0 / 50 midpoint), and a tone class that colors the stroke.
+  function tapeSparkSvg(series, opts){
+    opts = opts || {};
+    var s = (Array.isArray(series) ? series : []).filter(function(v){ return v != null && isFinite(v); });
+    if (s.length < 3) return '';
+    s = s.slice(-40);
+    var w = opts.w || 56, h = opts.h || 16, n = s.length;
+    var lo = (opts.min != null) ? opts.min : Math.min.apply(null, s);
+    var hi = (opts.max != null) ? opts.max : Math.max.apply(null, s);
+    if (hi === lo){ hi = lo + 1; lo = lo - 1; }
+    var span = (hi - lo) || 1;
+    function Y(v){ return (h - 1) - ((Math.max(lo, Math.min(hi, v)) - lo) / span) * (h - 2); }
+    var pts = s.map(function(v, i){ return ((i / (n - 1)) * (w - 2) + 1).toFixed(1) + ',' + Y(v).toFixed(1); }).join(' ');
+    var base = '';
+    if (opts.baseline != null && opts.baseline >= lo && opts.baseline <= hi){
+      var by = Y(opts.baseline).toFixed(1);
+      base = '<line class="tape-spark-base" x1="1" y1="' + by + '" x2="' + (w - 1) + '" y2="' + by + '"/>';
+    }
+    var cls = 'tape-spark' + (opts.tone ? ' tape-spark-' + opts.tone : '');
+    return '<svg class="' + cls + '" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+      base + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
+  // Baked daily net-stress trend (from regime-history.json) — the headline meter
+  // sparkline. Returns [] until the history file has loaded.
+  function regimeDailyStressSeries(){
+    var days = (regimeHistState.data && Array.isArray(regimeHistState.data.days)) ? regimeHistState.data.days : [];
+    var out = [];
+    for (var i = 0; i < days.length; i++){ var d = days[i]; if (d && d.stress != null && isFinite(d.stress)) out.push(Number(d.stress)); }
+    return out;
+  }
+  // Baked daily per-axis score trend (axisScores added by the bake; absent on
+  // pre-upgrade snapshots → []).
+  function regimeDailyAxisSeries(k){
+    var days = (regimeHistState.data && Array.isArray(regimeHistState.data.days)) ? regimeHistState.data.days : [];
+    var out = [];
+    for (var i = 0; i < days.length; i++){ var as = days[i] && days[i].axisScores; if (as && isFinite(as[k])) out.push(Number(as[k])); }
+    return out;
+  }
+  function axisToneWord(sc){ return sc <= -1 ? 'risk-off' : (sc >= 1 ? 'risk-on' : 'neutral'); }
+  function axisToneCls(sc){ return sc <= -1 ? 'off' : (sc >= 1 ? 'on' : 'flat'); }
+  function tapeChip(label, val){ return '<span class="tape-chip"><span class="tape-chip-k">' + escapeHtml(label) + '</span><span class="tape-chip-v">' + escapeHtml(val) + '</span></span>'; }
+  function tapeSign(x, dp, suf){ if (x == null || !isFinite(x)) return '—'; return (x > 0 ? '+' : '') + Number(x).toFixed(dp == null ? 2 : dp) + (suf || ''); }
+  // Per-axis underlying-input chips, read from the BAKED inputs snapshot (the
+  // live re-port doesn't carry inputs, so always source them from baked).
+  function axisInputChips(k, inp){
+    inp = inp || {};
+    var c = [];
+    if (k === 'vix' && inp.vix){
+      if (inp.vix.value != null) c.push(tapeChip('level', Number(inp.vix.value).toFixed(1)));
+      if (inp.vix.pctChange1d != null) c.push(tapeChip('1d', tapeSign(inp.vix.pctChange1d, 1, '%')));
+      if (inp.vix.trend) c.push(tapeChip('trend', inp.vix.trend));
+      c.push(tapeChip('curve', inp.vix.backwardation ? 'inverted' : 'contango'));
+    } else if (k === 'dxy' && inp.dxy){
+      if (inp.dxy.pctChange1d != null) c.push(tapeChip('1d', tapeSign(inp.dxy.pctChange1d, 2, '%')));
+      if (inp.dxy.pctChange5d != null) c.push(tapeChip('5d', tapeSign(inp.dxy.pctChange5d, 2, '%')));
+      if (inp.dxy.trend) c.push(tapeChip('trend', inp.dxy.trend));
+    } else if (k === 'yields' && inp.yields){
+      var ten = inp.yields.ten || {}, thirty = inp.yields.thirty || {};
+      if (ten.bpsChange1d != null) c.push(tapeChip('10Y 1d', tapeSign(ten.bpsChange1d, 1, 'bp')));
+      if (ten.bpsChange5d != null) c.push(tapeChip('10Y 5d', tapeSign(ten.bpsChange5d, 1, 'bp')));
+      if (thirty.bpsChange1d != null) c.push(tapeChip('30Y 1d', tapeSign(thirty.bpsChange1d, 1, 'bp')));
+      if (ten.trend) c.push(tapeChip('trend', ten.trend));
+    } else if (k === 'commodity' && inp.commodity){
+      var cr = inp.commodity.crude || {}, gd = inp.commodity.gold || {};
+      if (cr.pctChange1d != null) c.push(tapeChip('crude 1d', tapeSign(cr.pctChange1d, 1, '%')));
+      if (cr.pctChange5d != null) c.push(tapeChip('crude 5d', tapeSign(cr.pctChange5d, 1, '%')));
+      if (gd.pctChange1d != null) c.push(tapeChip('gold 1d', tapeSign(gd.pctChange1d, 1, '%')));
+      if (gd.pctChange5d != null) c.push(tapeChip('gold 5d', tapeSign(gd.pctChange5d, 1, '%')));
+    } else if (k === 'sentiment' && inp.sentiment){
+      var sm = inp.sentiment;
+      if (sm.score != null) c.push(tapeChip('F&G', String(Math.round(sm.score))));
+      if (sm.rating) c.push(tapeChip('rating', sm.rating));
+      if (sm.breadth != null) c.push(tapeChip('breadth', String(Math.round(sm.breadth))));
+      if (sm.credit != null) c.push(tapeChip('credit', String(Math.round(sm.credit))));
+      if (sm.month != null) c.push(tapeChip('1mo', String(Math.round(sm.month))));
+    } else if (k === 'globalTape' && inp.crossAsset){
+      if (inp.crossAsset.score != null) c.push(tapeChip('tape', tapeSign(inp.crossAsset.score, 0)));
+      var comps = inp.crossAsset.components;
+      if (Array.isArray(comps) && comps.length) c.push(tapeChip('signals', String(comps.length)));
+    }
+    return c.join('');
+  }
+  // "What moves it" line per axis, woven with the live threshold snapshot.
+  function axisFlipText(k, T){
+    T = T || {};
+    function v(x, d){ return (x != null && isFinite(x)) ? x : d; }
+    if (k === 'vix') return 'Risk-off (−1) at VIX ≥ ' + v(T.riskoffVix, 20) + ' or rising ≥ 18 (or an inverted curve); risk-on (+1) under 14.';
+    if (k === 'dxy') return 'Risk-off if the dollar is ≥ +' + v(T.dxy1d, 0.5) + '% on the day (sharp spike ≥ +' + v(T.dxy1dStrong, 0.9) + '%); risk-on if it eases ≥ −' + v(T.dxy1d, 0.5) + '%.';
+    if (k === 'yields') return 'Risk-off if long yields jump ≥ +' + v(T.yieldBps1d, 8) + 'bp (spike ≥ +' + v(T.yieldBps1dStrong, 14) + 'bp); risk-on if they fall ≥ −' + v(T.yieldBps1d, 8) + 'bp.';
+    if (k === 'commodity') return 'Risk-off on a crude spike ≥ +' + v(T.oil1d, 4) + '% (shock ≥ +' + v(T.oil1dStrong, 7) + '%) or a gold haven bid ≥ +' + v(T.gold1d, 2) + '%.';
+    if (k === 'sentiment') return 'Risk-off at Fear & Greed ≤ ' + v(T.fgFear, 25) + ', or a 1-day drop ≥ ' + v(T.fgDelta, 10) + '; risk-on at ≥ ' + v(T.fgGreed, 75) + '.';
+    if (k === 'globalTape') return 'Broad overnight green across the rail below lifts it; broad red weighs — it’s read straight from the cross-asset breadth.';
+    if (k === 'fed') return 'A hawkish FedWatch repricing (rising hike odds) tightens it. Slow axis — refreshes at the next build.';
+    if (k === 'geo') return 'Fresh escalation headlines tilt it risk-off; de-escalation eases it. Slow axis — refreshes at the next build.';
+    if (k === 'inflation') return 'Re-accelerating CPI or a softening labor market tilts it risk-off. Slow axis — refreshes at the next build.';
+    return '';
+  }
+  // The drill-down drawer for one axis tile. The axis arg is the effective
+  // per-axis read (live or baked); inputs + thresholds come from the BAKED
+  // regime (the live re-port doesn't carry them).
+  function buildAxisDetail(d, axis, opts){
+    var k = d.k;
+    var sc = isFinite(axis.score) ? axis.score : 0;
+    var baked = (opts && opts.baked) || {};
+    var inp = baked.inputs || {};
+    var T = baked.thresholds || {};
+    var about = AXIS_ABOUT[k] || d.desc;
+    var chips = axisInputChips(k, inp);
+    var feeders = AXIS_FEED_SYMS[k] || [];
+    var feedTxt;
+    if (feeders.length){
+      var names = feeders.map(function(s){ return BAROMETER_NAME[s] || s; });
+      feedTxt = '<div class="tape-axis-detail-feeds"><b>On the rail below:</b> ' + escapeHtml(names.join(', ')) + ' — hover this tile to spotlight them.</div>';
+    } else {
+      var src = k === 'sentiment' ? 'CNN Fear &amp; Greed internals'
+        : k === 'fed' ? 'FedWatch hike-odds'
+        : k === 'inflation' ? 'the monthly CPI &amp; unemployment prints'
+        : 'the day’s geopolitical news narrative';
+      feedTxt = '<div class="tape-axis-detail-feeds">Read from ' + src + ', not a single cross-asset rail row.</div>';
+    }
+    var flip = axisFlipText(k, T);
+    var liveNote = axis.live ? 'Refreshing live this session.' : 'Carried from the last build (it can’t move on a price quote alone).';
+    var tcls = axisToneCls(sc);
+    return '<p class="tape-axis-detail-about">' + about + '</p>' +
+      '<div class="tape-axis-detail-reading">' +
+        '<span class="tape-axis-detail-badge tape-' + tcls + '">' + axisToneWord(sc) + ' · ' + (sc > 0 ? '+' : '') + sc + '</span>' +
+        '<span class="tape-axis-detail-label">' + escapeHtml(axis.label || '') + '</span>' +
+      '</div>' +
+      (chips ? '<div class="tape-axis-detail-chips">' + chips + '</div>' : '') +
+      feedTxt +
+      (flip ? '<div class="tape-axis-detail-flip"><b>What moves it:</b> ' + flip + '</div>' : '') +
+      '<div class="tape-axis-detail-live">' + liveNote + '</div>';
+  }
+  // Derive a per-session 0..100 risk-score series from a baked trailing close
+  // series, using the SAME barometerScore mapping the live marker uses (so the
+  // sparkline and the dot speak one language). closes are oldest→newest.
+  function barometerScoreSeries(cfg, closes){
+    if (!cfg || !Array.isArray(closes) || closes.length < 4) return [];
+    var out = [];
+    for (var i = 1; i < closes.length; i++){
+      var prev = closes[i - 1], cur = closes[i];
+      if (prev == null || cur == null || !isFinite(prev) || !isFinite(cur) || prev === 0) continue;
+      var m = (cfg.metric === 'bp') ? { chgBp: (cur - prev) * 100 } : { chPct: (cur - prev) / prev * 100 };
+      var sc = barometerScore(cfg, m);
+      if (sc != null) out.push(sc);
+    }
+    return out;
+  }
+  // Cross-highlight: hovering / focusing an axis tile lights its feeding rail
+  // rows (and a rail row lights its axis tile). Wired once via delegation on the
+  // stable picks pane, so it survives the per-poll re-renders of both cards.
+  var picksXhlWired = false;
+  function wirePicksCrossHighlight(){
+    if (picksXhlWired) return;
+    var pane = document.getElementById('page-pane-picks');
+    if (!pane) return;
+    picksXhlWired = true;
+    function clear(){
+      var els = pane.querySelectorAll('.is-xhl, .is-xhl-src');
+      for (var i = 0; i < els.length; i++){ els[i].classList.remove('is-xhl'); els[i].classList.remove('is-xhl-src'); }
+    }
+    function apply(axisKey, srcEl){
+      clear();
+      if (!axisKey) return;
+      if (srcEl) srcEl.classList.add('is-xhl-src');
+      var syms = AXIS_FEED_SYMS[axisKey] || [];
+      for (var i = 0; i < syms.length; i++){
+        var row = pane.querySelector('.rob-row[data-sym="' + syms[i] + '"]');
+        if (row && row !== srcEl) row.classList.add('is-xhl');
+      }
+      var tile = pane.querySelector('.tape-axis[data-axis="' + axisKey + '"]');
+      if (tile && tile !== srcEl) tile.classList.add('is-xhl');
+    }
+    function onHover(e){
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var tile = t.closest('.tape-axis[data-axis]');
+      if (tile){ apply(tile.getAttribute('data-axis'), tile); return; }
+      var row = t.closest('.rob-row[data-sym]');
+      if (row){ var f = row.getAttribute('data-feeds'); if (f) apply(f, row); else clear(); return; }
+      clear();
+    }
+    pane.addEventListener('mouseover', onHover);
+    pane.addEventListener('focusin', onHover);
+    pane.addEventListener('mouseleave', clear);
+  }
   function buildMacroTapePanel(regime, opts){
     opts = opts || {};
     var meta = macroStateMeta(regime.state, regime.fragile);
@@ -9686,7 +9930,15 @@
       var badge = a.live
         ? '<span class="tape-axis-badge is-live" title="Refreshed live from /api/macro-live">live</span>'
         : '<span class="tape-axis-badge is-baked" title="From the last build — this axis cannot refresh from a price quote">baked</span>';
-      return '<div class="tape-axis tape-' + tone + '">' +
+      // Sparkline: prefer the baked daily score trend; fall back to the live
+      // session accumulation. Drawn only once it has shape (≥3 points).
+      var bakedAx = regimeDailyAxisSeries(d.k);
+      var axSeries = (bakedAx.length >= 3) ? bakedAx : macroTape.hist.map(function(s){ return (s && s.axes) ? s.axes[d.k] : null; });
+      var spark = tapeSparkSvg(axSeries, { baseline: 0, min: -2, max: 2, tone: tone, w: 60, h: 14 });
+      var sparkTitle = (bakedAx.length >= 3) ? 'Daily score trend' : 'Live session trend';
+      var isOpen = !!macroTape.openAxis[d.k];
+      var detail = isOpen ? '<div class="tape-axis-detail">' + buildAxisDetail(d, a, opts) + '</div>' : '';
+      return '<button type="button" class="tape-axis tape-' + tone + (isOpen ? ' is-open' : '') + '" data-axis="' + d.k + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
           '<div class="tape-axis-head">' +
             '<span class="tape-axis-name">' + escapeHtml(d.name) + '</span>' +
             badge +
@@ -9694,13 +9946,30 @@
           '</div>' +
           rail +
           '<div class="tape-axis-label">' + escapeHtml(a.label || '') + '</div>' +
-          '<div class="tape-axis-desc">' + escapeHtml(d.desc) + '</div>' +
-        '</div>';
+          '<div class="tape-axis-foot">' +
+            '<span class="tape-axis-desc">' + escapeHtml(d.desc) + '</span>' +
+            (spark ? '<span class="tape-axis-spark" title="' + sparkTitle + '">' + spark + '</span>' : '') +
+          '</div>' +
+          '<span class="tape-axis-more" aria-hidden="true">' + (isOpen ? 'Hide ▴' : 'Details ▾') + '</span>' +
+          detail +
+        '</button>';
     }).join('');
     // Headline risk meter — the whole tape on one rail. Position from net stress
     // (0 = balanced), colored by the effective state; this is the visual gauge.
     var meterPos = Math.max(2, Math.min(98, 50 + stress * 7));
     var meterTone = meta.tone === 'off' ? 'off' : (meta.tone === 'on' ? 'on' : (meta.tone === 'fragile' ? 'warn' : 'flat'));
+    // Net-stress trend sparkline: the baked daily history if loaded, else the
+    // live session accumulation. Tone follows the latest stress sign.
+    var stressSeries = regimeDailyStressSeries();
+    var stressIsBaked = stressSeries.length >= 3;
+    if (!stressIsBaked) stressSeries = macroTape.hist.map(function(s){ return s ? s.stress : null; });
+    var meterSpark = tapeSparkSvg(stressSeries, { baseline: 0, tone: meterTone, w: 90, h: 18 });
+    var meterSparkHtml = meterSpark
+      ? '<div class="tape-meter-trend">' +
+          '<span class="tape-meter-trend-lbl">' + (stressIsBaked ? 'net-stress trend · daily' : 'net-stress · this session') + '</span>' +
+          '<span class="tape-meter-trend-spark" title="Net cross-asset stress over time — below the dashed line is risk-off territory">' + meterSpark + '</span>' +
+        '</div>'
+      : '';
     var meterHtml = '<div class="tape-meter tape-meter-' + meterTone + '">' +
         '<div class="tape-meter-scale" aria-hidden="true"><span>RISK-OFF</span><span>neutral</span><span>RISK-ON</span></div>' +
         '<div class="tape-meter-rail">' +
@@ -9708,6 +9977,7 @@
           '<span class="tape-meter-marker" style="left:' + meterPos.toFixed(1) + '%" title="' + escapeHtml(meta.lbl) + ' · net stress ' + (stress > 0 ? '+' : '') + stress + '"></span>' +
         '</div>' +
         '<div class="tape-meter-caption"><b>' + escapeHtml(meta.lbl) + '</b> · ' + roff + ' risk-off / ' + ron + ' risk-on axes · net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></div>' +
+        meterSparkHtml +
       '</div>';
     var grossPct = (regime.grossMult != null && isFinite(regime.grossMult)) ? Math.round(regime.grossMult * 100) : 100;
     var drivers = (regime.drivers && regime.drivers.length) ? escapeHtml(regime.drivers.join(' · ')) : 'none';
@@ -9761,6 +10031,18 @@
     var live = (baked && macroTape.legs) ? computeLiveMacroRegime(baked, macroTape.legs) : null;
     var regime = live || baked;
     var isLive = !!live;
+    // Pull the regime-history file (shared with the calendar below) so the meter
+    // + per-axis sparklines have a baked daily trend on first paint.
+    if (!regimeHistState.data && !regimeHistState.loading && typeof loadRegimeHistory === 'function') loadRegimeHistory();
+    // Accumulate one live session sample per fresh poll (deduped by timestamp).
+    if (isLive && regime && regime.axes && macroTape.fetchedAt && macroTape.fetchedAt !== macroTape.lastSampleAt){
+      macroTape.lastSampleAt = macroTape.fetchedAt;
+      var sample = { stress: (regime.stress != null && isFinite(regime.stress)) ? regime.stress : 0, axes: {} };
+      var AX = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
+      for (var si = 0; si < AX.length; si++){ var axk = AX[si]; sample.axes[axk] = (regime.axes[axk] && isFinite(regime.axes[axk].score)) ? regime.axes[axk].score : 0; }
+      macroTape.hist.push(sample);
+      while (macroTape.hist.length > TAPE_HIST_MAX) macroTape.hist.shift();
+    }
     var roster = { calls: 0, puts: 0, total: picks.length };
     for (var ri = 0; ri < picks.length; ri++){ if (picks[ri] && picks[ri].side === 'put') roster.puts++; else roster.calls++; }
     var chipSlot = document.getElementById('picks-regime-chip');
@@ -9770,11 +10052,22 @@
       if (!regime || !regime.axes){ panel.hidden = true; panel.innerHTML = ''; }
       else {
         panel.hidden = false;
-        panel.innerHTML = buildMacroTapePanel(regime, { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster });
+        panel.innerHTML = buildMacroTapePanel(regime, { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster, baked: baked });
         var head = panel.querySelector('.picks-tape-head');
         if (head) head.addEventListener('click', function(){ macroTape.open = !macroTape.open; renderMacroTape(); });
+        // Tile drill-downs — delegate on the freshly-rendered axes grid (a new
+        // element each render, so listeners don't accumulate on the host).
+        var axesGrid = panel.querySelector('.picks-tape-axes');
+        if (axesGrid) axesGrid.addEventListener('click', function(e){
+          var b = e.target.closest ? e.target.closest('.tape-axis[data-axis]') : null;
+          if (!b) return;
+          var k = b.getAttribute('data-axis');
+          macroTape.openAxis[k] = !macroTape.openAxis[k];
+          renderMacroTape();
+        });
       }
     }
+    wirePicksCrossHighlight();
     renderRiskBarometer();
   }
   function pollMacroTapeOnce(){
@@ -9877,29 +10170,101 @@
       rows.push({ cfg: cfg, m: m, score: sc, live: !!m._live });
     }
     if (!rows.length){ host.hidden = true; host.innerHTML = ''; return; }
-    // Most risk-ON at the top, most risk-OFF at the bottom — a leaderboard read.
-    rows.sort(function(a, b){ return b.score - a.score; });
-    // Composite = equal-weighted mean of the available asset scores.
+    // Accumulate one live 0..100 sample per fresh poll for the off-hours / cold
+    // sparklines (deduped by timestamp; only the live-overlaid legs move).
+    if (barometerLive.fetchedAt && barometerLive.fetchedAt !== barometerHistAt){
+      barometerHistAt = barometerLive.fetchedAt;
+      for (var hi = 0; hi < rows.length; hi++){
+        if (!rows[hi].live) continue;
+        var hsym = rows[hi].cfg.sym;
+        (barometerHist[hsym] = barometerHist[hsym] || []).push(rows[hi].score);
+        while (barometerHist[hsym].length > TAPE_HIST_MAX) barometerHist[hsym].shift();
+      }
+    }
+    // Composite = equal-weighted mean of ALL available asset scores (display
+    // filters/sorts below don't change the headline read).
     var sum = 0; for (var j = 0; j < rows.length; j++) sum += rows[j].score;
     var composite = Math.round(sum / rows.length);
     var cBand = barometerBand(composite);
     var open = !!riskBarometer.open;
-    var railHtml = rows.map(function(r){
+    var AXIS_DISPLAY = { vix:'VIX', dxy:'Dollar', yields:'Long yields', commodity:'Commodities', globalTape:'Global tape' };
+    // The drill-down drawer for one rail row.
+    function robRowDetailHtml(r, band){
+      var cfg = r.cfg, m = r.m, sym = cfg.sym;
+      var conv = BAROMETER_TOOLTIP[sym] || '';
+      var unit = cfg.metric === 'bp' ? 'bp' : '%';
+      var dir = cfg.polarity > 0 ? 'an up-move reads <b>risk-ON</b>' : 'an up-move reads <b>risk-OFF</b> (inverted gauge)';
+      var feedsKey = SYM_FEEDS_AXIS[sym] || '';
+      var feedTxt = feedsKey
+        ? 'Feeds the <b>' + (AXIS_DISPLAY[feedsKey] || feedsKey) + '</b> axis of the Market tape above.'
+        : 'Rides the rail as a standalone read — it doesn’t feed a Market-tape axis.';
+      var lvl = ovnLevelStr(m);
+      var freshTxt = r.live ? 'Refreshing live this session.' : ('Baked' + (m.asOf ? ' · ' + ovnShortDate(m.asOf) + ' close' : '') + (d.stale ? ' (last-good)' : ''));
+      return (conv ? '<div class="rob-row-detail-row">' + ovnEsc(conv) + '</div>' : '') +
+        '<div class="rob-row-detail-row"><b>Risk score ' + Math.round(r.score) + '/100</b> · ' + ovnEsc(band.lbl) + (lvl ? ' · level ' + ovnEsc(lvl) : '') + ' · move ' + ovnEsc(ovnMoveStr(m)) + '</div>' +
+        '<div class="rob-row-detail-row"><b>How it scores:</b> ' + dir + '; a move of ±' + cfg.scale + unit + ' pins the rail to its end.</div>' +
+        '<div class="rob-row-detail-row">' + feedTxt + '</div>' +
+        '<div class="rob-row-detail-row rob-row-detail-fresh">' + ovnEsc(freshTxt) + '</div>';
+    }
+    function robRowHtml(r){
       var band = barometerBand(r.score);
       var pct = Math.max(0, Math.min(100, r.score));
       var tip = BAROMETER_TOOLTIP[r.cfg.sym] || (r.m.lead || '');
       var lvl = ovnLevelStr(r.m);
+      var sym = r.cfg.sym;
       var liveDot = r.live ? '<span class="rob-live-dot" title="Live — refreshed this session">●</span>' : '';
-      return '<div class="rob-row' + (r.live ? ' is-live' : '') + '" title="' + ovnEsc(r.m.name + (tip ? ' — ' + tip : '')) + '">' +
+      var feeds = SYM_FEEDS_AXIS[sym] || '';
+      var isOpen = !!riskBarometer.openSym[sym];
+      // Inline sparkline of the per-session risk score — baked daily series if we
+      // have it, else the live session accumulation; only drawn with ≥3 points.
+      var spk = barometerScoreSeries(r.cfg, r.m.series);
+      if (spk.length < 3 && barometerHist[sym] && barometerHist[sym].length >= 3) spk = barometerHist[sym];
+      var sparkSvg = tapeSparkSvg(spk, { baseline: 50, min: 0, max: 100, tone: band.tone, w: 46, h: 13 });
+      var detail = isOpen ? '<div class="rob-row-detail">' + robRowDetailHtml(r, band) + '</div>' : '';
+      return '<div class="rob-row-wrap">' +
+        '<button type="button" class="rob-row' + (r.live ? ' is-live' : '') + (isOpen ? ' is-open' : '') + '" data-sym="' + sym + '" data-feeds="' + feeds + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '" title="' + ovnEsc(r.m.name + (tip ? ' — ' + tip : '')) + '">' +
           '<span class="rob-name">' + liveDot + ovnEsc(r.m.name) + '</span>' +
           '<span class="rob-rail">' +
             '<span class="rob-rail-track"></span>' +
             '<span class="rob-rail-mid" aria-hidden="true"></span>' +
             '<span class="rob-marker ' + band.cls + '" style="left:' + pct.toFixed(1) + '%" title="' + band.lbl + ' · score ' + Math.round(r.score) + '/100"></span>' +
           '</span>' +
-          '<span class="rob-move ' + ovnMoveCls(r.m.chPct) + '">' + ovnEsc(ovnMoveStr(r.m)) + (lvl ? '<span class="rob-lvl">' + ovnEsc(lvl) + '</span>' : '') + '</span>' +
-        '</div>';
-    }).join('');
+          '<span class="rob-move ' + ovnMoveCls(r.m.chPct) + '">' +
+            (sparkSvg ? '<span class="rob-spark">' + sparkSvg + '</span>' : '') +
+            '<span class="rob-move-num">' + ovnEsc(ovnMoveStr(r.m)) + '</span>' +
+            (lvl ? '<span class="rob-lvl">' + ovnEsc(lvl) + '</span>' : '') +
+          '</span>' +
+          '<span class="rob-row-chev" aria-hidden="true">' + (isOpen ? '▴' : '▾') + '</span>' +
+        '</button>' +
+        detail +
+      '</div>';
+    }
+    // Display list: live-only filter, sort (risk score vs move magnitude), and an
+    // optional group-by-asset-class. Most risk-ON at the top within each section.
+    function sortFn(a, b){
+      if (riskBarometer.sort === 'move') return Math.abs(b.score - 50) - Math.abs(a.score - 50);
+      return b.score - a.score;
+    }
+    var disp = riskBarometer.liveOnly ? rows.filter(function(r){ return r.live; }) : rows.slice();
+    var rowsHtml;
+    if (!disp.length){
+      rowsHtml = '<div class="rob-empty">No live rows right now — the US-session legs refresh during market hours. Untick “Live only” to see the baked overnight read.</div>';
+    } else if (riskBarometer.group){
+      var groupOrder = [], byGroup = {};
+      for (var gi = 0; gi < disp.length; gi++){
+        var grp = disp[gi].cfg.group || 'Other';
+        if (!byGroup[grp]){ byGroup[grp] = []; groupOrder.push(grp); }
+        byGroup[grp].push(disp[gi]);
+      }
+      rowsHtml = groupOrder.map(function(grp){
+        return '<div class="rob-group">' +
+            '<div class="rob-group-head">' + ovnEsc(grp) + '</div>' +
+            byGroup[grp].slice().sort(sortFn).map(robRowHtml).join('') +
+          '</div>';
+      }).join('');
+    } else {
+      rowsHtml = disp.slice().sort(sortFn).map(robRowHtml).join('');
+    }
     var staleTxt = d.stale ? 'last-good · ' : '';
     // Freshest session across the barometer's own rows (independent of whether
     // the Overnight tab has been opened, which is what sets ovnMaxAsOf).
@@ -9913,6 +10278,17 @@
     var asofHtml = anyLive
       ? '<span class="rob-asof is-live"><span class="rob-asof-dot">●</span> live' + (barometerLive.fetchedAt ? ' · ' + ovnEsc(fmtTapeTime(barometerLive.fetchedAt)) : '') + '</span>'
       : '<span class="rob-asof">baked · ' + staleTxt + ovnEsc(asOf) + '</span>';
+    var sortVal = riskBarometer.sort === 'move' ? 'move' : 'risk';
+    var controls = '<div class="rob-controls">' +
+        '<label class="rob-ctrl">Sort' +
+          '<select class="rob-sort">' +
+            '<option value="risk"' + (sortVal === 'risk' ? ' selected' : '') + '>Risk score</option>' +
+            '<option value="move"' + (sortVal === 'move' ? ' selected' : '') + '>Move size</option>' +
+          '</select>' +
+        '</label>' +
+        '<button type="button" class="rob-group-btn" aria-pressed="' + (riskBarometer.group ? 'true' : 'false') + '">Group by class</button>' +
+        '<label class="rob-liveonly"><input type="checkbox" class="rob-liveonly-cb"' + (riskBarometer.liveOnly ? ' checked' : '') + '> Live only</label>' +
+      '</div>';
     host.hidden = false;
     host.innerHTML =
       '<div class="rob-card' + (open ? ' is-open' : '') + '">' +
@@ -9923,17 +10299,33 @@
           '<span class="rob-toggle" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
         '</button>' +
         '<div class="rob-body">' +
+          controls +
           '<div class="rob-scale" aria-hidden="true">' +
             '<span class="rob-scale-off">RISK-OFF</span>' +
             '<span class="rob-scale-mid">neutral</span>' +
             '<span class="rob-scale-on">RISK-ON</span>' +
           '</div>' +
-          '<div class="rob-rows">' + railHtml + '</div>' +
-          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. The futures + Asia/EU breadth + yen carry + copper + Bitcoin among these feed the <b>Global tape</b> axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep; the US-session legs (futures, FX, metals, crude, Bitcoin, VIX, long yields) refresh <b>live</b> while this tab is open (● dot) — the Asia/EU cash indices stay on their last close. Hover a row for its convention.</p>' +
+          '<div class="rob-rows">' + rowsHtml + '</div>' +
+          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. The futures + Asia/EU breadth + yen carry + copper + Bitcoin among these feed the <b>Global tape</b> axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep; the US-session legs (futures, FX, metals, crude, Bitcoin, VIX, long yields) refresh <b>live</b> while this tab is open (● dot) — the Asia/EU cash indices stay on their last close. <b>Click a row</b> for its convention &amp; what it feeds, <b>hover</b> it to spotlight its Market-tape axis, or sort / group / filter with the controls above.</p>' +
         '</div>' +
       '</div>';
     var head = host.querySelector('.rob-head');
     if (head) head.addEventListener('click', function(){ riskBarometer.open = !riskBarometer.open; renderRiskBarometer(); });
+    var sortSel = host.querySelector('.rob-sort');
+    if (sortSel) sortSel.addEventListener('change', function(){ riskBarometer.sort = (this.value === 'move') ? 'move' : 'risk'; renderRiskBarometer(); });
+    var groupBtn = host.querySelector('.rob-group-btn');
+    if (groupBtn) groupBtn.addEventListener('click', function(){ riskBarometer.group = !riskBarometer.group; renderRiskBarometer(); });
+    var liveCb = host.querySelector('.rob-liveonly-cb');
+    if (liveCb) liveCb.addEventListener('change', function(){ riskBarometer.liveOnly = !!this.checked; renderRiskBarometer(); });
+    var rowsHost = host.querySelector('.rob-rows');
+    if (rowsHost) rowsHost.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('.rob-row[data-sym]') : null;
+      if (!b) return;
+      var s = b.getAttribute('data-sym');
+      riskBarometer.openSym[s] = !riskBarometer.openSym[s];
+      renderRiskBarometer();
+    });
+    wirePicksCrossHighlight();
   }
 
   // --- Top Picks: risk-on / risk-off history calendar ----------------------
@@ -9967,6 +10359,9 @@
         regimeHistState.data = (json && Array.isArray(json.days)) ? json : { days: [] };
         regimeHistState.loading = false;
         renderRegimeHistory();
+        // The tape meter + per-axis tiles draw a baked daily trend from this
+        // file — refresh them now that it's loaded (idempotent; no fetch loop).
+        if (document.getElementById('picks-tape')) renderMacroTape();
       })
       .catch(function(){
         regimeHistState.data = { days: [] };
@@ -12753,6 +13148,16 @@
     if (type === 'catalyst') return 'Catalyst';
     return 'Macro';
   }
+  // Human label for a filter-pill value (the data-cal-type enum) — used in the
+  // empty-month note ("No “Earnings” events in June 2026.").
+  function calendarPillLabel(type){
+    if (type === 'reports') return 'Reports';
+    if (type === 'fomc') return 'FOMC';
+    if (type === 'earnings') return 'Earnings';
+    if (type === 'catalysts') return 'Catalysts';
+    if (type === 'macro') return 'Macro';
+    return 'All';
+  }
   // Sub-label for a ticker catalyst chip, shown next to the symbol. Maps the
   // category enum to a short human tag — keep this synced with the
   // CATALYST_CATEGORIES enum in scripts/build.mjs.
@@ -12819,6 +13224,21 @@
     if (days <= 27){ var w = Math.round(days / 7); return 'In ' + w + ' week' + (w === 1 ? '' : 's'); }
     return '';
   }
+  // ET-today as 'YYYY-MM-DD' (derived from the UTC-midnight ET-today ms) — used
+  // to highlight today's cell and pick a sensible default selection.
+  function calEtTodayYmd(){
+    var d = new Date(calEtTodayMs());
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+  // The current ET month as 'YYYY-MM'.
+  function calTodayYm(){ return calEtTodayYmd().slice(0, 7); }
+  // Shift a 'YYYY-MM' by N months (N may be negative). Pure string math.
+  function calAddMonthsYm(ym, delta){
+    var p = String(ym || '').split('-');
+    var y = Number(p[0]), m = Number(p[1]) - 1 + (delta || 0);
+    y += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+    return y + '-' + String(m + 1).padStart(2, '0');
+  }
   // Small feather-style glyph per event type — gives the timeline a scannable
   // left rail. stroke=currentColor so each chip's type color flows through.
   function calEventIcon(type){
@@ -12831,6 +13251,30 @@
     };
     var key = (type === 'earnings' || type === 'report' || type === 'fomc' || type === 'catalyst') ? type : 'macro';
     return '<svg class="cal-chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[key] || paths.macro) + '</svg>';
+  }
+  // Compact short label for a month-grid day-cell marker.
+  function calMiniLabel(e){
+    if (e.type === 'earnings') return e.symbol || 'Earnings';
+    if (e.type === 'catalyst') return e.symbol || catalystCategoryLabel(e.category);
+    if (e.type === 'fomc') return 'FOMC';
+    if (e.type === 'report') return e.title || 'Report';
+    return calendarTypeLabel(e.type);
+  }
+  // Full hover/title text for a grid marker (the cell itself is space-limited).
+  function calMiniTitle(e){
+    if (e.type === 'earnings') return (e.symbol || '') + ' earnings' + (e.session ? ' (' + String(e.session).toUpperCase() + ')' : '');
+    if (e.type === 'catalyst') return (e.symbol ? e.symbol + ' · ' : '') + (e.title || 'Catalyst');
+    return e.title || calendarTypeLabel(e.type);
+  }
+  // One compact event marker for a month-grid day cell. Color flows from the
+  // type via .cal-mini-<type>; the text collapses to a dot on narrow screens
+  // (the title attribute carries the full description either way).
+  function calMiniChip(e){
+    var t = (e.type === 'earnings' || e.type === 'report' || e.type === 'fomc' || e.type === 'catalyst') ? e.type : 'macro';
+    return '<span class="cal-mini cal-mini-' + t + '" title="' + escapeHtml(calMiniTitle(e)) + '">' +
+        '<span class="cal-mini-dot" aria-hidden="true"></span>' +
+        '<span class="cal-mini-txt">' + escapeHtml(calMiniLabel(e)) + '</span>' +
+      '</span>';
   }
   // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
   // by the clickable earnings/catalyst symbols and the overview cards.
@@ -13496,14 +13940,6 @@
     if (isNaN(d.getTime())) return ym;
     return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(d);
   }
-  // 'YYYY-MM' -> 'Jun' (short, for the jump-nav chips).
-  function fmtCalendarMonthShort(ym){
-    var parts = String(ym || '').split('-');
-    if (parts.length < 2) return ym || '';
-    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, 1));
-    if (isNaN(d.getTime())) return ym;
-    return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short' }).format(d);
-  }
   // 'YYYY-MM-DD' -> 'Dec 31, 2026' (for the eyebrow window-end label).
   function fmtCalendarDateShort(dateStr){
     var parts = String(dateStr || '').split('-');
@@ -13518,21 +13954,47 @@
     var eyebrow = $('calendar-eyebrow');
     if (!root) return;
     if (calendarState.loading){
+      var skelCells = '';
+      for (var sk = 0; sk < 42; sk++) skelCells += '<div class="cal-cell is-skel"><span class="skel skel-line sm" style="width:18px"></span></div>';
       root.innerHTML =
-        '<div class="cal-day"><div class="cal-date"><span class="skel skel-line sm" style="width:80px"></span></div>' +
-        '<div class="cal-chips"><span class="skel skel-line" style="width:62%"></span><span class="skel skel-line" style="width:78%"></span></div></div>' +
-        '<div class="cal-day"><div class="cal-date"><span class="skel skel-line sm" style="width:80px"></span></div>' +
-        '<div class="cal-chips"><span class="skel skel-line" style="width:70%"></span></div></div>';
+        '<div class="cal-monthbar"><span class="skel skel-line" style="width:160px;height:20px"></span></div>' +
+        '<div class="cal-grid">' +
+          ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(w){ return '<span class="cal-grid-wd">' + w + '</span>'; }).join('') +
+          skelCells +
+        '</div>';
       if (empty) empty.hidden = true;
       return;
     }
     var data = calendarState.data || { events: [] };
     var todayMs = calEtTodayMs();
-    // "Up next" overview + filter-pill counts are driven by the FULL event set
-    // (not the active filter) so they stay stable as the user toggles types.
+    var todayYmd = calEtTodayYmd();
+    var todayYm = todayYmd.slice(0, 7);
+    if (empty) empty.hidden = true;
+    // The "up next" overview strip and the FOMC widget are month-independent —
+    // they always read the FULL event set, so they stay put as the user walks
+    // months or toggles type filters.
     renderCalendarOverview(data);
-    var counts = { all: data.events.length, earnings: 0, catalysts: 0, reports: 0, fomc: 0, macro: 0 };
+    renderFomcWidget(data.fomc || null);
+    refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
+    // Navigable month window. calendar.json only ever carries today→horizon
+    // events, so the earliest navigable month is the current one (no empty
+    // past months to wander into); the latest is the furthest event's month.
+    var allYms = data.events.map(function(e){ return String(e.date || '').slice(0, 7); }).filter(Boolean);
+    var minEventYm = allYms.length ? allYms.reduce(function(a, b){ return a < b ? a : b; }) : todayYm;
+    var maxEventYm = allYms.length ? allYms.reduce(function(a, b){ return a > b ? a : b; }) : todayYm;
+    var minYm = minEventYm < todayYm ? minEventYm : todayYm;
+    var maxYm = maxEventYm > todayYm ? maxEventYm : todayYm;
+    var viewYm = calendarState.viewYm;
+    if (!viewYm || viewYm < minYm || viewYm > maxYm){
+      viewYm = todayYm < minYm ? minYm : (todayYm > maxYm ? maxYm : todayYm);
+    }
+    calendarState.viewYm = viewYm;
+    // Per-type pill counts, scoped to the VIEWED MONTH so the badges match the
+    // grid the user is looking at.
+    var counts = { all: 0, earnings: 0, catalysts: 0, reports: 0, fomc: 0, macro: 0 };
     data.events.forEach(function(e){
+      if (String(e.date || '').slice(0, 7) !== viewYm) return;
+      counts.all++;
       if (e.type === 'earnings') counts.earnings++;
       else if (e.type === 'catalyst') counts.catalysts++;
       else if (e.type === 'report') counts.reports++;
@@ -13549,44 +14011,39 @@
         badge.textContent = (n != null && n > 0) ? String(n) : '';
       }
     }
-    renderFomcWidget(data.fomc || null);
-    refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
-    var filtered = data.events.filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    // Eyebrow keeps the whole-window horizon context; the month bar (below)
+    // owns the current-month label + count.
     if (eyebrow){
-      var filterLabel = calendarState.type === 'all' ? '' :
-        ' · ' + (calendarState.type === 'reports' ? 'Reports' :
-                 calendarState.type === 'fomc' ? 'FOMC' :
-                 calendarState.type === 'earnings' ? 'Earnings' :
-                 calendarState.type === 'catalysts' ? 'Catalysts' : 'Macro');
-      // Show the window end ("… · through Dec 31, 2026") only in the unfiltered
-      // view, where it explains the horizon; older calendar.json without
-      // windowEnd just omits it.
-      var windowLabel = (calendarState.type === 'all' && data.windowEnd)
-        ? ' · through ' + fmtCalendarDateShort(data.windowEnd) : '';
-      eyebrow.textContent = filtered.length + ' event' + (filtered.length === 1 ? '' : 's') + filterLabel + windowLabel;
+      var totalAll = data.events.length;
+      eyebrow.textContent = totalAll + ' event' + (totalAll === 1 ? '' : 's') +
+        (data.windowEnd ? ' · through ' + fmtCalendarDateShort(data.windowEnd) : '');
     }
-    if (!filtered.length){
-      root.innerHTML = '';
-      if (empty){
-        empty.hidden = false;
-        empty.textContent = data.loadError
-          ? 'Couldn’t load the calendar — refresh the page to try again.'
-          : data.events.length
-            ? 'No events match this filter.'
-            : 'No upcoming events.';
-      }
-      return;
-    }
-    if (empty) empty.hidden = true;
-    // Group events by date, then bucket those dates into months for a
-    // month-sectioned timeline (sticky month headers + a jump-nav).
+    // Filter by type, then group the VIEWED MONTH's events by date.
+    var filtered = data.events.filter(function(e){
+      return String(e.date || '').slice(0, 7) === viewYm && calendarTypeMatches(e.type, calendarState.type);
+    });
     var groups = {};
     var dateOrder = [];
     filtered.forEach(function(e){
       if (!groups[e.date]){ groups[e.date] = []; dateOrder.push(e.date); }
       groups[e.date].push(e);
     });
-    // Render one date row (date header + its event chips).
+    dateOrder.sort();
+    var monthCount = filtered.length;
+    // Resolve the selected day BEFORE building the grid so the chosen cell gets
+    // its highlight (each cell reads calendarState.selectedDate at build time).
+    // Keep a valid prior selection; otherwise default to today (if it's in view
+    // and has events) else the month's first event day.
+    var sel = calendarState.selectedDate;
+    if (sel && sel.slice(0, 7) !== viewYm) sel = null;
+    if (!sel || !(groups[sel] && groups[sel].length)){
+      if (todayYm === viewYm && groups[todayYmd] && groups[todayYmd].length) sel = todayYmd;
+      else if (dateOrder.length) sel = dateOrder[0];
+      else sel = (todayYm === viewYm ? todayYmd : null);
+    }
+    calendarState.selectedDate = sel;
+    // Render one date row (date header + its event chips) — reused verbatim in
+    // the selected-day detail panel below the grid.
     function renderDayRow(date){
       var rows = groups[date].map(function(e){
         if (e.type === 'report') return renderReportChip(e);
@@ -13647,34 +14104,66 @@
         '<div class="cal-chips">' + rows + '</div>' +
       '</div>';
     }
-    // Bucket the (date-sorted) dates into month groups, preserving order.
-    var monthsOrder = [];
-    var monthDates = {};
-    dateOrder.forEach(function(date){
-      var ym = date.slice(0, 7);
-      if (!monthDates[ym]){ monthDates[ym] = []; monthsOrder.push(ym); }
-      monthDates[ym].push(date);
-    });
-    // Jump-nav only earns its space when the window spans more than one month.
-    var nav = monthsOrder.length > 1
-      ? '<div class="cal-month-nav" role="navigation" aria-label="Jump to month">' +
-          monthsOrder.map(function(ym){
-            return '<button type="button" class="cal-month-nav-item" data-cal-month="' + ym + '">' +
-              escapeHtml(fmtCalendarMonthShort(ym)) + '</button>';
-          }).join('') +
-        '</div>'
-      : '';
-    var sections = monthsOrder.map(function(ym){
-      var count = monthDates[ym].reduce(function(n, d){ return n + groups[d].length; }, 0);
-      return '<section class="cal-month" id="cal-month-' + ym + '">' +
-        '<div class="cal-month-head">' +
-          '<span class="cal-month-name">' + escapeHtml(fmtCalendarMonth(ym)) + '</span>' +
-          '<span class="cal-month-count">' + count + ' event' + (count === 1 ? '' : 's') + '</span>' +
-        '</div>' +
-        monthDates[ym].map(renderDayRow).join('') +
-      '</section>';
-    }).join('');
-    root.innerHTML = nav + sections;
+    // --- Month grid: a 7-column wall calendar for the viewed month ----------
+    function calDayCell(date, dayNum){
+      var evs = groups[date] || [];
+      var isToday = date === todayYmd;
+      var isSel = date === calendarState.selectedDate;
+      var cls = 'cal-cell' + (isToday ? ' is-today' : '') + (isSel ? ' is-selected' : '') + (evs.length ? ' has-events' : '');
+      var markers = '';
+      if (evs.length){
+        var shown = evs.slice(0, 3).map(calMiniChip).join('');
+        var more = evs.length > 3 ? '<span class="cal-mini-more">+' + (evs.length - 3) + '</span>' : '';
+        markers = '<span class="cal-cell-events">' + shown + more + '</span>';
+      }
+      return '<button type="button" class="' + cls + '" data-cal-day="' + date + '" aria-pressed="' + (isSel ? 'true' : 'false') + '">' +
+          '<span class="cal-cell-num">' + dayNum + '</span>' + markers +
+        '</button>';
+    }
+    var WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var ymp = viewYm.split('-'); var vy = Number(ymp[0]); var vmi = Number(ymp[1]) - 1;
+    var firstWd = new Date(Date.UTC(vy, vmi, 1)).getUTCDay();          // 0=Sun
+    var daysInMonth = new Date(Date.UTC(vy, vmi + 1, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vy, vmi, 0)).getUTCDate();
+    var cells = [];
+    // Leading days from the previous month (dimmed, inert) so week 1 aligns.
+    for (var lead = 0; lead < firstWd; lead++){
+      cells.push('<div class="cal-cell is-out" aria-hidden="true"><span class="cal-cell-num">' + (prevDays - firstWd + 1 + lead) + '</span></div>');
+    }
+    for (var dnum = 1; dnum <= daysInMonth; dnum++){
+      cells.push(calDayCell(viewYm + '-' + String(dnum).padStart(2, '0'), dnum));
+    }
+    // Trailing days from the next month to square off the final week.
+    var trail = 1;
+    while (cells.length % 7 !== 0){
+      cells.push('<div class="cal-cell is-out" aria-hidden="true"><span class="cal-cell-num">' + (trail++) + '</span></div>');
+    }
+    var monthbar = '<div class="cal-monthbar">' +
+        '<button type="button" class="cal-nav-btn" data-cal-nav="prev"' + (viewYm <= minYm ? ' disabled' : '') + ' aria-label="Previous month">‹</button>' +
+        '<span class="cal-monthbar-label">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
+        '<button type="button" class="cal-nav-btn" data-cal-nav="next"' + (viewYm >= maxYm ? ' disabled' : '') + ' aria-label="Next month">›</button>' +
+        (viewYm !== todayYm ? '<button type="button" class="cal-today-btn" data-cal-nav="today">Today</button>' : '') +
+        '<span class="cal-monthbar-count">' + monthCount + ' event' + (monthCount === 1 ? '' : 's') + '</span>' +
+      '</div>';
+    var grid = '<div class="cal-grid" role="grid" aria-label="' + escapeHtml(fmtCalendarMonth(viewYm)) + ' calendar">' +
+        WD.map(function(w){ return '<span class="cal-grid-wd" role="columnheader">' + w + '</span>'; }).join('') +
+        cells.join('') +
+      '</div>';
+    // --- Selected-day detail: the FULL rich chips for the day picked above --
+    var detail;
+    if (sel && groups[sel] && groups[sel].length){
+      detail = '<div class="cal-detail">' + renderDayRow(sel) + '</div>';
+    } else if (monthCount === 0){
+      var what = calendarState.type === 'all' ? '' : '“' + escapeHtml(calendarPillLabel(calendarState.type)) + '” ';
+      detail = '<div class="cal-detail cal-detail-empty">' +
+        (data.loadError
+          ? 'Couldn’t load the calendar — refresh the page to try again.'
+          : 'No ' + what + 'events in ' + escapeHtml(fmtCalendarMonth(viewYm)) + '.') +
+      '</div>';
+    } else {
+      detail = '<div class="cal-detail cal-detail-empty">No events on ' + escapeHtml(fmtCalendarDate(sel)) + ' — pick another day.</div>';
+    }
+    root.innerHTML = monthbar + grid + detail;
   }
   function bindCalendarControls(){
     var typeFilter = document.querySelector('.calendar-type-filter');
@@ -13693,21 +14182,41 @@
       });
     }
     // Delegate clicks on the calendar root so handlers survive every re-render
-    // (renderCalendar replaces root.innerHTML): the month jump-nav (smooth-
-    // scrolls a month section, clearing the sticky bar via scroll-margin-top)
-    // and clickable ticker symbols in earnings/catalyst chips (→ Grade tab).
+    // (renderCalendar replaces root.innerHTML): the month nav (‹ prev / next ›
+    // / Today), day-cell selection (fills the detail panel), and clickable
+    // ticker symbols in earnings/catalyst chips (→ Grade tab).
     var calRoot = document.getElementById('calendar-root');
     if (calRoot){
       calRoot.addEventListener('click', function(ev){
-        var symBtn = ev.target.closest && ev.target.closest('.cal-chip-sym-btn[data-cal-sym]');
+        if (!ev.target.closest) return;
+        // Clickable ticker symbol inside an earnings/catalyst chip → Grade tab.
+        var symBtn = ev.target.closest('.cal-chip-sym-btn[data-cal-sym]');
         if (symBtn){ calGoToTicker(symBtn.getAttribute('data-cal-sym')); return; }
-        var item = ev.target.closest && ev.target.closest('.cal-month-nav-item');
-        if (!item) return;
-        var ym = item.getAttribute('data-cal-month');
-        var section = ym ? document.getElementById('cal-month-' + ym) : null;
-        if (section && typeof section.scrollIntoView === 'function'){
-          try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-          catch (_) { section.scrollIntoView(); }
+        // Month navigation: step a month or jump back to today.
+        var navBtn = ev.target.closest('[data-cal-nav]');
+        if (navBtn){
+          if (navBtn.disabled) return;
+          var dir = navBtn.getAttribute('data-cal-nav');
+          if (dir === 'today') calendarState.viewYm = calTodayYm();
+          else calendarState.viewYm = calAddMonthsYm(calendarState.viewYm || calTodayYm(), dir === 'next' ? 1 : -1);
+          calendarState.selectedDate = null; // re-pick a sensible default for the new month
+          renderCalendar();
+          return;
+        }
+        // Day-cell selection → show that day's full events in the detail panel.
+        var cell = ev.target.closest('.cal-cell[data-cal-day]');
+        if (cell){
+          calendarState.selectedDate = cell.getAttribute('data-cal-day');
+          renderCalendar();
+          // On phones the detail sits below the fold under the grid — nudge it
+          // into view so a tap visibly does something.
+          try {
+            if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches){
+              var det = calRoot.querySelector('.cal-detail');
+              if (det && det.scrollIntoView) det.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+          } catch (_) {}
+          return;
         }
       });
     }

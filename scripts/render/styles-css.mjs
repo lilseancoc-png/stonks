@@ -8245,6 +8245,143 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   .rob-lvl { display: none; }
 }
 
+/* --- Market tape: expandable axis tiles, sparklines, cross-highlight ------- */
+/* The axis tiles are now buttons (click to drill down) — keep the card look. */
+.tape-axis {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+.tape-axis:hover { background: color-mix(in srgb, var(--text-strong) 5%, var(--surface)); }
+.tape-axis:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+.tape-axis.is-open { box-shadow: var(--elev-1); border-color: color-mix(in srgb, var(--text-strong) 16%, var(--border)); }
+.tape-axis-foot { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-top: 2px; }
+.tape-axis-foot .tape-axis-desc { margin-top: 0; }
+.tape-axis-spark { flex: 0 0 auto; display: inline-flex; align-items: center; }
+.tape-axis-more {
+  display: inline-block; margin-top: 6px;
+  font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted);
+}
+.tape-axis:hover .tape-axis-more, .tape-axis.is-open .tape-axis-more { color: var(--text-strong); }
+
+/* Shared inline sparkline — tone colors the stroke, dashed line marks neutral. */
+.tape-spark { display: inline-block; vertical-align: middle; color: var(--muted); }
+.tape-spark-on { color: var(--pos); }
+.tape-spark-off { color: var(--neg); }
+.tape-spark-warn { color: var(--warn); }
+.tape-spark-flat { color: var(--muted); }
+.tape-spark-base { stroke: color-mix(in srgb, var(--text-strong) 22%, transparent); stroke-width: 1; stroke-dasharray: 2 2; }
+
+/* Axis drill-down drawer. */
+.tape-axis-detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); display: grid; gap: 6px; }
+.tape-axis-detail-about { margin: 0; font: 400 11.5px/1.5 var(--font-sans); color: var(--text); }
+.tape-axis-detail-reading { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tape-axis-detail-badge {
+  font: 800 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .05em;
+  padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border);
+}
+.tape-axis-detail-badge.tape-off { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); background: color-mix(in srgb, var(--neg) 7%, var(--surface)); }
+.tape-axis-detail-badge.tape-on { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); background: color-mix(in srgb, var(--pos) 7%, var(--surface)); }
+.tape-axis-detail-badge.tape-flat { color: var(--muted); }
+.tape-axis-detail-label { font: 500 11.5px/1.4 var(--font-sans); color: var(--text); }
+.tape-axis-detail-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tape-chip {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px;
+  background: color-mix(in srgb, var(--text-strong) 3%, var(--surface));
+}
+.tape-chip-k { font: 700 9px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.tape-chip-v { font: 700 11px/1.2 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.tape-axis-detail-feeds, .tape-axis-detail-flip, .tape-axis-detail-live { font: 400 11px/1.5 var(--font-sans); color: var(--muted); }
+.tape-axis-detail-feeds b, .tape-axis-detail-flip b { color: var(--text-strong); font-weight: 700; }
+
+/* Headline meter net-stress trend sparkline. */
+.tape-meter-trend { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.tape-meter-trend-lbl { font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.tape-meter-trend-spark { display: inline-flex; align-items: center; }
+
+/* Cross-highlight — hover an axis tile <-> its feeding rail rows (and back). */
+.tape-axis.is-xhl, .tape-axis.is-xhl-src {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+.rob-row.is-xhl, .rob-row.is-xhl-src {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+/* --- Cross-asset rail: controls + clickable rows + drill-down -------------- */
+.rob-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
+.rob-ctrl { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.rob-ctrl select { font: 600 11px/1 var(--font-mono); color: var(--text-strong); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; cursor: pointer; }
+.rob-group-btn {
+  font: 700 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .05em;
+  padding: 5px 9px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--surface); color: var(--muted); cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+.rob-group-btn:hover { color: var(--text-strong); }
+.rob-group-btn[aria-pressed="true"] {
+  color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+.rob-liveonly { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.rob-liveonly input { cursor: pointer; accent-color: var(--accent); }
+
+.rob-group-head {
+  font: 700 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin: 8px 0 5px; padding-top: 7px; border-top: 1px solid var(--border);
+}
+.rob-group:first-child .rob-group-head { border-top: 0; padding-top: 0; margin-top: 0; }
+
+.rob-row-wrap { display: block; }
+/* Rows are now buttons (click to expand). Keep the grid from the base rule and
+   add the resets + a 4th column for the disclosure chevron. */
+.rob-row {
+  width: 100%;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  text-align: left;
+  transition: background .12s ease, box-shadow .12s ease;
+  grid-template-columns: var(--rob-name-col, 132px) 1fr auto auto;
+}
+.rob-row:hover { background: color-mix(in srgb, var(--text-strong) 5%, transparent); }
+.rob-row:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }
+.rob-row.is-open { background: color-mix(in srgb, var(--text-strong) 4%, transparent); }
+.rob-scale { padding: 0 6px; }
+.rob-spark { display: inline-flex; align-items: center; color: var(--muted); margin-right: 2px; }
+.rob-row-chev { color: var(--muted); font-size: 10px; padding-left: 2px; }
+.rob-row-detail {
+  padding: 7px 10px 9px;
+  margin: 2px 0;
+  border-left: 2px solid color-mix(in srgb, var(--text-strong) 14%, var(--border));
+  display: grid;
+  gap: 4px;
+}
+.rob-row-detail-row { font: 400 11.5px/1.5 var(--font-sans); color: var(--muted); }
+.rob-row-detail-row b { color: var(--text-strong); font-weight: 700; }
+.rob-row-detail-fresh { font: 600 10px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; }
+.rob-empty { padding: 10px 4px; font: 500 12px/1.5 var(--font-sans); color: var(--muted); }
+@media (max-width: 860px) {
+  .rob-spark { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tape-axis, .rob-row, .rob-group-btn { transition: none; }
+}
+
 /* Mobile: tighten the rank gutter. The score breakdown is now the in-card
    "Grade" tab (a tabpanel inside .pick-main), so it already flows full-width
    beneath the tabs on narrow viewports — no grid reflow needed. */
