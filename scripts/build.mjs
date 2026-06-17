@@ -7344,7 +7344,7 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
     // Odds-gated events only fire when the crowd CAN'T call them; always-defer
     // (scheduled FOMC / major prints) fire regardless of how confident the odds are.
     if (!c.alwaysDefer && !(Number.isFinite(c.topProb) && c.topProb < PICKS_EVENT_RISK_MAX_PROB)) continue;
-    if (!best || daysOut < best.daysOut) best = { active: true, label: c.label, daysOut, topProb: c.topProb, alwaysDefer: !!c.alwaysDefer };
+    if (!best || daysOut < best.daysOut) best = { active: true, label: c.label, date: c.date, daysOut, topProb: c.topProb, alwaysDefer: !!c.alwaysDefer };
   }
   return best || { active: false };
 }
@@ -13826,6 +13826,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       // the contract's earnings-in-window read; surfaced on the card + timing panel.
       earningsBeforeExpiry: !!contract.earningsInWindow,
       entryRegime: regime,   // stamped onto the accuracy entry for the byRegime cohort
+      // Macro-event exposure at entry (the active scheduled FOMC / major print, if
+      // any). Stamped onto the accuracy entry so the track record can MEASURE whether
+      // entering near a macro vol event costs money — and whether the defined-risk
+      // verticals this build now forces into events beat the naked longs the engine
+      // used to ship. Null when no event was imminent at entry.
+      entryEventRisk: eventRisk ? { label: eventRisk.label, date: eventRisk.date || null, daysOut: eventRisk.daysOut, alwaysDefer: !!eventRisk.alwaysDefer } : null,
       thesis,
       drivers: r.drivers,
       spot: r.data?.spot ?? null,
@@ -15440,6 +15446,42 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   const byTier = cohort((e) => e.tier);
   const bySector = cohort((e) => e.sector);
   const byRegime = cohort((e) => e.entryRegime || "unknown");
+  // Macro-event exposure A/B (#FOMC rework learning loop). Split the decided record
+  // by whether the pick was entered near / held through a scheduled macro vol event
+  // (FOMC / major CPI/PPI/jobs print), and sub-split by contract STRUCTURE — so the
+  // engine can MEASURE the two questions this rework raises: (1) did event exposure
+  // actually cost money (validating the always-defer), and (2) did the defined-risk
+  // verticals it now forces into events outperform the naked longs the old engine
+  // shipped? This is the substrate a future event-aware weight learns from; for now
+  // it's measure-only, alongside the bySignal IC. Additive — existing readers unaffected.
+  const byEvent = (() => {
+    const out = {};
+    for (const e of decided) {
+      const exposed = !!(e.entryEventRisk || e.eventInHold);
+      const k = exposed ? "event-exposed" : "no-event";
+      if (!out[k]) out[k] = { n: 0, wins: 0, winRate: null, optN: 0, optWins: 0, optSum: 0, optWinRate: null, optExpectancyPct: null, byStructure: {} };
+      const o = out[k];
+      o.n += 1; if (e.outcome === "win") o.wins += 1;
+      const op = e.optionPnlPct;
+      if (Number.isFinite(op)) { o.optN += 1; o.optSum += op; if (op > 0) o.optWins += 1; }
+      const stk = (e.contract && e.contract.structure) || "long";
+      const sb = o.byStructure[stk] || (o.byStructure[stk] = { n: 0, wins: 0, winRate: null, optN: 0, optSum: 0, optExpectancyPct: null });
+      sb.n += 1; if (e.outcome === "win") sb.wins += 1;
+      if (Number.isFinite(op)) { sb.optN += 1; sb.optSum += op; }
+    }
+    for (const k of Object.keys(out)) {
+      const o = out[k];
+      o.winRate = o.n >= 3 ? Number((o.wins / o.n).toFixed(3)) : null;
+      o.optWinRate = o.optN >= 3 ? Number((o.optWins / o.optN).toFixed(3)) : null;
+      o.optExpectancyPct = o.optN ? Number((o.optSum / o.optN).toFixed(2)) : null;
+      for (const stk of Object.keys(o.byStructure)) {
+        const s = o.byStructure[stk];
+        s.winRate = s.n >= 3 ? Number((s.wins / s.n).toFixed(3)) : null;
+        s.optExpectancyPct = s.optN ? Number((s.optSum / s.optN).toFixed(2)) : null;
+      }
+    }
+    return out;
+  })();
   // go-vs-wait A/B (research). Now that every shipped pick enrolls (full-roster),
   // both arms populate organically — the 'wait' arm no longer needs PICKS_ACCURACY_AB
   // to exist. Computed over decidedAll (same set as the headline) so the gate's
@@ -15685,6 +15727,7 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     bySector,
     byRegime,
     byCohort,
+    byEvent,
     bySignal,
   };
 }
@@ -15867,6 +15910,13 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         optionPremiumExit: opt ? opt.premiumExit : null,
         optionExitIv: opt ? opt.sigmaExit : null,
         earningsInHold: opt ? !!opt.earningsInHold : null,
+        // Did the macro event the pick was entered near actually fall inside the
+        // hold window? (entryEventRisk.date ≤ exit). The byEvent cohort reads this +
+        // entryEventRisk to measure whether event exposure cost money. null when the
+        // pick carried no entry-event snapshot (legacy / no imminent event at entry).
+        eventInHold: (e.entryEventRisk && e.entryEventRisk.date && Number.isFinite(Date.parse(e.entryEventRisk.date)))
+          ? (Date.parse(`${e.entryEventRisk.date}T23:59:59Z`) <= exitSec * 1000)
+          : null,
       });
     } else {
       stillOpen.push(e);
@@ -15955,6 +16005,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // 'structure' (no clean setup). Lets the go-vs-wait A/B separate "stood
       // down for CPI" from "the chart wasn't there". null on the go cohort.
       waitKind: p.entryTiming?.state === "wait" ? (p.entryTiming?.deferKind || "structure") : null,
+      // Macro-event exposure at entry (#FOMC rework learning loop): the scheduled
+      // FOMC / major print that was imminent when this pick shipped, if any. Carried
+      // through to resolution so computePicksAccuracyStats can split the record by
+      // event exposure (byEvent) and feed the IC bridge / a future event-aware weight.
+      entryEventRisk: p.entryEventRisk || null,
       entrySignals,
       entryDate: builtAtIso,
       entrySpot: Number(entrySpot.toFixed(2)),

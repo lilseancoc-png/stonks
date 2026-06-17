@@ -1417,6 +1417,30 @@ unchanged → **byte-identical** scoring. "Set up now, bites later": the weights
 leaning toward measured edge automatically as the closed record accrues, no further
 code change. `=0` reverts to equal `W_s`.
 
+> **This is the engine's "machine learning."** It is a regularized, bounded linear
+> refit (per-signal IC → weight), deliberately *not* a black-box model — with ~5–10
+> picks/build a tree/net would overfit noise and look smart in-sample while losing
+> money live. The IC bridge learns *which inputs actually predict forward returns* and
+> down-weights the ones that don't, which is the right model class for this sample size.
+
+### 9.7 Macro-event exposure measurement loop (`byEvent`)
+The substrate that lets the engine *learn the FOMC lesson* (§6.6), not just hard-code
+it. Each shipped pick now carries an **`entryEventRisk`** snapshot (the scheduled FOMC /
+major print imminent at entry, if any — `{label, date, daysOut, alwaysDefer}`), and at
+resolution `resolvePickOutcome` stamps **`eventInHold`** (did that event fall inside the
+hold window). `computePicksAccuracyStats` adds a **`byEvent`** cohort that splits the
+decided record into `event-exposed` vs `no-event`, each **sub-split by contract
+`structure`** (naked `long` vs `debit_vertical`) and carrying win rate + modeled-option
+expectancy. So the record directly answers the two questions this rework raises:
+1. **Did entering near a macro vol event cost money?** (validates the always-defer.)
+2. **Did the defined-risk verticals the engine now forces into events beat the naked
+   longs it used to ship?** (validates the no-naked-long gate.)
+
+Measure-only today (like the per-signal IC, §9.6) — it accumulates the forward outcomes
+a future *event-aware weight* would learn from, and surfaces on the Track Record tab
+("Macro-event exposure" cohort, under Advanced). The same enroll→resolve→aggregate plumbing
+the IC bridge rides, so it feeds the same auto-learning loop as the record accrues.
+
 ---
 
 ## 10. Pointers
@@ -1432,7 +1456,9 @@ code change. `=0` reverts to equal `W_s`.
   (§6.3 cross-asset macro-stress regime + differential book tilt),
   `applyMacroRegimePersistence` (§6.3 regime hysteresis),
   `readGradesDaily` / `appendGradesDaily` / `writeGradesDaily` (§8 universe-IC
-  substrate, measured offline by [`scripts/diagnose-grade-ic.mjs`](../scripts/diagnose-grade-ic.mjs)).
+  substrate, measured offline by [`scripts/diagnose-grade-ic.mjs`](../scripts/diagnose-grade-ic.mjs)),
+  `buildSignalIcMap` (§9.6 IC-bridge weight refit), `computePicksAccuracyStats`'
+  `byEvent` cohort (§9.7 macro-event exposure measurement loop).
 - Render: [`scripts/render/app-js.mjs`](../scripts/render/app-js.mjs) —
   `pickTimingBanner` / `pickTimingBadge` (the card) and `buildExecuteNowCard` (the
   live Grade-tab sibling). The expandable score breakdown is `pickPillarPanel`,

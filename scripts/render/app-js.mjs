@@ -16631,12 +16631,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var regimeBlock = cohortBlock('Win rate by market regime', st.byRegime);
     // gate A/B only when both arms have data (PICKS_ACCURACY_AB enabled long enough)
     var abBlock = (st.byCohort && Object.keys(st.byCohort).length > 1) ? cohortBlock('Gate A/B — endorsed (go) vs deferred (wait)', st.byCohort) : '';
+    // Macro-event exposure A/B — did entering near an FOMC / major print cost us, and
+    // did the defined-risk verticals the engine now forces into events beat naked longs?
+    var eventBlock = (st.byEvent && Object.keys(st.byEvent).length > 1) ? cohortBlock('Macro-event exposure — entered near an FOMC / major print vs not', st.byEvent) : '';
     // Demote the research-y chips + cohort breakdowns into a collapsed "Advanced"
     // disclosure so the Scorecard leads with the headline win rate / expectancy
     // and win-rate-by-tier, not a wall of bars.
     var advancedInner = '';
     if (researchChips) advancedInner += '<div class="accuracy-chips accuracy-chips-research">' + researchChips + '</div>';
-    advancedInner += sectorBlock + regimeBlock + abBlock;
+    advancedInner += sectorBlock + regimeBlock + abBlock + eventBlock;
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
