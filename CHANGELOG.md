@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Changed
+- **Top Picks "Check a position you hold" now shows the bid × ask, last trade, and spread behind the "now" mark.** The tool prices "now" at the live bid/ask **mid** (the fair liquidation value), but on a beaten-down option the spread balloons, so the mid can read well below the last print — making a "down 60%" (mid) look wrong next to the "down 40%" a stale last trade implied. The P&L math was always correct; it just wasn't transparent. The result card now surfaces `bid $X × ask $Y · last $Z · spread N%`, and when a wide spread (≥20%) pulls the mid below the last, a one-line note explains the gap (the mid is fair value; your real exit sits nearer the bid). `scripts/render/app-js.mjs` + `scripts/render/styles-css.mjs`.
+
 ### Perf
 - **Bake no longer stalls ~4× when Gemini is throttling.** On a Gemini "503 — high demand" storm a single 9:30 bake ran ~21min (vs the usual ~4min) — same code, just retry-backoff sleep on the synchronous critical path (one narratives call alone burned ~3min of pure backoff). Two hardening levers: (1) the 5xx/network retry backoff is now capped (`AI_5XX_MAX_BACKOFF_MS`, ~12s; the narratives schedule's 30/45/60s tail rungs → ≤15s) so a load-shed spike that won't clear inside one build degrades fast to last-good instead of sleeping minutes — genuine 429 quota waits are still honoured via the API's retry hint; (2) the two non-essential tail-gloss passes (`aiExplainPicksChanges`, `aiGlossRosterForecasts`) now fire **concurrently** under a wall-clock budget (`PICKS_GLOSS_AI_BUDGET_MS`, 30s) instead of serial `for` loops that stalled ~2min each — anything unfinished keeps its deterministic text. No change to output on a healthy-Gemini build. `scripts/build.mjs`.
 
