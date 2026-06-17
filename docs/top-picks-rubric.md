@@ -568,7 +568,8 @@ is down): multi-day returns `ret1d/ret3d/ret5d`, drawdown from the 20-bar extrem
 in ATR units, extension beyond the 20D SMA, RSI + 5-day RSI change, MACD, relative
 volume, position in the 52-week range, the 20D S/R levels, the broad-market regime
 (SPY day move + VIX level **and term-structure slope**, §6.3), days-to-earnings,
-and a **prediction-market macro-event-risk read** (§6.6).
+and a **scheduled macro-event-risk read** (§6.6 — FOMC + major CPI/PPI/jobs always
+defer; the roster ships verticals-only or drops naked longs into the window).
 
 ### States → score contribution
 The state is informational; what feeds the grade is the `contribution`:
@@ -855,21 +856,45 @@ isn't dinged either — pure graceful degradation, just not endorsed.
   picks and, with §8's go-only tracking, would have enrolled ~2 of the 18 losses
   instead of all 18.
 
-### 6.6 Macro event-risk defer (prediction-market-driven)
-`computeMacroEventRisk` reads the Kalshi/Polymarket FOMC + macro-release odds (the
-same overlay the Calendar tab shows) and flags an **imminent, market-uncertain**
-event: an FOMC decision or a CPI / jobs print within `PICKS_TIMING_EVENT_DEFER_DAYS`
-(**3**) sessions whose **top outcome is priced below `PICKS_EVENT_RISK_MAX_PROB`
-(70%)** — a coin-flip the crowd can't call. When it fires, `computeEntryTiming` adds
-a **soft con** and forces the verdict to **`wait`** (a hard defer, mirroring the
-earnings defer in §6.2): you don't buy a debit option straight into a two-sided macro
-print. A *confident* event (e.g. a 98%-hold FOMC) does **not** fire, so the roster
-only stands down ahead of genuinely uncertain prints. Computed once per build from
-the prediction-market overlay and threaded via `macroBackdrop.eventRisk`; gated by
-`PICKS_EVENT_RISK` (default ON). Because it rides the timing contribution it is part
-of `total`, so a build where it fires shifts grades + the roster, then clears once
-the event passes. (Uses whichever platforms returned odds — currently Polymarket;
-see the Kalshi caveat in §9.)
+### 6.6 Macro event-risk defer (scheduled-event-driven + no naked premium)
+`computeMacroEventRisk` flags an **imminent macro vol event** within
+`PICKS_TIMING_EVENT_DEFER_DAYS` (**5** — widened from 3 to *anticipate* a known
+date across the whole pre-event week). Two trigger paths feed it:
+
+1. **Always-on scheduled events** (`PICKS_FOMC_ALWAYS_DEFER`, default ON): a
+   scheduled **FOMC decision** and the **major CPI/PPI/jobs prints**
+   (`ALWAYS_DEFER_REPORT_SUBTYPES` = cpi-mom/yoy, core-cpi-mom/yoy, ppi-mom, nfp)
+   are treated as **guaranteed long-premium vol events** — they fire **regardless
+   of how confidently the crowd has priced the headline number**. This is the fix
+   for the original failure mode: a long call shipped *straight into a Fed meeting*
+   because the rate decision was "priced" (~97% hold) while the real risk to a long
+   debit — the post-decision **IV crush** and a **hawkish-guidance / hot-print
+   surprise** (acute in a high-inflation tape) — is present no matter how priced the
+   decision is. The old design only deferred when the *odds* were a coin-flip, so it
+   never tripped on a confident-decision meeting.
+2. **Odds-gated events**: any *other* release whose Kalshi/Polymarket top outcome is
+   priced below `PICKS_EVENT_RISK_MAX_PROB` (70%) — a coin-flip the crowd can't call
+   (the lower-impact prints like JOLTS / unemployment rate stay on this path).
+
+When it fires, **two layers** apply:
+- **Entry timing** (`computeEntryTiming`, §6) adds a soft con and forces the verdict
+  to **`wait`** (a hard defer, mirroring the earnings defer in §6.2).
+- **No naked premium into the event** (`PICKS_EVENT_NO_NAKED_LONG`, default ON):
+  `buildTopPicks` asks `pickContractForPick` to build a **defined-risk debit
+  vertical** for *every* candidate (`forceVertical` — bypasses the §5 IV-rank floor,
+  since the event, not rich IV, is the reason). A name that can only be expressed as
+  a **naked single-leg long** is **dropped** (no backfill) and logged to
+  `rosterMeta.eventDeferred`; the active event rides on `rosterMeta.eventRisk` so the
+  card explains *why* the roster de-risked (the "⚖︎ N longs held back — FOMC in 3d"
+  note). This is the "avoid long premium into a vol event" stance — a vertical caps
+  the IV-crush + surprise loss the event guarantees.
+
+Computed once per build from the merged macro calendar + prediction-market overlay
+and threaded via `macroBackdrop.eventRisk`; gated by `PICKS_EVENT_RISK` (default ON).
+Revert the rework with `PICKS_FOMC_ALWAYS_DEFER=0` (back to odds-gated-only) and/or
+`PICKS_EVENT_NO_NAKED_LONG=0` (defer becomes a soft conviction drag again, naked
+longs allowed). Because the timing defer rides `total`, a build where it fires shifts
+grades + the roster, then clears once the event passes.
 
 ### 6.7 IV cost as a 6th score component (`computeIvCostContribution`, `PICKS_IV_SCORE`)
 The engine grades like a stock-picker (the 4 pillars are asset quality) but **trades
@@ -1285,7 +1310,10 @@ it has to be trustworthy. The fixes:
     `RISKOFF_SPY −1.0`, `RISKON_SPY 0.6`;
     `EARNINGS_DEFER_DAYS 8`; `MIN_BARS 15` (fail-open → `wait`); risk-off put bar
     `PICKS_RISKOFF_PUT_BAR −8`. **Macro event-risk defer (§6.6):** `PICKS_EVENT_RISK`
-    (default ON), `PICKS_TIMING_EVENT_DEFER_DAYS 3`, `PICKS_EVENT_RISK_MAX_PROB 0.70`.
+    (default ON), `PICKS_TIMING_EVENT_DEFER_DAYS 5` (widened 3→5), `PICKS_EVENT_RISK_MAX_PROB 0.70`,
+    `PICKS_FOMC_ALWAYS_DEFER` (default ON — scheduled FOMC + major CPI/PPI/jobs always defer,
+    `ALWAYS_DEFER_REPORT_SUBTYPES`), `PICKS_EVENT_NO_NAKED_LONG` (default ON — verticals-only
+    into the event, naked longs dropped to `rosterMeta.eventDeferred`).
   - **Cross-asset macro regime (§6.3):** `PICKS_MACRO_REGIME` (master flag, default ON),
     axes `PICKS_MACRO_DXY_1D 0.6` / `_1D_STRONG 0.9` / `_5D 1.0`, `PICKS_MACRO_YIELD_BPS_1D 10`
     / `_1D_STRONG 16`, `PICKS_MACRO_FED_DRIFT_PT 5` / `_LOOKBACK 5` / `_MEETINGS 3`; commodity
@@ -1389,6 +1417,30 @@ unchanged → **byte-identical** scoring. "Set up now, bites later": the weights
 leaning toward measured edge automatically as the closed record accrues, no further
 code change. `=0` reverts to equal `W_s`.
 
+> **This is the engine's "machine learning."** It is a regularized, bounded linear
+> refit (per-signal IC → weight), deliberately *not* a black-box model — with ~5–10
+> picks/build a tree/net would overfit noise and look smart in-sample while losing
+> money live. The IC bridge learns *which inputs actually predict forward returns* and
+> down-weights the ones that don't, which is the right model class for this sample size.
+
+### 9.7 Macro-event exposure measurement loop (`byEvent`)
+The substrate that lets the engine *learn the FOMC lesson* (§6.6), not just hard-code
+it. Each shipped pick now carries an **`entryEventRisk`** snapshot (the scheduled FOMC /
+major print imminent at entry, if any — `{label, date, daysOut, alwaysDefer}`), and at
+resolution `resolvePickOutcome` stamps **`eventInHold`** (did that event fall inside the
+hold window). `computePicksAccuracyStats` adds a **`byEvent`** cohort that splits the
+decided record into `event-exposed` vs `no-event`, each **sub-split by contract
+`structure`** (naked `long` vs `debit_vertical`) and carrying win rate + modeled-option
+expectancy. So the record directly answers the two questions this rework raises:
+1. **Did entering near a macro vol event cost money?** (validates the always-defer.)
+2. **Did the defined-risk verticals the engine now forces into events beat the naked
+   longs it used to ship?** (validates the no-naked-long gate.)
+
+Measure-only today (like the per-signal IC, §9.6) — it accumulates the forward outcomes
+a future *event-aware weight* would learn from, and surfaces on the Track Record tab
+("Macro-event exposure" cohort, under Advanced). The same enroll→resolve→aggregate plumbing
+the IC bridge rides, so it feeds the same auto-learning loop as the record accrues.
+
 ---
 
 ## 10. Pointers
@@ -1404,7 +1456,9 @@ code change. `=0` reverts to equal `W_s`.
   (§6.3 cross-asset macro-stress regime + differential book tilt),
   `applyMacroRegimePersistence` (§6.3 regime hysteresis),
   `readGradesDaily` / `appendGradesDaily` / `writeGradesDaily` (§8 universe-IC
-  substrate, measured offline by [`scripts/diagnose-grade-ic.mjs`](../scripts/diagnose-grade-ic.mjs)).
+  substrate, measured offline by [`scripts/diagnose-grade-ic.mjs`](../scripts/diagnose-grade-ic.mjs)),
+  `buildSignalIcMap` (§9.6 IC-bridge weight refit), `computePicksAccuracyStats`'
+  `byEvent` cohort (§9.7 macro-event exposure measurement loop).
 - Render: [`scripts/render/app-js.mjs`](../scripts/render/app-js.mjs) —
   `pickTimingBanner` / `pickTimingBadge` (the card) and `buildExecuteNowCard` (the
   live Grade-tab sibling). The expandable score breakdown is `pickPillarPanel`,
