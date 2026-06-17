@@ -3732,7 +3732,7 @@
       var e = entries[0];
       var stuck = !e.isIntersecting && e.boundingClientRect.top < 0;
       bar.hidden = !stuck;
-    }, { threshold: 0, rootMargin: '-56px 0px 0px 0px' });
+    }, { threshold: 0, rootMargin: '-104px 0px 0px 0px' });
     stickyIO.observe(verdictEl);
   }
 

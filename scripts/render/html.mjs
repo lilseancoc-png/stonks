@@ -1023,6 +1023,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <span id="freshness-text">Refreshed ${builtAt} (NY)</span>
   <span id="market-status" class="market-status" aria-live="off" hidden></span>
 </div>
+<div class="page-tabs-bar">
 <nav class="page-tabs" role="tablist" aria-label="Page sections">
   <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief">Brief</button>
@@ -1057,6 +1058,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </button>
   </div>
 </nav>
+</div>
 <!-- Dropdown menus live outside .page-tabs so the strip's edge-fade
      mask-image doesn't clip them. The triggers link to these menus via
      aria-controls + getElementById — keeping the markup colocated near the
