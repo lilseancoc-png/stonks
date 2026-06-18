@@ -1032,6 +1032,21 @@ first bake.
   build's resolutions, suppression is on the *prior* open set — a name that exits this
   build is eligible again next build (≤1 build, ~1h, of lag — deliberately: don't re-pump
   a name the same hour it stops out). `=0` reverts.
+- **Post-resolution cooldown — winners only** (`PICKS_REENTRY_COOLDOWN`, default ON).
+  Re-entry suppression above only holds a name out *while its position is open*; the
+  moment it resolves it's eligible again next build, and with the fast symmetric ±20%
+  snap exit (§5) a pick can resolve within a day or two, so a name that just **paid out**
+  could bounce straight back onto the roster (the "why is X still on Top Picks?"
+  surprise). This drops any candidate whose symbol **resolved as a win** within the last
+  `PICKS_REENTRY_COOLDOWN_DAYS` (default **7** calendar days, measured from the close's
+  `exitDate`) — read off the same pre-wipe `picks-accuracy.json` `closed[]` set the edge
+  governor already threads. **Winners only**: a name that got *cut* (loss / time-stop)
+  is **not** cooled down — a fresh clean setup on a name we just stopped out of shouldn't
+  be blocked. Skipped on the weekly-reset build (`opts.reentryCooldown === false`, set by
+  `main()`/`regen-picks` exactly like the open-set bypass) so the fresh week's first
+  roster is unconstrained; the weekly reset also clears `closed[]`, so the cooldown
+  naturally caps at the current week. Recorded in `rosterMeta.cooldownSuppressed`; `=0`
+  reverts (or set `PICKS_REENTRY_COOLDOWN_DAYS=0`).
 - **Order:** by **net-of-cost conviction** — `|total|` minus the P5.1
   execution-cost debit — ties broken by entry-timing score.
 - **Execution-cost debit (P5.1, `executionCostDebit`).** The chosen contract's

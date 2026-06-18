@@ -181,8 +181,8 @@ try {
   if (rfr && Number.isFinite(rfr.rate)) riskFreeRate = rfr.rate;
 } catch { /* no rfr-history.json yet — keep the 4.5% fallback */ }
 
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, openPositions: priorOpen, ...scannerExtras });
 const builtAtIso = new Date().toISOString();
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown: !resetDueThisRun, ...scannerExtras });
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above
 // (before this overwrite), exactly as the full build's writeTopPicksFile does (a
