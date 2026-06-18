@@ -4006,6 +4006,22 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
   console.log(`Earnings history: ${backfilled} tickers backfilled, ${resolved} events resolved/refreshed.`);
 }
 
+// Session-aware epoch (ms) for an earnings print. A bare date string anchors to
+// the crush time: AM (pre-open) -> 14:30Z, PM/unknown (post-close) -> 21:00Z
+// (deliberately a touch late, no DST math, so defer/crush flags never clear
+// early). A full ISO timestamp is parsed as-is. null on missing/invalid input.
+// Used by the earnings-history pipeline (attachEarningsHx + siblings).
+function earningsAnchorMs(earningsIso, session) {
+  if (!earningsIso || typeof earningsIso !== "string") return null;
+  if (earningsIso.length > 10) {
+    const t = Date.parse(earningsIso);
+    return Number.isFinite(t) ? t : null;
+  }
+  const tod = session === "AM" ? "14:30:00Z" : "21:00:00Z";
+  const t = Date.parse(`${earningsIso}T${tod}`);
+  return Number.isFinite(t) ? t : null;
+}
+
 // Attach the browser-facing slice onto each ticker (rides into data/<SYM>.json
 // through writeChainFiles): the last 8 reported quarters + the upcoming print
 // with its live straddle-implied move. qEnd ties each event to the fiscal
