@@ -8606,8 +8606,9 @@ export function appendGradesDaily(prev, gradesIndex, builtAtIso) {
   return { days: days.slice(-GRADES_DAILY_MAX_DAYS) };
 }
 export async function writeGradesDaily(payload) {
-  await writeFile(resolve(DATA_DIR, GRADES_DAILY_FILE), JSON.stringify(payload), "utf8");
-  return { days: (payload.days || []).length };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, GRADES_DAILY_FILE), json, "utf8");
+  return { days: (payload.days || []).length, bytes: json.length };
 }
 
 export async function readRegimeHistory() {
@@ -8623,8 +8624,9 @@ export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
   return { days: days.slice(-REGIME_HISTORY_MAX_DAYS) };
 }
 export async function writeRegimeHistory(payload) {
-  await writeFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), JSON.stringify(payload), "utf8");
-  return { days: (payload.days || []).length };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), json, "utf8");
+  return { days: (payload.days || []).length, bytes: json.length };
 }
 
 // ============================================================================
