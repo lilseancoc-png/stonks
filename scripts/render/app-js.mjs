@@ -1308,6 +1308,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // logic mirrors the 1H K-line buy/sell flow playbook: breakout above
   // resistance + volume = execute, rally fails at resistance = avoid,
   // sideways range = wait, etc. Direction-aware — flips for puts.
+  // Age (in days) of the freshest attached news headline, or null when none carry a
+  // usable publishedAt. Mirrors freshestHeadlineAgeDays in build.mjs — used to
+  // FRESHNESS-GATE the execute-now card's news-catalyst read so stale background
+  // sentiment can't pose as a fresh, move-now catalyst.
+  var EXEC_NEWS_FRESH_DAYS = 3;
+  function freshestHeadlineAgeDaysLive(news){
+    var hls = (news && news.headlines && news.headlines.length) ? news.headlines : null;
+    if (!hls) return null;
+    var newest = null;
+    for (var i = 0; i < hls.length; i++){
+      var h = hls[i];
+      var t = (h && h.publishedAt) ? Date.parse(h.publishedAt) : NaN;
+      if (isFinite(t) && (newest == null || t > newest)) newest = t;
+    }
+    if (newest == null) return null;
+    return (Date.now() - newest) / 86400000;
+  }
+
   function buildExecuteNowCard(ctx){
     var input = ctx.input || {};
     var buy = ctx.buy || null;
@@ -1679,6 +1697,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       daysToFomc = Math.round((dms - todayMs2) / 86400000);
       break;
     }
+    // --- Fresh news catalyst (side-aware, asymmetric) --------------------
+    // Mirror of the server entry-timing news read (computeEntryTiming in
+    // build.mjs, "consistent in spirit"): news moves stocks fast, so a FRESH
+    // ticker-specific catalyst is a timing signal, not just a grade input.
+    // Freshness-gated on the newest attached headline (within
+    // EXEC_NEWS_FRESH_DAYS) so stale background sentiment doesn't fire.
+    // Asymmetric option-buyer prudence: a fresh aligned catalyst is a soft
+    // pro, a fresh adverse one a strong con (fresh bad news is dangerous to
+    // long premium). The macro-fallback take is sentiment 'uncertain' → never fires.
+    var execNews = input.news || null;
+    if (execNews && execNews.sentiment){
+      var newsDir = execNews.sentiment === 'bullish' ? 1 : execNews.sentiment === 'bearish' ? -1 : 0;
+      if (newsDir !== 0){
+        var freshAge = freshestHeadlineAgeDaysLive(execNews);
+        if (freshAge != null && freshAge <= EXEC_NEWS_FRESH_DAYS){
+          var newsAgeTxt = freshAge < 1 ? 'today' : Math.round(freshAge) + 'd ago';
+          if (newsDir * dir > 0){
+            pros.push({ tag: 'Fresh catalyst', strong: false, text:
+              'A ' + execNews.sentiment + ' headline landed ' + newsAgeTxt + ' — a fresh catalyst that can move it the trade\\'s way this week.' });
+          } else {
+            cons.push({ tag: 'Adverse headline', strong: true, text:
+              'A ' + execNews.sentiment + ' headline landed ' + newsAgeTxt + ', working against ' + dirLabel + ' — fresh bad news is dangerous to long premium. Let it settle before entering.' });
+          }
+        }
+      }
+    }
+
     var catalystImminent = false;
     if (daysToEarnings != null && daysToEarnings <= 1){
       catalystImminent = true;

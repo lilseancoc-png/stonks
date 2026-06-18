@@ -619,8 +619,11 @@ is down): multi-day returns `ret1d/ret3d/ret5d`, drawdown from the 20-bar extrem
 in ATR units, extension beyond the 20D SMA, RSI + 5-day RSI change, MACD, relative
 volume, position in the 52-week range, the 20D S/R levels, the broad-market regime
 (SPY day move + VIX level **and term-structure slope**, §6.3), days-to-earnings,
-and a **scheduled macro-event-risk read** (§6.6 — FOMC + major CPI/PPI/jobs always
-defer; the roster ships verticals-only or drops naked longs into the window).
+a **scheduled macro-event-risk read** (§6.6 — FOMC + major CPI/PPI/jobs always
+defer; the roster ships verticals-only or drops naked longs into the window), and a
+**fresh-news-catalyst read** (§6.2 — a *freshness-gated* read of `data.news.sentiment`:
+news moves stocks fast, so a brand-new ticker catalyst is a timing signal, not just a
+grade input).
 
 ### States → score contribution
 The state is informational; what feeds the grade is the `contribution`:
@@ -709,6 +712,21 @@ Structure / momentum / **volume** / location accumulate as signed pros & cons:
   call, resistance for a put) earns credit for a tight, well-defined stop — the
   structural complement to the ATR-floor cut (§5). Not credited while chasing or
   breaking the wrong way.
+- **Fresh news catalyst (`PICKS_TIMING_NEWS`, default ON) — side-aware, asymmetric.**
+  News moves stocks fast, so a brand-new ticker-specific catalyst is a *timing* signal
+  (often the trigger for a move within the week), not only a grade input. The Narrative
+  pillar already scores the **rolling** `data.news.sentiment` (a slow "is the backdrop
+  good?" read); this is the **freshness-gated** complement — it fires **only** when the
+  newest attached headline is within `PICKS_TIMING_NEWS_FRESH_DAYS` (3) sessions, i.e.
+  *"something just happened that should move it now."* Asymmetric, mirroring the +2/−3
+  catalyst split (an option buyer fears fresh bad news more): a fresh **aligned**
+  catalyst is a **soft pro** (it supports a `go` but, being one noisy AI read, can't
+  manufacture a `go` alone — the price structure still has to fire), while a fresh
+  **adverse** catalyst is a **strong con** (blocks `go` → `wait` and shaves the
+  contribution). The synthesized macro-fallback take is `sentiment:"uncertain"`, so a
+  name with no readable ticker news never trips it. Mirrored live on the Grade tab's
+  `buildExecuteNowCard` (a soft "Fresh catalyst" pro / strong "Adverse headline" con) —
+  "consistent in spirit", not a shared module (`app.js` is a generated IIFE).
 - **Ex-dividend nudge (soft, ±1, side-aware).** A long *call* held across the
   ex-dividend date eats the open gap-down by the dividend (plus early-assignment risk
   on a slightly-ITM strike) → −1; a long *put* benefits from the same gap → +1. The
@@ -1345,6 +1363,10 @@ it has to be trustworthy. The fixes:
     the Grade tab's live overnight widget) → soft ±1 when |implied| ≥
     `PICKS_TIMING_OVERNIGHT_MIN_PCT 0.5`% (top-peer |corr| floor
     `PICKS_TIMING_OVERNIGHT_MIN_CORR 0.15`, staleness gate `PICKS_OVERNIGHT_MAX_AGE_HOURS 36`).
+  - **Fresh news catalyst (§6.2):** `PICKS_TIMING_NEWS` (default ON) — freshness-gated
+    `data.news.sentiment` read: a headline within `PICKS_TIMING_NEWS_FRESH_DAYS 3`
+    sessions → a fresh **aligned** catalyst is a soft pro, a fresh **adverse** one a
+    strong con (blocks `go`→`wait`). Mirrored live in `buildExecuteNowCard`. `=0` disables.
   - **Equity-internals sentiment axis (regime, §6.3):** `PICKS_MACRO_SENTIMENT`
     (default ON) — CNN Fear & Greed (`data/fear-greed.json`; the live fetch in a full
     build) votes as a 7th macro axis: composite ≤ `PICKS_MACRO_FG_FEAR 25` → −1,
