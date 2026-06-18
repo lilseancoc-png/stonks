@@ -1032,17 +1032,20 @@ first bake.
   build's resolutions, suppression is on the *prior* open set — a name that exits this
   build is eligible again next build (≤1 build, ~1h, of lag — deliberately: don't re-pump
   a name the same hour it stops out). `=0` reverts.
-- **Minimum hold before a pick can resolve** (`PICKS_MIN_HOLD_DAYS`, default **1**
-  calendar day). The premium ±snap exit (§5) and the underlying TP/cut have no floor —
-  they're re-evaluated on every hourly bake, and a volatile name's modeled option P&L can
-  cross ±20/30% on the **first reprice** (~1h after it shipped). The pick then resolves,
-  leaves `open[]`, and re-qualifies almost immediately, ping-ponging onto the roster
-  ~every other build. Gating those fast, price-driven exits behind a minimum hold makes a
-  freshly-shipped pick actually **dwell** in the track record (and stay suppressed off the
-  roster) for at least this long before it can resolve. Time-based exits (expiry, the
-  14-day time-stop, the theta-stop ≥4d, pre-earnings ≥4d) already clear the floor, and a
-  name that **left the universe** still resolves regardless. `=0` restores the instant
-  snap. (Trade-off: a loser isn't cut quite as instantly — accepted to stop the churn.)
+- **Minimum hold before a pick can resolve on a profit/churn exit** (`PICKS_MIN_HOLD_DAYS`,
+  default **1** calendar day). The +20% premium take-profit and the underlying TP/structural-cut
+  have no floor — they're re-evaluated on every hourly bake, and a volatile name's modeled
+  option P&L can cross the threshold on the **first reprice** (~1h after it shipped). The pick
+  then resolves, leaves `open[]`, and re-qualifies almost immediately, ping-ponging onto the
+  roster ~every other build. Gating those exits behind a minimum hold makes a freshly-shipped
+  pick actually **dwell** in the track record (and stay suppressed off the roster) for at least
+  this long before it can resolve. **The hard −30% premium STOP is exempt** — the left-tail loss
+  bound must fire from the first reprice, especially in a high-vol risk-off tape where a long
+  (or a tactical put that reverses on a bear bounce) can gap well past −30% inside the min-hold
+  window; so losses are still cut instantly while *winners* dwell (and the post-resolution
+  cooldown still blocks the cut name from bouncing straight back). Time-based exits (expiry, the
+  14-day time-stop, the theta-stop ≥4d, pre-earnings ≥4d) already clear the floor, and a name
+  that **left the universe** still resolves regardless. `=0` restores the instant snap.
 - **Post-resolution cooldown** (`PICKS_REENTRY_COOLDOWN`, default ON). Re-entry
   suppression above only holds a name out *while its position is open*; the moment it
   resolves it's eligible again next build. This drops any candidate whose symbol **left

@@ -8090,18 +8090,20 @@ const PICKS_ACCURACY_WEEKLY_RESET = process.env.PICKS_ACCURACY_WEEKLY_RESET !== 
 const PICKS_ACCURACY_RESET_DOW = Number(process.env.PICKS_ACCURACY_RESET_DOW ?? 0); // 0=Sun..6=Sat
 const PICKS_ACCURACY_MAX_HOLD_DAYS = Number(process.env.PICKS_ACCURACY_MAX_HOLD_DAYS ?? 14); // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days. Fast-results retune: 30→14 (calendar days = 2 weeks). The product promise is a profitable move within ~1 week, 2 weeks max — "if it's still down after that it's not a good look." So the engine is graded on, and force-closes at, the 2-week mark (the time-stop now records the CURRENT modeled option P&L sign — a pick still underwater at 2 weeks resolves as a LOSS — see resolvePickOutcome). Reverts the §3.8 30-day extension; the theta-aware stop (PICKS_THETA_STOP_PCT) still cuts a bleeder sooner.
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every shipped pick now enrolls (full-roster); the per-thesis dedup bounds the open list. Kept for reference / any external readers.
-// Minimum hold before a pick may resolve (user rule: "appears once, then it sits
-// in the track record"). The premium ±snap exit and the underlying TP/cut otherwise
-// have NO floor — they're re-evaluated on every hourly bake and a volatile name's
-// modeled option P&L can cross ±20/30% on the FIRST reprice (~1h after the pick
-// shipped), so the pick resolves, leaves open[], and re-qualifies almost immediately,
-// ping-ponging onto the roster ~every other build. Gating the fast exits behind a
-// minimum hold makes a freshly-shipped pick actually DWELL in the track record (and
-// stay suppressed off the roster, §re-entry) for at least this many days before it can
-// resolve. Time-based exits (expiry, the 14-day time-stop, theta-stop ≥4d, pre-earnings
-// ≥4d) already clear this floor; a name that LEFT the universe still resolves regardless.
-// Calendar days, same basis as PICKS_ACCURACY_MAX_HOLD_DAYS. Default ~1 trading day so a
-// pick shipped at the open survives the whole day's bakes. `=0` restores the instant snap.
+// Minimum hold before a pick may resolve on a PROFIT/CHURN exit (user rule: "appears
+// once, then it sits in the track record"). The +20% premium take-profit and the
+// underlying TP/structural-cut otherwise have NO floor — re-evaluated every hourly bake,
+// a volatile name's modeled option P&L can cross the threshold on the FIRST reprice (~1h
+// after the pick shipped), so the pick resolves, leaves open[], and re-qualifies almost
+// immediately, ping-ponging onto the roster ~every other build. Gating those exits behind
+// a minimum hold makes a freshly-shipped pick actually DWELL in the track record (and stay
+// suppressed off the roster, §re-entry) for at least this many days before it can resolve.
+// IMPORTANT: the hard −30% premium STOP is deliberately EXEMPT (see resolvePickOutcome) —
+// the left-tail loss bound must fire from the first reprice, especially in a high-vol
+// risk-off tape. Time-based exits (expiry, the 14-day time-stop, theta-stop ≥4d,
+// pre-earnings ≥4d) already clear this floor; a name that LEFT the universe still resolves
+// regardless. Calendar days, same basis as PICKS_ACCURACY_MAX_HOLD_DAYS. Default ~1 trading
+// day so a pick shipped at the open survives the whole day's bakes. `=0` → instant snap.
 const PICKS_MIN_HOLD_DAYS = Number(process.env.PICKS_MIN_HOLD_DAYS ?? 1);
 // Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
 // pick that goes nowhere on a ≥21-DTE contract hits day 14 with ~7 DTE left — the
@@ -15352,23 +15354,31 @@ export function excursionOutcome(mfePct, maePct) {
 export function resolvePickOutcome(opts) {
   const { isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct, expSec, entrySec, nowSec, inUniverse,
           thetaPctDay, modeledOptPnlPct, optMfePct, earningsAheadDays } = opts;
-  // Minimum-hold floor (PICKS_MIN_HOLD_DAYS): the fast price-driven exits (the premium
-  // ±snap and the underlying TP/cut) may not fire until the pick has been tracked this
-  // long, so a freshly-shipped name DWELLS in the track record instead of resolving on
-  // its first hourly reprice and ping-ponging back onto the roster. Time-based exits
-  // (expiry, time-stop, theta-stop, pre-earnings) and the left-the-universe drop are not
-  // gated (they're inherently later, or must always fire). `=0` → no floor (instant snap).
+  // Minimum-hold floor (PICKS_MIN_HOLD_DAYS): the fast price-driven exits may not fire
+  // until the pick has been tracked this long, so a freshly-shipped name DWELLS in the
+  // track record instead of resolving on its first hourly reprice and ping-ponging back
+  // onto the roster. EXCEPTION: the hard −30% premium STOP is NOT gated — bounding the
+  // left tail must work from the first reprice, especially in a high-vol risk-off tape
+  // where a long (or a tactical put that reverses on a bear bounce) can gap well past
+  // −30% inside the min-hold window. So the min-hold gates the TAKE-PROFIT and the
+  // underlying TP/structural-cut (the churn drivers), while the loss stop stays instant.
+  // Time-based exits (expiry, time-stop, theta-stop, pre-earnings) and the
+  // left-the-universe drop are not gated either. `=0` → no floor (instant snap).
   const heldEnough = !(PICKS_MIN_HOLD_DAYS > 0) || (entrySec > 0 && nowSec - entrySec >= PICKS_MIN_HOLD_DAYS * 86400);
   // P0.3 — premium-space exits FIRST. The capital at risk is the premium, and a
   // symmetric underlying stop maps to a wildly asymmetric option move, so cut at a
   // fixed premium loss (truncating the -60% tail the structural cut lets run) and
   // take profit on the upside. Needs a fresh modeled mark; legacy entries (no
   // entry-option snapshot) fall through to the underlying-level checks below.
-  if (heldEnough && PICKS_OPT_EXITS && modeledOptPnlPct != null && isFinite(modeledOptPnlPct)) {
+  if (PICKS_OPT_EXITS && modeledOptPnlPct != null && isFinite(modeledOptPnlPct)) {
     // Hard stop — the instant the modeled mark is down PICKS_OPT_STOP_PCT (−30%),
-    // take the loss. Bounds the left tail.
+    // take the loss. Bounds the left tail. NOT gated by the min-hold (above): a
+    // gapping loss must be cut from the first reprice, min-hold window or not.
     if (modeledOptPnlPct <= -PICKS_OPT_STOP_PCT * 100) return { status: "hit-stop-prem", outcome: "loss" };
-    if (PICKS_OPT_TRAIL) {
+    // Take-profit IS gated by the min-hold — a winner must dwell in the track record
+    // before it can snap out, so it doesn't bank +20% on the first hour's pop and
+    // ping-pong straight back onto the roster.
+    if (heldEnough && PICKS_OPT_TRAIL) {
       // Trailing take-profit (let winners run). Once the PEAK modeled gain arms at
       // PICKS_OPT_TP_PCT (+60%), the exit floor ratchets to max(peak·(1−giveback),
       // +60%): it locks at least the old flat TP and trails a runner up, exiting only
@@ -15382,7 +15392,7 @@ export function resolvePickOutcome(opts) {
           return { status: "hit-trail-prem", outcome: modeledOptPnlPct > 0 ? "win" : "loss" };
         }
       }
-    } else if (modeledOptPnlPct >= PICKS_OPT_TP_PCT * 100) {
+    } else if (heldEnough && modeledOptPnlPct >= PICKS_OPT_TP_PCT * 100) {
       // Flat take-profit — the instant the modeled mark is up PICKS_OPT_TP_PCT
       // (+20%), bank it (the default; trailing off).
       return { status: "hit-tp-prem", outcome: "win" };
