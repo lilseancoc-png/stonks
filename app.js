@@ -2693,6 +2693,75 @@
     if (shell) shell.hidden = !state.symbol;
   }
 
+  // --- Ticker grade headline -------------------------------------------
+  // The Grade tab leads with the WHOLE-TICKER grade (the same 4-pillar
+  // conviction breakdown the Top Picks "grade any ticker" search shows), not
+  // a single contract — the contract grader is now just one section/tab below.
+  // Reuses the pick card sub-components (tier badge + pillar panel + peer list)
+  // so the breakdown matches the picks engine by construction. g is a
+  // data/grades.json record (FREE key — available to every visitor).
+  function buildTickerGradeHeadlineHtml(g){
+    if (!g) return '';
+    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 12;
+    var minConvDisp = Math.round(minConv * 10) / 10;
+    var total = (g.total != null) ? g.total : 0;
+    var actionable = Math.abs(total) >= minConv;
+    var cardSide = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'pick-grade-neutral';
+    var sideLabel = g.side === 'put' ? 'PUT' : g.side === 'call' ? 'CALL' : 'NO TRADE';
+    var sideBadgeCls = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'neutral';
+    var spot = g.spot != null ? '$' + Number(g.spot).toFixed(2) : '';
+    var sectorTag = g.sector ? '<span class="pick-sector">' + escapeHtml(g.sector) + '</span>' : '';
+    var streakHtml = g.streak
+      ? '<span class="pick-streak pick-streak-' + escapeHtml(g.streak.color) + '">' +
+          g.streak.days + 'd ' + (g.streak.color === 'green' ? '▲' : '▼') +
+          ' ' + (g.streak.cumulativePct >= 0 ? '+' : '') + g.streak.cumulativePct.toFixed(1) + '%' +
+        '</span>'
+      : '';
+    var noteHtml = actionable
+      ? '<p class="pick-offlist-note">Clears the actionable bar (|total|&nbsp;&ge;&nbsp;' + minConvDisp + ') — the engine ranks this among today’s tradeable names. The recommended contract + entry/exit plan live in the <b>Top Picks</b> tab; grade a specific contract below.</p>'
+      : '<p class="pick-offlist-note">Graded below the actionable bar (|total|&nbsp;&lt;&nbsp;' + minConvDisp + ') — not a top pick today. The 4-pillar breakdown below shows exactly how it graded; grade a specific contract on it below.</p>';
+    var tierHtml = pickTierBadge(g);
+    var pillarsHtml = pickPillarPanel(g);
+    var peersHtml = pickPeerList(g);
+    return '<article class="pick-card pick-grade-card opt-grade-headline ' + cardSide + '" data-symbol="' + escapeHtml(g.symbol) + '">' +
+      '<div class="pick-main">' +
+        '<div class="pick-head">' +
+          '<span class="opt-grade-headline-sym">' + escapeHtml(g.symbol) + '</span>' +
+          (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
+          sectorTag +
+          '<span class="pick-side pick-side-' + sideBadgeCls + '">' + sideLabel + '</span>' +
+          streakHtml +
+        '</div>' +
+        noteHtml +
+        tierHtml +
+        pillarsHtml +
+        peersHtml +
+      '</div>' +
+    '</article>';
+  }
+  // Paint the whole-ticker grade headline for the selected symbol. grades.json
+  // is loaded lazily (and cached) on first use; if it's missing or the symbol
+  // isn't tracked, the headline quietly hides rather than blocking the page.
+  function renderTickerGradeHeadline(sym){
+    var box = $('opt-ticker-grade');
+    if (!box) return;
+    if (!sym){ box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.innerHTML = '<div class="opt-grade-loading">Loading ' + escapeHtml(sym) + ' grade…</div>';
+    loadGradesIndex(function(){
+      if (state.symbol !== sym) return; // ticker switched while loading
+      var g = (picksGradesState.data && picksGradesState.data.grades)
+        ? picksGradesState.data.grades[sym] : null;
+      if (g){
+        box.innerHTML = buildTickerGradeHeadlineHtml(g);
+        box.hidden = false;
+      } else {
+        box.hidden = true;
+        box.innerHTML = '';
+      }
+    });
+  }
+
   // --- Implied vol tab --------------------------------------------------
   // Per-ticker IV history is collected by the daily build into
   // data/iv-history/<SYM>.json. Cache responses so re-selecting a ticker
@@ -2923,7 +2992,7 @@
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
-    selectTab(saved && ['fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'fund');
+    selectTab(saved && ['contract','fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'contract');
   }
   // Track-record sub-tabs (Scorecard / Top 10 / Activity / Picks). The strip
   // lives in static HTML so this binds once at startup; renderAccuracy() fills
@@ -3934,6 +4003,7 @@
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderAnalysisShell();
+      renderTickerGradeHeadline(symbol);
       renderTechnicals(symbol);
       renderFundamentals(symbol);
       renderImpliedVol(symbol);
@@ -19134,7 +19204,7 @@
       ['flow', 'Unusual flow'],
       ['volume', 'Volume'],
       ['oi', 'Gamma exposure (GEX)'],
-      ['grade', 'Grade a contract'],
+      ['grade', 'Grade a ticker'],
       ['strategies', 'Strategies'],
       ['streaks', 'Streaks'],
       ['fear-greed', 'Fear & Greed'],

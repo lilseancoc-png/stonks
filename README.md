@@ -1,12 +1,17 @@
 # stonks
 
-Single-page **Option Contract Rater**: pick a curated ticker (or paste numbers
-from your broker) and get a plain-English grade on whether the contract is
-worth trading.
+Single-page **Option Contract Rater**: search a curated ticker to get its full
+grade — a 4-pillar conviction score plus technicals, fundamentals, implied vol,
+news, and a built-in contract grader — then drill into the exact call or put
+you're eyeing (or paste numbers from your broker) for a plain-English read on
+whether it's worth trading.
 
 ## What it does
 
-Two ways to grade a contract:
+Searching a ticker leads with the **whole-ticker grade** (the same 4-pillar
+conviction breakdown the Top Picks engine uses). Grading a specific contract is
+now one section/tab on that page, alongside Fundamentals, Technicals, Implied
+vol, and News. Two ways to grade a contract:
 
 - **From a curated ticker** — choose a name, an expiration, and a strike from
   ~50 high-volume US options. We pull each chain server-side at build time and
