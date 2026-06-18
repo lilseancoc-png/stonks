@@ -1,0 +1,91 @@
+name: Top Picks backtest (manual, read-only)
+
+# One-shot diagnostic: hydrate data/ from the private store and run
+# scripts/backtest-picks.mjs, printing the modeled win-rate / expectancy /
+# equity curve to the Actions log. READ-ONLY — it never commits, never pushes,
+# and never writes back to the store (no `sync-data.mjs push`; permissions are
+# contents: read). Safe to re-run any time.
+#
+# Trigger: workflow_dispatch only — run it from the Actions tab ("Top Picks
+# backtest" → Run workflow), optionally overriding the BT_* knobs via the inputs.
+on:
+  workflow_dispatch:
+    inputs:
+      hold:
+        description: "Holding window, trading days (BT_HOLD; default 10)"
+        required: false
+        default: ""
+      dte:
+        description: "Days-to-expiry at entry (BT_DTE; default 60)"
+        required: false
+        default: ""
+      start:
+        description: "Lower-bound snapshot date YYYY-MM-DD (BT_START; default all)"
+        required: false
+        default: ""
+      horizons:
+        description: "Holding-window sweep, comma-separated (BT_HORIZONS; default 5,10,21)"
+        required: false
+        default: ""
+
+# Read-only: this job must never write to the repo or the store.
+permissions:
+  contents: read
+
+concurrency:
+  # Distinct from the data-commit group so it neither blocks nor is blocked by
+  # the real bakes; supersede an older queued backtest on the same branch.
+  group: stonks-backtest-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Hydrate data from private store (read-only pull)
+        # Pull the last-good snapshot so the backtest can read grades-daily.json
+        # + every per-ticker priceSeries. No-op (and the backtest will report
+        # "no grades-daily") unless PRIVATE_DATA_ENABLED is set.
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs pull
+
+      - name: Run Top Picks backtest + signal-edge diagnostics
+        # Empty inputs (e.g. on the push trigger) fall through to the script's
+        # own env defaults — backtest-picks.mjs treats "" as unset. All four are
+        # read-only / no-network; `|| true` so a "nothing to diagnose" exit
+        # (e.g. an empty picks-accuracy) doesn't fail the job under `bash -e`.
+        env:
+          BT_HOLD: ${{ github.event.inputs.hold }}
+          BT_DTE: ${{ github.event.inputs.dte }}
+          BT_START: ${{ github.event.inputs.start }}
+          BT_HORIZONS: ${{ github.event.inputs.horizons }}
+        run: |
+          echo "::group::backtest-picks (modeled portfolio P&L from recorded grades)"
+          node scripts/backtest-picks.mjs || true
+          echo "::endgroup::"
+          echo "::group::diagnose-signal-ic (point-in-time signal IC over ~1yr of bars)"
+          node scripts/diagnose-signal-ic.mjs || true
+          echo "::endgroup::"
+          echo "::group::diagnose-grade-ic (universe grade IC from grades-daily)"
+          node scripts/diagnose-grade-ic.mjs || true
+          echo "::endgroup::"
+          echo "::group::diagnose-pick-losses (resolved real-pick attribution)"
+          node scripts/diagnose-pick-losses.mjs || true
+          echo "::endgroup::"
