@@ -10992,7 +10992,14 @@ function buildExitPlan(side, spot, data, contract, pillarScores, sym) {
   // (so a real broken level still exits, but noise never does), kept inside the
   // 12% cap. Null ATR (thin history) → 0.08, reproducing the prior behavior.
   const tbExit = timingBarsFrom(data);
-  const atrPExit = tbExit ? atrPctFrom(tbExit.h, tbExit.l, tbExit.c) : null;
+  // ATR over CONFIRMED bars only: drop the last/in-progress daily bar (as
+  // computeEntryTiming does) so the stop floor doesn't flex intraday as the live
+  // bar forms, and so it matches the knife-threshold ATR for the same name.
+  // atrPctFrom's contract is "last 14 CONFIRMED bars vs the latest CONFIRMED
+  // close", which is violated if the live bar is included.
+  const atrPExit = tbExit
+    ? atrPctFrom(tbExit.h.slice(0, -1), tbExit.l.slice(0, -1), tbExit.c.slice(0, -1))
+    : null;
   const minStopFrac = (atrPExit > 0) ? Math.min(0.12, Math.max(0.05, 2.5 * atrPExit / 100)) : 0.08;
   const stopPctLabel = `~${Math.round(minStopFrac * 100)}%${atrPExit > 0 ? " (≈2.5×ATR)" : ""}`;
 

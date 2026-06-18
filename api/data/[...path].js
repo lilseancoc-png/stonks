@@ -50,29 +50,39 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "bad key" });
   }
 
-  if (isPremiumKey(key)) {
+  const premium = isPremiumKey(key);
+  if (premium) {
     // Premium: never shared-cacheable, and only for a valid Discord-role session.
     res.setHeader("Cache-Control", "private, no-store");
     const session = await getSession(req).catch(() => null);
     if (!session) {
       return res.status(401).json({ error: "auth required" });
     }
-  } else {
-    // Free: open to anyone and safe to edge-cache briefly (the data changes at
-    // most a few times an hour, and there's nothing per-user in it).
-    res.setHeader(
-      "Cache-Control",
-      "public, max-age=60, s-maxage=120, stale-while-revalidate=600",
-    );
   }
+  // Note: the free-tier public cache header is set ONLY on the success path
+  // below — a 404 (key not yet seeded / mid-sync) or a 502 (store hiccup) must
+  // NOT inherit `s-maxage`, or the CDN would edge-cache the error and replay it
+  // to every user for minutes after the data is already back.
 
   try {
     const buf = await store.get(key);
-    if (buf == null) return res.status(404).json({ error: "not found" });
+    if (buf == null) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(404).json({ error: "not found" });
+    }
+    if (!premium) {
+      // Free: open to anyone and safe to edge-cache briefly (the data changes at
+      // most a few times an hour, and there's nothing per-user in it).
+      res.setHeader(
+        "Cache-Control",
+        "public, max-age=60, s-maxage=120, stale-while-revalidate=600",
+      );
+    }
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.statusCode = 200;
     return res.end(buf);
   } catch (err) {
+    res.setHeader("Cache-Control", "no-store");
     console.error("data read failed", { key, message: String(err?.message || err) });
     return res.status(502).json({ error: "data unavailable" });
   }
