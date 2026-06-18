@@ -2,7 +2,7 @@
 
 A post-mortem on the resolved Top Picks track record, run to answer one question:
 **why did the picks lose, and what do we change in the model?** The findings drove
-two concrete engine changes (re-entry suppression + the symmetric ±20% snap exit);
+two concrete engine changes (re-entry suppression + the +20% TP / −30% snap exit);
 the rest is a watch-list for the next recalibration.
 
 > **Data.** The live `data/` is private (Path B), so this analysis was run against
@@ -75,7 +75,7 @@ that fell.
    modeled option loss averaged **−63%** even though the underlying only moved ~−9.6%
    — symmetric on the stock, wildly asymmetric on the option, and the old −35%
    premium stop + +60% trailing TP let the loss run far past −35% between build
-   samples while rarely banking a gain. → **Fixed by the symmetric ±20% snap exit.**
+   samples while rarely banking a gain. → **Fixed by the +20% TP / −30% snap exit.**
 
 ---
 
@@ -85,10 +85,11 @@ that fell.
   an open tracked position is dropped from candidacy before ranking — it enters
   **once**, is tracked to resolution, then becomes eligible again. Directly removes
   root cause #5 (and the correlated-restacking amplifier on #1). Rubric §7.
-- **Symmetric ±20% snap exit** (`PICKS_OPT_TP_PCT`/`PICKS_OPT_STOP_PCT` = 0.20/0.20,
-  trailing default OFF). Take profit the instant the modeled mark hits +20%, take the
-  loss the instant it hits −20%. Caps root cause #6's left tail and banks gains before
-  a high-beta name round-trips them. Rubric §5.
+- **+20% take-profit / −30% snap stop** (`PICKS_OPT_TP_PCT`/`PICKS_OPT_STOP_PCT` = 0.20/0.30,
+  trailing default OFF). Take profit the instant the modeled mark hits +20%, cut the
+  loss the instant it hits −30%. Caps root cause #6's left tail (well inside the old −35%)
+  and banks gains before a high-beta name round-trips them, while giving the thesis a bit
+  more room on the downside than the upside. Rubric §5.
 
 ## Watch-list (no change yet — needs forward, gate-era data)
 
