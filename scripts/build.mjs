@@ -7565,6 +7565,21 @@ const PICKS_MAX_PER_SIDE = Number(process.env.PICKS_MAX_PER_SIDE ?? 8);
 // Suppressing by SYMBOL (any side) caps each name to one live position at a time.
 // Gated so it's revertible; default ON.
 const PICKS_SUPPRESS_OPEN_REENTRY = process.env.PICKS_SUPPRESS_OPEN_REENTRY !== "0"; // default ON
+// Post-resolution re-entry cooldown (WINNERS ONLY). Re-entry suppression above only
+// holds while a position is OPEN — the instant a pick resolves it leaves the open set
+// and (with the fast symmetric ±20% snap exit) is eligible again on the very next
+// bake, so a name that just paid out can bounce straight back onto the roster a day or
+// two later. This keeps a symbol that resolved AS A WIN (hit the +20% take-profit, or a
+// winning time-stop/expiry) off the roster for a short cooldown measured in calendar
+// days from its exit, so a winner truly "appears once, then sits in the track record"
+// before it can return. Losers/cuts are deliberately NOT cooled down — a fresh clean
+// setup on a name we just stopped out of shouldn't be blocked. The weekly reset (§8)
+// clears the closed record, so the cooldown naturally caps at the current week, and it
+// is skipped entirely on the reset build (same as the open-set suppression) so the
+// fresh week's first roster is unconstrained. Recorded in rosterMeta.cooldownSuppressed.
+// Gated, default ON.
+const PICKS_REENTRY_COOLDOWN = process.env.PICKS_REENTRY_COOLDOWN !== "0"; // default ON
+const PICKS_REENTRY_COOLDOWN_DAYS = Number(process.env.PICKS_REENTRY_COOLDOWN_DAYS ?? 7);
 // Require a clean entry ('go') for EVERY shipped pick (loss-min "trade less").
 // Entry timing already folds into the grade, but a 'wait'-state name (mixed
 // structure, an imminent catalyst, extreme own-IV) can still grade onto the
@@ -13705,6 +13720,34 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       }
     }
   }
+  // Post-resolution re-entry cooldown (PICKS_REENTRY_COOLDOWN, WINNERS ONLY) — drop any
+  // candidate whose SYMBOL resolved AS A WIN within the last PICKS_REENTRY_COOLDOWN_DAYS
+  // (calendar days from its exit). The open-set suppression above frees a name the
+  // instant it resolves; without this a winner re-qualifies on the next bake and
+  // bounces straight back. Read off opts.priorClosed (the pre-wipe picks-accuracy
+  // `closed` set the edge governor already threads) — outcome === "win" + exitDate.
+  // Losers/cuts are NOT cooled (a fresh setup shouldn't be blocked). Skipped on the
+  // reset build (opts.reentryCooldown === false) so the fresh week is unconstrained.
+  const skippedCooldown = [];
+  if (PICKS_REENTRY_COOLDOWN && opts.reentryCooldown !== false && PICKS_REENTRY_COOLDOWN_DAYS > 0
+      && Array.isArray(opts.priorClosed) && opts.priorClosed.length) {
+    const nowMs = Date.parse(opts.builtAtIso) || Date.now();
+    const windowMs = PICKS_REENTRY_COOLDOWN_DAYS * 86400 * 1000;
+    const cooling = new Set();
+    for (const e of opts.priorClosed) {
+      if (!e || !e.symbol || e.outcome !== "win") continue;
+      const exitMs = Date.parse(e.exitDate);
+      if (Number.isFinite(exitMs) && nowMs - exitMs < windowMs) cooling.add(e.symbol);
+    }
+    if (cooling.size) {
+      for (let i = candSet.length - 1; i >= 0; i--) {
+        if (cooling.has(candSet[i].r.sym)) {
+          skippedCooldown.push({ symbol: candSet[i].r.sym, side: candSet[i].side, tactical: !!candSet[i].tactical });
+          candSet.splice(i, 1);
+        }
+      }
+    }
+  }
   // P1.4 — liquidity as a hard CANDIDACY gate. Compute the tradeable (requireClean)
   // contract up front and DROP names with none BEFORE ranking, so we rank the
   // universe of TRADEABLE names (not merely graded names) and the slice below can't
@@ -14103,6 +14146,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       vetoed,
       untradeable, // P1.4 — actionable names dropped for having no tradeable contract
       heldOpenSuppressed: skippedHeldOpen, // re-entry suppression (PICKS_SUPPRESS_OPEN_REENTRY) — names skipped because they already have an open tracked position
+      cooldownSuppressed: skippedCooldown, // post-resolution cooldown (PICKS_REENTRY_COOLDOWN) — winners skipped because they resolved within PICKS_REENTRY_COOLDOWN_DAYS
       sectorCapped: skippedSectorCapped,
       sectorCounts,
       factorCapped: skippedFactorCapped,
@@ -15140,13 +15184,13 @@ function pickSideLean(picks) {
   return { calls, puts };
 }
 
-async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null) {
+async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true) {
   // priorClosed = the pre-update accuracy `closed` set (P1.3 edge governor), threaded
   // from main()'s pre-wipe picksAccuracyPrev so gross scales by the trailing edge.
   // priorGrades = the pre-wipe grades-history `latest` snapshot (tier hysteresis).
   // priorOpen = the pre-wipe accuracy `open` set (re-entry suppression): names with
   // a live tracked position aren't re-picked until they exit.
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades, openPositions: priorOpen, ...(scannerExtras || {}) });
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   // Prior picks snapshot. A full build passes priorPicks (captured by
@@ -22087,7 +22131,7 @@ async function main() {
   // buildTopPicks so re-entry suppression doesn't constrain the first roster of the
   // week by last week's (about-to-be-cleared) holdings.
   const resetDueThisBuild = picksAccuracyResetDue(picksAccuracyPrev?.lastResetWeek ?? null, builtAtIso);
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, resetDueThisBuild ? [] : (picksAccuracyPrev?.open ?? null));
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, resetDueThisBuild ? [] : (picksAccuracyPrev?.open ?? null), !resetDueThisBuild);
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown
