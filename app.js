@@ -17255,12 +17255,27 @@
     var headStrike = isSpread
       ? '$' + escapeHtml(String(c.strike)) + ' / $' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt
       : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt;
+    // Entry guidance — "buy now" when the timing gate reads a clean confirmed
+    // entry, otherwise the specific trigger price to wait for. The grade already
+    // cleared the conviction bar; this answers WHEN to open it. (Server-computed
+    // in computeEntrySignal off confirmed bars; older payloads lack it.)
+    var entryHtml = '';
+    if (p.entry && p.entry.headline){
+      var eNow = !!p.entry.now;
+      var eTip = eNow
+        ? 'Entry — the timing gate reads a clean, confirmed entry, so the current price is a reasonable place to open the position.'
+        : 'Entry — the grade has conviction, but the move has not confirmed on the daily chart yet. Wait for this price/level before opening so you are not paying theta on a short-dated option while it bases. Based on confirmed daily bars (yesterday’s close); the live Grade-tab card folds in today’s move.';
+      entryHtml = '<div class="pick-contract-rr pick-rr-' + (eNow ? 'good' : 'fair') + '" title="' + escapeHtml(eTip) + '">' +
+        (eNow ? '✅ ' : '⏳ ') + escapeHtml(p.entry.headline) +
+      '</div>';
+    }
     return '<div class="pick-contract' + overall + '">' +
       '<div class="pick-contract-head">' +
         '<span class="pick-contract-label">Suggested ' + (isSpread ? sideLabel + ' spread' : sideLabel) + '</span>' +
         '<span class="pick-contract-strike">' + headStrike + '</span>' +
         earningsBadge +
       '</div>' +
+      entryHtml +
       pickVerticalStructureHtml(p, c) +
       stats +
       rr +
