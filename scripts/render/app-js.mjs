@@ -7066,13 +7066,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     perRowCollapsed: Object.create(null),
   };
   // Collapsed-by-default: with 200+ contracts on a hot ticker like QQQ the
-  // section dominates the page. Seed each known ticker as collapsed so the
-  // initial render is a scannable list of headers; users expand the ones
-  // they care about.
-  (function seedCollapsed(){
-    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
-    tickers.forEach(function(t){ flowState.perRowCollapsed[t.symbol] = true; });
-  })();
+  // section dominates the page, so a row is collapsed UNLESS the user has
+  // explicitly expanded it. Derive that from collapsedAll instead of seeding
+  // perRowCollapsed at init — in the deferred (premium-sidecar) manifest path
+  // UNUSUAL is still null when this module initializes (it only lands later via
+  // applyManifest), so an init-time seed would no-op and every row would render
+  // expanded. Mirrors the OI tracker's oiIsRowCollapsed.
+  function isFlowRowCollapsed(sym){
+    if (Object.prototype.hasOwnProperty.call(flowState.perRowCollapsed, sym)){
+      return !!flowState.perRowCollapsed[sym];
+    }
+    return flowState.collapsedAll;
+  }
   function filteredTickers(){
     var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers.slice() : [];
     var out = [];
@@ -7272,7 +7277,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = deltaTier(t.topDelta || 0);
-      var collapsed = !!flowState.perRowCollapsed[t.symbol];
+      var collapsed = isFlowRowCollapsed(t.symbol);
       var hasNotes = t.contracts.some(function(c){ return !!c.note; });
       var contractsCls = 'flow-contracts' + (hasNotes ? ' has-notes' : '');
       return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
@@ -7365,7 +7370,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var btn = ev.target.closest && ev.target.closest('[data-row-toggle]');
         if (!btn) return;
         var sym = btn.getAttribute('data-row-toggle');
-        flowState.perRowCollapsed[sym] = !flowState.perRowCollapsed[sym];
+        flowState.perRowCollapsed[sym] = !isFlowRowCollapsed(sym);
         renderUnusualFlow();
       });
     }
