@@ -1032,19 +1032,29 @@ first bake.
   build's resolutions, suppression is on the *prior* open set — a name that exits this
   build is eligible again next build (≤1 build, ~1h, of lag — deliberately: don't re-pump
   a name the same hour it stops out). `=0` reverts.
-- **Post-resolution cooldown — winners only** (`PICKS_REENTRY_COOLDOWN`, default ON).
-  Re-entry suppression above only holds a name out *while its position is open*; the
-  moment it resolves it's eligible again next build, and with the fast symmetric ±20%
-  snap exit (§5) a pick can resolve within a day or two, so a name that just **paid out**
-  could bounce straight back onto the roster (the "why is X still on Top Picks?"
-  surprise). This drops any candidate whose symbol **resolved as a win** within the last
-  `PICKS_REENTRY_COOLDOWN_DAYS` (default **7** calendar days, measured from the close's
-  `exitDate`) — read off the same pre-wipe `picks-accuracy.json` `closed[]` set the edge
-  governor already threads. **Winners only**: a name that got *cut* (loss / time-stop)
-  is **not** cooled down — a fresh clean setup on a name we just stopped out of shouldn't
-  be blocked. Skipped on the weekly-reset build (`opts.reentryCooldown === false`, set by
-  `main()`/`regen-picks` exactly like the open-set bypass) so the fresh week's first
-  roster is unconstrained; the weekly reset also clears `closed[]`, so the cooldown
+- **Minimum hold before a pick can resolve** (`PICKS_MIN_HOLD_DAYS`, default **1**
+  calendar day). The premium ±snap exit (§5) and the underlying TP/cut have no floor —
+  they're re-evaluated on every hourly bake, and a volatile name's modeled option P&L can
+  cross ±20/30% on the **first reprice** (~1h after it shipped). The pick then resolves,
+  leaves `open[]`, and re-qualifies almost immediately, ping-ponging onto the roster
+  ~every other build. Gating those fast, price-driven exits behind a minimum hold makes a
+  freshly-shipped pick actually **dwell** in the track record (and stay suppressed off the
+  roster) for at least this long before it can resolve. Time-based exits (expiry, the
+  14-day time-stop, the theta-stop ≥4d, pre-earnings ≥4d) already clear the floor, and a
+  name that **left the universe** still resolves regardless. `=0` restores the instant
+  snap. (Trade-off: a loser isn't cut quite as instantly — accepted to stop the churn.)
+- **Post-resolution cooldown** (`PICKS_REENTRY_COOLDOWN`, default ON). Re-entry
+  suppression above only holds a name out *while its position is open*; the moment it
+  resolves it's eligible again next build. This drops any candidate whose symbol **left
+  the track record** (resolved — **win OR loss**, since once it's closed it's eligible
+  again) within the last `PICKS_REENTRY_COOLDOWN_DAYS` (default **1** calendar day,
+  measured from the close's `exitDate`) — read off the same pre-wipe `picks-accuracy.json`
+  `closed[]` set the edge governor already threads. Pairs with `PICKS_MIN_HOLD_DAYS`
+  (which makes it dwell while open) to kill the every-other-build ping-pong: a name
+  appears once, sits in the track record, and only returns after the gap **if the score
+  still earns it**. Skipped on the weekly-reset build (`opts.reentryCooldown === false`,
+  set by `main()`/`regen-picks` exactly like the open-set bypass) so the fresh week's
+  first roster is unconstrained; the weekly reset also clears `closed[]`, so the cooldown
   naturally caps at the current week. Recorded in `rosterMeta.cooldownSuppressed`; `=0`
   reverts (or set `PICKS_REENTRY_COOLDOWN_DAYS=0`).
 - **Order:** by **net-of-cost conviction** — `|total|` minus the P5.1

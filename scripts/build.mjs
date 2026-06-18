@@ -7565,21 +7565,20 @@ const PICKS_MAX_PER_SIDE = Number(process.env.PICKS_MAX_PER_SIDE ?? 8);
 // Suppressing by SYMBOL (any side) caps each name to one live position at a time.
 // Gated so it's revertible; default ON.
 const PICKS_SUPPRESS_OPEN_REENTRY = process.env.PICKS_SUPPRESS_OPEN_REENTRY !== "0"; // default ON
-// Post-resolution re-entry cooldown (WINNERS ONLY). Re-entry suppression above only
-// holds while a position is OPEN — the instant a pick resolves it leaves the open set
-// and (with the fast symmetric ±20% snap exit) is eligible again on the very next
-// bake, so a name that just paid out can bounce straight back onto the roster a day or
-// two later. This keeps a symbol that resolved AS A WIN (hit the +20% take-profit, or a
-// winning time-stop/expiry) off the roster for a short cooldown measured in calendar
-// days from its exit, so a winner truly "appears once, then sits in the track record"
-// before it can return. Losers/cuts are deliberately NOT cooled down — a fresh clean
-// setup on a name we just stopped out of shouldn't be blocked. The weekly reset (§8)
-// clears the closed record, so the cooldown naturally caps at the current week, and it
-// is skipped entirely on the reset build (same as the open-set suppression) so the
-// fresh week's first roster is unconstrained. Recorded in rosterMeta.cooldownSuppressed.
-// Gated, default ON.
+// Post-resolution re-entry cooldown. Re-entry suppression above only holds while a
+// position is OPEN — the instant a pick resolves it leaves the open set and is eligible
+// again on the very next bake, so a name can bounce straight back onto the roster. This
+// keeps ANY symbol that just LEFT the track record (resolved win OR loss — once it's
+// closed it's eligible again, so the gate must cover both) off the roster for a short
+// cooldown measured in calendar days from its exit, so a name truly "appears once, sits
+// in the track record, and only returns after a gap (if the score still earns it)". Pairs
+// with PICKS_MIN_HOLD_DAYS (which makes it dwell while open) to kill the every-other-build
+// ping-pong. The weekly reset (§8) clears the closed record, so the cooldown naturally
+// caps at the current week, and it is skipped on the reset build (same as the open-set
+// suppression) so the fresh week's first roster is unconstrained. Recorded in
+// rosterMeta.cooldownSuppressed. Gated, default ON; default ~1-day gap.
 const PICKS_REENTRY_COOLDOWN = process.env.PICKS_REENTRY_COOLDOWN !== "0"; // default ON
-const PICKS_REENTRY_COOLDOWN_DAYS = Number(process.env.PICKS_REENTRY_COOLDOWN_DAYS ?? 7);
+const PICKS_REENTRY_COOLDOWN_DAYS = Number(process.env.PICKS_REENTRY_COOLDOWN_DAYS ?? 1);
 // Require a clean entry ('go') for EVERY shipped pick (loss-min "trade less").
 // Entry timing already folds into the grade, but a 'wait'-state name (mixed
 // structure, an imminent catalyst, extreme own-IV) can still grade onto the
@@ -8091,6 +8090,19 @@ const PICKS_ACCURACY_WEEKLY_RESET = process.env.PICKS_ACCURACY_WEEKLY_RESET !== 
 const PICKS_ACCURACY_RESET_DOW = Number(process.env.PICKS_ACCURACY_RESET_DOW ?? 0); // 0=Sun..6=Sat
 const PICKS_ACCURACY_MAX_HOLD_DAYS = Number(process.env.PICKS_ACCURACY_MAX_HOLD_DAYS ?? 14); // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days. Fast-results retune: 30→14 (calendar days = 2 weeks). The product promise is a profitable move within ~1 week, 2 weeks max — "if it's still down after that it's not a good look." So the engine is graded on, and force-closes at, the 2-week mark (the time-stop now records the CURRENT modeled option P&L sign — a pick still underwater at 2 weeks resolves as a LOSS — see resolvePickOutcome). Reverts the §3.8 30-day extension; the theta-aware stop (PICKS_THETA_STOP_PCT) still cuts a bleeder sooner.
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every shipped pick now enrolls (full-roster); the per-thesis dedup bounds the open list. Kept for reference / any external readers.
+// Minimum hold before a pick may resolve (user rule: "appears once, then it sits
+// in the track record"). The premium ±snap exit and the underlying TP/cut otherwise
+// have NO floor — they're re-evaluated on every hourly bake and a volatile name's
+// modeled option P&L can cross ±20/30% on the FIRST reprice (~1h after the pick
+// shipped), so the pick resolves, leaves open[], and re-qualifies almost immediately,
+// ping-ponging onto the roster ~every other build. Gating the fast exits behind a
+// minimum hold makes a freshly-shipped pick actually DWELL in the track record (and
+// stay suppressed off the roster, §re-entry) for at least this many days before it can
+// resolve. Time-based exits (expiry, the 14-day time-stop, theta-stop ≥4d, pre-earnings
+// ≥4d) already clear this floor; a name that LEFT the universe still resolves regardless.
+// Calendar days, same basis as PICKS_ACCURACY_MAX_HOLD_DAYS. Default ~1 trading day so a
+// pick shipped at the open survives the whole day's bakes. `=0` restores the instant snap.
+const PICKS_MIN_HOLD_DAYS = Number(process.env.PICKS_MIN_HOLD_DAYS ?? 1);
 // Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
 // pick that goes nowhere on a ≥21-DTE contract hits day 14 with ~7 DTE left — the
 // theta cliff — recorded as ~breakeven on the underlying while the OPTION is deep
@@ -13720,14 +13732,15 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       }
     }
   }
-  // Post-resolution re-entry cooldown (PICKS_REENTRY_COOLDOWN, WINNERS ONLY) — drop any
-  // candidate whose SYMBOL resolved AS A WIN within the last PICKS_REENTRY_COOLDOWN_DAYS
-  // (calendar days from its exit). The open-set suppression above frees a name the
-  // instant it resolves; without this a winner re-qualifies on the next bake and
-  // bounces straight back. Read off opts.priorClosed (the pre-wipe picks-accuracy
-  // `closed` set the edge governor already threads) — outcome === "win" + exitDate.
-  // Losers/cuts are NOT cooled (a fresh setup shouldn't be blocked). Skipped on the
-  // reset build (opts.reentryCooldown === false) so the fresh week is unconstrained.
+  // Post-resolution re-entry cooldown (PICKS_REENTRY_COOLDOWN) — drop any candidate whose
+  // SYMBOL left the track record (resolved, win OR loss) within the last
+  // PICKS_REENTRY_COOLDOWN_DAYS (calendar days from its exit). The open-set suppression
+  // above frees a name the instant it resolves; without this it re-qualifies on the next
+  // bake and bounces straight back. Read off opts.priorClosed (the pre-wipe picks-accuracy
+  // `closed` set the edge governor already threads) — any closed entry with an exitDate in
+  // the window, regardless of outcome (once a name leaves the track record it's eligible
+  // again, so the gate covers wins and cuts alike). Skipped on the reset build
+  // (opts.reentryCooldown === false) so the fresh week is unconstrained.
   const skippedCooldown = [];
   if (PICKS_REENTRY_COOLDOWN && opts.reentryCooldown !== false && PICKS_REENTRY_COOLDOWN_DAYS > 0
       && Array.isArray(opts.priorClosed) && opts.priorClosed.length) {
@@ -13735,7 +13748,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const windowMs = PICKS_REENTRY_COOLDOWN_DAYS * 86400 * 1000;
     const cooling = new Set();
     for (const e of opts.priorClosed) {
-      if (!e || !e.symbol || e.outcome !== "win") continue;
+      if (!e || !e.symbol) continue;
       const exitMs = Date.parse(e.exitDate);
       if (Number.isFinite(exitMs) && nowMs - exitMs < windowMs) cooling.add(e.symbol);
     }
@@ -14146,7 +14159,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       vetoed,
       untradeable, // P1.4 — actionable names dropped for having no tradeable contract
       heldOpenSuppressed: skippedHeldOpen, // re-entry suppression (PICKS_SUPPRESS_OPEN_REENTRY) — names skipped because they already have an open tracked position
-      cooldownSuppressed: skippedCooldown, // post-resolution cooldown (PICKS_REENTRY_COOLDOWN) — winners skipped because they resolved within PICKS_REENTRY_COOLDOWN_DAYS
+      cooldownSuppressed: skippedCooldown, // post-resolution cooldown (PICKS_REENTRY_COOLDOWN) — names skipped because they left the track record (resolved, any outcome) within PICKS_REENTRY_COOLDOWN_DAYS
       sectorCapped: skippedSectorCapped,
       sectorCounts,
       factorCapped: skippedFactorCapped,
@@ -15339,12 +15352,19 @@ export function excursionOutcome(mfePct, maePct) {
 export function resolvePickOutcome(opts) {
   const { isCall, haveFresh, cur, tp, ct, be, ref, mfePct, maePct, expSec, entrySec, nowSec, inUniverse,
           thetaPctDay, modeledOptPnlPct, optMfePct, earningsAheadDays } = opts;
+  // Minimum-hold floor (PICKS_MIN_HOLD_DAYS): the fast price-driven exits (the premium
+  // ±snap and the underlying TP/cut) may not fire until the pick has been tracked this
+  // long, so a freshly-shipped name DWELLS in the track record instead of resolving on
+  // its first hourly reprice and ping-ponging back onto the roster. Time-based exits
+  // (expiry, time-stop, theta-stop, pre-earnings) and the left-the-universe drop are not
+  // gated (they're inherently later, or must always fire). `=0` → no floor (instant snap).
+  const heldEnough = !(PICKS_MIN_HOLD_DAYS > 0) || (entrySec > 0 && nowSec - entrySec >= PICKS_MIN_HOLD_DAYS * 86400);
   // P0.3 — premium-space exits FIRST. The capital at risk is the premium, and a
   // symmetric underlying stop maps to a wildly asymmetric option move, so cut at a
   // fixed premium loss (truncating the -60% tail the structural cut lets run) and
   // take profit on the upside. Needs a fresh modeled mark; legacy entries (no
   // entry-option snapshot) fall through to the underlying-level checks below.
-  if (PICKS_OPT_EXITS && modeledOptPnlPct != null && isFinite(modeledOptPnlPct)) {
+  if (heldEnough && PICKS_OPT_EXITS && modeledOptPnlPct != null && isFinite(modeledOptPnlPct)) {
     // Hard stop — the instant the modeled mark is down PICKS_OPT_STOP_PCT (−30%),
     // take the loss. Bounds the left tail.
     if (modeledOptPnlPct <= -PICKS_OPT_STOP_PCT * 100) return { status: "hit-stop-prem", outcome: "loss" };
@@ -15368,14 +15388,14 @@ export function resolvePickOutcome(opts) {
       return { status: "hit-tp-prem", outcome: "win" };
     }
   }
-  if (haveFresh && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
+  if (heldEnough && haveFresh && tp > 0 && ((isCall && cur >= tp) || (!isCall && cur <= tp))) {
     return { status: "hit-tp", outcome: "win" };
   }
   // NOTE: this cut fires on a daily UNDERLYING close — an option can't honor it
   // intraday on a gap (you're already deep in the loss by the next mark). The
   // premium stop above (P0.3) is what actually bounds the option loss; this stays
   // as the structural (broken-level) exit.
-  if (haveFresh && ct > 0 && ((isCall && cur <= ct) || (!isCall && cur >= ct))) {
+  if (heldEnough && haveFresh && ct > 0 && ((isCall && cur <= ct) || (!isCall && cur >= ct))) {
     return { status: "hit-cut", outcome: "loss" };
   }
   // Yahoo expiry epochs are midnight UTC on the expiry date (≈ the prior evening
