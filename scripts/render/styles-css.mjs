@@ -6898,6 +6898,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   grid-template-areas:
     "rank head  score"
     "rank tier  tier"
+    "rank entry entry"
     "rank con   con"
     "rank meta  meta"
     "rank cta   cta";
@@ -7007,6 +7008,27 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   text-transform: uppercase;
   letter-spacing: .03em;
   color: var(--text-strong);
+}
+/* Entry call — "buy now" (green) vs a specific wait-for trigger price (amber).
+   Surfaced on the grid tile so the ranked list is triageable at a glance. */
+.ptc-entry {
+  grid-area: entry;
+  justify-self: start;
+  font: 700 11px/1 var(--font-mono);
+  letter-spacing: .03em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.ptc-entry-now {
+  color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pos) 40%, var(--border));
+}
+.ptc-entry-wait {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 36%, var(--border));
 }
 /* Contract economics line — strike·DTE, premium, move-to-breakeven, earnings
    flag. Makes the premium / breakeven sorts legible on the grid and lets picks

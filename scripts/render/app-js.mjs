@@ -18446,11 +18446,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // pick enrolls the moment it lists). Reads its modeled option P&L since entry.
     var liveInfo = pickLiveChip(p, true);
     var liveChip = liveInfo ? liveInfo.html : '';
-    // Mirror the detail card's deferred-entry chip on the skimmable grid tile —
-    // a name parked for an imminent catalyst must not read as "enter now".
-    var deferChip = (p.entryTiming && p.entryTiming.state === 'wait' && (p.entryTiming.deferKind === 'earnings' || p.entryTiming.deferKind === 'event'))
-      ? '<span class="ptc-defer" title="' + escapeHtml(p.entryTiming.headline || 'Scheduled catalyst — defer entry') + '">⏳ WAIT</span>'
-      : '';
+    // Entry call — "buy now" vs a specific wait-for trigger price, surfaced on
+    // the grid tile so the ranked list is triageable WITHOUT opening each pick
+    // (from computeEntrySignal). Subsumes the old earnings/event-only WAIT chip:
+    // it covers buy-now, wait-for-reclaim/pullback/dip, and the event defer.
+    var entryLine = '';
+    if (p.entry && p.entry.headline){
+      var eNow = !!p.entry.now;
+      var eTrg = (!eNow && p.entry.trigger != null && isFinite(p.entry.trigger)) ? ' $' + Number(p.entry.trigger).toFixed(2) : '';
+      entryLine = '<span class="ptc-entry ptc-entry-' + (eNow ? 'now' : 'wait') + '" title="' + escapeHtml(p.entry.headline) + '">' +
+        (eNow ? '✅ Buy now' : ('⏳ Wait' + eTrg)) + '</span>';
+    }
     // Contract economics line — surface the suggested contract's strike/DTE,
     // premium, and move-to-breakeven right on the skimmable tile. Without it the
     // "Cheapest premium" / "Smallest move to breakeven" sorts reorder the grid by
@@ -18505,13 +18511,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + deferChip + liveChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + liveChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) +
         (p.costDebit > 0
           ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
           : '') +
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
+      entryLine +
       econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
       '<span class="ptc-cta">View judgment →</span>' +
