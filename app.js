@@ -8724,7 +8724,7 @@
   // back most of the day's move in its direction is buying a fading move.
   // Missing inputs (grades.json not loaded yet / a field absent) skip their
   // check silently — the gate degrades to fewer reads, never guesses.
-  var HOT_GATE_T = {"knifeRet1d":-6,"knifeRet3d":-8,"chaseRsi":70,"chaseDistSma20":8,"chaseDistSma20Soft":7,"chase52w":0.92,"chaseRet5d":10,"chaseRet3d":10,"volConfirm":1.3};
+  var HOT_GATE_T = {"knifeRet1d":-6,"knifeRet3d":-8,"chaseRsi":72,"chaseDistSma20":8,"chaseDistSma20Soft":6,"chase52w":0.97,"chaseRet5d":12,"chaseRet3d":10,"volConfirm":1.3};
   function hotGradeFor(sym){
     var gd = (picksGradesState && picksGradesState.data) ? picksGradesState.data : null;
     return (gd && gd.grades && gd.grades[sym]) ? gd.grades[sym] : null;
@@ -17951,7 +17951,7 @@
   // One-paragraph plain-language explainer per grading category, shown at the
   // top of each pillar's expanded breakdown so a reader knows what the signals
   // below it are measuring and how they score before reading the numbers. Kept
-  // in sync with docs/top-picks-rubric.md §3 (the four asset pillars) and §6
+  // in sync with docs/top-picks.md §2 (the four asset pillars) and §3
   // (entry timing). Purely presentational.
   var PILLAR_INFO = {
     fundamentals: 'The health of the underlying business, graded across 10 signals (each −3 … +3). Earnings surprise: beat/miss >25% ±2, 10–24% ±1. EPS growth YoY: ≥10% +1, <−25% −2. Revenue growth YoY: ≥8% +1, <−20% −2. Analyst price target: ≥+10% upside +1, ≤−10% −1 (needs ≥5 analysts). Analyst rating changes: net of recent upgrades vs. downgrades over ~90 days — ≥3 net upgrades +2, 1–2 +1, symmetric for downgrades. P/E vs. sector median: a clear discount +1, rich with no growth −1. Guidance: raised +3, in-line +2, lowered −3. A major contract or deal won +2 / lost −3 — including, for a bank/broker, a lead-underwriter or advisory mandate on a marquee IPO or M&A (e.g. leading the SpaceX IPO); this is a discrete win, so it lifts the grade even when the day\'s overall news nets out to neutral. Free cash flow ±1, and net-margin trend ±1. A strong business is a tailwind for the trade; a weak one is a headwind.',
