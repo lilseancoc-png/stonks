@@ -7608,6 +7608,20 @@ function peerGroupOf(sym, data) {
   return SECTORS[sym] || data?.fundamentals?.sector || "Other";
 }
 
+// Best hourly volume read for one ticker from the hourly scanner's
+// volume-flags.json (volRatio = hourly volume vs 20D-average hourly volume).
+// Returns the strongest bucket of the session, or null when no fresh read is on
+// disk (scoreMechanicals then falls back to daily relative volume).
+function hourlyVolumeRead(sym, volumeFlags) {
+  if (!volumeFlags || !Array.isArray(volumeFlags.tickers)) return null;
+  const row = volumeFlags.tickers.find((t) => t?.symbol === sym);
+  if (!row || !Array.isArray(row.bucketHits)) return null;
+  let best = null;
+  for (const h of row.bucketHits) if (h && pnum(h.volRatio) != null && (!best || h.volRatio > best.volRatio)) best = h;
+  if (!best) return null;
+  return { volRatio: best.volRatio, priceMovePct: pnum(best.priceMovePct), bucketLabel: best.bucketLabel || null, etDate: volumeFlags.etDate || null };
+}
+
 // One signal row, in the shape the card renderer expects.
 function sig(key, label, score, value, note, available = true) {
   const s = available ? (score || 0) : 0;
@@ -7812,11 +7826,23 @@ function scoreMechanicals(sym, data, unusualPayload) {
   }
   out.push(sig("shortInterest", "Short interest", clamp(siScore, -1, 1), siVal, "Squeeze setup / covering", siOk));
 
-  // Unusual intraday volume (hourly vs 20D-avg hourly), direction-signed.
+  // Unusual volume, direction-signed: prefer the hourly scanner read
+  // (data.hourlyVolume, hourly-vs-20D-avg-hourly from volume-flags.json, attached
+  // in scoreAllTickers), falling back to the daily build's own relative volume so
+  // the signal still fires on a pre-market / regen run with no fresh hourly read.
   const hv = data?.hourlyVolume || null;
-  let uv = 0, uvVal = null;
-  if (hv && pnum(hv.volRatio) != null && hv.volRatio >= 1.3) { const mv = pnum(hv.priceMovePct) || 0; uv = mv > 0 ? 1 : mv < 0 ? -1 : 0; uvVal = r1(hv.volRatio) + "x"; }
-  out.push(sig("unusualVolume", "Unusual volume", uv, uvVal, "Hourly volume spike + direction", !!(hv && hv.volRatio != null)));
+  const dv = data?.technicals?.volume || null;
+  let uv = 0, uvVal = null, uvOk = false, uvNote = "Volume spike + direction";
+  if (hv && pnum(hv.volRatio) != null) {
+    uvOk = true; const rv = Number(hv.volRatio); const mv = pnum(hv.priceMovePct) ?? pnum(dv?.priceMove1dPct) ?? 0;
+    if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
+    uvVal = r1(rv) + "x hrly"; uvNote = `${r2(rv)}x hourly vs 20D-avg hourly`;
+  } else if (dv && pnum(dv.rvol) != null) {
+    uvOk = true; const rv = Number(dv.rvol); const mv = pnum(dv.priceMove1dPct) ?? 0;
+    if (rv >= 1.3 && Math.abs(mv) >= 0.5) uv = mv > 0 ? 1 : -1;
+    uvVal = r1(rv) + "x"; uvNote = `${r2(rv)}x daily relative volume (no hourly read)`;
+  }
+  out.push(sig("unusualVolume", "Unusual volume", uv, uvVal, uvNote, uvOk));
 
   const score = out.reduce((a, s) => a + s.score, 0);
   return { score, signals: out };
@@ -8114,6 +8140,9 @@ function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBa
   const peerIndex = {};
   for (const [sym, data] of Object.entries(chains)) {
     if (!data || !data.chains || !(pnum(data.spot) > 0)) continue;
+    // Attach the hourly scanner's volume read so scoreMechanicals' Unusual
+    // Volume signal sees real hourly-vs-20D data (falls back to daily rvol).
+    data.hourlyVolume = hourlyVolumeRead(sym, volumeFlags);
     const r = scoreTicker(sym, data, ctx);
     scored.push(r);
     const pg = peerGroupOf(sym, data);

@@ -102,6 +102,15 @@ ok("grades: tierCutoffs stashed", grades.tierCutoffs && grades.tierCutoffs.trade
 ok("grades: regimeBand stashed", grades.regimeBand === "neutral");
 ok("grades: timing both-sides gate", grades.BULLA.timing && "call" in grades.BULLA.timing && "put" in grades.BULLA.timing);
 
+// --- 1b. volume is factored in -------------------------------------------
+const uvSig = (g) => g.pillars.mechanicals.signals.find((s) => s.key === "unusualVolume");
+ok("volume: daily-rvol fallback fires the unusual-volume signal", uvSig(grades.BULLA) && uvSig(grades.BULLA).available && uvSig(grades.BULLA).score === 1);
+ok("volume: daily 'Volume confirmation' signal in technicals fires", grades.BULLA.pillars.technicals.signals.find((s) => s.key === "volume")?.score === 1);
+const vflags = { etDate: "2026-06-18", tickers: [{ symbol: "BULLA", bucketHits: [{ volRatio: 2.4, priceMovePct: 1.8, bucketLabel: "10-11am" }] }] };
+const gradesVF = buildGradesIndex(chains, [], null, null, null, vflags, {});
+const bvf = uvSig(gradesVF.BULLA);
+ok("volume: hourly volume-flags read is attached + scored", bvf && bvf.available && bvf.score === 1 && /hrly/.test(bvf.value || ""));
+
 // --- 2. entry timing ------------------------------------------------------
 const knifeTiming = computeEntryTiming("call", chains.KNIFE, chains.KNIFE.spot, {});
 ok("timing: -8% last bar -> avoid (falling knife)", knifeTiming.state === "avoid");
