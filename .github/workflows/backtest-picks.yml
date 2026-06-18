@@ -6,13 +6,8 @@ name: Top Picks backtest (manual, read-only)
 # and never writes back to the store (no `sync-data.mjs push`; permissions are
 # contents: read). Safe to re-run any time.
 #
-# Triggers:
-#   • workflow_dispatch — once this file is on the DEFAULT branch, run it from
-#     the Actions tab, optionally overriding the BT_* knobs via the inputs.
-#   • push to the development branch, path-filtered to THIS file — so the first
-#     run fires automatically on a branch that isn't on main yet (workflow_dispatch
-#     can only target workflows present on the default branch). Touch this file to
-#     re-run with different baked-in params.
+# Trigger: workflow_dispatch only — run it from the Actions tab ("Top Picks
+# backtest" → Run workflow), optionally overriding the BT_* knobs via the inputs.
 on:
   workflow_dispatch:
     inputs:
@@ -32,9 +27,6 @@ on:
         description: "Holding-window sweep, comma-separated (BT_HORIZONS; default 5,10,21)"
         required: false
         default: ""
-  push:
-    branches: [claude/eloquent-bohr-rtuymt]
-    paths: [".github/workflows/backtest-picks.yml"]
 
 # Read-only: this job must never write to the repo or the store.
 permissions:
