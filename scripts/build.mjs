@@ -7646,6 +7646,23 @@ const PICKS_MAX_PREMIUM_PCT_OF_SPOT = 0.12; // …or up to 12% of spot, whicheve
 // tightest-spread contract among the survivors wins.
 const PICKS_CLEAN_MAX_SPREAD_PCT = Number(process.env.PICKS_CLEAN_MAX_SPREAD_PCT ?? 0.10);
 const PICKS_SPREAD_PEN_REF = Number(process.env.PICKS_SPREAD_PEN_REF ?? 0.10); // spreadPct at which the composite spread penalty saturates to 1
+// Theta accounting in the recommended contract (user rule): "I don't want theta
+// eating me unless the play is a short one." Theta was only a HARD gate (clean
+// path rejects >2.5%/day) and an indirect DTE-fit proxy — never an explicit factor
+// in the contract RANKING, so two gate-passing contracts could tie even when one
+// bled materially more premium to decay. We add an explicit soft penalty on the
+// fraction of premium the modeled daily theta would bleed over the EXPECTED HOLD.
+// The hold is capped at a typical PICKS_THETA_HOLD_DAYS but shortened for a short-
+// dated contract (you don't hold a 7-DTE option ten days) via PICKS_THETA_HOLD_DTE_FRAC,
+// so a deliberate short-dated play isn't double-punished — high theta only counts
+// against a contract to the extent you'd actually sit in it. Penalty saturates at
+// PICKS_THETA_PEN_REF (premium bled over the hold) and carries PICKS_THETA_PEN_W in
+// the composite (carved from the DTE-fit + risk/reward weights, which it partly
+// subsumes — DTE-fit was the old theta proxy).
+const PICKS_THETA_HOLD_DAYS = Number(process.env.PICKS_THETA_HOLD_DAYS ?? 10); // typical hold the decay is measured over (mirrors PICKS_SIZE_HOLD_DAYS=10; literal to avoid a forward TDZ ref)
+const PICKS_THETA_HOLD_DTE_FRAC = Number(process.env.PICKS_THETA_HOLD_DTE_FRAC ?? 0.5); // assume you hold ≤ half the contract's remaining life → short-dated = short hold
+const PICKS_THETA_PEN_REF = Number(process.env.PICKS_THETA_PEN_REF ?? 0.30); // premium fraction bled over the hold at which the penalty saturates to 1
+const PICKS_THETA_PEN_W = Number(process.env.PICKS_THETA_PEN_W ?? 0.11); // composite weight (sum of all weights stays 1.0 at defaults)
 // Execution-cost debit (P5.1) — make the ROSTER ranking + bar net-of-cost.
 // The spread penalty above decides which contract represents a name, and the
 // clean cap bounds it at 10% — but ACROSS names, ranking was by raw |total|:
@@ -8081,16 +8098,17 @@ const PICKS_ACCURACY_ENABLE_SYNTHETIC_COHORT = process.env.PICKS_ACCURACY_AB ===
 // underlying-level TP/cut. Levels are flat (vol/DTE-blind) until a forward sample
 // lets us make them regime-aware — the AXIS (premium, not stock) is the fix.
 const PICKS_OPT_EXITS = process.env.PICKS_OPT_EXITS !== "0"; // default ON
-// Symmetric ±20% snap exit (user rule): the instant a pick's MODELED option P&L
-// reaches +20% we take the profit, and the instant it reaches −20% we take the
-// loss — done tracking, no trailing, no hoping it back. A tight symmetric premium
-// stop keeps every realized loss small (the loss diagnostic showed the resolved
-// book bled −63% avg on the option as 8–20% underlying moves blew through the old
-// −35% stop) and banks gains before a high-beta name round-trips them. Both env-
-// overridable; raising the TP / loosening the trail (below) reverts toward the
-// old let-winners-run design.
+// Asymmetric snap exit (user rule): the instant a pick's MODELED option P&L
+// reaches +20% we take the profit, and the instant it reaches −30% we cut the
+// loss — done tracking, no trailing, no hoping it back. The +20% take-profit
+// banks gains before a high-beta name round-trips them; the −30% stop gives the
+// thesis a little more room than the take-profit before it's cut, while still
+// bounding the left tail well inside the old −35% stop (the loss diagnostic
+// showed the resolved book bled −63% avg on the option as 8–20% underlying moves
+// blew through that −35%). Both env-overridable; raising the TP / loosening the
+// trail (below) reverts toward the old let-winners-run design.
 const PICKS_OPT_TP_PCT = Number(process.env.PICKS_OPT_TP_PCT ?? 0.20);   // +20% of entry premium → take profit instantly
-const PICKS_OPT_STOP_PCT = Number(process.env.PICKS_OPT_STOP_PCT ?? 0.20); // -20% of entry premium → cut instantly
+const PICKS_OPT_STOP_PCT = Number(process.env.PICKS_OPT_STOP_PCT ?? 0.30); // -30% of entry premium → cut instantly
 // Trailing take-profit (let winners run) — now DEFAULT OFF so +20% is a flat,
 // instant take-profit, not an arming level. When re-enabled (PICKS_OPT_TRAIL=1),
 // once the peak modeled gain ARMS (reaches PICKS_OPT_TP_PCT) the exit floor
@@ -10560,11 +10578,13 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   if (!candidates.length) return null;
 
   // Composite quality score — lower is better.
-  // Weighted: delta-distance (0.34), DTE-fit (0.18), spread (0.13),
-  // OI depth (0.07), daily volume (0.08), risk/reward (0.20). Each
-  // subterm in [0, 1]. Volume is split out from OI on purpose: OI is
-  // resting depth, daily volume is freshness — a contract that traded
-  // today is a much better fill than the same OI sitting stale.
+  // Weighted: delta-distance (0.30), DTE-fit (0.10), spread (0.24),
+  // OI depth (0.06), daily volume (0.06), risk/reward (0.13), theta-over-hold
+  // (PICKS_THETA_PEN_W, 0.11). Each subterm in [0, 1], weights sum to 1.0 at
+  // defaults. Volume is split out from OI on purpose: OI is resting depth, daily
+  // volume is freshness — a contract that traded today is a much better fill than
+  // the same OI sitting stale. Theta is the explicit "don't let decay eat me"
+  // term (relaxed for short-dated short plays — see thetaHoldPenalty).
   function dteFitPenalty(dte) {
     if (dte >= PICKS_IDEAL_DTE_LO && dte <= PICKS_IDEAL_DTE_HI) return 0;
     if (dte < PICKS_IDEAL_DTE_LO) {
@@ -10596,6 +10616,21 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     if (ratio <= 1.25) return 0.50;
     return 0.80;
   }
+  // Theta accounting (user rule): penalize the fraction of premium the modeled
+  // daily theta bleeds over the EXPECTED HOLD — so "theta eating you" counts
+  // against a contract, but only over the time you'd actually sit in it. The hold
+  // is the typical PICKS_THETA_HOLD_DAYS, but shortened for a short-dated contract
+  // (≤ PICKS_THETA_HOLD_DTE_FRAC of its remaining life) so a deliberate SHORT play
+  // isn't double-punished for theta it's expected to carry. opts.holdDays lets a
+  // caller pin the hold horizon explicitly (e.g. a tactical short trade).
+  function thetaHoldPenalty(thetaDay, mid, dte) {
+    if (!isFinite(thetaDay) || !(mid > 0)) return 0.50; // no greeks → mild penalty
+    const hold = (opts.holdDays != null && isFinite(opts.holdDays))
+      ? Math.max(1, opts.holdDays)
+      : Math.max(1, Math.min(PICKS_THETA_HOLD_DAYS, dte * PICKS_THETA_HOLD_DTE_FRAC));
+    const bledFrac = (Math.abs(thetaDay) * hold) / mid;
+    return Math.min(1, bledFrac / PICKS_THETA_PEN_REF);
+  }
 
   let best = null;
   let bestComposite = Infinity;
@@ -10613,13 +10648,19 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     const oiPen = Math.min(1, oiPenalty(c.oi));
     const volPen = Math.min(1, volumePenalty(c.row.v || 0));
     const rrPen = rrPenalty(c.reqMovePct, c.expMovePct);
+    // Explicit theta penalty — premium bled to decay over the expected hold,
+    // relaxed for short-dated (short-play) contracts. Weight carved from DTE-fit
+    // (0.16→0.10) + risk/reward (0.18→0.13), which it partly subsumes (DTE-fit was
+    // the old indirect theta proxy). All weights still sum to 1.0 at defaults.
+    const thetaPen = Math.min(1, thetaHoldPenalty(c.g.thetaDay, c.mid, c.dte));
     let composite =
       deltaPen * 0.30 +
-      dtePen * 0.16 +
+      dtePen * 0.10 +
       spreadPen * 0.24 +
       oiPen * 0.06 +
       volPen * 0.06 +
-      rrPen * 0.18;
+      rrPen * 0.13 +
+      thetaPen * PICKS_THETA_PEN_W;
     // If earnings fall inside the contract window, nudge against —
     // not a reject (earnings can be a catalyst) but a tie-break in
     // favor of a clean expiry when one exists.
@@ -15191,8 +15232,8 @@ export function resolvePickOutcome(opts) {
   // take profit on the upside. Needs a fresh modeled mark; legacy entries (no
   // entry-option snapshot) fall through to the underlying-level checks below.
   if (PICKS_OPT_EXITS && modeledOptPnlPct != null && isFinite(modeledOptPnlPct)) {
-    // Hard stop — the instant the modeled mark is down PICKS_OPT_STOP_PCT (−20%),
-    // take the loss. Bounds the left tail tightly.
+    // Hard stop — the instant the modeled mark is down PICKS_OPT_STOP_PCT (−30%),
+    // take the loss. Bounds the left tail.
     if (modeledOptPnlPct <= -PICKS_OPT_STOP_PCT * 100) return { status: "hit-stop-prem", outcome: "loss" };
     if (PICKS_OPT_TRAIL) {
       // Trailing take-profit (let winners run). Once the PEAK modeled gain arms at

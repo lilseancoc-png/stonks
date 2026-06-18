@@ -470,7 +470,7 @@ is labelled.
 | `EARNINGS_DEFER_DAYS` | 3 | **8** | ✅ 8 | P1.3 |
 | `PICKS_THETA_STOP_PCT` *(new)* | — | **2.5%/day** | ✅ 0.025 (+ min-hold 5d) | P1.4 |
 | `PICKS_MAX_PER_SECTOR` | 4 | **3** + factor cap | ✅ 3 + `PICKS_MAX_PER_FACTOR 5` | P2.1 |
-| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.6 / 0.35 | **symmetric ±20% snap exit** (instant TP / instant cut) | ✅ **0.20 / 0.20** | exits |
+| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.6 / 0.35 | **+20% TP / −30% snap stop** (instant TP / instant cut) | ✅ **0.20 / 0.30** | exits |
 | `PICKS_OPT_TRAIL` | ON | trailing TP — now **default OFF** so +20% is an instant flat TP (`=1` re-arms let-winners-run) | ✅ **OFF** | exits |
 | `PICKS_OPT_TRAIL_GIVEBACK` *(new)* | — | exit on this give-back from the peak gain (only when trail re-armed) | ✅ **0.33** | exits |
 | `PICKS_SUPPRESS_OPEN_REENTRY` *(new)* | — | don't re-pick a name with an open tracked position until it exits | ✅ **ON** (`=0` reverts) | roster |

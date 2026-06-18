@@ -480,6 +480,18 @@ best survivor:
   contract; at 0.55Δ it would gut the roster to only cheap stocks, so the cap scales
   with spot (premium bounded as a share of exposure) while still rejecting a
   genuinely overpriced (e.g. earnings-IV-inflated) ATM.
+- **Theta over the expected hold (composite term, all paths).** Time-decay is now an
+  **explicit** factor in the ranking, not just a hard gate / DTE-fit proxy: the composite
+  penalizes the fraction of premium the modeled daily theta would bleed over the expected
+  hold (`thetaPen`, weight `PICKS_THETA_PEN_W` **0.11**, carved from DTE-fit 0.16→0.10 +
+  risk/reward 0.18→0.13, which it partly subsumes). The hold is the typical
+  `PICKS_THETA_HOLD_DAYS` (10d), but **shortened for a short-dated contract** (≤
+  `PICKS_THETA_HOLD_DTE_FRAC` = 0.5 of its remaining life), so a deliberate **short play
+  isn't double-punished** for theta it's expected to carry — *"don't let theta eat me,
+  unless the play is a short one."* Saturates at `PICKS_THETA_PEN_REF` (30% of premium bled
+  over the hold). A caller can pin the horizon via `opts.holdDays`. Composite weights still
+  sum to 1.0 at defaults (delta 0.30, dte-fit 0.10, spread 0.24, OI 0.06, vol 0.06,
+  risk/reward 0.13, theta 0.11).
 - **Roster (`requireClean`)** additionally refuses any contract the live Grade-tab
   grader would call "bad" (theta >2.5%/day, dte ≤3, ≥80%-extrinsic with <14 DTE).
 - **Roster composite-quality floor** (`PICKS_CLEAN_MIN_QUALITY`, default 0.5): the
@@ -527,20 +539,22 @@ but ordinary volatility doesn't. Null ATR (thin history) → the prior 8% behavi
 (graceful). This is the structural complement to the timing gate — the gate stops us
 *entering* badly, the ATR floor stops a good entry from being *shaken out* on noise.
 
-**Premium-space exits — symmetric ±20% snap exit.** `resolvePickOutcome` resolves on
-the MODELED option P&L before the underlying-level TP/cut. The rule is now **flat and
-symmetric: the instant the modeled mark reaches +20% we take the profit, the instant
-it reaches −20% we take the loss** (`PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT`, both
-**0.20**) — done tracking, no trailing, no hoping it back. This replaces the prior
-asymmetric **−35% stop / +60% trailing take-profit**. The earlier **theta-stop**
+**Premium-space exits — +20% take-profit / −30% snap stop.** `resolvePickOutcome` resolves on
+the MODELED option P&L before the underlying-level TP/cut. The rule is **flat and
+asymmetric: the instant the modeled mark reaches +20% we take the profit, the instant
+it reaches −30% we cut the loss** (`PICKS_OPT_TP_PCT` **0.20** / `PICKS_OPT_STOP_PCT`
+**0.30**) — done tracking, no trailing, no hoping it back. This replaces the prior
+asymmetric **−35% stop / +60% trailing take-profit** (and the brief symmetric ±20%
+variant). The earlier **theta-stop**
 (`PICKS_THETA_STOP_PCT` **2.2%**/day of remaining premium, after
 `PICKS_THETA_STOP_MIN_HOLD_DAYS` **4** days held) still fires for a dead-money bleeder
-that never reaches either ±20% gate. *Why the change:* the loss diagnostic
+that never reaches either gate. *Why these levels:* the loss diagnostic
 (`scripts/diagnose-pick-losses.mjs`) on the recovered track record showed the resolved
 book averaged **−39% on the option** with the modeled loss bleeding to **−63%** as
-8–20% underlying moves blew clean through the old −35% stop between build samples — a
-tighter symmetric stop caps each loss small, and snapping the +20% gain banks it before
-a high-beta name round-trips the profit. The recorded outcome is by the **sign** of the
+8–20% underlying moves blew clean through the old −35% stop between build samples — the
+−30% stop still caps each loss well inside that −35%/−63% bleed, while giving the thesis
+a touch more room than the +20% take-profit, which banks the gain before a high-beta name
+round-trips the profit. The recorded outcome is by the **sign** of the
 modeled P&L at the trigger. Trailing is preserved but **default OFF**:
 `PICKS_OPT_TRAIL=1` re-arms the let-winners-run design (arm at `PICKS_OPT_TP_PCT`, lock
 `max(peak·(1−PICKS_OPT_TRAIL_GIVEBACK), arm)`, trail a runner up, exit on a 33%-of-peak
@@ -1236,7 +1250,10 @@ it has to be trustworthy. The fixes:
     `PICKS_OTM_MIN/MAX_PCT −0.20/0.12`, `PICKS_MAX_PREMIUM 35` +
     `PICKS_MAX_PREMIUM_PCT_OF_SPOT 0.12` (cap = max of the two); spread gate
     `PICKS_CLEAN_MAX_SPREAD_PCT 0.10` (roster) / `PICKS_MAX_SPREAD_PCT 0.18` (loose),
-    composite spread penalty saturates at `PICKS_SPREAD_PEN_REF 0.10` (weight 0.24).
+    composite spread penalty saturates at `PICKS_SPREAD_PEN_REF 0.10` (weight 0.24);
+    explicit theta term `PICKS_THETA_PEN_W 0.11` over a `PICKS_THETA_HOLD_DAYS 10`-day hold
+    (shortened to ≤ `PICKS_THETA_HOLD_DTE_FRAC 0.5` of remaining life for short-dated plays),
+    penalty saturating at `PICKS_THETA_PEN_REF 0.30` of premium bled.
   - **Exits / accuracy:** `PICKS_ACCURACY_MAX_HOLD_DAYS 14`, `PICKS_THETA_STOP_PCT
     0.025` + `PICKS_THETA_STOP_MIN_HOLD_DAYS 5` (theta-stop); modeled-option repricer
     `PICKS_OPTION_IV_DECAY_DAYS 30`, `PICKS_OPTION_EARNINGS_CRUSH 0.70`.
@@ -1244,9 +1261,9 @@ it has to be trustworthy. The fixes:
     `PICKS_ACCURACY_RESET_DOW 0` (Sunday) — wipe open[]/closed[]/stats at each ET
     week-start so the record reflects only the current engine (`lastResetWeek` watermark
     in `picks-accuracy.json`; lands Monday in practice — weekday-only bakes). `=0` disables.
-  - **Premium-space exits (P0.3) — symmetric ±20% snap exit:** `PICKS_OPT_EXITS` (default ON),
-    `PICKS_OPT_TP_PCT 0.20` / `PICKS_OPT_STOP_PCT 0.20` — resolve on modeled option P&L before
-    the underlying TP/cut: hit +20% → take profit instantly, hit −20% → take the loss instantly.
+  - **Premium-space exits (P0.3) — +20% take-profit / −30% snap stop:** `PICKS_OPT_EXITS` (default ON),
+    `PICKS_OPT_TP_PCT 0.20` / `PICKS_OPT_STOP_PCT 0.30` — resolve on modeled option P&L before
+    the underlying TP/cut: hit +20% → take profit instantly, hit −30% → cut the loss instantly.
     Trailing take-profit is now **default OFF**: `PICKS_OPT_TRAIL=1` (with `PICKS_OPT_TRAIL_GIVEBACK
     0.33`) re-arms the let-winners-run design (arm at `PICKS_OPT_TP_PCT`, lock ≥ arm, trail a
     runner up, exit on a 33%-of-peak give-back, tracked via the per-pick `optMfePct` peak).
@@ -1325,8 +1342,8 @@ it has to be trustworthy. The fixes:
     `rosterMeta.safetyGated` (+ `rosterMeta.safetyFilter`). `=0` disables.
   - **Loss-min selectivity + exits:** `PICKS_REQUIRE_GO` (default **ON** — drop non-`go`
     non-tactical picks → `rosterMeta.timingGated`); `PICKS_ABS_TRADE_FLOOR 5.5` / `PICKS_ABS_STRONG_FLOOR 8`
-    (raised from 5 / 7.5); `PICKS_OPT_STOP_PCT 0.20` + `PICKS_OPT_TP_PCT 0.20` (symmetric ±20%
-    snap exit, trailing default OFF — §5); `PICKS_THETA_STOP_PCT 0.022`
+    (raised from 5 / 7.5); `PICKS_OPT_STOP_PCT 0.30` + `PICKS_OPT_TP_PCT 0.20` (+20% TP / −30%
+    snap stop, trailing default OFF — §5); `PICKS_THETA_STOP_PCT 0.022`
     (from 0.025) + `PICKS_THETA_STOP_MIN_HOLD_DAYS 4` (from 5); `PICKS_MAX_EARNINGS_RISK 4` (§7).
   - **IC bridge — now WIRED (`PICKS_SIGNAL_IC_WEIGHT`, default ON, §9.6):** `PICKS_SIGNAL_IC_MIN_N 25`,
     `PICKS_SIGNAL_IC_GAIN 2.0`, `PICKS_SIGNAL_IC_FLOOR 0.4`, `PICKS_SIGNAL_IC_CAP 1.8`
@@ -1508,5 +1525,5 @@ the IC bridge rides, so it feeds the same auto-learning loop as the record accru
   `pillars.timing`.
 - Loss analysis: [`docs/top-picks-loss-analysis.md`](./top-picks-loss-analysis.md) —
   the resolved-book post-mortem (run via [`scripts/diagnose-pick-losses.mjs`](../scripts/diagnose-pick-losses.mjs))
-  that motivated re-entry suppression (§7) + the symmetric ±20% snap exit (§5).
+  that motivated re-entry suppression (§7) + the +20% TP / −30% snap exit (§5).
 - Changelog: [`CHANGELOG.md`](../CHANGELOG.md).

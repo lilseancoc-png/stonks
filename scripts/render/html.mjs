@@ -581,56 +581,65 @@ function optionEvalSection() {
   // change to type/expiry/strike re-grades immediately. No Evaluate button.
   return `<section class="card" id="opt-eval-section">
     <header class="card-header">
-      <h2 class="card-title">Grade a contract</h2>
+      <h2 class="card-title">Grade a ticker</h2>
     </header>
-    <p class="hint">Type to search a curated ticker, pick a call or put, then dial in expiry and strike. The verdict regrades as you go.</p>
-    <div id="opt-pinned-strip" class="opt-pinned-strip" hidden aria-label="Pinned contracts for comparison"></div>
+    <p class="hint">Search a curated ticker to pull its full grade — the 4-pillar conviction score plus technicals, fundamentals, implied vol, news, and a live contract grader. The whole page regrades as the tape moves.</p>
     <div class="opt-controls">
       <div class="combo" id="symbol-combo">
         <input type="text" id="symbol-input" role="combobox"
                aria-expanded="false" aria-controls="symbol-listbox"
                aria-autocomplete="list"
-               aria-label="Search ticker or sector to grade a contract"
+               aria-label="Search any tracked ticker to grade it"
                placeholder="Search ticker or sector…"
                autocomplete="off" spellcheck="false">
         <button type="button" class="combo-clear" id="symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
         <ul id="symbol-listbox" role="listbox" hidden></ul>
       </div>
-      <div class="segmented" role="radiogroup" aria-label="Option type">
-        <input type="radio" name="opt-type" id="opt-type-call" value="call" checked>
-        <label for="opt-type-call">Call</label>
-        <input type="radio" name="opt-type" id="opt-type-put" value="put">
-        <label for="opt-type-put">Put</label>
-      </div>
-    </div>
-    <div id="opt-chain-row" class="opt-chain-row" hidden>
-      <label class="field">
-        <span class="field-label">Expiration</span>
-        <select id="opt-expiry" aria-label="Expiration"></select>
-      </label>
-      <label class="field">
-        <span class="field-label">Strike</span>
-        <select id="opt-strike" aria-label="Strike"></select>
-      </label>
     </div>
     <div id="opt-eval-status" class="opt-status" role="status"></div>
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
-    <div id="opt-max-pain" class="opt-max-pain" hidden aria-live="polite"></div>
-    <div id="opt-toppick" class="opt-toppick" hidden aria-live="polite" aria-label="Top Picks grade for this ticker"></div>
+    <div id="opt-ticker-grade" class="opt-ticker-grade" hidden aria-live="polite" aria-label="Overall grade for this ticker"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
-    <div class="opt-result-wrap">
-      <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
-      <div id="opt-eval-result" class="opt-result"></div>
-    </div>
     <div id="opt-analysis" class="opt-analysis" hidden>
       <div class="opt-tabs" role="tablist" aria-label="Ticker analysis">
-        <button type="button" class="opt-tab" role="tab" aria-selected="true" aria-controls="opt-tab-pane-fund" id="opt-tab-btn-fund" data-tab="fund">Fundamentals</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="true" aria-controls="opt-tab-pane-contract" id="opt-tab-btn-contract" data-tab="contract">Contract grade</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-fund" id="opt-tab-btn-fund" data-tab="fund">Fundamentals</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-tech" id="opt-tab-btn-tech" data-tab="tech">Technicals</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-iv" id="opt-tab-btn-iv" data-tab="iv">Implied vol</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-news" id="opt-tab-btn-news" data-tab="news">News</button>
       </div>
-      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-fund" aria-labelledby="opt-tab-btn-fund">
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-contract" aria-labelledby="opt-tab-btn-contract">
+        <section id="opt-contract-grade" class="opt-contract-grade" aria-label="Grade a specific contract on this ticker">
+          <p class="hint">Pick a call or put, then dial in expiry and strike — the verdict regrades as you go. Or paste one straight from your broker in the card below.</p>
+          <div id="opt-pinned-strip" class="opt-pinned-strip" hidden aria-label="Pinned contracts for comparison"></div>
+          <div class="opt-controls opt-controls-contract">
+            <div class="segmented" role="radiogroup" aria-label="Option type">
+              <input type="radio" name="opt-type" id="opt-type-call" value="call" checked>
+              <label for="opt-type-call">Call</label>
+              <input type="radio" name="opt-type" id="opt-type-put" value="put">
+              <label for="opt-type-put">Put</label>
+            </div>
+          </div>
+          <div id="opt-chain-row" class="opt-chain-row" hidden>
+            <label class="field">
+              <span class="field-label">Expiration</span>
+              <select id="opt-expiry" aria-label="Expiration"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">Strike</span>
+              <select id="opt-strike" aria-label="Strike"></select>
+            </label>
+          </div>
+          <div id="opt-max-pain" class="opt-max-pain" hidden aria-live="polite"></div>
+          <div id="opt-toppick" class="opt-toppick" hidden aria-live="polite" aria-label="Top Picks grade for this ticker"></div>
+          <div class="opt-result-wrap">
+            <div id="opt-result-sticky" class="opt-result-sticky" hidden></div>
+            <div id="opt-eval-result" class="opt-result"></div>
+          </div>
+        </section>
+      </div>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-fund" aria-labelledby="opt-tab-btn-fund" hidden>
         <section id="opt-fundamentals" class="opt-fund" hidden aria-label="Fundamentals and earnings for this ticker">
           <header class="opt-fund-head">
             <h3 class="opt-fund-title">Fundamentals &amp; earnings</h3>
@@ -689,7 +698,7 @@ function optionEvalSection() {
       </div>
     </div>
     <details class="opt-explainer" id="opt-grade-explainer">
-      <summary>How is the grade computed?</summary>
+      <summary>How is the contract grade computed?</summary>
       <div class="opt-explainer-body">
         <p>The verdict you see has two halves working together &mdash; a <b>YES / NO buy panel</b> that walks every signal we have, and a short <b>mechanical verdict chip</b> that grades just the contract structure (spread / delta / theta). The panel is the one to read carefully; the chip is a quick mechanical read.</p>
         <h4>YES / NO buy panel</h4>
@@ -978,15 +987,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="color-scheme" content="light dark" />
 <title>stonks · Option Contract Rater</title>
-<meta name="description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital." />
+<meta name="description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital." />
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="favicon.svg">
 <meta property="og:type" content="website">
 <meta property="og:title" content="stonks · Option Contract Rater">
-<meta property="og:description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital.">
+<meta property="og:description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital.">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="stonks · Option Contract Rater">
-<meta name="twitter:description" content="Grade an options contract on bid-ask spread, delta, and theta. Track the market narratives currently driving capital.">
+<meta name="twitter:description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
@@ -1020,7 +1029,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </nav>
   </div>
 </header>
-<p class="page-sub">Grade an options contract on spread, delta, and theta. ${tickerCount} curated tickers, refreshed daily.</p>
+<p class="page-sub">Grade any ticker — conviction score, technicals, fundamentals, and a contract grader. ${tickerCount} curated tickers, refreshed daily.</p>
 <div id="freshness-banner" class="freshness" data-built-at="${builtAtIso}" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
   <span id="freshness-text">Refreshed ${builtAt} (NY)</span>
@@ -1081,7 +1090,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="f13" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   </div>
   <div class="page-tab-menu" role="menu" id="page-tab-menu-tools" aria-labelledby="page-tab-trigger-tools" data-group="tools" hidden>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="grade" aria-controls="page-pane-grade" id="page-tab-grade">Grade a contract</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="grade" aria-controls="page-pane-grade" id="page-tab-grade">Grade a ticker</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="cheatsheet" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet">Buyer's manual</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="chart-patterns" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns">Chart patterns</button>
@@ -1218,17 +1227,17 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <section class="landing-section">
       <header class="landing-section-head">
         <h2 class="landing-section-title">Act</h2>
-        <p class="landing-section-sub">Pull the trigger on a specific contract you're eyeing.</p>
+        <p class="landing-section-sub">Grade any ticker top to bottom — then grade the exact contract you're eyeing.</p>
       </header>
       <div class="landing-grid">
-        <button type="button" class="landing-card" data-go="grade" aria-label="Grade a contract">
+        <button type="button" class="landing-card" data-go="grade" aria-label="Grade a ticker">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Grade a contract</span>
+            <span class="landing-card-eyebrow">Grade a ticker</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat">Score it</div>
-          <div class="landing-card-sub">any chain</div>
-          <p class="landing-card-desc">Spread, delta, theta + AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About AI conviction" data-tip="Conviction blends news sentiment (Gemini, gemini-2.5-flash-lite), fundamentals verdict (Gemini, gemini-2.5-flash-lite), technicals (RSI/MACD/volume — deterministic, no AI), and macro tilt. Recomputed each daily build.">i</span> conviction for any specific contract you're eyeing.</p>
+          <div class="landing-card-stat">Grade it</div>
+          <div class="landing-card-sub">any ticker</div>
+          <p class="landing-card-desc">The full 4-pillar conviction grade + AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About AI conviction" data-tip="Conviction blends news sentiment (Gemini, gemini-2.5-flash-lite), fundamentals verdict (Gemini, gemini-2.5-flash-lite), technicals (RSI/MACD/volume — deterministic, no AI), and macro tilt. Recomputed each daily build.">i</span> take, technicals, fundamentals, implied vol, news, and a contract grader for any tracked ticker.</p>
         </button>
       </div>
     </section>
