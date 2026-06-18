@@ -8316,6 +8316,23 @@ const PICKS_OVERNIGHT_MAX_AGE_HOURS = Number(process.env.PICKS_OVERNIGHT_MAX_AGE
 const PICKS_TIMING_OVERNIGHT_MIN_PCT = Number(process.env.PICKS_TIMING_OVERNIGHT_MIN_PCT ?? 0.5); // peer-implied |move| % to fire
 const PICKS_TIMING_OVERNIGHT_MIN_CORR = Number(process.env.PICKS_TIMING_OVERNIGHT_MIN_CORR ?? 0.15); // top peer |corr| floor
 
+// Fresh-catalyst read folded into entry timing (PICKS_TIMING_NEWS, default ON).
+// News moves stocks fast — a genuine catalyst is often what triggers a profitable
+// move within the week (the horizon §3.9 tunes for). The GRADE already scores the
+// rolling news sentiment in the Narrative pillar, but that is a slow "is the backdrop
+// good?" read; the TIMING read here is FRESHNESS-GATED — it fires only on a headline
+// within PICKS_TIMING_NEWS_FRESH_DAYS sessions, i.e. "something just happened that
+// should move it NOW." Side-aware + asymmetric (the same option-buyer prudence the
+// +2/−3 catalyst split uses): a fresh ALIGNED catalyst is a SOFT pro (nudges toward a
+// `go` but one noisy AI read can't manufacture a `go` alone — structure still has to be
+// there), a fresh ADVERSE catalyst is a STRONG con (blocks `go`→`wait` and shaves the
+// contribution — fresh bad news is dangerous to long premium). Reads data.news.sentiment
+// + the freshest headline's publishedAt; the synthesized macro-fallback take is
+// sentiment:"uncertain", so it never fires. Mirrored live on the Grade tab's
+// buildExecuteNowCard (scripts/render/app-js.mjs — "consistent in spirit", not shared).
+const PICKS_TIMING_NEWS = process.env.PICKS_TIMING_NEWS !== "0"; // default ON
+const PICKS_TIMING_NEWS_FRESH_DAYS = Number(process.env.PICKS_TIMING_NEWS_FRESH_DAYS ?? 3); // a headline must be this fresh (sessions ≈ days) to count as a move-now TIMING catalyst
+
 // Horizon-aware pillar weighting (rubric §3.5). The engine grades like a
 // stock-picker (4 pillars of asset quality) but TRADES ~14-day long premium on
 // 30-60 DTE contracts. The pillars do not share that horizon: order flow and
@@ -12418,6 +12435,23 @@ function daysToExDivFrom(data) {
   return d >= -1 ? Math.max(0, Math.round(d)) : null;
 }
 
+// Age (in days) of the most recent attached news headline, or null if none carry a
+// usable publishedAt. Used to FRESHNESS-GATE the entry-timing catalyst read (§6.2) so
+// stale background sentiment can't masquerade as a fresh, move-now catalyst — the
+// grade scores the rolling sentiment, timing only reacts to "something just happened".
+// Mirrored live in scripts/render/app-js.mjs (freshestHeadlineAgeDaysLive).
+function freshestHeadlineAgeDays(data) {
+  const hls = data && data.news && Array.isArray(data.news.headlines) ? data.news.headlines : null;
+  if (!hls || !hls.length) return null;
+  let newestMs = null;
+  for (const h of hls) {
+    const t = h && h.publishedAt ? Date.parse(h.publishedAt) : NaN;
+    if (Number.isFinite(t) && (newestMs == null || t > newestMs)) newestMs = t;
+  }
+  if (newestMs == null) return null;
+  return (Date.now() - newestMs) / 86400000;
+}
+
 // NYSE full-day market holidays (observed dates) for the build's relevant window.
 // Used ONLY by the timing dead-days theta read, which degrades gracefully — a
 // missing far-future year just under-counts holidays (weekends still count), so
@@ -12689,6 +12723,28 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       ? `is a guaranteed vol event for long premium${tpPct != null ? ` (top outcome ~${tpPct}%)` : ""} — the IV crush + a guidance/print surprise hit a debit either way`
       : `is a market coin-flip${tpPct != null ? ` (top outcome ~${tpPct}%)` : ""}`;
     con(false, `${eventRisk.label} in ${eventRisk.daysOut === 0 ? "0" : eventRisk.daysOut}d ${why} — defer entry past the event`);
+  }
+
+  // ---- Fresh news catalyst (side-aware, asymmetric: soft pro / strong con) ---
+  // News moves stocks fast — a genuine catalyst is often the trigger for a move
+  // within the week. The grade already scores the rolling sentiment (Narrative
+  // pillar); this is the FRESHNESS-GATED timing read — it fires only on a headline
+  // within PICKS_TIMING_NEWS_FRESH_DAYS, i.e. "something just happened that should
+  // move it now." Asymmetric option-buyer prudence: a fresh ALIGNED catalyst is a
+  // soft pro (supports a `go`, can't make one alone — structure still has to fire),
+  // a fresh ADVERSE catalyst is a strong con (blocks `go`→`wait` and shaves the
+  // contribution). The macro-fallback take is sentiment:"uncertain" → never fires.
+  if (PICKS_TIMING_NEWS) {
+    const newsSent = data?.news?.sentiment;
+    const newsDir = newsSent === "bullish" ? 1 : newsSent === "bearish" ? -1 : 0;
+    if (newsDir !== 0) {
+      const ageD = freshestHeadlineAgeDays(data);
+      if (ageD != null && ageD <= PICKS_TIMING_NEWS_FRESH_DAYS) {
+        const ageTxt = ageD < 1 ? "today" : `${Math.round(ageD)}d ago`;
+        if (newsDir * dir > 0) pro(false, `fresh ${newsSent} headline (${ageTxt}) — a catalyst that can move it the trade's way this week`);
+        else con(true, `fresh ${newsSent} headline (${ageTxt}) against ${dirWord} — a new catalyst working against the trade`);
+      }
+    }
   }
 
   // ---- Ex-dividend nudge (side-aware, soft) ----------------------------------
