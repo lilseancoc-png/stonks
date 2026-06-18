@@ -7597,14 +7597,18 @@ const PICKS_MAX_SPREAD_PCT = 0.18;  // tight bid/ask
 const PICKS_MIN_OI = 50;            // need real two-sided market
 const PICKS_MIN_DTE = 14;           // 14d+ per spec
 const PICKS_MAX_DTE = 120;          // soft-scoring reference only (not a hard cap)
-// Long-horizon rework: the ideal (zero-penalty) DTE band moved 30-60 → 45-90 so a
-// durable thesis is bought on a contract with runway to play out instead of a
-// near-dated option that hits the theta cliff before the thesis can. Paired with
-// the measured-hold extension (PICKS_ACCURACY_MAX_HOLD_DAYS 14→30 below) so the
-// vehicle's clock and the thesis's clock are aligned. Still well inside the
-// MAX_EXPIRATIONS=10 reach for liquid names and the PICKS_MAX_DTE=120 soft cap.
-const PICKS_IDEAL_DTE_LO = Number(process.env.PICKS_IDEAL_DTE_LO ?? 45);
-const PICKS_IDEAL_DTE_HI = Number(process.env.PICKS_IDEAL_DTE_HI ?? 90);
+// Fast-results retune: the ideal (zero-penalty) DTE band moved 45-90 → 30-60.
+// The product promise is a PROFITABLE MOVE WITHIN ~1 WEEK (2 weeks max), so a pick
+// is held ~2 weeks (PICKS_ACCURACY_MAX_HOLD_DAYS 14 below), not a month — buying a
+// 45-90 DTE contract for a 2-week hold just pays up front for runway the trade
+// never uses (and dilutes the gamma/leverage to the near-term move we actually want).
+// 30-60 DTE leaves ~16-46 DTE at a 2-week exit — still above the theta cliff the
+// PICKS_MIN_DTE=14 floor guards, while keeping the contract responsive to a move
+// that happens THIS week. (Reverts the §3.8 long-horizon band, which was explicitly
+// "paired with the 30-day measured hold" — un-paired once the hold shortens back.)
+// Still well inside the MAX_EXPIRATIONS=10 reach and the PICKS_MAX_DTE=120 soft cap.
+const PICKS_IDEAL_DTE_LO = Number(process.env.PICKS_IDEAL_DTE_LO ?? 30);
+const PICKS_IDEAL_DTE_HI = Number(process.env.PICKS_IDEAL_DTE_HI ?? 60);
 // Delta target (P1.1). Moved off the cheap, fragile 0.20-0.40 OTM band — where an
 // ~8% adverse underlying move is ≈ -70% on the option — to a near-the-money
 // 0.45-0.65 band (target 0.55). A slightly-ITM contract has far less theta drag
@@ -7783,16 +7787,18 @@ const PICKS_TIMING_AVOID_FLOOR = Number(process.env.PICKS_TIMING_AVOID_FLOOR ?? 
 // contribution exit of computeEntryTiming, so state/headline/reasons and every
 // downstream consumer (fold, re-fold, display) stay consistent automatically.
 const PICKS_TIMING_FOLD_SCALE = Number(process.env.PICKS_TIMING_FOLD_SCALE ?? 0.5);
-// Asymmetric fold (long-horizon rework): timing should be a tactical ENTRY overlay,
-// not a core-grade driver. A clean 'go' was manufacturing up to +4×0.5 = +2 of
-// conviction — enough to carry a thin-thesis momentum name onto the roster purely
-// on "today is a clean entry bar" (the track record showed timing carrying 33-61%
-// of some shipped picks' totals). Scale the POSITIVE (go-credit) side DOWN harder
-// so the grade reflects the durable thesis, while the NEGATIVE side (the knife /
-// chasing-top penalty, the genuine risk control) keeps the full PICKS_TIMING_FOLD_SCALE
-// — we still defer a bad entry, we just stop a good entry bar from inflating a weak
-// asset's grade. Set equal to PICKS_TIMING_FOLD_SCALE to restore the symmetric fold.
-const PICKS_TIMING_FOLD_SCALE_POS = Number(process.env.PICKS_TIMING_FOLD_SCALE_POS ?? 0.35);
+// Fast-results retune: restore the SYMMETRIC fold (0.35 → 0.5 = PICKS_TIMING_FOLD_SCALE).
+// A clean 'go' is the engine's read that the move is CONFIRMED and in motion right now —
+// precisely the "a profitable move will happen this week" signal the product is being
+// tuned for, so it should carry full weight, not the §3.8-demoted 0.35. §3.8 demoted
+// the positive side because an offline IC backtest found 'go' setups had the lowest
+// forward returns — but that backtest measured 30-DAY UNDERLYING return, the long
+// horizon we're deliberately moving away from; over the ~1-week option horizon that
+// dominates this product, riding a confirmed-in-motion move before theta bites is
+// exactly what pays. The NEGATIVE side (knife / chasing-top penalty — the genuine risk
+// control) was always at the full PICKS_TIMING_FOLD_SCALE and is unchanged, so this only
+// lifts the go-credit. Set below PICKS_TIMING_FOLD_SCALE to re-demote the entry credit.
+const PICKS_TIMING_FOLD_SCALE_POS = Number(process.env.PICKS_TIMING_FOLD_SCALE_POS ?? PICKS_TIMING_FOLD_SCALE);
 // Risk-off put enablement (user-chosen): the universe is long-biased, so puts
 // almost never clear the -16 grade bar. When the broad tape is CONFIRMED
 // risk-off, relax the put bar to this score AND require a clean bearish entry
@@ -8068,7 +8074,7 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;  // hard cap on the closed log
 // wipe is just this firing on the next build (the live file carries no marker yet).
 const PICKS_ACCURACY_WEEKLY_RESET = process.env.PICKS_ACCURACY_WEEKLY_RESET !== "0"; // default ON
 const PICKS_ACCURACY_RESET_DOW = Number(process.env.PICKS_ACCURACY_RESET_DOW ?? 0); // 0=Sun..6=Sat
-const PICKS_ACCURACY_MAX_HOLD_DAYS = Number(process.env.PICKS_ACCURACY_MAX_HOLD_DAYS ?? 30); // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days. Long-horizon rework: 14→30 so the tracker measures the (now longer-DTE) thesis on a horizon it can actually resolve on, instead of force-closing every pick at 2 weeks. The theta-aware stop (PICKS_THETA_STOP_PCT) still cuts a position that's bleeding premium with no thesis progress, so this lengthens the runway WITHOUT removing the decay guard.
+const PICKS_ACCURACY_MAX_HOLD_DAYS = Number(process.env.PICKS_ACCURACY_MAX_HOLD_DAYS ?? 14); // time-stop: close an open pick that hasn't hit TP/cut/expiry after this many days. Fast-results retune: 30→14 (calendar days = 2 weeks). The product promise is a profitable move within ~1 week, 2 weeks max — "if it's still down after that it's not a good look." So the engine is graded on, and force-closes at, the 2-week mark (the time-stop now records the CURRENT modeled option P&L sign — a pick still underwater at 2 weeks resolves as a LOSS — see resolvePickOutcome). Reverts the §3.8 30-day extension; the theta-aware stop (PICKS_THETA_STOP_PCT) still cuts a bleeder sooner.
 const PICKS_ACCURACY_ENROLL_TOP_N = 5;   // RETIRED as the enroll gate — every shipped pick now enrolls (full-roster); the per-thesis dedup bounds the open list. Kept for reference / any external readers.
 // Theta-aware time-stop (P1.4). The flat 14-day stop "bleeds theta invisibly": a
 // pick that goes nowhere on a ≥21-DTE contract hits day 14 with ~7 DTE left — the
@@ -8327,7 +8333,7 @@ const PICKS_TIMING_OVERNIGHT_MIN_CORR = Number(process.env.PICKS_TIMING_OVERNIGH
 // equal-weight sum. Percentile tiers (§4) self-recalibrate to the re-weighted
 // distribution, so this re-ranks the roster without changing how many names ship.
 const PICKS_HORIZON_WEIGHTS = process.env.PICKS_HORIZON_WEIGHTS !== "0"; // default ON
-const PICKS_HW_FUND = Number(process.env.PICKS_HW_FUND ?? 0.8);  // slowest — quarterly/annual factors. Long-horizon rework: raised 0.6→0.8 to lift the durable/thesis share of the grade, paired with the longer DTE band + measured-hold extension below (re-weighting fundamentals WITHOUT giving the thesis time to resolve would just size 2-week bets on signals that don't move price in 2 weeks). Still < the technicals reference (1.0): fundamentals corroborate a durable thesis, momentum still leads the option's clock.
+const PICKS_HW_FUND = Number(process.env.PICKS_HW_FUND ?? 0.6);  // slowest — quarterly/annual factors. Fast-results retune: 0.8→0.6. The §3.8 lift to 0.8 was explicitly "paired with the longer hold"; with the hold back to ~2 weeks (PICKS_ACCURACY_MAX_HOLD_DAYS=14, DTE 30-60) that pairing is gone — re-weighting slow fundamentals on a 2-week-held option just sizes bets on signals that don't move price in 2 weeks. Discount them again so the grade leans on the fast factors (technicals/flow/timing) that actually move price THIS week. Fundamentals still corroborate via its fast EVENT signals (analyst revisions, guidance, major contracts), which keep their integer scores.
 const PICKS_HW_TECH = Number(process.env.PICKS_HW_TECH ?? 1.0);  // RSI/MACD/S&R/momentum — natively the days-to-weeks horizon; the reference weight
 const PICKS_HW_MECH = Number(process.env.PICKS_HW_MECH ?? 1.15); // options flow / OI / unusual volume / put-call — order flow leads price at the shortest horizon (modest boost)
 const PICKS_HW_NARR = Number(process.env.PICKS_HW_NARR ?? 0.9);  // catalysts move fast but are one noisy AI sentiment read, and sector-narrative is slow (slight discount)
@@ -15308,7 +15314,17 @@ export function resolvePickOutcome(opts) {
     return { status: "theta-stop", outcome: excursionOutcome(mfePct, maePct) };
   }
   if (entrySec > 0 && nowSec - entrySec >= PICKS_ACCURACY_MAX_HOLD_DAYS * 86400) {
-    return { status: "timed-out", outcome: excursionOutcome(mfePct, maePct) };
+    // Fast-results rule: by the 2-week time-stop the move was supposed to have paid.
+    // "Two weeks out is fine, but if it's still down after that it's not a good look"
+    // — so resolve on the CURRENT modeled option P&L sign (down = loss, up = win),
+    // not the lenient underlying max-favorable-vs-adverse excursion (which could score
+    // a now-underwater pick a 'win' off a favorable spike it never actually banked).
+    // Legacy entries with no modeled mark fall back to the excursion read. Mirrors the
+    // pre-earnings forward-exit branch above.
+    const outcome = (modeledOptPnlPct != null && isFinite(modeledOptPnlPct))
+      ? (modeledOptPnlPct > 0 ? "win" : modeledOptPnlPct < 0 ? "loss" : excursionOutcome(mfePct, maePct))
+      : excursionOutcome(mfePct, maePct);
+    return { status: "timed-out", outcome };
   }
   if (!inUniverse) {
     return { status: "dropped", outcome: excursionOutcome(mfePct, maePct) };

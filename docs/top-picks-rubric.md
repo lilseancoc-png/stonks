@@ -333,6 +333,11 @@ env-overridable; tiers are percentile-relative so roster *size* is preserved whi
 | Measured hold (`PICKS_ACCURACY_MAX_HOLD_DAYS`) | 14 | **30** | the tracker measures the (now longer-DTE) thesis on a horizon it can resolve on; the theta-stop still cuts a position bleeding with no progress |
 | **Thesis Durability** signal (`PICKS_DURABILITY_SIGNAL`) | — | **new** | the one multi-period read the fundamentals pillar lacked: earnings-beat consistency over ~4 quarters + net-margin trend, z-scored cross-sectionally and clustered with the growth family (1/√K) |
 
+> **The four horizon rows above (timing-fold, `PICKS_HW_FUND`, DTE band, measured
+> hold) were REVERTED by the fast-results retune — see §3.9.** The technicals-cap
+> loosen (4.5) and the Thesis Durability signal stay. §3.8's narrative + IC backtest
+> are kept as the audit trail for *why* the longer horizon was tried.
+
 **Tape-internals → "fragile" graded sub-state (`PICKS_MACRO_FG_INTERNALS`, §6.3).**
 The cross-asset gauge's sentiment axis read only the headline Fear & Greed
 *composite* at its 25/75 extremes — so a 33.5 "fear" reading with **breadth 20.8 and
@@ -369,6 +374,35 @@ natural follow-up. Caveats (in the script header): it measures *underlying* retu
 option P&L; absolute levels are survivorship-biased (read the rank IC); one ~12-month
 cycle. Re-run it (and `diagnose-grade-ic.mjs` once the live store re-accumulates) before
 pushing the Phase-2 knobs further.
+
+### 3.9 Fast-results retune (horizon back to ~1–2 weeks)
+
+**Product goal.** Top Picks is being optimized for **fast, profitable results**: a
+name should earn a recommendation when a **profitable move is likely within ~1 week**;
+**two weeks is the outer bound** — *"if it's still down after that, it's not a good
+look."* That is a product/UX requirement on **option P&L over a short hold**, and it
+**supersedes** the §3.8 long-horizon rework, whose IC backtest optimized *underlying*
+return at **30 days** — a longer horizon, and a different quantity (the underlying can
+keep working for a month while a long option bleeds out on theta + IV crush in two
+weeks). So the **horizon levers** §3.8 lengthened are tuned back; the parts of §3.8
+that don't bind the horizon (the 4.5 technicals cap, the Thesis Durability signal) are
+kept.
+
+| Lever | §3.8 | Now | Why (fast-results) |
+|---|---|---|---|
+| Measured hold + time-stop (`PICKS_ACCURACY_MAX_HOLD_DAYS`) | 30 | **14** (2 weeks) | grade the thesis on the horizon the product promises; force-close at 2 weeks |
+| **Time-stop outcome** (`resolvePickOutcome`) | underlying excursion | **current modeled option P&L sign** | a pick *still underwater at 2 weeks* now records a **LOSS** (was a lenient "flat" off a favorable spike it never banked) — the direct expression of "down after two weeks = not a good look" |
+| Ideal DTE band (`PICKS_IDEAL_DTE_LO/HI`) | 45–90 | **30–60** | match the contract clock to a ~2-week hold; stop pre-paying for 90-DTE runway the trade never uses, keep gamma/leverage to the near-term move (≈16–46 DTE remain at exit, above the theta cliff) |
+| Fundamentals horizon weight (`PICKS_HW_FUND`) | 0.8 | **0.6** | §3.8's 0.8 was *"only paired with the longer hold"* — un-paired once the hold shortens; slow factors don't move price in 2 weeks, so lean on the fast pillars (technicals/flow/timing) |
+| Timing fold — positive side (`PICKS_TIMING_FOLD_SCALE_POS`) | 0.35 | **0.5** (= `PICKS_TIMING_FOLD_SCALE`, symmetric) | a clean `go` is the engine reading the move as *confirmed and in motion now* — exactly the "move happens this week" signal — so the entry credit rides at full weight again. §3.8's IC demotion measured 30-day underlying return (the horizon we're leaving). The knife/chase **penalty** was always at full scale and is unchanged — risk control intact |
+
+All five remain env-overridable, so the §3.8 long-horizon config is one
+`PICKS_ACCURACY_MAX_HOLD_DAYS=30 PICKS_IDEAL_DTE_LO=45 PICKS_IDEAL_DTE_HI=90
+PICKS_HW_FUND=0.8 PICKS_TIMING_FOLD_SCALE_POS=0.35` away. Expect a one-time grade /
+roster / track-record shift on the first bake (shorter-DTE, more momentum-led picks;
+the time-stop now scores stalled picks as losses, which the negative-edge governor §8
+then feeds back into sizing). The §3.5 base-weight table and §3.5.1 regime overlay
+already cite Fundamentals at **0.6**, so they are consistent again post-revert.
 
 ---
 
@@ -1011,8 +1045,8 @@ first bake.
   `rosterMeta.factorCapped`.
 - **Earnings-crush concentration cap** (`PICKS_MAX_EARNINGS_RISK = 4`). A long single-leg
   premium whose chosen contract expiry crosses an upcoming earnings print eats the
-  post-report IV crush — a binary vol event the directional thesis can't hedge. The 45–90
-  DTE rework (§3.8) makes a contract MORE likely to span the next quarterly print, so the
+  post-report IV crush — a binary vol event the directional thesis can't hedge. Even the
+  30–60 DTE band (§3.9) can let a contract span the next quarterly print, so the
   roster could quietly stack a majority of crush-exposed names (a desk would never run a
   book where most positions face an unhedged binary event). No more than
   `PICKS_MAX_EARNINGS_RISK` shipped picks may hold an `earningsInWindow` contract; beyond
@@ -1150,10 +1184,13 @@ it has to be trustworthy. The fixes:
   positions. The open mark flows continuously into the closed record (resolution just
   stamps its own exit mark over it). A day-0 debut shows ≈ the round-trip spread cost —
   honest: a single-leg long is down the bid/ask the instant you'd flip it.
-- **Resolution** (`resolvePickOutcome`): TP (win), cut (loss), expiry (vs breakeven),
-  the **theta-stop** (P1.4 — cut when modeled daily theta > `PICKS_THETA_STOP_PCT`
-  = 2.5%/day of remaining premium, gated to held ≥ 5d and modeled at a loss), or the
-  14-day time-stop.
+- **Resolution** (`resolvePickOutcome`): premium-space exits first (+20% TP / −30% stop),
+  then TP (win), cut (loss), expiry (vs breakeven), the **theta-stop** (P1.4 — cut when
+  modeled daily theta > `PICKS_THETA_STOP_PCT` = 2.5%/day of remaining premium, gated to
+  held ≥ 5d and modeled at a loss), then the **14-day time-stop** — which resolves on the
+  **current modeled option P&L sign** (a pick still underwater at 2 weeks = a **loss**;
+  §3.9 fast-results rule), falling back to the underlying excursion only for legacy
+  entries with no modeled mark.
 - **Honest cohorts.** Win-rate is reported overall and broken down by `byTier`,
   **`bySector`** (the old `byTier` was degenerate — all picks were "strong-call" —
   while losses were 18/19 Technology, hidden by the global rate), and **`byRegime`**
