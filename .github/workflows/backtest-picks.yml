@@ -74,15 +74,26 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: node scripts/sync-data.mjs pull
 
-      - name: Run Top Picks backtest
+      - name: Run Top Picks backtest + signal-edge diagnostics
         # Empty inputs (e.g. on the push trigger) fall through to the script's
-        # own env defaults — backtest-picks.mjs treats "" as unset.
+        # own env defaults — backtest-picks.mjs treats "" as unset. All four are
+        # read-only / no-network; `|| true` so a "nothing to diagnose" exit
+        # (e.g. an empty picks-accuracy) doesn't fail the job under `bash -e`.
         env:
           BT_HOLD: ${{ github.event.inputs.hold }}
           BT_DTE: ${{ github.event.inputs.dte }}
           BT_START: ${{ github.event.inputs.start }}
           BT_HORIZONS: ${{ github.event.inputs.horizons }}
         run: |
-          echo "::group::backtest-picks output"
-          node scripts/backtest-picks.mjs
+          echo "::group::backtest-picks (modeled portfolio P&L from recorded grades)"
+          node scripts/backtest-picks.mjs || true
+          echo "::endgroup::"
+          echo "::group::diagnose-signal-ic (point-in-time signal IC over ~1yr of bars)"
+          node scripts/diagnose-signal-ic.mjs || true
+          echo "::endgroup::"
+          echo "::group::diagnose-grade-ic (universe grade IC from grades-daily)"
+          node scripts/diagnose-grade-ic.mjs || true
+          echo "::endgroup::"
+          echo "::group::diagnose-pick-losses (resolved real-pick attribution)"
+          node scripts/diagnose-pick-losses.mjs || true
           echo "::endgroup::"
