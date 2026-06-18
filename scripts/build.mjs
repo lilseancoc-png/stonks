@@ -7404,7 +7404,7 @@ const PICKS_COUNT = 10;
 // roster at once. Cap correlation at 30% of the roster (tightened 4→3, P2.1);
 // ETFs (null sector) are uncapped. This caps CORRELATION, not sidedness — the
 // long-bias is handled elsewhere (the grade + the timing gate's risk-off put path).
-const PICKS_MAX_PER_SECTOR = 3;
+export const PICKS_MAX_PER_SECTOR = 3;
 // Factor / correlation cap (P2.1). The historical blowup cluster — semis +
 // software + the mega-cap-tech / data-center-power complex — trades as ONE beta
 // that spans several GICS sectors (Technology, Communication Services, even some
@@ -7468,7 +7468,7 @@ function factorOfTicker(sym) {
 //                     would silently ship ZERO. 7/10 mirror the live
 //                     percentile cutoffs' scale.)
 export const PICKS_MIN_CONVICTION = 7;
-const PICKS_TIER_STRONG = 10;
+export const PICKS_TIER_STRONG = 10;
 
 // ---- P3.x — cross-sectional standardization + risk-based sizing ------------
 // The fixed bars above (±12/±16) and the per-signal integer thresholds in the
