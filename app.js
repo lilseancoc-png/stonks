@@ -112,7 +112,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-17","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-17","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -1289,6 +1289,24 @@
   // logic mirrors the 1H K-line buy/sell flow playbook: breakout above
   // resistance + volume = execute, rally fails at resistance = avoid,
   // sideways range = wait, etc. Direction-aware — flips for puts.
+  // Age (in days) of the freshest attached news headline, or null when none carry a
+  // usable publishedAt. Mirrors freshestHeadlineAgeDays in build.mjs — used to
+  // FRESHNESS-GATE the execute-now card's news-catalyst read so stale background
+  // sentiment can't pose as a fresh, move-now catalyst.
+  var EXEC_NEWS_FRESH_DAYS = 3;
+  function freshestHeadlineAgeDaysLive(news){
+    var hls = (news && news.headlines && news.headlines.length) ? news.headlines : null;
+    if (!hls) return null;
+    var newest = null;
+    for (var i = 0; i < hls.length; i++){
+      var h = hls[i];
+      var t = (h && h.publishedAt) ? Date.parse(h.publishedAt) : NaN;
+      if (isFinite(t) && (newest == null || t > newest)) newest = t;
+    }
+    if (newest == null) return null;
+    return (Date.now() - newest) / 86400000;
+  }
+
   function buildExecuteNowCard(ctx){
     var input = ctx.input || {};
     var buy = ctx.buy || null;
@@ -1660,6 +1678,33 @@
       daysToFomc = Math.round((dms - todayMs2) / 86400000);
       break;
     }
+    // --- Fresh news catalyst (side-aware, asymmetric) --------------------
+    // Mirror of the server entry-timing news read (computeEntryTiming in
+    // build.mjs, "consistent in spirit"): news moves stocks fast, so a FRESH
+    // ticker-specific catalyst is a timing signal, not just a grade input.
+    // Freshness-gated on the newest attached headline (within
+    // EXEC_NEWS_FRESH_DAYS) so stale background sentiment doesn't fire.
+    // Asymmetric option-buyer prudence: a fresh aligned catalyst is a soft
+    // pro, a fresh adverse one a strong con (fresh bad news is dangerous to
+    // long premium). The macro-fallback take is sentiment 'uncertain' → never fires.
+    var execNews = input.news || null;
+    if (execNews && execNews.sentiment){
+      var newsDir = execNews.sentiment === 'bullish' ? 1 : execNews.sentiment === 'bearish' ? -1 : 0;
+      if (newsDir !== 0){
+        var freshAge = freshestHeadlineAgeDaysLive(execNews);
+        if (freshAge != null && freshAge <= EXEC_NEWS_FRESH_DAYS){
+          var newsAgeTxt = freshAge < 1 ? 'today' : Math.round(freshAge) + 'd ago';
+          if (newsDir * dir > 0){
+            pros.push({ tag: 'Fresh catalyst', strong: false, text:
+              'A ' + execNews.sentiment + ' headline landed ' + newsAgeTxt + ' — a fresh catalyst that can move it the trade\'s way this week.' });
+          } else {
+            cons.push({ tag: 'Adverse headline', strong: true, text:
+              'A ' + execNews.sentiment + ' headline landed ' + newsAgeTxt + ', working against ' + dirLabel + ' — fresh bad news is dangerous to long premium. Let it settle before entering.' });
+          }
+        }
+      }
+    }
+
     var catalystImminent = false;
     if (daysToEarnings != null && daysToEarnings <= 1){
       catalystImminent = true;
@@ -7047,13 +7092,18 @@
     perRowCollapsed: Object.create(null),
   };
   // Collapsed-by-default: with 200+ contracts on a hot ticker like QQQ the
-  // section dominates the page. Seed each known ticker as collapsed so the
-  // initial render is a scannable list of headers; users expand the ones
-  // they care about.
-  (function seedCollapsed(){
-    var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers : [];
-    tickers.forEach(function(t){ flowState.perRowCollapsed[t.symbol] = true; });
-  })();
+  // section dominates the page, so a row is collapsed UNLESS the user has
+  // explicitly expanded it. Derive that from collapsedAll instead of seeding
+  // perRowCollapsed at init — in the deferred (premium-sidecar) manifest path
+  // UNUSUAL is still null when this module initializes (it only lands later via
+  // applyManifest), so an init-time seed would no-op and every row would render
+  // expanded. Mirrors the OI tracker's oiIsRowCollapsed.
+  function isFlowRowCollapsed(sym){
+    if (Object.prototype.hasOwnProperty.call(flowState.perRowCollapsed, sym)){
+      return !!flowState.perRowCollapsed[sym];
+    }
+    return flowState.collapsedAll;
+  }
   function filteredTickers(){
     var tickers = (UNUSUAL && Array.isArray(UNUSUAL.tickers)) ? UNUSUAL.tickers.slice() : [];
     var out = [];
@@ -7253,7 +7303,7 @@
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
       var topTier = deltaTier(t.topDelta || 0);
-      var collapsed = !!flowState.perRowCollapsed[t.symbol];
+      var collapsed = isFlowRowCollapsed(t.symbol);
       var hasNotes = t.contracts.some(function(c){ return !!c.note; });
       var contractsCls = 'flow-contracts' + (hasNotes ? ' has-notes' : '');
       return '<article class="flow-row tier-' + topTier + (collapsed ? ' is-collapsed' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
@@ -7346,7 +7396,7 @@
         var btn = ev.target.closest && ev.target.closest('[data-row-toggle]');
         if (!btn) return;
         var sym = btn.getAttribute('data-row-toggle');
-        flowState.perRowCollapsed[sym] = !flowState.perRowCollapsed[sym];
+        flowState.perRowCollapsed[sym] = !isFlowRowCollapsed(sym);
         renderUnusualFlow();
       });
     }
