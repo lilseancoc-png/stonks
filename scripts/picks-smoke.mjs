@@ -135,6 +135,20 @@ ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "K
 ok("picks: each pick has contract + sizing", picks.length === 0 || picks.every((p) => p.contract && p.sizing && p.sizing.weight != null));
 ok("picks: each pick has pillars + recommendation + thesis", picks.every((p) => p.pillars && p.recommendation && p.analysis));
 ok("picks: exitPlan TP/cut present", picks.every((p) => p.exitPlan && p.exitPlan.takeProfit && p.exitPlan.cut));
+// entry guidance: every pick has a buy-now / wait-for-price signal
+ok("picks: every pick has an entry signal w/ headline", picks.every((p) => p.entry && typeof p.entry.now === "boolean" && p.entry.headline));
+ok("picks: a clean-timing (go) pick reads buy-now", picks.filter((p) => p.entryTiming.state === "go").every((p) => p.entry.now === true && p.entry.signal === "buy-now"));
+// a below-trend call (spot under the 20D SMA) should wait for a reclaim, not buy now
+const belowTrend = mkTicker({ spot: 100, technicals: { rsi: 52, rsi5d: 50, macd: { hist: 0.1, line: 0.2, signal: 0.1 }, volume: { rvol: 1.0, priceMove1dPct: -0.5 }, sr: { s20: 95, r20: 108 }, sma: { sma20: 106, sma50: 104, sma100: 100 }, chartPattern: null, volRegime: { rv30Pctile: 45 } } });
+const bg = buildGradesIndex({ X: belowTrend }, [], null, null, null, null, {});
+const es = computeEntrySmoke();
+ok("entry: below-20D call waits for a reclaim trigger (not buy-now)", es && es.now === false && es.signal === "wait-reclaim" && es.trigger > 100);
+function computeEntrySmoke(){
+  // drive the engine directly via a single-name pick build
+  const pk = buildTopPicks({ X: belowTrend }, [], null, null, null, null, 0.045, {});
+  const p = pk.find((x) => x.symbol === "X");
+  return p ? p.entry : null;
+}
 ok("picks: book risk in rosterMeta", picks.rosterMeta.book && picks.rosterMeta.book.account > 0);
 ok("picks: deployed gross <= target", picks.rosterMeta.deployedGross <= 0.81);
 

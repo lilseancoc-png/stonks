@@ -8317,6 +8317,54 @@ function buildEntryPlan(side, spot, data, contract, total) {
   return { strategy: { name: strong ? "Full entry" : "Scale in", strength: strong ? "high" : "medium", blurb: strong ? "Conviction supports full size." : "Build the position in two tranches." }, stance, scaleCount: tranches.length, sizingRule: "Risk-based (see sizing).", atFiftyDaySma: false, tranches, summary: null };
 }
 
+// Entry guidance for a pick that already cleared the conviction bar: tell the
+// user WHEN to open it. "Buy now" only when the timing gate is a clean GO (the
+// move is confirmed and in motion); otherwise a specific trigger PRICE —
+//   * below its own 20D trend (the "why is a down name a call?" case) -> wait for
+//     a reclaim of the 20D SMA, so we don't buy short-dated premium into a drift;
+//   * extended past the 20D -> wait for a pullback toward it (don't chase);
+//   * near the trend -> buy a minor dip toward the nearest support.
+// Mirrors for puts. Confirmed-bars only (same no-look-ahead rule as the gate).
+function computeEntrySignal(side, spot, data, timing) {
+  const isCall = side === "call";
+  spot = pnum(spot) ?? pnum(data?.spot);
+  const t = data?.technicals || {};
+  const sma20 = pnum(t.sma?.sma20);
+  const sr = t.sr || {};
+  const bars = timingBarsFrom(data);
+  const atrPct = bars ? atrPctFrom(bars.h, bars.l, bars.c) : null;
+  const buf = atrPct != null ? clamp(atrPct, 0.005, 0.03) : 0.01;
+  const state = timing?.state || null;
+  const fmt = (x) => "$" + r2(x);
+  if (!(spot > 0)) return { now: false, signal: "wait", trigger: null, zone: null, basis: "no price", headline: "Wait for a cleaner setup" };
+  // Clean, confirmed entry -> buy now.
+  if (state === "go") {
+    return { now: true, signal: "buy-now", trigger: r2(spot), zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))], basis: "confirmed entry", headline: `Buy now — clean entry near ${fmt(spot)}` };
+  }
+  // Deferred for an imminent event/earnings -> stand down until it clears.
+  if (state === "wait" && (timing.deferKind === "earnings" || timing.deferKind === "event")) {
+    return { now: false, signal: "wait-event", trigger: null, zone: null, basis: timing.deferKind, headline: `Hold off — ${timing.deferKind === "earnings" ? "earnings imminent" : "macro event imminent"}; re-assess after it clears` };
+  }
+  // Structure-based trigger off the 20D SMA.
+  if (sma20 > 0) {
+    const dir = isCall ? 1 : -1;
+    const beyond = (spot / sma20 - 1) * dir;            // + = price already on the trade's side of the SMA
+    if (beyond < -0.005) {
+      const trig = r2(sma20);
+      return { now: false, signal: "wait-reclaim", trigger: trig, zone: [r2(sma20 * (1 - buf)), r2(sma20 * (1 + buf))], basis: "20D SMA reclaim", headline: `Wait for a ${isCall ? "close back above" : "break below"} the 20D SMA (~${fmt(trig)}) to confirm the turn` };
+    }
+    if (beyond > 0.04) {
+      const trig = r2(sma20);
+      return { now: false, signal: "wait-pullback", trigger: trig, zone: [r2(sma20), r2(spot * (1 - dir * 0.02))], basis: "pullback to 20D SMA", headline: `Extended — wait for a pullback toward the 20D SMA (~${fmt(trig)})` };
+    }
+  }
+  // Near the trend / no clean trigger -> buy a minor dip toward support.
+  const supp = isCall ? pnum(sr.s20) : pnum(sr.r20);
+  const useSupp = supp != null && ((isCall && supp < spot) || (!isCall && supp > spot)) && Math.abs(supp / spot - 1) <= 0.06;
+  const trig = r2(useSupp ? supp : spot * (1 - (isCall ? 1 : -1) * buf));
+  return { now: false, signal: "buy-dip", trigger: trig, zone: [r2(Math.min(spot, trig)), r2(Math.max(spot, trig))], basis: useSupp ? "nearest support" : "minor weakness", headline: `Buy on minor weakness toward ~${fmt(trig)}` };
+}
+
 // ============================================================================
 // Sizing (risk-based, conviction-tilted) + book risk.
 // ============================================================================
@@ -8450,12 +8498,14 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   const cs = r.streakRow?.current || null;
   const thesis = buildThesis(r, side, contract, tactical);
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
+  const entry = computeEntrySignal(side, spot, r.data, r.timing);
+  if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
   return {
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
     pillars: r.pillars, drivers: r.drivers,
     analysis: thesis, thesis,
-    contract,
+    contract, entry,
     entryTiming: { state: r.timing.state, headline: r.timing.headline, deferKind: r.timing.deferKind || null },
     tactical: !!tactical, firstSeen: null,
     streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct } : null,
@@ -8606,8 +8656,9 @@ export function appendGradesDaily(prev, gradesIndex, builtAtIso) {
   return { days: days.slice(-GRADES_DAILY_MAX_DAYS) };
 }
 export async function writeGradesDaily(payload) {
-  await writeFile(resolve(DATA_DIR, GRADES_DAILY_FILE), JSON.stringify(payload), "utf8");
-  return { days: (payload.days || []).length };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, GRADES_DAILY_FILE), json, "utf8");
+  return { days: (payload.days || []).length, bytes: json.length };
 }
 
 export async function readRegimeHistory() {
@@ -8623,8 +8674,9 @@ export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
   return { days: days.slice(-REGIME_HISTORY_MAX_DAYS) };
 }
 export async function writeRegimeHistory(payload) {
-  await writeFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), JSON.stringify(payload), "utf8");
-  return { days: (payload.days || []).length };
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), json, "utf8");
+  return { days: (payload.days || []).length, bytes: json.length };
 }
 
 // ============================================================================
