@@ -41,6 +41,10 @@ const LEGS = [
   { key: "vix", symbol: "^VIX", isYield: false },
   { key: "crude", symbol: "CL=F", isYield: false },
   { key: "gold", symbol: "GC=F", isYield: false },
+  // SPY + QQQ feed the picks market-tape Indexes axis (the overall-market read).
+  // Harmless to the Bonds & USD tab, which only reads the five macro legs above.
+  { key: "spy", symbol: "SPY", isYield: false },
+  { key: "qqq", symbol: "QQQ", isYield: false },
 ];
 
 // Cross-asset barometer legs for the Top Picks "Cross-asset signals → market
