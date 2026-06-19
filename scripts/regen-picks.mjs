@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, picksAccuracyResetDue, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, applyMacroRegimePersistence, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, picksAccuracyResetDue, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -61,37 +61,8 @@ try {
 }
 const priorPicks = Array.isArray(priorPicksPayload?.picks) ? priorPicksPayload.picks : null;
 
-if (macroBackdrop) {
-  let fedwatchHistory = null;
-  try {
-    const fwRaw = await readFile(resolve(DATA_DIR, "fedwatch-history.json"), "utf8");
-    fedwatchHistory = JSON.parse(fwRaw);
-  } catch {}
-  // CNN Fear & Greed snapshot for the regime's equity-internals sentiment axis
-  // (PICKS_MACRO_SENTIMENT). The full build uses the live fetch; a regen reads
-  // the committed snapshot — missing → the axis reads "no data".
-  let fearGreed = null;
-  try {
-    fearGreed = JSON.parse(await readFile(resolve(DATA_DIR, "fear-greed.json"), "utf8"));
-  } catch {}
-  // Global cross-asset tape axis (PICKS_MACRO_GLOBAL): the full build feeds the
-  // overnight sweep into the regime — reproduce it offline from the committed
-  // data/correlations.json so a regen's regime matches. Missing → "no data" (0).
-  try {
-    const corr = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
-    macroBackdrop.crossAsset = deriveGlobalTapeAxis(corr && corr.markets ? corr.markets : null);
-  } catch {}
-  // Same regime persistence as the full build: hold a recovering state one build
-  // (defensive moves apply immediately), confirmed against the prior picks.json.
-  macroBackdrop.macroRegime = applyMacroRegimePersistence(
-    computeMacroRegime(macroBackdrop, fedwatchHistory, narratives, fearGreed, trends.macroHeadlines || []),
-    priorPicksPayload?.rosterMeta?.macroRegime || null,
-  );
-  if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
-    const m = macroBackdrop.macroRegime;
-    console.log(`Macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.persisted ? ` [held — this run read ${m.rawState}]` : ""}${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
-  }
-}
+// The market-tape (macro regime) is computed AFTER the chains load below — its
+// Indexes axis (SPY+QQQ) reads the freshly loaded chains.
 
 // Prior whole-universe grade snapshot — read EARLY (before writeGradesHistory
 // overwrites it below): the tier hysteresis (PICKS_TIER_HYSTERESIS) needs each
@@ -143,6 +114,32 @@ for (const sym of symbols) {
     if (j && j.chains && j.spot > 0) chains[sym] = j;
   } catch {}
 }
+
+// Market tape (macro regime) — recomputed fresh (RESETS every build, no
+// persistence). The same axes the full build uses, reproduced offline from the
+// committed snapshots: SPY/QQQ off the loaded chains, plus fedwatch / Fear &
+// Greed / correlations from disk (each missing → that axis reads "no data").
+if (macroBackdrop) {
+  let fedwatchHistory = null;
+  try {
+    fedwatchHistory = JSON.parse(await readFile(resolve(DATA_DIR, "fedwatch-history.json"), "utf8"));
+  } catch {}
+  let fearGreed = null;
+  try {
+    fearGreed = JSON.parse(await readFile(resolve(DATA_DIR, "fear-greed.json"), "utf8"));
+  } catch {}
+  try {
+    const corr = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
+    macroBackdrop.crossAsset = deriveGlobalTapeAxis(corr && corr.markets ? corr.markets : null);
+  } catch {}
+  macroBackdrop.indexes = buildIndexAxisInput(chains);
+  macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, narratives, fearGreed, trends.macroHeadlines || []);
+  if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
+    const m = macroBackdrop.macroRegime;
+    console.log(`Market tape: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
+  }
+}
+
 // P1.6 — attach IV percentiles (from the committed iv-history) before scoring so
 // computeEntryTiming's IV-rank soft read + the picks card's ivPctile populate.
 await attachIvRanks(chains);

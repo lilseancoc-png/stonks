@@ -9487,7 +9487,7 @@
     dxy: ['DX-Y.NYB'],
     commodity: ['CL=F', 'GC=F'],
     globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^HSI', '^KS11', 'JPY=X', 'HG=F', 'BTC-USD'],
-    sentiment: [], fed: [], geo: [], inflation: [],
+    indexes: [], sentiment: [], fed: [], geo: [], inflation: [],
   };
   // Reverse map: a rail symbol → the axis it feeds (silver feeds neither regime
   // axis — it rides the rail as a standalone read — so it has no entry).
@@ -9509,6 +9509,7 @@
   };
   // Plain-language "what this axis measures" (richer than the tile's one-liner).
   var AXIS_ABOUT = {
+    indexes: 'The overall-market read — the S&P 500 (SPY) and Nasdaq 100 (QQQ) headline indices. A broad sell-off across both is the most direct risk-OFF tell; a broad rally the most direct risk-on tell. The 1d move refreshes live; the 5-day move and the 20-day trend read carry from the last build.',
     vix: 'The VIX is the market’s 30-day implied-volatility gauge — the "fear index". A calm, falling VIX leans risk-on; a spike, or an inverted term structure, signals acute stress.',
     dxy: 'The dollar index (DXY) proxies global financial conditions. A sharp USD bid drains liquidity and tightens conditions worldwide (risk-OFF); a softening dollar eases them.',
     yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
@@ -9565,7 +9566,38 @@
     if (!baked || !baked.axes || !baked.inputs || !baked.thresholds) return null;
     var T = baked.thresholds, inp = baked.inputs, axes = {};
     function n(x){ return (x != null && isFinite(Number(x))) ? Number(x) : null; }
+    function thr(x, d){ var v = n(x); return v != null ? v : d; }
     function liveLeg(k){ return (live && live[k]) ? live[k] : null; }
+
+    // Indexes axis (SPY + QQQ — the overall market). Live 1d move overlays the
+    // baked leg; the 5d move + 20D-trend read stay baked. Mirrors the server
+    // Indexes axis in computeMacroRegime (scripts/build.mjs) — keep in sync.
+    (function(){
+      if (T.indexOn === false){ axes.indexes = { score: 0, label: 'index axis off', live: false }; return; }
+      var bi = inp.indexes || {};
+      function leg(k){
+        var b = bi[k] || null, lv = liveLeg(k);
+        var d1 = (lv && n(lv.pctChange1d) != null) ? n(lv.pctChange1d) : (b ? n(b.pctChange1d) : null);
+        if (d1 == null) return null;
+        return { d1: d1, d5: b ? n(b.pctChange5d) : null, above: b ? b.aboveSma20 : null, live: !!(lv && n(lv.pctChange1d) != null) };
+      }
+      var legs = [leg('spy'), leg('qqq')].filter(function(x){ return x; });
+      if (!legs.length){ axes.indexes = { score: 0, label: 'no index data', live: false }; return; }
+      var moves = legs.map(function(l){ return l.d1; });
+      var avg = moves.reduce(function(a, b){ return a + b; }, 0) / moves.length;
+      var worst = Math.min.apply(null, moves), best = Math.max.apply(null, moves);
+      var i1 = thr(T.index1d, 0.8), i1s = thr(T.index1dStrong, 1.8), i5 = thr(T.index5d, 3.0);
+      var belowTrend = legs.every(function(l){ return l.above === false; }) && legs.some(function(l){ return l.d5 != null && l.d5 <= -i5; });
+      var aboveTrend = legs.every(function(l){ return l.above === true; }) && legs.some(function(l){ return l.d5 != null && l.d5 >= i5; });
+      var s = 0, label = 'SPY/QQQ ' + (avg >= 0 ? '+' : '') + avg.toFixed(2) + '% avg';
+      if (avg <= -i1s || worst <= -2.5){ s = -2; label = 'Indexes ' + avg.toFixed(2) + '% — broad sell-off'; }
+      else if (avg >= i1s || best >= 2.0){ s = 2; label = 'Indexes +' + avg.toFixed(2) + '% — broad rally'; }
+      else if (avg <= -i1){ s = -1; label = 'Indexes ' + avg.toFixed(2) + '% — weak'; }
+      else if (avg >= i1){ s = 1; label = 'Indexes +' + avg.toFixed(2) + '% — firm'; }
+      else if (belowTrend){ s = -1; label = 'Indexes ' + (avg >= 0 ? '+' : '') + avg.toFixed(2) + '% — below trend'; }
+      else if (aboveTrend){ s = 1; label = 'Indexes +' + avg.toFixed(2) + '% — above trend'; }
+      axes.indexes = { score: s, label: label, live: legs.some(function(l){ return l.live; }) };
+    })();
 
     // VIX axis — live level + 1d move; baked trend + term-structure backwardation.
     (function(){
@@ -9720,11 +9752,12 @@
     })();
 
     // Composite → state (computeMacroRegime state machine + macroEffectiveAxisCount).
-    var ORDER = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
+    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var stress = arr.reduce(function(a,b){ return a + b; }, 0);
     var riskOffAxes = arr.filter(function(x){ return x <= -1; }).length;
     var riskOnAxes = arr.filter(function(x){ return x >= 1; }).length;
+    // indexes / commodity / geo / inflation are their own singleton clusters.
     var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', dxy:'rates', yields:'rates', fed:'rates' };
     function effCount(dir){
       var per = {};
@@ -9744,7 +9777,7 @@
     var state = 'neutral';
     if (riskOffAxes >= T.severeAxes && stress <= T.severeStress) state = 'severe-risk-off';
     else if (effOff >= T.riskoffAxes) state = 'risk-off';
-    else if (effOn >= T.riskonAxes && stress >= T.riskonStress && riskOffAxes <= T.riskonMaxOff && axes.vix.score >= 0 && !arr.some(function(x){ return x <= -2; })) state = 'risk-on';
+    else if (effOn >= T.riskonAxes && stress >= T.riskonStress && riskOffAxes <= T.riskonMaxOff && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some(function(x){ return x <= -2; })) state = 'risk-on';
     var driverList = (state === 'risk-on')
       ? ORDER.filter(function(k){ return axes[k] && axes[k].score >= 1; }).map(function(k){ return String(axes[k].label).split(' — ')[0]; })
       : ORDER.filter(function(k){ return axes[k] && axes[k].score <= -1; }).map(function(k){ return String(axes[k].label).split(' — ')[0].split(' (')[0]; });
@@ -9798,14 +9831,14 @@
     var st = regime.state, severe = st === 'severe-risk-off';
     var drv = (regime.drivers && regime.drivers.length) ? regime.drivers.join(' · ') : '';
     var grossTxt = (regime.grossMult != null && regime.grossMult < 1) ? ' Gross cut to ~' + Math.round(regime.grossMult * 100) + '% of target.' : '';
-    var base = 'Cross-asset macro regime — fused from the VIX, the dollar (DXY), long-end yields, the Fed path, a commodity / geopolitical-shock axis (crude and gold), a geopolitical-news axis, and an inflation / labor axis. ';
+    var base = 'The market tape — fused from the overall market (SPY + QQQ), the VIX, the dollar (DXY), long-end yields, the Fed path / FOMC, a commodity / geopolitical-shock axis (crude and gold), a geopolitical-news axis (war / tariffs / Iran), an inflation / labor axis, and the overnight global tape. Resets every build. ';
     var body;
     if (st === 'risk-on') body = 'A clean risk-on tape leans the list long.';
     else if (severe) body = 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), tactical puts open wider, calls are capped, and gross is cut.';
     else if (st === 'risk-off') body = 'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.';
     else if (regime.fragile) body = 'Fragile neutral tape — price and vol read neutral but breadth and credit internals are deteriorating (' + (regime.internalsLabel || 'breadth + credit weak') + '). Size is trimmed and the long side capped, without flipping to puts.';
     else body = 'A neutral tape — no coordinated cross-asset stress.';
-    var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (VIX, dollar, long yields, crude, gold, Fear and Greed, and the global cross-asset tape — futures / yen / copper / BTC); the slow axes (Fed path, geopolitical news, inflation) stay from the last build.' : '';
+    var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (SPY / QQQ, the VIX, the dollar, long yields, crude, gold, Fear and Greed, and the global cross-asset tape — futures / yen / copper / BTC); the slow axes (Fed path, geopolitical news, inflation) stay from the last build.' : '';
     var heldNote = (regime.persisted && regime.rawState && regime.rawState !== regime.state) ? ' RECOVERING: the live read is ' + regime.rawState + ' but the chip holds the more defensive state until a build confirms.' : '';
     return base + body + (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + liveNote + heldNote;
   }
@@ -9972,7 +10005,14 @@
   function axisInputChips(k, inp){
     inp = inp || {};
     var c = [];
-    if (k === 'vix' && inp.vix){
+    if (k === 'indexes' && inp.indexes){
+      var spy = inp.indexes.spy || {}, qqq = inp.indexes.qqq || {};
+      if (spy.pctChange1d != null) c.push(tapeChip('SPY 1d', tapeSign(spy.pctChange1d, 2, '%')));
+      if (qqq.pctChange1d != null) c.push(tapeChip('QQQ 1d', tapeSign(qqq.pctChange1d, 2, '%')));
+      if (spy.pctChange5d != null) c.push(tapeChip('SPY 5d', tapeSign(spy.pctChange5d, 2, '%')));
+      if (spy.aboveSma20 != null) c.push(tapeChip('SPY 20D', spy.aboveSma20 ? 'above' : 'below'));
+      if (qqq.aboveSma20 != null) c.push(tapeChip('QQQ 20D', qqq.aboveSma20 ? 'above' : 'below'));
+    } else if (k === 'vix' && inp.vix){
       if (inp.vix.value != null) c.push(tapeChip('level', Number(inp.vix.value).toFixed(1)));
       if (inp.vix.pctChange1d != null) c.push(tapeChip('1d', tapeSign(inp.vix.pctChange1d, 1, '%')));
       if (inp.vix.trend) c.push(tapeChip('trend', inp.vix.trend));
@@ -10012,6 +10052,7 @@
   function axisFlipText(k, T){
     T = T || {};
     function v(x, d){ return (x != null && isFinite(x)) ? x : d; }
+    if (k === 'indexes') return 'Risk-off if SPY/QQQ average ≤ −' + v(T.index1d, 0.8) + '% on the day (broad sell-off ≤ −' + v(T.index1dStrong, 1.8) + '%, or below the 20D on a falling week); risk-on if they average ≥ +' + v(T.index1d, 0.8) + '% (broad rally ≥ +' + v(T.index1dStrong, 1.8) + '%).';
     if (k === 'vix') return 'Risk-off (−1) at VIX ≥ ' + v(T.riskoffVix, 20) + ' or rising ≥ 18 (or an inverted curve); risk-on (+1) under 14.';
     if (k === 'dxy') return 'Risk-off if the dollar is ≥ +' + v(T.dxy1d, 0.5) + '% on the day (sharp spike ≥ +' + v(T.dxy1dStrong, 0.9) + '%); risk-on if it eases ≥ −' + v(T.dxy1d, 0.5) + '%.';
     if (k === 'yields') return 'Risk-off if long yields jump ≥ +' + v(T.yieldBps1d, 8) + 'bp (spike ≥ +' + v(T.yieldBps1dStrong, 14) + 'bp); risk-on if they fall ≥ −' + v(T.yieldBps1d, 8) + 'bp.';
@@ -10040,8 +10081,9 @@
       var names = feeders.map(function(s){ return BAROMETER_NAME[s] || s; });
       feedTxt = '<div class="tape-axis-detail-feeds"><b>On the rail below:</b> ' + escapeHtml(names.join(', ')) + ' — hover this tile to spotlight them.</div>';
     } else {
-      var src = k === 'sentiment' ? 'CNN Fear &amp; Greed internals'
-        : k === 'fed' ? 'FedWatch hike-odds'
+      var src = k === 'indexes' ? 'the SPY &amp; QQQ headline indices'
+        : k === 'sentiment' ? 'CNN Fear &amp; Greed internals'
+        : k === 'fed' ? 'FedWatch hike-odds + the FOMC calendar'
         : k === 'inflation' ? 'the monthly CPI &amp; unemployment prints'
         : 'the day’s geopolitical news narrative';
       feedTxt = '<div class="tape-axis-detail-feeds">Read from ' + src + ', not a single cross-asset rail row.</div>';
@@ -10118,17 +10160,18 @@
     var nar = macroTapeNarrative(regime, opts.roster);
     var axes = regime.axes || {};
     var AXIS_DEFS = [
+      { k:'indexes', name:'Indexes', desc:'SPY + QQQ — the overall market' },
       { k:'vix', name:'VIX', desc:'Equity volatility — the fear gauge' },
       { k:'dxy', name:'Dollar', desc:'DXY — global tightening / flight to USD' },
       { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
       { k:'commodity', name:'Commodities', desc:'Crude + gold — supply / war shock' },
       { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
       { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + copper + BTC' },
-      { k:'fed', name:'Fed path', desc:'FedWatch hike-odds drift' },
-      { k:'geo', name:'Geopolitics', desc:'War / peace headline + narrative' },
+      { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
+      { k:'geo', name:'Geopolitics', desc:'War / tariffs / Iran — headlines' },
       { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
     ];
-    var ORDER = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
+    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var roff = arr.filter(function(x){ return x <= -1; }).length;
     var ron = arr.filter(function(x){ return x >= 1; }).length;
@@ -10255,7 +10298,7 @@
     if (isLive && regime && regime.axes && macroTape.fetchedAt && macroTape.fetchedAt !== macroTape.lastSampleAt){
       macroTape.lastSampleAt = macroTape.fetchedAt;
       var sample = { stress: (regime.stress != null && isFinite(regime.stress)) ? regime.stress : 0, axes: {} };
-      var AX = ['vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
+      var AX = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
       for (var si = 0; si < AX.length; si++){ var axk = AX[si]; sample.axes[axk] = (regime.axes[axk] && isFinite(regime.axes[axk].score)) ? regime.axes[axk].score : 0; }
       macroTape.hist.push(sample);
       while (macroTape.hist.length > TAPE_HIST_MAX) macroTape.hist.shift();
@@ -10306,6 +10349,7 @@
         if (!j || !j.legs) return;
         var L = j.legs;
         macroTape.legs = {
+          spy: L.spy, qqq: L.qqq,
           vix: L.vix, dxy: L.dxy, tenY: L.tenY, thirtyY: L.thirtyY,
           crude: L.crude, gold: L.gold, fng: j.fng || null,
           // The cross-asset rail legs (futures / foreign breadth / yen / copper /
@@ -18427,11 +18471,17 @@
     // pick enrolls the moment it lists). Reads its modeled option P&L since entry.
     var liveInfo = pickLiveChip(p, true);
     var liveChip = liveInfo ? liveInfo.html : '';
-    // Mirror the detail card's deferred-entry chip on the skimmable grid tile —
-    // a name parked for an imminent catalyst must not read as "enter now".
-    var deferChip = (p.entryTiming && p.entryTiming.state === 'wait' && (p.entryTiming.deferKind === 'earnings' || p.entryTiming.deferKind === 'event'))
-      ? '<span class="ptc-defer" title="' + escapeHtml(p.entryTiming.headline || 'Scheduled catalyst — defer entry') + '">⏳ WAIT</span>'
-      : '';
+    // Entry call — "buy now" vs a specific wait-for trigger price, surfaced on
+    // the grid tile so the ranked list is triageable WITHOUT opening each pick
+    // (from computeEntrySignal). Subsumes the old earnings/event-only WAIT chip:
+    // it covers buy-now, wait-for-reclaim/pullback/dip, and the event defer.
+    var entryLine = '';
+    if (p.entry && p.entry.headline){
+      var eNow = !!p.entry.now;
+      var eTrg = (!eNow && p.entry.trigger != null && isFinite(p.entry.trigger)) ? ' $' + Number(p.entry.trigger).toFixed(2) : '';
+      entryLine = '<span class="ptc-entry ptc-entry-' + (eNow ? 'now' : 'wait') + '" title="' + escapeHtml(p.entry.headline) + '">' +
+        (eNow ? '✅ Buy now' : ('⏳ Wait' + eTrg)) + '</span>';
+    }
     // Contract economics line — surface the suggested contract's strike/DTE,
     // premium, and move-to-breakeven right on the skimmable tile. Without it the
     // "Cheapest premium" / "Smallest move to breakeven" sorts reorder the grid by
@@ -18486,13 +18536,14 @@
     return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + deferChip + liveChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + liveChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) +
         (p.costDebit > 0
           ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
           : '') +
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
+      entryLine +
       econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +
       '<span class="ptc-cta">View judgment →</span>' +

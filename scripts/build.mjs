@@ -7519,6 +7519,80 @@ const PICKS_MACRO_GLOBAL_COPPER = Number(process.env.PICKS_MACRO_GLOBAL_COPPER ?
 const PICKS_MACRO_GLOBAL_BTC = Number(process.env.PICKS_MACRO_GLOBAL_BTC ?? 2.0);
 const PICKS_MACRO_GLOBAL_ACUTE = Number(process.env.PICKS_MACRO_GLOBAL_ACUTE ?? 3);
 
+// ============================================================================
+// Market-tape (cross-asset macro regime) engine — the "market tape" the Top
+// Picks tab shows + the risk-on/off lean it tilts the book with. Reworked to
+// RESET every build from the live factors (no cross-build persistence — the
+// chip reflects THIS build's tape): an overall-market Indexes axis (SPY+QQQ),
+// VIX, long-end yields (bonds), the dollar (USD), the Fed path / FOMC, a
+// geopolitical-news axis (war / tariffs / Iran / real-world events), crude+gold,
+// CNN Fear & Greed, and the overnight global cross-asset tape. Each axis votes
+// −2..+2; the composite decides risk-off / neutral / risk-on / severe. The slow
+// axes carry build-to-build, the price axes recompute live in the browser
+// (computeLiveMacroRegime in scripts/render/app-js.mjs — keep the two in sync).
+const PICKS_MACRO_REGIME = process.env.PICKS_MACRO_REGIME !== "0";
+// Indexes axis (SPY + QQQ) — the overall-market read. A broad sell-off in the
+// headline indices is the single most direct risk-off tell; a broad rally the
+// most direct risk-on tell. Its own (un-clustered) axis so it counts full.
+const PICKS_MACRO_INDEX = process.env.PICKS_MACRO_INDEX !== "0";
+const PICKS_MACRO_INDEX_1D = Number(process.env.PICKS_MACRO_INDEX_1D ?? 0.8);        // SPY/QQQ avg 1d % that votes ±1
+const PICKS_MACRO_INDEX_1D_STRONG = Number(process.env.PICKS_MACRO_INDEX_1D_STRONG ?? 1.8); // ... a broad shock ±2
+const PICKS_MACRO_INDEX_5D = Number(process.env.PICKS_MACRO_INDEX_5D ?? 3.0);        // 5d move that, with a broken 20D, confirms the trend ±1
+const PICKS_MACRO_VIX_REVERSAL_1D = Number(process.env.PICKS_MACRO_VIX_REVERSAL_1D ?? -8); // sharp 1d VIX drop that cancels a lagging "rising" trend
+const PICKS_MACRO_DXY_1D = Number(process.env.PICKS_MACRO_DXY_1D ?? 0.6);            // % dollar 1d that flags tightening (-1)
+const PICKS_MACRO_DXY_1D_STRONG = Number(process.env.PICKS_MACRO_DXY_1D_STRONG ?? 0.9); // ... a sharp dollar spike (-2)
+const PICKS_MACRO_DXY_5D = Number(process.env.PICKS_MACRO_DXY_5D ?? 1.0);            // % dollar 5d that, on a rising trend, flags tightening (-1)
+const PICKS_MACRO_YIELD_BPS_1D = Number(process.env.PICKS_MACRO_YIELD_BPS_1D ?? 10);        // long-yield bps 1d that flags tightening (-1)
+const PICKS_MACRO_YIELD_BPS_1D_STRONG = Number(process.env.PICKS_MACRO_YIELD_BPS_1D_STRONG ?? 16); // ... a yield spike (-2)
+const PICKS_MACRO_FED_DRIFT_PT = Number(process.env.PICKS_MACRO_FED_DRIFT_PT ?? 5);  // net hawkish FedWatch drift (pt) over the lookback that flags tightening (-1); 2× → -2
+const PICKS_MACRO_FED_LOOKBACK = Number(process.env.PICKS_MACRO_FED_LOOKBACK ?? 5);  // FedWatch snapshots back to measure the hawkish drift
+const PICKS_MACRO_FED_MEETINGS = Number(process.env.PICKS_MACRO_FED_MEETINGS ?? 3);  // nearest N future meetings averaged for the drift
+const PICKS_MACRO_FOMC_NEAR_DAYS = Number(process.env.PICKS_MACRO_FOMC_NEAR_DAYS ?? 3); // an FOMC decision within N sessions leans the Fed axis cautious (event risk)
+const PICKS_MACRO_COMMODITY = process.env.PICKS_MACRO_COMMODITY !== "0";
+const PICKS_MACRO_OIL_1D = Number(process.env.PICKS_MACRO_OIL_1D ?? 4);              // % crude 1d that flags a supply/geopolitical spike (-1)
+const PICKS_MACRO_OIL_1D_STRONG = Number(process.env.PICKS_MACRO_OIL_1D_STRONG ?? 8); // ... an acute shock (-2)
+const PICKS_MACRO_OIL_5D = Number(process.env.PICKS_MACRO_OIL_5D ?? 12);             // % crude 5d run that flags a sustained spike (-1)
+const PICKS_MACRO_GOLD_1D = Number(process.env.PICKS_MACRO_GOLD_1D ?? 3);            // % gold 1d that flags a safe-haven bid (-1; confirms oil → -2)
+const PICKS_MACRO_GOLD_5D = Number(process.env.PICKS_MACRO_GOLD_5D ?? 6);            // % gold 5d run safe-haven bid (-1)
+const PICKS_MACRO_NEWS = process.env.PICKS_MACRO_NEWS !== "0";                       // geopolitical-news axis on by default
+const PICKS_MACRO_GEO_MIN_STR = Number(process.env.PICKS_MACRO_GEO_MIN_STR ?? 45);    // min narrative strength to count (-1)
+const PICKS_MACRO_GEO_STRONG_STR = Number(process.env.PICKS_MACRO_GEO_STRONG_STR ?? 65); // strong narrative → acute (-2)
+const PICKS_MACRO_HEADLINE_AGE_H = Number(process.env.PICKS_MACRO_HEADLINE_AGE_H ?? 36);
+const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many (effective) risk-off axes → risk-off
+const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
+const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
+const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes can lift to risk-on...
+const PICKS_MACRO_RISKON_STRESS = Number(process.env.PICKS_MACRO_RISKON_STRESS ?? 2);  // ...when the net composite is at least this positive...
+const PICKS_MACRO_RISKON_MAX_OFF = Number(process.env.PICKS_MACRO_RISKON_MAX_OFF ?? 1); // ...and at most this many axes dissent risk-off
+const PICKS_MACRO_AXIS_DECORR = process.env.PICKS_MACRO_AXIS_DECORR !== "0";         // collinearity-aware effective axis count (default ON)
+const PICKS_MACRO_CLUSTER_DISCOUNT = Number(process.env.PICKS_MACRO_CLUSTER_DISCOUNT ?? 0.5); // weight of each ADDITIONAL same-direction axis within a correlated cluster
+// Correlated-axis clusters (axis key → cluster id). Axes not listed (indexes,
+// commodity, geo, inflation) are their own singleton cluster and count full.
+const MACRO_AXIS_CLUSTERS = {
+  vix: "vol", sentiment: "vol", globalTape: "vol", // fear / volatility / cross-asset risk-appetite complex
+  dxy: "rates", yields: "rates", fed: "rates",      // dollar / long-yield / Fed-path tightening complex
+};
+const PICKS_MACRO_INFLATION = process.env.PICKS_MACRO_INFLATION !== "0";
+const PICKS_MACRO_CPI_HOT = Number(process.env.PICKS_MACRO_CPI_HOT ?? 4.0);
+const PICKS_MACRO_CPI_WARM = Number(process.env.PICKS_MACRO_CPI_WARM ?? 3.0);
+const PICKS_MACRO_CPI_REACCEL = Number(process.env.PICKS_MACRO_CPI_REACCEL ?? 0.3);
+const PICKS_MACRO_CPI_COOL = Number(process.env.PICKS_MACRO_CPI_COOL ?? 2.5);
+const PICKS_MACRO_UE_SAHM = Number(process.env.PICKS_MACRO_UE_SAHM ?? 0.5);
+const PICKS_MACRO_SENTIMENT = process.env.PICKS_MACRO_SENTIMENT !== "0";
+const PICKS_MACRO_FG_FEAR = Number(process.env.PICKS_MACRO_FG_FEAR ?? 25);
+const PICKS_MACRO_FG_GREED = Number(process.env.PICKS_MACRO_FG_GREED ?? 75);
+const PICKS_MACRO_FG_DELTA = Number(process.env.PICKS_MACRO_FG_DELTA ?? 10);
+const PICKS_MACRO_FG_MAX_AGE_HOURS = Number(process.env.PICKS_MACRO_FG_MAX_AGE_HOURS ?? 48);
+const PICKS_MACRO_FG_INTERNALS = process.env.PICKS_MACRO_FG_INTERNALS !== "0";
+const PICKS_MACRO_FG_INTERNALS_EXTREME = Number(process.env.PICKS_MACRO_FG_INTERNALS_EXTREME ?? 25);
+const PICKS_MACRO_FG_TREND_PT = Number(process.env.PICKS_MACRO_FG_TREND_PT ?? 20);
+const PICKS_MACRO_FG_TREND_FLOOR = Number(process.env.PICKS_MACRO_FG_TREND_FLOOR ?? 45);
+const PICKS_MACRO_GROSS_RISKOFF = Number(process.env.PICKS_MACRO_GROSS_RISKOFF ?? 0.6); // deployed-gross multiplier in risk-off (at FULL stress)
+const PICKS_MACRO_GROSS_SEVERE = Number(process.env.PICKS_MACRO_GROSS_SEVERE ?? 0.4);   // ... in severe-risk-off
+const PICKS_MACRO_GROSS_FRAGILE = Number(process.env.PICKS_MACRO_GROSS_FRAGILE ?? 0.8); // ... on a fragile neutral tape
+const PICKS_MACRO_GROSS_RAMP = process.env.PICKS_MACRO_GROSS_RAMP !== "0";
+const PICKS_MACRO_TILT_FULL_STRESS = Number(process.env.PICKS_MACRO_TILT_FULL_STRESS ?? 4); // |stress| at which the de-gross ramp reaches its floor
+
 // ---- Accuracy / history bookkeeping ----------------------------------------
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;
@@ -8015,31 +8089,448 @@ export function detectMarketRegime(marketCtx, macroBackdrop) {
   return "neutral";
 }
 
-// Cross-asset stress gauge (simplified). Reads VIX, the dollar, long yields and
-// CNN Fear & Greed; each votes -1..+1; the composite decides the state.
+// FedWatch hawkish-drift read for the Fed-path axis: average net (hike−cut)
+// probability change across the nearest N future meetings over the last
+// PICKS_MACRO_FED_LOOKBACK snapshots. Positive = the market repricing the path
+// HAWKISH (tightening). Pure (no network — reads the persisted history).
+function fedHawkishDrift(fedwatchHistory) {
+  const meetings = fedwatchHistory && fedwatchHistory.meetings;
+  if (!meetings || typeof meetings !== "object") return null;
+  let latestSnap = "";
+  for (const md of Object.keys(meetings)) {
+    for (const sd of Object.keys(meetings[md] || {})) if (sd > latestSnap) latestSnap = sd;
+  }
+  if (!latestSnap) return null;
+  const future = Object.keys(meetings).filter((md) => md >= latestSnap).sort();
+  const near = future.slice(0, PICKS_MACRO_FED_MEETINGS);
+  const hc = (b) => (Number(b.hike) || 0) - (Number(b.cut) || 0);
+  const drifts = [];
+  for (const md of near) {
+    const snaps = meetings[md] || {};
+    const dates = Object.keys(snaps).sort();
+    if (dates.length < 2) continue;
+    const lastD = dates[dates.length - 1];
+    const prevD = dates[Math.max(0, dates.length - 1 - PICKS_MACRO_FED_LOOKBACK)];
+    const now = snaps[lastD], prev = snaps[prevD];
+    if (!now || !prev || lastD === prevD) continue;
+    drifts.push((hc(now) - hc(prev)) * 100); // probability → percentage points
+  }
+  if (!drifts.length) return null;
+  return drifts.reduce((a, b) => a + b, 0) / drifts.length;
+}
+
+// Geopolitical-news axis regexes. A strong active narrative naming actual
+// conflict (war / Iran / Israel / missile / invasion) is systemic risk-off
+// regardless of its equity sentiment; softer flashpoints (sanctions / tariff
+// war / OPEC) count only when the narrative reads bearish.
+const GEO_CONFLICT_RE = /\b(war|warfare|conflict|invasion|invade|military|missile|airstrike|air ?strike|attack|troops|nuclear|hostilit|escalat|ceasefire|wartime|combat|blockade|strait of hormuz)\b/i;
+const GEO_THEME_RE = /\b(sanction|embargo|geopolit|iran|israel|gaza|hamas|hezbollah|ukrain|russia|taiwan|north korea|middle east|red sea|houthi|opec|oil shock|tariff war|tariff|trade war)\b/i;
+
+// Market-wide geopolitical-news stress from the AI narrative layer
+// (PICKS_MACRO_NEWS): scans the active narratives for a strong war/conflict (or
+// bearish geopolitical) theme and returns a stress-only axis score (0/−1/−2).
+function computeGeoNewsStress(narratives) {
+  if (!PICKS_MACRO_NEWS) return { score: 0, label: "geo-news off" };
+  if (!Array.isArray(narratives) || !narratives.length) return { score: 0, label: "no geopolitical narrative" };
+  let worst = null;
+  for (const n of narratives) {
+    if (!n || n.status !== "active") continue;
+    const str = Number(n.strength) || 0;
+    if (str < PICKS_MACRO_GEO_MIN_STR) continue;
+    const name = `${n.name || ""}`;
+    const conflict = GEO_CONFLICT_RE.test(name);
+    const theme = GEO_THEME_RE.test(name);
+    if (!conflict && !(theme && n.sentiment === "bearish")) continue;
+    if (!worst || str > worst.strength) worst = { name, strength: str };
+  }
+  if (!worst) return { score: 0, label: "no active risk-off geopolitical narrative" };
+  const s = worst.strength >= PICKS_MACRO_GEO_STRONG_STR ? -2 : -1;
+  return { score: s, label: `Geopolitical news: "${worst.name}" (str ${worst.strength})` };
+}
+
+// Read the Indexes axis input (SPY + QQQ — the overall market) off the freshly
+// fetched chains: each leg's confirmed 1d % move, a 5d move, and whether spot is
+// above its 20D SMA (trend). Pure + exported so main() and the offline
+// regen-picks can both attach it to macroBackdrop.indexes before scoring.
+export function buildIndexAxisInput(chains) {
+  const read = (sym) => {
+    const d = chains && chains[sym];
+    if (!d) return null;
+    const spot = pnum(d.spot);
+    const t = d.technicals || {};
+    const m1 = pnum(t.volume?.priceMove1dPct);
+    const sma20 = pnum(t.sma?.sma20);
+    // 5d move from the confirmed close series (priceSeries, else in-memory bars).
+    const closes = Array.isArray(d.priceSeries) ? d.priceSeries
+      : (Array.isArray(d._bars) ? d._bars.map((b) => pnum(b?.close)).filter((x) => x != null) : null);
+    let m5 = null;
+    if (closes && closes.length >= 6) {
+      const last = pnum(closes[closes.length - 1]);
+      const ref = pnum(closes[closes.length - 6]);
+      if (last != null && ref != null && ref > 0) m5 = ((last - ref) / ref) * 100;
+    }
+    if (m1 == null && m5 == null) return null;
+    return {
+      value: spot,
+      pctChange1d: m1 != null ? r2(m1) : null,
+      pctChange5d: m5 != null ? r2(m5) : null,
+      aboveSma20: spot != null && sma20 != null ? spot >= sma20 : null,
+    };
+  };
+  const spy = read("SPY"), qqq = read("QQQ"), iwm = read("IWM");
+  if (!spy && !qqq && !iwm) return null;
+  return { spy, qqq, iwm };
+}
+
+// Threshold snapshot shipped to the browser so computeLiveMacroRegime (the live
+// re-port in scripts/render/app-js.mjs) recomputes the price axes intraday with
+// the SAME constants. Keep the two in sync.
+const MACRO_LIVE_THRESHOLDS = {
+  indexOn: PICKS_MACRO_INDEX, index1d: PICKS_MACRO_INDEX_1D, index1dStrong: PICKS_MACRO_INDEX_1D_STRONG, index5d: PICKS_MACRO_INDEX_5D,
+  vixReversal1d: PICKS_MACRO_VIX_REVERSAL_1D, riskoffVix: PICKS_RISKOFF_VIX,
+  dxy1d: PICKS_MACRO_DXY_1D, dxy1dStrong: PICKS_MACRO_DXY_1D_STRONG, dxy5d: PICKS_MACRO_DXY_5D,
+  yieldBps1d: PICKS_MACRO_YIELD_BPS_1D, yieldBps1dStrong: PICKS_MACRO_YIELD_BPS_1D_STRONG,
+  oil1d: PICKS_MACRO_OIL_1D, oil1dStrong: PICKS_MACRO_OIL_1D_STRONG, oil5d: PICKS_MACRO_OIL_5D,
+  gold1d: PICKS_MACRO_GOLD_1D, gold5d: PICKS_MACRO_GOLD_5D,
+  fgFear: PICKS_MACRO_FG_FEAR, fgGreed: PICKS_MACRO_FG_GREED, fgDelta: PICKS_MACRO_FG_DELTA,
+  fgInternalsExtreme: PICKS_MACRO_FG_INTERNALS_EXTREME, fgTrendPt: PICKS_MACRO_FG_TREND_PT, fgTrendFloor: PICKS_MACRO_FG_TREND_FLOOR,
+  riskoffAxes: PICKS_MACRO_RISKOFF_AXES, severeAxes: PICKS_MACRO_SEVERE_AXES, severeStress: PICKS_MACRO_SEVERE_STRESS,
+  riskonAxes: PICKS_MACRO_RISKON_AXES, riskonStress: PICKS_MACRO_RISKON_STRESS, riskonMaxOff: PICKS_MACRO_RISKON_MAX_OFF,
+  clusterDiscount: PICKS_MACRO_CLUSTER_DISCOUNT, axisDecorr: PICKS_MACRO_AXIS_DECORR,
+  grossRiskoff: PICKS_MACRO_GROSS_RISKOFF, grossSevere: PICKS_MACRO_GROSS_SEVERE, grossFragile: PICKS_MACRO_GROSS_FRAGILE,
+  grossRamp: PICKS_MACRO_GROSS_RAMP, tiltFullStress: PICKS_MACRO_TILT_FULL_STRESS,
+  commodityOn: PICKS_MACRO_COMMODITY, sentimentOn: PICKS_MACRO_SENTIMENT, fgInternalsOn: PICKS_MACRO_FG_INTERNALS,
+  globalOn: PICKS_MACRO_GLOBAL, globalFut: PICKS_MACRO_GLOBAL_FUT, globalBreadth: PICKS_MACRO_GLOBAL_BREADTH,
+  globalYen: PICKS_MACRO_GLOBAL_YEN, globalCopper: PICKS_MACRO_GLOBAL_COPPER, globalBtc: PICKS_MACRO_GLOBAL_BTC, globalAcute: PICKS_MACRO_GLOBAL_ACUTE,
+};
+
+// ============================================================================
+// The market-tape engine. Fuses the cross-asset axes — Indexes (SPY+QQQ), VIX,
+// long-end yields, the dollar, the Fed path / FOMC, a commodity / geopolitical
+// shock axis, a geopolitical-NEWS axis, inflation/labor, CNN Fear & Greed, and
+// the overnight global tape — into one regime gauge. Each axis votes −2..+2
+// (negative = risk-off / tightening). RESETS every build from the live factors
+// (no persistence). The composite both sets the regime (which tilts + de-grosses
+// the Top Picks book) and ships a per-axis breakdown + raw inputs + thresholds
+// for the browser's live re-port (computeLiveMacroRegime). Pure + exported so
+// both main() and the offline regen-picks attach it to macroBackdrop.macroRegime.
+// Returns null when the feature is off or there's no macro backdrop.
 export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narratives = null, fearGreed = null, macroHeadlines = null) {
+  if (!PICKS_MACRO_REGIME || !macroBackdrop) return null;
   const axes = {};
   const drivers = [];
-  let stress = 0, riskOffAxes = 0, riskOnAxes = 0;
-  const vote = (key, v, label) => { axes[key] = { score: v }; stress += v; if (v <= -1) { riskOffAxes++; drivers.push(label + " risk-off"); } else if (v >= 1) { riskOnAxes++; } };
 
-  const vix = pnum(macroBackdrop?.vix?.value), vixTrend = macroBackdrop?.vix?.trend;
-  if (vix != null) vote("vix", vix >= PICKS_SEVERE_VIX ? -2 : (vix >= PICKS_RISKOFF_VIX && vixTrend === "rising") ? -1 : (vix < 15 && vixTrend === "falling") ? 1 : 0, "VIX");
-  const dxy = pnum(macroBackdrop?.dxy?.pctChange1d);
-  if (dxy != null) vote("dxy", dxy >= 0.9 ? -2 : dxy >= 0.6 ? -1 : dxy <= -0.6 ? 1 : 0, "Dollar");
-  const bps = pnum(macroBackdrop?.tenY?.bpsChange1d);
-  if (bps != null) vote("yields", bps >= 16 ? -2 : bps >= 10 ? -1 : bps <= -10 ? 1 : 0, "Yields");
-  const fg = pnum(fearGreed?.value ?? fearGreed?.score);
-  if (fg != null) vote("sentiment", fg <= 20 ? -1 : fg >= 80 ? 1 : 0, "Fear&Greed");
-  const cross = pnum(macroBackdrop?.crossAsset?.score);
-  if (cross != null) vote("global", clamp(cross, -2, 2), "Global tape");
+  // --- Indexes axis (SPY + QQQ — the overall market) -------------------------
+  // The most direct overall-market read: a broad sell-off in the headline
+  // indices is risk-off, a broad rally risk-on. Its own (un-clustered) axis.
+  if (PICKS_MACRO_INDEX && macroBackdrop.indexes) {
+    const ix = macroBackdrop.indexes;
+    const legs = [ix.spy, ix.qqq].filter((x) => x && isFinite(x.pctChange1d));
+    if (legs.length) {
+      const moves = legs.map((l) => l.pctChange1d);
+      const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
+      const worst = Math.min(...moves), best = Math.max(...moves);
+      // Confirmed downtrend: both indices below the 20D and a 5d that's down hard.
+      const belowTrend = legs.every((l) => l.aboveSma20 === false) && legs.some((l) => isFinite(l.pctChange5d) && l.pctChange5d <= -PICKS_MACRO_INDEX_5D);
+      const aboveTrend = legs.every((l) => l.aboveSma20 === true) && legs.some((l) => isFinite(l.pctChange5d) && l.pctChange5d >= PICKS_MACRO_INDEX_5D);
+      // A clear daily move decides first; only a quiet day (|avg| < 1d trigger)
+      // defers to the 20D-trend read, so a stale "below trend" can't override a
+      // real green/red day (matters for the browser's live-1d overlay).
+      let s = 0, label = `SPY/QQQ ${avg >= 0 ? "+" : ""}${avg.toFixed(2)}% avg`;
+      if (avg <= -PICKS_MACRO_INDEX_1D_STRONG || worst <= -2.5) { s = -2; label = `Indexes ${avg.toFixed(2)}% — broad sell-off`; }
+      else if (avg >= PICKS_MACRO_INDEX_1D_STRONG || best >= 2.0) { s = 2; label = `Indexes +${avg.toFixed(2)}% — broad rally`; }
+      else if (avg <= -PICKS_MACRO_INDEX_1D) { s = -1; label = `Indexes ${avg.toFixed(2)}% — weak`; }
+      else if (avg >= PICKS_MACRO_INDEX_1D) { s = 1; label = `Indexes +${avg.toFixed(2)}% — firm`; }
+      else if (belowTrend) { s = -1; label = `Indexes ${avg >= 0 ? "+" : ""}${avg.toFixed(2)}% — below trend`; }
+      else if (aboveTrend) { s = 1; label = `Indexes +${avg.toFixed(2)}% — above trend`; }
+      axes.indexes = { score: s, label };
+      if (s <= -1) drivers.push(label.split(" — ")[0]);
+    } else axes.indexes = { score: 0, label: "no index data" };
+  } else axes.indexes = { score: 0, label: PICKS_MACRO_INDEX ? "no index data" : "index axis off" };
 
+  // --- VIX axis (level + trend + term-structure backwardation) ---------------
+  {
+    const vix = macroBackdrop.vix;
+    const term = macroBackdrop.vixTerm;
+    if (vix && isFinite(vix.value)) {
+      const v = vix.value;
+      const backward = !!(term && term.state === "backwardation");
+      const d1 = isFinite(vix.pctChange1d) ? vix.pctChange1d : null;
+      const reversing = d1 != null && d1 <= PICKS_MACRO_VIX_REVERSAL_1D;
+      const rising = vix.trend === "rising" && !reversing;
+      let s = 0, label = `VIX ${v.toFixed(1)} (${vix.trend || "flat"})`;
+      if ((rising && v >= 25) || (backward && v >= 20)) { s = -2; label = `VIX ${v.toFixed(1)} ${backward ? "inverted curve" : "rising"} — acute stress`; }
+      else if (v >= PICKS_RISKOFF_VIX || (rising && v >= 18) || backward) { s = -1; label = `VIX ${v.toFixed(1)} ${v >= PICKS_RISKOFF_VIX || backward ? "elevated" : "elevated/rising"}`; }
+      else if (v < 14) { s = 1; label = `VIX ${v.toFixed(1)} calm`; }
+      else if (reversing && !backward && v < 18) { s = 1; label = `VIX ${v.toFixed(1)} crushing — 1d ${d1.toFixed(1)}%`; }
+      else if (reversing && vix.trend === "rising") { label = `VIX ${v.toFixed(1)} cooling — 1d ${d1.toFixed(1)}%`; }
+      axes.vix = { score: s, label };
+      if (s <= -1) drivers.push(`VIX ${v.toFixed(1)}${rising ? " ↑" : ""}`);
+    } else axes.vix = { score: 0, label: "no VIX" };
+  }
+
+  // --- DXY axis (a rising dollar = global tightening / flight to USD) ---------
+  {
+    const dxy = macroBackdrop.dxy;
+    if (dxy && isFinite(dxy.pctChange1d)) {
+      const d1 = dxy.pctChange1d, d5 = Number(dxy.pctChange5d) || 0;
+      const rising = dxy.trend === "rising" && !(d1 <= -PICKS_MACRO_DXY_1D / 2);
+      const falling = dxy.trend === "falling" && !(d1 >= PICKS_MACRO_DXY_1D / 2);
+      let s = 0, label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% 1d`;
+      if (d1 >= PICKS_MACRO_DXY_1D_STRONG) { s = -2; label = `DXY +${d1.toFixed(2)}% — sharp dollar spike`; }
+      else if (d1 >= PICKS_MACRO_DXY_1D || (rising && d5 >= PICKS_MACRO_DXY_5D)) { s = -1; label = `DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}% — dollar bid`; }
+      else if (d1 <= -PICKS_MACRO_DXY_1D || (falling && d5 <= -PICKS_MACRO_DXY_5D)) { s = 1; label = `DXY ${d1.toFixed(2)}% — dollar easing`; }
+      axes.dxy = { score: s, label };
+      if (s <= -1) drivers.push(`DXY ${d1 >= 0 ? "+" : ""}${d1.toFixed(2)}%`);
+    } else axes.dxy = { score: 0, label: "no DXY" };
+  }
+
+  // --- Long-yield axis (worst of 10Y/30Y; spiking yields pressure risk) ------
+  {
+    const legs = [macroBackdrop.tenY, macroBackdrop.thirtyY].filter((x) => x && isFinite(x.bpsChange1d));
+    if (legs.length) {
+      const up = Math.max(...legs.map((l) => l.bpsChange1d));
+      const dn = Math.min(...legs.map((l) => l.bpsChange1d));
+      const ten = macroBackdrop.tenY;
+      const tenReversing = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d <= -PICKS_MACRO_YIELD_BPS_1D / 2;
+      const risingTrend = ten && ten.trend === "rising" && Number(ten.bpsChange5d) >= PICKS_MACRO_YIELD_BPS_1D && !tenReversing;
+      const tenReversingUp = ten && isFinite(ten.bpsChange1d) && ten.bpsChange1d >= PICKS_MACRO_YIELD_BPS_1D / 2;
+      const fallingTrend = ten && ten.trend === "falling" && Number(ten.bpsChange5d) <= -PICKS_MACRO_YIELD_BPS_1D && !tenReversingUp;
+      let s = 0, label = `10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps 1d`;
+      if (up >= PICKS_MACRO_YIELD_BPS_1D_STRONG) { s = -2; label = `Long yields +${up.toFixed(1)} bps — yield spike`; }
+      else if (up >= PICKS_MACRO_YIELD_BPS_1D || risingTrend) { s = -1; label = `Long yields ${up >= 0 ? "+" : ""}${up.toFixed(1)} bps — rising`; }
+      else if (dn <= -PICKS_MACRO_YIELD_BPS_1D || fallingTrend) { s = 1; label = `Long yields ${dn.toFixed(1)} bps — easing`; }
+      axes.yields = { score: s, label };
+      if (s <= -1) drivers.push(`10Y ${up >= 0 ? "+" : ""}${up.toFixed(1)}bps`);
+    } else axes.yields = { score: 0, label: "no yields" };
+  }
+
+  // --- Fed-path axis (FedWatch hawkish repricing + imminent FOMC event risk) --
+  {
+    const drift = fedHawkishDrift(fedwatchHistory);
+    const er = macroBackdrop.eventRisk;
+    const fomcNear = er && er.active && /fomc/i.test(String(er.label || "")) && pnum(er.daysOut) != null && er.daysOut <= PICKS_MACRO_FOMC_NEAR_DAYS;
+    let s = 0, label = "no Fed-path data";
+    if (drift != null) {
+      label = `Fed path ${drift >= 0 ? "+" : ""}${drift.toFixed(0)}pt`;
+      if (drift >= 2 * PICKS_MACRO_FED_DRIFT_PT) { s = -2; label = `Fed repricing hawkish +${drift.toFixed(0)}pt — sharp`; }
+      else if (drift >= PICKS_MACRO_FED_DRIFT_PT) { s = -1; label = `Fed repricing hawkish +${drift.toFixed(0)}pt`; }
+      else if (drift <= -PICKS_MACRO_FED_DRIFT_PT) { s = 1; label = `Fed repricing dovish ${drift.toFixed(0)}pt`; }
+    }
+    // An FOMC decision within a few sessions is event-risk uncertainty — lean the
+    // axis cautious (never above −1 from this alone) and never let it read risk-on.
+    if (fomcNear) {
+      if (s > -1) { s = -1; label = `FOMC decision in ${er.daysOut}d — event risk`; }
+      else if (s === -1) { label = `${label.split(" — ")[0]} · FOMC in ${er.daysOut}d`; }
+    }
+    axes.fed = { score: s, label };
+    if (s <= -1) drivers.push(fomcNear ? `FOMC in ${er.daysOut}d` : `Fed hawkish +${(drift || 0).toFixed(0)}pt`);
+  }
+
+  // --- Commodity / geopolitical-shock axis (crude spike + gold haven bid) -----
+  if (PICKS_MACRO_COMMODITY) {
+    const oil = macroBackdrop.crude, au = macroBackdrop.gold;
+    const o1 = oil && isFinite(oil.pctChange1d) ? oil.pctChange1d : null;
+    const o5 = oil && isFinite(oil.pctChange5d) ? oil.pctChange5d : null;
+    const g1 = au && isFinite(au.pctChange1d) ? au.pctChange1d : null;
+    const g5 = au && isFinite(au.pctChange5d) ? au.pctChange5d : null;
+    const oilSpike = o1 != null && o1 >= PICKS_MACRO_OIL_1D;
+    const oilShock = o1 != null && o1 >= PICKS_MACRO_OIL_1D_STRONG;
+    const oilRun = o5 != null && o5 >= PICKS_MACRO_OIL_5D;
+    const goldWeekDown = g5 != null && g5 < 0;
+    const goldHaven = (g1 != null && g1 >= PICKS_MACRO_GOLD_1D && !goldWeekDown) || (g5 != null && g5 >= PICKS_MACRO_GOLD_5D);
+    let s = 0, label = "commodities calm";
+    if (oilShock || (oilSpike && goldHaven)) {
+      s = -2;
+      label = `Crude ${o1 >= 0 ? "+" : ""}${o1.toFixed(1)}%${goldHaven && g1 != null ? ` · gold +${g1.toFixed(1)}%` : ""} — supply/geopolitical shock`;
+    } else if (oilSpike || oilRun || goldHaven) {
+      s = -1;
+      label = (oilSpike || oilRun)
+        ? `Crude ${o1 != null ? (o1 >= 0 ? "+" : "") + o1.toFixed(1) : "+" + o5.toFixed(1)}% — oil spiking`
+        : `Gold safe-haven bid ${g1 != null ? "+" + g1.toFixed(1) : "+" + g5.toFixed(1)}%`;
+    }
+    axes.commodity = (oil || au) ? { score: s, label } : { score: 0, label: "no commodity data" };
+    if (s <= -1) drivers.push(label.split(" — ")[0]);
+  } else axes.commodity = { score: 0, label: "commodity axis off" };
+
+  // --- Geopolitical-news axis (AI narrative layer + raw headline tone) -------
+  // Trump tariffs / Iran-Israel war / sanctions / real-world conflict events. The
+  // AI narrative layer (computeGeoNewsStress) is the richer-but-slower read; fresh
+  // war/tariff HEADLINES (computeHeadlineGeoTone) lead it, so a breaking event
+  // tilts the tape risk-off before the next narrative rebuild catches up.
+  {
+    const geo = computeGeoNewsStress(narratives);
+    const tone = computeHeadlineGeoTone(macroHeadlines);
+    let s = geo.score, label = geo.label;
+    if (tone.score < 0 && tone.score < s) {
+      // Headlines see escalation the narrative layer hasn't extracted yet — lead it.
+      s = tone.score;
+      label = `Geopolitical headlines — ${(tone.drivers && tone.drivers[0]) || "risk-off"}`;
+    }
+    axes.geo = { score: s, label };
+    if (s <= -1) drivers.push(String(label).split(" (")[0].split(" — ")[0]);
+  }
+
+  // --- Inflation / labor axis (monthly CPI YoY + unemployment) ----------------
+  if (PICKS_MACRO_INFLATION) {
+    const inf = macroBackdrop.inflation;
+    const ue = macroBackdrop.unemployment;
+    let s = 0;
+    const bits = [];
+    const stressed = [];
+    if (inf && isFinite(inf.yoy)) {
+      const d3 = isFinite(inf.yoy3mAgo) ? (inf.yoy - inf.yoy3mAgo) : null;
+      const reaccel = inf.yoy >= PICKS_MACRO_CPI_WARM && d3 != null && d3 >= PICKS_MACRO_CPI_REACCEL;
+      const stillRising = inf.trend === "rising" || (d3 != null && d3 > 0);
+      if (reaccel || (inf.yoy >= PICKS_MACRO_CPI_HOT && stillRising)) {
+        s -= 1;
+        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY ${reaccel ? "re-accelerating" : "hot & rising"}`);
+        stressed.push(`CPI ${inf.yoy.toFixed(1)}% ↑`);
+      } else if (inf.yoy <= PICKS_MACRO_CPI_COOL && inf.trend !== "rising") {
+        s += 1;
+        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY near target`);
+      } else {
+        bits.push(`CPI ${inf.yoy.toFixed(1)}% YoY${inf.yoy >= PICKS_MACRO_CPI_HOT ? " — elevated but stable (priced in)" : ""}`);
+      }
+    }
+    if (ue && isFinite(ue.rate)) {
+      if (isFinite(ue.sahm) && ue.sahm >= PICKS_MACRO_UE_SAHM) {
+        s -= 1;
+        bits.push(`unemployment ${ue.rate.toFixed(1)}% — Sahm +${ue.sahm.toFixed(2)}pp, labor deteriorating`);
+        stressed.push(`unemployment ${ue.rate.toFixed(1)}% ↑`);
+      } else {
+        bits.push(`unemployment ${ue.rate.toFixed(1)}%${ue.trend === "rising" ? " (rising)" : ""}`);
+      }
+    }
+    s = Math.max(-2, Math.min(1, s));
+    axes.inflation = (inf || ue) ? { score: s, label: bits.join(" · ") } : { score: 0, label: "no CPI/unemployment data" };
+    if (s <= -1) drivers.push(...stressed);
+  } else axes.inflation = { score: 0, label: "inflation/labor axis off" };
+
+  // --- Equity-internals sentiment axis (CNN Fear & Greed) ---------------------
+  let internalsStress = false, internalsLabel = null;
+  if (PICKS_MACRO_SENTIMENT) {
+    const fgAgeMs = fearGreed && fearGreed.asOf ? Date.now() - Date.parse(fearGreed.asOf) : null;
+    const fgFresh = fgAgeMs == null || (Number.isFinite(fgAgeMs) && fgAgeMs <= PICKS_MACRO_FG_MAX_AGE_HOURS * 3600e3);
+    const fgScore = fgFresh && fearGreed && Number.isFinite(Number(fearGreed.score)) ? Number(fearGreed.score) : null;
+    const fgPrev = fgScore != null ? Number(fearGreed?.previous?.close) : null;
+    const fgDelta = fgScore != null && Number.isFinite(fgPrev) ? fgScore - fgPrev : null;
+    let s = 0;
+    let label = fgScore == null ? "no Fear & Greed data" : `Fear & Greed ${fgScore.toFixed(0)} (${fearGreed.rating || "neutral"})`;
+    if (fgScore != null && fgScore <= PICKS_MACRO_FG_FEAR) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fear-stressed internals`; }
+    else if (fgScore != null && fgScore >= PICKS_MACRO_FG_GREED) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — greed/risk-on internals`; }
+    else if (fgDelta != null && fgDelta <= -PICKS_MACRO_FG_DELTA) { s = -1; label = `Fear & Greed ${fgScore.toFixed(0)} — fast swing toward fear (${fgDelta.toFixed(0)} 1d)`; }
+    else if (fgDelta != null && fgDelta >= PICKS_MACRO_FG_DELTA) { s = 1; label = `Fear & Greed ${fgScore.toFixed(0)} — fast swing toward greed (+${fgDelta.toFixed(0)} 1d)`; }
+    axes.sentiment = { score: s, label };
+    if (s <= -1) drivers.push(`F&G ${fgScore.toFixed(0)}`);
+    if (PICKS_MACRO_FG_INTERNALS && fgScore != null && fearGreed && fearGreed.components) {
+      const breadth = Number(fearGreed.components?.breadth?.score);
+      const credit = Number(fearGreed.components?.junkBond?.score);
+      const bothExtreme = Number.isFinite(breadth) && Number.isFinite(credit) &&
+        breadth <= PICKS_MACRO_FG_INTERNALS_EXTREME && credit <= PICKS_MACRO_FG_INTERNALS_EXTREME;
+      const wk = Number(fearGreed?.previous?.week);
+      const mo = Number(fearGreed?.previous?.month);
+      const ref = Number.isFinite(mo) ? mo : (Number.isFinite(wk) ? wk : null);
+      const collapsing = ref != null && (ref - fgScore) >= PICKS_MACRO_FG_TREND_PT && fgScore < PICKS_MACRO_FG_TREND_FLOOR;
+      if (bothExtreme || collapsing) {
+        internalsStress = true;
+        const ibits = [];
+        if (bothExtreme) ibits.push(`breadth ${breadth.toFixed(0)} + credit ${credit.toFixed(0)} extreme-fear`);
+        if (collapsing) ibits.push(`F&G ${fgScore.toFixed(0)} ↓${(ref - fgScore).toFixed(0)} vs ${Number.isFinite(mo) ? "1mo" : "1wk"}`);
+        internalsLabel = `Deteriorating internals — ${ibits.join(", ")}`;
+      }
+    }
+  } else axes.sentiment = { score: 0, label: "sentiment axis off" };
+
+  // --- Global cross-asset tape axis (overnight risk breadth) -----------------
+  if (PICKS_MACRO_GLOBAL && macroBackdrop.crossAsset && Number.isFinite(Number(macroBackdrop.crossAsset.score))) {
+    const ca = macroBackdrop.crossAsset;
+    const s = Math.max(-2, Math.min(2, Math.round(Number(ca.score))));
+    axes.globalTape = { score: s, label: ca.label || "cross-asset tape" };
+    if (s <= -1) drivers.push(ca.driver || "global tape risk-off");
+  } else axes.globalTape = { score: 0, label: PICKS_MACRO_GLOBAL ? "no cross-asset data" : "global tape axis off" };
+
+  // --- Composite → state -----------------------------------------------------
+  const arr = [axes.indexes.score, axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score, axes.globalTape.score];
+  const stress = arr.reduce((a, b) => a + b, 0);
+  const riskOffAxes = arr.filter((x) => x <= -1).length;
+  const riskOnAxes = arr.filter((x) => x >= 1).length;
+  const effRiskOffAxes = PICKS_MACRO_AXIS_DECORR ? macroEffectiveAxisCount(axes, -1) : riskOffAxes;
+  const effRiskOnAxes = PICKS_MACRO_AXIS_DECORR ? macroEffectiveAxisCount(axes, 1) : riskOnAxes;
   let state = "neutral";
-  if (riskOffAxes >= 3 && stress <= -4) state = "severe-risk-off";
-  else if (riskOffAxes >= 2) state = "risk-off";
-  else if (riskOnAxes >= 2 && riskOffAxes === 0 && stress >= 2) state = "risk-on";
+  if (riskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
+  else if (effRiskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
+  else if (
+    effRiskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS &&
+    riskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some((x) => x <= -2)
+  ) state = "risk-on";
+  const driverList = state === "risk-on"
+    ? Object.values(axes).filter((a) => a && a.score >= 1).map((a) => String(a.label).split(" — ")[0])
+    : drivers;
+  const fragile = state === "neutral" && internalsStress;
+  const baseSummary = state === "neutral"
+    ? "Cross-asset macro neutral"
+    : `Cross-asset macro ${state}${driverList.length ? ` — ${driverList.join(", ")}` : ""}`;
+  const summary = fragile ? `${baseSummary} · fragile (${internalsLabel})` : baseSummary;
+  // De-gross multiplier (ramps with stress) so the baked chip can show it.
+  let grossMult = 1;
+  if (state === "severe-risk-off") grossMult = PICKS_MACRO_GROSS_SEVERE;
+  else if (state === "risk-off") grossMult = PICKS_MACRO_GROSS_RAMP
+    ? 1 - (1 - PICKS_MACRO_GROSS_RISKOFF) * Math.min(1, Math.max(0, -stress) / (PICKS_MACRO_TILT_FULL_STRESS || 4))
+    : PICKS_MACRO_GROSS_RISKOFF;
+  else if (fragile) grossMult = PICKS_MACRO_GROSS_FRAGILE;
 
-  return { state, stress: r1(stress), riskOffAxes, riskOnAxes, axes, drivers };
+  // Raw inputs the browser's live re-port overlays live values onto.
+  const numOrNull = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+  const idxLeg = (l) => l ? { value: numOrNull(l.value), pctChange1d: numOrNull(l.pctChange1d), pctChange5d: numOrNull(l.pctChange5d), aboveSma20: typeof l.aboveSma20 === "boolean" ? l.aboveSma20 : null } : null;
+  const inputs = {
+    indexes: macroBackdrop.indexes ? { spy: idxLeg(macroBackdrop.indexes.spy), qqq: idxLeg(macroBackdrop.indexes.qqq), iwm: idxLeg(macroBackdrop.indexes.iwm) } : null,
+    vix: macroBackdrop.vix ? {
+      value: numOrNull(macroBackdrop.vix.value),
+      pctChange1d: numOrNull(macroBackdrop.vix.pctChange1d),
+      trend: macroBackdrop.vix.trend || null,
+      backwardation: !!(macroBackdrop.vixTerm && macroBackdrop.vixTerm.state === "backwardation"),
+    } : null,
+    dxy: macroBackdrop.dxy ? {
+      pctChange1d: numOrNull(macroBackdrop.dxy.pctChange1d),
+      pctChange5d: numOrNull(macroBackdrop.dxy.pctChange5d),
+      trend: macroBackdrop.dxy.trend || null,
+    } : null,
+    yields: {
+      ten: macroBackdrop.tenY ? {
+        bpsChange1d: numOrNull(macroBackdrop.tenY.bpsChange1d),
+        bpsChange5d: numOrNull(macroBackdrop.tenY.bpsChange5d),
+        trend: macroBackdrop.tenY.trend || null,
+      } : null,
+      thirty: macroBackdrop.thirtyY ? { bpsChange1d: numOrNull(macroBackdrop.thirtyY.bpsChange1d) } : null,
+    },
+    commodity: {
+      crude: macroBackdrop.crude ? { pctChange1d: numOrNull(macroBackdrop.crude.pctChange1d), pctChange5d: numOrNull(macroBackdrop.crude.pctChange5d) } : null,
+      gold: macroBackdrop.gold ? { pctChange1d: numOrNull(macroBackdrop.gold.pctChange1d), pctChange5d: numOrNull(macroBackdrop.gold.pctChange5d) } : null,
+    },
+    sentiment: fearGreed ? {
+      score: numOrNull(fearGreed.score),
+      prev: numOrNull(fearGreed.previous && fearGreed.previous.close),
+      week: numOrNull(fearGreed.previous && fearGreed.previous.week),
+      month: numOrNull(fearGreed.previous && fearGreed.previous.month),
+      breadth: numOrNull(fearGreed.components && fearGreed.components.breadth && fearGreed.components.breadth.score),
+      credit: numOrNull(fearGreed.components && fearGreed.components.junkBond && fearGreed.components.junkBond.score),
+      rating: fearGreed.rating || null,
+      asOf: fearGreed.asOf || null,
+    } : null,
+    crossAsset: (macroBackdrop.crossAsset && Array.isArray(macroBackdrop.crossAsset.components))
+      ? { score: numOrNull(macroBackdrop.crossAsset.score), components: macroBackdrop.crossAsset.components }
+      : null,
+  };
+  return {
+    state, rawState: state, persisted: false,
+    stress: r1(stress), riskOffAxes, riskOnAxes,
+    effRiskOffAxes: Number(effRiskOffAxes.toFixed(2)), effRiskOnAxes: Number(effRiskOnAxes.toFixed(2)),
+    axes, drivers: driverList, summary,
+    internalsStress, internalsLabel, fragile,
+    grossMult: Number(grossMult.toFixed(2)),
+    inputs, thresholds: MACRO_LIVE_THRESHOLDS,
+  };
 }
 
 // Asymmetric persistence: move to risk-off immediately, but hold a recovering
@@ -8057,10 +8548,24 @@ export function applyMacroRegimePersistence(mr, priorMeta) {
   return out;
 }
 
-// (kept for compatibility — the simplified gauge does not de-correlate axes)
-export function macroEffectiveAxisCount(axes, dir) {
-  let n = 0; for (const a of Object.values(axes || {})) { const s = pnum(a?.score); if (s != null && ((dir === "off" && s <= -1) || (dir === "on" && s >= 1))) n++; }
-  return n;
+// Collinearity-aware effective axis count: splits the lit (same-direction) axes
+// into correlated CLUSTERS (MACRO_AXIS_CLUSTERS) and counts the strongest in each
+// cluster as 1, every additional one as PICKS_MACRO_CLUSTER_DISCOUNT — so a
+// coordinated dollar/rates or vol/fear move isn't double-counted as N independent
+// risk-off votes. `dir` is −1 (risk-off) or +1 (risk-on). Unlisted axes (indexes,
+// commodity, geo, inflation) are their own singleton cluster and count full.
+export function macroEffectiveAxisCount(axes, dir, discount = PICKS_MACRO_CLUSTER_DISCOUNT) {
+  const perCluster = new Map();
+  for (const [key, ax] of Object.entries(axes || {})) {
+    const s = ax && Number.isFinite(ax.score) ? ax.score : 0;
+    const lit = dir < 0 ? s <= -1 : s >= 1;
+    if (!lit) continue;
+    const cluster = MACRO_AXIS_CLUSTERS[key] || key;
+    perCluster.set(cluster, (perCluster.get(cluster) || 0) + 1);
+  }
+  let eff = 0;
+  for (const n of perCluster.values()) eff += 1 + discount * (n - 1);
+  return eff;
 }
 
 // Deployed-gross multiplier for the tape.
@@ -8071,16 +8576,30 @@ export function regimeGrossMult(state) {
 }
 
 // Headline geo-tone helper (kept; consumed where a geopolitical read is wanted).
+// Raw geopolitical-headline tone for the market-tape geo axis. Scans recent
+// macro headlines for the real-world risk-off events the user cares about — war /
+// conflict (Iran, Israel, Ukraine, missile, invasion, strike), trade/tariff
+// escalation (Trump tariffs / trade war / sanctions), and acute market shocks —
+// and votes a stress-only score (0/−1/−2) with a categorized driver label. A
+// fresh hard-conflict headline votes −2; a single softer flashpoint −1.
+const GEO_HEADLINE_CONFLICT_RE = /\b(wars?|invasions?|invade[sd]?|air ?strikes?|missiles?|drone (?:attack|strike)s?|nuclear|troops|hostilit\w*|escalat\w*|strait of hormuz|attacks? (?:on|against)|strikes? (?:on|against))\b/i;
+const GEO_HEADLINE_THEME_RE = /\b(iran\w*|israel\w*|gaza|hamas|hezbollah|ukrain\w*|russia\w*|taiwan|north korea|middle east|red sea|houthi\w*|opec|sanctions?|embargo(?:es)?|tariffs?|trade wars?|trade deals?)\b/i;
 export function computeHeadlineGeoTone(macroHeadlines, nowMs = Date.now()) {
   if (!Array.isArray(macroHeadlines) || !macroHeadlines.length) return { score: 0, drivers: [] };
-  let score = 0; const drivers = [];
+  let conflict = 0, theme = 0; const drivers = [];
   for (const h of macroHeadlines) {
     const txt = String((h && (h.title || h.headline || h)) || "");
     const ageH = h && h.date ? (nowMs - Date.parse(h.date)) / 3600000 : 0;
     if (ageH > 48) continue;
-    if (/\b(war|invasion|attack|strike|sanction|escalat|missile)\b/i.test(txt)) { score -= 1; drivers.push("geopolitical risk"); }
+    if (GEO_HEADLINE_CONFLICT_RE.test(txt)) { conflict++; drivers.push("war/conflict headlines"); }
+    else if (GEO_HEADLINE_THEME_RE.test(txt)) { theme++; drivers.push("tariff/geopolitical headlines"); }
   }
-  return { score: clamp(score, -2, 0), drivers: drivers.slice(0, 3) };
+  // A live conflict headline is the −2 path; a softer flashpoint alone is −1.
+  const score = conflict >= 1 ? -Math.min(2, 1 + Math.min(1, conflict - 1) + (theme > 0 ? 1 : 0)) : (theme >= 1 ? -1 : 0);
+  // De-dup driver labels, conflict first.
+  const uniq = [];
+  for (const d of drivers) if (!uniq.includes(d)) uniq.push(d);
+  return { score: clamp(score, -2, 0), drivers: uniq.slice(0, 3) };
 }
 
 // ============================================================================
@@ -8667,7 +9186,14 @@ export async function readRegimeHistory() {
 export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
   const days = (prev?.days || []).slice();
   const date = etDateStr(builtAtIso);
-  const row = { date, state: regime?.state || "neutral", stress: regime?.stress ?? 0, lean: lean || null, drivers: regime?.drivers || [] };
+  // Per-axis score snapshot for the tape's daily per-axis sparklines (the browser
+  // reads days[].axisScores[k]; absent on pre-upgrade rows → live-session fallback).
+  let axisScores = null;
+  if (regime && regime.axes) {
+    axisScores = {};
+    for (const [k, a] of Object.entries(regime.axes)) if (a && Number.isFinite(a.score)) axisScores[k] = a.score;
+  }
+  const row = { date, state: regime?.state || "neutral", stress: regime?.stress ?? 0, lean: lean || null, drivers: regime?.drivers || [], axisScores };
   const idx = days.findIndex((d) => d.date === date);
   if (idx >= 0) days[idx] = row; else days.push(row);
   days.sort((a, b) => String(a.date).localeCompare(String(b.date)));
@@ -14450,24 +14976,24 @@ async function main() {
       const er = macroBackdrop.eventRisk;
       console.log(`  · macro event-risk: ${er.label} in ${er.daysOut}d (top ~${Math.round((er.topProb > 1.5 ? er.topProb / 100 : er.topProb) * 100)}%) — entries deferred`);
     }
-    // Cross-asset macro-stress regime (PICKS_MACRO_REGIME) — fused from the macro
-    // backdrop (VIX/DXY/yields) + the FedWatch hawkish drift. Threaded into
-    // scoring (detectMarketRegime + the differential narrative tilt) and the
-    // roster (de-grossing, call cap, tactical-put bar). Like eventRisk it's a
-    // picks-internal, this-build-only signal — not persisted to macro.json.
-    // Regime persistence: hold a recovering state one build (asymmetric — moves
-    // toward more risk-off apply immediately). Prior state from the pre-wipe
-    // picks.json rosterMeta.
+    // Market-tape (cross-asset macro regime, PICKS_MACRO_REGIME) — the reworked
+    // gauge that RESETS every build from the live factors: the overall-market
+    // Indexes axis (SPY+QQQ), VIX, long yields, the dollar, the Fed path / FOMC,
+    // a commodity / geopolitical-shock axis, a geopolitical-NEWS axis (war /
+    // tariffs / Iran / real-world events), inflation/labor, Fear & Greed, and the
+    // overnight global tape. Threaded into scoring (the risk-on/off tilt + the
+    // tactical-put bar) and the roster (de-grossing). No cross-build persistence —
+    // the chip reflects THIS build's tape. A picks-internal, this-build-only
+    // signal (not persisted to macro.json).
+    // Indexes axis input — SPY/QQQ moves read off the just-fetched chains.
+    macroBackdrop.indexes = buildIndexAxisInput(chains);
     // Fold the overnight cross-asset sweep into the regime as the global-tape
     // axis (PICKS_MACRO_GLOBAL) — the same markets the Top Picks barometer shows.
     macroBackdrop.crossAsset = deriveGlobalTapeAxis(correlationsInfo?.payload?.markets || null);
-    macroBackdrop.macroRegime = applyMacroRegimePersistence(
-      computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed, trends.macroHeadlines),
-      picksPrev?.rosterMeta?.macroRegime || null,
-    );
+    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed, trends.macroHeadlines);
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
       const m = macroBackdrop.macroRegime;
-      console.log(`  · macro regime: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.persisted ? ` [held — this build read ${m.rawState}]` : ""}${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
+      console.log(`  · market tape: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
     }
   }
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {

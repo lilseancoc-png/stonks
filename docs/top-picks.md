@@ -111,11 +111,31 @@ Absolute and stable — no percentile recomputation, no recalibration treadmill.
 
 ---
 
-## 5. Market regime (`detectMarketRegime` / `computeMacroRegime`)
+## 5. Market regime — the "market tape" (`computeMacroRegime`)
 
-One simple read of SPY trend + VIX (with the dollar, long yields, and CNN
-Fear & Greed feeding the cross-asset gauge). State ∈ `risk-on` / `neutral` /
-`risk-off` / `severe-risk-off`. In a risk-off tape the engine:
+A multi-axis cross-asset gauge that **resets every build** from the live factors
+(no cross-build persistence — the chip reflects *this* build's tape). Each axis
+votes −2..+2 (negative = risk-off); the composite sets the state ∈ `risk-on` /
+`neutral` / `risk-off` / `severe-risk-off`. The axes:
+
+| Axis | Reads |
+|---|---|
+| **Indexes** | SPY + QQQ — the overall market (1d move, 5d, 20D trend). Its own un-clustered axis. |
+| **VIX** | level + trend + term-structure backwardation |
+| **Yields** | 10Y / 30Y 1d bps (bonds) |
+| **Dollar** | DXY 1d/5d (USD) |
+| **Fed path** | FedWatch hawkish drift **+ an imminent FOMC decision** (≤3 sessions → cautious) |
+| **Commodity** | crude spike + gold haven bid (supply / war shock) |
+| **Geopolitics** | war / tariffs / Iran / sanction headlines + the AI narrative layer |
+| **Inflation** | CPI YoY momentum + unemployment (Sahm) |
+| **Fear & Greed** | CNN equity internals (confirming vote; also raises a `fragile` flag) |
+| **Global tape** | overnight cross-asset breadth (futures / Asia-EU / yen / copper / BTC) |
+
+The composite is **collinearity-aware** (`macroEffectiveAxisCount` — a coordinated
+vol/fear or dollar/rates move counts once, not N times). `severe-risk-off` needs
+≥3 raw risk-off axes **and** stress ≤ −4; `risk-off` needs ≥2 effective; `risk-on`
+needs ≥2 effective risk-on axes, positive stress, a calm VIX **and a non-negative
+Indexes axis**. In a risk-off tape the engine:
 
 - **tilts the whole book bearish** (`PICKS_REGIME_TILT`, −2; −4 severe) so the
   marginal calls fall toward No-Trade / flip to puts;
@@ -123,8 +143,14 @@ Fear & Greed feeding the cross-asset gauge). State ∈ `risk-on` / `neutral` /
 - **lowers the bar for tactical puts** (a sub-conviction bearish name with a clean
   breakdown can ship as a reduced-size put).
 
-`applyMacroRegimePersistence` holds a *recovering* read one build to avoid whipsaw
-(it moves to risk-off immediately, but eases back slowly).
+The engine ships a per-axis breakdown + the raw inputs + a threshold snapshot in
+`picks.json`'s `rosterMeta.macroRegime`, so the browser's **live market tape**
+(`computeLiveMacroRegime` in `scripts/render/app-js.mjs`) recomputes the *price*
+axes (Indexes/VIX/yields/dollar/commodity/Fear & Greed/global) intraday from
+`/api/macro-live` while the Top Picks tab is open — the slow axes (Fed path,
+geopolitical news, inflation) carry from the last build. Keep the two in sync.
+(`applyMacroRegimePersistence` / `detectMarketRegime` remain exported for the SPY+VIX
+fallback chip + tests, but the build no longer persists — it resets each bake.)
 
 ---
 
