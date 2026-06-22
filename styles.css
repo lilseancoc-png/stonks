@@ -12810,6 +12810,39 @@ html::-webkit-scrollbar-thumb:hover {
   letter-spacing: .05em;
   color: var(--text-2);
 }
+/* Intraday trade plan line on actionable hot rows (entry/stop/target/R:R). */
+.hot-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.hot-plan.is-good { border-left-color: var(--pos); }
+.hot-plan.is-ok { border-left-color: var(--warn); }
+.hot-plan.is-thin { border-left-color: var(--neg); }
+.hot-plan-tag {
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: 0.9em;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text-3);
+}
+.hot-plan-leg b { color: var(--text-1); font-weight: 600; }
+.hot-plan-rr { font-weight: 700; margin-left: auto; }
+.hot-plan-rr.is-good { color: var(--pos); }
+.hot-plan-rr.is-ok { color: var(--warn); }
+.hot-plan-rr.is-thin { color: var(--neg); }
 .vol-live-pace { font-weight: 600; }
 .vol-live-pace.is-hot { color: var(--neg); }
 .vol-live-pace.is-elevated { color: var(--warn); }

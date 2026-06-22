@@ -8645,6 +8645,84 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return '<span class="vol-live-gex-tag">GEX</span>' + bits.join(' · ');
   }
+  // Executable intraday trade plan for an ACTIONABLE hot row — turns the
+  // directional verdict into a day-trade with concrete levels: an entry near
+  // the live spot, a stop at the nearest structure that invalidates the idea
+  // (intraday low/high, dealer wall, gamma flip), and a target at the next
+  // structure in the trade's direction (the opposite wall / day extreme) or a
+  // measured 2R move when nothing structural is in range. Every level is read
+  // from data already on the row + the baked dealer-gamma map (zero extra
+  // fetches). The stop distance is held to a day-trade risk band (0.3%–2.5% of
+  // spot) so it's neither noise-tight nor a swing-wide stop. R:R is the number
+  // the day trader actually acts on — a plan thinner than ~1:1 is flagged.
+  // Returns null when spot is missing or the lean isn't directional.
+  function hotTradePlan(r, lean){
+    var spot = (r.spot != null && isFinite(r.spot) && r.spot > 0) ? Number(r.spot) : null;
+    if (spot == null || (lean !== 1 && lean !== -1)) return null;
+    var g = volLiveGexFor(r.sym);
+    var cw = (g && g.callWall && g.callWall.strike != null && isFinite(g.callWall.strike)) ? Number(g.callWall.strike) : null;
+    var pw = (g && g.putWall && g.putWall.strike != null && isFinite(g.putWall.strike)) ? Number(g.putWall.strike) : null;
+    var flip = (g && g.flip != null && isFinite(g.flip)) ? Number(g.flip) : null;
+    var dayHi = (r.dayHi != null && isFinite(r.dayHi)) ? Number(r.dayHi) : null;
+    var dayLo = (r.dayLo != null && isFinite(r.dayLo)) ? Number(r.dayLo) : null;
+    var minRisk = spot * 0.003, maxRisk = spot * 0.025;
+    var entry = spot, stop, stopBasis, target, tgtBasis, risk;
+    if (lean === 1){
+      // LONG — stop below at the highest (tightest) invalidation under spot.
+      var sup = [];
+      if (dayLo != null && dayLo < spot) sup.push({ v: dayLo, b: 'intraday low' });
+      if (pw != null && pw < spot) sup.push({ v: pw, b: 'put wall' });
+      if (flip != null && flip < spot) sup.push({ v: flip, b: 'gamma flip' });
+      sup.sort(function(a, b){ return b.v - a.v; });
+      var s = sup.length ? sup[0] : null;
+      if (s && (spot - s.v) >= minRisk && (spot - s.v) <= maxRisk){ stop = s.v; stopBasis = s.b; }
+      else { risk = (s && (spot - s.v) > maxRisk) ? maxRisk : Math.max(minRisk, spot * 0.01); stop = spot - risk; stopBasis = s ? 'capped 2.5% from ' + s.b : '~1% band (no level)'; }
+      risk = entry - stop;
+      // Target — nearest overhead structure, else a 2R measured move.
+      if (cw != null && cw > spot && (cw - spot) >= risk){ target = cw; tgtBasis = 'call wall'; }
+      else if (dayHi != null && dayHi > spot && (dayHi - spot) >= risk){ target = dayHi; tgtBasis = 'day high'; }
+      else { target = spot + 2 * risk; tgtBasis = '2R measured move'; }
+    } else {
+      // SHORT — stop above at the lowest (tightest) invalidation over spot.
+      var res = [];
+      if (dayHi != null && dayHi > spot) res.push({ v: dayHi, b: 'intraday high' });
+      if (cw != null && cw > spot) res.push({ v: cw, b: 'call wall' });
+      if (flip != null && flip > spot) res.push({ v: flip, b: 'gamma flip' });
+      res.sort(function(a, b){ return a.v - b.v; });
+      var rr0 = res.length ? res[0] : null;
+      if (rr0 && (rr0.v - spot) >= minRisk && (rr0.v - spot) <= maxRisk){ stop = rr0.v; stopBasis = rr0.b; }
+      else { risk = (rr0 && (rr0.v - spot) > maxRisk) ? maxRisk : Math.max(minRisk, spot * 0.01); stop = spot + risk; stopBasis = rr0 ? 'capped 2.5% from ' + rr0.b : '~1% band (no level)'; }
+      risk = stop - entry;
+      if (pw != null && pw < spot && (spot - pw) >= risk){ target = pw; tgtBasis = 'put wall'; }
+      else if (dayLo != null && dayLo < spot && (spot - dayLo) >= risk){ target = dayLo; tgtBasis = 'day low'; }
+      else { target = spot - 2 * risk; tgtBasis = '2R measured move'; }
+    }
+    if (!(risk > 0)) return null;
+    var reward = Math.abs(target - entry);
+    var rrRatio = reward / risk;
+    return {
+      lean: lean, entry: entry, stop: stop, target: target, rr: rrRatio,
+      stopBasis: stopBasis, tgtBasis: tgtBasis,
+      stopPct: (stop - entry) / entry * 100, tgtPct: (target - entry) / entry * 100,
+    };
+  }
+  // Compact one-line render of the intraday plan under an actionable card.
+  function hotTradePlanLine(r, lean){
+    var p = hotTradePlan(r, lean);
+    if (!p) return '';
+    var rrCls = p.rr >= 1.5 ? 'is-good' : (p.rr >= 1 ? 'is-ok' : 'is-thin');
+    var sgn = function(x){ return (x >= 0 ? '+' : '') + x.toFixed(1) + '%'; };
+    var tip = 'Day-trade plan from live levels — entry near spot, stop at the ' + p.stopBasis +
+      ', target at the ' + p.tgtBasis + '. R:R is reward \\u00f7 risk; under ~1:1 the trade pays less than it risks.' +
+      (p.rr < 1 ? ' Thin R:R here \\u2014 wait for a better entry or skip.' : '');
+    return '<div class="hot-plan ' + rrCls + '" title="' + escapeHtml(tip) + '">' +
+      '<span class="hot-plan-tag">PLAN</span>' +
+      '<span class="hot-plan-leg">entry <b>$' + p.entry.toFixed(2) + '</b></span>' +
+      '<span class="hot-plan-leg">stop <b>$' + p.stop.toFixed(2) + '</b> (' + sgn(p.stopPct) + ')</span>' +
+      '<span class="hot-plan-leg">target <b>$' + p.target.toFixed(2) + '</b> (' + sgn(p.tgtPct) + ')</span>' +
+      '<span class="hot-plan-rr ' + rrCls + '">R:R 1:' + p.rr.toFixed(1) + '</span>' +
+      '</div>';
+  }
   // Latest confirmed 20D S/R break per symbol from the hourly scan (today's
   // session only — volume-flags.json resets each day). Most recent bucket wins.
   function volLiveSrBreakFor(sym){
@@ -9204,6 +9282,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var now = (r.now && r.now.pace != null && isFinite(r.now.pace)) ? r.now : null;
       var gexLine = (r.spot != null && isFinite(r.spot)) ? volLiveGexLine(r.sym, Number(r.spot)) : '';
       var view = r._view;
+      // Executable plan only on actionable buy rows — a "wait" verdict has no
+      // entry to plan, and a counter-trend/chase row is a deliberate stand-down.
+      var planLine = r._buy ? hotTradePlanLine(r, r._lean === 'bull' ? 1 : -1) : '';
       var whyOpen = !!volLive.whyOpen[r.sym];
       // The verdict is a button: tapping it expands the reasoning inline —
       // hover tooltips don't exist on touch devices.
@@ -9245,6 +9326,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div class="hot-stats">' + stats.join('') + '</div>' +
         (tags ? '<div class="hot-tags">' + tags + '</div>' : '') +
         (gexLine ? '<div class="vol-live-gex" title="Dealer gamma from the latest hourly scan — flip/wall levels are scan-time, distances use the live spot">' + gexLine + '</div>' : '') +
+        planLine +
         whyHtml +
       '</article>');
     }
@@ -9255,7 +9337,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ' of the top ' + hotSet.length + ' names by live volume pace (SPY/QQQ always pinned · ' + withPace + ' tracked)' +
       ' · now = the trailing ~' + VOL_NOW_WINDOW_MIN + ' min vs the usual for that slice of the session (the verdict grades this moment, not the day)' +
       ' · the verdict folds in the move, the S/R-break picture, dealer gamma, and the day\\u2019s unusual options flow' +
-      ' · buy calls/puts is entry-gated: an extended multi-day run (do not buy the top), a falling knife / squeeze, a fading day-range, or imminent earnings/FOMC demotes it to a labelled wait \\u2014 tap the chip for the reasoning' +
+      ' · buy calls/puts is entry-gated: a counter-trend lean (fighting the multi-day trend), an extended multi-day run (do not buy the top), a falling knife / squeeze, a fading day-range, or imminent earnings/FOMC demotes it to a labelled wait \\u2014 tap the chip for the reasoning' +
+      ' · each actionable name carries an intraday PLAN (entry / stop / target / R:R) built from the live day range and dealer-gamma walls' +
       (afterClose ? ' · session closed — pace is the last full session vs the 20D average and verdicts read as next-open bias' : '') +
       '</div>');
     board.innerHTML = html.join('');

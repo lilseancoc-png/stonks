@@ -16,6 +16,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## [Unreleased]
 
+### Added
+- **Hot stocks now ships an executable intraday trade plan on every actionable name.** Each buy-calls / buy-puts row carries a PLAN line — entry (near live spot), stop (the nearest invalidating structure: intraday low/high, dealer put/call wall, or gamma flip), target (the next structure in the trade's direction, else a measured 2R move), and the resulting **risk:reward** — all derived from the live day range + the baked dealer-gamma map (zero extra fetches). Stop distance is held to a day-trade band (0.3%–2.5% of spot); R:R is color-coded and a thin (<1:1) plan is flagged. Turns a directional verdict into something a day trader can actually act on. `scripts/render/{app-js,styles-css}.mjs`, `scripts/render/docs.mjs`.
+
 ### Changed
 - **Hot stocks now gates its verdict on multi-day trend alignment — no more "Buy calls now" in a downtrend (or puts in an uptrend).** The live board verdict adds a trend-alignment check: when the intraday lean fights the established multi-day trend (read from the grade's Technicals-pillar SMA stack — price vs 20/50/100D — confirmed by the pillar's net sign), a would-be execute is demoted to a labelled **"Counter-trend — wait"** instead of a buy CTA. Ambiguous trends (e.g. an oversold-bounce setup) fail open, so genuine reversals still surface. `scripts/render/app-js.mjs`.
 
