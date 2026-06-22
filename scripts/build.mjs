@@ -5283,6 +5283,311 @@ export async function write13FFile(chains, narratives, builtAtIso, perFirmResult
   return { bytes: json.length, positions: payload.biggestPositions.length };
 }
 
+// === AI CapEx tracker (data/ai-capex.json) ==========================
+// Aggregate "Magnificent 7" capital expenditure — the cleanest single proxy for
+// the AI data-center / GPU / networking buildout. CapEx is reported in the
+// cash-flow statement as PaymentsToAcquirePropertyPlantAndEquipment (AMZN tags
+// it PaymentsToAcquireProductiveAssets), which SEC's companyconcept REST API
+// returns as a plain dollar total per period — no XBRL-instance parse needed
+// (unlike revenue segments, which need the segment dimensions). We surface each
+// name's last two full fiscal years (YoY) + a trailing-12-month run-rate, then
+// sum across the group for "total AI CapEx this year vs last year, and by how
+// much". Order roughly by AI relevance (the hyperscalers first).
+export const AI_CAPEX_TICKERS = ["MSFT", "GOOGL", "AMZN", "META", "NVDA", "AAPL", "TSLA"];
+const AI_CAPEX_CONCEPTS = [
+  "PaymentsToAcquirePropertyPlantAndEquipment",
+  "PaymentsToAcquireProductiveAssets",
+];
+
+// SEC companyconcept REST API — every reported value for ONE us-gaap concept.
+// Returns the units.USD array (or [] on any failure — graceful).
+async function fetchCompanyConceptUsd(cik, concept) {
+  const padded = String(cik).padStart(10, "0");
+  const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${padded}/us-gaap/${concept}.json`;
+  try {
+    const res = await fetch(url, { headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" }, signal: AbortSignal.timeout(20000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const usd = data?.units?.USD;
+    return Array.isArray(usd) ? usd : [];
+  } catch { return []; }
+}
+
+// Reduce a companyconcept USD fact list into clean full-fiscal-year totals +
+// a trailing-12-month run-rate. Annual = ~365-day-period facts (deduped by end,
+// 10-K preferred). TTM uses the cash-flow roll-forward: priorFY + (current YTD −
+// prior-year same-length YTD) — only needs reliably-tagged YTD/annual facts, no
+// fragile discrete-quarter reconstruction.
+export function reduceCapexFacts(facts) {
+  const clean = [];
+  for (const u of facts) {
+    if (!u || !u.start || !u.end || !Number.isFinite(Number(u.val))) continue;
+    const start = Date.parse(u.start), end = Date.parse(u.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const days = Math.round((end - start) / 86400000);
+    clean.push({ start, end, startIso: u.start, endIso: u.end, val: Number(u.val), days, form: u.form || null });
+  }
+  if (!clean.length) return { annual: [], ttm: null };
+  // ANNUAL — ~365-day periods, deduped by end date (prefer the 10-K figure).
+  const annualByEnd = new Map();
+  for (const f of clean) {
+    if (f.days < 340 || f.days > 380) continue;
+    const prev = annualByEnd.get(f.endIso);
+    if (!prev || (f.form === "10-K" && prev.form !== "10-K")) annualByEnd.set(f.endIso, f);
+  }
+  const annual = [...annualByEnd.values()].sort((a, b) => a.end - b.end);
+  if (!annual.length) return { annual: [], ttm: null };
+  const latestFy = annual[annual.length - 1];
+  // Most recent cumulative-YTD partial that ends AFTER the latest full FY (a newer 10-Q).
+  let curYtd = null;
+  for (const f of clean) {
+    if (f.days >= 340 || f.days < 60) continue;
+    if (f.end <= latestFy.end) continue;
+    if (!curYtd || f.end > curYtd.end || (f.end === curYtd.end && f.days > curYtd.days)) curYtd = f;
+  }
+  let ttm;
+  if (!curYtd) {
+    ttm = { val: latestFy.val, asOf: latestFy.endIso, basis: "fy" };
+  } else {
+    // Prior-year YTD of the same length, ending ~365d before curYtd.
+    let priorYtd = null;
+    for (const f of clean) {
+      if (Math.abs(f.days - curYtd.days) > 20) continue;
+      const endDiff = (curYtd.end - f.end) / 86400000;
+      if (endDiff > 330 && endDiff < 400) { priorYtd = f; break; }
+    }
+    ttm = priorYtd
+      ? { val: latestFy.val + (curYtd.val - priorYtd.val), asOf: curYtd.endIso, basis: "ttm" }
+      : { val: latestFy.val, asOf: latestFy.endIso, basis: "fy" };
+  }
+  return { annual, ttm };
+}
+
+const capexFyLabel = (endIso) => (endIso ? "FY" + String(endIso).slice(0, 4) : null);
+
+// Build data/ai-capex.json. `chains` supplies each name's display name + TTM
+// revenue (for the CapEx-intensity read); `prior` is the last-good payload so a
+// transient SEC outage carries forward instead of blanking the tab.
+async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = null) {
+  const companies = [];
+  const missing = [];
+  for (const ticker of AI_CAPEX_TICKERS) {
+    const cik = cikMap ? cikMap.get(ticker) : null;
+    if (!cik) { missing.push(ticker); continue; }
+    let reduced = { annual: [], ttm: null };
+    for (const concept of AI_CAPEX_CONCEPTS) {
+      const facts = await fetchCompanyConceptUsd(cik, concept);
+      const r = reduceCapexFacts(facts);
+      if (r.annual.length) { reduced = r; break; }
+      await new Promise((res) => setTimeout(res, 120)); // SEC politeness between concept probes
+    }
+    if (!reduced.annual.length) { missing.push(ticker); continue; }
+    const a = reduced.annual;
+    const fyLatest = a[a.length - 1];
+    const fyPrior = a.length >= 2 ? a[a.length - 2] : null;
+    const f = chains?.[ticker]?.fundamentals || {};
+    const revenue = pnum(f.revenue);
+    const yoyPct = fyPrior && fyPrior.val > 0 ? r1((fyLatest.val / fyPrior.val - 1) * 100) : null;
+    companies.push({
+      ticker,
+      name: f.name || ticker,
+      fyLatest: { label: capexFyLabel(fyLatest.endIso), end: fyLatest.endIso, val: fyLatest.val },
+      fyPrior: fyPrior ? { label: capexFyLabel(fyPrior.endIso), end: fyPrior.endIso, val: fyPrior.val } : null,
+      yoyPct,
+      ttm: reduced.ttm,
+      revenue: revenue ?? null,
+      capexToRevenuePct: revenue > 0 && reduced.ttm ? r1((reduced.ttm.val / revenue) * 100) : null,
+      history: a.slice(-5).map((x) => ({ label: capexFyLabel(x.endIso), end: x.endIso, val: x.val })),
+    });
+    console.log(`  · AI CapEx ${ticker}: ${capexFyLabel(fyLatest.endIso)} $${(fyLatest.val / 1e9).toFixed(1)}B${yoyPct != null ? ` (${yoyPct >= 0 ? "+" : ""}${yoyPct}% YoY)` : ""}${reduced.ttm ? ` · TTM $${(reduced.ttm.val / 1e9).toFixed(1)}B` : ""}`);
+  }
+  if (!companies.length) {
+    // Total SEC failure — carry forward last-good rather than blank the tab.
+    if (prior && Array.isArray(prior.companies) && prior.companies.length) return { ...prior, stale: true, builtAtIso };
+    return { builtAtIso, companies: [], totals: null, missing, stale: false };
+  }
+  // Aggregate on the common latest-FY label (the year most names report). Pick the
+  // modal latest FY year so a single laggard doesn't drag the group total into a
+  // mismatched year; each company contributes its own latest/prior around it.
+  let fyLatestSum = 0, fyPriorSum = 0, ttmSum = 0, ttmCount = 0, latestLabel = null, priorLabel = null;
+  for (const c of companies) {
+    fyLatestSum += c.fyLatest.val;
+    if (c.fyPrior) fyPriorSum += c.fyPrior.val;
+    if (c.ttm) { ttmSum += c.ttm.val; ttmCount++; }
+    if (!latestLabel) latestLabel = c.fyLatest.label;
+    if (!priorLabel && c.fyPrior) priorLabel = c.fyPrior.label;
+  }
+  const haveBothFy = companies.filter((c) => c.fyPrior).length;
+  const totals = {
+    fyLatestSum, fyPriorSum: haveBothFy ? fyPriorSum : null,
+    fyLatestLabel: latestLabel, fyPriorLabel: priorLabel,
+    yoyPct: haveBothFy && fyPriorSum > 0 ? r1((fyLatestSum / fyPriorSum - 1) * 100) : null,
+    deltaAbs: haveBothFy ? fyLatestSum - fyPriorSum : null,
+    ttmSum: ttmCount ? ttmSum : null, ttmCount, count: companies.length,
+  };
+  // Rank companies by latest-FY spend (biggest spenders first) for the table.
+  companies.sort((a, b) => b.fyLatest.val - a.fyLatest.val);
+  return { builtAtIso, companies, totals, missing, stale: false };
+}
+
+async function readPriorAiCapex() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, "ai-capex.json"), "utf8")); } catch { return null; }
+}
+
+async function writeAiCapexFile(cikMap, chains, builtAtIso, prior = null) {
+  const payload = await buildAiCapexPayload(cikMap, chains, builtAtIso, prior);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "ai-capex.json"), json, "utf8");
+  return { bytes: json.length, count: payload.companies.length, stale: !!payload.stale, missing: payload.missing || [] };
+}
+
+// === Capital raises tracker (data/capital-raises.json) ==============
+// "Whenever a company issues new shares or debt or bonds it's in the news cycle."
+// Two sources, combined: (1) the per-ticker news headlines already fetched for
+// the AI news take — scanned with a deterministic keyword classifier for
+// issuance language (notes/bond offerings, secondary/share offerings, ATM
+// programs, convertibles, and buybacks as the inverse) — and (2) SEC XBRL hard
+// numbers (ProceedsFromIssuanceOfLongTermDebt / OfCommonStock / OfDebt) for the
+// most recent quarter, so a flagged headline can be sized against the filed
+// amount. Timely from the news side, precise from the SEC side.
+// Order matters — convertible is checked before plain debt (a "convertible
+// notes" headline is a convertible, not a straight bond), and buyback before
+// equity-issuance so "stock repurchase" doesn't read as a share sale.
+const CAPITAL_RAISE_PATTERNS = [
+  { kind: "convertible", re: /convertible (notes?|bonds?|senior notes?|debt|offering|securities)/i },
+  { kind: "buyback", re: /\b(share|stock)?\s?(buyback|repurchase)( program| authorization)?|authorizes? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(stock |share )?(buyback|repurchase)|increases? .{0,20}repurchase|accelerated share repurchase/i },
+  { kind: "debt", re: /\b(senior |unsecured |secured )?notes? (offering|due|sale|priced|pricing)|bond (sale|offering)|debt offering|prices? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(in\s+)?(senior )?notes|issues? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(in\s+)?(senior )?(notes|bonds|debt)|raises? \$?[\d.]+\s?(billion|million|bn|mm)?\s+in\s+(debt|bonds|notes)/i },
+  { kind: "equity", re: /\b(secondary|follow[- ]on|common stock|share|equity|at[- ]the[- ]market|ATM program) offering|priced?\s+(its\s+)?(public\s+)?offering|sells? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(in\s+)?(stock|shares|equity)|stock (sale|offering)|registered direct offering|prices? (public )?offering/i },
+];
+const CAPITAL_RAISE_KIND_LABEL = { debt: "Debt / notes", convertible: "Convertible", equity: "Share issuance", buyback: "Buyback" };
+// $-amount sniffer for the headline ("$2 billion", "$750M") → absolute USD.
+export function parseHeadlineAmount(text) {
+  const m = String(text || "").match(/\$\s?([\d,]+(?:\.\d+)?)\s*(billion|bn|million|mm|m|b)\b/i);
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ""));
+  if (!Number.isFinite(n)) return null;
+  const unit = m[2].toLowerCase();
+  if (unit === "billion" || unit === "bn" || unit === "b") return n * 1e9;
+  if (unit === "million" || unit === "mm" || unit === "m") return n * 1e6;
+  return n;
+}
+export function classifyCapitalRaiseHeadline(title) {
+  const t = String(title || "");
+  for (const p of CAPITAL_RAISE_PATTERNS) if (p.re.test(t)) return p.kind;
+  return null;
+}
+
+// Module-level accumulator: attachTickerJudgments scans each ticker's freshly
+// fetched headlines for issuance language and pushes the flagged ones here, so
+// buildCapitalRaisesPayload can assemble the feed without re-fetching news.
+let _capitalRaiseFlags = [];
+const CAPITAL_RAISE_MAX_AGE_DAYS = 21;
+function scanCapitalRaiseHeadlines(sym, headlines) {
+  if (!Array.isArray(headlines) || !headlines.length) return;
+  const nowMs = Date.now();
+  const perKind = new Map(); // keep the most recent flag per kind for this ticker
+  for (const h of headlines) {
+    if (!h || !h.title) continue;
+    const kind = classifyCapitalRaiseHeadline(h.title);
+    if (!kind) continue;
+    const tMs = h.publishedAt ? Date.parse(h.publishedAt) : NaN;
+    const ageDays = Number.isFinite(tMs) ? (nowMs - tMs) / 86400000 : null;
+    if (ageDays != null && ageDays > CAPITAL_RAISE_MAX_AGE_DAYS) continue; // only fresh news
+    const prev = perKind.get(kind);
+    const cur = {
+      ticker: sym, kind, title: h.title, publisher: h.publisher || null,
+      link: h.link || null, publishedAt: h.publishedAt || null,
+      amount: parseHeadlineAmount(h.title),
+    };
+    if (!prev || (Number.isFinite(tMs) && tMs > (Date.parse(prev.publishedAt) || 0))) perKind.set(kind, cur);
+  }
+  for (const flag of perKind.values()) _capitalRaiseFlags.push(flag);
+}
+
+// SEC XBRL hard numbers for the issuance feed — the most recent reported value
+// for each issuance/buyback concept (so a flagged headline can be sized against
+// the filed amount). Returns { debt, equity, buyback } each { val, end, concept }.
+const ISSUANCE_CONCEPTS = {
+  debt: ["ProceedsFromIssuanceOfLongTermDebt", "ProceedsFromIssuanceOfDebt", "ProceedsFromIssuanceOfSeniorLongTermDebt"],
+  equity: ["ProceedsFromIssuanceOfCommonStock", "ProceedsFromIssuanceOrSaleOfEquity"],
+  buyback: ["PaymentsForRepurchaseOfCommonStock"],
+};
+function pickLatestFact(facts) {
+  let best = null;
+  for (const u of facts) {
+    if (!u || !u.end || !Number.isFinite(Number(u.val))) continue;
+    const end = Date.parse(u.end);
+    if (!Number.isFinite(end)) continue;
+    const start = u.start ? Date.parse(u.start) : null;
+    const days = start ? Math.round((end - start) / 86400000) : null;
+    // Prefer the most recent end; among equal ends prefer the shorter (quarter) period.
+    if (!best || end > best.end || (end === best.end && days != null && best.days != null && days < best.days)) {
+      best = { end, endIso: u.end, val: Number(u.val), days, form: u.form || null };
+    }
+  }
+  return best;
+}
+async function fetchIssuanceForTicker(cik) {
+  const out = {};
+  for (const [kind, concepts] of Object.entries(ISSUANCE_CONCEPTS)) {
+    for (const c of concepts) {
+      const facts = await fetchCompanyConceptUsd(cik, c);
+      const latest = pickLatestFact(facts);
+      if (latest && latest.val) { out[kind] = { val: latest.val, end: latest.endIso, periodDays: latest.days, concept: c }; break; }
+    }
+  }
+  return out;
+}
+
+async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = null) {
+  const flags = _capitalRaiseFlags.slice();
+  // Sort newest-first by publish date.
+  flags.sort((a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0));
+  if (!flags.length) {
+    // No fresh issuance news this build — carry forward last-good so the tab
+    // doesn't blank between news cycles (events are sparse).
+    if (prior && Array.isArray(prior.events) && prior.events.length) return { ...prior, stale: true, builtAtIso };
+    return { builtAtIso, events: [], stale: false };
+  }
+  // SEC-enrich each flagged ticker once (dedup tickers across kinds).
+  const tickers = [...new Set(flags.map((f) => f.ticker))];
+  const secByTicker = {};
+  for (const t of tickers) {
+    const cik = cikMap ? cikMap.get(t) : null;
+    if (!cik) continue;
+    try { secByTicker[t] = await fetchIssuanceForTicker(cik); }
+    catch { /* graceful — headline still ships without the filed number */ }
+  }
+  const events = flags.slice(0, 40).map((f) => {
+    const sec = secByTicker[f.ticker] || null;
+    const filed = sec && f.kind !== "convertible" ? sec[f.kind] || null : (sec ? sec.debt || null : null);
+    const fund = chains?.[f.ticker]?.fundamentals || {};
+    return {
+      ticker: f.ticker,
+      name: fund.name || f.ticker,
+      kind: f.kind,
+      kindLabel: CAPITAL_RAISE_KIND_LABEL[f.kind] || f.kind,
+      headline: f.title,
+      publisher: f.publisher,
+      link: f.link,
+      publishedAt: f.publishedAt,
+      headlineAmount: f.amount,
+      filed: filed ? { val: filed.val, asOf: filed.end, concept: filed.concept } : null,
+    };
+  });
+  return { builtAtIso, events, count: events.length, stale: false };
+}
+
+async function readPriorCapitalRaises() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, "capital-raises.json"), "utf8")); } catch { return null; }
+}
+async function writeCapitalRaisesFile(cikMap, chains, builtAtIso, prior = null) {
+  const payload = await buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "capital-raises.json"), json, "utf8");
+  return { bytes: json.length, count: (payload.events || []).length, stale: !!payload.stale };
+}
+
 // === FOMC meeting schedule (multi-year baseline) =====================
 // Published once a year by the Federal Reserve at
 // federalreserve.gov/monetarypolicy/fomccalendars.htm. We hardcode a
@@ -13754,6 +14059,7 @@ async function attachTickerJudgments(chains, macroBackdrop) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const entries = Object.entries(chains);
   console.log(`Generating combined ticker judgments (news + fundamentals) for ${entries.length} tickers…`);
+  _capitalRaiseFlags = []; // reset the capital-raises accumulator each build
   resetBodyFetchStats();
   const hb = startHeartbeat("ticker judgments", entries.length);
   const runPass = (passEntries) =>
@@ -13774,6 +14080,9 @@ async function attachTickerJudgments(chains, macroBackdrop) {
           return;
         }
         const withBody = headlines.filter((h) => h.body).length;
+        // Deterministic capital-raise scan over the same headlines (debt/bond/
+        // share issuance, convertibles, buybacks) → the capital-raises feed.
+        scanCapitalRaiseHeadlines(sym, rawHeadlines);
         const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
         data.news = news;
         if (judgment) {
@@ -15250,6 +15559,12 @@ async function main() {
   // Prior correlations snapshot — fall back to it if tonight's foreign sweep
   // came back too thin (graceful degradation; data/ is about to be wiped).
   const priorCorrelations = await readPriorCorrelations();
+  // Prior AI-CapEx + capital-raises snapshots — both are SEC/news-sourced and
+  // change slowly (quarterly filings / sparse issuance news), so carry the
+  // last-good forward if a build's SEC fetch fails or no fresh issuance news
+  // landed. Read before the wipe like the other cross-build artifacts.
+  const priorAiCapex = await readPriorAiCapex();
+  const priorCapitalRaises = await readPriorCapitalRaises();
   // Load persisted last-good readings BEFORE writeChainFiles wipes data/.
   // Without these reads the caches would never serve a value across builds
   // — the file is gone by the time the post-wipe code tries to read it.
@@ -15464,6 +15779,19 @@ async function main() {
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
+  // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (news scan
+  // during the judgments pass, SEC-enriched). Both are SEC/news-sourced and
+  // carry last-good forward on a fetch miss (graceful). cikMap is the build's
+  // cached SEC ticker→CIK map (already loaded above).
+  try {
+    const cikMap = await fetchCikMap();
+    const aiCapexInfo = await writeAiCapexFile(cikMap, chains, builtAtIso, priorAiCapex);
+    console.log(`wrote data/ai-capex.json — ${aiCapexInfo.count} companies, ${aiCapexInfo.bytes} bytes${aiCapexInfo.stale ? " [stale — kept last-good]" : ""}${aiCapexInfo.missing.length ? ` (no data: ${aiCapexInfo.missing.join(",")})` : ""}`);
+    const capRaisesInfo = await writeCapitalRaisesFile(cikMap, chains, builtAtIso, priorCapitalRaises);
+    console.log(`wrote data/capital-raises.json — ${capRaisesInfo.count} events, ${capRaisesInfo.bytes} bytes${capRaisesInfo.stale ? " [stale — kept last-good]" : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ AI CapEx / capital-raises step failed (non-fatal): ${err.message}`);
+  }
   await writeTrendFiles({
     narratives: trends.narratives,
     sectorOverviews: trends.sectorOverviews || {},

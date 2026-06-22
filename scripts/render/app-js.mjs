@@ -3094,7 +3094,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','daytrades','heatmap','calendar','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','picks','daytrades','heatmap','calendar','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3104,6 +3104,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
       '13f': 'f13', '13f-filings': 'f13',
       bonds: 'bonds-usd', usd: 'bonds-usd',
+      capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
+      'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
       pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
       comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
       '0dte': 'daytrades', 'day-trades': 'daytrades', daytrade: 'daytrades', day: 'daytrades',
@@ -3354,6 +3356,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'oi' && typeof loadGex === 'function' && !gexState.data && !gexState.loading) loadGex();
         if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
         if (name === 'compare' && typeof initCompare === 'function') initCompare();
+        if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
+        if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
       }
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
@@ -13193,6 +13197,132 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
     var lis = bits.map(function(b){ return '<li>' + b + '</li>'; }).join('');
     return '<div class="cmp-summary-head">Summary</div><ul class="cmp-summary-list">' + lis + '</ul>';
+  }
+
+  // --- AI CapEx (Macro tab) -----------------------------------------------
+  // Aggregate Mag-7 capital expenditure from data/ai-capex.json — SEC XBRL
+  // CapEx, latest full FY vs the year before (+ TTM run-rate), per company.
+  var aiCapexState = { data: null, loading: false };
+  function cxDollars(v){ if (v == null || !isFinite(v)) return '—'; return fmtBigDollars(v) || ('$' + Math.round(v).toLocaleString()); }
+  function cxYoyChip(p){
+    if (p == null || !isFinite(p)) return '';
+    var cls = p >= 0 ? 'cx-up' : 'cx-down';
+    return '<span class="cx-yoy ' + cls + '">' + (p >= 0 ? '▲ +' : '▼ ') + p.toFixed(1) + '%</span>';
+  }
+  function loadAiCapex(){
+    if (aiCapexState.data || aiCapexState.loading){ renderAiCapex(); return; }
+    aiCapexState.loading = true;
+    fetch('data/ai-capex.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ aiCapexState.data = (j && typeof j === 'object') ? j : { companies: [] }; aiCapexState.loading = false; renderAiCapex(); })
+      .catch(function(){ aiCapexState.data = { companies: [], loadError: true }; aiCapexState.loading = false; renderAiCapex(); });
+  }
+  function renderAiCapex(){
+    var root = $('ai-capex-root'); var empty = $('ai-capex-empty'); var eye = $('ai-capex-eyebrow');
+    if (!root) return;
+    var d = aiCapexState.data;
+    if (!d){ root.textContent = 'Loading AI CapEx…'; return; }
+    var cos = Array.isArray(d.companies) ? d.companies : [];
+    if (!cos.length){ root.innerHTML = ''; if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load AI CapEx data.' : 'AI CapEx data will appear after the next daily build refresh.'; } return; }
+    if (empty) empty.hidden = true;
+    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + 'as of ' + String(d.builtAtIso).slice(0,10);
+    var t = d.totals || null;
+    var head = '';
+    if (t){
+      var dir = t.yoyPct == null ? '' : (t.yoyPct >= 0 ? 'cx-up' : 'cx-down');
+      var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
+      head = '<div class="cx-hero">' +
+        '<div class="cx-hero-main">' +
+          '<div class="cx-hero-label">Total Mag-7 CapEx · ' + escapeHtml(t.fyLatestLabel || 'latest FY') + '</div>' +
+          '<div class="cx-hero-val">' + cxDollars(t.fyLatestSum) + '</div>' +
+          (t.fyPriorSum != null ?
+            '<div class="cx-hero-sub ' + dir + '">' +
+              (t.yoyPct != null ? (t.yoyPct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(t.yoyPct).toFixed(1) + '%' : '') +
+              deltaTxt + ' vs ' + escapeHtml(t.fyPriorLabel || 'prior FY') + ' (' + cxDollars(t.fyPriorSum) + ')' +
+            '</div>' : '') +
+        '</div>' +
+        (t.ttmSum != null ?
+          '<div class="cx-hero-ttm"><div class="cx-hero-label">TTM run-rate</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
+          (t.ttmCount < t.count ? '<div class="cx-hero-note">' + t.ttmCount + ' of ' + t.count + ' names</div>' : '') + '</div>' : '') +
+      '</div>';
+    }
+    // Per-company bars, sorted by latest-FY spend (already sorted server-side).
+    var maxV = 0;
+    for (var i=0; i<cos.length; i++){ if (cos[i].fyLatest && cos[i].fyLatest.val > maxV) maxV = cos[i].fyLatest.val; }
+    var rows = '';
+    for (var c=0; c<cos.length; c++){
+      var co = cos[c];
+      var v = co.fyLatest ? co.fyLatest.val : 0;
+      var w = maxV > 0 ? (v / maxV * 100) : 0;
+      var ttmTxt = co.ttm ? cxDollars(co.ttm.val) + (co.ttm.basis === 'ttm' ? ' TTM' : ' FY') : '—';
+      rows += '<div class="cx-row">' +
+        '<div class="cx-row-head"><span class="cx-tkr">' + escapeHtml(co.ticker) + '</span> <span class="cx-name">' + escapeHtml(co.name || '') + '</span></div>' +
+        '<div class="cx-bar-wrap"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div>' +
+          '<span class="cx-bar-val">' + cxDollars(v) + '</span> ' + cxYoyChip(co.yoyPct) + '</div>' +
+        '<div class="cx-row-meta">' +
+          (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
+          ' · run-rate ' + ttmTxt +
+          (co.capexToRevenuePct != null ? ' · ' + co.capexToRevenuePct.toFixed(1) + '% of revenue' : '') +
+        '</div>' +
+      '</div>';
+    }
+    var missing = (Array.isArray(d.missing) && d.missing.length) ? '<p class="cx-missing">No SEC CapEx data for: ' + escapeHtml(d.missing.join(', ')) + '.</p>' : '';
+    root.innerHTML = head + '<div class="cx-rows">' + rows + '</div>' + missing;
+  }
+
+  // --- Capital raises (Macro tab) -----------------------------------------
+  // data/capital-raises.json — news-flagged debt/share/convertible issuance &
+  // buybacks, each paired with the latest filed SEC amount.
+  var capitalRaisesState = { data: null, loading: false };
+  var CR_KIND_CLS = { debt: 'cr-debt', convertible: 'cr-conv', equity: 'cr-equity', buyback: 'cr-buyback' };
+  function crDateShort(iso){
+    if (!iso) return '';
+    var ms = Date.parse(iso); if (!isFinite(ms)) return String(iso).slice(0,10);
+    try { return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+    catch (e){ return String(iso).slice(0,10); }
+  }
+  function loadCapitalRaises(){
+    if (capitalRaisesState.data || capitalRaisesState.loading){ renderCapitalRaises(); return; }
+    capitalRaisesState.loading = true;
+    fetch('data/capital-raises.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ capitalRaisesState.data = (j && typeof j === 'object') ? j : { events: [] }; capitalRaisesState.loading = false; renderCapitalRaises(); })
+      .catch(function(){ capitalRaisesState.data = { events: [], loadError: true }; capitalRaisesState.loading = false; renderCapitalRaises(); });
+  }
+  function renderCapitalRaises(){
+    var root = $('capital-raises-root'); var empty = $('capital-raises-empty'); var eye = $('capital-raises-eyebrow');
+    if (!root) return;
+    var d = capitalRaisesState.data;
+    if (!d){ root.textContent = 'Loading capital raises…'; return; }
+    var ev = Array.isArray(d.events) ? d.events : [];
+    if (!ev.length){ root.innerHTML = ''; if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load capital-raises data.' : 'No capital-raise headlines flagged recently — check back after the next refresh.'; } return; }
+    if (empty) empty.hidden = true;
+    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + ev.length + ' event' + (ev.length === 1 ? '' : 's');
+    var rows = '';
+    for (var i=0; i<ev.length; i++){
+      var e = ev[i];
+      var kc = CR_KIND_CLS[e.kind] || 'cr-debt';
+      var amt = (e.headlineAmount != null) ? cxDollars(e.headlineAmount) : '';
+      var filed = e.filed ? ('Latest filed: ' + cxDollars(e.filed.val) + (e.filed.asOf ? ' (period to ' + String(e.filed.asOf).slice(0,10) + ')' : '')) : '';
+      var title = e.link
+        ? '<a href="' + escapeHtml(e.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(e.headline || '') + '</a>'
+        : escapeHtml(e.headline || '');
+      rows += '<div class="cr-row">' +
+        '<div class="cr-row-top">' +
+          '<span class="cr-kind ' + kc + '">' + escapeHtml(e.kindLabel || e.kind || '') + '</span>' +
+          '<span class="cr-tkr">' + escapeHtml(e.ticker || '') + '</span>' +
+          '<span class="cr-name">' + escapeHtml(e.name || '') + '</span>' +
+          (amt ? '<span class="cr-amt">' + amt + '</span>' : '') +
+        '</div>' +
+        '<div class="cr-headline">' + title + '</div>' +
+        '<div class="cr-meta">' +
+          (e.publisher ? escapeHtml(e.publisher) : '') +
+          (e.publishedAt ? ' · ' + escapeHtml(crDateShort(e.publishedAt)) : '') +
+          (filed ? ' · <span class="cr-filed">' + escapeHtml(filed) + '</span>' : '') +
+        '</div>' +
+      '</div>';
+    }
+    root.innerHTML = '<div class="cr-rows">' + rows + '</div>';
   }
 
   // --- Overnight markets / correlations -----------------------------------
