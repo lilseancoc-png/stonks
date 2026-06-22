@@ -8407,6 +8407,9 @@
   // the pace read until a few minutes in.
   var VOL_LIVE_MIN_ET_MIN = 10;
   var VOL_LIVE_TOP_N = 15;
+  // Always-on board members — the two reference index tapes (SPY/QQQ) are
+  // pinned in regardless of their pace ranking so the board always shows them.
+  var HOT_PINNED = ['SPY', 'QQQ'];
   // "Right now" window: volume traded over the trailing few minutes vs the
   // volume USUAL for that exact slice of the session (20D avg x the U-curve
   // fraction covered by the window). Built from the poller's own snapshot
@@ -8915,8 +8918,8 @@
     }
     if (trendDir !== 0 && lean !== trendDir){
       fire('counter', lean > 0
-        ? 'the multi-day trend is down (price below its 20/50/100D moving-average stack) — buying calls into a downtrend fights the tape; long premium bleeds waiting for a reversal'
-        : 'the multi-day trend is up (price above its 20/50/100D moving-average stack) — buying puts into an uptrend fights the tape; long premium bleeds waiting for a reversal');
+        ? 'the multi-day trend is down (price below its 20/50/100D moving-average stack) \u2014 buying calls into a downtrend fights the tape; long premium bleeds waiting for a reversal'
+        : 'the multi-day trend is up (price above its 20/50/100D moving-average stack) \u2014 buying puts into an uptrend fights the tape; long premium bleeds waiting for a reversal');
     }
     // Day-range fade — the move already gave back most of its day range.
     if (spot != null && r.dayHi != null && r.dayLo != null && r.dayHi > r.dayLo &&
@@ -9200,9 +9203,17 @@
     var afterClose = volLive.closed || (volLive.etMin != null && volLive.etMin >= 390);
     // Membership is ALWAYS the top-N by volume pace — that is what "hot" means.
     // The user's sort only reorders this set, and the filter only narrows it.
-    var hotSet = rows.filter(function(r){ return r.pace != null; })
-      .sort(function(a, b){ return (b.pace == null ? -1 : b.pace) - (a.pace == null ? -1 : a.pace); })
-      .slice(0, VOL_LIVE_TOP_N);
+    var paced = rows.filter(function(r){ return r.pace != null; })
+      .sort(function(a, b){ return (b.pace == null ? -1 : b.pace) - (a.pace == null ? -1 : a.pace); });
+    var hotSet = paced.slice(0, VOL_LIVE_TOP_N);
+    // SPY/QQQ are always pinned to the board (the market's two reference tapes)
+    // even when their pace doesn't crack the top-N — append any that the slice
+    // missed but that have a live pace read.
+    HOT_PINNED.forEach(function(sym){
+      if (hotSet.some(function(r){ return r.sym === sym; })) return;
+      var row = paced.filter(function(r){ return r.sym === sym; })[0];
+      if (row) hotSet.push(row);
+    });
     // Grade every hot name once — the summary, the verdict filter, and the
     // cards all read the same memoized verdict/lean/sector off the row.
     hotSet.forEach(function(r){
@@ -9304,7 +9315,7 @@
     var filterNote = volLive.filter === 'all' ? '' : ' matching the \u201c' +
       ({ buy: 'Buy signals', bull: 'Bullish', bear: 'Bearish' }[volLive.filter] || volLive.filter) + '\u201d filter';
     html.push('<div class="vol-live-foot">Showing ' + shown.length + filterNote +
-      ' of the top ' + hotSet.length + ' names by live volume pace (' + withPace + ' tracked)' +
+      ' of the top ' + hotSet.length + ' names by live volume pace (SPY/QQQ always pinned · ' + withPace + ' tracked)' +
       ' · now = the trailing ~' + VOL_NOW_WINDOW_MIN + ' min vs the usual for that slice of the session (the verdict grades this moment, not the day)' +
       ' · the verdict folds in the move, the S/R-break picture, dealer gamma, and the day\u2019s unusual options flow' +
       ' · buy calls/puts is entry-gated: a counter-trend lean (fighting the multi-day trend), an extended multi-day run (do not buy the top), a falling knife / squeeze, a fading day-range, or imminent earnings/FOMC demotes it to a labelled wait \u2014 tap the chip for the reasoning' +
