@@ -7,6 +7,7 @@ import {
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
+  buildDayTrades, pickContractForDay,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -198,6 +199,43 @@ applyPickFirstSeen(picks, [], new Date().toISOString());
 ok("tenure: applyPickFirstSeen stamps firstSeen", picks.length === 0 || picks.every((p) => p.firstSeen));
 ok("edge: computeEdgeScale handles empty/negative", computeEedge());
 function computeEedge() { return computeEdgeScale(null) === 1 && computeEdgeScale([{ outcome: "loss", optionPnlPct: -40 }, { outcome: "loss", optionPnlPct: -40 }]) < 1; }
+
+// --- 8. day trades (0DTE / short-term engine) -----------------------------
+// A near-expiry chain (~1 DTE) so the day engine has a tradeable nearest contract;
+// the 32-DTE smoke chains above are out of the 0-5 DTE window by design.
+const exp1 = (Math.floor((Date.now() + 1 * dayMs) / dayMs)) * 86400;
+function mkNearChain(spot, ivCall = 0.5, ivPut = 0.52) {
+  const c = [], p = [];
+  for (let k = 0.90; k <= 1.10; k += 0.01) {
+    const strike = Math.round(spot * k);
+    const mid = Math.max(0.3, spot * 0.02 * (1.2 - Math.abs(1 - k)));
+    c.push({ s: strike, b: mid * 0.97, a: mid * 1.03, l: mid, iv: ivCall, oi: 600, v: 400 });
+    p.push({ s: strike, b: mid * 0.97, a: mid * 1.03, l: mid, iv: ivPut, oi: 600, v: 400 });
+  }
+  return { [String(exp1)]: { c, p } };
+}
+const dayUniverse = {
+  DBULL: mkTicker({ spot: 120, sector: "Software", chains: mkNearChain(120) }),
+  DBEAR: mkTicker({ spot: 200, sector: "Energy", sentiment: "bearish", chains: mkNearChain(200),
+    fundamentals: { earningsGrowthYoy: -30, revenueGrowthYoy: -22, analystRevisions: { upgrades: 0, downgrades: 4 }, targetMeanPrice: 170, numberOfAnalystOpinions: 10, sector: "Energy", nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
+    technicals: { rsi: 38, rsi5d: 44, macd: { hist: -0.5, line: -1, signal: -0.4 }, volume: { rvol: 1.5, priceMove1dPct: -1.2 }, sr: { s20: 190, r20: 210, s100: 180, r100: 230 }, sma: { sma20: 210, sma50: 220, sma100: 230 }, chartPattern: { pattern: "Double Top", stage: "confirmed" }, volRegime: { rv30Pctile: 55 } },
+    _bars: mkBars(200, 40, -0.003) }),
+  DFAR: mkTicker({ spot: 90, sector: "Pharma" }), // only the 32-DTE chain -> no day contract
+};
+const dctr = pickContractForDay("call", dayUniverse.DBULL, 0.045);
+ok("day-contract: found a nearest-expiry call", !!dctr);
+ok("day-contract: DTE within 0-5 window", dctr && dctr.dte >= 0 && dctr.dte <= 5);
+ok("day-contract: delta in day band 0.35-0.72", dctr && Math.abs(dctr.delta) >= 0.35 && Math.abs(dctr.delta) <= 0.72);
+ok("day-contract: shape fields present", dctr && dctr.strike != null && dctr.expiryLabel && dctr.mid != null && dctr.contractQuality && dctr.contractQuality.overall);
+ok("day-contract: 32-DTE-only name yields no day contract", pickContractForDay("call", dayUniverse.DFAR, 0.045) === null);
+
+const dayPicks = buildDayTrades(dayUniverse, [], null, null, null, null, 0.045);
+ok("day-trades: returns an array w/ rosterMeta", Array.isArray(dayPicks) && dayPicks.rosterMeta && dayPicks.rosterMeta.horizon === "0dte");
+ok("day-trades: DBULL ships a call", dayPicks.some((p) => p.symbol === "DBULL" && p.side === "call"));
+ok("day-trades: DBEAR ships a put", dayPicks.some((p) => p.symbol === "DBEAR" && p.side === "put"));
+ok("day-trades: DFAR (no near contract) excluded", !dayPicks.some((p) => p.symbol === "DFAR"));
+ok("day-trades: pick shape matches Top Picks (pillars/contract/exitPlan)", dayPicks.every((p) => p.pillars && p.contract && p.exitPlan && Array.isArray(p.exitPlan.triggers)));
+ok("day-trades: exit plan carries the close-before-bell time stop", dayPicks.every((p) => p.exitPlan.triggers.some((t) => /before the bell/i.test(t))));
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

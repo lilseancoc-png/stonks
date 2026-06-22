@@ -8616,6 +8616,37 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
    the entry; warn-tinted so a WAIT name can't read as "enter now" while skimming. */
 .ptc-defer, .pick-defer-tag { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); }
 .pick-defer-tag { white-space: normal; line-height: 1.35; }
+/* Day trades (0DTE) chips — the title badge + the per-card DTE tag + the
+   collapsible grade breakdown. Reuses the picks card chrome otherwise. */
+.dte-badge {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .06em;
+  padding: 3px 6px;
+  margin-left: 6px;
+  border-radius: var(--r-1);
+  vertical-align: middle;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.dte-chip {
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .05em;
+  padding: 3px 6px;
+  border-radius: var(--r-1);
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+.dte-grade { margin-top: 10px; }
+.dte-grade > summary {
+  cursor: pointer;
+  font: 600 12px/1.3 var(--font-sans);
+  color: var(--muted);
+  padding: 6px 0;
+}
+.dte-grade[open] > summary { color: var(--text); margin-bottom: 6px; }
 /* Honest roster note above the picks grid (short list / gated / sector-capped). */
 .picks-roster-note {
   grid-column: 1 / -1;
