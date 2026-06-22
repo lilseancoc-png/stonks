@@ -7442,6 +7442,7 @@ const PICKS_MAX_PER_SIDE = 8;                 // don't ship an all-one-way book
 export const PICKS_MIN_CONVICTION = Number(process.env.PICKS_MIN_CONVICTION ?? 4); // actionable (Call/Put)
 export const PICKS_TIER_STRONG = Number(process.env.PICKS_TIER_STRONG ?? 7);       // Strong conviction
 const PICKS_PILLAR_CLAMP = 5;                 // no single pillar dominates
+const PICKS_TRAJECTORY_CLAMP = 2;             // forward-trajectory nudge into the fundamentals pillar (blend, don't dominate)
 
 // ---- Contract selection (near-the-money, short-dated) ----------------------
 const PICKS_MIN_DTE = 14;
@@ -7726,6 +7727,98 @@ function sig(key, label, score, value, note, available = true) {
   return { key, label, score: s, contribution: s, value: value ?? null, note: note ?? null, available };
 }
 
+// Forward TRAJECTORY read for the Fundamentals pillar — answers "are the
+// fundamentals improving or declining?" rather than only "are they good right
+// now?". Votes from forward-looking inputs (management guidance, growth
+// acceleration vs the trailing realized rate, analyst revisions, margin slope,
+// earnings-surprise momentum), nets them, and returns a direction + a bounded
+// score nudge + a one-line reason. The nudge BLENDS into the current-state
+// pillar (a deteriorating-but-still-good name grades a notch lower; an
+// improving-but-still-weak name a notch higher) and `dir` drives the ↗/↘ arrow
+// the Grade / Top-Picks cards render. Product call: blend + arrow, not a
+// separate grade. Returns dir:"steady" score:0 when there isn't enough forward
+// signal (so it never invents a trajectory from one data point).
+function computeFundamentalsTrajectory(data) {
+  const f = data?.fundamentals || {};
+  const votes = [];
+  const add = (v, why) => { if (v) votes.push({ v, why }); };
+  const capFirst = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+  // 1) Management guidance — the strongest forward tell.
+  const g = data?.aiSignals?.guidance || null;
+  if (g && g.direction && g.direction !== "none") {
+    if (g.direction === "raised") add(2, "guidance raised");
+    else if (g.direction === "inline") add(0.5, "guidance in line");
+    else if (g.direction === "soft") add(-1, "guidance soft");
+    else if (g.direction === "lowered") add(-2, "guidance lowered");
+  }
+
+  // 2) EPS growth acceleration — forward FY estimate vs the trailing realized rate.
+  const fwdEps = pnum(f.growthEstimateCurY), trailEps = pnum(f.earningsGrowthYoy);
+  if (fwdEps != null && trailEps != null) {
+    const d = fwdEps - trailEps;
+    if (d >= 5) add(1, "earnings growth accelerating");
+    else if (d >= 2) add(0.5, "earnings growth firming");
+    else if (d <= -5) add(-1, "earnings growth decelerating");
+    else if (d <= -2) add(-0.5, "earnings growth cooling");
+  } else if (fwdEps != null) {
+    if (fwdEps >= 15) add(0.5, "strong forward EPS growth");
+    else if (fwdEps <= -5) add(-0.5, "forward EPS contraction");
+  }
+
+  // 3) Revenue growth acceleration — forward FY revenue est vs trailing TTM.
+  const revEstY = pnum(f.revenueEstimateCurY), revTtm = pnum(f.revenue), trailRev = pnum(f.revenueGrowthYoy);
+  if (revEstY != null && revTtm > 0 && trailRev != null) {
+    const d = (revEstY / revTtm - 1) * 100 - trailRev;
+    if (d >= 4) add(0.75, "revenue growth accelerating");
+    else if (d <= -4) add(-0.75, "revenue growth decelerating");
+  }
+
+  // 4) Analyst revisions — forward sentiment (events move stocks).
+  const net = pnum(f.analystRevisions?.net);
+  if (net != null) {
+    if (net >= 2) add(1, "net analyst upgrades");
+    else if (net === 1) add(0.5, "an analyst upgrade");
+    else if (net <= -2) add(-1, "net analyst downgrades");
+    else if (net === -1) add(-0.5, "an analyst downgrade");
+  }
+
+  // 5) Net margin slope — lighter weight (the level is already in the pillar).
+  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
+  if (nm.length >= 2) {
+    const cur = Number(nm[nm.length - 1].value);
+    const prior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : Number(nm[nm.length - 2].value);
+    if (Number.isFinite(cur) && Number.isFinite(prior)) {
+      if (cur - prior >= 0.5) add(0.5, "margins expanding");
+      else if (cur - prior <= -0.5) add(-0.5, "margins compressing");
+    }
+  }
+
+  // 6) Earnings-surprise momentum — beating by MORE (or LESS) than before.
+  const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory.filter((x) => pnum(x?.surprisePct) != null) : [];
+  if (eh.length >= 2) {
+    const cur = Number(eh[eh.length - 1].surprisePct), prev = Number(eh[eh.length - 2].surprisePct);
+    if (Number.isFinite(cur) && Number.isFinite(prev)) {
+      if (cur - prev >= 3 && cur >= 0) add(0.5, "widening earnings beats");
+      else if (cur - prev <= -3) add(-0.5, "shrinking earnings beats");
+    }
+  }
+
+  if (votes.length < 2) {
+    return { dir: "steady", score: 0, confidence: "low",
+      reason: votes.length ? capFirst(votes[0].why) : "Not enough forward signal", inputs: votes.length };
+  }
+  const raw = votes.reduce((a, x) => a + x.v, 0);
+  const nudge = r1(clamp(raw, -PICKS_TRAJECTORY_CLAMP, PICKS_TRAJECTORY_CLAMP));
+  const dir = raw >= 1 ? "improving" : raw <= -1 ? "declining" : "steady";
+  const sign = raw >= 0 ? 1 : -1;
+  const lead = votes.filter((x) => (x.v > 0 ? 1 : -1) === sign)
+    .sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 2).map((x) => x.why);
+  const reason = capFirst(lead.length ? lead.join("; ") : (dir === "steady" ? "mixed forward signals" : ""));
+  const confidence = votes.length >= 4 ? "high" : votes.length >= 3 ? "medium" : "low";
+  return { dir, score: nudge, confidence, reason, inputs: votes.length };
+}
+
 // ============================================================================
 // The four pillars.  Each returns { score, signals:[] }, score clamped later.
 // ============================================================================
@@ -7810,8 +7903,17 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   out.push(sig("netMargin", "Net margin trend", nmScore, nmVal, "Margin expanding/contracting", nm.length >= 2));
 
+  // Forward TRAJECTORY — blend an improving/declining read into the pillar so
+  // the grade reflects WHERE the business is heading, not just where it stands.
+  // The bounded nudge folds into the pillar sum; `trajectory` rides on the
+  // returned object so the card can draw a ↗/↘ arrow with the one-line reason.
+  const trajectory = computeFundamentalsTrajectory(data);
+  out.push(sig("trajectory", "Fundamentals trajectory", trajectory.score,
+    trajectory.dir === "improving" ? "improving ↗" : trajectory.dir === "declining" ? "declining ↘" : "steady →",
+    trajectory.reason, trajectory.inputs >= 2));
+
   const score = out.reduce((a, s) => a + s.score, 0);
-  return { score, signals: out };
+  return { score, signals: out, trajectory };
 }
 
 function scoreTechnicals(data, streakRow) {

@@ -18611,9 +18611,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : (k === 'ivCost')
           ? pickIvCostPanelBody(pil)
           : '<ul class="pick-pillar-signals">' + sigList + '</ul>' + catSection;
+      // Fundamentals trajectory badge — the forward ↗/↘ read (improving vs
+      // declining) blended into the grade, surfaced on the header so a strong
+      // snapshot that's deteriorating (or a weak one that's improving) is
+      // legible at a glance. Steady/no-data shows nothing.
+      var trajBadge = '';
+      if (k === 'fundamentals' && pil.trajectory && pil.trajectory.dir && pil.trajectory.dir !== 'steady'){
+        var tdir = pil.trajectory.dir;
+        var tcls = tdir === 'improving' ? 'sig-pos' : 'sig-neg';
+        trajBadge = '<span class="pillar-traj ' + tcls + '" title="' +
+          escapeHtml('Forward trajectory: ' + tdir + (pil.trajectory.reason ? ' — ' + pil.trajectory.reason : '')) + '">' +
+          (tdir === 'improving' ? '↗' : '↘') + ' ' + escapeHtml(tdir) + '</span>';
+      }
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
         '<summary class="pick-pillar-head">' +
-          '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + '</span>' +
+          '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + trajBadge + '</span>' +
           barHtml +
           '<span class="pick-pillar-score ' + signClass(pscore) + '">' + escapeHtml(fmtSignedNum(pscore)) + '</span>' +
         '</summary>' +

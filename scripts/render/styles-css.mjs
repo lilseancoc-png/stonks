@@ -8869,6 +8869,19 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   font: 600 13px/1 var(--font-sans);
   color: var(--text-strong);
 }
+/* Forward-trajectory chip on the Fundamentals pillar header (↗ improving /
+   ↘ declining) — the blended "where it's heading" read. */
+.pillar-traj {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font: 700 10px/1.4 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}
+.pillar-traj.sig-pos { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.pillar-traj.sig-neg { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
 .pick-pillar-score {
   font: 700 13px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
