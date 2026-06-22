@@ -3179,9 +3179,10 @@ async function fetchMacroBackdrop() {
     }
   }
   // Yahoo doesn't expose a stable 2Y yield ticker for everyone — ^UST2YR is
-  // the canonical one but is sometimes restricted; ^FVX (5Y) is a poor proxy
-  // so we just leave twoY null if ^UST2YR is unavailable. The Bonds & USD
-  // live grid simply omits the 2Y tile when twoY is absent.
+  // the canonical one but is sometimes restricted. When it is, we fall back to
+  // 2YY=F (CBOT Micro 2-Year Yield futures, same percent-yield units) below;
+  // only if BOTH are unavailable does twoY stay null and the Bonds & USD grid
+  // omit the 2Y tile (and the 2s10s spread tile).
   // ^VIX is an index, not an equity — quote-only (no option chain) and the
   // leading caret deliberately fails the public SYMBOL_RE allowlist, so it can
   // never flow through the api/* proxies. That's fine: the build fetches it
@@ -3194,7 +3195,7 @@ async function fetchMacroBackdrop() {
   // CL=F (WTI crude) + GC=F (gold) feed the commodity / geopolitical-shock regime
   // axis (computeMacroRegime). They're also swept by the correlations engine, but
   // that's a separate batch — the regime needs them on macroBackdrop directly.
-  const [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m, crude, gold] = await Promise.all([
+  let [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m, crude, gold] = await Promise.all([
     fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
     fetchLeg("^TNX", "10Y yield", { isYield: true }),
     fetchLeg("^TYX", "30Y yield", { isYield: true }),
@@ -3205,6 +3206,13 @@ async function fetchMacroBackdrop() {
     fetchLeg("CL=F", "WTI crude"),
     fetchLeg("GC=F", "Gold"),
   ]);
+  // ^UST2YR is frequently restricted on Yahoo — fall back to 2YY=F (CBOT Micro
+  // 2-Year Yield futures), which quotes in the same percent-yield units as the
+  // ^TNX/^TYX legs, so the 2Y tile (and the 2s10s spread tile) stay populated
+  // instead of dropping out. The api/macro-live live endpoint mirrors this.
+  if (!twoY) {
+    twoY = await fetchLeg("2YY=F", "2Y yield (2YY futures fallback)", { isYield: true });
+  }
   if (!twoY && !tenY && !thirtyY && !dxy && !vix) return null;
   const vixTerm = buildVixTerm(vix, vix9d, vix3m);
   if (vixTerm) {

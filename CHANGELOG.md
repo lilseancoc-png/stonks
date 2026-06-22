@@ -17,6 +17,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Added
+- **The 2Y Treasury yield now reliably shows on the Bonds & USD live snapshot.** `^UST2YR` (the canonical 2Y index) is frequently restricted on Yahoo, so both the bake (`fetchMacroBackdrop`) and the live `/api/macro-live` endpoint now fall back to `2YY=F` (CBOT Micro 2-Year Yield futures, same percent-yield units) when it's missing — keeping the 2Y tile and the 2s10s spread tile populated instead of silently dropping out. `scripts/build.mjs`, `api/macro-live.js`.
 - **Hot stocks now ships an executable intraday trade plan on every actionable name.** Each buy-calls / buy-puts row carries a PLAN line — entry (near live spot), stop (the nearest invalidating structure: intraday low/high, dealer put/call wall, or gamma flip), target (the next structure in the trade's direction, else a measured 2R move), and the resulting **risk:reward** — all derived from the live day range + the baked dealer-gamma map (zero extra fetches). Stop distance is held to a day-trade band (0.3%–2.5% of spot); R:R is color-coded and a thin (<1:1) plan is flagged. Turns a directional verdict into something a day trader can actually act on. `scripts/render/{app-js,styles-css}.mjs`, `scripts/render/docs.mjs`.
 
 ### Changed

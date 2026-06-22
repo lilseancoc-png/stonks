@@ -34,7 +34,12 @@ import { yahooFinance, withYahooTimeout } from "../lib/yahoo.mjs";
 // browser keeps that tile on its baked value. CL=F (crude) + GC=F (gold) feed
 // the picks market-tape commodity axis only.
 const LEGS = [
-  { key: "twoY", symbol: "^UST2YR", isYield: true },
+  // ^UST2YR is the canonical 2Y yield index but is frequently restricted on
+  // Yahoo (returns nothing) — when it does, fall back to 2YY=F (CBOT Micro
+  // 2-Year Yield futures), which quotes in the same percent-yield units, so the
+  // 2Y tile stays live instead of pinning to its (often equally-missing) baked
+  // value. Mirrors the fetchMacroBackdrop fallback in scripts/build.mjs.
+  { key: "twoY", symbol: "^UST2YR", fallback: "2YY=F", isYield: true },
   { key: "tenY", symbol: "^TNX", isYield: true },
   { key: "thirtyY", symbol: "^TYX", isYield: true },
   { key: "dxy", symbol: "DX-Y.NYB", isYield: false },
@@ -137,9 +142,12 @@ export default async function handler(req, res) {
 
   // One batched upstream call covers both sets — union the symbols so a leg in
   // both (e.g. ^VIX, ^TNX, the dollar) is quoted once.
+  // Include any per-leg fallback symbols in the batch (e.g. 2YY=F for the 2Y) so
+  // a restricted primary can be backfilled from the same single upstream call.
+  const legSymbols = LEGS.flatMap((l) => (l.fallback ? [l.symbol, l.fallback] : [l.symbol]));
   const quoteSymbols = wantTape
-    ? Array.from(new Set([...LEGS.map((l) => l.symbol), ...CROSS_ASSET_LEGS.map((l) => l.symbol)]))
-    : LEGS.map((l) => l.symbol);
+    ? Array.from(new Set([...legSymbols, ...CROSS_ASSET_LEGS.map((l) => l.symbol)]))
+    : Array.from(new Set(legSymbols));
 
   try {
     const [quoteR, fngR] = await Promise.allSettled([
@@ -158,9 +166,13 @@ export default async function handler(req, res) {
 
     const legs = {};
     let marketState = null;
-    for (const { key, symbol, isYield } of LEGS) {
-      const q = bySym.get(symbol);
-      const value = q?.regularMarketPrice;
+    for (const { key, symbol, fallback, isYield } of LEGS) {
+      let q = bySym.get(symbol);
+      let value = q?.regularMarketPrice;
+      if ((typeof value !== "number" || !isFinite(value)) && fallback) {
+        q = bySym.get(fallback);
+        value = q?.regularMarketPrice;
+      }
       if (typeof value !== "number" || !isFinite(value)) {
         legs[key] = null;
         continue;
