@@ -18684,6 +18684,72 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<p class="pick-analysis">' + escapeHtml(txt) + '</p>';
   }
 
+  // Structured thesis — "what makes this work" (the supporting drivers) and
+  // "what would disprove it" (each lead driver reversing + the price/time stops).
+  // Sourced from picks.json's pre-computed thesisCard. When the pick is also an
+  // open tracked position, pickThesisStatusFor() surfaces whether it's playing
+  // out (price progress + driver confirmation, scored each build).
+  function pickThesisBlock(p){
+    var tc = p && p.thesisCard;
+    if (!tc || (!(tc.works && tc.works.length) && !(tc.invalidators && tc.invalidators.length))) return '';
+    var dirCls = tc.direction === 'bearish' ? 'thesis-bear' : 'thesis-bull';
+    var worksHtml = '';
+    var works = Array.isArray(tc.works) ? tc.works : [];
+    for (var i=0; i<works.length; i++){
+      var w = works[i]; if (!w) continue;
+      var meta = [];
+      if (w.pillar) meta.push(w.pillar);
+      if (w.value) meta.push(w.value);
+      worksHtml += '<li><span class="thesis-li-main">' + escapeHtml(w.label || '—') + '</span>' +
+        (meta.length ? '<span class="thesis-li-meta">' + escapeHtml(meta.join(' · ')) + '</span>' : '') + '</li>';
+    }
+    var invHtml = '';
+    var inv = Array.isArray(tc.invalidators) ? tc.invalidators : [];
+    for (var k=0; k<inv.length; k++){
+      var iv = inv[k]; if (!iv || !iv.trigger) continue;
+      invHtml += '<li>' + escapeHtml(iv.trigger) + '</li>';
+    }
+    var tgt = tc.target || null;
+    var tgtHtml = '';
+    if (tgt){
+      var bits = [];
+      if (tgt.optionTpPct != null) bits.push('take profit +' + tgt.optionTpPct + '% on the option');
+      if (tgt.optionStopPct != null) bits.push('cut at −' + tgt.optionStopPct + '%');
+      if (tgt.underlyingStop != null) bits.push('underlying stop ~$' + tgt.underlyingStop);
+      if (tgt.holdDays != null) bits.push(tgt.holdDays + '-day time stop');
+      if (bits.length) tgtHtml = '<div class="thesis-target"><span class="thesis-target-lbl">Plan</span> ' + escapeHtml(bits.join(' · ')) + '</div>';
+    }
+    var statusHtml = pickThesisStatusFor(p);
+    return '<div class="pick-thesis ' + dirCls + '">' +
+      '<div class="pick-thesis-head">Thesis <span class="thesis-dir">' + escapeHtml(tc.direction || '') + '</span></div>' +
+      (worksHtml ? '<div class="thesis-col thesis-works"><div class="thesis-col-head">✓ What makes it work</div><ul>' + worksHtml + '</ul></div>' : '') +
+      (invHtml ? '<div class="thesis-col thesis-inval"><div class="thesis-col-head">⚠ What would disprove it</div><ul>' + invHtml + '</ul></div>' : '') +
+      tgtHtml +
+      statusHtml +
+    '</div>';
+  }
+
+  // If this pick is an open tracked position, surface whether the thesis is
+  // playing out — the verdict + price progress + driver confirmation written by
+  // updatePicksAccuracyFile each build. Joined from the accuracy "open" set.
+  function pickThesisStatusFor(p){
+    if (!p || !p.symbol || !picksState.live) return '';
+    var match = picksState.live[p.symbol + '|' + (p.side === 'put' ? 'put' : 'call')];
+    if (!match || !match.thesisStatus) return '';
+    var ts = match.thesisStatus;
+    var v = ts.verdict || 'mixed';
+    var vLabel = v === 'on-track' ? 'On track' : v === 'broken' ? 'Thesis broken' : 'Mixed';
+    var vCls = v === 'on-track' ? 'thesis-ontrack' : v === 'broken' ? 'thesis-broken' : 'thesis-mixed';
+    var bits = [];
+    if (ts.priceProgressPct != null) bits.push((ts.priceProgressPct >= 0 ? '+' : '') + Number(ts.priceProgressPct).toFixed(1) + '% your way');
+    if (ts.driversTotal) bits.push(ts.driversActive + '/' + ts.driversTotal + ' drivers still firing');
+    if (ts.gradeNow != null) bits.push('grade now ' + (ts.gradeNow >= 0 ? '+' : '') + Number(ts.gradeNow).toFixed(1));
+    return '<div class="thesis-status ' + vCls + '">' +
+      '<span class="thesis-status-verdict">' + escapeHtml(vLabel) + '</span>' +
+      (bits.length ? ' <span class="thesis-status-bits">' + escapeHtml(bits.join(' · ')) + '</span>' : '') +
+    '</div>';
+  }
+
   // Build the full judgment card for one pick — the tier banner, analysis,
   // contract, exit ladder, peers, and the Recommendation ⇄ Grade toggle. Used
   // by the detail "page"; the landing view shows only the compact tab cards.
@@ -18734,6 +18800,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
+    var thesisHtml = pickThesisBlock(p);
     var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
     var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
     // The card body is split into two switchable views: "Recommendation"
@@ -18741,7 +18808,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + analysisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the

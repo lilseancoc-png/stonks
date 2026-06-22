@@ -217,6 +217,15 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   on the exit rules above, and computes stats (`winRate`, option expectancy,
   `byTier`/`bySector`/`byRegime`). The record **resets weekly** so the numbers
   reflect the current engine, not a tail of pre-tuning outcomes.
+- **Thesis tracking:** each pick ships a structured `thesisCard` (`buildThesisCard`)
+  — `works` (the supporting drivers + their pillar/reading), `invalidators` (each
+  lead driver reversing, plus the ATR price stop, the 14-day time stop, and a
+  grade-flip trigger for marginal scores), and the `target` plan. A compact
+  snapshot is frozen on the enrolled `open` entry; every later build re-scores it
+  against the **live grade** into `thesisStatus` (`verdict` on-track / mixed /
+  broken from direction-adjusted price progress + how many entry drivers are
+  still firing + a grade-flip / stop-breach check). The pick card renders the
+  thesis and, for an open position, the playing-out status.
 - `diffGradesHistory` / `buildPicksChanges` / `buildPicksRoster` log whole-universe
   grade changes, the actionable-bar in/out churn, and the Top-10 roster snapshot.
 - `appendGradesDaily` / `appendRegimeHistory` keep the IC substrate + risk-on/off

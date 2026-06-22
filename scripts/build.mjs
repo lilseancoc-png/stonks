@@ -9126,6 +9126,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   const spot = pnum(r.data.spot);
   const cs = r.streakRow?.current || null;
   const thesis = buildThesis(r, side, contract, tactical);
+  const thesisCard = buildThesisCard(r, side, contract, tactical, exitPlan);
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
   const entry = computeEntrySignal(side, spot, r.data, r.timing);
   if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
@@ -9133,7 +9134,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
     pillars: r.pillars, drivers: r.drivers,
-    analysis: thesis, thesis,
+    analysis: thesis, thesis, thesisCard,
     contract, entry,
     entryTiming: { state: r.timing.state, headline: r.timing.headline, deferKind: r.timing.deferKind || null },
     tactical: !!tactical, firstSeen: null,
@@ -9156,6 +9157,100 @@ function buildThesis(r, side, contract, tactical) {
   else if (t && t.state === "wait") parts.push(`Timing says wait: ${t.headline}.`);
   if (contract) parts.push(`Suggested: ${contract.expiryLabel} $${contract.strike} ${side} (~${Math.round(Math.abs(contract.delta) * 100)}delta, ${contract.dte}DTE).`);
   return parts.join(" ");
+}
+
+// Per-signal "what would prove this wrong" phrasing — deliberately
+// direction-neutral so it reads correctly for both a call and a put thesis (the
+// supporting signal simply reversing IS the invalidation, either way).
+const THESIS_INVALIDATION = {
+  rsiMomentum: "RSI momentum reverses against the position",
+  rsiReading: "RSI mean-reverts out of the extreme",
+  smaStack: "price breaks its moving-average structure",
+  macd: "MACD crosses back against the trade",
+  srBreak: "the support/resistance break fails and price snaps back",
+  fiftyTwoWeek: "price retreats from the 52-week extreme",
+  volumeConfirm: "the move loses its volume confirmation",
+  chartPattern: "the chart pattern fails to follow through",
+  streak: "the daily streak snaps",
+  earningsSurprise: "the next earnings print disappoints",
+  epsGrowth: "forward EPS estimates roll over",
+  revGrowth: "revenue growth stalls",
+  analystTarget: "price closes the gap to the analyst target",
+  analystRevisions: "analysts revise the other way",
+  pe: "the valuation re-rates against the trade",
+  guidance: "guidance is revised against the thesis",
+  majorContract: "the marquee deal/catalyst falls through",
+  fcf: "free cash flow deteriorates",
+  netMargin: "margins reverse",
+  trajectory: "the fundamentals trajectory flips",
+  unusualFlow: "the options flow reverses",
+  oiSkew: "dealer positioning flips against the trade",
+  shortInterest: "the short-squeeze fuel is spent",
+  unusualVolume: "the volume surge fades",
+  hourlyVolume: "the volume surge fades",
+  newsCatalyst: "a headline lands against the position",
+  sectorNarrative: "the sector narrative cools",
+  socialSentiment: "sentiment turns",
+};
+const THESIS_PILLAR_LABEL = { fundamentals: "Fundamentals", technicals: "Technicals", mechanicals: "Flow", narrative: "Narrative" };
+
+// Locate a driver signal's home pillar + its display value ("+12.3%", "raised").
+function findDriverSignal(r, key) {
+  const ps = r.pillars || {};
+  for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
+    const sigs = (ps[pk] && ps[pk].signals) || [];
+    for (const s of sigs) if (s.key === key) return { pillar: pk, sig: s };
+  }
+  return null;
+}
+
+// Structured thesis for a pick: WHAT MAKES IT WORK (the supporting drivers),
+// WHAT WOULD DISPROVE IT (each lead driver reversing + the price/time stops),
+// and the TARGET it's positioned for. Stored alongside the one-line `analysis`
+// string; persisted at enrollment and re-scored each build (thesisStatus) so the
+// Track-record tab can show whether the thesis is actually playing out.
+function buildThesisCard(r, side, contract, tactical, exitPlan) {
+  const supportSign = side === "call" ? 1 : -1;
+  const works = [];
+  for (const d of r.drivers || []) {
+    if (!d || !d.score || Math.sign(d.score) !== supportSign) continue;
+    const found = findDriverSignal(r, d.key);
+    works.push({
+      key: d.key,
+      label: d.label,
+      pillar: found ? THESIS_PILLAR_LABEL[found.pillar] || found.pillar : null,
+      value: found && found.sig && found.sig.value != null ? String(found.sig.value) : null,
+    });
+    if (works.length >= 4) break;
+  }
+  const invalidators = [];
+  const seen = new Set();
+  for (const w of works.slice(0, 3)) {
+    const trig = THESIS_INVALIDATION[w.key];
+    if (trig && !seen.has(trig)) { invalidators.push({ key: w.key, trigger: trig }); seen.add(trig); }
+  }
+  // Structural invalidators — always present, derived from the exit plan.
+  const cut = exitPlan && exitPlan.cut && pnum(exitPlan.cut.price) != null ? r2(exitPlan.cut.price) : null;
+  if (cut != null) invalidators.push({ key: "priceStop", trigger: `${r.sym} ${side === "call" ? "closes below" : "closes above"} ~$${cut} (the ~ATR stop)` });
+  invalidators.push({ key: "timeStop", trigger: `no follow-through within ${PICKS_MAX_HOLD_DAYS} trading days` });
+  // If the score is marginal, flag that the grade itself crossing the bar would invalidate.
+  if (Math.abs(r.total) < PICKS_TIER_STRONG) {
+    invalidators.push({ key: "gradeFlip", trigger: `the grade drops back under the ${PICKS_MIN_CONVICTION}-pt actionable bar` });
+  }
+  const target = {
+    optionTpPct: Math.round(PICKS_OPT_TP_PCT * 100),
+    optionStopPct: Math.round(PICKS_OPT_STOP_PCT * 100),
+    underlyingStop: cut,
+    dte: contract ? contract.dte : null,
+    holdDays: PICKS_MAX_HOLD_DAYS,
+  };
+  return {
+    direction: side === "call" ? "bullish" : "bearish",
+    summary: buildThesis(r, side, contract, tactical),
+    works,
+    invalidators,
+    target,
+  };
 }
 
 function pickSideLean(picks) {
@@ -9917,6 +10012,37 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const earnMs = data?.fundamentals?.nextEarningsDate ? Date.parse(data.fundamentals.nextEarningsDate) : null;
     const earningsAheadDays = earnMs != null ? (earnMs - nowSec * 1000) / 86400000 : null;
     const marked = { ...e, lastSpot: r2(lastSpot), optionPnlPct: r1(optionPnlPct), underlyingPnlPct: r1(underlyingPnlPct), mfePct: Number.isFinite(mfePct) ? r1(mfePct) : e.mfePct, maePct: Number.isFinite(maePct) ? r1(maePct) : e.maePct, optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null, optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null };
+    // Re-score the thesis against today's grade — is it playing out? Price
+    // progress is the direction-adjusted underlying move; driver confirmation is
+    // how many of the entry's supporting drivers are still firing in the live
+    // grade; a grade flip or a breached stop fires the invalidation. Verdict:
+    // on-track / mixed / broken. Needs the freshly-built gradesIndex (passed in).
+    if (e.thesis) {
+      const g = gradesIndex ? gradesIndex[e.symbol] : null;
+      const driverKeys = Array.isArray(e.thesis.driverKeys) ? e.thesis.driverKeys : [];
+      let driversActive = null, gradeNow = null, gradeFlip = false;
+      if (g) {
+        const supportSign = isCall ? 1 : -1;
+        const liveSupport = new Set((g.drivers || []).filter((d) => d && d.score && Math.sign(d.score) === supportSign).map((d) => d.key));
+        driversActive = driverKeys.filter((k) => liveSupport.has(k)).length;
+        gradeNow = pnum(g.total);
+        gradeFlip = gradeNow != null && ((isCall && gradeNow <= -PICKS_MIN_CONVICTION) || (!isCall && gradeNow >= PICKS_MIN_CONVICTION));
+      }
+      const stopBreached = e.thesis.stopSpot != null && spot != null
+        ? (isCall ? spot <= e.thesis.stopSpot : spot >= e.thesis.stopSpot) : false;
+      const priceProgress = pnum(underlyingPnlPct);
+      const invalidatorsFired = gradeFlip || stopBreached || (driverKeys.length > 0 && driversActive === 0);
+      let verdict;
+      if (invalidatorsFired) verdict = "broken";
+      else if (priceProgress != null && priceProgress > 0 && (driverKeys.length === 0 || (driversActive != null && driversActive >= Math.ceil(driverKeys.length / 2)))) verdict = "on-track";
+      else verdict = "mixed";
+      marked.thesisStatus = {
+        verdict,
+        priceProgressPct: priceProgress != null ? r1(priceProgress) : null,
+        driversActive, driversTotal: driverKeys.length,
+        gradeNow, gradeFlip, stopBreached,
+      };
+    }
     const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, earningsAheadDays });
     if (res) closed.unshift({ ...marked, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
     else stillOpen.push(marked);
@@ -9937,6 +10063,17 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       contract: p.contract ? { strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay } : null,
       takeProfit: p.exitPlan?.takeProfit?.price ?? null, cut: p.exitPlan?.cut?.price ?? null,
       sector: SECTORS[p.symbol] || p.sector || null, entryRegime: picksPayload?.rosterMeta?.regimeBand || null,
+      // Thesis snapshot at entry — the supporting drivers + invalidation triggers
+      // + the ATR stop level, frozen so later builds can score whether the thesis
+      // is playing out (see thesisStatus below). Compact (keys+labels only).
+      thesis: p.thesisCard ? {
+        direction: p.thesisCard.direction,
+        works: (p.thesisCard.works || []).map((w) => ({ key: w.key, label: w.label })),
+        invalidators: p.thesisCard.invalidators || [],
+        driverKeys: (p.thesisCard.works || []).map((w) => w.key),
+        stopSpot: p.exitPlan?.cut?.price ?? null,
+        entryScore: p.total,
+      } : null,
       optionPnlPct: 0, mfePct: 0, maePct: 0, optHiPct: 0, optLoPct: 0,
     });
   }
