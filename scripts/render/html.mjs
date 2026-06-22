@@ -592,6 +592,37 @@ function hotStocksSection() {
   </section>`;
 }
 
+function compareCompaniesSection() {
+  // Side-by-side fundamentals/grade comparator. Pure browser tool — adds
+  // tickers as chips, lazy-fetches each data/<SYM>.json + grades.json (all FREE
+  // keys), and renders a metric table with the per-row leader highlighted, a
+  // %-vs-base delta on every other column, and a plain-language summary. Wired
+  // in app.js (initCompare / renderCompare). The datalist is seeded from the
+  // manifest symbol list at init.
+  return `<section class="card" id="compare-section">
+    <header class="card-header">
+      <h2 class="card-title">Compare companies</h2>
+    </header>
+    <p class="hint">Put 2–4 companies side by side — price, valuation (P/E, PEG, P/S), growth, margins, the analyst read and our 4-pillar grade — with the leader on each row highlighted, the % difference vs the first name on every other column, and a plain-language summary of how they stack up. Reads the same free data as the Grade tab.</p>
+    <div class="cmp-controls">
+      <div class="combo" id="cmp-combo">
+        <input type="text" id="cmp-input" list="cmp-datalist"
+               aria-label="Add a ticker to compare"
+               placeholder="Add ticker — type & press Enter…"
+               autocomplete="off" spellcheck="false" maxlength="6">
+        <datalist id="cmp-datalist"></datalist>
+      </div>
+      <button type="button" class="cmp-btn" id="cmp-add" aria-label="Add ticker">Add</button>
+      <button type="button" class="cmp-btn cmp-btn-quick" id="cmp-quick-mag7" title="Compare the Magnificent 7">Mag 7</button>
+      <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-clear">Clear</button>
+    </div>
+    <div id="cmp-chips" class="cmp-chips" aria-label="Selected companies"></div>
+    <div id="cmp-status" class="opt-status" role="status"></div>
+    <div id="cmp-summary" class="cmp-summary" hidden aria-live="polite"></div>
+    <div id="cmp-table-wrap" class="cmp-table-wrap" hidden></div>
+  </section>`;
+}
+
 function optionEvalSection() {
   // The ticker combobox + segmented call/put control + chain selects all
   // bind live in app.js — picking a ticker auto-loads its chain and any
@@ -1109,6 +1140,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-tab-menu" role="menu" id="page-tab-menu-tools" aria-labelledby="page-tab-trigger-tools" data-group="tools" hidden>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="grade" aria-controls="page-pane-grade" id="page-tab-grade">Grade a ticker</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="compare" aria-controls="page-pane-compare" id="page-tab-compare">Compare companies</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="cheatsheet" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet">Buyer's manual</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="chart-patterns" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns">Chart patterns</button>
@@ -1358,6 +1390,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
+  </div>
+  <div class="page-pane" id="page-pane-compare" role="tabpanel" aria-labelledby="page-tab-compare" hidden>
+  ${compareCompaniesSection()}
   </div>
   <div class="page-pane" id="page-pane-strategies" role="tabpanel" aria-labelledby="page-tab-strategies" hidden>
   ${strategiesSection()}
