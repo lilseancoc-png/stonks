@@ -13233,12 +13233,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
       head = '<div class="cx-hero">' +
         '<div class="cx-hero-main">' +
-          '<div class="cx-hero-label">Total Mag-7 CapEx · ' + escapeHtml(t.fyLatestLabel || 'latest FY') + '</div>' +
+          '<div class="cx-hero-label">Total Mag-7 CapEx · latest reported fiscal year</div>' +
           '<div class="cx-hero-val">' + cxDollars(t.fyLatestSum) + '</div>' +
           (t.fyPriorSum != null ?
             '<div class="cx-hero-sub ' + dir + '">' +
               (t.yoyPct != null ? (t.yoyPct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(t.yoyPct).toFixed(1) + '%' : '') +
-              deltaTxt + ' vs ' + escapeHtml(t.fyPriorLabel || 'prior FY') + ' (' + cxDollars(t.fyPriorSum) + ')' +
+              deltaTxt + ' vs the prior year (' + cxDollars(t.fyPriorSum) + ')' +
             '</div>' : '') +
         '</div>' +
         (t.ttmSum != null ?
