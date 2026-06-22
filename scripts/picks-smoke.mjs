@@ -7,7 +7,7 @@ import {
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
-  buildDayTrades, pickContractForDay,
+  buildDayTrades, pickContractForDay, resolveDayTradeOutcome,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -236,6 +236,13 @@ ok("day-trades: DBEAR ships a put", dayPicks.some((p) => p.symbol === "DBEAR" &&
 ok("day-trades: DFAR (no near contract) excluded", !dayPicks.some((p) => p.symbol === "DFAR"));
 ok("day-trades: pick shape matches Top Picks (pillars/contract/exitPlan)", dayPicks.every((p) => p.pillars && p.contract && p.exitPlan && Array.isArray(p.exitPlan.triggers)));
 ok("day-trades: exit plan carries the close-before-bell time stop", dayPicks.every((p) => p.exitPlan.triggers.some((t) => /before the bell/i.test(t))));
+
+// Day-trades win-rate resolution — the calculated +30% TP / −40% stop govern.
+ok("day-outcome: +30% take-profit -> win", resolveDayTradeOutcome({ modeledOptPnlPct: 32, entrySec: nowSec - 3600, nowSec }).outcome === "win" && resolveDayTradeOutcome({ modeledOptPnlPct: 32, entrySec: nowSec - 3600, nowSec }).status === "hit-tp-prem");
+ok("day-outcome: −40% stop -> loss", resolveDayTradeOutcome({ modeledOptPnlPct: -42, entrySec: nowSec - 3600, nowSec }).outcome === "loss" && resolveDayTradeOutcome({ modeledOptPnlPct: -42, entrySec: nowSec - 3600, nowSec }).status === "hit-stop-prem");
+ok("day-outcome: +10% intraday still open (no gate hit, <1 session)", resolveDayTradeOutcome({ modeledOptPnlPct: 10, entrySec: nowSec - 3600, nowSec }) === null);
+ok("day-outcome: 1-session backstop, up -> win", resolveDayTradeOutcome({ modeledOptPnlPct: 8, entrySec: nowSec - 2 * 86400, nowSec }).outcome === "win" && resolveDayTradeOutcome({ modeledOptPnlPct: 8, entrySec: nowSec - 2 * 86400, nowSec }).status === "timed-out");
+ok("day-outcome: dropped from universe resolves by sign", resolveDayTradeOutcome({ inUniverse: false, modeledOptPnlPct: -5 }).outcome === "loss");
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

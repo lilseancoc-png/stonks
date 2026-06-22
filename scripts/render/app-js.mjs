@@ -16191,15 +16191,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // pickEntryPlanHtml / pickExitPlanHtml / pickPillarPanel). Deliberately simpler
   // than the Top Picks tab: a flat ranked grid of cards, no detail/list view, no
   // search, no live poller (the baked nearest-expiry marks refresh each bake).
-  var dayState = { data: null, loading: false };
+  var dayState = { data: null, loading: false, acc: null };
   function loadDayTrades(){
     if (dayState.data || dayState.loading){ renderDayTrades(); return; }
     dayState.loading = true;
     renderDayTrades();
+    // The track-record stats (own win rate) are best-effort — a miss must not
+    // block the roster render, so it resolves to null and the chip just hides.
+    var pAcc = fetch('data/picks-0dte-accuracy.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
     fetch('data/picks-0dte.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         dayState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        return pAcc;
+      })
+      .then(function(acc){
+        dayState.acc = (acc && acc.stats) ? acc : null;
         dayState.loading = false;
         renderDayTrades();
       })
@@ -16321,8 +16330,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (tier === 'strong-call' || tier === 'strong-put') strongCount++;
     }
     var avgConv = scoreCount > 0 ? (convSum / scoreCount).toFixed(1) : '—';
+    // Track-record chips — the section's OWN win rate, marked against the
+    // calculated +30% take-profit / −40% stop on premium (the rest auto-resolve
+    // at the 1-session "close before the bell" backstop). Resets weekly so the
+    // number reflects the current engine, not a stale tail.
+    var accChips = '';
+    var st = dayState.acc && dayState.acc.stats;
+    if (st && st.decided > 0){
+      var wr = (st.winRate != null && isFinite(st.winRate)) ? Math.round(st.winRate * 100) : null;
+      var wrCls = wr == null ? '' : wr >= 55 ? ' picks-summary-call' : wr <= 45 ? ' picks-summary-put' : '';
+      var exp = (st.optionExpectancyPct != null && isFinite(st.optionExpectancyPct)) ? st.optionExpectancyPct : null;
+      var wrTip = 'Win rate of resolved day trades this week (' + st.wins + ' win' + (st.wins === 1 ? '' : 's') + ' / ' + st.losses + ' loss' + (st.losses === 1 ? '' : 'es') + '). A trade resolves when the modeled contract hits the calculated +30% take-profit or −40% stop on premium, or at the 1-session close-before-the-bell backstop. Modeled (Black-Scholes, entry IV held) — there is no live options feed, so a model not a realized fill. Resets weekly.';
+      if (wr != null){
+        accChips += '<div class="picks-summary-chip' + wrCls + '" title="' + wrTip + '"><span class="picks-summary-num">' + wr + '%</span><span class="picks-summary-lbl">win rate</span></div>';
+      }
+      accChips += '<div class="picks-summary-chip" title="Resolved day trades behind the win rate (this week)."><span class="picks-summary-num">' + st.decided + '</span><span class="picks-summary-lbl">resolved</span></div>';
+      if (exp != null){
+        accChips += '<div class="picks-summary-chip' + (exp >= 0 ? ' picks-summary-call' : ' picks-summary-put') + '" title="Average modeled contract P&L per resolved day trade this week — the expectancy of the +30%/−40% rule set."><span class="picks-summary-num">' + (exp >= 0 ? '+' : '') + exp + '%</span><span class="picks-summary-lbl">avg P&L</span></div>';
+      }
+    }
     if (summaryEl){
       summaryEl.innerHTML =
+        accChips +
         '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">day trades</span></div>' +
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +

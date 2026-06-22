@@ -9468,6 +9468,90 @@ export async function readPriorDayPicks() {
   try { const raw = await readFile(resolve(DATA_DIR, DAY_FILE), "utf8"); const p = JSON.parse(raw); return p && typeof p === "object" ? p : null; } catch { return null; }
 }
 
+// ---- Day-trades track record (own win rate) --------------------------------
+// Mirrors the Top Picks accuracy pipeline but resolves on the DAY-trade exit
+// rules: the +30% / −40% premium gates (the "calculated take-profit / stop")
+// checked first each build, then expiry, then a 1-session time stop ("close
+// before the bell — no overnight hold"). Reuses markOptionToMarket /
+// computePicksAccuracyStats / the weekly-reset gating from the picks pipeline.
+const DAY_ACCURACY_FILE = "picks-0dte-accuracy.json";
+const DAY_MAX_HOLD_DAYS = 1;                    // close before the bell
+
+export function resolveDayTradeOutcome(opts) {
+  const o = opts || {};
+  const pnl = pnum(o.modeledOptPnlPct);
+  const heldDays = (pnum(o.nowSec) != null && pnum(o.entrySec) != null) ? (o.nowSec - o.entrySec) / 86400 : 0;
+  if (o.inUniverse === false) return { status: "dropped", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
+  // The calculated stop-loss / take-profit — checked first, every build.
+  if (pnl != null && pnl <= -DAY_OPT_STOP_PCT * 100) return { status: "hit-stop-prem", outcome: "loss" };
+  if (pnl != null && pnl >= DAY_OPT_TP_PCT * 100) return { status: "hit-tp-prem", outcome: "win" };
+  // Same-day expiry, then the one-session "no overnight hold" backstop.
+  if (pnum(o.expSec) != null && pnum(o.nowSec) != null && o.nowSec >= o.expSec) return { status: "expired", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
+  if (heldDays >= DAY_MAX_HOLD_DAYS) return { status: "timed-out", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
+  return null;
+}
+
+export async function readDayAccuracyState() {
+  try { const raw = await readFile(resolve(DATA_DIR, DAY_ACCURACY_FILE), "utf8"); const p = JSON.parse(raw); return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], lastResetWeek: p.lastResetWeek || null, stats: p.stats || null }; } catch { return { open: [], closed: [], lastResetWeek: null, stats: null }; }
+}
+
+export async function updateDayTradesAccuracyFile(chains, builtAtIso, priorState = null) {
+  const state = priorState || await readDayAccuracyState();
+  const accPath = resolve(DATA_DIR, DAY_ACCURACY_FILE);
+  const weekKey = picksAccuracyWeekKey(builtAtIso);
+  const weeklyReset = PICKS_ACCURACY_WEEKLY_RESET && state.lastResetWeek !== weekKey;
+  let open = weeklyReset ? [] : (state.open || []).slice();
+  let closed = (state.closed || []).slice();
+  const lastResetWeek = weeklyReset ? weekKey : (state.lastResetWeek || weekKey);
+
+  // Mark each open day trade to market on its contract, resolve on the day rules.
+  const stillOpen = [];
+  const nowSec = Math.floor(Date.parse(builtAtIso) / 1000) || Math.floor(Date.now() / 1000);
+  for (const e of open) {
+    const data = chains?.[e.symbol] || null;
+    const spot = pnum(data?.spot);
+    const isCall = e.side === "call";
+    const optionPnlPct = markOptionToMarket(e, data);
+    const lastSpot = spot ?? e.lastSpot ?? e.entrySpot;
+    const underlyingPnlPct = (spot && e.entrySpot) ? ((isCall ? 1 : -1) * (spot / e.entrySpot - 1) * 100) : e.underlyingPnlPct;
+    const mfePct = Math.max(pnum(e.mfePct) ?? -Infinity, underlyingPnlPct ?? -Infinity);
+    const maePct = Math.min(pnum(e.maePct) ?? Infinity, underlyingPnlPct ?? Infinity);
+    const optHiPct = Math.max(pnum(e.optHiPct) ?? -Infinity, optionPnlPct ?? -Infinity);
+    const optLoPct = Math.min(pnum(e.optLoPct) ?? Infinity, optionPnlPct ?? Infinity);
+    const marked = { ...e, lastSpot: r2(lastSpot), optionPnlPct: r1(optionPnlPct), underlyingPnlPct: r1(underlyingPnlPct), mfePct: Number.isFinite(mfePct) ? r1(mfePct) : e.mfePct, maePct: Number.isFinite(maePct) ? r1(maePct) : e.maePct, optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null, optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null };
+    const res = resolveDayTradeOutcome({ isCall, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data, modeledOptPnlPct: optionPnlPct });
+    if (res) closed.unshift({ ...marked, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
+    else stillOpen.push(marked);
+  }
+  open = stillOpen;
+
+  // Enroll the freshly-shipped day roster (dedup per symbol:side).
+  let payloadIn = null;
+  try { payloadIn = JSON.parse(await readFile(resolve(DATA_DIR, DAY_FILE), "utf8")); } catch {}
+  const openKeys = new Set(open.map((o) => `${o.symbol}:${o.side}`));
+  for (const p of (payloadIn?.picks || [])) {
+    const key = `${p.symbol}:${p.side}`;
+    if (openKeys.has(key)) continue;
+    openKeys.add(key);
+    open.push({
+      symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
+      score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
+      contract: p.contract ? { strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay } : null,
+      takeProfit: p.exitPlan?.takeProfit?.price ?? null, cut: p.exitPlan?.cut?.price ?? null,
+      sector: SECTORS[p.symbol] || p.sector || null, entryRegime: payloadIn?.rosterMeta?.regimeBand || null,
+      optionPnlPct: 0, mfePct: 0, maePct: 0, optHiPct: 0, optLoPct: 0,
+    });
+  }
+
+  const cutoffMs = Date.now() - PICKS_ACCURACY_KEEP_DAYS * 86400000;
+  closed = closed.filter((c) => Date.parse(c.exitDate || c.entryDate) >= cutoffMs).slice(0, PICKS_ACCURACY_MAX_CLOSED);
+
+  const stats = computePicksAccuracyStats(open, closed, builtAtIso);
+  const payload = { builtAtIso, lastResetWeek, open, closed, stats };
+  await writeFile(accPath, JSON.stringify(payload), "utf8");
+  return { open: open.length, closed: closed.length, weeklyReset, ...stats };
+}
+
 // ============================================================================
 // Grade history (whole-universe grade-change log) + daily snapshot.
 // ============================================================================
@@ -14925,6 +15009,9 @@ async function main() {
   // market, timed out, or resolved) and closed stays 0. Same pattern as the
   // macro / iv / fedwatch histories above.
   const picksAccuracyPrev = await readPicksAccuracyState();
+  // Same pre-read for the Day-trades track record (picks-0dte-accuracy.json) —
+  // its own win rate, marked against the +30%/−40% premium gates each build.
+  const dayAccuracyPrev = await readDayAccuracyState();
   // Snapshot the prior picks.json the same way, BEFORE writeChainFiles wipes
   // data/. Threaded into writeTopPicksFile so the consecutive-build tenure
   // counts survive the wipe and the zero-pick (pre-bell) stale-reuse path can
@@ -15467,6 +15554,14 @@ async function main() {
     console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
   } catch (err) {
     console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Day-trades track record: same machinery, resolved on the day exit rules
+  // (+30%/−40% premium gates, expiry, 1-session stop) → its own win rate.
+  try {
+    const dacc = await updateDayTradesAccuracyFile(chains, builtAtIso, dayAccuracyPrev);
+    console.log(`wrote data/${DAY_ACCURACY_FILE} — ${dacc.open} open, ${dacc.closed} closed${dacc.winRate != null ? `, ${(dacc.winRate * 100).toFixed(0)}% win rate` : ""}`);
+  } catch (err) {
+    console.warn(`[day-trades] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Market briefs (morning + post-close digest) — generated at most once per ET
   // window and carried forward, mirroring the heatmap EOD recap. Built from the
