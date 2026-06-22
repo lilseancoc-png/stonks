@@ -209,6 +209,23 @@ function topPicksSection() {
   </section>`;
 }
 
+function dayTradesSection() {
+  // Skeleton chrome only — renderDayTrades() in app.js fetches data/picks-0dte.json
+  // lazily on first tab activation and fills #daytrades-grid. Reuses the Top Picks
+  // card markup (.pick-card / .picks-grid) so it inherits the same styling.
+  return `<section class="card" id="daytrades-section">
+    <header class="card-header">
+      <h2 class="card-title">Day trades <span class="dte-badge" title="Same-day / 0DTE focus">0DTE</span></h2>
+      <span class="card-eyebrow" id="daytrades-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">A short-horizon sibling of <strong>Top picks</strong>, tuned for a <strong>same-day</strong> trade. The grade uses the same four pillars but leans on the <strong>fast</strong> ones — technicals (momentum) and mechanicals (options flow, gamma, unusual volume) — and de-weights the slow ones (fundamentals, narrative), since intraday it&rsquo;s order flow and momentum that move a name, not the balance sheet. Each pick ships the <strong>nearest-expiration</strong> near-the-money contract (0&ndash;5 days, 0&ndash;2 ideal), a touch more directional (~0.50&Delta;) for the gamma a same-day move needs, with wider, faster premium exits (<strong>+30% / &minus;40%</strong>) and a hard <strong>close-before-the-bell</strong> time stop. These are high-velocity, high-risk trades &mdash; a long 0DTE can go to zero by the close. The section keeps its <strong>own win rate</strong>, marking each pick to market on its contract and resolving it against that calculated take-profit / stop (modeled Black-Scholes P&amp;L &mdash; there&rsquo;s no live options feed; resets weekly). Not financial advice. For the longer 1&ndash;2 week, narrative-driven play, see <strong>Top picks</strong>.</p>
+    <div id="daytrades-summary" class="picks-summary"></div>
+    <div id="daytrades-grid" class="picks-grid">Loading day trades…</div>
+    <div id="daytrades-empty" class="picks-empty" hidden>No day trades in this build — nothing cleared the conviction bar with a tradeable nearest-expiry contract. A short or empty list is by design; cash is a position, especially intraday.</div>
+    <p class="picks-foot">Rebuilds from scratch on every refresh (8&times;/day). Each pick clears the conviction bar <em>and</em> has a liquid near-the-money contract expiring within five sessions. The list can be short, or empty, on a poor tape.</p>
+  </section>`;
+}
+
 function trackRecordSection() {
   // Skeleton chrome only — renderAccuracy() in app.js fetches
   // data/picks-accuracy.json lazily on first tab activation and fills the
@@ -1042,6 +1059,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="daytrades" aria-selected="false" aria-controls="page-pane-daytrades" id="page-tab-daytrades">Day trades</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="hot" aria-selected="false" aria-controls="page-pane-hot" id="page-tab-hot">Hot stocks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track">Track record</button>
@@ -1132,6 +1150,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="landing-card-stat" id="land-stat-picks">Today</div>
           <div class="landing-card-sub" id="land-sub-picks">highest conviction</div>
           <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
+        </button>
+        <button type="button" class="landing-card" data-go="daytrades" aria-label="View day trades">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Day trades</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat" id="land-stat-daytrades">0DTE</div>
+          <div class="landing-card-sub" id="land-sub-daytrades">same-day setups</div>
+          <p class="landing-card-desc">The Top-picks read tuned for a same-day trade — flow/momentum-weighted grades on the nearest-expiry contracts, with fast exits and no overnight hold.</p>
         </button>
         <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
           <header class="landing-card-head">
@@ -1254,6 +1281,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
   ${topPicksSection()}
+  </div>
+  <div class="page-pane" id="page-pane-daytrades" role="tabpanel" aria-labelledby="page-tab-daytrades" hidden>
+  ${dayTradesSection()}
   </div>
   <div class="page-pane" id="page-pane-track" role="tabpanel" aria-labelledby="page-tab-track" hidden>
   ${trackRecordSection()}

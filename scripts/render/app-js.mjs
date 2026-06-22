@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, hot:1, track:1 };
+  var PREMIUM_TABS = { picks:1, daytrades:1, brief:1, narratives:1, flow:1, volume:1, oi:1, hot:1, track:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   var AUTH_ME = null;
@@ -3094,7 +3094,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','picks','daytrades','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3105,6 +3105,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '13f': 'f13', '13f-filings': 'f13',
       bonds: 'bonds-usd', usd: 'bonds-usd',
       pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
+      '0dte': 'daytrades', 'day-trades': 'daytrades', daytrade: 'daytrades', day: 'daytrades',
       ticker: 'tickers',
       global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
       gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
@@ -3313,6 +3314,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
+        if (name === 'daytrades' && typeof loadDayTrades === 'function') loadDayTrades();
         if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -16183,6 +16185,184 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return m;
   }
+  // --- Day trades (0DTE / short-term) tab ----------------------------------
+  // Renders data/picks-0dte.json — the same pick-object shape as Top Picks, so
+  // it reuses the Top Picks card helpers (pickTierBadge / pickContractHtml /
+  // pickEntryPlanHtml / pickExitPlanHtml / pickPillarPanel). Deliberately simpler
+  // than the Top Picks tab: a flat ranked grid of cards, no detail/list view, no
+  // search, no live poller (the baked nearest-expiry marks refresh each bake).
+  var dayState = { data: null, loading: false, acc: null };
+  function loadDayTrades(){
+    if (dayState.data || dayState.loading){ renderDayTrades(); return; }
+    dayState.loading = true;
+    renderDayTrades();
+    // The track-record stats (own win rate) are best-effort — a miss must not
+    // block the roster render, so it resolves to null and the chip just hides.
+    var pAcc = fetch('data/picks-0dte-accuracy.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+    fetch('data/picks-0dte.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        dayState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
+        return pAcc;
+      })
+      .then(function(acc){
+        dayState.acc = (acc && acc.stats) ? acc : null;
+        dayState.loading = false;
+        renderDayTrades();
+      })
+      .catch(function(){
+        dayState.data = { picks: [], loadError: true };
+        dayState.loading = false;
+        renderDayTrades();
+      });
+  }
+
+  function buildDayCardHtml(p, idx){
+    var sideCls = pickSideClass(p.side);
+    var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
+    var sectorTag = p.sector ? '<span class="pick-sector">' + escapeHtml(p.sector) + '</span>' : '';
+    var c = p.contract || null;
+    var dte = (c && c.dte != null) ? c.dte : null;
+    var dteTag = (dte != null)
+      ? '<span class="dte-chip" title="Days to expiry on the suggested contract — a same-day / short-dated trade.">' + (dte === 0 ? '0DTE' : dte + 'DTE') + '</span>'
+      : '';
+    var tierHtml = (typeof pickTierBadge === 'function') ? pickTierBadge(p) : '';
+    var analysisHtml = (typeof pickAnalysisBlock === 'function') ? pickAnalysisBlock(p) : '';
+    var contractHtml = (typeof pickContractHtml === 'function') ? pickContractHtml(p) : '';
+    var entryHtml = (typeof pickEntryPlanHtml === 'function') ? pickEntryPlanHtml(p) : '';
+    var exitHtml = (typeof pickExitPlanHtml === 'function') ? pickExitPlanHtml(p) : '';
+    var pillarsHtml = (typeof pickPillarPanel === 'function') ? pickPillarPanel(p) : '';
+    var gradeHtml = pillarsHtml
+      ? '<details class="dte-grade"><summary>Grade breakdown — how the score was built</summary>' + pillarsHtml + '</details>'
+      : '';
+    var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
+    // Contract handoff attributes so clicking the symbol opens the grader snapped
+    // to this pick's recommended strike/expiry/type (same as the Top Picks tiles).
+    var symAttrs = ' data-pick-symbol="' + escapeHtml(p.symbol) + '"';
+    if (c && c.strike != null && c.expiry != null){
+      symAttrs += ' data-pick-strike="' + escapeHtml(String(c.strike)) + '"' +
+        ' data-pick-exp="' + escapeHtml(String(c.expiry)) + '"' +
+        ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"';
+    }
+    return '<article class="pick-card ' + sideCls + tierCls + (idx === 0 ? ' pick-card-leader' : '') + '" data-symbol="' + escapeHtml(p.symbol) + '">' +
+      '<div class="pick-rank' + (idx < 3 ? ' pick-rank-top' + (idx + 1) : '') + '"><span class="pick-rank-hash">#</span><span class="pick-rank-num">' + (idx + 1) + '</span></div>' +
+      '<div class="pick-main">' +
+        '<div class="pick-head">' +
+          '<button type="button" class="pick-symbol"' + symAttrs + ' title="Open ' + escapeHtml(p.symbol) + ' in the grader">' + escapeHtml(p.symbol) + '</button>' +
+          (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
+          sectorTag +
+          '<span class="pick-side pick-side-' + sideCls + '">' + sideLabel + '</span>' +
+          dteTag +
+        '</div>' +
+        tierHtml + analysisHtml + contractHtml + entryHtml + exitHtml + gradeHtml +
+      '</div>' +
+    '</article>';
+  }
+
+  // Bind the symbol buttons once (delegated) so a card click opens the grader,
+  // staging the contract handoff exactly like the Top Picks listview does.
+  function bindDayTradesNav(){
+    var grid = $('daytrades-grid');
+    if (!grid || grid._dtBound) return;
+    grid._dtBound = true;
+    grid.addEventListener('click', function(ev){
+      var symBtn = ev.target && ev.target.closest ? ev.target.closest('[data-pick-symbol]') : null;
+      if (!symBtn) return;
+      var sym = symBtn.getAttribute('data-pick-symbol');
+      if (!sym || SYMBOLS.indexOf(sym) === -1) return;
+      var k = parseFloat(symBtn.getAttribute('data-pick-strike') || '');
+      var exp = parseInt(symBtn.getAttribute('data-pick-exp') || '', 10);
+      var t = symBtn.getAttribute('data-pick-type') || null;
+      if (t !== 'call' && t !== 'put') t = null;
+      var isPickContract = isFinite(k) && k > 0 && isFinite(exp) && exp > 0 && !!t;
+      pendingUrlState = {
+        sym: sym,
+        k: isFinite(k) && k > 0 ? k : null,
+        exp: isFinite(exp) && exp > 0 ? exp : null,
+        t: t,
+        origin: isPickContract ? 'toppick' : null,
+      };
+      var gradeTab = document.querySelector('[data-page-tab="grade"]');
+      if (gradeTab) gradeTab.click();
+      try { combo.commit(sym); } catch (_){}
+    });
+  }
+
+  function renderDayTrades(){
+    var grid = $('daytrades-grid');
+    var empty = $('daytrades-empty');
+    var eyebrow = $('daytrades-eyebrow');
+    var summaryEl = $('daytrades-summary');
+    if (!grid) return;
+    bindDayTradesNav();
+    if (dayState.loading && !dayState.data){
+      grid.innerHTML = '<span class="skel skel-block" style="height:118px"></span><span class="skel skel-block" style="height:118px"></span><span class="skel skel-block" style="height:118px"></span>';
+      if (summaryEl) summaryEl.innerHTML = '';
+      if (empty) empty.hidden = true;
+      return;
+    }
+    var data = dayState.data || { picks: [] };
+    var picks = Array.isArray(data.picks) ? data.picks.slice() : [];
+    picks.sort(function(a, b){ return Math.abs(Number(b.total != null ? b.total : b.score) || 0) - Math.abs(Number(a.total != null ? a.total : a.score) || 0); });
+    if (eyebrow) eyebrow.textContent = picks.length + ' day trade' + (picks.length === 1 ? '' : 's') + ' · rebuilt each refresh' + (data.stale ? ' · reused (stale)' : '');
+    if (!picks.length){
+      grid.innerHTML = '';
+      if (summaryEl) summaryEl.innerHTML = '';
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = data.loadError
+          ? 'Couldn’t load day trades — refresh the page to try again.'
+          : 'No day trades in this build — nothing cleared the conviction bar with a tradeable nearest-expiry contract. A short or empty list is by design; cash is a position, especially intraday.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    var callCount = 0, putCount = 0, strongCount = 0, convSum = 0, scoreCount = 0;
+    for (var i = 0; i < picks.length; i++){
+      var pp = picks[i];
+      if (pp.side === 'put') putCount++; else callCount++;
+      var tot = (pp.total != null ? pp.total : pp.score);
+      if (tot != null && isFinite(tot)){ convSum += Math.abs(Number(tot)); scoreCount++; }
+      var tier = pp.recommendation && pp.recommendation.tier;
+      if (tier === 'strong-call' || tier === 'strong-put') strongCount++;
+    }
+    var avgConv = scoreCount > 0 ? (convSum / scoreCount).toFixed(1) : '—';
+    // Track-record chips — the section's OWN win rate, marked against the
+    // calculated +30% take-profit / −40% stop on premium (the rest auto-resolve
+    // at the 1-session "close before the bell" backstop). Resets weekly so the
+    // number reflects the current engine, not a stale tail.
+    var accChips = '';
+    var st = dayState.acc && dayState.acc.stats;
+    if (st && st.decided > 0){
+      var wr = (st.winRate != null && isFinite(st.winRate)) ? Math.round(st.winRate * 100) : null;
+      var wrCls = wr == null ? '' : wr >= 55 ? ' picks-summary-call' : wr <= 45 ? ' picks-summary-put' : '';
+      var exp = (st.optionExpectancyPct != null && isFinite(st.optionExpectancyPct)) ? st.optionExpectancyPct : null;
+      var wrTip = 'Win rate of resolved day trades this week (' + st.wins + ' win' + (st.wins === 1 ? '' : 's') + ' / ' + st.losses + ' loss' + (st.losses === 1 ? '' : 'es') + '). A trade resolves when the modeled contract hits the calculated +30% take-profit or −40% stop on premium, or at the 1-session close-before-the-bell backstop. Modeled (Black-Scholes, entry IV held) — there is no live options feed, so a model not a realized fill. Resets weekly.';
+      if (wr != null){
+        accChips += '<div class="picks-summary-chip' + wrCls + '" title="' + wrTip + '"><span class="picks-summary-num">' + wr + '%</span><span class="picks-summary-lbl">win rate</span></div>';
+      }
+      accChips += '<div class="picks-summary-chip" title="Resolved day trades behind the win rate (this week)."><span class="picks-summary-num">' + st.decided + '</span><span class="picks-summary-lbl">resolved</span></div>';
+      if (exp != null){
+        accChips += '<div class="picks-summary-chip' + (exp >= 0 ? ' picks-summary-call' : ' picks-summary-put') + '" title="Average modeled contract P&L per resolved day trade this week — the expectancy of the +30%/−40% rule set."><span class="picks-summary-num">' + (exp >= 0 ? '+' : '') + exp + '%</span><span class="picks-summary-lbl">avg P&L</span></div>';
+      }
+    }
+    if (summaryEl){
+      summaryEl.innerHTML =
+        accChips +
+        '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">day trades</span></div>' +
+        '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
+        '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
+        (strongCount > 0 ? '<div class="picks-summary-chip picks-summary-strong" title="Picks at the Strong tier."><span class="picks-summary-num">' + strongCount + '</span><span class="picks-summary-lbl">strong</span></div>' : '') +
+        '<div class="picks-summary-chip" title="Average conviction (mean |grade|) across the list."><span class="picks-summary-num">' + avgConv + '</span><span class="picks-summary-lbl">avg conviction</span></div>';
+    }
+    var html = '';
+    for (var j = 0; j < picks.length; j++) html += buildDayCardHtml(picks[j], j);
+    grid.innerHTML = html;
+  }
+
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
