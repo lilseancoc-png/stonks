@@ -9072,12 +9072,28 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
     const ownTiming = r.pillars.timing;
     const otherTiming = computeEntryTiming(ownSide === "call" ? "put" : "call", r.data, r.data?.spot, { regime: gateRegime, eventRisk: gateEventRisk });
     const cs = r.streakRow?.current || null;
+    // Confirmed multi-day trend context for the Hot-stocks live entry gate
+    // (app-js.mjs hotEntryGate): the 20D SMA + the trailing 2-/4-session
+    // returns (in-progress bar dropped), onto which the browser folds TODAY'S
+    // live move to re-check falling-knife / chase RIGHT NOW. Mirrors
+    // computeEntryTiming's confirmed-bar convention (slice(0,-1)).
+    let techLive = null;
+    {
+      const tb = timingBarsFrom(r.data);
+      const cc = tb && Array.isArray(tb.c) ? tb.c.filter(Number.isFinite).slice(0, -1) : null;
+      const nn = cc ? cc.length : 0;
+      if (nn >= 5) {
+        const retK = (k) => (nn > k && cc[nn - 1 - k] > 0 ? (cc[nn - 1] / cc[nn - 1 - k] - 1) * 100 : null);
+        techLive = { sma20: pnum(r.data?.technicals?.sma?.sma20), ret2: r2(retK(2)), ret4: r2(retK(4)) };
+      }
+    }
     grades[r.sym] = {
       symbol: r.sym, side: r.recommendation.tier === "no-trade" ? null : ownSide,
       total: r.total, conviction: Math.abs(r.total), recommendation: r.recommendation,
       pillars: r.pillars, drivers: r.drivers, spot: r.data?.spot ?? null, sector, peerGroup: pg,
       sentiment: r.data?.news?.sentiment || null,
       rsi: r.data?.technicals?.rsi ?? null,
+      tech: techLive,
       ivPctile: r.data?.ivRank?.pctile ?? r.data?.technicals?.volRegime?.rv30Pctile ?? null,
       streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct } : null,
       peers, catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
