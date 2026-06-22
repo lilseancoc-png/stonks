@@ -8722,6 +8722,11 @@
   //      PICKS_TIMING_THRESHOLDS in scripts/build.mjs — single-source, no
   //      hand-kept copy). This is what catches the blow-off or collapse
   //      happening RIGHT NOW that the confirmed-bars bake is a day behind on.
+  //  (3) a trend-alignment gate: the lean must not fight the established
+  //      multi-day trend (the grade's Technicals-pillar SMA stack, confirmed by
+  //      the pillar's net sign). Buying calls into a downtrend / puts into an
+  //      uptrend is the lowest-probability long-premium entry, so it demotes a
+  //      would-be execute to a labelled "Counter-trend — wait".
   // Plus a day-range fade read: a would-be entry whose spot has already given
   // back most of the day's move in its direction is buying a fading move.
   // Missing inputs (grades.json not loaded yet / a field absent) skip their
@@ -8740,7 +8745,7 @@
     // The chip can only show one label — knife outranks chase outranks
     // catalyst outranks fade. Every firing reason still rides into the
     // expandable "why" text.
-    var GATE_RANK = { knife: 4, chase: 3, structure: 3, catalyst: 2, fade: 1 };
+    var GATE_RANK = { knife: 5, counter: 4, chase: 3, structure: 3, catalyst: 2, fade: 1 };
     function fire(kind, txt){
       out.block = true;
       out.reasons.push(txt);
@@ -8804,6 +8809,36 @@
           ? ' with spot pinned at the 52-week ' + (lean > 0 ? 'high' : 'low')
           : ' and ' + dist20.toFixed(0) + '% past the 20D SMA') +
         ' \u2014 ' + (lean > 0 ? 'overbought' : 'washed out') + ' and stretched; entries this late tend to mean-revert');
+    }
+    // (3) Trend-alignment gate — the lean must not fight the established
+    // multi-day trend. A counter-trend "buy the bounce" / "short the dip" is the
+    // lowest-probability long-premium entry: theta bleeds while you wait for a
+    // reversal that usually doesn't come, so even a clean intraday move with
+    // volume behind it is a poor BUY when the daily trend points the other way.
+    // Trend is read from the baked grade's Technicals pillar — the SMA stack
+    // (price vs 20/50/100D, key 'smaStack') as the anchor, CONFIRMED by the
+    // pillar's net sign. Both must agree and the stack must be off-zero for a
+    // confident read; anything ambiguous (e.g. price below its MAs but the
+    // pillar net-positive on an oversold turn) skips the gate (fail-open), so a
+    // genuine reversal setup is still allowed through.
+    var techPillar = (g && g.pillars && g.pillars.technicals) ? g.pillars.technicals : null;
+    var smaStack = null;
+    if (techPillar && Array.isArray(techPillar.signals)){
+      for (var si=0; si<techPillar.signals.length; si++){
+        var sg = techPillar.signals[si];
+        if (sg && sg.key === 'smaStack' && sg.score != null && isFinite(sg.score)){ smaStack = Number(sg.score); break; }
+      }
+    }
+    var techScore = (techPillar && techPillar.score != null && isFinite(techPillar.score)) ? Number(techPillar.score) : null;
+    var trendDir = 0;
+    if (smaStack != null && techScore != null && smaStack !== 0){
+      if (smaStack > 0 && techScore > 0) trendDir = 1;
+      else if (smaStack < 0 && techScore < 0) trendDir = -1;
+    }
+    if (trendDir !== 0 && lean !== trendDir){
+      fire('counter', lean > 0
+        ? 'the multi-day trend is down (price below its 20/50/100D moving-average stack) — buying calls into a downtrend fights the tape; long premium bleeds waiting for a reversal'
+        : 'the multi-day trend is up (price above its 20/50/100D moving-average stack) — buying puts into an uptrend fights the tape; long premium bleeds waiting for a reversal');
     }
     // Day-range fade — the move already gave back most of its day range.
     if (spot != null && r.dayHi != null && r.dayLo != null && r.dayHi > r.dayLo &&
@@ -8994,9 +9029,9 @@
   // Map the verdict's class tokens to the Hot-stocks call to action. The
   // underlying volLiveVerdict returns one of: 'is-bull', 'is-bear',
   // 'is-wait is-lean-bull', 'is-wait is-lean-bear', 'is-wait' — the lean-*
-  // forms optionally carrying ' is-gated' + a gate kind ('knife' / 'chase' /
-  // 'structure' / 'catalyst' / 'fade') when the entry-quality gate demoted a
-  // would-be execute. Gated chips say WHY the board is standing down.
+  // forms optionally carrying ' is-gated' + a gate kind ('knife' / 'counter' /
+  // 'chase' / 'structure' / 'catalyst' / 'fade') when the entry-quality gate
+  // demoted a would-be execute. Gated chips say WHY the board is standing down.
   function hotVerdictView(verdict){
     if (!verdict) return null;
     if (verdict.cls === 'is-bull') return { cls: 'is-bull', label: 'Buy calls now \u25b2' };
@@ -9007,6 +9042,7 @@
       var arrow = leanBull ? ' \u25b2' : ' \u25bc';
       var gLabel =
         verdict.gate === 'knife' ? (leanBull ? 'Falling knife \u2014 wait' : 'Squeeze risk \u2014 wait') :
+        verdict.gate === 'counter' ? 'Counter-trend \u2014 wait' :
         verdict.gate === 'chase' ? 'Extended \u2014 do not chase' :
         verdict.gate === 'structure' ? 'Poor structure \u2014 wait' :
         verdict.gate === 'catalyst' ? 'Event risk \u2014 wait' :

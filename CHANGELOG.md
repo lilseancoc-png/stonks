@@ -17,6 +17,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## [Unreleased]
 
 ### Changed
+- **Hot stocks now gates its verdict on multi-day trend alignment — no more "Buy calls now" in a downtrend (or puts in an uptrend).** The live board verdict adds a trend-alignment check: when the intraday lean fights the established multi-day trend (read from the grade's Technicals-pillar SMA stack — price vs 20/50/100D — confirmed by the pillar's net sign), a would-be execute is demoted to a labelled **"Counter-trend — wait"** instead of a buy CTA. Ambiguous trends (e.g. an oversold-bounce setup) fail open, so genuine reversals still surface. `scripts/render/app-js.mjs`.
+
+### Fixed
+- **Hot stocks' live falling-knife / chase re-check was silently dead — now it fires.** The board's live entry gate reads `grades.json` per-ticker `tech` (20D SMA + trailing 2-/4-session returns) to fold today's move onto the confirmed multi-day context, but `buildGradesIndex` never wrote that `tech` block, so the live anti-knife/anti-chase reads no-op'd. The grade index now emits it. `scripts/build.mjs`.
+
+### Changed
 - **Hot stocks always pins SPY and QQQ to the board.** The two reference index tapes now appear on the Hot stocks board regardless of their live volume-pace ranking — they're appended to the top-N set whenever the pace sort misses them (so long as they have a live pace read). `scripts/render/app-js.mjs`.
 
 ### Added
