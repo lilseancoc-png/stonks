@@ -16074,6 +16074,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           marketState: json && json.marketState,
           tickers: tickers,
           eodSummary: json && json.eodSummary || null,
+          sectorRotation: json && json.sectorRotation || null,
         };
         heatmapState.loading = false;
         renderHeatmap();
@@ -16498,6 +16499,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var eyebrow = $('heatmap-eyebrow');
     var data = heatmapState.data;
     if (!data){ root.textContent = 'Loading heatmap…'; return; }
+    renderHeatmapRotation();
     if (data.loadError){
       root.classList.add('is-empty');
       root.textContent = 'Heatmap data unavailable — try reloading.';
@@ -16679,6 +16681,43 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (p > 0.05) return 'pos';
     if (p < -0.05) return 'neg';
     return 'zero';
+  }
+
+  // Sector-rotation notification. Flags any sector that has held ≥70% of its
+  // names green (up) or red (down) for 2+ consecutive trading days — a
+  // persistent breadth tilt, not a one-day pop. Computed server-side into
+  // heatmap.json's sectorRotation block (scripts/build.mjs computeSectorRotation
+  // + the hourly refresh). Stays hidden when nothing is rotating.
+  function renderHeatmapRotation(){
+    var host = $('heatmap-rotation');
+    if (!host) return;
+    var rot = heatmapState.data && heatmapState.data.sectorRotation;
+    var alerts = (rot && Array.isArray(rot.alerts)) ? rot.alerts : [];
+    if (!alerts.length){
+      host.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+    host.hidden = false;
+    var items = alerts.map(function(a){
+      var green = a.direction === 'green';
+      var pct = (a.pct != null && isFinite(a.pct)) ? Math.round(a.pct * 100) + '%' : '';
+      var since = a.since ? ' since ' + a.since : '';
+      var tip = a.sector + ': ' + pct + ' ' + (green ? 'green' : 'red') +
+        ' for ' + a.days + ' consecutive trading days' + since;
+      return '<span class="heatmap-rotation-chip ' + (green ? 'is-green' : 'is-red') + '" title="' + escapeHtml(tip) + '">' +
+        '<span class="heatmap-rotation-arrow" aria-hidden="true">' + (green ? '▲' : '▼') + '</span>' +
+        '<span class="heatmap-rotation-sector">' + escapeHtml(a.sector) + '</span>' +
+        '<span class="heatmap-rotation-detail">' + pct + ' ' + (green ? 'green' : 'red') + ' · ' + a.days + 'd</span>' +
+      '</span>';
+    }).join('');
+    host.innerHTML =
+      '<div class="heatmap-rotation-head">' +
+        '<span class="heatmap-rotation-icon" aria-hidden="true">↻</span>' +
+        '<span class="heatmap-rotation-title">Sector rotation</span>' +
+        '<span class="heatmap-rotation-sub">≥70% one-way for 2+ days</span>' +
+      '</div>' +
+      '<div class="heatmap-rotation-list">' + items + '</div>';
   }
 
   // AI-generated end-of-day recap. Only painted after the close once the
