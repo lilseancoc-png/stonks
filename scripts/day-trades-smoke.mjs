@@ -49,6 +49,21 @@ ok("candidate: quiet (sub-1.3x) volume is rejected", dtBuildCandidate(rowQuiet, 
 const rowHotNoDir = { symbol: "DDD", spot: 100, bucketHits: [{ volRatio: 2.0, priceMovePct: 0.0, srBreak: null }], gex: null };
 ok("candidate: hot but directionless is rejected", dtBuildCandidate(rowHotNoDir, { spot: 100, dayHi: 100.2, dayLo: 99.8, changePct: 0.0 }) === null);
 
+// Anti-chase: a fresh momentum read (no confirmed break) into an over-extended
+// aligned day move is rejected (buying the top); the same setup within the cap
+// still trades; a confirmed break earns the looser leash.
+const rowChase = { symbol: "EEE", spot: 100, bucketHits: [{ volRatio: 2.1, priceMovePct: 5.8, srBreak: null }], gex: { net: -1, callWall: { strike: 105 }, putWall: { strike: 98 }, flip: 99 } };
+ok("candidate: extended momentum chase (+5.8%, no break) is rejected", dtBuildCandidate(rowChase, { spot: 100, dayHi: 100.2, dayLo: 94.4, changePct: 5.8 }) === null);
+const rowMomOK = { symbol: "FFF", spot: 100, bucketHits: [{ volRatio: 2.1, priceMovePct: 2.5, srBreak: null }], gex: { net: -1, callWall: { strike: 105 }, putWall: { strike: 98 }, flip: 99 } };
+ok("candidate: in-band momentum (+2.5%, no break) still trades", dtBuildCandidate(rowMomOK, { spot: 100, dayHi: 100.2, dayLo: 97.4, changePct: 2.5 }) !== null);
+const rowBreakHot = { symbol: "GGG", spot: 100, bucketHits: [{ volRatio: 2.4, priceMovePct: 6.0, srBreak: { type: "upper", conviction: "Very High", level: 95 } }], gex: { net: -1, callWall: { strike: 108 }, putWall: { strike: 96 }, flip: 97 } };
+ok("candidate: confirmed break tolerates a bigger move (+6%) than momentum", dtBuildCandidate(rowBreakHot, { spot: 100, dayHi: 100.5, dayLo: 94, changePct: 6.0 }) !== null);
+// A counter-move long (confirmed bullish break, but RED on the day) is a dip
+// entry, not a chase — the cap must not fire on it.
+const rowDipBuy = { symbol: "HHH", spot: 100, bucketHits: [{ volRatio: 1.8, priceMovePct: -5.0, srBreak: { type: "upper", conviction: "Very High", level: 99 } }], gex: null };
+const dipCand = dtBuildCandidate(rowDipBuy, { spot: 100, dayHi: 106, dayLo: 99.5, changePct: -5.0 });
+ok("candidate: counter-move dip-buy (long, -5% day) is NOT chase-rejected", dipCand && dipCand.side === "long");
+
 // --- 4. take-profit / stop-loss resolution -------------------------------
 const longT = { side: "long", entry: 100, stop: 98, target: 104, openDayHi: 100.5, openDayLo: 99.5 };
 ok("hit: long reaches target", dtEvaluateHit(longT, 104.2, 104.2, 99.9) === "target");
