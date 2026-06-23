@@ -44,6 +44,10 @@ const UNUSUAL_EXCLUSIVE = [
   "volume-flags.json",
   "volume-history.json",
   "flow-explanations.json",
+  // The LIVE Day Trades roster + its profit/loss history, maintained by the
+  // hourly scan as positions hit their take-profit / stop-loss.
+  "day-trades.json",
+  "day-trades-history.json",
 ];
 const OI_EXCLUSIVE = ["oi-tracker.json", "oi-history.json"];
 // Co-owned read-modify-write files (each producer pulls latest, applies its

@@ -13779,6 +13779,163 @@ html::-webkit-scrollbar-thumb:hover {
   .hot-sum-sectors { margin-left: 0; flex-basis: 100%; }
 }
 
+/* ---- Live Day Trades roster (active trades + P/L history) --------------- */
+/* Active / History sub-view toggle — reuses .vol-pill for the buttons. */
+.hot-dt-tabs { display: flex; gap: var(--s-2); margin: var(--s-3) 0 var(--s-2); }
+/* Stat-chip rollup shared by the active summary + the history results. */
+.hot-dt-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: var(--s-2) 0 var(--s-3);
+  font-variant-numeric: tabular-nums;
+}
+.hot-dt-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-size: 0.84em;
+  color: var(--text-2);
+}
+.hot-dt-chip b { font-weight: 700; color: var(--text); }
+.hot-dt-chip.is-up { color: var(--pos); background: var(--pos-soft); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); }
+.hot-dt-chip.is-up b { color: var(--pos); }
+.hot-dt-chip.is-dn { color: var(--neg); background: var(--neg-soft); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); }
+.hot-dt-chip.is-dn b { color: var(--neg); }
+.hot-active { display: grid; gap: var(--s-3); }
+.hot-dt-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.hot-dt-card.is-bull { border-left-color: var(--pos); }
+.hot-dt-card.is-bear { border-left-color: var(--neg); }
+.hot-dt-card.is-hit { box-shadow: 0 0 0 1px var(--accent) inset; }
+.hot-dt-card.hit-target { box-shadow: 0 0 0 1px var(--pos) inset; }
+.hot-dt-card.hit-stop { box-shadow: 0 0 0 1px var(--neg) inset; }
+.hot-dt-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.hot-dt-sym {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  font-size: 1.05em;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  cursor: pointer;
+}
+.hot-dt-sym:hover { color: var(--accent); text-decoration: underline; }
+.hot-dt-sym:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
+.hot-dt-side {
+  flex: none;
+  font-size: 0.66em;
+  font-weight: 800;
+  letter-spacing: .06em;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+.hot-dt-side.is-bull { color: var(--pos); background: var(--pos-soft); }
+.hot-dt-side.is-bear { color: var(--neg); background: var(--neg-soft); }
+.hot-dt-kind {
+  flex: none;
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  background: var(--surface-3);
+}
+.hot-dt-kind-swing { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.hot-dt-spot { color: var(--text-2); }
+.hot-dt-pnl { margin-left: auto; font-weight: 700; }
+.hot-dt-pnl.is-up { color: var(--pos); }
+.hot-dt-pnl.is-dn { color: var(--neg); }
+.hot-dt-r { font-size: 0.82em; font-weight: 600; color: var(--text-3); }
+.hot-dt-hit-row { display: flex; }
+.hot-dt-hit {
+  font-size: 0.82em;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+}
+.hot-dt-hit.is-win { color: var(--pos); background: var(--pos-soft); }
+.hot-dt-hit.is-loss { color: var(--neg); background: var(--neg-soft); }
+/* Progress bar: centre = entry, right half toward target, left half toward stop. */
+.hot-dt-bar { position: relative; height: 5px; background: var(--surface-3); border-radius: var(--r-pill); overflow: hidden; }
+.hot-dt-bar-base { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border-strong); z-index: 1; }
+.hot-dt-bar-fill { position: absolute; top: 0; bottom: 0; border-radius: var(--r-pill); }
+.hot-dt-bar-fill.is-up { background: var(--pos); }
+.hot-dt-bar-fill.is-dn { background: var(--neg); }
+.hot-dt-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.hot-dt-leg b { color: var(--text); font-weight: 700; }
+.hot-dt-leg.is-up b { color: var(--pos); }
+.hot-dt-leg.is-dn b { color: var(--neg); }
+.hot-dt-basis { font-size: 0.82em; color: var(--text-3); }
+/* The collapsible live-volume leaders (idea source). */
+.hot-volboard { margin-top: var(--s-4); border-top: 1px solid var(--border); padding-top: var(--s-2); }
+.hot-volboard > summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: var(--s-2) 0;
+}
+.hot-volboard > summary:hover { color: var(--text); }
+/* History rows. */
+.hot-history-list { display: grid; gap: 2px; font-variant-numeric: tabular-nums; }
+.hot-hist-head, .hot-hist-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.4fr) 0.9fr 1.1fr 0.9fr 0.7fr;
+  gap: var(--s-2);
+  align-items: center;
+  padding: var(--s-2) var(--s-3);
+  font-size: 0.86em;
+}
+.hot-hist-head { color: var(--text-3); font-size: 0.74em; text-transform: uppercase; letter-spacing: .05em; }
+.hot-hist-row { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); }
+.hot-hist-row.is-win { border-left: 3px solid var(--pos); }
+.hot-hist-row.is-loss { border-left: 3px solid var(--neg); }
+.hot-hist-trade { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.hot-hist-out { font-weight: 700; font-size: 0.92em; }
+.hot-hist-out.is-win { color: var(--pos); }
+.hot-hist-out.is-loss { color: var(--neg); }
+.hot-hist-px { color: var(--text-2); }
+.hot-hist-pnl { font-weight: 700; }
+.hot-hist-pnl.is-up { color: var(--pos); }
+.hot-hist-pnl.is-dn { color: var(--neg); }
+.hot-hist-when { color: var(--text-3); }
+@media (max-width: 640px) {
+  .hot-dt-pnl { flex-basis: 100%; margin-left: 0; }
+  .hot-hist-head { display: none; }
+  .hot-hist-row { grid-template-columns: 1fr 1fr; row-gap: 4px; }
+  .hot-hist-when { text-align: right; }
+}
+
 /* ---- Strategies tab ----------------------------------------------------- */
 .strat-card { padding: var(--s-4); }
 .strat-section-title {

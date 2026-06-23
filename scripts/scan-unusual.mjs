@@ -30,7 +30,7 @@
 // 14:00-21:00 UTC Mon-Fri.
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
 import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState } from "./build.mjs";
@@ -412,6 +412,11 @@ async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
   // Yahoo round-trip per ticker.
   const cumVol = first.quote?.regularMarketVolume ?? null;
   const prevClose = first.quote?.regularMarketPreviousClose ?? null;
+  // Live day range + % move — used by the Day Trades engine to set/track stops
+  // and targets and to catch an intra-hour take-profit / stop-loss touch.
+  const dayHigh = first.quote?.regularMarketDayHigh ?? null;
+  const dayLow = first.quote?.regularMarketDayLow ?? null;
+  const changePct = first.quote?.regularMarketChangePercent ?? null;
   const minK = spot * (1 - STRIKE_BAND);
   const maxK = spot * (1 + STRIKE_BAND);
   const inBand = (c) => c.strike != null && c.strike >= minK && c.strike <= maxK;
@@ -456,7 +461,7 @@ async function scanTicker(symbol, scannedAt, prevVolLookup, nowMs) {
 
   const hits = candidates.filter((c) => c.flagged);
   hits.sort((a, b) => (b.deltaVol ?? 0) - (a.deltaVol ?? 0));
-  return { symbol, spot, marketState, cumVol, prevClose, hits, candidates };
+  return { symbol, spot, marketState, cumVol, prevClose, dayHigh, dayLow, changePct, hits, candidates };
 }
 
 // ---------------------------------------------------------------------------
@@ -1134,6 +1139,360 @@ async function runVolumePass({
   console.log(
     `wrote ${historyPath} — ${history.snapshots.length}/${VOLUME_HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"}, ${snapshotTickers.length} tickers in this snapshot`,
   );
+  // Hand the freshly-built flag rows (pace, S/R breaks, dealer gamma) back to
+  // the caller so the Day Trades engine can mine them for new ideas.
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
+// LIVE Day Trades engine — volume-driven swing/scalp roster + P/L history
+// ---------------------------------------------------------------------------
+// The "Day trades" tab (the former Hot stocks board) is a LIVE, volume-driven
+// list of concrete trade ideas. Every hourly scan:
+//   1. marks each OPEN trade to the live tape and CLOSES any that hit their
+//      take-profit or stop-loss (or timed out), moving it to the P/L history
+//      with the realized % and R result — "if it hits TP/SL it disappears and
+//      we take note of it";
+//   2. tops the roster back up with fresh ideas off the heaviest-volume names
+//      that have a clean directional read and a tradeable risk/reward.
+// Levels are FIXED at entry. The browser polls /api/quotes every 30s for the
+// live P/L and flags a TP/SL touch the instant it happens; this hourly pass is
+// what makes the close durable. Trades are on the UNDERLYING (no options model)
+// so P/L is the honest stock move, expressed in % and in R multiples. A swing
+// rides a confirmed 20D S/R break for a few sessions; a scalp is a tight
+// intraday momentum trade that closes by the bell.
+const DAY_TRADES_FILE = "day-trades.json";
+const DAY_TRADES_HISTORY_FILE = "day-trades-history.json";
+const DT_MAX_ACTIVE = 10;            // most open ideas at once
+const DT_HOT_MIN = 1.3;              // must trade >= 1.3x the volume expected by now
+const DT_DIR_MIN = 1.0;              // minimum directional conviction to take a side
+const DT_SWING_MAX_HOLD_DAYS = 3;    // swings time-stop after 3 trading days
+const DT_HISTORY_MAX = 120;          // closed trades retained
+// Stop/target risk bands as a fraction of entry, per trade kind.
+const DT_SCALP_MIN_RISK = 0.003, DT_SCALP_MAX_RISK = 0.015;
+const DT_SWING_MIN_RISK = 0.010, DT_SWING_MAX_RISK = 0.060;
+
+const dtR2 = (x) => Math.round(x * 100) / 100;
+const dtR1 = (x) => Math.round(x * 10) / 10;
+const dtNum = (x) => (x != null && isFinite(x)) ? Number(x) : null;
+function dtConvWeight(c) {
+  return c === "Very High" ? 2.5 : c === "High" ? 2 : c === "Medium" ? 1.2 : c === "Low" ? 0.5 : 0;
+}
+// Highest-conviction CONFIRMED S/R break across a row's bucket hits (ties → the
+// later bucket, since bucketHits is chronological).
+function dtLatestSrBreak(row) {
+  let best = null, bestW = -1;
+  for (const h of row.bucketHits || []) {
+    const sr = h?.srBreak;
+    if (!sr || !sr.conviction || sr.conviction === "None") continue;
+    const w = dtConvWeight(sr.conviction);
+    if (w >= bestW) { best = sr; bestW = w; }
+  }
+  return best;
+}
+function dtMaxVolRatio(row) {
+  let best = 0;
+  for (const h of row.bucketHits || []) if (h?.volRatio != null && h.volRatio > best) best = h.volRatio;
+  if (row.eod?.ratio != null && row.eod.ratio > best) best = row.eod.ratio;
+  return best;
+}
+function dtLatestMovePct(row) {
+  let mv = null;
+  for (const h of row.bucketHits || []) if (h?.priceMovePct != null) mv = h.priceMovePct;
+  return mv;
+}
+// Directional conviction: a confirmed 20D break (weighted by conviction) +
+// the day's move + a short-gamma amplifier. Sign = side, |value| = strength.
+function dtDirection(row, changePct) {
+  let dir = 0;
+  const sr = dtLatestSrBreak(row);
+  if (sr) dir += (sr.type === "upper" ? 1 : -1) * dtConvWeight(sr.conviction);
+  const mv = (changePct != null && isFinite(changePct)) ? changePct : dtLatestMovePct(row);
+  if (mv != null && isFinite(mv)) dir += Math.max(-2, Math.min(2, mv / 1.0)) * 0.7;
+  const g = row.gex;
+  if (g && g.net != null && isFinite(g.net) && g.net < 0 && mv != null && isFinite(mv)) dir += (mv >= 0 ? 0.4 : -0.4);
+  return dir;
+}
+// Build an entry/stop/target plan from fixed structure, mirroring the browser's
+// hotTradePlan. Scalps use intraday + dealer-gamma levels in a tight band;
+// swings widen the band and add the broken 20D S/R level.
+function dtBuildPlan(side, spot, levels, kind) {
+  if (!(spot > 0)) return null;
+  const isScalp = kind === "scalp";
+  const minRisk = spot * (isScalp ? DT_SCALP_MIN_RISK : DT_SWING_MIN_RISK);
+  const maxRisk = spot * (isScalp ? DT_SCALP_MAX_RISK : DT_SWING_MAX_RISK);
+  const padFrac = isScalp ? 0.008 : 0.02;
+  const entry = spot;
+  let stop, stopBasis, target, tgtBasis, risk;
+  if (side === "long") {
+    const sup = [];
+    if (levels.dayLo != null && levels.dayLo < spot) sup.push({ v: levels.dayLo, b: "intraday low" });
+    if (levels.putWall != null && levels.putWall < spot) sup.push({ v: levels.putWall, b: "put wall" });
+    if (levels.flip != null && levels.flip < spot) sup.push({ v: levels.flip, b: "gamma flip" });
+    if (!isScalp && levels.srLevel != null && levels.srLevel < spot) sup.push({ v: levels.srLevel, b: "20D level" });
+    sup.sort((a, b) => b.v - a.v);
+    const s = sup[0] || null;
+    if (s && (spot - s.v) >= minRisk && (spot - s.v) <= maxRisk) { stop = s.v; stopBasis = s.b; }
+    else { const cap = (s && (spot - s.v) > maxRisk) ? maxRisk : Math.max(minRisk, spot * padFrac); stop = spot - cap; stopBasis = s ? `capped below ${s.b}` : "volatility band"; }
+    risk = entry - stop;
+    const res = [];
+    if (levels.callWall != null && levels.callWall > spot) res.push({ v: levels.callWall, b: "call wall" });
+    if (levels.dayHi != null && levels.dayHi > spot) res.push({ v: levels.dayHi, b: "day high" });
+    if (!isScalp && levels.srLevel != null && levels.srLevel > spot) res.push({ v: levels.srLevel, b: "20D level" });
+    res.sort((a, b) => a.v - b.v);
+    const t = res.find((x) => (x.v - spot) >= risk);
+    if (t) { target = t.v; tgtBasis = t.b; } else { target = spot + 2 * risk; tgtBasis = "2R measured move"; }
+  } else {
+    const res = [];
+    if (levels.dayHi != null && levels.dayHi > spot) res.push({ v: levels.dayHi, b: "intraday high" });
+    if (levels.callWall != null && levels.callWall > spot) res.push({ v: levels.callWall, b: "call wall" });
+    if (levels.flip != null && levels.flip > spot) res.push({ v: levels.flip, b: "gamma flip" });
+    if (!isScalp && levels.srLevel != null && levels.srLevel > spot) res.push({ v: levels.srLevel, b: "20D level" });
+    res.sort((a, b) => a.v - b.v);
+    const r0 = res[0] || null;
+    if (r0 && (r0.v - spot) >= minRisk && (r0.v - spot) <= maxRisk) { stop = r0.v; stopBasis = r0.b; }
+    else { const cap = (r0 && (r0.v - spot) > maxRisk) ? maxRisk : Math.max(minRisk, spot * padFrac); stop = spot + cap; stopBasis = r0 ? `capped above ${r0.b}` : "volatility band"; }
+    risk = stop - entry;
+    const sup = [];
+    if (levels.putWall != null && levels.putWall < spot) sup.push({ v: levels.putWall, b: "put wall" });
+    if (levels.dayLo != null && levels.dayLo < spot) sup.push({ v: levels.dayLo, b: "day low" });
+    if (!isScalp && levels.srLevel != null && levels.srLevel < spot) sup.push({ v: levels.srLevel, b: "20D level" });
+    sup.sort((a, b) => b.v - a.v);
+    const t = sup.find((x) => (spot - x.v) >= risk);
+    if (t) { target = t.v; tgtBasis = t.b; } else { target = spot - 2 * risk; tgtBasis = "2R measured move"; }
+  }
+  if (!(risk > 0)) return null;
+  const reward = Math.abs(target - entry);
+  return {
+    entry: dtR2(entry), stop: dtR2(stop), target: dtR2(target),
+    rr: Math.round((reward / risk) * 100) / 100,
+    riskPct: Math.round((risk / entry) * 1000) / 10,
+    rewardPct: Math.round((reward / entry) * 1000) / 10,
+    stopBasis, tgtBasis,
+  };
+}
+// Turn one volume-flag row + its live quote into a tradeable candidate, or null.
+function dtBuildCandidate(row, quote) {
+  const spot = (quote && quote.spot > 0) ? quote.spot : (row.spot > 0 ? row.spot : null);
+  if (!(spot > 0)) return null;
+  const heat = dtMaxVolRatio(row);
+  if (!(heat >= DT_HOT_MIN)) return null;
+  const changePct = quote?.changePct ?? null;
+  const dir = dtDirection(row, changePct);
+  if (Math.abs(dir) < DT_DIR_MIN) return null;
+  const side = dir >= 0 ? "long" : "short";
+  const sr = dtLatestSrBreak(row);
+  const kind = (sr && dtConvWeight(sr.conviction) >= 1.2) ? "swing" : "scalp";
+  const g = row.gex || null;
+  const levels = {
+    dayHi: dtNum(quote?.dayHi), dayLo: dtNum(quote?.dayLo),
+    callWall: g && g.callWall ? dtNum(g.callWall.strike) : null,
+    putWall: g && g.putWall ? dtNum(g.putWall.strike) : null,
+    flip: dtNum(g?.flip),
+    srLevel: sr ? dtNum(sr.level) : null,
+  };
+  const plan = dtBuildPlan(side, spot, levels, kind);
+  if (!plan || !(plan.rr >= 1)) return null;   // require at least 1:1 reward:risk
+  const dirStr = side === "long" ? "bullish" : "bearish";
+  const srStr = sr ? ` · ${sr.type === "upper" ? "resistance" : "support"} break (${sr.conviction})` : "";
+  const mvStr = (changePct != null && isFinite(changePct)) ? ` · ${changePct >= 0 ? "+" : ""}${changePct.toFixed(1)}% today` : "";
+  const basis = `${heat.toFixed(1)}× expected volume · ${dirStr}${srStr}${mvStr}`;
+  return {
+    sym: row.symbol, side, kind, plan,
+    heat: Math.round(heat * 100) / 100,
+    rank: heat * Math.abs(dir),
+    basis,
+    openDayHi: dtNum(quote?.dayHi), openDayLo: dtNum(quote?.dayLo),
+  };
+}
+function dtTradingDaysBetween(fromKey, toKey) {
+  if (!fromKey || !toKey) return 0;
+  const from = new Date(fromKey + "T12:00:00Z");
+  const to = new Date(toKey + "T12:00:00Z");
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 0;
+  let n = 0;
+  const d = new Date(from);
+  while (d < to) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const dow = d.getUTCDay();
+    if (dow >= 1 && dow <= 5) n++;
+  }
+  return n;
+}
+// A touched-level check using the live spot AND the day's post-open extreme
+// (a new day high/low after entry necessarily happened during the trade, so it
+// catches an intra-hour wick the hourly spot read would miss). Stop wins a tie.
+function dtEvaluateHit(t, liveSpot, hiSince, loSince) {
+  if (t.side === "long") {
+    const hitStop = liveSpot <= t.stop || loSince <= t.stop;
+    const hitTarget = liveSpot >= t.target || hiSince >= t.target;
+    if (hitStop) return "stop";
+    if (hitTarget) return "target";
+  } else {
+    const hitStop = liveSpot >= t.stop || hiSince >= t.stop;
+    const hitTarget = liveSpot <= t.target || loSince <= t.target;
+    if (hitStop) return "stop";
+    if (hitTarget) return "target";
+  }
+  return null;
+}
+function dtCloseTrade(t, outcome, exitPrice, scannedAt, todayKey) {
+  const sign = t.side === "long" ? 1 : -1;
+  const pnlPct = dtR2(((exitPrice - t.entry) / t.entry) * 100 * sign);
+  const riskPct = (t.riskPct && t.riskPct > 0) ? t.riskPct : (Math.abs(t.entry - t.stop) / t.entry) * 100;
+  const pnlR = riskPct > 0 ? dtR2(pnlPct / riskPct) : null;
+  const win = outcome === "target" || (outcome === "expired" && pnlPct > 0);
+  return {
+    id: t.id, sym: t.sym, side: t.side, kind: t.kind,
+    entry: t.entry, stop: t.stop, target: t.target,
+    openedAt: t.openedAt, openEtDate: t.openEtDate,
+    closedAt: scannedAt, closedEtDate: todayKey,
+    exitPrice: dtR2(exitPrice), outcome, win, pnlPct, pnlR,
+    basis: t.basis, pace: t.pace,
+  };
+}
+function dtComputeStats(closed) {
+  const decided = closed.length;
+  let wins = 0, losses = 0, pnlSum = 0, rSum = 0, rN = 0, scalps = 0, swings = 0, tHit = 0, sHit = 0, exp = 0;
+  for (const c of closed) {
+    if (c.win) wins++; else losses++;
+    if (c.pnlPct != null) pnlSum += c.pnlPct;
+    if (c.pnlR != null) { rSum += c.pnlR; rN++; }
+    if (c.kind === "scalp") scalps++; else if (c.kind === "swing") swings++;
+    if (c.outcome === "target") tHit++; else if (c.outcome === "stop") sHit++; else exp++;
+  }
+  return {
+    decided, wins, losses,
+    winRate: decided > 0 ? Math.round((wins / decided) * 1000) / 1000 : null,
+    avgPnlPct: decided > 0 ? Math.round((pnlSum / decided) * 100) / 100 : null,
+    avgR: rN > 0 ? Math.round((rSum / rN) * 100) / 100 : null,
+    scalps, swings, targetHits: tHit, stopHits: sHit, expired: exp,
+  };
+}
+async function loadDayTrades() {
+  try { const raw = await readFile(resolve(DATA_DIR, DAY_TRADES_FILE), "utf8"); const p = JSON.parse(raw); if (p && Array.isArray(p.trades)) return p; } catch {}
+  return { trades: [] };
+}
+async function loadDayTradesHistory() {
+  try { const raw = await readFile(resolve(DATA_DIR, DAY_TRADES_HISTORY_FILE), "utf8"); const p = JSON.parse(raw); if (p && Array.isArray(p.closed)) return p; } catch {}
+  return { closed: [], stats: dtComputeStats([]) };
+}
+
+async function runDayTradePass({ volRows, quotesMap, scannedAt, marketState, nowDate }) {
+  const todayKey = volEtDateKey(nowDate);
+  const etMin = etMinutesSinceOpen(nowDate);
+  const isRegular = marketState === "REGULAR";
+  const isFinalScan = etMin != null && etMin >= SESSION_CLOSE_MIN;
+  const inSession = isRegular && etMin != null && etMin >= 0 && etMin < SESSION_CLOSE_MIN;
+
+  const prior = await loadDayTrades();
+  const histState = await loadDayTradesHistory();
+  let active = Array.isArray(prior?.trades) ? prior.trades.slice() : [];
+  const closedThisRun = [];
+  const closedTodaySyms = new Set(
+    (histState.closed || []).filter((c) => c.closedEtDate === todayKey).map((c) => c.sym),
+  );
+
+  // 1. Mark every open trade to the live tape; close on TP/SL or expiry.
+  const stillActive = [];
+  for (const t of active) {
+    const q = quotesMap.get(t.sym) || null;
+    const liveSpot = (q && q.spot > 0) ? q.spot : (t.lastSpot ?? null);
+    let hiSince = t.hiSinceOpen ?? t.openSpot ?? t.entry;
+    let loSince = t.loSinceOpen ?? t.openSpot ?? t.entry;
+    if (liveSpot != null) { hiSince = Math.max(hiSince, liveSpot); loSince = Math.min(loSince, liveSpot); }
+    if (isRegular && q) {
+      // Only fold in a NEW day extreme (beyond the day's range at entry) so a
+      // pre-entry high/low can't false-trigger the trade.
+      if (q.dayHi != null && t.openDayHi != null && q.dayHi > t.openDayHi) hiSince = Math.max(hiSince, q.dayHi);
+      if (q.dayLo != null && t.openDayLo != null && q.dayLo < t.openDayLo) loSince = Math.min(loSince, q.dayLo);
+    }
+    t.hiSinceOpen = dtR2(hiSince);
+    t.loSinceOpen = dtR2(loSince);
+    if (liveSpot != null) { t.lastSpot = dtR2(liveSpot); t.lastAt = scannedAt; }
+    const favSpot = t.side === "long" ? hiSince : loSince;
+    const advSpot = t.side === "long" ? loSince : hiSince;
+    t.mfePct = dtR1(((favSpot - t.entry) / t.entry) * 100 * (t.side === "long" ? 1 : -1));
+    t.maePct = dtR1(((advSpot - t.entry) / t.entry) * 100 * (t.side === "long" ? 1 : -1));
+
+    let outcome = null, exitPrice = null;
+    if (isRegular && liveSpot != null) {
+      const hit = dtEvaluateHit(t, liveSpot, hiSince, loSince);
+      if (hit) { outcome = hit; exitPrice = hit === "stop" ? t.stop : t.target; }
+    }
+    if (!outcome) {
+      const isScalp = t.kind === "scalp";
+      const expired = isScalp
+        ? (t.openEtDate !== todayKey || isFinalScan)
+        : (dtTradingDaysBetween(t.openEtDate, todayKey) >= DT_SWING_MAX_HOLD_DAYS);
+      if (expired) { outcome = "expired"; exitPrice = (liveSpot != null) ? liveSpot : (t.lastSpot ?? t.entry); }
+    }
+    if (outcome) closedThisRun.push(dtCloseTrade(t, outcome, exitPrice, scannedAt, todayKey));
+    else stillActive.push(t);
+  }
+  active = stillActive;
+  for (const c of closedThisRun) closedTodaySyms.add(c.sym);
+
+  // 2. Top the roster back up off the heaviest-volume names (live session only).
+  if (inSession) {
+    const haveSyms = new Set(active.map((t) => t.sym));
+    const candidates = [];
+    for (const row of (volRows || [])) {
+      if (!row || !row.symbol) continue;
+      if (haveSyms.has(row.symbol) || closedTodaySyms.has(row.symbol)) continue;
+      const cand = dtBuildCandidate(row, quotesMap.get(row.symbol) || null);
+      if (cand) candidates.push(cand);
+    }
+    candidates.sort((a, b) => b.rank - a.rank);
+    for (const cand of candidates) {
+      if (active.length >= DT_MAX_ACTIVE) break;
+      const openedMs = Date.now();
+      active.push({
+        id: `${cand.sym}-${openedMs}`,
+        sym: cand.sym, side: cand.side, kind: cand.kind,
+        entry: cand.plan.entry, stop: cand.plan.stop, target: cand.plan.target,
+        rr: cand.plan.rr, riskPct: cand.plan.riskPct, rewardPct: cand.plan.rewardPct,
+        stopBasis: cand.plan.stopBasis, tgtBasis: cand.plan.tgtBasis,
+        openedAt: scannedAt, openEtDate: todayKey,
+        openSpot: cand.plan.entry,
+        openDayHi: cand.openDayHi, openDayLo: cand.openDayLo,
+        hiSinceOpen: cand.plan.entry, loSinceOpen: cand.plan.entry,
+        lastSpot: cand.plan.entry, lastAt: scannedAt,
+        mfePct: 0, maePct: 0,
+        basis: cand.basis, pace: cand.heat,
+      });
+      haveSyms.add(cand.sym);
+    }
+  }
+
+  // 3. Persist the active roster + the rolling P/L history.
+  await mkdir(DATA_DIR, { recursive: true });
+  const closed = [...closedThisRun, ...(histState.closed || [])].slice(0, DT_HISTORY_MAX);
+  const stats = dtComputeStats(closed);
+  await writeFile(
+    resolve(DATA_DIR, DAY_TRADES_HISTORY_FILE),
+    JSON.stringify({ updatedAt: scannedAt, etDate: todayKey, stats, closed }),
+    "utf8",
+  );
+  let longN = 0, shortN = 0, scalpN = 0, swingN = 0;
+  for (const t of active) {
+    if (t.side === "short") shortN++; else longN++;
+    if (t.kind === "swing") swingN++; else scalpN++;
+  }
+  await writeFile(
+    resolve(DATA_DIR, DAY_TRADES_FILE),
+    JSON.stringify({
+      scannedAt, etDate: todayKey, etMin, marketState: marketState || null,
+      summary: { count: active.length, long: longN, short: shortN, scalps: scalpN, swings: swingN },
+      trades: active,
+    }),
+    "utf8",
+  );
+  console.log(
+    `wrote data/${DAY_TRADES_FILE} — ${active.length} active day trade${active.length === 1 ? "" : "s"} ` +
+      `(${longN}L/${shortN}S, ${scalpN} scalp/${swingN} swing), ${closedThisRun.length} closed this run, ${closed.length} in history` +
+      (stats.winRate != null ? ` (${Math.round(stats.winRate * 100)}% win rate)` : ""),
+  );
 }
 
 async function main() {
@@ -1201,6 +1560,9 @@ async function main() {
             spot: result.spot,
             cumVol: result.cumVol,
             prevClose: result.prevClose,
+            dayHigh: result.dayHigh,
+            dayLow: result.dayLow,
+            changePct: result.changePct,
           });
           for (const c of result.candidates) {
             if ((c.vol ?? 0) >= HISTORY_MIN_VOL) allCandidates.push(c);
@@ -1379,8 +1741,9 @@ async function main() {
   // the next scan to compute hour-over-hour deltas). Independent of the
   // unusual-options-flow output — never throws back into the main flow so
   // one bad ticker's per-ticker JSON read can't kill the whole scan.
+  let volRows = null;
   try {
-    await runVolumePass({
+    volRows = await runVolumePass({
       perTickerResults: volumeScanResults,
       scannedAt,
       marketState: firstMarketState,
@@ -1388,6 +1751,28 @@ async function main() {
     });
   } catch (err) {
     console.log(`volume pass failed: ${err.message}`);
+  }
+
+  // LIVE Day Trades roster — mark open positions to the tape, close any that
+  // hit their take-profit / stop-loss into the P/L history, then top up off the
+  // volume board. Best-effort: a failure here must never blank the scan's other
+  // outputs (a missed volume pass still lets open trades be managed/closed off
+  // the live quotes). Writes data/day-trades.json + data/day-trades-history.json.
+  try {
+    const quotesMap = new Map();
+    for (const r of volumeScanResults) {
+      if (!r || !r.symbol) continue;
+      quotesMap.set(r.symbol, { spot: r.spot, dayHi: r.dayHigh, dayLo: r.dayLow, changePct: r.changePct });
+    }
+    await runDayTradePass({
+      volRows: volRows || [],
+      quotesMap,
+      scannedAt,
+      marketState: firstMarketState,
+      nowDate: new Date(scannedAt),
+    });
+  } catch (err) {
+    console.log(`day-trades pass failed: ${err.message}`);
   }
 
   await writeAiUsageState();
@@ -1417,7 +1802,19 @@ function stripCandidate(c) {
   };
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Pure helpers exported for the offline day-trades smoke test (scripts/
+// day-trades-smoke.mjs). Importing this module must NOT trigger a live scan —
+// only run main() when invoked directly (mirrors build.mjs's entry guard).
+export {
+  dtBuildPlan, dtBuildCandidate, dtDirection, dtEvaluateHit, dtCloseTrade,
+  dtComputeStats, dtTradingDaysBetween,
+};
+
+const isEntryPoint = process.argv[1]
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isEntryPoint) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

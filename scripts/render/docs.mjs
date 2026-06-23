@@ -1072,7 +1072,7 @@ export const DOC_PAGES = {
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
-            <li><b>Hot stocks</b> — live pace board with buy/sell/wait verdicts</li>
+            <li><b>Day trades</b> — live volume-driven swing/scalp trades, tracked to TP/SL with a P/L history</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
           </ul>
           <div class="cmp-cta">
@@ -1183,8 +1183,8 @@ export const DOC_PAGES = {
           <p class="feat-desc">The dealer net-gamma (GEX) matrix per strike, the gamma flip line, and the call/put walls — where moves get pinned or amplified.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Hot stocks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">What's trading heaviest right now — live volume pace, sector context, dealer gamma, flow skew, and a trend-aligned buy-calls / buy-puts / wait verdict per name. Each actionable name carries an intraday trade plan: entry, stop, target, and risk:reward built from the live day range and dealer-gamma walls.</p>
+          <div class="feat-top"><span class="feat-name">Day trades</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A live, volume-driven roster of concrete <b>swing</b> and <b>scalp</b> ideas mined every hour from the heaviest-volume names with a clean directional read. Each ships a fixed entry, take-profit, and stop-loss; the board tracks every open trade live (P/L in % and R) and the instant price touches the take-profit or stop the trade is filed into the history as a win or loss — with a running win rate, average P/L, and average R. Below, the live volume leaders the ideas come from.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>

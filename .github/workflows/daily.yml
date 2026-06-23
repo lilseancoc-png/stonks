@@ -160,7 +160,7 @@ jobs:
           # itself writes both (writeHeatmapFile / writeAiUsageState), so
           # restoring the remote copies would throw away this run's heatmap
           # rebuild and its recorded Gemini spend on every build.
-          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/flow-explanations.json data/oi-tracker.json data/oi-history.json"
+          SCANNER_FILES="data/unusual.json data/unusual-history.json data/unusual-log.json data/volume-flags.json data/volume-history.json data/flow-explanations.json data/day-trades.json data/day-trades-history.json data/oi-tracker.json data/oi-history.json"
           for attempt in 1 2 3; do
             git fetch origin "$BRANCH"
             git reset --mixed "origin/$BRANCH"
