@@ -29,16 +29,17 @@
 
 import { yahooFinance, withYahooTimeout } from "../lib/yahoo.mjs";
 
-// Mirrors the tile set in fetchMacroBackdrop (scripts/build.mjs). ^UST2YR is
-// sometimes restricted on Yahoo — a missing leg comes back null and the
-// browser keeps that tile on its baked value. CL=F (crude) + GC=F (gold) feed
-// the picks market-tape commodity axis only.
+// Mirrors the tile set in fetchMacroBackdrop (scripts/build.mjs). The 2Y has no
+// reliable Yahoo source — a missing leg comes back null and the browser keeps
+// that tile on its baked value (which the bake sources authoritatively from FRED
+// DGS2). CL=F (crude) + GC=F (gold) feed the picks market-tape commodity axis only.
 const LEGS = [
-  // ^UST2YR is the canonical 2Y yield index but is frequently restricted on
-  // Yahoo (returns nothing) — when it does, fall back to 2YY=F (CBOT Micro
-  // 2-Year Yield futures), which quotes in the same percent-yield units, so the
-  // 2Y tile stays live instead of pinning to its (often equally-missing) baked
-  // value. Mirrors the fetchMacroBackdrop fallback in scripts/build.mjs.
+  // Yahoo has no 2-year in its CBOE interest-rate index family (only ^IRX/^FVX/
+  // ^TNX/^TYX), so ^UST2YR effectively never resolves — fall back to 2YY=F (CBOT
+  // Micro 2-Year Yield futures), which quotes in the same percent-yield units, so
+  // the 2Y tile can go live when that thin contract is quoting. When neither
+  // resolves the browser keeps the bake's FRED-DGS2 value. Mirrors the
+  // fetchMacroBackdrop Yahoo cascade in scripts/build.mjs.
   { key: "twoY", symbol: "^UST2YR", fallback: "2YY=F", isYield: true },
   { key: "tenY", symbol: "^TNX", isYield: true },
   { key: "thirtyY", symbol: "^TYX", isYield: true },
