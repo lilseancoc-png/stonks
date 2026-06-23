@@ -3087,7 +3087,7 @@ async function fetchRiskFreeRate(cachedRfr = null) {
   return { rate: FALLBACK_RISK_FREE_RATE, asOf: todayIso, source: "fallback" };
 }
 
-// Macro backdrop — pulls 2Y (^UST2YR / fallback ^FVX), 10Y (^TNX), 30Y (^TYX)
+// Macro backdrop — pulls 2Y (^UST2YR → 2YY=F → FRED DGS2), 10Y (^TNX), 30Y (^TYX)
 // Treasury yields, the US Dollar Index (DX-Y.NYB), and the CBOE Volatility
 // Index (^VIX), plus 1- and ~5-trading-day
 // history so the Bonds & USD tab can frame today's move against typical
@@ -3124,6 +3124,48 @@ function buildVixTerm(vix, vix9d, vix3m) {
     mid,
     ratio: Math.round(ratio * 1000) / 1000,
     state: ratio >= 1.0 ? "backwardation" : "contango",
+  };
+}
+
+// Authoritative 2Y fallback when Yahoo has no usable quote. Yahoo's CBOE
+// interest-rate index family only publishes ^IRX (3mo) / ^FVX (5yr) / ^TNX
+// (10yr) / ^TYX (30yr) — there is NO 2-year index there (^UST2YR returns
+// nothing), and the 2YY=F micro-future is too thin to quote reliably. FRED's
+// DGS2 (2-Year Treasury constant maturity, daily, in percent — same units as
+// the ^TNX/^TYX legs) is the source of record, so it keeps the 2Y tile and the
+// 2s10s spread populated instead of silently dropping out. Trade-off: DGS2 is
+// published with a ~1-business-day lag (today's value lands tomorrow morning),
+// so the baked 2Y can trail the intraday ^TNX 10Y by a day; the live
+// /api/macro-live overlay refreshes it from 2YY=F intraday when available. The
+// observations are business-day-only (weekend/holiday gaps already filtered),
+// so consecutive entries are consecutive trading days — prior1d / prior5d index
+// straight off the tail exactly like fetchLeg's daily-bar history.
+async function fetchTwoYearFromFred() {
+  const obs = (await fetchFredSeries("DGS2")).filter((o) => o && Number.isFinite(o.value));
+  if (!obs.length) return null;
+  const value = obs[obs.length - 1].value;
+  const prior1d = obs.length >= 2 ? obs[obs.length - 2].value : null;
+  const prior5d = obs.length >= 6 ? obs[obs.length - 6].value : obs[0].value;
+  const pctChange1d = prior1d != null && prior1d > 0 ? ((value - prior1d) / prior1d) * 100 : null;
+  const pctChange5d = prior5d != null && prior5d > 0 ? ((value - prior5d) / prior5d) * 100 : null;
+  const bpsChange1d = prior1d != null ? (value - prior1d) * 100 : null;
+  const bpsChange5d = prior5d != null ? (value - prior5d) * 100 : null;
+  const trend = pctChange5d == null ? "flat"
+    : pctChange5d >= 0.5 ? "rising"
+    : pctChange5d <= -0.5 ? "falling"
+    : "flat";
+  return {
+    value,
+    prior: prior5d, // legacy alias — keep parity with fetchLeg's shape
+    prior1d,
+    prior5d,
+    change5d: pctChange5d,
+    pctChange1d,
+    pctChange5d,
+    bpsChange1d,
+    bpsChange5d,
+    trend,
+    source: "fred-dgs2",
   };
 }
 
@@ -3178,11 +3220,12 @@ async function fetchMacroBackdrop() {
       return null;
     }
   }
-  // Yahoo doesn't expose a stable 2Y yield ticker for everyone — ^UST2YR is
-  // the canonical one but is sometimes restricted. When it is, we fall back to
-  // 2YY=F (CBOT Micro 2-Year Yield futures, same percent-yield units) below;
-  // only if BOTH are unavailable does twoY stay null and the Bonds & USD grid
-  // omit the 2Y tile (and the 2s10s spread tile).
+  // Yahoo has no reliable 2Y yield source: its CBOE interest-rate index family
+  // only carries ^IRX/^FVX/^TNX/^TYX (no 2-year — ^UST2YR returns nothing), and
+  // the 2YY=F micro-future is too thin to quote dependably. So we cascade below:
+  // ^UST2YR → 2YY=F → FRED DGS2 (the authoritative 2-Year constant-maturity
+  // rate). Only if ALL THREE are unavailable does twoY stay null and the Bonds &
+  // USD grid omit the 2Y tile (and the 2s10s spread tile).
   // ^VIX is an index, not an equity — quote-only (no option chain) and the
   // leading caret deliberately fails the public SYMBOL_RE allowlist, so it can
   // never flow through the api/* proxies. That's fine: the build fetches it
@@ -3206,12 +3249,21 @@ async function fetchMacroBackdrop() {
     fetchLeg("CL=F", "WTI crude"),
     fetchLeg("GC=F", "Gold"),
   ]);
-  // ^UST2YR is frequently restricted on Yahoo — fall back to 2YY=F (CBOT Micro
+  // ^UST2YR almost never resolves on Yahoo — fall back to 2YY=F (CBOT Micro
   // 2-Year Yield futures), which quotes in the same percent-yield units as the
-  // ^TNX/^TYX legs, so the 2Y tile (and the 2s10s spread tile) stay populated
-  // instead of dropping out. The api/macro-live live endpoint mirrors this.
+  // ^TNX/^TYX legs. The api/macro-live live endpoint mirrors this Yahoo step.
   if (!twoY) {
     twoY = await fetchLeg("2YY=F", "2Y yield (2YY futures fallback)", { isYield: true });
+  }
+  // Last resort: FRED's DGS2 (2-Year constant-maturity rate). The two Yahoo
+  // symbols above are unreliable, so without this the 2Y tile + 2s10s spread
+  // routinely vanish; DGS2 is the source of record and effectively always there.
+  if (!twoY) {
+    twoY = await fetchTwoYearFromFred();
+    if (twoY) {
+      const day = twoY.bpsChange1d != null ? ` · 1d ${twoY.bpsChange1d >= 0 ? "+" : ""}${twoY.bpsChange1d.toFixed(1)} bps` : "";
+      console.log(`Macro 2Y yield (FRED DGS2 fallback): ${twoY.value.toFixed(2)}${day}`);
+    }
   }
   if (!twoY && !tenY && !thirtyY && !dxy && !vix) return null;
   const vixTerm = buildVixTerm(vix, vix9d, vix3m);
