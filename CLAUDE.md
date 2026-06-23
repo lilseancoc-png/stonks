@@ -63,6 +63,19 @@ node scripts/regen-calendar.mjs
 # unusual-flow workflow. Engine unit test: node scripts/day-trades-smoke.mjs.
 node scripts/scan-unusual.mjs
 
+# LIGHTWEIGHT high-frequency Day Trades runner — the SAME volume + Day Trades
+# engine as scan-unusual.mjs, but fed by ONE batched underlying-quote call (no
+# option-chain fetch, no Gemini), so it's cheap enough to dispatch every ~15 min
+# during market hours. Marks/closes open trades to the live tape and mines fresh
+# ideas off the volume board, writing ONLY data/day-trades.json +
+# data/day-trades-history.json. Calls runVolumePass with persist:false so the
+# hourly full scan stays the sole owner of volume-flags.json/volume-history.json
+# (their bucket deltas need a strictly hourly snapshot cadence). This is what
+# makes NEW day trades + durable TP/SL closes appear intraday, not just on the
+# hourly scan. Run via the day-trades workflow. Reuses runVolumePass/
+# runDayTradePass/DATA_DIR exported from scan-unusual.mjs.
+node scripts/scan-day-trades.mjs
+
 # Hourly heatmap refresh — one batched Yahoo quote call rewrites the live `ch`/`sp`
 # fields in data/heatmap.json (sector/industry/name come from the nightly bake;
 # market-cap is refreshed hourly from the live quote when present). Intra-session
@@ -258,13 +271,14 @@ Schema lives in `supabase/schema.sql` (run once via the Supabase SQL editor). Th
 
 ### Workflow scheduling
 
-There are three data-generating workflows, all triggered **only** by `workflow_dispatch` (no `schedule:` block). An external cron service (cron-job.org) POSTs to the dispatch endpoint at the right ET times. **cron-job.org runs in ET, so it is the single authority on the ET slots and DST** — never replace it with GitHub's `schedule:` (which only speaks UTC and fires twice during DST shifts). The workflows used to re-check the ET hour themselves, but with a `workflow_dispatch`-only trigger that code was unreachable (every firing is a `workflow_dispatch` event), so it was removed; the workflows now proceed on dispatch and trust cron-job.org for timing.
+There are four data-generating workflows, all triggered **only** by `workflow_dispatch` (no `schedule:` block). An external cron service (cron-job.org) POSTs to the dispatch endpoint at the right ET times. **cron-job.org runs in ET, so it is the single authority on the ET slots and DST** — never replace it with GitHub's `schedule:` (which only speaks UTC and fires twice during DST shifts). The workflows used to re-check the ET hour themselves, but with a `workflow_dispatch`-only trigger that code was unreachable (every firing is a `workflow_dispatch` event), so it was removed; the workflows now proceed on dispatch and trust cron-job.org for timing.
 
 - `daily.yml` — the full bake (`build.mjs`), 8×/trading day: 9:30 ET (open), then hourly 10:00–16:00 ET (the close). Split across two cron-job.org jobs (`30 9 * * 1-5` for the :30 open + `0 10-16 * * 1-5` for the top-of-hour cadence) because one cron line can't mix the two minute values.
 - `unusual-flow.yml` — hourly 9:00–16:00 ET; runs **two** steps: `scan-unusual.mjs` then `refresh-heatmap.mjs` (the heatmap's live `ch`/`sp` go stale within a session). Then `regen-static.mjs`.
 - `oi-tracker.yml` — twice on weekdays (pre-market ~08:30 ET when overnight T+1 OI lands, EOD ~19:00 ET to light up volume-based signals); runs `scan-oi.mjs`, then `regen-brief.mjs` (the ~08:30 run mints the day's morning brief pre-market; the ~19:00 run only backfills a missing afternoon brief), then `regen-static.mjs`.
+- `day-trades.yml` — **high-frequency (~every 15 min, 9:30–16:00 ET)**; runs only `scan-day-trades.mjs` (the lightweight quotes-only Day Trades engine). It does **not** run `regen-static.mjs` (Day Trades is lazy-fetched, not inlined in the manifest) and writes/pushes **only** `day-trades.json` + `day-trades-history.json` (owner `daytrades`). This is what makes new day trades + durable TP/SL closes appear intraday rather than only on the hourly `unusual-flow` scan.
 
-All three workflows share one `concurrency` group (`stonks-data-commit`, `cancel-in-progress: false`) so they queue instead of committing concurrently — that removes the races on files written by more than one of them (`ai-usage.json`, `heatmap.json`). They still handle landing on a moved `main` differently:
+All four workflows share one `concurrency` group (`stonks-data-commit`, `cancel-in-progress: false`) so they queue instead of committing concurrently — that removes the races on files written by more than one of them (`ai-usage.json`, `heatmap.json`, the `day-trades*` keys co-written by `unusual-flow` + `day-trades`). They still handle landing on a moved `main` differently:
 - `daily.yml` does a `fetch + reset --mixed` retry loop because the build wipes and regenerates `data/` wholesale — there's nothing local worth merging from the remote. It restores scanner-owned files (`SCANNER_FILES`) from the remote after the reset so a concurrent scan's output isn't clobbered.
 - `unusual-flow.yml` does `stash + pull --rebase + stash pop` because its scanner writes only a few files; a concurrent push from the daily build needs to be preserved.
 

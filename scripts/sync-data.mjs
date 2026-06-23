@@ -50,6 +50,10 @@ const UNUSUAL_EXCLUSIVE = [
   "day-trades-history.json",
 ];
 const OI_EXCLUSIVE = ["oi-tracker.json", "oi-history.json"];
+// The lightweight high-frequency Day Trades runner (scripts/scan-day-trades.mjs)
+// owns ONLY these two — a subset of UNUSUAL_EXCLUSIVE. It pushes upsert-only,
+// so running between the hourly full scans never touches the other scanner keys.
+const DAYTRADES_EXCLUSIVE = ["day-trades.json", "day-trades-history.json"];
 // Co-owned read-modify-write files (each producer pulls latest, applies its
 // once-per-window update, pushes). Safe under serialized runs. manifest.json
 // (premium half) + manifest-free.json (free half) are regenerated
@@ -170,7 +174,9 @@ async function pushScanner(owner, { dryRun }) {
   const keys =
     owner === "unusual"
       ? [...UNUSUAL_EXCLUSIVE, ...UNUSUAL_SHARED]
-      : [...OI_EXCLUSIVE, ...OI_SHARED];
+      : owner === "daytrades"
+        ? DAYTRADES_EXCLUSIVE
+        : [...OI_EXCLUSIVE, ...OI_SHARED];
   await uploadKeys(keys, { dryRun, label: `push(${owner})` }); // upsert-only, no delete
 }
 
@@ -194,9 +200,9 @@ async function main() {
       break;
     case "push":
       if (opts.owner === "bake") await pushBake(opts);
-      else if (opts.owner === "unusual" || opts.owner === "oi") await pushScanner(opts.owner, opts);
+      else if (opts.owner === "unusual" || opts.owner === "oi" || opts.owner === "daytrades") await pushScanner(opts.owner, opts);
       else {
-        console.error("push requires --owner=bake|unusual|oi");
+        console.error("push requires --owner=bake|unusual|oi|daytrades");
         process.exit(1);
       }
       break;
