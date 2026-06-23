@@ -1171,6 +1171,11 @@ const DT_HISTORY_MAX = 120;          // closed trades retained
 // Stop/target risk bands as a fraction of entry, per trade kind.
 const DT_SCALP_MIN_RISK = 0.003, DT_SCALP_MAX_RISK = 0.015;
 const DT_SWING_MIN_RISK = 0.010, DT_SWING_MAX_RISK = 0.060;
+// Anti-chase: don't open a fresh trade into an over-extended intraday move. A
+// pure-momentum read (no confirmed 20D break) is held to the tighter cap; a
+// confirmed structural break is the trade's trigger so it earns a looser leash.
+const DT_CHASE_MAX_PCT = 4.0;        // momentum: reject beyond +/-4% on the day
+const DT_CHASE_MAX_PCT_BREAK = 8.0;  // confirmed break: reject beyond +/-8%
 
 const dtR2 = (x) => Math.round(x * 100) / 100;
 const dtR1 = (x) => Math.round(x * 10) / 10;
@@ -1282,7 +1287,19 @@ function dtBuildCandidate(row, quote) {
   if (Math.abs(dir) < DT_DIR_MIN) return null;
   const side = dir >= 0 ? "long" : "short";
   const sr = dtLatestSrBreak(row);
-  const kind = (sr && dtConvWeight(sr.conviction) >= 1.2) ? "swing" : "scalp";
+  const hasBreak = !!(sr && dtConvWeight(sr.conviction) >= 1.2);
+  const kind = hasBreak ? "swing" : "scalp";
+  // Don't chase: a fresh long into a name already up big on the day (or a short
+  // into one already down big) buys the top / sells the bottom, leaving the stop
+  // inside the noise to be taken on the first mean-reversion. The cap only bites
+  // when the day's move is ALIGNED with the trade — a counter-move entry (e.g. a
+  // confirmed breakout that has since pulled back red) is a dip, not a chase.
+  const moveToday = (changePct != null && isFinite(changePct)) ? changePct : dtLatestMovePct(row);
+  if (moveToday != null && isFinite(moveToday)
+      && Math.sign(moveToday) === (side === "long" ? 1 : -1)
+      && Math.abs(moveToday) > (hasBreak ? DT_CHASE_MAX_PCT_BREAK : DT_CHASE_MAX_PCT)) {
+    return null;
+  }
   const g = row.gex || null;
   const levels = {
     dayHi: dtNum(quote?.dayHi), dayLo: dtNum(quote?.dayLo),
