@@ -191,7 +191,17 @@ expected move, R/R, probability-of-profit, `contractQuality`).
 ## 7. Roster construction (`buildTopPicks`)
 
 1. Candidates = grade actionable (`|total| ≥ 4`), or a tactical put in a confirmed
-   risk-off tape.
+   risk-off tape. **The actionable bar is edge-governed** (`edgeGatedConviction`):
+   when the trailing resolved book's realized option edge is materially negative
+   (the live record has run a ~33% win rate against the +20/−30 exits, an
+   expectancy that needs >60% to break even), the bar steps **up** — to
+   `min(Strong, 4+2)=6` at ≤ −8%, all the way to the **Strong tier (7)** at ≤ −15%
+   — so a losing book ships only its highest-conviction reads (genuinely standing
+   down, lesson #1/#6) instead of trading the same breadth smaller. It needs
+   `PICKS_EDGE_GATE_MIN_N` (12) decided closes to engage and relaxes automatically
+   as the weekly-reset record recovers. Tactical puts (the defensive side) keep the
+   `PICKS_RISKOFF_PUT_BAR` and are unaffected. Off via `PICKS_EDGE_GATE=0`; the
+   raised bar ships in `rosterMeta.edgeGate`/`tradeCut`.
 2. **Drop names with an open tracked position** (re-entry suppression).
 3. **Drop `avoid`-timed names.**
 4. **Require a tradeable contract** (else drop).
@@ -264,6 +274,7 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | Knob | Default | Effect |
 |---|---|---|
 | `PICKS_MIN_CONVICTION` / `PICKS_TIER_STRONG` | 4 / 7 | actionable / strong bars |
+| `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
 | `PICKS_COUNT` | 10 | max roster size |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |

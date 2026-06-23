@@ -7,7 +7,7 @@ import {
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
-  computeFactorTrendHealth,
+  computeFactorTrendHealth, edgeGatedConviction,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -246,6 +246,20 @@ applyPickFirstSeen(picks, [], new Date().toISOString());
 ok("tenure: applyPickFirstSeen stamps firstSeen", picks.length === 0 || picks.every((p) => p.firstSeen));
 ok("edge: computeEdgeScale handles empty/negative", computeEedge());
 function computeEedge() { return computeEdgeScale(null) === 1 && computeEdgeScale([{ outcome: "loss", optionPnlPct: -40 }, { outcome: "loss", optionPnlPct: -40 }]) < 1; }
+// Edge-governed selection bar: no/insufficient/positive history keeps the base
+// bar; a materially negative realized edge (the live ~33%-win-rate state) stands
+// the bar up so the roster ships only higher-conviction names.
+const mkClosed = (n, pnl) => Array.from({ length: n }, () => ({ outcome: pnl >= 0 ? "win" : "loss", optionPnlPct: pnl }));
+ok("edge gate: null / too-few-decided keep base bar",
+  edgeGatedConviction(null).bar === PICKS_MIN_CONVICTION && edgeGatedConviction(mkClosed(5, -30)).bar === PICKS_MIN_CONVICTION);
+ok("edge gate: positive edge keeps base bar", edgeGatedConviction(mkClosed(20, 12)).bar === PICKS_MIN_CONVICTION);
+ok("edge gate: realistic 33% WR (edge≈−13%) raises the bar",
+  edgeGatedConviction([...mkClosed(8, 20), ...mkClosed(16, -30)]).bar > PICKS_MIN_CONVICTION);
+ok("edge gate: deeply negative edge stands down to Strong", edgeGatedConviction(mkClosed(20, -20)).bar === PICKS_TIER_STRONG);
+// The gate flows through buildTopPicks via opts.priorClosed and is surfaced in meta.
+const gatedPicks = buildTopPicks(chains, [], null, null, null, null, 0.045, { priorClosed: mkClosed(20, -20) });
+ok("edge gate: buildTopPicks raises rosterMeta.tradeCut on a losing book",
+  gatedPicks.rosterMeta.tradeCut === PICKS_TIER_STRONG && gatedPicks.rosterMeta.edgeGate && gatedPicks.rosterMeta.edgeGate.bar === PICKS_TIER_STRONG);
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

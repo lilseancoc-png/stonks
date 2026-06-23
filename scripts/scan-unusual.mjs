@@ -1187,6 +1187,12 @@ const DT_SWING_MIN_RISK = 0.010, DT_SWING_MAX_RISK = 0.060;
 // confirmed structural break is the trade's trigger so it earns a looser leash.
 const DT_CHASE_MAX_PCT = 4.0;        // momentum: reject beyond +/-4% on the day
 const DT_CHASE_MAX_PCT_BREAK = 8.0;  // confirmed break: reject beyond +/-8%
+// Minimum reward:risk to open a trade. The resolved board's headline win rate is
+// inflated by near-scratch "expired" closes counted as wins, so the true
+// directional edge needs the payoff to clear 1:1 — demand the structural target
+// pay at least 1.2× the stop distance so the kept trades carry a real positive
+// expectancy. (Was a flat 1:1.)
+const DT_MIN_RR = Number(process.env.DT_MIN_RR ?? 1.2);
 
 const dtR2 = (x) => Math.round(x * 100) / 100;
 const dtR1 = (x) => Math.round(x * 10) / 10;
@@ -1320,7 +1326,7 @@ function dtBuildCandidate(row, quote) {
     srLevel: sr ? dtNum(sr.level) : null,
   };
   const plan = dtBuildPlan(side, spot, levels, kind);
-  if (!plan || !(plan.rr >= 1)) return null;   // require at least 1:1 reward:risk
+  if (!plan || !(plan.rr >= DT_MIN_RR)) return null;   // require a real positive payoff
   const dirStr = side === "long" ? "bullish" : "bearish";
   const srStr = sr ? ` · ${sr.type === "upper" ? "resistance" : "support"} break (${sr.conviction})` : "";
   const mvStr = (changePct != null && isFinite(changePct)) ? ` · ${changePct >= 0 ? "+" : ""}${changePct.toFixed(1)}% today` : "";

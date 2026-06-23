@@ -141,6 +141,13 @@ node scripts/diagnose-grade-ic.mjs
 # Diffs the fundamentals-pillar rows of two data/grades.json snapshots produced
 # with AI_SIGNALS_COMBINED=0 vs =1 (see the file header for how to capture them).
 node scripts/ab-signals-merge.mjs /tmp/grades-off.json /tmp/grades-on.json
+# Day Trades loss diagnostic — the Day-Trades sibling of diagnose-pick-losses.
+# Decomposes the resolved day-trade board (data/day-trades-history.json) into the
+# DECISIVE win rate (target vs stop, dropping the expired scratches the headline
+# win rate counts as wins) + the R-multiple expectancy, split by kind/side/exit/
+# reward:risk/chase-vs-dip — the read that says whether DT_MIN_RR / DT_DIR_MIN /
+# the chase caps need tightening, and on which slice.
+node scripts/diagnose-day-trade-losses.mjs
 
 # Local serving
 python3 -m http.server 8000   # static only — /api/* endpoints will 404
