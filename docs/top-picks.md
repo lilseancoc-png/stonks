@@ -68,7 +68,12 @@ unusual options flow (±1), open-interest call/put skew (±1), short interest
 earnings surprise (±2), EPS growth (±1/−2), revenue growth (±1/−2), analyst
 price target (±1), analyst rating *changes* (±2), P/E vs sector (±1), guidance
 (raised +3 / inline +2 / lowered −3, with a dividend-headline guard), major
-contract won/lost (+2/−3), free cash flow (±1), net-margin trend (±1).
+contract won/lost (+2/−3), free cash flow (±1), net-margin trend (±1), plus a
+forward **trajectory** nudge (±2, `computeFundamentalsTrajectory`) that votes
+from guidance, growth acceleration vs the trailing rate, analyst revisions,
+margin slope and earnings-surprise momentum — the "is the business improving or
+declining?" read, blended into the snapshot score and surfaced as a ↗/↘ arrow
+(`pillars.fundamentals.trajectory = { dir, score, confidence, reason }`).
 
 **Narrative** (light — one AI read is noisy):
 news catalyst (bullish +2 / bearish −3, asymmetric), sector narrative (±2, faded
@@ -212,6 +217,15 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   on the exit rules above, and computes stats (`winRate`, option expectancy,
   `byTier`/`bySector`/`byRegime`). The record **resets weekly** so the numbers
   reflect the current engine, not a tail of pre-tuning outcomes.
+- **Thesis tracking:** each pick ships a structured `thesisCard` (`buildThesisCard`)
+  — `works` (the supporting drivers + their pillar/reading), `invalidators` (each
+  lead driver reversing, plus the ATR price stop, the 14-day time stop, and a
+  grade-flip trigger for marginal scores), and the `target` plan. A compact
+  snapshot is frozen on the enrolled `open` entry; every later build re-scores it
+  against the **live grade** into `thesisStatus` (`verdict` on-track / mixed /
+  broken from direction-adjusted price progress + how many entry drivers are
+  still firing + a grade-flip / stop-breach check). The pick card renders the
+  thesis and, for an open position, the playing-out status.
 - `diffGradesHistory` / `buildPicksChanges` / `buildPicksRoster` log whole-universe
   grade changes, the actionable-bar in/out churn, and the Top-10 roster snapshot.
 - `appendGradesDaily` / `appendRegimeHistory` keep the IC substrate + risk-on/off

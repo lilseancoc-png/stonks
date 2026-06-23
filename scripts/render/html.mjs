@@ -332,6 +332,35 @@ function overnightSection() {
   </section>`;
 }
 
+function aiCapexSection() {
+  // Card chrome only — content renders client-side from data/ai-capex.json,
+  // lazy-fetched on first tab activation by loadAiCapex() in app.js. SEC XBRL
+  // CapEx for the Mag 7: aggregate this-FY-vs-last-FY + per-company comparison.
+  return `<section class="card" id="ai-capex-section">
+    <header class="card-header">
+      <h2 class="card-title">AI CapEx — the Magnificent 7</h2>
+      <span class="card-eyebrow" id="ai-capex-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>Aggregate capital expenditure (CapEx) for the seven mega-caps driving the AI buildout — MSFT, GOOGL, AMZN, META, NVDA, AAPL, TSLA. CapEx is the cash they spend on property, plant &amp; equipment (data centers, GPUs, networking), pulled straight from the cash-flow statement in their SEC filings. We total the latest full fiscal year vs. the year before — so you can see how much aggregate AI infrastructure spend has grown (or shrunk), and by how much — plus each name's trailing-12-month run-rate and CapEx as a share of revenue. Figures are as-filed; fiscal years differ by company.</p>`)}
+    <div id="ai-capex-root" class="ai-capex-root">Loading AI CapEx…</div>
+    <div id="ai-capex-empty" class="ai-capex-empty" hidden>AI CapEx data will appear after the next daily build refresh.</div>
+  </section>`;
+}
+
+function capitalRaisesSection() {
+  // Card chrome only — renders client-side from data/capital-raises.json,
+  // lazy-fetched on first tab activation by loadCapitalRaises() in app.js.
+  return `<section class="card" id="capital-raises-section">
+    <header class="card-header">
+      <h2 class="card-title">Capital raises &amp; buybacks</h2>
+      <span class="card-eyebrow" id="capital-raises-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>When a tracked company issues new debt, bonds, convertibles or shares — or launches a buyback — it usually hits the news cycle first. This feed scans each name's recent headlines for issuance language and pairs the flagged event with the hard dollar amount from its latest SEC filing, so you can size the raise. New debt/shares dilute or lever a balance sheet; a buyback does the opposite. Headlines are from the trailing few weeks; filed numbers lag by up to a quarter.</p>`)}
+    <div id="capital-raises-root" class="capital-raises-root">Loading capital raises…</div>
+    <div id="capital-raises-empty" class="capital-raises-empty" hidden>No capital-raise headlines flagged recently — check back after the next refresh.</div>
+  </section>`;
+}
+
 function f13Section() {
   // Card chrome only — content renders client-side from data/13f.json,
   // fetched lazily on first tab activation by loadF13() in app.js. The
@@ -589,6 +618,37 @@ function hotStocksSection() {
       </label>
     </div>
     <div id="hot-board" class="hot-board" aria-live="polite"></div>
+  </section>`;
+}
+
+function compareCompaniesSection() {
+  // Side-by-side fundamentals/grade comparator. Pure browser tool — adds
+  // tickers as chips, lazy-fetches each data/<SYM>.json + grades.json (all FREE
+  // keys), and renders a metric table with the per-row leader highlighted, a
+  // %-vs-base delta on every other column, and a plain-language summary. Wired
+  // in app.js (initCompare / renderCompare). The datalist is seeded from the
+  // manifest symbol list at init.
+  return `<section class="card" id="compare-section">
+    <header class="card-header">
+      <h2 class="card-title">Compare companies</h2>
+    </header>
+    <p class="hint">Put 2–4 companies side by side — price, valuation (P/E, PEG, P/S), growth, margins, the analyst read and our 4-pillar grade — with the leader on each row highlighted, the % difference vs the first name on every other column, and a plain-language summary of how they stack up. Reads the same free data as the Grade tab.</p>
+    <div class="cmp-controls">
+      <div class="combo" id="cmp-combo">
+        <input type="text" id="cmp-input" list="cmp-datalist"
+               aria-label="Add a ticker to compare"
+               placeholder="Add ticker — type & press Enter…"
+               autocomplete="off" spellcheck="false" maxlength="6">
+        <datalist id="cmp-datalist"></datalist>
+      </div>
+      <button type="button" class="cmp-btn" id="cmp-add" aria-label="Add ticker">Add</button>
+      <button type="button" class="cmp-btn cmp-btn-quick" id="cmp-quick-mag7" title="Compare the Magnificent 7">Mag 7</button>
+      <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-clear">Clear</button>
+    </div>
+    <div id="cmp-chips" class="cmp-chips" aria-label="Selected companies"></div>
+    <div id="cmp-status" class="opt-status" role="status"></div>
+    <div id="cmp-summary" class="cmp-summary" hidden aria-live="polite"></div>
+    <div id="cmp-table-wrap" class="cmp-table-wrap" hidden></div>
   </section>`;
 }
 
@@ -1105,10 +1165,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="overnight" aria-controls="page-pane-overnight" id="page-tab-overnight">Overnight markets</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="fear-greed" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="bonds-usd" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="ai-capex" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex">AI CapEx</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="capital-raises" aria-controls="page-pane-capital-raises" id="page-tab-capital-raises">Capital raises</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="f13" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   </div>
   <div class="page-tab-menu" role="menu" id="page-tab-menu-tools" aria-labelledby="page-tab-trigger-tools" data-group="tools" hidden>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="grade" aria-controls="page-pane-grade" id="page-tab-grade">Grade a ticker</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="compare" aria-controls="page-pane-compare" id="page-tab-compare">Compare companies</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="cheatsheet" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet">Buyer's manual</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="chart-patterns" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns">Chart patterns</button>
@@ -1359,6 +1422,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-grade" role="tabpanel" aria-labelledby="page-tab-grade" hidden>
   ${optionEvalSection()}
   </div>
+  <div class="page-pane" id="page-pane-compare" role="tabpanel" aria-labelledby="page-tab-compare" hidden>
+  ${compareCompaniesSection()}
+  </div>
   <div class="page-pane" id="page-pane-strategies" role="tabpanel" aria-labelledby="page-tab-strategies" hidden>
   ${strategiesSection()}
   </div>
@@ -1599,6 +1665,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </section>
       </div>
     </details>
+  </div>
+  <div class="page-pane" id="page-pane-ai-capex" role="tabpanel" aria-labelledby="page-tab-ai-capex" hidden>
+  ${aiCapexSection()}
+  </div>
+  <div class="page-pane" id="page-pane-capital-raises" role="tabpanel" aria-labelledby="page-tab-capital-raises" hidden>
+  ${capitalRaisesSection()}
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
   ${f13Section()}

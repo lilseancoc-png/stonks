@@ -3179,9 +3179,10 @@ async function fetchMacroBackdrop() {
     }
   }
   // Yahoo doesn't expose a stable 2Y yield ticker for everyone — ^UST2YR is
-  // the canonical one but is sometimes restricted; ^FVX (5Y) is a poor proxy
-  // so we just leave twoY null if ^UST2YR is unavailable. The Bonds & USD
-  // live grid simply omits the 2Y tile when twoY is absent.
+  // the canonical one but is sometimes restricted. When it is, we fall back to
+  // 2YY=F (CBOT Micro 2-Year Yield futures, same percent-yield units) below;
+  // only if BOTH are unavailable does twoY stay null and the Bonds & USD grid
+  // omit the 2Y tile (and the 2s10s spread tile).
   // ^VIX is an index, not an equity — quote-only (no option chain) and the
   // leading caret deliberately fails the public SYMBOL_RE allowlist, so it can
   // never flow through the api/* proxies. That's fine: the build fetches it
@@ -3194,7 +3195,7 @@ async function fetchMacroBackdrop() {
   // CL=F (WTI crude) + GC=F (gold) feed the commodity / geopolitical-shock regime
   // axis (computeMacroRegime). They're also swept by the correlations engine, but
   // that's a separate batch — the regime needs them on macroBackdrop directly.
-  const [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m, crude, gold] = await Promise.all([
+  let [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m, crude, gold] = await Promise.all([
     fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
     fetchLeg("^TNX", "10Y yield", { isYield: true }),
     fetchLeg("^TYX", "30Y yield", { isYield: true }),
@@ -3205,6 +3206,13 @@ async function fetchMacroBackdrop() {
     fetchLeg("CL=F", "WTI crude"),
     fetchLeg("GC=F", "Gold"),
   ]);
+  // ^UST2YR is frequently restricted on Yahoo — fall back to 2YY=F (CBOT Micro
+  // 2-Year Yield futures), which quotes in the same percent-yield units as the
+  // ^TNX/^TYX legs, so the 2Y tile (and the 2s10s spread tile) stay populated
+  // instead of dropping out. The api/macro-live live endpoint mirrors this.
+  if (!twoY) {
+    twoY = await fetchLeg("2YY=F", "2Y yield (2YY futures fallback)", { isYield: true });
+  }
   if (!twoY && !tenY && !thirtyY && !dxy && !vix) return null;
   const vixTerm = buildVixTerm(vix, vix9d, vix3m);
   if (vixTerm) {
@@ -5273,6 +5281,311 @@ export async function write13FFile(chains, narratives, builtAtIso, perFirmResult
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, F13_FILE), json, "utf8");
   return { bytes: json.length, positions: payload.biggestPositions.length };
+}
+
+// === AI CapEx tracker (data/ai-capex.json) ==========================
+// Aggregate "Magnificent 7" capital expenditure — the cleanest single proxy for
+// the AI data-center / GPU / networking buildout. CapEx is reported in the
+// cash-flow statement as PaymentsToAcquirePropertyPlantAndEquipment (AMZN tags
+// it PaymentsToAcquireProductiveAssets), which SEC's companyconcept REST API
+// returns as a plain dollar total per period — no XBRL-instance parse needed
+// (unlike revenue segments, which need the segment dimensions). We surface each
+// name's last two full fiscal years (YoY) + a trailing-12-month run-rate, then
+// sum across the group for "total AI CapEx this year vs last year, and by how
+// much". Order roughly by AI relevance (the hyperscalers first).
+export const AI_CAPEX_TICKERS = ["MSFT", "GOOGL", "AMZN", "META", "NVDA", "AAPL", "TSLA"];
+const AI_CAPEX_CONCEPTS = [
+  "PaymentsToAcquirePropertyPlantAndEquipment",
+  "PaymentsToAcquireProductiveAssets",
+];
+
+// SEC companyconcept REST API — every reported value for ONE us-gaap concept.
+// Returns the units.USD array (or [] on any failure — graceful).
+async function fetchCompanyConceptUsd(cik, concept) {
+  const padded = String(cik).padStart(10, "0");
+  const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${padded}/us-gaap/${concept}.json`;
+  try {
+    const res = await fetch(url, { headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" }, signal: AbortSignal.timeout(20000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const usd = data?.units?.USD;
+    return Array.isArray(usd) ? usd : [];
+  } catch { return []; }
+}
+
+// Reduce a companyconcept USD fact list into clean full-fiscal-year totals +
+// a trailing-12-month run-rate. Annual = ~365-day-period facts (deduped by end,
+// 10-K preferred). TTM uses the cash-flow roll-forward: priorFY + (current YTD −
+// prior-year same-length YTD) — only needs reliably-tagged YTD/annual facts, no
+// fragile discrete-quarter reconstruction.
+export function reduceCapexFacts(facts) {
+  const clean = [];
+  for (const u of facts) {
+    if (!u || !u.start || !u.end || !Number.isFinite(Number(u.val))) continue;
+    const start = Date.parse(u.start), end = Date.parse(u.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const days = Math.round((end - start) / 86400000);
+    clean.push({ start, end, startIso: u.start, endIso: u.end, val: Number(u.val), days, form: u.form || null });
+  }
+  if (!clean.length) return { annual: [], ttm: null };
+  // ANNUAL — ~365-day periods, deduped by end date (prefer the 10-K figure).
+  const annualByEnd = new Map();
+  for (const f of clean) {
+    if (f.days < 340 || f.days > 380) continue;
+    const prev = annualByEnd.get(f.endIso);
+    if (!prev || (f.form === "10-K" && prev.form !== "10-K")) annualByEnd.set(f.endIso, f);
+  }
+  const annual = [...annualByEnd.values()].sort((a, b) => a.end - b.end);
+  if (!annual.length) return { annual: [], ttm: null };
+  const latestFy = annual[annual.length - 1];
+  // Most recent cumulative-YTD partial that ends AFTER the latest full FY (a newer 10-Q).
+  let curYtd = null;
+  for (const f of clean) {
+    if (f.days >= 340 || f.days < 60) continue;
+    if (f.end <= latestFy.end) continue;
+    if (!curYtd || f.end > curYtd.end || (f.end === curYtd.end && f.days > curYtd.days)) curYtd = f;
+  }
+  let ttm;
+  if (!curYtd) {
+    ttm = { val: latestFy.val, asOf: latestFy.endIso, basis: "fy" };
+  } else {
+    // Prior-year YTD of the same length, ending ~365d before curYtd.
+    let priorYtd = null;
+    for (const f of clean) {
+      if (Math.abs(f.days - curYtd.days) > 20) continue;
+      const endDiff = (curYtd.end - f.end) / 86400000;
+      if (endDiff > 330 && endDiff < 400) { priorYtd = f; break; }
+    }
+    ttm = priorYtd
+      ? { val: latestFy.val + (curYtd.val - priorYtd.val), asOf: curYtd.endIso, basis: "ttm" }
+      : { val: latestFy.val, asOf: latestFy.endIso, basis: "fy" };
+  }
+  return { annual, ttm };
+}
+
+const capexFyLabel = (endIso) => (endIso ? "FY" + String(endIso).slice(0, 4) : null);
+
+// Build data/ai-capex.json. `chains` supplies each name's display name + TTM
+// revenue (for the CapEx-intensity read); `prior` is the last-good payload so a
+// transient SEC outage carries forward instead of blanking the tab.
+async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = null) {
+  const companies = [];
+  const missing = [];
+  for (const ticker of AI_CAPEX_TICKERS) {
+    const cik = cikMap ? cikMap.get(ticker) : null;
+    if (!cik) { missing.push(ticker); continue; }
+    let reduced = { annual: [], ttm: null };
+    for (const concept of AI_CAPEX_CONCEPTS) {
+      const facts = await fetchCompanyConceptUsd(cik, concept);
+      const r = reduceCapexFacts(facts);
+      if (r.annual.length) { reduced = r; break; }
+      await new Promise((res) => setTimeout(res, 120)); // SEC politeness between concept probes
+    }
+    if (!reduced.annual.length) { missing.push(ticker); continue; }
+    const a = reduced.annual;
+    const fyLatest = a[a.length - 1];
+    const fyPrior = a.length >= 2 ? a[a.length - 2] : null;
+    const f = chains?.[ticker]?.fundamentals || {};
+    const revenue = pnum(f.revenue);
+    const yoyPct = fyPrior && fyPrior.val > 0 ? r1((fyLatest.val / fyPrior.val - 1) * 100) : null;
+    companies.push({
+      ticker,
+      name: f.name || ticker,
+      fyLatest: { label: capexFyLabel(fyLatest.endIso), end: fyLatest.endIso, val: fyLatest.val },
+      fyPrior: fyPrior ? { label: capexFyLabel(fyPrior.endIso), end: fyPrior.endIso, val: fyPrior.val } : null,
+      yoyPct,
+      ttm: reduced.ttm,
+      revenue: revenue ?? null,
+      capexToRevenuePct: revenue > 0 && reduced.ttm ? r1((reduced.ttm.val / revenue) * 100) : null,
+      history: a.slice(-5).map((x) => ({ label: capexFyLabel(x.endIso), end: x.endIso, val: x.val })),
+    });
+    console.log(`  · AI CapEx ${ticker}: ${capexFyLabel(fyLatest.endIso)} $${(fyLatest.val / 1e9).toFixed(1)}B${yoyPct != null ? ` (${yoyPct >= 0 ? "+" : ""}${yoyPct}% YoY)` : ""}${reduced.ttm ? ` · TTM $${(reduced.ttm.val / 1e9).toFixed(1)}B` : ""}`);
+  }
+  if (!companies.length) {
+    // Total SEC failure — carry forward last-good rather than blank the tab.
+    if (prior && Array.isArray(prior.companies) && prior.companies.length) return { ...prior, stale: true, builtAtIso };
+    return { builtAtIso, companies: [], totals: null, missing, stale: false };
+  }
+  // Aggregate on the common latest-FY label (the year most names report). Pick the
+  // modal latest FY year so a single laggard doesn't drag the group total into a
+  // mismatched year; each company contributes its own latest/prior around it.
+  let fyLatestSum = 0, fyPriorSum = 0, ttmSum = 0, ttmCount = 0, latestLabel = null, priorLabel = null;
+  for (const c of companies) {
+    fyLatestSum += c.fyLatest.val;
+    if (c.fyPrior) fyPriorSum += c.fyPrior.val;
+    if (c.ttm) { ttmSum += c.ttm.val; ttmCount++; }
+    if (!latestLabel) latestLabel = c.fyLatest.label;
+    if (!priorLabel && c.fyPrior) priorLabel = c.fyPrior.label;
+  }
+  const haveBothFy = companies.filter((c) => c.fyPrior).length;
+  const totals = {
+    fyLatestSum, fyPriorSum: haveBothFy ? fyPriorSum : null,
+    fyLatestLabel: latestLabel, fyPriorLabel: priorLabel,
+    yoyPct: haveBothFy && fyPriorSum > 0 ? r1((fyLatestSum / fyPriorSum - 1) * 100) : null,
+    deltaAbs: haveBothFy ? fyLatestSum - fyPriorSum : null,
+    ttmSum: ttmCount ? ttmSum : null, ttmCount, count: companies.length,
+  };
+  // Rank companies by latest-FY spend (biggest spenders first) for the table.
+  companies.sort((a, b) => b.fyLatest.val - a.fyLatest.val);
+  return { builtAtIso, companies, totals, missing, stale: false };
+}
+
+async function readPriorAiCapex() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, "ai-capex.json"), "utf8")); } catch { return null; }
+}
+
+async function writeAiCapexFile(cikMap, chains, builtAtIso, prior = null) {
+  const payload = await buildAiCapexPayload(cikMap, chains, builtAtIso, prior);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "ai-capex.json"), json, "utf8");
+  return { bytes: json.length, count: payload.companies.length, stale: !!payload.stale, missing: payload.missing || [] };
+}
+
+// === Capital raises tracker (data/capital-raises.json) ==============
+// "Whenever a company issues new shares or debt or bonds it's in the news cycle."
+// Two sources, combined: (1) the per-ticker news headlines already fetched for
+// the AI news take — scanned with a deterministic keyword classifier for
+// issuance language (notes/bond offerings, secondary/share offerings, ATM
+// programs, convertibles, and buybacks as the inverse) — and (2) SEC XBRL hard
+// numbers (ProceedsFromIssuanceOfLongTermDebt / OfCommonStock / OfDebt) for the
+// most recent quarter, so a flagged headline can be sized against the filed
+// amount. Timely from the news side, precise from the SEC side.
+// Order matters — convertible is checked before plain debt (a "convertible
+// notes" headline is a convertible, not a straight bond), and buyback before
+// equity-issuance so "stock repurchase" doesn't read as a share sale.
+const CAPITAL_RAISE_PATTERNS = [
+  { kind: "convertible", re: /convertible (notes?|bonds?|senior notes?|debt|offering|securities)/i },
+  { kind: "buyback", re: /\b(share|stock)?\s?(buyback|repurchase)( program| authorization)?|authorizes? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(stock |share )?(buyback|repurchase)|increases? .{0,20}repurchase|accelerated share repurchase/i },
+  { kind: "debt", re: /\b(senior |unsecured |secured )?notes? (offering|due|sale|priced|pricing)|bond (sale|offering)|debt offering|prices? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(in\s+)?(senior )?notes|issues? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(in\s+)?(senior )?(notes|bonds|debt)|raises? \$?[\d.]+\s?(billion|million|bn|mm)?\s+in\s+(debt|bonds|notes)/i },
+  { kind: "equity", re: /\b(secondary|follow[- ]on|common stock|share|equity|at[- ]the[- ]market|ATM program) offering|priced?\s+(its\s+)?(public\s+)?offering|sells? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(in\s+)?(stock|shares|equity)|stock (sale|offering)|registered direct offering|prices? (public )?offering/i },
+];
+const CAPITAL_RAISE_KIND_LABEL = { debt: "Debt / notes", convertible: "Convertible", equity: "Share issuance", buyback: "Buyback" };
+// $-amount sniffer for the headline ("$2 billion", "$750M") → absolute USD.
+export function parseHeadlineAmount(text) {
+  const m = String(text || "").match(/\$\s?([\d,]+(?:\.\d+)?)\s*(billion|bn|million|mm|m|b)\b/i);
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ""));
+  if (!Number.isFinite(n)) return null;
+  const unit = m[2].toLowerCase();
+  if (unit === "billion" || unit === "bn" || unit === "b") return n * 1e9;
+  if (unit === "million" || unit === "mm" || unit === "m") return n * 1e6;
+  return n;
+}
+export function classifyCapitalRaiseHeadline(title) {
+  const t = String(title || "");
+  for (const p of CAPITAL_RAISE_PATTERNS) if (p.re.test(t)) return p.kind;
+  return null;
+}
+
+// Module-level accumulator: attachTickerJudgments scans each ticker's freshly
+// fetched headlines for issuance language and pushes the flagged ones here, so
+// buildCapitalRaisesPayload can assemble the feed without re-fetching news.
+let _capitalRaiseFlags = [];
+const CAPITAL_RAISE_MAX_AGE_DAYS = 21;
+function scanCapitalRaiseHeadlines(sym, headlines) {
+  if (!Array.isArray(headlines) || !headlines.length) return;
+  const nowMs = Date.now();
+  const perKind = new Map(); // keep the most recent flag per kind for this ticker
+  for (const h of headlines) {
+    if (!h || !h.title) continue;
+    const kind = classifyCapitalRaiseHeadline(h.title);
+    if (!kind) continue;
+    const tMs = h.publishedAt ? Date.parse(h.publishedAt) : NaN;
+    const ageDays = Number.isFinite(tMs) ? (nowMs - tMs) / 86400000 : null;
+    if (ageDays != null && ageDays > CAPITAL_RAISE_MAX_AGE_DAYS) continue; // only fresh news
+    const prev = perKind.get(kind);
+    const cur = {
+      ticker: sym, kind, title: h.title, publisher: h.publisher || null,
+      link: h.link || null, publishedAt: h.publishedAt || null,
+      amount: parseHeadlineAmount(h.title),
+    };
+    if (!prev || (Number.isFinite(tMs) && tMs > (Date.parse(prev.publishedAt) || 0))) perKind.set(kind, cur);
+  }
+  for (const flag of perKind.values()) _capitalRaiseFlags.push(flag);
+}
+
+// SEC XBRL hard numbers for the issuance feed — the most recent reported value
+// for each issuance/buyback concept (so a flagged headline can be sized against
+// the filed amount). Returns { debt, equity, buyback } each { val, end, concept }.
+const ISSUANCE_CONCEPTS = {
+  debt: ["ProceedsFromIssuanceOfLongTermDebt", "ProceedsFromIssuanceOfDebt", "ProceedsFromIssuanceOfSeniorLongTermDebt"],
+  equity: ["ProceedsFromIssuanceOfCommonStock", "ProceedsFromIssuanceOrSaleOfEquity"],
+  buyback: ["PaymentsForRepurchaseOfCommonStock"],
+};
+function pickLatestFact(facts) {
+  let best = null;
+  for (const u of facts) {
+    if (!u || !u.end || !Number.isFinite(Number(u.val))) continue;
+    const end = Date.parse(u.end);
+    if (!Number.isFinite(end)) continue;
+    const start = u.start ? Date.parse(u.start) : null;
+    const days = start ? Math.round((end - start) / 86400000) : null;
+    // Prefer the most recent end; among equal ends prefer the shorter (quarter) period.
+    if (!best || end > best.end || (end === best.end && days != null && best.days != null && days < best.days)) {
+      best = { end, endIso: u.end, val: Number(u.val), days, form: u.form || null };
+    }
+  }
+  return best;
+}
+async function fetchIssuanceForTicker(cik) {
+  const out = {};
+  for (const [kind, concepts] of Object.entries(ISSUANCE_CONCEPTS)) {
+    for (const c of concepts) {
+      const facts = await fetchCompanyConceptUsd(cik, c);
+      const latest = pickLatestFact(facts);
+      if (latest && latest.val) { out[kind] = { val: latest.val, end: latest.endIso, periodDays: latest.days, concept: c }; break; }
+    }
+  }
+  return out;
+}
+
+async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = null) {
+  const flags = _capitalRaiseFlags.slice();
+  // Sort newest-first by publish date.
+  flags.sort((a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0));
+  if (!flags.length) {
+    // No fresh issuance news this build — carry forward last-good so the tab
+    // doesn't blank between news cycles (events are sparse).
+    if (prior && Array.isArray(prior.events) && prior.events.length) return { ...prior, stale: true, builtAtIso };
+    return { builtAtIso, events: [], stale: false };
+  }
+  // SEC-enrich each flagged ticker once (dedup tickers across kinds).
+  const tickers = [...new Set(flags.map((f) => f.ticker))];
+  const secByTicker = {};
+  for (const t of tickers) {
+    const cik = cikMap ? cikMap.get(t) : null;
+    if (!cik) continue;
+    try { secByTicker[t] = await fetchIssuanceForTicker(cik); }
+    catch { /* graceful — headline still ships without the filed number */ }
+  }
+  const events = flags.slice(0, 40).map((f) => {
+    const sec = secByTicker[f.ticker] || null;
+    const filed = sec && f.kind !== "convertible" ? sec[f.kind] || null : (sec ? sec.debt || null : null);
+    const fund = chains?.[f.ticker]?.fundamentals || {};
+    return {
+      ticker: f.ticker,
+      name: fund.name || f.ticker,
+      kind: f.kind,
+      kindLabel: CAPITAL_RAISE_KIND_LABEL[f.kind] || f.kind,
+      headline: f.title,
+      publisher: f.publisher,
+      link: f.link,
+      publishedAt: f.publishedAt,
+      headlineAmount: f.amount,
+      filed: filed ? { val: filed.val, asOf: filed.end, concept: filed.concept } : null,
+    };
+  });
+  return { builtAtIso, events, count: events.length, stale: false };
+}
+
+async function readPriorCapitalRaises() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, "capital-raises.json"), "utf8")); } catch { return null; }
+}
+async function writeCapitalRaisesFile(cikMap, chains, builtAtIso, prior = null) {
+  const payload = await buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "capital-raises.json"), json, "utf8");
+  return { bytes: json.length, count: (payload.events || []).length, stale: !!payload.stale };
 }
 
 // === FOMC meeting schedule (multi-year baseline) =====================
@@ -7434,6 +7747,7 @@ const PICKS_MAX_PER_SIDE = 8;                 // don't ship an all-one-way book
 export const PICKS_MIN_CONVICTION = Number(process.env.PICKS_MIN_CONVICTION ?? 4); // actionable (Call/Put)
 export const PICKS_TIER_STRONG = Number(process.env.PICKS_TIER_STRONG ?? 7);       // Strong conviction
 const PICKS_PILLAR_CLAMP = 5;                 // no single pillar dominates
+const PICKS_TRAJECTORY_CLAMP = 2;             // forward-trajectory nudge into the fundamentals pillar (blend, don't dominate)
 
 // ---- Contract selection (near-the-money, short-dated) ----------------------
 const PICKS_MIN_DTE = 14;
@@ -7718,6 +8032,98 @@ function sig(key, label, score, value, note, available = true) {
   return { key, label, score: s, contribution: s, value: value ?? null, note: note ?? null, available };
 }
 
+// Forward TRAJECTORY read for the Fundamentals pillar — answers "are the
+// fundamentals improving or declining?" rather than only "are they good right
+// now?". Votes from forward-looking inputs (management guidance, growth
+// acceleration vs the trailing realized rate, analyst revisions, margin slope,
+// earnings-surprise momentum), nets them, and returns a direction + a bounded
+// score nudge + a one-line reason. The nudge BLENDS into the current-state
+// pillar (a deteriorating-but-still-good name grades a notch lower; an
+// improving-but-still-weak name a notch higher) and `dir` drives the ↗/↘ arrow
+// the Grade / Top-Picks cards render. Product call: blend + arrow, not a
+// separate grade. Returns dir:"steady" score:0 when there isn't enough forward
+// signal (so it never invents a trajectory from one data point).
+function computeFundamentalsTrajectory(data) {
+  const f = data?.fundamentals || {};
+  const votes = [];
+  const add = (v, why) => { if (v) votes.push({ v, why }); };
+  const capFirst = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+  // 1) Management guidance — the strongest forward tell.
+  const g = data?.aiSignals?.guidance || null;
+  if (g && g.direction && g.direction !== "none") {
+    if (g.direction === "raised") add(2, "guidance raised");
+    else if (g.direction === "inline") add(0.5, "guidance in line");
+    else if (g.direction === "soft") add(-1, "guidance soft");
+    else if (g.direction === "lowered") add(-2, "guidance lowered");
+  }
+
+  // 2) EPS growth acceleration — forward FY estimate vs the trailing realized rate.
+  const fwdEps = pnum(f.growthEstimateCurY), trailEps = pnum(f.earningsGrowthYoy);
+  if (fwdEps != null && trailEps != null) {
+    const d = fwdEps - trailEps;
+    if (d >= 5) add(1, "earnings growth accelerating");
+    else if (d >= 2) add(0.5, "earnings growth firming");
+    else if (d <= -5) add(-1, "earnings growth decelerating");
+    else if (d <= -2) add(-0.5, "earnings growth cooling");
+  } else if (fwdEps != null) {
+    if (fwdEps >= 15) add(0.5, "strong forward EPS growth");
+    else if (fwdEps <= -5) add(-0.5, "forward EPS contraction");
+  }
+
+  // 3) Revenue growth acceleration — forward FY revenue est vs trailing TTM.
+  const revEstY = pnum(f.revenueEstimateCurY), revTtm = pnum(f.revenue), trailRev = pnum(f.revenueGrowthYoy);
+  if (revEstY != null && revTtm > 0 && trailRev != null) {
+    const d = (revEstY / revTtm - 1) * 100 - trailRev;
+    if (d >= 4) add(0.75, "revenue growth accelerating");
+    else if (d <= -4) add(-0.75, "revenue growth decelerating");
+  }
+
+  // 4) Analyst revisions — forward sentiment (events move stocks).
+  const net = pnum(f.analystRevisions?.net);
+  if (net != null) {
+    if (net >= 2) add(1, "net analyst upgrades");
+    else if (net === 1) add(0.5, "an analyst upgrade");
+    else if (net <= -2) add(-1, "net analyst downgrades");
+    else if (net === -1) add(-0.5, "an analyst downgrade");
+  }
+
+  // 5) Net margin slope — lighter weight (the level is already in the pillar).
+  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
+  if (nm.length >= 2) {
+    const cur = Number(nm[nm.length - 1].value);
+    const prior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : Number(nm[nm.length - 2].value);
+    if (Number.isFinite(cur) && Number.isFinite(prior)) {
+      if (cur - prior >= 0.5) add(0.5, "margins expanding");
+      else if (cur - prior <= -0.5) add(-0.5, "margins compressing");
+    }
+  }
+
+  // 6) Earnings-surprise momentum — beating by MORE (or LESS) than before.
+  const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory.filter((x) => pnum(x?.surprisePct) != null) : [];
+  if (eh.length >= 2) {
+    const cur = Number(eh[eh.length - 1].surprisePct), prev = Number(eh[eh.length - 2].surprisePct);
+    if (Number.isFinite(cur) && Number.isFinite(prev)) {
+      if (cur - prev >= 3 && cur >= 0) add(0.5, "widening earnings beats");
+      else if (cur - prev <= -3) add(-0.5, "shrinking earnings beats");
+    }
+  }
+
+  if (votes.length < 2) {
+    return { dir: "steady", score: 0, confidence: "low",
+      reason: votes.length ? capFirst(votes[0].why) : "Not enough forward signal", inputs: votes.length };
+  }
+  const raw = votes.reduce((a, x) => a + x.v, 0);
+  const nudge = r1(clamp(raw, -PICKS_TRAJECTORY_CLAMP, PICKS_TRAJECTORY_CLAMP));
+  const dir = raw >= 1 ? "improving" : raw <= -1 ? "declining" : "steady";
+  const sign = raw >= 0 ? 1 : -1;
+  const lead = votes.filter((x) => (x.v > 0 ? 1 : -1) === sign)
+    .sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 2).map((x) => x.why);
+  const reason = capFirst(lead.length ? lead.join("; ") : (dir === "steady" ? "mixed forward signals" : ""));
+  const confidence = votes.length >= 4 ? "high" : votes.length >= 3 ? "medium" : "low";
+  return { dir, score: nudge, confidence, reason, inputs: votes.length };
+}
+
 // ============================================================================
 // The four pillars.  Each returns { score, signals:[] }, score clamped later.
 // ============================================================================
@@ -7802,8 +8208,17 @@ function scoreFundamentals(data, sectorMedianPE) {
   }
   out.push(sig("netMargin", "Net margin trend", nmScore, nmVal, "Margin expanding/contracting", nm.length >= 2));
 
+  // Forward TRAJECTORY — blend an improving/declining read into the pillar so
+  // the grade reflects WHERE the business is heading, not just where it stands.
+  // The bounded nudge folds into the pillar sum; `trajectory` rides on the
+  // returned object so the card can draw a ↗/↘ arrow with the one-line reason.
+  const trajectory = computeFundamentalsTrajectory(data);
+  out.push(sig("trajectory", "Fundamentals trajectory", trajectory.score,
+    trajectory.dir === "improving" ? "improving ↗" : trajectory.dir === "declining" ? "declining ↘" : "steady →",
+    trajectory.reason, trajectory.inputs >= 2));
+
   const score = out.reduce((a, s) => a + s.score, 0);
-  return { score, signals: out };
+  return { score, signals: out, trajectory };
 }
 
 function scoreTechnicals(data, streakRow) {
@@ -9016,6 +9431,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   const spot = pnum(r.data.spot);
   const cs = r.streakRow?.current || null;
   const thesis = buildThesis(r, side, contract, tactical);
+  const thesisCard = buildThesisCard(r, side, contract, tactical, exitPlan);
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
   const entry = computeEntrySignal(side, spot, r.data, r.timing);
   if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
@@ -9023,7 +9439,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
     pillars: r.pillars, drivers: r.drivers,
-    analysis: thesis, thesis,
+    analysis: thesis, thesis, thesisCard,
     contract, entry,
     entryTiming: { state: r.timing.state, headline: r.timing.headline, deferKind: r.timing.deferKind || null },
     tactical: !!tactical, firstSeen: null,
@@ -9046,6 +9462,100 @@ function buildThesis(r, side, contract, tactical) {
   else if (t && t.state === "wait") parts.push(`Timing says wait: ${t.headline}.`);
   if (contract) parts.push(`Suggested: ${contract.expiryLabel} $${contract.strike} ${side} (~${Math.round(Math.abs(contract.delta) * 100)}delta, ${contract.dte}DTE).`);
   return parts.join(" ");
+}
+
+// Per-signal "what would prove this wrong" phrasing — deliberately
+// direction-neutral so it reads correctly for both a call and a put thesis (the
+// supporting signal simply reversing IS the invalidation, either way).
+const THESIS_INVALIDATION = {
+  rsiMomentum: "RSI momentum reverses against the position",
+  rsiReading: "RSI mean-reverts out of the extreme",
+  smaStack: "price breaks its moving-average structure",
+  macd: "MACD crosses back against the trade",
+  srBreak: "the support/resistance break fails and price snaps back",
+  fiftyTwoWeek: "price retreats from the 52-week extreme",
+  volumeConfirm: "the move loses its volume confirmation",
+  chartPattern: "the chart pattern fails to follow through",
+  streak: "the daily streak snaps",
+  earningsSurprise: "the next earnings print disappoints",
+  epsGrowth: "forward EPS estimates roll over",
+  revGrowth: "revenue growth stalls",
+  analystTarget: "price closes the gap to the analyst target",
+  analystRevisions: "analysts revise the other way",
+  pe: "the valuation re-rates against the trade",
+  guidance: "guidance is revised against the thesis",
+  majorContract: "the marquee deal/catalyst falls through",
+  fcf: "free cash flow deteriorates",
+  netMargin: "margins reverse",
+  trajectory: "the fundamentals trajectory flips",
+  unusualFlow: "the options flow reverses",
+  oiSkew: "dealer positioning flips against the trade",
+  shortInterest: "the short-squeeze fuel is spent",
+  unusualVolume: "the volume surge fades",
+  hourlyVolume: "the volume surge fades",
+  newsCatalyst: "a headline lands against the position",
+  sectorNarrative: "the sector narrative cools",
+  socialSentiment: "sentiment turns",
+};
+const THESIS_PILLAR_LABEL = { fundamentals: "Fundamentals", technicals: "Technicals", mechanicals: "Flow", narrative: "Narrative" };
+
+// Locate a driver signal's home pillar + its display value ("+12.3%", "raised").
+function findDriverSignal(r, key) {
+  const ps = r.pillars || {};
+  for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
+    const sigs = (ps[pk] && ps[pk].signals) || [];
+    for (const s of sigs) if (s.key === key) return { pillar: pk, sig: s };
+  }
+  return null;
+}
+
+// Structured thesis for a pick: WHAT MAKES IT WORK (the supporting drivers),
+// WHAT WOULD DISPROVE IT (each lead driver reversing + the price/time stops),
+// and the TARGET it's positioned for. Stored alongside the one-line `analysis`
+// string; persisted at enrollment and re-scored each build (thesisStatus) so the
+// Track-record tab can show whether the thesis is actually playing out.
+function buildThesisCard(r, side, contract, tactical, exitPlan) {
+  const supportSign = side === "call" ? 1 : -1;
+  const works = [];
+  for (const d of r.drivers || []) {
+    if (!d || !d.score || Math.sign(d.score) !== supportSign) continue;
+    const found = findDriverSignal(r, d.key);
+    works.push({
+      key: d.key,
+      label: d.label,
+      pillar: found ? THESIS_PILLAR_LABEL[found.pillar] || found.pillar : null,
+      value: found && found.sig && found.sig.value != null ? String(found.sig.value) : null,
+    });
+    if (works.length >= 4) break;
+  }
+  const invalidators = [];
+  const seen = new Set();
+  for (const w of works.slice(0, 3)) {
+    const trig = THESIS_INVALIDATION[w.key];
+    if (trig && !seen.has(trig)) { invalidators.push({ key: w.key, trigger: trig }); seen.add(trig); }
+  }
+  // Structural invalidators — always present, derived from the exit plan.
+  const cut = exitPlan && exitPlan.cut && pnum(exitPlan.cut.price) != null ? r2(exitPlan.cut.price) : null;
+  if (cut != null) invalidators.push({ key: "priceStop", trigger: `${r.sym} ${side === "call" ? "closes below" : "closes above"} ~$${cut} (the ~ATR stop)` });
+  invalidators.push({ key: "timeStop", trigger: `no follow-through within ${PICKS_MAX_HOLD_DAYS} trading days` });
+  // If the score is marginal, flag that the grade itself crossing the bar would invalidate.
+  if (Math.abs(r.total) < PICKS_TIER_STRONG) {
+    invalidators.push({ key: "gradeFlip", trigger: `the grade drops back under the ${PICKS_MIN_CONVICTION}-pt actionable bar` });
+  }
+  const target = {
+    optionTpPct: Math.round(PICKS_OPT_TP_PCT * 100),
+    optionStopPct: Math.round(PICKS_OPT_STOP_PCT * 100),
+    underlyingStop: cut,
+    dte: contract ? contract.dte : null,
+    holdDays: PICKS_MAX_HOLD_DAYS,
+  };
+  return {
+    direction: side === "call" ? "bullish" : "bearish",
+    summary: buildThesis(r, side, contract, tactical),
+    works,
+    invalidators,
+    target,
+  };
 }
 
 function pickSideLean(picks) {
@@ -9807,6 +10317,37 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const earnMs = data?.fundamentals?.nextEarningsDate ? Date.parse(data.fundamentals.nextEarningsDate) : null;
     const earningsAheadDays = earnMs != null ? (earnMs - nowSec * 1000) / 86400000 : null;
     const marked = { ...e, lastSpot: r2(lastSpot), optionPnlPct: r1(optionPnlPct), underlyingPnlPct: r1(underlyingPnlPct), mfePct: Number.isFinite(mfePct) ? r1(mfePct) : e.mfePct, maePct: Number.isFinite(maePct) ? r1(maePct) : e.maePct, optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null, optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null };
+    // Re-score the thesis against today's grade — is it playing out? Price
+    // progress is the direction-adjusted underlying move; driver confirmation is
+    // how many of the entry's supporting drivers are still firing in the live
+    // grade; a grade flip or a breached stop fires the invalidation. Verdict:
+    // on-track / mixed / broken. Needs the freshly-built gradesIndex (passed in).
+    if (e.thesis) {
+      const g = gradesIndex ? gradesIndex[e.symbol] : null;
+      const driverKeys = Array.isArray(e.thesis.driverKeys) ? e.thesis.driverKeys : [];
+      let driversActive = null, gradeNow = null, gradeFlip = false;
+      if (g) {
+        const supportSign = isCall ? 1 : -1;
+        const liveSupport = new Set((g.drivers || []).filter((d) => d && d.score && Math.sign(d.score) === supportSign).map((d) => d.key));
+        driversActive = driverKeys.filter((k) => liveSupport.has(k)).length;
+        gradeNow = pnum(g.total);
+        gradeFlip = gradeNow != null && ((isCall && gradeNow <= -PICKS_MIN_CONVICTION) || (!isCall && gradeNow >= PICKS_MIN_CONVICTION));
+      }
+      const stopBreached = e.thesis.stopSpot != null && spot != null
+        ? (isCall ? spot <= e.thesis.stopSpot : spot >= e.thesis.stopSpot) : false;
+      const priceProgress = pnum(underlyingPnlPct);
+      const invalidatorsFired = gradeFlip || stopBreached || (driverKeys.length > 0 && driversActive === 0);
+      let verdict;
+      if (invalidatorsFired) verdict = "broken";
+      else if (priceProgress != null && priceProgress > 0 && (driverKeys.length === 0 || (driversActive != null && driversActive >= Math.ceil(driverKeys.length / 2)))) verdict = "on-track";
+      else verdict = "mixed";
+      marked.thesisStatus = {
+        verdict,
+        priceProgressPct: priceProgress != null ? r1(priceProgress) : null,
+        driversActive, driversTotal: driverKeys.length,
+        gradeNow, gradeFlip, stopBreached,
+      };
+    }
     const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, earningsAheadDays });
     if (res) closed.unshift({ ...marked, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
     else stillOpen.push(marked);
@@ -9827,6 +10368,17 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       contract: p.contract ? { strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay } : null,
       takeProfit: p.exitPlan?.takeProfit?.price ?? null, cut: p.exitPlan?.cut?.price ?? null,
       sector: SECTORS[p.symbol] || p.sector || null, entryRegime: picksPayload?.rosterMeta?.regimeBand || null,
+      // Thesis snapshot at entry — the supporting drivers + invalidation triggers
+      // + the ATR stop level, frozen so later builds can score whether the thesis
+      // is playing out (see thesisStatus below). Compact (keys+labels only).
+      thesis: p.thesisCard ? {
+        direction: p.thesisCard.direction,
+        works: (p.thesisCard.works || []).map((w) => ({ key: w.key, label: w.label })),
+        invalidators: p.thesisCard.invalidators || [],
+        driverKeys: (p.thesisCard.works || []).map((w) => w.key),
+        stopSpot: p.exitPlan?.cut?.price ?? null,
+        entryScore: p.total,
+      } : null,
       optionPnlPct: 0, mfePct: 0, maePct: 0, optHiPct: 0, optLoPct: 0,
     });
   }
@@ -13507,6 +14059,7 @@ async function attachTickerJudgments(chains, macroBackdrop) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const entries = Object.entries(chains);
   console.log(`Generating combined ticker judgments (news + fundamentals) for ${entries.length} tickers…`);
+  _capitalRaiseFlags = []; // reset the capital-raises accumulator each build
   resetBodyFetchStats();
   const hb = startHeartbeat("ticker judgments", entries.length);
   const runPass = (passEntries) =>
@@ -13527,6 +14080,9 @@ async function attachTickerJudgments(chains, macroBackdrop) {
           return;
         }
         const withBody = headlines.filter((h) => h.body).length;
+        // Deterministic capital-raise scan over the same headlines (debt/bond/
+        // share issuance, convertibles, buybacks) → the capital-raises feed.
+        scanCapitalRaiseHeadlines(sym, rawHeadlines);
         const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
         data.news = news;
         if (judgment) {
@@ -15003,6 +15559,12 @@ async function main() {
   // Prior correlations snapshot — fall back to it if tonight's foreign sweep
   // came back too thin (graceful degradation; data/ is about to be wiped).
   const priorCorrelations = await readPriorCorrelations();
+  // Prior AI-CapEx + capital-raises snapshots — both are SEC/news-sourced and
+  // change slowly (quarterly filings / sparse issuance news), so carry the
+  // last-good forward if a build's SEC fetch fails or no fresh issuance news
+  // landed. Read before the wipe like the other cross-build artifacts.
+  const priorAiCapex = await readPriorAiCapex();
+  const priorCapitalRaises = await readPriorCapitalRaises();
   // Load persisted last-good readings BEFORE writeChainFiles wipes data/.
   // Without these reads the caches would never serve a value across builds
   // — the file is gone by the time the post-wipe code tries to read it.
@@ -15217,6 +15779,19 @@ async function main() {
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
+  // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (news scan
+  // during the judgments pass, SEC-enriched). Both are SEC/news-sourced and
+  // carry last-good forward on a fetch miss (graceful). cikMap is the build's
+  // cached SEC ticker→CIK map (already loaded above).
+  try {
+    const cikMap = await fetchCikMap();
+    const aiCapexInfo = await writeAiCapexFile(cikMap, chains, builtAtIso, priorAiCapex);
+    console.log(`wrote data/ai-capex.json — ${aiCapexInfo.count} companies, ${aiCapexInfo.bytes} bytes${aiCapexInfo.stale ? " [stale — kept last-good]" : ""}${aiCapexInfo.missing.length ? ` (no data: ${aiCapexInfo.missing.join(",")})` : ""}`);
+    const capRaisesInfo = await writeCapitalRaisesFile(cikMap, chains, builtAtIso, priorCapitalRaises);
+    console.log(`wrote data/capital-raises.json — ${capRaisesInfo.count} events, ${capRaisesInfo.bytes} bytes${capRaisesInfo.stale ? " [stale — kept last-good]" : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ AI CapEx / capital-raises step failed (non-fatal): ${err.message}`);
+  }
   await writeTrendFiles({
     narratives: trends.narratives,
     sectorOverviews: trends.sectorOverviews || {},

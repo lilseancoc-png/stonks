@@ -3094,7 +3094,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','daytrades','heatmap','calendar','overnight','flow','volume','oi','grade','strategies','streaks','fear-greed','f13','bonds-usd','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','picks','daytrades','heatmap','calendar','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3104,7 +3104,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
       '13f': 'f13', '13f-filings': 'f13',
       bonds: 'bonds-usd', usd: 'bonds-usd',
+      capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
+      'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
       pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
+      comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
       '0dte': 'daytrades', 'day-trades': 'daytrades', daytrade: 'daytrades', day: 'daytrades',
       ticker: 'tickers',
       global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
@@ -3352,6 +3355,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         // re-pulls the live spot.
         if (name === 'oi' && typeof loadGex === 'function' && !gexState.data && !gexState.loading) loadGex();
         if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
+        if (name === 'compare' && typeof initCompare === 'function') initCompare();
+        if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
+        if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
       }
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
       // Programmatic selection (e.g. on page load from localStorage) can
@@ -12923,6 +12929,402 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     stratRenderTemplates();
   }
 
+  // --- Compare companies (Tools tab) --------------------------------------
+  // Side-by-side fundamentals + grade comparator. Lazy-fetches each ticker's
+  // data/<SYM>.json (FREE) + grades.json (FREE), renders a metric table with the
+  // per-row leader highlighted, a delta vs the first (base) name on every other
+  // column, and a plain-language summary. Pure browser tool — no premium gate,
+  // no live polling.
+  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false };
+  var CMP_MAX = 4;
+  var CMP_MAG7 = ['AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA'];
+  // Metric rows. get(j) reads from the per-ticker json (j.fundamentals, j.spot,
+  // j._grade = the grades.json entry). better = which direction wins the row
+  // (for the leader highlight); deltaKind controls how the vs-base diff reads.
+  function cmpMetricRows(){
+    function F(j){ return (j && j.fundamentals) || {}; }
+    function upside(j){ var f = F(j); return (f.targetMeanPrice != null && j.spot > 0) ? (f.targetMeanPrice / j.spot - 1) * 100 : null; }
+    return [
+      { key:'grade', label:'Our grade (4-pillar)', get:function(j){ return j._grade ? j._grade.total : null; }, fmt:'grade', better:'high', deltaKind:'pts' },
+      { key:'spot', label:'Price', get:function(j){ return j.spot; }, fmt:'usd2', better:null, deltaKind:'pct' },
+      { key:'marketCap', label:'Market cap', get:function(j){ return F(j).marketCap; }, fmt:'big', better:'high', deltaKind:'pct' },
+      { key:'trailingPE', label:'P/E (trailing)', get:function(j){ return F(j).trailingPE; }, fmt:'x', better:'low', deltaKind:'pct' },
+      { key:'forwardPE', label:'P/E (forward)', get:function(j){ return F(j).forwardPE; }, fmt:'x', better:'low', deltaKind:'pct' },
+      { key:'pegRatio', label:'PEG ratio', get:function(j){ return F(j).pegRatio; }, fmt:'x2', better:'low', deltaKind:'pct' },
+      { key:'priceToSales', label:'Price / sales', get:function(j){ return F(j).priceToSales; }, fmt:'x', better:'low', deltaKind:'pct' },
+      { key:'revenue', label:'Revenue (TTM)', get:function(j){ return F(j).revenue; }, fmt:'big', better:'high', deltaKind:'pct' },
+      { key:'revenueGrowthYoy', label:'Revenue growth (YoY)', get:function(j){ return F(j).revenueGrowthYoy; }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'earningsGrowthYoy', label:'EPS growth (YoY)', get:function(j){ return F(j).earningsGrowthYoy; }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'grossMargin', label:'Gross margin', get:function(j){ return F(j).grossMargin; }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'operatingMargin', label:'Operating margin', get:function(j){ return F(j).operatingMargin; }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'profitMargin', label:'Net margin', get:function(j){ return F(j).profitMargin; }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'returnOnEquity', label:'Return on equity', get:function(j){ return F(j).returnOnEquity; }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'dividendYield', label:'Dividend yield', get:function(j){ return F(j).dividendYield; }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'debtToEquity', label:'Debt / equity', get:function(j){ return F(j).debtToEquity; }, fmt:'x2', better:'low', deltaKind:'pct' },
+      { key:'beta', label:'Beta', get:function(j){ return F(j).beta; }, fmt:'x2', better:null, deltaKind:'none' },
+      { key:'analystUpside', label:'Analyst upside', get:function(j){ return upside(j); }, fmt:'pct', better:'high', deltaKind:'pp' },
+    ];
+  }
+  function cmpIsNum(v){ return v != null && isFinite(Number(v)); }
+  function cmpFmtVal(fmt, v){
+    if (!cmpIsNum(v)) return '—';
+    v = Number(v);
+    if (fmt === 'usd2') return '$' + v.toFixed(2);
+    if (fmt === 'big') return fmtBigDollars(v) || ('$' + Math.round(v).toLocaleString());
+    if (fmt === 'pct') return (v >= 0 ? '' : '') + v.toFixed(1) + '%';
+    if (fmt === 'x') return v.toFixed(1) + '×';
+    if (fmt === 'x2') return v.toFixed(2);
+    if (fmt === 'grade') return (v >= 0 ? '+' : '') + v.toFixed(1);
+    return String(v);
+  }
+  // Diff vs the first (base) column. pct = relative %, pp = percentage points,
+  // pts = absolute points (grade), none = suppressed.
+  function cmpFmtDelta(kind, v, base){
+    if (kind === 'none' || !cmpIsNum(v) || !cmpIsNum(base)) return null;
+    v = Number(v); base = Number(base);
+    var d, txt;
+    if (kind === 'pct'){ if (base === 0) return null; d = (v / base - 1) * 100; txt = (d >= 0 ? '+' : '') + d.toFixed(1) + '%'; }
+    else if (kind === 'pp'){ d = v - base; txt = (d >= 0 ? '+' : '') + d.toFixed(1) + 'pp'; }
+    else { d = v - base; txt = (d >= 0 ? '+' : '') + d.toFixed(1); }
+    return { d: d, txt: txt };
+  }
+  function cmpGradeEntry(sym){
+    var g = compareState.grades;
+    if (!g) return null;
+    var map = g.grades || g;
+    return map && map[sym] ? map[sym] : null;
+  }
+  function initCompare(){
+    if (!compareState.inited){
+      compareState.inited = true;
+      // Seed the autocomplete datalist from the manifest symbol list.
+      var dl = $('cmp-datalist');
+      if (dl && !dl.childElementCount){
+        var html = '';
+        for (var i=0; i<SYMBOLS.length; i++) html += '<option value="' + escapeHtml(SYMBOLS[i]) + '"></option>';
+        dl.innerHTML = html;
+      }
+      var input = $('cmp-input');
+      if (input){
+        input.addEventListener('keydown', function(e){
+          if (e.key === 'Enter' || e.key === ','){ e.preventDefault(); cmpAddFromInput(); }
+        });
+      }
+      var add = $('cmp-add'); if (add) add.addEventListener('click', cmpAddFromInput);
+      var mag = $('cmp-quick-mag7'); if (mag) mag.addEventListener('click', function(){ cmpSetTickers(CMP_MAG7.slice(0, CMP_MAX)); });
+      var clr = $('cmp-clear'); if (clr) clr.addEventListener('click', function(){ cmpSetTickers([]); });
+      var chips = $('cmp-chips');
+      if (chips) chips.addEventListener('click', function(e){
+        var b = e.target.closest && e.target.closest('[data-cmp-remove]');
+        if (b) cmpRemoveTicker(b.getAttribute('data-cmp-remove'));
+      });
+    }
+    renderCompare();
+  }
+  function cmpAddFromInput(){
+    var input = $('cmp-input'); if (!input) return;
+    var raw = (input.value || '').toUpperCase().replace(/[^A-Z0-9.]/g, '');
+    if (!raw) return;
+    input.value = '';
+    cmpAddTicker(raw);
+  }
+  function cmpAddTicker(sym){
+    if (!sym) return;
+    if (compareState.tickers.indexOf(sym) !== -1) return;
+    if (compareState.tickers.length >= CMP_MAX){ cmpStatus('Up to ' + CMP_MAX + ' companies at a time — remove one first.'); return; }
+    compareState.tickers.push(sym);
+    cmpLoadAndRender();
+  }
+  function cmpRemoveTicker(sym){
+    compareState.tickers = compareState.tickers.filter(function(t){ return t !== sym; });
+    renderCompare();
+  }
+  function cmpSetTickers(list){
+    compareState.tickers = (list || []).slice(0, CMP_MAX);
+    cmpLoadAndRender();
+  }
+  function cmpStatus(msg){ var el = $('cmp-status'); if (el) el.textContent = msg || ''; }
+  // Lazy-fetch any uncached tickers + the shared grades index, then render.
+  function cmpLoadAndRender(){
+    renderCompare(); // paint chips immediately
+    var need = compareState.tickers.filter(function(t){ return !compareState.cache[t] && compareState.cache[t] !== 'error'; });
+    var jobs = [];
+    if (!compareState.grades && !compareState.gradesLoading){
+      compareState.gradesLoading = true;
+      jobs.push(fetch('data/grades.json', { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){ compareState.grades = j || { grades: {} }; })
+        .catch(function(){ compareState.grades = { grades: {} }; }));
+    }
+    need.forEach(function(sym){
+      jobs.push(fetch('data/' + encodeURIComponent(sym) + '.json', { cache: 'no-cache' })
+        .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(j){ compareState.cache[sym] = (j && typeof j === 'object') ? j : 'error'; })
+        .catch(function(){ compareState.cache[sym] = 'error'; }));
+    });
+    if (need.length) cmpStatus('Loading ' + need.join(', ') + '…');
+    Promise.all(jobs).then(function(){ compareState.gradesLoading = false; cmpStatus(''); renderCompare(); });
+  }
+  function cmpChipsHtml(){
+    var out = '';
+    for (var i=0; i<compareState.tickers.length; i++){
+      var sym = compareState.tickers[i];
+      var j = compareState.cache[sym];
+      var nm = (j && j !== 'error' && j.fundamentals && j.fundamentals.name) ? j.fundamentals.name : '';
+      out += '<span class="cmp-chip' + (i === 0 ? ' cmp-chip-base' : '') + '">' +
+        '<b>' + escapeHtml(sym) + '</b>' + (i === 0 ? '<span class="cmp-chip-base-tag">base</span>' : '') +
+        (nm ? '<span class="cmp-chip-name">' + escapeHtml(nm) + '</span>' : '') +
+        '<button type="button" class="cmp-chip-x" data-cmp-remove="' + escapeHtml(sym) + '" aria-label="Remove ' + escapeHtml(sym) + '">&times;</button>' +
+      '</span>';
+    }
+    return out;
+  }
+  function renderCompare(){
+    var chipsEl = $('cmp-chips'); if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
+    var wrap = $('cmp-table-wrap'); var sum = $('cmp-summary');
+    if (!wrap || !sum) return;
+    var syms = compareState.tickers.slice();
+    if (syms.length < 2){
+      wrap.hidden = true; sum.hidden = true;
+      cmpStatus(syms.length === 1 ? 'Add at least one more ticker to compare.' : '');
+      return;
+    }
+    // Resolve each ticker's data (+ grade) — skip ones that failed to load.
+    var cols = [];
+    for (var i=0; i<syms.length; i++){
+      var sym = syms[i]; var j = compareState.cache[sym];
+      if (!j) { cols.push({ sym: sym, loading: true }); continue; }
+      if (j === 'error'){ cols.push({ sym: sym, error: true }); continue; }
+      j._grade = cmpGradeEntry(sym);
+      cols.push({ sym: sym, j: j, grade: j._grade });
+    }
+    var ready = cols.filter(function(c){ return c.j; });
+    if (ready.length < 2){ wrap.hidden = true; sum.hidden = true; return; }
+
+    var rows = cmpMetricRows();
+    var baseJ = ready[0].j;
+    // Header
+    var head = '<th scope="col" class="cmp-th-metric"></th>';
+    for (var c=0; c<cols.length; c++){
+      var col = cols[c];
+      var gentry = col.grade;
+      var side = gentry && gentry.side ? gentry.side : null;
+      var sbadge = side ? '<span class="cmp-side cmp-side-' + escapeHtml(side) + '">' + (side === 'put' ? 'PUT' : 'CALL') + '</span>' : '';
+      var sector = gentry && gentry.sector ? gentry.sector : (col.j && col.j.fundamentals && col.j.fundamentals.sector) || '';
+      head += '<th scope="col" class="cmp-th-co' + (c === 0 ? ' cmp-th-base' : '') + (col.error ? ' cmp-th-err' : '') + '">' +
+        '<span class="cmp-th-sym">' + escapeHtml(col.sym) + '</span> ' + sbadge +
+        (sector ? '<span class="cmp-th-sector">' + escapeHtml(sector) + '</span>' : '') +
+        (col.error ? '<span class="cmp-th-sector">not found</span>' : '') +
+      '</th>';
+    }
+    // Body
+    var body = '';
+    for (var r2i=0; r2i<rows.length; r2i++){
+      var row = rows[r2i];
+      // Gather values to find the leader.
+      var vals = cols.map(function(col){ return col.j ? row.get(col.j) : null; });
+      var leaderIdx = -1;
+      if (row.better){
+        var bestV = null;
+        for (var v=0; v<vals.length; v++){
+          if (!cmpIsNum(vals[v])) continue;
+          var nv = Number(vals[v]);
+          if (bestV === null || (row.better === 'high' ? nv > bestV : nv < bestV)){ bestV = nv; leaderIdx = v; }
+        }
+      }
+      var baseVal = row.get(baseJ);
+      var cells = '<th scope="row" class="cmp-td-metric">' + escapeHtml(row.label) + '</th>';
+      for (var cc=0; cc<cols.length; cc++){
+        var cj = cols[cc];
+        if (!cj.j){ cells += '<td class="cmp-td">' + (cj.error ? '—' : '…') + '</td>'; continue; }
+        var val = vals[cc];
+        var deltaHtml = '';
+        if (cc !== 0){
+          var dlt = cmpFmtDelta(row.deltaKind, val, baseVal);
+          if (dlt){
+            // For a "lower is better" metric, a negative diff is favorable.
+            var fav = row.better === 'low' ? (dlt.d < 0) : (dlt.d > 0);
+            var dcls = dlt.d === 0 ? 'cmp-d-flat' : (fav ? 'cmp-d-good' : 'cmp-d-bad');
+            deltaHtml = '<span class="cmp-delta ' + dcls + '">' + escapeHtml(dlt.txt) + '</span>';
+          }
+        }
+        cells += '<td class="cmp-td' + (cc === leaderIdx ? ' cmp-leader' : '') + '">' +
+          '<span class="cmp-val">' + escapeHtml(cmpFmtVal(row.fmt, val)) + '</span>' + deltaHtml +
+        '</td>';
+      }
+      body += '<tr>' + cells + '</tr>';
+    }
+    wrap.innerHTML = '<table class="cmp-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
+    wrap.hidden = false;
+    // Summary
+    sum.innerHTML = cmpSummaryHtml(ready);
+    sum.hidden = false;
+  }
+  // Plain-language "how they stack up" — leaders on the metrics that matter,
+  // and a note on whether they share a sector (the Top-Picks-style framing).
+  function cmpSummaryHtml(ready){
+    function F(c){ return (c.j.fundamentals) || {}; }
+    function leader(getter, dir){
+      var best = null;
+      for (var i=0; i<ready.length; i++){
+        var v = getter(ready[i]); if (!cmpIsNum(v)) continue; v = Number(v);
+        if (best === null || (dir === 'high' ? v > best.v : v < best.v)) best = { sym: ready[i].sym, v: v };
+      }
+      return best;
+    }
+    var bits = [];
+    var sectors = {};
+    for (var s=0; s<ready.length; s++){ var sec = ready[s].grade && ready[s].grade.sector; if (sec) sectors[sec] = 1; }
+    var secKeys = Object.keys(sectors);
+    if (secKeys.length === 1) bits.push('All ' + secKeys[0] + ' names — a clean like-for-like read.');
+    else if (secKeys.length > 1) bits.push('Spanning ' + secKeys.length + ' sectors, so valuation and margin gaps partly reflect different business models.');
+
+    var grade = leader(function(c){ return c.grade ? c.grade.total : null; }, 'high');
+    if (grade){
+      var gentry = null; for (var i2=0;i2<ready.length;i2++){ if (ready[i2].sym === grade.sym){ gentry = ready[i2].grade; break; } }
+      var sideTxt = gentry && gentry.side ? (gentry.side === 'put' ? 'bearish' : 'bullish') : 'neutral';
+      bits.push('<b>' + escapeHtml(grade.sym) + '</b> carries our top grade (' + (grade.v >= 0 ? '+' : '') + grade.v.toFixed(1) + ', ' + sideTxt + ').');
+    }
+    var pe = leader(function(c){ return F(c).trailingPE; }, 'low');
+    var peHi = leader(function(c){ return F(c).trailingPE; }, 'high');
+    if (pe && peHi && pe.sym !== peHi.sym) bits.push('<b>' + escapeHtml(pe.sym) + '</b> is the cheapest on trailing P/E (' + pe.v.toFixed(1) + '×) and <b>' + escapeHtml(peHi.sym) + '</b> the most expensive (' + peHi.v.toFixed(1) + '×).');
+    var rg = leader(function(c){ return F(c).revenueGrowthYoy; }, 'high');
+    if (rg) bits.push('<b>' + escapeHtml(rg.sym) + '</b> grows revenue fastest (' + rg.v.toFixed(1) + '% YoY).');
+    var nm = leader(function(c){ return F(c).profitMargin; }, 'high');
+    if (nm) bits.push('<b>' + escapeHtml(nm.sym) + '</b> runs the fattest net margin (' + nm.v.toFixed(1) + '%).');
+    var mc = leader(function(c){ return F(c).marketCap; }, 'high');
+    if (mc) bits.push('<b>' + escapeHtml(mc.sym) + '</b> is the largest by market cap (' + (fmtBigDollars(mc.v) || mc.v) + ').');
+
+    var lis = bits.map(function(b){ return '<li>' + b + '</li>'; }).join('');
+    return '<div class="cmp-summary-head">Summary</div><ul class="cmp-summary-list">' + lis + '</ul>';
+  }
+
+  // --- AI CapEx (Macro tab) -----------------------------------------------
+  // Aggregate Mag-7 capital expenditure from data/ai-capex.json — SEC XBRL
+  // CapEx, latest full FY vs the year before (+ TTM run-rate), per company.
+  var aiCapexState = { data: null, loading: false };
+  function cxDollars(v){ if (v == null || !isFinite(v)) return '—'; return fmtBigDollars(v) || ('$' + Math.round(v).toLocaleString()); }
+  function cxYoyChip(p){
+    if (p == null || !isFinite(p)) return '';
+    var cls = p >= 0 ? 'cx-up' : 'cx-down';
+    return '<span class="cx-yoy ' + cls + '">' + (p >= 0 ? '▲ +' : '▼ ') + p.toFixed(1) + '%</span>';
+  }
+  function loadAiCapex(){
+    if (aiCapexState.data || aiCapexState.loading){ renderAiCapex(); return; }
+    aiCapexState.loading = true;
+    fetch('data/ai-capex.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ aiCapexState.data = (j && typeof j === 'object') ? j : { companies: [] }; aiCapexState.loading = false; renderAiCapex(); })
+      .catch(function(){ aiCapexState.data = { companies: [], loadError: true }; aiCapexState.loading = false; renderAiCapex(); });
+  }
+  function renderAiCapex(){
+    var root = $('ai-capex-root'); var empty = $('ai-capex-empty'); var eye = $('ai-capex-eyebrow');
+    if (!root) return;
+    var d = aiCapexState.data;
+    if (!d){ root.textContent = 'Loading AI CapEx…'; return; }
+    var cos = Array.isArray(d.companies) ? d.companies : [];
+    if (!cos.length){ root.innerHTML = ''; if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load AI CapEx data.' : 'AI CapEx data will appear after the next daily build refresh.'; } return; }
+    if (empty) empty.hidden = true;
+    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + 'as of ' + String(d.builtAtIso).slice(0,10);
+    var t = d.totals || null;
+    var head = '';
+    if (t){
+      var dir = t.yoyPct == null ? '' : (t.yoyPct >= 0 ? 'cx-up' : 'cx-down');
+      var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
+      head = '<div class="cx-hero">' +
+        '<div class="cx-hero-main">' +
+          '<div class="cx-hero-label">Total Mag-7 CapEx · latest reported fiscal year</div>' +
+          '<div class="cx-hero-val">' + cxDollars(t.fyLatestSum) + '</div>' +
+          (t.fyPriorSum != null ?
+            '<div class="cx-hero-sub ' + dir + '">' +
+              (t.yoyPct != null ? (t.yoyPct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(t.yoyPct).toFixed(1) + '%' : '') +
+              deltaTxt + ' vs the prior year (' + cxDollars(t.fyPriorSum) + ')' +
+            '</div>' : '') +
+        '</div>' +
+        (t.ttmSum != null ?
+          '<div class="cx-hero-ttm"><div class="cx-hero-label">TTM run-rate</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
+          (t.ttmCount < t.count ? '<div class="cx-hero-note">' + t.ttmCount + ' of ' + t.count + ' names</div>' : '') + '</div>' : '') +
+      '</div>';
+    }
+    // Per-company bars, sorted by latest-FY spend (already sorted server-side).
+    var maxV = 0;
+    for (var i=0; i<cos.length; i++){ if (cos[i].fyLatest && cos[i].fyLatest.val > maxV) maxV = cos[i].fyLatest.val; }
+    var rows = '';
+    for (var c=0; c<cos.length; c++){
+      var co = cos[c];
+      var v = co.fyLatest ? co.fyLatest.val : 0;
+      var w = maxV > 0 ? (v / maxV * 100) : 0;
+      var ttmTxt = co.ttm ? cxDollars(co.ttm.val) + (co.ttm.basis === 'ttm' ? ' TTM' : ' FY') : '—';
+      rows += '<div class="cx-row">' +
+        '<div class="cx-row-head"><span class="cx-tkr">' + escapeHtml(co.ticker) + '</span> <span class="cx-name">' + escapeHtml(co.name || '') + '</span></div>' +
+        '<div class="cx-bar-wrap"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div>' +
+          '<span class="cx-bar-val">' + cxDollars(v) + '</span> ' + cxYoyChip(co.yoyPct) + '</div>' +
+        '<div class="cx-row-meta">' +
+          (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
+          ' · run-rate ' + ttmTxt +
+          (co.capexToRevenuePct != null ? ' · ' + co.capexToRevenuePct.toFixed(1) + '% of revenue' : '') +
+        '</div>' +
+      '</div>';
+    }
+    var missing = (Array.isArray(d.missing) && d.missing.length) ? '<p class="cx-missing">No SEC CapEx data for: ' + escapeHtml(d.missing.join(', ')) + '.</p>' : '';
+    root.innerHTML = head + '<div class="cx-rows">' + rows + '</div>' + missing;
+  }
+
+  // --- Capital raises (Macro tab) -----------------------------------------
+  // data/capital-raises.json — news-flagged debt/share/convertible issuance &
+  // buybacks, each paired with the latest filed SEC amount.
+  var capitalRaisesState = { data: null, loading: false };
+  var CR_KIND_CLS = { debt: 'cr-debt', convertible: 'cr-conv', equity: 'cr-equity', buyback: 'cr-buyback' };
+  function crDateShort(iso){
+    if (!iso) return '';
+    var ms = Date.parse(iso); if (!isFinite(ms)) return String(iso).slice(0,10);
+    try { return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+    catch (e){ return String(iso).slice(0,10); }
+  }
+  function loadCapitalRaises(){
+    if (capitalRaisesState.data || capitalRaisesState.loading){ renderCapitalRaises(); return; }
+    capitalRaisesState.loading = true;
+    fetch('data/capital-raises.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ capitalRaisesState.data = (j && typeof j === 'object') ? j : { events: [] }; capitalRaisesState.loading = false; renderCapitalRaises(); })
+      .catch(function(){ capitalRaisesState.data = { events: [], loadError: true }; capitalRaisesState.loading = false; renderCapitalRaises(); });
+  }
+  function renderCapitalRaises(){
+    var root = $('capital-raises-root'); var empty = $('capital-raises-empty'); var eye = $('capital-raises-eyebrow');
+    if (!root) return;
+    var d = capitalRaisesState.data;
+    if (!d){ root.textContent = 'Loading capital raises…'; return; }
+    var ev = Array.isArray(d.events) ? d.events : [];
+    if (!ev.length){ root.innerHTML = ''; if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load capital-raises data.' : 'No capital-raise headlines flagged recently — check back after the next refresh.'; } return; }
+    if (empty) empty.hidden = true;
+    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + ev.length + ' event' + (ev.length === 1 ? '' : 's');
+    var rows = '';
+    for (var i=0; i<ev.length; i++){
+      var e = ev[i];
+      var kc = CR_KIND_CLS[e.kind] || 'cr-debt';
+      var amt = (e.headlineAmount != null) ? cxDollars(e.headlineAmount) : '';
+      var filed = e.filed ? ('Latest filed: ' + cxDollars(e.filed.val) + (e.filed.asOf ? ' (period to ' + String(e.filed.asOf).slice(0,10) + ')' : '')) : '';
+      var title = e.link
+        ? '<a href="' + escapeHtml(e.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(e.headline || '') + '</a>'
+        : escapeHtml(e.headline || '');
+      rows += '<div class="cr-row">' +
+        '<div class="cr-row-top">' +
+          '<span class="cr-kind ' + kc + '">' + escapeHtml(e.kindLabel || e.kind || '') + '</span>' +
+          '<span class="cr-tkr">' + escapeHtml(e.ticker || '') + '</span>' +
+          '<span class="cr-name">' + escapeHtml(e.name || '') + '</span>' +
+          (amt ? '<span class="cr-amt">' + amt + '</span>' : '') +
+        '</div>' +
+        '<div class="cr-headline">' + title + '</div>' +
+        '<div class="cr-meta">' +
+          (e.publisher ? escapeHtml(e.publisher) : '') +
+          (e.publishedAt ? ' · ' + escapeHtml(crDateShort(e.publishedAt)) : '') +
+          (filed ? ' · <span class="cr-filed">' + escapeHtml(filed) + '</span>' : '') +
+        '</div>' +
+      '</div>';
+    }
+    root.innerHTML = '<div class="cr-rows">' + rows + '</div>';
+  }
+
   // --- Overnight markets / correlations -----------------------------------
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
@@ -18611,9 +19013,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : (k === 'ivCost')
           ? pickIvCostPanelBody(pil)
           : '<ul class="pick-pillar-signals">' + sigList + '</ul>' + catSection;
+      // Fundamentals trajectory badge — the forward ↗/↘ read (improving vs
+      // declining) blended into the grade, surfaced on the header so a strong
+      // snapshot that's deteriorating (or a weak one that's improving) is
+      // legible at a glance. Steady/no-data shows nothing.
+      var trajBadge = '';
+      if (k === 'fundamentals' && pil.trajectory && pil.trajectory.dir && pil.trajectory.dir !== 'steady'){
+        var tdir = pil.trajectory.dir;
+        var tcls = tdir === 'improving' ? 'sig-pos' : 'sig-neg';
+        trajBadge = '<span class="pillar-traj ' + tcls + '" title="' +
+          escapeHtml('Forward trajectory: ' + tdir + (pil.trajectory.reason ? ' — ' + pil.trajectory.reason : '')) + '">' +
+          (tdir === 'improving' ? '↗' : '↘') + ' ' + escapeHtml(tdir) + '</span>';
+      }
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +
         '<summary class="pick-pillar-head">' +
-          '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + '</span>' +
+          '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + trajBadge + '</span>' +
           barHtml +
           '<span class="pick-pillar-score ' + signClass(pscore) + '">' + escapeHtml(fmtSignedNum(pscore)) + '</span>' +
         '</summary>' +
@@ -18672,6 +19086,72 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<p class="pick-analysis">' + escapeHtml(txt) + '</p>';
   }
 
+  // Structured thesis — "what makes this work" (the supporting drivers) and
+  // "what would disprove it" (each lead driver reversing + the price/time stops).
+  // Sourced from picks.json's pre-computed thesisCard. When the pick is also an
+  // open tracked position, pickThesisStatusFor() surfaces whether it's playing
+  // out (price progress + driver confirmation, scored each build).
+  function pickThesisBlock(p){
+    var tc = p && p.thesisCard;
+    if (!tc || (!(tc.works && tc.works.length) && !(tc.invalidators && tc.invalidators.length))) return '';
+    var dirCls = tc.direction === 'bearish' ? 'thesis-bear' : 'thesis-bull';
+    var worksHtml = '';
+    var works = Array.isArray(tc.works) ? tc.works : [];
+    for (var i=0; i<works.length; i++){
+      var w = works[i]; if (!w) continue;
+      var meta = [];
+      if (w.pillar) meta.push(w.pillar);
+      if (w.value) meta.push(w.value);
+      worksHtml += '<li><span class="thesis-li-main">' + escapeHtml(w.label || '—') + '</span>' +
+        (meta.length ? '<span class="thesis-li-meta">' + escapeHtml(meta.join(' · ')) + '</span>' : '') + '</li>';
+    }
+    var invHtml = '';
+    var inv = Array.isArray(tc.invalidators) ? tc.invalidators : [];
+    for (var k=0; k<inv.length; k++){
+      var iv = inv[k]; if (!iv || !iv.trigger) continue;
+      invHtml += '<li>' + escapeHtml(iv.trigger) + '</li>';
+    }
+    var tgt = tc.target || null;
+    var tgtHtml = '';
+    if (tgt){
+      var bits = [];
+      if (tgt.optionTpPct != null) bits.push('take profit +' + tgt.optionTpPct + '% on the option');
+      if (tgt.optionStopPct != null) bits.push('cut at −' + tgt.optionStopPct + '%');
+      if (tgt.underlyingStop != null) bits.push('underlying stop ~$' + tgt.underlyingStop);
+      if (tgt.holdDays != null) bits.push(tgt.holdDays + '-day time stop');
+      if (bits.length) tgtHtml = '<div class="thesis-target"><span class="thesis-target-lbl">Plan</span> ' + escapeHtml(bits.join(' · ')) + '</div>';
+    }
+    var statusHtml = pickThesisStatusFor(p);
+    return '<div class="pick-thesis ' + dirCls + '">' +
+      '<div class="pick-thesis-head">Thesis <span class="thesis-dir">' + escapeHtml(tc.direction || '') + '</span></div>' +
+      (worksHtml ? '<div class="thesis-col thesis-works"><div class="thesis-col-head">✓ What makes it work</div><ul>' + worksHtml + '</ul></div>' : '') +
+      (invHtml ? '<div class="thesis-col thesis-inval"><div class="thesis-col-head">⚠ What would disprove it</div><ul>' + invHtml + '</ul></div>' : '') +
+      tgtHtml +
+      statusHtml +
+    '</div>';
+  }
+
+  // If this pick is an open tracked position, surface whether the thesis is
+  // playing out — the verdict + price progress + driver confirmation written by
+  // updatePicksAccuracyFile each build. Joined from the accuracy "open" set.
+  function pickThesisStatusFor(p){
+    if (!p || !p.symbol || !picksState.live) return '';
+    var match = picksState.live[p.symbol + '|' + (p.side === 'put' ? 'put' : 'call')];
+    if (!match || !match.thesisStatus) return '';
+    var ts = match.thesisStatus;
+    var v = ts.verdict || 'mixed';
+    var vLabel = v === 'on-track' ? 'On track' : v === 'broken' ? 'Thesis broken' : 'Mixed';
+    var vCls = v === 'on-track' ? 'thesis-ontrack' : v === 'broken' ? 'thesis-broken' : 'thesis-mixed';
+    var bits = [];
+    if (ts.priceProgressPct != null) bits.push((ts.priceProgressPct >= 0 ? '+' : '') + Number(ts.priceProgressPct).toFixed(1) + '% your way');
+    if (ts.driversTotal) bits.push(ts.driversActive + '/' + ts.driversTotal + ' drivers still firing');
+    if (ts.gradeNow != null) bits.push('grade now ' + (ts.gradeNow >= 0 ? '+' : '') + Number(ts.gradeNow).toFixed(1));
+    return '<div class="thesis-status ' + vCls + '">' +
+      '<span class="thesis-status-verdict">' + escapeHtml(vLabel) + '</span>' +
+      (bits.length ? ' <span class="thesis-status-bits">' + escapeHtml(bits.join(' · ')) + '</span>' : '') +
+    '</div>';
+  }
+
   // Build the full judgment card for one pick — the tier banner, analysis,
   // contract, exit ladder, peers, and the Recommendation ⇄ Grade toggle. Used
   // by the detail "page"; the landing view shows only the compact tab cards.
@@ -18722,6 +19202,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
+    var thesisHtml = pickThesisBlock(p);
     var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
     var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
     // The card body is split into two switchable views: "Recommendation"
@@ -18729,7 +19210,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + analysisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
