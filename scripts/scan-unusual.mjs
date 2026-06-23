@@ -954,6 +954,13 @@ async function runVolumePass({
   scannedAt,
   marketState,
   nowDate,
+  // When false, compute + return the flag rows WITHOUT persisting
+  // volume-flags.json / volume-history.json. The lightweight day-trades runner
+  // (scripts/scan-day-trades.mjs) calls it this way: it needs the live volume
+  // board to mine ideas, but the hourly full scan stays the sole owner of those
+  // two files (its hourly snapshots are what the hour-over-hour bucket deltas
+  // read — extra off-hour snapshots would corrupt that cadence).
+  persist = true,
 }) {
   const todayKey = volEtDateKey(nowDate);
   const etMin = etMinutesSinceOpen(nowDate);
@@ -1117,28 +1124,32 @@ async function runVolumePass({
     tickers: merged,
   };
 
-  await mkdir(DATA_DIR, { recursive: true });
-  const outPath = resolve(DATA_DIR, VOLUME_FLAGS_FILE);
-  await writeFile(outPath, JSON.stringify(payload), "utf8");
-  console.log(
-    `wrote ${outPath} — ${merged.length} ticker${merged.length === 1 ? "" : "s"}, ` +
-      `${summary.hourlyFlagCount} hourly, ${summary.eodFlagCount} EOD, ${summary.srBreakCount} S/R break${summary.srBreakCount === 1 ? "" : "s"}` +
-      (sameSession ? " (merged with earlier today)" : prior ? " (new session — reset)" : ""),
-  );
+  // Skip all persistence when the caller only wants the in-memory rows (the
+  // lightweight day-trades runner) — see the `persist` param above.
+  if (persist) {
+    await mkdir(DATA_DIR, { recursive: true });
+    const outPath = resolve(DATA_DIR, VOLUME_FLAGS_FILE);
+    await writeFile(outPath, JSON.stringify(payload), "utf8");
+    console.log(
+      `wrote ${outPath} — ${merged.length} ticker${merged.length === 1 ? "" : "s"}, ` +
+        `${summary.hourlyFlagCount} hourly, ${summary.eodFlagCount} EOD, ${summary.srBreakCount} S/R break${summary.srBreakCount === 1 ? "" : "s"}` +
+        (sameSession ? " (merged with earlier today)" : prior ? " (new session — reset)" : ""),
+    );
 
-  // Append this scan's snapshot to history, cap retention.
-  history.snapshots.push({
-    scannedAt,
-    etDate: todayKey,
-    etMin,
-    tickers: snapshotTickers,
-  });
-  history.snapshots = history.snapshots.slice(-VOLUME_HISTORY_MAX_SNAPSHOTS);
-  const historyPath = resolve(DATA_DIR, VOLUME_HISTORY_FILE);
-  await writeFile(historyPath, JSON.stringify(history), "utf8");
-  console.log(
-    `wrote ${historyPath} — ${history.snapshots.length}/${VOLUME_HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"}, ${snapshotTickers.length} tickers in this snapshot`,
-  );
+    // Append this scan's snapshot to history, cap retention.
+    history.snapshots.push({
+      scannedAt,
+      etDate: todayKey,
+      etMin,
+      tickers: snapshotTickers,
+    });
+    history.snapshots = history.snapshots.slice(-VOLUME_HISTORY_MAX_SNAPSHOTS);
+    const historyPath = resolve(DATA_DIR, VOLUME_HISTORY_FILE);
+    await writeFile(historyPath, JSON.stringify(history), "utf8");
+    console.log(
+      `wrote ${historyPath} — ${history.snapshots.length}/${VOLUME_HISTORY_MAX_SNAPSHOTS} snapshot${history.snapshots.length === 1 ? "" : "s"}, ${snapshotTickers.length} tickers in this snapshot`,
+    );
+  }
   // Hand the freshly-built flag rows (pace, S/R breaks, dealer gamma) back to
   // the caller so the Day Trades engine can mine them for new ideas.
   return merged;
@@ -1825,6 +1836,11 @@ function stripCandidate(c) {
 export {
   dtBuildPlan, dtBuildCandidate, dtDirection, dtEvaluateHit, dtCloseTrade,
   dtComputeStats, dtTradingDaysBetween,
+  // The volume + Day Trades engine passes, reused by the lightweight
+  // high-frequency runner (scripts/scan-day-trades.mjs) so new ideas + TP/SL
+  // closes land between the hourly full scans. DATA_DIR is shared so both
+  // runners read/write the same data/ tree.
+  runVolumePass, runDayTradePass, DATA_DIR,
 };
 
 const isEntryPoint = process.argv[1]
