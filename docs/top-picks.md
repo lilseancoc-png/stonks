@@ -186,7 +186,17 @@ expected move, R/R, probability-of-profit, `contractQuality`).
 4. **Require a tradeable contract** (else drop).
 5. **Sector cap** ≤3 per sector + a correlation-factor cap (the tech/AI complex),
    ETFs uncapped; plus a per-side cap so the book isn't wildly one-way.
-6. Rank by conviction, ship up to 10.
+6. **Factor-trend gate** (`computeFactorTrendHealth`): the resolved track record's
+   worst loss was a long-Tech/AI-call book wiped while the *broad* tape barely moved
+   (SPY ≈ −1.5%, the picks ≈ −9.6%) — a factor-specific drawdown the broad
+   SPY/QQQ/VIX regime can't see. So each correlated factor's **own** trend is
+   measured from its members' bars (share below the 20D SMA + median confirmed 5-day
+   return); when a factor is actively breaking down (`PICKS_FACTOR_WEAK_SHARE` ≥0.6
+   below 20D **and** `PICKS_FACTOR_WEAK_RET5` median 5d ≤ −3%) **new long calls** in
+   it are suppressed — only a strong-tier, `go`-timed call earns a reprieve. **Puts
+   are unaffected** (a falling factor is fine to be short). Ships
+   `rosterMeta.factorTrend` + `factorTrendGated`; off via `PICKS_FACTOR_TREND_GATE=0`.
+7. Rank by conviction, ship up to 10.
 
 **Sizing** (`applyPickSizing`): risk-based and conviction-tilted, normalized to a
 gross target that **ramps with roster size** (a 1–2 name roster holds more cash)
@@ -245,6 +255,8 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_MIN_CONVICTION` / `PICKS_TIER_STRONG` | 4 / 7 | actionable / strong bars |
 | `PICKS_COUNT` | 10 | max roster size |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
+| `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
+| `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
 | `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.20 / 0.30 | option exits |
 | `PICKS_MAX_HOLD_DAYS` | 14 | time stop (two weeks) |
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |

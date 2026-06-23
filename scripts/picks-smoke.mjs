@@ -7,6 +7,7 @@ import {
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
+  computeFactorTrendHealth,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -162,6 +163,53 @@ ok("picks: sector cap <= 3 (Tech factor cap may make it fewer)", swShipped <= 3)
 // re-entry suppression
 const withOpen = buildTopPicks(chains, [], null, null, null, null, 0.045, { openPositions: [{ symbol: "BULLA", side: "call" }] });
 ok("picks: re-entry suppressed (BULLA has open position)", !withOpen.some((p) => p.symbol === "BULLA"));
+
+// --- 4c. factor-trend gate (the real-loss lesson: don't pile long calls into a -----
+// correlated factor that's rolling over while the broad tape barely moves) --------
+// Direct unit: a Tech/AI factor mostly below its 20D SMA with a falling median 5d
+// return is flagged weak; an above-20D, rising one is not; too few members can't judge.
+const facRow = (sym, sma20, trend) => ({ sym, data: { spot: 100, technicals: { sma: { sma20 } }, _bars: mkBars(100, 40, trend) } });
+const weakTech = ["NVDA", "AVGO", "AMD", "AMAT"].map((s) => facRow(s, 106, -0.01));   // below 20D, ~-5% 5d
+const fhWeak = computeFactorTrendHealth(weakTech);
+ok("factor-trend: broadly-below-20D, falling Tech/AI factor flagged weak", fhWeak["Tech/AI growth"]?.weak === true && fhWeak["Tech/AI growth"].members === 4);
+const healthyTech = ["NVDA", "AVGO", "AMD", "AMAT"].map((s) => facRow(s, 94, 0.008));   // above 20D, rising
+ok("factor-trend: above-20D, rising Tech/AI factor NOT weak", computeFactorTrendHealth(healthyTech)["Tech/AI growth"]?.weak === false);
+ok("factor-trend: < min members -> not weak (insufficient breadth)", computeFactorTrendHealth(["NVDA", "AVGO"].map((s) => facRow(s, 106, -0.01)))["Tech/AI growth"]?.weak === false);
+
+// Roster: a universe of actionable bullish Tech/AI CALLS whose factor is rolling
+// over should have its non-strong/non-go calls factor-trend-gated, while the SAME
+// names in a healthy factor are not — and a non-factor (Pharma) call is never gated.
+function mkWeakTechCall(sym) {
+  return mkTicker({
+    spot: 100, sector: SECTORS_FOR_SYM(sym),
+    // strong fundamentals keep the grade an actionable CALL despite the soft trend
+    fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
+    // soft, below-20D trend (a -4% 5d slide) — weak enough to roll the factor, not a knife
+    technicals: { rsi: 48, rsi5d: 50, macd: { hist: -0.1, line: 0.1, signal: 0.2 }, volume: { rvol: 1.0, priceMove1dPct: -0.6 }, sr: { s20: 96, r20: 110, s50: 92, r50: 115 }, sma: { sma20: 103, sma50: 99, sma100: 95 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
+    _bars: mkBars(100, 40, -0.008),
+  });
+}
+// SECTORS isn't re-exported here; map our synthetic symbols to Tech/AI sectors by hand.
+function SECTORS_FOR_SYM(sym) { return ({ NVDA: "Mega-cap tech", AVGO: "Semis", AMD: "Semis", AMAT: "Semis" })[sym] || "Software"; }
+const weakUniverse = { NVDA: mkWeakTechCall("NVDA"), AVGO: mkWeakTechCall("AVGO"), AMD: mkWeakTechCall("AMD"), AMAT: mkWeakTechCall("AMAT"), MEHP: mkTicker({ spot: 40, sector: "Pharma" }) };
+const weakPicks = buildTopPicks(weakUniverse, [], null, null, null, null, 0.045, {});
+ok("factor-trend: rosterMeta ships the factor-health snapshot", weakPicks.rosterMeta.factorTrend && weakPicks.rosterMeta.factorTrend["Tech/AI growth"]?.weak === true);
+ok("factor-trend: weak-factor calls are gated (some suppressed)", weakPicks.rosterMeta.factorTrendGated.length >= 1);
+ok("factor-trend: no gated name also shipped", weakPicks.every((p) => !weakPicks.rosterMeta.factorTrendGated.includes(p.symbol)));
+ok("factor-trend: any shipped Tech/AI call is strong-tier + go-timed (reprieve only)", weakPicks.filter((p) => p.side === "call" && FACTOR_TECH(p.symbol)).every((p) => Math.abs(p.total) >= PICKS_TIER_STRONG && p.entryTiming.state === "go"));
+function FACTOR_TECH(sym) { return ["NVDA", "AVGO", "AMD", "AMAT"].includes(sym); }
+// control: the identical names in a HEALTHY (rising, above-20D) factor are not gated
+function mkHealthyTechCall(sym) {
+  const t = mkWeakTechCall(sym);
+  t.technicals.sma = { sma20: 97, sma50: 93, sma100: 90 };
+  t.technicals.rsi = 58; t.technicals.macd = { hist: 0.4, line: 1.0, signal: 0.6 };
+  t._bars = mkBars(100, 40, 0.006);
+  return t;
+}
+const healthyUniverse = { NVDA: mkHealthyTechCall("NVDA"), AVGO: mkHealthyTechCall("AVGO"), AMD: mkHealthyTechCall("AMD"), AMAT: mkHealthyTechCall("AMAT") };
+const healthyPicks = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, {});
+ok("factor-trend: a healthy factor gates nothing", healthyPicks.rosterMeta.factorTrend["Tech/AI growth"]?.weak === false && healthyPicks.rosterMeta.factorTrendGated.length === 0);
+ok("factor-trend: a healthy factor ships more calls than the weak one", healthyPicks.length >= weakPicks.filter((p) => FACTOR_TECH(p.symbol)).length);
 
 // --- 5. regime tilt -------------------------------------------------------
 const riskOff = { vix: { value: 26, trend: "rising" }, dxy: { pctChange1d: 0.8 }, tenY: { bpsChange1d: 12 } };
