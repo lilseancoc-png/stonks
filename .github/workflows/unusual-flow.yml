@@ -129,7 +129,11 @@ jobs:
           # intraday volume + S/R break pass tacked onto the scanner —
           # they must be persisted across hourly runs (volume-history.json
           # is what the next scan reads to compute hour-over-hour deltas).
-          DATA_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json data/heatmap.json"
+          # day-trades.json / day-trades-history.json are the LIVE Day Trades
+          # roster + profit/loss history written by the same scan — they must
+          # persist across hourly runs (the next scan reads them to manage open
+          # positions and record take-profit / stop-loss hits).
+          DATA_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json data/day-trades.json data/day-trades-history.json data/heatmap.json"
           if [ -f data/flow-explanations.json ]; then
             DATA_PATHS="$DATA_PATHS data/flow-explanations.json"
           fi
