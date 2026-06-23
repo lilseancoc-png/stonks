@@ -68,12 +68,23 @@ unusual options flow (±1), open-interest call/put skew (±1), short interest
 earnings surprise (±2), EPS growth (±1/−2), revenue growth (±1/−2), analyst
 price target (±1), analyst rating *changes* (±2), P/E vs sector (±1), guidance
 (raised +3 / inline +2 / lowered −3, with a dividend-headline guard), major
-contract won/lost (+2/−3), free cash flow (±1), net-margin trend (±1), plus a
-forward **trajectory** nudge (±2, `computeFundamentalsTrajectory`) that votes
-from guidance, growth acceleration vs the trailing rate, analyst revisions,
-margin slope and earnings-surprise momentum — the "is the business improving or
-declining?" read, blended into the snapshot score and surfaced as a ↗/↘ arrow
+contract won/lost (+2/−3), **capital raise / dilution** (a fresh
+headline-flagged financing: equity/convertible issuance −2/−3, debt/notes
+−1/−2/−3, buyback +2/+3 — magnitude-scaled so a multi-billion bond raise or
+dilutive deal is a *dominant* driver, not a footnote; `data.capitalRaise`),
+free cash flow (±1), net-margin trend (±1), plus a forward **trajectory** nudge
+(±2, `computeFundamentalsTrajectory`) that votes from guidance, growth
+acceleration vs the trailing rate, analyst revisions, margin slope and
+earnings-surprise momentum — the "is the business improving or declining?" read,
+blended into the snapshot score and surfaced as a ↗/↘ arrow
 (`pillars.fundamentals.trajectory = { dir, score, confidence, reason }`).
+
+> **ETFs / funds have no Fundamentals pillar.** For a curated `SECTORS[sym] ===
+> "ETF"` (GLD, SLV, USO, SPY, TLT, …) the whole company-fundamentals pillar is
+> suppressed (score 0, one "n/a for a fund" chip) — a basket has no earnings,
+> guidance, contracts or cash flow, and the AI news reads otherwise hallucinate
+> them (a "major contract lost" on a gold ETF). An ETF's grade rests on its
+> price action (Technicals), flow (Mechanicals) and the macro Narrative.
 
 **Narrative** (light — one AI read is noisy):
 news catalyst (bullish +2 / bearish −3, asymmetric), sector narrative (±2, faded
