@@ -13929,6 +13929,12 @@ html::-webkit-scrollbar-thumb:hover {
 .hot-hist-pnl.is-up { color: var(--pos); }
 .hot-hist-pnl.is-dn { color: var(--neg); }
 .hot-hist-when { color: var(--text-3); }
+.hot-hist-row.is-provisional { border-style: dashed; }
+.hot-hist-live {
+  display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 999px;
+  font-size: 0.72em; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--accent); background: var(--accent-soft, rgba(120,160,255,0.14)); vertical-align: middle;
+}
 @media (max-width: 640px) {
   .hot-dt-pnl { flex-basis: 100%; margin-left: 0; }
   .hot-hist-head { display: none; }
