@@ -9379,7 +9379,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     fetch('data/day-trades.json', { cache: 'no-cache' })
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(r){
+        // A 404 means the hourly scan hasn't filed a roster yet (the engine
+        // just shipped, or no in-session scan has run since the store was
+        // seeded) — that's the friendly "no live day trades yet" empty state,
+        // NOT a load failure. Any other non-OK status is a real error.
+        if (r.status === 404) return { trades: [] };
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(function(json){
         volLive.trades = (json && Array.isArray(json.trades)) ? json : { trades: [] };
         return pHist;
