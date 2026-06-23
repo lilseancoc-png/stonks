@@ -5512,6 +5512,34 @@ const CAPITAL_RAISE_PATTERNS = [
   { kind: "equity", re: /\b(secondary|follow[- ]on|common stock|share|equity|at[- ]the[- ]market|ATM program) offering|priced?\s+(its\s+)?(public\s+)?offering|sells? \$?[\d.]+\s?(billion|million|bn|mm)?\s+(in\s+)?(stock|shares|equity)|stock (sale|offering)|registered direct offering|prices? (public )?offering/i },
 ];
 const CAPITAL_RAISE_KIND_LABEL = { debt: "Debt / notes", convertible: "Convertible", equity: "Share issuance", buyback: "Buyback" };
+// Directional read for the Fundamentals-pillar "Capital raise" signal: equity
+// and convertible issuance are dilutive (bearish), straight debt adds leverage
+// (mildly bearish), a buyback shrinks the float (bullish). Surfaces the REAL
+// catalyst behind a move (a big bond raise, a dilutive deal) as a graded,
+// labelled driver instead of a vague guidance read. Magnitude-scaled: a
+// multi-billion-dollar raise is a dominant thesis driver, not a footnote (e.g.
+// a $20B note sale + a $60B dilutive deal IS why a name is a put right now).
+const CAPITAL_RAISE_KINDS = new Set(["buyback", "equity", "convertible", "debt"]);
+function capitalRaiseScore(kind, amount) {
+  const amt = pnum(amount);
+  const big = amt != null && amt >= 1e9;   // ≥ $1B — material
+  const huge = amt != null && amt >= 5e9;  // ≥ $5B — very material
+  switch (kind) {
+    case "equity": return huge ? -3 : -2;          // dilution
+    case "convertible": return huge ? -3 : -2;     // dilution + debt
+    case "debt": return huge ? -3 : big ? -2 : -1; // leverage, size-scaled
+    case "buyback": return huge ? 3 : 2;           // float shrink
+    default: return 0;
+  }
+}
+// Compact USD for the chip value ("$2.0B", "$750M").
+function fmtUsdCompact(n) {
+  const v = pnum(n);
+  if (v == null || !Number.isFinite(v)) return null;
+  if (Math.abs(v) >= 1e9) return `$${r1(v / 1e9)}B`;
+  if (Math.abs(v) >= 1e6) return `$${Math.round(v / 1e6)}M`;
+  return `$${Math.round(v)}`;
+}
 // $-amount sniffer for the headline ("$2 billion", "$750M") → absolute USD.
 export function parseHeadlineAmount(text) {
   const m = String(text || "").match(/\$\s?([\d,]+(?:\.\d+)?)\s*(billion|bn|million|mm|m|b)\b/i);
@@ -5535,7 +5563,7 @@ export function classifyCapitalRaiseHeadline(title) {
 let _capitalRaiseFlags = [];
 const CAPITAL_RAISE_MAX_AGE_DAYS = 21;
 function scanCapitalRaiseHeadlines(sym, headlines) {
-  if (!Array.isArray(headlines) || !headlines.length) return;
+  if (!Array.isArray(headlines) || !headlines.length) return [];
   const nowMs = Date.now();
   const perKind = new Map(); // keep the most recent flag per kind for this ticker
   for (const h of headlines) {
@@ -5553,7 +5581,24 @@ function scanCapitalRaiseHeadlines(sym, headlines) {
     };
     if (!prev || (Number.isFinite(tMs) && tMs > (Date.parse(prev.publishedAt) || 0))) perKind.set(kind, cur);
   }
-  for (const flag of perKind.values()) _capitalRaiseFlags.push(flag);
+  const picked = [...perKind.values()];
+  for (const flag of picked) _capitalRaiseFlags.push(flag);
+  return picked;
+}
+
+// Collapse this ticker's fresh issuance flags into the single read the
+// Fundamentals pillar scores: the most RECENT financing event drives it (the
+// user cares about what's happening "right now"). Stamped onto data.capitalRaise
+// in attachTickerJudgments and consumed by scoreFundamentals.
+function pickCapitalRaiseForScoring(flags) {
+  if (!Array.isArray(flags) || !flags.length) return null;
+  let best = null, bestT = -1;
+  for (const f of flags) {
+    if (!f || !f.kind || !CAPITAL_RAISE_KINDS.has(f.kind)) continue;
+    const t = f.publishedAt ? Date.parse(f.publishedAt) || 0 : 0;
+    if (!best || t > bestT) { best = { kind: f.kind, amount: f.amount ?? null, title: f.title || null, publishedAt: f.publishedAt || null }; bestT = t; }
+  }
+  return best;
 }
 
 // SEC XBRL hard numbers for the issuance feed — the most recent reported value
@@ -8235,9 +8280,20 @@ function computeFundamentalsTrajectory(data) {
 // ============================================================================
 // The four pillars.  Each returns { score, signals:[] }, score clamped later.
 // ============================================================================
-function scoreFundamentals(data, sectorMedianPE) {
+function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
   const f = data?.fundamentals || {};
   const out = [];
+
+  // ETFs / commodity & index funds have no company fundamentals — earnings,
+  // guidance, contracts, free cash flow etc. are meaningless for a basket, and
+  // the AI news reads hallucinate them (e.g. a "major contract lost" or
+  // "guidance lowered" on a gold ETF). Suppress the whole pillar so an ETF's
+  // grade rests on its price action, flow and the macro narrative, and the
+  // thesis stops citing fundamentals it can't have.
+  if (isEtf) {
+    out.push(sig("etfFundamentals", "Fundamentals", 0, "n/a for a fund", "ETFs/funds have no company fundamentals", true));
+    return { score: 0, signals: out };
+  }
 
   // Earnings surprise (latest quarter), stale >180d -> 0.
   const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory : [];
@@ -8301,6 +8357,19 @@ function scoreFundamentals(data, sectorMedianPE) {
   const mc = data?.aiSignals?.majorContract || null;
   out.push(sig("majorContract", "Major contract", mc?.status === "won" ? 2 : mc?.status === "lost" ? -3 : 0,
     mc?.status || null, "Marquee deal won/lost", !!(mc && mc.status)));
+
+  // Capital raise / dilution (deterministic headline-flagged issuance). A fresh
+  // equity/convertible sale dilutes (bearish), a big debt/notes offering adds
+  // leverage (mildly bearish), a buyback shrinks the float (bullish) — the real
+  // catalyst behind a name's move, surfaced as a labelled driver.
+  const cr = data?.capitalRaise || null;
+  let crScore = 0, crVal = null;
+  if (cr && cr.kind && CAPITAL_RAISE_KINDS.has(cr.kind)) {
+    crScore = capitalRaiseScore(cr.kind, cr.amount);
+    const amt = fmtUsdCompact(cr.amount);
+    crVal = (CAPITAL_RAISE_KIND_LABEL[cr.kind] || cr.kind) + (amt ? ` (${amt})` : "");
+  }
+  out.push(sig("capitalRaise", "Capital raise", crScore, crVal, "Recent debt/equity issuance or buyback", !!cr));
 
   // Free cash flow TTM.
   const fcf = pnum(f.freeCashFlow);
@@ -9143,7 +9212,7 @@ function scoreTicker(sym, data, ctx) {
   const streakRow = streaksMap ? streaksMap[sym] : null;
   const spot = pnum(data?.spot);
 
-  const fund = scoreFundamentals(data, sectorMedianPE[data?.fundamentals?.sector]);
+  const fund = scoreFundamentals(data, sectorMedianPE[data?.fundamentals?.sector], SECTORS[sym] === "ETF");
   const tech = scoreTechnicals(data, streakRow);
   const mech = scoreMechanicals(sym, data, unusualPayload);
   const narr = scoreNarrative(sym, data, narratives);
@@ -9602,6 +9671,7 @@ const THESIS_INVALIDATION = {
   pe: "the valuation re-rates against the trade",
   guidance: "guidance is revised against the thesis",
   majorContract: "the marquee deal/catalyst falls through",
+  capitalRaise: "the financing is pulled or the market shrugs off the dilution",
   fcf: "free cash flow deteriorates",
   netMargin: "margins reverse",
   trajectory: "the fundamentals trajectory flips",
@@ -13919,8 +13989,11 @@ async function attachTickerJudgments(chains, macroBackdrop) {
         }
         const withBody = headlines.filter((h) => h.body).length;
         // Deterministic capital-raise scan over the same headlines (debt/bond/
-        // share issuance, convertibles, buybacks) → the capital-raises feed.
-        scanCapitalRaiseHeadlines(sym, rawHeadlines);
+        // share issuance, convertibles, buybacks) → the capital-raises feed AND
+        // the per-ticker Fundamentals-pillar "Capital raise" driver.
+        const crFlags = scanCapitalRaiseHeadlines(sym, rawHeadlines);
+        const cr = pickCapitalRaiseForScoring(crFlags);
+        if (cr) data.capitalRaise = cr; else delete data.capitalRaise;
         const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
         data.news = news;
         if (judgment) {
