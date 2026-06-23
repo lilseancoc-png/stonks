@@ -8452,7 +8452,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // (data/day-trades-history.json), lazy-loaded on tab entry; quotesBySym is
     // the latest /api/quotes snapshot keyed by symbol so each open trade gets a
     // live mark every poll. view = which sub-view ('active' | 'history').
-    trades: null, tradesHistory: null, tradesLoad: { loaded: false, loading: false }, quotesBySym: {}, view: 'active' };
+    // liveClosed: provisional closes the BROWSER files the instant a trade
+    // touches its take-profit / stop-loss — keyed by trade id, persisted to
+    // localStorage so a hit trade leaves the active board and lands in history
+    // immediately (and stays there across reloads) instead of lingering until
+    // the next hourly scan files the durable record. Reconciled away once the
+    // scanner's day-trades-history.json carries the same id.
+    trades: null, tradesHistory: null, tradesLoad: { loaded: false, loading: false }, quotesBySym: {}, view: 'active', liveClosed: null };
   function volLiveBaseline(sym, q){
     if (!volLive.avg20){
       var map = {};
@@ -8587,6 +8593,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           if (qq && qq.symbol) qmap[String(qq.symbol).toUpperCase()] = qq;
         }
         volLive.quotesBySym = qmap;
+        // Re-fetch the scanner's roster + history every few minutes so a fresh
+        // scan's new ideas appear and durable closes reconcile the provisional
+        // ones — without waiting for a reload. (They only change hourly, so a
+        // tight throttle is plenty; quote-driven re-marks/closes stay every poll.)
+        if (volLive.tradesLoad.loaded && !volLive.tradesLoad.loading
+            && (!volLive.tradesLoadedAt || Date.now() - volLive.tradesLoadedAt >= DT_REFRESH_MS)){
+          loadDayTradesData(true);
+        }
         renderHotStocks();
         applyVolumeLiveSpots(quotes);
         if (stateEl){
@@ -9370,10 +9384,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // data/day-trades.json is the active roster (FIXED entry/stop/target per
   // trade, scanner-owned); data/day-trades-history.json is the closed P/L log.
   // Lazy-loaded on tab entry; the 30s /api/quotes poll re-marks every open
-  // trade live and flags a TP/SL touch instantly (the next hourly scan files
-  // the durable close into history).
-  function loadDayTradesData(){
-    if (volLive.tradesLoad.loaded || volLive.tradesLoad.loading) return;
+  // trade live and closes one the instant it touches its TP/SL (a provisional
+  // close that lands in History at once; the next hourly scan files the durable
+  // record). The roster + history are also re-fetched periodically (force=true)
+  // so a fresh scan's ideas + durable closes show without a reload.
+  function loadDayTradesData(force){
+    if (!force && (volLive.tradesLoad.loaded || volLive.tradesLoad.loading)) return;
+    if (volLive.tradesLoad.loading) return;
     volLive.tradesLoad.loading = true;
     var pHist = fetch('data/day-trades-history.json', { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
@@ -9395,12 +9412,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .then(function(hist){
         volLive.tradesHistory = (hist && Array.isArray(hist.closed)) ? hist : { closed: [], stats: {} };
         volLive.tradesLoad.loaded = true; volLive.tradesLoad.loading = false;
+        volLive.tradesLoadedAt = Date.now();
+        // Durable record wins — drop any provisional close the scan has filed.
+        dtReconcileLiveClosed();
         renderHotStocks();
       })
       .catch(function(){
-        volLive.trades = { trades: [], loadError: true };
         volLive.tradesLoad.loading = false;
-        renderHotStocks();
+        // A failed background refresh keeps the last-good roster; only the
+        // first-ever load surfaces the error empty state.
+        if (!volLive.tradesLoad.loaded){
+          volLive.trades = { trades: [], loadError: true };
+          renderHotStocks();
+        }
       });
   }
   // Active / History sub-view toggle — bound once (the buttons survive the
@@ -9453,6 +9477,84 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return Math.floor(hrs / 24) + 'd ago';
   }
   function dtSignedPct(x){ return (x >= 0 ? '+' : '') + Number(x).toFixed(1) + '%'; }
+  // --- Live (browser-side) trade closing -----------------------------------
+  // The scanner files a durable close on its next hourly run, but that leaves a
+  // trade that has already hit its TP/SL sitting on the active board with a
+  // "recording…" badge for up to an hour. To keep the board LIVE we record the
+  // close in the browser the instant the live tape touches a level: the trade
+  // drops off the active list and shows up in History as a provisional close.
+  // It's persisted to localStorage so a reload doesn't resurrect it from the
+  // still-stale day-trades.json, and it's reconciled away once the scanner's
+  // day-trades-history.json carries the same id (the durable record wins).
+  var DT_LIVE_CLOSED_KEY = 'stonks.dt.liveClosed';
+  var DT_LIVE_CLOSED_MAX_AGE_MS = 6 * 24 * 60 * 60 * 1000; // prune after ~6 days
+  var DT_REFRESH_MS = 4 * 60 * 1000; // re-fetch the scanner roster + history every ~4 min
+  function dtLiveClosedMap(){
+    if (volLive.liveClosed) return volLive.liveClosed;
+    var map = {};
+    try {
+      var raw = localStorage.getItem(DT_LIVE_CLOSED_KEY);
+      if (raw){
+        var obj = JSON.parse(raw);
+        if (obj && typeof obj === 'object'){
+          var now = Date.now();
+          for (var k in obj){
+            if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+            var c = obj[k];
+            var ts = Date.parse(c && c.closedAt);
+            if (isFinite(ts) && now - ts <= DT_LIVE_CLOSED_MAX_AGE_MS) map[k] = c;
+          }
+        }
+      }
+    } catch (_){}
+    volLive.liveClosed = map;
+    return map;
+  }
+  function dtSaveLiveClosed(){
+    try { localStorage.setItem(DT_LIVE_CLOSED_KEY, JSON.stringify(dtLiveClosedMap())); } catch (_){}
+  }
+  // Build a provisional closed record from an open trade + the touched outcome,
+  // mirroring the scanner's dtCloseTrade so the History row + stats match the
+  // durable record the scan will file later.
+  function dtRecordLiveClose(t, hit){
+    var map = dtLiveClosedMap();
+    if (map[t.id]) return;
+    var exitPrice = hit === 'stop' ? Number(t.stop) : Number(t.target);
+    var sign = t.side === 'short' ? -1 : 1;
+    var entry = Number(t.entry);
+    var pnlPct = entry > 0 ? Math.round(((exitPrice - entry) / entry) * 100 * sign * 100) / 100 : null;
+    var riskPct = (t.riskPct != null && isFinite(t.riskPct) && t.riskPct > 0)
+      ? Number(t.riskPct) : (Math.abs(entry - Number(t.stop)) / entry) * 100;
+    var pnlR = (pnlPct != null && riskPct > 0) ? Math.round((pnlPct / riskPct) * 100) / 100 : null;
+    map[t.id] = {
+      id: t.id, sym: t.sym, side: t.side, kind: t.kind,
+      entry: entry, stop: Number(t.stop), target: Number(t.target),
+      openedAt: t.openedAt, openEtDate: t.openEtDate,
+      closedAt: new Date().toISOString(),
+      exitPrice: Math.round(exitPrice * 100) / 100,
+      outcome: hit, win: hit === 'target', pnlPct: pnlPct, pnlR: pnlR,
+      basis: t.basis, pace: t.pace, provisional: true,
+    };
+    dtSaveLiveClosed();
+  }
+  // Drop provisional closes the scanner has now filed durably (matched by id),
+  // so History shows the real record exactly once. Returns true if anything
+  // changed (so the caller can persist + re-render).
+  function dtReconcileLiveClosed(){
+    var map = dtLiveClosedMap();
+    var ids = Object.keys(map);
+    if (!ids.length) return false;
+    var durable = (volLive.tradesHistory && Array.isArray(volLive.tradesHistory.closed))
+      ? volLive.tradesHistory.closed : [];
+    var durableIds = {};
+    for (var i = 0; i < durable.length; i++) if (durable[i] && durable[i].id) durableIds[durable[i].id] = 1;
+    var changed = false;
+    for (var j = 0; j < ids.length; j++){
+      if (durableIds[ids[j]]){ delete map[ids[j]]; changed = true; }
+    }
+    if (changed) dtSaveLiveClosed();
+    return changed;
+  }
   // Live mark for one open trade: spot, P/L %, R multiple, progress toward the
   // take-profit (0 = entry, +1 = target, negative = toward the stop), and
   // whether it has already TOUCHED its take-profit / stop-loss this session (a
@@ -9535,7 +9637,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     var data = volLive.trades || { trades: [] };
-    var trades = Array.isArray(data.trades) ? data.trades.slice() : [];
+    var liveClosed = dtLiveClosedMap();
+    var rawTrades = Array.isArray(data.trades) ? data.trades.slice() : [];
+    // Mark each open trade live; the instant one touches its TP/SL, file the
+    // provisional close so it leaves the active board and lands in History.
+    var trades = [];
+    for (var ti = 0; ti < rawTrades.length; ti++){
+      var rt = rawTrades[ti];
+      if (liveClosed[rt.id]) continue;            // already provisionally closed
+      var rm = dtLiveMark(rt);
+      if (rm && rm.hit){ dtRecordLiveClose(rt, rm.hit); continue; }
+      trades.push(rt);
+    }
     var marks = {};
     trades.forEach(function(t){ marks[t.id] = dtLiveMark(t); });
     trades.sort(function(a, b){
@@ -9581,13 +9694,50 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var pnl = (c.pnlPct != null) ? (c.pnlPct >= 0 ? '+' : '') + Number(c.pnlPct).toFixed(2) + '%' : '\\u2014';
     var rTxt = (c.pnlR != null) ? ' (' + (c.pnlR >= 0 ? '+' : '') + Number(c.pnlR).toFixed(2) + 'R)' : '';
     var pnlCls = (c.pnlPct != null && c.pnlPct >= 0) ? 'is-up' : 'is-dn';
-    return '<div class="hot-hist-row ' + (win ? 'is-win' : 'is-loss') + '">' +
+    // Provisional = the browser filed this close live off the tape; the next
+    // hourly scan replaces it with the durable record (same numbers).
+    var liveTag = c.provisional ? ' <span class="hot-hist-live" title="Closed live off the tape \\u2014 the next hourly scan files the durable record.">live</span>' : '';
+    return '<div class="hot-hist-row ' + (win ? 'is-win' : 'is-loss') + (c.provisional ? ' is-provisional' : '') + '">' +
       '<span class="hot-hist-trade"><b>' + escapeHtml(c.sym) + '</b> <span class="hot-dt-side ' + sideCls + '">' + sideLbl + '</span> <span class="hot-dt-kind hot-dt-kind-' + (c.kind === 'swing' ? 'swing' : 'scalp') + '">' + (c.kind === 'swing' ? 'SWING' : 'SCALP') + '</span></span>' +
-      '<span class="hot-hist-out ' + (win ? 'is-win' : 'is-loss') + '">' + (win ? '\\u2713 ' : '\\u2717 ') + outLbl + '</span>' +
+      '<span class="hot-hist-out ' + (win ? 'is-win' : 'is-loss') + '">' + (win ? '\\u2713 ' : '\\u2717 ') + outLbl + liveTag + '</span>' +
       '<span class="hot-hist-px">$' + Number(c.entry).toFixed(2) + ' \\u2192 $' + Number(c.exitPrice).toFixed(2) + '</span>' +
       '<span class="hot-hist-pnl ' + pnlCls + '">' + pnl + rTxt + '</span>' +
       '<span class="hot-hist-when">' + escapeHtml(dtAgeLabel(c.closedAt)) + '</span>' +
     '</div>';
+  }
+  // Client mirror of the scanner's dtComputeStats over a closed-trade list, so
+  // the History stat chips include provisional live closes (win rate etc. move
+  // the instant a trade is filed, not an hour later).
+  function dtComputeStatsClient(closed){
+    var decided = closed.length, wins = 0, losses = 0, pnlSum = 0, rSum = 0, rN = 0;
+    for (var i = 0; i < closed.length; i++){
+      var c = closed[i];
+      if (c.win) wins++; else losses++;
+      if (c.pnlPct != null && isFinite(c.pnlPct)) pnlSum += c.pnlPct;
+      if (c.pnlR != null && isFinite(c.pnlR)){ rSum += c.pnlR; rN++; }
+    }
+    return {
+      decided: decided, wins: wins, losses: losses,
+      winRate: decided > 0 ? Math.round((wins / decided) * 1000) / 1000 : null,
+      avgPnlPct: decided > 0 ? Math.round((pnlSum / decided) * 100) / 100 : null,
+      avgR: rN > 0 ? Math.round((rSum / rN) * 100) / 100 : null,
+    };
+  }
+  // Durable closes (from the scan) + provisional live closes the scan hasn't
+  // filed yet, newest first — the single list History renders + scores from.
+  function dtMergedClosed(){
+    var hist = volLive.tradesHistory || { closed: [] };
+    var durable = Array.isArray(hist.closed) ? hist.closed : [];
+    var durableIds = {};
+    for (var i = 0; i < durable.length; i++) if (durable[i] && durable[i].id) durableIds[durable[i].id] = 1;
+    var map = dtLiveClosedMap();
+    var merged = durable.slice();
+    for (var k in map){
+      if (!Object.prototype.hasOwnProperty.call(map, k)) continue;
+      if (!durableIds[k]) merged.push(map[k]);
+    }
+    merged.sort(function(a, b){ return (Date.parse(b.closedAt) || 0) - (Date.parse(a.closedAt) || 0); });
+    return merged;
   }
   function renderHotHistory(){
     var wrap = $('hot-history');
@@ -9598,9 +9748,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (statsEl){ statsEl.hidden = true; statsEl.innerHTML = ''; }
       return;
     }
-    var hist = volLive.tradesHistory || { closed: [], stats: {} };
-    var closed = Array.isArray(hist.closed) ? hist.closed : [];
-    var st = hist.stats || {};
+    var closed = dtMergedClosed();
+    var st = dtComputeStatsClient(closed);
     if (statsEl){
       if (!closed.length){ statsEl.hidden = true; statsEl.innerHTML = ''; }
       else {
