@@ -7943,6 +7943,62 @@ function factorOfTicker(sym) {
   return FACTOR_OF_SECTOR[curated] || null;
 }
 
+// ---- Factor-trend gate -----------------------------------------------------
+// The single worst loss the track record taught us: a book concentrated in the
+// Tech/AI complex got wiped while the BROAD tape barely moved (SPY ~-1.5% but the
+// picked names fell ~-9.6%). A broad-market regime gauge (SPY/QQQ/VIX/yields) is
+// blind to that — it's a FACTOR-specific drawdown (a rotation), not a market one.
+// So measure each correlated factor's OWN trend health from its members' bars and
+// stop piling NEW long calls into one that is actively rolling over. Puts are
+// unaffected (a falling factor is fine to be short); only a strong-tier, cleanly
+// (go) timed call earns a reprieve. Off via PICKS_FACTOR_TREND_GATE=0.
+const PICKS_FACTOR_TREND_GATE = process.env.PICKS_FACTOR_TREND_GATE !== "0";
+const PICKS_FACTOR_MIN_MEMBERS = Number(process.env.PICKS_FACTOR_MIN_MEMBERS ?? 4); // need this many graded members to judge a factor
+const PICKS_FACTOR_WEAK_SHARE = Number(process.env.PICKS_FACTOR_WEAK_SHARE ?? 0.6); // >= this share of members below their 20D SMA = broad breakdown
+const PICKS_FACTOR_WEAK_RET5 = Number(process.env.PICKS_FACTOR_WEAK_RET5 ?? -3);    // AND the factor's median confirmed 5d return <= this % = rolling over
+
+// Confirmed k-session return (%) from a ticker's daily bars (drops the in-progress
+// bar, like computeEntryTiming, so there's no look-ahead). null if too short.
+function confirmedReturnPct(data, k) {
+  const bars = timingBarsFrom(data);
+  if (!bars) return null;
+  const c = bars.c.filter(Number.isFinite).slice(0, -1);
+  const n = c.length;
+  if (n <= k || !(c[n - 1 - k] > 0)) return null;
+  return (c[n - 1] / c[n - 1 - k] - 1) * 100;
+}
+
+// Per-correlated-factor trend health, computed from the already-scored universe.
+// Returns { [factorId]: { members, shareBelow20, medRet5, weak } }. `weak` is the
+// gate trigger: enough members, most below their 20D SMA, and a negative median
+// 5-day return — i.e. the factor itself is breaking down regardless of the broad tape.
+export function computeFactorTrendHealth(scored) {
+  const acc = {};
+  for (const r of scored) {
+    const fac = factorOfTicker(r.sym);
+    if (!fac) continue;
+    const spot = pnum(r.data?.spot);
+    const sma20 = pnum(r.data?.technicals?.sma?.sma20);
+    if (spot == null || !(sma20 > 0)) continue;
+    const a = (acc[fac] ||= { below: 0, n: 0, rets: [] });
+    a.n++;
+    if (spot < sma20) a.below++;
+    const ret5 = confirmedReturnPct(r.data, 5);
+    if (ret5 != null) a.rets.push(ret5);
+  }
+  const out = {};
+  for (const [fac, a] of Object.entries(acc)) {
+    const shareBelow20 = a.n ? a.below / a.n : 0;
+    const sorted = a.rets.slice().sort((x, y) => x - y);
+    const medRet5 = sorted.length ? (sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2) : null;
+    const weak = PICKS_FACTOR_TREND_GATE && a.n >= PICKS_FACTOR_MIN_MEMBERS
+      && shareBelow20 >= PICKS_FACTOR_WEAK_SHARE
+      && medRet5 != null && medRet5 <= PICKS_FACTOR_WEAK_RET5;
+    out[fac] = { members: a.n, shareBelow20: r2(shareBelow20), medRet5: r1(medRet5), weak };
+  }
+  return out;
+}
+
 // ============================================================================
 // Small numeric helpers
 // ============================================================================
@@ -9364,10 +9420,11 @@ export function computeEdgeScale(closed) {
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   const { scored, peerIndex, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const regime = regimeBand;
+  const factorHealth = computeFactorTrendHealth(scored);
   const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
   const openSym = new Set((opts.openPositions || []).map((o) => o && o.symbol).filter(Boolean));
 
-  const meta = { tradeCut: PICKS_MIN_CONVICTION, strongCut: PICKS_TIER_STRONG, minConviction: PICKS_MIN_CONVICTION, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], reentrySuppressed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { tradeCut: PICKS_MIN_CONVICTION, strongCut: PICKS_TIER_STRONG, minConviction: PICKS_MIN_CONVICTION, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], reentrySuppressed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -9399,6 +9456,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (sec && sec !== "ETF") {
       if ((sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); continue; }
       if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); continue; }
+    }
+    // GATE: factor-trend — don't keep buying CALLS into a correlated factor whose
+    // OWN trend is rolling over (a factor-specific drawdown the broad-market regime
+    // misses: SPY flat while the Tech/AI complex craters — our single worst loss).
+    // Puts are unaffected; only a strong-tier, cleanly (go) timed call survives.
+    if (side === "call" && fac && factorHealth[fac]?.weak) {
+      const reprieve = r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG;
+      if (!reprieve) { meta.factorTrendGated.push(r.sym); continue; }
     }
     // GATE: don't ship a wildly one-sided book.
     if (side === "call" && callN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); continue; }
