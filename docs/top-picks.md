@@ -188,6 +188,51 @@ expected move, R/R, probability-of-profit, `contractQuality`).
 
 ---
 
+## 6.5 Strategy selection (`selectStrategy` + `pickVerticalForPick`)
+
+The grade decides the **side + conviction**; the strategy layer decides the
+**structure** — naked long, debit vertical, or credit vertical — so the engine
+stops reflexively buying a single long into every setup. It is **deterministic**
+and keyed on the IV regime + conviction. The IV read is a **z-score of the
+current ATM-30d IV vs the name's own ~18-month mean** (`ivRank.z`, computed in
+`attachIvRanks`; falls back to the percentile when history is thin).
+
+The decision tree is checked top-down (first match wins):
+
+| # | Condition | Structure | Why |
+|---|---|---|---|
+| 1 | IV `z ≥ PICKS_IV_CREDIT_Z` (2σ rich) **and** no imminent event/earnings | **credit vertical** | Premium is statistically expensive → *sell* it on the bias side (bullish → bull-put, bearish → bear-call); sell near-money, buy a further-OTM wing, targeting a credit ≈ ⅓ of the width. High IV mean-reverts and theta works for you. This is the **headline rule** — it fires even at strong conviction (naked is reserved for *reasonable* IV). |
+| 2 | Strong tier (`|total| ≥ 7`) + IV reasonable (`z ≤ PICKS_IV_NAKED_Z_MAX`) + no event | **naked long** | Exceptional, multi-signal conviction with non-elevated IV → a single long for max delta/gamma + uncapped upside. |
+| 3 | Everything else — moderate conviction, **or** a strong view into elevated-but-sub-2σ IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
+
+A binary **event/earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** (or an active macro `eventRisk`) forces row 3 — defined-risk only, no naked long into the IV crush, no credit spread into the gap.
+
+`pickVerticalForPick(side, data, rfr, {type})` builds the two-leg contract:
+- **debit** legs are the *same* type as the side (bull-call / bear-put): long
+  ~0.55Δ near-money + short ~`PICKS_DEBIT_SHORT_DELTA` OTM wing.
+- **credit** legs are the *opposite* type (a bull-put on a bullish name): short
+  ~`PICKS_CREDIT_SHORT_DELTA` near-money + a long wing chosen by
+  `pickCreditWing` to collect ≈ `PICKS_CREDIT_WIDTH_FRAC` of the width (rejecting
+  anything under `PICKS_CREDIT_WIDTH_FRAC_MIN`).
+
+The payload carries `structure` (`long` / `debit_vertical` / `credit_vertical`),
+`legs[]` (`{qty,type,strike,iv,delta,thetaDay,vega,mid,…}`), `shortStrike` /
+`longStrike`, `mid` (net debit/credit), `maxLoss` / `maxProfit` / `width`,
+breakeven, net greeks, PoP, and `contractQuality`. `buildPickContract` falls back
+down the defined-risk → naked ladder if the preferred structure has no liquid
+wing (and stamps `strategy.fallback`). Off via `PICKS_STRATEGY_AUTO=0` (always
+naked long, legacy). Each pick ships `strategy = {type,label,reason,ivZ,…}`.
+
+**Track-record marking is structure-aware** (`markOptionToMarket` /
+`resolvePickOutcome`): a spread is repriced leg-by-leg (Black-Scholes) and the
+P/L is normalized so **+ always = the trade making money**; credit verticals
+take profit / stop on % of the credit (`PICKS_CREDIT_TP_PCT` / `_STOP_PCT`), not
+the +20/−30 premium gates, and a theta stop never applies to them. The enrolled
+accuracy entry stores the legs so later builds can mark it. (`diagnose-pick-losses`
+skips spreads — its single-leg model would mislead.)
+
+---
+
 ## 7. Roster construction (`buildTopPicks`)
 
 1. Candidates = grade actionable (`|total| ≥ 4`), or a tactical put in a confirmed
@@ -249,9 +294,22 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   `byTier`/`bySector`/`byRegime`). The record **resets weekly** so the numbers
   reflect the current engine, not a tail of pre-tuning outcomes.
 - **Thesis tracking:** each pick ships a structured `thesisCard` (`buildThesisCard`)
-  — `works` (the supporting drivers + their pillar/reading), `invalidators` (each
-  lead driver reversing, plus the ATR price stop, the 14-day time stop, and a
-  grade-flip trigger for marginal scores), and the `target` plan. A compact
+  — `works` (the supporting drivers + their pillar/reading), a deterministic
+  **`marketRead`** (does the cross-asset macro tape *support / work against /
+  stay neutral to* the trade — derived from the name's sector → macro-axis
+  sensitivity via `buildMarketRead`, e.g. rate-sensitive homebuilders vs the Fed
+  path + long yields), a **`conviction`** label (grade + how many of the 4 pillars
+  are aligned), an honest **`hasSolidThesis` / `disclosure`** (per the spec: still
+  ship if the grade clears the bar, but flag a thin / single-pillar read or a
+  contradicting macro backdrop as lower-confidence), the **`strategy`** rationale
+  (why naked / debit / credit), an optional AI **`prose`** gloss (hybrid:
+  deterministic thesis is the source of truth, `attachPickThesisProse` adds one
+  natural causal paragraph when `GEMINI_API_KEY` is set — cached per
+  thesis-signature in `pick-thesis-cache.json`, read-before-wipe / write-after,
+  and skipped entirely by `regen-picks`), `invalidators` (each lead driver
+  reversing, a macro-read reversal for sector-thesis names, the price stop — the
+  short-strike breach for a credit spread — the 14-day time stop, and a grade-flip
+  trigger for marginal scores), and the `target` plan. A compact
   snapshot is frozen on the enrolled `open` entry; every later build re-scores it
   against the **live grade** into `thesisStatus` (`verdict` on-track / mixed /
   broken from direction-adjusted price progress + how many entry drivers are
@@ -283,6 +341,10 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_MAX_HOLD_DAYS` | 14 | time stop (two weeks) |
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 14 / 60 | contract clock |
+| `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
+| `PICKS_IV_CREDIT_Z` / `_NAKED_Z_MAX` / `_DEBIT_Z_MAX` | 2.0 / 1.0 / 0.5 | IV z-score bands: ≥credit → sell premium, ≤naked → naked OK, ≤debit → IV "neutral/low" |
+| `PICKS_CREDIT_WIDTH_FRAC` / `_MIN` | 0.34 / 0.22 | credit-spread target / floor (credit ÷ width) |
+| `PICKS_CREDIT_TP_PCT` / `_STOP_PCT` | 0.50 / 1.00 | credit-spread exits (% of the credit) |
 | `PICKS_GROSS_TARGET` | 0.80 | deployed gross (rest cash) |
 | `PICKS_REGIME_TILT` | 2 (4 severe) | risk-off bearish tilt |
 

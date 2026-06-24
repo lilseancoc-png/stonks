@@ -2,7 +2,7 @@
 // data/, no AI — builds fake chains and asserts the engine's behaviour + the
 // output shapes the UI/serialization depend on. Run: node scripts/picks-smoke.mjs
 import {
-  buildTopPicks, buildGradesIndex, pickContractForPick, computeEntryTiming,
+  buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming,
   detectMarketRegime, computeMacroRegime, applyMacroRegimePersistence,
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
@@ -260,6 +260,79 @@ ok("edge gate: deeply negative edge stands down to Strong", edgeGatedConviction(
 const gatedPicks = buildTopPicks(chains, [], null, null, null, null, 0.045, { priorClosed: mkClosed(20, -20) });
 ok("edge gate: buildTopPicks raises rosterMeta.tradeCut on a losing book",
   gatedPicks.rosterMeta.tradeCut === PICKS_TIER_STRONG && gatedPicks.rosterMeta.edgeGate && gatedPicks.rosterMeta.edgeGate.bar === PICKS_TIER_STRONG);
+
+// --- 12. strategy selection + thesis enrichment + verticals ----------------
+ok("strategy: every pick carries a strategy {type}", picks.length === 0 || picks.every((p) => p.strategy && ["long", "debit", "credit"].includes(p.strategy.type)));
+ok("strategy: contract structure is a known kind", picks.every((p) => ["long", "debit_vertical", "credit_vertical"].includes(p.contract.structure)));
+ok("thesis: thesisCard has marketRead/conviction/hasSolidThesis", picks.every((p) => p.thesisCard && p.thesisCard.marketRead && typeof p.thesisCard.hasSolidThesis === "boolean" && !!p.thesisCard.conviction));
+ok("thesis: marketRead.support is a known verdict", picks.every((p) => ["supports", "against", "neutral"].includes(p.thesisCard.marketRead.support)));
+ok("thesis: thesisCard.strategy mirrors the pick strategy", picks.every((p) => p.thesisCard.strategy && p.thesisCard.strategy.type === p.strategy.type));
+ok("thesis: works + invalidators present", picks.every((p) => Array.isArray(p.thesisCard.works) && Array.isArray(p.thesisCard.invalidators) && p.thesisCard.invalidators.length > 0));
+
+// Vertical builder — needs a BS-priced chain (the linear mkChain mids give a flat
+// ~4% credit fraction that never clears the 1/3-width floor; fine for debit).
+function bsNcdf(x) { return (1 + bsErf(x / Math.SQRT2)) / 2; }
+function bsErf(x) { const t = 1 / (1 + 0.3275911 * Math.abs(x)); const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return x >= 0 ? y : -y; }
+function bsPx(type, S, K, T, iv, r) { const d1 = (Math.log(S / K) + (r + iv * iv / 2) * T) / (iv * Math.sqrt(T)); const d2 = d1 - iv * Math.sqrt(T); return type === "call" ? S * bsNcdf(d1) - K * Math.exp(-r * T) * bsNcdf(d2) : K * Math.exp(-r * T) * bsNcdf(-d2) - S * bsNcdf(-d1); }
+function mkBsChain(spot, iv = 0.6) {
+  const T = (exp30 - nowSec) / (365 * 86400);
+  const c = [], p = [];
+  for (let k = 0.6; k <= 1.4; k += 0.025) { const K = Math.round(spot * k); for (const [arr, type] of [[c, "call"], [p, "put"]]) { const mid = Math.max(0.05, bsPx(type, spot, K, T, iv, 0.045)); arr.push({ s: K, b: +(mid * 0.98).toFixed(2), a: +(mid * 1.02).toFixed(2), l: +mid.toFixed(2), iv, oi: 800, v: 200 }); } }
+  return { [String(exp30)]: { c, p } };
+}
+const bsData = { spot: 100, chains: mkBsChain(100, 0.6), fundamentals: {} };
+const dbt = pickVerticalForPick("call", bsData, 0.045, { type: "debit" });
+ok("vertical: debit spread builds", !!dbt && dbt.structure === "debit_vertical");
+ok("vertical: debit has 2 legs (+1 long / -1 short)", dbt && Array.isArray(dbt.legs) && dbt.legs.length === 2 && dbt.legs.some((l) => l.qty === 1) && dbt.legs.some((l) => l.qty === -1));
+ok("vertical: debit economics consistent (maxLoss+maxProfit≈width)", dbt && dbt.maxLoss > 0 && dbt.maxProfit > 0 && Math.abs((dbt.maxLoss + dbt.maxProfit) - dbt.width) < 0.06 && dbt.mid > 0);
+ok("vertical: debit long strike < short (bull call)", dbt && dbt.longStrike < dbt.shortStrike);
+ok("vertical: debit net delta positive (bullish)", dbt && dbt.delta > 0);
+const crd = pickVerticalForPick("call", bsData, 0.045, { type: "credit" });
+ok("vertical: credit spread builds as bull-put (puts)", !!crd && crd.structure === "credit_vertical" && crd.optionType === "put");
+ok("vertical: credit maxProfit≈credit, maxLoss+maxProfit≈width", crd && Math.abs(crd.maxProfit - crd.mid) < 0.06 && Math.abs((crd.maxLoss + crd.maxProfit) - crd.width) < 0.06);
+ok("vertical: credit short strike > long (bull put)", crd && crd.shortStrike > crd.longStrike);
+ok("vertical: credit fraction near the 1/3 target (>=floor)", crd && crd.creditFrac >= 0.22);
+ok("vertical: credit net delta positive (bullish)", crd && crd.delta > 0);
+const crdBear = pickVerticalForPick("put", bsData, 0.045, { type: "credit" });
+ok("vertical: bearish credit builds as bear-call (calls)", !!crdBear && crdBear.optionType === "call" && crdBear.delta < 0);
+
+// Structure-aware exit resolution (credit spreads decay → different gates).
+ok("exit: credit +55% -> win (TP at 50%)", resolvePickOutcome({ modeledOptPnlPct: 55, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).outcome === "win");
+ok("exit: credit +25% -> still open (below 50% TP)", resolvePickOutcome({ modeledOptPnlPct: 25, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }) === null);
+ok("exit: credit -120% -> loss (stop at -100%)", resolvePickOutcome({ modeledOptPnlPct: -120, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).outcome === "loss");
+ok("exit: naked +25% -> win (TP still 20%)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - 2 * 86400, nowSec }).outcome === "win");
+
+// --- 13. strategy routing through the full engine (IV z-score → structure) ---
+// mkTicker grades strongly bullish; the IV z-score then drives the structure.
+function mkStratTicker(iv, z, pctile) { const t = mkTicker({ spot: 120, sector: "Software" }); t.chains = mkBsChain(120, iv); t.ivRank = { pctile, n: 120, z }; return t; }
+const routeRich = buildTopPicks({ RICHIV: mkStratTicker(0.95, 2.6, 88) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "RICHIV");
+const routeDebit = buildTopPicks({ DBTIV: mkStratTicker(0.55, 1.5, 60) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "DBTIV");
+const routeNaked = buildTopPicks({ LOWIV: mkStratTicker(0.30, 0.0, 25) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "LOWIV");
+ok("route: rich IV (z≥2) → credit vertical (sells premium, even at strong conviction)", routeRich && routeRich.strategy.type === "credit" && routeRich.contract.structure === "credit_vertical" && routeRich.contract.optionType === "put");
+ok("route: elevated-but-sub-2σ IV → debit vertical (don't pay naked)", routeDebit && routeDebit.strategy.type === "debit" && routeDebit.contract.structure === "debit_vertical");
+ok("route: strong + reasonable IV → naked long", routeNaked && Math.abs(routeNaked.total) >= PICKS_TIER_STRONG && routeNaked.strategy.type === "long" && routeNaked.contract.structure === "long");
+ok("route: low IV never sells a credit spread", routeNaked && routeNaked.strategy.type !== "credit");
+ok("route: a naked-long pick is always strong-tier", [routeRich, routeDebit, routeNaked].filter(Boolean).filter((p) => p.strategy.type === "long").every((p) => Math.abs(p.total) >= PICKS_TIER_STRONG));
+// A credit spread must be sized by its capital at risk (maxLoss = width − credit),
+// NOT the small credit it collects (which would suggest far too many contracts).
+if (routeRich && routeRich.strategy.type === "credit" && routeRich.sizing) {
+  const ACCT = 25000; // PICKS_DISPLAY_ACCOUNT default (tests don't override the env)
+  const byLoss = Math.max(1, Math.round((routeRich.sizing.weight * ACCT) / (routeRich.contract.maxLoss * 100)));
+  const byCredit = Math.max(1, Math.round((routeRich.sizing.weight * ACCT) / (routeRich.contract.mid * 100)));
+  ok("sizing: credit spread sized by maxLoss, not the credit", routeRich.sizing.suggestedContracts === byLoss && byLoss <= byCredit);
+}
+
+// --- 14. structure-aware mark-to-market (P/L sign: + always = making money) ---
+const mkLegSnap = (v) => ({ ...v, legs: v.legs.map((l) => ({ qty: l.qty, type: l.type, strike: l.strike, iv: l.iv, expiry: l.expiry })) });
+const dEntry = { side: "call", contract: { structure: "debit_vertical", expiry: exp30, mid: dbt.mid, netDebit: dbt.netDebit, ...mkLegSnap(dbt) } };
+ok("mark: debit ~flat at entry spot", Math.abs(markOptionToMarket(dEntry, { spot: 100 })) < 8);
+ok("mark: debit profits as price rises (bull call)", markOptionToMarket(dEntry, { spot: 112 }) > 5);
+ok("mark: debit loses as price falls", markOptionToMarket(dEntry, { spot: 90 }) < 0);
+const cEntry = { side: "call", contract: { structure: "credit_vertical", expiry: exp30, mid: crd.mid, netCredit: crd.netCredit, shortStrike: crd.shortStrike, ...mkLegSnap(crd) } };
+ok("mark: credit ~flat at entry spot", Math.abs(markOptionToMarket(cEntry, { spot: 100 })) < 14);
+ok("mark: credit profits as it decays (price up, away from short put)", markOptionToMarket(cEntry, { spot: 115 }) > 5);
+ok("mark: credit loses when short strike is breached", markOptionToMarket(cEntry, { spot: crd.shortStrike - 1 }) < 0);
+ok("mark: legacy single-long still marks (+ when ITM move)", (() => { const e = { side: "call", contract: { strike: 100, expiry: exp30, mid: 5, iv: 0.4 } }; return markOptionToMarket(e, { spot: 110 }) > markOptionToMarket(e, { spot: 100 }); })());
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

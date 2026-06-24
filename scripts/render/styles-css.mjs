@@ -8862,6 +8862,55 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .thesis-status.thesis-mixed .thesis-status-verdict { color: var(--text-muted); }
 .thesis-status-bits { color: var(--text-muted); }
 
+/* --- Thesis: strategy / conviction / market read / disclosure / AI prose -- */
+.thesis-strat {
+  display: inline-flex; align-items: center; gap: 5px;
+  align-self: flex-start;
+  padding: 3px 9px; border-radius: 999px;
+  font: 700 11px/1.3 var(--font-sans); letter-spacing: 0.01em;
+  border: 1px solid var(--border);
+}
+.thesis-strat-icon { font-size: 12px; }
+.thesis-strat-fb { font-weight: 400; color: var(--text-muted); font-size: 10px; }
+.thesis-strat-credit { background: color-mix(in srgb, var(--accent, #5b8def) 14%, transparent); color: var(--accent, #5b8def); border-color: color-mix(in srgb, var(--accent, #5b8def) 35%, transparent); }
+.thesis-strat-debit  { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.thesis-strat-naked  { background: color-mix(in srgb, var(--pos) 12%, transparent); color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.thesis-conviction { font: 400 12px/1.4 var(--font-sans); color: var(--text-muted); }
+.thesis-conv-lbl { font-weight: 700; color: var(--text); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; margin-right: 4px; }
+.thesis-market {
+  font: 400 12.5px/1.5 var(--font-sans);
+  padding: 6px 9px; border-radius: var(--r-1);
+  border-left: 3px solid var(--border);
+}
+.thesis-market-lbl { font-weight: 700; color: var(--text); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; margin-right: 5px; }
+.thesis-market.thesis-mr-ok { background: color-mix(in srgb, var(--pos) 8%, transparent); border-left-color: var(--pos); }
+.thesis-market.thesis-mr-bad { background: color-mix(in srgb, var(--neg) 8%, transparent); border-left-color: var(--neg); }
+.thesis-market.thesis-mr-neutral { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.thesis-disclosure {
+  font: 600 12px/1.5 var(--font-sans); color: var(--warn, #d98a00);
+  background: color-mix(in srgb, var(--warn, #d98a00) 10%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--warn, #d98a00) 45%, transparent);
+  border-radius: var(--r-1); padding: 6px 9px;
+}
+.pick-thesis.thesis-weak { border-left-color: var(--warn, #d98a00); }
+.thesis-weak-tag {
+  margin-left: 6px; font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 14%, transparent);
+  padding: 2px 5px; border-radius: 4px; vertical-align: middle;
+}
+.thesis-prose {
+  font: 400 12.5px/1.55 var(--font-sans); color: var(--text);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border-radius: var(--r-1); padding: 7px 10px;
+}
+.thesis-prose-tag {
+  font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted); border: 1px solid var(--border); padding: 2px 5px; border-radius: 4px; margin-left: 4px; white-space: nowrap;
+}
+.pick-vert.pick-vert-credit { border-left: 3px solid var(--accent, #5b8def); }
+.pick-contract-credit .pick-contract-label { color: var(--accent, #5b8def); }
+.ptc-con-spread.ptc-con-credit { color: var(--accent, #5b8def); }
+
 /* --- Sector-peer comparison -------------------------------------------- */
 .pick-peers {
   margin-top: 8px;
@@ -13896,6 +13945,27 @@ html::-webkit-scrollbar-thumb:hover {
 .hot-dt-leg.is-up b { color: var(--pos); }
 .hot-dt-leg.is-dn b { color: var(--neg); }
 .hot-dt-basis { font-size: 0.82em; color: var(--text-3); }
+/* Day-trade thesis + option-idea (collapsible, mirrors the Top Picks thesis). */
+.hot-dt-thesis, .hot-dt-opt { margin-top: 6px; font-size: 0.84em; }
+.hot-dt-thesis > summary, .hot-dt-opt > summary {
+  cursor: pointer; font-weight: 700; color: var(--text-2); list-style: none;
+  padding: 3px 0; user-select: none;
+}
+.hot-dt-thesis > summary::-webkit-details-marker, .hot-dt-opt > summary::-webkit-details-marker { display: none; }
+.hot-dt-thesis > summary::before, .hot-dt-opt > summary::before { content: "▸ "; color: var(--text-3); }
+.hot-dt-thesis[open] > summary::before, .hot-dt-opt[open] > summary::before { content: "▾ "; }
+.hot-dt-thesis.is-weak > summary { color: var(--warn, #d98a00); }
+.hot-dt-th-thin { font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 14%, transparent); padding: 1px 4px; border-radius: 3px; }
+.hot-dt-th-conv, .hot-dt-th-mr { margin: 3px 0; color: var(--text-2); line-height: 1.45; }
+.hot-dt-th-conv b { color: var(--text); text-transform: uppercase; font-size: 0.82em; letter-spacing: .04em; margin-right: 4px; }
+.hot-dt-th-disc { margin: 4px 0; color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 10%, transparent); border: 1px dashed color-mix(in srgb, var(--warn, #d98a00) 45%, transparent); border-radius: 5px; padding: 5px 7px; line-height: 1.45; }
+.hot-dt-th-col { margin: 4px 0; }
+.hot-dt-th-h { font-weight: 700; font-size: 0.92em; margin-bottom: 2px; }
+.hot-dt-th-col ul { margin: 0; padding-left: 16px; color: var(--text-2); line-height: 1.4; }
+.hot-dt-th-val { color: var(--text-3); }
+.hot-dt-opt-spec { color: var(--text-2); font-variant-numeric: tabular-nums; margin: 2px 0; }
+.hot-dt-opt-why { color: var(--text-2); line-height: 1.45; margin: 2px 0; }
+.hot-dt-opt-note { color: var(--text-3); font-style: italic; line-height: 1.4; margin-top: 2px; }
 /* The collapsible live-volume leaders (idea source). */
 .hot-volboard { margin-top: var(--s-4); border-top: 1px solid var(--border); padding-top: var(--s-2); }
 .hot-volboard > summary {

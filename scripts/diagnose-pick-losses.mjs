@@ -64,6 +64,10 @@ function yearsBetween(expirySec, refSec) {
 function modelClosedPick(e) {
   if (!e || (e.outcome !== "win" && e.outcome !== "loss")) return null;
   const c = e.contract || {};
+  // Defined-risk verticals don't decompose with this single-leg model (the short
+  // wing offsets theta/vega) — skip them so the direction-vs-theta attribution
+  // stays honest for naked longs. (Spread P/L lives in picks-accuracy already.)
+  if (c.structure === "debit_vertical" || c.structure === "credit_vertical") return null;
   const side = e.side === "put" ? "put" : "call";
   const K = Number(c.strike), exp = Number(c.expiry), entryPrem = Number(c.mid);
   const S0 = Number(e.entrySpot), S1 = Number(e.exitSpot);

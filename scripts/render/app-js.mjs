@@ -9586,6 +9586,38 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return { spot: spot, pnlPct: pnlPct, rMult: rMult, prog: prog, hit: hit };
   }
+  // Day-trade thesis block (collapsed) — conviction + what works / what disproves
+  // + the honest "no strong thesis" disclosure, mirroring the Top Picks thesis.
+  function dtThesisHtml(t){
+    var th = t && t.thesis; if (!th) return '';
+    var works = '';
+    if (Array.isArray(th.works)) for (var i=0;i<th.works.length;i++){ var w=th.works[i]; if(!w) continue; works += '<li>'+escapeHtml(w.label||'')+(w.value?' <span class="hot-dt-th-val">'+escapeHtml(w.value)+'</span>':'')+'</li>'; }
+    var inval = '';
+    if (Array.isArray(th.invalidators)) for (var k=0;k<th.invalidators.length;k++){ var iv=th.invalidators[k]; if(!iv||!iv.trigger) continue; inval += '<li>'+escapeHtml(iv.trigger)+'</li>'; }
+    var disc = (th.hasSolidThesis===false && th.disclosure) ? '<div class="hot-dt-th-disc">⚠ '+escapeHtml(th.disclosure)+'</div>' : '';
+    var conv = th.conviction ? '<div class="hot-dt-th-conv"><b>Conviction</b> '+escapeHtml(th.conviction)+'</div>' : '';
+    var mr = (th.marketRead && th.marketRead.text) ? '<div class="hot-dt-th-mr">'+escapeHtml(th.marketRead.text)+'</div>' : '';
+    return '<details class="hot-dt-thesis'+(th.hasSolidThesis===false?' is-weak':'')+'">'+
+      '<summary>Thesis'+(th.hasSolidThesis===false?' <span class="hot-dt-th-thin">thin</span>':'')+'</summary>'+
+      conv + mr + disc +
+      (works?'<div class="hot-dt-th-col"><div class="hot-dt-th-h is-up">✓ What makes it work</div><ul>'+works+'</ul></div>':'')+
+      (inval?'<div class="hot-dt-th-col"><div class="hot-dt-th-h is-dn">⚠ What would disprove it</div><ul>'+inval+'</ul></div>':'')+
+    '</details>';
+  }
+  // Day-trade option-structure idea (collapsed) — the picks strategy menu mirrored
+  // to the intraday horizon (naked vs debit spread by conviction; credit note).
+  function dtOptionIdeaHtml(t){
+    var oi = t && t.optionIdea; if (!oi || !oi.label) return '';
+    var bits = [];
+    if (oi.dteGuide) bits.push(escapeHtml(oi.dteGuide));
+    if (oi.moneyness) bits.push(escapeHtml(oi.moneyness));
+    return '<details class="hot-dt-opt">'+
+      '<summary>Option idea: <b>'+escapeHtml(oi.label)+'</b></summary>'+
+      (bits.length?'<div class="hot-dt-opt-spec">'+bits.join(' \\u00b7 ')+'</div>':'')+
+      (oi.rationale?'<div class="hot-dt-opt-why">'+escapeHtml(oi.rationale)+'</div>':'')+
+      (oi.note?'<div class="hot-dt-opt-note">'+escapeHtml(oi.note)+'</div>':'')+
+    '</details>';
+  }
   function buildDayTradeCard(t, m){
     var sideCls = t.side === 'short' ? 'is-bear' : 'is-bull';
     var sideLbl = t.side === 'short' ? 'SHORT' : 'LONG';
@@ -9624,6 +9656,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="hot-dt-leg">R:R <b>1:' + Number(t.rr).toFixed(1) + '</b></span>' +
       '</div>' +
       '<div class="hot-dt-basis">' + escapeHtml(t.basis || '') + ' \\u00b7 opened ' + escapeHtml(dtAgeLabel(t.openedAt)) + '</div>' +
+      dtThesisHtml(t) +
+      dtOptionIdeaHtml(t) +
     '</article>';
   }
   function renderHotActive(){
@@ -18048,8 +18082,40 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // odds). The technical Greek/IV row above this panel still ships for
   // anyone who wants it; this one exists so a first-time visitor can read
   // a pick without knowing what delta or theta means.
+  // Plain-English for a defined-risk vertical — the single-long copy below would
+  // mis-state the risk (a credit spread COLLECTS premium; its max loss is the
+  // width minus the credit, not the premium).
+  function pickPlainEnglishSpread(p, c){
+    var symbol = p && p.symbol ? String(p.symbol) : '';
+    var bull = !(p && p.side === 'put');
+    var isCredit = c.structure === 'credit_vertical';
+    var net = (c.mid != null && isFinite(c.mid)) ? Number(c.mid) : null;
+    var maxLoss = (c.maxLoss != null && isFinite(c.maxLoss)) ? Number(c.maxLoss) : null;
+    var maxProfit = (c.maxProfit != null && isFinite(c.maxProfit)) ? Number(c.maxProfit) : null;
+    var legType = c.optionType || (bull ? 'call' : 'put');
+    var longK = c.longStrike != null ? c.longStrike : c.strike;
+    var be = (c.breakeven != null && isFinite(c.breakeven)) ? Number(c.breakeven).toFixed(2) : '—';
+    var exp = escapeHtml(c.expiryLabel || 'expiry');
+    var bullets = '';
+    if (isCredit){
+      if (net != null) bullets += '<li><b>Collect ~$' + (net * 100).toFixed(0) + ' up front</b> — sell the $' + escapeHtml(String(c.shortStrike)) + ' ' + legType + ' and buy the $' + escapeHtml(String(longK)) + ' ' + legType + ' as protection (same expiry).</li>';
+      bullets += '<li><b>You keep the credit if</b> ' + escapeHtml(symbol) + ' ' + (bull ? 'stays above' : 'stays below') + ' <b>$' + be + '</b> through ' + exp + '.</li>';
+      if (maxLoss != null && maxProfit != null) bullets += '<li><b>Defined risk:</b> max profit ~$' + (maxProfit * 100).toFixed(0) + ' (the credit), max loss ~$' + (maxLoss * 100).toFixed(0) + ' (the strike width minus the credit).</li>';
+      bullets += '<li><b>Why a credit spread?</b> Implied volatility is unusually rich here, so you sell that expensive premium and let time decay + a vol contraction work for you while price stays on your side.</li>';
+    } else {
+      if (net != null) bullets += '<li><b>Pay ~$' + (net * 100).toFixed(0) + '</b> (the net debit — your max loss) for the $' + escapeHtml(String(longK)) + '/$' + escapeHtml(String(c.shortStrike)) + ' ' + legType + ' spread.</li>';
+      bullets += '<li><b>You make money if</b> ' + escapeHtml(symbol) + ' ' + (bull ? 'rises above' : 'falls below') + ' <b>$' + be + '</b> by ' + exp + '.</li>';
+      if (maxProfit != null) bullets += '<li><b>Defined risk:</b> max profit ~$' + (maxProfit * 100).toFixed(0) + ' (capped by the short wing), max loss ~$' + (maxLoss != null ? (maxLoss * 100).toFixed(0) : '—') + '.</li>';
+      bullets += '<li><b>Why a debit spread?</b> Same direction for a lower cost and slower net time-decay than a naked option — you trade away the uncapped upside for a cheaper, defined-risk bet.</li>';
+    }
+    return '<div class="pick-plain">' +
+      '<div class="pick-plain-head">In plain English</div>' +
+      '<ul class="pick-plain-list">' + bullets + '</ul>' +
+    '</div>';
+  }
   function pickPlainEnglish(p, c){
     if (!c) return '';
+    if (c.structure === 'debit_vertical' || c.structure === 'credit_vertical') return pickPlainEnglishSpread(p, c);
     var symbol = p && p.symbol ? String(p.symbol) : '';
     var isPut = p && p.side === 'put';
     var sideWord = isPut ? 'put' : 'call';
@@ -18127,7 +18193,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var side = p.side === 'put' ? 'put' : 'call';
     var exp = Number(c.exp || c.expiry), S = Number(spot);
     var iv = Number(c.iv);
-    var delta, thetaDay, gamma, vega, isSpread = (c.structure === 'debit_vertical' && c.legs && c.legs.length > 1);
+    var delta, thetaDay, gamma, vega, isSpread = ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && c.legs && c.legs.length > 1);
     if (isSpread){
       // Net greeks across both legs of the debit spread (long qty +1, short qty −1) —
       // the short wing offsets most of the long's theta + vega, which is the whole
@@ -18166,23 +18232,42 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // trade it is: max loss = the net debit paid, max profit = strike width − debit. The
   // capped upside is the price of the slashed theta / IV-crush + smaller premium at risk.
   function pickVerticalStructureHtml(p, c){
-    if (!c || c.structure !== 'debit_vertical' || c.shortStrike == null) return '';
-    var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    if (!c || (c.structure !== 'debit_vertical' && c.structure !== 'credit_vertical') || c.shortStrike == null) return '';
+    var isCredit = c.structure === 'credit_vertical';
+    // The legs are the OPTION TYPE of the contract (a credit spread on a bullish
+    // name is a bull-PUT spread), which may differ from the trade direction.
+    var legType = (c.optionType ? c.optionType : p.side) === 'put' ? 'PUT' : 'CALL';
     var mult = 100;
     var maxLoss = isFinite(c.maxLoss) ? Number(c.maxLoss) : (isFinite(c.netDebit) ? Number(c.netDebit) : null);
-    var maxProfit = isFinite(c.maxProfit) ? Number(c.maxProfit) : null;
+    var maxProfit = isFinite(c.maxProfit) ? Number(c.maxProfit) : (isCredit && isFinite(c.netCredit) ? Number(c.netCredit) : null);
     var rr = (maxLoss != null && maxProfit != null && maxLoss > 0) ? (maxProfit / maxLoss) : null;
-    var longK = isFinite(c.strike) ? Number(c.strike) : null;
+    var longK = isFinite(c.longStrike) ? Number(c.longStrike) : (isFinite(c.strike) ? Number(c.strike) : null);
     var shortK = isFinite(c.shortStrike) ? Number(c.shortStrike) : null;
-    var rows =
-      '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-long">LONG</span><span class="pick-vert-k">$' + escapeHtml(String(longK)) + ' ' + sideLabel + '</span><span class="pick-vert-prem">$' + (isFinite(c.legs && c.legs[0] && c.legs[0].mid) ? Number(c.legs[0].mid).toFixed(2) : '—') + '</span></div>' +
-      '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-short">SHORT</span><span class="pick-vert-k">$' + escapeHtml(String(shortK)) + ' ' + sideLabel + '</span><span class="pick-vert-prem">$' + (isFinite(c.shortMid) ? Number(c.shortMid).toFixed(2) : '—') + '</span></div>';
+    var legPrem = function(qtySign){
+      if (Array.isArray(c.legs)) { for (var i=0;i<c.legs.length;i++){ var l=c.legs[i]; if (l && Math.sign(l.qty)===qtySign && isFinite(l.mid)) return Number(l.mid).toFixed(2); } }
+      return null;
+    };
+    var longPrem = legPrem(1) || (isFinite(c.longMid) ? Number(c.longMid).toFixed(2) : '—');
+    var shortPrem = legPrem(-1) || (isFinite(c.shortMid) ? Number(c.shortMid).toFixed(2) : '—');
+    var longRow = '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-long">LONG</span><span class="pick-vert-k">$' + escapeHtml(String(longK)) + ' ' + legType + '</span><span class="pick-vert-prem">$' + longPrem + '</span></div>';
+    var shortRow = '<div class="pick-vert-leg"><span class="pick-vert-side pick-vert-short">SHORT</span><span class="pick-vert-k">$' + escapeHtml(String(shortK)) + ' ' + legType + '</span><span class="pick-vert-prem">$' + shortPrem + '</span></div>';
+    // Credit: the sold (short) near-money leg is the lead; debit: the long is.
+    var rows = isCredit ? (shortRow + longRow) : (longRow + shortRow);
+    var netLabel = isCredit ? 'Net credit' : 'Net debit';
+    var netVal = isFinite(c.mid) ? Number(c.mid) : null;
     var econ =
-      (maxLoss != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Max loss</div><div class="pick-vert-stat-val pick-vert-loss">$' + (maxLoss * mult).toFixed(0) + '</div></div>' : '') +
+      (netVal != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">' + netLabel + '</div><div class="pick-vert-stat-val ' + (isCredit ? 'pick-vert-profit' : '') + '">$' + (netVal * mult).toFixed(0) + '</div></div>' : '') +
       (maxProfit != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Max profit</div><div class="pick-vert-stat-val pick-vert-profit">$' + (maxProfit * mult).toFixed(0) + '</div></div>' : '') +
-      (rr != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">R / R</div><div class="pick-vert-stat-val">' + rr.toFixed(2) + '×</div></div>' : '');
-    return '<div class="pick-vert" title="Debit vertical (defined-risk spread): the long is financed by selling an OTM wing on the same expiry. Caps the max loss to the net debit and slashes theta + IV-crush vs a naked long — at the cost of a capped max profit (the strike width minus the debit).">' +
-      '<div class="pick-vert-head">⛓ Defined-risk spread <span class="pick-vert-tag">caps loss · cuts theta/vega</span></div>' +
+      (maxLoss != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Max loss</div><div class="pick-vert-stat-val pick-vert-loss">$' + (maxLoss * mult).toFixed(0) + '</div></div>' : '') +
+      (rr != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Reward / risk</div><div class="pick-vert-stat-val">' + rr.toFixed(2) + '×</div></div>' : '');
+    var tip = isCredit
+      ? 'Credit vertical (defined-risk): you SELL the near-money leg and BUY a further-OTM wing on the same expiry, collecting a net credit. Best when implied vol is richly bid (>=2σ) — you sell expensive premium and profit from time decay + a vol contraction as long as price stays on your side of the short strike. Max profit = the credit; max loss = the strike width minus the credit.'
+      : 'Debit vertical (defined-risk): the long is financed by selling an OTM wing on the same expiry. Caps the max loss to the net debit and slashes theta + IV-crush vs a naked long — at the cost of a capped max profit (the strike width minus the debit).';
+    var head = isCredit
+      ? '⛓ Credit spread <span class="pick-vert-tag">sell rich premium · capped risk</span>'
+      : '⛓ Defined-risk spread <span class="pick-vert-tag">caps loss · cuts theta/vega</span>';
+    return '<div class="pick-vert' + (isCredit ? ' pick-vert-credit' : '') + '" title="' + escapeHtml(tip) + '">' +
+      '<div class="pick-vert-head">' + head + '</div>' +
       '<div class="pick-vert-legs">' + rows + '</div>' +
       '<div class="pick-vert-econ">' + econ + '</div>' +
     '</div>';
@@ -18191,7 +18276,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var c = p && p.contract;
     if (!c || c.strike == null || !c.expiryLabel) return '';
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
-    var isSpread = (c.structure === 'debit_vertical' && c.shortStrike != null);
+    var isCredit = (c.structure === 'credit_vertical');
+    var isSpread = ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && c.shortStrike != null);
     var dteTxt = (c.dte != null) ? ' · ' + c.dte + 'd' : '';
     // Stat grid — replaces the dense mono "$8.45 × $8.60 · mid $8.52 / Δ 0.50
     // · Θ ... / Breakeven $... (+8.5%)" trio with a 3-column labeled layout
@@ -18216,10 +18302,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var dollarsContract = '';
     if (premiumPrimary){
       var midN = parseFloat(premiumPrimary.slice(1));
-      if (isFinite(midN)) dollarsContract = '$' + (midN * 100).toFixed(0) + ' / contract';
+      if (isFinite(midN)) dollarsContract = '$' + (midN * 100).toFixed(0) + ' / contract' + (isCredit ? ' collected' : '');
     }
-    stats += '<div class="pick-stat" title="' + (isSpread ? 'Net debit — the long premium minus the credit from the short wing. ×100 = the cash you pay, and (for a defined-risk spread) the most you can lose.' : 'Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.') + '">' +
-      '<div class="pick-stat-label">' + (isSpread ? 'Net debit' : 'Premium') + '</div>' +
+    var premTip = isCredit
+      ? 'Net credit — the premium you COLLECT (sell the near-money leg, buy the further-OTM wing). ×100 = the cash you receive up front; your max loss is the strike width minus this credit.'
+      : isSpread ? 'Net debit — the long premium minus the credit from the short wing. ×100 = the cash you pay, and (for a defined-risk spread) the most you can lose.'
+      : 'Premium — the mid price between bid and ask. ×100 = the cash you pay (and the most you can lose) for one contract.';
+    stats += '<div class="pick-stat" title="' + premTip + '">' +
+      '<div class="pick-stat-label">' + (isCredit ? 'Net credit' : isSpread ? 'Net debit' : 'Premium') + '</div>' +
       '<div class="pick-stat-value">' + escapeHtml(premiumPrimary || '—') + '</div>' +
       '<div class="pick-stat-sub">' + escapeHtml(premiumSub || dollarsContract || '') + '</div>' +
     '</div>';
@@ -18308,11 +18398,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var earningsBadge = c.earningsInWindow
       ? '<span class="pick-badge pick-badge-warn">Earnings in window</span>'
       : '';
+    // For a spread, the legs are the contract's own option type (a bull-put
+    // credit spread is PUTs), which may differ from the trade direction — grade
+    // the long/primary leg with the correct type so the grader isn't misled.
+    var gradeType = isSpread ? (c.optionType || (p.side === 'put' ? 'put' : 'call')) : (p.side === 'put' ? 'put' : 'call');
+    var gradeStrike = isSpread ? (c.longStrike != null ? c.longStrike : c.strike) : c.strike;
     var btnAttrs =
       ' data-pick-symbol="' + escapeHtml(p.symbol) + '"' +
-      ' data-pick-strike="' + escapeHtml(String(c.strike)) + '"' +
+      ' data-pick-strike="' + escapeHtml(String(gradeStrike)) + '"' +
       ' data-pick-exp="' + escapeHtml(String(c.expiry || '')) + '"' +
-      ' data-pick-type="' + escapeHtml(p.side === 'put' ? 'put' : 'call') + '"' +
+      ' data-pick-type="' + escapeHtml(gradeType) + '"' +
       ' data-pick-quality="' + escapeHtml((q && q.overall) || '') + '"';
     var overall = (q && q.overall) ? ' pick-contract-overall-' + escapeHtml(q.overall) : '';
     var plain = pickPlainEnglish(p, c);
@@ -18321,7 +18416,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       otmTxt = ' · ' + Math.abs(Number(c.otmPct)).toFixed(1) + '% OTM';
     }
     var headStrike = isSpread
-      ? '$' + escapeHtml(String(c.strike)) + ' / $' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt
+      ? (isCredit
+          ? '$' + escapeHtml(String(c.shortStrike)) + ' / $' + escapeHtml(String(c.longStrike != null ? c.longStrike : c.strike))
+          : '$' + escapeHtml(String(c.longStrike != null ? c.longStrike : c.strike)) + ' / $' + escapeHtml(String(c.shortStrike))) +
+        ' · ' + escapeHtml(c.expiryLabel) + dteTxt
       : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(c.expiryLabel) + dteTxt + otmTxt;
     // Entry guidance — "buy now" when the timing gate reads a clean confirmed
     // entry, otherwise the specific trigger price to wait for. The grade already
@@ -18337,9 +18435,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (eNow ? '✅ ' : '⏳ ') + escapeHtml(p.entry.headline) +
       '</div>';
     }
-    return '<div class="pick-contract' + overall + '">' +
+    var structLabel = isCredit ? ((p.side === 'put' ? 'Bear-call' : 'Bull-put') + ' credit spread')
+      : isSpread ? ((p.side === 'put' ? 'Bear' : 'Bull') + ' debit spread')
+      : sideLabel;
+    return '<div class="pick-contract' + overall + (isSpread ? ' pick-contract-spread' + (isCredit ? ' pick-contract-credit' : '') : '') + '">' +
       '<div class="pick-contract-head">' +
-        '<span class="pick-contract-label">Suggested ' + (isSpread ? sideLabel + ' spread' : sideLabel) + '</span>' +
+        '<span class="pick-contract-label">Suggested ' + escapeHtml(structLabel) + '</span>' +
         '<span class="pick-contract-strike">' + headStrike + '</span>' +
         earningsBadge +
       '</div>' +
@@ -19415,10 +19516,44 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (bits.length) tgtHtml = '<div class="thesis-target"><span class="thesis-target-lbl">Plan</span> ' + escapeHtml(bits.join(' · ')) + '</div>';
     }
     var statusHtml = pickThesisStatusFor(p);
-    return '<div class="pick-thesis ' + dirCls + '">' +
-      '<div class="pick-thesis-head">Thesis <span class="thesis-dir">' + escapeHtml(tc.direction || '') + '</span></div>' +
+    // Strategy chip — WHY this structure (naked / debit / credit spread).
+    var stratHtml = '';
+    if (tc.strategy && tc.strategy.label){
+      var st = tc.strategy.type;
+      var stCls = st === 'credit' ? 'thesis-strat-credit' : st === 'debit' ? 'thesis-strat-debit' : 'thesis-strat-naked';
+      stratHtml = '<div class="thesis-strat ' + stCls + '" title="' + escapeHtml(tc.strategy.reason || '') + '">' +
+        '<span class="thesis-strat-icon">' + (st === 'credit' ? '⛓' : st === 'debit' ? '⛓' : '➜') + '</span> ' +
+        '<span class="thesis-strat-label">' + escapeHtml(tc.strategy.label) + '</span>' +
+        (tc.strategy.fallback ? ' <span class="thesis-strat-fb" title="The preferred structure had no liquid wing — shipped this instead.">(fallback)</span>' : '') +
+      '</div>';
+    }
+    // Conviction line.
+    var convHtml = tc.conviction ? '<div class="thesis-conviction"><span class="thesis-conv-lbl">Conviction</span> ' + escapeHtml(tc.conviction) + '</div>' : '';
+    // Market read — does the macro tape support or fight the trade?
+    var mrHtml = '';
+    if (tc.marketRead && tc.marketRead.text){
+      var sup = tc.marketRead.support;
+      var mrCls = sup === 'supports' ? 'thesis-mr-ok' : sup === 'against' ? 'thesis-mr-bad' : 'thesis-mr-neutral';
+      mrHtml = '<div class="thesis-market ' + mrCls + '"><span class="thesis-market-lbl">Market read</span> ' + escapeHtml(tc.marketRead.text) + '</div>';
+    }
+    // Honest "no strong thesis" disclosure (per spec) when the reasoning is thin.
+    var discHtml = (tc.hasSolidThesis === false && tc.disclosure)
+      ? '<div class="thesis-disclosure" title="The grade cleared the actionable bar, but the supporting reasoning is thin. Trade it smaller or wait for confirmation.">⚠ ' + escapeHtml(tc.disclosure) + '</div>'
+      : '';
+    // Optional AI-written causal narrative (hybrid: deterministic thesis + gloss).
+    var proseHtml = tc.prose
+      ? '<div class="thesis-prose" title="AI-written narrative — a plain-English read of the deterministic signals + macro backdrop above. Generated at build time; degrades gracefully when the AI key is absent.">' + escapeHtml(tc.prose) + ' <span class="thesis-prose-tag">AI read</span></div>'
+      : '';
+    return '<div class="pick-thesis ' + dirCls + (tc.hasSolidThesis === false ? ' thesis-weak' : '') + '">' +
+      '<div class="pick-thesis-head">Thesis <span class="thesis-dir">' + escapeHtml(tc.direction || '') + '</span>' +
+        (tc.hasSolidThesis === false ? '<span class="thesis-weak-tag" title="Lower-confidence — see the disclosure below.">thin</span>' : '') + '</div>' +
+      stratHtml +
+      convHtml +
+      mrHtml +
+      discHtml +
       (worksHtml ? '<div class="thesis-col thesis-works"><div class="thesis-col-head">✓ What makes it work</div><ul>' + worksHtml + '</ul></div>' : '') +
       (invHtml ? '<div class="thesis-col thesis-inval"><div class="thesis-col-head">⚠ What would disprove it</div><ul>' + invHtml + '</ul></div>' : '') +
+      proseHtml +
       tgtHtml +
       statusHtml +
     '</div>';
@@ -19614,12 +19749,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var erChip = c.earningsInWindow
         ? '<span class="ptc-con-er" title="Earnings land before this contract expires — the post-print IV crush can wipe out a long premium even on a correct directional call.">⚠ ER</span>'
         : '';
-      var isSpread = (c.structure === 'debit_vertical' && c.shortStrike != null);
+      var isCreditTC = (c.structure === 'credit_vertical');
+      var isSpread = ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && c.shortStrike != null);
+      var vLongK = c.longStrike != null ? c.longStrike : c.strike;
       var spreadChip = isSpread
-        ? '<span class="ptc-con-spread" title="Defined-risk debit spread — long $' + escapeHtml(String(c.strike)) + ' financed by a short $' + escapeHtml(String(c.shortStrike)) + ' wing. Caps the max loss to the net debit and cuts theta / IV-crush; the premium shown is the NET debit.">⛓ spread</span>'
+        ? (isCreditTC
+            ? '<span class="ptc-con-spread ptc-con-credit" title="Defined-risk credit spread — sell $' + escapeHtml(String(c.shortStrike)) + ' / buy $' + escapeHtml(String(vLongK)) + ' wing. You COLLECT the premium shown (a net credit); max loss is the width minus the credit. Used when IV is richly bid.">⛓ credit</span>'
+            : '<span class="ptc-con-spread" title="Defined-risk debit spread — long $' + escapeHtml(String(vLongK)) + ' financed by a short $' + escapeHtml(String(c.shortStrike)) + ' wing. Caps the max loss to the net debit and cuts theta / IV-crush; the premium shown is the NET debit.">⛓ spread</span>')
         : '';
       var kTxt = isSpread
-        ? '$' + escapeHtml(String(c.strike)) + '/' + escapeHtml(String(c.shortStrike)) + ' · ' + escapeHtml(String(c.dte)) + 'd'
+        ? (isCreditTC ? '$' + escapeHtml(String(c.shortStrike)) + '/' + escapeHtml(String(vLongK)) : '$' + escapeHtml(String(vLongK)) + '/' + escapeHtml(String(c.shortStrike))) + ' · ' + escapeHtml(String(c.dte)) + 'd'
         : '$' + escapeHtml(String(c.strike)) + ' · ' + escapeHtml(String(c.dte)) + 'd';
       var popChip = '';
       if (c.pop != null && isFinite(c.pop)){

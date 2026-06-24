@@ -1293,6 +1293,66 @@ function dtBuildPlan(side, spot, levels, kind) {
     stopBasis, tgtBasis,
   };
 }
+// Structured thesis for a day trade — the conviction + what makes it work + what
+// would disprove it + an honest "no strong thesis" disclosure (the same
+// discipline the Top Picks thesisCard carries, scoped to the intraday horizon).
+// Day trades are technical/flow reads, so the "market read" is the setup quality
+// (volume + confirmed structure + momentum), not a macro-causal thesis.
+export function dtBuildThesis(side, kind, heat, sr, dir, moveToday) {
+  const bull = side === "long";
+  const hasBreak = !!(sr && dtConvWeight(sr.conviction) >= 1.2);
+  const works = [];
+  works.push({ label: `${heat.toFixed(1)}× expected volume by now`, value: "the move is backed by real participation, not noise" });
+  if (sr && sr.conviction && sr.conviction !== "None") works.push({ label: `Confirmed 20D ${sr.type === "upper" ? "resistance breakout" : "support breakdown"} (${sr.conviction})`, value: sr.level != null ? `level $${dtR2(sr.level)}` : null });
+  if (moveToday != null && isFinite(moveToday)) works.push({ label: `${moveToday >= 0 ? "+" : ""}${moveToday.toFixed(1)}% on the day`, value: "momentum aligned with the trade" });
+  const invalidators = [];
+  invalidators.push({ trigger: `volume conviction fades (heat back under ${DT_HOT_MIN}× expected)` });
+  if (sr && sr.level != null) invalidators.push({ trigger: `${bull ? "loses" : "reclaims"} the broken level ~$${dtR2(sr.level)}` });
+  invalidators.push({ trigger: kind === "swing" ? `no follow-through within ${DT_SWING_MAX_HOLD_DAYS} sessions` : "fails to follow through by the close" });
+  const strong = Math.abs(dir) >= 2 && hasBreak && heat >= 1.5;
+  const conviction = strong ? `High — confirmed ${bull ? "breakout" : "breakdown"} on ${heat.toFixed(1)}× volume`
+    : hasBreak ? `Moderate — confirmed structural break, ${heat.toFixed(1)}× volume`
+    : `Speculative — momentum/volume only, no confirmed break`;
+  const hasSolidThesis = hasBreak && heat >= 1.5 && Math.abs(dir) >= 1.5;
+  const disclosure = hasSolidThesis ? null
+    : `No strong thesis — a ${kind === "scalp" ? "momentum scalp" : "volume read"} without a confirmed structural break. Lower-confidence: keep it small and honor the stop.`;
+  const setup = hasBreak
+    ? `a confirmed 20-day ${bull ? "breakout" : "breakdown"} carried by ${heat.toFixed(1)}× expected volume`
+    : `a ${heat.toFixed(1)}× volume surge with ${bull ? "upside" : "downside"} momentum but no confirmed break`;
+  const marketRead = {
+    support: hasBreak ? "supports" : "neutral",
+    text: `Short-horizon ${bull ? "bullish" : "bearish"} technical trade: ${setup}. This is a flow/structure read, not a macro thesis — manage it on the tape.`,
+  };
+  return { conviction, works: works.slice(0, 3), invalidators: invalidators.slice(0, 3), marketRead, hasSolidThesis, disclosure };
+}
+
+// Deterministic option-structure idea for a day trade (the picks strategy menu,
+// mirrored to the intraday horizon). The scanner has no per-name IV-history
+// z-score, so the choice is conviction-driven — strong+confirmed → a naked long
+// for max convexity; otherwise a defined-risk debit spread — with a note about
+// the credit-spread alternative when IV is rich (checkable on the Grade tab).
+export function dtBuildOptionIdea(side, kind, dir, sr) {
+  const bull = side === "long";
+  const optSide = bull ? "call" : "put";
+  const hasBreak = !!(sr && dtConvWeight(sr.conviction) >= 1.2);
+  const strong = Math.abs(dir) >= 2 && hasBreak;
+  const dteGuide = kind === "swing" ? "this week to next (~5–12 DTE)" : "0–3 DTE (very short — size tiny)";
+  if (strong) {
+    return {
+      structure: "naked", side: optSide, label: `Naked ${optSide}`,
+      dteGuide, moneyness: "ATM / slightly ITM (~0.50–0.60Δ) for max delta",
+      rationale: `Strong, confirmed ${bull ? "breakout" : "breakdown"} — a single long ${optSide} gives the most delta/gamma for a fast move. Accept the theta; this is a short hold.`,
+      note: "If IV is richly bid (check the Grade tab), a debit spread caps the cost.",
+    };
+  }
+  return {
+    structure: "debit_spread", side: optSide, label: `${bull ? "Bull-call" : "Bear-put"} debit spread`,
+    dteGuide, moneyness: "long ~0.45–0.55Δ, short a ~0.25Δ wing",
+    rationale: `A grounded but not high-conviction ${bull ? "long" : "short"} — a debit spread gets the direction cheaper with slower theta than a naked option, which matters on a short hold.`,
+    note: "If IV is unusually rich, sell a credit spread on the bias side instead.",
+  };
+}
+
 // Turn one volume-flag row + its live quote into a tradeable candidate, or null.
 function dtBuildCandidate(row, quote) {
   const spot = (quote && quote.spot > 0) ? quote.spot : (row.spot > 0 ? row.spot : null);
@@ -1337,6 +1397,8 @@ function dtBuildCandidate(row, quote) {
     rank: heat * Math.abs(dir),
     basis,
     openDayHi: dtNum(quote?.dayHi), openDayLo: dtNum(quote?.dayLo),
+    thesis: dtBuildThesis(side, kind, heat, sr, dir, moveToday),
+    optionIdea: dtBuildOptionIdea(side, kind, dir, sr),
   };
 }
 function dtTradingDaysBetween(fromKey, toKey) {
@@ -1494,6 +1556,7 @@ async function runDayTradePass({ volRows, quotesMap, scannedAt, marketState, now
         lastSpot: cand.plan.entry, lastAt: scannedAt,
         mfePct: 0, maePct: 0,
         basis: cand.basis, pace: cand.heat,
+        thesis: cand.thesis || null, optionIdea: cand.optionIdea || null,
       });
       haveSyms.add(cand.sym);
     }
