@@ -36,14 +36,18 @@ ok("direction: resistance break + up move reads bullish", dtDirection(rowBull, 2
 ok("direction: support break + down move reads bearish", dtDirection(rowBear, -2.2) < -1);
 
 // --- 3. candidate selection ----------------------------------------------
-const candBull = dtBuildCandidate(rowBull, { spot: 100, dayHi: 101, dayLo: 99, changePct: 2.0 });
+const candBull = dtBuildCandidate(rowBull, { spot: 100, dayHi: 101.5, dayLo: 99, changePct: 2.0 });
 ok("candidate: hot bullish row yields a long", candBull && candBull.side === "long");
 ok("candidate: confirmed break → swing kind", candBull && candBull.kind === "swing");
-ok("candidate: ships a tradeable plan (rr>=1)", candBull && candBull.plan && candBull.plan.rr >= 1);
+ok("candidate: ships a tradeable plan (rr>=DT_MIN_RR)", candBull && candBull.plan && candBull.plan.rr >= 1.2);
 ok("candidate: basis mentions volume", candBull && /expected volume/.test(candBull.basis));
 
-const candBear = dtBuildCandidate(rowBear, { spot: 100, dayHi: 101, dayLo: 99, changePct: -2.2 });
+const candBear = dtBuildCandidate(rowBear, { spot: 100, dayHi: 101, dayLo: 98.5, changePct: -2.2 });
 ok("candidate: hot bearish row yields a short", candBear && candBear.side === "short");
+// A setup whose nearest structural target pays < 1.2× the stop risk is now
+// dropped (bare ~1:1 is break-even on an expired-win-inflated board).
+const rowThinRR = { symbol: "TRR", spot: 100, bucketHits: [{ volRatio: 1.8, priceMovePct: 2.0, srBreak: { type: "upper", conviction: "Medium", level: 98 } }], gex: { net: -1, callWall: { strike: 101.1 }, putWall: { strike: 97 }, flip: null } };
+ok("candidate: sub-1.2 reward:risk setup is rejected", dtBuildCandidate(rowThinRR, { spot: 100, dayHi: 101.1, dayLo: 99, changePct: 2.0 }) === null);
 
 ok("candidate: quiet (sub-1.3x) volume is rejected", dtBuildCandidate(rowQuiet, { spot: 100, dayHi: 100.5, dayLo: 99.5, changePct: 0.1 }) === null);
 const rowHotNoDir = { symbol: "DDD", spot: 100, bucketHits: [{ volRatio: 2.0, priceMovePct: 0.0, srBreak: null }], gex: null };

@@ -31,8 +31,9 @@ import { yahooFinance, withYahooTimeout } from "../lib/yahoo.mjs";
 
 // Mirrors the tile set in fetchMacroBackdrop (scripts/build.mjs). The 2Y has no
 // reliable Yahoo source — a missing leg comes back null and the browser keeps
-// that tile on its baked value (which the bake sources authoritatively from FRED
-// DGS2). CL=F (crude) + GC=F (gold) feed the picks market-tape commodity axis only.
+// that tile on its baked value (which the bake sources authoritatively from the
+// U.S. Treasury par-yield curve, FRED DGS2 as the backstop). CL=F (crude) + GC=F
+// (gold) feed the picks market-tape commodity axis only.
 const LEGS = [
   // Yahoo has no 2-year in its CBOE interest-rate index family (only ^IRX/^FVX/
   // ^TNX/^TYX), so ^UST2YR effectively never resolves — fall back to 2YY=F (CBOT

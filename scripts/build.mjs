@@ -3127,25 +3127,17 @@ function buildVixTerm(vix, vix9d, vix3m) {
   };
 }
 
-// Authoritative 2Y fallback when Yahoo has no usable quote. Yahoo's CBOE
-// interest-rate index family only publishes ^IRX (3mo) / ^FVX (5yr) / ^TNX
-// (10yr) / ^TYX (30yr) — there is NO 2-year index there (^UST2YR returns
-// nothing), and the 2YY=F micro-future is too thin to quote reliably. FRED's
-// DGS2 (2-Year Treasury constant maturity, daily, in percent — same units as
-// the ^TNX/^TYX legs) is the source of record, so it keeps the 2Y tile and the
-// 2s10s spread populated instead of silently dropping out. Trade-off: DGS2 is
-// published with a ~1-business-day lag (today's value lands tomorrow morning),
-// so the baked 2Y can trail the intraday ^TNX 10Y by a day; the live
-// /api/macro-live overlay refreshes it from 2YY=F intraday when available. The
-// observations are business-day-only (weekend/holiday gaps already filtered),
-// so consecutive entries are consecutive trading days — prior1d / prior5d index
-// straight off the tail exactly like fetchLeg's daily-bar history.
-async function fetchTwoYearFromFred() {
-  const obs = (await fetchFredSeries("DGS2")).filter((o) => o && Number.isFinite(o.value));
-  if (!obs.length) return null;
-  const value = obs[obs.length - 1].value;
-  const prior1d = obs.length >= 2 ? obs[obs.length - 2].value : null;
-  const prior5d = obs.length >= 6 ? obs[obs.length - 6].value : obs[0].value;
+// Build the macro-leg shape (value + 1d/5d deltas + trend) from an ASCENDING,
+// business-day-only series of { date, value } yield observations — shared by the
+// Treasury and FRED 2Y fallbacks so they can never drift. Consecutive entries are
+// consecutive trading days (weekend/holiday gaps already filtered), so prior1d /
+// prior5d index straight off the tail exactly like fetchLeg's daily-bar history.
+function twoYearLegFromObs(obs, source) {
+  const clean = (obs || []).filter((o) => o && Number.isFinite(o.value));
+  if (!clean.length) return null;
+  const value = clean[clean.length - 1].value;
+  const prior1d = clean.length >= 2 ? clean[clean.length - 2].value : null;
+  const prior5d = clean.length >= 6 ? clean[clean.length - 6].value : clean[0].value;
   const pctChange1d = prior1d != null && prior1d > 0 ? ((value - prior1d) / prior1d) * 100 : null;
   const pctChange5d = prior5d != null && prior5d > 0 ? ((value - prior5d) / prior5d) * 100 : null;
   const bpsChange1d = prior1d != null ? (value - prior1d) * 100 : null;
@@ -3165,8 +3157,82 @@ async function fetchTwoYearFromFred() {
     bpsChange1d,
     bpsChange5d,
     trend,
-    source: "fred-dgs2",
+    source,
   };
+}
+
+// Authoritative same-day 2Y fallback when Yahoo has no usable quote. Yahoo's CBOE
+// interest-rate index family only publishes ^IRX (3mo) / ^FVX (5yr) / ^TNX (10yr)
+// / ^TYX (30yr) — there is NO 2-year index there (^UST2YR returns nothing) and the
+// 2YY=F micro-future is too thin to quote reliably, so without a Treasury/FRED
+// backstop the 2Y tile + the 2s10s spread silently drop out (the bug this fixes).
+//
+// The U.S. Treasury's Daily Treasury Par Yield Curve Rates is the SOURCE for the
+// 2Y constant-maturity rate (FRED's DGS2 is just a lagged mirror of it). It is
+// free, key-less, published SAME DAY (~3:30–4:00pm ET), in percent (same units as
+// the ^TNX/^TYX legs), and — crucially — it is NOT behind the Cloudflare WAF that
+// 403s FRED's CSV endpoint from CI-runner IPs, so it's the reliable primary
+// non-Yahoo source. We read the OData/Atom XML feed (one GET returns the whole
+// calendar year of business-day rows) and pull each entry's BC_2YEAR column.
+// Near the start of January the current-year feed can hold < 6 rows, so we also
+// pull the prior year and prepend it to keep the 5d delta honest. Graceful: any
+// failure returns null and the caller falls through to FRED DGS2.
+const TREASURY_YIELD_XML =
+  "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=";
+async function fetchTreasuryParYear(year) {
+  try {
+    const res = await fetch(`${TREASURY_YIELD_XML}${year}`, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        accept: "application/atom+xml,application/xml,text/xml,*/*;q=0.5",
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) {
+      console.log(`    ⚠ Treasury par-yield ${year} HTTP ${res.status}`);
+      return [];
+    }
+    const xml = await res.text();
+    const out = [];
+    // OData/Atom: one <entry> per business day; we only need NEW_DATE + BC_2YEAR.
+    for (const chunk of xml.split(/<entry[\s>]/).slice(1)) {
+      const dm = chunk.match(/<d:NEW_DATE[^>]*>([^<]+)<\/d:NEW_DATE>/);
+      const vm = chunk.match(/<d:BC_2YEAR[^>]*>([^<]*)<\/d:BC_2YEAR>/);
+      if (!dm || !vm) continue;
+      const date = dm[1].slice(0, 10);
+      const value = Number(vm[1]);
+      if (!date || !Number.isFinite(value)) continue;
+      out.push({ date, value });
+    }
+    return out;
+  } catch (err) {
+    console.log(`    ⚠ Treasury par-yield ${year} failed: ${err.message}`);
+    return [];
+  }
+}
+async function fetchTwoYearFromTreasury() {
+  const year = new Date().getUTCFullYear();
+  let obs = await fetchTreasuryParYear(year);
+  // Early January: the current-year feed may not yet carry 5 prior sessions —
+  // prepend the prior year so prior5d stays a real 5-trading-days-ago value.
+  if (obs.length < 6) {
+    const prevYear = await fetchTreasuryParYear(year - 1);
+    obs = [...prevYear, ...obs];
+  }
+  // Feed rows arrive oldest→newest, but sort defensively (and dedupe by date).
+  const byDate = new Map();
+  for (const o of obs) byDate.set(o.date, o.value);
+  const sorted = [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, value]) => ({ date, value }));
+  return twoYearLegFromObs(sorted, "treasury-par");
+}
+
+// Last-resort 2Y fallback — FRED's DGS2 (the lagged mirror of the Treasury par
+// curve above). Kept behind Treasury because DGS2 publishes a ~business-day late
+// (today's value lands tomorrow) and its Cloudflare-fronted CSV path 403s from
+// CI-runner IPs; it only runs when Treasury is unreachable.
+async function fetchTwoYearFromFred() {
+  return twoYearLegFromObs(await fetchFredSeries("DGS2"), "fred-dgs2");
 }
 
 async function fetchMacroBackdrop() {
@@ -3255,9 +3321,20 @@ async function fetchMacroBackdrop() {
   if (!twoY) {
     twoY = await fetchLeg("2YY=F", "2Y yield (2YY futures fallback)", { isYield: true });
   }
-  // Last resort: FRED's DGS2 (2-Year constant-maturity rate). The two Yahoo
-  // symbols above are unreliable, so without this the 2Y tile + 2s10s spread
-  // routinely vanish; DGS2 is the source of record and effectively always there.
+  // Primary non-Yahoo source: the U.S. Treasury Daily Par Yield Curve (BC_2YEAR).
+  // Same-day, key-less, and NOT behind FRED's Cloudflare WAF — so it populates the
+  // 2Y tile + 2s10s spread reliably from CI even when both Yahoo symbols and the
+  // FRED CSV path fail (the bug where the 2Y kept disappearing from the Bonds tab).
+  if (!twoY) {
+    twoY = await fetchTwoYearFromTreasury();
+    if (twoY) {
+      const day = twoY.bpsChange1d != null ? ` · 1d ${twoY.bpsChange1d >= 0 ? "+" : ""}${twoY.bpsChange1d.toFixed(1)} bps` : "";
+      console.log(`Macro 2Y yield (Treasury par-curve): ${twoY.value.toFixed(2)}${day}`);
+    }
+  }
+  // Last resort: FRED's DGS2 (the lagged mirror of the Treasury curve above).
+  // Only reached if Treasury is unreachable too; DGS2 is a business-day late and
+  // its CSV path 403s from CI IPs, so it's the backstop, not the primary.
   if (!twoY) {
     twoY = await fetchTwoYearFromFred();
     if (twoY) {
@@ -7843,6 +7920,19 @@ const PICKS_MAX_PER_SIDE = 8;                 // don't ship an all-one-way book
 // timing to [-8,+2], ivCost to [-2,+1], so |total| tops out ~ +/-20.
 export const PICKS_MIN_CONVICTION = Number(process.env.PICKS_MIN_CONVICTION ?? 4); // actionable (Call/Put)
 export const PICKS_TIER_STRONG = Number(process.env.PICKS_TIER_STRONG ?? 7);       // Strong conviction
+// ---- Edge-governed selection bar (stand down harder when actually losing) ---
+// computeEdgeScale already cuts SIZE when the trailing record is losing, but the
+// resolved book has run a ~33% option win rate against the +20%/−30% exits — an
+// expectancy that needs a >60% win rate just to break even, so trading the same
+// breadth of names *smaller* still trades a structurally losing book. When the
+// realized option edge is materially negative, RAISE the actionable conviction
+// bar toward the Strong tier so the engine ships only its highest-conviction
+// reads (genuinely standing down — top-picks lessons #1 "stand down" / #6 "hold
+// cash"), and relaxes automatically as the weekly-reset record recovers.
+const PICKS_EDGE_GATE = process.env.PICKS_EDGE_GATE !== "0";       // on by default
+const PICKS_EDGE_GATE_SOFT = Number(process.env.PICKS_EDGE_GATE_SOFT ?? -8);   // edge ≤ −8% → bar +2
+const PICKS_EDGE_GATE_HARD = Number(process.env.PICKS_EDGE_GATE_HARD ?? -15);  // edge ≤ −15% → bar = Strong
+const PICKS_EDGE_GATE_MIN_N = Number(process.env.PICKS_EDGE_GATE_MIN_N ?? 12); // need this many decided closes to trust the edge
 const PICKS_PILLAR_CLAMP = 5;                 // no single pillar dominates
 const PICKS_TRAJECTORY_CLAMP = 2;             // forward-trajectory nudge into the fundamentals pillar (blend, don't dominate)
 
@@ -9535,6 +9625,25 @@ export function computeEdgeScale(closed) {
   return clamp(1 + edge / 40, 0.4, 1);        // -40% expectancy -> floor
 }
 
+// The selection-side governor: how high to set the actionable conviction bar
+// given the trailing realized option edge. Default bar when the gate is off,
+// there's not enough decided history to trust, or the edge is non-negative.
+// Otherwise step the bar up (and at a deeply negative edge, all the way to the
+// Strong tier) so the engine stops endorsing marginal names while it's losing.
+// Returns { bar, edge, n } so the roster meta can show WHY it stood down.
+export function edgeGatedConviction(closed) {
+  const base = PICKS_MIN_CONVICTION;
+  if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, edge: null, n: 0 };
+  const decided = closed.filter((c) => c && (c.outcome === "win" || c.outcome === "loss") && pnum(c.optionPnlPct) != null);
+  if (decided.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, edge: null, n: decided.length };
+  const edge = realizedOptionEdge(closed);
+  if (edge == null || edge >= 0) return { bar: base, edge, n: decided.length };
+  let bar = base;
+  if (edge <= PICKS_EDGE_GATE_HARD) bar = PICKS_TIER_STRONG;
+  else if (edge <= PICKS_EDGE_GATE_SOFT) bar = Math.min(PICKS_TIER_STRONG, base + 2);
+  return { bar, edge, n: decided.length };
+}
+
 // ============================================================================
 // buildTopPicks — the actionable roster.
 // ============================================================================
@@ -9545,12 +9654,18 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
   const openSym = new Set((opts.openPositions || []).map((o) => o && o.symbol).filter(Boolean));
 
-  const meta = { tradeCut: PICKS_MIN_CONVICTION, strongCut: PICKS_TIER_STRONG, minConviction: PICKS_MIN_CONVICTION, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], reentrySuppressed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  // Edge governor (selection side): raise the actionable bar when the trailing
+  // realized option edge is materially negative, so a losing book stands down to
+  // only its strongest reads instead of trading the same breadth smaller.
+  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
+  const minConv = edgeGate.bar;
+
+  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], reentrySuppressed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
   for (const r of scored) {
-    const actionable = Math.abs(r.total) >= PICKS_MIN_CONVICTION && r.side;
+    const actionable = Math.abs(r.total) >= minConv && r.side;
     const tactical = !actionable && (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state === "avoid" ? false : false;
     if (actionable) candidates.push({ r, tactical: false });
     else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") candidates.push({ r, tactical: true });
