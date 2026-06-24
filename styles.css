@@ -9733,6 +9733,29 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 16%, var(--surface));
 }
+/* Concrete contract (option) price to set the take-profit / stop at, shown
+   next to the underlying stock level. */
+.pick-exit-opt {
+  font: 700 9.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.pick-exit-opt-stop {
+  color: var(--neg);
+  background: color-mix(in srgb, var(--neg) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--neg) 30%, transparent);
+}
+.pick-exit-opt-tp {
+  color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--pos) 30%, transparent);
+}
+.pick-exit-opt-pct { opacity: .8; }
 .pick-exit-level-prose {
   font: 400 12.5px/1.4 var(--font-sans);
   color: var(--text);
