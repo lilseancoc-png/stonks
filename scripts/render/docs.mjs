@@ -1074,6 +1074,7 @@ export const DOC_PAGES = {
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Day trades</b> — live volume-driven swing/scalp trades, tracked to TP/SL with a P/L history</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
+            <li><b>Index calendar</b> — SPY/QQQ/IWM daily closes, green/red by % move, month by month</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1156,7 +1157,7 @@ export const DOC_PAGES = {
 
     <section id="premium">
       <h2><span class="snum">03</span>What premium unlocks</h2>
-      <p class="sectlede">The members-only layer — the freshest, highest-signal reads we'd put real money behind. These eight tabs (and the data that backs them) are gated behind a valid membership; everything above stays free.</p>
+      <p class="sectlede">The members-only layer — the freshest, highest-signal reads we'd put real money behind. These nine tabs (and the data that backs them) are gated behind a valid membership; everything above stays free.</p>
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
@@ -1190,6 +1191,10 @@ export const DOC_PAGES = {
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, the scorecard, and the roster's in/out churn over time.</p>
         </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Index calendar</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A month-grid record of how SPY, QQQ and IWM closed each trading day — green for up, red for down, with the close-to-close % in every cell. Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
+        </div>
       </div>
     </section>
 
@@ -1199,7 +1204,7 @@ export const DOC_PAGES = {
       <ol class="steps">
         <li><b><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join the Discord</a> and get the member role.</b> Premium access rides on a role in our server. Members get it automatically; ask in the server if you don't see it yet.</li>
         <li><b>Log in with Discord.</b> Hit <a href="/api/auth/discord-login">Log in</a> (or the "Log in" button in the site header). We check your server membership and role — nothing else.</li>
-        <li><b>The premium tabs unlock.</b> Once you hold the role, the eight members-only tabs and their data open up. A non-member just sees a polite upsell where those tabs would be — the rest of the site never locks.</li>
+        <li><b>The premium tabs unlock.</b> Once you hold the role, the nine members-only tabs and their data open up. A non-member just sees a polite upsell where those tabs would be — the rest of the site never locks.</li>
       </ol>
       <div class="callout">
         <b>Privacy &amp; sessions:</b> we only read your Discord user ID, username, and the roles relevant to access. Login mints a short-lived, secure session cookie — sign out anytime. See the <a href="/privacy.html">Privacy Policy</a> for the full detail.

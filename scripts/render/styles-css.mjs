@@ -6189,6 +6189,45 @@ button.cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .cal-cell.is-today .cal-cell-num { color: var(--accent-strong); }
 .cal-cell.is-selected { background: var(--accent-tint-2); border-color: var(--accent); }
 .cal-cell-events { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Index calendar — monthly SPY/QQQ/IWM daily-return grid (premium tab). Reuses
+   the Calendar tab's .cal-monthbar / .cal-nav-btn / .cal-today-btn / .cal-grid-wd. */
+.idx-cal-root { display: flex; flex-direction: column; gap: var(--s-3); }
+.idx-cal-toggle { display: inline-flex; gap: 4px; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-pill); align-self: flex-start; }
+.idx-cal-tab { appearance: none; border: 0; background: transparent; color: var(--muted-strong); font: 600 12px/1 var(--font-mono); letter-spacing: .04em; padding: 6px 14px; border-radius: var(--r-pill); cursor: pointer; transition: color .12s, background .12s; }
+.idx-cal-tab:hover { color: var(--text); }
+.idx-cal-tab.is-on { background: var(--accent-tint-2); color: var(--accent-strong); }
+.idx-cal-monthbar { margin-top: 2px; }
+.idx-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.idx-cal-cell { border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); min-height: 68px; padding: 6px 7px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; overflow: hidden; }
+.idx-cal-cell.is-out { background: transparent; border-color: transparent; min-height: 0; }
+.idx-cal-cell.is-out .idx-cal-num { color: color-mix(in srgb, var(--muted) 55%, transparent); }
+.idx-cal-cell.is-skel { min-height: 68px; align-items: center; justify-content: center; }
+.idx-cal-num { font: 600 12px/1 var(--font-mono); color: var(--muted-strong); }
+.idx-cal-pct { font: 700 13px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.idx-cal-pct-na { color: var(--muted); font-weight: 500; }
+.idx-cal-cell.idx-up { border-color: color-mix(in srgb, var(--pos) 45%, var(--border)); background: var(--pos-tint); }
+.idx-cal-cell.idx-up .idx-cal-pct { color: var(--pos); }
+.idx-cal-cell.idx-dn { border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); background: var(--neg-tint); }
+.idx-cal-cell.idx-dn .idx-cal-pct { color: var(--neg); }
+.idx-cal-cell.idx-flat .idx-cal-pct { color: var(--muted-strong); }
+.idx-cal-cell.is-today { box-shadow: inset 0 0 0 2px var(--accent); border-color: var(--accent); }
+.idx-cal-cell.is-today .idx-cal-num { color: var(--accent-strong); }
+.idx-cal-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); font: 500 13px/1.2 var(--font-sans); color: var(--muted-strong); }
+.idx-cal-sum-month { font: 700 14px/1 var(--font-serif); color: var(--text-strong); }
+.idx-cal-sum-stat { display: inline-flex; align-items: baseline; gap: 5px; }
+.idx-cal-sum-stat b { font-variant-numeric: tabular-nums; }
+.idx-cal-sum-ret { margin-left: auto; }
+.idx-cal-sum-label { font: 500 11px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.idx-cal-empty { padding: 24px; text-align: center; color: var(--muted); }
+.idx-up { color: var(--pos); }
+.idx-dn { color: var(--neg); }
+@media (max-width: 640px) {
+  .idx-cal-grid { gap: 3px; }
+  .idx-cal-cell { min-height: 52px; padding: 4px 5px; }
+  .idx-cal-pct { font-size: 11px; }
+  .idx-cal-summary { font-size: 12px; }
+  .idx-cal-sum-ret { margin-left: 0; }
+}
 .cal-mini {
   display: flex;
   align-items: center;

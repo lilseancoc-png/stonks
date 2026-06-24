@@ -8174,6 +8174,13 @@ const GRADES_DAILY_FILE = "grades-daily.json";
 const GRADES_DAILY_MAX_DAYS = 180;
 const REGIME_HISTORY_FILE = "regime-history.json";
 const REGIME_HISTORY_MAX_DAYS = 180;
+// Daily index-close calendar (SPY/QQQ/IWM red/green + close-to-close %change per
+// ET session) — the top-level "Index calendar" tab. One row per trading day,
+// backfilled ~1yr from the already-fetched bars on the first run then upserted
+// each bake. ~800 rows ≈ 3 trading years of retained history.
+const INDEX_CALENDAR_FILE = "index-calendar.json";
+const INDEX_CALENDAR_MAX_DAYS = 800;
+const INDEX_CALENDAR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm" };
 const PICKS_CHANGES_FILE = "picks-changes.json";
 const PICKS_CHANGES_KEEP_DAYS = 30;
 const PICKS_CHANGES_MAX = 200;
@@ -10665,6 +10672,64 @@ export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
 export async function writeRegimeHistory(payload) {
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), json, "utf8");
+  return { days: (payload.days || []).length, bytes: json.length };
+}
+
+// ── Daily index-close calendar (SPY/QQQ/IWM red/green + %change) ─────────────
+// Accumulates one row per ET trading day: { date, spy:{c,chPct}, qqq:{…}, iwm:{…} }.
+// Read-before-wipe like the other histories (the file lives in data/, wiped by
+// writeChainFiles). %change is close-to-close — the same math as priceMove1dPct.
+export async function readIndexCalendar() {
+  try { const raw = await readFile(resolve(DATA_DIR, INDEX_CALENDAR_FILE), "utf8"); const p = JSON.parse(raw); return { days: Array.isArray(p.days) ? p.days : [] }; } catch { return { days: [] }; }
+}
+// Normalize either the in-memory _bars (row objects {t,c,…}) or the persisted
+// priceSeries (parallel column arrays {t:[],c:[]}) into {t,c} rows. _bars survive
+// writeChainFiles (it destructures, never deletes), so the bake has full history.
+function indexCalendarBars(chain) {
+  if (!chain) return [];
+  if (Array.isArray(chain._bars) && chain._bars.length) return chain._bars;
+  const ps = chain.priceSeries;
+  if (ps && Array.isArray(ps.t) && Array.isArray(ps.c)) return ps.t.map((t, i) => ({ t, c: ps.c[i] }));
+  return [];
+}
+export function appendIndexCalendar(prev, chains, builtAtIso) {
+  const byDate = new Map();
+  for (const d of (prev?.days || [])) if (d && d.date) byDate.set(d.date, { ...d });
+  for (const [sym, key] of Object.entries(INDEX_CALENDAR_SYMBOLS)) {
+    const bars = indexCalendarBars(chains?.[sym]);
+    for (let i = 0; i < bars.length; i++) {
+      const date = bars[i] && bars[i].t;
+      // Guard the raw value before coercion — Number(null) is 0 (a fabricated
+      // -100% day), so map a null/absent close to NaN and let the finite check
+      // drop it. (priceSeries stores null for a non-finite close.)
+      const rawClose = bars[i] && bars[i].c;
+      const close = rawClose == null ? NaN : Number(rawClose);
+      if (!date || !Number.isFinite(close)) continue;
+      const rawPrev = bars[i - 1] && bars[i - 1].c;
+      const prevClose = rawPrev == null ? NaN : Number(rawPrev);
+      const chPct = (i > 0 && Number.isFinite(prevClose) && prevClose > 0)
+        ? Math.round(((close - prevClose) / prevClose) * 1e4) / 100
+        : null;
+      const row = byDate.get(date) || { date };
+      // Always refresh the close (it can change on a split / data revision), but
+      // don't downgrade a previously-computed %change to null when this fetch
+      // window's oldest bar lost its predecessor (the prior session rolled out of
+      // the ~252-bar fetch) — carry the better (non-null) reading forward so
+      // historical green/red doesn't blank on old months.
+      const existing = row[key];
+      const keepPct = (chPct == null && existing && existing.chPct != null) ? existing.chPct : chPct;
+      row[key] = { c: Math.round(close * 100) / 100, chPct: keepPct };
+      byDate.set(date, row);
+    }
+  }
+  const days = Array.from(byDate.values())
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .slice(-INDEX_CALENDAR_MAX_DAYS);
+  return { days, updatedAt: builtAtIso };
+}
+export async function writeIndexCalendar(payload) {
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, INDEX_CALENDAR_FILE), json, "utf8");
   return { days: (payload.days || []).length, bytes: json.length };
 }
 
@@ -16313,6 +16378,11 @@ async function main() {
   // the Top Picks "risk-on / risk-off history" calendar accumulates across builds,
   // so it must be pre-read before the wipe or the timeline resets every build.
   const regimeHistoryPrev = await readRegimeHistory();
+  // Same rule for the daily index-close calendar (data/index-calendar.json) — the
+  // SPY/QQQ/IWM red/green + %change history accumulates across builds, so pre-read
+  // it before the wipe or the calendar resets every build. (The bars it reads from
+  // chains[]._bars survive the wipe, so the append + write happen after it below.)
+  const indexCalendarPrev = await readIndexCalendar();
   // Same rule for the picks churn log (data/picks-changes.json) — read it now so
   // this build's entered/exited events append to the rolling log instead of
   // resetting it after the wipe.
@@ -16784,6 +16854,17 @@ async function main() {
     console.log(`wrote data/${REGIME_HISTORY_FILE} — ${rh.days} day snapshot(s), ${rh.bytes} bytes`);
   } catch (err) {
     console.warn(`[regime] history skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Daily index-close calendar (the top-level "Index calendar" tab): upsert today's
+  // SPY/QQQ/IWM row and, on the first run, backfill ~1yr of history from the bars
+  // already in memory (chains[]._bars survive writeChainFiles, so this runs after
+  // the wipe). Pre-read above (indexCalendarPrev) before the wipe, same as the
+  // grade/regime histories; carries forward unchanged when bars are missing.
+  try {
+    const ic = await writeIndexCalendar(appendIndexCalendar(indexCalendarPrev, chains, builtAtIso));
+    console.log(`wrote data/${INDEX_CALENDAR_FILE} — ${ic.days} session row(s), ${ic.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[index-cal] calendar skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Grade-change log: diff the fresh index against the pre-wipe snapshot.
   try {

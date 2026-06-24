@@ -284,6 +284,21 @@ function calendarSection() {
   </section>`;
 }
 
+function indexCalSection() {
+  // Card chrome only — the monthly index-close grid (SPY/QQQ/IWM red/green +
+  // %change), the index toggle, the month nav, and the per-month summary render
+  // client-side from data/index-calendar.json (premium; lazy-fetched on first
+  // tab activation by loadIndexCal() in app.js).
+  return `<section class="card" id="index-cal-section">
+    <header class="card-header">
+      <h2 class="card-title">Index calendar</h2>
+      <span class="card-eyebrow" id="index-cal-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to read the index calendar', `<p>A month-at-a-time record of how the three major index ETFs &mdash; <b>SPY</b> (S&amp;P&nbsp;500), <b>QQQ</b> (Nasdaq&nbsp;100) and <b>IWM</b> (Russell&nbsp;2000) &mdash; closed each trading day: <b class="idx-up">green</b> for an up day, <b class="idx-dn">red</b> for a down day, with the close-to-close <b>%&nbsp;change</b> in every cell. Toggle between the three indexes, step months with <b>&lsaquo;</b>&nbsp;/&nbsp;<b>&rsaquo;</b> (or <b>Today</b> to jump back), and read the per-month tally &mdash; green vs red days and the month&rsquo;s compounded return &mdash; beneath the grid. Today&rsquo;s cell updates through the session and finalizes at the 4&nbsp;pm&nbsp;ET close; history accumulates from each build. Not financial advice.</p>`)}
+    <div id="index-cal-root" class="idx-cal-root">Loading index calendar&hellip;</div>
+  </section>`;
+}
+
 function briefSection() {
   // Card chrome only — the morning + closing brief cards render client-side
   // from data/briefs.json (fetched lazily on first tab activation by
@@ -1122,6 +1137,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="hot" aria-selected="false" aria-controls="page-pane-hot" id="page-tab-hot">Day trades</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal">Index calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track">Track record</button>
   <div class="page-tab-group" data-group="flow">
     <button type="button" class="page-tab page-tab-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="page-tab-menu-flow" id="page-tab-trigger-flow">
@@ -1400,6 +1416,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
   ${calendarSection()}
+  </div>
+  <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
+  ${indexCalSection()}
   </div>
   <div class="page-pane" id="page-pane-overnight" role="tabpanel" aria-labelledby="page-tab-overnight" hidden>
   ${overnightSection()}

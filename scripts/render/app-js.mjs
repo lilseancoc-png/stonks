@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, hot:1, track:1 };
+  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, hot:1, track:1, 'index-cal':1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   var AUTH_ME = null;
@@ -78,7 +78,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record' })[id] || 'This feature';
+    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record', 'index-cal':'Index Calendar' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -3094,7 +3094,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3315,6 +3315,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (!premiumLocked){
         if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
+        if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
@@ -15535,6 +15536,185 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   }
 
+  // --- Index calendar tab -------------------------------------------------
+  // A monthly wall-calendar of daily index closes: each cell is tinted green/red
+  // by SPY/QQQ/IWM's close-to-close %change for that session. An index toggle
+  // switches which ETF colors the grid; a per-month summary tallies green vs red
+  // days and the month's compounded return. Renders the premium, bake-accumulated
+  // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm }] }),
+  // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
+  var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', fetchedAt: 0, bound: false };
+  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM' };
+  function loadIndexCal(){
+    bindIndexCalControls();
+    if ((indexCalState.data && !tabDataStale(indexCalState)) || indexCalState.loading){ renderIndexCal(); return; }
+    indexCalState.loading = true;
+    renderIndexCal();
+    fetch('data/index-calendar.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        indexCalState.data = (json && Array.isArray(json.days)) ? json : { days: [] };
+        indexCalState.loading = false;
+        indexCalState.error = false;
+        indexCalState.fetchedAt = Date.now();
+        renderIndexCal();
+      })
+      .catch(function(){
+        indexCalState.error = true;
+        indexCalState.loading = false;
+        renderIndexCal();
+      });
+  }
+  function idxCalPctCls(v){ return (v > 0) ? 'idx-up' : (v < 0 ? 'idx-dn' : 'idx-flat'); }
+  function idxCalFmtPct(v){ if (v == null || isNaN(v)) return ''; return (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
+  function idxCalFmtClose(v){ if (v == null || isNaN(v)) return ''; return Number(v).toFixed(2); }
+  function renderIndexCal(){
+    var root = $('index-cal-root');
+    if (!root) return;
+    var eyebrow = $('index-cal-eyebrow');
+    var data = indexCalState.data || { days: [] };
+    var days = Array.isArray(data.days) ? data.days : [];
+    // Loading skeleton only when there's nothing on screen yet.
+    if (indexCalState.loading && !days.length){
+      var skel = '';
+      for (var sk = 0; sk < 42; sk++) skel += '<div class="idx-cal-cell is-skel"><span class="skel skel-line sm" style="width:20px"></span></div>';
+      root.innerHTML =
+        '<div class="cal-monthbar"><span class="skel skel-line" style="width:160px;height:20px"></span></div>' +
+        '<div class="idx-cal-grid">' +
+          ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(w){ return '<span class="cal-grid-wd">' + w + '</span>'; }).join('') +
+          skel +
+        '</div>';
+      return;
+    }
+    if (indexCalState.error && !days.length){
+      root.innerHTML = '<div class="idx-cal-empty">Couldn’t load the index calendar — refresh the page to try again.</div>';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    var idxKey = indexCalState.index || 'spy';
+    var byDate = {};
+    var allYm = [];
+    for (var i = 0; i < days.length; i++){
+      var dd = days[i];
+      if (dd && dd.date){ byDate[dd.date] = dd; allYm.push(String(dd.date).slice(0, 7)); }
+    }
+    var todayYm = calTodayYm();
+    var todayYmd = calEtTodayYmd();
+    var minYm = allYm.length ? allYm.reduce(function(a, b){ return a < b ? a : b; }) : todayYm;
+    var maxYm = allYm.length ? allYm.reduce(function(a, b){ return a > b ? a : b; }) : todayYm;
+    if (maxYm < todayYm) maxYm = todayYm;     // current month is always navigable
+    var viewYm = indexCalState.viewYm;
+    if (!viewYm || viewYm < minYm || viewYm > maxYm) viewYm = maxYm;
+    indexCalState.viewYm = viewYm;
+
+    // Index toggle (SPY / QQQ / IWM).
+    var toggle = '<div class="idx-cal-toggle" role="tablist" aria-label="Index">' +
+      ['spy','qqq','iwm'].map(function(k){
+        var on = k === idxKey;
+        return '<button type="button" class="idx-cal-tab' + (on ? ' is-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-idx-cal="' + k + '">' + IDX_CAL_LABELS[k] + '</button>';
+      }).join('') +
+    '</div>';
+
+    // Month nav bar (reuses the Calendar tab's button + label styles).
+    var monthbar = '<div class="cal-monthbar idx-cal-monthbar">' +
+        '<button type="button" class="cal-nav-btn" data-idx-nav="prev"' + (viewYm <= minYm ? ' disabled' : '') + ' aria-label="Previous month">‹</button>' +
+        '<span class="cal-monthbar-label">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
+        '<button type="button" class="cal-nav-btn" data-idx-nav="next"' + (viewYm >= maxYm ? ' disabled' : '') + ' aria-label="Next month">›</button>' +
+        (viewYm !== todayYm ? '<button type="button" class="cal-today-btn" data-idx-nav="today">Today</button>' : '') +
+      '</div>';
+
+    // 7-column wall-calendar grid for the viewed month.
+    function idxCalCell(date, dayNum){
+      var day = byDate[date];
+      var leg = day ? day[idxKey] : null;
+      var ch = (leg && leg.chPct != null && !isNaN(leg.chPct)) ? Number(leg.chPct) : null;
+      var has = ch != null;
+      var isToday = date === todayYmd;
+      var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (has ? ' ' + idxCalPctCls(ch) : ' is-empty');
+      var title = IDX_CAL_LABELS[idxKey] + ' · ' + date +
+        (has ? ' · ' + idxCalFmtPct(ch) : '') +
+        (leg && leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
+      return '<div class="' + cls + '" title="' + escapeHtml(title) + '">' +
+          '<span class="idx-cal-num">' + dayNum + '</span>' +
+          (has ? '<span class="idx-cal-pct">' + idxCalFmtPct(ch) + '</span>' : '<span class="idx-cal-pct idx-cal-pct-na">·</span>') +
+        '</div>';
+    }
+    var WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var ymp = viewYm.split('-'); var vy = Number(ymp[0]); var vmi = Number(ymp[1]) - 1;
+    var firstWd = new Date(Date.UTC(vy, vmi, 1)).getUTCDay();
+    var daysInMonth = new Date(Date.UTC(vy, vmi + 1, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vy, vmi, 0)).getUTCDate();
+    var cells = [];
+    for (var lead = 0; lead < firstWd; lead++){
+      cells.push('<div class="idx-cal-cell is-out" aria-hidden="true"><span class="idx-cal-num">' + (prevDays - firstWd + 1 + lead) + '</span></div>');
+    }
+    for (var dnum = 1; dnum <= daysInMonth; dnum++){
+      cells.push(idxCalCell(viewYm + '-' + String(dnum).padStart(2, '0'), dnum));
+    }
+    var trail = 1;
+    while (cells.length % 7 !== 0){
+      cells.push('<div class="idx-cal-cell is-out" aria-hidden="true"><span class="idx-cal-num">' + (trail++) + '</span></div>');
+    }
+    var grid = '<div class="idx-cal-grid" role="grid" aria-label="' + escapeHtml(fmtCalendarMonth(viewYm)) + ' ' + IDX_CAL_LABELS[idxKey] + ' calendar">' +
+        WD.map(function(w){ return '<span class="cal-grid-wd" role="columnheader">' + w + '</span>'; }).join('') +
+        cells.join('') +
+      '</div>';
+
+    // Per-month summary: green / red / flat day counts + the month's compounded
+    // close-to-close return for the selected index.
+    var green = 0, red = 0, flat = 0, have = 0, comp = 1;
+    for (var di = 1; di <= daysInMonth; di++){
+      var leg2 = (byDate[viewYm + '-' + String(di).padStart(2, '0')] || {})[idxKey];
+      if (leg2 && leg2.chPct != null && !isNaN(leg2.chPct)){
+        var c2 = Number(leg2.chPct);
+        have++;
+        if (c2 > 0) green++; else if (c2 < 0) red++; else flat++;
+        comp *= (1 + c2 / 100);
+      }
+    }
+    var monthRet = have ? (comp - 1) * 100 : null;
+    var summary = '<div class="idx-cal-summary">' +
+        '<span class="idx-cal-sum-month">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
+        '<span class="idx-cal-sum-stat"><b class="idx-up">' + green + '</b> green</span>' +
+        '<span class="idx-cal-sum-stat"><b class="idx-dn">' + red + '</b> red</span>' +
+        (flat ? '<span class="idx-cal-sum-stat"><b>' + flat + '</b> flat</span>' : '') +
+        (monthRet != null
+          ? '<span class="idx-cal-sum-stat idx-cal-sum-ret"><span class="idx-cal-sum-label">' + IDX_CAL_LABELS[idxKey] + ' month</span> <b class="' + idxCalPctCls(monthRet) + '">' + idxCalFmtPct(monthRet) + '</b></span>'
+          : '') +
+      '</div>';
+
+    if (eyebrow){
+      var n = days.length;
+      var first = n ? days[0].date : null;
+      eyebrow.textContent = n
+        ? (n + ' session' + (n === 1 ? '' : 's') + (first ? ' since ' + fmtCalendarDateShort(first) : ''))
+        : 'No sessions tracked yet';
+    }
+    root.innerHTML = toggle + monthbar + grid + summary;
+  }
+  function bindIndexCalControls(){
+    if (indexCalState.bound) return;
+    var root = document.getElementById('index-cal-root');
+    if (!root) return;
+    indexCalState.bound = true;
+    // Delegate on the stable root so handlers survive every re-render
+    // (renderIndexCal replaces root.innerHTML): index toggle + month nav.
+    root.addEventListener('click', function(ev){
+      if (!ev.target.closest) return;
+      var tabBtn = ev.target.closest('[data-idx-cal]');
+      if (tabBtn){ indexCalState.index = tabBtn.getAttribute('data-idx-cal') || 'spy'; renderIndexCal(); return; }
+      var navBtn = ev.target.closest('[data-idx-nav]');
+      if (navBtn){
+        if (navBtn.disabled) return;
+        var dir = navBtn.getAttribute('data-idx-nav');
+        if (dir === 'today') indexCalState.viewYm = calTodayYm();
+        else indexCalState.viewYm = calAddMonthsYm(indexCalState.viewYm || calTodayYm(), dir === 'next' ? 1 : -1);
+        renderIndexCal();
+        return;
+      }
+    });
+  }
+
   // --- 13F filings tab ----------------------------------------------------
   // Lazy-fetched on first activation. Data file is a curated quarterly
   // summary — see data/13f.json for the schema. Re-rendering is cheap
@@ -20576,6 +20756,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ['picks', 'Top picks'],
       ['heatmap', 'Heatmap'],
       ['calendar', 'Calendar'],
+      ['index-cal', 'Index calendar'],
       ['overnight', 'Overnight markets'],
       ['flow', 'Unusual flow'],
       ['volume', 'Volume'],
