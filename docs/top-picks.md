@@ -276,7 +276,13 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 ## 8. Exits (`buildExitPlan` / `resolvePickOutcome`)
 
 - **Option-space (primary):** +20% take-profit / −30% stop on premium — flat and
-  asymmetric. The instant the modeled mark hits a gate, the pick resolves.
+  asymmetric. The instant the modeled mark hits a gate, the pick resolves. The
+  plan also surfaces the **concrete contract price** for each gate off the entry
+  mid (`optionStop`/`optionTp` + per-level `optionPrice`/`optionPct`/`entryPrem`):
+  e.g. a $5.00 long → stop at **$3.50**, take-profit at **$6.00**. Credit
+  verticals express these as the **buy-back** price (stop ≈ 2× the credit, target
+  ≈ half the credit). Rendered as `opt stop $X.XX` / `opt target $X.XX` chips on
+  the exit-ladder cut/TP levels.
 - **Underlying:** take-profit at the nearest structural level; stop at the deeper
   of structural support and a ~2.5×ATR floor (clamped 5–12%) so routine noise
   doesn't shake out a good entry.
