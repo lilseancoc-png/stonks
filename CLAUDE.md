@@ -149,6 +149,18 @@ node scripts/ab-signals-merge.mjs /tmp/grades-off.json /tmp/grades-on.json
 # the chase caps need tightening, and on which slice.
 node scripts/diagnose-day-trade-losses.mjs
 
+# Reset the Top Picks + Day Trades track record in the PRIVATE store after a
+# strategy change (so the win-rate / closed-P&L don't blend old + new strategy).
+# MUTATES the store — requires the same R2_*/BLOB creds as sync-data.mjs. DRY-RUN
+# by default; --apply to execute. Always wipes the two track records
+# (picks-accuracy.json + day-trades-history.json); --picks-logs adds the picks
+# in/out churn + roster, --grade-logs adds the grade-change log + IC substrate,
+# --all adds both. --empty (default) overwrites each key with a valid empty
+# payload (UI shows "no history yet"); --delete removes the key (next bake/scan
+# recreates it). Every key was verified safe — all readers self-heal on a miss.
+node --env-file=r2.env scripts/wipe-history.mjs --all          # dry run
+node --env-file=r2.env scripts/wipe-history.mjs --all --apply  # execute
+
 # Local serving
 python3 -m http.server 8000   # static only — /api/* endpoints will 404
 npx vercel dev                # full stack including api/quote, api/chain, etc.
