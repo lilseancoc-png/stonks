@@ -18568,6 +18568,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
         var actionBadge = (role !== 'spot' && lv.action)
           ? '<span class="pick-exit-action">' + escapeHtml(String(lv.action)) + '</span>' : '';
+        // Concrete option (contract) price for the take-profit / stop — the
+        // "set your stop at $X.XX on the option" number, alongside the
+        // underlying stock level. Credit spreads buy the spread back.
+        var optBadge = '';
+        if ((role === 'cut' || role === 'tp') && lv.optionPrice != null && isFinite(lv.optionPrice)) {
+          var optCls = role === 'cut' ? 'pick-exit-opt-stop' : 'pick-exit-opt-tp';
+          var optLbl = role === 'cut' ? 'stop' : 'target';
+          var optPct = (lv.optionPct != null && isFinite(lv.optionPct))
+            ? ' <span class="pick-exit-opt-pct">' + (role === 'cut' ? '−' : '+') + Number(lv.optionPct) + '%</span>' : '';
+          optBadge = '<span class="pick-exit-opt ' + optCls + '" title="Contract price to set the ' + optLbl + ' at (entry ~$' + (lv.entryPrem != null ? Number(lv.entryPrem).toFixed(2) : '?') + ')">' +
+            'opt ' + optLbl + ' $' + Number(lv.optionPrice).toFixed(2) + optPct + '</span>';
+        }
         var rsnRows = '';
         var rs = lv.reasons || {};
         for (var ri=0; ri<pkeys.length; ri++){
@@ -18584,7 +18596,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var rungHtml = '<li class="pick-exit-level pick-exit-level-' + escapeHtml(role) + '">' +
           '<div class="pick-exit-level-main">' +
             '<span class="pick-exit-level-price">$' + Number(lv.price).toFixed(2) + '</span>' +
-            mv + actionBadge +
+            mv + actionBadge + optBadge +
           '</div>' +
           (secondary ? '<div class="' + secondaryCls + '">' + escapeHtml(secondary) + '</div>' : '') +
           rsnBlock +
@@ -18630,6 +18642,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var mv = (t.movePct != null && isFinite(t.movePct))
         ? '<span class="pick-exit-move">' + (t.movePct >= 0 ? '+' : '') + Number(t.movePct).toFixed(1) + '%</span>'
         : '';
+      var optTxt = (t.optionPrice != null && isFinite(t.optionPrice))
+        ? '<div class="pick-exit-reason">Option ' + (cls === 'cut' ? 'stop' : 'target') + ': $' + Number(t.optionPrice).toFixed(2) +
+            (t.optionPct != null ? ' (' + (cls === 'cut' ? '−' : '+') + Number(t.optionPct) + '%)' : '') + '</div>'
+        : '';
       return '<div class="pick-exit-target pick-exit-' + cls + '">' +
         '<div class="pick-exit-target-head">' +
           '<span class="pick-exit-kind">' + escapeHtml(kind) + '</span>' +
@@ -18637,6 +18653,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           mv +
         '</div>' +
         '<div class="pick-exit-reason">' + escapeHtml(t.reason || '') + '</div>' +
+        optTxt +
       '</div>';
     }
     var targets = target('Take profit', x.takeProfit, 'tp') + target('Cut / reduce', x.cut, 'cut');

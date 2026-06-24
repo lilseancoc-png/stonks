@@ -136,6 +136,11 @@ ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "K
 ok("picks: each pick has contract + sizing", picks.length === 0 || picks.every((p) => p.contract && p.sizing && p.sizing.weight != null));
 ok("picks: each pick has pillars + recommendation + thesis", picks.every((p) => p.pillars && p.recommendation && p.analysis));
 ok("picks: exitPlan TP/cut present", picks.every((p) => p.exitPlan && p.exitPlan.takeProfit && p.exitPlan.cut));
+// every pick exposes a concrete CONTRACT stop-loss price (and take-profit price)
+// off the entry mid, plus the structured optionStop/optionTp summary
+ok("picks: exitPlan cut carries an option (contract) stop price", picks.every((p) => p.exitPlan.cut.optionPrice != null && isFinite(p.exitPlan.cut.optionPrice) && p.exitPlan.cut.optionPrice > 0));
+ok("picks: exitPlan TP carries an option (contract) target price", picks.every((p) => p.exitPlan.takeProfit.optionPrice != null && isFinite(p.exitPlan.takeProfit.optionPrice) && p.exitPlan.takeProfit.optionPrice > 0));
+ok("picks: exitPlan optionStop summary present", picks.every((p) => p.exitPlan.optionStop && p.exitPlan.optionStop.price > 0 && p.exitPlan.optionStop.pct > 0));
 // entry guidance: every pick has a buy-now / wait-for-price signal
 ok("picks: every pick has an entry signal w/ headline", picks.every((p) => p.entry && typeof p.entry.now === "boolean" && p.entry.headline));
 ok("picks: a clean-timing (go) pick reads buy-now", picks.filter((p) => p.entryTiming.state === "go").every((p) => p.entry.now === true && p.entry.signal === "buy-now"));

@@ -9833,20 +9833,33 @@ function buildCreditExitPlan(side, spot, data, contract) {
   const be = pnum(contract?.breakeven);
   const tpPctN = Math.round(PICKS_CREDIT_TP_PCT * 100);
   const stopPctN = Math.round(PICKS_CREDIT_STOP_PCT * 100);
-  const cut = { price: r2(shortK), movePct: (spot > 0 && shortK != null) ? r2((shortK / spot - 1) * 100) : null, reason: "short strike breach" };
-  const takeProfit = { price: r2(be), movePct: (spot > 0 && be != null) ? r2((be / spot - 1) * 100) : null, reason: "stays beyond breakeven (theta decay)" };
+  // For a credit spread we SOLD the spread for ~credit; the stop is when buying it
+  // back costs (1 + stopPct)× the credit (the spread's market value has risen),
+  // take-profit when buy-back drops to (1 − tpPct)× the credit. These are the
+  // concrete spread (buy-back) prices to set the stop / target at.
+  const credit = pnum(contract?.mid); // net credit received (positive)
+  const optStopPrice = credit != null ? r2(credit * (1 + PICKS_CREDIT_STOP_PCT)) : null;
+  const optTpPrice = credit != null ? r2(credit * (1 - PICKS_CREDIT_TP_PCT)) : null;
+  const cut = { price: r2(shortK), movePct: (spot > 0 && shortK != null) ? r2((shortK / spot - 1) * 100) : null, reason: "short strike breach", optionPrice: optStopPrice, optionPct: stopPctN, entryPrem: credit != null ? r2(credit) : null };
+  const takeProfit = { price: r2(be), movePct: (spot > 0 && be != null) ? r2((be / spot - 1) * 100) : null, reason: "stays beyond breakeven (theta decay)", optionPrice: optTpPrice, optionPct: tpPctN, entryPrem: credit != null ? r2(credit) : null };
   const holdSide = isCall ? "above" : "below";
+  const stopOptTxt = optStopPrice != null ? `a buy-back cost of $${optStopPrice} (≈${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}× the $${r2(credit)} credit, −${stopPctN}%)` : `a buy-back cost ~2x the credit received`;
+  const tpOptTxt = optTpPrice != null ? `buying the spread back near $${optTpPrice} (+${tpPctN}% of the $${r2(credit)} credit captured)` : `buying the spread back near +${tpPctN}% of the credit captured`;
   const levels = [
-    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: `buy back ~+${tpPctN}% of credit`, reasons: {}, watchFor: null, prose: `Bank it by buying the spread back near +${tpPctN}% of the credit captured, or let it decay while price holds ${holdSide} ~$${takeProfit.price}.` },
-    { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: `Cut if it breaches the short strike $${cut.price} (or the buy-back cost runs to ~2x the credit received).` },
+    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: `buy back ~+${tpPctN}% of credit`, reasons: {}, watchFor: null, prose: `Bank it by ${tpOptTxt}, or let it decay while price holds ${holdSide} ~$${takeProfit.price}.` },
+    { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: `Cut if it breaches the short strike $${cut.price}, or set a hard stop at ${stopOptTxt}.` },
   ];
+  const stopLine = optStopPrice != null
+    ? `Stop loss: buy the spread back at $${optStopPrice} (−${stopPctN}%, ≈${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}× the $${r2(credit)} credit); take profit buying back at $${optTpPrice} (+${tpPctN}%).`
+    : null;
   const triggers = [
     `Credit exit: bank +${tpPctN}% of the credit / cut at -${stopPctN}% (buy-back ~2x the credit).`,
+    stopLine,
     contract && contract.maxLoss != null ? `Defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)} per spread (width − credit), max profit ~$${(contract.maxProfit * 100).toFixed(0)} (the credit).` : null,
     `Time stop: close after ${PICKS_MAX_HOLD_DAYS} sessions if it hasn't decayed.`,
   ].filter(Boolean);
   if (contract?.earningsInWindow) triggers.push("Earnings before expiry — a gap can blow through the short strike; consider closing before the print.");
-  return { takeProfit, cut, levels, triggers, structure: "credit_vertical" };
+  return { takeProfit, cut, levels, triggers, structure: "credit_vertical", optionStop: optStopPrice != null ? { price: optStopPrice, pct: stopPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: tpPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null };
 }
 
 export function buildExitPlan(side, spot, data, contract) {
@@ -9864,21 +9877,35 @@ export function buildExitPlan(side, spot, data, contract) {
   let tpPct = Math.max(cutPct * 1.5, (contract?.expectedMovePct || 8) / 100 * 0.6);
   if (tpStruct != null && spot > 0) { const tp = Math.abs(tpStruct / spot - 1); if (tp > 0.02) tpPct = tp; }
   const tpPrice = isCall ? spot * (1 + tpPct) : spot * (1 - tpPct);
-  const takeProfit = { price: r2(tpPrice), movePct: r2((isCall ? 1 : -1) * tpPct * 100), reason: tpStruct != null ? "nearest resistance/support" : "expected-move target" };
-  const cut = { price: r2(cutPrice), movePct: r2((isCall ? -1 : 1) * cutPct * 100), reason: atrPct != null ? `~${PICKS_ATR_STOP_MULT}x ATR stop` : "fixed stop" };
+  // Translate the % premium take-profit / stop into an actual CONTRACT price off
+  // the entry mid (debit verticals use the net debit, both carried in contract.mid).
+  // This is the concrete "set your stop at $X.XX on the option" number.
+  const entryPrem = pnum(contract?.mid);
+  const optStopPrice = entryPrem != null ? r2(entryPrem * (1 - PICKS_OPT_STOP_PCT)) : null;
+  const optTpPrice = entryPrem != null ? r2(entryPrem * (1 + PICKS_OPT_TP_PCT)) : null;
+  const isDebitStruct = contract && contract.structure === "debit_vertical";
+  const premNoun = isDebitStruct ? "net debit" : "premium";
+  const takeProfit = { price: r2(tpPrice), movePct: r2((isCall ? 1 : -1) * tpPct * 100), reason: tpStruct != null ? "nearest resistance/support" : "expected-move target", optionPrice: optTpPrice, optionPct: Math.round(PICKS_OPT_TP_PCT * 100), entryPrem: entryPrem != null ? r2(entryPrem) : null };
+  const cut = { price: r2(cutPrice), movePct: r2((isCall ? -1 : 1) * cutPct * 100), reason: atrPct != null ? `~${PICKS_ATR_STOP_MULT}x ATR stop` : "fixed stop", optionPrice: optStopPrice, optionPct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: entryPrem != null ? r2(entryPrem) : null };
+  const tpOptTxt = optTpPrice != null ? `$${optTpPrice} on the option (+${Math.round(PICKS_OPT_TP_PCT * 100)}%)` : `+${Math.round(PICKS_OPT_TP_PCT * 100)}% on the option`;
+  const stopOptTxt = optStopPrice != null ? `$${optStopPrice} on the option (−${Math.round(PICKS_OPT_STOP_PCT * 100)}% of the ${premNoun})` : `−${Math.round(PICKS_OPT_STOP_PCT * 100)}% on the ${premNoun}`;
   const levels = [
-    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: takeProfit.reason, reasons: {}, watchFor: null, prose: `Bank it near ${takeProfit.price} (or +${Math.round(PICKS_OPT_TP_PCT * 100)}% on the option).` },
-    { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: `Stop out at ${cut.price} (or -${Math.round(PICKS_OPT_STOP_PCT * 100)}% on the option).` },
+    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: takeProfit.reason, reasons: {}, watchFor: null, prose: `Bank it near $${takeProfit.price} on the stock (or ${tpOptTxt}).` },
+    { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: `Stop out at $${cut.price} on the stock, or set a hard stop at ${stopOptTxt}.` },
   ];
   const isDebitSpread = contract && contract.structure === "debit_vertical";
+  const stopLine = optStopPrice != null
+    ? `Stop loss: cut the option at $${optStopPrice} (−${Math.round(PICKS_OPT_STOP_PCT * 100)}% of the ~$${r2(entryPrem)} ${premNoun})${optTpPrice != null ? `; take profit at $${optTpPrice} (+${Math.round(PICKS_OPT_TP_PCT * 100)}%)` : ""}.`
+    : null;
   const triggers = [
     isDebitSpread
       ? `Option exit: +${Math.round(PICKS_OPT_TP_PCT * 100)}% take-profit / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on the NET DEBIT${contract.maxProfit != null ? ` (defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)}, max profit ~$${(contract.maxProfit * 100).toFixed(0)} per spread)` : ""}.`
       : `Option exit: +${Math.round(PICKS_OPT_TP_PCT * 100)}% take-profit / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on premium.`,
+    stopLine,
     `Time stop: close after ${PICKS_MAX_HOLD_DAYS} sessions if it hasn't worked.`,
-  ];
+  ].filter(Boolean);
   if (contract?.earningsInWindow) triggers.push("Earnings before expiry — exit ~2 sessions ahead of the print (IV crush).");
-  return { takeProfit, cut, levels, triggers, structure: contract?.structure || "long" };
+  return { takeProfit, cut, levels, triggers, structure: contract?.structure || "long", optionStop: optStopPrice != null ? { price: optStopPrice, pct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: Math.round(PICKS_OPT_TP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null };
 }
 
 function buildEntryPlan(side, spot, data, contract, total) {
