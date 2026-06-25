@@ -10784,8 +10784,8 @@ export async function attachPickThesisProse(picks, priorCache = {}) {
     for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
       try {
         await acquireAiSlot();
-        response = await ai.models.generateContent({ model: AI_THESIS_MODEL, contents: prompt, config: { temperature: 0.5, maxOutputTokens: 260 } });
-        recordAiUsage({ model: AI_THESIS_MODEL, callType: "thesis-prose", symbol: p.symbol, usage: response?.usageMetadata });
+        response = await ai.models.generateContent({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), contents: prompt, config: { temperature: 0.5, maxOutputTokens: 260 } });
+        recordAiUsage({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), callType: "thesis-prose", symbol: p.symbol, usage: response?.usageMetadata });
         break;
       } catch (err) {
         const wait = classifyAiError(err, attempt);
@@ -11924,6 +11924,39 @@ const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash";
 // (now gemini-2.5-flash-lite). Override with NARRATIVES_MODEL=gemini-2.5-pro
 // etc. after adding billing in AI Studio.
 const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
+
+// ── Model-fallback ladder for 503 "high demand" storms ───────────────────────
+// A 503 is a PER-MODEL load-shed (one capacity pool spiking), so retrying the
+// SAME overloaded model just re-hits the same wall — the failure mode behind a
+// slow build on a demand-spike day (hundreds of calls each burning their whole
+// retry budget on one overloaded model). Instead, each retry attempt rolls to the
+// next model in the same CLASS: a sibling version served from a separate pool that
+// usually has headroom. Text calls fall back lite→lite (the 2.0 generation); the
+// VISION chart call falls back flash→flash so it keeps reading the chart image
+// (never lite — known-broken for it, see AI_CHART_MODEL). The chain is best-effort:
+// a disabled/typo'd fallback id just errors on that attempt and we degrade exactly
+// as before (reuse last-good / deterministic). Per-call PRIMARY is still set by the
+// AI_*_MODEL env (e.g. NARRATIVES_MODEL); AI_FALLBACK_MODELS="a,b" appends extra
+// fallbacks to EVERY chain; AI_MODEL_FALLBACK=0 disables the ladder entirely.
+const AI_MODEL_FALLBACK = process.env.AI_MODEL_FALLBACK !== "0";
+const AI_FALLBACK_CHAINS = {
+  "gemini-2.5-flash-lite": ["gemini-2.0-flash-lite", "gemini-flash-lite-latest"],
+  "gemini-2.5-flash": ["gemini-2.0-flash", "gemini-flash-latest"],
+};
+const AI_EXTRA_FALLBACKS = (process.env.AI_FALLBACK_MODELS || "").split(",").map((s) => s.trim()).filter(Boolean);
+function aiModelChain(primary) {
+  if (!AI_MODEL_FALLBACK) return [primary];
+  const chain = [primary, ...(AI_FALLBACK_CHAINS[primary] || []), ...AI_EXTRA_FALLBACKS];
+  return chain.filter((m, i) => m && chain.indexOf(m) === i); // de-dup, keep order
+}
+// The model to use on a given 0-based retry attempt: primary first, then walk the
+// fallback chain, clamping at the last entry. Exported so the sibling scanners
+// (scan-unusual / refresh-heatmap) get the same ladder for their AI calls.
+export function aiModelForAttempt(primary, attempt) {
+  const chain = aiModelChain(primary);
+  return chain[Math.min(Math.max(0, attempt), chain.length - 1)];
+}
+
 const AI_NEWS_COUNT = 10;
 // Publishers we accept as ticker-news sources. Two flavors mixed here:
 //   (1) WIRE-GRADE — Reuters / AP / MarketWatch / CNBC / Bloomberg / WSJ /
@@ -12167,7 +12200,11 @@ const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000, 30000, 60000];
 // then degrade gracefully (reuse last-good / deterministic text). Genuine 429
 // quota waits are NOT clamped — those honour the API's "retry in Xs" hint
 // (a 60s window) below, since retrying early just re-hits the same wall.
-const AI_5XX_MAX_BACKOFF_MS = 12000;
+// With the model-fallback ladder (aiModelForAttempt), a 5xx retry switches to a
+// SIBLING model from a different capacity pool rather than re-hitting the same
+// overloaded one — so we no longer need a long wait for the original to recover.
+// A short churn-fast clamp keeps the build moving through a 503 storm.
+const AI_5XX_MAX_BACKOFF_MS = Number(process.env.AI_5XX_MAX_BACKOFF_MS ?? 4000);
 
 // Between-pass "miss sweep" wait. After an AI pass, any ticker still missing a
 // result gets one more swing — but only after a pause to let a transient blip
@@ -13015,7 +13052,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_BRIEF_MODEL,
+        model: aiModelForAttempt(AI_BRIEF_MODEL, attempt),
         config: {
           systemInstruction: system,
           temperature: 0.4,
@@ -13026,7 +13063,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
         },
         contents: userMessage,
       });
-      recordAiUsage({ model: AI_BRIEF_MODEL, callType: `brief-${kind}`, usage: response?.usageMetadata });
+      recordAiUsage({ model: aiModelForAttempt(AI_BRIEF_MODEL, attempt), callType: `brief-${kind}`, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -14089,7 +14126,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_NEWS_MODEL,
+        model: aiModelForAttempt(AI_NEWS_MODEL, attempt),
         contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.3,
@@ -14101,7 +14138,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
           thinkingConfig: { thinkingBudget: 0 },
         },
       });
-      recordAiUsage({ model: AI_NEWS_MODEL, callType: "news", symbol, usage: response?.usageMetadata });
+      recordAiUsage({ model: aiModelForAttempt(AI_NEWS_MODEL, attempt), callType: "news", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -14251,7 +14288,7 @@ async function attachAiContractGuidance(chains) {
       try {
         await acquireAiSlot();
         response = await ai.models.generateContent({
-          model,
+          model: aiModelForAttempt(model, attempt),
           config: {
             systemInstruction: systemPrompt,
             temperature: 0.2,
@@ -14262,7 +14299,7 @@ async function attachAiContractGuidance(chains) {
           },
           contents: userMessage,
         });
-        recordAiUsage({ model, callType: "signals", symbol: sym, usage: response?.usageMetadata });
+        recordAiUsage({ model: aiModelForAttempt(model, attempt), callType: "signals", symbol: sym, usage: response?.usageMetadata });
         break;
       } catch (err) {
         lastErr = err;
@@ -14455,7 +14492,7 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_FUNDAMENTALS_MODEL,
+        model: aiModelForAttempt(AI_FUNDAMENTALS_MODEL, attempt),
         contents: `${FUNDAMENTALS_SYSTEM_PROMPT}\n\n${userMessage}`,
         config: {
           temperature: 0.25,
@@ -14465,7 +14502,7 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
           thinkingConfig: { thinkingBudget: 0 },
         },
       });
-      recordAiUsage({ model: AI_FUNDAMENTALS_MODEL, callType: "fundamentals", symbol, usage: response?.usageMetadata });
+      recordAiUsage({ model: aiModelForAttempt(AI_FUNDAMENTALS_MODEL, attempt), callType: "fundamentals", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -14754,7 +14791,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_TICKER_MODEL,
+        model: aiModelForAttempt(AI_TICKER_MODEL, attempt),
         // CRITICAL for caching: systemInstruction is the cache key prefix.
         // Anything per-ticker MUST stay in `contents`. If a refactor ever
         // interpolates symbol/spot into COMBINED_SYSTEM_PROMPT the implicit
@@ -14772,7 +14809,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
         },
         contents: userMessage,
       });
-      recordAiUsage({ model: AI_TICKER_MODEL, callType: "ticker-judgment", symbol, usage: response?.usageMetadata });
+      recordAiUsage({ model: aiModelForAttempt(AI_TICKER_MODEL, attempt), callType: "ticker-judgment", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -15316,7 +15353,7 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: AI_CHART_MODEL,
+        model: aiModelForAttempt(AI_CHART_MODEL, attempt),
         contents,
         config: {
           // Static instruction → stable prefix so Gemini implicit caching can
@@ -15344,7 +15381,7 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
           thinkingConfig: { thinkingBudget: Number(process.env.AI_CHART_THINK) || 384 },
         },
       });
-      recordAiUsage({ model: AI_CHART_MODEL, callType: "chartPattern", symbol, usage: response?.usageMetadata });
+      recordAiUsage({ model: aiModelForAttempt(AI_CHART_MODEL, attempt), callType: "chartPattern", symbol, usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;
@@ -15875,7 +15912,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
     try {
       await acquireAiSlot();
       response = await ai.models.generateContent({
-        model: NARRATIVES_MODEL,
+        model: aiModelForAttempt(NARRATIVES_MODEL, attempt),
         // System prompt goes in config.systemInstruction (NOT inlined into
         // contents) so it forms the implicit-cache key prefix — matching the
         // ticker-judgment / signals / chart calls. @google/genai drops a
@@ -15909,7 +15946,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
           responseMimeType: "application/json",
         },
       });
-      recordAiUsage({ model: NARRATIVES_MODEL, callType: "narratives", usage: response?.usageMetadata });
+      recordAiUsage({ model: aiModelForAttempt(NARRATIVES_MODEL, attempt), callType: "narratives", usage: response?.usageMetadata });
       break;
     } catch (err) {
       lastErr = err;

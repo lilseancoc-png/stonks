@@ -33,7 +33,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
-import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState } from "./build.mjs";
+import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState, aiModelForAttempt } from "./build.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import {
   evaluateTicker as evaluateVolumeFlag,
@@ -593,7 +593,7 @@ async function generateAnomalyExplanation(ai, contract, spot) {
   for (let attempt = 0; attempt < AI_FLOW_MAX_ATTEMPTS; attempt++) {
     try {
       response = await ai.models.generateContent({
-        model: AI_FLOW_MODEL,
+        model: aiModelForAttempt(AI_FLOW_MODEL, attempt),
         // systemInstruction is the cache-key prefix; keep it static.
         config: {
           systemInstruction: FLOW_EXPLANATION_SYSTEM_PROMPT,
@@ -606,7 +606,7 @@ async function generateAnomalyExplanation(ai, contract, spot) {
         contents: userMessage,
       });
       recordAiUsage({
-        model: AI_FLOW_MODEL,
+        model: aiModelForAttempt(AI_FLOW_MODEL, attempt),
         callType: "flow-explanation",
         symbol: contract.symbol,
         usage: response?.usageMetadata,

@@ -25,7 +25,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
-import { recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation } from "./build.mjs";
+import { recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation, aiModelForAttempt } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -242,7 +242,7 @@ async function generateEodSummary(ai, dateKey, stats, sectors) {
   for (let attempt = 0; attempt < AI_EOD_MAX_ATTEMPTS; attempt++) {
     try {
       response = await ai.models.generateContent({
-        model: AI_EOD_MODEL,
+        model: aiModelForAttempt(AI_EOD_MODEL, attempt),
         config: {
           systemInstruction: EOD_SYSTEM_PROMPT,
           temperature: 0.35,
@@ -254,7 +254,7 @@ async function generateEodSummary(ai, dateKey, stats, sectors) {
         contents: userMessage,
       });
       recordAiUsage({
-        model: AI_EOD_MODEL,
+        model: aiModelForAttempt(AI_EOD_MODEL, attempt),
         callType: "heatmap-eod",
         usage: response?.usageMetadata,
       });
