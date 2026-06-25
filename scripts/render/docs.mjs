@@ -1072,7 +1072,6 @@ export const DOC_PAGES = {
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
-            <li><b>Day trades</b> — live volume-driven swing/scalp trades, tracked to TP/SL with a P/L history</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
             <li><b>Index calendar</b> — SPY/QQQ/IWM daily closes, green/red by % move, month by month</li>
           </ul>
@@ -1182,10 +1181,6 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Gamma exposure</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">The dealer net-gamma (GEX) matrix per strike, the gamma flip line, and the call/put walls — where moves get pinned or amplified.</p>
-        </div>
-        <div class="feat">
-          <div class="feat-top"><span class="feat-name">Day trades</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A live, volume-driven roster of concrete <b>swing</b> and <b>scalp</b> ideas mined every hour from the heaviest-volume names with a clean directional read. Each ships a fixed entry, take-profit, and stop-loss; the board tracks every open trade live (P/L in % and R) and the instant price touches the take-profit or stop the trade is filed into the history as a win or loss — with a running win rate, average P/L, and average R. Below, the live volume leaders the ideas come from.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>

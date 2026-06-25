@@ -1,6 +1,7 @@
-// wipe-history.mjs — reset the Top Picks + Day Trades performance history in the
-// PRIVATE data store (Path B; see CLAUDE.md "Private data + Discord-role gating"
-// and docs/private-data-migration.md).
+// wipe-history.mjs — reset the Top Picks track record in the PRIVATE data store
+// (Path B; see CLAUDE.md "Private data + Discord-role gating" and
+// docs/private-data-migration.md), and purge the now-removed Day Trades store
+// objects (the Day Trades tab + engine were deleted).
 //
 // Use this after a strategy change to start the track record fresh, so the
 // displayed win-rate / closed-P&L don't blend old-strategy and new-strategy
@@ -10,11 +11,13 @@
 //
 //   DRY-RUN BY DEFAULT. Nothing is mutated unless you pass --apply.
 //
-// Scope (additive; the two CORE track records are ALWAYS included):
-//   (core, always)  picks-accuracy.json        Top Picks: closed P&L + win/loss
-//                                               stats + the currently-enrolled
-//                                               open picks (re-enroll next bake)
-//                   day-trades-history.json     Day Trades: closed P/L + win-rate
+// Scope (additive; the CORE targets are ALWAYS included):
+//   (core, always)  picks-accuracy.json        Top Picks track record: closed
+//                                               P&L + win/loss stats + the
+//                                               currently-enrolled open picks
+//                                               (re-enroll next bake) — RESET
+//   (core, always)  day-trades.json            REMOVED feature — always DELETED
+//                   day-trades-history.json     REMOVED feature — always DELETED
 //   --picks-logs    + picks-changes.json        Top Picks in/out churn log
 //                   + picks-roster.json         Top-10 in/out roster snapshot
 //   --grade-logs    + grades-history.json       whole-universe grade-change log
@@ -24,8 +27,10 @@
 // Mode:
 //   --empty   (default) overwrite each key with a VALID EMPTY payload — the
 //             premium tab immediately shows "no history yet" (no 404 window).
-//   --delete  remove the key entirely — the next bake/scan recreates it, but the
-//             tab 404s until then (~15 min for day-trades, up to ~1h for picks).
+//   --delete  remove the key entirely — the next bake recreates it, but the tab
+//             404s until then (up to ~1h for picks). The two day-trades keys are
+//             ALWAYS deleted regardless of this flag — nothing recreates them
+//             now that the feature is gone.
 //
 // Examples:
 //   node scripts/wipe-history.mjs                       # dry run, core only
@@ -58,13 +63,6 @@ if (args.has("--help") || args.has("-h")) {
 const wantPicksLogs = args.has("--picks-logs") || args.has("--all");
 const wantGradeLogs = args.has("--grade-logs") || args.has("--all");
 
-// Empty stats for day-trades-history.json — must match dtComputeStats([]) in
-// scan-unusual.mjs so the next scan + the browser see the exact zero shape.
-const DT_EMPTY_STATS = {
-  decided: 0, wins: 0, losses: 0, winRate: null, avgPnlPct: null, avgR: null,
-  scalps: 0, swings: 0, targetHits: 0, stopHits: 0, expired: 0,
-};
-
 // Each target: the store key + a VALID EMPTY payload the next-bake/scan reader
 // AND the browser both tolerate (verified against the read/render code).
 const TARGETS = [
@@ -75,11 +73,17 @@ const TARGETS = [
     summarize: (p) => `${(p.closed || []).length} closed, ${(p.open || []).length} open` +
       (p.stats && p.stats.winRate != null ? `, ${Math.round(p.stats.winRate * 100)}% win` : ""),
   },
+  // The Day Trades tab + engine were removed — these store objects are orphaned
+  // (nothing reads or recreates them). Always DELETE them, regardless of --empty.
   {
-    key: "day-trades-history.json", group: "core", label: "Day Trades track record",
-    empty: { updatedAt: nowIso, etDate: null, stats: DT_EMPTY_STATS, closed: [] },
-    summarize: (p) => `${(p.closed || []).length} closed` +
-      (p.stats && p.stats.winRate != null ? `, ${Math.round(p.stats.winRate * 100)}% win` : ""),
+    key: "day-trades.json", group: "core", label: "Day Trades roster (removed)",
+    forceDelete: true,
+    summarize: (p) => `${(p.trades || []).length} active`,
+  },
+  {
+    key: "day-trades-history.json", group: "core", label: "Day Trades history (removed)",
+    forceDelete: true,
+    summarize: (p) => `${(p.closed || []).length} closed`,
   },
   // ---- --picks-logs: Top Picks in/out churn + roster ----
   {
@@ -131,12 +135,14 @@ for (const t of selected) {
     curDesc = `(read error: ${err?.message || err})`;
   }
 
-  const action = MODE === "delete" ? "DELETE" : "OVERWRITE-EMPTY";
+  // A removed-feature target (forceDelete) is always deleted, regardless of MODE.
+  const mode = t.forceDelete ? "delete" : MODE;
+  const action = mode === "delete" ? "DELETE" : "OVERWRITE-EMPTY";
   console.log(`  • ${t.key.padEnd(24)} [${t.label}]\n      now:  ${curDesc}\n      ${APPLY ? "doing" : "would"}: ${action}`);
 
   if (!APPLY) continue;
   try {
-    if (MODE === "delete") await store.del(t.key);
+    if (mode === "delete") await store.del(t.key);
     else await store.put(t.key, Buffer.from(JSON.stringify(t.empty), "utf8"));
     mutated++;
     console.log(`      done.`);
@@ -151,8 +157,8 @@ if (!APPLY) {
 } else {
   console.log(`\nDone — ${mutated} key(s) ${MODE === "delete" ? "deleted" : "reset"}, ${failed} failed.`);
   console.log(
-    `The next scheduled bake/scan will repopulate fresh files. ` +
-      `(Day Trades within ~15 min; Top Picks within ~1h.)\n`,
+    `The next scheduled bake will repopulate the Top Picks track record (within ` +
+      `~1h). The deleted Day Trades keys are gone for good (the feature was removed).\n`,
   );
 }
 process.exit(failed > 0 ? 1 : 0);

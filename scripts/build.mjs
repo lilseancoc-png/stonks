@@ -17711,9 +17711,6 @@ async function main() {
   // Persist the thesis-prose cache now that data/ has been recreated.
   await writePickThesisCache(picksInfo?.thesisProseCache || thesisProseCachePrev || {});
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
-  // (Day trades are now the LIVE volume-driven roster owned by the hourly
-  // scan-unusual.mjs — data/day-trades.json + data/day-trades-history.json —
-  // not a bake artifact. The old picks-0dte engine was removed.)
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown
   // for names that don't clear the actionable threshold.
@@ -17815,9 +17812,6 @@ async function main() {
   } catch (err) {
     console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  // (The day-trades track record now lives in data/day-trades-history.json,
-  // maintained live by scan-unusual.mjs as positions hit their take-profit /
-  // stop-loss — not a bake-time accuracy file.)
   // Market briefs (morning + post-close digest) — generated at most once per ET
   // window and carried forward, mirroring the heatmap EOD recap. Built from the
   // data already in memory: overnight correlations, the day's breadth + movers,
