@@ -49,7 +49,7 @@
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, hot:1, track:1 };
+  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, hot:1, track:1, 'index-cal':1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   var AUTH_ME = null;
@@ -59,7 +59,7 @@
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = "https://discord.gg/GVYx7qSWxS";
   function premiumTabLabel(id){
-    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record' })[id] || 'This feature';
+    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record', 'index-cal':'Index Calendar' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -112,7 +112,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-24","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-06-25","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3075,7 +3075,7 @@
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3296,6 +3296,7 @@
       if (!premiumLocked){
         if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
+        if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
@@ -9567,28 +9568,48 @@
     }
     return { spot: spot, pnlPct: pnlPct, rMult: rMult, prog: prog, hit: hit };
   }
-  // Day-trade thesis block (collapsed) — conviction + what works / what disproves
-  // + the honest "no strong thesis" disclosure, mirroring the Top Picks thesis.
+  // Day-trade thesis block (collapsed) — the edge + conviction + confirmation /
+  // invalidation + the thesis-quality checklist + honest disclosure, mirroring the
+  // Top Picks thesis (scoped to the intraday flow/structure horizon).
   function dtThesisHtml(t){
     var th = t && t.thesis; if (!th) return '';
+    var tier = (th.quality && th.quality.tier) || (th.hasSolidThesis ? 'strong' : 'weak');
+    var conf = Array.isArray(th.confirmation) ? th.confirmation : (Array.isArray(th.works) ? th.works : []);
     var works = '';
-    if (Array.isArray(th.works)) for (var i=0;i<th.works.length;i++){ var w=th.works[i]; if(!w) continue; works += '<li>'+escapeHtml(w.label||'')+(w.value?' <span class="hot-dt-th-val">'+escapeHtml(w.value)+'</span>':'')+'</li>'; }
+    for (var i=0;i<conf.length;i++){ var w=conf[i]; if(!w) continue; works += '<li>'+escapeHtml(w.label||'')+(w.value?' <span class="hot-dt-th-val">'+escapeHtml(w.value)+'</span>':'')+'</li>'; }
     var inval = '';
     if (Array.isArray(th.invalidators)) for (var k=0;k<th.invalidators.length;k++){ var iv=th.invalidators[k]; if(!iv||!iv.trigger) continue; inval += '<li>'+escapeHtml(iv.trigger)+'</li>'; }
-    var disc = (th.hasSolidThesis===false && th.disclosure) ? '<div class="hot-dt-th-disc">⚠ '+escapeHtml(th.disclosure)+'</div>' : '';
+    var edge = (th.edge && th.edge.text) ? '<div class="hot-dt-th-edge'+(th.edge.hasEdge===false?' is-none':'')+'"><b>'+(th.edge.hasEdge===false?'No edge':'The edge')+'</b> '+escapeHtml(th.edge.text)+'</div>' : '';
+    var disc = (tier!=='strong' && th.disclosure) ? '<div class="hot-dt-th-disc">⚠ '+escapeHtml(th.disclosure)+'</div>' : '';
     var conv = th.conviction ? '<div class="hot-dt-th-conv"><b>Conviction</b> '+escapeHtml(th.conviction)+'</div>' : '';
     var mr = (th.marketRead && th.marketRead.text) ? '<div class="hot-dt-th-mr">'+escapeHtml(th.marketRead.text)+'</div>' : '';
-    return '<details class="hot-dt-thesis'+(th.hasSolidThesis===false?' is-weak':'')+'">'+
-      '<summary>Thesis'+(th.hasSolidThesis===false?' <span class="hot-dt-th-thin">thin</span>':'')+'</summary>'+
-      conv + mr + disc +
-      (works?'<div class="hot-dt-th-col"><div class="hot-dt-th-h is-up">✓ What makes it work</div><ul>'+works+'</ul></div>':'')+
+    var qHtml = '';
+    if (th.quality && Array.isArray(th.quality.checklist)){
+      var rows = '';
+      for (var c=0;c<th.quality.checklist.length;c++){ var ci=th.quality.checklist[c]; if(!ci) continue;
+        rows += '<li class="'+(ci.pass?'is-pass':'is-fail')+'"><span class="hot-dt-th-mk">'+(ci.pass?'✓':'✗')+'</span> '+escapeHtml(ci.label)+(ci.detail?' <span class="hot-dt-th-val">'+escapeHtml(ci.detail)+'</span>':'')+'</li>';
+      }
+      qHtml = '<div class="hot-dt-th-col"><div class="hot-dt-th-h">Thesis quality — '+escapeHtml(tier)+(th.quality.score!=null?' ('+th.quality.score+' pts)':'')+'</div><ul class="hot-dt-th-check">'+rows+'</ul></div>';
+    }
+    return '<details class="hot-dt-thesis'+(tier!=='strong'?' is-weak':'')+'">'+
+      '<summary>Thesis'+(tier!=='strong'?' <span class="hot-dt-th-thin">'+escapeHtml(tier)+'</span>':'')+'</summary>'+
+      edge + conv + mr + disc +
+      (works?'<div class="hot-dt-th-col"><div class="hot-dt-th-h is-up">✓ Confirmation</div><ul>'+works+'</ul></div>':'')+
       (inval?'<div class="hot-dt-th-col"><div class="hot-dt-th-h is-dn">⚠ What would disprove it</div><ul>'+inval+'</ul></div>':'')+
+      qHtml +
     '</details>';
   }
   // Day-trade option-structure idea (collapsed) — the picks strategy menu mirrored
-  // to the intraday horizon (naked vs debit spread by conviction; credit note).
+  // to the intraday horizon (naked vs debit spread by conviction; credit note). A
+  // weak thesis recommends NO option idea (structure 'none').
   function dtOptionIdeaHtml(t){
     var oi = t && t.optionIdea; if (!oi || !oi.label) return '';
+    if (oi.structure === 'none'){
+      return '<details class="hot-dt-opt is-none">'+
+        '<summary>Option idea: <b>'+escapeHtml(oi.label)+'</b></summary>'+
+        (oi.rationale?'<div class="hot-dt-opt-why">'+escapeHtml(oi.rationale)+'</div>':'')+
+      '</details>';
+    }
     var bits = [];
     if (oi.dteGuide) bits.push(escapeHtml(oi.dteGuide));
     if (oi.moneyness) bits.push(escapeHtml(oi.moneyness));
@@ -15516,6 +15537,185 @@
     }
   }
 
+  // --- Index calendar tab -------------------------------------------------
+  // A monthly wall-calendar of daily index closes: each cell is tinted green/red
+  // by SPY/QQQ/IWM's close-to-close %change for that session. An index toggle
+  // switches which ETF colors the grid; a per-month summary tallies green vs red
+  // days and the month's compounded return. Renders the premium, bake-accumulated
+  // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm }] }),
+  // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
+  var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', fetchedAt: 0, bound: false };
+  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM' };
+  function loadIndexCal(){
+    bindIndexCalControls();
+    if ((indexCalState.data && !tabDataStale(indexCalState)) || indexCalState.loading){ renderIndexCal(); return; }
+    indexCalState.loading = true;
+    renderIndexCal();
+    fetch('data/index-calendar.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        indexCalState.data = (json && Array.isArray(json.days)) ? json : { days: [] };
+        indexCalState.loading = false;
+        indexCalState.error = false;
+        indexCalState.fetchedAt = Date.now();
+        renderIndexCal();
+      })
+      .catch(function(){
+        indexCalState.error = true;
+        indexCalState.loading = false;
+        renderIndexCal();
+      });
+  }
+  function idxCalPctCls(v){ return (v > 0) ? 'idx-up' : (v < 0 ? 'idx-dn' : 'idx-flat'); }
+  function idxCalFmtPct(v){ if (v == null || isNaN(v)) return ''; return (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
+  function idxCalFmtClose(v){ if (v == null || isNaN(v)) return ''; return Number(v).toFixed(2); }
+  function renderIndexCal(){
+    var root = $('index-cal-root');
+    if (!root) return;
+    var eyebrow = $('index-cal-eyebrow');
+    var data = indexCalState.data || { days: [] };
+    var days = Array.isArray(data.days) ? data.days : [];
+    // Loading skeleton only when there's nothing on screen yet.
+    if (indexCalState.loading && !days.length){
+      var skel = '';
+      for (var sk = 0; sk < 42; sk++) skel += '<div class="idx-cal-cell is-skel"><span class="skel skel-line sm" style="width:20px"></span></div>';
+      root.innerHTML =
+        '<div class="cal-monthbar"><span class="skel skel-line" style="width:160px;height:20px"></span></div>' +
+        '<div class="idx-cal-grid">' +
+          ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(w){ return '<span class="cal-grid-wd">' + w + '</span>'; }).join('') +
+          skel +
+        '</div>';
+      return;
+    }
+    if (indexCalState.error && !days.length){
+      root.innerHTML = '<div class="idx-cal-empty">Couldn’t load the index calendar — refresh the page to try again.</div>';
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    var idxKey = indexCalState.index || 'spy';
+    var byDate = {};
+    var allYm = [];
+    for (var i = 0; i < days.length; i++){
+      var dd = days[i];
+      if (dd && dd.date){ byDate[dd.date] = dd; allYm.push(String(dd.date).slice(0, 7)); }
+    }
+    var todayYm = calTodayYm();
+    var todayYmd = calEtTodayYmd();
+    var minYm = allYm.length ? allYm.reduce(function(a, b){ return a < b ? a : b; }) : todayYm;
+    var maxYm = allYm.length ? allYm.reduce(function(a, b){ return a > b ? a : b; }) : todayYm;
+    if (maxYm < todayYm) maxYm = todayYm;     // current month is always navigable
+    var viewYm = indexCalState.viewYm;
+    if (!viewYm || viewYm < minYm || viewYm > maxYm) viewYm = maxYm;
+    indexCalState.viewYm = viewYm;
+
+    // Index toggle (SPY / QQQ / IWM).
+    var toggle = '<div class="idx-cal-toggle" role="tablist" aria-label="Index">' +
+      ['spy','qqq','iwm'].map(function(k){
+        var on = k === idxKey;
+        return '<button type="button" class="idx-cal-tab' + (on ? ' is-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-idx-cal="' + k + '">' + IDX_CAL_LABELS[k] + '</button>';
+      }).join('') +
+    '</div>';
+
+    // Month nav bar (reuses the Calendar tab's button + label styles).
+    var monthbar = '<div class="cal-monthbar idx-cal-monthbar">' +
+        '<button type="button" class="cal-nav-btn" data-idx-nav="prev"' + (viewYm <= minYm ? ' disabled' : '') + ' aria-label="Previous month">‹</button>' +
+        '<span class="cal-monthbar-label">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
+        '<button type="button" class="cal-nav-btn" data-idx-nav="next"' + (viewYm >= maxYm ? ' disabled' : '') + ' aria-label="Next month">›</button>' +
+        (viewYm !== todayYm ? '<button type="button" class="cal-today-btn" data-idx-nav="today">Today</button>' : '') +
+      '</div>';
+
+    // 7-column wall-calendar grid for the viewed month.
+    function idxCalCell(date, dayNum){
+      var day = byDate[date];
+      var leg = day ? day[idxKey] : null;
+      var ch = (leg && leg.chPct != null && !isNaN(leg.chPct)) ? Number(leg.chPct) : null;
+      var has = ch != null;
+      var isToday = date === todayYmd;
+      var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (has ? ' ' + idxCalPctCls(ch) : ' is-empty');
+      var title = IDX_CAL_LABELS[idxKey] + ' · ' + date +
+        (has ? ' · ' + idxCalFmtPct(ch) : '') +
+        (leg && leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
+      return '<div class="' + cls + '" title="' + escapeHtml(title) + '">' +
+          '<span class="idx-cal-num">' + dayNum + '</span>' +
+          (has ? '<span class="idx-cal-pct">' + idxCalFmtPct(ch) + '</span>' : '<span class="idx-cal-pct idx-cal-pct-na">·</span>') +
+        '</div>';
+    }
+    var WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var ymp = viewYm.split('-'); var vy = Number(ymp[0]); var vmi = Number(ymp[1]) - 1;
+    var firstWd = new Date(Date.UTC(vy, vmi, 1)).getUTCDay();
+    var daysInMonth = new Date(Date.UTC(vy, vmi + 1, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vy, vmi, 0)).getUTCDate();
+    var cells = [];
+    for (var lead = 0; lead < firstWd; lead++){
+      cells.push('<div class="idx-cal-cell is-out" aria-hidden="true"><span class="idx-cal-num">' + (prevDays - firstWd + 1 + lead) + '</span></div>');
+    }
+    for (var dnum = 1; dnum <= daysInMonth; dnum++){
+      cells.push(idxCalCell(viewYm + '-' + String(dnum).padStart(2, '0'), dnum));
+    }
+    var trail = 1;
+    while (cells.length % 7 !== 0){
+      cells.push('<div class="idx-cal-cell is-out" aria-hidden="true"><span class="idx-cal-num">' + (trail++) + '</span></div>');
+    }
+    var grid = '<div class="idx-cal-grid" role="grid" aria-label="' + escapeHtml(fmtCalendarMonth(viewYm)) + ' ' + IDX_CAL_LABELS[idxKey] + ' calendar">' +
+        WD.map(function(w){ return '<span class="cal-grid-wd" role="columnheader">' + w + '</span>'; }).join('') +
+        cells.join('') +
+      '</div>';
+
+    // Per-month summary: green / red / flat day counts + the month's compounded
+    // close-to-close return for the selected index.
+    var green = 0, red = 0, flat = 0, have = 0, comp = 1;
+    for (var di = 1; di <= daysInMonth; di++){
+      var leg2 = (byDate[viewYm + '-' + String(di).padStart(2, '0')] || {})[idxKey];
+      if (leg2 && leg2.chPct != null && !isNaN(leg2.chPct)){
+        var c2 = Number(leg2.chPct);
+        have++;
+        if (c2 > 0) green++; else if (c2 < 0) red++; else flat++;
+        comp *= (1 + c2 / 100);
+      }
+    }
+    var monthRet = have ? (comp - 1) * 100 : null;
+    var summary = '<div class="idx-cal-summary">' +
+        '<span class="idx-cal-sum-month">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
+        '<span class="idx-cal-sum-stat"><b class="idx-up">' + green + '</b> green</span>' +
+        '<span class="idx-cal-sum-stat"><b class="idx-dn">' + red + '</b> red</span>' +
+        (flat ? '<span class="idx-cal-sum-stat"><b>' + flat + '</b> flat</span>' : '') +
+        (monthRet != null
+          ? '<span class="idx-cal-sum-stat idx-cal-sum-ret"><span class="idx-cal-sum-label">' + IDX_CAL_LABELS[idxKey] + ' month</span> <b class="' + idxCalPctCls(monthRet) + '">' + idxCalFmtPct(monthRet) + '</b></span>'
+          : '') +
+      '</div>';
+
+    if (eyebrow){
+      var n = days.length;
+      var first = n ? days[0].date : null;
+      eyebrow.textContent = n
+        ? (n + ' session' + (n === 1 ? '' : 's') + (first ? ' since ' + fmtCalendarDateShort(first) : ''))
+        : 'No sessions tracked yet';
+    }
+    root.innerHTML = toggle + monthbar + grid + summary;
+  }
+  function bindIndexCalControls(){
+    if (indexCalState.bound) return;
+    var root = document.getElementById('index-cal-root');
+    if (!root) return;
+    indexCalState.bound = true;
+    // Delegate on the stable root so handlers survive every re-render
+    // (renderIndexCal replaces root.innerHTML): index toggle + month nav.
+    root.addEventListener('click', function(ev){
+      if (!ev.target.closest) return;
+      var tabBtn = ev.target.closest('[data-idx-cal]');
+      if (tabBtn){ indexCalState.index = tabBtn.getAttribute('data-idx-cal') || 'spy'; renderIndexCal(); return; }
+      var navBtn = ev.target.closest('[data-idx-nav]');
+      if (navBtn){
+        if (navBtn.disabled) return;
+        var dir = navBtn.getAttribute('data-idx-nav');
+        if (dir === 'today') indexCalState.viewYm = calTodayYm();
+        else indexCalState.viewYm = calAddMonthsYm(indexCalState.viewYm || calTodayYm(), dir === 'next' ? 1 : -1);
+        renderIndexCal();
+        return;
+      }
+    });
+  }
+
   // --- 13F filings tab ----------------------------------------------------
   // Lazy-fetched on first activation. Data file is a curated quarterly
   // summary — see data/13f.json for the schema. Re-rendering is cheap
@@ -19483,40 +19683,65 @@
   // Sourced from picks.json's pre-computed thesisCard. When the pick is also an
   // open tracked position, pickThesisStatusFor() surfaces whether it's playing
   // out (price progress + driver confirmation, scored each build).
-  function pickThesisBlock(p){
-    var tc = p && p.thesisCard;
-    if (!tc || (!(tc.works && tc.works.length) && !(tc.invalidators && tc.invalidators.length))) return '';
-    var dirCls = tc.direction === 'bearish' ? 'thesis-bear' : 'thesis-bull';
-    var worksHtml = '';
-    var works = Array.isArray(tc.works) ? tc.works : [];
-    for (var i=0; i<works.length; i++){
-      var w = works[i]; if (!w) continue;
+  // Classification badge (the grade × thesis matrix cell): label / css / tooltip.
+  function pickClassMeta(cls){
+    switch (cls){
+      case 'actionable': return { label: 'Actionable', cls: 'pick-class-actionable', tip: 'Strong grade + strong thesis — a full top pick with a recommended options strategy.' };
+      case 'moderate': return { label: 'Moderate conviction', cls: 'pick-class-moderate', tip: 'A real but not airtight case, or a moderate grade — a lower-conviction idea. Strategy shown; size down.' };
+      case 'highGradeWeakThesis': return { label: 'High grade · weak thesis', cls: 'pick-class-weak', tip: 'The grade is high but the supporting case is thin / single-pillar — we show the grade but recommend no strategy.' };
+      default: return { label: 'Watch idea', cls: 'pick-class-idea', tip: 'A grade-only watch idea — no strategy is recommended yet. Wait for a confirming signal or a clean entry.' };
+    }
+  }
+
+  // Render a works list (company drivers OR technical/flow confirmation): each
+  // driver with its pillar + display value.
+  function thesisWorksList(arr){
+    var h = '';
+    for (var i=0; i<arr.length; i++){
+      var w = arr[i]; if (!w) continue;
       var meta = [];
       if (w.pillar) meta.push(w.pillar);
       if (w.value) meta.push(w.value);
-      worksHtml += '<li><span class="thesis-li-main">' + escapeHtml(w.label || '—') + '</span>' +
+      h += '<li><span class="thesis-li-main">' + escapeHtml(w.label || '—') + '</span>' +
         (meta.length ? '<span class="thesis-li-meta">' + escapeHtml(meta.join(' · ')) + '</span>' : '') + '</li>';
     }
-    var invHtml = '';
-    var inv = Array.isArray(tc.invalidators) ? tc.invalidators : [];
-    for (var k=0; k<inv.length; k++){
-      var iv = inv[k]; if (!iv || !iv.trigger) continue;
-      invHtml += '<li>' + escapeHtml(iv.trigger) + '</li>';
-    }
-    var tgt = tc.target || null;
-    var tgtHtml = '';
-    if (tgt){
-      var bits = [];
-      if (tgt.optionTpPct != null) bits.push('take profit +' + tgt.optionTpPct + '% on the option');
-      if (tgt.optionStopPct != null) bits.push('cut at −' + tgt.optionStopPct + '%');
-      if (tgt.underlyingStop != null) bits.push('underlying stop ~$' + tgt.underlyingStop);
-      if (tgt.holdDays != null) bits.push(tgt.holdDays + '-day time stop');
-      if (bits.length) tgtHtml = '<div class="thesis-target"><span class="thesis-target-lbl">Plan</span> ' + escapeHtml(bits.join(' · ')) + '</div>';
-    }
-    var statusHtml = pickThesisStatusFor(p);
-    // Strategy chip — WHY this structure (naked / debit / credit spread).
+    return h;
+  }
+
+  // Structured 6-section thesis: a short scannable head (the EDGE + classification
+  // + strategy/no-rec + conviction + any disclosure) and a collapsed "Expand for
+  // full reasoning" with Market context / Company drivers / Technical-flow
+  // confirmation / Invalidation / Strategy rationale / Thesis-quality checklist.
+  function pickThesisBlock(p){
+    var tc = p && p.thesisCard;
+    if (!tc) return '';
+    var dirCls = tc.direction === 'bearish' ? 'thesis-bear' : 'thesis-bull';
+    var tier = (tc.thesisQuality && tc.thesisQuality.tier) || (tc.hasSolidThesis ? 'strong' : 'weak');
+    var tierCls = tier === 'strong' ? 'thesis-q-strong' : tier === 'moderate' ? 'thesis-q-moderate' : 'thesis-q-weak';
+    var cls = tc.classification || (tc.group === 'actionable' ? 'actionable' : 'idea');
+    var cm = pickClassMeta(cls);
+    var noRec = !tc.strategy || tc.strategy.type === 'none';
+
+    var works = Array.isArray(tc.works) ? tc.works : [];
+    // companyDrivers / confirmation split (fall back to splitting works by pillar
+    // for any older payload that predates the split fields).
+    var companyDrivers = Array.isArray(tc.companyDrivers) ? tc.companyDrivers
+      : works.filter(function(w){ return w && (w.pillar === 'Fundamentals' || w.pillar === 'Narrative'); });
+    var confirmation = Array.isArray(tc.confirmation) ? tc.confirmation
+      : works.filter(function(w){ return w && (w.pillar === 'Technicals' || w.pillar === 'Flow'); });
+
+    // EDGE — the always-visible "why this trade now" line (the core of the thesis).
+    var edge = tc.edge || null;
+    var edgeHtml = edge && edge.text
+      ? '<div class="thesis-edge' + (edge.hasEdge === false ? ' thesis-edge-none' : '') + '"><span class="thesis-edge-lbl">' + (edge.hasEdge === false ? 'No edge' : 'The edge') + '</span> ' + escapeHtml(edge.text) + '</div>'
+      : '';
+
+    // Strategy chip — OR a "no recommendation" note when the thesis is too thin.
     var stratHtml = '';
-    if (tc.strategy && tc.strategy.label){
+    if (noRec){
+      stratHtml = '<div class="thesis-norec" title="High grade but the supporting case is too thin to define a trade. We show the grade; we do not recommend a strategy.">⊘ No strategy recommendation' +
+        ((tc.strategy && tc.strategy.reason) ? ' <span class="thesis-norec-why">' + escapeHtml(tc.strategy.reason) + '</span>' : '') + '</div>';
+    } else if (tc.strategy && tc.strategy.label){
       var st = tc.strategy.type;
       var stCls = st === 'credit' ? 'thesis-strat-credit' : st === 'debit' ? 'thesis-strat-debit' : 'thesis-strat-naked';
       stratHtml = '<div class="thesis-strat ' + stCls + '" title="' + escapeHtml(tc.strategy.reason || '') + '">' +
@@ -19525,35 +19750,66 @@
         (tc.strategy.fallback ? ' <span class="thesis-strat-fb" title="The preferred structure had no liquid wing — shipped this instead.">(fallback)</span>' : '') +
       '</div>';
     }
-    // Conviction line.
+
     var convHtml = tc.conviction ? '<div class="thesis-conviction"><span class="thesis-conv-lbl">Conviction</span> ' + escapeHtml(tc.conviction) + '</div>' : '';
-    // Market read — does the macro tape support or fight the trade?
-    var mrHtml = '';
+    // Honest disclosure (overconfidence guard) when the thesis isn't strong.
+    var discHtml = (tier !== 'strong' && tc.disclosure)
+      ? '<div class="thesis-disclosure" title="The grade may have cleared the bar, but the thesis is not airtight. Trade it smaller or wait for confirmation.">⚠ ' + escapeHtml(tc.disclosure) + '</div>'
+      : '';
+
+    // ---- Expand: the six sections ----
+    var secs = '';
     if (tc.marketRead && tc.marketRead.text){
       var sup = tc.marketRead.support;
       var mrCls = sup === 'supports' ? 'thesis-mr-ok' : sup === 'against' ? 'thesis-mr-bad' : 'thesis-mr-neutral';
-      mrHtml = '<div class="thesis-market ' + mrCls + '"><span class="thesis-market-lbl">Market read</span> ' + escapeHtml(tc.marketRead.text) + '</div>';
+      secs += '<div class="thesis-sec"><div class="thesis-sec-head">① Market / macro context</div><div class="thesis-market ' + mrCls + '">' + escapeHtml(tc.marketRead.text) + '</div></div>';
     }
-    // Honest "no strong thesis" disclosure (per spec) when the reasoning is thin.
-    var discHtml = (tc.hasSolidThesis === false && tc.disclosure)
-      ? '<div class="thesis-disclosure" title="The grade cleared the actionable bar, but the supporting reasoning is thin. Trade it smaller or wait for confirmation.">⚠ ' + escapeHtml(tc.disclosure) + '</div>'
+    if (companyDrivers.length) secs += '<div class="thesis-sec"><div class="thesis-sec-head thesis-sec-ok">② Company / business drivers</div><ul class="thesis-ul">' + thesisWorksList(companyDrivers) + '</ul></div>';
+    if (confirmation.length) secs += '<div class="thesis-sec"><div class="thesis-sec-head thesis-sec-ok">③ Technical / flow confirmation</div><ul class="thesis-ul">' + thesisWorksList(confirmation) + '</ul></div>';
+    var inv = Array.isArray(tc.invalidators) ? tc.invalidators : [];
+    var invHtml = '';
+    for (var k=0; k<inv.length; k++){ var ivx = inv[k]; if (!ivx || !ivx.trigger) continue; invHtml += '<li>' + escapeHtml(ivx.trigger) + '</li>'; }
+    if (invHtml) secs += '<div class="thesis-sec"><div class="thesis-sec-head thesis-sec-inval">④ Invalidation — what would break it</div><ul class="thesis-ul thesis-inval-ul">' + invHtml + '</ul></div>';
+    if (!noRec && tc.strategy && tc.strategy.reason) secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑤ Strategy rationale</div><div class="thesis-strat-reason">' + escapeHtml(tc.strategy.reason) + '</div></div>';
+    if (tc.thesisQuality && Array.isArray(tc.thesisQuality.checklist)){
+      var rows = '';
+      var cl = tc.thesisQuality.checklist;
+      for (var c=0; c<cl.length; c++){
+        var ci = cl[c]; if (!ci) continue;
+        rows += '<li class="thesis-check ' + (ci.pass ? 'thesis-check-pass' : 'thesis-check-fail') + '">' +
+          '<span class="thesis-check-mark">' + (ci.pass ? '✓' : '✗') + '</span>' +
+          '<span class="thesis-check-lbl">' + escapeHtml(ci.label) + '</span>' +
+          (ci.detail ? '<span class="thesis-check-detail">' + escapeHtml(ci.detail) + '</span>' : '') + '</li>';
+      }
+      secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑥ Thesis quality — <b class="thesis-q-' + tier + '">' + escapeHtml(tier) + '</b>' +
+        (tc.thesisQuality.score != null ? ' <span class="thesis-q-score">' + tc.thesisQuality.score + ' pts</span>' : '') +
+        '</div><ul class="thesis-check-ul">' + rows + '</ul></div>';
+    }
+    if (tc.prose) secs += '<div class="thesis-sec"><div class="thesis-prose" title="AI-written narrative — a plain-English read of the deterministic signals + macro backdrop. Generated at build time; degrades gracefully without the AI key.">' + escapeHtml(tc.prose) + ' <span class="thesis-prose-tag">AI read</span></div></div>';
+    var tgt = tc.target || null;
+    if (tgt){
+      var bits = [];
+      if (tgt.optionTpPct != null) bits.push('take profit +' + tgt.optionTpPct + '% on the option');
+      if (tgt.optionStopPct != null) bits.push('cut at −' + tgt.optionStopPct + '%');
+      if (tgt.underlyingStop != null) bits.push('underlying stop ~$' + tgt.underlyingStop);
+      if (tgt.holdDays != null) bits.push(tgt.holdDays + '-day time stop');
+      if (bits.length) secs += '<div class="thesis-sec"><div class="thesis-target"><span class="thesis-target-lbl">Plan</span> ' + escapeHtml(bits.join(' · ')) + '</div></div>';
+    }
+    var statusHtml = pickThesisStatusFor(p);
+    if (statusHtml) secs += statusHtml;
+
+    var expandHtml = secs
+      ? '<details class="thesis-expand"><summary>Expand for full reasoning</summary><div class="thesis-expand-body">' + secs + '</div></details>'
       : '';
-    // Optional AI-written causal narrative (hybrid: deterministic thesis + gloss).
-    var proseHtml = tc.prose
-      ? '<div class="thesis-prose" title="AI-written narrative — a plain-English read of the deterministic signals + macro backdrop above. Generated at build time; degrades gracefully when the AI key is absent.">' + escapeHtml(tc.prose) + ' <span class="thesis-prose-tag">AI read</span></div>'
-      : '';
-    return '<div class="pick-thesis ' + dirCls + (tc.hasSolidThesis === false ? ' thesis-weak' : '') + '">' +
+
+    return '<div class="pick-thesis ' + dirCls + ' ' + tierCls + (noRec ? ' thesis-norec-card' : '') + '">' +
       '<div class="pick-thesis-head">Thesis <span class="thesis-dir">' + escapeHtml(tc.direction || '') + '</span>' +
-        (tc.hasSolidThesis === false ? '<span class="thesis-weak-tag" title="Lower-confidence — see the disclosure below.">thin</span>' : '') + '</div>' +
+        '<span class="pick-class ' + cm.cls + '" title="' + escapeHtml(cm.tip) + '">' + escapeHtml(cm.label) + '</span></div>' +
+      edgeHtml +
       stratHtml +
       convHtml +
-      mrHtml +
       discHtml +
-      (worksHtml ? '<div class="thesis-col thesis-works"><div class="thesis-col-head">✓ What makes it work</div><ul>' + worksHtml + '</ul></div>' : '') +
-      (invHtml ? '<div class="thesis-col thesis-inval"><div class="thesis-col-head">⚠ What would disprove it</div><ul>' + invHtml + '</ul></div>' : '') +
-      proseHtml +
-      tgtHtml +
-      statusHtml +
+      expandHtml +
     '</div>';
   }
 
@@ -19678,6 +19934,13 @@
   function pickTabCardHtml(p, idx){
     var sideCls = pickSideClass(p.side);
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
+    // Grade × thesis classification + whether a strategy is recommended at all.
+    var pcls = p.classification || (p.group === 'actionable' ? 'actionable' : 'idea');
+    var noRec = !p.contract || (p.strategy && p.strategy.type === 'none');
+    var pcm = pickClassMeta(pcls);
+    var classChip = (p.group === 'watch')
+      ? '<span class="ptc-class ' + pcm.cls + '" title="' + escapeHtml(pcm.tip) + '">' + escapeHtml(pcm.label) + '</span>'
+      : '';
     var total = (p.total != null) ? p.total : (p.score != null ? p.score : null);
     var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + Number(total).toFixed(1)) : '—';
     var rec = p.recommendation || {};
@@ -19712,7 +19975,7 @@
     // (from computeEntrySignal). Subsumes the old earnings/event-only WAIT chip:
     // it covers buy-now, wait-for-reclaim/pullback/dip, and the event defer.
     var entryLine = '';
-    if (p.entry && p.entry.headline){
+    if (!noRec && p.entry && p.entry.headline){
       var eNow = !!p.entry.now;
       var eTrg = (!eNow && p.entry.trigger != null && isFinite(p.entry.trigger)) ? ' $' + Number(p.entry.trigger).toFixed(2) : '';
       entryLine = '<span class="ptc-entry ptc-entry-' + (eNow ? 'now' : 'wait') + '" title="' + escapeHtml(p.entry.headline) + '">' +
@@ -19773,10 +20036,13 @@
         spreadChip + popChip + beChip + erChip +
       '</span>';
     }
-    return '<button type="button" class="pick-tab-card ' + sideCls + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
+    // No-recommendation watch idea (weak thesis): no contract — show the grade,
+    // not a phantom trade. Replace the contract line with a clear "no strategy" tag.
+    if (noRec) econ = '<span class="ptc-norec" title="High grade but the supporting case is too thin to define a trade — grade shown, no strategy recommended.">⊘ no strategy · thesis thin</span>';
+    return '<button type="button" class="pick-tab-card ' + sideCls + (noRec ? ' ptc-norec-card' : '') + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + liveChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + classChip + liveChip + streakChip + fiftyChip + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) +
         (p.costDebit > 0
           ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
@@ -20241,7 +20507,26 @@
     var rosterNote = noteBits.length
       ? '<div class="picks-roster-note" title="The engine ships fewer, better-timed, less-correlated picks rather than padding the list. A short list is the signal that there is little clean to buy.">⚖︎ ' + noteBits.join(' · ') + '</div>'
       : '';
-    grid.innerHTML = rosterNote + picks.map(function(p, idx){ return pickTabCardHtml(p, idx); }).join('');
+    // Two roster GROUPS (the grade × thesis matrix): Actionable top picks (strong
+    // grade + strong thesis, full strategy) vs. lower-conviction Ideas / Watch.
+    var actionableList = picks.filter(function(p){ return p.group === 'actionable'; });
+    var watchList = picks.filter(function(p){ return p.group !== 'actionable'; });
+    var groupHead = function(title, count, sub, cls){
+      return '<div class="picks-group-head ' + cls + '">' +
+        '<span class="picks-group-title">' + title + '</span>' +
+        '<span class="picks-group-count">' + count + '</span>' +
+        (sub ? '<span class="picks-group-sub">' + sub + '</span>' : '') + '</div>';
+    };
+    var sectionHtml = '';
+    sectionHtml += groupHead('Actionable top picks', actionableList.length, 'Strong grade <b>and</b> strong thesis — a recommended options strategy', 'picks-group-actionable');
+    sectionHtml += actionableList.length
+      ? actionableList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('')
+      : '<div class="picks-group-empty">Nothing cleared both bars today (a strong grade <i>and</i> a strong thesis). Cash is a position — the lower-conviction ideas below didn’t earn a full recommendation.</div>';
+    if (watchList.length){
+      sectionHtml += groupHead('Ideas · watch', watchList.length, 'Lower conviction — a moderate grade or a thinner thesis; a strategy is shown only where it’s earned', 'picks-group-watch');
+      sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
+    }
+    grid.innerHTML = rosterNote + sectionHtml;
   }
 
   // --- Pinned-to-compare strip --------------------------------------------
@@ -20557,6 +20842,7 @@
       ['picks', 'Top picks'],
       ['heatmap', 'Heatmap'],
       ['calendar', 'Calendar'],
+      ['index-cal', 'Index calendar'],
       ['overnight', 'Overnight markets'],
       ['flow', 'Unusual flow'],
       ['volume', 'Volume'],
