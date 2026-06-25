@@ -9523,17 +9523,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var exitPrice = hit === 'stop' ? Number(t.stop) : Number(t.target);
     var sign = t.side === 'short' ? -1 : 1;
     var entry = Number(t.entry);
-    var pnlPct = entry > 0 ? Math.round(((exitPrice - entry) / entry) * 100 * sign * 100) / 100 : null;
-    var riskPct = (t.riskPct != null && isFinite(t.riskPct) && t.riskPct > 0)
-      ? Number(t.riskPct) : (Math.abs(entry - Number(t.stop)) / entry) * 100;
-    var pnlR = (pnlPct != null && riskPct > 0) ? Math.round((pnlPct / riskPct) * 100) / 100 : null;
+    var r2 = function(x){ return (x == null || !isFinite(x)) ? null : Math.round(x * 100) / 100; };
+    var stockPnlPct = entry > 0 ? r2(((exitPrice - entry) / entry) * 100 * sign) : null;
+    // Score the OPTION at the (stock-triggered) exit: win = the contract P&L sign,
+    // mirroring the scanner's dtCloseTrade. Stock-move fallback when no snapshot.
+    var op = t.opt ? dtOptionPnlAt(t.opt, exitPrice) : null;
+    var pnlPct, pnlR, win, optModeled = false;
+    if (op != null){
+      optModeled = true; pnlPct = r2(op);
+      pnlR = (Number(t.opt.riskPct) > 0) ? r2(op / Number(t.opt.riskPct)) : null;
+      win = op >= 0;
+    } else {
+      var riskPct = (t.riskPct != null && isFinite(t.riskPct) && t.riskPct > 0)
+        ? Number(t.riskPct) : (Math.abs(entry - Number(t.stop)) / entry) * 100;
+      pnlPct = stockPnlPct;
+      pnlR = (pnlPct != null && riskPct > 0) ? r2(pnlPct / riskPct) : null;
+      win = hit === 'target';
+    }
     map[t.id] = {
       id: t.id, sym: t.sym, side: t.side, kind: t.kind,
       entry: entry, stop: Number(t.stop), target: Number(t.target),
       openedAt: t.openedAt, openEtDate: t.openEtDate,
       closedAt: new Date().toISOString(),
       exitPrice: Math.round(exitPrice * 100) / 100,
-      outcome: hit, win: hit === 'target', pnlPct: pnlPct, pnlR: pnlR,
+      outcome: hit, win: win, pnlPct: pnlPct, pnlR: pnlR,
+      optModeled: optModeled, stockPnlPct: stockPnlPct,
+      opt: t.opt || null,
       basis: t.basis, pace: t.pace, provisional: true,
     };
     dtSaveLiveClosed();
@@ -9556,23 +9571,41 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (changed) dtSaveLiveClosed();
     return changed;
   }
-  // Live mark for one open trade: spot, P/L %, R multiple, progress toward the
-  // take-profit (0 = entry, +1 = target, negative = toward the stop), and
-  // whether it has already TOUCHED its take-profit / stop-loss this session (a
-  // provisional close the next hourly scan will file durably into history).
+  // Modeled option P&L % for a day trade's snapshot contract at a given spot, now
+  // (Black-Scholes, entry IV held — the recommended contract is what we score, not
+  // the share move). T<=0 -> intrinsic. Mirrors the server's dtMarkOption.
+  function dtOptionPnlAt(opt, spot){
+    if (!opt || !(spot > 0) || !(Number(opt.entryPrem) > 0)) return null;
+    var T = Math.max(0, (Number(opt.expiry) - Date.now() / 1000) / (365 * 86400));
+    var price;
+    if (T <= 0) price = opt.side === 'call' ? Math.max(0, spot - opt.strike) : Math.max(0, opt.strike - spot);
+    else price = stratBsPrice(opt.side, spot, opt.strike, T, opt.iv, RFR);
+    if (!(price >= 0)) price = 0;
+    return (price / Number(opt.entryPrem) - 1) * 100;
+  }
+  // Live mark for one open trade: spot, the recommended OPTION's P/L % + R multiple
+  // (modeled), progress of the STOCK toward its take-profit (0 = entry, +1 = target,
+  // negative = toward the stop — exits are stock-triggered), and whether it has
+  // already TOUCHED its take-profit / stop-loss this session (a provisional close).
   function dtLiveMark(t){
     var q = volLive.quotesBySym[String(t.sym).toUpperCase()] || null;
     var spot = (q && q.spot != null && isFinite(q.spot)) ? Number(q.spot)
       : ((t.lastSpot != null && isFinite(t.lastSpot)) ? Number(t.lastSpot) : null);
     var sign = t.side === 'short' ? -1 : 1;
     var entry = Number(t.entry);
-    var pnlPct = (spot != null && entry > 0) ? ((spot - entry) / entry) * 100 * sign : null;
+    var stockPnlPct = (spot != null && entry > 0) ? ((spot - entry) / entry) * 100 * sign : null;
     var riskPct = (t.riskPct != null && isFinite(t.riskPct) && t.riskPct > 0)
       ? Number(t.riskPct) : (Math.abs(entry - Number(t.stop)) / entry) * 100;
     var rewardPct = (t.rewardPct != null && isFinite(t.rewardPct) && t.rewardPct > 0)
       ? Number(t.rewardPct) : (Math.abs(Number(t.target) - entry) / entry) * 100;
-    var rMult = (pnlPct != null && riskPct > 0) ? pnlPct / riskPct : null;
-    var prog = (pnlPct != null && rewardPct > 0) ? Math.max(-1, Math.min(1, pnlPct / rewardPct)) : 0;
+    // Score the OPTION when we have a snapshot; else fall back to the stock move.
+    var pnlPct = stockPnlPct, rMult = (stockPnlPct != null && riskPct > 0) ? stockPnlPct / riskPct : null, optModeled = false;
+    if (t.opt && spot != null){
+      var op = dtOptionPnlAt(t.opt, spot);
+      if (op != null){ pnlPct = op; optModeled = true; rMult = (Number(t.opt.riskPct) > 0) ? op / Number(t.opt.riskPct) : null; }
+    }
+    // The progress bar tracks the STOCK's journey to its target/stop (the exit plan).
+    var prog = (stockPnlPct != null && rewardPct > 0) ? Math.max(-1, Math.min(1, stockPnlPct / rewardPct)) : 0;
     var dayHi = (q && q.dayHi != null && isFinite(q.dayHi)) ? Number(q.dayHi) : null;
     var dayLo = (q && q.dayLo != null && isFinite(q.dayLo)) ? Number(q.dayLo) : null;
     var hit = null;
@@ -9585,7 +9618,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         else if (spot >= t.target || (dayHi != null && t.openDayHi != null && dayHi > t.openDayHi && dayHi >= t.target)) hit = 'target';
       }
     }
-    return { spot: spot, pnlPct: pnlPct, rMult: rMult, prog: prog, hit: hit };
+    return { spot: spot, pnlPct: pnlPct, rMult: rMult, prog: prog, hit: hit, optModeled: optModeled, stockPnlPct: stockPnlPct };
   }
   // Day-trade thesis block (collapsed) — the edge + conviction + confirmation /
   // invalidation + the thesis-quality checklist + honest disclosure, mirroring the
@@ -9656,6 +9689,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var entry = Number(t.entry);
     var stopPct = entry > 0 ? (Number(t.stop) - entry) / entry * 100 : 0;
     var tgtPct = entry > 0 ? (Number(t.target) - entry) / entry * 100 : 0;
+    // The modeled option this trade is SCORED on (the P/L above is the contract's,
+    // not the share move) — so the number is legible on the card.
+    var optChip = '';
+    if (t.opt && t.opt.strike != null){
+      var optDte = Math.max(0, Math.round((Number(t.opt.expiry) - Date.now() / 1000) / 86400));
+      var optK = Number(t.opt.strike);
+      optChip = '<span class="hot-dt-leg hot-dt-optc" title="The recommended ~ATM option this trade is scored on (Black-Scholes, entry IV held). The P/L and R above are this CONTRACT\\'s, not the share move.">opt <b>$' + (optK % 1 ? optK.toFixed(1) : optK.toFixed(0)) + (t.opt.side === 'call' ? 'c' : 'p') + ' · ' + optDte + 'd</b></span>';
+    }
+    var pnlTag = (m && m.optModeled) ? ' <span class="hot-dt-pnl-tag" title="Modeled option P/L (Black-Scholes), not the share move.">opt</span>' : '';
     return '<article class="hot-dt-card ' + sideCls + (m && m.hit ? ' is-hit hit-' + m.hit : '') + '" data-sym="' + escapeHtml(t.sym) + '">' +
       '<div class="hot-dt-head">' +
         '<button type="button" class="hot-dt-sym" data-pick-symbol="' + escapeHtml(t.sym) + '" title="Open ' + escapeHtml(t.sym) + ' in the grader">' + escapeHtml(t.sym) + '</button>' +
@@ -9663,7 +9705,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="hot-dt-side ' + sideCls + '">' + sideLbl + '</span>' +
         '<span class="hot-dt-kind hot-dt-kind-' + (t.kind === 'swing' ? 'swing' : 'scalp') + '" title="' + (t.kind === 'swing' ? 'Swing \\u2014 rides a 20-day breakout for up to three sessions' : 'Scalp \\u2014 tight intraday momentum trade, closes by the bell') + '">' + (t.kind === 'swing' ? 'SWING' : 'SCALP') + '</span>' +
         '<span class="hot-dt-spot">' + spot + '</span>' +
-        '<span class="hot-dt-pnl ' + pnlCls + '">' + pnl + (rTxt ? ' <span class="hot-dt-r">' + rTxt + '</span>' : '') + '</span>' +
+        '<span class="hot-dt-pnl ' + pnlCls + '">' + pnl + pnlTag + (rTxt ? ' <span class="hot-dt-r">' + rTxt + '</span>' : '') + '</span>' +
       '</div>' +
       (hitBadge ? '<div class="hot-dt-hit-row">' + hitBadge + '</div>' : '') +
       '<div class="hot-dt-bar" aria-hidden="true" title="Progress from entry toward the take-profit (right) or stop-loss (left).">' +
@@ -9675,6 +9717,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="hot-dt-leg is-dn">stop <b>$' + Number(t.stop).toFixed(2) + '</b> (' + dtSignedPct(stopPct) + ')</span>' +
         '<span class="hot-dt-leg is-up">target <b>$' + Number(t.target).toFixed(2) + '</b> (' + dtSignedPct(tgtPct) + ')</span>' +
         '<span class="hot-dt-leg">R:R <b>1:' + Number(t.rr).toFixed(1) + '</b></span>' +
+        optChip +
       '</div>' +
       '<div class="hot-dt-basis">' + escapeHtml(t.basis || '') + ' \\u00b7 opened ' + escapeHtml(dtAgeLabel(t.openedAt)) + '</div>' +
       dtThesisHtml(t) +
@@ -9749,14 +9792,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var pnl = (c.pnlPct != null) ? (c.pnlPct >= 0 ? '+' : '') + Number(c.pnlPct).toFixed(2) + '%' : '\\u2014';
     var rTxt = (c.pnlR != null) ? ' (' + (c.pnlR >= 0 ? '+' : '') + Number(c.pnlR).toFixed(2) + 'R)' : '';
     var pnlCls = (c.pnlPct != null && c.pnlPct >= 0) ? 'is-up' : 'is-dn';
+    var optTag = c.optModeled ? ' <span class="hot-dt-pnl-tag" title="Modeled option P/L (Black-Scholes) on the recommended ~ATM contract \\u2014 win/loss is the option sign, not the share move' + (c.stockPnlPct != null ? '. Stock moved ' + (c.stockPnlPct >= 0 ? '+' : '') + Number(c.stockPnlPct).toFixed(1) + '%' : '') + '.">opt</span>' : '';
     // Provisional = the browser filed this close live off the tape; the next
     // hourly scan replaces it with the durable record (same numbers).
     var liveTag = c.provisional ? ' <span class="hot-hist-live" title="Closed live off the tape \\u2014 the next hourly scan files the durable record.">live</span>' : '';
     return '<div class="hot-hist-row ' + (win ? 'is-win' : 'is-loss') + (c.provisional ? ' is-provisional' : '') + '">' +
       '<span class="hot-hist-trade"><b>' + escapeHtml(c.sym) + '</b> <span class="hot-dt-side ' + sideCls + '">' + sideLbl + '</span> <span class="hot-dt-kind hot-dt-kind-' + (c.kind === 'swing' ? 'swing' : 'scalp') + '">' + (c.kind === 'swing' ? 'SWING' : 'SCALP') + '</span></span>' +
       '<span class="hot-hist-out ' + (win ? 'is-win' : 'is-loss') + '">' + (win ? '\\u2713 ' : '\\u2717 ') + outLbl + liveTag + '</span>' +
-      '<span class="hot-hist-px">$' + Number(c.entry).toFixed(2) + ' \\u2192 $' + Number(c.exitPrice).toFixed(2) + '</span>' +
-      '<span class="hot-hist-pnl ' + pnlCls + '">' + pnl + rTxt + '</span>' +
+      '<span class="hot-hist-px" title="The stock levels that triggered the exit (entry \\u2192 exit). The P/L is the option\\'s.">$' + Number(c.entry).toFixed(2) + ' \\u2192 $' + Number(c.exitPrice).toFixed(2) + '</span>' +
+      '<span class="hot-hist-pnl ' + pnlCls + '">' + pnl + optTag + rTxt + '</span>' +
       '<span class="hot-hist-when">' + escapeHtml(dtAgeLabel(c.closedAt)) + '</span>' +
     '</div>';
   }
@@ -17958,10 +18002,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="accuracy-chip-lbl">expectancy · option (modeled)</span>' +
       '</div>';
     }
-    // Underlying outcome win rate (TP/cut/expiry on the stock) — secondary when the
-    // option lens is present, the headline when it isn't (legacy / pre-snapshot).
-    var wr = (st.winRate != null && isFinite(st.winRate)) ? Math.round(st.winRate * 100) + '%' : '—';
-    chips += chip(wr, 'win rate · ' + (st.optionWinRate != null ? 'stock · ' : '') + (st.decided || 0) + ' resolved', (st.winRate != null && st.winRate >= 0.5) ? 'accuracy-chip-good' : (st.winRate != null ? 'accuracy-chip-bad' : ''));
+    // The OPTION win rate already leads above. Keep a generic win-rate chip ONLY
+    // for legacy / pre-snapshot data with no option lens (this tracks the contract,
+    // not the stock).
+    if (st.optionWinRate == null && st.winRate != null && isFinite(st.winRate)) {
+      chips += chip(Math.round(st.winRate * 100) + '%', 'win rate · ' + (st.decided || 0) + ' resolved', st.winRate >= 0.5 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
+    }
     chips += chip(String(st.wins || 0), 'wins', 'accuracy-chip-good');
     chips += chip(String(st.losses || 0), 'losses', 'accuracy-chip-bad');
     chips += chip(String(open.length), 'open');
@@ -17974,19 +18020,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="accuracy-chip-lbl">open book · contract (modeled · ' + st.openOptionN + ')</span>' +
       '</div>';
     }
-    if (st.avgMfePct != null) chips += chip(accPct(st.avgMfePct), 'avg peak gain');
-    if (st.avgMaePct != null) chips += chip('-' + Number(st.avgMaePct).toFixed(1) + '%', 'avg drawdown');
-    // Realized expectancy (side-adjusted underlying move, not option P&L) + the
-    // SPY benchmark over each pick's hold — the honest "does this beat buy-and-hold?"
-    if (st.expectancyPct != null) chips += chip(accPct(st.expectancyPct), 'expectancy · stock move', st.expectancyPct >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad');
-    if (st.excessExpectancyPct != null) {
-      var spyTip = 'Realized stock-move expectancy minus SPY over each pick\\'s exact hold window (side-adjusted). Positive = the picks beat simply holding the index.' +
-        (st.avgSpyRetPct != null ? ' SPY returned ' + accPct(st.avgSpyRetPct) + ' across those same windows.' : '');
-      chips += '<div class="accuracy-chip' + (st.excessExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + spyTip + '">' +
-        '<span class="accuracy-chip-num">' + accPct(st.excessExpectancyPct) + '</span>' +
-        '<span class="accuracy-chip-lbl">vs SPY</span>' +
-      '</div>';
-    }
+    // Option (contract) peak/dip over the hold — the modeled best/worst the
+    // recommended contract reached (the option lens; replaces the old stock-move
+    // peak/dip + stock-expectancy + vs-SPY chips, which measured the share move).
+    if (st.avgOptHiPct != null) chips += chip(accPct(st.avgOptHiPct), 'avg option peak', st.avgOptHiPct >= 0 ? 'accuracy-chip-good' : '');
+    if (st.avgOptLoPct != null) chips += chip(accPct(st.avgOptLoPct), 'avg option dip', 'accuracy-chip-bad');
     // Fade-the-grade (research): directional expectancy of betting the OPPOSITE
     // side. A positive number means fading the grade would have paid — i.e. the
     // signal's directional edge is net negative. Shown only when it's informative.
@@ -18221,7 +18259,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div class="acc-row-meta">' +
             '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
             (held != null ? '<span>' + held + 'd held</span>' : '') +
-            '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>' +
+            ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
+              ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
+              : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
             '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
           '</div>' +
           accCheckpointsBlock(e) +

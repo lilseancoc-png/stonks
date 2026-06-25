@@ -35,6 +35,7 @@ import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
 import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState, aiModelForAttempt } from "./build.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
+import { greeks as bsGreeks, bsPrice, yearsToExpiry } from "../lib/greeks.mjs";
 import {
   evaluateTicker as evaluateVolumeFlag,
   etDateKey as volEtDateKey,
@@ -1194,6 +1195,19 @@ const DT_CHASE_MAX_PCT_BREAK = 8.0;  // confirmed break: reject beyond +/-8%
 // expectancy. (Was a flat 1:1.)
 const DT_MIN_RR = Number(process.env.DT_MIN_RR ?? 1.2);
 
+// ── Option track-record (score the recommended option, not the stock move) ───
+// A day trade keeps its stock entry/stop/target plan, but at open we snapshot a
+// real ~0.50Δ ATM contract and score the trade on THAT option (Black-Scholes,
+// modeled — like the Top Picks track record). Win/loss = the option P&L sign at
+// the (stock-triggered) exit; a theta-eaten target hit honestly reads as a loss.
+const DT_OPT_TRACK = process.env.DT_OPT_TRACK !== "0"; // off -> legacy stock-move P&L
+const DT_OPT_SCALP_DTE = Number(process.env.DT_OPT_SCALP_DTE ?? 3);  // scalp: nearest expiry >= ~3 sessions
+const DT_OPT_SWING_DTE = Number(process.env.DT_OPT_SWING_DTE ?? 7);  // swing: >= ~1 week (covers the 3-session hold + buffer)
+const DT_OPT_TARGET_DELTA = 0.50;    // ATM
+const DT_OPT_MIN_OI = 100;           // per-contract liquidity floor
+const DT_OPT_MAX_SPREAD_PCT = 0.20;  // reject a contract with a wider bid/ask
+const DT_OPT_RFR = Number(process.env.DT_OPT_RFR ?? 0.045);
+
 const dtR2 = (x) => Math.round(x * 100) / 100;
 const dtR1 = (x) => Math.round(x * 10) / 10;
 const dtNum = (x) => (x != null && isFinite(x)) ? Number(x) : null;
@@ -1392,6 +1406,76 @@ export function dtBuildOptionIdea(side, kind, dir, sr, tier) {
 }
 
 // Turn one volume-flag row + its live quote into a tradeable candidate, or null.
+// Fetch a day trade's option chain: the nearest LISTED expiration >= the kind's
+// min DTE, with the raw Yahoo contract rows. Returns { spot, exp, calls, puts } or
+// null. Best-effort — a fetch failure leaves the trade on the stock-move fallback.
+async function dtFetchOptionChain(sym, kind) {
+  try {
+    const r0 = await fetchOptionsWithRetry(sym, {});
+    const spot = dtNum(r0?.quote?.regularMarketPrice ?? r0?.quote?.postMarketPrice ?? r0?.quote?.preMarketPrice);
+    const exps = Array.isArray(r0?.expirationDates)
+      ? r0.expirationDates.map((d) => Math.round(new Date(d).getTime() / 1000)).filter((e) => isFinite(e))
+      : [];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const minDte = kind === "swing" ? DT_OPT_SWING_DTE : DT_OPT_SCALP_DTE;
+    let entry = r0?.options?.[0] || null;
+    let entryExp = entry?.expirationDate ? Math.round(new Date(entry.expirationDate).getTime() / 1000) : null;
+    // If the nearest returned expiry is too soon for the kind, fetch the first
+    // listed expiration that clears the min DTE (one extra call, only for swings).
+    const wantExp = exps.find((e) => (e - nowSec) / 86400 >= minDte);
+    if (wantExp && entryExp !== wantExp) {
+      const r1 = await fetchOptionsWithRetry(sym, { date: new Date(wantExp * 1000) }).catch(() => null);
+      if (r1?.options?.[0]) { entry = r1.options[0]; entryExp = wantExp; }
+    }
+    if (!entry || spot == null || entryExp == null) return null;
+    return { spot, exp: entryExp, calls: entry.calls || [], puts: entry.puts || [] };
+  } catch { return null; }
+}
+
+// Snapshot a real ~0.50Δ ATM contract for a day trade's option idea (modeled with
+// Black-Scholes thereafter, like the Top Picks track record). Returns
+// { side, strike, expiry, iv, entryPrem, entrySpot, riskPct } or null (no liquid
+// ATM contract -> the trade falls back to stock-move P&L).
+function dtPickOptionContract(chain, optSide, spot, stop, rfr = DT_OPT_RFR) {
+  if (!chain || !chain.exp || !(spot > 0)) return null;
+  const rows = optSide === "call" ? chain.calls : chain.puts;
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const T = yearsToExpiry(chain.exp);
+  if (!(T > 0)) return null;
+  let best = null, bestErr = Infinity;
+  for (const c of rows) {
+    const strike = dtNum(c.strike), bid = dtNum(c.bid), ask = dtNum(c.ask), iv = dtNum(c.impliedVolatility);
+    if (strike == null || iv == null || !(iv > 0)) continue;
+    if (bid == null || ask == null || !(bid > 0) || !(ask > 0)) continue;
+    const mid = (bid + ask) / 2;
+    if (!(mid > 0) || (ask - bid) / mid > DT_OPT_MAX_SPREAD_PCT) continue;
+    if ((dtNum(c.openInterest) || 0) < DT_OPT_MIN_OI) continue;
+    const g = bsGreeks(optSide, spot, strike, T, iv, rfr);
+    const err = Math.abs(Math.abs(g.delta) - DT_OPT_TARGET_DELTA);
+    if (err < bestErr) { bestErr = err; best = { strike, iv, entryPrem: mid }; }
+  }
+  if (!best) return null;
+  const opt = { side: optSide, strike: dtR2(best.strike), expiry: chain.exp, iv: best.iv, entryPrem: dtR2(best.entryPrem), entrySpot: dtR2(spot) };
+  // The option "1R": its P&L if the stock instantly tags its stop (no decay yet) —
+  // a meaningful risk denominator for the option's R-multiple.
+  const atStop = dtMarkOption(opt, stop);
+  opt.riskPct = (atStop != null) ? Math.abs(dtR2(atStop)) : null;
+  return opt;
+}
+
+// Modeled option P&L % at an underlying spot, as of `atSec` (epoch seconds; default
+// now). Entry IV held — a modeled mark, not a live options fill. T<=0 -> intrinsic.
+function dtMarkOption(opt, spot, atSec = null) {
+  if (!opt || !(spot > 0) || !(opt.entryPrem > 0)) return null;
+  const nowSec = atSec != null ? atSec : Math.floor(Date.now() / 1000);
+  const T = Math.max(0, (opt.expiry - nowSec) / (365 * 86400));
+  let price;
+  if (T <= 0) price = opt.side === "call" ? Math.max(0, spot - opt.strike) : Math.max(0, opt.strike - spot);
+  else price = bsPrice(opt.side, spot, opt.strike, T, opt.iv, DT_OPT_RFR);
+  if (!(price >= 0)) price = 0;
+  return (price / opt.entryPrem - 1) * 100;
+}
+
 function dtBuildCandidate(row, quote) {
   const spot = (quote && quote.spot > 0) ? quote.spot : (row.spot > 0 ? row.spot : null);
   if (!(spot > 0)) return null;
@@ -1473,16 +1557,34 @@ function dtEvaluateHit(t, liveSpot, hiSince, loSince) {
 }
 function dtCloseTrade(t, outcome, exitPrice, scannedAt, todayKey) {
   const sign = t.side === "long" ? 1 : -1;
-  const pnlPct = dtR2(((exitPrice - t.entry) / t.entry) * 100 * sign);
-  const riskPct = (t.riskPct && t.riskPct > 0) ? t.riskPct : (Math.abs(t.entry - t.stop) / t.entry) * 100;
-  const pnlR = riskPct > 0 ? dtR2(pnlPct / riskPct) : null;
-  const win = outcome === "target" || (outcome === "expired" && pnlPct > 0);
+  // Stock-move P&L (kept as secondary context; the headline is the option).
+  const stockPnlPct = dtR2(((exitPrice - t.entry) / t.entry) * 100 * sign);
+  const stockRiskPct = (t.riskPct && t.riskPct > 0) ? t.riskPct : (Math.abs(t.entry - t.stop) / t.entry) * 100;
+  // Score the OPTION (the recommended contract): mark it at the exit spot + the
+  // close time (theta decayed). Win = the OPTION P&L sign — a target hit too slowly
+  // (theta > delta) honestly records as a loss. No snapshot -> stock-move fallback.
+  const atSec = Math.floor(Date.parse(scannedAt) / 1000) || Math.floor(Date.now() / 1000);
+  const oPnl = t.opt ? dtMarkOption(t.opt, exitPrice, atSec) : null;
+  let pnlPct, pnlR, win, optModeled = false;
+  if (oPnl != null) {
+    optModeled = true;
+    pnlPct = dtR2(oPnl);
+    const oRisk = (t.opt.riskPct && t.opt.riskPct > 0) ? t.opt.riskPct : null;
+    pnlR = oRisk ? dtR2(pnlPct / oRisk) : null;
+    win = oPnl >= 0;
+  } else {
+    pnlPct = stockPnlPct;
+    pnlR = stockRiskPct > 0 ? dtR2(stockPnlPct / stockRiskPct) : null;
+    win = outcome === "target" || (outcome === "expired" && stockPnlPct > 0);
+  }
   return {
     id: t.id, sym: t.sym, side: t.side, kind: t.kind,
     entry: t.entry, stop: t.stop, target: t.target,
     openedAt: t.openedAt, openEtDate: t.openEtDate,
     closedAt: scannedAt, closedEtDate: todayKey,
     exitPrice: dtR2(exitPrice), outcome, win, pnlPct, pnlR,
+    optModeled, stockPnlPct,
+    opt: t.opt || null, optHiPct: t.optHiPct ?? null, optLoPct: t.optLoPct ?? null,
     basis: t.basis, pace: t.pace,
   };
 }
@@ -1549,6 +1651,16 @@ async function runDayTradePass({ volRows, quotesMap, scannedAt, marketState, now
     const advSpot = t.side === "long" ? loSince : hiSince;
     t.mfePct = dtR1(((favSpot - t.entry) / t.entry) * 100 * (t.side === "long" ? 1 : -1));
     t.maePct = dtR1(((advSpot - t.entry) / t.entry) * 100 * (t.side === "long" ? 1 : -1));
+    // Mark the recommended OPTION to the live tape (modeled, entry IV held) — the
+    // contract P&L the track record scores, plus its peak/dip over the hold.
+    if (t.opt && liveSpot != null) {
+      const oPnl = dtMarkOption(t.opt, liveSpot, Math.floor(Date.parse(scannedAt) / 1000));
+      if (oPnl != null) {
+        t.optPnlPct = dtR2(oPnl);
+        t.optHiPct = dtR2(Math.max(isFinite(t.optHiPct) ? t.optHiPct : -Infinity, oPnl));
+        t.optLoPct = dtR2(Math.min(isFinite(t.optLoPct) ? t.optLoPct : Infinity, oPnl));
+      }
+    }
 
     let outcome = null, exitPrice = null;
     if (isRegular && liveSpot != null) {
@@ -1582,6 +1694,14 @@ async function runDayTradePass({ volRows, quotesMap, scannedAt, marketState, now
     for (const cand of candidates) {
       if (active.length >= DT_MAX_ACTIVE) break;
       const openedMs = Date.now();
+      // Snapshot the recommended OPTION so the trade is scored on the contract, not
+      // the stock move (best-effort; no liquid contract -> stock-move fallback). Only
+      // the handful of newly-minted trades fetch a chain — marking reuses the snapshot.
+      let opt = null;
+      if (DT_OPT_TRACK) {
+        const optChain = await dtFetchOptionChain(cand.sym, cand.kind);
+        if (optChain) opt = dtPickOptionContract(optChain, cand.side === "long" ? "call" : "put", cand.plan.entry, cand.plan.stop);
+      }
       active.push({
         id: `${cand.sym}-${openedMs}`,
         sym: cand.sym, side: cand.side, kind: cand.kind,
@@ -1594,6 +1714,7 @@ async function runDayTradePass({ volRows, quotesMap, scannedAt, marketState, now
         hiSinceOpen: cand.plan.entry, loSinceOpen: cand.plan.entry,
         lastSpot: cand.plan.entry, lastAt: scannedAt,
         mfePct: 0, maePct: 0,
+        opt, optModeled: !!opt, optPnlPct: opt ? 0 : null, optHiPct: opt ? 0 : null, optLoPct: opt ? 0 : null,
         basis: cand.basis, pace: cand.heat,
         thesis: cand.thesis || null, optionIdea: cand.optionIdea || null,
       });
@@ -1943,7 +2064,7 @@ function stripCandidate(c) {
 // only run main() when invoked directly (mirrors build.mjs's entry guard).
 export {
   dtBuildPlan, dtBuildCandidate, dtDirection, dtEvaluateHit, dtCloseTrade,
-  dtComputeStats, dtTradingDaysBetween,
+  dtComputeStats, dtTradingDaysBetween, dtPickOptionContract, dtMarkOption,
   // The volume + Day Trades engine passes, reused by the lightweight
   // high-frequency runner (scripts/scan-day-trades.mjs) so new ideas + TP/SL
   // closes land between the hourly full scans. DATA_DIR is shared so both

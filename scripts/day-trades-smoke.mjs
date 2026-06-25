@@ -6,6 +6,7 @@
 import {
   dtBuildPlan, dtBuildCandidate, dtDirection, dtEvaluateHit, dtCloseTrade,
   dtComputeStats, dtTradingDaysBetween, dtBuildThesis, dtBuildOptionIdea,
+  dtPickOptionContract, dtMarkOption,
 } from "./scan-unusual.mjs";
 
 let pass = 0, fail = 0;
@@ -86,6 +87,26 @@ ok("pnl: long target = +4% win", wonLong.win === true && near(wonLong.pnlPct, 4)
 ok("pnl: long +4% on 2% risk = +2R", near(wonLong.pnlR, 2));
 const lostShort = dtCloseTrade({ id: "y", sym: "BBB", side: "short", kind: "scalp", entry: 100, stop: 102, target: 96, riskPct: 2, openedAt: "2024-01-02T15:00:00Z", openEtDate: "2024-01-02", basis: "", pace: 1.6 }, "stop", 102, "2024-01-02T19:00:00Z", "2024-01-02");
 ok("pnl: short stopped = -2% loss", lostShort.win === false && near(lostShort.pnlPct, -2));
+ok("pnl: no option snapshot -> stock-move fallback (legacy path)", wonLong.optModeled === false && lostShort.optModeled === false);
+
+// --- 5b. option-tracked P/L (score the recommended CONTRACT, not the stock) ---
+const dteSec = (d) => Math.floor(Date.now() / 1000) + d * 86400;
+const mkRow = (K) => ({ strike: K, bid: Math.max(0.1, 3 - Math.abs(100 - K) * 0.25), ask: Math.max(0.2, 3 - Math.abs(100 - K) * 0.25) + 0.1, impliedVolatility: 0.6, openInterest: 500, volume: 100 });
+const optChain = { spot: 100, exp: dteSec(7), calls: [90, 95, 100, 105, 110].map(mkRow), puts: [90, 95, 100, 105, 110].map(mkRow) };
+const optCall = dtPickOptionContract(optChain, "call", 100, 97);
+ok("opt: picks an ATM ~0.50Δ call w/ entry premium + iv + 1R risk", optCall && optCall.side === "call" && near(optCall.strike, 100, 0.01) && optCall.entryPrem > 0 && optCall.iv === 0.6 && optCall.riskPct > 0);
+ok("opt: a short trade snapshots the put side", (() => { const p = dtPickOptionContract(optChain, "put", 100, 103); return !!p && p.side === "put"; })());
+ok("opt: illiquid chain (no OI) -> no snapshot (stock fallback)", dtPickOptionContract({ spot: 100, exp: dteSec(7), calls: [{ ...mkRow(100), openInterest: 0 }], puts: [] }, "call", 100, 97) === null);
+const optUp = dtMarkOption(optCall, 106, dteSec(0) + 3600);
+ok("opt: a favorable stock move is LEVERAGED on the option (>> the 6% share move)", optUp != null && optUp > 6);
+ok("opt: theta erodes the same move later in the hold", dtMarkOption(optCall, 106, dteSec(5)) < optUp);
+const optBase = { id: "o", sym: "CCC", side: "long", kind: "swing", entry: 100, stop: 97, target: 106, riskPct: 3, openedAt: new Date().toISOString(), openEtDate: "2026-06-24", opt: optCall, optHiPct: 50, optLoPct: -10, basis: "", pace: 1.9 };
+const optWin = dtCloseTrade(optBase, "target", 106, new Date(Date.now() + 3600e3).toISOString(), "2026-06-24");
+ok("opt: target close reports the OPTION P/L (not the +6% stock), win = option sign", optWin.optModeled === true && optWin.win === true && optWin.pnlPct > 6 && near(optWin.stockPnlPct, 6));
+ok("opt: option R uses the option's 1R risk denominator", optWin.pnlR != null && optWin.pnlR > 0);
+const optStop = dtCloseTrade({ ...optBase, id: "o2" }, "stop", 97, new Date(Date.now() + 3600e3).toISOString(), "2026-06-24");
+ok("opt: a stop close is an OPTION loss (win=false)", optStop.optModeled === true && optStop.win === false && optStop.pnlPct < 0);
+ok("opt: stats aggregate the option P/L (win one / loss one)", dtComputeStats([optWin, optStop]).wins === 1 && dtComputeStats([optWin, optStop]).losses === 1);
 
 // --- 6. stats -------------------------------------------------------------
 const stats = dtComputeStats([wonLong, lostShort]);

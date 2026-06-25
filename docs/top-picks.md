@@ -300,8 +300,12 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 - `updatePicksAccuracyFile` enrolls every shipped pick (dedup per `symbol:side`),
   marks each to market on its **contract** every build (Black-Scholes), resolves
   on the exit rules above, and computes stats (`winRate`, option expectancy,
-  `byTier`/`bySector`/`byRegime`). The record **resets weekly** so the numbers
-  reflect the current engine, not a tail of pre-tuning outcomes.
+  option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`). The
+  record **resets weekly** so the numbers reflect the current engine, not a tail of
+  pre-tuning outcomes. **The Track Record tab shows only this contract (option)
+  scorecard** — the win/loss already resolves on the modeled option P&L, and the
+  stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
+  generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
 - **Thesis tracking:** each pick ships a structured **six-section** `thesisCard`
   (`buildThesisCard`) — a synthesised **`edge`** (the one-line "why this trade has
   an advantage now", `buildEdgeStatement`), the supporting `works` split into

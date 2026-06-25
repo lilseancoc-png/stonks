@@ -14040,6 +14040,9 @@ html::-webkit-scrollbar-thumb:hover {
 .hot-dt-pnl.is-up { color: var(--pos); }
 .hot-dt-pnl.is-dn { color: var(--neg); }
 .hot-dt-r { font-size: 0.82em; font-weight: 600; color: var(--text-3); }
+.hot-dt-pnl-tag { font: 700 0.62em/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent, #5b8def); border: 1px solid color-mix(in srgb, var(--accent, #5b8def) 40%, transparent); border-radius: 3px; padding: 1px 3px; vertical-align: middle; }
+.hot-dt-optc { color: var(--accent, #5b8def); }
+.hot-dt-optc b { color: var(--accent, #5b8def) !important; }
 .hot-dt-hit-row { display: flex; }
 .hot-dt-hit {
   font-size: 0.82em;

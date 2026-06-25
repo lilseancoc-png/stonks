@@ -11059,6 +11059,9 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     optionExpectancyPct: r1(expect(optDecided, (c) => c.optionPnlPct)),
     expectancyPct: r1(expect(decided, (c) => c.underlyingPnlPct)),
     avgMfePct: r1(expect(decided, (c) => c.mfePct)), avgMaePct: r1(expect(decided, (c) => c.maePct)),
+    // Option (contract) peak/dip — the modeled high/low option P&L over each hold.
+    avgOptHiPct: r1(expect(optDecided.filter((c) => pnum(c.optHiPct) != null), (c) => c.optHiPct)),
+    avgOptLoPct: r1(expect(optDecided.filter((c) => pnum(c.optLoPct) != null), (c) => c.optLoPct)),
     openOptionN: openMarks.length, openOptionAvgPnlPct: r1(expect(openMarks, (o) => o.optionPnlPct)), openOptionUp: openMarks.filter((o) => Number(o.optionPnlPct) >= 0).length,
     byTier: byKey((c) => c.tier), bySector: byKey((c) => c.sector), byRegime: byKey((c) => c.entryRegime),
   };
