@@ -12471,17 +12471,31 @@ const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 // slow build on a demand-spike day (hundreds of calls each burning their whole
 // retry budget on one overloaded model). Instead, each retry attempt rolls to the
 // next model in the same CLASS: a sibling version served from a separate pool that
-// usually has headroom. Text calls fall back lite→lite (the 2.0 generation); the
-// VISION chart call falls back flash→flash so it keeps reading the chart image
-// (never lite — known-broken for it, see AI_CHART_MODEL). The chain is best-effort:
+// usually has headroom. Text calls fall back lite→lite (to the current-gen
+// gemini-3.1-flash-lite, then the auto-tracking -latest alias); the VISION chart
+// call falls back flash→flash (gemini-3.5-flash, then -latest) so it keeps reading
+// the chart image (never lite — known-broken for it, see AI_CHART_MODEL).
+// NOTE (2026-06): the prior 2.0-generation fallbacks (gemini-2.0-flash /
+// gemini-2.0-flash-lite) were SHUT DOWN by Google on 2026-06-01, so a 503 retry was
+// 404-ing on a dead model ("model no longer available"); the chain now points at the
+// live current generation. The 2.5 primaries are deprecated too (shutdown 2026-10-16)
+// but still serving, so they stay as the primary and the current gen serves as the
+// cross-pool 503 escape — which also keeps the build working past the 2.5 shutdown
+// (a dead primary 404s attempt 0, then the live current-gen fallback answers).
+// Chains are keyed for BOTH the 2.5 primaries AND the 3.x ones so the ladder works
+// whichever generation AI_*_MODEL / the GH Actions vars pin. The chain is best-effort:
 // a disabled/typo'd fallback id just errors on that attempt and we degrade exactly
 // as before (reuse last-good / deterministic). Per-call PRIMARY is still set by the
 // AI_*_MODEL env (e.g. NARRATIVES_MODEL); AI_FALLBACK_MODELS="a,b" appends extra
 // fallbacks to EVERY chain; AI_MODEL_FALLBACK=0 disables the ladder entirely.
 const AI_MODEL_FALLBACK = process.env.AI_MODEL_FALLBACK !== "0";
 const AI_FALLBACK_CHAINS = {
-  "gemini-2.5-flash-lite": ["gemini-2.0-flash-lite", "gemini-flash-lite-latest"],
-  "gemini-2.5-flash": ["gemini-2.0-flash", "gemini-flash-latest"],
+  // 2.5 primaries (live until 2026-10-16) → current-gen sibling (separate pool) → alias
+  "gemini-2.5-flash-lite": ["gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
+  "gemini-2.5-flash": ["gemini-3.5-flash", "gemini-flash-latest"],
+  // current-gen primaries (if pinned) → the still-live 2.5 sibling → alias
+  "gemini-3.1-flash-lite": ["gemini-2.5-flash-lite", "gemini-flash-lite-latest"],
+  "gemini-3.5-flash": ["gemini-2.5-flash", "gemini-flash-latest"],
 };
 const AI_EXTRA_FALLBACKS = (process.env.AI_FALLBACK_MODELS || "").split(",").map((s) => s.trim()).filter(Boolean);
 function aiModelChain(primary) {
