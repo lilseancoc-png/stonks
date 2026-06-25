@@ -9014,6 +9014,11 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .pick-class-moderate { color: var(--accent, #5b8def); background: color-mix(in srgb, var(--accent, #5b8def) 12%, transparent); border-color: color-mix(in srgb, var(--accent, #5b8def) 35%, transparent); }
 .pick-class-weak { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); border-color: color-mix(in srgb, var(--warn, #d98a00) 40%, transparent); }
 .pick-class-idea { color: var(--text-muted); background: color-mix(in srgb, var(--text) 6%, transparent); }
+/* final-grade chip — the AI grader's tier + score (after the data screen) */
+.thesis-final-grade { margin-left: 6px; font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 7px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); }
+.thesis-final-grade.thesis-q-strong { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.thesis-final-grade.thesis-q-moderate { color: var(--accent, #5b8def); background: color-mix(in srgb, var(--accent, #5b8def) 12%, transparent); border-color: color-mix(in srgb, var(--accent, #5b8def) 35%, transparent); }
+.thesis-final-grade.thesis-q-weak { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); border-color: color-mix(in srgb, var(--warn, #d98a00) 40%, transparent); }
 .ptc-class { font: 700 8.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 5px; border-radius: 4px; white-space: nowrap; border: none; margin: 0; }
 .ptc-norec { font: 600 11px/1.3 var(--font-sans); color: var(--warn, #d98a00); }
 .pick-tab-card.ptc-norec-card { opacity: 0.92; }

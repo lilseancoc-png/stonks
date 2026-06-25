@@ -251,11 +251,14 @@ skips spreads — its single-leg model would mislead.)
    `PICKS_RISKOFF_PUT_BAR` and are unaffected. Off via `PICKS_EDGE_GATE=0`; the
    raised bar ships in `rosterMeta.edgeGate`/`tradeCut`.
 2. **Drop names with an open tracked position** (re-entry suppression).
-3. **Drop `avoid`-timed names.**
-4. **Require a tradeable contract** (else drop).
-5. **Sector cap** ≤3 per sector + a correlation-factor cap (the tech/AI complex),
+3. **Drop `avoid`-timed names.** (Steps 1–3 are the **DATA GATE** — they decide
+   which names the AI grades.)
+4. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
+   though the data cleared): drop the name (`rosterMeta.aiVetoed`).
+5. **Require a tradeable contract** (else drop).
+6. **Sector cap** ≤3 per sector + a correlation-factor cap (the tech/AI complex),
    ETFs uncapped; plus a per-side cap so the book isn't wildly one-way.
-6. **Factor-trend gate** (`computeFactorTrendHealth`): the resolved track record's
+7. **Factor-trend gate** (`computeFactorTrendHealth`): the resolved track record's
    worst loss was a long-Tech/AI-call book wiped while the *broad* tape barely moved
    (SPY ≈ −1.5%, the picks ≈ −9.6%) — a factor-specific drawdown the broad
    SPY/QQQ/VIX regime can't see. So each correlated factor's **own** trend is
@@ -265,7 +268,9 @@ skips spreads — its single-leg model would mislead.)
    it are suppressed — only a strong-tier, `go`-timed call earns a reprieve. **Puts
    are unaffected** (a falling factor is fine to be short). Ships
    `rosterMeta.factorTrend` + `factorTrendGated`; off via `PICKS_FACTOR_TREND_GATE=0`.
-7. Rank by conviction, ship up to 10.
+8. **Rank by the AI final-grade score** (0–100; falls back to deterministic
+   conviction when there's no AI grade — keyless/offline), ship up to 10. The rank
+   order also governs which names survive the caps in steps 5–7.
 
 **Sizing** (`applyPickSizing`): risk-based and conviction-tilted, normalized to a
 gross target that **ramps with roster size** (a 1–2 name roster holds more cash)
@@ -328,12 +333,14 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   macro-kind sensitivity, and the IV regime — and DECIDES which factors matter (so a
   consumer-discretionary name reads rates + inflation via consumer spending; a
   semi reads long yields + the dollar; an energy name reads crude). It is generated
-  **POST-GATE** — only for the names that have already **cleared the grade and every
-  roster gate** (a name earns a thesis *after* it ships, not before) — then grafted
-  onto each card (`applyAiThesesToPicks`). Because the gate has already run, the
-  thesis no longer feeds the thesis-quality gate (see §9a); the AI layer only adds
-  the narrative arc + its specific invalidation triggers. The deterministic
-  scaffolding remains: the
+  for every name that **cleared the DATA GATE** (the deterministic conviction bar +
+  the cheap re-entry / avoid-timing screens), and from there the AI is the **FINAL
+  GRADER**: alongside the narrative it returns a final `grade`
+  (`strong`/`moderate`/`weak`/`reject`) + a 0–100 `score` + a `gradeReason`. That
+  grade is **authoritative** — it sets the execution matrix (§9a), ranks the roster
+  by score, and a `reject` **vetoes** a name that cleared the data screen but whose
+  thesis doesn't hold up. The deterministic scaffolding remains the keyless/offline
+  fallback: the
   **`marketRead`** (`buildMarketRead`) — which the AI read **replaces** when present
   and otherwise falls back to a **`MACRO_PROFILES`** sensitivity table that maps
   every name in the universe (`macroKindOf`) to one of ~30 fine-grained kinds, each
@@ -372,16 +379,15 @@ rubric — a clear driver (0/1/2), technical/flow confirmation (0/1/2), multi-pi
 alignment (0/1/2), a non-fighting tape (−1/0/+1), and signal-specific invalidation
 (0/1) — into a **tier**: `strong` (passes every hard gate **and** `score ≥
 PICKS_THESIS_STRONG_SCORE`), `moderate` (a real but not airtight case, `score ≥
-PICKS_THESIS_MOD_SCORE` + multi-pillar), or `weak` (thin / single-pillar). A macro
-headwind keeps a multi-factor name out of `strong` but **not** out of `moderate`.
-The **non-fighting-tape** check reads `marketRead.support` — the **deterministic**
-sector→axis read (`buildMarketRead` over `MACRO_PROFILES`). The thesis is now
-generated **post-gate** (§9), so the AI's `macroSupport` verdict does **not** feed
-this point; the entire gate — `strong`/`moderate`/`weak` tier and thus the
-`actionable`/`watch`/`no-strategy` matrix cell — is **fully deterministic**. The
-**grade itself stays AI-free** (deterministic 4-pillar score → direction +
-conviction), as does the **structure** selection; the AI shapes only the thesis
-narrative on the card.
+PICKS_THESIS_MOD_SCORE` + multi-pillar), or `weak` (thin / single-pillar). This
+deterministic rubric is the **keyless/offline fallback**. When an AI thesis exists
+(the normal keyed build), the **AI's final `grade` is authoritative** and
+`applyAiThesisGrade` overlays it onto the assessment — its tier replaces the
+deterministic tier in the matrix below and its 0–100 `score` ranks the roster (a
+`reject` grade is handled upstream as a veto and never reaches the matrix). So the
+AI is the final grader for which names ship, how they're classified, and in what
+order. The **data grade stays AI-free** (deterministic 4-pillar score → direction +
+conviction — it is the *entry gate*), as does the **structure** selection.
 
 The grade tier (Strong `|total| ≥ 7` / Moderate `4–6`) **crosses** the thesis tier
 in `classifyPick` to set `classification` + `group`:
@@ -401,12 +407,12 @@ honest disclosure) but carries no strategy and no contract — *cash is a positi
 - `appendGradesDaily` / `appendRegimeHistory` keep the IC substrate + risk-on/off
   calendar.
 
-Scoring is **deterministic — no AI in the grade** (direction + conviction + the
-trade structure + the thesis-quality gate are all deterministic). AI enters in
-exactly **one** place: it writes the **thesis narrative** (summary / story arc /
-invalidation) for the names that already cleared the gate (§9). It degrades
-gracefully without `GEMINI_API_KEY` — the engine still grades, gates, and ships a
-full deterministic card.
+The **data grade is deterministic — no AI** (direction + conviction + the trade
+structure). The AI enters **after** the data gate as the **final grader**: it writes
+the thesis narrative AND assigns the final grade (`strong`/`moderate`/`weak`/`reject`
++ score) that sets classification, ranks the roster, and vetoes a `reject` (§9 / §9a).
+It degrades gracefully without `GEMINI_API_KEY` — the deterministic rubric stands in
+as the fallback grade, so the engine still grades, gates, and ships a full card.
 
 ---
 
