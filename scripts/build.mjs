@@ -10233,7 +10233,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
   const entry = computeEntrySignal(side, spot, r.data, r.timing);
   if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
-  return {
+  const pick = {
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
     classification: thesisCard.classification, group: thesisCard.group,
@@ -10249,6 +10249,35 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     entryPlan, exitPlan,
     sizing: null,
   };
+  // Stash everything needed to REBUILD the thesis card once the post-gate AI
+  // thesis lands (applyAiThesesToPicks): theses are now generated ONLY for names
+  // that cleared the grade + every roster gate, so the AI layer is grafted on
+  // after the gate ran. Non-enumerable → never serializes into picks.json.
+  Object.defineProperty(pick, "_thesisCtx", { value: { r, side, contract, tactical, exitPlan, strategy, macroRegime, pre }, enumerable: false });
+  return pick;
+}
+
+// Graft the post-gate AI thesis onto each shipped pick and REBUILD its thesis
+// card. By the time this runs the deterministic gate has already classified the
+// roster (the AI macro read no longer feeds the quality gate — a name must clear
+// the grade FIRST, then it earns a thesis), so the card's classification / group /
+// thesis quality (carried in `pre`) are preserved verbatim; the AI layer only adds
+// the narrative arc + its specific invalidation triggers. Picks without a matching
+// thesis (keyless build, API miss) keep their deterministic card untouched.
+export function applyAiThesesToPicks(picks, aiMap) {
+  if (!Array.isArray(picks) || !aiMap) return picks;
+  for (const p of picks) {
+    const ctx = p && p._thesisCtx;
+    if (!ctx) continue;
+    const ai = aiMap[`${p.symbol}:${p.side}`];
+    if (!ai) continue;
+    ctx.pre = { ...(ctx.pre || {}), aiThesis: ai };
+    p.thesisCard = buildThesisCard(ctx.r, ctx.side, ctx.contract, ctx.tactical, ctx.exitPlan, ctx.strategy, ctx.macroRegime, ctx.pre);
+    // classification/group are preserved via `pre`; keep the pick's mirror in sync.
+    p.classification = p.thesisCard.classification;
+    p.group = p.thesisCard.group;
+  }
+  return picks;
 }
 
 function buildThesis(r, side, contract, tactical) {
@@ -11023,14 +11052,13 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
 // ============================================================================
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null) {
   const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) };
-  // Pre-pass: score the universe ONCE, then generate the everything-aware AI
-  // thesis for every actionable candidate BEFORE the gate — so each thesis's
-  // macroSupport verdict can flow into the thesis-quality gate (and the narrative
-  // ships on the card). Self-skips keyless; re-using preScored avoids a second
-  // scoring pass inside buildTopPicks. The thesis cache turns over per signature.
+  // Score the universe ONCE, then GRADE + GATE the roster with the deterministic
+  // engine — no AI yet. A name must CLEAR THE GRADE (the conviction bar + every
+  // roster gate) before it earns a thesis; the thesis is no longer generated for
+  // every candidate up front (it can't feed the quality gate). Re-using preScored
+  // avoids a second scoring pass inside buildTopPicks.
   const preScored = scoreAllTickers(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, baseOpts);
-  const aiThesis = await generateAiTheses(preScored, macroBackdrop, baseOpts, thesisProsePrior || {});
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored, aiThesisMap: aiThesis.map });
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   let priorPayload = priorPicks;
@@ -11042,14 +11070,18 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
     const staleJson = JSON.stringify(stalePayload);
     await writeFile(picksPath, staleJson, "utf8");
     console.warn(`[picks] buildTopPicks returned 0 — reusing ${priorPayload.picks.length} from ${priorPayload.builtAtIso || "previous run"} (stale)`);
-    // Carry the thesis cache forward unchanged — the reused picks keep the thesis
-    // they were baked with.
-    return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks), thesisProseCache: aiThesis.cache };
+    // No new thesis was generated (nothing cleared the gate) — carry the prior
+    // cache forward unchanged; the reused picks keep the thesis they were baked with.
+    return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks), thesisProseCache: thesisProsePrior || {} };
   }
 
-  // The AI thesis is already attached to each pick (via the map → buildThesisCard);
-  // persist the cache (write-after-wipe in main()). Deterministic thesis ships
-  // regardless, so a keyless build still produces a full card.
+  // POST-GATE thesis: now that the roster has cleared the grade, generate the
+  // everything-aware AI thesis ONLY for the shipped names and graft it onto each
+  // card. Self-skips keyless; the deterministic card already shipped, so a keyless
+  // build (or an API miss on one name) still produces a full card.
+  const rosterKeys = new Set(picks.map((p) => `${p.symbol}:${p.side}`));
+  const aiThesis = await generateAiTheses(preScored, macroBackdrop, { ...baseOpts, rosterKeys }, thesisProsePrior || {});
+  applyAiThesesToPicks(picks, aiThesis.map);
   const thesisProseCache = aiThesis.cache;
 
   const payload = { builtAtIso, minConviction: picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION, rosterMeta: picks.rosterMeta || null, picks };
@@ -11063,21 +11095,21 @@ export async function readPriorPicks() {
 }
 
 // ---- AI THESIS (the everything-aware, macro-causal thesis layer) ------------
-// The deterministic engine sets the DIRECTION + conviction (the grade) and the
-// trade STRUCTURE; this layer writes the THESIS — the cause-and-effect narrative
-// explaining WHY the trade has an edge now and what would prove it wrong, AND a
-// macro read that REPLACES the coarse deterministic market read (so it feeds the
-// thesis-quality gate). It is fed the WHOLE picture per name — the scored signals,
+// The deterministic engine sets the DIRECTION + conviction (the grade), the trade
+// STRUCTURE, AND the thesis-quality gate; this layer writes the THESIS — the
+// cause-and-effect narrative explaining WHY the trade has an edge now and what
+// would prove it wrong. It is fed the WHOLE picture per name — the scored signals,
 // company fundamentals, the AI news take + judgment + headlines + catalysts, the
 // full cross-asset macro backdrop (rates / dollar / Fed / inflation / geopolitics)
 // with each name's macro-kind sensitivity, and the IV regime — and DECIDES which
-// factors are load-bearing. It is generated PRE-GATE on the candidate set so the
-// macroSupport verdict can flow into assessThesisQuality. Degrades gracefully
-// without GEMINI_API_KEY (deterministic market read + thesis stand alone), and is
-// cached per symbol:side on a signature that turns over with the grade, the
-// drivers, the relevant macro axes, the news take, and the IV bucket — so it
-// re-reads when the picture materially changes (incl. a fresh news take), not
-// every build. regen-picks.mjs runs offline (no AI thesis; deterministic read).
+// factors are load-bearing. It is generated POST-GATE — only for the names that
+// have already CLEARED THE GRADE + every roster gate (a name earns a thesis after
+// it ships, not before), so it no longer feeds assessThesisQuality (the gate reads
+// the deterministic market read). Degrades gracefully without GEMINI_API_KEY
+// (the deterministic card stands), and is cached per symbol:side on a signature
+// that turns over with the grade, the drivers, the relevant macro axes, the news
+// take, and the IV bucket — so it re-reads when the picture materially changes
+// (incl. a fresh news take), not every build. regen-picks.mjs runs offline (no AI).
 const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-2.5-flash-lite";
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
@@ -11268,11 +11300,16 @@ async function writePickThesisCache(cache) {
   catch (err) { console.warn(`[picks] failed to persist thesis cache — ${String(err?.message || err).split("\n")[0]}`); }
 }
 
-// Generate the AI thesis for every actionable candidate, keyed `symbol:side`.
-// Returns { map, cache } — `map` is consumed PRE-GATE by buildTopPicks (the macro
-// read feeds the quality gate + the card carries the narrative); `cache` is the
-// write-after-wipe persistence. Mirrors buildTopPicks's candidate selection so we
-// only spend tokens on names that can actually ship.
+// Generate the AI thesis, keyed `symbol:side`. Returns { map, cache } — `map` is
+// grafted onto the shipped roster (applyAiThesesToPicks → the card carries the
+// narrative); `cache` is the write-after-wipe persistence.
+//
+// The thesis is generated ONLY for names that have already CLEARED THE GRADE — by
+// default the shipped roster, passed via `opts.rosterKeys` (a Set of `sym:side`).
+// A name earns a thesis after it clears the grade + every roster gate, not before:
+// the deterministic engine grades + gates first, then the survivors get a thesis.
+// (Absent rosterKeys, falls back to the legacy actionable-candidate selection for
+// callers that supply it pre-gate — e.g. the smoke test.)
 export async function generateAiTheses(preScored, macroBackdrop, opts = {}, priorCache = {}) {
   const next = {}, map = {};
   const scored = preScored?.scored || [];
@@ -11282,10 +11319,23 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const minConv = opts.priorClosed ? edgeGatedConviction(opts.priorClosed).bar : PICKS_MIN_CONVICTION;
 
   const cands = [];
-  for (const r of scored) {
-    if (!r || !r.data) continue;
-    if (Math.abs(r.total) >= minConv && r.side) cands.push({ r, side: r.side });
-    else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") cands.push({ r, side: "put" });
+  if (opts.rosterKeys instanceof Set) {
+    // Post-gate: only the names that actually shipped (cleared the grade + gates).
+    const bySym = new Map();
+    for (const r of scored) if (r && r.data) bySym.set(r.sym, r);
+    for (const key of opts.rosterKeys) {
+      const i = String(key).lastIndexOf(":");
+      const sym = i >= 0 ? key.slice(0, i) : key;
+      const side = i >= 0 ? key.slice(i + 1) : null;
+      const r = bySym.get(sym);
+      if (r && side) cands.push({ r, side });
+    }
+  } else {
+    for (const r of scored) {
+      if (!r || !r.data) continue;
+      if (Math.abs(r.total) >= minConv && r.side) cands.push({ r, side: r.side });
+      else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") cands.push({ r, side: "put" });
+    }
   }
   if (!cands.length) return { map, cache: next };
 
