@@ -19789,11 +19789,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var confirmation = Array.isArray(tc.confirmation) ? tc.confirmation
       : works.filter(function(w){ return w && (w.pillar === 'Technicals' || w.pillar === 'Flow'); });
 
-    // EDGE — the always-visible "why this trade now" line (the core of the thesis).
+    // LEAD — the AI thesis's core directional SUMMARY (the everything-aware read:
+    // news + rates + dollar + the company), falling back to the deterministic EDGE
+    // line when there's no AI thesis (keyless / offline regen).
+    var ai = tc.ai || null;
     var edge = tc.edge || null;
     var edgeHtml = edge && edge.text
       ? '<div class="thesis-edge' + (edge.hasEdge === false ? ' thesis-edge-none' : '') + '"><span class="thesis-edge-lbl">' + (edge.hasEdge === false ? 'No edge' : 'The edge') + '</span> ' + escapeHtml(edge.text) + '</div>'
       : '';
+    var leadHtml = (ai && ai.summary)
+      ? '<div class="thesis-summary"><span class="thesis-summary-lbl">' + (tc.direction === 'bearish' ? 'Bearish' : 'Bullish') + ' thesis</span> ' + escapeHtml(ai.summary) + ' <span class="thesis-prose-tag">AI read</span></div>'
+      : edgeHtml;
 
     // Strategy chip — OR a "no recommendation" note when the thesis is too thin.
     var stratHtml = '';
@@ -19810,14 +19816,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>';
     }
 
-    var convHtml = tc.conviction ? '<div class="thesis-conviction"><span class="thesis-conv-lbl">Conviction</span> ' + escapeHtml(tc.conviction) + '</div>' : '';
+    var aiConf = (ai && ai.confidence) ? ' <span class="thesis-ai-conf thesis-ai-conf-' + escapeHtml(ai.confidence) + '" title="The AI thesis layer\\'s own honest read of how strong the case is — distinct from the deterministic grade.">AI: ' + escapeHtml(ai.confidence) + ' confidence</span>' : '';
+    var convHtml = tc.conviction ? '<div class="thesis-conviction"><span class="thesis-conv-lbl">Conviction</span> ' + escapeHtml(tc.conviction) + aiConf + '</div>' : (aiConf ? '<div class="thesis-conviction">' + aiConf + '</div>' : '');
     // Honest disclosure (overconfidence guard) when the thesis isn't strong.
     var discHtml = (tier !== 'strong' && tc.disclosure)
       ? '<div class="thesis-disclosure" title="The grade may have cleared the bar, but the thesis is not airtight. Trade it smaller or wait for confirmation.">⚠ ' + escapeHtml(tc.disclosure) + '</div>'
       : '';
 
-    // ---- Expand: the six sections ----
+    // ---- Expand: the detailed thesis + the structured evidence sections ----
     var secs = '';
+    // Detailed thesis — the AI's cause-effect paragraph + the load-bearing
+    // factors it leaned on. Falls back to the legacy prose gloss for any
+    // pre-upgrade payload that predates the structured AI thesis.
+    var reasoningTxt = (ai && ai.reasoning) ? ai.reasoning : (tc.prose || '');
+    if (reasoningTxt){
+      var aiDrv = (ai && Array.isArray(ai.drivers) && ai.drivers.length)
+        ? '<div class="thesis-ai-drivers">' + ai.drivers.map(function(d){ return '<span class="thesis-ai-driver">' + escapeHtml(d) + '</span>'; }).join('') + '</div>'
+        : '';
+      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape) and decides what is load-bearing. The deterministic grade still drives the trade decision.">Detailed thesis <span class="thesis-prose-tag">AI read</span></div><div class="thesis-reasoning">' + escapeHtml(reasoningTxt) + '</div>' + aiDrv + '</div>';
+    }
     if (tc.marketRead && tc.marketRead.text){
       var sup = tc.marketRead.support;
       var mrCls = sup === 'supports' ? 'thesis-mr-ok' : sup === 'against' ? 'thesis-mr-bad' : 'thesis-mr-neutral';
@@ -19844,7 +19861,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (tc.thesisQuality.score != null ? ' <span class="thesis-q-score">' + tc.thesisQuality.score + ' pts</span>' : '') +
         '</div><ul class="thesis-check-ul">' + rows + '</ul></div>';
     }
-    if (tc.prose) secs += '<div class="thesis-sec"><div class="thesis-prose" title="AI-written narrative — a plain-English read of the deterministic signals + macro backdrop. Generated at build time; degrades gracefully without the AI key.">' + escapeHtml(tc.prose) + ' <span class="thesis-prose-tag">AI read</span></div></div>';
     var tgt = tc.target || null;
     if (tgt){
       var bits = [];
@@ -19864,7 +19880,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<div class="pick-thesis ' + dirCls + ' ' + tierCls + (noRec ? ' thesis-norec-card' : '') + '">' +
       '<div class="pick-thesis-head">Thesis <span class="thesis-dir">' + escapeHtml(tc.direction || '') + '</span>' +
         '<span class="pick-class ' + cm.cls + '" title="' + escapeHtml(cm.tip) + '">' + escapeHtml(cm.label) + '</span></div>' +
-      edgeHtml +
+      leadHtml +
       stratHtml +
       convHtml +
       discHtml +
@@ -20098,6 +20114,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // No-recommendation watch idea (weak thesis): no contract — show the grade,
     // not a phantom trade. Replace the contract line with a clear "no strategy" tag.
     if (noRec) econ = '<span class="ptc-norec" title="High grade but the supporting case is too thin to define a trade — grade shown, no strategy recommended.">⊘ no strategy · thesis thin</span>';
+    // The AI thesis summary, clamped to a couple of lines so the case is visible
+    // while skimming the ranked grid (full read on the detail page). Falls back to
+    // the legacy prose gloss; absent entirely on keyless / pre-upgrade payloads.
+    var aiSum = (p.thesisCard && p.thesisCard.ai && p.thesisCard.ai.summary) ? p.thesisCard.ai.summary : (p.thesisCard && p.thesisCard.prose ? p.thesisCard.prose : '');
+    var thesisLine = aiSum ? '<span class="ptc-thesis" title="' + escapeHtml(aiSum) + '">' + escapeHtml(aiSum) + '</span>' : '';
     return '<button type="button" class="pick-tab-card ' + sideCls + (noRec ? ' ptc-norec-card' : '') + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
@@ -20108,6 +20129,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           : '') +
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
+      thesisLine +
       entryLine +
       econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +

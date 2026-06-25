@@ -8,7 +8,8 @@ import {
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
-  assessThesisQuality, selectStrategy, classifyPick,
+  assessThesisQuality, selectStrategy, classifyPick, generateAiTheses,
+  buildMarketRead, macroKindOf,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -346,6 +347,91 @@ ok("exit: credit +55% -> win (TP at 50%)", resolvePickOutcome({ modeledOptPnlPct
 ok("exit: credit +25% -> still open (below 50% TP)", resolvePickOutcome({ modeledOptPnlPct: 25, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }) === null);
 ok("exit: credit -120% -> loss (stop at -100%)", resolvePickOutcome({ modeledOptPnlPct: -120, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).outcome === "loss");
 ok("exit: naked +25% -> win (TP still 20%)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - 2 * 86400, nowSec }).outcome === "win");
+
+// --- 12d. AI thesis layer (macro read feeds the gate + narrative ships) -----
+// The everything-aware AI thesis, when supplied via opts.aiThesisMap, becomes the
+// authority on the macro read (so it FEEDS the quality gate) and ships its
+// summary/reasoning/invalidation on the card. Unmapped picks + keyless builds keep
+// the deterministic read. (Network-free: we inject a fake map, never call Gemini.)
+{
+  const lead = healthyPicks[0];
+  ok("ai-thesis: a baseline pick exists to test against", !!lead);
+  if (lead) {
+    const fakeAi = {
+      summary: "Bullish on " + lead.symbol + " — momentum and fundamentals align.",
+      reasoning: "Earnings momentum plus a supportive macro tape make the upside the path of least resistance into the window.",
+      drivers: ["earnings momentum", "supportive tape"],
+      macroSupport: "supports",
+      macroRead: "The macro backdrop is a tailwind for this kind of name.",
+      macroDrivers: ["risk-on tape"],
+      invalidation: ["price breaks below the 50D SMA", "guidance is cut on the next print", "the macro tape flips risk-off"],
+      confidence: "high",
+    };
+    const map = { [lead.symbol + ":" + lead.side]: fakeAi };
+    const withAi = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: map });
+    const p = withAi.find((x) => x.symbol === lead.symbol && x.side === lead.side);
+    ok("ai-thesis: matching pick carries thesisCard.ai with the summary", !!(p && p.thesisCard.ai && p.thesisCard.ai.summary === fakeAi.summary));
+    ok("ai-thesis: the marketRead is sourced from the AI read", !!(p && p.thesisCard.marketRead.source === "ai"));
+    ok("ai-thesis: AI macroSupport feeds the marketRead support verdict", !!(p && p.thesisCard.marketRead.support === "supports"));
+    ok("ai-thesis: AI invalidation replaces the deterministic triggers", !!(p && p.thesisCard.invalidators.some((iv) => iv.key === "thesis")));
+    const other = withAi.find((x) => x.symbol !== lead.symbol);
+    ok("ai-thesis: unmapped picks keep the deterministic read", other ? (other.thesisCard.marketRead.source === "deterministic" && !other.thesisCard.ai) : true);
+  }
+}
+// generateAiTheses degrades gracefully: an empty universe returns an empty
+// map+cache without ever touching the network.
+{
+  const gen = await generateAiTheses({ scored: [], regimeBand: "neutral" }, null, {}, {});
+  ok("ai-thesis: generateAiTheses returns {map,cache} shape", gen && typeof gen.map === "object" && typeof gen.cache === "object");
+  ok("ai-thesis: empty universe → no AI thesis generated", Object.keys(gen.map).length === 0 && Object.keys(gen.cache).length === 0);
+}
+
+// --- 12e. macro-sensitivity per kind (every name reads ITS OWN drivers) ------
+// The deterministic market read must be directionally correct for each macro
+// kind, not just consumer names — space reads risk-appetite + cost of capital,
+// bonds read yields, long-vol is inverse to risk, energy reads crude, financials
+// read the curve, gold reads real yields + the dollar.
+{
+  const reg = (state, ax) => ({ state, axes: Object.fromEntries(Object.entries(ax).map(([k, v]) => [k, { score: v.s, label: v.l }])) });
+  const easing = { s: 1, l: "Long yields -10 bps — easing" }, rising = { s: -1, l: "Long yields +14 bps — rising" };
+  const dovish = { s: 1, l: "Fed dovish" }, hawkish = { s: -1, l: "Fed hawkish +12pt" };
+  const ixUp = { s: 1, l: "Indexes +1.2% — firm" }, ixDn = { s: -2, l: "Indexes -2.1% — broad sell-off" };
+  const hotCPI = { s: -1, l: "CPI 3.8% re-accelerating" }, coolCPI = { s: 1, l: "CPI 2.1% near target" };
+  const oilUp = { s: -2, l: "Crude +6.2% — supply/geopolitical shock" }, vixSpike = { s: -2, l: "VIX 31 — acute stress" };
+  const weakUSD = { s: 1, l: "DXY -0.5% — dollar easing" };
+  const supp = (sym, side, regime) => buildMarketRead(sym, {}, side, regime).support;
+
+  ok("kind: macroKindOf maps space → spaceGrowth", macroKindOf("RKLB", {}) === "spaceGrowth");
+  ok("kind: macroKindOf maps the ETFs/staples (TLT→bondProxy, SMH→semiconductors, UVXY→volLong, KWEB→china, WMT→consumerStaples)",
+    macroKindOf("TLT", {}) === "bondProxy" && macroKindOf("SMH", {}) === "semiconductors" && macroKindOf("UVXY", {}) === "volLong" && macroKindOf("KWEB", {}) === "china" && macroKindOf("WMT", {}) === "consumerStaples");
+  // the big buckets are split by genuine macro driver — no name shares a wrong one
+  ok("kind: tech splits megacap/semis/software/aiInfra/enterprise",
+    macroKindOf("AAPL", {}) === "megacapTech" && macroKindOf("AVGO", {}) === "semiconductors" && macroKindOf("CRM", {}) === "softwareGrowth" && macroKindOf("VRT", {}) === "aiInfra" && macroKindOf("DELL", {}) === "enterpriseTech");
+  ok("kind: financials split banks/brokers/payments/assetManagers",
+    macroKindOf("JPM", {}) === "banks" && macroKindOf("SCHW", {}) === "brokers" && macroKindOf("V", {}) === "payments" && macroKindOf("BX", {}) === "assetManagers");
+  ok("kind: consumer splits goods/restaurants/media/services",
+    macroKindOf("NKE", {}) === "consumerDiscretionaryGoods" && macroKindOf("MCD", {}) === "restaurants" && macroKindOf("DIS", {}) === "mediaEntertainment" && macroKindOf("ABNB", {}) === "consumerServices");
+  ok("kind: healthcare splits pharma/insurers/devices",
+    macroKindOf("LLY", {}) === "pharma" && macroKindOf("UNH", {}) === "healthInsurers" && macroKindOf("BSX", {}) === "medicalDevices");
+  // software (pure duration) reacts to a yield move; cyclical semis (AVGO) barely
+  ok("sensitivity: software is more yield-sensitive than semis",
+    Math.abs(buildMarketRead("CRM", {}, "call", reg("neutral", { yields: rising })).dir) >= Math.abs(buildMarketRead("AVGO", {}, "call", reg("neutral", { yields: rising })).dir));
+  ok("sensitivity: semis read the dollar (a strong dollar is a headwind for a call)",
+    buildMarketRead("AVGO", {}, "call", reg("neutral", { dxy: { s: -1, l: "DXY +0.8% — dollar bid" } })).support === "against");
+  ok("sensitivity: space call SUPPORTED by risk-on + dovish + easing", supp("RKLB", "call", reg("risk-on", { indexes: ixUp, fed: dovish, yields: easing })) === "supports");
+  ok("sensitivity: space call AGAINST in risk-off + hawkish", supp("RKLB", "call", reg("risk-off", { indexes: ixDn, fed: hawkish, yields: rising })) === "against");
+  ok("sensitivity: long-bond (TLT) call SUPPORTED by falling yields", supp("TLT", "call", reg("neutral", { yields: easing, fed: dovish })) === "supports");
+  ok("sensitivity: long-bond (TLT) call AGAINST when yields rise", supp("TLT", "call", reg("neutral", { yields: rising, fed: hawkish })) === "against");
+  ok("sensitivity: long-vol (UVXY) is INVERSE — call SUPPORTED by risk-off + VIX spike", supp("UVXY", "call", reg("risk-off", { vix: vixSpike, indexes: ixDn })) === "supports");
+  ok("sensitivity: long-vol (UVXY) call AGAINST in a calm risk-on tape", supp("UVXY", "call", reg("risk-on", { indexes: ixUp })) === "against");
+  ok("sensitivity: discretionary (NKE) call AGAINST hot inflation + rising yields", supp("NKE", "call", reg("neutral", { inflation: hotCPI, yields: rising, fed: hawkish })) === "against");
+  ok("sensitivity: discretionary (NKE) call SUPPORTED by cooling inflation + easing", supp("NKE", "call", reg("neutral", { inflation: coolCPI, yields: easing, fed: dovish })) === "supports");
+  ok("sensitivity: discretionary (NKE) PUT SUPPORTED by hot inflation + rising yields", supp("NKE", "put", reg("neutral", { inflation: hotCPI, yields: rising, fed: hawkish })) === "supports");
+  ok("sensitivity: energy (XOM) call SUPPORTED by an oil spike", supp("XOM", "call", reg("neutral", { commodity: oilUp })) === "supports");
+  ok("sensitivity: financials (JPM) call SUPPORTED by rising yields (NIM)", supp("JPM", "call", reg("neutral", { yields: rising, indexes: ixUp })) === "supports");
+  ok("sensitivity: gold (GLD) call SUPPORTED by easing yields + a weak dollar", supp("GLD", "call", reg("neutral", { yields: easing, dxy: weakUSD, fed: dovish })) === "supports");
+  ok("sensitivity: the AI macroSupport overrides the deterministic read", buildMarketRead("NKE", {}, "call", reg("neutral", { inflation: hotCPI }), { macroSupport: "supports", macroDrivers: ["X"] }).support === "supports" && buildMarketRead("NKE", {}, "call", reg("neutral", {}), { macroSupport: "supports" }).source === "ai");
+}
 
 // --- 13. strategy routing through the full engine (IV z-score → structure) ---
 // mkTicker grades strongly bullish; the IV z-score then drives the structure.

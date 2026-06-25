@@ -10109,7 +10109,9 @@ export function edgeGatedConviction(closed) {
 // buildTopPicks — the actionable roster.
 // ============================================================================
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
-  const { scored, peerIndex, regimeBand } = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
+  // Reuse a pre-computed scoring pass when supplied (writeTopPicksFile scores once
+  // up front to build the AI thesis map before re-entering the gate); else score.
+  const { scored, peerIndex, regimeBand } = opts.preScored || scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const regime = regimeBand;
   const factorHealth = computeFactorTrendHealth(scored);
   const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
@@ -10150,7 +10152,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // actionable vs. watch. marketRead/works/thesisQuality are computed once and
     // threaded into buildThesisCard so the gate + the card never disagree.
     const macroRegime = macroBackdrop?.macroRegime || null;
-    const marketRead = buildMarketRead(r.sym, r.data, side, macroRegime);
+    // The AI thesis (when generated pre-gate) is the authority on the macro read,
+    // so it FEEDS the quality gate: a richer macroSupport verdict replaces the
+    // coarse deterministic sector→axis read here. Absent → deterministic fallback.
+    const aiThesis = opts.aiThesisMap ? (opts.aiThesisMap[`${r.sym}:${side}`] || null) : null;
+    const marketRead = buildMarketRead(r.sym, r.data, side, macroRegime, aiThesis);
     const works = collectThesisWorks(r, side);
     const thesisQuality = assessThesisQuality(r, side, marketRead, works);
     const { classification, group } = classifyPick(r.total, thesisQuality.tier, tactical);
@@ -10193,7 +10199,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       entryPlan = buildEntryPlan(side, spot, r.data, contract, r.total);
     }
     const pg = peerGroupOf(r.sym, r.data);
-    picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group }));
+    picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group, aiThesis }));
   }
 
   // Partition into the two roster GROUPS + cap each. Actionable (Strong grade +
@@ -10309,74 +10315,385 @@ function findDriverSignal(r, key) {
 }
 
 // ---- Deterministic "market read": does the macro tape support this trade? ----
-// Maps the name's sector to the macro AXES that directionally drive that kind of
-// business, reads those axes' live votes from the build's macroRegime, and says
-// whether the cross-asset backdrop is a TAILWIND or a HEADWIND for the trade's
-// direction. This is what turns a bare grade into a thesis ("homebuilder puts —
-// the Fed path is repricing hawkish and long yields are rising, so mortgage
-// demand suffers"). Pure; quotes each axis's own human label.
+// Maps the name's sector/industry to the macro AXES that directionally drive that
+// KIND of business (via MACRO_PROFILES), reads those axes' live votes from the
+// build's macroRegime, and says whether the cross-asset backdrop is a TAILWIND or
+// a HEADWIND for the trade's direction. This is what turns a bare grade into a
+// thesis: a homebuilder put reads the Fed path + long yields; a Nike call reads
+// rates + inflation + consumer confidence (discretionary spending); a semi call
+// reads duration (long yields) + the dollar + risk appetite. Pure; quotes each
+// axis's own human label. When an AI macro read is supplied (the everything-aware
+// thesis layer), it is the authority on support/drivers/text and the profile only
+// supplies the causal note + invalidator phrasing.
 const GOLD_SYMS = new Set(["GLD", "SLV", "IAU", "GLDM", "GDX", "GDXJ", "SGOL"]);
 const HOMEBUILDER_SYMS = new Set(["LEN", "DHI", "PHM", "KBH", "TOL", "NVR", "ITB", "XHB", "MTH", "TMHC", "RKT", "Z", "ZG", "OPEN"]);
 const ENERGY_SYMS = new Set(["XLE", "XOP", "USO", "OXY", "CVX", "XOM", "SLB", "HAL", "COP", "DVN", "FANG", "MRO", "APA"]);
-function macroGroupOf(sym, data) {
+const AIRLINE_SYMS = new Set(["UAL", "DAL", "AAL", "LUV", "ALK", "JBLU", "SAVE", "RYAAY", "JETS"]);
+const CRYPTO_LEVERED_SYMS = new Set(["COIN", "MSTR", "MARA", "RIOT", "CLSK", "BITO", "GBTC", "IBIT", "BITX", "HUT", "WULF"]);
+// Macro-driver ETFs the generic "ETF" sector would otherwise dump into "broad":
+// a sector/asset-class ETF reads the SAME macro axes as the names it holds.
+const TECH_ETF_SYMS = new Set(["SMH", "SOXX", "SOXL", "XSD", "IGV", "QTEC", "SKYY", "WCLD", "XLK", "VGT", "FDN"]);
+const BOND_ETF_SYMS = new Set(["TLT", "IEF", "TBT", "TMF", "TMV", "SHY", "AGG", "LQD", "HYG", "BND", "ZROZ", "EDV"]);
+const VOL_LONG_ETF_SYMS = new Set(["UVXY", "VXX", "UVIX", "VIXY", "VXZ"]); // LONG vol (inverse of the tape)
+const ASIA_ETF_SYMS = new Set(["KWEB", "EWY", "FXI", "MCHI", "ASHR", "EWT", "EWJ", "EWH", "INDA", "EWZ", "EEM"]);
+// Defensive big-box / grocery: the curated sector is "Retail", but demand is
+// staple-like (groceries get bought through a downturn), so they read DEFENSIVE,
+// not the rates+inflation discretionary squeeze HD/LOW/apparel feel.
+const STAPLE_RETAIL_SYMS = new Set(["WMT", "COST", "KR", "DG", "DLTR", "PG", "KO", "PEP", "CL", "CLX", "GIS", "MDLZ"]);
+const axSign = (a) => (a && isFinite(a.score)) ? Math.sign(a.score) : 0;
+// Crude direction off the commodity axis (its score is NEGATIVE when oil spikes):
+// +1 = oil rising, −1 = oil falling, 0 = no oil signal.
+function oilDirection(ax) {
+  const c = ax && ax.commodity;
+  if (!c || !isFinite(c.score) || c.score === 0) return 0;
+  if (/crude|oil/i.test(c.label || "")) return c.score < 0 ? 1 : -1;
+  return 0;
+}
+// Defensive names get a relative bid when risk comes off (and lag when it's on).
+function defensiveTilt(state) {
+  return state === "severe-risk-off" ? 1 : state === "risk-off" ? 0.6 : state === "risk-on" ? -0.4 : 0;
+}
+
+// The name's macro "kind" — which family of cross-asset drivers moves it. Curated
+// SECTORS (precise) lead; the Yahoo sector / industry regex is the fallback.
+export function macroKindOf(sym, data) {
   if (GOLD_SYMS.has(sym)) return "gold";
-  if (HOMEBUILDER_SYMS.has(sym)) return "ratesInverse";
+  if (HOMEBUILDER_SYMS.has(sym)) return "homebuilder";
   if (ENERGY_SYMS.has(sym)) return "energy";
-  const sec = String(SECTORS[sym] || data?.fundamentals?.sector || "").toLowerCase();
-  if (/gold|silver|precious/.test(sec)) return "gold";
-  if (/homebuild|home build|housing|residential|real estate|reit|construction|utilit/.test(sec)) return "ratesInverse";
-  if (/bank|financ|insurance|broker|capital market/.test(sec)) return "ratesPositive";
-  if (/energy|oil|gas|exploration|refin|drilling/.test(sec)) return "energy";
-  if (/semis|semiconductor|mega-cap tech|software|hardware|networking|tech|data center|materials|metals|miner|industrial|machinery/.test(sec)) return "dollarInverse";
+  if (AIRLINE_SYMS.has(sym)) return "airline";
+  if (CRYPTO_LEVERED_SYMS.has(sym)) return "crypto";
+  if (TECH_ETF_SYMS.has(sym)) return "semiconductors"; // SMH/SOXX/XLK etc. are chip/tech-sector ETFs
+  if (BOND_ETF_SYMS.has(sym)) return "bondProxy";
+  if (VOL_LONG_ETF_SYMS.has(sym)) return "volLong";
+  if (ASIA_ETF_SYMS.has(sym)) return "china";
+  if (STAPLE_RETAIL_SYMS.has(sym)) return "consumerStaples";
+  const sec = String(SECTORS[sym] || "");
+  // — Tech complex: split by duration / cyclicality / dollar exposure (a semi is
+  //   a cyclical exporter; SaaS is pure long-duration; a mega-cap is the market) —
+  if (sec === "Mega-cap tech") return "megacapTech";
+  if (sec === "Semis" || sec === "Storage") return "semiconductors";
+  if (sec === "Software") return "softwareGrowth";
+  if (sec === "Data center") return "aiInfra";
+  if (/^(Hardware|Networking|Tech services|IT services)$/.test(sec)) return "enterpriseTech";
+  // — Power / rate-proxy income —
+  if (/^(Power|Nuclear|Clean energy)$/.test(sec)) return "power";
+  if (/^(Telecom|Cable)$/.test(sec)) return "utilitiesRate";
+  if (sec === "Homebuilder") return "homebuilder";
+  // — Financials: banks (NIM) vs brokers (activity) vs payments (spend) vs AUM —
+  if (sec === "Bank") return "banks";
+  if (sec === "Broker") return "brokers";
+  if (sec === "Payments" || sec === "Fintech") return "payments";
+  if (sec === "Asset mgmt") return "assetManagers";
+  // — Consumer: goods (rates+inflation) vs restaurants (input costs) vs media (ad
+  //   cycle) vs services (travel/gig) —
+  if (/^(Retail|Apparel|Beauty|E-commerce)$/.test(sec)) return "consumerDiscretionaryGoods";
+  if (sec === "Restaurants") return "restaurants";
+  if (/^(Media|Social)$/.test(sec)) return "mediaEntertainment";
+  if (sec === "Consumer") return "consumerServices";
+  if (sec === "Meme") return "highBeta";
+  // — Industrials —
+  if (sec === "Industrial") return "industrials";
+  if (sec === "Defense") return "defense";
+  if (sec === "Logistics") return "logistics";
+  // — Healthcare: pharma (defensive) vs insurers (policy/MLR) vs devices vs telehealth —
+  if (sec === "Pharma" || sec === "Pharmacy") return "pharma";
+  if (sec === "Insurance") return "healthInsurers";
+  if (sec === "Medical") return "medicalDevices";
+  if (sec === "Telehealth") return "consumerServices";
+  // — Resources / EM / speculative —
+  if (sec === "Energy") return "energy";
+  if (sec === "Materials") return "materials";
+  if (sec === "China tech") return "china";
+  if (sec === "Crypto") return "crypto";
+  if (sec === "Space") return "spaceGrowth";
+  // ETF + uncurated → Yahoo sector / industry regex → GENERIC buckets.
+  const ysec = String(data?.fundamentals?.sector || "").toLowerCase();
+  const yind = String(INDUSTRY_OF_TICKER[sym] || data?.fundamentals?.industry || "").toLowerCase();
+  if (/gold|silver|precious/.test(ysec + " " + yind)) return "gold";
+  if (/homebuild|residential construction/.test(ysec + " " + yind)) return "homebuilder";
+  if (/utilit/.test(ysec)) return "utilitiesRate";
+  if (/real estate|reit/.test(ysec)) return "homebuilder";
+  if (/bank/.test(ysec + " " + yind)) return "banks";
+  if (/capital markets|brokerage|broker/.test(ysec + " " + yind)) return "brokers";
+  if (/health insur|managed care/.test(ysec + " " + yind)) return "healthInsurers";
+  if (/financ|insurance|asset management/.test(ysec)) return "financials";
+  if (/energy|oil|gas/.test(ysec)) return "energy";
+  if (/restaurant/.test(ysec + " " + yind)) return "restaurants";
+  if (/auto|leisure|travel|lodging|airline/.test(ysec + " " + yind)) return "consumerServices";
+  if (/consumer cyclical|retail|apparel|specialty/.test(ysec + " " + yind)) return "consumerDiscretionaryGoods";
+  if (/consumer defensive|staple|beverage|grocery|household|tobacco/.test(ysec + " " + yind)) return "consumerStaples";
+  if (/semiconductor/.test(ysec + " " + yind)) return "semiconductors";
+  if (/software|internet content|application/.test(ysec + " " + yind)) return "softwareGrowth";
+  if (/biotech|drug|pharmaceutical/.test(ysec + " " + yind)) return "pharma";
+  if (/medical|health/.test(ysec + " " + yind)) return "medicalDevices";
+  if (/technology|electronic|computer/.test(ysec + " " + yind)) return "megacapTech";
+  if (/industrial|aerospace|machinery|transport/.test(ysec + " " + yind)) return "industrials";
+  if (/basic materials|materials|metal|mining|chemical/.test(ysec + " " + yind)) return "materials";
+  if (/communication|media|entertainment|advertis/.test(ysec)) return "mediaEntertainment";
   return "broad";
 }
-const axSign = (a) => (a && isFinite(a.score)) ? Math.sign(a.score) : 0;
-function buildMarketRead(sym, data, side, macroRegime) {
+
+// Per-kind macro profile: the plain-English WHY + the axes that drive it (signed
+// weights for a BULLISH stance; `invert` flips a sign, e.g. rising yields HELP
+// bank NIM) + an optional `extra` for special cases (oil direction, geo-as-haven,
+// defensive rotation). `cite` is the subset of axes worth quoting for this kind so
+// the read names the RELEVANT macro, not every firing axis.
+export const MACRO_PROFILES = {
+  gold: {
+    note: "Gold pays no yield to hold — it lives and dies on real yields, the dollar and the Fed path, with safe-haven bids when geopolitical risk or volatility spikes",
+    axes: [{ key: "yields", w: 1 }, { key: "dxy", w: 1 }, { key: "fed", w: 0.5 }],
+    extra: (ax) => (axSign(ax.geo) < 0 ? 0.4 : 0) + (axSign(ax.vix) < 0 ? 0.3 : 0),
+    cite: ["yields", "dxy", "fed", "geo"],
+    regimeSign: 0, // a haven — let its own rate/dollar/geo axes decide, not the equity-risk overlay
+  },
+  homebuilder: {
+    note: "Rate-sensitive — homebuilders and rate-levered real estate run on cheap financing, so the Fed path and long yields drive affordability and demand",
+    axes: [{ key: "fed", w: 1 }, { key: "yields", w: 1 }],
+    cite: ["fed", "yields"],
+  },
+  utilitiesRate: {
+    note: "A bond-proxy dividend payer — its relative appeal (and its debt load) is set by long yields and the Fed path, and defensive bids come in when risk comes off",
+    axes: [{ key: "yields", w: 0.8 }, { key: "fed", w: 0.6 }],
+    extra: (ax, state) => 0.3 * defensiveTilt(state),
+    cite: ["yields", "fed"],
+  },
+  power: {
+    note: "Power and nuclear infrastructure carry a rate-sensitive debt load but an AI-demand growth kicker — it reads the Fed path, long yields and the overall risk tape together",
+    axes: [{ key: "fed", w: 0.5 }, { key: "yields", w: 0.5 }, { key: "indexes", w: 0.5 }],
+    cite: ["fed", "yields", "indexes"],
+  },
+  financials: { // generic financials fallback for uncurated names
+    note: "Banks and brokers lean on the rate curve and credit conditions — modestly higher long yields help net interest margin, while a risk-off tape and credit stress hurt",
+    axes: [{ key: "yields", w: 0.5, invert: true }, { key: "indexes", w: 0.6 }],
+    cite: ["yields", "indexes"],
+  },
+  financialsRiskOn: { // generic spend/AUM-linked financial fallback
+    note: "Payments, fintech and asset managers track consumer spending and risk appetite — transaction volume and AUM rise with a confident consumer and a rising tape",
+    axes: [{ key: "indexes", w: 0.7 }, { key: "sentiment", w: 0.4 }, { key: "inflation", w: 0.3 }],
+    cite: ["indexes", "sentiment"],
+  },
+  banks: {
+    note: "Banks lean on the rate curve and credit — modestly higher long yields widen net interest margin, while a risk-off credit shock and slowing loan demand hurt; they want firm rates AND a healthy economy",
+    axes: [{ key: "yields", w: 0.6, invert: true }, { key: "indexes", w: 0.6 }, { key: "fed", w: 0.2, invert: true }],
+    cite: ["yields", "indexes"],
+  },
+  brokers: {
+    note: "Brokers earn on BOTH higher rates (net interest on idle client cash) and a busy, rising market (trading volume + margin balances), so risk-on plus firm rates is the sweet spot",
+    axes: [{ key: "indexes", w: 0.7 }, { key: "yields", w: 0.4, invert: true }, { key: "sentiment", w: 0.4 }],
+    cite: ["indexes", "yields", "sentiment"],
+  },
+  payments: {
+    note: "Card networks and payments track consumer spending and cross-border volume — nominal spend (a confident consumer, even some inflation) and a risk-on tape lift transactions; a recession scare is the main risk",
+    axes: [{ key: "indexes", w: 0.7 }, { key: "sentiment", w: 0.4 }, { key: "inflation", w: 0.3 }],
+    cite: ["indexes", "sentiment"],
+  },
+  assetManagers: {
+    note: "Asset managers' fees scale with assets under management, so they are a levered play on the market itself — a rising tape lifts AUM and the credit/alternatives book, and a drawdown cuts both ways",
+    axes: [{ key: "indexes", w: 0.8 }, { key: "globalTape", w: 0.3 }, { key: "yields", w: 0.2, invert: true }],
+    cite: ["indexes", "globalTape"],
+  },
+  energy: {
+    note: "Energy earnings track the crude tape — a spike in oil (often a supply or geopolitical shock) lifts producer cash flows, and a reversal gives it back",
+    axes: [],
+    extra: (ax) => oilDirection(ax) * 1.2,
+    cite: ["commodity", "geo"],
+  },
+  logistics: {
+    note: "Fuel is the swing cost for shippers — a crude spike eats margins, while cheaper oil and a growing economy lift freight demand",
+    axes: [{ key: "indexes", w: 0.4 }],
+    extra: (ax) => -oilDirection(ax) * 0.8,
+    cite: ["commodity", "indexes"],
+  },
+  airline: {
+    note: "Jet fuel is the swing cost and flying is discretionary — a crude spike hits margins while travel demand tracks the consumer and the tape",
+    axes: [{ key: "sentiment", w: 0.4 }, { key: "indexes", w: 0.4 }],
+    extra: (ax) => -oilDirection(ax) * 0.9,
+    cite: ["commodity", "sentiment", "indexes"],
+  },
+  industrials: {
+    note: "Cyclical industrials track global growth and capex — a risk-on tape, a softer dollar (overseas orders) and cheaper financing lift the order book",
+    axes: [{ key: "indexes", w: 0.6 }, { key: "globalTape", w: 0.5 }, { key: "dxy", w: 0.4 }, { key: "fed", w: 0.3 }],
+    cite: ["indexes", "globalTape", "dxy"],
+  },
+  defense: {
+    note: "Defense revenue is policy- and conflict-driven more than macro — rising geopolitical risk tends to support the order book, and it holds up better when risk comes off",
+    axes: [],
+    extra: (ax, state) => (axSign(ax.geo) < 0 ? 0.7 : 0) + 0.3 * defensiveTilt(state),
+    cite: ["geo"],
+  },
+  techGrowth: { // generic tech fallback for uncurated names
+    note: "High-multiple growth is long-duration — rising long yields and a hawkish Fed compress the multiple, a weaker dollar lifts overseas revenue, and risk-on flows favor it",
+    axes: [{ key: "yields", w: 0.8 }, { key: "fed", w: 0.6 }, { key: "dxy", w: 0.5 }, { key: "indexes", w: 0.6 }],
+    cite: ["yields", "fed", "dxy", "indexes"],
+  },
+  megacapTech: {
+    note: "Mega-cap tech is quality growth and effectively the market itself — it reads the overall tape, long yields (duration on a rich multiple) and the dollar (large overseas revenue), more than any single cyclical input",
+    axes: [{ key: "indexes", w: 0.7 }, { key: "yields", w: 0.6 }, { key: "dxy", w: 0.6 }, { key: "fed", w: 0.4 }],
+    cite: ["indexes", "yields", "dxy"],
+  },
+  semiconductors: {
+    note: "Chips are cyclical and export-heavy — they read global demand (the overnight Asia/China tape), the dollar (most sales are billed abroad), the AI/semi capex cycle and risk appetite, with long yields only a secondary multiple drag",
+    axes: [{ key: "globalTape", w: 0.7 }, { key: "dxy", w: 0.7 }, { key: "indexes", w: 0.6 }, { key: "fed", w: 0.3 }, { key: "yields", w: 0.3 }],
+    cite: ["globalTape", "dxy", "indexes"],
+  },
+  softwareGrowth: {
+    note: "Recurring-revenue software is the purest long-duration growth — its multiple lives on long yields and the Fed path, so a hawkish repricing compresses it hardest; risk-on flows favor it and it is largely dollar-insensitive",
+    axes: [{ key: "yields", w: 1.0 }, { key: "fed", w: 0.8 }, { key: "indexes", w: 0.6 }],
+    cite: ["yields", "fed", "indexes"],
+  },
+  aiInfra: {
+    note: "AI data-center infrastructure rides the hyperscaler capex cycle and power demand — it reads risk appetite and the broad AI-spending impulse more than rates, and a softer dollar eases the imported-component bill",
+    axes: [{ key: "indexes", w: 0.6 }, { key: "globalTape", w: 0.4 }, { key: "fed", w: 0.4 }, { key: "dxy", w: 0.3 }],
+    cite: ["indexes", "globalTape", "fed"],
+  },
+  enterpriseTech: {
+    note: "Mature enterprise hardware / IT services trade the corporate-spending cycle — they read the overall tape and the Fed path (financing for capex) more than long-duration multiple risk, with modest dollar exposure",
+    axes: [{ key: "indexes", w: 0.6 }, { key: "fed", w: 0.4 }, { key: "yields", w: 0.4 }, { key: "dxy", w: 0.3 }],
+    cite: ["indexes", "fed", "yields"],
+  },
+  consumerDiscretionary: { // generic discretionary fallback for uncurated names
+    note: "Discretionary demand lives on the consumer's wallet — high rates and sticky inflation squeeze real spending and big-ticket financing, while easing rates, cooling inflation and a confident tape free up discretionary dollars",
+    axes: [{ key: "yields", w: 0.7 }, { key: "fed", w: 0.5 }, { key: "inflation", w: 0.8 }, { key: "sentiment", w: 0.5 }, { key: "indexes", w: 0.5 }],
+    cite: ["inflation", "yields", "fed", "sentiment"],
+  },
+  consumerDiscretionaryGoods: {
+    note: "Discretionary goods (apparel, specialty retail, e-commerce, big-box) live on the consumer's wallet — high rates and sticky inflation squeeze real spending and big-ticket financing, while easing rates, cooling inflation and a confident tape free up discretionary dollars",
+    axes: [{ key: "yields", w: 0.7 }, { key: "fed", w: 0.5 }, { key: "inflation", w: 0.8 }, { key: "sentiment", w: 0.5 }, { key: "indexes", w: 0.5 }],
+    cite: ["inflation", "yields", "fed", "sentiment"],
+  },
+  restaurants: {
+    note: "Restaurants get squeezed from two sides — food & labor inflation eats margins while traffic tracks the consumer; the trade-down winners are defensive, so a weak tape hurts them less than pure discretionary",
+    axes: [{ key: "inflation", w: 0.7 }, { key: "sentiment", w: 0.4 }, { key: "yields", w: 0.3 }],
+    extra: (ax, state) => 0.2 * defensiveTilt(state),
+    cite: ["inflation", "sentiment"],
+  },
+  mediaEntertainment: {
+    note: "Media, streaming and ad-driven platforms track the ad cycle and discretionary spend — ad budgets and subscriptions expand with a confident consumer and a rising tape and get cut first when the economy wobbles",
+    axes: [{ key: "indexes", w: 0.6 }, { key: "sentiment", w: 0.4 }, { key: "inflation", w: 0.4 }],
+    cite: ["indexes", "sentiment", "inflation"],
+  },
+  consumerServices: {
+    note: "Travel, gig and consumer-services demand is discretionary and confidence-driven — bookings and usage rise with a healthy consumer and a risk-on tape, and high rates / sticky inflation crimp the discretionary budget",
+    axes: [{ key: "sentiment", w: 0.6 }, { key: "indexes", w: 0.5 }, { key: "yields", w: 0.4 }, { key: "inflation", w: 0.4 }],
+    cite: ["sentiment", "indexes", "yields"],
+  },
+  consumerStaples: {
+    note: "Staples are defensive — demand is steady, so the macro tilt is small; the dividend firms as yields fall and money rotates in when risk comes off",
+    axes: [{ key: "yields", w: 0.3 }],
+    extra: (ax, state) => 0.4 * defensiveTilt(state),
+    cite: ["yields"],
+  },
+  healthcare: { // generic healthcare fallback for uncurated names
+    note: "Healthcare is broadly defensive — demand is inelastic, so beyond name-specific catalysts it leans on the risk tape (and long-duration biotech feels long yields)",
+    axes: [{ key: "yields", w: 0.3 }],
+    extra: (ax, state) => 0.35 * defensiveTilt(state),
+    cite: ["yields"],
+  },
+  pharma: {
+    note: "Pharma is defensive — drug demand is inelastic, so beyond pipeline/approval catalysts it leans on the risk tape; long-duration or unprofitable biotech additionally feels long yields",
+    axes: [{ key: "yields", w: 0.3 }],
+    extra: (ax, state) => 0.35 * defensiveTilt(state),
+    cite: ["yields"],
+  },
+  healthInsurers: {
+    note: "Managed-care / health insurers are driven by the medical-cost ratio and policy far more than the macro tape — they are low-beta and largely rate-insensitive, and tend to hold up when risk comes off",
+    axes: [{ key: "indexes", w: 0.2 }],
+    extra: (ax, state) => 0.4 * defensiveTilt(state),
+    cite: ["indexes"],
+  },
+  medicalDevices: {
+    note: "Med-tech tracks elective procedure volumes and hospital capex — mildly cyclical with the economy and modestly rate-sensitive (hospital financing + long-duration cash flows), but broadly defensive",
+    axes: [{ key: "indexes", w: 0.4 }, { key: "yields", w: 0.3 }],
+    extra: (ax, state) => 0.2 * defensiveTilt(state),
+    cite: ["indexes", "yields"],
+  },
+  china: {
+    note: "China-exposed names trade the overnight Asia tape, the dollar (a softer USD eases financial conditions for emerging markets) and the global-growth impulse",
+    axes: [{ key: "globalTape", w: 0.6 }, { key: "dxy", w: 0.5 }, { key: "indexes", w: 0.4 }],
+    cite: ["globalTape", "dxy", "indexes"],
+  },
+  crypto: {
+    note: "Crypto-levered names are a high-beta risk-appetite and liquidity play — they rise with a risk-on tape, easing financial conditions (a dovish Fed, a softer dollar) and falling volatility",
+    axes: [{ key: "indexes", w: 0.7 }, { key: "globalTape", w: 0.5 }, { key: "fed", w: 0.5 }, { key: "dxy", w: 0.4 }],
+    cite: ["indexes", "fed", "dxy"],
+  },
+  highBeta: {
+    note: "A high-beta, liquidity-sensitive name — it amplifies the overall tape, risk appetite and easing financial conditions in both directions",
+    axes: [{ key: "indexes", w: 0.8 }, { key: "sentiment", w: 0.5 }, { key: "fed", w: 0.4 }, { key: "globalTape", w: 0.4 }],
+    cite: ["indexes", "sentiment", "fed"],
+  },
+  materials: {
+    note: "Materials and miners read the dollar (commodities are priced in USD) and the global-growth impulse — a softer dollar and firmer demand lift realized prices",
+    axes: [{ key: "dxy", w: 0.7 }, { key: "globalTape", w: 0.5 }, { key: "indexes", w: 0.3 }],
+    cite: ["dxy", "globalTape"],
+  },
+  spaceGrowth: {
+    note: "Pre-/early-revenue space & frontier-tech — capital-markets-funded and deeply long-duration, so it lives on risk appetite, the cost of capital (a dovish Fed and lower yields mean cheaper funding and less dilution pressure) and broad liquidity, on top of its own launch/contract catalysts",
+    axes: [{ key: "indexes", w: 0.7 }, { key: "fed", w: 0.6 }, { key: "yields", w: 0.5 }, { key: "sentiment", w: 0.5 }, { key: "globalTape", w: 0.3 }],
+    cite: ["indexes", "fed", "yields", "sentiment"],
+  },
+  bondProxy: {
+    note: "Long-dated Treasuries / duration — pure rates: it rises when long yields fall and the Fed turns dovish, and falls when yields back up",
+    axes: [{ key: "yields", w: 1.2 }, { key: "fed", w: 0.8 }],
+    cite: ["yields", "fed"],
+    regimeSign: 0, // a haven — a risk-off flight-to-quality bid is captured by its falling-yield axis, not an equity headwind
+  },
+  volLong: {
+    note: "Long-volatility — the inverse of the tape: it spikes when equities sell off and the VIX jumps, and bleeds in a calm, rising market (plus structural roll decay)",
+    axes: [],
+    extra: (ax) => -axSign(ax.vix) * 0.9 - axSign(ax.indexes) * 0.7,
+    cite: ["vix", "indexes"],
+    regimeSign: -1, // inverse to risk: a risk-off tape is a TAILWIND, not a headwind
+  },
+  broad: {
+    note: "Broad-market sensitive — its main macro driver is the overall direction of the tape",
+    axes: [{ key: "indexes", w: 1 }],
+    cite: ["indexes"],
+  },
+};
+
+export function buildMarketRead(sym, data, side, macroRegime, aiRead = null) {
   const bull = side === "call";
   const ax = (macroRegime && macroRegime.axes) || {};
   const state = macroRegime?.state || "neutral";
-  const group = macroGroupOf(sym, data);
-  const cite = [];
-  const add = (a) => { if (a && a.label && axSign(a) !== 0) cite.push(String(a.label).split(" — ")[0]); };
-  let macroDir = 0, theme = "";
-  if (group === "gold") {
-    macroDir = axSign(ax.yields) + axSign(ax.dxy) + axSign(ax.fed) * 0.5; // easing / weak-USD / dovish = bullish for gold
-    add(ax.yields); add(ax.dxy); add(ax.fed);
-    theme = "Gold pays no interest to hold — it lives and dies on real yields and the dollar";
-  } else if (group === "ratesInverse") {
-    macroDir = axSign(ax.fed) + axSign(ax.yields); // dovish Fed / falling yields = cheaper financing = bullish
-    add(ax.fed); add(ax.yields);
-    theme = "Rate-sensitive — these names depend on cheap financing, so the Fed path and long yields drive demand";
-  } else if (group === "ratesPositive") {
-    macroDir = -axSign(ax.yields) * 0.5 + axSign(ax.indexes) * 0.5; // modestly higher yields help NIM; risk-off hurts
-    add(ax.yields); add(ax.indexes);
-    theme = "Financials lean on the rate curve and credit conditions";
-  } else if (group === "energy") {
-    const c = ax.commodity;
-    const oilUp = c && c.score < 0 && /crude|oil/i.test(c.label || "");
-    macroDir = oilUp ? 1 : (c && c.score > 0 ? -1 : 0); // crude spiking is bullish for energy equities
-    add(c);
-    theme = "Energy earnings track the crude tape";
-  } else if (group === "dollarInverse") {
-    macroDir = axSign(ax.dxy) + axSign(ax.indexes); // weak dollar + risk-on lift overseas revenue
-    add(ax.dxy); add(ax.indexes);
-    theme = "Big exporters earn abroad — a weaker dollar and a risk-on tape lift them";
-  } else {
-    macroDir = axSign(ax.indexes);
-    add(ax.indexes);
-    theme = "Broad-market sensitive";
-  }
-  // Overlay the overall regime: a risk-off tape is a mild headwind for any long
-  // call / tailwind for any put (and vice-versa).
+  const kind = macroKindOf(sym, data);
+  const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
+
+  // Deterministic macro vote for a BULLISH stance, then compare to the trade side.
+  let macroDir = 0;
+  for (const a of profile.axes || []) macroDir += (a.w || 0) * axSign(ax[a.key]) * (a.invert ? -1 : 1);
+  if (typeof profile.extra === "function") macroDir += profile.extra(ax, state) || 0;
+  // Overlay the overall regime: a risk-off tape is a mild headwind for any long /
+  // tailwind for any put — EXCEPT for inverse-to-risk kinds (long-vol rises in a
+  // selloff, regimeSign −1) and havens (gold / Treasuries catch a bid, regimeSign
+  // 0 so their own rate/dollar axes decide instead of an equity-risk headwind).
   const regimeVote = state === "severe-risk-off" ? -1.5 : state === "risk-off" ? -1 : state === "risk-on" ? 1 : 0;
-  macroDir += regimeVote * 0.75;
+  macroDir += regimeVote * 0.6 * (profile.regimeSign ?? 1);
+
+  // Cite only the axes this KIND of name actually reads, and only when firing.
+  const cite = [];
+  for (const k of profile.cite || []) { const a = ax[k]; if (a && a.label && axSign(a) !== 0) cite.push(String(a.label).split(" — ")[0]); }
   if (state !== "neutral") cite.push(`tape ${state}`);
+
+  // The AI macro read (everything-aware thesis layer) is the authority on
+  // support/drivers/text when present; the deterministic profile only supplies
+  // the causal note (used for invalidator phrasing) and the fallback below.
+  if (aiRead && aiRead.macroSupport) {
+    const support = ["supports", "against", "neutral"].includes(aiRead.macroSupport) ? aiRead.macroSupport : "neutral";
+    const drivers = (Array.isArray(aiRead.macroDrivers) && aiRead.macroDrivers.length ? aiRead.macroDrivers : Array.from(new Set(cite))).slice(0, 4).map((s) => String(s));
+    const verb = support === "supports" ? "supports" : support === "against" ? "works against" : "is neutral to";
+    const text = String(aiRead.macroRead || "").trim() ||
+      `${profile.note}.${drivers.length ? " Right now: " + drivers.join(", ") + "." : ""} This macro backdrop ${verb} the ${bull ? "bullish" : "bearish"} thesis.`;
+    const dir = support === "supports" ? (bull ? 1 : -1) : support === "against" ? (bull ? -1 : 1) : 0;
+    return { group: kind, kind, dir, support, drivers, text, regimeState: state, note: profile.note, source: "ai" };
+  }
+
   const dirSign = Math.abs(macroDir) < 0.5 ? 0 : Math.sign(macroDir);
   const support = dirSign === 0 ? "neutral" : (dirSign === (bull ? 1 : -1) ? "supports" : "against");
   const drivers = Array.from(new Set(cite)).slice(0, 3);
   const verb = support === "supports" ? "supports" : support === "against" ? "works against" : "is neutral to";
-  const text = `${theme}.${drivers.length ? " Right now: " + drivers.join(", ") + "." : ""} This macro backdrop ${verb} the ${bull ? "bullish" : "bearish"} thesis.`;
-  return { group, dir: dirSign, support, drivers, text, regimeState: state };
+  const text = `${profile.note}.${drivers.length ? " Right now: " + drivers.join(", ") + "." : ""} This macro backdrop ${verb} the ${bull ? "bullish" : "bearish"} thesis.`;
+  return { group: kind, kind, dir: dirSign, support, drivers, text, regimeState: state, note: profile.note, source: "deterministic" };
 }
 // How many of the four asset pillars have at least one signal firing in the
 // trade's direction — the "is this multi-factor or a single-signal fluke?" read.
@@ -10541,23 +10858,33 @@ export function buildEdgeStatement(r, side, strategy, thesisQuality, contract) {
 // and re-scored each build (thesisStatus) so the Track-record tab can show
 // whether the thesis is actually playing out.
 function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroRegime, pre) {
+  const aiThesis = (pre && pre.aiThesis) || null;
   const works = (pre && pre.works) || collectThesisWorks(r, side);
-  const marketRead = (pre && pre.marketRead) || buildMarketRead(r.sym, r.data, side, macroRegime);
+  const marketRead = (pre && pre.marketRead) || buildMarketRead(r.sym, r.data, side, macroRegime, aiThesis);
   const thesisQuality = (pre && pre.thesisQuality) || assessThesisQuality(r, side, marketRead, works);
   const { classification, group } = (pre && pre.classification) ? { classification: pre.classification, group: pre.group } : classifyPick(r.total, thesisQuality.tier, tactical);
   const companyDrivers = works.filter((w) => w.pillarKey === "fundamentals" || w.pillarKey === "narrative");
   const confirmation = works.filter((w) => w.pillarKey === "technicals" || w.pillarKey === "mechanicals");
   const invalidators = [];
-  const seen = new Set();
-  for (const w of works.slice(0, 3)) {
-    const trig = THESIS_INVALIDATION[w.key];
-    if (trig && !seen.has(trig)) { invalidators.push({ key: w.key, trigger: trig }); seen.add(trig); }
-  }
-  // The macro read is itself an invalidator when it's the thesis backbone (gold /
-  // homebuilder / energy / dollar plays): the trade is disproven if that backdrop
-  // flips. Phrased direction-neutrally.
-  if (marketRead.group !== "broad" && marketRead.support === "supports" && marketRead.drivers.length) {
-    invalidators.push({ key: "macroRead", trigger: `the macro backdrop reverses (${marketRead.group === "gold" ? "real yields fall / dollar weakens against the trade" : marketRead.group === "ratesInverse" ? "the Fed path / yields reprice against the trade" : marketRead.group === "energy" ? "the crude tape turns against the trade" : "the dollar / tape turns against the trade"})` });
+  // Thesis-level invalidation: prefer the AI's specific, observable conditions
+  // (the "Strait of Hormuz reopens / oil futures stabilize" tier); fall back to
+  // the deterministic per-driver + macro-backbone reversal phrasing when there's
+  // no AI thesis (keyless / offline regen).
+  if (aiThesis && Array.isArray(aiThesis.invalidation) && aiThesis.invalidation.length) {
+    for (const trig of aiThesis.invalidation.slice(0, 4)) invalidators.push({ key: "thesis", trigger: trig });
+  } else {
+    const seen = new Set();
+    for (const w of works.slice(0, 3)) {
+      const trig = THESIS_INVALIDATION[w.key];
+      if (trig && !seen.has(trig)) { invalidators.push({ key: w.key, trigger: trig }); seen.add(trig); }
+    }
+    // The macro read is itself an invalidator when it's the thesis backbone (a
+    // rate / dollar / crude / consumer-spending play): the trade is disproven if
+    // that backdrop flips. Phrased direction-neutrally; cites the live driver(s).
+    if (marketRead.group !== "broad" && marketRead.support === "supports" && marketRead.drivers.length) {
+      const flip = marketRead.drivers.slice(0, 2).join(" / ");
+      invalidators.push({ key: "macroRead", trigger: `the macro backdrop that supports this reverses (${flip || "the supporting cross-asset drivers turn against the trade"})` });
+    }
   }
   // Structural invalidators — always present, derived from the exit plan.
   const isCredit = contract && contract.structure === "credit_vertical";
@@ -10617,6 +10944,9 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
     strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback } : null,
     invalidators,
     target,
+    // The everything-aware AI thesis (summary / reasoning / load-bearing drivers /
+    // macro read / confidence). Null without a key (deterministic card stands).
+    ai: aiThesis,
   };
 }
 
@@ -10690,7 +11020,15 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
 // picks.json writer (+ tenure stamp + zero-pick stale reuse).
 // ============================================================================
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null) {
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) });
+  const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) };
+  // Pre-pass: score the universe ONCE, then generate the everything-aware AI
+  // thesis for every actionable candidate BEFORE the gate — so each thesis's
+  // macroSupport verdict can flow into the thesis-quality gate (and the narrative
+  // ships on the card). Self-skips keyless; re-using preScored avoids a second
+  // scoring pass inside buildTopPicks. The thesis cache turns over per signature.
+  const preScored = scoreAllTickers(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, baseOpts);
+  const aiThesis = await generateAiTheses(preScored, macroBackdrop, baseOpts, thesisProsePrior || {});
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored, aiThesisMap: aiThesis.map });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   let priorPayload = priorPicks;
@@ -10702,15 +11040,15 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
     const staleJson = JSON.stringify(stalePayload);
     await writeFile(picksPath, staleJson, "utf8");
     console.warn(`[picks] buildTopPicks returned 0 — reusing ${priorPayload.picks.length} from ${priorPayload.builtAtIso || "previous run"} (stale)`);
-    // Carry the prose cache forward unchanged — the reused picks keep the prose
+    // Carry the thesis cache forward unchanged — the reused picks keep the thesis
     // they were baked with.
-    return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks), thesisProseCache: thesisProsePrior || {} };
+    return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks), thesisProseCache: aiThesis.cache };
   }
 
-  // Hybrid thesis: attach the optional AI prose gloss BEFORE the file write so it
-  // ships in picks.json (deterministic thesis already on each pick). Self-skips
-  // without a key; cached per thesis-signature so most builds reuse it for free.
-  const thesisProseCache = await attachPickThesisProse(picks, thesisProsePrior || {});
+  // The AI thesis is already attached to each pick (via the map → buildThesisCard);
+  // persist the cache (write-after-wipe in main()). Deterministic thesis ships
+  // regardless, so a keyless build still produces a full card.
+  const thesisProseCache = aiThesis.cache;
 
   const payload = { builtAtIso, minConviction: picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION, rosterMeta: picks.rosterMeta || null, picks };
   const json = JSON.stringify(payload);
@@ -10722,81 +11060,240 @@ export async function readPriorPicks() {
   try { const raw = await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8"); const p = JSON.parse(raw); return p && typeof p === "object" ? p : null; } catch { return null; }
 }
 
-// ---- Optional AI thesis-prose gloss (hybrid: deterministic thesis + AI narrative)
-// The deterministic thesisCard (works / market read / invalidators / conviction /
-// disclosure / strategy) is the source of truth and drives every gate, monitor,
-// and the UI; this adds ONE short Gemini paragraph of natural causal reasoning on
-// top. It degrades gracefully without GEMINI_API_KEY (no prose, everything else
-// intact) and is cached per symbol:side so it only re-calls when the thesis
-// composition changes. regen-picks.mjs does NOT call it (offline / no network).
+// ---- AI THESIS (the everything-aware, macro-causal thesis layer) ------------
+// The deterministic engine sets the DIRECTION + conviction (the grade) and the
+// trade STRUCTURE; this layer writes the THESIS — the cause-and-effect narrative
+// explaining WHY the trade has an edge now and what would prove it wrong, AND a
+// macro read that REPLACES the coarse deterministic market read (so it feeds the
+// thesis-quality gate). It is fed the WHOLE picture per name — the scored signals,
+// company fundamentals, the AI news take + judgment + headlines + catalysts, the
+// full cross-asset macro backdrop (rates / dollar / Fed / inflation / geopolitics)
+// with each name's macro-kind sensitivity, and the IV regime — and DECIDES which
+// factors are load-bearing. It is generated PRE-GATE on the candidate set so the
+// macroSupport verdict can flow into assessThesisQuality. Degrades gracefully
+// without GEMINI_API_KEY (deterministic market read + thesis stand alone), and is
+// cached per symbol:side on a signature that turns over with the grade, the
+// drivers, the relevant macro axes, the news take, and the IV bucket — so it
+// re-reads when the picture materially changes (incl. a fresh news take), not
+// every build. regen-picks.mjs runs offline (no AI thesis; deterministic read).
 const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-2.5-flash-lite";
-function pickProseSig(p) {
-  const tc = p.thesisCard || {};
-  const works = (tc.works || []).map((w) => w.key).join(",");
-  return [p.symbol, p.side, p.strategy?.type || "long", tc.marketRead?.support || "", tc.marketRead?.regimeState || "", tc.hasSolidThesis ? 1 : 0, Math.round(pnum(p.total) ?? 0), works].join("|");
+
+const THESIS_SCHEMA = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    reasoning: { type: "string" },
+    drivers: { type: "array", items: { type: "string" } },
+    macroSupport: { type: "string", enum: ["supports", "against", "neutral"] },
+    macroRead: { type: "string" },
+    macroDrivers: { type: "array", items: { type: "string" } },
+    invalidation: { type: "array", items: { type: "string" } },
+    confidence: { type: "string", enum: ["high", "moderate", "low"] },
+  },
+  required: ["summary", "reasoning", "macroSupport", "invalidation"],
+  propertyOrdering: ["summary", "reasoning", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "confidence"],
+};
+
+const THESIS_SYSTEM =
+  "You are a senior options strategist writing the investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — your job is NOT to re-decide the direction, it is to explain, in clear cause-and-effect terms, WHY this trade has an edge right now and what would prove it wrong, grounded ONLY in the data provided. " +
+  "Decide for yourself which of the supplied factors — company fundamentals, news/catalysts, technicals & flow, and the cross-asset MACRO backdrop (interest rates, the dollar, the Fed path, inflation, geopolitics) — are LOAD-BEARING for THIS specific business, and build the thesis around those; ignore factors that don't move this kind of name. " +
+  "Connect macro to the company causally: a consumer-discretionary name lives on rates + inflation via real consumer spending; a high-multiple grower is long-duration and feels long yields + the dollar; an energy name tracks crude; a homebuilder tracks the Fed path. " +
+  "Output fields: summary = 1–2 sentences stating the core directional thesis and why the edge exists NOW; reasoning = a tight cause→effect paragraph (3–6 sentences) weaving the load-bearing company AND macro drivers and explaining why the grade is high; drivers = the 2–4 factors you actually leaned on; macroSupport = does the cross-asset macro tape SUPPORT, work AGAINST, or stay NEUTRAL to this trade's DIRECTION (a bullish trade is 'supports' only when macro is a tailwind for upside — be honest and say 'against' when macro fights it); macroRead = one sentence on the macro backdrop's bearing on this trade; macroDrivers = the specific macro factors you cited; invalidation = 3–4 SPECIFIC, observable conditions that would prove the thesis wrong (a named driver reversing, a price level breaking, a macro shift, a catalyst disappointing) — never generic 'the stock could fall'; confidence = your honest read of the thesis strength. " +
+  "Rules: never invent news, events, numbers, or catalysts not in the context. Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concise and concrete.";
+
+// Pull a driver signal's human display value ("+18%", "raised") for the prompt.
+function thesisDriverValue(r, key) {
+  const found = findDriverSignal(r, key);
+  return found && found.sig && found.sig.value != null ? ` (${String(found.sig.value)})` : "";
 }
+// Assemble the full per-candidate context the AI reasons over. Pure; everything
+// is already on `r`/`r.data` and the macroRegime.
+function buildThesisUserMessage(r, side, macroRegime) {
+  const bull = side === "call";
+  const d = r.data || {};
+  const f = d.fundamentals || {};
+  const sym = r.sym;
+  const name = f.name && f.name !== sym ? `${sym} (${f.name})` : sym;
+  const sector = SECTORS[sym] || f.sector || "—";
+  const kind = macroKindOf(sym, d);
+  const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
+  const spot = pnum(d.spot);
+  const pct = (x, dec = 1) => { const n = pnum(x); return n == null ? null : `${n >= 0 ? "+" : ""}${n.toFixed(dec)}%`; };
+  const L = [];
+  L.push(`TRADE: ${bull ? "BULLISH" : "BEARISH"} on ${name} — a 1–2 week ${bull ? "CALL" : "PUT"} options idea. Deterministic grade ${r.total >= 0 ? "+" : ""}${r.total} (conviction ${r.recommendation?.tier || "—"}).`);
+  L.push(`BUSINESS: sector ${sector}; macro-kind "${kind}" — ${profile.note}.`);
+
+  const t = d.technicals || {};
+  const rsi = pnum(t.rsi), hi = pnum(f.fiftyTwoWeekHigh), lo = pnum(f.fiftyTwoWeekLow);
+  const range = (spot != null && hi != null && lo != null && hi > lo) ? Math.round(((spot - lo) / (hi - lo)) * 100) : null;
+  const pp = [];
+  if (spot != null) pp.push(`spot $${spot.toFixed(2)}`);
+  if (rsi != null) pp.push(`RSI ${rsi.toFixed(0)}`);
+  if (range != null) pp.push(`${range}% of 52-wk range`);
+  if (spot != null && pnum(t.sma?.sma50) != null) pp.push(`${spot >= pnum(t.sma.sma50) ? "above" : "below"} 50D SMA`);
+  if (pp.length) L.push(`PRICE: ${pp.join(", ")}.`);
+
+  const sign = bull ? 1 : -1;
+  const forDrv = (r.drivers || []).filter((x) => x && x.score && Math.sign(x.score) === sign).slice(0, 6);
+  if (forDrv.length) L.push(`SIGNALS DRIVING THE GRADE (in the trade's direction): ${forDrv.map((x) => `${x.label}${thesisDriverValue(r, x.key)}`).join("; ")}.`);
+  const against = (r.drivers || []).filter((x) => x && x.score && Math.sign(x.score) !== sign).slice(0, 3);
+  if (against.length) L.push(`COUNTER-SIGNALS (against the trade — weigh honestly): ${against.map((x) => x.label).join("; ")}.`);
+
+  const fb = [];
+  if (pct(f.earningsGrowthYoy) != null) fb.push(`EPS growth ${pct(f.earningsGrowthYoy)} YoY`);
+  if (pct(f.revenueGrowthYoy) != null) fb.push(`revenue ${pct(f.revenueGrowthYoy)} YoY`);
+  if (pnum(f.targetMeanPrice) != null && spot != null) fb.push(`analyst target $${pnum(f.targetMeanPrice).toFixed(0)} (${pct((pnum(f.targetMeanPrice) / spot - 1) * 100)} vs spot)`);
+  const g = d.aiSignals?.guidance?.direction; if (g && g !== "none") fb.push(`guidance ${g}`);
+  if (pnum(f.trailingPE) != null) fb.push(`P/E ${pnum(f.trailingPE).toFixed(1)}`);
+  if (pnum(f.freeCashFlow) != null) fb.push(`FCF ${pnum(f.freeCashFlow) >= 0 ? "positive" : "negative"}`);
+  if (pnum(f.shortPercentOfFloat) != null && pnum(f.shortPercentOfFloat) >= 10) fb.push(`short interest ${pnum(f.shortPercentOfFloat).toFixed(0)}% of float`);
+  if (pnum(f.dividendYield) != null && pnum(f.dividendYield) > 0) fb.push(`div yield ${pnum(f.dividendYield).toFixed(1)}%`);
+  if (pnum(f.beta) != null) fb.push(`beta ${pnum(f.beta).toFixed(2)}`);
+  if (fb.length) L.push(`FUNDAMENTALS: ${fb.join(", ")}.`);
+
+  if (d.news?.paragraph) L.push(`NEWS READ (sentiment ${d.news.sentiment || "neutral"}): ${String(d.news.paragraph).slice(0, 500)}`);
+  const j = f.judgment;
+  if (j) {
+    L.push(`FUNDAMENTAL JUDGMENT: verdict ${j.verdict}${j.summary ? ` — ${String(j.summary).slice(0, 320)}` : ""}`);
+    if (Array.isArray(j.positives) && j.positives.length) L.push(`  + ${j.positives.slice(0, 4).join("; ")}`);
+    if (Array.isArray(j.negatives) && j.negatives.length) L.push(`  − ${j.negatives.slice(0, 4).join("; ")}`);
+    if (j.earningsRecap) L.push(`  earnings: ${String(j.earningsRecap).slice(0, 220)}`);
+  }
+  const hls = Array.isArray(d.news?.headlines) ? d.news.headlines.slice(0, 5) : [];
+  if (hls.length) L.push(`RECENT HEADLINES: ${hls.map((h) => `"${h.title}"${h.publisher ? ` (${h.publisher})` : ""}`).join(" | ")}`);
+  const cats = Array.isArray(d.catalysts) ? d.catalysts.slice(0, 4) : [];
+  if (cats.length) L.push(`UPCOMING CATALYSTS: ${cats.map((c) => `${c.date} ${c.title}`).join(" | ")}`);
+  if (f.nextEarningsDate) L.push(`NEXT EARNINGS: ${String(f.nextEarningsDate).slice(0, 10)}`);
+
+  const ax = (macroRegime && macroRegime.axes) || {};
+  const state = macroRegime?.state || "neutral";
+  const order = ["indexes", "yields", "fed", "dxy", "inflation", "commodity", "geo", "vix", "sentiment", "globalTape"];
+  const axL = [];
+  for (const k of order) { const a = ax[k]; if (a && a.label && axSign(a) !== 0) axL.push(a.label); }
+  L.push(`MACRO BACKDROP: cross-asset tape ${state}.${axL.length ? ` Firing axes: ${axL.join(" · ")}.` : " (no axis firing strongly.)"}`);
+  L.push(`MACRO RELEVANCE: for a "${kind}" name the axes that matter most are ${(profile.cite || ["indexes"]).join(", ")} — judge whether they are a tailwind or a headwind for a ${bull ? "bullish" : "bearish"} trade.`);
+
+  const ivp = pnum(d.ivRank?.pctile), ivz = pnum(d.ivRank?.z);
+  if (ivp != null || ivz != null) {
+    const rich = (ivz != null && ivz >= 1.5) || (ivp != null && ivp >= 60);
+    const cheap = (ivz != null && ivz <= -0.5) || (ivp != null && ivp <= 30);
+    L.push(`OPTIONS / IV: ATM IV ${ivp != null ? `${ivp.toFixed(0)}th percentile` : ""}${ivz != null ? ` (z ${ivz.toFixed(1)})` : ""} — ${rich ? "elevated; premium is rich (favors selling premium / defined-risk)" : cheap ? "cheap (favors buying premium outright)" : "moderate"}.`);
+  }
+  return L.join("\n");
+}
+
+function parseThesisResponse(text) {
+  if (!text) return null;
+  const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const fb = stripped.indexOf("{"), lb = stripped.lastIndexOf("}");
+  const jsonText = fb >= 0 && lb > fb ? stripped.slice(fb, lb + 1) : stripped;
+  let p; try { p = JSON.parse(jsonText); } catch { return null; }
+  const clean = (s, n = 600) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+  const list = (a, n = 4, len = 200) => (Array.isArray(a) ? a : []).map((x) => clean(x, len)).filter(Boolean).slice(0, n);
+  const summary = clean(p.summary, 340), reasoning = clean(p.reasoning, 900);
+  if (!summary || !reasoning) return null;
+  return {
+    summary, reasoning,
+    drivers: list(p.drivers, 4, 120),
+    macroSupport: ["supports", "against", "neutral"].includes(p.macroSupport) ? p.macroSupport : "neutral",
+    macroRead: clean(p.macroRead, 300),
+    macroDrivers: list(p.macroDrivers, 4, 80),
+    invalidation: list(p.invalidation, 4, 220),
+    confidence: ["high", "moderate", "low"].includes(p.confidence) ? p.confidence : "moderate",
+  };
+}
+
+// Cache signature: turns over with the grade, the in-direction drivers, the macro
+// state + the relevant axes' directions, the news take, the fundamental verdict,
+// and the IV bucket — so a fresh news take or a macro shift re-reads the thesis.
+function thesisCacheSig(r, side, kind, macroRegime) {
+  const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).join(",");
+  const ax = (macroRegime && macroRegime.axes) || {};
+  const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
+  const axSig = (profile.cite || []).map((k) => `${k}${axSign(ax[k]) > 0 ? "+" : axSign(ax[k]) < 0 ? "-" : "0"}`).join("");
+  const state = macroRegime?.state || "neutral";
+  const newsHash = r.data?.news?.paragraph ? createHash("sha1").update(String(r.data.news.paragraph)).digest("hex").slice(0, 8) : "";
+  const verdict = r.data?.fundamentals?.judgment?.verdict || "";
+  const ivp = pnum(r.data?.ivRank?.pctile);
+  const ivBucket = ivp != null ? Math.round(ivp / 20) : "";
+  return [r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket].join("|");
+}
+
 async function readPickThesisCache() {
   try { const raw = await readFile(resolve(DATA_DIR, PICK_THESIS_CACHE_FILE), "utf8"); const p = JSON.parse(raw); if (p && typeof p === "object" && !Array.isArray(p)) return p; } catch (_) { /* missing / first build */ }
   return {};
 }
 async function writePickThesisCache(cache) {
   try { await writeFile(resolve(DATA_DIR, PICK_THESIS_CACHE_FILE), JSON.stringify(cache || {}), "utf8"); }
-  catch (err) { console.warn(`[picks] failed to persist thesis-prose cache — ${String(err?.message || err).split("\n")[0]}`); }
+  catch (err) { console.warn(`[picks] failed to persist thesis cache — ${String(err?.message || err).split("\n")[0]}`); }
 }
-// Attach pick.thesisCard.prose. Returns the next cache (for write-after-wipe).
-export async function attachPickThesisProse(picks, priorCache = {}) {
-  const next = {};
-  if (!Array.isArray(picks) || !picks.length) return next;
-  // No key (or strategy/prose disabled): carry prior prose forward where the
-  // signature is unchanged so a transiently-keyless build doesn't blank the gloss.
-  if (!process.env.GEMINI_API_KEY || process.env.AI_THESIS_PROSE === "0") {
-    for (const p of picks) {
-      if (!p.thesisCard) continue;
-      const k = `${p.symbol}:${p.side}`, sig = pickProseSig(p), prior = priorCache[k];
-      if (prior && prior.sig === sig && prior.prose) { p.thesisCard.prose = prior.prose; next[k] = { sig, prose: prior.prose }; }
-    }
-    return next;
+
+// Generate the AI thesis for every actionable candidate, keyed `symbol:side`.
+// Returns { map, cache } — `map` is consumed PRE-GATE by buildTopPicks (the macro
+// read feeds the quality gate + the card carries the narrative); `cache` is the
+// write-after-wipe persistence. Mirrors buildTopPicks's candidate selection so we
+// only spend tokens on names that can actually ship.
+export async function generateAiTheses(preScored, macroBackdrop, opts = {}, priorCache = {}) {
+  const next = {}, map = {};
+  const scored = preScored?.scored || [];
+  if (!scored.length) return { map, cache: next };
+  const regime = preScored.regimeBand || "neutral";
+  const macroRegime = macroBackdrop?.macroRegime || null;
+  const minConv = opts.priorClosed ? edgeGatedConviction(opts.priorClosed).bar : PICKS_MIN_CONVICTION;
+
+  const cands = [];
+  for (const r of scored) {
+    if (!r || !r.data) continue;
+    if (Math.abs(r.total) >= minConv && r.side) cands.push({ r, side: r.side });
+    else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") cands.push({ r, side: "put" });
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  if (!cands.length) return { map, cache: next };
+
+  const keyless = !process.env.GEMINI_API_KEY || process.env.AI_THESIS === "0";
   const toCall = [];
-  for (const p of picks) {
-    if (!p.thesisCard) continue;
-    const k = `${p.symbol}:${p.side}`, sig = pickProseSig(p), prior = priorCache[k];
-    if (prior && prior.sig === sig && prior.prose) { p.thesisCard.prose = prior.prose; next[k] = { sig, prose: prior.prose }; }
-    else toCall.push({ p, k, sig });
+  for (const { r, side } of cands) {
+    const k = `${r.sym}:${side}`;
+    const kind = macroKindOf(r.sym, r.data);
+    const sig = thesisCacheSig(r, side, kind, macroRegime);
+    const prior = priorCache[k];
+    if (prior && prior.sig === sig && prior.ai) { map[k] = prior.ai; next[k] = { sig, ai: prior.ai }; }
+    else if (!keyless) toCall.push({ r, side, k, sig });
+    // keyless miss → no AI thesis (buildMarketRead falls back to the deterministic read)
   }
-  if (!toCall.length) return next;
-  console.log(`Writing AI thesis prose for ${toCall.length} pick(s)… (${Object.keys(next).length} reused)`);
-  for (const { p, k, sig } of toCall) {
-    const tc = p.thesisCard;
-    const worksTxt = (tc.works || []).map((w) => `${w.label}${w.value ? ` (${w.value})` : ""}`).join("; ");
-    const invTxt = (tc.invalidators || []).slice(0, 3).map((i) => i.trigger).join("; ");
-    const prompt =
-      `You are an options strategist writing a SHORT plain-English thesis for a ~1-2 week ${p.side === "put" ? "bearish" : "bullish"} options trade on ${p.symbol}.\n` +
-      `Structure: ${p.strategy?.label || (p.side + " option")}.\n` +
-      `Conviction: ${tc.conviction || ""}.\n` +
-      `Deterministic market read: ${tc.marketRead?.text || ""}\n` +
-      `What makes it work: ${worksTxt || "(thin)"}.\n` +
-      `What would disprove it: ${invTxt || ""}.\n` +
-      (tc.hasSolidThesis === false ? `NOTE: the supporting signals are thin — say so honestly.\n` : "") +
-      `Write EXACTLY 2 sentences of natural causal reasoning a retail trader can follow: (1) WHY this trade makes sense given the market AND company conditions, (2) the single biggest thing that would disprove it. Do not restate the strikes/structure, no bullet points, no hype, no disclaimers.`;
-    let response;
-    for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
-      try {
-        await acquireAiSlot();
-        response = await ai.models.generateContent({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), contents: prompt, config: { temperature: 0.5, maxOutputTokens: 260 } });
-        recordAiUsage({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), callType: "thesis-prose", symbol: p.symbol, usage: response?.usageMetadata });
-        break;
-      } catch (err) {
-        const wait = classifyAiError(err, attempt);
-        if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
-        await new Promise((r) => setTimeout(r, wait));
+  if (keyless || !toCall.length) return { map, cache: next };
+
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  console.log(`Writing AI thesis for ${toCall.length} candidate(s)… (${Object.keys(next).length} reused)`);
+  for (const { r, side, k, sig } of toCall) {
+    // Per-candidate isolation: a bad data shape or a hard API failure on ONE name
+    // must never reject the whole picks write — that name just ships its
+    // deterministic card (graceful degradation, like every other AI step).
+    try {
+      const userMsg = buildThesisUserMessage(r, side, macroRegime);
+      let response = null;
+      for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+        try {
+          await acquireAiSlot();
+          response = await ai.models.generateContent({
+            model: aiModelForAttempt(AI_THESIS_MODEL, attempt),
+            config: { systemInstruction: THESIS_SYSTEM, temperature: 0.45, maxOutputTokens: 1100, responseMimeType: "application/json", responseSchema: THESIS_SCHEMA, thinkingConfig: { thinkingBudget: 0 } },
+            contents: userMsg,
+          });
+          recordAiUsage({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), callType: "pick-thesis", symbol: r.sym, usage: response?.usageMetadata });
+          break;
+        } catch (err) {
+          const wait = classifyAiError(err, attempt);
+          if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
+          await new Promise((res) => setTimeout(res, wait));
+        }
       }
+      const parsed = response ? parseThesisResponse(response.text) : null;
+      if (parsed) { map[k] = parsed; next[k] = { sig, ai: parsed }; }
+    } catch (err) {
+      console.warn(`[picks] AI thesis for ${k} failed — ${String(err?.message || err).split("\n")[0]}`);
     }
-    const txt = response ? String(response.text || "").trim() : "";
-    if (txt) { p.thesisCard.prose = txt; next[k] = { sig, prose: txt }; }
   }
-  return next;
+  return { map, cache: next };
 }
 
 export function applyPickFirstSeen(picks, priorPicks, builtAtIso) {
