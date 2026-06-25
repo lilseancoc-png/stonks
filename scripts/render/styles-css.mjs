@@ -8966,6 +8966,26 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   background: color-mix(in srgb, var(--text) 4%, transparent);
   border-radius: var(--r-1); padding: 7px 10px; margin-top: 3px;
 }
+/* --- AI thesis STORY: the narrative arc (backdrop / what's changing / early
+   confirmation / outlook), each a labelled beat in a flowing briefing --- */
+.thesis-narrative {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border-radius: var(--r-1); padding: 8px 11px; margin-top: 3px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.thesis-beat { display: flex; flex-direction: column; gap: 2px; }
+.thesis-beat-lbl {
+  font: 800 9.5px/1.2 var(--font-sans); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--accent, #5b8def);
+}
+.thesis-beat-body { font: 400 12.5px/1.6 var(--font-sans); color: var(--text); }
+.thesis-confirm-ul { margin: 1px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.thesis-confirm-ul li {
+  font: 400 12px/1.45 var(--font-sans); color: var(--text);
+  display: flex; align-items: baseline; gap: 6px;
+}
+.thesis-confirm-ul li::before { content: '✓'; color: var(--pos); font-weight: 800; flex: none; }
+.thesis-strat-reason-ai { color: var(--text); margin-bottom: 3px; }
 .thesis-ai-drivers { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .thesis-ai-driver {
   font: 600 10.5px/1.2 var(--font-sans); color: var(--accent, #5b8def);

@@ -19823,17 +19823,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? '<div class="thesis-disclosure" title="The grade may have cleared the bar, but the thesis is not airtight. Trade it smaller or wait for confirmation.">⚠ ' + escapeHtml(tc.disclosure) + '</div>'
       : '';
 
-    // ---- Expand: the detailed thesis + the structured evidence sections ----
+    // ---- Expand: the detailed thesis STORY + the structured evidence sections ----
     var secs = '';
-    // Detailed thesis — the AI's cause-effect paragraph + the load-bearing
-    // factors it leaned on. Falls back to the legacy prose gloss for any
-    // pre-upgrade payload that predates the structured AI thesis.
-    var reasoningTxt = (ai && ai.reasoning) ? ai.reasoning : (tc.prose || '');
-    if (reasoningTxt){
+    // The everything-aware AI thesis, rendered as a flowing briefing that tells
+    // the story behind the grade: Backdrop → What's changing now → Early
+    // confirmation → Outlook, with the numbers woven in. Falls back to the legacy
+    // single-paragraph reasoning (v1 cache) / prose gloss for any older payload.
+    function thesisBeat(lbl, txt){
+      return txt ? '<div class="thesis-beat"><span class="thesis-beat-lbl">' + escapeHtml(lbl) + '</span><span class="thesis-beat-body">' + escapeHtml(txt) + '</span></div>' : '';
+    }
+    var beats = '';
+    if (ai && (ai.setup || ai.catalyst || ai.outlook)){
+      beats += thesisBeat('Backdrop', ai.setup);
+      beats += thesisBeat("What's changing now", ai.catalyst);
+      if (Array.isArray(ai.confirmation) && ai.confirmation.length){
+        var cf = '';
+        for (var cfi=0; cfi<ai.confirmation.length; cfi++){ if (ai.confirmation[cfi]) cf += '<li>' + escapeHtml(ai.confirmation[cfi]) + '</li>'; }
+        if (cf) beats += '<div class="thesis-beat"><span class="thesis-beat-lbl">Early confirmation</span><ul class="thesis-confirm-ul">' + cf + '</ul></div>';
+      }
+      beats += thesisBeat('Outlook', ai.outlook);
+    } else {
+      // Legacy v1 payload (single reasoning paragraph) — emit a bare beat-body so
+      // the .thesis-narrative wrapper is the only padded box (no double-boxing).
+      var reasoningTxt = (ai && ai.reasoning) ? ai.reasoning : (tc.prose || '');
+      if (reasoningTxt) beats += '<span class="thesis-beat-body">' + escapeHtml(reasoningTxt) + '</span>';
+    }
+    if (beats){
       var aiDrv = (ai && Array.isArray(ai.drivers) && ai.drivers.length)
         ? '<div class="thesis-ai-drivers">' + ai.drivers.map(function(d){ return '<span class="thesis-ai-driver">' + escapeHtml(d) + '</span>'; }).join('') + '</div>'
         : '';
-      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape) and decides what is load-bearing. The deterministic grade still drives the trade decision.">Detailed thesis <span class="thesis-prose-tag">AI read</span></div><div class="thesis-reasoning">' + escapeHtml(reasoningTxt) + '</div>' + aiDrv + '</div>';
+      secs += '<div class="thesis-sec thesis-sec-reasoning"><div class="thesis-sec-head thesis-sec-ai" title="An AI strategist\\'s plain-English thesis — it weighs the whole picture (company + news + interest rates + the dollar + the macro tape), decides what is load-bearing, and tells the story behind the grade. The deterministic grade still drives the trade decision.">Detailed thesis <span class="thesis-prose-tag">AI read</span></div><div class="thesis-narrative">' + beats + '</div>' + aiDrv + '</div>';
     }
     if (tc.marketRead && tc.marketRead.text){
       var sup = tc.marketRead.support;
@@ -19846,7 +19865,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var invHtml = '';
     for (var k=0; k<inv.length; k++){ var ivx = inv[k]; if (!ivx || !ivx.trigger) continue; invHtml += '<li>' + escapeHtml(ivx.trigger) + '</li>'; }
     if (invHtml) secs += '<div class="thesis-sec"><div class="thesis-sec-head thesis-sec-inval">④ Invalidation — what would break it</div><ul class="thesis-ul thesis-inval-ul">' + invHtml + '</ul></div>';
-    if (!noRec && tc.strategy && tc.strategy.reason) secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑤ Strategy rationale</div><div class="thesis-strat-reason">' + escapeHtml(tc.strategy.reason) + '</div></div>';
+    var stratRat = (ai && ai.strategyRationale) ? ai.strategyRationale : '';
+    if (!noRec && (stratRat || (tc.strategy && tc.strategy.reason))){
+      var srHtml = '';
+      // The AI's IV-vs-structure justification (why sell premium / buy a debit /
+      // stay defined-risk) leads; the deterministic reason gives the precise read.
+      if (stratRat) srHtml += '<div class="thesis-strat-reason thesis-strat-reason-ai">' + escapeHtml(stratRat) + ' <span class="thesis-prose-tag">AI read</span></div>';
+      if (tc.strategy && tc.strategy.reason) srHtml += '<div class="thesis-strat-reason">' + escapeHtml(tc.strategy.reason) + '</div>';
+      secs += '<div class="thesis-sec"><div class="thesis-sec-head">⑤ Strategy rationale</div>' + srHtml + '</div>';
+    }
     if (tc.thesisQuality && Array.isArray(tc.thesisQuality.checklist)){
       var rows = '';
       var cl = tc.thesisQuality.checklist;

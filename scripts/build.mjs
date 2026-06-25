@@ -10944,8 +10944,10 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
     strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback } : null,
     invalidators,
     target,
-    // The everything-aware AI thesis (summary / reasoning / load-bearing drivers /
-    // macro read / confidence). Null without a key (deterministic card stands).
+    // The everything-aware AI thesis: summary + the setup/catalyst/confirmation/
+    // outlook story arc + load-bearing drivers / invalidation / strategyRationale /
+    // macroRead+macroSupport / confidence (legacy `reasoning` kept for old caches).
+    // Null without a key (deterministic card stands).
     ai: aiThesis,
   };
 }
@@ -11078,28 +11080,46 @@ export async function readPriorPicks() {
 // every build. regen-picks.mjs runs offline (no AI thesis; deterministic read).
 const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-2.5-flash-lite";
 
+// Bump when the schema / prompt changes so every cached thesis re-reads once.
+const THESIS_PROMPT_VERSION = "v2";
+
 const THESIS_SCHEMA = {
   type: "object",
   properties: {
     summary: { type: "string" },
-    reasoning: { type: "string" },
+    setup: { type: "string" },
+    catalyst: { type: "string" },
+    confirmation: { type: "array", items: { type: "string" } },
+    outlook: { type: "string" },
     drivers: { type: "array", items: { type: "string" } },
     macroSupport: { type: "string", enum: ["supports", "against", "neutral"] },
     macroRead: { type: "string" },
     macroDrivers: { type: "array", items: { type: "string" } },
     invalidation: { type: "array", items: { type: "string" } },
+    strategyRationale: { type: "string" },
     confidence: { type: "string", enum: ["high", "moderate", "low"] },
   },
-  required: ["summary", "reasoning", "macroSupport", "invalidation"],
-  propertyOrdering: ["summary", "reasoning", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "confidence"],
+  required: ["summary", "setup", "catalyst", "outlook", "macroSupport", "invalidation"],
+  propertyOrdering: ["summary", "setup", "catalyst", "confirmation", "outlook", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "strategyRationale", "confidence"],
 };
 
 const THESIS_SYSTEM =
-  "You are a senior options strategist writing the investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — your job is NOT to re-decide the direction, it is to explain, in clear cause-and-effect terms, WHY this trade has an edge right now and what would prove it wrong, grounded ONLY in the data provided. " +
-  "Decide for yourself which of the supplied factors — company fundamentals, news/catalysts, technicals & flow, and the cross-asset MACRO backdrop (interest rates, the dollar, the Fed path, inflation, geopolitics) — are LOAD-BEARING for THIS specific business, and build the thesis around those; ignore factors that don't move this kind of name. " +
-  "Connect macro to the company causally: a consumer-discretionary name lives on rates + inflation via real consumer spending; a high-multiple grower is long-duration and feels long yields + the dollar; an energy name tracks crude; a homebuilder tracks the Fed path. " +
-  "Output fields: summary = 1–2 sentences stating the core directional thesis and why the edge exists NOW; reasoning = a tight cause→effect paragraph (3–6 sentences) weaving the load-bearing company AND macro drivers and explaining why the grade is high; drivers = the 2–4 factors you actually leaned on; macroSupport = does the cross-asset macro tape SUPPORT, work AGAINST, or stay NEUTRAL to this trade's DIRECTION (a bullish trade is 'supports' only when macro is a tailwind for upside — be honest and say 'against' when macro fights it); macroRead = one sentence on the macro backdrop's bearing on this trade; macroDrivers = the specific macro factors you cited; invalidation = 3–4 SPECIFIC, observable conditions that would prove the thesis wrong (a named driver reversing, a price level breaking, a macro shift, a catalyst disappointing) — never generic 'the stock could fall'; confidence = your honest read of the thesis strength. " +
-  "Rules: never invent news, events, numbers, or catalysts not in the context. Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concise and concrete.";
+  "You are a senior options strategist writing a detailed, ticker-specific investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — do NOT re-decide the direction. Your job is to tell the STORY behind the trade: weave the supplied data into a clear cause-and-effect narrative that explains WHY the grade is high, WHY the edge exists right NOW, what would confirm it, and what would prove it wrong. A high grade alone does not give a trader conviction to hold through noise — a good thesis does, by giving them a reason to enter, a way to monitor whether it's working, and clear exits. " +
+  "COMPLEMENT the grade, never just restate it: don't say 'RSI is 28 so it's oversold' — explain the situation that produced that reading and why it resolves in the trade's favour. Weave the actual NUMBERS into the prose (specific price levels, % moves, growth rates, analyst targets, IV percentile, the named headline/catalyst) so the case is concrete and testable, not generic. " +
+  "Decide for yourself which of the supplied factors — company fundamentals, news/catalysts, technicals & flow, and the cross-asset MACRO backdrop (interest rates, the dollar, the Fed path, inflation, geopolitics) — are LOAD-BEARING for THIS specific business, and build the story around those; ignore factors that don't move this kind of name. Connect macro to the company causally: a consumer-discretionary name lives on rates + inflation via real consumer spending; a high-multiple grower is long-duration and feels long yields + the dollar; an energy name tracks crude; a homebuilder tracks the Fed path; a gold ETF lives on real yields + the haven bid. " +
+  "Output fields (each grounded ONLY in the provided data): " +
+  "summary = 1–2 sentences stating the core directional thesis and why the edge exists NOW. " +
+  "setup = the BACKDROP (2–4 sentences): what has been driving this name/sector, where price and sentiment stand now, and the tension that sets up the trade — the frame for the story, with the concrete numbers woven in. " +
+  "catalyst = WHAT IS CHANGING NOW (2–4 sentences): the specific shift (a driver reversing, a catalyst landing, a level breaking, a macro turn) that creates the edge today and connects cause to effect — the heart of the thesis. " +
+  "confirmation = 2–4 OBSERVABLE signals from the data that the thesis is already starting to play out (each a short concrete statement, e.g. 'flow turned: 2.4× call volume', 'reclaimed the 50-day at $X', 'analyst target $Y, +Z% above spot') — the things a trader can watch to know it's working. " +
+  "outlook = the forward expectation (1–3 sentences): what you expect over the ~1–2 week horizon and what 'working' looks like. " +
+  "drivers = the 2–4 factors you actually leaned on. " +
+  "macroSupport = does the cross-asset macro tape SUPPORT, work AGAINST, or stay NEUTRAL to this trade's DIRECTION (a bullish trade is 'supports' only when macro is a tailwind for upside — be honest and say 'against' when macro fights it). " +
+  "macroRead = one sentence on the macro backdrop's bearing on this trade. macroDrivers = the specific macro factors you cited. " +
+  "invalidation = 3–4 SPECIFIC, observable conditions that would prove the thesis wrong (a named driver reversing, a price level breaking, a macro shift, a catalyst disappointing) — never generic 'the stock could fall'. " +
+  "strategyRationale = 1–3 sentences justifying the OPTION STRUCTURE from the IV environment: when implied vol is ELEVATED/RICH, premium is expensive so favour SELLING premium on the bias side (a credit spread) or a defined-risk debit spread over a naked long; when IV is CHEAP, favour BUYING premium (a debit spread or naked long); always prefer DEFINED-RISK into an imminent earnings/event. Explain the IV-vs-structure logic the way the example does. " +
+  "confidence = your honest read of the thesis strength. " +
+  "Rules: never invent news, events, numbers, or catalysts not in the context. Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concrete and specific over vague.";
 
 // Pull a driver signal's human display value ("+18%", "raised") for the prompt.
 function thesisDriverValue(r, key) {
@@ -11174,10 +11194,20 @@ function buildThesisUserMessage(r, side, macroRegime) {
   L.push(`MACRO RELEVANCE: for a "${kind}" name the axes that matter most are ${(profile.cite || ["indexes"]).join(", ")} — judge whether they are a tailwind or a headwind for a ${bull ? "bullish" : "bearish"} trade.`);
 
   const ivp = pnum(d.ivRank?.pctile), ivz = pnum(d.ivRank?.z);
+  // Window mirrors selectStrategy's earningsSoon (strictly future) so the IV
+  // prose can't tell the model "defined-risk into the event" after the print.
+  const eventSoon = !!(f.nextEarningsDate && (() => { const dt = Date.parse(f.nextEarningsDate); return isFinite(dt) && dt - Date.now() <= PICKS_STRATEGY_EARNINGS_DAYS * 86400000 && dt - Date.now() >= 0; })());
   if (ivp != null || ivz != null) {
     const rich = (ivz != null && ivz >= 1.5) || (ivp != null && ivp >= 60);
     const cheap = (ivz != null && ivz <= -0.5) || (ivp != null && ivp <= 30);
-    L.push(`OPTIONS / IV: ATM IV ${ivp != null ? `${ivp.toFixed(0)}th percentile` : ""}${ivz != null ? ` (z ${ivz.toFixed(1)})` : ""} — ${rich ? "elevated; premium is rich (favors selling premium / defined-risk)" : cheap ? "cheap (favors buying premium outright)" : "moderate"}.`);
+    const favors = eventSoon
+      ? "an imminent earnings/event → use DEFINED-RISK only (a spread), never a naked long that eats the IV crush"
+      : rich ? "elevated; premium is rich → favor SELLING premium on the bias side (credit spread) or a defined-risk debit spread over a naked long"
+      : cheap ? "cheap → favor BUYING premium (a debit spread or a naked long)"
+      : "moderate → a defined-risk debit spread is the default";
+    L.push(`OPTIONS / IV: ATM IV ${ivp != null ? `${ivp.toFixed(0)}th percentile` : ""}${ivz != null ? ` (z ${ivz.toFixed(1)})` : ""} — ${favors}.`);
+  } else if (eventSoon) {
+    L.push(`OPTIONS / IV: earnings/event imminent → use DEFINED-RISK only (a spread), never a naked long.`);
   }
   return L.join("\n");
 }
@@ -11190,15 +11220,25 @@ function parseThesisResponse(text) {
   let p; try { p = JSON.parse(jsonText); } catch { return null; }
   const clean = (s, n = 600) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
   const list = (a, n = 4, len = 200) => (Array.isArray(a) ? a : []).map((x) => clean(x, len)).filter(Boolean).slice(0, n);
-  const summary = clean(p.summary, 340), reasoning = clean(p.reasoning, 900);
-  if (!summary || !reasoning) return null;
+  const summary = clean(p.summary, 340);
+  const setup = clean(p.setup, 700), catalyst = clean(p.catalyst, 700), outlook = clean(p.outlook, 500);
+  // Legacy single-paragraph reasoning (v1 cache); kept so an old cached payload
+  // still renders. New schema produces the setup/catalyst/outlook arc instead.
+  const reasoning = clean(p.reasoning, 900);
+  // Require the headline + at least one body beat, else fall back to deterministic.
+  if (!summary || !(setup || catalyst || outlook || reasoning)) return null;
   return {
-    summary, reasoning,
+    summary, setup, catalyst, outlook,
+    // `reasoning` is v1-only (not in the v2 schema) — include it only when a
+    // legacy cached payload actually carries it, so new picks don't ship a dead key.
+    ...(reasoning ? { reasoning } : {}),
+    confirmation: list(p.confirmation, 4, 180),
     drivers: list(p.drivers, 4, 120),
     macroSupport: ["supports", "against", "neutral"].includes(p.macroSupport) ? p.macroSupport : "neutral",
     macroRead: clean(p.macroRead, 300),
     macroDrivers: list(p.macroDrivers, 4, 80),
     invalidation: list(p.invalidation, 4, 220),
+    strategyRationale: clean(p.strategyRationale, 480),
     confidence: ["high", "moderate", "low"].includes(p.confidence) ? p.confidence : "moderate",
   };
 }
@@ -11216,7 +11256,7 @@ function thesisCacheSig(r, side, kind, macroRegime) {
   const verdict = r.data?.fundamentals?.judgment?.verdict || "";
   const ivp = pnum(r.data?.ivRank?.pctile);
   const ivBucket = ivp != null ? Math.round(ivp / 20) : "";
-  return [r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket].join("|");
+  return [THESIS_PROMPT_VERSION, r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket].join("|");
 }
 
 async function readPickThesisCache() {
@@ -11276,7 +11316,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
           await acquireAiSlot();
           response = await ai.models.generateContent({
             model: aiModelForAttempt(AI_THESIS_MODEL, attempt),
-            config: { systemInstruction: THESIS_SYSTEM, temperature: 0.45, maxOutputTokens: 1100, responseMimeType: "application/json", responseSchema: THESIS_SCHEMA, thinkingConfig: { thinkingBudget: 0 } },
+            config: { systemInstruction: THESIS_SYSTEM, temperature: 0.45, maxOutputTokens: 2000, responseMimeType: "application/json", responseSchema: THESIS_SCHEMA, thinkingConfig: { thinkingBudget: 0 } },
             contents: userMsg,
           });
           recordAiUsage({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), callType: "pick-thesis", symbol: r.sym, usage: response?.usageMetadata });

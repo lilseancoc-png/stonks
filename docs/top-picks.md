@@ -308,10 +308,20 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
 - **Thesis tracking:** each pick ships a structured `thesisCard` (`buildThesisCard`).
   Its core is the **everything-aware AI thesis** (`thesisCard.ai`, from
-  `generateAiTheses`): a 1–2-sentence **`summary`**, a detailed cause→effect
-  **`reasoning`** paragraph, the **`drivers`** it judged load-bearing, an
-  **`invalidation`** list (3–4 specific, observable conditions), a **`macroRead`**
-  + **`macroSupport`** verdict, and the AI's own **`confidence`**. It is fed the
+  `generateAiTheses`), written as a data-woven **narrative arc** (the gold-thesis
+  gold standard — it must *complement* the grade, not restate it, and weave the
+  actual numbers into the prose): a 1–2-sentence **`summary`**, then the story —
+  **`setup`** (the backdrop: what's been driving the name and where price/sentiment
+  stand), **`catalyst`** (what is changing *now* that creates the edge today, cause
+  → effect), **`confirmation`** (2–4 observable signals the thesis is already
+  playing out), **`outlook`** (the forward expectation over the ~1–2-week horizon) —
+  plus the **`drivers`** it judged load-bearing, an **`invalidation`** list (3–4
+  specific, observable conditions), a **`strategyRationale`** that justifies the
+  option structure from the IV environment (elevated IV → sell premium /
+  defined-risk; cheap IV → buy a debit; defined-risk into events), a **`macroRead`**
+  + **`macroSupport`** verdict, and the AI's own **`confidence`**. (A bumped
+  `THESIS_PROMPT_VERSION` in the cache signature re-reads every cached thesis once
+  on a schema change; legacy `reasoning`-only payloads still render.) It is fed the
   WHOLE picture per name — the scored signals, company fundamentals, the AI news
   take + fundamental judgment + headlines + catalysts, the full cross-asset macro
   backdrop (rates / dollar / Fed / inflation / geopolitics) with the name's
