@@ -7035,12 +7035,13 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "rank head  score"
-    "rank tier  tier"
-    "rank entry entry"
-    "rank con   con"
-    "rank meta  meta"
-    "rank cta   cta";
+    "rank head   score"
+    "rank tier   tier"
+    "rank thesis thesis"
+    "rank entry  entry"
+    "rank con    con"
+    "rank meta   meta"
+    "rank cta    cta";
   column-gap: 12px;
   row-gap: 3px;
   align-items: center;
@@ -7245,6 +7246,11 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .pick-vert-stat-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
 .pick-vert-loss { color: var(--neg); }
 .pick-vert-profit { color: var(--pos); }
+.ptc-thesis {
+  grid-area: thesis;
+  font: 400 12.5px/1.45 var(--font-sans); color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .ptc-meta { grid-area: meta; font-size: 12px; color: var(--muted); }
 .ptc-cta {
   grid-area: cta;
@@ -8946,6 +8952,34 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--text-muted); border: 1px solid var(--border); padding: 2px 5px; border-radius: 4px; margin-left: 4px; white-space: nowrap;
 }
+/* --- AI thesis (everything-aware): the prominent SUMMARY lead, the detailed
+   reasoning section, the load-bearing drivers, and the AI's own confidence --- */
+.thesis-summary {
+  font: 500 13.5px/1.55 var(--font-sans); color: var(--text-strong, var(--text));
+  background: color-mix(in srgb, var(--accent, #5b8def) 9%, transparent);
+  border-left: 3px solid var(--accent, #5b8def); border-radius: var(--r-1); padding: 8px 11px;
+}
+.thesis-summary-lbl { font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; color: var(--accent, #5b8def); margin-right: 5px; }
+.thesis-sec-reasoning .thesis-sec-ai { color: var(--accent, #5b8def); }
+.thesis-reasoning {
+  font: 400 12.5px/1.6 var(--font-sans); color: var(--text);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border-radius: var(--r-1); padding: 7px 10px; margin-top: 3px;
+}
+.thesis-ai-drivers { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.thesis-ai-driver {
+  font: 600 10.5px/1.2 var(--font-sans); color: var(--accent, #5b8def);
+  background: color-mix(in srgb, var(--accent, #5b8def) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #5b8def) 28%, transparent);
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+}
+.thesis-ai-conf {
+  font: 700 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 2px 6px; border-radius: 4px; margin-left: 6px; white-space: nowrap; border: 1px solid var(--border);
+}
+.thesis-ai-conf-high { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 38%, transparent); background: color-mix(in srgb, var(--pos) 10%, transparent); }
+.thesis-ai-conf-moderate { color: var(--accent, #5b8def); border-color: color-mix(in srgb, var(--accent, #5b8def) 35%, transparent); background: color-mix(in srgb, var(--accent, #5b8def) 9%, transparent); }
+.thesis-ai-conf-low { color: var(--warn, #d98a00); border-color: color-mix(in srgb, var(--warn, #d98a00) 40%, transparent); background: color-mix(in srgb, var(--warn, #d98a00) 10%, transparent); }
 .pick-vert.pick-vert-credit { border-left: 3px solid var(--accent, #5b8def); }
 .pick-contract-credit .pick-contract-label { color: var(--accent, #5b8def); }
 .ptc-con-spread.ptc-con-credit { color: var(--accent, #5b8def); }

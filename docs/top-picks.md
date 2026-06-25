@@ -306,27 +306,46 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   scorecard** — the win/loss already resolves on the modeled option P&L, and the
   stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
-- **Thesis tracking:** each pick ships a structured **six-section** `thesisCard`
-  (`buildThesisCard`) — a synthesised **`edge`** (the one-line "why this trade has
-  an advantage now", `buildEdgeStatement`), the supporting `works` split into
-  **`companyDrivers`** (Fundamentals/Narrative) and **`confirmation`**
-  (Technicals/Flow), a deterministic **`marketRead`** (does the cross-asset macro
-  tape *support / work against / stay neutral to* the trade — from the name's
-  sector → macro-axis sensitivity via `buildMarketRead`, e.g. rate-sensitive
-  homebuilders vs the Fed path + long yields), `invalidators` (each lead driver
-  reversing, a macro-read reversal, the price stop — the short-strike breach for a
-  credit spread — the 14-day time stop, a grade-flip trigger), and the
-  **`strategy`** rationale. It also carries a **`thesisQuality`** (`{ score, tier,
-  checklist }`, §9a) and the matrix **`classification` / `group`**, a `conviction`
-  label, a back-compat **`hasSolidThesis`** (= `tier === "strong"`) + an honest
-  **`disclosure`** wording the thin / moderate case, and an optional AI **`prose`**
-  gloss (hybrid: deterministic thesis is the source of truth, `attachPickThesisProse`
-  adds one natural causal paragraph when `GEMINI_API_KEY` is set — cached per
-  thesis-signature in `pick-thesis-cache.json`, read-before-wipe / write-after,
-  skipped by `regen-picks`). The browser renders a **scannable head** (the edge +
-  classification badge + strategy chip *or* "no recommendation" note + conviction +
-  disclosure) and a collapsed **"Expand for full reasoning"** with the six sections
-  + the quality checklist. A compact snapshot is frozen on the enrolled `open`
+- **Thesis tracking:** each pick ships a structured `thesisCard` (`buildThesisCard`).
+  Its core is the **everything-aware AI thesis** (`thesisCard.ai`, from
+  `generateAiTheses`): a 1–2-sentence **`summary`**, a detailed cause→effect
+  **`reasoning`** paragraph, the **`drivers`** it judged load-bearing, an
+  **`invalidation`** list (3–4 specific, observable conditions), a **`macroRead`**
+  + **`macroSupport`** verdict, and the AI's own **`confidence`**. It is fed the
+  WHOLE picture per name — the scored signals, company fundamentals, the AI news
+  take + fundamental judgment + headlines + catalysts, the full cross-asset macro
+  backdrop (rates / dollar / Fed / inflation / geopolitics) with the name's
+  macro-kind sensitivity, and the IV regime — and DECIDES which factors matter (so a
+  consumer-discretionary name reads rates + inflation via consumer spending; a
+  semi reads long yields + the dollar; an energy name reads crude). It is generated
+  **PRE-GATE** on the candidate set so its **`macroSupport`** can flow into the
+  thesis-quality gate (see §9a). The deterministic scaffolding remains: the
+  **`marketRead`** (`buildMarketRead`) — which the AI read **replaces** when present
+  and otherwise falls back to a **`MACRO_PROFILES`** sensitivity table that maps
+  every name in the universe (`macroKindOf`) to one of ~30 fine-grained kinds, each
+  with the cross-asset axes that genuinely drive it + a plain-English causal note:
+  the tech complex splits into mega-cap / semiconductors / software / AI-infra /
+  enterprise; financials into banks / brokers / payments / asset-managers; consumer
+  into discretionary-goods / restaurants / media / services; healthcare into pharma
+  / insurers / devices; plus space (risk-appetite + cost-of-capital), long bonds
+  (pure duration), long-vol (inverse to risk), gold, homebuilders, energy, etc. —
+  so no name shares a wrong macro read (only the broad-market index ETFs are
+  `broad`) — plus the synthesised **`edge`** (`buildEdgeStatement`), the supporting
+  `works` split into **`companyDrivers`** / **`confirmation`**, the structural
+  `invalidators` (price stop / 14-day time stop / grade-flip; the AI's thesis-level
+  invalidators lead when present), the **`strategy`** rationale (kept deterministic —
+  it is IV-mechanics, not narrative), the **`thesisQuality`** (`{ score, tier,
+  checklist }`, §9a) + matrix **`classification` / `group`**, a `conviction` label,
+  **`hasSolidThesis`**, and the honest **`disclosure`**. The AI thesis degrades
+  gracefully without `GEMINI_API_KEY` (the deterministic `marketRead` + card stand
+  alone) and is cached per `symbol:side` in `pick-thesis-cache.json` on a signature
+  that turns over with the grade, the drivers, the relevant macro axes, the news
+  take, and the IV bucket (read-before-wipe / write-after, **not** written by the
+  offline `regen-picks`). The browser renders a **scannable head** (the AI summary
+  + classification badge + strategy chip *or* "no recommendation" note + conviction
+  + the AI confidence + disclosure) and a collapsed **"Expand for full reasoning"**
+  with the detailed thesis + the structured sections + the quality checklist. A
+  compact snapshot is frozen on the enrolled `open`
   entry (contract-bearing picks only); every later build re-scores it against the
   **live grade** into `thesisStatus` (on-track / mixed / broken).
 
@@ -341,6 +360,14 @@ alignment (0/1/2), a non-fighting tape (−1/0/+1), and signal-specific invalida
 PICKS_THESIS_STRONG_SCORE`), `moderate` (a real but not airtight case, `score ≥
 PICKS_THESIS_MOD_SCORE` + multi-pillar), or `weak` (thin / single-pillar). A macro
 headwind keeps a multi-factor name out of `strong` but **not** out of `moderate`.
+The **non-fighting-tape** check reads `marketRead.support` — so when an AI thesis
+exists, its **`macroSupport`** verdict (the everything-aware read, §9) is what feeds
+this point, *replacing* the coarse deterministic sector→axis read. This is the one
+place the AI layer is load-bearing for the trade decision: it can correctly
+upgrade/downgrade a name's `strong`/`moderate`/`weak` tier (and thus its
+`actionable`/`watch`/`no-strategy` matrix cell). The **grade itself stays AI-free**
+(deterministic 4-pillar score → direction + conviction), as does the **structure**
+selection; the AI shapes only the thesis narrative and the macro gate.
 
 The grade tier (Strong `|total| ≥ 7` / Moderate `4–6`) **crosses** the thesis tier
 in `classifyPick` to set `classification` + `group`:
@@ -360,8 +387,12 @@ honest disclosure) but carries no strategy and no contract — *cash is a positi
 - `appendGradesDaily` / `appendRegimeHistory` keep the IC substrate + risk-on/off
   calendar.
 
-Scoring is **deterministic — no AI in the grade.** (The optional AI prose-polish
-the old engine ran was removed.)
+Scoring is **deterministic — no AI in the grade** (direction + conviction + the
+trade structure are all deterministic). AI enters in exactly two places: it writes
+the **thesis narrative** (summary / reasoning / invalidation), and its
+**`macroSupport`** verdict feeds the thesis-quality **macro gate** (§9). Both
+degrade gracefully without `GEMINI_API_KEY` — the engine still grades, gates, and
+ships a full deterministic card.
 
 ---
 
