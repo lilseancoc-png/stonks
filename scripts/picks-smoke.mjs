@@ -8,6 +8,7 @@ import {
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
+  assessThesisQuality, selectStrategy, classifyPick,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -226,6 +227,10 @@ const putShareOff = picksOff.length ? picksOff.filter((p) => p.side === "put").l
 const putShareNeutral = picks.length ? picks.filter((p) => p.side === "put").length / picks.length : 0;
 ok("regime: risk-off tilts the book more bearish (put share up or equal)", putShareOff >= putShareNeutral);
 ok("regime: risk-off de-grosses", picksOff.length === 0 || picksOff.rosterMeta.deployedGross <= picks.rosterMeta.deployedGross + 1e-9);
+// A tactical put is a DEFENSIVE trade — its thin single-name thesis must NOT
+// collapse it to a contract-less "no recommendation"; it always carries a structure.
+ok("regime: tactical puts carry a real contract (never 'none'), in the watch group",
+  picksOff.filter((p) => p.tactical).every((p) => p.contract && p.strategy.type !== "none" && p.group === "watch" && p.classification === "moderate"));
 // persistence
 const persisted = applyMacroRegimePersistence(computeMacroRegime({ vix: { value: 13, trend: "flat" } }, null, []), { state: "severe-risk-off" });
 ok("regime: persistence holds a recovering state one build", persisted.persisted === true);
@@ -267,12 +272,47 @@ ok("edge gate: buildTopPicks raises rosterMeta.tradeCut on a losing book",
   gatedPicks.rosterMeta.tradeCut === PICKS_TIER_STRONG && gatedPicks.rosterMeta.edgeGate && gatedPicks.rosterMeta.edgeGate.bar === PICKS_TIER_STRONG);
 
 // --- 12. strategy selection + thesis enrichment + verticals ----------------
-ok("strategy: every pick carries a strategy {type}", picks.length === 0 || picks.every((p) => p.strategy && ["long", "debit", "credit"].includes(p.strategy.type)));
-ok("strategy: contract structure is a known kind", picks.every((p) => ["long", "debit_vertical", "credit_vertical"].includes(p.contract.structure)));
+ok("strategy: every pick carries a strategy {type}", picks.length === 0 || picks.every((p) => p.strategy && ["long", "debit", "credit", "none"].includes(p.strategy.type)));
+ok("strategy: a recommended pick has a known contract structure", picks.every((p) => p.strategy.type === "none" ? p.contract == null : ["long", "debit_vertical", "credit_vertical"].includes(p.contract.structure)));
 ok("thesis: thesisCard has marketRead/conviction/hasSolidThesis", picks.every((p) => p.thesisCard && p.thesisCard.marketRead && typeof p.thesisCard.hasSolidThesis === "boolean" && !!p.thesisCard.conviction));
 ok("thesis: marketRead.support is a known verdict", picks.every((p) => ["supports", "against", "neutral"].includes(p.thesisCard.marketRead.support)));
 ok("thesis: thesisCard.strategy mirrors the pick strategy", picks.every((p) => p.thesisCard.strategy && p.thesisCard.strategy.type === p.strategy.type));
 ok("thesis: works + invalidators present", picks.every((p) => Array.isArray(p.thesisCard.works) && Array.isArray(p.thesisCard.invalidators) && p.thesisCard.invalidators.length > 0));
+// thesis v2 — quality score, the 6-section split, the edge, the matrix classification
+ok("thesis: thesisQuality {score,tier,checklist} present", picks.every((p) => { const q = p.thesisCard.thesisQuality; return q && typeof q.score === "number" && ["strong", "moderate", "weak"].includes(q.tier) && Array.isArray(q.checklist) && q.checklist.length === 5; }));
+ok("thesis: edge {hasEdge,text} present", picks.every((p) => p.thesisCard.edge && typeof p.thesisCard.edge.hasEdge === "boolean" && !!p.thesisCard.edge.text));
+ok("thesis: companyDrivers + confirmation arrays present", picks.every((p) => Array.isArray(p.thesisCard.companyDrivers) && Array.isArray(p.thesisCard.confirmation)));
+ok("thesis: classification + group surfaced on the pick", picks.every((p) => ["actionable", "moderate", "highGradeWeakThesis", "idea"].includes(p.classification) && ["actionable", "watch"].includes(p.group)));
+ok("thesis: hasSolidThesis === (tier strong)", picks.every((p) => p.thesisCard.hasSolidThesis === (p.thesisCard.thesisQuality.tier === "strong")));
+// the grade × thesis MATRIX invariants must hold for every shipped pick
+ok("matrix: actionable ⇔ strong grade + strong thesis + a contract", picks.every((p) => p.group === "actionable" ? (Math.abs(p.total) >= PICKS_TIER_STRONG && p.thesisCard.thesisQuality.tier === "strong" && !!p.contract && p.strategy.type !== "none") : true));
+ok("matrix: a weak thesis ⇒ no strategy, no contract, watch group", picks.every((p) => p.thesisCard.thesisQuality.tier === "weak" ? (p.strategy.type === "none" && p.contract == null && p.group === "watch") : true));
+ok("roster: rosterMeta.groups counts the two tiers", picks.rosterMeta && picks.rosterMeta.groups && (picks.rosterMeta.groups.actionable + picks.rosterMeta.groups.watch) === picks.length);
+
+// --- 12b. thesis-quality rubric / strategy gate / matrix (unit) -------------
+const mkR = (total, p) => ({ sym: "Z", total, data: { ivRank: p.iv || null }, pillars: p.pillars, drivers: p.drivers });
+const mrSup = { support: "supports", group: "broad", drivers: [] };
+const mrNeu = { support: "neutral", group: "broad", drivers: [] };
+// multi-pillar + supportive macro -> strong
+const rMulti = mkR(8, { pillars: { fundamentals: { signals: [{ key: "epsGrowth", score: 2 }] }, technicals: { signals: [{ key: "macd", score: 1 }] }, mechanicals: { signals: [{ key: "unusualFlow", score: 1 }] }, narrative: { signals: [] } }, drivers: [{ key: "epsGrowth", label: "EPS growth", score: 2 }, { key: "macd", label: "MACD", score: 1 }, { key: "unusualFlow", label: "Unusual flow", score: 1 }] });
+const worksMulti = [{ key: "epsGrowth", pillarKey: "fundamentals" }, { key: "macd", pillarKey: "technicals" }, { key: "unusualFlow", pillarKey: "mechanicals" }];
+ok("rubric: multi-pillar + supportive macro → strong", assessThesisQuality(rMulti, "call", mrSup, worksMulti).tier === "strong");
+// single-pillar (technicals only) -> weak
+const rThin = mkR(5, { pillars: { technicals: { signals: [{ key: "macd", score: 5 }] }, fundamentals: { signals: [] }, mechanicals: { signals: [] }, narrative: { signals: [] } }, drivers: [{ key: "macd", label: "MACD", score: 5 }] });
+const qThin = assessThesisQuality(rThin, "call", mrNeu, [{ key: "macd", pillarKey: "technicals" }]);
+ok("rubric: single-pillar read → weak", qThin.tier === "weak");
+ok("rubric: macro headwind on a multi-factor name stays ≥ moderate (not weak)", assessThesisQuality(rMulti, "call", { support: "against", group: "broad", drivers: [] }, worksMulti).tier !== "weak");
+// strategy gate
+ok("strategy gate: weak thesis → none", selectStrategy(rThin, "call", { thesisTier: "weak" }).type === "none");
+ok("strategy gate: elevated IV (z 1.6) → credit", selectStrategy(mkR(6, { iv: { z: 1.6, pctile: 66 } }), "call", { thesisTier: "moderate" }).type === "credit");
+ok("strategy gate: elevated by PCTILE (65th, z null) → credit", selectStrategy(mkR(6, { iv: { pctile: 65 } }), "call", { thesisTier: "moderate" }).type === "credit");
+ok("strategy gate: low IV + strong grade + strong thesis → naked", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "strong" }).type === "long");
+ok("strategy gate: low IV + only moderate thesis → debit (naked needs strong)", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "moderate" }).type === "debit");
+// classification matrix
+ok("classify: strong grade + strong thesis → actionable", classifyPick(8, "strong", false).group === "actionable" && classifyPick(8, "strong", false).classification === "actionable");
+ok("classify: strong grade + weak thesis → high-grade-weak-thesis / watch", classifyPick(8, "weak", false).classification === "highGradeWeakThesis" && classifyPick(8, "weak", false).group === "watch");
+ok("classify: moderate grade + strong thesis → moderate / watch", classifyPick(5, "strong", false).classification === "moderate" && classifyPick(5, "strong", false).group === "watch");
+ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "weak", false).classification === "idea" && classifyPick(5, "weak", false).group === "watch");
 
 // Vertical builder — needs a BS-priced chain (the linear mkChain mids give a flat
 // ~4% credit fraction that never clears the 1/3-width floor; fine for debit).
@@ -309,15 +349,20 @@ ok("exit: naked +25% -> win (TP still 20%)", resolvePickOutcome({ modeledOptPnlP
 
 // --- 13. strategy routing through the full engine (IV z-score → structure) ---
 // mkTicker grades strongly bullish; the IV z-score then drives the structure.
-function mkStratTicker(iv, z, pctile) { const t = mkTicker({ spot: 120, sector: "Software" }); t.chains = mkBsChain(120, iv); t.ivRank = { pctile, n: 120, z }; return t; }
+function mkStratTicker(iv, z, pctile, over) { const t = mkTicker({ spot: 120, sector: "Software", ...(over || {}) }); t.chains = mkBsChain(120, iv); t.ivRank = { pctile, n: 120, z }; return t; }
+const inDays = (n) => new Date(Date.now() + n * dayMs).toISOString().slice(0, 10);
 const routeRich = buildTopPicks({ RICHIV: mkStratTicker(0.95, 2.6, 88) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "RICHIV");
-const routeDebit = buildTopPicks({ DBTIV: mkStratTicker(0.55, 1.5, 60) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "DBTIV");
+const routeElevated = buildTopPicks({ ELEVIV: mkStratTicker(0.55, 1.6, 65) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "ELEVIV");
+// Debit needs a non-elevated IV that ISN'T a naked candidate — force it by putting
+// an earnings print in the window (blocks both naked and credit -> defined-risk debit).
+const routeDebit = buildTopPicks({ DBTIV: mkStratTicker(0.45, 0.4, 45, { fundamentals: { nextEarningsDate: inDays(10) } }) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "DBTIV");
 const routeNaked = buildTopPicks({ LOWIV: mkStratTicker(0.30, 0.0, 25) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "LOWIV");
-ok("route: rich IV (z≥2) → credit vertical (sells premium, even at strong conviction)", routeRich && routeRich.strategy.type === "credit" && routeRich.contract.structure === "credit_vertical" && routeRich.contract.optionType === "put");
-ok("route: elevated-but-sub-2σ IV → debit vertical (don't pay naked)", routeDebit && routeDebit.strategy.type === "debit" && routeDebit.contract.structure === "debit_vertical");
-ok("route: strong + reasonable IV → naked long", routeNaked && Math.abs(routeNaked.total) >= PICKS_TIER_STRONG && routeNaked.strategy.type === "long" && routeNaked.contract.structure === "long");
+ok("route: rich IV (z≥2) → credit vertical (highly elevated — sells premium)", routeRich && routeRich.strategy.type === "credit" && routeRich.contract.structure === "credit_vertical" && routeRich.contract.optionType === "put");
+ok("route: ELEVATED IV (z≥1.5 / ≥60th pctile) → credit vertical (broadened band)", routeElevated && routeElevated.strategy.type === "credit" && routeElevated.contract.structure === "credit_vertical");
+ok("route: low IV + imminent earnings → debit vertical (defined-risk, no naked/credit)", routeDebit && routeDebit.strategy.type === "debit" && routeDebit.contract.structure === "debit_vertical");
+ok("route: strong + reasonable IV + strong thesis → naked long", routeNaked && Math.abs(routeNaked.total) >= PICKS_TIER_STRONG && routeNaked.strategy.type === "long" && routeNaked.contract.structure === "long");
 ok("route: low IV never sells a credit spread", routeNaked && routeNaked.strategy.type !== "credit");
-ok("route: a naked-long pick is always strong-tier", [routeRich, routeDebit, routeNaked].filter(Boolean).filter((p) => p.strategy.type === "long").every((p) => Math.abs(p.total) >= PICKS_TIER_STRONG));
+ok("route: a naked-long pick is always strong-tier", [routeRich, routeElevated, routeDebit, routeNaked].filter(Boolean).filter((p) => p.strategy.type === "long").every((p) => Math.abs(p.total) >= PICKS_TIER_STRONG));
 // A credit spread must be sized by its capital at risk (maxLoss = width − credit),
 // NOT the small credit it collects (which would suggest far too many contracts).
 if (routeRich && routeRich.strategy.type === "credit" && routeRich.sizing) {

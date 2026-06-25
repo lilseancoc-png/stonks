@@ -1301,21 +1301,43 @@ function dtBuildPlan(side, spot, levels, kind) {
 export function dtBuildThesis(side, kind, heat, sr, dir, moveToday) {
   const bull = side === "long";
   const hasBreak = !!(sr && dtConvWeight(sr.conviction) >= 1.2);
-  const works = [];
-  works.push({ label: `${heat.toFixed(1)}× expected volume by now`, value: "the move is backed by real participation, not noise" });
-  if (sr && sr.conviction && sr.conviction !== "None") works.push({ label: `Confirmed 20D ${sr.type === "upper" ? "resistance breakout" : "support breakdown"} (${sr.conviction})`, value: sr.level != null ? `level $${dtR2(sr.level)}` : null });
-  if (moveToday != null && isFinite(moveToday)) works.push({ label: `${moveToday >= 0 ? "+" : ""}${moveToday.toFixed(1)}% on the day`, value: "momentum aligned with the trade" });
+  const strongBreak = !!(sr && dtConvWeight(sr.conviction) >= 2);
+  // Supporting evidence (a day trade is a pure flow/structure read — no company
+  // drivers): volume participation + a confirmed break + aligned momentum.
+  const confirmation = [];
+  confirmation.push({ key: "volume", label: `${heat.toFixed(1)}× expected volume by now`, pillar: "Flow", value: "real participation, not noise" });
+  if (sr && sr.conviction && sr.conviction !== "None") confirmation.push({ key: "srBreak", label: `Confirmed 20D ${sr.type === "upper" ? "resistance breakout" : "support breakdown"} (${sr.conviction})`, pillar: "Technicals", value: sr.level != null ? `level $${dtR2(sr.level)}` : null });
+  if (moveToday != null && isFinite(moveToday)) confirmation.push({ key: "momentum", label: `${moveToday >= 0 ? "+" : ""}${moveToday.toFixed(1)}% on the day`, pillar: "Technicals", value: "momentum aligned with the trade" });
   const invalidators = [];
-  invalidators.push({ trigger: `volume conviction fades (heat back under ${DT_HOT_MIN}× expected)` });
-  if (sr && sr.level != null) invalidators.push({ trigger: `${bull ? "loses" : "reclaims"} the broken level ~$${dtR2(sr.level)}` });
-  invalidators.push({ trigger: kind === "swing" ? `no follow-through within ${DT_SWING_MAX_HOLD_DAYS} sessions` : "fails to follow through by the close" });
-  const strong = Math.abs(dir) >= 2 && hasBreak && heat >= 1.5;
-  const conviction = strong ? `High — confirmed ${bull ? "breakout" : "breakdown"} on ${heat.toFixed(1)}× volume`
-    : hasBreak ? `Moderate — confirmed structural break, ${heat.toFixed(1)}× volume`
+  invalidators.push({ key: "volumeFade", trigger: `volume conviction fades (heat back under ${DT_HOT_MIN}× expected)` });
+  if (sr && sr.level != null) invalidators.push({ key: "levelLost", trigger: `${bull ? "loses" : "reclaims"} the broken level ~$${dtR2(sr.level)}` });
+  invalidators.push({ key: "noFollow", trigger: kind === "swing" ? `no follow-through within ${DT_SWING_MAX_HOLD_DAYS} sessions` : "fails to follow through by the close" });
+
+  // Quality rubric (intraday-scoped, 0..6): volume + confirmed structure +
+  // momentum + clear invalidation. Mirrors the Top Picks thesis-quality model.
+  const checklist = [];
+  const volPts = heat >= 1.5 ? 2 : heat >= 1.0 ? 1 : 0;
+  checklist.push({ key: "volume", label: "Volume-backed participation", pass: volPts >= 1, points: volPts, detail: `${heat.toFixed(1)}× expected volume by now` });
+  const structPts = strongBreak ? 2 : hasBreak ? 1 : 0;
+  checklist.push({ key: "structure", label: "Confirmed structural break", pass: structPts >= 1, points: structPts, detail: hasBreak ? `confirmed 20D ${sr.type === "upper" ? "breakout" : "breakdown"} (${sr.conviction})` : "no confirmed 20-day break — momentum only" });
+  const momPts = Math.abs(dir) >= 2 ? 1 : 0;
+  checklist.push({ key: "momentum", label: "Momentum aligned with the trade", pass: momPts >= 1, points: momPts, detail: `directional score ${dir >= 0 ? "+" : ""}${dtR2(dir)}` });
+  checklist.push({ key: "invalidation", label: "Clear invalidation levels", pass: true, points: 1, detail: (sr && sr.level != null) ? "the broken level + heat-fade + time stop" : "the heat-fade + time stop" });
+  const score = volPts + structPts + momPts + 1;
+
+  // Strong preserves the prior bar (a confirmed-break swing reads solid; a no-break
+  // momentum scalp discloses) so the engine gates the option idea consistently.
+  const tier = (hasBreak && heat >= 1.5 && Math.abs(dir) >= 1.5) ? "strong"
+    : (hasBreak || (heat >= 1.5 && Math.abs(dir) >= 2)) ? "moderate"
+    : "weak";
+  const hasSolidThesis = tier === "strong";
+  const conviction = tier === "strong" ? `High — confirmed ${bull ? "breakout" : "breakdown"} on ${heat.toFixed(1)}× volume`
+    : tier === "moderate" ? `Moderate — ${hasBreak ? "confirmed structural break" : "strong volume + momentum"}, ${heat.toFixed(1)}× volume`
     : `Speculative — momentum/volume only, no confirmed break`;
-  const hasSolidThesis = hasBreak && heat >= 1.5 && Math.abs(dir) >= 1.5;
-  const disclosure = hasSolidThesis ? null
-    : `No strong thesis — a ${kind === "scalp" ? "momentum scalp" : "volume read"} without a confirmed structural break. Lower-confidence: keep it small and honor the stop.`;
+  const disclosure = tier === "strong" ? null
+    : tier === "weak"
+      ? `Weak thesis — a ${kind === "scalp" ? "momentum scalp" : "volume read"} without a confirmed structural break. No option idea is recommended; if you take it, trade the shares tiny and honor the stop.`
+      : `Moderate thesis — ${hasBreak ? "a confirmed break but lighter volume/momentum" : "strong volume + momentum but no confirmed break"}. Keep it small and honor the stop.`;
   const setup = hasBreak
     ? `a confirmed 20-day ${bull ? "breakout" : "breakdown"} carried by ${heat.toFixed(1)}× expected volume`
     : `a ${heat.toFixed(1)}× volume surge with ${bull ? "upside" : "downside"} momentum but no confirmed break`;
@@ -1323,19 +1345,35 @@ export function dtBuildThesis(side, kind, heat, sr, dir, moveToday) {
     support: hasBreak ? "supports" : "neutral",
     text: `Short-horizon ${bull ? "bullish" : "bearish"} technical trade: ${setup}. This is a flow/structure read, not a macro thesis — manage it on the tape.`,
   };
-  return { conviction, works: works.slice(0, 3), invalidators: invalidators.slice(0, 3), marketRead, hasSolidThesis, disclosure };
+  const edge = tier === "weak"
+    ? { hasEdge: false, text: `A ${heat.toFixed(1)}× volume ${bull ? "push" : "drop"} but no confirmed structural break — not a clean enough edge for a defined option trade. Watch the tape.` }
+    : { hasEdge: true, text: `${setup}, with ${tier === "strong" ? "momentum, volume and structure all aligned" : "the setup mostly aligned"} → a short-horizon ${bull ? "long" : "short"} while the tape holds the break.` };
+  return {
+    conviction, quality: { score, tier, checklist }, edge,
+    companyDrivers: [], confirmation: confirmation.slice(0, 3), works: confirmation.slice(0, 3),
+    invalidators: invalidators.slice(0, 3), marketRead, hasSolidThesis, disclosure,
+  };
 }
 
 // Deterministic option-structure idea for a day trade (the picks strategy menu,
 // mirrored to the intraday horizon). The scanner has no per-name IV-history
 // z-score, so the choice is conviction-driven — strong+confirmed → a naked long
 // for max convexity; otherwise a defined-risk debit spread — with a note about
-// the credit-spread alternative when IV is rich (checkable on the Grade tab).
-export function dtBuildOptionIdea(side, kind, dir, sr) {
+// the credit-spread alternative when IV is rich (checkable on the Grade tab). A
+// WEAK thesis (no confirmed break) recommends NO option idea (mirrors the Top
+// Picks "high grade but weak thesis -> no strategy" gate).
+export function dtBuildOptionIdea(side, kind, dir, sr, tier) {
   const bull = side === "long";
   const optSide = bull ? "call" : "put";
   const hasBreak = !!(sr && dtConvWeight(sr.conviction) >= 1.2);
   const strong = Math.abs(dir) >= 2 && hasBreak;
+  if (tier === "weak") {
+    return {
+      structure: "none", side: optSide, label: "No option idea", dteGuide: null, moneyness: null,
+      rationale: `No confirmed structural break — the thesis is too thin to define an options trade. Trade the shares small (if at all) on the plan above, or wait for a clean break.`,
+      note: null,
+    };
+  }
   const dteGuide = kind === "swing" ? "this week to next (~5–12 DTE)" : "0–3 DTE (very short — size tiny)";
   if (strong) {
     return {
@@ -1391,14 +1429,15 @@ function dtBuildCandidate(row, quote) {
   const srStr = sr ? ` · ${sr.type === "upper" ? "resistance" : "support"} break (${sr.conviction})` : "";
   const mvStr = (changePct != null && isFinite(changePct)) ? ` · ${changePct >= 0 ? "+" : ""}${changePct.toFixed(1)}% today` : "";
   const basis = `${heat.toFixed(1)}× expected volume · ${dirStr}${srStr}${mvStr}`;
+  const dtThesis = dtBuildThesis(side, kind, heat, sr, dir, moveToday);
   return {
     sym: row.symbol, side, kind, plan,
     heat: Math.round(heat * 100) / 100,
     rank: heat * Math.abs(dir),
     basis,
     openDayHi: dtNum(quote?.dayHi), openDayLo: dtNum(quote?.dayLo),
-    thesis: dtBuildThesis(side, kind, heat, sr, dir, moveToday),
-    optionIdea: dtBuildOptionIdea(side, kind, dir, sr),
+    thesis: dtThesis,
+    optionIdea: dtBuildOptionIdea(side, kind, dir, sr, dtThesis.quality.tier),
   };
 }
 function dtTradingDaysBetween(fromKey, toKey) {

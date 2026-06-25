@@ -107,12 +107,18 @@ ok("thesis: marketRead present w/ support verdict", candBull && candBull.thesis.
 ok("thesis: candidate carries an option idea", candBull && candBull.optionIdea && candBull.optionIdea.label && ["naked", "debit_spread"].includes(candBull.optionIdea.structure));
 ok("thesis: long candidate's option idea is a call", candBull && candBull.optionIdea.side === "call");
 ok("thesis: short candidate's option idea is a put", candBear && candBear.optionIdea && candBear.optionIdea.side === "put");
-// A weak (momentum-only, no confirmed break) read discloses + recommends a spread.
+// thesis v2 — quality score, the edge, and the option-idea gate
+ok("thesis: confirmed-break swing has a quality {score,tier,checklist}", candBull && candBull.thesis.quality && typeof candBull.thesis.quality.score === "number" && candBull.thesis.quality.tier === "strong" && Array.isArray(candBull.thesis.quality.checklist) && candBull.thesis.quality.checklist.length === 4);
+ok("thesis: candidate carries an edge {hasEdge,text}", candBull && candBull.thesis.edge && candBull.thesis.edge.hasEdge === true && !!candBull.thesis.edge.text);
+ok("thesis: companyDrivers empty (a day trade has no fundamentals)", candBull && Array.isArray(candBull.thesis.companyDrivers) && candBull.thesis.companyDrivers.length === 0);
+// A weak (momentum-only, no confirmed break) read discloses + recommends NOTHING.
 const weakTh = dtBuildThesis("long", "scalp", 1.4, null, 1.1, 1.5);
 ok("thesis: momentum scalp w/o break is NOT solid (discloses)", weakTh.hasSolidThesis === false && !!weakTh.disclosure);
-const weakOpt = dtBuildOptionIdea("long", "scalp", 1.1, null);
-ok("thesis: low-conviction option idea is a defined-risk debit spread", weakOpt.structure === "debit_spread");
-const strongOpt = dtBuildOptionIdea("long", "swing", 2.4, { conviction: "High", type: "upper", level: 100 });
+ok("thesis: that read grades a WEAK thesis tier with no edge", weakTh.quality.tier === "weak" && weakTh.edge.hasEdge === false);
+ok("thesis: weak thesis → NO option idea (structure none)", dtBuildOptionIdea("long", "scalp", 1.1, null, "weak").structure === "none");
+const modOpt = dtBuildOptionIdea("long", "scalp", 1.1, null, "moderate");
+ok("thesis: a non-weak low-conviction idea is a defined-risk debit spread", modOpt.structure === "debit_spread");
+const strongOpt = dtBuildOptionIdea("long", "swing", 2.4, { conviction: "High", type: "upper", level: 100 }, "strong");
 ok("thesis: strong+confirmed option idea is a naked long", strongOpt.structure === "naked");
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);

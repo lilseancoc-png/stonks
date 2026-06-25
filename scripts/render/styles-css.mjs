@@ -8950,6 +8950,66 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .pick-contract-credit .pick-contract-label { color: var(--accent, #5b8def); }
 .ptc-con-spread.ptc-con-credit { color: var(--accent, #5b8def); }
 
+/* --- Thesis v2: the edge, six sections, quality checklist, classification --- */
+.pick-thesis.thesis-q-strong { border-left-color: var(--pos); }
+.pick-thesis.thesis-q-moderate { border-left-color: var(--warn, #d98a00); }
+.pick-thesis.thesis-q-weak, .pick-thesis.thesis-norec-card { border-left-color: var(--text-muted); }
+/* classification badge in the thesis head + (smaller) on the compact tile */
+.pick-class { margin-left: auto; font: 700 9.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 7px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); }
+.pick-class-actionable { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.pick-class-moderate { color: var(--accent, #5b8def); background: color-mix(in srgb, var(--accent, #5b8def) 12%, transparent); border-color: color-mix(in srgb, var(--accent, #5b8def) 35%, transparent); }
+.pick-class-weak { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); border-color: color-mix(in srgb, var(--warn, #d98a00) 40%, transparent); }
+.pick-class-idea { color: var(--text-muted); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.ptc-class { font: 700 8.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 5px; border-radius: 4px; white-space: nowrap; border: none; margin: 0; }
+.ptc-norec { font: 600 11px/1.3 var(--font-sans); color: var(--warn, #d98a00); }
+.pick-tab-card.ptc-norec-card { opacity: 0.92; }
+/* the EDGE line — the always-visible "why this trade" */
+.thesis-edge { font: 500 13px/1.5 var(--font-sans); color: var(--text); background: color-mix(in srgb, var(--accent, #5b8def) 7%, transparent); border-left: 3px solid var(--accent, #5b8def); border-radius: var(--r-1); padding: 7px 10px; }
+.thesis-edge.thesis-edge-none { background: color-mix(in srgb, var(--text) 5%, transparent); border-left-color: var(--text-muted); color: var(--text-muted); }
+.thesis-edge-lbl { font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; color: var(--accent, #5b8def); margin-right: 5px; }
+.thesis-edge-none .thesis-edge-lbl { color: var(--text-muted); }
+/* no-strategy-recommendation note */
+.thesis-norec { font: 700 12.5px/1.45 var(--font-sans); color: var(--text-strong); background: color-mix(in srgb, var(--warn, #d98a00) 10%, transparent); border: 1px dashed color-mix(in srgb, var(--warn, #d98a00) 45%, transparent); border-radius: var(--r-1); padding: 6px 10px; }
+.thesis-norec-why { display: block; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
+/* expand / collapse "full reasoning" */
+.thesis-expand { border-top: 1px dashed var(--border); padding-top: 6px; }
+.thesis-expand > summary { cursor: pointer; list-style: none; font: 700 11px/1.3 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent, #5b8def); padding: 2px 0; user-select: none; }
+.thesis-expand > summary::-webkit-details-marker { display: none; }
+.thesis-expand > summary::before { content: '▸ '; }
+.thesis-expand[open] > summary::before { content: '▾ '; }
+.thesis-expand[open] > summary { margin-bottom: 6px; }
+.thesis-expand-body { display: flex; flex-direction: column; gap: 9px; }
+/* a numbered section inside the expand */
+.thesis-sec { display: flex; flex-direction: column; gap: 4px; }
+.thesis-sec-head { font: 700 11px/1.3 var(--font-sans); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.thesis-sec-head.thesis-sec-ok { color: var(--pos); }
+.thesis-sec-head.thesis-sec-inval { color: var(--neg); }
+.thesis-ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.thesis-ul li { font: 400 12.5px/1.45 var(--font-sans); color: var(--text); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.thesis-inval-ul li { color: var(--text-muted); }
+.thesis-inval-ul li::before { content: '↘'; color: var(--neg); font-weight: 700; }
+.thesis-strat-reason { font: 400 12.5px/1.5 var(--font-sans); color: var(--text); }
+/* thesis-quality checklist */
+.thesis-check-ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.thesis-check { font: 400 12px/1.4 var(--font-sans); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.thesis-check-mark { font-weight: 800; width: 12px; }
+.thesis-check-pass .thesis-check-mark { color: var(--pos); }
+.thesis-check-fail .thesis-check-mark { color: var(--neg); }
+.thesis-check-fail .thesis-check-lbl { color: var(--text-muted); }
+.thesis-check-detail { font: 400 11px/1.3 var(--font-sans); color: var(--text-muted); }
+.thesis-q-strong { color: var(--pos); }
+.thesis-q-moderate { color: var(--warn, #d98a00); }
+.thesis-q-weak { color: var(--text-muted); }
+.thesis-q-score { font: 600 10px/1 var(--font-mono); color: var(--text-muted); }
+/* roster group headers (Actionable / Ideas·Watch) */
+.picks-group-head { grid-column: 1 / -1; width: 100%; flex-basis: 100%; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+.picks-group-title { font: 800 13px/1.2 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-strong); }
+.picks-group-actionable .picks-group-title { color: var(--pos); }
+.picks-group-watch .picks-group-title { color: var(--text-muted); }
+.picks-group-count { font: 700 11px/1 var(--font-mono); color: var(--text-muted); background: color-mix(in srgb, var(--text) 8%, transparent); padding: 2px 7px; border-radius: 999px; }
+.picks-group-sub { font: 400 11.5px/1.4 var(--font-sans); color: var(--text-muted); flex-basis: 100%; }
+.picks-group-empty { grid-column: 1 / -1; width: 100%; flex-basis: 100%; font: 400 12.5px/1.5 var(--font-sans); color: var(--text-muted); padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--r-1); }
+
 /* --- Sector-peer comparison -------------------------------------------- */
 .pick-peers {
   margin-top: 8px;
@@ -14025,6 +14085,15 @@ html::-webkit-scrollbar-thumb:hover {
 .hot-dt-th-h { font-weight: 700; font-size: 0.92em; margin-bottom: 2px; }
 .hot-dt-th-col ul { margin: 0; padding-left: 16px; color: var(--text-2); line-height: 1.4; }
 .hot-dt-th-val { color: var(--text-3); }
+.hot-dt-th-edge { margin: 3px 0; padding: 5px 8px; line-height: 1.45; color: var(--text); background: color-mix(in srgb, var(--accent, #5b8def) 8%, transparent); border-left: 3px solid var(--accent, #5b8def); border-radius: 5px; }
+.hot-dt-th-edge b { text-transform: uppercase; font-size: 0.8em; letter-spacing: .04em; color: var(--accent, #5b8def); margin-right: 4px; }
+.hot-dt-th-edge.is-none { background: color-mix(in srgb, var(--text) 5%, transparent); border-left-color: var(--text-3); color: var(--text-2); }
+.hot-dt-th-edge.is-none b { color: var(--text-3); }
+.hot-dt-th-check { list-style: none; margin: 0; padding-left: 0; line-height: 1.4; }
+.hot-dt-th-check li.is-pass .hot-dt-th-mk { color: var(--pos); font-weight: 800; }
+.hot-dt-th-check li.is-fail { color: var(--text-3); }
+.hot-dt-th-check li.is-fail .hot-dt-th-mk { color: var(--neg); font-weight: 800; }
+.hot-dt-opt.is-none > summary { color: var(--warn, #d98a00); }
 .hot-dt-opt-spec { color: var(--text-2); font-variant-numeric: tabular-nums; margin: 2px 0; }
 .hot-dt-opt-why { color: var(--text-2); line-height: 1.45; margin: 2px 0; }
 .hot-dt-opt-note { color: var(--text-3); font-style: italic; line-height: 1.4; margin-top: 2px; }

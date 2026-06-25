@@ -191,21 +191,24 @@ expected move, R/R, probability-of-profit, `contractQuality`).
 ## 6.5 Strategy selection (`selectStrategy` + `pickVerticalForPick`)
 
 The grade decides the **side + conviction**; the strategy layer decides the
-**structure** — naked long, debit vertical, or credit vertical — so the engine
-stops reflexively buying a single long into every setup. It is **deterministic**
-and keyed on the IV regime + conviction. The IV read is a **z-score of the
-current ATM-30d IV vs the name's own ~18-month mean** (`ivRank.z`, computed in
-`attachIvRanks`; falls back to the percentile when history is thin).
+**structure** — none, naked long, debit vertical, or credit vertical — so the
+engine stops reflexively buying a single long into every setup *and* never
+recommends a trade when the **thesis** is too thin to justify one. It is
+**deterministic** and keyed on the IV regime + conviction + the **thesis tier**
+(`assessThesisQuality`, §9). The IV read is a **z-score of the current ATM-30d IV
+vs the name's own ~18-month mean** (`ivRank.z`, computed in `attachIvRanks`;
+falls back to the percentile when history is thin).
 
 The decision tree is checked top-down (first match wins):
 
 | # | Condition | Structure | Why |
 |---|---|---|---|
-| 1 | IV `z ≥ PICKS_IV_CREDIT_Z` (2σ rich) **and** no imminent event/earnings | **credit vertical** | Premium is statistically expensive → *sell* it on the bias side (bullish → bull-put, bearish → bear-call); sell near-money, buy a further-OTM wing, targeting a credit ≈ ⅓ of the width. High IV mean-reverts and theta works for you. This is the **headline rule** — it fires even at strong conviction (naked is reserved for *reasonable* IV). |
-| 2 | Strong tier (`|total| ≥ 7`) + IV reasonable (`z ≤ PICKS_IV_NAKED_Z_MAX`) + no event | **naked long** | Exceptional, multi-signal conviction with non-elevated IV → a single long for max delta/gamma + uncapped upside. |
-| 3 | Everything else — moderate conviction, **or** a strong view into elevated-but-sub-2σ IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
+| 0 | **Thesis tier is `weak`** | **none** | The grade cleared the bar but the case is thin / single-pillar → recommend *no trade*. Ship the grade + thesis as a watch idea (the "high grade but weak thesis → no strategy recommendation" rule). |
+| 1 | IV **elevated** — `z ≥ PICKS_IV_CREDIT_Z_ELEVATED` (1.5σ) **OR** `pctile ≥ PICKS_IV_CREDIT_PCTILE` (60th) — **and** no imminent event/earnings | **credit vertical** | Premium is statistically expensive → *sell* it on the bias side (bullish → bull-put, bearish → bear-call); sell near-money, buy a further-OTM wing, targeting a credit ≈ ⅓ of the width. High IV mean-reverts and theta works for you. The **highly-elevated** band (`z ≥ PICKS_IV_CREDIT_Z` 2σ OR `pctile ≥ PICKS_IV_RICH` 80th) is the same structure, labelled as the strongest sell-premium case. The IV read is the spec's **OR** of the two measures (the z-score *or* the percentile — either qualifying counts). The **headline rule** — fires even at strong conviction. |
+| 2 | Strong tier (`|total| ≥ 7`) **and** thesis tier `strong` **and** IV **not elevated** (neither z nor pctile in the credit band) + no event | **naked long** | **Rare.** Exceptional, multi-signal conviction *and* a strong thesis with low IV → a single long for max delta/gamma + uncapped upside. |
+| 3 | Everything else — moderate conviction/thesis, **or** a strong view into elevated-but-event-blocked IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
 
-A binary **event/earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** (or an active macro `eventRisk`) forces row 3 — defined-risk only, no naked long into the IV crush, no credit spread into the gap.
+A binary **event/earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** (or an active macro `eventRisk`) forces row 3 — defined-risk only, no naked long into the IV crush, no credit spread into the gap. A `none` pick carries **no contract** and is never enrolled in the track record (nothing to mark).
 
 `pickVerticalForPick(side, data, rfr, {type})` builds the two-leg contract:
 - **debit** legs are the *same* type as the side (bull-call / bear-put): long
@@ -299,28 +302,55 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   on the exit rules above, and computes stats (`winRate`, option expectancy,
   `byTier`/`bySector`/`byRegime`). The record **resets weekly** so the numbers
   reflect the current engine, not a tail of pre-tuning outcomes.
-- **Thesis tracking:** each pick ships a structured `thesisCard` (`buildThesisCard`)
-  — `works` (the supporting drivers + their pillar/reading), a deterministic
-  **`marketRead`** (does the cross-asset macro tape *support / work against /
-  stay neutral to* the trade — derived from the name's sector → macro-axis
-  sensitivity via `buildMarketRead`, e.g. rate-sensitive homebuilders vs the Fed
-  path + long yields), a **`conviction`** label (grade + how many of the 4 pillars
-  are aligned), an honest **`hasSolidThesis` / `disclosure`** (per the spec: still
-  ship if the grade clears the bar, but flag a thin / single-pillar read or a
-  contradicting macro backdrop as lower-confidence), the **`strategy`** rationale
-  (why naked / debit / credit), an optional AI **`prose`** gloss (hybrid:
-  deterministic thesis is the source of truth, `attachPickThesisProse` adds one
-  natural causal paragraph when `GEMINI_API_KEY` is set — cached per
+- **Thesis tracking:** each pick ships a structured **six-section** `thesisCard`
+  (`buildThesisCard`) — a synthesised **`edge`** (the one-line "why this trade has
+  an advantage now", `buildEdgeStatement`), the supporting `works` split into
+  **`companyDrivers`** (Fundamentals/Narrative) and **`confirmation`**
+  (Technicals/Flow), a deterministic **`marketRead`** (does the cross-asset macro
+  tape *support / work against / stay neutral to* the trade — from the name's
+  sector → macro-axis sensitivity via `buildMarketRead`, e.g. rate-sensitive
+  homebuilders vs the Fed path + long yields), `invalidators` (each lead driver
+  reversing, a macro-read reversal, the price stop — the short-strike breach for a
+  credit spread — the 14-day time stop, a grade-flip trigger), and the
+  **`strategy`** rationale. It also carries a **`thesisQuality`** (`{ score, tier,
+  checklist }`, §9a) and the matrix **`classification` / `group`**, a `conviction`
+  label, a back-compat **`hasSolidThesis`** (= `tier === "strong"`) + an honest
+  **`disclosure`** wording the thin / moderate case, and an optional AI **`prose`**
+  gloss (hybrid: deterministic thesis is the source of truth, `attachPickThesisProse`
+  adds one natural causal paragraph when `GEMINI_API_KEY` is set — cached per
   thesis-signature in `pick-thesis-cache.json`, read-before-wipe / write-after,
-  and skipped entirely by `regen-picks`), `invalidators` (each lead driver
-  reversing, a macro-read reversal for sector-thesis names, the price stop — the
-  short-strike breach for a credit spread — the 14-day time stop, and a grade-flip
-  trigger for marginal scores), and the `target` plan. A compact
-  snapshot is frozen on the enrolled `open` entry; every later build re-scores it
-  against the **live grade** into `thesisStatus` (`verdict` on-track / mixed /
-  broken from direction-adjusted price progress + how many entry drivers are
-  still firing + a grade-flip / stop-breach check). The pick card renders the
-  thesis and, for an open position, the playing-out status.
+  skipped by `regen-picks`). The browser renders a **scannable head** (the edge +
+  classification badge + strategy chip *or* "no recommendation" note + conviction +
+  disclosure) and a collapsed **"Expand for full reasoning"** with the six sections
+  + the quality checklist. A compact snapshot is frozen on the enrolled `open`
+  entry (contract-bearing picks only); every later build re-scores it against the
+  **live grade** into `thesisStatus` (on-track / mixed / broken).
+
+### 9a. Thesis quality + the execution matrix
+
+The grade says *how strong the signal is*; the **thesis quality**
+(`assessThesisQuality`, exported) says *whether there's a clear, multi-factor,
+testable, strategy-coherent case behind it*. It sums an auditable **0..8 points**
+rubric — a clear driver (0/1/2), technical/flow confirmation (0/1/2), multi-pillar
+alignment (0/1/2), a non-fighting tape (−1/0/+1), and signal-specific invalidation
+(0/1) — into a **tier**: `strong` (passes every hard gate **and** `score ≥
+PICKS_THESIS_STRONG_SCORE`), `moderate` (a real but not airtight case, `score ≥
+PICKS_THESIS_MOD_SCORE` + multi-pillar), or `weak` (thin / single-pillar). A macro
+headwind keeps a multi-factor name out of `strong` but **not** out of `moderate`.
+
+The grade tier (Strong `|total| ≥ 7` / Moderate `4–6`) **crosses** the thesis tier
+in `classifyPick` to set `classification` + `group`:
+
+| grade ＼ thesis | strong | moderate | weak |
+|---|---|---|---|
+| **Strong (≥7)** | `actionable` — **Actionable top pick**, full strategy | `moderate` — watch idea, strategy shown | `highGradeWeakThesis` — grade shown, **no strategy** |
+| **Moderate (4–6)** | `moderate` — **Moderate conviction**, strategy shown | `moderate` — watch idea, strategy | `idea` — grade-only, **no strategy** |
+
+`group = "actionable"` only for the top-left cell; everything else is `"watch"`.
+`buildTopPicks` partitions the roster into the two groups (capped at `PICKS_COUNT`
+/ `PICKS_WATCH_COUNT`), and the Top Picks tab renders them as **Actionable top
+picks** vs **Ideas · Watch**. A `weak`-thesis pick is shown (grade + thesis + the
+honest disclosure) but carries no strategy and no contract — *cash is a position.*
 - `diffGradesHistory` / `buildPicksChanges` / `buildPicksRoster` log whole-universe
   grade changes, the actionable-bar in/out churn, and the Top-10 roster snapshot.
 - `appendGradesDaily` / `appendRegimeHistory` keep the IC substrate + risk-on/off
@@ -337,9 +367,10 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 
 | Knob | Default | Effect |
 |---|---|---|
-| `PICKS_MIN_CONVICTION` / `PICKS_TIER_STRONG` | 4 / 7 | actionable / strong bars |
+| `PICKS_MIN_CONVICTION` / `PICKS_TIER_STRONG` | 4 / 7 | actionable / strong grade bars |
+| `PICKS_THESIS_STRONG_SCORE` / `_MOD_SCORE` | 5 / 3 | thesis-quality bars (strong / moderate tier) |
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
-| `PICKS_COUNT` | 10 | max roster size |
+| `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
@@ -348,7 +379,9 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 14 / 60 | contract clock |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
-| `PICKS_IV_CREDIT_Z` / `_NAKED_Z_MAX` / `_DEBIT_Z_MAX` | 2.0 / 1.0 / 0.5 | IV z-score bands: ≥credit → sell premium, ≤naked → naked OK, ≤debit → IV "neutral/low" |
+| `PICKS_IV_CREDIT_Z_ELEVATED` / `PICKS_IV_CREDIT_PCTILE` | 1.5 / 60 | **elevated** IV → credit (broadened band: z≥1.5σ OR ≥60th pctile) |
+| `PICKS_IV_CREDIT_Z` / `PICKS_IV_RICH` | 2.0 / 80 | **highly-elevated** IV labels (z≥2σ / ≥80th) |
+| (naked IV gate) | not elevated | naked needs IV **not** in the credit band (the spec's "IV Rank < 60") **and** a strong grade + strong thesis |
 | `PICKS_CREDIT_WIDTH_FRAC` / `_MIN` | 0.34 / 0.22 | credit-spread target / floor (credit ÷ width) |
 | `PICKS_CREDIT_TP_PCT` / `_STOP_PCT` | 0.50 / 1.00 | credit-spread exits (% of the credit) |
 | `PICKS_GROSS_TARGET` | 0.80 | deployed gross (rest cash) |

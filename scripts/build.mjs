@@ -7931,7 +7931,8 @@ const GRADES_FILE = "grades.json";
 const PICK_THESIS_CACHE_FILE = "pick-thesis-cache.json";
 
 // ---- Roster shape ----------------------------------------------------------
-const PICKS_COUNT = Number(process.env.PICKS_COUNT ?? 10);   // max names shipped
+const PICKS_COUNT = Number(process.env.PICKS_COUNT ?? 10);   // max ACTIONABLE names shipped (Strong grade + Strong thesis)
+const PICKS_WATCH_COUNT = Number(process.env.PICKS_WATCH_COUNT ?? 6); // max IDEAS/WATCH names (demoted: weak thesis or moderate grade)
 export const PICKS_MAX_PER_SECTOR = 3;        // correlation cap (ETFs uncapped)
 const PICKS_MAX_PER_SIDE = 8;                 // don't ship an all-one-way book
 
@@ -7973,27 +7974,33 @@ const PICKS_MIN_QUALITY = 0.45;                // composite contract-quality flo
 
 // ---- Strategy selection (structure: naked long vs defined-risk verticals) ---
 // The grade decides the SIDE + conviction; selectStrategy() then decides the
-// STRUCTURE from the IV regime + conviction strength (see docs/top-picks.md
-// §Strategy). The whole point: stop reflexively buying a naked long into every
-// setup. Three structures, one deterministic decision tree:
-//   * CREDIT vertical — the name's current ATM IV sits >= PICKS_IV_CREDIT_Z
-//     std-devs above its own ~18-month mean (premium is statistically rich) and
-//     the grade is a mild/moderate directional read: SELL the rich premium on
-//     the bias side (bullish -> bull-put credit spread; bearish -> bear-call),
-//     selling the near-money leg + buying a further-OTM wing, targeting a credit
+// STRUCTURE from the IV regime + conviction strength + THESIS QUALITY (see
+// docs/top-picks.md §Strategy). The whole point: stop reflexively buying a naked
+// long into every setup, and never recommend a structure when the thesis is too
+// thin to justify a defined trade. Four outcomes, one deterministic decision tree:
+//   * NONE — the thesis is WEAK (assessThesisQuality tier === "weak"). We show the
+//     grade but recommend no structure ("high grade, weak thesis — watch only").
+//   * CREDIT vertical — the name's current ATM IV is ELEVATED: z >= PICKS_IV_-
+//     CREDIT_Z_ELEVATED (1.5σ) OR pctile >= PICKS_IV_CREDIT_PCTILE (60th) — premium
+//     is statistically rich — and the grade is a directional read: SELL the rich
+//     premium on the bias side (bullish -> bull-put credit spread; bearish ->
+//     bear-call), near-money short + further-OTM wing, targeting a credit
 //     ~PICKS_CREDIT_WIDTH_FRAC of the strike width. High IV mean-reverts, so you
-//     collect theta + a vol-contraction tailwind. Suppressed into binary events
+//     collect theta + a vol-contraction tailwind. The "highly elevated" tier
+//     (z >= PICKS_IV_CREDIT_Z / pctile >= PICKS_IV_RICH) is the same structure,
+//     labelled as the strongest sell-premium case. Suppressed into binary events
 //     (a gap maxes the loss) and on illiquid wings.
-//   * NAKED long — conviction is EXTREME (Strong tier) AND IV is reasonable
-//     (z <= PICKS_IV_NAKED_Z_MAX): a single long for max gamma/delta + uncapped
-//     upside, accepting full premium + theta because the edge is exceptional.
-//   * DEBIT vertical — the default for a grounded-but-not-extreme directional
-//     view: long near-money financed by a short OTM wing (same side). Used when
-//     IV is neutral/low (z <= PICKS_IV_DEBIT_Z_MAX) OR when a strong view runs
-//     into rich IV (don't pay up naked — finance it). Caps theta/vega + the
-//     premium at risk; capped upside is the price.
+//   * NAKED long — RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV
+//     not elevated: a single long for max gamma/delta + uncapped upside, accepting
+//     full premium + theta because the edge is exceptional and multi-signal.
+//   * DEBIT vertical — the default for a grounded directional view with a non-weak
+//     thesis when IV is not elevated (or a strong view into elevated-but-event-
+//     blocked IV): long near-money financed by a short OTM wing (same side). Caps
+//     theta/vega + the premium at risk; capped upside is the price.
 const PICKS_STRATEGY_AUTO = process.env.PICKS_STRATEGY_AUTO !== "0"; // off -> always naked long (legacy)
-const PICKS_IV_CREDIT_Z = Number(process.env.PICKS_IV_CREDIT_Z ?? 2.0);     // ATM IV z >= this -> sell premium (credit)
+const PICKS_IV_CREDIT_Z = Number(process.env.PICKS_IV_CREDIT_Z ?? 2.0);     // ATM IV z >= this -> "highly elevated" (strongest sell-premium label)
+const PICKS_IV_CREDIT_Z_ELEVATED = Number(process.env.PICKS_IV_CREDIT_Z_ELEVATED ?? 1.5); // z >= this -> "elevated" -> credit (broadened band)
+const PICKS_IV_CREDIT_PCTILE = Number(process.env.PICKS_IV_CREDIT_PCTILE ?? 60); // IV pctile >= this -> "elevated" -> credit (z fallback)
 const PICKS_IV_DEBIT_Z_MAX = Number(process.env.PICKS_IV_DEBIT_Z_MAX ?? 0.5); // IV "neutral/below normal" ceiling for a debit spread
 const PICKS_IV_NAKED_Z_MAX = Number(process.env.PICKS_IV_NAKED_Z_MAX ?? 1.0);  // a naked long needs IV no richer than this
 const PICKS_CREDIT_WIDTH_FRAC = Number(process.env.PICKS_CREDIT_WIDTH_FRAC ?? 0.34); // target credit ~ 1/3 of the spread width
@@ -8008,6 +8015,18 @@ const PICKS_IVRANK_STD_MIN_N = Number(process.env.PICKS_IVRANK_STD_MIN_N ?? 20);
 // IV crush; no credit spread into the gap). Kept near the hold/contract window —
 // NOT the full PICKS_MAX_DTE, or every quarterly print would block naked/credit.
 const PICKS_STRATEGY_EARNINGS_DAYS = Number(process.env.PICKS_STRATEGY_EARNINGS_DAYS ?? 21);
+
+// ---- Thesis quality (assessThesisQuality) ----------------------------------
+// A name's GRADE and its THESIS are scored separately. The grade says "how
+// strong is the signal"; the thesis quality says "is there a clear, multi-factor,
+// testable, strategy-coherent CASE behind it" (the spec's "a Strong Thesis must
+// have clear drivers + supporting evidence + clear invalidation + a logical
+// strategy link"). assessThesisQuality sums an auditable 0..8 points rubric and
+// maps it to strong/moderate/weak; that tier crosses the grade tier in the
+// execution matrix (buildTopPicks) to decide actionable vs. watch + whether a
+// strategy is recommended at all.
+const PICKS_THESIS_STRONG_SCORE = Number(process.env.PICKS_THESIS_STRONG_SCORE ?? 5); // >= this (+ hard gates) -> strong thesis
+const PICKS_THESIS_MOD_SCORE = Number(process.env.PICKS_THESIS_MOD_SCORE ?? 3);       // >= this (+ alignment) -> moderate thesis
 
 // ---- Exits -----------------------------------------------------------------
 const PICKS_OPT_TP_PCT = 0.20;                 // take profit at +20% of premium
@@ -9555,39 +9574,61 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
 // ============================================================================
 
 // Decide the option STRUCTURE for a graded pick. Returns { type, label, reason,
-// ivZ, ivBasis } where type ∈ long | debit | credit. Pure + deterministic.
-function selectStrategy(r, side, opts = {}) {
+// ivZ, ivBasis, ivTier } where type ∈ none | long | debit | credit. Pure +
+// deterministic. opts.thesisTier ("strong"|"moderate"|"weak") gates the choice:
+// a WEAK thesis returns "none" (show the grade, recommend no structure), and a
+// NAKED long requires a STRONG thesis as well as a very-high grade.
+export function selectStrategy(r, side, opts = {}) {
   const conv = Math.abs(pnum(r.total) ?? 0);
   const strong = conv >= PICKS_TIER_STRONG;
+  const thesisTier = opts.thesisTier || "moderate";
   const ivr = r.data?.ivRank || null;
   const z = pnum(ivr?.z);
   const pctile = pnum(ivr?.pctile);
   const eventImminent = !!(opts.eventRisk && opts.eventRisk.active);
   const earningsInWindow = !!opts.earningsInWindow;
-  // IV reads: prefer the z-score (std-devs from the name's own mean); fall back
-  // to the percentile when there isn't enough history for a clean z.
-  const ivRich = z != null ? z >= PICKS_IV_CREDIT_Z : (pctile != null && pctile >= PICKS_IV_RICH);
-  const ivReasonable = z != null ? z <= PICKS_IV_NAKED_Z_MAX : (pctile == null || pctile < PICKS_IV_RICH);
+  // IV reads — the spec's OR of the two measures: a z-score (std-devs above the
+  // name's OWN ~18-month mean — the mean-reversion signal) and the IV-rank
+  // percentile. Either one qualifying counts. Two credit tiers: "elevated"
+  // (z>=1.5σ OR >=60th pctile -> sell premium) and "highly elevated" (z>=2σ OR
+  // >=80th -> the strongest sell-premium case, same structure). "Reasonable" (low,
+  // for a naked long) = NOT elevated by either measure (the spec's "IV Rank < 60").
+  const ivHighlyElevated = (z != null && z >= PICKS_IV_CREDIT_Z) || (pctile != null && pctile >= PICKS_IV_RICH);
+  const ivElevated = ivHighlyElevated || (z != null && z >= PICKS_IV_CREDIT_Z_ELEVATED) || (pctile != null && pctile >= PICKS_IV_CREDIT_PCTILE);
+  const ivReasonable = !ivElevated;
+  const ivTier = ivHighlyElevated ? "highly-elevated" : ivElevated ? "elevated" : "reasonable";
   const ivBasis = z != null ? `IV ${z >= 0 ? "+" : ""}${z}σ vs its own normal` : (pctile != null ? `IV ${pctile}th pctile` : "IV history thin");
-  const mk = (type, label, reason) => ({ type, label, reason, ivZ: z, ivPctile: pctile, ivBasis });
+  const mk = (type, label, reason) => ({ type, label, reason, ivZ: z, ivPctile: pctile, ivBasis, ivTier });
 
   if (!PICKS_STRATEGY_AUTO) return mk("long", "Long " + side, "Single long (strategy-auto off).");
 
-  // 1) Premium is statistically rich (>= PICKS_IV_CREDIT_Z σ). SELL it on the bias
-  //    side (the headline rule) — bull-put / bear-call credit spread — UNLESS a
-  //    binary event/earnings is imminent (a gap maxes a credit spread's loss),
-  //    where we step down to a defined-risk DEBIT instead. Naked is out here: the
-  //    user's rule reserves a naked long for *reasonable* (not elevated) IV.
-  if (ivRich && !eventImminent && !earningsInWindow) {
-    return mk("credit", (side === "call" ? "Bull-put" : "Bear-call") + " credit spread",
-      `${ivBasis} (>=${PICKS_IV_CREDIT_Z}σ rich) — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; elevated IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
+  // 0) WEAK thesis -> recommend NOTHING. The grade cleared the bar, but without a
+  //    clear, multi-factor, testable case there is no edge worth defining a trade
+  //    around (the spec's "high grade but weak thesis -> no strategy recommendation").
+  //    EXCEPTION: a tactical put is a deliberate, tape-driven DEFENSIVE position
+  //    opened by a confirmed risk-off regime — it carries a defined-risk structure
+  //    regardless of the (inherently thin) single-name thesis, so it's never "none".
+  if (thesisTier === "weak" && !opts.tactical) {
+    return mk("none", "No recommendation",
+      `The grade is high but the supporting case is thin / single-pillar — no edge clear enough to define a trade. Watch only: wait for a second confirming signal or a clean entry.`);
   }
 
-  // 2) Exceptional, multi-signal conviction with IV not elevated -> naked long for
-  //    maximum delta/gamma + uncapped upside.
-  if (strong && ivReasonable && !eventImminent && !earningsInWindow) {
+  // 1) Premium is ELEVATED (>= 1.5σ / 60th pctile). SELL it on the bias side
+  //    (the headline rule) — bull-put / bear-call credit spread — UNLESS a binary
+  //    event/earnings is imminent (a gap maxes a credit spread's loss), where we
+  //    step down to a defined-risk DEBIT instead. Naked is out here: a naked long
+  //    is reserved for *reasonable* (not elevated) IV.
+  if (ivElevated && !eventImminent && !earningsInWindow) {
+    const tierTxt = ivHighlyElevated ? `>=${PICKS_IV_CREDIT_Z}σ — highly elevated` : `>=${PICKS_IV_CREDIT_Z_ELEVATED}σ / >=${PICKS_IV_CREDIT_PCTILE}th pctile — elevated`;
+    return mk("credit", (side === "call" ? "Bull-put" : "Bear-call") + " credit spread",
+      `${ivBasis} (${tierTxt}) — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; elevated IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
+  }
+
+  // 2) RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV not elevated
+  //    -> naked long for maximum delta/gamma + uncapped upside.
+  if (strong && thesisTier === "strong" && ivReasonable && !eventImminent && !earningsInWindow) {
     return mk("long", "Long " + side,
-      `Exceptional conviction (grade ${r.total >= 0 ? "+" : ""}${r.total}) with ${ivBasis} (not elevated) — a single long captures the most delta/gamma and uncapped upside; the edge justifies the full premium + theta.`);
+      `Exceptional, multi-signal conviction (grade ${r.total >= 0 ? "+" : ""}${r.total}, strong thesis) with ${ivBasis} (not elevated) — a single long captures the most delta/gamma and uncapped upside; the edge justifies the full premium + theta.`);
   }
 
   // 3) Default: a grounded directional view without extreme conviction (or into an
@@ -10014,12 +10055,15 @@ function applyPickSizing(picks, regimeGross = 1) {
     const stopFrac = PICKS_OPT_STOP_PCT;                          // option risk to stop
     const risk = Math.max(0.05, stopFrac);
     const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX);
-    raw.push((1 / risk) * tilt);
+    // No-contract WATCH ideas (weak-thesis "no recommendation") carry no position,
+    // so they consume no gross — give them zero raw weight.
+    raw.push(c ? (1 / risk) * tilt : 0);
   }
   const sum = raw.reduce((a, b) => a + b, 0) || 1;
   picks.forEach((p, i) => {
-    const weight = (raw[i] / sum) * grossTarget;
     const c = p.contract;
+    if (!c) { p.sizing = null; return; }                          // grade-only idea, no size
+    const weight = (raw[i] / sum) * grossTarget;
     // Size by capital at risk per contract — premium for a naked long / debit
     // (maxLoss === mid), but width − credit for a credit spread (NOT the small
     // credit, which would suggest far too many contracts).
@@ -10091,82 +10135,105 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const picks = [];
   const sectorCount = {}, factorCount = {};
   let callN = 0, putN = 0;
+  const COMBINED_CAP = PICKS_COUNT + PICKS_WATCH_COUNT;
   for (const { r, tactical } of candidates) {
-    if (picks.length >= PICKS_COUNT) break;
+    if (picks.length >= COMBINED_CAP) break;
     const side = r.side || (r.total >= 0 ? "call" : "put");
 
     // GATE: one entry per name (re-entry suppression).
     if (opts.reentryCooldown !== false && (openSet.has(`${r.sym}:${side}`) || openSym.has(r.sym))) { meta.reentrySuppressed.push(r.sym); continue; }
-    // GATE: a poorly-timed name can't ship.
+    // GATE: a poorly-timed name can't ship (a falling knife stays out even as a watch idea).
     if (r.timing?.state === "avoid" && !tactical) { meta.timingGated.push(r.sym); continue; }
-    // STRATEGY + GATE: a tradeable contract must exist. selectStrategy() picks
-    // the structure (naked long / debit vertical / credit vertical) from the IV
-    // regime + conviction; buildPickContract() builds it and falls back down the
-    // defined-risk -> naked ladder if the preferred structure has no liquid wing.
+
+    // THESIS: assess quality BEFORE picking a structure — a WEAK thesis recommends
+    // no trade (selectStrategy -> "none"), and the grade × thesis matrix decides
+    // actionable vs. watch. marketRead/works/thesisQuality are computed once and
+    // threaded into buildThesisCard so the gate + the card never disagree.
+    const macroRegime = macroBackdrop?.macroRegime || null;
+    const marketRead = buildMarketRead(r.sym, r.data, side, macroRegime);
+    const works = collectThesisWorks(r, side);
+    const thesisQuality = assessThesisQuality(r, side, marketRead, works);
+    const { classification, group } = classifyPick(r.total, thesisQuality.tier, tactical);
+
+    // STRATEGY: selectStrategy() picks the structure (none / credit / naked /
+    // debit) from the IV regime + conviction + thesis tier. A non-"none" pick must
+    // have a tradeable contract (buildPickContract falls back down the defined-risk
+    // -> naked ladder); a "none" pick ships as a grade-only WATCH idea, no contract.
     const earnMsSel = r.data?.fundamentals?.nextEarningsDate ? Date.parse(r.data.fundamentals.nextEarningsDate) : null;
     const earningsSoon = earnMsSel != null && earnMsSel >= Date.now() && (earnMsSel - Date.now()) <= PICKS_STRATEGY_EARNINGS_DAYS * 86400000;
-    const strategy = selectStrategy(r, side, { eventRisk: macroBackdrop?.eventRisk || null, earningsInWindow: earningsSoon });
-    const built = buildPickContract(side, r.data, rfr, strategy);
-    if (!built || !built.contract) { meta.vetoed++; continue; }
-    const contract = built.contract;
-    const stratFinal = built.strategy;
-    // GATE: sector + factor caps (ETFs uncapped). Curated SECTORS map first,
-    // falling back to the fundamentals sector for any name not in the map.
-    const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
-    const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
-    if (sec && sec !== "ETF") {
-      if ((sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); continue; }
-      if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); continue; }
-    }
-    // GATE: factor-trend — don't keep buying CALLS into a correlated factor whose
-    // OWN trend is rolling over (a factor-specific drawdown the broad-market regime
-    // misses: SPY flat while the Tech/AI complex craters — our single worst loss).
-    // Puts are unaffected; only a strong-tier, cleanly (go) timed call survives.
-    if (side === "call" && fac && factorHealth[fac]?.weak) {
-      const reprieve = r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG;
-      if (!reprieve) { meta.factorTrendGated.push(r.sym); continue; }
-    }
-    // GATE: don't ship a wildly one-sided book.
-    if (side === "call" && callN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); continue; }
-    if (side === "put" && putN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); continue; }
+    const strategy = selectStrategy(r, side, { eventRisk: macroBackdrop?.eventRisk || null, earningsInWindow: earningsSoon, thesisTier: thesisQuality.tier, tactical });
 
-    if (sec && sec !== "ETF") { sectorCount[sec] = (sectorCount[sec] || 0) + 1; if (fac) factorCount[fac] = (factorCount[fac] || 0) + 1; }
-    if (side === "call") callN++; else putN++;
-
-    const spot = pnum(r.data.spot);
-    const exitPlan = buildExitPlan(side, spot, r.data, contract);
-    const entryPlan = buildEntryPlan(side, spot, r.data, contract, r.total);
+    let contract = null, stratFinal = strategy, exitPlan = null, entryPlan = null;
+    if (strategy.type !== "none") {
+      const built = buildPickContract(side, r.data, rfr, strategy);
+      if (!built || !built.contract) { meta.vetoed++; continue; }  // can't act on a recommended structure -> drop
+      contract = built.contract;
+      stratFinal = built.strategy;
+      // GATE: sector + factor + side caps — EXPOSURE limits that apply only to real
+      // (contract-bearing) trades. A no-contract watch idea consumes no exposure.
+      const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
+      const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+      if (sec && sec !== "ETF") {
+        if ((sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); continue; }
+        if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); continue; }
+      }
+      // GATE: factor-trend — don't keep buying CALLS into a correlated factor whose
+      // OWN trend is rolling over. Puts unaffected; only a strong-tier go-timed call survives.
+      if (side === "call" && fac && factorHealth[fac]?.weak) {
+        const reprieve = r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG;
+        if (!reprieve) { meta.factorTrendGated.push(r.sym); continue; }
+      }
+      // GATE: don't ship a wildly one-sided book.
+      if (side === "call" && callN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); continue; }
+      if (side === "put" && putN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); continue; }
+      if (sec && sec !== "ETF") { sectorCount[sec] = (sectorCount[sec] || 0) + 1; if (fac) factorCount[fac] = (factorCount[fac] || 0) + 1; }
+      if (side === "call") callN++; else putN++;
+      const spot = pnum(r.data.spot);
+      exitPlan = buildExitPlan(side, spot, r.data, contract);
+      entryPlan = buildEntryPlan(side, spot, r.data, contract, r.total);
+    }
     const pg = peerGroupOf(r.sym, r.data);
-    picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroBackdrop?.macroRegime || null));
+    picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group }));
   }
 
+  // Partition into the two roster GROUPS + cap each. Actionable (Strong grade +
+  // Strong thesis) ranks first; everything else is a lower-conviction watch idea.
+  const actionable = picks.filter((p) => p.group === "actionable").slice(0, PICKS_COUNT);
+  const watch = picks.filter((p) => p.group !== "actionable").slice(0, PICKS_WATCH_COUNT);
+  const finalPicks = actionable.concat(watch);
+
   meta.sectorCounts = sectorCount;
+  meta.groups = { actionable: actionable.length, watch: watch.length };
+  meta.classifications = finalPicks.reduce((acc, p) => { const c = p.classification || "idea"; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
   const edgeScale = opts.priorClosed ? computeEdgeScale(opts.priorClosed) : 1;
   const regimeGross = regimeGrossMult(regime);
-  applyPickSizing(picks, edgeScale * regimeGross);
-  meta.book = computeBookRisk(picks);
-  meta.deployedGross = r2(picks.reduce((a, p) => a + (p.sizing?.weight || 0), 0));
+  applyPickSizing(finalPicks, edgeScale * regimeGross);
+  meta.book = computeBookRisk(finalPicks);
+  meta.deployedGross = r2(finalPicks.reduce((a, p) => a + (p.sizing?.weight || 0), 0));
 
-  picks.rosterMeta = meta;
-  return picks;
+  finalPicks.rosterMeta = meta;
+  return finalPicks;
 }
 
-// Assemble the picks.json pick object (the shape app.js renders).
-function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGroup, tactical, strategy = null, macroRegime = null) {
+// Assemble the picks.json pick object (the shape app.js renders). `pre` carries
+// the precomputed { marketRead, works, thesisQuality, classification, group } so
+// the thesis card matches the strategy gate exactly.
+function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGroup, tactical, strategy = null, macroRegime = null, pre = null) {
   const isCall = side === "call";
   const spot = pnum(r.data.spot);
   const cs = r.streakRow?.current || null;
   const thesis = buildThesis(r, side, contract, tactical);
-  const thesisCard = buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroRegime);
+  const thesisCard = buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroRegime, pre);
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
   const entry = computeEntrySignal(side, spot, r.data, r.timing);
   if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
   return {
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
+    classification: thesisCard.classification, group: thesisCard.group,
     pillars: r.pillars, drivers: r.drivers,
     analysis: thesis, thesis, thesisCard,
-    strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, fallback: !!strategy.fallback, requested: strategy.requested || null } : null,
+    strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback, requested: strategy.requested || null } : null,
     contract, entry,
     entryTiming: { state: r.timing.state, headline: r.timing.headline, deferKind: r.timing.deferKind || null },
     tactical: !!tactical, firstSeen: null,
@@ -10330,27 +10397,156 @@ function convictionLabel(total, pillarsAligned, tactical) {
   return `${base} — grade ${total >= 0 ? "+" : ""}${total}, ${pillarsAligned}/4 pillars aligned`;
 }
 
-// Structured thesis for a pick: WHAT MAKES IT WORK (the supporting drivers), the
-// MARKET READ (does the macro tape support the trade), WHAT WOULD DISPROVE IT
-// (each lead driver reversing + the price/time stops), the CONVICTION + an honest
-// "no strong thesis" disclosure when the reasoning is thin, the STRATEGY rationale
-// (why naked / debit / credit), and the TARGET it's positioned for. Persisted at
-// enrollment and re-scored each build (thesisStatus) so the Track-record tab can
-// show whether the thesis is actually playing out.
-function buildThesisCard(r, side, contract, tactical, exitPlan, strategy = null, macroRegime = null) {
+// Collect the supporting drivers ("what makes it work") for a side: each in-
+// direction driver with its home pillar (raw key + display label), its signal
+// score, and display value, capped at 4. Shared by the thesis card + the quality
+// assessment so the two never disagree.
+function collectThesisWorks(r, side) {
   const supportSign = side === "call" ? 1 : -1;
   const works = [];
   for (const d of r.drivers || []) {
     if (!d || !d.score || Math.sign(d.score) !== supportSign) continue;
     const found = findDriverSignal(r, d.key);
+    const pillarKey = found ? found.pillar : null;
     works.push({
       key: d.key,
       label: d.label,
-      pillar: found ? THESIS_PILLAR_LABEL[found.pillar] || found.pillar : null,
+      score: d.score,
+      pillarKey,
+      pillar: pillarKey ? (THESIS_PILLAR_LABEL[pillarKey] || pillarKey) : null,
       value: found && found.sig && found.sig.value != null ? String(found.sig.value) : null,
     });
     if (works.length >= 4) break;
   }
+  return works;
+}
+
+// ---- Thesis QUALITY (separate from the grade) ------------------------------
+// The grade says "how strong is the signal"; this says "is there a clear, multi-
+// factor, testable, strategy-coherent CASE behind it". An auditable 0..8 points
+// rubric mirroring the spec's "a Strong Thesis must have": a clear driver +
+// supporting confirmation + multi-pillar alignment + a non-fighting tape + clear
+// (signal-specific) invalidation. Returns { score, tier, pillarsAligned, checklist }.
+export function assessThesisQuality(r, side, marketRead, works) {
+  const supportSign = side === "call" ? 1 : -1;
+  const ps = r.pillars || {};
+  // Per-pillar: does any signal fire in the trade's direction, and the strongest |score|?
+  const stat = {};
+  for (const pk of ["fundamentals", "technicals", "mechanicals", "narrative"]) {
+    const sigs = (ps[pk] && ps[pk].signals) || [];
+    let fires = false, maxAbs = 0;
+    for (const s of sigs) {
+      if (s && s.score && Math.sign(s.score) === supportSign) { fires = true; maxAbs = Math.max(maxAbs, Math.abs(s.score)); }
+    }
+    stat[pk] = { fires, maxAbs };
+  }
+  const companyFires = stat.fundamentals.fires || stat.narrative.fires;
+  const companyDominant = Math.max(stat.fundamentals.maxAbs, stat.narrative.maxAbs) >= 2;
+  const macroSupports = !!(marketRead && marketRead.support === "supports");
+  const macroAgainst = !!(marketRead && marketRead.support === "against");
+  const macroBackbone = macroSupports && marketRead.group !== "broad";
+  const techFires = stat.technicals.fires;
+  const flowFires = stat.mechanicals.fires;
+  const pillarsAligned = ["fundamentals", "technicals", "mechanicals", "narrative"].filter((pk) => stat[pk].fires).length;
+  const checklist = [];
+
+  // 1) Clear macro or company-specific driver (0/1/2).
+  let driverPts = 0, driverDetail = "no company or macro driver — a purely technical read";
+  if (companyFires || macroSupports) {
+    driverPts = (companyDominant || macroBackbone) ? 2 : 1;
+    driverDetail = companyFires
+      ? (companyDominant ? "a dominant company/earnings/news driver is firing" : "a company/news driver is firing")
+      : (macroBackbone ? "the macro tape is a direct tailwind for this kind of name" : "the macro tape supports the direction");
+  }
+  checklist.push({ key: "driver", label: "Clear macro or company-specific driver", pass: driverPts >= 1, points: driverPts, detail: driverDetail });
+
+  // 2) Technical / flow confirmation (0/1/2).
+  const confPts = (techFires && flowFires) ? 2 : (techFires || flowFires) ? 1 : 0;
+  checklist.push({ key: "confirmation", label: "Technical / flow confirmation", pass: confPts >= 1, points: confPts,
+    detail: confPts === 2 ? "both price action and order flow confirm" : confPts === 1 ? (techFires ? "price action confirms" : "order flow confirms") : "no technical or flow confirmation" });
+
+  // 3) Multi-pillar alignment — not a single-signal fluke (0/1/2).
+  const alignPts = pillarsAligned >= 3 ? 2 : pillarsAligned >= 2 ? 1 : 0;
+  checklist.push({ key: "alignment", label: "Multi-pillar alignment (not a single-signal fluke)", pass: alignPts >= 1, points: alignPts, detail: `${pillarsAligned} of 4 pillars aligned with the trade` });
+
+  // 4) The market tape isn't fighting it (−1/0/+1).
+  const macroPts = macroSupports ? 1 : macroAgainst ? -1 : 0;
+  checklist.push({ key: "macro", label: "Market tape not fighting the trade", pass: macroPts >= 0, points: macroPts,
+    detail: macroSupports ? "the cross-asset backdrop supports it" : macroAgainst ? "the macro tape currently works against it" : "the macro tape is neutral" });
+
+  // 5) Clear, signal-specific invalidation (not just the structural price/time stops) (0/1).
+  const sigInval = (works || []).filter((w) => w && THESIS_INVALIDATION[w.key]).length;
+  const invalPts = sigInval >= 1 ? 1 : 0;
+  checklist.push({ key: "invalidation", label: "Clear, signal-specific invalidation points", pass: invalPts >= 1, points: invalPts,
+    detail: sigInval >= 1 ? `${sigInval} driver-specific invalidation trigger${sigInval === 1 ? "" : "s"}` : "only structural (price / time) stops" });
+
+  const score = driverPts + confPts + alignPts + macroPts + invalPts;
+  // Hard gates so a "strong" thesis satisfies ALL the spec's requirements (a high
+  // score alone isn't enough — it must have a driver, confirmation, alignment, a
+  // non-fighting tape, and a real invalidation).
+  const meetsStrong = driverPts >= 1 && confPts >= 1 && alignPts >= 1 && !macroAgainst && invalPts >= 1 && score >= PICKS_THESIS_STRONG_SCORE;
+  // "weak" (-> no strategy) is reserved for a genuinely THIN case: single-pillar
+  // or a sub-threshold score. A macro headwind keeps a multi-factor name out of
+  // STRONG, but it stays a MODERATE idea (shown, with a disclosure), not weak.
+  const tier = meetsStrong ? "strong" : (score >= PICKS_THESIS_MOD_SCORE && alignPts >= 1) ? "moderate" : "weak";
+  return { score, tier, pillarsAligned, checklist };
+}
+
+// Grade × thesis EXECUTION MATRIX (the spec's actionable / watch split). Returns
+// { classification, group }: only a Strong grade (|total| >= PICKS_TIER_STRONG)
+// with a STRONG thesis is "actionable"; everything else is a lower-conviction
+// "watch" idea, and a weak thesis gets no strategy at all.
+export function classifyPick(total, thesisTier, tactical) {
+  // A tactical put is a tape-driven DEFENSIVE idea (it ships below the grade bar on
+  // a confirmed risk-off tape) — always a watch idea, never "no strategy".
+  if (tactical) return { classification: "moderate", group: "watch" };
+  const gradeStrong = Math.abs(pnum(total) ?? 0) >= PICKS_TIER_STRONG;
+  if (thesisTier === "weak") return { classification: gradeStrong ? "highGradeWeakThesis" : "idea", group: "watch" };
+  if (gradeStrong && thesisTier === "strong") return { classification: "actionable", group: "actionable" };
+  return { classification: "moderate", group: "watch" };
+}
+
+// The EDGE — one scannable line synthesising the dominant driver + the IV
+// environment + the directional bias into "why this trade has an advantage right
+// now" (the core of the thesis). hasEdge=false when no structure is recommended.
+export function buildEdgeStatement(r, side, strategy, thesisQuality, contract) {
+  const bull = side === "call";
+  const dir = bull ? "bullish" : "bearish";
+  const gradeTxt = `grade ${r.total >= 0 ? "+" : ""}${r.total}`;
+  if (!strategy || strategy.type === "none") {
+    return { hasEdge: false, text: `${gradeTxt} but the supporting case is ${thesisQuality.tier === "weak" ? "thin / single-pillar" : "incomplete"} — no edge clear enough to define a trade. Watch for a second confirming signal or a clean entry.` };
+  }
+  const lead = (r.drivers || []).find((d) => d && d.score && Math.sign(d.score) === (bull ? 1 : -1));
+  const driverTxt = lead ? lead.label.toLowerCase() : `a ${dir} ${gradeTxt}`;
+  const ivTxt = strategy.ivBasis || "";
+  let text;
+  if (strategy.type === "credit") {
+    text = `Premium is ${strategy.ivTier === "highly-elevated" ? "richly bid" : "elevated"} (${ivTxt}) and the read is ${dir} (${driverTxt}) → SELL a ${strategy.label.toLowerCase()} to harvest decay + a vol-contraction tailwind while ${r.sym} holds ${bull ? "above" : "below"} the short strike.`;
+  } else if (strategy.type === "long") {
+    text = strategy.fallback
+      ? `A ${dir} read (${driverTxt}) — no liquid defined-risk wing, so it's expressed as a single long ${bull ? "call" : "put"}; size down for the extra theta.`
+      : `Exceptional, multi-signal ${dir} conviction (${gradeTxt}, strong thesis) with ${ivTxt} not elevated → a naked ${bull ? "call" : "put"} for maximum delta/gamma on the move.`;
+  } else {
+    text = `A ${dir} read (${driverTxt}) with ${ivTxt} → a defined-risk ${strategy.label.toLowerCase()} delivers the direction at lower cost + slower theta than a naked long.`;
+  }
+  return { hasEdge: true, text };
+}
+
+// Structured thesis for a pick: the EDGE (why this trade now), the six sections
+// (macro context / company drivers / technical-flow confirmation / invalidation /
+// strategy rationale), the thesis-QUALITY checklist + tier, the CLASSIFICATION
+// (actionable / moderate / high-grade-weak-thesis / idea), and the TARGET. Takes
+// the precomputed { marketRead, works, thesisQuality } (also used to gate the
+// strategy) so the card and the gate can never disagree. Persisted at enrollment
+// and re-scored each build (thesisStatus) so the Track-record tab can show
+// whether the thesis is actually playing out.
+function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroRegime, pre) {
+  const works = (pre && pre.works) || collectThesisWorks(r, side);
+  const marketRead = (pre && pre.marketRead) || buildMarketRead(r.sym, r.data, side, macroRegime);
+  const thesisQuality = (pre && pre.thesisQuality) || assessThesisQuality(r, side, marketRead, works);
+  const { classification, group } = (pre && pre.classification) ? { classification: pre.classification, group: pre.group } : classifyPick(r.total, thesisQuality.tier, tactical);
+  const companyDrivers = works.filter((w) => w.pillarKey === "fundamentals" || w.pillarKey === "narrative");
+  const confirmation = works.filter((w) => w.pillarKey === "technicals" || w.pillarKey === "mechanicals");
   const invalidators = [];
   const seen = new Set();
   for (const w of works.slice(0, 3)) {
@@ -10360,7 +10556,6 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy = null,
   // The macro read is itself an invalidator when it's the thesis backbone (gold /
   // homebuilder / energy / dollar plays): the trade is disproven if that backdrop
   // flips. Phrased direction-neutrally.
-  const marketRead = buildMarketRead(r.sym, r.data, side, macroRegime);
   if (marketRead.group !== "broad" && marketRead.support === "supports" && marketRead.drivers.length) {
     invalidators.push({ key: "macroRead", trigger: `the macro backdrop reverses (${marketRead.group === "gold" ? "real yields fall / dollar weakens against the trade" : marketRead.group === "ratesInverse" ? "the Fed path / yields reprice against the trade" : marketRead.group === "energy" ? "the crude tape turns against the trade" : "the dollar / tape turns against the trade"})` });
   }
@@ -10377,42 +10572,49 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy = null,
     invalidators.push({ key: "gradeFlip", trigger: `the grade drops back under the ${PICKS_MIN_CONVICTION}-pt actionable bar` });
   }
 
-  // Conviction + an honest "is there really a thesis here?" read. Per the spec:
-  // still ship if the grade clears the bar, but DISCLOSE when the reasoning is
-  // thin (single-pillar) or the macro tape is actively fighting the direction.
-  const pillarsAligned = pillarsAlignedFor(r, side);
-  const distinctWorkPillars = new Set(works.map((w) => w.pillar).filter(Boolean)).size;
-  const conviction = convictionLabel(r.total, pillarsAligned, tactical);
-  const hasSolidThesis = works.length >= 2 && distinctWorkPillars >= 2 && marketRead.support !== "against";
+  // Conviction label + the honest thesis-quality DISCLOSURE. hasSolidThesis is
+  // kept (= the thesis cleared the STRONG tier) for back-compat; the disclosure
+  // wording now reflects the matrix cell (high-grade-weak-thesis vs. moderate).
+  const conviction = convictionLabel(r.total, thesisQuality.pillarsAligned, tactical);
+  const hasSolidThesis = thesisQuality.tier === "strong";
   let disclosure = null;
-  if (!hasSolidThesis) {
-    const reasons = [];
-    if (works.length < 2 || distinctWorkPillars < 2) reasons.push("the supporting signals are thin / single-pillar");
-    if (marketRead.support === "against") reasons.push("the macro backdrop currently works against this direction");
-    disclosure = `No strong thesis — this is mostly a grade-driven read: ${reasons.join("; ")}. Treat it as lower-confidence (size down / wait for confirmation).`;
+  if (thesisQuality.tier !== "strong") {
+    const fails = thesisQuality.checklist.filter((c) => !c.pass).map((c) => c.detail);
+    const lead = fails.length ? fails.slice(0, 2).join("; ") : "the case is not fully multi-factor";
+    disclosure = thesisQuality.tier === "weak"
+      ? `${classification === "highGradeWeakThesis" ? "High grade but weak thesis" : "Weak thesis"} — ${lead}. No strategy is recommended; treat it as a watch-only idea until a confirming signal lands.`
+      : `Moderate-confidence thesis — ${lead}. Shown as a lower-conviction idea, not an actionable top pick; size down.`;
   }
 
-  const target = {
-    structure: contract?.structure || "long",
+  const edge = buildEdgeStatement(r, side, strategy, thesisQuality, contract);
+
+  const target = contract ? {
+    structure: contract.structure || "long",
     optionTpPct: isCredit ? Math.round(PICKS_CREDIT_TP_PCT * 100) : Math.round(PICKS_OPT_TP_PCT * 100),
     optionStopPct: isCredit ? Math.round(PICKS_CREDIT_STOP_PCT * 100) : Math.round(PICKS_OPT_STOP_PCT * 100),
     underlyingStop: cut,
-    dte: contract ? contract.dte : null,
+    dte: contract.dte,
     holdDays: PICKS_MAX_HOLD_DAYS,
-    maxLoss: contract && contract.maxLoss != null ? contract.maxLoss : null,
-    maxProfit: contract && contract.maxProfit != null ? contract.maxProfit : null,
-    net: contract && (isCredit || contract.structure === "debit_vertical") ? contract.mid : null,
-    creditOrDebit: isCredit ? "credit" : contract && contract.structure === "debit_vertical" ? "debit" : null,
-  };
+    maxLoss: contract.maxLoss != null ? contract.maxLoss : null,
+    maxProfit: contract.maxProfit != null ? contract.maxProfit : null,
+    net: (isCredit || contract.structure === "debit_vertical") ? contract.mid : null,
+    creditOrDebit: isCredit ? "credit" : contract.structure === "debit_vertical" ? "debit" : null,
+  } : null;
   return {
     direction: side === "call" ? "bullish" : "bearish",
     summary: buildThesis(r, side, contract, tactical),
+    edge,
     works,
+    companyDrivers,
+    confirmation,
     marketRead,
     conviction,
+    thesisQuality,
+    classification,
+    group,
     hasSolidThesis,
     disclosure,
-    strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, fallback: !!strategy.fallback } : null,
+    strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback } : null,
     invalidators,
     target,
   };
@@ -10975,6 +11177,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   for (const p of (picksPayload?.picks || [])) {
     const key = `${p.symbol}:${p.side}`;
     if (openKeys.has(key)) continue;
+    // Watch-only ideas (weak thesis -> "no recommendation", no contract) are NOT
+    // tracked trades — there's nothing to mark to market, and enrolling them would
+    // leak an unresolvable "open" entry that also blocks legitimate re-entry.
+    if (!p.contract) continue;
     openKeys.add(key);
     open.push({
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
