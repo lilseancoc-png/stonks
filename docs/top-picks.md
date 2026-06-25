@@ -328,8 +328,12 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   macro-kind sensitivity, and the IV regime — and DECIDES which factors matter (so a
   consumer-discretionary name reads rates + inflation via consumer spending; a
   semi reads long yields + the dollar; an energy name reads crude). It is generated
-  **PRE-GATE** on the candidate set so its **`macroSupport`** can flow into the
-  thesis-quality gate (see §9a). The deterministic scaffolding remains: the
+  **POST-GATE** — only for the names that have already **cleared the grade and every
+  roster gate** (a name earns a thesis *after* it ships, not before) — then grafted
+  onto each card (`applyAiThesesToPicks`). Because the gate has already run, the
+  thesis no longer feeds the thesis-quality gate (see §9a); the AI layer only adds
+  the narrative arc + its specific invalidation triggers. The deterministic
+  scaffolding remains: the
   **`marketRead`** (`buildMarketRead`) — which the AI read **replaces** when present
   and otherwise falls back to a **`MACRO_PROFILES`** sensitivity table that maps
   every name in the universe (`macroKindOf`) to one of ~30 fine-grained kinds, each
@@ -370,14 +374,14 @@ alignment (0/1/2), a non-fighting tape (−1/0/+1), and signal-specific invalida
 PICKS_THESIS_STRONG_SCORE`), `moderate` (a real but not airtight case, `score ≥
 PICKS_THESIS_MOD_SCORE` + multi-pillar), or `weak` (thin / single-pillar). A macro
 headwind keeps a multi-factor name out of `strong` but **not** out of `moderate`.
-The **non-fighting-tape** check reads `marketRead.support` — so when an AI thesis
-exists, its **`macroSupport`** verdict (the everything-aware read, §9) is what feeds
-this point, *replacing* the coarse deterministic sector→axis read. This is the one
-place the AI layer is load-bearing for the trade decision: it can correctly
-upgrade/downgrade a name's `strong`/`moderate`/`weak` tier (and thus its
-`actionable`/`watch`/`no-strategy` matrix cell). The **grade itself stays AI-free**
-(deterministic 4-pillar score → direction + conviction), as does the **structure**
-selection; the AI shapes only the thesis narrative and the macro gate.
+The **non-fighting-tape** check reads `marketRead.support` — the **deterministic**
+sector→axis read (`buildMarketRead` over `MACRO_PROFILES`). The thesis is now
+generated **post-gate** (§9), so the AI's `macroSupport` verdict does **not** feed
+this point; the entire gate — `strong`/`moderate`/`weak` tier and thus the
+`actionable`/`watch`/`no-strategy` matrix cell — is **fully deterministic**. The
+**grade itself stays AI-free** (deterministic 4-pillar score → direction +
+conviction), as does the **structure** selection; the AI shapes only the thesis
+narrative on the card.
 
 The grade tier (Strong `|total| ≥ 7` / Moderate `4–6`) **crosses** the thesis tier
 in `classifyPick` to set `classification` + `group`:
@@ -398,11 +402,11 @@ honest disclosure) but carries no strategy and no contract — *cash is a positi
   calendar.
 
 Scoring is **deterministic — no AI in the grade** (direction + conviction + the
-trade structure are all deterministic). AI enters in exactly two places: it writes
-the **thesis narrative** (summary / reasoning / invalidation), and its
-**`macroSupport`** verdict feeds the thesis-quality **macro gate** (§9). Both
-degrade gracefully without `GEMINI_API_KEY` — the engine still grades, gates, and
-ships a full deterministic card.
+trade structure + the thesis-quality gate are all deterministic). AI enters in
+exactly **one** place: it writes the **thesis narrative** (summary / story arc /
+invalidation) for the names that already cleared the gate (§9). It degrades
+gracefully without `GEMINI_API_KEY` — the engine still grades, gates, and ships a
+full deterministic card.
 
 ---
 
