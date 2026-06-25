@@ -11803,6 +11803,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   for (const p of (picksPayload?.picks || [])) {
     const key = `${p.symbol}:${p.side}`;
     if (openKeys.has(key)) continue;
+    // Track record = the ACTIONABLE roster only (Strong grade + Strong thesis).
+    // Lower-conviction "watch" ideas (and tactical-tape puts, which classify as
+    // watch) are shown but not the recommended trade, so they don't belong in the
+    // scorecard — only the picks the engine actually puts on are graded here.
+    if (p.group !== "actionable") continue;
     // Watch-only ideas (weak thesis -> "no recommendation", no contract) are NOT
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
