@@ -10123,7 +10123,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
   const minConv = edgeGate.bar;
 
-  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], reentrySuppressed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -10133,6 +10133,18 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (actionable) candidates.push({ r, tactical: false });
     else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") candidates.push({ r, tactical: true });
   }
+
+  // RANK by the AI final grade's score when present — the AI is the final grader,
+  // so its conviction (0–100) orders the roster (and decides which names survive the
+  // sector/factor/side caps + the combined cap). Falls back to the deterministic
+  // conviction so a keyless build (or a name the AI couldn't grade) still orders.
+  const aiMap = opts.aiThesisMap || null;
+  const sideOf = (r) => r.side || (r.total >= 0 ? "call" : "put");
+  const rankScoreOf = (r) => {
+    const ai = aiMap ? aiMap[`${r.sym}:${sideOf(r)}`] : null;
+    return (ai && Number.isFinite(ai.score)) ? ai.score : Math.min(100, Math.abs(r.total) * 6);
+  };
+  candidates.sort((a, b) => rankScoreOf(b.r) - rankScoreOf(a.r));
 
   const picks = [];
   const sectorCount = {}, factorCount = {};
@@ -10147,18 +10159,20 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // GATE: a poorly-timed name can't ship (a falling knife stays out even as a watch idea).
     if (r.timing?.state === "avoid" && !tactical) { meta.timingGated.push(r.sym); continue; }
 
-    // THESIS: assess quality BEFORE picking a structure — a WEAK thesis recommends
-    // no trade (selectStrategy -> "none"), and the grade × thesis matrix decides
-    // actionable vs. watch. marketRead/works/thesisQuality are computed once and
+    // THESIS: the AI is the FINAL GRADER. It ran on every data-gated name and
+    // returned a final grade; that grade — not the deterministic rubric — decides
+    // the execution matrix. marketRead/works/thesisQuality are computed once and
     // threaded into buildThesisCard so the gate + the card never disagree.
     const macroRegime = macroBackdrop?.macroRegime || null;
-    // The AI thesis (when generated pre-gate) is the authority on the macro read,
-    // so it FEEDS the quality gate: a richer macroSupport verdict replaces the
-    // coarse deterministic sector→axis read here. Absent → deterministic fallback.
     const aiThesis = opts.aiThesisMap ? (opts.aiThesisMap[`${r.sym}:${side}`] || null) : null;
+    // AI VETO: a 'reject' grade stands the name down even though the data score
+    // cleared the bar (cash is a position — a wrong direction is what loses money).
+    if (aiThesis && aiThesis.grade === "reject") { meta.aiVetoed.push(r.sym); continue; }
     const marketRead = buildMarketRead(r.sym, r.data, side, macroRegime, aiThesis);
     const works = collectThesisWorks(r, side);
-    const thesisQuality = assessThesisQuality(r, side, marketRead, works);
+    // The AI grade is authoritative when present; the deterministic rubric is the
+    // keyless/offline fallback (and still computed for the card's checklist + score).
+    const thesisQuality = applyAiThesisGrade(assessThesisQuality(r, side, marketRead, works), aiThesis);
     const { classification, group } = classifyPick(r.total, thesisQuality.tier, tactical);
 
     // STRATEGY: selectStrategy() picks the structure (none / credit / naked /
@@ -10233,10 +10247,21 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
   const entry = computeEntrySignal(side, spot, r.data, r.timing);
   if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
-  const pick = {
+  // The FINAL GRADE the browser shows — the AI grader's tier + 0–100 score (or the
+  // deterministic fallback when no AI grade). `source` flags which produced it.
+  const tq = (pre && pre.thesisQuality) || thesisCard.thesisQuality || null;
+  const finalGrade = tq ? {
+    tier: tq.tier,
+    score: tq.aiScore ?? null,
+    source: tq.aiGraded ? "ai" : "deterministic",
+    confidence: (pre && pre.aiThesis && pre.aiThesis.confidence) || null,
+    reason: tq.aiGradeReason || null,
+  } : null;
+  return {
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
     classification: thesisCard.classification, group: thesisCard.group,
+    finalGrade,
     pillars: r.pillars, drivers: r.drivers,
     analysis: thesis, thesis, thesisCard,
     strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback, requested: strategy.requested || null } : null,
@@ -10249,35 +10274,6 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     entryPlan, exitPlan,
     sizing: null,
   };
-  // Stash everything needed to REBUILD the thesis card once the post-gate AI
-  // thesis lands (applyAiThesesToPicks): theses are now generated ONLY for names
-  // that cleared the grade + every roster gate, so the AI layer is grafted on
-  // after the gate ran. Non-enumerable → never serializes into picks.json.
-  Object.defineProperty(pick, "_thesisCtx", { value: { r, side, contract, tactical, exitPlan, strategy, macroRegime, pre }, enumerable: false });
-  return pick;
-}
-
-// Graft the post-gate AI thesis onto each shipped pick and REBUILD its thesis
-// card. By the time this runs the deterministic gate has already classified the
-// roster (the AI macro read no longer feeds the quality gate — a name must clear
-// the grade FIRST, then it earns a thesis), so the card's classification / group /
-// thesis quality (carried in `pre`) are preserved verbatim; the AI layer only adds
-// the narrative arc + its specific invalidation triggers. Picks without a matching
-// thesis (keyless build, API miss) keep their deterministic card untouched.
-export function applyAiThesesToPicks(picks, aiMap) {
-  if (!Array.isArray(picks) || !aiMap) return picks;
-  for (const p of picks) {
-    const ctx = p && p._thesisCtx;
-    if (!ctx) continue;
-    const ai = aiMap[`${p.symbol}:${p.side}`];
-    if (!ai) continue;
-    ctx.pre = { ...(ctx.pre || {}), aiThesis: ai };
-    p.thesisCard = buildThesisCard(ctx.r, ctx.side, ctx.contract, ctx.tactical, ctx.exitPlan, ctx.strategy, ctx.macroRegime, ctx.pre);
-    // classification/group are preserved via `pre`; keep the pick's mirror in sync.
-    p.classification = p.thesisCard.classification;
-    p.group = p.thesisCard.group;
-  }
-  return picks;
 }
 
 function buildThesis(r, side, contract, tactical) {
@@ -10838,6 +10834,19 @@ export function assessThesisQuality(r, side, marketRead, works) {
   return { score, tier, pillarsAligned, checklist };
 }
 
+// Overlay the AI's FINAL GRADE onto the deterministic quality assessment. The AI
+// is the final grader once a name clears the data screen: when it graded the name
+// (strong/moderate/weak), its tier drives the execution matrix (classifyPick) +
+// strategy selection and its score drives the roster ranking; the deterministic
+// checklist/score ride along for the card. Absent an AI grade (keyless / offline /
+// API miss) the deterministic tier stands. (A `reject` grade is handled upstream
+// as a veto — it never reaches here.)
+export function applyAiThesisGrade(detQuality, aiThesis) {
+  const aiTier = aiThesis && ["strong", "moderate", "weak"].includes(aiThesis.grade) ? aiThesis.grade : null;
+  if (!aiTier) return { ...detQuality, aiGraded: false, aiScore: null, aiGradeReason: null };
+  return { ...detQuality, tier: aiTier, aiGraded: true, aiScore: Number.isFinite(aiThesis.score) ? aiThesis.score : null, aiGradeReason: aiThesis.gradeReason || null };
+}
+
 // Grade × thesis EXECUTION MATRIX (the spec's actionable / watch split). Returns
 // { classification, group }: only a Strong grade (|total| >= PICKS_TIER_STRONG)
 // with a STRONG thesis is "actionable"; everything else is a lower-conviction
@@ -10936,7 +10945,11 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
   let disclosure = null;
   if (thesisQuality.tier !== "strong") {
     const fails = thesisQuality.checklist.filter((c) => !c.pass).map((c) => c.detail);
-    const lead = fails.length ? fails.slice(0, 2).join("; ") : "the case is not fully multi-factor";
+    // Prefer the AI grader's own one-line reason (it set this tier); fall back to
+    // the deterministic checklist fails when there's no AI grade.
+    const lead = (thesisQuality.aiGraded && thesisQuality.aiGradeReason)
+      ? thesisQuality.aiGradeReason
+      : fails.length ? fails.slice(0, 2).join("; ") : "the case is not fully multi-factor";
     disclosure = thesisQuality.tier === "weak"
       ? `${classification === "highGradeWeakThesis" ? "High grade but weak thesis" : "Weak thesis"} — ${lead}. No strategy is recommended; treat it as a watch-only idea until a confirming signal lands.`
       : `Moderate-confidence thesis — ${lead}. Shown as a lower-conviction idea, not an actionable top pick; size down.`;
@@ -11052,13 +11065,17 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
 // ============================================================================
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null) {
   const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) };
-  // Score the universe ONCE, then GRADE + GATE the roster with the deterministic
-  // engine — no AI yet. A name must CLEAR THE GRADE (the conviction bar + every
-  // roster gate) before it earns a thesis; the thesis is no longer generated for
-  // every candidate up front (it can't feed the quality gate). Re-using preScored
-  // avoids a second scoring pass inside buildTopPicks.
+  // Score the universe ONCE, then run the two-stage pipeline:
+  //   1. DATA GATE — the deterministic 4-pillar score (conviction bar) + the cheap
+  //      data-screen gates (re-entry, avoid-timing) pick the candidates.
+  //   2. AI FINAL GRADE — generateAiTheses writes the everything-aware thesis for
+  //      every data-gated name AND grades it (strong/moderate/weak/reject + a 0–100
+  //      score). That grade flows into buildTopPicks via aiThesisMap, where it sets
+  //      the execution matrix (classification), ranks the roster, and VETOES a
+  //      'reject'. Self-skips keyless (deterministic grade stands as the fallback).
   const preScored = scoreAllTickers(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, baseOpts);
-  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored });
+  const aiThesis = await generateAiTheses(preScored, macroBackdrop, baseOpts, thesisProsePrior || {});
+  const picks = buildTopPicks(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored, aiThesisMap: aiThesis.map });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   let priorPayload = priorPicks;
@@ -11070,18 +11087,15 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
     const staleJson = JSON.stringify(stalePayload);
     await writeFile(picksPath, staleJson, "utf8");
     console.warn(`[picks] buildTopPicks returned 0 — reusing ${priorPayload.picks.length} from ${priorPayload.builtAtIso || "previous run"} (stale)`);
-    // No new thesis was generated (nothing cleared the gate) — carry the prior
-    // cache forward unchanged; the reused picks keep the thesis they were baked with.
-    return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks), thesisProseCache: thesisProsePrior || {} };
+    // Carry the thesis cache forward — the reused picks keep the thesis they were
+    // baked with (this build's freshly-graded cache still persists so a recovering
+    // roster reuses it next build).
+    return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks), thesisProseCache: aiThesis.cache };
   }
 
-  // POST-GATE thesis: now that the roster has cleared the grade, generate the
-  // everything-aware AI thesis ONLY for the shipped names and graft it onto each
-  // card. Self-skips keyless; the deterministic card already shipped, so a keyless
-  // build (or an API miss on one name) still produces a full card.
-  const rosterKeys = new Set(picks.map((p) => `${p.symbol}:${p.side}`));
-  const aiThesis = await generateAiTheses(preScored, macroBackdrop, { ...baseOpts, rosterKeys }, thesisProsePrior || {});
-  applyAiThesesToPicks(picks, aiThesis.map);
+  // The AI thesis + final grade are already attached to each pick (via the map →
+  // buildThesisCard / buildPickObject); persist the cache (write-after-wipe in
+  // main()). Deterministic grade ships regardless, so a keyless build still works.
   const thesisProseCache = aiThesis.cache;
 
   const payload = { builtAtIso, minConviction: picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION, rosterMeta: picks.rosterMeta || null, picks };
@@ -11113,7 +11127,7 @@ export async function readPriorPicks() {
 const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-2.5-flash-lite";
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
-const THESIS_PROMPT_VERSION = "v2";
+const THESIS_PROMPT_VERSION = "v3";
 
 const THESIS_SCHEMA = {
   type: "object",
@@ -11130,9 +11144,15 @@ const THESIS_SCHEMA = {
     invalidation: { type: "array", items: { type: "string" } },
     strategyRationale: { type: "string" },
     confidence: { type: "string", enum: ["high", "moderate", "low"] },
+    // The FINAL GRADE — the AI is the final grader once a name clears the data
+    // screen. `grade` drives the execution matrix (and `reject` vetoes the name);
+    // `score` (0–100 conviction) ranks the roster; `gradeReason` is the one-liner.
+    grade: { type: "string", enum: ["strong", "moderate", "weak", "reject"] },
+    score: { type: "number" },
+    gradeReason: { type: "string" },
   },
-  required: ["summary", "setup", "catalyst", "outlook", "macroSupport", "invalidation"],
-  propertyOrdering: ["summary", "setup", "catalyst", "confirmation", "outlook", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "strategyRationale", "confidence"],
+  required: ["summary", "setup", "catalyst", "outlook", "macroSupport", "invalidation", "grade", "score"],
+  propertyOrdering: ["summary", "setup", "catalyst", "confirmation", "outlook", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "strategyRationale", "confidence", "grade", "score", "gradeReason"],
 };
 
 const THESIS_SYSTEM =
@@ -11151,6 +11171,14 @@ const THESIS_SYSTEM =
   "invalidation = 3–4 SPECIFIC, observable conditions that would prove the thesis wrong (a named driver reversing, a price level breaking, a macro shift, a catalyst disappointing) — never generic 'the stock could fall'. " +
   "strategyRationale = 1–3 sentences justifying the OPTION STRUCTURE from the IV environment: when implied vol is ELEVATED/RICH, premium is expensive so favour SELLING premium on the bias side (a credit spread) or a defined-risk debit spread over a naked long; when IV is CHEAP, favour BUYING premium (a debit spread or naked long); always prefer DEFINED-RISK into an imminent earnings/event. Explain the IV-vs-structure logic the way the example does. " +
   "confidence = your honest read of the thesis strength. " +
+  "FINAL GRADE — you are the FINAL GRADER. A quantitative engine pre-screened this name on the raw data (fundamentals, technicals, flow, narrative) and it CLEARED that screen; now YOU decide whether the thesis actually holds together as a trade. " +
+  "grade = strong | moderate | weak | reject. " +
+  "strong = a clear, multi-factor, testable case with the macro tape NOT fighting it and a concrete catalyst changing now (an Actionable top pick). " +
+  "moderate = a real but not airtight case — a worthwhile idea to watch, sized down. " +
+  "weak = thin, single-pillar, or the supports are already mostly priced in — shown as a watch-only idea with NO trade recommended. " +
+  "reject = VETO the name entirely: the case is incoherent, the data contradicts the direction, the thesis-driving catalyst has already played out, or the macro tape directly fights it. Be willing to reject even though it cleared the data screen — cash is a position, and a wrong direction is what loses money. " +
+  "score = 0–100, your overall conviction in THIS trade (used to rank the roster); keep it consistent with the grade (strong ≈ 75–100, moderate ≈ 50–74, weak ≈ 25–49, reject ≈ 0–24). " +
+  "gradeReason = one sentence justifying the grade (what makes it strong, or what holds it back / why you reject). " +
   "Rules: never invent news, events, numbers, or catalysts not in the context. Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concrete and specific over vague.";
 
 // Pull a driver signal's human display value ("+18%", "raised") for the prompt.
@@ -11241,6 +11269,7 @@ function buildThesisUserMessage(r, side, macroRegime) {
   } else if (eventSoon) {
     L.push(`OPTIONS / IV: earnings/event imminent → use DEFINED-RISK only (a spread), never a naked long.`);
   }
+  L.push(`FINAL GRADE: this name cleared the deterministic data screen. Decide whether the thesis truly holds as a 1–2 week ${bull ? "bullish" : "bearish"} trade and assign grade (strong/moderate/weak/reject) + score 0–100 + gradeReason. Reject it if the case is incoherent, contradicted by the data, already played out, or the macro tape directly fights it — standing down is allowed.`);
   return L.join("\n");
 }
 
@@ -11272,6 +11301,12 @@ function parseThesisResponse(text) {
     invalidation: list(p.invalidation, 4, 220),
     strategyRationale: clean(p.strategyRationale, 480),
     confidence: ["high", "moderate", "low"].includes(p.confidence) ? p.confidence : "moderate",
+    // The final grade — the AI is the final grader. `grade` drives classification
+    // (reject = veto); `score` (0–100) ranks. Default to "moderate"/50 if the model
+    // omits them so a thesis without a grade still ships as a watch idea, not a drop.
+    grade: ["strong", "moderate", "weak", "reject"].includes(p.grade) ? p.grade : "moderate",
+    score: Number.isFinite(p.score) ? Math.max(0, Math.min(100, p.score)) : 50,
+    gradeReason: clean(p.gradeReason, 220),
   };
 }
 
@@ -11300,16 +11335,16 @@ async function writePickThesisCache(cache) {
   catch (err) { console.warn(`[picks] failed to persist thesis cache — ${String(err?.message || err).split("\n")[0]}`); }
 }
 
-// Generate the AI thesis, keyed `symbol:side`. Returns { map, cache } — `map` is
-// grafted onto the shipped roster (applyAiThesesToPicks → the card carries the
-// narrative); `cache` is the write-after-wipe persistence.
+// Generate the AI thesis + FINAL GRADE, keyed `symbol:side`. Returns { map, cache }
+// — `map` feeds buildTopPicks (the AI grade sets classification + rank + veto, and
+// the card carries the narrative); `cache` is the write-after-wipe persistence.
 //
-// The thesis is generated ONLY for names that have already CLEARED THE GRADE — by
-// default the shipped roster, passed via `opts.rosterKeys` (a Set of `sym:side`).
-// A name earns a thesis after it clears the grade + every roster gate, not before:
-// the deterministic engine grades + gates first, then the survivors get a thesis.
-// (Absent rosterKeys, falls back to the legacy actionable-candidate selection for
-// callers that supply it pre-gate — e.g. the smoke test.)
+// The thesis is generated for every name that CLEARED THE DATA GATE — the
+// deterministic 4-pillar score (conviction bar) plus the cheap data-screen gates
+// (re-entry suppression + avoid-timing), mirroring buildTopPicks's candidate set
+// so we don't spend tokens on names that can't ship. From there the AI is the
+// final grader: it decides each name's final grade (strong/moderate/weak/reject)
+// and a 0–100 conviction score that buildTopPicks uses to classify, rank, and veto.
 export async function generateAiTheses(preScored, macroBackdrop, opts = {}, priorCache = {}) {
   const next = {}, map = {};
   const scored = preScored?.scored || [];
@@ -11318,24 +11353,25 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const macroRegime = macroBackdrop?.macroRegime || null;
   const minConv = opts.priorClosed ? edgeGatedConviction(opts.priorClosed).bar : PICKS_MIN_CONVICTION;
 
+  // The DATA GATE — mirror buildTopPicks's candidate selection + its two cheap
+  // gates (re-entry suppression + avoid-timing) so the AI grades exactly the names
+  // that can ship. `opts.rosterKeys` (a Set) restricts to a caller-supplied set.
+  const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
+  const openSym = new Set((opts.openPositions || []).map((o) => o && o.symbol).filter(Boolean));
+  const reentry = opts.reentryCooldown !== false;
   const cands = [];
-  if (opts.rosterKeys instanceof Set) {
-    // Post-gate: only the names that actually shipped (cleared the grade + gates).
-    const bySym = new Map();
-    for (const r of scored) if (r && r.data) bySym.set(r.sym, r);
-    for (const key of opts.rosterKeys) {
-      const i = String(key).lastIndexOf(":");
-      const sym = i >= 0 ? key.slice(0, i) : key;
-      const side = i >= 0 ? key.slice(i + 1) : null;
-      const r = bySym.get(sym);
-      if (r && side) cands.push({ r, side });
-    }
-  } else {
-    for (const r of scored) {
-      if (!r || !r.data) continue;
-      if (Math.abs(r.total) >= minConv && r.side) cands.push({ r, side: r.side });
-      else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") cands.push({ r, side: "put" });
-    }
+  for (const r of scored) {
+    if (!r || !r.data) continue;
+    let side = null, tactical = false;
+    if (Math.abs(r.total) >= minConv && r.side) side = r.side;
+    else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") { side = "put"; tactical = true; }
+    if (!side) continue;
+    if (opts.rosterKeys instanceof Set && !opts.rosterKeys.has(`${r.sym}:${side}`)) continue;
+    // Cheap data-screen gates (mirror buildTopPicks loop gates 1 & 2): a name that's
+    // re-entry-suppressed or a falling knife can't ship, so don't grade it.
+    if (reentry && (openSet.has(`${r.sym}:${side}`) || openSym.has(r.sym))) continue;
+    if (r.timing?.state === "avoid" && !tactical) continue;
+    cands.push({ r, side });
   }
   if (!cands.length) return { map, cache: next };
 

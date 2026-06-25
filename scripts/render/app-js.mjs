@@ -19904,9 +19904,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? '<details class="thesis-expand"><summary>Expand for full reasoning</summary><div class="thesis-expand-body">' + secs + '</div></details>'
       : '';
 
+    // FINAL GRADE chip — the AI is the final grader once a name clears the data
+    // screen. Show its tier + 0–100 score when the grade came from the AI.
+    var fg = p && p.finalGrade ? p.finalGrade : null;
+    var fgHtml = (fg && fg.source === 'ai' && fg.tier)
+      ? '<span class="thesis-final-grade thesis-q-' + escapeHtml(fg.tier) + '" title="' + escapeHtml('Final grade from the AI grader (after the deterministic data screen)' + (fg.reason ? ': ' + fg.reason : '') + '.') + '">Final: ' + escapeHtml(fg.tier) + (fg.score != null ? ' ' + Math.round(fg.score) : '') + '</span>'
+      : '';
+
     return '<div class="pick-thesis ' + dirCls + ' ' + tierCls + (noRec ? ' thesis-norec-card' : '') + '">' +
       '<div class="pick-thesis-head">Thesis <span class="thesis-dir">' + escapeHtml(tc.direction || '') + '</span>' +
-        '<span class="pick-class ' + cm.cls + '" title="' + escapeHtml(cm.tip) + '">' + escapeHtml(cm.label) + '</span></div>' +
+        '<span class="pick-class ' + cm.cls + '" title="' + escapeHtml(cm.tip) + '">' + escapeHtml(cm.label) + '</span>' + fgHtml + '</div>' +
       leadHtml +
       stratHtml +
       convHtml +

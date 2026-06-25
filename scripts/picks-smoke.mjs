@@ -8,7 +8,7 @@ import {
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
-  assessThesisQuality, selectStrategy, classifyPick, generateAiTheses,
+  assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf,
 } from "./build.mjs";
 
@@ -384,6 +384,49 @@ ok("exit: naked +25% -> win (TP still 20%)", resolvePickOutcome({ modeledOptPnlP
   const gen = await generateAiTheses({ scored: [], regimeBand: "neutral" }, null, {}, {});
   ok("ai-thesis: generateAiTheses returns {map,cache} shape", gen && typeof gen.map === "object" && typeof gen.cache === "object");
   ok("ai-thesis: empty universe → no AI thesis generated", Object.keys(gen.map).length === 0 && Object.keys(gen.cache).length === 0);
+}
+
+// --- 12d-final. AI is the FINAL GRADER (grade sets classification + rank + veto) -
+// Once a name clears the deterministic data gate, the AI grade decides the roster:
+// 'reject' vetoes; the AI tier drives the execution matrix; the AI score ranks.
+{
+  const keyFor = (p) => p.symbol + ":" + p.side;
+  // 1) reject → vetoed out of the roster (even though it cleared the data gate).
+  {
+    const tgt = healthyPicks[0];
+    const map = { [keyFor(tgt)]: { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "reject", score: 5 } };
+    const out = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: map });
+    ok("ai-grade: a 'reject' grade vetoes the name out of the roster", !out.find((x) => keyFor(x) === keyFor(tgt)));
+    ok("ai-grade: the veto is recorded in rosterMeta.aiVetoed", out.rosterMeta.aiVetoed.includes(tgt.symbol));
+  }
+  // 2) AI tier drives the matrix: a 'weak' grade → no strategy / watch group.
+  {
+    const tgt = healthyPicks[0];
+    const map = { [keyFor(tgt)]: { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "weak", score: 30, gradeReason: "single-pillar, supports already priced in" } };
+    const out = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: map });
+    const p = out.find((x) => keyFor(x) === keyFor(tgt));
+    ok("ai-grade: a 'weak' AI grade lands the pick in the watch group", !p || p.group !== "actionable");
+    ok("ai-grade: a 'weak' AI grade recommends no strategy (no contract)", !p || !p.contract);
+    ok("ai-grade: finalGrade reflects the AI tier + source", !p || (p.finalGrade && p.finalGrade.tier === "weak" && p.finalGrade.source === "ai" && p.finalGrade.score === 30));
+  }
+  // 3) AI score ranks the roster — a high AI score on a lower-conviction name lifts it.
+  {
+    const last = healthyPicks[healthyPicks.length - 1];
+    const map = {};
+    for (const p of healthyPicks) map[keyFor(p)] = { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "supports", invalidation: ["a"], grade: "strong", score: keyFor(p) === keyFor(last) ? 99 : 60 };
+    const out = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: map });
+    ok("ai-grade: the top-AI-score name ranks first", out.length > 1 ? keyFor(out[0]) === keyFor(last) : true);
+  }
+  // 4) applyAiThesisGrade overlays the tier/score; absent a grade it's a no-op.
+  {
+    const det = { tier: "strong", score: 6, pillarsAligned: 3, checklist: [] };
+    const overlaid = applyAiThesisGrade(det, { grade: "moderate", score: 55, gradeReason: "ok" });
+    ok("ai-grade: applyAiThesisGrade overrides tier + carries score/reason", overlaid.tier === "moderate" && overlaid.aiGraded === true && overlaid.aiScore === 55 && overlaid.aiGradeReason === "ok");
+    const passthru = applyAiThesisGrade(det, { grade: "reject" });
+    ok("ai-grade: a non-{strong,moderate,weak} grade leaves the deterministic tier (reject handled upstream)", passthru.tier === "strong" && passthru.aiGraded === false);
+    const none = applyAiThesisGrade(det, null);
+    ok("ai-grade: no AI thesis → deterministic tier stands", none.tier === "strong" && none.aiGraded === false);
+  }
 }
 
 // --- 12e. macro-sensitivity per kind (every name reads ITS OWN drivers) ------
