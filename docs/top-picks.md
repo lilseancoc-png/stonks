@@ -302,7 +302,10 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 
 ## 9. The feedback loop (accuracy / history / roster)
 
-- `updatePicksAccuracyFile` enrolls every shipped pick (dedup per `symbol:side`),
+- `updatePicksAccuracyFile` enrolls every shipped **actionable** pick (`group ===
+  "actionable"` — Strong grade + Strong thesis; lower-conviction watch ideas and
+  tactical-tape puts are excluded, so the scorecard reflects only the trades the
+  engine actually recommends), dedup per `symbol:side`,
   marks each to market on its **contract** every build (Black-Scholes), resolves
   on the exit rules above, and computes stats (`winRate`, option expectancy,
   option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`). The
