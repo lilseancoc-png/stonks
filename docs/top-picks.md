@@ -252,7 +252,9 @@ skips spreads — its single-leg model would mislead.)
    raised bar ships in `rosterMeta.edgeGate`/`tradeCut`.
 2. **Drop names with an open tracked position** (re-entry suppression).
 3. **Drop `avoid`-timed names.** (Steps 1–3 are the **DATA GATE** — they decide
-   which names the AI grades.)
+   which names are *eligible*; the AI then grades only the **top
+   `PICKS_MAX_AI_THESES` (10)** of them, ranked by conviction. The rest ship a
+   deterministic-only card.)
 4. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
    though the data cleared): drop the name (`rosterMeta.aiVetoed`).
 5. **Require a tradeable contract** (else drop).
@@ -327,17 +329,26 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   specific, observable conditions), a **`strategyRationale`** that justifies the
   option structure from the IV environment (elevated IV → sell premium /
   defined-risk; cheap IV → buy a debit; defined-risk into events), a **`macroRead`**
-  + **`macroSupport`** verdict, and the AI's own **`confidence`**. (A bumped
+  + **`macroSupport`** verdict, and the AI's own **`confidence`**. The system prompt
+  carries two **gold-standard reference theses** (`THESIS_GOLD_EXAMPLES` — a bearish
+  oil-producer read and a bearish gold read) plus the *"what makes a good thesis"*
+  framework (clear, cause→effect, specific, testable, actionable; complement the
+  grade) so every grade is held to that bar — the oil example also models the
+  IV→structure logic (debit when IV is reasonable; the gold example sells a credit
+  spread because gold IV is rich). (A bumped
   `THESIS_PROMPT_VERSION` in the cache signature re-reads every cached thesis once
-  on a schema change; legacy `reasoning`-only payloads still render.) It is fed the
+  on a schema/prompt change; legacy `reasoning`-only payloads still render.) It is fed the
   WHOLE picture per name — the scored signals, company fundamentals, the AI news
   take + fundamental judgment + headlines + catalysts, the full cross-asset macro
   backdrop (rates / dollar / Fed / inflation / geopolitics) with the name's
   macro-kind sensitivity, and the IV regime — and DECIDES which factors matter (so a
   consumer-discretionary name reads rates + inflation via consumer spending; a
   semi reads long yields + the dollar; an energy name reads crude). It is generated
-  for every name that **cleared the DATA GATE** (the deterministic conviction bar +
-  the cheap re-entry / avoid-timing screens), and from there the AI is the **FINAL
+  for the **top `PICKS_MAX_AI_THESES` (default 10) names that cleared the DATA GATE**
+  — ranked by deterministic conviction (the bar + the cheap re-entry / avoid-timing
+  screens) so the grader spends tokens only on names that can realistically make the
+  actionable roster; lower-conviction survivors ship deterministic-only. From there
+  the AI is the **FINAL
   GRADER**: alongside the narrative it returns a final `grade`
   (`strong`/`moderate`/`weak`/`reject`) + a 0–100 `score` + a `gradeReason`. That
   grade is **authoritative** — it sets the execution matrix (§9a), ranks the roster
@@ -429,6 +440,7 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_THESIS_STRONG_SCORE` / `_MOD_SCORE` | 5 / 3 | thesis-quality bars (strong / moderate tier) |
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
+| `PICKS_MAX_AI_THESES` | 10 | only the best N data-gate survivors (by conviction) get an AI thesis + final grade; the rest ship deterministic-only |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |

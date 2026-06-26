@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=2026-06-25T21%3A02%3A23.432Z">
+<link rel="stylesheet" href="styles.css?v=2026-06-26T01%3A50%3A06.307Z">
 </head>
 <body>
 <header class="site-header">
@@ -60,7 +60,6 @@
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="hot" aria-selected="false" aria-controls="page-pane-hot" id="page-tab-hot">Day trades</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal">Index calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track">Track record</button>
@@ -155,15 +154,6 @@
           <div class="landing-card-sub" id="land-sub-picks">highest conviction</div>
           <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
         </button>
-        <button type="button" class="landing-card" data-go="daytrades" aria-label="View day trades">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Day trades</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-daytrades">0DTE</div>
-          <div class="landing-card-sub" id="land-sub-daytrades">same-day setups</div>
-          <p class="landing-card-desc">The Top-picks read tuned for a same-day trade — flow/momentum-weighted grades on the nearest-expiry contracts, with fast exits and no overnight hold.</p>
-        </button>
         <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
           <header class="landing-card-head">
             <span class="landing-card-eyebrow">Unusual flow</span>
@@ -172,15 +162,6 @@
           <div class="landing-card-stat" id="land-stat-flow">—</div>
           <div class="landing-card-sub">flagged today</div>
           <p class="landing-card-desc">Options prints with abnormal volume vs the prior session — who's pricing in what.</p>
-        </button>
-        <button type="button" class="landing-card landing-card-hot" data-go="hot" aria-label="View hot stocks">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Hot stocks</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat">Top 15</div>
-          <div class="landing-card-sub">by live volume pace</div>
-          <p class="landing-card-desc">What's trading the heaviest right now — live volume pace, dealer gamma, and a buy-calls / buy-puts / wait verdict per name.</p>
         </button>
         <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
           <header class="landing-card-head">
@@ -1598,8 +1579,7 @@
       <div class="info-note-body"><p>Hourly volume vs the U-shaped 25/14/11/11/14/25% intraday distribution: tickers trading at <strong>≥1.2×</strong> their expected hour-bucket volume are flagged. At/after 16:00 ET, full-day volume <strong>≥1.3×</strong> the 20D average flags as EOD. When spot crosses the 20D support or resistance line, the break is confirmed against the same hour's vol ratio — Strong Alert (≥1.3×), Watch (0.8–1.3×), or Likely Fakeout (&lt;0.8×).</p>
     <p>Each row reads <em>Vol actual / expected · ratio</em> — shares traded in that bucket vs. the bucket's share of the 20-day average, and the multiple between them. The trailing % is the price change across the bucket. A flag leans <span class="vol-key-up">bullish</span> when price is up on heavy volume (real demand) and <span class="vol-key-dn">bearish</span> when price is down on heavy volume (real selling pressure).</p>
     <p>Each card also carries a <strong>follow-the-case verdict</strong> — whether the volume evidence says to <em>follow</em> the bull or bear case (heavy volume confirmed the move), <em>wait for confirmation</em> (heavy participation but no decisive direction yet), or <em>not follow</em> it (a weak move or a likely fakeout, prone to fading). Expand a ticker to read the verdict's reasoning in full.</p>
-    <p>The build's current <strong>★ Top Picks</strong> are pinned in their own group at the top so you can track flow on just those names; the rest are grouped by sector and <strong>collapsed by default</strong> — click a sector header to open it, then a ticker to expand its hour-by-hour breakdown with the reasoning. Each row's one-line summary shows its strongest flag, bullish/bearish lean, peak hour ratio, and EOD move, and a six-bar <strong>intraday volume profile</strong> — one bar per session hour (open → close), taller where volume ran hotter and tinted <span class="vol-key-up">green</span>/<span class="vol-key-dn">red</span> by that hour's price direction — so you can see <em>when</em> the heavy tape hit (the open, midday, or into the close) without expanding. <em>Group by sector</em> and <em>Expand all</em> toggle the layout.</p>
-    <p>Looking for the live pace leaderboard? It moved to the <strong>Hot stocks</strong> tab — the top names trading the heaviest <em>right now</em>, with dealer gamma and a buy-calls / buy-puts / wait verdict per name.</p></div>
+    <p>The build's current <strong>★ Top Picks</strong> are pinned in their own group at the top so you can track flow on just those names; the rest are grouped by sector and <strong>collapsed by default</strong> — click a sector header to open it, then a ticker to expand its hour-by-hour breakdown with the reasoning. Each row's one-line summary shows its strongest flag, bullish/bearish lean, peak hour ratio, and EOD move, and a six-bar <strong>intraday volume profile</strong> — one bar per session hour (open → close), taller where volume ran hotter and tinted <span class="vol-key-up">green</span>/<span class="vol-key-dn">red</span> by that hour's price direction — so you can see <em>when</em> the heavy tape hit (the open, midday, or into the close) without expanding. <em>Group by sector</em> and <em>Expand all</em> toggle the layout.</p></div>
     </details>
     <div class="vol-controls" role="toolbar" aria-label="Filter volume flags">
       <label class="vol-search">
@@ -1639,54 +1619,6 @@
     <div id="vol-list" class="vol-list" role="list"></div>
     <div id="vol-empty" class="vol-empty" hidden>No volume or S/R-break flags in the latest scan.</div>
     <div id="vol-no-results" class="vol-empty" hidden>No tickers match these filters.</div>
-  </section>
-  </div>
-  <div class="page-pane" id="page-pane-hot" role="tabpanel" aria-labelledby="page-tab-hot" hidden>
-  <section class="card hot-card" id="hot-section">
-    <header class="card-header">
-      <h2 class="card-title">Day trades <span class="dte-badge" title="Live volume-driven swing/scalp trades, tracked to their take-profit / stop-loss">LIVE</span></h2>
-      <span class="vol-live-state" id="hot-live-state" aria-live="polite"></span>
-    </header>
-    <details class="info-note">
-      <summary>How the live Day Trades board works</summary>
-      <div class="info-note-body"><p>A live roster of concrete <strong>swing</strong> and <strong>scalp</strong> ideas, mined every hour from the names <strong>trading the heaviest volume</strong> with a clean directional read (a confirmed 20-day support/resistance break, the day's move, dealer gamma). Each trade ships a <strong>fixed entry, take-profit and stop-loss</strong> with its reward:risk — a <strong>swing</strong> rides a 20D breakout for up to three sessions, a <strong>scalp</strong> is a tight intraday momentum trade that closes by the bell.</p>
-    <p>The board is <strong>live</strong>: while this tab is open it refreshes every 30s, marking each open trade to the tape (its P/L in % and in <strong>R</strong> multiples) and flagging the moment price touches the take-profit or stop. When a level is hit the trade <strong>disappears from the active list and is filed into the history</strong> as a win or loss — the <em>History &amp; results</em> view keeps the running win rate, average P/L and average R. Trades are on the <strong>underlying</strong> (a stock move, not an options model). Not financial advice. For the longer-dated, narrative-driven play, see <strong>Top Picks</strong>.</p></div>
-    </details>
-    <div class="hot-dt-tabs" id="hot-dt-tabs" role="tablist" aria-label="Day trades view">
-      <button type="button" class="vol-pill is-on" data-hot-view="active" role="tab" aria-selected="true">Active trades</button>
-      <button type="button" class="vol-pill" data-hot-view="history" role="tab" aria-selected="false">History &amp; results</button>
-    </div>
-    <div id="hot-active-view">
-      <div id="hot-dt-summary" class="hot-dt-summary" aria-live="polite" hidden></div>
-      <div id="hot-active" class="hot-active" aria-live="polite">Loading live day trades…</div>
-    </div>
-    <div id="hot-history-view" hidden>
-      <div id="hot-history-stats" class="hot-dt-summary" aria-live="polite" hidden></div>
-      <div id="hot-history" class="hot-history-list" aria-live="polite"></div>
-    </div>
-    <details class="hot-volboard">
-      <summary>Live volume leaders — what's trading heaviest right now (where the ideas come from)</summary>
-      <div id="hot-summary" class="hot-summary" aria-live="polite" hidden></div>
-      <div class="vol-controls hot-controls" role="toolbar" aria-label="Filter and sort hot stocks">
-        <div class="vol-filter" id="hot-filter" role="radiogroup" aria-label="Filter hot stocks by verdict">
-          <button type="button" class="vol-pill is-on" data-hot-filter="all" role="radio" aria-checked="true">All</button>
-          <button type="button" class="vol-pill" data-hot-filter="buy" role="radio" aria-checked="false" title="Only names with a live buy-calls / buy-puts verdict">Buy signals</button>
-          <button type="button" class="vol-pill" data-hot-filter="bull" role="radio" aria-checked="false" title="Names whose tape leans bullish">Bullish</button>
-          <button type="button" class="vol-pill" data-hot-filter="bear" role="radio" aria-checked="false" title="Names whose tape leans bearish">Bearish</button>
-        </div>
-        <label class="vol-sort">
-          <span class="vol-sort-label">Sort</span>
-          <select id="hot-sort-select" aria-label="Sort hot stocks">
-            <option value="pace">Volume pace (day)</option>
-            <option value="now">Volume pace (now)</option>
-            <option value="move">Day move</option>
-            <option value="squeeze">Squeeze score</option>
-            <option value="alpha">A → Z</option>
-          </select>
-        </label>
-      </div>
-      <div id="hot-board" class="hot-board" aria-live="polite"></div>
-    </details>
   </section>
   </div>
   <div class="page-pane" id="page-pane-oi" role="tabpanel" aria-labelledby="page-tab-oi" hidden>
@@ -3478,7 +3410,6 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
-            <li><b>Day trades</b> — live volume-driven swing/scalp trades, tracked to TP/SL with a P/L history</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
             <li><b>Index calendar</b> — SPY/QQQ/IWM daily closes, green/red by % move, month by month</li>
           </ul>
@@ -3588,10 +3519,6 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Gamma exposure</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">The dealer net-gamma (GEX) matrix per strike, the gamma flip line, and the call/put walls — where moves get pinned or amplified.</p>
-        </div>
-        <div class="feat">
-          <div class="feat-top"><span class="feat-name">Day trades</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A live, volume-driven roster of concrete <b>swing</b> and <b>scalp</b> ideas mined every hour from the heaviest-volume names with a clean directional read. Each ships a fixed entry, take-profit, and stop-loss; the board tracks every open trade live (P/L in % and R) and the instant price touches the take-profit or stop the trade is filed into the history as a win or loss — with a running win rate, average P/L, and average R. Below, the live volume leaders the ideas come from.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
@@ -4315,7 +4242,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
   </div>
 </div>
 <script>window.STONKS_MANIFEST={"builtAt":"Jun 25, 2026, 4:03 PM","builtAtIso":"2026-06-25T20:03:46.594Z","symbols":["AAOI","AAPL","ABNB","ACN","ADBE","ALAB","AMAT","AMD","AMKR","AMZN","ANET","APO","APP","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","BKSY","BSX","BX","C","CAT","CBRS","CI","CLS","COF","COHR","COST","CRM","CRWD","CRWV","CSCO","DASH","DDOG","DE","DELL","DIS","DRAM","EBAY","EL","ETSY","EWY","FDX","FIG","FLY","FTNT","GD","GLD","GLW","GOOGL","GS","HD","HIMS","HOOD","HUBS","IBKR","IBM","INTC","INTU","IWM","JPM","KULR","KWEB","LEN","LITE","LLY","LOW","LRCX","LULU","LUNR","MA","MCD","MDB","META","MP","MRVL","MS","MSFT","MU","NET","NFLX","NKE","NOW","NVDA","NVO","NXPI","OKLO","OKTA","ON","ORCL","PANW","PL","PLAB","PLTR","PYPL","QCOM","QQQ","RBLX","RDDT","RDW","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPOT","SPY","STX","SWKS","TEAM","TGT","TLT","TMO","TSEM","TSLA","TSM","TWLO","TXN","U","UBS","UNH","UPS","USO","UVXY","V","VRT","VST","WDAY","WMT","ZS"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","AMKR":"Semis","PLAB":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","GLW":"Semis","MP":"Materials","LITE":"Semis","AAOI":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","HUBS":"Software","TTD":"Software","FIG":"Software","RBLX":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","OKLO":"Nuclear","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","EL":"Beauty","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","ETSY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","HIMS":"Telehealth","VZ":"Telecom","CHTR":"Cable","SPOT":"Media","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","LUNR":"Space","PL":"Space","BKSY":"Space","RDW":"Space","KULR":"Space","SPCX":"Space","FLY":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","NET":"Software Infrastructure","CRWD":"Software Infrastructure","ZS":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","WDAY":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","HUBS":"Software Applications","TWLO":"Software Applications","SHOP":"Software Applications","FIG":"Software Applications","APP":"Software Applications","U":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","NXPI":"Semiconductors","ON":"Semiconductors","AMKR":"Semiconductors","PLAB":"Semiconductors","ALAB":"Semiconductors","TSEM":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","AAOI":"Semiconductors","LITE":"Semiconductors","STX":"Semiconductors","DRAM":"Semiconductors","SWKS":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","COHR":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","LRCX":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","CSCO":"Communication Equipment","GLW":"Communication Equipment","DELL":"Computer Hardware","CLS":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","EBAY":"Internet Retail","ETSY":"Internet Retail","HD":"Specialty Retail","LOW":"Specialty Retail","NKE":"Apparel Retail","LULU":"Apparel Retail","SBUX":"Restaurants","MCD":"Restaurants","LEN":"Residential Construction","TSLA":"Auto Manufacturers","DASH":"Travel Services","ABNB":"Travel Services","GOOGL":"Internet Content & Information","META":"Internet Content & Information","RDDT":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","SPOT":"Entertainment","RBLX":"Electronic Gaming & Multimedia","GD":"Aerospace & Defense","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","LUNR":"Aerospace & Defense","PL":"Aerospace & Defense","BKSY":"Aerospace & Defense","RDW":"Aerospace & Defense","SPCX":"Aerospace & Defense","FLY":"Aerospace & Defense","KULR":"Electrical Equipment & Parts","VRT":"Electrical Equipment & Parts","FDX":"Integrated Freight & Logistics","UPS":"Integrated Freight & Logistics","CAT":"Farm & Heavy Construction Machinery","DE":"Farm & Heavy Construction Machinery","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","UNH":"Healthcare Plans","CI":"Healthcare Plans","BSX":"Medical Devices","TMO":"Medical Devices","HIMS":"Consumer Health Products","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","COF":"Banks - Diversified","UBS":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","APO":"Asset Management","BX":"Asset Management","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","IBKR":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","EL":"Household & Personal Products","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","OKLO":"Utilities - Renewable","MP":"Other Industrial Metals & Mining","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Basic Materials","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Residential Construction","Auto Manufacturers","Travel Services"],"Communication Services":["Internet Content & Information","Entertainment","Electronic Gaming & Multimedia","Advertising Agencies"],"Industrials":["Aerospace & Defense","Integrated Freight & Logistics","Farm & Heavy Construction Machinery","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Drug Manufacturers - General","Healthcare Plans","Medical Devices","Consumer Health Products"],"Financials":["Banks - Diversified","Credit Services","Asset Management","Capital Markets"],"Consumer Defensive":["Discount Stores","Household & Personal Products"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Basic Materials":["Other Industrial Metals & Mining"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-06-25T20:00:38.285Z","etDate":"2026-06-25","marketState":"POST"},"nextFomcDates":["2026-07-29","2026-09-16"],"oiMeta":{"scannedAt":"2026-06-25T21:00:38.459Z","scanType":"eod"},"deferred":true};</script>
-<script src="app.js?v=2026-06-25T21%3A02%3A23.432Z" defer></script>
-<script type="module" src="js/streaks.js?v=2026-06-25T21%3A02%3A23.432Z"></script>
+<script src="app.js?v=2026-06-26T01%3A50%3A06.307Z" defer></script>
+<script type="module" src="js/streaks.js?v=2026-06-26T01%3A50%3A06.307Z"></script>
 </body>
 </html>
