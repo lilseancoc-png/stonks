@@ -2,6 +2,12 @@ node_modules/
 .DS_Store
 *.log
 
+# Local credential files for the private store (R2 / Blob) — never commit.
+# Used as `node --env-file=r2.env scripts/{sync-data,wipe-history}.mjs`.
+r2.env
+*.env
+.env
+
 # Path B private-data migration: the premium data/*.json now live in a private
 # Vercel Blob store (lib/datastore.mjs), hydrated/flushed by scripts/sync-data.mjs
 # and served through the gated /api/data/* — they are NO LONGER committed to this
