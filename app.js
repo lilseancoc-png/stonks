@@ -8446,8 +8446,15 @@
   // exit plan's take-profit / cut levels, with a badge the moment either
   // level is crossed intraday.
   var picksLive = { quotes: {} };
-  function picksLiveSymbols(){
+  // The track record tracks only ACTIONABLE picks (the recommended trades). The
+  // watch/ideas list isn't enrolled (matches picks-accuracy + picks-roster), so
+  // the live board + the live poll restrict to group === 'actionable'.
+  function trackedPicks(){
     var picks = (picksState.data && Array.isArray(picksState.data.picks)) ? picksState.data.picks : [];
+    return picks.filter(function(p){ return p && p.group === 'actionable'; });
+  }
+  function picksLiveSymbols(){
+    var picks = trackedPicks();
     var seen = {}, out = [];
     for (var i = 0; i < picks.length; i++){
       var p = picks[i];
@@ -8462,7 +8469,7 @@
   function renderPicksLive(){
     var board = document.getElementById('picks-live-board');
     if (!board) return;
-    var picks = (picksState.data && Array.isArray(picksState.data.picks)) ? picksState.data.picks : [];
+    var picks = trackedPicks();
     var rows = [];
     for (var i = 0; i < picks.length; i++){
       var p = picks[i];
@@ -16383,15 +16390,16 @@
     var open = Array.isArray(d.open) ? d.open : [];
     var closed = Array.isArray(d.closed) ? d.closed : [];
     var st = d.stats || {};
-    // Roster + picks in/out + grade-change logs are whole-universe and independent
-    // of tracked picks, so render them first — they can have rows even when no
-    // picks are open/closed.
+    // The roster (actionable picks in/out), the picks-change log, and the
+    // grade-change log each read their own data file, independent of the
+    // open/closed track-record lists, so render them first — they can have rows
+    // even when no picks are open/closed.
     renderPicksRoster();
     renderPicksChangeLog();
     renderGradeChangeLog();
     // Sub-tab count badges + per-pane empty notes. These hold regardless of the
-    // load-error / empty branches below (the roster + logs are whole-universe
-    // and independent of tracked picks), so compute them up front.
+    // load-error / empty branches below (the roster + logs read their own files,
+    // independent of the open/closed lists), so compute them up front.
     var rosterN = (accuracyState.roster && Array.isArray(accuracyState.roster.roster)) ? accuracyState.roster.roster.length : 0;
     var activityN = (accuracyState.gradeChanges ? accuracyState.gradeChanges.length : 0) +
                     (accuracyState.picksChanges ? accuracyState.picksChanges.length : 0);
