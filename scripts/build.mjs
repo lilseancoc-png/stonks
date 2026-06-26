@@ -11634,6 +11634,13 @@ export function buildPickForecast(entry) {
 }
 
 export function buildPicksRoster(currentPicks, priorPicks, prevLatest, gradesIndex, builtAtIso, stale = false) {
+  // Only ACTIONABLE picks are tracked — the watch/ideas list is NOT enrolled in
+  // the track record (mirrors updatePicksAccuracyFile), so the in/out roster
+  // reflects exactly the names the engine actually recommends. Filter BOTH the
+  // current and prior set so a name demoted to watch reads as "left the roster"
+  // rather than silently lingering.
+  currentPicks = (currentPicks || []).filter((p) => p && p.group === "actionable");
+  priorPicks = (priorPicks || []).filter((p) => p && p.group === "actionable");
   const bar = gradeTradeCut(gradesIndex);
   const priorByKey = {}; for (const p of (priorPicks || [])) if (p && p.symbol) priorByKey[p.symbol] = p;
   const curSyms = new Set((currentPicks || []).map((p) => p.symbol));

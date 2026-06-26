@@ -249,6 +249,20 @@ const changes = buildPicksChanges({}, grades, new Date().toISOString(), null);
 ok("churn: buildPicksChanges returns events array", Array.isArray(changes));
 const roster = buildPicksRoster(picks, [], {}, grades, new Date().toISOString(), false);
 ok("roster: buildPicksRoster shape", roster.roster && Array.isArray(roster.roster) && Array.isArray(roster.exited));
+// Roster (Top 10 — Picks in & out) tracks ONLY actionable picks — watch/ideas
+// are not enrolled, matching the scorecard. A mixed set yields actionable-only.
+{
+  const mixed = [
+    { symbol: "ACTA", side: "put", total: -9, group: "actionable", recommendation: { tier: "Strong put" }, pillars: {} },
+    { symbol: "WCHB", side: "call", total: 5, group: "watch", recommendation: { tier: "Call" }, pillars: {} },
+  ];
+  const r = buildPicksRoster(mixed, [], {}, grades, new Date().toISOString(), false);
+  ok("roster: tracks only actionable picks (watch excluded)",
+    r.roster.length === 1 && r.roster[0].symbol === "ACTA" && !r.roster.some((x) => x.symbol === "WCHB"));
+  // A name demoted actionable→watch leaves the roster (prior actionable filtered too).
+  const r2 = buildPicksRoster(mixed.filter((p) => p.group === "actionable"), mixed, {}, grades, new Date().toISOString(), false);
+  ok("roster: prior watch picks are not counted as exited", !r2.exited.some((x) => x.symbol === "WCHB"));
+}
 const gd = appendGradesDaily({ days: [] }, grades, new Date().toISOString());
 ok("daily: appendGradesDaily upserts a day", gd.days.length === 1 && gd.days[0].totals.BULLA != null);
 const rh = appendRegimeHistory({ days: [] }, riskOff.macroRegime, "put", new Date().toISOString());
