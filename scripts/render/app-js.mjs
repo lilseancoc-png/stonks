@@ -6993,6 +6993,29 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '&tab=grade';
       gradeBtn = '<a class="flow-grade-btn" href="?' + params + '" title="Grade this contract">Grade →</a>';
     }
+    // Intraday price path of the contract across the session's hourly scans
+    // (c.priceHx = [{m: ET-min-since-open, p: last}], stamped by scan-unusual).
+    // Drawn as a tiny inline sparkline once ≥3 points exist; tone tracks whether
+    // the mark is up (green) or down (red) on the session, regardless of side.
+    var sparkTag = '';
+    if (Array.isArray(c.priceHx) && c.priceHx.length >= 3){
+      var sp = [];
+      for (var pi = 0; pi < c.priceHx.length; pi++){
+        var pv = c.priceHx[pi] && c.priceHx[pi].p;
+        if (pv != null && isFinite(pv)) sp.push(Number(pv));
+      }
+      if (sp.length >= 3){
+        var firstP = sp[0], lastP = sp[sp.length - 1];
+        var sparkSvg = tapeSparkSvg(sp, { w: 60, h: 16, tone: lastP >= firstP ? 'on' : 'off' });
+        if (sparkSvg){
+          var movePct = firstP > 0 ? ((lastP - firstP) / firstP) * 100 : null;
+          var sparkTitle = 'Contract price this session: $' + firstP + ' → $' + lastP +
+            (movePct != null ? ' (' + (movePct >= 0 ? '+' : '') + Math.round(movePct) + '%)' : '') +
+            ' over ' + sp.length + ' scans';
+          sparkTag = '<span class="flow-spark" title="' + escapeHtml(sparkTitle) + '">' + sparkSvg + '</span>';
+        }
+      }
+    }
     return '<div class="' + wrapClass + '">' +
       '<div class="flow-chip ' + sideClass + ' tier-' + tier + (repeatCount >= 2 ? ' is-repeat' : '') + '" title="' + escapeHtml(title) + '">' +
       '<span class="flow-side">' + sideLabel + '</span>' +
@@ -7008,6 +7031,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       voiTag +
       '<span class="flow-delta">' + escapeHtml(deltaStr) + '/hr</span>' +
       premTag +
+      sparkTag +
       tapeTag +
       flaggedTag +
       repeatTag +

@@ -9,7 +9,7 @@ import {
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
-  buildMarketRead, macroKindOf,
+  buildMarketRead, macroKindOf, thesisCacheSig, PICKS_MAX_AI_THESES,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -384,6 +384,34 @@ ok("exit: naked +25% -> win (TP still 20%)", resolvePickOutcome({ modeledOptPnlP
   const gen = await generateAiTheses({ scored: [], regimeBand: "neutral" }, null, {}, {});
   ok("ai-thesis: generateAiTheses returns {map,cache} shape", gen && typeof gen.map === "object" && typeof gen.cache === "object");
   ok("ai-thesis: empty universe → no AI thesis generated", Object.keys(gen.map).length === 0 && Object.keys(gen.cache).length === 0);
+}
+
+// --- 12d-cap. Only the BEST PICKS_MAX_AI_THESES gate survivors get a thesis ----
+// Many names can clear the data gate; only the top-N by deterministic conviction
+// are sent to the AI grader (the rest ship deterministic-only). Verified through
+// the cache-reuse path: prime a valid cached thesis for EVERY survivor, then
+// assert only the top-N are reused into the map — the cap dropped the lower-
+// conviction tail. AI_THESIS=0 forces keyless so a sig mismatch can never call out.
+{
+  const savedKeyless = process.env.AI_THESIS;
+  process.env.AI_THESIS = "0";
+  const N = PICKS_MAX_AI_THESES;
+  const survivors = N + 4;                 // more gate-passers than the cap
+  const scored = [], cache = {};
+  for (let i = 0; i < survivors; i++) {
+    const sym = "CAP" + i;
+    const r = { sym, total: 4 + i, side: "call", drivers: [], timing: { state: "go" }, data: { spot: 100, fundamentals: {} } };
+    scored.push(r);
+    const sig = thesisCacheSig(r, "call", macroKindOf(sym, r.data), null);
+    cache[sym + ":call"] = { sig, ai: { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "moderate", score: 50 } };
+  }
+  const cg = await generateAiTheses({ scored, regimeBand: "neutral" }, null, {}, cache);
+  ok("ai-cap: exactly PICKS_MAX_AI_THESES survivors are graded", Object.keys(cg.map).length === N);
+  ok("ai-cap: the lowest-conviction survivors are dropped from the AI review",
+    scored.slice(0, survivors - N).every((r) => !((r.sym + ":call") in cg.map)));
+  ok("ai-cap: the highest-conviction survivors are kept",
+    scored.slice(survivors - N).every((r) => (r.sym + ":call") in cg.map));
+  if (savedKeyless === undefined) delete process.env.AI_THESIS; else process.env.AI_THESIS = savedKeyless;
 }
 
 // --- 12d-final. AI is the FINAL GRADER (grade sets classification + rank + veto) -

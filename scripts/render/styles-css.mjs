@@ -3317,6 +3317,13 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   margin-left: 6px;
   letter-spacing: 0.01em;
 }
+/* Per-contract intraday price sparkline (tapeSparkSvg). The svg colors itself
+   via the tape-spark-on/off tone; this wrapper just aligns it in the chip. */
+.flow-spark {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
 .flow-tape {
   font-size: 11px;
   font-weight: 700;

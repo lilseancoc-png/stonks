@@ -7933,6 +7933,12 @@ const PICK_THESIS_CACHE_FILE = "pick-thesis-cache.json";
 // ---- Roster shape ----------------------------------------------------------
 const PICKS_COUNT = Number(process.env.PICKS_COUNT ?? 10);   // max ACTIONABLE names shipped (Strong grade + Strong thesis)
 const PICKS_WATCH_COUNT = Number(process.env.PICKS_WATCH_COUNT ?? 6); // max IDEAS/WATCH names (demoted: weak thesis or moderate grade)
+// Only the BEST N data-gate survivors (by deterministic conviction) are sent to
+// the AI for a thesis + final grade — the grader focuses on the names that can
+// realistically make the ≤PICKS_COUNT actionable roster, not the long tail of
+// marginal gate-passers (saves tokens + keeps the review focused). A name beyond
+// the cut ships its deterministic card (buildTopPicks falls back like a keyless build).
+export const PICKS_MAX_AI_THESES = Number(process.env.PICKS_MAX_AI_THESES ?? 10);
 export const PICKS_MAX_PER_SECTOR = 3;        // correlation cap (ETFs uncapped)
 const PICKS_MAX_PER_SIDE = 8;                 // don't ship an all-one-way book
 
@@ -11127,7 +11133,7 @@ export async function readPriorPicks() {
 const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-2.5-flash-lite";
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
-const THESIS_PROMPT_VERSION = "v3";
+const THESIS_PROMPT_VERSION = "v4";
 
 const THESIS_SCHEMA = {
   type: "object",
@@ -11155,6 +11161,18 @@ const THESIS_SCHEMA = {
   propertyOrdering: ["summary", "setup", "catalyst", "confirmation", "outlook", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "strategyRationale", "confidence", "grade", "score", "gradeReason"],
 };
 
+// Reference theses + the "what makes a good thesis" framework, appended to the
+// system prompt so every grade is held to the same gold standard. The two
+// examples illustrate the bar (clear structure, explicit invalidation, explains
+// WHY the grade is high, and justifies the option structure FROM the IV regime —
+// debit when IV is reasonable, credit when IV is rich). The model emulates the
+// depth/specificity, never copies the content.
+const THESIS_GOLD_EXAMPLES =
+  "STANDARD TO EMULATE — two reference theses that hit the bar. Match their depth, specificity, and structure; never copy their content (they are about other names). " +
+  "EXAMPLE 1 — BEARISH on an oil producer. Summary: bearish because the Strait of Hormuz reopening lets supply catch back up to demand and pressures crude — confirmed by both sides standing down and tankers resuming transit. Story: the stock rallied ~40% YTD almost entirely on the Iran-conflict supply-disruption premium; with the war ending and the Strait reopening, that premium is being removed — already visible in lower crude futures and rising tanker traffic — so the single driver of the rally is gone and the stock (down ~10% on the week) should give back much of the YTD gain as the market reprices cheaper oil. Invalidation: tensions re-escalate or a new disruption emerges; crude futures stabilize or rise despite the reopening; the company prints results strong enough to offset lower oil. Strategy: high directional conviction with IV NOT extremely elevated → buy PUT DEBIT spreads (naked puts only if conviction is exceptional) for defined-risk downside that costs less than outright puts. " +
+  "EXAMPLE 2 — BEARISH on gold (GLD). Summary: bearish because the two pillars under the rally — the geopolitical risk premium (Iran) and expectations of aggressive Fed cuts — are BOTH reversing; gold pays no yield, so easing tension and higher-for-longer rates lift its opportunity cost. Story: the rally was geopolitics + cut expectations; with the war ending and the market now pricing fewer cuts (even a small hike tail), real yields (TIPS) are rising and haven flows into gold ETFs are fading — early confirmation the supports have deteriorated, so expect further downside over the coming weeks. Invalidation: the Fed clearly re-signals aggressive cuts; new geopolitical tension flares; gold breaks above recent highs on strong volume; inflation prints much hotter, reviving the hedge bid. Strategy: gold-option IV is currently ELEVATED → SELL premium via a bear (put) CREDIT spread (sell the higher-strike put, buy a further-OTM put for protection) to harvest the rich IV while staying bearish; if IV were neutral/low, prefer a put DEBIT spread instead. " +
+  "WHAT MAKES A GOOD THESIS: answer 'why does this setup have an EDGE right now, and what has to happen for us to be right?' A high grade alone won't carry a trader through normal noise or a drawdown — the thesis must give a REASON to enter, a way to MONITOR whether it's working, and clear INVALIDATION so they know when to exit. Never just restate the grade — explain the NARRATIVE behind why the grade is high and why the trade fits current conditions. Be CLEAR, logically cause→effect, SPECIFIC (not vague/generic), TESTABLE (explicit confirmation + invalidation), and ACTIONABLE (it leads to a specific strategy). The thesis COMPLEMENTS the grade. ";
+
 const THESIS_SYSTEM =
   "You are a senior options strategist writing a detailed, ticker-specific investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — do NOT re-decide the direction. Your job is to tell the STORY behind the trade: weave the supplied data into a clear cause-and-effect narrative that explains WHY the grade is high, WHY the edge exists right NOW, what would confirm it, and what would prove it wrong. A high grade alone does not give a trader conviction to hold through noise — a good thesis does, by giving them a reason to enter, a way to monitor whether it's working, and clear exits. " +
   "COMPLEMENT the grade, never just restate it: don't say 'RSI is 28 so it's oversold' — explain the situation that produced that reading and why it resolves in the trade's favour. Weave the actual NUMBERS into the prose (specific price levels, % moves, growth rates, analyst targets, IV percentile, the named headline/catalyst) so the case is concrete and testable, not generic. " +
@@ -11179,7 +11197,8 @@ const THESIS_SYSTEM =
   "reject = VETO the name entirely: the case is incoherent, the data contradicts the direction, the thesis-driving catalyst has already played out, or the macro tape directly fights it. Be willing to reject even though it cleared the data screen — cash is a position, and a wrong direction is what loses money. " +
   "score = 0–100, your overall conviction in THIS trade (used to rank the roster); keep it consistent with the grade (strong ≈ 75–100, moderate ≈ 50–74, weak ≈ 25–49, reject ≈ 0–24). " +
   "gradeReason = one sentence justifying the grade (what makes it strong, or what holds it back / why you reject). " +
-  "Rules: never invent news, events, numbers, or catalysts not in the context. Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concrete and specific over vague.";
+  "Rules: never invent news, events, numbers, or catalysts not in the context. Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concrete and specific over vague. " +
+  THESIS_GOLD_EXAMPLES;
 
 // Pull a driver signal's human display value ("+18%", "raised") for the prompt.
 function thesisDriverValue(r, key) {
@@ -11313,7 +11332,7 @@ function parseThesisResponse(text) {
 // Cache signature: turns over with the grade, the in-direction drivers, the macro
 // state + the relevant axes' directions, the news take, the fundamental verdict,
 // and the IV bucket — so a fresh news take or a macro shift re-reads the thesis.
-function thesisCacheSig(r, side, kind, macroRegime) {
+export function thesisCacheSig(r, side, kind, macroRegime) {
   const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).join(",");
   const ax = (macroRegime && macroRegime.axes) || {};
   const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
@@ -11375,9 +11394,23 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   }
   if (!cands.length) return { map, cache: next };
 
+  // CAP: only the BEST PICKS_MAX_AI_THESES gate survivors get a thesis + final
+  // grade. Rank by |total| (the deterministic conviction the data gate itself
+  // uses), ties broken deterministically (signed total, then symbol) so the cut
+  // is stable build-to-build. Names below the cut get no AI thesis → they ship the
+  // deterministic card via buildTopPicks's keyless-style fallback.
+  cands.sort((a, b) =>
+    (Math.abs(b.r.total) - Math.abs(a.r.total)) ||
+    (b.r.total - a.r.total) ||
+    (a.r.sym < b.r.sym ? -1 : a.r.sym > b.r.sym ? 1 : 0));
+  const gated = cands.slice(0, PICKS_MAX_AI_THESES);
+  if (cands.length > gated.length) {
+    console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}); ${cands.length - gated.length} ship deterministic-only.`);
+  }
+
   const keyless = !process.env.GEMINI_API_KEY || process.env.AI_THESIS === "0";
   const toCall = [];
-  for (const { r, side } of cands) {
+  for (const { r, side } of gated) {
     const k = `${r.sym}:${side}`;
     const kind = macroKindOf(r.sym, r.data);
     const sig = thesisCacheSig(r, side, kind, macroRegime);

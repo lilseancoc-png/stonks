@@ -82,6 +82,11 @@ const LOG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 // Flag the "🔥 ×N" repeat badge on the UI when a contract has been flagged
 // at least this many times in the window.
 const REPEAT_MIN = 2;
+// Intraday price path stamped onto each flagged contract in unusual.json so the
+// card UI can draw a tiny price sparkline across the session's hourly scans.
+// Points are {m: ET-minutes-since-open, p: last}; the scan runs ~8x/session, so
+// this cap (with headroom for manual reruns) keeps each per-contract series tiny.
+const PRICEHX_MAX_POINTS = 12;
 // AI explanation pipeline. Each flagged contract gets a one-paragraph
 // plain-English read of WHY it's unusual (vol vs OI, OTM distance, DTE,
 // tape, IV, premium). Results cached per-contract in
@@ -1295,6 +1300,54 @@ async function main() {
   const carriedOver = sameSession
     ? mergedTickers.reduce((sum, t) => sum + t.contracts.length, 0) - tickerRows.reduce((sum, t) => sum + t.contracts.length, 0)
     : 0;
+
+  // Stamp each contract with its intraday price path (priceHx) so the UI can
+  // draw a per-contract price sparkline across the session. Self-contained in
+  // unusual.json — no extra client fetch: carried-over contracts keep their
+  // prior points (captured BEFORE the merge replaces them with this scan's
+  // fresher record), and any contract still trading in-band gets a fresh point
+  // this scan. Resets with the session (a non-same-session run starts clean).
+  {
+    const scanEtMin = etMinutesSinceOpen(new Date(scannedAt));
+    // Prior paths, keyed by full contract identity, captured before the merge
+    // overwrites prior records. Same-session only — a new session starts fresh.
+    const priorPriceHx = new Map();
+    if (sameSession) {
+      for (const t of prior.tickers || []) {
+        for (const c of t.contracts || []) {
+          if (Array.isArray(c.priceHx) && c.priceHx.length) {
+            priorPriceHx.set(`${t.symbol}|${c.side}|${c.strike}|${c.expSec}`, c.priceHx);
+          }
+        }
+      }
+    }
+    // This scan's live mark for every in-band contract (flagged hits + the wider
+    // candidate set), so a contract that didn't re-flag this hour still extends
+    // its line while it keeps trading in-band.
+    const currentLast = new Map();
+    for (const c of allCandidates) {
+      if (Number.isFinite(c?.last)) currentLast.set(`${c.symbol}|${c.side}|${c.strike}|${c.expSec}`, c.last);
+    }
+    for (const t of tickerRows) {
+      for (const c of t.contracts) {
+        if (Number.isFinite(c?.last)) currentLast.set(`${t.symbol}|${c.side}|${c.strike}|${c.expSec}`, c.last);
+      }
+    }
+    for (const t of mergedTickers) {
+      for (const c of t.contracts || []) {
+        const k = `${t.symbol}|${c.side}|${c.strike}|${c.expSec}`;
+        const hx = (Array.isArray(c.priceHx) && c.priceHx) || priorPriceHx.get(k) || [];
+        const last = currentLast.get(k);
+        if (last != null) {
+          const p = Math.round(last * 100) / 100;
+          const tail = hx[hx.length - 1];
+          if (tail && tail.m === scanEtMin) tail.p = p;        // same scan-minute → replace in place
+          else hx.push({ m: scanEtMin, p });
+        }
+        if (hx.length) c.priceHx = hx.slice(-PRICEHX_MAX_POINTS);
+      }
+    }
+  }
 
   // AI-explain each contract before serializing payload — the note ends
   // up on each contract object via direct mutation. Cache lives in
