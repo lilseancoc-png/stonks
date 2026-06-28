@@ -181,9 +181,10 @@ export const GLOBAL_MARKETS = {
   "^HSI":      { name: "Hang Seng",           region: "China",       type: "index",  lead: "China / HK tech" },
   // Europe (closes ~11:30 ET — concurrent with the US morning, not overnight)
   "^GDAXI":    { name: "DAX",                 region: "Europe",      type: "index",  lead: "Germany / EU broad" },
-  // FX & rates — yen carry, the dollar, US 10Y
+  // FX & rates — yen carry, the dollar, the US curve (2Y/10Y/30Y) + JGB 10Y
   "JPY=X":     { name: "USD/JPY",             region: "FX & rates",  type: "fx",     lead: "Yen carry (down = unwind = risk-off)" },
   "DX-Y.NYB":  { name: "Dollar index (DXY)",  region: "FX & rates",  type: "fx",     lead: "Broad USD" },
+  "US2Y":      { name: "US 2Y yield",         region: "FX & rates",  type: "rate",   lead: "Short rates / Fed path" },
   "^TNX":      { name: "US 10Y yield",        region: "FX & rates",  type: "rate",   lead: "Long rates / valuations" },
   // US overnight futures + vol — the most direct pre-open read
   "ES=F":      { name: "S&P 500 futures",     region: "US futures",  type: "future", lead: "Overnight S&P" },
@@ -199,6 +200,10 @@ export const GLOBAL_MARKETS = {
   "NG=F":      { name: "Natural gas",        region: "Commodities", type: "commodity", lead: "Power / heating" },
   // Long-end rate (banks NIM / curve, plus duration-sensitive homebuilders & TLT)
   "^TYX":      { name: "US 30Y yield",       region: "FX & rates",  type: "rate",   lead: "Long-end / curve" },
+  // Japan 10Y JGB — no Yahoo symbol, so it's sourced from the MOF daily CSV
+  // (see fetchJgb10y / fetchAllGlobalMarkets). A genuine overnight read (Tokyo
+  // closes before the US open) and the anchor of the yen-carry trade.
+  "JGB10Y":    { name: "Japan 10Y JGB",      region: "FX & rates",  type: "rate",   lead: "JGB yield — yen-carry / global duration anchor" },
   // Crypto — risk-appetite proxy for crypto-levered brokers/names
   "BTC-USD":   { name: "Bitcoin",            region: "Crypto",      type: "crypto", lead: "Crypto risk appetite" },
 };
@@ -289,6 +294,10 @@ export const GLOBAL_QUOTE_TYPES = new Set(["future", "vol", "rate", "fx", "commo
 export function globalSessionClass(sym) {
   const m = GLOBAL_MARKETS[sym] || {};
   const t = m.type, r = m.region;
+  // JGB 10Y: a foreign cash rate that settles during the Tokyo session, before
+  // the US open — a genuine overnight LEAD (unlike the US cash-yield indices,
+  // which sit at yesterday's close pre-open and co-move).
+  if (sym === "JGB10Y") return "leading";
   if (t === "future" || t === "fx" || t === "commodity" || t === "crypto") return "24h";
   if (t === "vol" || t === "rate") return "concurrent";
   if (r === "Europe") return "concurrent";
@@ -12493,12 +12502,86 @@ async function fetchGlobalMarketBars(symbol) {
   };
 }
 
+// Japan 10Y JGB yield — Yahoo has no JGB symbol, so pull the Ministry of
+// Finance's official daily CSV (current month; fresh, ~20 trading days, no
+// auth/anti-bot). Returns the same shape as fetchGlobalMarketBars. The 10Y is
+// column index 10 (Date,1Y,2Y,…,10Y,…); rows use CRLF + "-" for missing values.
+const JGB10Y_CSV_URL =
+  "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/jgbcme.csv";
+async function fetchJgb10y() {
+  const res = await fetch(JGB10Y_CSV_URL, {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      accept: "text/csv,*/*",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`JGB CSV HTTP ${res.status}`);
+  const text = await res.text();
+  const bars = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const cells = rawLine.split(",");
+    const dm = (cells[0] || "").trim().match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    if (!dm) continue;
+    const v = Number((cells[10] || "").trim()); // 10Y column; "-" / "" → NaN
+    if (!Number.isFinite(v)) continue;
+    bars.push({ c: v, t: `${dm[1]}-${dm[2].padStart(2, "0")}-${dm[3].padStart(2, "0")}` });
+  }
+  if (bars.length < 2) throw new Error("JGB CSV: fewer than 2 usable rows");
+  const last = bars[bars.length - 1], prev = bars[bars.length - 2];
+  const chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
+  return {
+    bars,
+    last: last.c,
+    prevClose: prev.c,
+    chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
+    asOf: last.t,
+    currency: "%",
+    yName: "Japan 10Y JGB",
+  };
+}
+
+// US 2Y yield — Yahoo has no reliable 2Y symbol (the ^UST2YR index returns
+// nothing, the 2YY=F micro-future's daily bars lag several days), so reuse the
+// same authoritative source the macro backdrop does: the Treasury par-yield
+// XML (same-day, key-less, not behind the FRED Cloudflare WAF), falling back to
+// FRED DGS2. Returns the fetchGlobalMarketBars shape. Keeps the overnight 2Y in
+// lockstep with the Bonds & USD tile rather than a divergent Yahoo proxy.
+async function fetchUs2yTreasury() {
+  const year = new Date().getUTCFullYear();
+  let obs = await fetchTreasuryParYear(year);
+  if (obs.length < 30) obs = [...(await fetchTreasuryParYear(year - 1)), ...obs];
+  const byDate = new Map();
+  for (const o of obs) if (o && o.date && Number.isFinite(o.value)) byDate.set(o.date, o.value);
+  let bars = [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([t, c]) => ({ c, t }));
+  if (bars.length < 2) {
+    // Treasury empty → FRED DGS2 (its lagged mirror).
+    const fred = await fetchFredSeries("DGS2");
+    bars = (fred || []).filter((o) => o && o.date && Number.isFinite(o.value)).map((o) => ({ c: o.value, t: o.date }));
+  }
+  if (bars.length < 2) throw new Error("US 2Y: no usable rows");
+  const last = bars[bars.length - 1], prev = bars[bars.length - 2];
+  const chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
+  return {
+    bars,
+    last: last.c,
+    prevClose: prev.c,
+    chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
+    asOf: last.t,
+    currency: "%",
+    yName: "US 2Y yield",
+  };
+}
+
 // Exported for scripts/regen-brief.mjs — the pre-market brief re-sweeps the
 // foreign set fresh (the committed correlations.json is from the prior bake
 // and misses the just-closed Asian session).
 export async function fetchAllGlobalMarkets() {
   const out = {};
-  const syms = Object.keys(GLOBAL_MARKETS);
+  // US2Y (Treasury par-yield) and JGB10Y (MOF CSV) are sourced below, not Yahoo
+  // — keep them out of the Yahoo chart() sweep (which would 404 on the keys).
+  const syms = Object.keys(GLOBAL_MARKETS).filter((s) => s !== "JGB10Y" && s !== "US2Y");
   await runPooled(syms, GLOBAL_FETCH_CONCURRENCY, async (sym) => {
     try {
       out[sym] = await fetchGlobalMarketBars(sym);
@@ -12508,6 +12591,16 @@ export async function fetchAllGlobalMarkets() {
       console.log(`    ⚠ global market ${sym} fetch failed: ${err.message}`);
     }
   });
+  try {
+    out["US2Y"] = await fetchUs2yTreasury();
+  } catch (err) {
+    console.log(`    ⚠ US 2Y (Treasury) fetch failed: ${err.message}`);
+  }
+  try {
+    out["JGB10Y"] = await fetchJgb10y();
+  } catch (err) {
+    console.log(`    ⚠ JGB 10Y (MOF) fetch failed: ${err.message}`);
+  }
   return out;
 }
 
