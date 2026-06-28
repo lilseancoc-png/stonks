@@ -6519,6 +6519,55 @@ button.cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 @media (max-width: 640px) {
   .cal-report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* Report chip → clickable; opens the bar-chart + summary modal. */
+.cal-report-clickable { cursor: pointer; }
+.cal-report-clickable:hover { border-color: var(--accent); }
+.cal-report-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cal-report-expand { margin-left: 6px; font-size: 11px; opacity: .5; }
+.cal-report-clickable:hover .cal-report-expand { opacity: 1; }
+/* Report detail modal (bar chart + summary). */
+body.cal-rc-open { overflow: hidden; }
+.cal-rc-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--s-3);
+  background: rgba(0, 0, 0, 0.6); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+.cal-rc-overlay[hidden] { display: none; }
+.cal-rc-modal {
+  position: relative;
+  width: min(720px, 96vw); max-height: 90vh; overflow-y: auto;
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: var(--r-3); padding: var(--s-4);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.cal-rc-close {
+  position: absolute; top: 10px; right: 10px;
+  width: 30px; height: 30px; border-radius: var(--r-2);
+  background: transparent; border: 1px solid var(--border-strong);
+  color: var(--text-3); font-size: 1.1rem; line-height: 1; cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.cal-rc-close:hover { background: var(--neg-tint); border-color: var(--neg); color: var(--neg); }
+.cal-rc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding-right: 34px; }
+.cal-rc-title { margin: 0; font-size: 1.05rem; color: var(--text-strong); }
+.cal-rc-date { font: 600 12px/1 var(--font-mono); color: var(--muted); }
+.cal-rc-summary { margin: var(--s-2) 0 var(--s-3); color: var(--text-2); font-size: 0.92rem; line-height: 1.5; }
+.cal-rc-chart { margin-bottom: var(--s-3); }
+.cal-rc-svg { width: 100%; height: auto; display: block; }
+.cal-rc-bar { fill: var(--info); }
+.cal-rc-bar.is-neg { fill: var(--neg); }
+.cal-rc-bar.is-latest { fill: var(--accent); }
+.cal-rc-grid { stroke: var(--hairline); stroke-width: 1; }
+.cal-rc-grid.is-zero { stroke: var(--border-strong); }
+.cal-rc-ylabel { fill: var(--muted); font: 10px var(--font-mono); text-anchor: end; }
+.cal-rc-xlabel { fill: var(--muted); font: 10px var(--font-mono); }
+.cal-rc-nochart { padding: var(--s-4); text-align: center; color: var(--muted); font-size: 0.85rem; background: var(--surface); border: 1px dashed var(--hairline); border-radius: var(--r-2); }
+.cal-rc-figs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--s-2); }
+.cal-rc-fig { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-2); }
+.cal-rc-fig-l { font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.cal-rc-fig-v { font: 600 14px/1.2 var(--font-mono); color: var(--text); }
+.cal-rc-source { font-size: 0.72rem; color: var(--muted); }
 .fomc-widget {
   margin-top: var(--s-2);
   padding: var(--s-3);

@@ -4510,6 +4510,10 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   // Structured macro report releases (NFP, Unemployment, JOLTS, CPI MoM/YoY,
   // Core CPI MoM/YoY, PPI MoM). Each carries Actual / Previous / Consensus /
   // Forecast — see fetchMacroReleases() for the data source notes.
+  // The recent metric history for each report's click-through bar chart. Stored
+  // ONCE per subtype here (the report rows all carry the same series) so the
+  // calendar.json stays compact — the browser looks it up by subtype.
+  const reportHistory = {};
   for (const ev of reportEvents) {
     if (!ev?.date) continue;
     const ms = Date.UTC(
@@ -4518,12 +4522,16 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       Number(ev.date.slice(8, 10)),
     );
     if (ms < startMs || ms > cutoffMs) continue;
+    // Lift the bar-chart history off the row into the per-subtype map.
+    const { history, histUnit, ...row } = ev;
+    if (Array.isArray(history) && history.length && row.subtype && !reportHistory[row.subtype]) {
+      reportHistory[row.subtype] = { unit: histUnit || "%", points: history };
+    }
     // Attach a best-effort prediction-market reading (Polymarket) when one was
-    // found for this exact release. Copy the row so the input reportEvents stay
-    // untouched (regen reuses them).
-    const predKey = ev.subtype && ev.date ? ev.subtype + "|" + ev.date : null;
+    // found for this exact release.
+    const predKey = row.subtype && row.date ? row.subtype + "|" + row.date : null;
     const pred = predKey && predictionMarkets?.reports ? predictionMarkets.reports[predKey] : null;
-    events.push(pred ? { ...ev, predictions: [pred] } : ev);
+    events.push(pred ? { ...row, predictions: [pred] } : row);
   }
 
   // FOMC meeting decision days. The meeting itself is a calendar event in
@@ -4588,6 +4596,9 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     windowDays: Math.round((cutoffMs - startMs) / 86400000),
     windowEnd: new Date(cutoffMs).toISOString().slice(0, 10),
     events,
+    // Per-subtype recent metric history ({ "<subtype>": { unit, points:[{m,v}] } })
+    // for the click-through bar chart on report chips.
+    reportHistory,
     // Top-of-page FOMC widget data. Rendered separately from the event
     // timeline; the same FOMC dates still appear in `events` as chips.
     fomc: {
@@ -6528,6 +6539,53 @@ function formatEconValue(format, series, idx) {
   return String(cur.value);
 }
 
+// Numeric counterpart of formatEconValue — the raw metric value (no unit
+// string) for one observation, used to build the bar-chart history series.
+function econValueNumeric(format, series, idx) {
+  if (idx < 0 || idx >= series.length) return null;
+  const cur = series[idx];
+  if (!cur || !Number.isFinite(cur.value)) return null;
+  if (format === "pct") return cur.value;
+  if (format === "jobs") return cur.value / 1000; // thousands → millions
+  if (format === "nfp") {
+    const prev = prevMonthObs(series, idx);
+    return prev ? cur.value - prev.value : null; // MoM change, in thousands
+  }
+  if (format === "mom") {
+    const prev = prevMonthObs(series, idx);
+    return prev && Number.isFinite(prev.value) && prev.value !== 0
+      ? ((cur.value - prev.value) / prev.value) * 100 : null;
+  }
+  if (format === "yoy") {
+    const prevYear = yearAgoObs(series, idx);
+    return prevYear && Number.isFinite(prevYear.value) && prevYear.value !== 0
+      ? ((cur.value - prevYear.value) / prevYear.value) * 100 : null;
+  }
+  return cur.value;
+}
+
+// The display unit a formatted release value carries, for the chart's y-axis.
+function econUnit(format) {
+  if (format === "jobs") return "M";
+  if (format === "nfp") return "K";
+  return "%"; // pct / mom / yoy
+}
+
+// The last `n` computable metric values (oldest→newest) as {m:"YYYY-MM", v}
+// for the calendar's per-report bar chart. Computes the metric for every
+// observation (skipping the early ones a YoY/MoM lookback can't cover) and
+// keeps the most recent n that resolved.
+function buildEconHistory(format, series, n = 24) {
+  const out = [];
+  for (let i = 0; i < series.length; i++) {
+    const v = econValueNumeric(format, series, i);
+    if (v == null || !Number.isFinite(v)) continue;
+    const m = (series[i].date || "").slice(0, 7);
+    if (m) out.push({ m, v: Math.round(v * 100) / 100 });
+  }
+  return out.slice(-n);
+}
+
 // Build the macro report rows for the calendar. Pulls each unique FRED
 // series once and walks the release schedule to find the next upcoming
 // release date inside the calendar window. For each release we surface
@@ -6598,6 +6656,11 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
   for (const report of ECON_REPORTS) {
     const sched = schedule[report.schedule] || [];
     const series = seriesData[report.series] || [];
+    // The recent metric history (for the calendar's click-through bar chart),
+    // computed once per report and shared by each of its release rows; the
+    // payload builder dedupes it into a per-subtype map so it's stored once.
+    const history = series.length ? buildEconHistory(report.format, series, 24) : [];
+    const histUnit = econUnit(report.format);
     for (const dateStr of sched) {
       const ms = Date.UTC(
         Number(dateStr.slice(0, 4)),
@@ -6641,6 +6704,8 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         source: ff
           ? (report.noSeries ? "ForexFactory" : (report.bls ? "BLS" : "FRED") + " · ForexFactory")
           : (report.noSeries ? "ISM" : (seriesSource[report.series] || "BLS · " + report.series).replace(":", " · ")),
+        history,
+        histUnit,
       });
     }
   }
