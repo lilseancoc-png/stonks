@@ -4523,9 +4523,9 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     );
     if (ms < startMs || ms > cutoffMs) continue;
     // Lift the bar-chart history off the row into the per-subtype map.
-    const { history, histUnit, ...row } = ev;
+    const { history, histUnit, histSigned, ...row } = ev;
     if (Array.isArray(history) && history.length && row.subtype && !reportHistory[row.subtype]) {
-      reportHistory[row.subtype] = { unit: histUnit || "%", points: history };
+      reportHistory[row.subtype] = { unit: histUnit || "%", signed: !!histSigned, points: history };
     }
     // Attach a best-effort prediction-market reading (Polymarket) when one was
     // found for this exact release.
@@ -4666,6 +4666,11 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
       if (carried.length) {
         payload.events = payload.events.concat(carried);
         payload.events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || "").localeCompare(b.symbol || "")));
+        // Restore the per-subtype bar-chart history too (this path runs only
+        // when no fresh reports landed, so payload.reportHistory is {}) — else
+        // the carried stale chips would lose their charts. Mirrors the FOMC
+        // prediction-market carry-forward just below.
+        payload.reportHistory = { ...(prior?.reportHistory || {}), ...payload.reportHistory };
         console.log(`    ⚠ macro reports empty — carried ${carried.length} stale rows from prior calendar.json`);
       }
     } catch (_) {
@@ -6661,6 +6666,10 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
     // payload builder dedupes it into a per-subtype map so it's stored once.
     const history = series.length ? buildEconHistory(report.format, series, 24) : [];
     const histUnit = econUnit(report.format);
+    // Change metrics carry a "+" on positives (mom/yoy, like formatEconValue);
+    // level metrics (a rate like unrate/gdp-final) don't. The chart/summary
+    // need this to match the figure cells' signs.
+    const histSigned = report.format === "mom" || report.format === "yoy";
     for (const dateStr of sched) {
       const ms = Date.UTC(
         Number(dateStr.slice(0, 4)),
@@ -6706,6 +6715,7 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
           : (report.noSeries ? "ISM" : (seriesSource[report.series] || "BLS · " + report.series).replace(":", " · ")),
         history,
         histUnit,
+        histSigned,
       });
     }
   }

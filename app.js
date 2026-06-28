@@ -13432,11 +13432,13 @@
   // Clicking a report chip opens a Trading-Economics-style popup: a bar chart
   // of the metric's recent history (from calendar.json's reportHistory map,
   // keyed by subtype) + a plain-language summary + the figures.
-  function fmtReportVal(v, unit){
+  function fmtReportVal(v, unit, signed){
     if (v == null || !isFinite(v)) return '—';
     if (unit === 'K') return (v >= 0 ? '+' : '') + Math.round(v).toLocaleString() + 'K';
     if (unit === 'M') return v.toFixed(2) + 'M';
-    return v.toFixed(1) + '%';
+    // Change metrics (mom/yoy) carry a leading "+" on positives so the chart,
+    // summary and figure cells agree; level rates (unrate/gdp-final) don't.
+    return (signed && v > 0 ? '+' : '') + v.toFixed(1) + '%';
   }
   function reportMonthLabel(ym, withYear){
     var p = String(ym || '').split('-'); if (p.length < 2) return String(ym || '');
@@ -13460,7 +13462,7 @@
     }
     return null;
   }
-  function reportBarChartSvg(points, unit){
+  function reportBarChartSvg(points, unit, signed){
     if (!points || points.length < 2) return '';
     var W = 660, H = 300, padL = 46, padR = 14, padT = 16, padB = 42;
     var n = points.length;
@@ -13481,14 +13483,14 @@
     for (var g = 0; g < gridVals.length; g++){
       var gv = gridVals[g], gy = yAt(gv), isZero = hasNeg && Math.abs(gv) < 1e-9;
       grid += '<line class="cal-rc-grid' + (isZero ? ' is-zero' : '') + '" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '"></line>';
-      grid += '<text class="cal-rc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">' + escapeHtml(fmtReportVal(gv, unit)) + '</text>';
+      grid += '<text class="cal-rc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">' + escapeHtml(fmtReportVal(gv, unit, signed)) + '</text>';
     }
     var bars = '';
     for (var i = 0; i < n; i++){
       var vx = xAt(i), vy = yAt(points[i].v);
       var top = Math.min(vy, zeroY), hgt = Math.max(0.8, Math.abs(vy - zeroY));
       var cls = 'cal-rc-bar' + (i === n - 1 ? ' is-latest' : '') + (points[i].v < 0 ? ' is-neg' : '');
-      bars += '<rect class="' + cls + '" x="' + (vx - bw / 2).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" rx="1.5"><title>' + escapeHtml(reportMonthLabel(points[i].m, true) + ' · ' + fmtReportVal(points[i].v, unit)) + '</title></rect>';
+      bars += '<rect class="' + cls + '" x="' + (vx - bw / 2).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" rx="1.5"><title>' + escapeHtml(reportMonthLabel(points[i].m, true) + ' · ' + fmtReportVal(points[i].v, unit, signed)) + '</title></rect>';
     }
     var xlabels = '', step = Math.max(1, Math.ceil(n / 8));
     for (var k = 0; k < n; k++){
@@ -13501,15 +13503,20 @@
   }
   function reportSummaryText(e, hist){
     var unit = (hist && hist.unit) || '%';
+    var signed = !!(hist && hist.signed);
     var pts = (hist && hist.points) || [];
     var out = [];
     var title = e.title || 'This report';
     if (pts.length){
       var last = pts[pts.length - 1], prev = pts.length > 1 ? pts[pts.length - 2] : null;
-      var s = 'The latest ' + title + ' reading was ' + fmtReportVal(last.v, unit) + ' (' + reportMonthLabel(last.m, true) + ')';
+      var lastStr = fmtReportVal(last.v, unit, signed);
+      var s = 'The latest ' + title + ' reading was ' + lastStr + ' (' + reportMonthLabel(last.m, true) + ')';
       if (prev){
-        var dir = last.v > prev.v ? 'up from' : last.v < prev.v ? 'down from' : 'unchanged from';
-        s += ', ' + dir + ' ' + fmtReportVal(prev.v, unit) + ' the prior period';
+        var prevStr = fmtReportVal(prev.v, unit, signed);
+        // Base the wording on the DISPLAYED values (both shown at 1-dp) so two
+        // readings that round to the same string never read "up from" itself.
+        var dir = (lastStr === prevStr) ? 'little changed from' : (last.v > prev.v ? 'up from' : 'down from');
+        s += ', ' + dir + ' ' + prevStr + ' the prior period';
       }
       out.push(s + '.');
       var vlist = pts.map(function(p){ return p.v; }), mn = Math.min.apply(null, vlist), mx = Math.max.apply(null, vlist);
@@ -13527,7 +13534,7 @@
       var w = pts.slice(-6), delta = w.length >= 3 ? (w[w.length - 1].v - w[0].v) : 0;
       var thr = unit === '%' ? 0.1 : unit === 'M' ? 0.05 : 15;
       var trend = Math.abs(delta) < thr ? 'holding roughly steady' : (delta > 0 ? 'trending higher' : 'trending lower');
-      out.push('Over the last ' + pts.length + ' readings it has ranged ' + fmtReportVal(mn, unit) + ' to ' + fmtReportVal(mx, unit) + ', ' + trend + '.');
+      out.push('Over the last ' + pts.length + ' readings it has ranged ' + fmtReportVal(mn, unit, signed) + ' to ' + fmtReportVal(mx, unit, signed) + ', ' + trend + '.');
     }
     if (e.actual){
       out.push('This release printed ' + e.actual + (e.consensus ? (' versus ' + e.consensus + ' expected') : '') + '.');
@@ -13538,7 +13545,7 @@
     }
     return out.join(' ');
   }
-  var reportModalEl = null;
+  var reportModalEl = null, reportModalReturnFocus = null;
   function ensureReportModal(){
     if (reportModalEl) return reportModalEl;
     var ov = document.createElement('div');
@@ -13559,15 +13566,23 @@
     reportModalEl = ov;
     return ov;
   }
-  function closeReportModal(){ if (reportModalEl){ reportModalEl.hidden = true; document.body.classList.remove('cal-rc-open'); } }
+  function closeReportModal(){
+    if (!reportModalEl) return;
+    reportModalEl.hidden = true;
+    document.body.classList.remove('cal-rc-open');
+    // Return focus to the chip that opened the modal (keyboard / screen-reader).
+    if (reportModalReturnFocus && reportModalReturnFocus.focus){ try { reportModalReturnFocus.focus(); } catch (_) {} }
+    reportModalReturnFocus = null;
+  }
   function openReportModal(e){
     if (!e) return;
+    reportModalReturnFocus = (document.activeElement && document.activeElement.focus) ? document.activeElement : null;
     var hist = reportHistoryFor(e);
     var el = ensureReportModal();
     el.querySelector('.cal-rc-title').textContent = e.title || 'Economic report';
     el.querySelector('.cal-rc-date').textContent = reportDateLabel(e.date);
     el.querySelector('.cal-rc-summary').textContent = reportSummaryText(e, hist);
-    var chart = (hist && hist.points && hist.points.length >= 2) ? reportBarChartSvg(hist.points, hist.unit) : '';
+    var chart = (hist && hist.points && hist.points.length >= 2) ? reportBarChartSvg(hist.points, hist.unit, hist.signed) : '';
     el.querySelector('.cal-rc-chart').innerHTML = chart || '<div class="cal-rc-nochart">No historical series is available for this report yet.</div>';
     var fc = function(l, v){ return (v == null || v === '') ? '' : '<div class="cal-rc-fig"><span class="cal-rc-fig-l">' + escapeHtml(l) + '</span><span class="cal-rc-fig-v">' + escapeHtml(String(v)) + '</span></div>'; };
     el.querySelector('.cal-rc-figs').innerHTML = fc('Actual', e.actual) + fc('Previous', e.previous) + fc('Consensus', e.consensus);
@@ -14290,6 +14305,9 @@
         // Clickable ticker symbol inside an earnings/catalyst chip → Grade tab.
         var symBtn = ev.target.closest('.cal-chip-sym-btn[data-cal-sym]');
         if (symBtn){ calGoToTicker(symBtn.getAttribute('data-cal-sym')); return; }
+        // A real link / prediction-market pill inside a chip keeps its native
+        // behavior — don't also open the report modal on top of it.
+        if (ev.target.closest('a, .cal-report-pm-item')) return;
         // Report chip → open the bar-chart + summary modal.
         var rcChip = ev.target.closest('.cal-report[data-report-subtype]');
         if (rcChip){ openReportModal(findReportEvent(rcChip.getAttribute('data-report-subtype'), rcChip.getAttribute('data-report-date'))); return; }
@@ -14324,6 +14342,8 @@
       calRoot.addEventListener('keydown', function(ev){
         if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
         if (!ev.target.closest) return;
+        // Let a focused link / PM pill follow its native key behavior.
+        if (ev.target.closest('a, .cal-report-pm-item')) return;
         var rcChip = ev.target.closest('.cal-report[data-report-subtype]');
         if (rcChip){ ev.preventDefault(); openReportModal(findReportEvent(rcChip.getAttribute('data-report-subtype'), rcChip.getAttribute('data-report-date'))); }
       });
