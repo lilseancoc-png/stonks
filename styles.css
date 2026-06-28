@@ -6206,7 +6206,7 @@ button.cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* Index calendar — monthly SPY/QQQ/IWM daily-return grid (premium tab). Reuses
    the Calendar tab's .cal-monthbar / .cal-nav-btn / .cal-today-btn / .cal-grid-wd. */
 .idx-cal-root { display: flex; flex-direction: column; gap: var(--s-3); }
-.idx-cal-toggle { display: inline-flex; gap: 4px; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-pill); align-self: flex-start; }
+.idx-cal-toggle { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-pill); align-self: flex-start; }
 .idx-cal-tab { appearance: none; border: 0; background: transparent; color: var(--muted-strong); font: 600 12px/1 var(--font-mono); letter-spacing: .04em; padding: 6px 14px; border-radius: var(--r-pill); cursor: pointer; transition: color .12s, background .12s; }
 .idx-cal-tab:hover { color: var(--text); }
 .idx-cal-tab.is-on { background: var(--accent-tint-2); color: var(--accent-strong); }

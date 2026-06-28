@@ -1073,7 +1073,7 @@ export const DOC_PAGES = {
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
-            <li><b>Index calendar</b> — SPY/QQQ/IWM daily closes, green/red by % move, month by month</li>
+            <li><b>Index calendar</b> — SPY/QQQ/IWM/VXUS/VIX daily closes, green/red by % move, month by month</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1188,7 +1188,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Index calendar</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A month-grid record of how SPY, QQQ and IWM closed each trading day — green for up, red for down, with the close-to-close % in every cell. Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
+          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, VXUS and VIX closed each trading day — green for up, red for down, with the close-to-close % in every cell (VIX colours invert, so green reads "calmer"). Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
         </div>
       </div>
     </section>

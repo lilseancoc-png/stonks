@@ -8539,7 +8539,13 @@ const REGIME_HISTORY_MAX_DAYS = 180;
 // each bake. ~800 rows ≈ 3 trading years of retained history.
 const INDEX_CALENDAR_FILE = "index-calendar.json";
 const INDEX_CALENDAR_MAX_DAYS = 800;
-const INDEX_CALENDAR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm" };
+// SPY/QQQ/IWM come from the bake's own chains (they're in TICKERS). VXUS (total
+// international) and ^VIX (volatility) are NOT curated chain tickers, so their
+// daily bars are fetched separately and passed to appendIndexCalendar as
+// extraBars. ^VIX is an index, not optionable, so it can't join TICKERS.
+const INDEX_CALENDAR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm", VXUS: "vxus", "^VIX": "vix" };
+// Symbols sourced outside the chain sweep (fetched via fetchGlobalMarketBars).
+const INDEX_CALENDAR_EXTRA_SYMBOLS = ["VXUS", "^VIX"];
 const PICKS_CHANGES_FILE = "picks-changes.json";
 const PICKS_CHANGES_KEEP_DAYS = 30;
 const PICKS_CHANGES_MAX = 200;
@@ -11884,11 +11890,14 @@ function indexCalendarBars(chain) {
   if (ps && Array.isArray(ps.t) && Array.isArray(ps.c)) return ps.t.map((t, i) => ({ t, c: ps.c[i] }));
   return [];
 }
-export function appendIndexCalendar(prev, chains, builtAtIso) {
+export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}) {
   const byDate = new Map();
   for (const d of (prev?.days || [])) if (d && d.date) byDate.set(d.date, { ...d });
   for (const [sym, key] of Object.entries(INDEX_CALENDAR_SYMBOLS)) {
-    const bars = indexCalendarBars(chains?.[sym]);
+    // SPY/QQQ/IWM read from the bake's chains; VXUS/^VIX from the separately
+    // fetched extraBars ([{t,c}] rows, same shape) when not a chain ticker.
+    const chainBars = indexCalendarBars(chains?.[sym]);
+    const bars = chainBars.length ? chainBars : (Array.isArray(extraBars?.[sym]) ? extraBars[sym] : []);
     for (let i = 0; i < bars.length; i++) {
       const date = bars[i] && bars[i].t;
       // Guard the raw value before coercion — Number(null) is 0 (a fabricated
@@ -18220,7 +18229,16 @@ async function main() {
   // the wipe). Pre-read above (indexCalendarPrev) before the wipe, same as the
   // grade/regime histories; carries forward unchanged when bars are missing.
   try {
-    const ic = await writeIndexCalendar(appendIndexCalendar(indexCalendarPrev, chains, builtAtIso));
+    // VXUS (total international) + ^VIX (volatility) aren't chain tickers, so
+    // fetch their daily bars here ([{c,t}] from the same helper the overnight
+    // sweep uses) and pass them as extraBars. A failed fetch just leaves that
+    // column empty for the day — graceful, carried forward like the rest.
+    const indexCalExtra = {};
+    for (const sym of INDEX_CALENDAR_EXTRA_SYMBOLS) {
+      try { indexCalExtra[sym] = (await fetchGlobalMarketBars(sym)).bars; }
+      catch (err) { console.log(`    ⚠ index-cal ${sym} bars fetch failed: ${err.message}`); }
+    }
+    const ic = await writeIndexCalendar(appendIndexCalendar(indexCalendarPrev, chains, builtAtIso, indexCalExtra));
     console.log(`wrote data/${INDEX_CALENDAR_FILE} — ${ic.days} session row(s), ${ic.bytes} bytes`);
   } catch (err) {
     console.warn(`[index-cal] calendar skipped — ${String(err?.message || err).split("\n")[0]}`);

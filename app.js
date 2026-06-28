@@ -14377,7 +14377,12 @@
   // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm }] }),
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
   var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', fetchedAt: 0, bound: false };
-  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM' };
+  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', vxus: 'VXUS', vix: 'VIX' };
+  var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'vxus', 'vix'];
+  // VIX is a fear gauge — a spike is a risk-OFF day, so invert its red/green so
+  // green reads "calm" (VIX down) and red "stress" (VIX up). The displayed %
+  // stays the true move; only the colour + the green/red tally flip.
+  var IDX_CAL_INVERT = { vix: true };
   function loadIndexCal(){
     bindIndexCalControls();
     if ((indexCalState.data && !tabDataStale(indexCalState)) || indexCalState.loading){ renderIndexCal(); return; }
@@ -14425,6 +14430,7 @@
       return;
     }
     var idxKey = indexCalState.index || 'spy';
+    var idxInv = IDX_CAL_INVERT[idxKey] ? -1 : 1; // VIX: flip red/green (spike = risk-off)
     var byDate = {};
     var allYm = [];
     for (var i = 0; i < days.length; i++){
@@ -14442,7 +14448,7 @@
 
     // Index toggle (SPY / QQQ / IWM).
     var toggle = '<div class="idx-cal-toggle" role="tablist" aria-label="Index">' +
-      ['spy','qqq','iwm'].map(function(k){
+      IDX_CAL_ORDER.map(function(k){
         var on = k === idxKey;
         return '<button type="button" class="idx-cal-tab' + (on ? ' is-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-idx-cal="' + k + '">' + IDX_CAL_LABELS[k] + '</button>';
       }).join('') +
@@ -14463,7 +14469,7 @@
       var ch = (leg && leg.chPct != null && !isNaN(leg.chPct)) ? Number(leg.chPct) : null;
       var has = ch != null;
       var isToday = date === todayYmd;
-      var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (has ? ' ' + idxCalPctCls(ch) : ' is-empty');
+      var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (has ? ' ' + idxCalPctCls(ch * idxInv) : ' is-empty');
       var title = IDX_CAL_LABELS[idxKey] + ' · ' + date +
         (has ? ' · ' + idxCalFmtPct(ch) : '') +
         (leg && leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
@@ -14501,7 +14507,8 @@
       if (leg2 && leg2.chPct != null && !isNaN(leg2.chPct)){
         var c2 = Number(leg2.chPct);
         have++;
-        if (c2 > 0) green++; else if (c2 < 0) red++; else flat++;
+        var cv = c2 * idxInv;
+        if (cv > 0) green++; else if (cv < 0) red++; else flat++;
         comp *= (1 + c2 / 100);
       }
     }
@@ -14512,7 +14519,7 @@
         '<span class="idx-cal-sum-stat"><b class="idx-dn">' + red + '</b> red</span>' +
         (flat ? '<span class="idx-cal-sum-stat"><b>' + flat + '</b> flat</span>' : '') +
         (monthRet != null
-          ? '<span class="idx-cal-sum-stat idx-cal-sum-ret"><span class="idx-cal-sum-label">' + IDX_CAL_LABELS[idxKey] + ' month</span> <b class="' + idxCalPctCls(monthRet) + '">' + idxCalFmtPct(monthRet) + '</b></span>'
+          ? '<span class="idx-cal-sum-stat idx-cal-sum-ret"><span class="idx-cal-sum-label">' + IDX_CAL_LABELS[idxKey] + ' month</span> <b class="' + idxCalPctCls(monthRet * idxInv) + '">' + idxCalFmtPct(monthRet) + '</b></span>'
           : '') +
       '</div>';
 
