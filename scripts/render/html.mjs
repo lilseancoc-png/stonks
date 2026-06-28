@@ -897,6 +897,7 @@ function strategiesSection() {
         </div>
       </header>
       <div id="strat-legs-list" class="strat-legs-list" role="list"></div>
+      <p class="strat-legs-foot">Each leg prices off the live chain <b>mid</b>. Type a <b>Price</b> on any leg to use your own fill instead — the cost, breakeven and P/L update to match. Leave it blank to track the market mid.</p>
     </div>
     <div id="strat-results" class="strat-results" hidden>
       <header class="strat-results-head">

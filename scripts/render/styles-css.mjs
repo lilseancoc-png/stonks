@@ -13812,6 +13812,12 @@ html::-webkit-scrollbar-thumb:hover {
   flex-direction: column;
   gap: var(--s-2);
 }
+.strat-legs-foot {
+  color: var(--text-3);
+  font-size: 0.78rem;
+  margin: var(--s-2) 0 0;
+}
+.strat-legs-foot b { color: var(--text-2); font-weight: 600; }
 .strat-legs-empty {
   padding: var(--s-4);
   text-align: center;
@@ -13832,7 +13838,7 @@ html::-webkit-scrollbar-thumb:hover {
 .strat-leg.is-sell { border-left-color: var(--neg); }
 .strat-leg-grid {
   display: grid;
-  grid-template-columns: auto auto minmax(140px, 1.4fr) minmax(120px, 1fr) 70px auto;
+  grid-template-columns: auto auto minmax(120px, 1.3fr) minmax(92px, 1fr) 62px 82px auto;
   gap: var(--s-2);
   align-items: end;
 }
@@ -13889,6 +13895,13 @@ html::-webkit-scrollbar-thumb:hover {
   border-color: var(--accent);
 }
 .strat-leg-qty input { text-align: right; }
+.strat-leg-price input { text-align: right; }
+.strat-leg-price input::placeholder { color: var(--text-3); opacity: 0.7; }
+.strat-leg-price input.is-manual {
+  border-color: var(--accent);
+  color: var(--text-strong);
+  font-weight: 600;
+}
 .strat-leg-remove {
   appearance: none;
   background: transparent;
@@ -13923,6 +13936,8 @@ html::-webkit-scrollbar-thumb:hover {
 .strat-leg-cost { margin-left: auto; font-weight: 600; }
 .strat-leg-cost.is-debit  { color: var(--neg); }
 .strat-leg-cost.is-credit { color: var(--pos); }
+.strat-leg-manual { color: var(--accent); font-weight: 600; }
+.strat-leg-detail-note { color: var(--muted); }
 .strat-leg-dte {
   color: var(--muted);
   background: var(--surface-3);
@@ -13935,19 +13950,30 @@ html::-webkit-scrollbar-thumb:hover {
 }
 
 @media (max-width: 900px) {
+  /* 3 rows: toggles + remove · expiry + strike · qty + price */
   .strat-leg-grid {
-    grid-template-columns: auto auto 1fr 70px;
+    grid-template-columns: 1fr 1fr 64px 84px;
   }
-  .strat-leg-field:nth-of-type(2) { grid-column: 1 / -2; }
-  .strat-leg-remove { grid-row: 1; grid-column: -2 / -1; }
+  .strat-leg-side   { grid-row: 1; grid-column: 1; }
+  .strat-leg-type   { grid-row: 1; grid-column: 2; }
+  .strat-leg-remove { grid-row: 1; grid-column: 4; justify-self: end; }
+  .strat-leg-field:nth-of-type(1) { grid-row: 2; grid-column: 1 / 3; } /* Expiry */
+  .strat-leg-field:nth-of-type(2) { grid-row: 2; grid-column: 3 / 5; } /* Strike */
+  .strat-leg-qty    { grid-row: 3; grid-column: 1; }
+  .strat-leg-price  { grid-row: 3; grid-column: 2; }
 }
 @media (max-width: 560px) {
+  /* Single stack, two-up where it reads well (toggles, then qty + price) */
   .strat-leg-grid {
     grid-template-columns: 1fr 1fr;
   }
-  .strat-leg-side, .strat-leg-type { grid-column: span 1; }
-  .strat-leg-field, .strat-leg-qty { grid-column: span 1; }
-  .strat-leg-remove { grid-column: span 2; justify-self: end; grid-row: auto; }
+  .strat-leg-side   { grid-row: auto; grid-column: 1; }
+  .strat-leg-type   { grid-row: auto; grid-column: 2; justify-self: start; }
+  .strat-leg-field:nth-of-type(1) { grid-row: auto; grid-column: 1 / -1; } /* Expiry */
+  .strat-leg-field:nth-of-type(2) { grid-row: auto; grid-column: 1 / -1; } /* Strike */
+  .strat-leg-qty    { grid-row: auto; grid-column: 1; }
+  .strat-leg-price  { grid-row: auto; grid-column: 2; }
+  .strat-leg-remove { grid-row: auto; grid-column: 1 / -1; justify-self: end; }
 }
 
 /* --- Results panel ---- */

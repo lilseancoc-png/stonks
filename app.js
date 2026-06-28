@@ -10931,6 +10931,26 @@
     if (type === 'call') return S*ncdf(d1) - K*Math.exp(-r*T)*ncdf(d2);
     return K*Math.exp(-r*T)*ncdf(-d2) - S*ncdf(-d1);
   }
+  // Back the implied vol out of a manually-entered premium (bisection on a
+  // generous vol band). Lets an off-chain leg — which has no chain IV — still
+  // get greeks + a payoff reprice that reconciles to the entered price. Returns
+  // null if the price isn't solvable; clamps to the band ends otherwise.
+  function stratImpliedVol(type, S, K, T, target, r){
+    if (!(S>0 && K>0 && T>0) || target == null || !isFinite(target) || target < 0) return null;
+    var lo = 0.0001, hi = 5;
+    var pLo = stratBsPrice(type, S, K, T, lo, r);
+    var pHi = stratBsPrice(type, S, K, T, hi, r);
+    if (pLo == null || pHi == null) return null;
+    if (target <= pLo) return lo;
+    if (target >= pHi) return hi;
+    for (var i=0; i<60; i++){
+      var m = (lo + hi) / 2;
+      var p = stratBsPrice(type, S, K, T, m, r);
+      if (p == null) return null;
+      if (p > target) hi = m; else lo = m;
+    }
+    return (lo + hi) / 2;
+  }
   function stratChainSide(expSec, type){
     var ch = stratState.chains[expSec]; if (!ch) return null;
     return type === 'call' ? (ch.c || []) : (ch.p || []);
@@ -11131,16 +11151,33 @@
       var qty = Math.max(1, parseInt(L.qty, 10) || 1);
       var mid = null, bid = null, ask = null, iv = null, oi = null, vol = null;
       var g = null;
+      var T = Math.max(0, (L.expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365*86400));
       if (row){
         bid = row.b; ask = row.a; iv = row.iv; oi = row.oi; vol = row.v;
         if (bid != null && ask != null) mid = (bid + ask) / 2;
         else if (row.l != null) mid = row.l;
-        var T = Math.max(0, (L.expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365*86400));
         if (iv != null && T > 0){
           g = greeks(L.type, spot, L.strike, T, iv, RFR);
         }
       }
-      if (mid != null) netCostPerShare += sign * qty * mid;
+      // Effective entry premium: a user-entered override wins over the chain
+      // mid (price a fill you actually got, or a strike the chain doesn't
+      // quote). A blank/invalid override falls back to the live mid.
+      var override = (L.priceOverride != null && isFinite(L.priceOverride) && L.priceOverride >= 0) ? Number(L.priceOverride) : null;
+      var price = override != null ? override : mid;
+      // No chain IV (off-chain strike) but the leg is priced: back the implied
+      // vol out of the entered premium so net greeks, the inferred bias and the
+      // payoff reprice (stratLegValueAt reads this iv) stay consistent with the
+      // cost/curve instead of silently reading zero. On-chain legs keep the
+      // chain IV — the manual price is a fill detail, not a vol mark.
+      if (g == null && override != null && spot > 0 && T > 0){
+        var impliedIv = stratImpliedVol(L.type, spot, L.strike, T, override, RFR);
+        if (impliedIv != null){
+          iv = impliedIv;
+          g = greeks(L.type, spot, L.strike, T, impliedIv, RFR);
+        }
+      }
+      if (price != null) netCostPerShare += sign * qty * price;
       if (g){
         netGreeks.delta += sign * qty * g.delta;
         netGreeks.gamma += sign * qty * g.gamma;
@@ -11148,7 +11185,7 @@
         netGreeks.vega  += sign * qty * g.vega;
       }
       if (oi != null && isFinite(oi)) oiSamples.push(oi);
-      enriched.push({ leg: L, row: row, mid: mid, bid: bid, ask: ask, iv: iv, oi: oi, vol: vol, greeks: g, sign: sign, qty: qty });
+      enriched.push({ leg: L, row: row, mid: mid, price: price, priceManual: override != null, bid: bid, ask: ask, iv: iv, oi: oi, vol: vol, greeks: g, sign: sign, qty: qty });
     }
     var avgOi = oiSamples.length ? (oiSamples.reduce(function(a,b){return a+b;},0) / oiSamples.length) : 0;
     return { legs: enriched, netCostPerShare: netCostPerShare, netGreeks: netGreeks, avgOi: avgOi };
@@ -11159,10 +11196,13 @@
   // and are repriced with Black-Scholes using their chain IV.
   function stratLegValueAt(legEnr, S, evalSec){
     var L = legEnr.leg;
-    if (!legEnr.row) return 0;
+    // Intrinsic at/after this leg's own expiry — no chain row needed, so a
+    // manually-priced off-chain leg still resolves at expiration.
     if (L.expSec <= evalSec){
       return L.type === 'call' ? Math.max(0, S - L.strike) : Math.max(0, L.strike - S);
     }
+    // A longer-dated leg still has time value at the near expiry — reprice with
+    // Black-Scholes off the chain IV (0.3 fallback when the row/IV is missing).
     var T = Math.max(0, (L.expSec - evalSec) / (365*86400));
     var sigma = legEnr.iv || 0.3;
     var price = stratBsPrice(L.type, S, L.strike, T, sigma, RFR);
@@ -11173,6 +11213,10 @@
     var total = -enriched.netCostPerShare; // entry cost is negative when we paid (debit), positive when we collected (credit)
     for (var i=0; i<enriched.legs.length; i++){
       var L = enriched.legs[i];
+      // An unpriced leg (no chain mid AND no manual price) added nothing to the
+      // entry cost above, so exclude it from the payoff too — otherwise it would
+      // read as free intrinsic value.
+      if (L.price == null) continue;
       total += L.sign * L.qty * stratLegValueAt(L, S, evalSec);
     }
     return total;
@@ -11218,10 +11262,12 @@
         breakevens.push(xs[j-1] + t * (xs[j] - xs[j-1]));
       }
     }
-    // Slopes at the tails for unlimited-flag detection.
+    // Slopes at the tails for unlimited-flag detection. Skip unpriced legs so
+    // the flags match the plotted curve (stratPayoffAt excludes them too).
     var callNet = 0, putNet = 0;
     for (var k=0; k<enriched.legs.length; k++){
       var leg = enriched.legs[k];
+      if (leg.price == null) continue;
       var s = leg.sign * leg.qty;
       if (leg.leg.type === 'call') callNet += s; else putNet += s;
     }
@@ -11412,9 +11458,12 @@
     }
     // Live detail strip.
     var row = legEnr.row;
+    var manual = legEnr.priceManual;
     var detail = '';
     if (!row){
-      detail = '<span class="strat-leg-warn">no chain row at this strike</span>';
+      detail = manual
+        ? '<span class="strat-leg-manual">your price ' + fmtMoney(legEnr.price) + '</span><span class="strat-leg-detail-note">no live quote at this strike</span>'
+        : '<span class="strat-leg-warn">no live quote — enter a price to include this leg</span>';
     } else {
       var midStr = legEnr.mid != null ? fmtMoney(legEnr.mid) : '—';
       var bidStr = legEnr.bid != null ? fmtMoney(legEnr.bid) : '—';
@@ -11425,14 +11474,20 @@
       var oiStr = legEnr.oi != null ? Number(legEnr.oi).toLocaleString() : '—';
       detail =
         '<span>bid ' + bidStr + ' · ask ' + askStr + ' · <b>mid ' + midStr + '</b></span>' +
+        (manual ? '<span class="strat-leg-manual">your price ' + fmtMoney(legEnr.price) + '</span>' : '') +
         '<span>IV ' + ivStr + ' · Δ ' + dStr + ' · Θ ' + tStr + '</span>' +
         '<span>OI ' + oiStr + '</span>';
     }
     var costSign = L.side === 'buy' ? '−' : '+';
-    var legCost = (legEnr.mid != null) ? (legEnr.mid * legEnr.qty * 100) : null;
+    var legCost = (legEnr.price != null) ? (legEnr.price * legEnr.qty * 100) : null;
     var legCostStr = legCost != null
       ? '<span class="strat-leg-cost ' + (L.side === 'buy' ? 'is-debit' : 'is-credit') + '">' + costSign + fmtMoney(Math.abs(legCost)) + '</span>'
       : '';
+    // Manual-price input — blank uses the live chain mid (shown as the
+    // placeholder); a typed value overrides it as the per-share entry premium.
+    var priceManualCls = manual ? ' is-manual' : '';
+    var priceVal = manual ? legEnr.price : '';
+    var pricePlaceholder = legEnr.mid != null ? legEnr.mid.toFixed(2) : 'mid';
     return ''
       + '<div class="strat-leg ' + sideCls + ' ' + typeCls + '" data-leg-id="' + L.id + '" role="listitem">'
       +   '<div class="strat-leg-grid">'
@@ -11455,6 +11510,10 @@
       +     '<label class="strat-leg-field strat-leg-qty">'
       +       '<span class="strat-leg-flabel">Qty</span>'
       +       '<input type="number" min="1" max="50" value="' + L.qty + '" data-leg-action="qty">'
+      +     '</label>'
+      +     '<label class="strat-leg-field strat-leg-price">'
+      +       '<span class="strat-leg-flabel">Price</span>'
+      +       '<input type="number" min="0" step="0.01" inputmode="decimal" class="strat-leg-price-input' + priceManualCls + '" value="' + priceVal + '" placeholder="' + pricePlaceholder + '" data-leg-action="price" title="Your option price per share (the premium). Leave blank to track the live chain mid; type your fill to drive the cost, breakeven and P/L off it.">'
       +     '</label>'
       +     '<button type="button" class="strat-leg-remove" data-leg-action="remove" aria-label="Remove leg">×</button>'
       +   '</div>'
@@ -11863,7 +11922,10 @@
           stratState.strategyId = null;
           stratRenderAll();
         } else if (action === 'type'){
-          leg.type = btn.getAttribute('data-leg-val');
+          var newType = btn.getAttribute('data-leg-val');
+          if (leg.type === newType) return; // no-op click on the active type — keep the manual price + template
+          leg.type = newType;
+          leg.priceOverride = null; // contract changed — drop the manual price
           // Snap to nearest available strike in the new chain side.
           var strikes = stratStrikeOptions(leg.expSec, leg.type);
           if (strikes.length && strikes.indexOf(leg.strike) < 0){
@@ -11889,6 +11951,7 @@
         if (!leg) return;
         if (action === 'expiry'){
           leg.expSec = parseInt(ctrl.value, 10);
+          leg.priceOverride = null; // contract changed — drop the manual price
           // Re-snap strike to nearest in the new expiry's chain side.
           var strikes = stratStrikeOptions(leg.expSec, leg.type);
           if (strikes.length && strikes.indexOf(leg.strike) < 0){
@@ -11902,11 +11965,18 @@
           }
         } else if (action === 'strike'){
           var v = parseFloat(ctrl.value); if (isFinite(v)) leg.strike = v;
+          leg.priceOverride = null; // contract changed — drop the manual price
         } else if (action === 'qty'){
           var q = Math.max(1, Math.min(50, parseInt(ctrl.value, 10) || 1));
           leg.qty = q;
+        } else if (action === 'price'){
+          var raw = (ctrl.value || '').trim();
+          if (raw === ''){ leg.priceOverride = null; }
+          else { var pv = parseFloat(raw); leg.priceOverride = (isFinite(pv) && pv >= 0) ? pv : null; }
         }
-        stratState.strategyId = null;
+        // A manual price doesn't change the structure, so the named template
+        // stands; any other edit marks the build custom.
+        if (action !== 'price') stratState.strategyId = null;
         stratRenderAll();
       });
     }
