@@ -13780,11 +13780,23 @@ export function gatherBriefSignals(kind, ctx) {
       };
     }
     const mk = correlations?.markets ? Object.values(correlations.markets) : [];
+    // Rank by overnight magnitude. For a yield, chPct is the % change of the
+    // YIELD LEVEL (meaningless across bases — a 5bp move is ~3% on a 1.5% JGB
+    // but ~1% on a 4% UST), so rank rate rows on the bp move instead, scaled
+    // /10 to put ~10bp on par with a 1% price move. Without this a low-base
+    // yield (JGB10Y) would crowd genuine equity/FX moves out of the top-6.
+    const ovnMag = (m) => (m.type === "rate" && Number.isFinite(m.chgBp))
+      ? Math.abs(m.chgBp) / 10
+      : (Number.isFinite(m.chPct) ? Math.abs(m.chPct) : 0);
     signals.overnight = mk
-      .filter((m) => m && Number.isFinite(m.chPct))
-      .sort((a, b) => Math.abs(b.chPct) - Math.abs(a.chPct))
+      .filter((m) => m && (Number.isFinite(m.chPct) || (m.type === "rate" && Number.isFinite(m.chgBp))))
+      .sort((a, b) => ovnMag(b) - ovnMag(a))
       .slice(0, 6)
-      .map((m) => ({ sym: m.sym, name: m.name, region: m.region, chPct: Math.round(m.chPct * 100) / 100 }));
+      .map((m) => ({
+        sym: m.sym, name: m.name, region: m.region, type: m.type,
+        chPct: Number.isFinite(m.chPct) ? Math.round(m.chPct * 100) / 100 : null,
+        chgBp: Number.isFinite(m.chgBp) ? m.chgBp : null,
+      }));
     // Index scorecard — US equity index futures pointing to the open.
     const idxFut = [];
     const fm = correlations?.markets || {};
@@ -14027,7 +14039,11 @@ export function briefUserMessage(kind, dateKey, signals) {
     if (signals.tone) lines.push(`Overnight tone: ${signals.tone.label}${signals.tone.reasons.length ? ` — ${signals.tone.reasons.join("; ")}` : ""}.`);
     if (signals.overnight && signals.overnight.length) {
       lines.push("Overnight / foreign moves:");
-      for (const m of signals.overnight) lines.push(`- ${m.name || m.sym}${m.region ? ` (${m.region})` : ""}: ${briefPctStr(m.chPct)}`);
+      for (const m of signals.overnight) {
+        // Yields read in basis points; everything else in percent.
+        const moveStr = (m.type === "rate" && Number.isFinite(m.chgBp)) ? briefBpsStr(m.chgBp) : briefPctStr(m.chPct);
+        lines.push(`- ${m.name || m.sym}${m.region ? ` (${m.region})` : ""}: ${moveStr}`);
+      }
     }
     if (signals.levels && signals.levels.length) {
       lines.push("Levels to watch (20-day support / resistance):");
