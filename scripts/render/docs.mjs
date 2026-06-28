@@ -1125,7 +1125,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Bonds &amp; USD</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">How Treasury yields and the dollar shape equities — the yield curve, the 2s10s spread, sparklines, and the Fed anchor.</p>
+          <p class="feat-desc">How Treasury yields and the dollar shape equities — the yield curve, the 2Y10Y spread, sparklines, and the Fed anchor.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">13F filings</span><span class="tier free">Free</span></div>

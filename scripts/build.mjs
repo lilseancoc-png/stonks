@@ -3847,6 +3847,27 @@ const EARNINGS_BACKFILL_CONCURRENCY = 4;
 const EARNINGS_PREPRINT_STAMP_DAYS = 8;
 // Long enough for 8 quarters of reaction sessions + a 1-week tail.
 const EARNINGS_BACKFILL_LOOKBACK_DAYS = 800;
+// A past event that still has no EPS actual this long after the date is a stale
+// placeholder (a moved estimate, or a bogus row from the upstream calendar),
+// not a real report — every genuine print reports EPS within a day or two. Used
+// to prune ghosts so they don't occupy a "last 8 reports" slot.
+const EARNINGS_GHOST_GRACE_DAYS = 21;
+// Curated BEFORE-OPEN (BMO) reporters among the tracked tickers. Nasdaq's
+// surprise table omits the session and bar-based inference is unreliable (~79%,
+// and it mislabels the AMC mega-caps it would need to leave alone), so these
+// well-known pre-market reporters are stamped "AM" on backfill — their reaction
+// is the announce-day open, not the next session. Reporting times are stable;
+// everything else defaults to post-close (TBD), correct for the AMC majority,
+// and Yahoo's per-print session (via the pending stamp) overrides this going
+// forward. Banks/brokers, big-box retail, heavy industrials, and large
+// healthcare/pharma all report BMO.
+const EARNINGS_BMO_REPORTERS = new Set([
+  "JPM", "BAC", "C", "GS", "MS", "COF", "SCHW", "UBS",
+  "WMT", "HD", "LOW", "TGT",
+  "CAT", "DE", "GD", "UPS",
+  "UNH", "CI", "LLY", "TMO", "BSX", "NVO",
+  "MCD", "MA", "ACN",
+]);
 
 const ehxRound = (n, places = 4) => {
   const f = 10 ** places;
@@ -3937,6 +3958,57 @@ async function fetchYahooEarningsDates(symbol, size = 20) {
     if (!prev || (prev.epsActual == null && ev.epsActual != null)) byDate.set(date, ev);
   }
   return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+// Recent announcement DATES + EPS from Nasdaq's per-ticker earnings-surprise
+// endpoint — the fallback for Yahoo's visualization API, which froze in
+// mid-2025 and no longer returns post-mid-2025 prints (calendarEvents stays
+// current for the NEXT date, but there is no Yahoo surface for recent PAST
+// announcement dates anymore). Nasdaq returns the last ~4 quarters with the
+// real reported date, actual/estimate EPS, and surprise %. Session (AM/PM) is
+// not given here, so it's "AM" for the curated before-open set and "TBD"
+// (post-close) otherwise. Degrades to [] on any error so the pipeline never
+// throws (forward accumulation still works).
+async function fetchNasdaqEarningsSurprise(symbol) {
+  const headers = {
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    accept: "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.9",
+    referer: `https://www.nasdaq.com/market-activity/stocks/${symbol.toLowerCase()}/earnings`,
+    origin: "https://www.nasdaq.com",
+  };
+  const url = `https://api.nasdaq.com/api/company/${encodeURIComponent(symbol)}/earnings-surprise`;
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
+  if (!res.ok) return [];
+  const json = await res.json();
+  const rows = json?.data?.earningsSurpriseTable?.rows;
+  if (!Array.isArray(rows)) return [];
+  // Nasdaq formats numbers as strings, sometimes with $, %, commas, or
+  // parens for negatives ("($0.05)").
+  const parseNum = (v) => {
+    if (v == null) return null;
+    const s = String(v).replace(/[$,%\s]/g, "").replace(/^\((.*)\)$/, "-$1");
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  };
+  const todayIso = etDateKey();
+  const session = EARNINGS_BMO_REPORTERS.has(String(symbol).toUpperCase()) ? "AM" : "TBD";
+  const out = [];
+  for (const r of rows) {
+    const m = String(r?.dateReported || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) continue;
+    const date = `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+    if (date > todayIso) continue; // past prints only — the next date is owned by fundamentals
+    out.push({
+      date,
+      session,
+      epsActual: parseNum(r?.eps),
+      epsEstimate: parseNum(r?.consensusForecast),
+      surprisePct: ehxRound(parseNum(r?.percentageSurprise), 2),
+    });
+  }
+  return out.sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
 // ~2y of daily bars (with opens) for backfilled events that predate the
@@ -4042,8 +4114,19 @@ function upsertEarningsEvent(events, ev, overwriteStamps = false) {
     delete near.movePct; delete near.gapPct; delete near.week1Pct;
     near.week1Done = false;
   }
-  if (ev.session && ev.session !== "TBD") near.session = ev.session;
-  else if (!near.session) near.session = ev.session || "TBD";
+  if (ev.session && ev.session !== "TBD") {
+    // A session change that moves the reaction anchor (AM reacts ON the date,
+    // PM/TBD on the next bar — see computeEarningsReaction) invalidates any
+    // reaction already computed under the old session, so drop it for a
+    // recompute. (Catches a BMO name whose stale TBD row was resolved a day
+    // late before the curated session stamped it "AM".)
+    if (ev.session !== near.session && (ev.session === "AM") !== (near.session === "AM")) {
+      delete near.closeBefore; delete near.openAfter; delete near.closeAfter;
+      delete near.movePct; delete near.gapPct; delete near.week1Pct;
+      near.week1Done = false;
+    }
+    near.session = ev.session;
+  } else if (!near.session) near.session = ev.session || "TBD";
   for (const k of ["epsActual", "epsEstimate", "surprisePct"]) {
     if (ev[k] != null) near[k] = ev[k];
   }
@@ -4086,6 +4169,18 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         if (got.length) backfilled++;
       } catch (err) {
         console.log(`    ⚠ ${sym} earnings-dates backfill failed: ${err.message}`);
+      }
+      // Yahoo's visualization endpoint froze in mid-2025, so it no longer
+      // returns recent prints — fill the last ~4 quarters from Nasdaq's
+      // per-ticker surprise table (real report dates + EPS). Session stays
+      // "TBD" (resolved as post-close, matching every existing event and the
+      // AMC cadence of the large-caps tracked); the date is the announcement,
+      // so the resolve pass marks the reaction on the right session.
+      try {
+        const surprise = await fetchNasdaqEarningsSurprise(sym);
+        for (const ev of surprise) upsertEarningsEvent(entry.events, ev);
+      } catch (err) {
+        console.log(`    ⚠ ${sym} Nasdaq earnings-surprise backfill failed: ${err.message}`);
       }
       // Events older than the standard 1y bar window need the long fetch.
       const barsStart = data._bars?.find((b) => b?.t)?.t || null;
@@ -4149,6 +4244,21 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         if (ev.ivPost == null && post != null) ev.ivPost = ehxRound(post);
       }
     }
+    // Prune ghost rows: a past event with no EPS actual well after its date is
+    // a stale placeholder (a moved estimate, or the bogus trailing row Yahoo's
+    // frozen visualization feed injects), never a real report — drop it so it
+    // can't take a "last 8 reports" slot. Pending future rows (date > today)
+    // and just-reported prints inside the grace window are kept.
+    // ...but spare a row that carries a pre-print stamp (impliedMovePct is set
+    // ONLY by the pending stamp, never by the Nasdaq/Yahoo backfills): that's a
+    // real print we stamped going in, so keep its computed reaction even if a
+    // correlated EPS-source outage means the EPS actual never arrived. The
+    // bogus placeholders the frozen feed injects were never stamped, so they
+    // still get pruned.
+    const ghostCutoff = etDateKey(new Date(nowMs - EARNINGS_GHOST_GRACE_DAYS * 86400000));
+    entry.events = entry.events.filter(
+      (e) => !(e?.date && e.date <= ghostCutoff && e.epsActual == null && e.impliedMovePct == null),
+    );
     entry.events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     if (entry.events.length > EARNINGS_HISTORY_MAX_EVENTS) {
       entry.events = entry.events.slice(-EARNINGS_HISTORY_MAX_EVENTS);
@@ -5909,10 +6019,93 @@ const CPI_PPI_SCHEDULE_BASELINE = {
   },
 };
 
+// BEA (GDP third/final estimate, Personal Income & Outlays → Core PCE) and
+// Census (Advance Durable Goods) release dates are not deterministic — each
+// agency picks them ~a year ahead — so, exactly like CPI/PPI above, we keep a
+// hardcoded baseline and fall back to a cadence rule for years not listed.
+// gdp = the FINAL (third) quarterly estimate only (4/yr). pce/durables = monthly.
+// Dates verified against official BEA / Census release schedules. NOTE: the
+// 43-day Oct–Nov 2025 federal shutdown shifted/cancelled several late-2025 and
+// early-2026 releases (e.g. the Q3-2025 GDP third estimate was replaced by a
+// 2026-01-22 "updated estimate"; Sep-2025 PCE slipped to Dec 5; Oct+Nov-2025
+// PCE were combined into Jan 22, 2026), so some months are missing/doubled —
+// that's intentional, the lists are the actual release calendar, not a cadence.
+const BEA_CENSUS_SCHEDULE_BASELINE = {
+  gdp: {
+    2025: ["2025-03-27","2025-06-26","2025-09-25"],
+    2026: ["2026-01-22","2026-04-09","2026-06-25","2026-09-30","2026-12-23"],
+  },
+  pce: {
+    2025: ["2025-01-31","2025-02-28","2025-03-28","2025-04-30","2025-05-30","2025-06-27","2025-07-31","2025-08-29","2025-09-26","2025-12-05"],
+    2026: ["2026-01-22","2026-02-20","2026-03-13","2026-04-09","2026-04-30","2026-05-28","2026-06-25","2026-07-30","2026-08-26","2026-09-30","2026-10-29","2026-11-25","2026-12-23"],
+  },
+  durables: {
+    2025: ["2025-01-28","2025-02-27","2025-03-26","2025-04-24","2025-05-27","2025-06-26","2025-07-25","2025-08-26","2025-09-25","2025-11-26","2025-12-23"],
+    2026: ["2026-01-26","2026-02-18","2026-03-13","2026-04-07","2026-04-29","2026-05-28","2026-06-25","2026-07-27","2026-08-26","2026-09-25","2026-10-27","2026-11-25","2026-12-23"],
+  },
+};
+
 function nthWeekdayOfMonth(year, monthIdx, weekday, n) {
   const first = new Date(Date.UTC(year, monthIdx, 1));
   const offset = (weekday - first.getUTCDay() + 7) % 7;
   return new Date(Date.UTC(year, monthIdx, 1 + offset + (n - 1) * 7));
+}
+
+function lastWeekdayOfMonth(year, monthIdx, weekday) {
+  const last = new Date(Date.UTC(year, monthIdx + 1, 0)); // last day of the month
+  const offset = (last.getUTCDay() - weekday + 7) % 7;
+  return new Date(Date.UTC(year, monthIdx, last.getUTCDate() - offset));
+}
+
+// US federal holiday observances for a year, as a Set of "YYYY-MM-DD" — so the
+// business-day helpers below don't put a release on a weekday holiday (the
+// common case: ISM's January row landing on Jan 1). Fixed-date holidays use the
+// federal weekend-observance rule (Sat→Fri, Sun→Mon).
+function usMarketHolidaySet(year) {
+  const set = new Set();
+  const observed = (m, day) => {
+    let d = new Date(Date.UTC(year, m, day));
+    const wd = d.getUTCDay();
+    if (wd === 6) d = new Date(Date.UTC(year, m, day - 1));      // Sat → observed Fri
+    else if (wd === 0) d = new Date(Date.UTC(year, m, day + 1)); // Sun → observed Mon
+    return d;
+  };
+  for (const d of [
+    observed(0, 1),                       // New Year's Day
+    nthWeekdayOfMonth(year, 0, 1, 3),     // MLK Day (3rd Mon Jan)
+    nthWeekdayOfMonth(year, 1, 1, 3),     // Presidents' Day (3rd Mon Feb)
+    lastWeekdayOfMonth(year, 4, 1),       // Memorial Day (last Mon May)
+    observed(5, 19),                      // Juneteenth
+    observed(6, 4),                       // Independence Day
+    nthWeekdayOfMonth(year, 8, 1, 1),     // Labor Day (1st Mon Sep)
+    nthWeekdayOfMonth(year, 10, 4, 4),    // Thanksgiving (4th Thu Nov)
+    observed(11, 25),                     // Christmas
+  ]) set.add(isoUtcDate(d));
+  return set;
+}
+
+// First business day (Mon–Fri, non-holiday) of a month — ISM Manufacturing
+// PMI's release rule (08:30/10:00 ET on the first business day, for the prior
+// month). Skips weekends AND federal holidays so the January row doesn't land
+// on New Year's Day (and Sep doesn't land on Labor Day).
+function firstBusinessDayOfMonth(year, monthIdx) {
+  const holidays = usMarketHolidaySet(year);
+  let d = new Date(Date.UTC(year, monthIdx, 1));
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(isoUtcDate(d))) {
+    d = new Date(d.getTime() + 86400000);
+  }
+  return d;
+}
+
+// Last business day (Mon–Fri, non-holiday) of a month — the cadence fallback
+// for Core PCE / Personal Income & Outlays in years with no baseline.
+function lastBusinessDayOfMonth(year, monthIdx) {
+  const holidays = usMarketHolidaySet(year);
+  let d = new Date(Date.UTC(year, monthIdx + 1, 0)); // day 0 of next month = last day
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(isoUtcDate(d))) {
+    d = new Date(d.getTime() - 86400000);
+  }
+  return d;
 }
 
 function isoUtcDate(date) {
@@ -5932,7 +6125,18 @@ function computeReleaseSchedule(year) {
     || Array.from({ length: 12 }, (_, m) => isoUtcDate(nthWeekdayOfMonth(year, m, 3, 2)));
   const ppi = CPI_PPI_SCHEDULE_BASELINE.ppi[year]
     || Array.from({ length: 12 }, (_, m) => isoUtcDate(nthWeekdayOfMonth(year, m, 4, 2)));
-  return { empSit, cpi, ppi, jolts };
+  // ISM Manufacturing PMI — first business day of each month (deterministic).
+  const ism = Array.from({ length: 12 }, (_, m) => isoUtcDate(firstBusinessDayOfMonth(year, m)));
+  // GDP final (quarterly, ~4th Thursday of Mar/Jun/Sep/Dec) + monthly Core PCE
+  // (~last business day) + Durable Goods (~4th Wednesday) — baseline with a
+  // cadence fallback for years BEA/Census haven't published yet.
+  const gdp = BEA_CENSUS_SCHEDULE_BASELINE.gdp[year]
+    || [2, 5, 8, 11].map((m) => isoUtcDate(nthWeekdayOfMonth(year, m, 4, 4)));
+  const pce = BEA_CENSUS_SCHEDULE_BASELINE.pce[year]
+    || Array.from({ length: 12 }, (_, m) => isoUtcDate(lastBusinessDayOfMonth(year, m)));
+  const durables = BEA_CENSUS_SCHEDULE_BASELINE.durables[year]
+    || Array.from({ length: 12 }, (_, m) => isoUtcDate(nthWeekdayOfMonth(year, m, 3, 4)));
+  return { empSit, cpi, ppi, jolts, ism, gdp, pce, durables };
 }
 
 // Combine current + next year so the rest-of-year calendar window survives a
@@ -5943,10 +6147,14 @@ function buildReleaseSchedule(asOf) {
   const a = computeReleaseSchedule(yearNow);
   const b = computeReleaseSchedule(yearNow + 1);
   return {
-    empSit: [...a.empSit, ...b.empSit],
-    cpi:    [...a.cpi,    ...b.cpi],
-    ppi:    [...a.ppi,    ...b.ppi],
-    jolts:  [...a.jolts,  ...b.jolts],
+    empSit:   [...a.empSit,   ...b.empSit],
+    cpi:      [...a.cpi,      ...b.cpi],
+    ppi:      [...a.ppi,      ...b.ppi],
+    jolts:    [...a.jolts,    ...b.jolts],
+    ism:      [...a.ism,      ...b.ism],
+    gdp:      [...a.gdp,      ...b.gdp],
+    pce:      [...a.pce,      ...b.pce],
+    durables: [...a.durables, ...b.durables],
   };
 }
 
@@ -5966,11 +6174,19 @@ const ECON_REPORTS = [
   // adjusted index (NSA, CUUR…/…NS) because that's what BLS computes the
   // published year-over-year headline from. YoY off the SA index leaves a
   // residual seasonal error, so it wouldn't match the "+3.x%" markets quote.
-  { subtype: "cpi-mom",      label: "CPI MoM",               schedule: "cpi",    series: "CPIAUCSL", bls: "CUSR0000SA0",       format: "mom"  },
-  { subtype: "cpi-yoy",      label: "CPI YoY",               schedule: "cpi",    series: "CPIAUCNS", bls: "CUUR0000SA0",       format: "yoy"  },
-  { subtype: "core-cpi-mom", label: "Core CPI MoM",          schedule: "cpi",    series: "CPILFESL", bls: "CUSR0000SA0L1E",    format: "mom"  },
-  { subtype: "core-cpi-yoy", label: "Core CPI YoY",          schedule: "cpi",    series: "CPILFENS", bls: "CUUR0000SA0L1E",    format: "yoy"  },
+  { subtype: "cpi-mom",      label: "Inflation Rate MoM",      schedule: "cpi",    series: "CPIAUCSL", bls: "CUSR0000SA0",       format: "mom"  },
+  { subtype: "cpi-yoy",      label: "Inflation Rate YoY",      schedule: "cpi",    series: "CPIAUCNS", bls: "CUUR0000SA0",       format: "yoy"  },
+  { subtype: "core-cpi-mom", label: "Core Inflation Rate MoM", schedule: "cpi",    series: "CPILFESL", bls: "CUSR0000SA0L1E",    format: "mom"  },
+  { subtype: "core-cpi-yoy", label: "Core Inflation Rate YoY", schedule: "cpi",    series: "CPILFENS", bls: "CUUR0000SA0L1E",    format: "yoy"  },
   { subtype: "ppi-mom",      label: "PPI MoM",               schedule: "ppi",    series: "PPIFIS",   bls: "WPSFD4",            format: "mom"  },
+  // BEA / Census / ISM additions. No BLS counterpart — values come from FRED
+  // (BEA/Census mirror), except ISM Manufacturing PMI, whose index ISM no
+  // longer lets FRED redistribute: it has NO series, so it's a date-only row
+  // (noSeries) that ForexFactory enriches with consensus/actual near the print.
+  { subtype: "ism-mfg",        label: "ISM Manufacturing PMI",     schedule: "ism",      series: null,             format: "raw", noSeries: true },
+  { subtype: "gdp-final",      label: "GDP Growth Rate QoQ Final", schedule: "gdp",      series: "A191RL1Q225SBEA", format: "pct"  },
+  { subtype: "core-pce-mom",   label: "Core PCE Price Index MoM",  schedule: "pce",      series: "PCEPILFE",        format: "mom"  },
+  { subtype: "durable-goods-mom", label: "Durable Goods Orders MoM", schedule: "durables", series: "DGORDER",       format: "mom"  },
 ];
 
 // === FRED (fallback source) ==========================================
@@ -6320,7 +6536,7 @@ function formatEconValue(format, series, idx) {
 // are reserved fields — populated later when a consensus data source is
 // wired (TradingEconomics / Investing.com).
 export async function fetchMacroReleases(startMs, cutoffMs) {
-  const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series)));
+  const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series).filter(Boolean)));
   // Map FRED series id → BLS series id for the per-id fallback. Only one
   // BLS id per FRED id (CPIAUCSL/CPILFESL each appear twice in
   // ECON_REPORTS but share a single BLS counterpart).
@@ -6403,8 +6619,10 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
       const consensus = (ff?.forecast && ff.forecast !== "") ? String(ff.forecast) : null;
       const ffActual = (ff?.actual && ff.actual !== "") ? String(ff.actual) : null;
       const ffPrevious = (ff?.previous && ff.previous !== "") ? String(ff.previous) : null;
-      // Skip rows where we have no data at all from either source.
-      if (!fredActual && !fredPrevious && !consensus && !ffActual && !ffPrevious) continue;
+      // Skip rows where we have no data at all from either source — EXCEPT a
+      // date-only report (ISM: no FRED series), where the upcoming date itself
+      // is the point and ForexFactory fills the figures as the print nears.
+      if (!report.noSeries && !fredActual && !fredPrevious && !consensus && !ffActual && !ffPrevious) continue;
       events.push({
         type: "report",
         subtype: report.subtype,
@@ -6421,8 +6639,8 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         // doesn't expose a separate "forecast" feed.
         forecast: consensus,
         source: ff
-          ? "BLS · ForexFactory"
-          : (seriesSource[report.series] || "BLS · " + report.series).replace(":", " · "),
+          ? (report.noSeries ? "ForexFactory" : (report.bls ? "BLS" : "FRED") + " · ForexFactory")
+          : (report.noSeries ? "ISM" : (seriesSource[report.series] || "BLS · " + report.series).replace(":", " · ")),
       });
     }
   }
@@ -6452,7 +6670,7 @@ function parseEconNumber(str) {
 const RELEASE_READ_AXIS = {
   "cpi-mom": "inflation", "cpi-yoy": "inflation",
   "core-cpi-mom": "inflation", "core-cpi-yoy": "inflation",
-  "ppi-mom": "inflation",
+  "ppi-mom": "inflation", "core-pce-mom": "inflation",
   nfp: "labor", jolts: "labor",
   unrate: "slack",
 };
@@ -6672,6 +6890,17 @@ function matchForexFactoryEventSubtype(title) {
   if (t.includes("jolts")) return "jolts";
   if (t.includes("unemployment rate")) return "unrate";
   if (t.includes("non-farm") || t.includes("nonfarm") || t.includes("nfp") || t.includes("employment change")) return "nfp";
+  // ISM Manufacturing PMI — the headline diffusion index only. Exclude the
+  // "Prices" sub-index, the Services PMI (no "manufacturing"), and S&P Global's
+  // "Final Manufacturing PMI" (no "ism").
+  if (t.includes("ism") && t.includes("manufacturing") && t.includes("pmi") && !t.includes("price")) return "ism-mfg";
+  // Durable Goods Orders (headline, not the ex-transport "Core" cut).
+  if (t.includes("durable goods") && !t.includes("core")) return "durable-goods-mom";
+  if (t.includes("core pce")) return "core-pce-mom";
+  // GDP — only the FINAL (third) quarterly GROWTH-RATE estimate, not Advance/
+  // Prelim, and NOT the "Final GDP Price Index" (the deflator) that FF lists on
+  // the same date — without the !price guard both collide on the gdp-final key.
+  if (t.includes("gdp") && t.includes("final") && !t.includes("price")) return "gdp-final";
   if (t.includes("ppi")) return "ppi-mom";
   const isCore = t.includes("core");
   const isYoy = t.includes("y/y") || t.includes("yoy") || t.includes("annual");

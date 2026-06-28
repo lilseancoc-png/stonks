@@ -4387,6 +4387,32 @@
     }
     return out;
   }
+  // Wilder's RSI over the FULL series (so a zoomed window still uses the
+  // lookback behind it, like priceChartSma). Seeds the average gain/loss with
+  // the simple mean of the first p changes, then Wilder-smooths. null until
+  // seeded; null inputs are skipped (the change is measured against the last
+  // finite close so a sparse gap can't desync the average).
+  function priceChartRsi(arr, p){
+    p = p || 14;
+    var out = new Array(arr.length).fill(null);
+    var prev = null, avgGain = 0, avgLoss = 0, seen = 0, seeded = false;
+    for (var i = 0; i < arr.length; i++){
+      var x = arr[i];
+      if (x == null || !isFinite(x)) continue;
+      if (prev == null){ prev = x; continue; }
+      var ch = x - prev; prev = x;
+      var gain = ch > 0 ? ch : 0, loss = ch < 0 ? -ch : 0;
+      if (!seeded){
+        avgGain += gain; avgLoss += loss; seen++;
+        if (seen >= p){ avgGain /= p; avgLoss /= p; seeded = true; }
+      } else {
+        avgGain = (avgGain * (p - 1) + gain) / p;
+        avgLoss = (avgLoss * (p - 1) + loss) / p;
+      }
+      if (seeded) out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+    }
+    return out;
+  }
   function priceChartFmtDate(s, withTime){
     if (!s) return '';
     var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -4400,7 +4426,7 @@
   // Shared geometry for the price chart — one source of truth so the static
   // render (priceChartRender) and the hover handler (attachPriceChartHover)
   // map between data and SVG coords identically.
-  var PC_LAYOUT = { W: 1000, H: 388, padL: 48, padR: 14, padT: 12, priceBot: 300, volTop: 322, volBot: 374 };
+  var PC_LAYOUT = { W: 1000, H: 470, padL: 48, padR: 14, padT: 12, priceBot: 300, volTop: 322, volBot: 374, rsiTop: 398, rsiBot: 452 };
   // Render ONE price chart for a display window [startIdx..end] of the full
   // series. SMAs are computed over the FULL closes (so a zoomed window still
   // gets a correct moving average using the lookback behind it), then plotted
@@ -4435,7 +4461,7 @@
     if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return { svg: '', legend: '' };
     var padv = (hi - lo) * 0.05; lo -= padv; hi += padv;
     var L = PC_LAYOUT;
-    var W = L.W, H = L.H, padL = L.padL, padR = L.padR, padT = L.padT, priceBot = L.priceBot, volTop = L.volTop, volBot = L.volBot;
+    var W = L.W, H = L.H, padL = L.padL, padR = L.padR, padT = L.padT, priceBot = L.priceBot, volTop = L.volTop, volBot = L.volBot, rsiTop = L.rsiTop, rsiBot = L.rsiBot;
     var plotW = W - padL - padR;
     // When a forecast cone is present the historical series occupies only the
     // left portion; the cone gets ~26% and the price pills a fixed gutter.
@@ -4487,6 +4513,34 @@
     }
     var barW = Math.max(1, (histW / dN) * 0.6).toFixed(2);
     var vol = volPath ? '<path class="opt-pc-vol" style="stroke-width:' + barW + '" d="' + volPath + '" />' : '';
+    // RSI(14) sub-panel below the volume strip — shares the price x-axis.
+    // Computed over the FULL closes (correct lookback behind a zoomed window),
+    // drawn only within the visible window, mapped 0..100 -> [rsiBot, rsiTop].
+    var rsiArr = priceChartRsi(c, 14);
+    var yRsi = function(val){ return rsiTop + (1 - val / 100) * (rsiBot - rsiTop); };
+    var rsiEl = '';
+    var rsiPts = '';
+    for (i = s0; i < n; i++){
+      if (rsiArr[i] == null || !isFinite(rsiArr[i])) continue;
+      rsiPts += (rsiPts ? ' ' : '') + xAt(i).toFixed(1) + ',' + yRsi(rsiArr[i]).toFixed(1);
+    }
+    if (rsiPts){
+      var rsiGrid = '';
+      var rsiLevels = [70, 50, 30];
+      for (i = 0; i < rsiLevels.length; i++){
+        var lv = rsiLevels[i], ly = yRsi(lv).toFixed(1), mid = lv === 50;
+        rsiGrid += '<line class="opt-pc-rsi-grid' + (mid ? ' is-mid' : '') + '" x1="' + padL + '" y1="' + ly + '" x2="' + (W - padR) + '" y2="' + ly + '" />';
+        rsiGrid += '<text class="opt-pc-rsi-ylabel" x="' + (padL - 6) + '" y="' + (yRsi(lv) + 3).toFixed(1) + '">' + lv + '</text>';
+      }
+      // Shade the overbought (>70) and oversold (<30) zones faintly.
+      var rsiZones =
+        '<rect class="opt-pc-rsi-zone is-ob" x="' + padL + '" y="' + yRsi(100).toFixed(1) + '" width="' + (W - padR - padL).toFixed(1) + '" height="' + (yRsi(70) - yRsi(100)).toFixed(1) + '" />' +
+        '<rect class="opt-pc-rsi-zone is-os" x="' + padL + '" y="' + yRsi(30).toFixed(1) + '" width="' + (W - padR - padL).toFixed(1) + '" height="' + (yRsi(0) - yRsi(30)).toFixed(1) + '" />';
+      rsiEl =
+        rsiZones + rsiGrid +
+        '<text class="opt-pc-rsi-tag" x="' + (padL + 3) + '" y="' + (rsiTop + 11).toFixed(1) + '">RSI 14</text>' +
+        '<polyline class="opt-pc-rsi" fill="none" points="' + rsiPts + '" />';
+    }
     // spot line + label — when a forecast cone is drawn the line stops at the
     // cone origin (the cone's avg/hi/lo lines take over to the right).
     var spotEl = '';
@@ -4504,7 +4558,7 @@
       var idxs = [s0, s0 + Math.floor((dN - 1) / 2), n - 1];
       var anch = ['start', 'middle', 'end'];
       for (i = 0; i < idxs.length; i++){
-        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (volBot + 12) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]], intraday)) + '</text>';
+        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (rsiBot + 14) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]], intraday)) + '</text>';
       }
     }
     var legend = '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>';
@@ -4521,6 +4575,7 @@
       if (ptsB) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-sma200"></i>' + pB + 'D SMA</span>';
     }
     legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-spot"></i>Spot</span>';
+    if (rsiPts) legend += '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-rsi"></i>RSI 14</span>';
     // Analyst price-forecast cone — wedges + price pills in the reserved right
     // slice. Drawn from the current price out to the analyst high / avg / low.
     var fanDefs = '', fanEl = '', fanLabels = '', fcXlabel = '';
@@ -4555,7 +4610,7 @@
       fanLabels = pill(yHigh, 'up', 'Max ' + pctOf(fc.high), fc.high) +
                   pill(yLow, 'dn', 'Min ' + pctOf(fc.low), fc.low) +
                   pill(yAvg, 'avg', 'Avg ' + pctOf(avgC), avgC);
-      fcXlabel = '<text class="opt-pc-xlabel" text-anchor="middle" x="' + X((xb + xr) / 2) + '" y="' + (volBot + 12) + '">1Y forecast' + (fc.n ? ' · ' + fc.n + ' analysts' : '') + '</text>';
+      fcXlabel = '<text class="opt-pc-xlabel" text-anchor="middle" x="' + X((xb + xr) / 2) + '" y="' + (rsiBot + 14) + '">1Y forecast' + (fc.n ? ' · ' + fc.n + ' analysts' : '') + '</text>';
     }
     var aria = intraday ? '30-minute intraday bars, ' + dN + ' points' : 'daily, ' + dN + ' sessions';
     // Hover points — one [x, y, dateRaw, close, vol(, high, low)] per visible bar
@@ -4576,15 +4631,15 @@
     // Crosshair scaffolding: a transparent hit rect so moves over empty gaps
     // still fire, plus a hidden overlay (vertical + horizontal rules + focus
     // dot) the handler repositions onto the nearest bar.
-    var hitEl = '<rect class="opt-pc-hit" x="' + padL + '" y="' + padT + '" width="' + histW + '" height="' + (volBot - padT) + '" />';
+    var hitEl = '<rect class="opt-pc-hit" x="' + padL + '" y="' + padT + '" width="' + histW + '" height="' + (rsiBot - padT) + '" />';
     var hoverEl =
       '<g class="opt-pc-hover" style="display:none">' +
-        '<line class="opt-pc-cross-x" y1="' + padT + '" y2="' + volBot + '" />' +
+        '<line class="opt-pc-cross-x" y1="' + padT + '" y2="' + rsiBot + '" />' +
         '<line class="opt-pc-cross-y" x1="' + padL + '" x2="' + (W - padR) + '" />' +
         '<circle class="opt-pc-cross-dot" r="3.5" />' +
       '</g>';
-    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + '">' +
-      fanDefs + grid + hitEl + band + vol + smaBEl + smaAEl +
+    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with RSI(14)">' +
+      fanDefs + grid + hitEl + band + vol + rsiEl + smaBEl + smaAEl +
       '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
       fanEl + spotEl + xlabels + fcXlabel + fanLabels + hoverEl +
       '</svg>';
@@ -19937,7 +19992,7 @@
       var sparkHtml = (bondsHist.series) ? bondsSparkSvg(bondsHist.series.spread) : '';
       return '<div class="bonds-live-tile' + (inv ? ' is-alerting' : '') + '">' +
         '<div class="bonds-live-tile-head">' +
-          '<span class="bonds-live-label" title="10-year yield minus 2-year yield. A negative spread (inversion) has preceded every modern US recession.">2s10s spread</span>' +
+          '<span class="bonds-live-label" title="10-year yield minus 2-year yield. A negative spread (inversion) has preceded every modern US recession.">2Y10Y spread</span>' +
           (inv ? '<span class="bonds-live-alert" title="Yield curve inverted — the classic recession-onset signal">!</span>' : '') +
         '</div>' +
         '<span class="bonds-live-value">' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</span>' +
@@ -20141,7 +20196,7 @@
         '<span class="bonds-curve-legend"><span class="bonds-curve-key cur"></span>today' +
           (prevLine ? '<span class="bonds-curve-key prev"></span>prev close' : '') + '</span>' +
       '</div>' + svg +
-      '<div class="bonds-curve-foot">2s10s <strong>' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</strong> · ' + shape + '</div>';
+      '<div class="bonds-curve-foot">2Y10Y <strong>' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</strong> · ' + shape + '</div>';
   }
 
   // --- Bonds & USD context: "why it matters today" ------------------------

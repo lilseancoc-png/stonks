@@ -3743,6 +3743,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .opt-pc-key-sma50  { background: var(--info); }
 .opt-pc-key-sma200 { background: var(--accent); }
 .opt-pc-key-spot   { background: var(--neg); }
+.opt-pc-key-rsi    { background: var(--warn); }
 .opt-pc-svg { width: 100%; height: auto; display: block; }
 .opt-pc-grid { stroke: var(--border); stroke-width: 1; }
 .opt-pc-band { fill: color-mix(in srgb, var(--text-strong) 7%, transparent); stroke: none; }
@@ -3751,6 +3752,13 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .opt-pc-sma200 { stroke: var(--accent); stroke-width: 1.2; vector-effect: non-scaling-stroke; opacity: 0.95; }
 .opt-pc-spot   { stroke: var(--neg); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: 0.8; }
 .opt-pc-vol    { stroke: var(--muted); opacity: 0.32; }
+/* RSI(14) sub-panel below the volume strip. */
+.opt-pc-rsi { stroke: var(--warn); stroke-width: 1.3; vector-effect: non-scaling-stroke; opacity: 0.95; }
+.opt-pc-rsi-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+.opt-pc-rsi-grid.is-mid { stroke-dasharray: none; opacity: 0.4; }
+.opt-pc-rsi-zone { fill: var(--text-strong); opacity: 0.04; }
+.opt-pc-rsi-ylabel { fill: var(--muted); font-size: 10px; text-anchor: end; font-variant-numeric: tabular-nums; }
+.opt-pc-rsi-tag { fill: var(--muted); font-size: 10px; letter-spacing: 0.04em; }
 .opt-pc-ylabel, .opt-pc-xlabel { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .opt-pc-ylabel { text-anchor: end; }
 .opt-pc-spotlabel { fill: var(--neg); font-size: 11px; text-anchor: end; font-variant-numeric: tabular-nums; }
