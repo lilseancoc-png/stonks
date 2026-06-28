@@ -6034,12 +6034,19 @@ export function mergeFomcMeetings(live, baseline) {
 const CPI_PPI_SCHEDULE_BASELINE = {
   cpi: {
     2025: ["2025-01-15","2025-02-12","2025-03-12","2025-04-10","2025-05-13","2025-06-11","2025-07-15","2025-08-12","2025-09-11","2025-10-15","2025-11-13","2025-12-10"],
-    2026: ["2026-01-14","2026-02-11","2026-03-12","2026-04-14","2026-05-13","2026-06-10","2026-07-15","2026-08-12","2026-09-10","2026-10-15","2026-11-13","2026-12-10"],
+    // 2026 verified against the BLS news-release archive (filenames encode the
+    // publish date) + the usinflationcalculator BLS mirror; the prior hardcoded
+    // values were stale by a day in most months (the calendar-off-by-a-day bug).
+    2026: ["2026-01-13","2026-02-13","2026-03-11","2026-04-10","2026-05-12","2026-06-10","2026-07-14","2026-08-12","2026-09-11","2026-10-14","2026-11-10","2026-12-10"],
     2027: ["2027-01-13","2027-02-11","2027-03-11","2027-04-14","2027-05-13","2027-06-10","2027-07-14","2027-08-11","2027-09-10","2027-10-14","2027-11-12","2027-12-09"],
   },
   ppi: {
     2025: ["2025-01-14","2025-02-13","2025-03-13","2025-04-11","2025-05-15","2025-06-12","2025-07-16","2025-08-14","2025-09-10","2025-10-16","2025-11-14","2025-12-11"],
-    2026: ["2026-01-15","2026-02-12","2026-03-13","2026-04-15","2026-05-14","2026-06-11","2026-07-16","2026-08-13","2026-09-11","2026-10-16","2026-11-16","2026-12-11"],
+    // 2026 verified against the BLS PPI release-schedule table (Wayback snapshot
+    // of bls.gov/schedule/news_release/ppi.htm) — early-2026 is compressed by the
+    // 2025-26 shutdown backlog. (A 13th shutdown-catch-up print, Jan 14, is
+    // omitted to keep one row per month.)
+    2026: ["2026-01-30","2026-02-27","2026-03-18","2026-04-14","2026-05-13","2026-06-11","2026-07-15","2026-08-13","2026-09-10","2026-10-15","2026-11-13","2026-12-15"],
     2027: ["2027-01-14","2027-02-12","2027-03-12","2027-04-15","2027-05-14","2027-06-11","2027-07-15","2027-08-12","2027-09-13","2027-10-15","2027-11-15","2027-12-10"],
   },
 };
@@ -6138,9 +6145,23 @@ function isoUtcDate(date) {
 }
 
 function computeReleaseSchedule(year) {
+  const holidays = usMarketHolidaySet(year);
   const empSit = [];
   for (let m = 0; m < 12; m++) {
-    empSit.push(isoUtcDate(nthWeekdayOfMonth(year, m, 5, 1)));
+    // Employment Situation = the first Friday — but BLS releases it the PRIOR
+    // business day when that Friday is a federal holiday (e.g. July 2026: the
+    // first Friday is Jul 3, the observed Independence Day, so the jobs report
+    // moves to Thu Jul 2). Without this the NFP/Unemployment rows sit a day late.
+    const firstFriday = nthWeekdayOfMonth(year, m, 5, 1);
+    let d = firstFriday;
+    while (holidays.has(isoUtcDate(d)) || d.getUTCDay() === 0 || d.getUTCDay() === 6) {
+      d = new Date(d.getTime() - 86400000);
+    }
+    // Don't let the step-back cross into the prior month (the rare New-Year's-Day
+    // first-Friday case — January's jobs report is delayed, not pulled into
+    // December); fall back to the plain first Friday there.
+    if (d.getUTCMonth() !== m) d = firstFriday;
+    empSit.push(isoUtcDate(d));
   }
   const jolts = [];
   for (let m = 0; m < 12; m++) {
