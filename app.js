@@ -10493,6 +10493,36 @@
     return best;
   }
 
+  // Near-term ATM implied vol, used for the expected-move read in the summary.
+  // Prefers the nearest expiration that's ≥5 DTE (0-2DTE ATM IV is noisy), then
+  // averages the call + put IV at the strike closest to spot. Pure; IV is from
+  // the OI snapshot so it's stable across the intraday live-spot recompute.
+  function gexNearAtmIv(chains, exps, spot){
+    if (!chains || !exps || !exps.length || !(spot > 0)) return null;
+    var pick = null;
+    for (var i = 0; i < exps.length; i++){ if (exps[i].dte >= 5){ pick = exps[i]; break; } }
+    if (!pick) pick = exps[0];
+    var ch = chains[String(pick.sec)];
+    if (!ch) return null;
+    var ivs = [], sides = [ch.c, ch.p];
+    for (var s = 0; s < 2; s++){
+      var rows = sides[s];
+      if (!Array.isArray(rows)) continue;
+      var bestD = Infinity, bestIv = null;
+      for (var r = 0; r < rows.length; r++){
+        var row = rows[r]; if (!row) continue;
+        var K = Number(row.s), iv = Number(row.iv);
+        if (!(K > 0) || !(iv > 0)) continue;
+        var dd = Math.abs(K - spot);
+        if (dd < bestD){ bestD = dd; bestIv = iv; }
+      }
+      if (bestIv != null) ivs.push(bestIv);
+    }
+    if (!ivs.length) return null;
+    var sum = 0; for (var k = 0; k < ivs.length; k++) sum += ivs[k];
+    return sum / ivs.length;
+  }
+
   // Pure: builds the full strike×expiration GEX matrix + summary metrics
   // from a baked per-ticker entry, evaluated at the given spot.
   function computeGex(entry, spot){
@@ -10575,6 +10605,7 @@
       exps: exps, strikes: strikes, cellMap: cellMap, perStrike: perStrike,
       totalNet: totalNet, callWall: callWall, putWall: putWall, topCells: topCells,
       flip: computeGexFlip(contracts, spot), scaleRef: scaleRef, spot: spot,
+      atmIv: gexNearAtmIv(chains, exps, spot),
     };
   }
 
@@ -10752,40 +10783,136 @@
       (sub ? '<span class="gex-metric-sub">' + escapeHtml(sub) + '</span>' : '') +
     '</div>';
   }
-  // Plain-English read of the current dealer-gamma situation, built from the
-  // same metrics shown in the tiles: the net-GEX sign (long vs short gamma →
-  // dampen vs amplify), where spot sits relative to the gamma flip, and the
-  // call/put walls as the levels to watch. Pure given the computed data.
-  function gexNarrative(d, sym){
-    var spot = d.spot;
-    if (!(spot > 0) || d.totalNet == null || !isFinite(d.totalNet)) return '';
-    var pos = d.totalNet >= 0;
-    var lead;
-    if (pos){
-      lead = escapeHtml(sym) + ' dealers are <strong>net long gamma</strong> (' + gexFmtSigned(d.totalNet) +
-        '): they fade the tape — selling rips, buying dips — so expect <strong>volatility to compress</strong> and price to get pinned toward the heaviest strikes.';
+  // The summary system: distills the computed GEX matrix into one glanceable
+  // read — where dealer hedging pulls price (LEAN), whether vol gets dampened
+  // or amplified + a magnitude (VOL REGIME), and where the options crowd is
+  // POSITIONED (call- vs put-gamma skew). Pure given the computed data; drives
+  // the verdict badges, the new metric tiles, and the plain-English paragraph.
+  var GEX_VOL_TIERS = ['Subdued', 'Moderate', 'Elevated', 'High'];
+  function gexVerdict(d){
+    if (!d || !(d.spot > 0) || d.totalNet == null || !isFinite(d.totalNet)) return null;
+    var spot = d.spot, posGamma = d.totalNet >= 0;
+
+    // Positioning skew + the pin: total call vs put dollar-gamma across the
+    // shown strikes, and the strike with the densest total gamma (the magnet in
+    // a long-gamma regime, the level price is repelled from in a short one).
+    var sumCall = 0, sumPut = 0, pin = null;
+    for (var i = 0; i < d.perStrike.length; i++){
+      var ps = d.perStrike[i];
+      sumCall += ps.call || 0; sumPut += ps.put || 0;
+      var mass = (ps.call || 0) + (ps.put || 0);
+      if (!pin || mass > pin.mass) pin = { strike: ps.strike, mass: mass };
+    }
+    var totalMass = sumCall + sumPut;
+    var callShare = totalMass > 0 ? sumCall / totalMass : 0.5;
+    var pinStrike = pin ? pin.strike : null;
+    var pinDistPct = pinStrike != null ? (pinStrike - spot) / spot * 100 : null;
+
+    // Expected 1-session move from near-term ATM IV (√ of one trading day).
+    var atmIv = d.atmIv;
+    var evMovePct = atmIv > 0 ? atmIv * Math.sqrt(1 / 252) * 100 : null;
+    var evMoveAbs = evMovePct != null ? spot * evMovePct / 100 : null;
+    var flipDistPct = (d.flip != null && isFinite(d.flip)) ? Math.abs(spot - d.flip) / spot * 100 : null;
+
+    // Directional lean. Long gamma: price is magnetized toward the pin, so the
+    // lean is the side the pin sits (and "pinned" when it's right at spot).
+    // Short gamma: dealers chase, so the tape is unstable — biased to the side
+    // spot has broken on (below the flip = downside acceleration, the classic
+    // short-gamma selloff read), and "two-way" when there's no flip in range.
+    var dir, dirLabel, dirClass, NEAR = 0.6;
+    if (posGamma){
+      if (pinDistPct == null || Math.abs(pinDistPct) < NEAR){ dir = 'neutral'; dirLabel = 'Pinned · range-bound'; dirClass = ''; }
+      else if (pinDistPct > 0){ dir = 'bull'; dirLabel = 'Upward pull'; dirClass = 'is-pos'; }
+      else { dir = 'bear'; dirLabel = 'Downward pull'; dirClass = 'is-neg'; }
     } else {
-      lead = escapeHtml(sym) + ' dealers are <strong>net short gamma</strong> (' + gexFmtSigned(d.totalNet) +
-        '): they chase the tape — selling weakness, buying strength — so expect <strong>moves to be amplified</strong>, with trends and breakouts running further.';
+      if (d.flip != null && spot < d.flip){ dir = 'bear'; dirLabel = 'Volatile · downside risk'; dirClass = 'is-neg'; }
+      else if (d.flip != null && spot > d.flip){ dir = 'bull'; dirLabel = 'Volatile · upside chase'; dirClass = 'is-pos'; }
+      else { dir = 'volatile'; dirLabel = 'Volatile · two-way'; dirClass = 'is-neg'; }
+    }
+
+    // Volatility strength: magnitude from the expected move, then tilted by the
+    // gamma regime (dealers dampen when long gamma, amplify when short).
+    var base;
+    if (evMovePct == null) base = posGamma ? 1 : 2;
+    else if (evMovePct < 1.2) base = 0;
+    else if (evMovePct < 2.2) base = 1;
+    else if (evMovePct < 3.5) base = 2;
+    else base = 3;
+    if (!posGamma) base += 1;
+    else if (flipDistPct != null && flipDistPct > 2) base -= 1; // firmly pinned, far from the flip
+    if (base < 0) base = 0; if (base > 3) base = 3;
+    var volClass = base >= 2 ? 'is-neg' : (base <= 0 ? 'is-pos' : '');
+
+    return {
+      posGamma: posGamma, dir: dir, dirLabel: dirLabel, dirClass: dirClass,
+      pinStrike: pinStrike, pinDistPct: pinDistPct, callShare: callShare,
+      atmIv: atmIv, evMovePct: evMovePct, evMoveAbs: evMoveAbs, flipDistPct: flipDistPct,
+      volTier: base, volLabel: GEX_VOL_TIERS[base], volClass: volClass,
+    };
+  }
+
+  function gexBadge(label, val, cls){
+    return '<span class="gex-badge ' + (cls || '') + '">' +
+      '<span class="gex-badge-k">' + escapeHtml(label) + '</span>' +
+      '<span class="gex-badge-v">' + val + '</span></span>';
+  }
+  // The 3-badge verdict header — the one-second read at the top of the summary.
+  function gexVerdictHeader(v){
+    if (!v) return '';
+    var arrow = v.dir === 'bull' ? '▲' : (v.dir === 'bear' ? '▼' : (v.dir === 'volatile' ? '⚡' : '●'));
+    var regimeLabel = v.posGamma ? 'Stable · dealers dampen' : 'Unstable · dealers amplify';
+    var posTxt = v.callShare >= 0.58 ? 'Call-heavy' : (v.callShare <= 0.42 ? 'Put-heavy' : 'Balanced');
+    var posPct = isFinite(v.callShare) ? Math.round(v.callShare * 100) + '% call γ' : '';
+    var posClass = v.callShare >= 0.58 ? 'is-pos' : (v.callShare <= 0.42 ? 'is-neg' : '');
+    var volVal = escapeHtml(v.volLabel) + (v.evMovePct != null ? ' · ±' + v.evMovePct.toFixed(1) + '%/day' : '');
+    return '<div class="gex-verdict">' +
+      gexBadge('Lean', arrow + ' ' + escapeHtml(v.dirLabel), v.dirClass) +
+      gexBadge('Regime', escapeHtml(regimeLabel), v.posGamma ? 'is-pos' : 'is-neg') +
+      gexBadge('Volatility', volVal, v.volClass) +
+      gexBadge('Positioning', escapeHtml(posTxt) + (posPct ? ' <span class="gex-badge-sub">' + posPct + '</span>' : ''), posClass) +
+    '</div>';
+  }
+
+  // Plain-English read tying the verdict together: regime (dampen vs amplify) +
+  // where price is heading (the pin), how strong the move could be (expected
+  // move + tier), the flip as the trigger that flips the regime, and the walls
+  // as the levels to watch. Pure given the computed data + verdict.
+  function gexNarrative(d, sym, v){
+    var spot = d.spot;
+    if (!v || !(spot > 0)) return '';
+    var lead;
+    if (v.posGamma){
+      lead = escapeHtml(sym) + ' dealers are <strong>long gamma</strong> (' + gexFmtSigned(d.totalNet) +
+        ') — they fade the tape, selling rips and buying dips, so moves get <strong>dampened</strong> and price tends to <strong>pin</strong>' +
+        (v.pinStrike != null ? ' toward ' + fmtOiStrike(v.pinStrike) : '') + '.';
+    } else {
+      lead = escapeHtml(sym) + ' dealers are <strong>short gamma</strong> (' + gexFmtSigned(d.totalNet) +
+        ') — they chase the tape, selling weakness and buying strength, so moves get <strong>amplified</strong> and trends extend' +
+        (d.flip != null && spot < d.flip ? ', with downside breaks accelerating fastest' : '') + '.';
     }
     var bits = [];
-    if (d.flip != null){
-      if (spot >= d.flip){
-        bits.push('Spot ' + fmtOiStrike(spot) + ' is holding <strong>above</strong> the gamma flip at ' + fmtOiStrike(d.flip) +
-          ' (the stabilizing zone); losing it would tip dealers short-gamma and unlock sharper swings.');
-      } else {
-        bits.push('Spot ' + fmtOiStrike(spot) + ' is sitting <strong>below</strong> the gamma flip at ' + fmtOiStrike(d.flip) +
-          ' (the unstable zone); reclaiming it would hand the dampening back to dealers.');
-      }
+    if (v.evMovePct != null){
+      bits.push('Options price a <strong>±' + v.evMovePct.toFixed(1) + '%</strong> (~' + fmtOiStrike(v.evMoveAbs) +
+        ') daily move — volatility looks <strong>' + v.volLabel.toLowerCase() + '</strong>.');
+    }
+    if (d.flip != null && isFinite(d.flip)){
+      // Branch on the actual spot-vs-flip position (matches the flip tile's
+      // flipSub + the short-gamma directional lean) — NOT on the net-gamma
+      // sign, which only coincides with spot≥flip in the canonical single-
+      // crossing case and would otherwise contradict the badge in one card.
+      bits.push(spot >= d.flip
+        ? 'The stabilizing zone holds while spot stays above the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip; lose it and dealers flip short, unlocking sharper swings.'
+        : 'Reclaiming the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip would hand the dampening back to dealers and calm the tape.');
     }
     var levels = [];
-    if (d.callWall && d.callWall.strike >= spot) levels.push('overhead resistance at the ' + fmtOiStrike(d.callWall.strike) + ' call wall');
+    if (d.callWall && d.callWall.strike >= spot) levels.push('resistance at the ' + fmtOiStrike(d.callWall.strike) + ' call wall');
     if (d.putWall && d.putWall.strike <= spot) levels.push('support at the ' + fmtOiStrike(d.putWall.strike) + ' put wall');
-    if (levels.length) bits.push('Key magnets: ' + levels.join(' and ') + '.');
-    return '<p class="gex-takeaway ' + (pos ? 'is-pos' : 'is-neg') + '">' + lead + (bits.length ? ' ' + bits.join(' ') : '') + '</p>';
+    if (levels.length) bits.push('Watch ' + levels.join(' and ') + '.');
+    return '<p class="gex-takeaway ' + (v.posGamma ? 'is-pos' : 'is-neg') + '">' + lead + (bits.length ? ' ' + bits.join(' ') : '') + '</p>';
   }
 
   function gexSummaryHtml(d, sym){
+    var v = gexVerdict(d);
     var spot = d.spot;
     var spotExtra = '';
     if (gexState.spotSource === 'live' && gexState.liveChange != null){
@@ -10796,12 +10923,24 @@
     }
     var regime = d.totalNet >= 0 ? 'positive — stabilizing' : 'negative — amplifying';
     var flipSub = d.flip != null ? (spot >= d.flip ? 'spot above flip' : 'spot below flip') : '';
+    var pinSub = (v && v.pinDistPct != null)
+      ? (Math.abs(v.pinDistPct) < 0.6 ? 'at spot' : (v.pinDistPct > 0 ? '+' : '') + v.pinDistPct.toFixed(1) + '% away')
+      : 'gamma magnet';
+    // The densest-gamma strike attracts price in long gamma but repels it in
+    // short gamma, so the tile is regime-aware: only tint it by the (pin-
+    // derived) directional lean when long gamma — in short gamma dirClass comes
+    // from spot-vs-flip, not the pin, so it would mislead.
+    var pinLabel = (v && !v.posGamma) ? 'Repel (pin)' : 'Magnet (pin)';
+    var pinClass = (v && v.posGamma) ? v.dirClass : '';
+    var emSub = (v && v.evMoveAbs != null) ? '≈ ' + fmtOiStrike(v.evMoveAbs) + '/day' + (v.atmIv > 0 ? ' · ' + (v.atmIv * 100).toFixed(0) + '% IV' : '') : '1-session, ATM IV';
     var tiles = [
       gexMetricTile('Spot', fmtOiStrike(spot) + spotExtra, '', gexState.spotSource === 'live' ? 'live' : 'last session'),
       gexMetricTile('Total net GEX', gexFmtSigned(d.totalNet), d.totalNet >= 0 ? 'is-pos' : 'is-neg', regime),
       gexMetricTile('Gamma flip', d.flip != null ? fmtOiStrike(d.flip) : '—', '', flipSub),
+      gexMetricTile(pinLabel, (v && v.pinStrike != null) ? fmtOiStrike(v.pinStrike) : '—', pinClass, pinSub),
       gexMetricTile('Call wall', d.callWall ? fmtOiStrike(d.callWall.strike) : '—', 'is-pos', d.callWall ? gexFmtSigned(d.callWall.net) : ''),
       gexMetricTile('Put wall', d.putWall ? fmtOiStrike(d.putWall.strike) : '—', 'is-neg', d.putWall ? gexFmtSigned(d.putWall.net) : ''),
+      gexMetricTile('Exp. move', (v && v.evMovePct != null) ? '±' + v.evMovePct.toFixed(1) + '%' : '—', v ? v.volClass : '', emSub),
     ];
     var chips = '';
     if (d.topCells && d.topCells.length){
@@ -10813,7 +10952,7 @@
             gexFmtSigned(c.net) + '</span>';
         }).join('') + '</div>';
     }
-    return '<div class="gex-metrics">' + tiles.join('') + '</div>' + gexNarrative(d, sym) + chips;
+    return gexVerdictHeader(v) + '<div class="gex-metrics">' + tiles.join('') + '</div>' + gexNarrative(d, sym, v) + chips;
   }
 
   // Diverging horizontal bar drawn as a cell background for the per-strike

@@ -15470,6 +15470,21 @@ a.brief-hline-title:hover .brief-hline-ext { color: var(--accent-strong); }
 .gex-action-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 .gex-summary { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-4); }
+/* Verdict badges — the one-second read (Lean / Regime / Volatility / Positioning). */
+.gex-verdict { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.gex-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: var(--r-pill);
+  border: 1px solid var(--border); background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.gex-badge-k { font-size: 0.72em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.gex-badge-v { font-weight: 600; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.gex-badge-sub { font-weight: 500; color: var(--text-3); font-size: 0.88em; }
+.gex-badge.is-pos { border-color: color-mix(in srgb, var(--up) 45%, var(--border)); background: color-mix(in srgb, var(--up) 8%, var(--surface-2)); }
+.gex-badge.is-pos .gex-badge-v { color: var(--up); }
+.gex-badge.is-neg { border-color: color-mix(in srgb, var(--dn) 45%, var(--border)); background: color-mix(in srgb, var(--dn) 8%, var(--surface-2)); }
+.gex-badge.is-neg .gex-badge-v { color: var(--dn); }
 .gex-metrics { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .gex-metric {
   flex: 1 1 150px; min-width: 130px;
