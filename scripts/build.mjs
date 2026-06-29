@@ -5603,21 +5603,35 @@ export function reduceCapexFacts(facts) {
     const start = Date.parse(u.start), end = Date.parse(u.end);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
     const days = Math.round((end - start) / 86400000);
-    clean.push({ start, end, startIso: u.start, endIso: u.end, val: Number(u.val), days, form: u.form || null });
+    clean.push({ start, end, startIso: u.start, endIso: u.end, val: Number(u.val), days, form: u.form || null, fp: u.fp || null });
   }
   if (!clean.length) return { annual: [], ttm: null };
-  // ANNUAL — ~365-day periods, deduped by end date (prefer the 10-K figure).
+  const isAnnualWindow = (f) => f.days >= 340 && f.days <= 380;
+  // FISCAL YEARS — the fp="FY" annual facts (the 10-K full-year column). Some
+  // names (notably AMZN) ALSO report ~365-day TRAILING-TWELVE-MONTH windows in
+  // their 10-Qs (fp="Q1/Q2/Q3"); those are NOT fiscal years, and the raw
+  // ~365-day filter would mistake the freshest one for a newer FY (e.g. a
+  // TTM-through-Q1 mislabeled "FY<next>"). Restrict to fp="FY", deduped by end
+  // (prefer the 10-K); fall back to the raw window only when a name tags no fp.
+  const fyFacts = clean.filter((f) => isAnnualWindow(f) && f.fp === "FY");
+  const annualSource = fyFacts.length ? fyFacts : clean.filter(isAnnualWindow);
   const annualByEnd = new Map();
-  for (const f of clean) {
-    if (f.days < 340 || f.days > 380) continue;
+  for (const f of annualSource) {
     const prev = annualByEnd.get(f.endIso);
     if (!prev || (f.form === "10-K" && prev.form !== "10-K")) annualByEnd.set(f.endIso, f);
   }
   const annual = [...annualByEnd.values()].sort((a, b) => a.end - b.end);
   if (!annual.length) return { annual: [], ttm: null };
   const latestFy = annual[annual.length - 1];
-  // Most recent cumulative-YTD partial that ends AFTER the latest full FY (a newer 10-Q).
+  // TTM RUN-RATE ("this year, projected"). If the name reports a fresher
+  // ~365-day TRAILING window past the latest FY (AMZN's TTM-through-Q1), use it
+  // directly; otherwise roll forward priorFY + (current YTD − prior-year YTD).
+  const latestWindow = clean.filter(isAnnualWindow).sort((a, b) => a.end - b.end).pop();
   let curYtd = null;
+  if (latestWindow && latestWindow.end > latestFy.end) {
+    return { annual, ttm: { val: latestWindow.val, asOf: latestWindow.endIso, basis: "ttm" } };
+  }
+  // Most recent cumulative-YTD partial that ends AFTER the latest full FY (a newer 10-Q).
   for (const f of clean) {
     if (f.days >= 340 || f.days < 60) continue;
     if (f.end <= latestFy.end) continue;
@@ -5641,23 +5655,41 @@ export function reduceCapexFacts(facts) {
   return { annual, ttm };
 }
 
-const capexFyLabel = (endIso) => (endIso ? "FY" + String(endIso).slice(0, 4) : null);
+// Label a fiscal year by the calendar year it PREDOMINANTLY covers. A fiscal
+// year ending in January (NVDA ends ~Jan 25) is almost entirely the prior
+// calendar year — labeling it by the raw end-year would read "FY2026" while
+// every Dec/Jun/Sep-ending peer reads "FY2025", breaking the "AI capex THIS
+// year" comparison. Shift the end date back ~1 month and take that year (rolls
+// a January end into the prior year; leaves Feb–Dec ends untouched).
+const capexFyLabel = (endIso) => {
+  if (!endIso) return null;
+  const end = Date.parse(endIso);
+  if (!Number.isFinite(end)) return "FY" + String(endIso).slice(0, 4);
+  return "FY" + new Date(end - 31 * 86400000).getUTCFullYear();
+};
 
 // Build data/ai-capex.json. `chains` supplies each name's display name + TTM
 // revenue (for the CapEx-intensity read); `prior` is the last-good payload so a
 // transient SEC outage carries forward instead of blanking the tab.
-async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = null) {
+export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = null) {
   const companies = [];
   const missing = [];
   for (const ticker of AI_CAPEX_TICKERS) {
     const cik = cikMap ? cikMap.get(ticker) : null;
     if (!cik) { missing.push(ticker); continue; }
     let reduced = { annual: [], ttm: null };
-    for (const concept of AI_CAPEX_CONCEPTS) {
-      const facts = await fetchCompanyConceptUsd(cik, concept);
+    let reducedEnd = -Infinity;
+    for (let i = 0; i < AI_CAPEX_CONCEPTS.length; i++) {
+      if (i > 0) await new Promise((res) => setTimeout(res, 120)); // SEC politeness between concept probes
+      const facts = await fetchCompanyConceptUsd(cik, AI_CAPEX_CONCEPTS[i]);
       const r = reduceCapexFacts(facts);
-      if (r.annual.length) { reduced = r; break; }
-      await new Promise((res) => setTimeout(res, 120)); // SEC politeness between concept probes
+      if (!r.annual.length) continue;
+      // Pick the concept whose latest fiscal year is the MOST RECENT — a name
+      // that re-tagged its capex (AMZN/NVDA → PaymentsToAcquireProductiveAssets)
+      // leaves STALE annual data under the old concept (AMZN's PP&E stops at
+      // FY2017, NVDA's at FY2012) that must not win just by being probed first.
+      const end = r.annual[r.annual.length - 1].end;
+      if (end > reducedEnd) { reduced = r; reducedEnd = end; }
     }
     if (!reduced.annual.length) { missing.push(ticker); continue; }
     const a = reduced.annual;
