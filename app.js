@@ -112,7 +112,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-29","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-28","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -12802,6 +12802,19 @@
           ' <span>' + briefEsc(briefFmtPct(m.chPct)) + '</span></span>';
       }).join('');
       blocks.push(briefBlock('Overnight & foreign', '<div class="brief-chips">' + ovn + '</div>'));
+    }
+    // Global sovereign bonds (BOTH briefs) — foreign government yields (Japan's
+    // 10Y JGB etc.) with their 1-day bp move; significant movers get a marker so
+    // a sharp duration/yen-carry move is never missed. Yields are direction-
+    // neutral (a rising yield isn't simply "good"/"bad"), so chips stay neutral.
+    if (Array.isArray(b.bonds) && b.bonds.length){
+      var bnd = b.bonds.map(function(m){
+        var bp = (m.chgBp > 0 ? '+' : '') + m.chgBp + 'bp';
+        var tip = (m.name || m.sym) + (m.value != null ? ' ' + m.value + '%' : '') + (m.significant ? ' · significant 1-day move' : '');
+        return '<span class="brief-chip foreign info" title="' + briefEsc(tip) + '">' +
+          (m.significant ? '● ' : '') + briefEsc(m.name || m.sym) + ' <span>' + briefEsc(bp) + '</span></span>';
+      }).join('');
+      blocks.push(briefBlock('Global bonds', '<div class="brief-chips">' + bnd + '</div>'));
     }
     // Levels to watch (morning) — 20D support/resistance rails on the index ETFs.
     if (Array.isArray(b.levels) && b.levels.length){

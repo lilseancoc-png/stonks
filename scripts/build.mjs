@@ -13407,6 +13407,10 @@ const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-2.5-flash-lite";
 // mirrors the heatmap EOD trigger — minted only after the 16:00 ET close.
 const BRIEF_MORNING_CUTOFF_ET_HOUR = 12;
 const BRIEF_EOD_TRIGGER_ET_HOUR = 16;
+// A sovereign-yield 1-day move at/above this (basis points) is flagged
+// "significant" in the briefs' Global-bonds section so a sharp JGB / curve
+// move is surfaced, not buried. ~5bp is a notable daily move for a 10Y.
+const BRIEF_RATE_SIG_BP = 5;
 
 // ET wall-clock hour (0-23), DST-safe. build.mjs already has etDateKey(); this
 // is its hour sibling, used only by the brief window gating.
@@ -13733,11 +13737,50 @@ export function gatherBriefSignals(kind, ctx) {
     };
   }
 
-  // Macro strip: 10Y yield, the dollar, VIX with their 1-day change.
+  // Macro strip: the Treasury curve (2Y/10Y/30Y), the dollar, VIX with their
+  // 1-day change. The 2Y (Fed-path proxy) and 30Y (long end) ride alongside the
+  // 10Y so a significant curve move surfaces in BOTH briefs, not just at the 10Y.
   const macroArr = [];
+  if (macro?.twoY?.value != null) macroArr.push({ label: "2Y yield", value: Number(macro.twoY.value).toFixed(2) + "%", change: briefBpsStr(macro.twoY.bpsChange1d) });
   if (macro?.tenY?.value != null) macroArr.push({ label: "10Y yield", value: Number(macro.tenY.value).toFixed(2) + "%", change: briefBpsStr(macro.tenY.bpsChange1d) });
+  if (macro?.thirtyY?.value != null) macroArr.push({ label: "30Y yield", value: Number(macro.thirtyY.value).toFixed(2) + "%", change: briefBpsStr(macro.thirtyY.bpsChange1d) });
+  // 2s10s curve (10Y − 2Y, in bps) + its 1-day change — the headline
+  // steepening / flattening / inversion signal the curve is watched for.
+  if (macro?.twoY?.value != null && macro?.tenY?.value != null) {
+    const spreadBp = Math.round((Number(macro.tenY.value) - Number(macro.twoY.value)) * 100);
+    const dTen = Number(macro.tenY.bpsChange1d), dTwo = Number(macro.twoY.bpsChange1d);
+    const dSpread = (Number.isFinite(dTen) && Number.isFinite(dTwo)) ? Math.round(dTen - dTwo) : null;
+    macroArr.push({
+      label: "2s10s curve",
+      value: (spreadBp >= 0 ? "+" : "") + spreadBp + "bp",
+      change: dSpread != null ? `${dSpread >= 0 ? "+" : ""}${dSpread}bp` : null,
+    });
+  }
   if (macro?.dxy?.value != null) macroArr.push({ label: "Dollar (DXY)", value: Number(macro.dxy.value).toFixed(2), change: briefPctStr(macro.dxy.pctChange1d) });
   if (macro?.vix?.value != null) macroArr.push({ label: "VIX", value: Number(macro.vix.value).toFixed(2), change: briefPctStr(macro.vix.pctChange1d) });
+
+  // Global sovereign bonds — foreign government yields (Japan's 10Y JGB today;
+  // Bunds/Gilts when added) pulled from the overnight cross-market sweep, in
+  // BOTH briefs so a significant move in a global duration anchor (the JGB is
+  // the yen-carry / global-rates bellwether) always surfaces and is never
+  // crowded out of the top-6 overnight strip. The US curve is the macro strip
+  // above, so this is foreign-only to avoid double-listing.
+  const US_RATE_SYMS = new Set(["US2Y", "^TNX", "^TYX", "^FVX", "^IRX"]);
+  const bondArr = [];
+  for (const m of Object.values(correlations?.markets || {})) {
+    if (!m || m.type !== "rate" || US_RATE_SYMS.has(m.sym) || !Number.isFinite(m.chgBp)) continue;
+    bondArr.push({
+      sym: m.sym, name: m.name || m.sym, region: m.region || null,
+      // The yield LEVEL lives on `last` in correlations.markets (same field the
+      // overnight renderer reads) — NOT `value`, which these entries don't carry.
+      value: Number.isFinite(m.last) ? Math.round(m.last * 1000) / 1000 : null,
+      chgBp: Math.round(m.chgBp * 10) / 10,
+      chPct: Number.isFinite(m.chPct) ? Math.round(m.chPct * 100) / 100 : null,
+      significant: Math.abs(m.chgBp) >= BRIEF_RATE_SIG_BP,
+    });
+  }
+  bondArr.sort((a, b) => Math.abs(b.chgBp) - Math.abs(a.chgBp));
+  const bonds = bondArr.slice(0, 4);
 
   // Top model picks (picks.json is already conviction-ranked).
   const pickArr = (Array.isArray(picks) ? picks : []).slice(0, 3).map((p) => ({
@@ -13767,6 +13810,7 @@ export function gatherBriefSignals(kind, ctx) {
   }
 
   const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
+  if (bonds.length) signals.bonds = bonds;
 
   // Market-wide press/wire headlines — the media input behind headline-driven
   // tape moves (a geopolitical de-escalation lifting everything, a tariff
@@ -13842,22 +13886,18 @@ export function gatherBriefSignals(kind, ctx) {
       };
     }
     const mk = correlations?.markets ? Object.values(correlations.markets) : [];
-    // Rank by overnight magnitude. For a yield, chPct is the % change of the
-    // YIELD LEVEL (meaningless across bases — a 5bp move is ~3% on a 1.5% JGB
-    // but ~1% on a 4% UST), so rank rate rows on the bp move instead, scaled
-    // /10 to put ~10bp on par with a 1% price move. Without this a low-base
-    // yield (JGB10Y) would crowd genuine equity/FX moves out of the top-6.
-    const ovnMag = (m) => (m.type === "rate" && Number.isFinite(m.chgBp))
-      ? Math.abs(m.chgBp) / 10
-      : (Number.isFinite(m.chPct) ? Math.abs(m.chPct) : 0);
+    // The biggest overnight equity / FX / commodity / futures moves, ranked by
+    // %. Sovereign yields (type "rate") are deliberately EXCLUDED here — they
+    // get their own always-present "Global bonds" section (bp-denominated), so
+    // a low-base yield like the JGB can't crowd genuine equity/FX moves out of
+    // the top-6, and the US curve lives in the macro strip.
     signals.overnight = mk
-      .filter((m) => m && (Number.isFinite(m.chPct) || (m.type === "rate" && Number.isFinite(m.chgBp))))
-      .sort((a, b) => ovnMag(b) - ovnMag(a))
+      .filter((m) => m && m.type !== "rate" && Number.isFinite(m.chPct))
+      .sort((a, b) => Math.abs(b.chPct) - Math.abs(a.chPct))
       .slice(0, 6)
       .map((m) => ({
-        sym: m.sym, name: m.name, region: m.region, type: m.type,
-        chPct: Number.isFinite(m.chPct) ? Math.round(m.chPct * 100) / 100 : null,
-        chgBp: Number.isFinite(m.chgBp) ? m.chgBp : null,
+        sym: m.sym, name: m.name, region: m.region,
+        chPct: Math.round(m.chPct * 100) / 100,
       }));
     // Index scorecard — US equity index futures pointing to the open.
     const idxFut = [];
@@ -13976,6 +14016,7 @@ function briefRenderFields(s) {
   const out = {};
   if (s.fearGreed) out.fearGreed = s.fearGreed;
   if (s.macro && s.macro.length) out.macro = s.macro;
+  if (s.bonds && s.bonds.length) out.bonds = s.bonds;
   if (s.releases && s.releases.length) out.releases = s.releases;
   if (s.headlines && s.headlines.length) out.headlines = s.headlines;
   if (s.tone) out.tone = s.tone;
@@ -14024,13 +14065,21 @@ function briefSystemPrompt(kind) {
     "move to it in the summary and ALSO include one highlight labeled 'Tape driver' naming the headline and the " +
     "reaction it drove. Direction and timing must both line up — never force a connection, never treat a headline " +
     "as the driver when the move predates it or points the other way, and skip the highlight entirely when the " +
-    "tape is better explained by data prints, earnings, or positioning.";
+    "tape is better explained by data prints, earnings, or positioning. " +
+    "RATES & CURVE: the facts include the Treasury curve (2Y / 10Y / 30Y), the 2s10s spread, and a " +
+    "'Global sovereign bonds' section (foreign government yields — Japan's 10Y JGB is the yen-carry / " +
+    "global-duration anchor). When ANY of these shows a significant 1-day move — a sharp curve " +
+    "steepening or flattening, a 2Y repricing the Fed path, or a foreign-bond jump (especially the JGB) — " +
+    "surface it explicitly in the summary AND as a highlight, " +
+    "since rates and curve shifts move equities. Any bond flagged 'SIGNIFICANT' must be called out. Don't " +
+    "manufacture a rates story when the moves are small (a few bp).";
   if (kind === "morning") {
     return (
       "You are a markets-desk analyst writing a concise PRE-MARKET brief for US options traders, " +
       "published before the opening bell. You receive structured facts: how the headline index ETFs closed " +
       "yesterday, US index futures (S&P / Nasdaq), how overnight foreign markets traded, the risk tone, key " +
-      "macro levels (10Y yield, the dollar, VIX), the CNN Fear & Greed reading, the 20-day support/resistance " +
+      "macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s spread, the dollar, VIX), foreign " +
+      "sovereign bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, the 20-day support/resistance " +
       "levels to watch on SPY and QQQ, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and " +
       "where spot sits vs the gamma flip — short gamma below the flip means dealers amplify moves), notable " +
       "options flow from the prior session, any names added to or dropped from the model's actionable top picks, " +
@@ -14046,7 +14095,8 @@ function briefSystemPrompt(kind) {
     "published just after the 4pm ET close. You receive structured facts: how the headline index ETFs (SPY/QQQ/IWM) " +
     "closed, the day's breadth (advancers/decliners), the sector leaders and laggards, the biggest gainers and " +
     "losers, names that ended at or near 52-week highs/lows, the heaviest-volume names vs their own 20-day " +
-    "average, notable unusual options flow, where macro levels (10Y yield, the dollar, VIX) and the CNN Fear & " +
+    "average, notable unusual options flow, where macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s " +
+    "spread, the dollar, VIX) and foreign sovereign bonds (incl. Japan's 10Y JGB) and the CNN Fear & " +
     "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
     "vs the gamma flip), any names added to or dropped from the model's actionable top picks, the model's top " +
     "option picks, the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
@@ -14071,6 +14121,12 @@ export function briefUserMessage(kind, dateKey, signals) {
   }
   if (signals.macro && signals.macro.length) {
     lines.push("Macro: " + signals.macro.map((m) => `${m.label} ${m.value}${m.change ? ` (${m.change})` : ""}`).join(", ") + ".");
+  }
+  if (signals.bonds && signals.bonds.length) {
+    lines.push("Global sovereign bonds (foreign government yields; bp = 1-day basis-point move):");
+    for (const bd of signals.bonds) {
+      lines.push(`- ${bd.name}${bd.region ? ` (${bd.region})` : ""}: ${bd.value != null ? `${bd.value.toFixed(2)}% ` : ""}${briefBpsStr(bd.chgBp) || ""}${bd.significant ? " — SIGNIFICANT move" : ""}`);
+    }
   }
   if (signals.releases && signals.releases.length) {
     lines.push("Economic data released (actual vs consensus):");
@@ -14100,11 +14156,11 @@ export function briefUserMessage(kind, dateKey, signals) {
     }
     if (signals.tone) lines.push(`Overnight tone: ${signals.tone.label}${signals.tone.reasons.length ? ` — ${signals.tone.reasons.join("; ")}` : ""}.`);
     if (signals.overnight && signals.overnight.length) {
+      // Equity / FX / commodity / futures only — sovereign yields moved to the
+      // Global-bonds section above, so everything here reads in percent.
       lines.push("Overnight / foreign moves:");
       for (const m of signals.overnight) {
-        // Yields read in basis points; everything else in percent.
-        const moveStr = (m.type === "rate" && Number.isFinite(m.chgBp)) ? briefBpsStr(m.chgBp) : briefPctStr(m.chPct);
-        lines.push(`- ${m.name || m.sym}${m.region ? ` (${m.region})` : ""}: ${moveStr}`);
+        lines.push(`- ${m.name || m.sym}${m.region ? ` (${m.region})` : ""}: ${briefPctStr(m.chPct)}`);
       }
     }
     if (signals.levels && signals.levels.length) {
