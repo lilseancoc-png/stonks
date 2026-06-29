@@ -112,7 +112,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-06-28","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-06-28","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -12351,9 +12351,14 @@
     if (t){
       var dir = t.yoyPct == null ? '' : (t.yoyPct >= 0 ? 'cx-up' : 'cx-down');
       var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
+      var fyLbl = t.fyLatestLabel ? escapeHtml(t.fyLatestLabel) : 'latest FY';
+      // "This year, projected" = the TTM run-rate annualized vs the last full
+      // FY (the 2025 figure) — the forward read the user asked for.
+      var projPct = (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
+      var projDir = projPct == null ? '' : (projPct >= 0 ? 'cx-up' : 'cx-down');
       head = '<div class="cx-hero">' +
         '<div class="cx-hero-main">' +
-          '<div class="cx-hero-label">Total Mag-7 CapEx · latest reported fiscal year</div>' +
+          '<div class="cx-hero-label">Total Mag-7 CapEx · ' + fyLbl + ' (latest reported)</div>' +
           '<div class="cx-hero-val">' + cxDollars(t.fyLatestSum) + '</div>' +
           (t.fyPriorSum != null ?
             '<div class="cx-hero-sub ' + dir + '">' +
@@ -12362,7 +12367,8 @@
             '</div>' : '') +
         '</div>' +
         (t.ttmSum != null ?
-          '<div class="cx-hero-ttm"><div class="cx-hero-label">TTM run-rate</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
+          '<div class="cx-hero-ttm"><div class="cx-hero-label">This year, projected (run-rate)</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
+          (projPct != null ? '<div class="cx-hero-sub ' + projDir + '">' + (projPct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(projPct).toFixed(1) + '% vs ' + fyLbl + '</div>' : '') +
           (t.ttmCount < t.count ? '<div class="cx-hero-note">' + t.ttmCount + ' of ' + t.count + ' names</div>' : '') + '</div>' : '') +
       '</div>';
     }
