@@ -301,8 +301,9 @@ function calendarSection() {
 }
 
 function indexCalSection() {
-  // Card chrome only — the monthly index-close grid (SPY/QQQ/IWM red/green +
-  // %change), the index toggle, the month nav, and the per-month summary render
+  // Card chrome only — the monthly index-close grid (SPY/QQQ/IWM/DIA/VXUS/TLT/
+  // GLD/VIX red/green + %change), the index toggle, the month nav, and the
+  // per-month summary render
   // client-side from data/index-calendar.json (premium; lazy-fetched on first
   // tab activation by loadIndexCal() in app.js).
   return `<section class="card" id="index-cal-section">

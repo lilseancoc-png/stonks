@@ -8728,13 +8728,15 @@ const REGIME_HISTORY_MAX_DAYS = 180;
 // each bake. ~800 rows ≈ 3 trading years of retained history.
 const INDEX_CALENDAR_FILE = "index-calendar.json";
 const INDEX_CALENDAR_MAX_DAYS = 800;
-// SPY/QQQ/IWM come from the bake's own chains (they're in TICKERS). VXUS (total
-// international) and ^VIX (volatility) are NOT curated chain tickers, so their
-// daily bars are fetched separately and passed to appendIndexCalendar as
-// extraBars. ^VIX is an index, not optionable, so it can't join TICKERS.
-const INDEX_CALENDAR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm", VXUS: "vxus", "^VIX": "vix" };
+// SPY/QQQ/IWM/GLD/TLT come from the bake's own chains (they're in TICKERS).
+// VXUS (total international), ^VIX (volatility) and DIA (Dow) are NOT curated
+// chain tickers, so their daily bars are fetched separately and passed to
+// appendIndexCalendar as extraBars. ^VIX is an index, not optionable, so it
+// can't join TICKERS; DIA is optionable but we keep it calendar-only (out of
+// the picks/grade universe), so it rides the extra-symbol fetch.
+const INDEX_CALENDAR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm", DIA: "dia", VXUS: "vxus", TLT: "tlt", GLD: "gld", "^VIX": "vix" };
 // Symbols sourced outside the chain sweep (fetched via fetchGlobalMarketBars).
-const INDEX_CALENDAR_EXTRA_SYMBOLS = ["VXUS", "^VIX"];
+const INDEX_CALENDAR_EXTRA_SYMBOLS = ["VXUS", "^VIX", "DIA"];
 const PICKS_CHANGES_FILE = "picks-changes.json";
 const PICKS_CHANGES_KEEP_DAYS = 30;
 const PICKS_CHANGES_MAX = 200;

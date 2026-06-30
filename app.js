@@ -14767,14 +14767,15 @@
 
   // --- Index calendar tab -------------------------------------------------
   // A monthly wall-calendar of daily index closes: each cell is tinted green/red
-  // by SPY/QQQ/IWM's close-to-close %change for that session. An index toggle
-  // switches which ETF colors the grid; a per-month summary tallies green vs red
-  // days and the month's compounded return. Renders the premium, bake-accumulated
-  // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm }] }),
+  // by the selected instrument's close-to-close %change for that session. An
+  // index toggle (SPY/QQQ/IWM/DIA/VXUS/TLT/GLD/VIX) switches which one colors the
+  // grid; a per-month summary tallies green vs red days and the month's
+  // compounded return. Renders the premium, bake-accumulated
+  // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm, ... }] }),
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
   var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', fetchedAt: 0, bound: false };
-  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', vxus: 'VXUS', vix: 'VIX' };
-  var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'vxus', 'vix'];
+  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', dia: 'DIA', vxus: 'VXUS', tlt: 'TLT', gld: 'GLD', vix: 'VIX' };
+  var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'dia', 'vxus', 'tlt', 'gld', 'vix'];
   // VIX is a fear gauge — a spike is a risk-OFF day, so invert its red/green so
   // green reads "calm" (VIX down) and red "stress" (VIX up). The displayed %
   // stays the true move; only the colour + the green/red tally flip.
@@ -14842,7 +14843,7 @@
     if (!viewYm || viewYm < minYm || viewYm > maxYm) viewYm = maxYm;
     indexCalState.viewYm = viewYm;
 
-    // Index toggle (SPY / QQQ / IWM).
+    // Index toggle (SPY / QQQ / IWM / DIA / VXUS / TLT / GLD / VIX).
     var toggle = '<div class="idx-cal-toggle" role="tablist" aria-label="Index">' +
       IDX_CAL_ORDER.map(function(k){
         var on = k === idxKey;
