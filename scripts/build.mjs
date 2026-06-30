@@ -1553,8 +1553,22 @@ async function fetchFundamentals(symbol) {
   let nextEarningsSession = null;
   const ed = ev?.earnings?.earningsDate;
   if (Array.isArray(ed) && ed.length) {
-    const first = ed[0] instanceof Date ? ed[0] : new Date(ed[0]);
-    if (!isNaN(first.getTime())) {
+    // Yahoo's earningsDate array leads with the most-recent print and keeps
+    // returning it even after it has passed, when the next date isn't scheduled
+    // yet. A "next earnings" date in the PAST is stale data: it desyncs the
+    // calendar and — because the track record's pre-earnings exit keys off it —
+    // would instantly bounce any pick on the name out as a phantom 0-day
+    // "pre-earnings" loss (every other consumer already guards future-only, so
+    // resolvePickOutcome was the lone leak; we also stop emitting it here).
+    // Pick the first entry that hasn't clearly passed (36h grace absorbs the
+    // date-only / timezone ambiguity around an as-of-today print); else null.
+    const staleCutoffMs = Date.now() - 36 * 3600 * 1000;
+    let first = null;
+    for (const cand of ed) {
+      const dt = cand instanceof Date ? cand : new Date(cand);
+      if (!isNaN(dt.getTime()) && dt.getTime() >= staleCutoffMs) { first = dt; break; }
+    }
+    if (first) {
       const hourUtc = first.getUTCHours();
       const minUtc = first.getUTCMinutes();
       if (hourUtc === 0 && minUtc === 0) {
@@ -12317,7 +12331,12 @@ export function resolvePickOutcome(opts) {
   if (o.inUniverse === false) return { status: "dropped", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
   if (pnl != null && pnl <= -stopGate) return { status: "hit-stop-prem", outcome: "loss" };
   if (pnl != null && pnl >= tpGate) return { status: "hit-tp-prem", outcome: "win" };
-  if (pnum(o.earningsAheadDays) != null && o.earningsAheadDays <= PICKS_EARNINGS_EXIT_DAYS) return { status: "pre-earnings", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
+  // Pre-earnings exit fires ONLY when a print is genuinely ahead and inside the
+  // window. Guard with Number.isFinite, NOT pnum(): pnum(null)===0 (Number(null)
+  // is 0), so the old `pnum(x) != null` never rejected a null earnings date, and
+  // `null <= 2` is also true (null coerces to 0) — so names with no/elapsed
+  // earnings (every ETF; any stale past date) were phantom-resolved on day 0.
+  if (Number.isFinite(o.earningsAheadDays) && o.earningsAheadDays >= 0 && o.earningsAheadDays <= PICKS_EARNINGS_EXIT_DAYS) return { status: "pre-earnings", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
   if (pnum(o.expSec) != null && pnum(o.nowSec) != null && o.nowSec >= o.expSec) return { status: "expired", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
   if (!credit && heldDays >= PICKS_THETA_STOP_MIN_HOLD && pnum(o.thetaPctDay) != null && o.thetaPctDay >= PICKS_THETA_STOP_PCT && pnl != null && pnl < 0) return { status: "theta-stop", outcome: "loss" };
   if (heldDays >= PICKS_MAX_HOLD_DAYS) return { status: "timed-out", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
@@ -12480,6 +12499,16 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
     if (!p.contract) continue;
+    // Don't enroll a name whose earnings prints inside the exit window: the very
+    // next build's pre-earnings exit would close it on day 0 at ~breakeven,
+    // flooding the scorecard with phantom 0-day churn (this mirrors exactly the
+    // condition resolvePickOutcome would fire on). Tracking starts once the
+    // print has passed and nextEarningsDate rolls forward.
+    const enrollEarnMs = chains?.[p.symbol]?.fundamentals?.nextEarningsDate ? Date.parse(chains[p.symbol].fundamentals.nextEarningsDate) : null;
+    if (enrollEarnMs != null) {
+      const enrollEarnAhead = (enrollEarnMs - nowSec * 1000) / 86400000;
+      if (enrollEarnAhead >= 0 && enrollEarnAhead <= PICKS_EARNINGS_EXIT_DAYS) continue;
+    }
     openKeys.add(key);
     open.push({
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
