@@ -52,6 +52,12 @@ const LEGS = [
   // Harmless to the Bonds & USD tab, which only reads the five macro legs above.
   { key: "spy", symbol: "SPY", isYield: false },
   { key: "qqq", symbol: "QQQ", isYield: false },
+  // MOVE (Treasury-option implied vol — the bond-vol axis) + the HY/IG credit ETFs
+  // (the credit axis's live HYG/LQD ratio). Feed the Top Picks market-tape /
+  // barometer only; the 2Y leg above also feeds the new front-end axis.
+  { key: "move", symbol: "^MOVE", isYield: false },
+  { key: "hyg", symbol: "HYG", isYield: false },
+  { key: "lqd", symbol: "LQD", isYield: false },
 ];
 
 // Cross-asset barometer legs for the Top Picks "Cross-asset signals → market
@@ -62,7 +68,7 @@ const LEGS = [
 // These caret-/=/-prefixed symbols (^GDAXI, ES=F, JPY=X, BTC-USD, …) all fail
 // /api/quotes' SYMBOL_RE on purpose, so — like the macro legs above — they can
 // only be reached through this fixed, no-symbol-input server set. The Asia/EU
-// CASH indices (^GDAXI/^N225/^HSI/^KS11) are closed during US hours, so the
+// CASH indices (^GDAXI/^N225/^KS11) are closed during US hours, so the
 // browser only overlays a leg whose marketState is REGULAR and leaves the rest
 // on their baked overnight read.
 const CROSS_ASSET_LEGS = [
@@ -70,16 +76,13 @@ const CROSS_ASSET_LEGS = [
   { symbol: "NQ=F" },
   { symbol: "^GDAXI" },
   { symbol: "^N225" },
-  { symbol: "^HSI" },
   { symbol: "^KS11" },
   { symbol: "^VIX" },
   { symbol: "^TNX", isYield: true },
   { symbol: "^TYX", isYield: true },
   { symbol: "JPY=X" },
   { symbol: "DX-Y.NYB" },
-  { symbol: "HG=F" },
   { symbol: "CL=F" },
-  { symbol: "SI=F" },
   { symbol: "GC=F" },
   { symbol: "BTC-USD" },
 ];

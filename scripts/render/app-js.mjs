@@ -8662,16 +8662,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     { sym: 'NQ=F',      polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
     { sym: '^GDAXI',    polarity: 1,  scale: 1.4,  metric: 'pct', group: 'Equities'    },
     { sym: '^N225',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
-    { sym: '^HSI',      polarity: 1,  scale: 1.8,  metric: 'pct', group: 'Equities'    },
     { sym: '^KS11',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
     { sym: '^VIX',      polarity: -1, scale: 12,   metric: 'pct', group: 'Vol & rates' },
     { sym: '^TNX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
     { sym: '^TYX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
     { sym: 'JPY=X',     polarity: 1,  scale: 0.7,  metric: 'pct', group: 'FX'          },
     { sym: 'DX-Y.NYB',  polarity: -1, scale: 0.6,  metric: 'pct', group: 'FX'          },
-    { sym: 'HG=F',      polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Commodities' },
     { sym: 'CL=F',      polarity: 1,  scale: 2.5,  metric: 'pct', group: 'Commodities' },
-    { sym: 'SI=F',      polarity: 1,  scale: 2.2,  metric: 'pct', group: 'Commodities' },
     { sym: 'GC=F',      polarity: -1, scale: 1.2,  metric: 'pct', group: 'Commodities' },
     { sym: 'BTC-USD',   polarity: 1,  scale: 3.0,  metric: 'pct', group: 'Crypto'      },
   ];
@@ -8680,18 +8677,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     'NQ=F':     'Nasdaq 100 futures — overnight US high-beta tech. Up = risk-on.',
     '^GDAXI':   'DAX — European equity beta. Up = risk-on.',
     '^N225':    'Nikkei 225 — Japan equity beta / the classic Asian risk barometer. Up = risk-on.',
-    '^HSI':     'Hang Seng — China / HK equity beta. Up = risk-on.',
     '^KS11':    'KOSPI — Korea equity beta (memory/exporter-heavy). Up = risk-on.',
     '^VIX':     'VIX — equity implied vol, the fear gauge. A spike is risk-OFF (inverted).',
     '^TNX':     '10Y Treasury yield — a sharp back-up pressures valuations / tightens conditions. A jump is risk-OFF (inverted).',
     '^TYX':     '30Y Treasury yield — the long end / curve. A jump is risk-OFF (inverted).',
     'JPY=X':    'USD/JPY — the yen carry. Yen weaker (USD/JPY up) = carry-on = risk-on; a yen bid (down) = carry unwind = risk-off.',
     'DX-Y.NYB': 'Dollar index (DXY) — a broad USD bid tightens global financial conditions. Up = risk-OFF (inverted).',
-    'HG=F':     'Copper (Dr. Copper) — reads global growth. Up = risk-on.',
     'CL=F':     'WTI crude — on a cross-asset panel, oil firmness co-trades with growth/demand. Up = risk-on.',
-    'SI=F':     'Silver — precious with a heavy industrial-demand leg. Up = risk-on.',
     'GC=F':     'Gold — the safe-haven / real-rates bid. Up = risk-OFF (inverted).',
     'BTC-USD':  'Bitcoin — the purest cross-asset risk-appetite proxy. Up = risk-on.',
+    // Computed signals (read from the regime inputs, not correlations.json).
+    'US2Y':     'US 2Y Treasury yield — the front end, the market’s Fed-path read. A sharp back-up is a hawkish repricing = risk-OFF (inverted).',
+    'MOVE':     'MOVE index — Treasury-option implied vol, the bond market’s "fear gauge" (complements VIX). A spike is risk-OFF (inverted).',
+    'BREADTH':  'Universe breadth — % of the tracked names above their 200-day MA (with new-high/new-low). Broad participation = risk-on; thinning = risk-off.',
+    'PUTCALL':  'Universe put/call — aggregate option positioning across the tracked names (OI ratio). Heavy puts = hedging/fear = risk-OFF (inverted).',
+    'CREDIT':   'HY credit — the HYG/LQD ratio (HY vs IG, live) with the ICE BofA HY OAS level. HY underperforming / spreads widening = risk-OFF.',
   };
   var riskBarometer = { open: true, sort: 'risk', group: false, liveOnly: false, openSym: {} };
   // Live cross-asset overlay for the barometer rail, filled by the same
@@ -8716,11 +8716,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     yields: ['^TNX', '^TYX'],
     dxy: ['DX-Y.NYB'],
     commodity: ['CL=F', 'GC=F'],
-    globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^HSI', '^KS11', 'JPY=X', 'HG=F', 'BTC-USD'],
+    globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^KS11', 'JPY=X', 'BTC-USD'],
+    twoY: ['US2Y'], bondVol: ['MOVE'], breadth: ['BREADTH'], putCall: ['PUTCALL'], credit: ['CREDIT'],
     indexes: [], sentiment: [], fed: [], geo: [], inflation: [],
   };
-  // Reverse map: a rail symbol → the axis it feeds (silver feeds neither regime
-  // axis — it rides the rail as a standalone read — so it has no entry).
+  // Reverse map: a rail symbol → the axis it feeds.
   var SYM_FEEDS_AXIS = (function(){
     var m = {};
     for (var k in AXIS_FEED_SYMS){
@@ -8733,9 +8733,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Short display names for the rail symbols (drill-down feeder lists).
   var BAROMETER_NAME = {
     'ES=F': 'S&P 500 futures', 'NQ=F': 'Nasdaq 100 futures', '^GDAXI': 'DAX', '^N225': 'Nikkei 225',
-    '^HSI': 'Hang Seng', '^KS11': 'KOSPI', '^VIX': 'VIX', '^TNX': '10Y yield', '^TYX': '30Y yield',
-    'JPY=X': 'USD/JPY', 'DX-Y.NYB': 'Dollar (DXY)', 'HG=F': 'Copper', 'CL=F': 'WTI crude',
-    'SI=F': 'Silver', 'GC=F': 'Gold', 'BTC-USD': 'Bitcoin',
+    '^KS11': 'KOSPI', '^VIX': 'VIX', '^TNX': '10Y yield', '^TYX': '30Y yield',
+    'JPY=X': 'USD/JPY', 'DX-Y.NYB': 'Dollar (DXY)', 'CL=F': 'WTI crude',
+    'GC=F': 'Gold', 'BTC-USD': 'Bitcoin',
+    'US2Y': '2Y yield', 'MOVE': 'MOVE', 'BREADTH': 'Breadth', 'PUTCALL': 'Put / call', 'CREDIT': 'HY credit',
   };
   // Plain-language "what this axis measures" (richer than the tile's one-liner).
   var AXIS_ABOUT = {
@@ -8745,10 +8746,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
     commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a gold haven bid is the classic geopolitical-shock tell (risk-OFF).',
     sentiment: 'CNN’s Fear & Greed index distills seven equity internals (breadth, momentum, junk-bond demand…). Extreme fear, or a fast swing toward fear, reads risk-OFF.',
-    globalTape: 'The overnight cross-asset tape — US futures + Asia/EU cash + the yen carry + copper + Bitcoin. Broad overnight green leans risk-on; broad red leans risk-OFF.',
+    globalTape: 'The overnight cross-asset tape — US futures + Asia/EU cash + the yen carry + Bitcoin. Broad overnight green leans risk-on; broad red leans risk-OFF.',
     fed: 'The Fed-path axis tracks FedWatch hike-odds drift. A hawkish repricing (rising hike odds) tightens the expected path (risk-OFF); a dovish drift eases it.',
     geo: 'The geopolitics axis reads the day’s war/peace headline + narrative. Fresh escalation tilts risk-OFF; de-escalation eases it. Slow axis — updates at the build.',
     inflation: 'The inflation/jobs axis reads CPI YoY direction + the unemployment rate. Re-accelerating inflation or a softening labor market tilts risk-OFF.',
+    twoY: 'The front-end (2Y) axis reads the 2-year Treasury yield — the market’s Fed-path bet. A sharp back-up is a hawkish repricing that tightens conditions (risk-OFF); a fall is the market pricing cuts.',
+    bondVol: 'The MOVE index is the bond market’s implied-volatility gauge — Treasury-option vol, the rates analog of the VIX. An elevated or spiking MOVE flags rate-vol stress (risk-OFF); a calm MOVE eases it.',
+    breadth: 'Universe breadth — the % of the tracked names above their 200-day MA, with a new-high/new-low tally. Broad participation reads risk-on; a thinning, washed-out tape reads risk-OFF. Slow axis — recomputed at the build.',
+    putCall: 'The put/call axis reads aggregate option positioning across the tracked universe (the open-interest put/call ratio). Heavy put demand = hedging/fear (risk-OFF); a call-heavy book = complacency (risk-on). Slow axis — recomputed at the build.',
+    credit: 'The HY credit axis reads high-yield spreads — the ICE BofA HY option-adjusted spread (headline level) plus the HYG/LQD ratio (HY vs IG ETF, live). Widening spreads / HY underperforming IG = credit stress (risk-OFF).',
   };
 
   // Live global cross-asset tape axis — a port of deriveGlobalTapeAxis
@@ -8756,7 +8762,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // symbol, { pctChange1d, … }) so the SAME cross-asset moves the barometer rail
   // shows actually move the regime gauge intraday. A closed foreign cash index's
   // pctChange1d IS its last completed session (== the baked overnight read), so
-  // including it is correct; the ~24h legs (US futures / yen / copper / BTC)
+  // including it is correct; the ~24h legs (US futures / yen / BTC)
   // refresh live. Returns null when the axis is off or < 3 signals are present,
   // and the caller carries the baked axis. Keep in sync with deriveGlobalTapeAxis.
   function liveGlobalTapeAxis(legs, T){
@@ -8765,16 +8771,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     function avg(syms){ var vals = []; for (var i = 0; i < syms.length; i++){ var v = ch(syms[i]); if (v != null) vals.push(v); } return vals.length ? { v: vals.reduce(function(a, b){ return a + b; }, 0) / vals.length, n: vals.length } : null; }
     function th(x, d){ return (x != null && isFinite(x)) ? Number(x) : d; }
     var futT = th(T.globalFut, 0.4), brT = th(T.globalBreadth, 0.6), yenT = th(T.globalYen, 0.6);
-    var cuT = th(T.globalCopper, 1.0), btcT = th(T.globalBtc, 2.0), acuteT = th(T.globalAcute, 3);
+    var btcT = th(T.globalBtc, 2.0), acuteT = th(T.globalAcute, 3);
     var components = [], votes = 0, present = 0;
     var fut = avg(['ES=F', 'NQ=F']);
     if (fut){ present++; var fv = fut.v >= futT ? 1 : (fut.v <= -futT ? -1 : 0); votes += fv; components.push({ key: 'futures', label: 'US futures ' + (fut.v >= 0 ? '+' : '') + fut.v.toFixed(2) + '%', vote: fv }); }
-    var breadth = avg(['^N225', '^HSI', '^KS11', '^GDAXI', '^TWII']);
+    var breadth = avg(['^N225', '^KS11', '^GDAXI', '^TWII']);
     if (breadth && breadth.n >= 2){ present++; var bv = breadth.v >= brT ? 1 : (breadth.v <= -brT ? -1 : 0); votes += bv; components.push({ key: 'breadth', label: 'Global equities ' + (breadth.v >= 0 ? '+' : '') + breadth.v.toFixed(2) + '% avg', vote: bv }); }
     var yen = ch('JPY=X');
     if (yen != null){ present++; var yv = yen >= yenT ? 1 : (yen <= -yenT ? -1 : 0); votes += yv; components.push({ key: 'yen', label: 'USD/JPY ' + (yen >= 0 ? '+' : '') + yen.toFixed(2) + '%', vote: yv }); }
-    var cu = ch('HG=F');
-    if (cu != null){ present++; var cv = cu >= cuT ? 1 : (cu <= -cuT ? -1 : 0); votes += cv; components.push({ key: 'copper', label: 'Copper ' + (cu >= 0 ? '+' : '') + cu.toFixed(1) + '%', vote: cv }); }
     var btc = ch('BTC-USD');
     if (btc != null){ present++; var btcv = btc >= btcT ? 1 : (btc <= -btcT ? -1 : 0); votes += btcv; components.push({ key: 'btc', label: 'Bitcoin ' + (btc >= 0 ? '+' : '') + btc.toFixed(1) + '%', vote: btcv }); }
     if (present < 3) return null;
@@ -8972,7 +8976,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     axes.inflation = Object.assign({ live: false }, baked.axes.inflation || { score: 0, label: 'inflation/labor axis off' });
     // Global cross-asset tape axis — recomputed LIVE from the ?tape=1 legs (the
     // same rows the barometer rail shows), so an intraday risk-appetite swing in
-    // US futures / the yen carry / copper / BTC MOVES the gauge instead of holding
+    // US futures / the yen carry / BTC MOVES the gauge instead of holding
     // the stale baked overnight read all session. Falls back to baked when the
     // axis is off (T.globalOn === false) or too few legs returned.
     (function(){
@@ -8981,14 +8985,83 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       axes.globalTape = lt || Object.assign({ live: false }, baked.axes.globalTape || { score: 0, label: 'no cross-asset data' });
     })();
 
+    // Front-end rates (2Y) axis — live bps from the macro-live twoY leg, baked 5d.
+    (function(){
+      if (T.twoYOn === false){ axes.twoY = { score: 0, label: 'front-end axis off', live: false }; return; }
+      var b = inp.twoY || {}, lv = liveLeg('twoY');
+      var b1 = (lv && n(lv.bpsChange1d) != null) ? n(lv.bpsChange1d) : n(b.bpsChange1d);
+      var isLive = !!(lv && n(lv.bpsChange1d) != null);
+      if (b1 == null){ axes.twoY = { score: 0, label: 'no 2Y data', live: false }; return; }
+      var b5 = n(b.bpsChange5d) || 0, rising = b.trend === 'rising';
+      var t1 = thr(T.twoYBps1d, 8), t1s = thr(T.twoYBps1dStrong, 14);
+      var s = 0, label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps 1d';
+      if (b1 >= t1s){ s = -2; label = '2Y +' + b1.toFixed(1) + ' bps — sharp front-end repricing'; }
+      else if (b1 >= t1 || (rising && b5 >= t1)){ s = -1; label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps — front-end tightening'; }
+      else if (b1 <= -t1){ s = 1; label = '2Y ' + b1.toFixed(1) + ' bps — front-end easing'; }
+      axes.twoY = { score: s, label: label, live: isLive };
+    })();
+
+    // Bond-vol (MOVE) axis — live level + 1d from the macro-live move leg, else baked.
+    (function(){
+      if (T.bondVolOn === false){ axes.bondVol = { score: 0, label: 'bond-vol axis off', live: false }; return; }
+      var b = inp.bondVol || {}, lv = liveLeg('move');
+      var v = (lv && n(lv.value) != null) ? n(lv.value) : n(b.value);
+      var d1 = (lv && n(lv.pctChange1d) != null) ? n(lv.pctChange1d) : n(b.pctChange1d);
+      var isLive = !!(lv && n(lv.value) != null);
+      if (v == null){ axes.bondVol = { score: 0, label: 'no MOVE data', live: false }; return; }
+      var hi = thr(T.moveHi, 110), vhi = thr(T.moveVhi, 140), calm = thr(T.moveCalm, 80), j = thr(T.move1d, 6);
+      var jumping = d1 != null && d1 >= j;
+      var s = 0, label = 'MOVE ' + v.toFixed(0);
+      if (v >= vhi || (v >= hi && jumping)){ s = -2; label = 'MOVE ' + v.toFixed(0) + ' — acute bond-vol stress'; }
+      else if (v >= hi){ s = -1; label = 'MOVE ' + v.toFixed(0) + ' — elevated rate vol'; }
+      else if (v <= calm){ s = 1; label = 'MOVE ' + v.toFixed(0) + ' — calm rate vol'; }
+      axes.bondVol = { score: s, label: label, live: isLive };
+    })();
+
+    // Breadth axis — baked (universe breadth can't refresh from a single quote).
+    (function(){
+      if (T.breadthOn === false){ axes.breadth = { score: 0, label: 'breadth axis off', live: false }; return; }
+      var b = inp.breadth || {};
+      var p200 = n(b.pctAbove200);
+      if (p200 == null){ axes.breadth = Object.assign({ live: false }, baked.axes.breadth || { score: 0, label: 'no breadth data' }); return; }
+      var p50 = n(b.pctAbove50), nhnl = n(b.nhnl);
+      var hi = thr(T.breadthHi, 60), lo = thr(T.breadthLo, 40), vlo = thr(T.breadthVlo, 25);
+      var s = 0, label = 'Breadth ' + p200.toFixed(0) + '% >200DMA';
+      if (p200 <= vlo || (p200 <= lo && nhnl != null && nhnl <= -10)){ s = -2; label = 'Breadth ' + p200.toFixed(0) + '% >200DMA — broad breakdown'; }
+      else if (p200 <= lo){ s = -1; label = 'Breadth ' + p200.toFixed(0) + '% >200DMA — thinning'; }
+      else if (p200 >= hi && (p50 == null || p50 >= hi)){ s = 1; label = 'Breadth ' + p200.toFixed(0) + '% >200DMA — broad participation'; }
+      axes.breadth = { score: s, label: label, live: false };
+    })();
+
+    // Put/call axis — baked (universe positioning, recomputed at the build).
+    (function(){
+      if (T.putCallOn === false){ axes.putCall = { score: 0, label: 'put/call axis off', live: false }; return; }
+      var b = inp.putCall || {};
+      var pc = n(b.oiRatio);
+      if (pc == null){ axes.putCall = Object.assign({ live: false }, baked.axes.putCall || { score: 0, label: 'no put/call data' }); return; }
+      var hi = thr(T.putCallHi, 1.20), vhi = thr(T.putCallVhi, 1.45), lo = thr(T.putCallLo, 0.85);
+      var s = 0, label = 'Put/call ' + pc.toFixed(2) + ' (OI)';
+      if (pc >= vhi){ s = -2; label = 'Put/call ' + pc.toFixed(2) + ' — heavy hedging'; }
+      else if (pc >= hi){ s = -1; label = 'Put/call ' + pc.toFixed(2) + ' — defensive'; }
+      else if (pc <= lo){ s = 1; label = 'Put/call ' + pc.toFixed(2) + ' — call-heavy / complacent'; }
+      axes.putCall = { score: s, label: label, live: false };
+    })();
+
+    // Credit axis — scored from the 5d OAS + 5d HYG/LQD inputs, which are BAKED
+    // (the live HYG/LQD legs give only a 1d move — that feeds the barometer rail's
+    // credit row, not the regime score). So it carries the baked axis verbatim,
+    // like breadth / put/call / the slow axes — strict parity with build's
+    // computeMacroRegime credit axis (no extra live-only scoring rule).
+    axes.credit = Object.assign({ live: false }, baked.axes.credit || { score: 0, label: 'no credit data' });
+
     // Composite → state (computeMacroRegime state machine + macroEffectiveAxisCount).
-    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
+    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var stress = arr.reduce(function(a,b){ return a + b; }, 0);
     var riskOffAxes = arr.filter(function(x){ return x <= -1; }).length;
     var riskOnAxes = arr.filter(function(x){ return x >= 1; }).length;
-    // indexes / commodity / geo / inflation are their own singleton clusters.
-    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', dxy:'rates', yields:'rates', fed:'rates' };
+    // commodity / geo / inflation / credit are their own singleton clusters.
+    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', bondVol:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', indexes:'equity', breadth:'equity' };
     function effCount(dir){
       var per = {};
       for (var i = 0; i < ORDER.length; i++){
@@ -9068,7 +9141,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     else if (st === 'risk-off') body = 'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.';
     else if (regime.fragile) body = 'Fragile neutral tape — price and vol read neutral but breadth and credit internals are deteriorating (' + (regime.internalsLabel || 'breadth + credit weak') + '). Size is trimmed and the long side capped, without flipping to puts.';
     else body = 'A neutral tape — no coordinated cross-asset stress.';
-    var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (SPY / QQQ, the VIX, the dollar, long yields, crude, gold, Fear and Greed, and the global cross-asset tape — futures / yen / copper / BTC); the slow axes (Fed path, geopolitical news, inflation) stay from the last build.' : '';
+    var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (SPY / QQQ, the VIX, the dollar, long yields, the 2Y, MOVE, crude, gold, HY credit, Fear and Greed, and the global cross-asset tape — futures / yen / BTC); the slow axes (Fed path, geopolitical news, inflation, breadth, put/call) stay from the last build.' : '';
     var heldNote = (regime.persisted && regime.rawState && regime.rawState !== regime.state) ? ' RECOVERING: the live read is ' + regime.rawState + ' but the chip holds the more defensive state until a build confirms.' : '';
     return base + body + (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + liveNote + heldNote;
   }
@@ -9275,6 +9348,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (inp.crossAsset.score != null) c.push(tapeChip('tape (last build)', tapeSign(inp.crossAsset.score, 0)));
       var comps = inp.crossAsset.components;
       if (Array.isArray(comps) && comps.length) c.push(tapeChip('signals', String(comps.length)));
+    } else if (k === 'twoY' && inp.twoY){
+      if (inp.twoY.value != null) c.push(tapeChip('level', Number(inp.twoY.value).toFixed(2) + '%'));
+      if (inp.twoY.bpsChange1d != null) c.push(tapeChip('1d', tapeSign(inp.twoY.bpsChange1d, 1, 'bp')));
+      if (inp.twoY.bpsChange5d != null) c.push(tapeChip('5d', tapeSign(inp.twoY.bpsChange5d, 1, 'bp')));
+      if (inp.twoY.trend) c.push(tapeChip('trend', inp.twoY.trend));
+    } else if (k === 'bondVol' && inp.bondVol){
+      if (inp.bondVol.value != null) c.push(tapeChip('level', Number(inp.bondVol.value).toFixed(0)));
+      if (inp.bondVol.pctChange1d != null) c.push(tapeChip('1d', tapeSign(inp.bondVol.pctChange1d, 1, '%')));
+    } else if (k === 'breadth' && inp.breadth){
+      if (inp.breadth.pctAbove200 != null) c.push(tapeChip('>200DMA', Math.round(inp.breadth.pctAbove200) + '%'));
+      if (inp.breadth.pctAbove50 != null) c.push(tapeChip('>50DMA', Math.round(inp.breadth.pctAbove50) + '%'));
+      if (inp.breadth.nhnl != null) c.push(tapeChip('NH−NL', (inp.breadth.nhnl >= 0 ? '+' : '') + inp.breadth.nhnl));
+    } else if (k === 'putCall' && inp.putCall){
+      if (inp.putCall.oiRatio != null) c.push(tapeChip('OI', Number(inp.putCall.oiRatio).toFixed(2)));
+      if (inp.putCall.volRatio != null) c.push(tapeChip('vol', Number(inp.putCall.volRatio).toFixed(2)));
+    } else if (k === 'credit' && inp.credit){
+      if (inp.credit.oas != null) c.push(tapeChip('OAS', Number(inp.credit.oas).toFixed(2) + '%'));
+      if (inp.credit.oasChg5d != null) c.push(tapeChip('OAS 5d', tapeSign(inp.credit.oasChg5d, 2, 'pp')));
+      if (inp.credit.hygLqdChg5d != null) c.push(tapeChip('HYG/LQD 5d', tapeSign(inp.credit.hygLqdChg5d, 1, '%')));
     }
     return c.join('');
   }
@@ -9292,6 +9384,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (k === 'fed') return 'A hawkish FedWatch repricing (rising hike odds) tightens it. Slow axis — refreshes at the next build.';
     if (k === 'geo') return 'Fresh escalation headlines tilt it risk-off; de-escalation eases it. Slow axis — refreshes at the next build.';
     if (k === 'inflation') return 'Re-accelerating CPI or a softening labor market tilts it risk-off. Slow axis — refreshes at the next build.';
+    if (k === 'twoY') return 'Risk-off if the 2Y backs up ≥ +' + v(T.twoYBps1d, 8) + 'bp on the day (sharp repricing ≥ +' + v(T.twoYBps1dStrong, 14) + 'bp); risk-on if it falls ≥ −' + v(T.twoYBps1d, 8) + 'bp.';
+    if (k === 'bondVol') return 'Risk-off at MOVE ≥ ' + v(T.moveHi, 110) + ' (acute ≥ ' + v(T.moveVhi, 140) + '); risk-on under ' + v(T.moveCalm, 80) + '.';
+    if (k === 'breadth') return 'Risk-on at ≥ ' + v(T.breadthHi, 60) + '% above the 200DMA; risk-off under ' + v(T.breadthLo, 40) + '% (broad breakdown under ' + v(T.breadthVlo, 25) + '%). Slow axis — recomputed at the build.';
+    if (k === 'putCall') return 'Risk-off at an OI put/call ≥ ' + v(T.putCallHi, 1.20) + ' (heavy hedging ≥ ' + v(T.putCallVhi, 1.45) + '); risk-on (complacent) ≤ ' + v(T.putCallLo, 0.85) + '. Slow axis — recomputed at the build.';
+    if (k === 'credit') return 'Risk-off if HY OAS widens ≥ +' + v(T.creditOas5d, 0.30) + 'pp over 5d (acute ≥ +' + v(T.creditOas5dStrong, 0.60) + 'pp) or HYG/LQD falls ≥ ' + v(T.creditRatio5d, 1.0) + '%; risk-on if spreads tighten.';
     return '';
   }
   // The drill-down drawer for one axis tile. The axis arg is the effective
@@ -9396,12 +9493,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
       { k:'commodity', name:'Commodities', desc:'Crude + gold — supply / war shock' },
       { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
-      { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + copper + BTC' },
+      { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + BTC' },
       { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
       { k:'geo', name:'Geopolitics', desc:'War / tariffs / Iran — headlines' },
       { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
+      { k:'twoY', name:'Front-end (2Y)', desc:'2Y yield — the Fed-path read' },
+      { k:'bondVol', name:'Bond vol (MOVE)', desc:'Treasury-option implied vol' },
+      { k:'breadth', name:'Breadth', desc:'Universe % >200DMA + NH−NL' },
+      { k:'putCall', name:'Put / call', desc:'Universe option positioning' },
+      { k:'credit', name:'HY credit', desc:'HY OAS + HYG/LQD ratio' },
     ];
-    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape'];
+    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var roff = arr.filter(function(x){ return x <= -1; }).length;
     var ron = arr.filter(function(x){ return x >= 1; }).length;
@@ -9472,7 +9574,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var grossPct = (regime.grossMult != null && isFinite(regime.grossMult)) ? Math.round(regime.grossMult * 100) : 100;
     var drivers = (regime.drivers && regime.drivers.length) ? escapeHtml(regime.drivers.join(' · ')) : 'none';
     var summaryLine = (regime.state === 'neutral' && !regime.fragile)
-      ? 'Cross-asset macro <b>neutral</b> — no coordinated stress across the nine axes.'
+      ? 'Cross-asset macro <b>neutral</b> — no coordinated stress across the cross-asset axes.'
       : 'Cross-asset macro <b>' + escapeHtml(meta.lbl.toLowerCase()) + '</b>' + (drivers !== 'none' ? ' — ' + drivers : '') + (regime.fragile && regime.state === 'neutral' ? ' · fragile internals' : '');
     var heldNote = (regime.persisted && regime.rawState && regime.rawState !== regime.state)
       ? '<p class="picks-tape-note is-warn">↻ Recovering — the live tape reads <b>' + escapeHtml(regime.rawState) + '</b>, but the engine holds the more defensive <b>' + escapeHtml(regime.state) + '</b> until a build confirms (no whipsaw on one green bounce).</p>'
@@ -9502,14 +9604,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<p class="picks-tape-callout-meta"><b>What would change it</b> ' + nar.change + '</p>' +
         '</div>' +
         '<div class="picks-tape-metrics">' +
-          '<span title="Sum of the nine axis scores (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
+          '<span title="Sum of the axis scores (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
           '<span title="Axes reading risk-off (score ≤ −1).">Risk-off axes <b>' + roff + '</b></span>' +
           '<span title="Axes reading risk-on (score ≥ +1).">Risk-on axes <b>' + ron + '</b></span>' +
           '<span title="Deployed gross vs the neutral-tape target — the engine cuts size in a tightening tape.">Gross deployed <b>' + grossPct + '%</b></span>' +
         '</div>' +
         '<div class="picks-tape-axes">' + tiles + '</div>' +
         heldNote + fragileNote +
-        '<p class="picks-tape-foot">The tape recomputes live from the fast price axes (VIX, dollar, long yields, crude + gold, Fear &amp; Greed, and the global cross-asset tape — overnight futures / yen carry / copper / BTC) every ~30s while this tab is open. The slow axes — the Fed path, the geopolitical-<i>news</i> read, and monthly inflation / jobs — carry from the last build, so a fresh war or peace-deal <i>headline</i> updates at the next refresh, but the market’s reaction to it flows through the price axes immediately. Risk-off shrinks the list, tilts it toward puts, and sizes it down; risk-on leans it long.</p>' +
+        '<p class="picks-tape-foot">The tape recomputes live from the fast price axes (VIX, dollar, long yields, the 2Y, MOVE, crude + gold, HY credit, Fear &amp; Greed, and the global cross-asset tape — overnight futures / yen carry / BTC) every ~30s while this tab is open. The slow axes — the Fed path, the geopolitical-<i>news</i> read, monthly inflation / jobs, and the universe breadth + put/call — carry from the last build, so a fresh war or peace-deal <i>headline</i> updates at the next refresh, but the market’s reaction to it flows through the price axes immediately. Risk-off shrinks the list, tilts it toward puts, and sizes it down; risk-on leans it long.</p>' +
       '</div>' +
     '</div>';
   }
@@ -9580,11 +9682,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var L = j.legs;
         macroTape.legs = {
           spy: L.spy, qqq: L.qqq,
-          vix: L.vix, dxy: L.dxy, tenY: L.tenY, thirtyY: L.thirtyY,
+          vix: L.vix, dxy: L.dxy, twoY: L.twoY, tenY: L.tenY, thirtyY: L.thirtyY,
           crude: L.crude, gold: L.gold, fng: j.fng || null,
-          // The cross-asset rail legs (futures / foreign breadth / yen / copper /
-          // BTC) also FEED the global-tape regime axis — pass them through so the
-          // live re-port recomputes it instead of holding the baked overnight read.
+          // New cross-asset signals: the 2Y / MOVE legs refresh the front-end +
+          // bond-vol axes, and HYG/LQD the credit axis, live this session.
+          move: L.move, hyg: L.hyg, lqd: L.lqd,
+          // The cross-asset rail legs (futures / foreign breadth / yen / BTC) also
+          // FEED the global-tape regime axis — pass them through so the live re-port
+          // recomputes it instead of holding the baked overnight read.
           crossAsset: (j.crossAsset && typeof j.crossAsset === 'object') ? j.crossAsset : null,
         };
         macroTape.fetchedAt = j.fetchedAt || new Date().toISOString();
@@ -9630,7 +9735,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   // Overlay one live /api/macro-live cross-asset leg onto the baked
   // correlations market row. Only REGULAR-session legs override — the Asia/EU
-  // cash indices (^GDAXI/^N225/^HSI/^KS11) are closed during US hours, so their
+  // cash indices (^GDAXI/^N225/^KS11) are closed during US hours, so their
   // baked overnight read stands. Returns a shallow clone carrying _live, or the
   // baked row unchanged. Re-derives every move convention the renderer reads
   // (chPct, chgBp for yields, chgPt for VIX, last) from value + prevClose.
@@ -9645,6 +9750,112 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (lv.bpsChange1d != null && isFinite(lv.bpsChange1d)) out.chgBp = lv.bpsChange1d;
     if (lv.prevClose != null && isFinite(lv.prevClose)) out.chgPt = v - lv.prevClose;
     out._live = true;
+    return out;
+  }
+  // Computed barometer rows for the signals that aren't in correlations.json —
+  // 2Y, MOVE (bond vol), universe breadth, universe put/call, and HY credit. They
+  // read the baked regime inputs (data.rosterMeta.macroRegime.inputs), overlaid
+  // with the live /api/macro-live legs where available (2Y / MOVE / HYG-LQD refresh
+  // live; breadth + put/call are baked, recomputed at the next build). Each returns
+  // the same { cfg, m, score, live } shape the symbol rows use so they sort / group
+  // / render identically. Mirrors the new axes in computeMacroRegime (build.mjs).
+  function buildComputedBarometerRows(baked, legs){
+    var inp = (baked && baked.inputs) || {};
+    var T = (baked && baked.thresholds) || {};
+    function n(x){ return (x != null && isFinite(Number(x))) ? Number(x) : null; }
+    function thr(x, d){ var v = n(x); return v != null ? v : d; }
+    function railFromMove(move, scale, polarity){
+      if (move == null || !isFinite(move) || !scale) return null;
+      var norm = Math.max(-1, Math.min(1, move / scale));
+      return Math.max(0, Math.min(100, 50 + polarity * norm * 50));
+    }
+    function sgn(x, d, u){ return (x >= 0 ? '+' : '') + Number(x).toFixed(d) + (u || ''); }
+    var out = [];
+    // 2Y front-end yield — live bps from the macro-live twoY leg, else baked.
+    if (T.twoYOn !== false){
+      var b2 = inp.twoY || {}, lv2 = legs && legs.twoY;
+      var live2 = !!(lv2 && n(lv2.bpsChange1d) != null);
+      var bps = live2 ? n(lv2.bpsChange1d) : n(b2.bpsChange1d);
+      if (bps != null){
+        var lvl2 = (live2 && n(lv2.value) != null) ? n(lv2.value) : n(b2.value);
+        out.push({
+          cfg: { sym:'US2Y', group:'Vol & rates' },
+          m: { name:'US 2Y yield', chPct:null, _moveStr: sgn(bps,1,' bp'), _lvlStr: (lvl2 != null ? lvl2.toFixed(2) + '%' : ''), asOf: b2.asOf || null, lead: BAROMETER_TOOLTIP.US2Y },
+          score: railFromMove(bps, thr(T.twoYBps1d, 8), -1), live: live2,
+        });
+      }
+    }
+    // MOVE bond vol — live level/1d from the macro-live move leg, else baked. The
+    // rail blends the daily move with the absolute level so a high static MOVE
+    // still reads risk-off (the regime axis is level-driven).
+    if (T.bondVolOn !== false){
+      var bm = inp.bondVol || {}, lvm = legs && legs.move;
+      var livem = !!(lvm && n(lvm.value) != null);
+      var md1 = (lvm && n(lvm.pctChange1d) != null) ? n(lvm.pctChange1d) : n(bm.pctChange1d);
+      var mlvl = livem ? n(lvm.value) : n(bm.value);
+      if (md1 != null || mlvl != null){
+        var moveSc = (md1 != null) ? railFromMove(md1, thr(T.move1d, 6) * 1.3, -1) : 50;
+        if (mlvl != null){
+          var hiM = thr(T.moveHi, 110), calmM = thr(T.moveCalm, 80);
+          // Continuous from 82 at the calm level down to 12 at the elevated level
+          // (matches the <=calm / >=hi branches — no step at the boundary).
+          var lvlSc = mlvl >= hiM ? 12 : (mlvl <= calmM ? 82 : 82 - ((mlvl - calmM) / (hiM - calmM)) * 70);
+          moveSc = (md1 != null) ? (moveSc + lvlSc) / 2 : lvlSc;
+        }
+        out.push({
+          cfg: { sym:'MOVE', group:'Vol & rates' },
+          m: { name:'MOVE (bond vol)', chPct:null, _moveStr: (md1 != null ? sgn(md1,1,'%') : '—'), _lvlStr: (mlvl != null ? mlvl.toFixed(0) : ''), asOf: bm.asOf || null, lead: BAROMETER_TOOLTIP.MOVE },
+          score: (moveSc == null ? 50 : Math.max(0, Math.min(100, Math.round(moveSc)))), live: livem,
+        });
+      }
+    }
+    // Universe breadth — %>200DMA IS the 0..100 risk read. Baked only.
+    if (T.breadthOn !== false){
+      var bb = inp.breadth || {};
+      var p200 = n(bb.pctAbove200);
+      if (p200 != null){
+        var p50 = n(bb.pctAbove50), nhnl = n(bb.nhnl);
+        out.push({
+          cfg: { sym:'BREADTH', group:'Breadth & credit' },
+          m: { name:'Universe breadth', chPct:null, _moveStr: p200.toFixed(0) + '% >200DMA', _lvlStr: (p50 != null ? p50.toFixed(0) + '% >50DMA' : '') + (nhnl != null ? ((p50 != null ? ' · ' : '') + 'NH−NL ' + (nhnl >= 0 ? '+' : '') + nhnl) : ''), asOf: null, lead: BAROMETER_TOOLTIP.BREADTH },
+          score: Math.max(0, Math.min(100, p200)), live: false,
+        });
+      }
+    }
+    // Universe put/call — high OI ratio = hedging/fear = risk-off. Baked only.
+    if (T.putCallOn !== false){
+      var bp = inp.putCall || {};
+      var pc = n(bp.oiRatio);
+      if (pc != null){
+        var hiPC = thr(T.putCallHi, 1.20), loPC = thr(T.putCallLo, 0.85), vhiPC = thr(T.putCallVhi, 1.45);
+        var pcSc;
+        if (pc <= loPC) pcSc = 80;
+        else if (pc >= vhiPC) pcSc = 10;
+        else if (pc >= hiPC) pcSc = 30 - ((pc - hiPC) / (vhiPC - hiPC)) * 20;
+        else pcSc = 80 - ((pc - loPC) / (hiPC - loPC)) * 50;
+        var volPC = n(bp.volRatio);
+        out.push({
+          cfg: { sym:'PUTCALL', group:'Breadth & credit' },
+          m: { name:'Put / call (universe)', chPct:null, _moveStr: 'OI ' + pc.toFixed(2), _lvlStr: (volPC != null ? 'vol ' + volPC.toFixed(2) : ''), asOf: null, lead: BAROMETER_TOOLTIP.PUTCALL },
+          score: Math.max(0, Math.min(100, Math.round(pcSc))), live: false,
+        });
+      }
+    }
+    // HY credit — live HYG/LQD 1d ratio move (macro-live hyg/lqd), else baked; OAS
+    // level in the sub-label. Falling ratio = HY underperforming = risk-off.
+    if (T.creditOn !== false){
+      var bc = inp.credit || {}, lh = legs && legs.hyg, ll = legs && legs.lqd;
+      var livec = !!(lh && ll && n(lh.pctChange1d) != null && n(ll.pctChange1d) != null);
+      var r1c = livec ? (n(lh.pctChange1d) - n(ll.pctChange1d)) : n(bc.hygLqdChg1d);
+      var oasc = n(bc.oas);
+      if (r1c != null || oasc != null){
+        out.push({
+          cfg: { sym:'CREDIT', group:'Breadth & credit' },
+          m: { name:'HY credit (HYG/LQD)', chPct:null, _moveStr: (r1c != null ? sgn(r1c,2,'%') : '—'), _lvlStr: (oasc != null ? 'OAS ' + oasc.toFixed(2) + '%' : ''), asOf: bc.asOf || null, lead: BAROMETER_TOOLTIP.CREDIT },
+          score: (r1c != null ? railFromMove(r1c, thr(T.creditRatio5d, 1.0), 1) : 50), live: livec,
+        });
+      }
+    }
     return out;
   }
   function renderRiskBarometer(){
@@ -9674,6 +9885,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (sc == null) continue;
       rows.push({ cfg: cfg, m: m, score: sc, live: !!m._live });
     }
+    // Computed signals (2Y, MOVE, breadth, put/call, HY credit) — sourced from the
+    // baked regime inputs + live macro-live legs, not correlations.json.
+    var bakedRegime = (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
+    if (bakedRegime){
+      var computed = buildComputedBarometerRows(bakedRegime, macroTape.legs);
+      for (var ci = 0; ci < computed.length; ci++) if (computed[ci] && computed[ci].score != null) rows.push(computed[ci]);
+    }
     if (!rows.length){ host.hidden = true; host.innerHTML = ''; return; }
     // Accumulate one live 0..100 sample per fresh poll for the off-hours / cold
     // sparklines (deduped by timestamp; only the live-overlaid legs move).
@@ -9692,7 +9910,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var composite = Math.round(sum / rows.length);
     var cBand = barometerBand(composite);
     var open = !!riskBarometer.open;
-    var AXIS_DISPLAY = { vix:'VIX', dxy:'Dollar', yields:'Long yields', commodity:'Commodities', globalTape:'Global tape' };
+    var AXIS_DISPLAY = { vix:'VIX', dxy:'Dollar', yields:'Long yields', commodity:'Commodities', globalTape:'Global tape', twoY:'Front-end (2Y)', bondVol:'Bond vol (MOVE)', breadth:'Breadth', putCall:'Put / call', credit:'HY credit' };
     // The drill-down drawer for one rail row.
     function robRowDetailHtml(r, band){
       var cfg = r.cfg, m = r.m, sym = cfg.sym;
@@ -9703,11 +9921,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var feedTxt = feedsKey
         ? 'Feeds the <b>' + (AXIS_DISPLAY[feedsKey] || feedsKey) + '</b> axis of the Market tape above.'
         : 'Rides the rail as a standalone read — it doesn’t feed a Market-tape axis.';
-      var lvl = ovnLevelStr(m);
+      var lvl = (m._lvlStr != null) ? m._lvlStr : ovnLevelStr(m);
+      var moveStr = (m._moveStr != null) ? m._moveStr : ovnMoveStr(m);
       var freshTxt = r.live ? 'Refreshing live this session.' : ('Baked' + (m.asOf ? ' · ' + ovnShortDate(m.asOf) + ' close' : '') + (d.stale ? ' (last-good)' : ''));
+      var scoreTxt = cfg.scale != null ? ('<div class="rob-row-detail-row"><b>How it scores:</b> ' + dir + '; a move of ±' + cfg.scale + unit + ' pins the rail to its end.</div>') : '';
       return (conv ? '<div class="rob-row-detail-row">' + ovnEsc(conv) + '</div>' : '') +
-        '<div class="rob-row-detail-row"><b>Risk score ' + Math.round(r.score) + '/100</b> · ' + ovnEsc(band.lbl) + (lvl ? ' · level ' + ovnEsc(lvl) : '') + ' · move ' + ovnEsc(ovnMoveStr(m)) + '</div>' +
-        '<div class="rob-row-detail-row"><b>How it scores:</b> ' + dir + '; a move of ±' + cfg.scale + unit + ' pins the rail to its end.</div>' +
+        '<div class="rob-row-detail-row"><b>Risk score ' + Math.round(r.score) + '/100</b> · ' + ovnEsc(band.lbl) + (lvl ? ' · level ' + ovnEsc(lvl) : '') + ' · move ' + ovnEsc(moveStr) + '</div>' +
+        scoreTxt +
         '<div class="rob-row-detail-row">' + feedTxt + '</div>' +
         '<div class="rob-row-detail-row rob-row-detail-fresh">' + ovnEsc(freshTxt) + '</div>';
     }
@@ -9715,7 +9935,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var band = barometerBand(r.score);
       var pct = Math.max(0, Math.min(100, r.score));
       var tip = BAROMETER_TOOLTIP[r.cfg.sym] || (r.m.lead || '');
-      var lvl = ovnLevelStr(r.m);
+      var lvl = (r.m._lvlStr != null) ? r.m._lvlStr : ovnLevelStr(r.m);
       var sym = r.cfg.sym;
       var liveDot = r.live ? '<span class="rob-live-dot" title="Live — refreshed this session">●</span>' : '';
       var feeds = SYM_FEEDS_AXIS[sym] || '';
@@ -9736,7 +9956,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '</span>' +
           '<span class="rob-move ' + ovnMoveCls(r.m.chPct) + '">' +
             (sparkSvg ? '<span class="rob-spark">' + sparkSvg + '</span>' : '') +
-            '<span class="rob-move-num">' + ovnEsc(ovnMoveStr(r.m)) + '</span>' +
+            '<span class="rob-move-num">' + ovnEsc(r.m._moveStr != null ? r.m._moveStr : ovnMoveStr(r.m)) + '</span>' +
             (lvl ? '<span class="rob-lvl">' + ovnEsc(lvl) + '</span>' : '') +
           '</span>' +
           '<span class="rob-row-chev" aria-hidden="true">' + (isOpen ? '▴' : '▾') + '</span>' +
@@ -9811,7 +10031,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<span class="rob-scale-on">RISK-ON</span>' +
           '</div>' +
           '<div class="rob-rows">' + rowsHtml + '</div>' +
-          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields) read risk-OFF when they rise. The futures + Asia/EU breadth + yen carry + copper + Bitcoin among these feed the <b>Global tape</b> axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep; the US-session legs (futures, FX, metals, crude, Bitcoin, VIX, long yields) refresh <b>live</b> while this tab is open (● dot) — the Asia/EU cash indices stay on their last close. <b>Click a row</b> for its convention &amp; what it feeds, <b>hover</b> it to spotlight its Market-tape axis, or sort / group / filter with the controls above.</p>' +
+          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields, the 2Y, MOVE, put/call) read risk-OFF when they rise. Each row feeds the matching axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep + the build’s universe breadth / put/call read; the US-session legs (futures, FX, crude, gold, Bitcoin, VIX, long yields, the 2Y, MOVE, HY credit) refresh <b>live</b> while this tab is open (● dot) — the Asia/EU cash indices + the universe breadth / put/call stay on their last close. <b>Click a row</b> for its convention &amp; what it feeds, <b>hover</b> it to spotlight its Market-tape axis, or sort / group / filter with the controls above.</p>' +
         '</div>' +
       '</div>';
     var head = host.querySelector('.rob-head');
