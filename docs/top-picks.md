@@ -111,7 +111,12 @@ When the broad tape **fights the trade** (a call in a risk-off tape), the knife
 thresholds tighten ~25%. An `avoid` name is gated out of the roster entirely.
 
 **IV cost** (`computeIvCostContribution`, direction-agnostic): −2 when this name's
-own IV percentile is rich (≥80), +1 when cheap (≤20).
+own IV percentile is rich (≥80), +1 when cheap (≤20). Because it is direction-**agnostic**
+("long premium is expensive when IV is rich"), `scoreTicker` folds it into `total`
+multiplied by `sign(base)` — exactly like `entryTiming` — so a rich-IV long-premium
+trade always *reduces* conviction on **both** sides and a cheap-IV one raises it.
+(Before #523 it was added unsigned, which made rich IV *inflate* a put's conviction —
+backwards: it boosted the long-put trade the IV read should have discouraged.)
 
 ---
 
@@ -209,6 +214,8 @@ The decision tree is checked top-down (first match wins):
 | 3 | Everything else — moderate conviction/thesis, **or** a strong view into elevated-but-event-blocked IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
 
 A binary **event/earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** (or an active macro `eventRisk`) forces row 3 — defined-risk only, no naked long into the IV crush, no credit spread into the gap. A `none` pick carries **no contract** and is never enrolled in the track record (nothing to mark).
+
+> **Why the book skews all-debit (and how to see it).** The active-macro-`eventRisk` half of that gate is the dominant reason the engine rarely actually *sells* premium: a market-wide print (NFP/CPI/FOMC) inside the 5-day window sets `eventRisk.active` for the **whole book**, diverting **every** elevated-IV name from row 1 (credit) to row 3 (a long-premium debit). Since macro prints cluster ~monthly, a large fraction of bakes ship all-debit even when the z-score flags premium as richest. `buildTopPicks` now records this every bake in `rosterMeta.strategyMix` (the structure mix shipped) + `rosterMeta.creditDeferred` (each elevated-IV name that shipped non-credit, tagged `why: "fallback"` vs `"event-defer"`). The **default-OFF** `PICKS_CREDIT_INTO_MACRO_EVENT=1` flag lets a *defined-risk* credit spread fire through a market-wide macro event (it benefits from the post-print IV crush) while still deferring single-name **earnings** and never relaxing the naked-long gate. Validate it on **resolved** picks before flipping — see §11.
 
 `pickVerticalForPick(side, data, rfr, {type})` builds the two-leg contract:
 - **debit** legs are the *same* type as the side (bull-call / bear-put): long
@@ -466,6 +473,19 @@ synthetic smoke test: `node scripts/picks-smoke.mjs` (asserts grades, timing
 gates, contract selection, caps, re-entry suppression, the regime tilt, exits,
 and every output shape the UI reads). To regenerate from a hydrated `data/`
 (`node scripts/sync-data.mjs pull`), run `node scripts/regen-picks.mjs`.
+
+> **Retune gates on *resolved* picks, not day-1 marks.** An open position is marked
+> the session it's entered, so its visible P/L is `netDelta × one-session move ÷ a
+> cheap debit` — pure leverage of intraday noise, and **symmetric across winners and
+> losers** (the same mechanic that shows a −18% red row shows a +17% green one). Do
+> **not** tune a scoring/timing/regime/structure constant to shrink a day's red rows:
+> it is fitting noise, and the identical mechanic produced that day's green rows.
+> Only **correctness** fixes (a wrong sign, a wrong unit) and pure instrumentation are
+> safe to ship on a single session; everything tunable waits for ~20–30 **closed**
+> picks. When you do A/B a change, diff two `regen-picks` runs on the **same** `data/`
+> (stash the edit → run → restore → run), not the bake's `grades.json` (which carries
+> AI-thesis overlays + newer data and will mask your change). `scripts/diagnose-pick-losses.mjs`
+> decomposes resolved losses into direction vs theta/vol for exactly this purpose.
 
 ---
 

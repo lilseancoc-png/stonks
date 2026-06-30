@@ -8504,6 +8504,17 @@ const PICKS_IVRANK_STD_MIN_N = Number(process.env.PICKS_IVRANK_STD_MIN_N ?? 20);
 // IV crush; no credit spread into the gap). Kept near the hold/contract window —
 // NOT the full PICKS_MAX_DTE, or every quarterly print would block naked/credit.
 const PICKS_STRATEGY_EARNINGS_DAYS = Number(process.env.PICKS_STRATEGY_EARNINGS_DAYS ?? 21);
+// DEFAULT-OFF stub. A market-wide scheduled macro print (NFP/CPI/FOMC) sets the
+// book's eventRisk.active, which currently defers EVERY elevated-IV name from a
+// credit spread down to a long-premium debit (selectStrategy step 1 is gated on
+// !eventImminent). Because macro prints cluster ~monthly with a 5-day window,
+// that means the engine almost never actually SELLS rich premium even when its
+// own z-score flags it as richest. Flip this to "1" to let a DEFINED-RISK credit
+// spread (width-capped, so the gap loss is bounded) fire into a *macro* event —
+// it actually benefits from the post-print IV crush. Single-name EARNINGS stay
+// deferred (a name-specific gap can still max the spread) and the naked-long gate
+// is never relaxed. Ships OFF: retune only on RESOLVED picks, never day-1 marks.
+const PICKS_CREDIT_INTO_MACRO_EVENT = process.env.PICKS_CREDIT_INTO_MACRO_EVENT === "1";
 
 // ---- Thesis quality (assessThesisQuality) ----------------------------------
 // A name's GRADE and its THESIS are scored separately. The grade says "how
@@ -10114,7 +10125,12 @@ function scoreTicker(sym, data, ctx) {
   const timing = computeEntryTiming(provSide, data, spot, { regime, eventRisk });
   const ivCost = computeIvCostContribution(data);
   const timingContribution = (timing.contribution || 0) * (base >= 0 ? 1 : -1); // help/hurt conviction in the implied direction
-  const ivContribution = ivCost ? ivCost.contribution : 0;
+  // IV cost is direction-AGNOSTIC ("long premium is expensive when IV is rich"),
+  // so it must REDUCE conviction in the implied direction — same sign treatment as
+  // timing above. Folding the raw (always-negative-for-rich) value into `total`
+  // unadjusted made rich IV *raise* a PUT's conviction (more-negative total),
+  // exactly backwards; mirror sign(base) so it de-rates both sides' long premium.
+  const ivContribution = (ivCost ? ivCost.contribution : 0) * (base >= 0 ? 1 : -1);
 
   const total = r1(base + timingContribution + ivContribution);
   const rec = tierForScore(total);
@@ -10323,7 +10339,11 @@ export function selectStrategy(r, side, opts = {}) {
   //    event/earnings is imminent (a gap maxes a credit spread's loss), where we
   //    step down to a defined-risk DEBIT instead. Naked is out here: a naked long
   //    is reserved for *reasonable* (not elevated) IV.
-  if (ivElevated && !eventImminent && !earningsInWindow) {
+  // A market-wide macro event (eventImminent) normally defers credit -> debit; the
+  // default-OFF PICKS_CREDIT_INTO_MACRO_EVENT flag lets a defined-risk credit fire
+  // through it anyway (single-name earningsInWindow still defers — its gap is
+  // name-specific and can max the spread).
+  if (ivElevated && (!eventImminent || PICKS_CREDIT_INTO_MACRO_EVENT) && !earningsInWindow) {
     const tierTxt = ivHighlyElevated ? `>=${PICKS_IV_CREDIT_Z}σ — highly elevated` : `>=${PICKS_IV_CREDIT_Z_ELEVATED}σ / >=${PICKS_IV_CREDIT_PCTILE}th pctile — elevated`;
     return mk("credit", (side === "call" ? "Bull-put" : "Bear-call") + " credit spread",
       `${ivBasis} (${tierTxt}) — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; elevated IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
@@ -10930,6 +10950,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.sectorCounts = sectorCount;
   meta.groups = { actionable: actionable.length, watch: watch.length };
   meta.classifications = finalPicks.reduce((acc, p) => { const c = p.classification || "idea"; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
+  // INSTRUMENTATION (no behavior change): the structure mix actually shipped, plus
+  // the names whose IV the engine flagged elevated/highly-elevated (selectStrategy
+  // wanted to SELL premium) but that shipped as long premium anyway — split by
+  // WHY (`fallback` = no clean credit wing -> debit; `event-defer` = a macro/
+  // earnings event forced defined-risk debit). Surfaces the "credit never fires"
+  // gap in rosterMeta every bake so it can be adjudicated on resolved picks.
+  meta.strategyMix = finalPicks.reduce((acc, p) => { const t = p.strategy?.type || (p.contract ? "long" : "none"); acc[t] = (acc[t] || 0) + 1; return acc; }, {});
+  meta.creditDeferred = finalPicks
+    .filter((p) => p.strategy && p.strategy.type !== "credit" && (p.strategy.ivTier === "elevated" || p.strategy.ivTier === "highly-elevated"))
+    .map((p) => ({ sym: p.symbol, side: p.side, ivTier: p.strategy.ivTier, ivZ: p.strategy.ivZ ?? null, used: p.strategy.type, why: p.strategy.fallback ? "fallback" : "event-defer" }));
   const edgeScale = opts.priorClosed ? computeEdgeScale(opts.priorClosed) : 1;
   const regimeGross = regimeGrossMult(regime);
   applyPickSizing(finalPicks, edgeScale * regimeGross);
