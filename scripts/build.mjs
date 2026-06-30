@@ -5872,6 +5872,66 @@ export function classifyCapitalRaiseHeadline(title) {
   return null;
 }
 
+// ── Thesis-category classifier (Track Record analytics) ─────────────────────
+// Deterministically tags a pick's thesis "style" from its dominant scored
+// drivers (+ an earnings-in-window catalyst boost + a macro-backbone nudge), so
+// the Track Record tab can break realized performance down by thesis TYPE
+// (valuation / momentum / event-driven / macro-sector / supply-demand /
+// technical / other). Pure + deterministic (no AI) and reads only the serialized
+// pick fields (p.drivers / p.contract.earningsInWindow / p.thesisCard.marketRead)
+// — mirrors the classifyCapitalRaiseHeadline idiom above. The driver-key
+// vocabulary is the THESIS_INVALIDATION taxonomy, plus the "catalyst" alias the
+// narrative pillar emits for a news catalyst. Unknown keys fall to "other".
+const THESIS_DRIVER_CATEGORY = {
+  // momentum / trend persistence
+  rsiMomentum: "momentum", macd: "momentum", fiftyTwoWeek: "momentum", streak: "momentum",
+  // technical levels / structure / confirmation
+  srBreak: "technical", rsiReading: "technical", smaStack: "technical", volumeConfirm: "technical", chartPattern: "technical",
+  // valuation / fundamentals
+  pe: "valuation", analystTarget: "valuation", analystRevisions: "valuation", fcf: "valuation",
+  netMargin: "valuation", epsGrowth: "valuation", revGrowth: "valuation", trajectory: "valuation",
+  // event-driven catalysts
+  earningsSurprise: "event-driven", guidance: "event-driven", majorContract: "event-driven",
+  capitalRaise: "event-driven", newsCatalyst: "event-driven", catalyst: "event-driven",
+  // supply / demand (options flow + positioning)
+  unusualFlow: "supply-demand", oiSkew: "supply-demand", shortInterest: "supply-demand",
+  unusualVolume: "supply-demand", hourlyVolume: "supply-demand",
+  // macro / sector narrative
+  sectorNarrative: "macro-sector",
+  // sentiment is too diffuse to own a thesis by itself
+  socialSentiment: "other",
+};
+// Tie-break order when two categories carry equal weight: a specific catalyst
+// outranks a diffuse trend read.
+const THESIS_CATEGORY_PRIORITY = ["event-driven", "valuation", "macro-sector", "supply-demand", "momentum", "technical", "other"];
+export function classifyThesisCategory(pick) {
+  const out = { primary: "other", secondary: null };
+  if (!pick) return out;
+  const drivers = (Array.isArray(pick.drivers) && pick.drivers.length)
+    ? pick.drivers
+    : (pick.thesisCard?.works || []);
+  const tally = {};
+  const add = (cat, w) => { if (!cat || !(w > 0)) return; tally[cat] = (tally[cat] || 0) + w; };
+  for (const d of drivers) {
+    const cat = THESIS_DRIVER_CATEGORY[d?.key] || "other";
+    const w = Math.abs(pnum(d?.score) ?? 1) || 1;
+    add(cat, w);
+  }
+  // Earnings inside the hold window makes the trade event-exposed regardless of
+  // what the rest of the thesis leans on — give event-driven a strong nudge.
+  if (pick.contract?.earningsInWindow) add("event-driven", 2.5);
+  // A macro backbone (the cross-asset read actively SUPPORTS the trade, and it's
+  // a real sector group, not the broad-market catch-all) tilts to macro-sector.
+  const mr = pick.thesisCard?.marketRead;
+  if (mr && mr.support === "supports" && mr.group && mr.group !== "broad") add("macro-sector", 2);
+  const cats = Object.keys(tally);
+  if (!cats.length) return out;
+  cats.sort((a, b) => ((tally[b] || 0) - (tally[a] || 0)) || (THESIS_CATEGORY_PRIORITY.indexOf(a) - THESIS_CATEGORY_PRIORITY.indexOf(b)));
+  out.primary = cats[0];
+  if (cats.length > 1 && cats[1] !== cats[0] && (tally[cats[1]] || 0) >= 0.5 * (tally[cats[0]] || 0)) out.secondary = cats[1];
+  return out;
+}
+
 // Module-level accumulator: attachTickerJudgments scans each ticker's freshly
 // fetched headlines for issuance language and pushes the flagged ones here, so
 // buildCapitalRaisesPayload can assemble the feed without re-fetching news.
@@ -12510,11 +12570,19 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       if (enrollEarnAhead >= 0 && enrollEarnAhead <= PICKS_EARNINGS_EXIT_DAYS) continue;
     }
     openKeys.add(key);
+    // Deterministic thesis-style tag (valuation / momentum / event-driven / …)
+    // for the Track Record by-thesis + cross-tab analytics. Frozen at entry.
+    const thesisCat = classifyThesisCategory(p);
     open.push({
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
+      thesisCategory: thesisCat.primary, thesisCategorySecondary: thesisCat.secondary,
       contract: p.contract ? {
         strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay,
+        // pop (probability-of-profit, N(d2) on the contract's breakeven) drives
+        // the Track Record PoP-bucket analytics — copy it through, present on
+        // both naked-long and vertical contracts.
+        pop: p.contract.pop ?? null,
         structure: p.contract.structure || "long",
         // Verticals must carry their legs + economics so markOptionToMarket can
         // reprice both wings and net the P/L (structure-aware).

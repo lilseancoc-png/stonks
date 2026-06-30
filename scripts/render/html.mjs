@@ -227,13 +227,17 @@ function trackRecordSection() {
     <p class="hint">Every Top Pick shipped each refresh is logged and marked to market against each pick&rsquo;s own take-profit / cut levels. Use the tabs below to switch between the scorecard, the live Top&nbsp;10 roster, the activity logs, and the open / resolved picks.</p>
     <details class="accuracy-how">
       <summary>How this works</summary>
-      <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), expires (graded vs. breakeven), or hits a 14-day time-stop. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. Build cadence (~3 checks/day), not intraday.</p>
+      <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), expires (graded vs. breakeven), or hits a 14-day time-stop. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Equity</b>, <b>Breakdowns</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $1M risk-managed book, and a bootstrap of the outcome distribution. Build cadence (~3 checks/day), not intraday.</p>
     </details>
     <div class="acc-tabs" role="tablist" aria-label="Track record view">
       <button type="button" class="acc-tab" role="tab" aria-selected="true" aria-controls="acc-pane-scorecard" id="acc-tab-scorecard" data-acc-tab="scorecard">Scorecard</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-top10" id="acc-tab-top10" data-acc-tab="top10">Top&nbsp;10<span class="acc-tab-n" id="acc-tab-n-top10" hidden></span></button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-activity" id="acc-tab-activity" data-acc-tab="activity">Activity<span class="acc-tab-n" id="acc-tab-n-activity" hidden></span></button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-picks" id="acc-tab-picks" data-acc-tab="picks">Picks<span class="acc-tab-n" id="acc-tab-n-picks" hidden></span></button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-equity" id="acc-tab-equity" data-acc-tab="equity">Equity</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-breakdowns" id="acc-tab-breakdowns" data-acc-tab="breakdowns">Breakdowns</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-sim" id="acc-tab-sim" data-acc-tab="sim">Simulator</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-montecarlo" id="acc-tab-montecarlo" data-acc-tab="montecarlo">Monte&nbsp;Carlo</button>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-scorecard" aria-labelledby="acc-tab-scorecard">
       <div id="accuracy-stats" class="accuracy-stats">Loading track record…</div>
@@ -252,7 +256,19 @@ function trackRecordSection() {
       <div id="accuracy-root" class="accuracy-root"></div>
       <p class="acc-pane-empty" id="acc-empty-picks" hidden>No open or resolved picks yet.</p>
     </div>
-    <p class="picks-foot">Track record is informational, not a performance claim: it follows the underlying stock against each pick&rsquo;s own take-profit / cut levels, not the realised option P&amp;L, and samples only at build time. Not financial advice.</p>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-equity" aria-labelledby="acc-tab-equity" hidden>
+      <div id="an-equity" class="acc-analytics"></div>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-breakdowns" aria-labelledby="acc-tab-breakdowns" hidden>
+      <div id="an-breakdowns" class="acc-analytics"></div>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-sim" aria-labelledby="acc-tab-sim" hidden>
+      <div id="an-sim" class="acc-analytics"></div>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-montecarlo" aria-labelledby="acc-tab-montecarlo" hidden>
+      <div id="an-mc" class="acc-analytics"></div>
+    </div>
+    <p class="picks-foot">Track record is informational, not a performance claim: it follows the underlying stock against each pick&rsquo;s own take-profit / cut levels, not the realised option P&amp;L, and samples only at build time. The <b>$ profitability, equity curve, Simulator, and Monte&nbsp;Carlo</b> views are <b>modeled and hypothetical</b> — Black-Scholes marks on a notional book, not realised fills. Not financial advice.</p>
   </section>`;
 }
 
