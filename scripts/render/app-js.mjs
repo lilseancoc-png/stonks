@@ -3071,7 +3071,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['scorecard','top10','activity','picks'];
+    var KEYS = ['scorecard','top10','activity','picks','equity','breakdowns','sim','montecarlo'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -16816,6 +16816,738 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (c.expiryLabel) parts.push(c.expiryLabel);
     return parts.join(' · ');
   }
+
+  // ========================================================================
+  // Track Record analytics — pure functions over the resolved (closed[]) and
+  // open[] trade arrays from data/picks-accuracy.json. P&L is stored as a
+  // PERCENT of the entry basis (optionPnlPct), already sign-normalized so
+  // + = profit. Everything below derives dollars / return-on-risk / drawdown
+  // / the $1M simulation / Monte Carlo from that + the persisted contract.
+  // The single correctness trap: a credit vertical's optionPnlPct is %-of-
+  // CREDIT, not %-of-risk — basis = netCredit, risk = the separate maxLoss.
+  // ========================================================================
+  var ACC_NOTIONAL = 10000;            // fixed-notional "$ per trade" basis
+  var ACC_SIM_START = 1000000;         // $1M portfolio simulation start
+  var ACC_SIM_RISK = 0.01;             // risk 1% of current equity per trade
+  var ACC_SIM_HEAT = 0.10;             // max 10% total risk live at once
+  var ACC_SIM_POSCAP = 0.12;           // no single trade > 12% of equity
+  var ACC_THESIS_LABEL = { valuation:'Valuation', momentum:'Momentum / Trend', 'event-driven':'Event-driven', 'macro-sector':'Macro / Sector', 'supply-demand':'Supply / Demand', technical:'Technical / Chart', other:'Other' };
+  var ACC_THESIS_ORDER = ['valuation','momentum','event-driven','macro-sector','supply-demand','technical','other'];
+  var ACC_REGIME_LABEL = { 'severe-risk-off':'Severe risk-off', 'risk-off':'Risk-off', 'risk-on':'Risk-on', 'neutral':'Neutral' };
+  var ACC_REGIME_ORDER = ['risk-on','neutral','risk-off','severe-risk-off','Unknown'];
+
+  // --- small stat helpers --------------------------------------------------
+  function accMean(a){ if(!a || !a.length) return null; var s=0; for(var i=0;i<a.length;i++) s+=a[i]; return s/a.length; }
+  function accStd(a){ if(!a || a.length<2) return null; var m=accMean(a), s=0; for(var i=0;i<a.length;i++){ var d=a[i]-m; s+=d*d; } return Math.sqrt(s/(a.length-1)); }
+  function accSum(a){ var s=0; for(var i=0;i<a.length;i++) s+=a[i]; return s; }
+  function accQuantile(sorted, q){ if(!sorted || !sorted.length) return null; var pos=(sorted.length-1)*q, lo=Math.floor(pos), hi=Math.ceil(pos); if(lo===hi) return sorted[lo]; return sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo); }
+  // mulberry32 — tiny seedable PRNG so a Monte Carlo run is reproducible (the
+  // fan chart matches the percentile table; a re-run just bumps the seed).
+  function accRng(seed){ var a = seed>>>0; return function(){ a|=0; a=(a+0x6D2B79F5)|0; var t=Math.imul(a^(a>>>15), 1|a); t=(t+Math.imul(t^(t>>>7), 61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
+
+  // --- per-contract dollar derivation (all three structures) ---------------
+  function accBasisPerShare(c){
+    if (!c) return null;
+    if (c.structure === 'credit_vertical') return (c.netCredit != null ? c.netCredit : c.mid);
+    if (c.structure === 'debit_vertical') return (c.netDebit != null ? c.netDebit : c.mid);
+    return c.mid; // naked long
+  }
+  // Given a trade entry, return { basis, entryCost, maxLoss, maxProfit, pnl, pnlPct, rr }
+  // all PER CONTRACT (×100 multiplier). pnl = basis·optionPnlPct because
+  // optionPnlPct is (pct·100) of basis. maxLoss always defined (long = premium);
+  // maxProfit null = unbounded (naked long). rr = pnl / maxLoss (return-on-risk).
+  function tradeDollars(e){
+    var c = e && e.contract; if (!c) return null;
+    var basis = accBasisPerShare(c);
+    if (basis == null || !isFinite(basis) || basis <= 0) return null;
+    var pnlPct = Number(e.optionPnlPct);
+    if (!isFinite(pnlPct)) return null;
+    var entryCost = basis * 100;
+    var maxLoss = (c.maxLoss != null ? c.maxLoss : c.mid) * 100;
+    var maxProfit = (c.maxProfit != null) ? c.maxProfit * 100 : null;
+    var pnl = basis * pnlPct;
+    return { basis: basis, entryCost: entryCost, maxLoss: maxLoss, maxProfit: maxProfit, pnl: pnl, pnlPct: pnlPct, rr: (maxLoss > 0 ? pnl / maxLoss : null) };
+  }
+  // Model an OPEN position closing at its take-profit / cut bracket — used to
+  // "close the book" at the end of the portfolio simulation. Green now → assume
+  // it reaches TP; red → assume it hits the cut (structure-aware gates).
+  function accBracketPnlPerContract(e){
+    var d = tradeDollars(e); if (!d) return null;
+    var credit = e.contract && e.contract.structure === 'credit_vertical';
+    var tpGate = credit ? 50 : 20, stopGate = credit ? 100 : 30;
+    var px = (isFinite(d.pnlPct) && d.pnlPct >= 0) ? tpGate : -stopGate;
+    return d.basis * px;
+  }
+
+  // --- dimension registry (buckets + cross-tab) ----------------------------
+  function accConvictionTier(e){
+    var t = e && e.tier;
+    if (t === 'strong-call' || t === 'strong-put') return 'Very High';
+    if (t === 'call' || t === 'put') return 'High';
+    var sc = Math.abs(Number(e && e.score));
+    if (isFinite(sc)){ if (sc >= 7) return 'Very High'; if (sc >= 4) return 'High'; }
+    return 'High';
+  }
+  function accDteBucket(e){ var d = e && e.contract && e.contract.dte; if (d == null || !isFinite(d)) return 'Unknown'; if (d <= 7) return '0-7'; if (d <= 21) return '8-21'; if (d <= 45) return '22-45'; return '45+'; }
+  function accPopBucket(e){ var p = e && e.contract && e.contract.pop; if (p == null || !isFinite(p)) return 'Unknown'; var v = p * 100; if (v < 30) return '<30%'; if (v < 45) return '30-45%'; if (v < 60) return '45-60%'; return '>60%'; }
+  var ACC_DIMS = {
+    thesis:     { label: 'Thesis category', key: function(e){ return e.thesisCategory || 'other'; }, lab: function(k){ return ACC_THESIS_LABEL[k] || k; }, order: ACC_THESIS_ORDER },
+    thesis2:    { label: 'Thesis (secondary)', key: function(e){ return e.thesisCategorySecondary || 'none'; }, lab: function(k){ return k === 'none' ? '— none' : (ACC_THESIS_LABEL[k] || k); }, order: ACC_THESIS_ORDER.concat(['none']) },
+    conviction: { label: 'Conviction', key: accConvictionTier, lab: function(k){ return k; }, order: ['Very High','High'] },
+    dte:        { label: 'DTE', key: accDteBucket, lab: function(k){ return k; }, order: ['0-7','8-21','22-45','45+','Unknown'] },
+    pop:        { label: 'PoP', key: accPopBucket, lab: function(k){ return k; }, order: ['<30%','30-45%','45-60%','>60%','Unknown'] },
+    regime:     { label: 'Market regime', key: function(e){ return e.entryRegime || 'Unknown'; }, lab: function(k){ return ACC_REGIME_LABEL[k] || k; }, order: ACC_REGIME_ORDER },
+    sector:     { label: 'Sector', key: function(e){ return e.sector || 'Unknown'; }, lab: function(k){ return k; }, order: null },
+    side:       { label: 'Side', key: function(e){ return e.side === 'put' ? 'put' : 'call'; }, lab: function(k){ return k === 'put' ? 'Put' : 'Call'; }, order: ['call','put'] },
+  };
+  // Order a set of bucket keys by a dim's declared order (unknowns/extras last).
+  function accOrderKeys(dim, keys){
+    var present = {}; keys.forEach(function(k){ present[k] = true; });
+    var out = [];
+    if (dim.order){ dim.order.forEach(function(k){ if (present[k]){ out.push(k); delete present[k]; } }); }
+    var rest = Object.keys(present).sort();
+    return out.concat(rest);
+  }
+  // Group decided trades by a single dimension -> [{ key, label, trades }].
+  function accBucketize(trades, dimName){
+    var dim = ACC_DIMS[dimName]; if (!dim) return [];
+    var groups = {};
+    for (var i=0;i<trades.length;i++){ var k = dim.key(trades[i]) || 'Unknown'; (groups[k] = groups[k] || []).push(trades[i]); }
+    return accOrderKeys(dim, Object.keys(groups)).map(function(k){ return { key: k, label: dim.lab(k), trades: groups[k] }; });
+  }
+
+  // --- decided-trade subset + the metric bundle ----------------------------
+  function accDecided(trades){ return (trades||[]).filter(function(e){ return e && (e.outcome === 'win' || e.outcome === 'loss'); }); }
+
+  // The single metric bundle used by the scorecard, every bucket cell, the
+  // cross-tab, and the sim summary. opts.basis ∈ 'notional'|'contract'.
+  function tradeMetrics(trades, opts){
+    opts = opts || {}; var basis = opts.basis || 'notional', notional = opts.notional || ACC_NOTIONAL;
+    var m = { n:0, wins:0, losses:0, winRate:null, grossWin:0, grossLoss:0, profitFactor:null, avgWin:null, avgLoss:null, rr:null, expectancy:null, totalPnl:0,
+              expectancyR:null, profitFactorR:null, rrR:null, sharpe:null, sortino:null, annualized:false, calmar:null, cagr:null,
+              maxDD:0, maxDDpct:0, curDD:0, curDDpct:0, peak:null, base:null, recovery:null, spanDays:0,
+              pctTP:null, pctCut:null, pctOther:null, pctMaxProfit:null, pctMaxProfitN:0, best:null, worst:null, basisMode:basis };
+    var rows = [];
+    var dec = accDecided(trades);
+    for (var i=0;i<dec.length;i++){
+      var e = dec[i], d = tradeDollars(e); if (!d) continue;
+      var pnl = (basis === 'notional') ? (d.pnlPct/100*notional) : d.pnl;
+      if (!isFinite(pnl)) continue;
+      rows.push({ e:e, d:d, pnl:pnl, R:d.rr, win:e.outcome === 'win', status:e.status });
+    }
+    var n = rows.length; m.n = n; if (!n) return m;
+    var wins=[], losses=[], Rs=[], winR=[], lossR=[], capList=[], tp=0, cut=0, best=null, worst=null, total=0;
+    for (i=0;i<n;i++){
+      var r = rows[i]; total += r.pnl;
+      if (r.win){ m.wins++; wins.push(r.pnl); m.grossWin += Math.max(0, r.pnl); }
+      else { m.losses++; losses.push(r.pnl); m.grossLoss += Math.max(0, -r.pnl); }
+      if (r.R != null && isFinite(r.R)){ Rs.push(r.R); (r.R >= 0 ? winR : lossR).push(r.R); }
+      if (r.status === 'hit-tp-prem') tp++; else if (r.status === 'hit-stop-prem' || r.status === 'theta-stop') cut++;
+      if (r.win && r.d.maxProfit != null && r.d.maxProfit > 0) capList.push(Math.max(0, r.d.pnl) / r.d.maxProfit);
+      if (!best || r.pnl > best.pnl) best = { sym:r.e.symbol, date:r.e.exitDate, pnl:r.pnl, R:r.R };
+      if (!worst || r.pnl < worst.pnl) worst = { sym:r.e.symbol, date:r.e.exitDate, pnl:r.pnl, R:r.R };
+    }
+    m.winRate = m.wins / n; m.totalPnl = total;
+    m.profitFactor = m.grossLoss > 0 ? m.grossWin / m.grossLoss : (m.grossWin > 0 ? Infinity : null);
+    m.avgWin = wins.length ? accMean(wins) : null;
+    m.avgLoss = losses.length ? Math.abs(accMean(losses)) : null;
+    m.rr = (m.avgWin != null && m.avgLoss != null && m.avgLoss > 0) ? m.avgWin / m.avgLoss : ((m.avgWin > 0 && !losses.length) ? Infinity : null);
+    m.expectancy = total / n;
+    m.best = best; m.worst = worst;
+    m.pctTP = tp / n; m.pctCut = cut / n; m.pctOther = (n - tp - cut) / n;
+    if (capList.length){ m.pctMaxProfit = accMean(capList); m.pctMaxProfitN = capList.length; }
+    if (Rs.length){
+      var gWinR = accSum(winR), gLossR = lossR.reduce(function(s,v){ return s + Math.abs(v); }, 0);
+      m.expectancyR = accMean(Rs);
+      m.profitFactorR = gLossR > 0 ? gWinR / gLossR : (gWinR > 0 ? Infinity : null);
+      var awR = winR.length ? accMean(winR) : null, alR = lossR.length ? Math.abs(accMean(lossR)) : null;
+      m.rrR = (awR != null && alR != null && alR > 0) ? awR / alR : null;
+      var mr = accMean(Rs), sd = accStd(Rs);
+      if (Rs.length >= 2 && sd && sd > 0) m.sharpe = mr / sd;
+      var dn = 0, dc = 0; for (i=0;i<Rs.length;i++){ if (Rs[i] < 0){ dn += Rs[i]*Rs[i]; dc++; } }
+      var ddv = dc ? Math.sqrt(dn / Rs.length) : 0;
+      if (ddv > 0) m.sortino = mr / ddv;
+    }
+    // Equity curve / drawdown / CAGR for the chosen basis (same pnl rule).
+    var ec = buildEquityCurve(rows.map(function(r){ return r.e; }), { basis:basis, notional:notional });
+    m.base = ec.base; m.peak = ec.peak; m.maxDD = ec.maxDD; m.maxDDpct = ec.maxDDpct;
+    m.curDD = ec.curDD; m.curDDpct = ec.curDDpct; m.recovery = ec.recovery; m.cagr = ec.cagr; m.spanDays = ec.spanDays;
+    // Only annualize once the sample is genuinely meaningful. Annualizing a
+    // per-trade Sharpe by trade frequency wildly overstates on a handful of
+    // trades clustered in a sub-monthly window (the sparse early record) — so
+    // keep the honest per-trade value (labeled "per-trade") until ≥20 trades
+    // over ≥45 days, and cap the implied trades/year so it can't explode.
+    if (ec.spanDays >= 45 && n >= 20){
+      var tpy = Math.min(252, n / (ec.spanDays / 365.25));
+      if (m.sharpe != null){ m.sharpe = m.sharpe * Math.sqrt(tpy); m.annualized = true; }
+      if (m.sortino != null) m.sortino = m.sortino * Math.sqrt(tpy);
+    }
+    m.calmar = (m.cagr != null && m.maxDDpct > 0) ? (m.cagr / m.maxDDpct) : null;
+    return m;
+  }
+
+  // --- equity curve + drawdown (chosen basis) ------------------------------
+  function accSortByExit(trades){
+    return (trades||[]).slice().sort(function(a,b){
+      var ax = Date.parse(a.exitDate||a.entryDate)||0, bx = Date.parse(b.exitDate||b.entryDate)||0;
+      if (ax !== bx) return ax - bx;
+      var ae = Date.parse(a.entryDate)||0, be = Date.parse(b.entryDate)||0;
+      if (ae !== be) return ae - be;
+      return String(a.symbol||'').localeCompare(String(b.symbol||''));
+    });
+  }
+  // Cumulative P&L on a starting bankroll. notional basis → bankroll = notional;
+  // per-contract basis → bankroll = mean entry cost (a "typical 1-contract" base),
+  // so drawdown % is sensible and CAGR has a capital base. Returns points +
+  // peak/maxDD/curDD/recovery/cagr/spanDays. recovery = #trades from the global
+  // max-DD trough back above its prior peak (null = not yet recovered).
+  function buildEquityCurve(trades, opts){
+    opts = opts || {}; var basis = opts.basis || 'notional', notional = opts.notional || ACC_NOTIONAL;
+    var seq = accSortByExit(accDecided(trades));
+    var base;
+    if (basis === 'notional') base = notional;
+    else { var costs = []; for (var i=0;i<seq.length;i++){ var dd = tradeDollars(seq[i]); if (dd) costs.push(dd.entryCost); } base = costs.length ? accMean(costs) : notional; }
+    var eq = base, peak = base, maxDD = 0, maxDDpct = 0, troughIdx = -1, peakAtTrough = base;
+    var pts = [{ idx:0, value:base, date:(seq.length ? seq[0].entryDate : null) }];
+    for (i=0;i<seq.length;i++){
+      var e = seq[i], d = tradeDollars(e);
+      var pnl = (basis === 'notional') ? (Number(e.optionPnlPct)/100*notional) : (d ? d.pnl : NaN);
+      if (!isFinite(pnl)) continue;
+      eq += pnl;
+      pts.push({ idx: pts.length, value: eq, date: e.exitDate });
+      if (eq > peak) peak = eq;
+      var dnow = peak - eq;
+      if (dnow > maxDD){ maxDD = dnow; maxDDpct = peak > 0 ? dnow / peak : 0; troughIdx = pts.length - 1; peakAtTrough = peak; }
+    }
+    var recovery = null;
+    if (troughIdx >= 0){ for (var j=troughIdx+1;j<pts.length;j++){ if (pts[j].value >= peakAtTrough){ recovery = j - troughIdx; break; } } }
+    var firstMs = seq.length ? (Date.parse(seq[0].exitDate||seq[0].entryDate)||0) : 0;
+    var lastMs = seq.length ? (Date.parse(seq[seq.length-1].exitDate||seq[seq.length-1].entryDate)||0) : 0;
+    var spanDays = (lastMs > firstMs) ? (lastMs - firstMs) / 86400000 : 0;
+    // CAGR only once there's enough history to annualize without blowing up
+    // (consistent with the Sharpe/Sortino gate) — else null (shown as "—").
+    var cagr = (base > 0 && eq > 0 && spanDays >= 45 && seq.length >= 20) ? (Math.pow(eq / base, 365.25 / spanDays) - 1) : null;
+    return { points: pts, base: base, finalEquity: eq, peak: peak, maxDD: maxDD, maxDDpct: maxDDpct,
+             curDD: peak - eq, curDDpct: peak > 0 ? (peak - eq) / peak : 0, recovery: recovery, cagr: cagr, spanDays: spanDays };
+  }
+
+  // --- $1M portfolio simulation (event-driven, heat-correct) ---------------
+  // Risk 1% of CURRENT equity per pick; size from the trade's max loss
+  // (contracts = floor(riskBudget / maxLossPerContract)); cap each position at
+  // 12% of equity; cap total live risk ("heat") at 10%; compound; process by
+  // entry/exit events so concurrent open risk is tracked correctly. Open
+  // positions are marked to their TP/cut bracket at sim end. ALL HYPOTHETICAL.
+  function runPortfolioSim(closed, open, opts){
+    opts = opts || {};
+    var start = opts.start || ACC_SIM_START, riskPct = opts.riskPct || ACC_SIM_RISK;
+    var heatCap = opts.heatCap || ACC_SIM_HEAT, posCap = opts.posCap || ACC_SIM_POSCAP;
+    var nowMs = Date.now();
+    var src = accDecided(closed).slice();
+    var maxClosedExit = 0; for (var i=0;i<src.length;i++){ var x = Date.parse(src[i].exitDate)||0; if (x > maxClosedExit) maxClosedExit = x; }
+    var simEnd = Math.max(maxClosedExit, nowMs);
+    var trades = [];
+    function pushTrade(e, isOpen){
+      var d = tradeDollars(e); if (!d) return;
+      if (opts.highConvictionOnly && accConvictionTier(e) !== 'Very High') return;
+      var pnlPC = isOpen ? accBracketPnlPerContract(e) : d.pnl;
+      if (pnlPC == null || !isFinite(pnlPC)) return;
+      var entryMs = Date.parse(e.entryDate)||0;
+      var exitMs = isOpen ? simEnd : (Date.parse(e.exitDate)||simEnd);
+      if (exitMs < entryMs) exitMs = entryMs;
+      // capPC = capital tied up for the per-position cap: a credit vertical pays
+      // no premium but ties up its max-loss as margin, so cap on maxLoss there;
+      // longs/debits cap on the premium paid. (Without this the 12% cap is inert
+      // for credit spreads — credit received ≪ capital at risk.)
+      var credit = e.contract && e.contract.structure === 'credit_vertical';
+      var capPC = credit ? d.maxLoss : (d.entryCost > 0 ? d.entryCost : d.maxLoss);
+      trades.push({ entryMs:entryMs, exitMs:exitMs, riskPC:d.maxLoss, capPC:capPC, pnlPC:pnlPC, win:pnlPC >= 0, symbol:e.symbol, score:Math.abs(Number(e.score))||0 });
+    }
+    for (i=0;i<src.length;i++) pushTrade(src[i], false);
+    if (opts.includeOpens){ var op = open||[]; for (i=0;i<op.length;i++) pushTrade(op[i], true); }
+    if (!trades.length) return { empty:true, nTaken:0, nSkipped:0 };
+    // events: close before open at the same instant (free capital/heat first);
+    // opens at the same instant deterministically ordered (score desc, symbol).
+    var events = [];
+    trades.forEach(function(t, idx){ events.push({ t:t.entryMs, kind:1, id:idx, tr:t }); events.push({ t:t.exitMs, kind:0, id:idx, tr:t }); });
+    events.sort(function(a,b){
+      if (a.t !== b.t) return a.t - b.t;
+      if (a.kind !== b.kind) return a.kind - b.kind;              // close(0) before open(1)
+      if (a.kind === 1){ var ds = (b.tr.score - a.tr.score); if (ds) return ds; return String(a.tr.symbol).localeCompare(String(b.tr.symbol)); }
+      return a.id - b.id;
+    });
+    var equity = start, committed = 0, peak = start, maxDD = 0, maxDDpct = 0, troughI = -1, peakAtTrough = start;
+    var openMap = {}, sizes = [], taken = 0, skipped = 0, reduced = 0, wins = 0, losses = 0, grossWin = 0, grossLoss = 0;
+    var curve = [{ idx:0, value:start, date:null }];
+    for (var ev=0; ev<events.length; ev++){
+      var E = events[ev], t = E.tr;
+      if (E.kind === 1){ // OPEN
+        var mlpc = t.riskPC; if (!(mlpc > 0)) { skipped++; continue; }
+        var riskBudget = riskPct * equity;
+        var contracts = Math.floor(riskBudget / mlpc);
+        var posLimit = Math.floor((posCap * equity) / (t.capPC > 0 ? t.capPC : mlpc));
+        if (posLimit < contracts) contracts = posLimit;
+        var avail = heatCap * equity - committed;
+        if (contracts * mlpc > avail){ contracts = Math.floor(avail / mlpc); if (contracts >= 1) reduced++; }
+        if (contracts < 1){ skipped++; continue; }
+        committed += contracts * mlpc;
+        openMap[E.id] = { contracts: contracts, riskUsed: contracts * mlpc, tr: t };
+        taken++; sizes.push(contracts * mlpc);   // $ risked per the spec (max-loss × contracts)
+      } else { // CLOSE
+        var pos = openMap[E.id]; if (!pos) continue;            // never opened (skipped) → no realization
+        var pnl = pos.contracts * t.pnlPC;
+        equity += pnl; committed -= pos.riskUsed; if (committed < 0) committed = 0;
+        delete openMap[E.id];
+        if (pnl >= 0){ wins++; grossWin += pnl; } else { losses++; grossLoss += -pnl; }
+        curve.push({ idx: curve.length, value: equity, date: t.exitMs });
+        if (equity > peak) peak = equity;
+        var dnow = peak - equity;
+        if (dnow > maxDD){ maxDD = dnow; maxDDpct = peak > 0 ? dnow / peak : 0; troughI = curve.length - 1; peakAtTrough = peak; }
+      }
+    }
+    var recovery = null; if (troughI >= 0){ for (var k=troughI+1;k<curve.length;k++){ if (curve[k].value >= peakAtTrough){ recovery = k - troughI; break; } } }
+    var decN = wins + losses;
+    return {
+      empty:false, start:start, finalEquity:equity, totalReturnPct:(equity/start - 1)*100,
+      maxDD:maxDD, maxDDpct:maxDDpct, curDD:peak - equity, curDDpct: peak > 0 ? (peak - equity)/peak : 0,
+      peak:peak, recovery:recovery, winRate: decN ? wins/decN : null, profitFactor: grossLoss > 0 ? grossWin/grossLoss : (grossWin > 0 ? Infinity : null),
+      nTaken:taken, nSkipped:skipped, nReduced:reduced, avgPositionSize: sizes.length ? accMean(sizes) : null, curve:curve,
+    };
+  }
+
+  // --- Monte Carlo (bootstrap resample of resolved return-on-risk) ---------
+  // Resample resolved trades' return-on-risk (R = pnl/maxLoss, scale-free) with
+  // replacement, B times, compounding 1% risk per draw on a $1M base — the
+  // simulator's model run on a reshuffled deck. Keeps a few full paths for the
+  // fan chart; scalars (final, maxDD%, Sharpe) for every path. Seeded → stable.
+  function runMonteCarlo(closed, opts){
+    opts = opts || {};
+    var iters = opts.iters || 5000, start = opts.start || ACC_SIM_START, riskPct = opts.riskPct || ACC_SIM_RISK;
+    var pool = [];
+    var dec = accDecided(closed);
+    for (var i=0;i<dec.length;i++){ var d = tradeDollars(dec[i]); if (d && d.rr != null && isFinite(d.rr)) pool.push(d.rr); }
+    if (pool.length < 8) return { empty:true, poolN: pool.length };
+    var horizon = opts.horizon || pool.length;
+    var rng = accRng(opts.seed || 1337);
+    // Keep a large sample for the fan's median line + 5/95 envelope so they
+    // track the all-iterations headline percentiles (the fan only DRAWS ~40
+    // faint lines, but the band/median are quantiles over these kept paths).
+    var pathsToKeep = Math.min(400, iters);
+    var finals = new Array(iters), maxDDs = new Array(iters), sharpes = new Array(iters);
+    var keptPaths = [];
+    for (var s=0; s<iters; s++){
+      var eq = start, peak = start, mdd = 0, sumR = 0, sumR2 = 0;
+      var keep = s < pathsToKeep, path = keep ? new Array(horizon + 1) : null; if (keep) path[0] = start;
+      for (var h=0; h<horizon; h++){
+        var r = pool[(rng() * pool.length) | 0];
+        eq = eq * (1 + riskPct * r);
+        sumR += r; sumR2 += r * r;
+        if (eq > peak) peak = eq;
+        var dd = peak > 0 ? (peak - eq) / peak : 0; if (dd > mdd) mdd = dd;
+        if (keep) path[h + 1] = eq;
+      }
+      finals[s] = eq; maxDDs[s] = mdd;
+      var mR = sumR / horizon, vR = sumR2 / horizon - mR * mR;
+      sharpes[s] = vR > 0 ? mR / Math.sqrt(vR) : 0;
+      if (keep) keptPaths.push(path);
+    }
+    var fs = finals.slice().sort(function(a,b){ return a-b; });
+    var ms = maxDDs.slice().sort(function(a,b){ return a-b; });
+    var ss = sharpes.slice().sort(function(a,b){ return a-b; });
+    var profit = 0, dd20 = 0; for (i=0;i<iters;i++){ if (finals[i] > start) profit++; if (maxDDs[i] > 0.20) dd20++; }
+    // pointwise median across the kept paths (the bold median line of the fan)
+    var medianPath = new Array(horizon + 1);
+    for (h=0; h<=horizon; h++){ var col = keptPaths.map(function(p){ return p[h]; }).sort(function(a,b){ return a-b; }); medianPath[h] = accQuantile(col, 0.5); }
+    return {
+      empty:false, iters:iters, horizon:horizon, poolN:pool.length, start:start,
+      medianFinal: accQuantile(fs, 0.5), p5Final: accQuantile(fs, 0.05), p95Final: accQuantile(fs, 0.95),
+      pctiles: { p5:accQuantile(fs,0.05), p25:accQuantile(fs,0.25), p50:accQuantile(fs,0.5), p75:accQuantile(fs,0.75), p95:accQuantile(fs,0.95) },
+      probProfit: profit / iters, probDD20: dd20 / iters,
+      medianMaxDD: accQuantile(ms, 0.5), p95MaxDD: accQuantile(ms, 0.95),
+      sharpeMedian: accQuantile(ss, 0.5), sharpeP5: accQuantile(ss, 0.05), sharpeP95: accQuantile(ss, 0.95),
+      finals: finals, keptPaths: keptPaths, medianPath: medianPath,
+    };
+  }
+
+  // ========================================================================
+  // Track Record analytics — render layer (Scorecard $-lens + the Equity /
+  // Breakdowns / Simulator / Monte-Carlo sub-tabs). Reads the shared view state
+  // (dataset = resolved-only vs incl. open marks; basis = $10k notional vs
+  // per-contract) and re-renders on any toggle via accRerenderAnalytics().
+  // ========================================================================
+  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337 };
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','mcIters'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); } catch (e){} })();
+  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters })); } catch (e){} }
+  // The active trade set. 'closed' = resolved only; 'all' = also include the
+  // open book, each open position "resolved" at its CURRENT modeled mark
+  // (win if green now). Clearly labelled as modeled wherever it's shown.
+  function accDatasetTrades(){
+    var d = accuracyState.data || {};
+    var closed = Array.isArray(d.closed) ? d.closed : [];
+    if (accView.dataset !== 'all') return closed.slice();
+    var open = Array.isArray(d.open) ? d.open : [];
+    var nowIso = new Date().toISOString();
+    var marked = open.map(function(o){ var pct = Number(o.optionPnlPct); return Object.assign({}, o, { outcome: (isFinite(pct) && pct >= 0) ? 'win' : 'loss', status: o.status || 'open-mark', exitDate: o.exitDate || nowIso }); });
+    return closed.concat(marked);
+  }
+  function accDatasetTip(){ return accView.dataset === 'all' ? ' Includes open positions marked to their current modeled price (not yet resolved).' : ''; }
+
+  // --- formatting -----------------------------------------------------------
+  function accMoney(n, signed){
+    if (n == null || !isFinite(n)) return '—';
+    var s = (signed && n > 0) ? '+' : (n < 0 ? '-' : ''); var v = Math.abs(n);
+    var str = v >= 1000 ? Math.round(v).toLocaleString() : (v >= 100 ? String(Math.round(v)) : v.toFixed(2));
+    return s + '$' + str;
+  }
+  function accPF(n){ if (n == null) return '—'; if (n === Infinity) return '∞'; if (!isFinite(n)) return '—'; return n.toFixed(2); }
+  function accPctRate(n){ if (n == null || !isFinite(n)) return '—'; return Math.round(n * 100) + '%'; }
+  function accNum(n, dp){ if (n == null) return '—'; if (n === Infinity) return '∞'; if (!isFinite(n)) return '—'; return Number(n).toFixed(dp == null ? 2 : dp); }
+  function accSignClass(n){ return (n == null || !isFinite(n)) ? '' : (n > 0 ? 'sig-pos' : (n < 0 ? 'sig-neg' : 'sig-zero')); }
+  // segmented radiogroup + checkbox (delegated change handler reads data-acc-set)
+  function accSeg(setKey, nameId, current, options){
+    var h = '<div class="segmented acc-seg" role="radiogroup">';
+    for (var i=0;i<options.length;i++){ var o = options[i], id = nameId + '-' + i, ck = (String(current) === String(o.value)) ? ' checked' : ''; h += '<input type="radio" name="' + nameId + '" id="' + id + '" data-acc-set="' + setKey + '" value="' + escapeHtml(o.value) + '"' + ck + '><label for="' + id + '">' + escapeHtml(o.label) + '</label>'; }
+    return h + '</div>';
+  }
+  function accChkbox(setKey, id, current, label){ return '<label class="acc-check"><input type="checkbox" id="' + id + '" data-acc-set="' + setKey + '"' + (current ? ' checked' : '') + '><span>' + escapeHtml(label) + '</span></label>'; }
+
+  // --- chart primitives (bespoke SVG; reuse smoothPath + --pos/--neg) -------
+  function accEquitySvg(points, opts){
+    opts = opts || {};
+    if (!points || points.length < 2) return '<p class="muted acc-an-note">Need at least 2 resolved trades to plot an equity curve.</p>';
+    var W = 680, H = 240, padL = 60, padR = 16, padT = 16, padB = 26, plotW = W - padL - padR, plotH = H - padT - padB;
+    var vals = points.map(function(p){ return p.value; });
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var range = (hi - lo) || Math.abs(hi) || 1, yMin = lo - range * 0.08, yMax = hi + range * 0.08;
+    var n = points.length;
+    var xFor = function(i){ return padL + (n > 1 ? plotW * (i / (n - 1)) : plotW / 2); };
+    var yFor = function(v){ return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; };
+    var xy = points.map(function(p, i){ return [xFor(i), yFor(p.value)]; });
+    var line = smoothPath(xy);
+    var base = points[0].value, final = points[n - 1].value, up = final >= base;
+    var area = line + ' L' + xy[n - 1][0].toFixed(1) + ',' + (padT + plotH).toFixed(1) + ' L' + xy[0][0].toFixed(1) + ',' + (padT + plotH).toFixed(1) + ' Z';
+    var fmtV = opts.formatValue || function(v){ return accMoney(v, false); };
+    var grid = '';
+    [yMax, (yMin + yMax) / 2, yMin].forEach(function(gv){ var gy = yFor(gv); grid += '<line class="acc-eq-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '"></line><text class="acc-eq-yl" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">' + escapeHtml(fmtV(gv)) + '</text>'; });
+    var baseY = yFor(base);
+    var dir = up ? 'up' : 'down';
+    return '<svg class="acc-eq-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Equity curve">' + grid +
+      '<line class="acc-eq-base" x1="' + padL + '" y1="' + baseY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + baseY.toFixed(1) + '"></line>' +
+      '<path class="acc-eq-area ' + dir + '" d="' + area + '"></path>' +
+      '<path class="acc-eq-line ' + dir + '" d="' + line + '"></path>' +
+      '<circle class="acc-eq-dot ' + dir + '" cx="' + xy[n - 1][0].toFixed(1) + '" cy="' + xy[n - 1][1].toFixed(1) + '" r="3.5"></circle>' +
+    '</svg>';
+  }
+  function accBarsSvg(bins, opts){
+    opts = opts || {};
+    if (!bins || bins.length < 2) return '';
+    var W = 680, H = 240, padL = 44, padR = 14, padT = 14, padB = 34, plotW = W - padL - padR, plotH = H - padT - padB;
+    var maxC = 0; bins.forEach(function(b){ if (b.count > maxC) maxC = b.count; }); if (!maxC) maxC = 1;
+    var x0 = bins[0].x0, x1 = bins[bins.length - 1].x1, xr = (x1 - x0) || 1;
+    var xFor = function(v){ return padL + plotW * ((v - x0) / xr); };
+    var bw = plotW / bins.length;
+    var bars = '';
+    for (var i=0;i<bins.length;i++){
+      var b = bins[i], h = (b.count / maxC) * plotH, x = xFor(b.x0) + 1, y = padT + plotH - h;
+      var cls = (opts.breakeven != null && b.x1 <= opts.breakeven) ? ' is-neg' : '';
+      bars += '<rect class="acc-hist-bar' + cls + '" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + Math.max(1, bw - 2).toFixed(1) + '" height="' + Math.max(0.5, h).toFixed(1) + '"><title>' + escapeHtml((opts.fmtX ? opts.fmtX(b.x0) : Math.round(b.x0)) + '–' + (opts.fmtX ? opts.fmtX(b.x1) : Math.round(b.x1)) + ': ' + b.count) + '</title></rect>';
+    }
+    var marker = '';
+    if (opts.breakeven != null && opts.breakeven >= x0 && opts.breakeven <= x1){ var mx = xFor(opts.breakeven); marker = '<line class="acc-hist-mark" x1="' + mx.toFixed(1) + '" y1="' + padT + '" x2="' + mx.toFixed(1) + '" y2="' + (padT + plotH) + '"></line>'; }
+    var labs = '', step = Math.max(1, Math.ceil(bins.length / 6));
+    for (i=0;i<bins.length;i+=step){ var lx = xFor(bins[i].x0); labs += '<text class="acc-hist-xl" x="' + lx.toFixed(1) + '" y="' + (H - padB + 16) + '">' + escapeHtml(opts.fmtX ? opts.fmtX(bins[i].x0) : String(Math.round(bins[i].x0))) + '</text>'; }
+    return '<svg class="acc-hist-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Distribution">' + bars + marker + labs + '</svg>';
+  }
+  function accFanSvg(paths, medianPath, opts){
+    opts = opts || {};
+    if (!paths || !paths.length || !medianPath || medianPath.length < 2) return '';
+    var W = 680, H = 260, padL = 56, padR = 14, padT = 14, padB = 26, plotW = W - padL - padR, plotH = H - padT - padB;
+    var steps = medianPath.length;
+    var lo = Infinity, hi = -Infinity;
+    paths.forEach(function(p){ for (var i=0;i<p.length;i++){ if (p[i] < lo) lo = p[i]; if (p[i] > hi) hi = p[i]; } });
+    if (!isFinite(lo) || !isFinite(hi)) return '';
+    var range = (hi - lo) || 1, yMin = lo - range * 0.05, yMax = hi + range * 0.05;
+    var xFor = function(i){ return padL + (steps > 1 ? plotW * (i / (steps - 1)) : plotW / 2); };
+    var yFor = function(v){ return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; };
+    // p5 / p95 envelope (pointwise across kept paths)
+    var p5 = [], p95 = [];
+    for (var s=0;s<steps;s++){ var col = paths.map(function(p){ return p[s]; }).sort(function(a,b){ return a-b; }); p5.push(accQuantile(col, 0.05)); p95.push(accQuantile(col, 0.95)); }
+    var envTop = p95.map(function(v, i){ return [xFor(i), yFor(v)]; });
+    var envBot = p5.map(function(v, i){ return [xFor(i), yFor(v)]; });
+    var env = 'M' + envTop.map(function(pt){ return pt[0].toFixed(1) + ',' + pt[1].toFixed(1); }).join(' L');
+    for (var k=envBot.length-1;k>=0;k--) env += ' L' + envBot[k][0].toFixed(1) + ',' + envBot[k][1].toFixed(1);
+    env += ' Z';
+    var fmtV = opts.formatValue || function(v){ return accMoney(v, false); };
+    var grid = '';
+    [yMax, (yMin + yMax) / 2, yMin].forEach(function(gv){ var gy = yFor(gv); grid += '<line class="acc-eq-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '"></line><text class="acc-eq-yl" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">' + escapeHtml(fmtV(gv)) + '</text>'; });
+    var sample = '';
+    var sN = Math.min(40, paths.length);
+    for (var pi=0; pi<sN; pi++){ var pp = paths[pi]; var dd = 'M' + xFor(0).toFixed(1) + ',' + yFor(pp[0]).toFixed(1); for (var j=1;j<pp.length;j++) dd += ' L' + xFor(j).toFixed(1) + ',' + yFor(pp[j]).toFixed(1); sample += '<path class="acc-fan-path" d="' + dd + '"></path>'; }
+    var medXy = medianPath.map(function(v, i){ return [xFor(i), yFor(v)]; });
+    var startY = yFor(opts.start != null ? opts.start : medianPath[0]);
+    return '<svg class="acc-fan-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monte Carlo paths">' + grid +
+      '<line class="acc-eq-base" x1="' + padL + '" y1="' + startY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + startY.toFixed(1) + '"></line>' +
+      '<path class="acc-fan-env" d="' + env + '"></path>' + sample +
+      '<path class="acc-fan-median" d="' + smoothPath(medXy) + '"></path>' +
+    '</svg>';
+  }
+
+  // --- metric table + cross-tab builders (per-contract dollars) ------------
+  // Columns: Trades | Win rate | Profit factor | Expectancy($) | Avg win | Avg loss | R:R  (+ Total P&L when opts.total)
+  function accBucketTableHtml(buckets, opts){
+    opts = opts || {};
+    var withTotal = !!opts.total;
+    var cols = withTotal ? 8 : 7;
+    var head = '<div class="acc-mh acc-ml">' + escapeHtml(opts.dimLabel || 'Bucket') + '</div><div class="acc-mh">Trades</div><div class="acc-mh">Win rate</div><div class="acc-mh">Profit factor</div><div class="acc-mh">Expectancy</div><div class="acc-mh">Avg win</div><div class="acc-mh">Avg loss</div>' + (withTotal ? '<div class="acc-mh">Total P&amp;L</div>' : '') + '<div class="acc-mh">R:R</div>';
+    var rows = '';
+    function rowHtml(label, m, isTot){
+      var cls = isTot ? ' acc-mrow-total' : '';
+      return '<div class="acc-ml' + cls + '">' + escapeHtml(label) + '</div>' +
+        '<div class="acc-mc' + cls + '">' + (m.n || 0) + '</div>' +
+        '<div class="acc-mc' + cls + ' ' + (m.winRate != null && m.winRate >= 0.5 ? 'sig-pos' : (m.winRate != null ? 'sig-neg' : '')) + '">' + accPctRate(m.winRate) + '</div>' +
+        '<div class="acc-mc' + cls + ' ' + (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1) ? 'sig-pos' : (m.profitFactor != null ? 'sig-neg' : '')) + '">' + accPF(m.profitFactor) + '</div>' +
+        '<div class="acc-mc' + cls + ' ' + accSignClass(m.expectancy) + '">' + accMoney(m.expectancy, true) + '</div>' +
+        '<div class="acc-mc' + cls + ' sig-pos">' + (m.avgWin != null ? accMoney(m.avgWin, false) : '—') + '</div>' +
+        '<div class="acc-mc' + cls + ' sig-neg">' + (m.avgLoss != null ? '-' + accMoney(m.avgLoss, false) : '—') + '</div>' +
+        (withTotal ? '<div class="acc-mc' + cls + ' ' + accSignClass(m.totalPnl) + '">' + accMoney(m.totalPnl, true) + '</div>' : '') +
+        '<div class="acc-mc' + cls + '">' + (m.rr != null ? (m.rr === Infinity ? '∞' : m.rr.toFixed(2) + ':1') : '—') + '</div>';
+    }
+    var any = false;
+    for (var i=0;i<buckets.length;i++){ var b = buckets[i]; var m = tradeMetrics(b.trades, { basis:'contract' }); if (!m.n) continue; any = true; rows += rowHtml(b.label, m, false); }
+    if (!any) return '<p class="muted acc-an-note">No resolved trades in these buckets yet.</p>';
+    var allTrades = []; buckets.forEach(function(b){ allTrades = allTrades.concat(b.trades); });
+    rows += rowHtml('Overall', tradeMetrics(allTrades, { basis:'contract' }), true);
+    return '<div class="acc-tscroll"><div class="acc-mtable" style="grid-template-columns:1.5fr repeat(' + cols + ',minmax(56px,1fr))">' + head + rows + '</div></div>';
+  }
+  // Cross-tab heatmap: rows = dimA buckets, cols = dimB buckets, cell = win-rate
+  // (color) with the full metric bundle in the tooltip.
+  function accCrossTabHtml(dimAName, dimBName, trades){
+    var dimA = ACC_DIMS[dimAName], dimB = ACC_DIMS[dimBName];
+    if (!dimA || !dimB) return '';
+    var aKeys = {}, bKeys = {};
+    trades.forEach(function(e){ aKeys[dimA.key(e) || 'Unknown'] = true; bKeys[dimB.key(e) || 'Unknown'] = true; });
+    var rowsK = accOrderKeys(dimA, Object.keys(aKeys)), colsK = accOrderKeys(dimB, Object.keys(bKeys));
+    if (!rowsK.length || !colsK.length) return '<p class="muted acc-an-note">No resolved trades to cross-tabulate yet.</p>';
+    var grid = '<div class="acc-xh acc-xcorner"></div>';
+    colsK.forEach(function(ck){ grid += '<div class="acc-xh">' + escapeHtml(dimB.lab(ck)) + '</div>'; });
+    rowsK.forEach(function(rk){
+      grid += '<div class="acc-xrh">' + escapeHtml(dimA.lab(rk)) + '</div>';
+      colsK.forEach(function(ck){
+        var cell = trades.filter(function(e){ return (dimA.key(e) || 'Unknown') === rk && (dimB.key(e) || 'Unknown') === ck; });
+        if (!cell.length){ grid += '<div class="acc-xc acc-xc-empty">·</div>'; return; }
+        var m = tradeMetrics(cell, { basis:'contract' });
+        var wr = m.winRate, tint = wr == null ? '' : (wr >= 0.5 ? 'pos' : 'neg'), strength = wr == null ? 0 : Math.min(1, Math.abs(wr - 0.5) * 2);
+        var bg = tint ? ' style="background:color-mix(in srgb, var(--' + (tint === 'pos' ? 'pos' : 'neg') + ') ' + Math.round(8 + strength * 32) + '%, transparent)"' : '';
+        var tip = dimA.lab(rk) + ' × ' + dimB.lab(ck) + ' — ' + m.n + ' trades · win ' + accPctRate(wr) + ' · PF ' + accPF(m.profitFactor) + ' · exp ' + accMoney(m.expectancy, true);
+        grid += '<div class="acc-xc"' + bg + ' title="' + escapeHtml(tip) + '"><span class="acc-xc-wr">' + accPctRate(wr) + '</span><span class="acc-xc-sub">' + accMoney(m.expectancy, true) + ' · n' + m.n + '</span></div>';
+      });
+    });
+    return '<div class="acc-tscroll"><div class="acc-xtab" style="grid-template-columns:minmax(96px,auto) repeat(' + colsK.length + ',minmax(82px,1fr))">' + grid + '</div></div>';
+  }
+
+  // --- Scorecard $-lens block (#accuracy-profit) ---------------------------
+  function renderProfitBlock(){
+    var box = $('accuracy-profit'); if (!box) return;
+    var trades = accDatasetTrades();
+    var basis = accView.basis;
+    var m = tradeMetrics(trades, { basis: basis });
+    var toggles = '<div class="acc-controls">' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-sc', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-sc', basis, [{ value:'notional', label:'$10k / trade' }, { value:'contract', label:'Per contract' }]) + '</div>' +
+    '</div>';
+    if (!m.n){ box.innerHTML = toggles + '<p class="muted acc-an-note">No resolved trades yet — profitability metrics appear once picks start closing.' + accDatasetTip() + '</p>'; return; }
+    var basisTip = basis === 'notional' ? 'Assuming $' + ACC_NOTIONAL.toLocaleString() + ' bought per trade.' : 'Per single contract (×100 multiplier).';
+    function chip(num, lbl, cls, tip){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
+    var pf = m.profitFactor, pfCls = pf == null ? '' : ((pf === Infinity || pf >= 1.5) ? 'accuracy-chip-good' : (pf >= 1 ? '' : 'accuracy-chip-bad'));
+    var profit = '<div class="accuracy-chips">' +
+      chip(accPF(pf), 'profit factor', pfCls, 'Gross winning $ ÷ gross losing $. >1.5 is a common quality bar. ' + basisTip) +
+      chip(accMoney(m.expectancy, true), 'expectancy / trade', m.expectancy >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad', 'Average $ outcome per trade. ' + basisTip) +
+      chip((m.rr != null ? (m.rr === Infinity ? '∞' : m.rr.toFixed(2) + ':1') : '—'), 'reward : risk', (m.rr != null && m.rr >= 1.5) ? 'accuracy-chip-good' : '', 'Average win ÷ average loss. Aim 1.5–2:1+ at a 35–45% win rate.') +
+      chip(accPctRate(m.winRate), 'win rate (' + m.n + ')', m.winRate >= 0.5 ? 'accuracy-chip-good' : 'accuracy-chip-bad', 'Resolved win rate on the chosen trade set.' + accDatasetTip()) +
+      chip(accMoney(m.avgWin, false), 'avg win', 'accuracy-chip-good') +
+      chip(m.avgLoss != null ? '-' + accMoney(m.avgLoss, false) : '—', 'avg loss', 'accuracy-chip-bad') +
+      chip(accMoney(m.totalPnl, true), 'total P&L', accSignClass(m.totalPnl) === 'sig-pos' ? 'accuracy-chip-good' : (accSignClass(m.totalPnl) === 'sig-neg' ? 'accuracy-chip-bad' : '')) +
+    '</div>';
+    // risk-adjusted (return-on-risk series) + drawdown
+    var risk = '<div class="acc-an-subhead">Risk-adjusted &amp; drawdown <span class="acc-an-tag">return-on-risk basis</span></div><div class="accuracy-chips">' +
+      chip(accNum(m.sharpe, 2), 'Sharpe' + (m.annualized ? ' (ann.)' : ' (per-trade)'), m.sharpe != null && m.sharpe > 0 ? 'accuracy-chip-good' : '', 'Mean ÷ std of per-trade return-on-risk' + (m.annualized ? ', annualized by trade frequency.' : ' (too few days to annualize).')) +
+      chip(accNum(m.sortino, 2), 'Sortino', m.sortino != null && m.sortino > 0 ? 'accuracy-chip-good' : '', 'Like Sharpe but penalizes only downside volatility.') +
+      chip(accNum(m.calmar, 2), 'Calmar', m.calmar != null && m.calmar > 0 ? 'accuracy-chip-good' : '', 'Annualized return ÷ max drawdown %, on a ' + accMoney(m.base, false) + ' bankroll. Needs ≥20 trades over ≥45 days to annualize.') +
+      chip(m.maxDDpct != null ? '-' + Math.round(m.maxDDpct * 100) + '%' : '—', 'max drawdown', 'accuracy-chip-bad', 'Largest peak-to-trough drop in the equity curve (' + accMoney(m.maxDD, false) + ').') +
+      chip(m.recovery != null ? m.recovery + ' trades' : (m.maxDD > 0 ? 'not yet' : '—'), 'recovery', '', 'Trades from the max-drawdown trough back above the prior peak.') +
+      chip(m.pctMaxProfit != null ? Math.round(m.pctMaxProfit * 100) + '%' : '—', 'max-profit captured', '', 'Average share of a defined-risk winner\\'s max profit actually captured (' + m.pctMaxProfitN + ' trades; naked longs excluded — unbounded).') +
+    '</div>';
+    // exits + best/worst
+    var exits = '<div class="acc-an-subhead">Exits &amp; extremes</div><div class="accuracy-chips">' +
+      chip(accPctRate(m.pctTP), 'hit take-profit', 'accuracy-chip-good') +
+      chip(accPctRate(m.pctCut), 'hit cut / stop', 'accuracy-chip-bad') +
+      chip(accPctRate(m.pctOther), 'time / expiry / other', '') +
+      chip(m.best ? accMoney(m.best.pnl, true) : '—', 'best trade' + (m.best ? ' · ' + escapeHtml(m.best.sym) : ''), 'accuracy-chip-good') +
+      chip(m.worst ? accMoney(m.worst.pnl, true) : '—', 'worst trade' + (m.worst ? ' · ' + escapeHtml(m.worst.sym) : ''), 'accuracy-chip-bad') +
+    '</div>';
+    // conviction × side
+    var xt = accCrossTabHtml('conviction', 'side', trades);
+    var convBlock = '<div class="acc-an-subhead">Win rate &amp; expectancy by conviction × side</div>' + xt;
+    box.innerHTML = toggles + profit + risk + exits + convBlock;
+  }
+
+  // --- Equity & drawdown sub-tab (#an-equity) ------------------------------
+  function renderEquityView(){
+    var box = $('an-equity'); if (!box) return;
+    var trades = accDatasetTrades();
+    var basis = accView.basis;
+    var ec = buildEquityCurve(trades, { basis: basis });
+    var m = tradeMetrics(trades, { basis: basis });
+    var toggles = '<div class="acc-controls">' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-eq', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-eq', basis, [{ value:'notional', label:'$10k / trade' }, { value:'contract', label:'Per contract' }]) + '</div>' +
+    '</div>';
+    if (ec.points.length < 2){ box.innerHTML = toggles + '<p class="muted acc-an-note">The cumulative-P&L equity curve appears once at least 2 trades resolve.' + accDatasetTip() + '</p>'; return; }
+    var basisLbl = basis === 'notional' ? '$' + ACC_NOTIONAL.toLocaleString() + ' per trade' : 'per contract (bankroll ' + accMoney(ec.base, false) + ')';
+    function chip(num, lbl, cls){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
+    var tiles = '<div class="accuracy-chips">' +
+      chip(accMoney(ec.finalEquity, false), 'final equity', '') +
+      chip(accMoney(ec.finalEquity - ec.base, true), 'cumulative P&L', accSignClass(ec.finalEquity - ec.base) === 'sig-pos' ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
+      chip(accMoney(ec.peak, false), 'peak equity', '') +
+      chip('-' + accMoney(ec.maxDD, false) + ' / ' + Math.round(ec.maxDDpct * 100) + '%', 'max drawdown', 'accuracy-chip-bad') +
+      chip(ec.curDD > 0 ? '-' + accMoney(ec.curDD, false) + ' / ' + Math.round(ec.curDDpct * 100) + '%' : 'at highs', 'current drawdown', ec.curDD > 0 ? 'accuracy-chip-bad' : 'accuracy-chip-good') +
+      chip(ec.recovery != null ? ec.recovery + ' trades' : (ec.maxDD > 0 ? 'not yet' : '—'), 'recovery periods', '') +
+      chip(m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', 'CAGR (ann.)', m.cagr != null && m.cagr >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
+    '</div>';
+    box.innerHTML = toggles +
+      '<p class="hint acc-an-lead">Running cumulative P&L, ordered by resolution date · ' + escapeHtml(basisLbl) + '.' + accDatasetTip() + '</p>' +
+      tiles + accEquitySvg(ec.points, { formatValue: function(v){ return accMoney(v, false); } });
+  }
+
+  // --- Breakdowns sub-tab (#an-breakdowns) ---------------------------------
+  function renderBreakdowns(){
+    var box = $('an-breakdowns'); if (!box) return;
+    var trades = accDatasetTrades();
+    var toggles = '<div class="acc-controls">' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-bk', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
+    '</div>';
+    var dec = accDecided(trades);
+    if (!dec.length){ box.innerHTML = toggles + '<p class="muted acc-an-note">Per-bucket performance tables appear once picks resolve.' + accDatasetTip() + '</p>'; return; }
+    function section(title, dimName, opts){ return '<div class="acc-an-subhead">' + escapeHtml(title) + '</div>' + accBucketTableHtml(accBucketize(dec, dimName), Object.assign({ dimLabel: ACC_DIMS[dimName].label }, opts || {})); }
+    var tables = section('By days-to-expiration (DTE)', 'dte') +
+      section('By modeled probability-of-profit (PoP)', 'pop') +
+      section('By conviction tier', 'conviction') +
+      section('By thesis category', 'thesis', { total: true });
+    // configurable cross-tab
+    var dimOpts = Object.keys(ACC_DIMS).map(function(k){ return { value: k, label: ACC_DIMS[k].label }; });
+    function sel(setKey, cur){ var h = '<select class="acc-xsel" data-acc-set="' + setKey + '">'; dimOpts.forEach(function(o){ h += '<option value="' + o.value + '"' + (o.value === cur ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>'; }); return h + '</select>'; }
+    var a = accView.xtabA, b = accView.xtabB; if (a === b){ b = (a === 'conviction') ? 'thesis' : 'conviction'; }
+    var xtab = '<div class="acc-an-subhead">Cross-tab — pick two dimensions</div>' +
+      '<div class="acc-xtab-ctl">' + sel('xtabA', accView.xtabA) + '<span class="acc-xtab-x">×</span>' + sel('xtabB', accView.xtabB) + '<span class="acc-xtab-hint">cell = win rate · expectancy ($/contract) · n</span></div>' +
+      accCrossTabHtml(a, b, dec);
+    box.innerHTML = toggles + '<p class="hint acc-an-lead">All bucket tables are per single contract.' + accDatasetTip() + '</p>' + tables + xtab;
+  }
+
+  // --- Portfolio simulation sub-tab (#an-sim) ------------------------------
+  function renderSimulation(){
+    var box = $('an-sim'); if (!box) return;
+    var d = accuracyState.data || {};
+    var closed = Array.isArray(d.closed) ? d.closed : [], open = Array.isArray(d.open) ? d.open : [];
+    var sim = runPortfolioSim(closed, open, { includeOpens: accView.simOpens, highConvictionOnly: accView.simHighConv });
+    var toggles = '<div class="acc-controls">' +
+      accChkbox('simHighConv', 'acc-sim-hc', accView.simHighConv, 'Only High Conviction (Very High tier)') +
+      accChkbox('simOpens', 'acc-sim-op', accView.simOpens, 'Include open positions (marked to TP/cut at close)') +
+    '</div>';
+    var banner = '<div class="acc-hypo">ALL HYPOTHETICAL · modeled fills, not realized trades</div>';
+    var rules = '<details class="acc-an-rules"><summary>Simulation rules</summary><ul>' +
+      '<li>Start $' + ACC_SIM_START.toLocaleString() + '; risk ' + (ACC_SIM_RISK * 100) + '% of <em>current</em> equity per trade (compounds).</li>' +
+      '<li>Position size = floor(risk budget ÷ the trade\\'s max loss per contract).</li>' +
+      '<li>Per-trade cap ' + (ACC_SIM_POSCAP * 100) + '% of equity; total live risk ("heat") capped at ' + (ACC_SIM_HEAT * 100) + '% — size is reduced, then skipped if it can\\'t fit.</li>' +
+      '<li>Trades opened/closed by their entry/exit dates so concurrent risk is tracked; fractional contracts rounded down (skipped if 0).</li>' +
+    '</ul></details>';
+    if (sim.empty){ box.innerHTML = banner + toggles + '<p class="muted acc-an-note">The $' + ACC_SIM_START.toLocaleString() + ' portfolio simulation runs once picks resolve' + (accView.simHighConv ? ' (no Very-High-tier trades yet)' : '') + '.</p>' + rules; return; }
+    function chip(num, lbl, cls){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
+    var ret = sim.totalReturnPct;
+    var tiles = '<div class="accuracy-chips">' +
+      chip(accMoney(sim.finalEquity, false), 'final equity', ret >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
+      chip((ret >= 0 ? '+' : '') + ret.toFixed(1) + '%', 'total return', ret >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
+      chip('-' + accMoney(sim.maxDD, false) + ' / ' + Math.round(sim.maxDDpct * 100) + '%', 'max drawdown', 'accuracy-chip-bad') +
+      chip(sim.curDD > 0 ? '-' + Math.round(sim.curDDpct * 100) + '%' : 'at highs', 'current drawdown', sim.curDD > 0 ? '' : 'accuracy-chip-good') +
+      chip(accPctRate(sim.winRate), 'win rate', sim.winRate != null && sim.winRate >= 0.5 ? 'accuracy-chip-good' : '') +
+      chip(accPF(sim.profitFactor), 'profit factor', sim.profitFactor != null && (sim.profitFactor === Infinity || sim.profitFactor >= 1.5) ? 'accuracy-chip-good' : '') +
+      chip(String(sim.nTaken), 'trades taken', '') +
+      chip(accMoney(sim.avgPositionSize, false), 'avg risk / trade', '') +
+      chip(accMoney(sim.peak, false), 'peak equity', '') +
+      chip(sim.recovery != null ? sim.recovery + ' trades' : (sim.maxDD > 0 ? 'not yet' : '—'), 'recovery periods', '') +
+    '</div>';
+    var skipNote = (sim.nSkipped || sim.nReduced) ? '<p class="hint acc-an-note">' + sim.nSkipped + ' trade' + (sim.nSkipped === 1 ? '' : 's') + ' skipped (heat cap / size &lt; 1 contract)' + (sim.nReduced ? ', ' + sim.nReduced + ' down-sized to fit the heat cap' : '') + '.</p>' : '';
+    box.innerHTML = banner + toggles +
+      '<p class="hint acc-an-lead">Compounding $' + ACC_SIM_START.toLocaleString() + ' book, ' + (ACC_SIM_RISK * 100) + '% risk per trade, resolved in date order.</p>' +
+      tiles + accEquitySvg(sim.curve, { formatValue: function(v){ return fmtBigDollars(v); } }) + skipNote + rules;
+  }
+
+  // --- Monte Carlo sub-tab (#an-mc) ----------------------------------------
+  function renderMonteCarlo(run){
+    var box = $('an-mc'); if (!box) return;
+    var d = accuracyState.data || {};
+    var closed = Array.isArray(d.closed) ? d.closed : [];
+    var poolN = 0; var dec = accDecided(closed); for (var i=0;i<dec.length;i++){ var td = tradeDollars(dec[i]); if (td && td.rr != null && isFinite(td.rr)) poolN++; }
+    var iterOpts = [{ value:'2000', label:'2,000' }, { value:'5000', label:'5,000' }, { value:'10000', label:'10,000' }];
+    var controls = '<div class="acc-controls">' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Simulations</span>' + accSeg('mcIters', 'acc-mc-it', accView.mcIters, iterOpts) + '</div>' +
+      '<button type="button" class="acc-mc-run" data-acc-action="run-mc"' + (poolN < 8 ? ' disabled' : '') + '>Run Monte Carlo</button>' +
+    '</div>';
+    var banner = '<div class="acc-hypo">ALL HYPOTHETICAL · bootstrap resample of resolved trades</div>';
+    var lead = '<p class="hint acc-an-lead">Resamples the ' + poolN + ' resolved trades\\' return-on-risk (with replacement), compounding ' + (ACC_SIM_RISK * 100) + '% risk per draw on a $' + ACC_SIM_START.toLocaleString() + ' book, to map the distribution of outcomes.</p>';
+    if (poolN < 8){ box.innerHTML = banner + controls + '<p class="muted acc-an-note">Monte Carlo needs at least 8 resolved trades (have ' + poolN + ').</p>'; return; }
+    if (!run){ box.innerHTML = banner + controls + lead + '<p class="muted acc-an-note">Press <strong>Run Monte Carlo</strong> to simulate ' + Number(accView.mcIters).toLocaleString() + ' alternate sequences.</p>'; return; }
+    var res = runMonteCarlo(closed, { iters: Number(accView.mcIters) || 5000, seed: accView.mcSeed });
+    if (res.empty){ box.innerHTML = banner + controls + '<p class="muted acc-an-note">Not enough resolved trades.</p>'; return; }
+    function card(num, lbl, cls, tip){ return '<div class="acc-mc-card' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="acc-mc-num">' + num + '</span><span class="acc-mc-lbl">' + lbl + '</span></div>'; }
+    var cards = '<div class="acc-mc-cards">' +
+      card(fmtBigDollars(res.medianFinal), 'median final equity', res.medianFinal >= res.start ? 'sig-pos' : 'sig-neg') +
+      card(Math.round(res.probProfit * 100) + '%', 'probability of profit', res.probProfit >= 0.5 ? 'sig-pos' : 'sig-neg') +
+      card('-' + Math.round(res.medianMaxDD * 100) + '%', 'median max drawdown', 'sig-neg', 'Typical worst peak-to-trough drop across all simulations.') +
+      card('-' + Math.round(res.p95MaxDD * 100) + '%', '95th-pct max drawdown', 'sig-neg', 'A bad-but-plausible drawdown (5% of runs are worse).') +
+      card(Math.round(res.probDD20 * 100) + '%', 'prob. of >20% drawdown', res.probDD20 > 0.25 ? 'sig-neg' : '') +
+      card(fmtBigDollars(res.p5Final) + ' – ' + fmtBigDollars(res.p95Final), '5th – 95th pct outcome', '') +
+      card(accNum(res.sharpeMedian, 2), 'median Sharpe (per-draw)', res.sharpeMedian > 0 ? 'sig-pos' : 'sig-neg') +
+    '</div>';
+    // histogram of final equity
+    var fs = res.finals.slice().sort(function(a,b){ return a-b; });
+    var lo = fs[0], hi = fs[fs.length - 1], nb = 24, w = (hi - lo) || 1, bins = [];
+    for (var bI=0;bI<nb;bI++){ bins.push({ x0: lo + w * bI / nb, x1: lo + w * (bI + 1) / nb, count: 0 }); }
+    for (i=0;i<fs.length;i++){ var bi = Math.min(nb - 1, Math.floor((fs[i] - lo) / w * nb)); bins[bi].count++; }
+    var hist = '<div class="acc-an-subhead">Distribution of final equity</div>' + accBarsSvg(bins, { breakeven: res.start, fmtX: function(v){ return fmtBigDollars(v); } });
+    var fan = '<div class="acc-an-subhead">Equity-path fan — median + 5–95% band</div>' + accFanSvg(res.keptPaths, res.medianPath, { start: res.start, formatValue: function(v){ return fmtBigDollars(v); } });
+    // percentile table
+    var pc = res.pctiles;
+    var ptab = '<div class="acc-an-subhead">Final-equity percentiles</div><div class="acc-tscroll"><div class="acc-mtable" style="grid-template-columns:repeat(5,1fr)">' +
+      '<div class="acc-mh">5th</div><div class="acc-mh">25th</div><div class="acc-mh">50th</div><div class="acc-mh">75th</div><div class="acc-mh">95th</div>' +
+      '<div class="acc-mc">' + fmtBigDollars(pc.p5) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p25) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p50) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p75) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p95) + '</div>' +
+    '</div></div>';
+    box.innerHTML = banner + controls + lead + '<p class="hint acc-an-note">' + res.iters.toLocaleString() + ' simulations · horizon ' + res.horizon + ' trades · pool ' + res.poolN + '.</p>' + cards + hist + fan + ptab;
+  }
+
+  // re-render the toggle-driven analytics views (not Monte Carlo — button-run)
+  function accRerenderAnalytics(){
+    if (!accuracyState.data) return;
+    // Monte Carlo is resolved-only (it ignores the dataset/basis toggles) and is
+    // button-run, so it is intentionally NOT re-rendered here — a toggle on
+    // another sub-tab must not wipe a completed MC run. renderAccuracy seeds its
+    // intro on first load.
+    renderProfitBlock(); renderEquityView(); renderBreakdowns(); renderSimulation();
+  }
+  // one delegated listener for every analytics control (segmented/checkbox/select/button)
+  function bindAccuracyControls(){
+    var pane = $('page-pane-track'); if (!pane || pane._accCtlBound) return; pane._accCtlBound = true;
+    pane.addEventListener('change', function(ev){
+      var t = ev.target; if (!t || !t.getAttribute) return;
+      var key = t.getAttribute('data-acc-set'); if (!key) return;
+      accView[key] = (t.type === 'checkbox') ? t.checked : t.value; accSaveView();
+      if (key === 'mcIters') return;   // takes effect on next Run
+      accRerenderAnalytics();
+    });
+    pane.addEventListener('click', function(ev){
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-action]') : null; if (!btn) return;
+      if (btn.getAttribute('data-acc-action') === 'run-mc'){ accView.mcSeed = (accView.mcSeed || 1337) + 1; renderMonteCarlo(true); }
+    });
+  }
+
   // --- Top-10 roster (picks in & out) -------------------------------------
   // data/picks-roster.json: the current 10-name Top Picks list with each pick's
   // in/held/new status, the prior→current per-pillar deltas, the names that
@@ -17145,6 +17877,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     accSetPaneEmpty('acc-empty-top10', rosterN === 0);
     accSetPaneEmpty('acc-empty-activity', activityN === 0);
     accSetPaneEmpty('acc-empty-picks', picksN === 0);
+    // Analytics sub-tabs (Equity / Breakdowns / Simulator / Monte Carlo) render
+    // from their own static containers regardless of the load-error / empty
+    // early-returns below — each shows its own "needs N resolved trades" note
+    // when the record is sparse, so the panes are never blank.
+    bindAccuracyControls();
+    renderEquityView();
+    renderBreakdowns();
+    renderSimulation();
+    renderMonteCarlo(false);
     if (d.loadError){
       // Surface the error on the default (Scorecard) pane — accuracy-root now
       // lives in the hidden Picks pane, so an error written only there would be
@@ -17335,7 +18076,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
-    if (statsEl) statsEl.innerHTML = '<div class="accuracy-chips">' + chips + '</div>' + payoffBlock + tierBlock + advancedBlock;
+    if (statsEl) statsEl.innerHTML = '<div id="accuracy-profit" class="accuracy-profit"></div>' +
+      '<div class="acc-an-subhead acc-pctlens-head">Modeled % lens <span class="acc-an-tag">option return, resolved</span></div>' +
+      '<div class="accuracy-chips">' + chips + '</div>' + payoffBlock + tierBlock + advancedBlock;
+    renderProfitBlock();
 
     // --- Open positions (grouped by ticker; multiple contracts collapse) ----
     var nowMs = Date.now();
