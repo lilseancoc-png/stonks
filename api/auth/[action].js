@@ -98,6 +98,8 @@ async function callback(req, res) {
     DISCORD_GUILD_ID,
     DISCORD_REQUIRED_ROLE_ID,
     DISCORD_REQUIRED_ROLE_IDS,
+    DISCORD_TRACKRECORD_ROLE_ID,
+    DISCORD_TRACKRECORD_ROLE_IDS,
     SESSION_SECRET,
   } = process.env;
   // Accept ANY of a set of role IDs so a member can be unlocked by either the
@@ -160,11 +162,35 @@ async function callback(req, res) {
       return redirect(res, "/welcome.html?denied=role", clearState);
     }
 
-    // 4) mint the session cookie and enter the app.
+    // 3b) STRICTER sub-tier — the Track Record tab. Computed from the SAME role
+    // list already in hand (no extra Discord fetch), reusing parseRoleIds. This
+    // is NOT a gate on entering the app: a member who lacks the Track Record
+    // role still gets in and keeps every other premium tab — only Track Record
+    // is withheld. Back-compat: when the env var is unset (size === 0) every
+    // member keeps Track Record, so the feature ships dormant until configured.
+    const trackRecordRoleIds = parseRoleIds(
+      DISCORD_TRACKRECORD_ROLE_ID,
+      DISCORD_TRACKRECORD_ROLE_IDS,
+    );
+    // size === 0 fails OPEN (every member keeps Track Record) — that's the
+    // intentional "ships dormant until configured" default. But a var that's
+    // SET yet parses to no IDs (whitespace / stray comma / wrong value) is
+    // almost certainly a fat-fingered restrict attempt that silently over-grants.
+    // Surface that one case in the logs so it's distinguishable from dormant.
+    if ((DISCORD_TRACKRECORD_ROLE_ID || DISCORD_TRACKRECORD_ROLE_IDS) && trackRecordRoleIds.size === 0) {
+      console.warn("DISCORD_TRACKRECORD_ROLE_ID/_IDS is set but parsed to no role IDs — Track Record stays open to ALL members. Check the value.");
+    }
+    const hasTrackRecord =
+      trackRecordRoleIds.size === 0 || roles.some((r) => trackRecordRoleIds.has(r));
+
+    // 4) mint the session cookie and enter the app. `tr` rides inside the signed
+    // (HS256, tamper-proof) JWT payload — set EXPLICITLY true/false so api/data
+    // can 401 the Track Record files on `tr === false`.
     const user = member.user || {};
     const jwt = await signSession({
       sub: user.id || null,
       name: user.global_name || user.username || "member",
+      tr: hasTrackRecord,
     });
     const sessionCookie = serializeCookie(SESSION_COOKIE, jwt, {
       maxAge: SESSION_TTL_SEC,
@@ -195,13 +221,19 @@ async function me(req, res) {
   // member and shows no locks; when it's on, only an authed session unlocks
   // the premium tabs.
   const enabled = process.env.PRIVATE_DATA_ENABLED === "1";
-  if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false, enabled });
+  // trackRecord: whether this visitor may see the Track Record tab. Fail-CLOSED
+  // for the unauthed cases (logged-out / no secret → hide the tab on a gated
+  // deploy); for an authed session, `session.tr !== false` so a legacy session
+  // minted before the `tr` claim existed (undefined) keeps Track Record until it
+  // expires — no mid-session lockout.
+  if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false, enabled, trackRecord: false });
   const session = await getSession(req).catch(() => null);
-  if (!session) return res.status(200).json({ authed: false, enabled });
+  if (!session) return res.status(200).json({ authed: false, enabled, trackRecord: false });
   return res.status(200).json({
     authed: true,
     enabled,
     name: session.name || null,
     sub: session.sub || null,
+    trackRecord: session.tr !== false,
   });
 }

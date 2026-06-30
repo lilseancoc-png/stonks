@@ -12550,6 +12550,18 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   const stats = computePicksAccuracyStats(open, closed, builtAtIso, spyBars);
   const payload = { builtAtIso, lastResetWeek, open, closed, stats };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
+  // Separate open-marks file for the Top Picks tab's "since it appeared" chip
+  // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the
+  // open-position live fields that chip reads — never the resolved history or
+  // win-rate stats — so the full picks-accuracy.json (the track record) can be
+  // ROLE-restricted (Track Record tab) without degrading the premium Top Picks
+  // tab. picks-open.json is premium but NOT role-restricted; see
+  // lib/premium-keys.mjs (PREMIUM_KEYS vs ROLE_RESTRICTED_KEYS).
+  const openMarks = open.map((e) => ({
+    symbol: e.symbol, side: e.side, entryDate: e.entryDate,
+    optionPnlPct: e.optionPnlPct, thesisStatus: e.thesisStatus || null,
+  }));
+  await writeFile(resolve(DATA_DIR, "picks-open.json"), JSON.stringify({ builtAtIso, open: openMarks }), "utf8");
   return { bytes: 0, open: open.length, closed: closed.length, weeklyReset, lastResetWeek, ...stats };
 }
 

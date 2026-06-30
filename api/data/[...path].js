@@ -16,7 +16,7 @@
 
 import { store } from "../../lib/datastore.mjs";
 import { getSession } from "../../lib/session.mjs";
-import { isPremiumKey } from "../../lib/premium-keys.mjs";
+import { isPremiumKey, isRoleRestrictedKey } from "../../lib/premium-keys.mjs";
 
 // json-only, no traversal — the cheap-allowlist defense for the store key.
 const KEY_RE = /^[A-Za-z0-9_./-]+\.json$/;
@@ -51,12 +51,24 @@ export default async function handler(req, res) {
   }
 
   const premium = isPremiumKey(key);
+  const roleRestricted = isRoleRestrictedKey(key);
   if (premium) {
     // Premium: never shared-cacheable, and only for a valid Discord-role session.
+    // (Set no-store FIRST, before any auth branch, so a 401 is never edge-cached
+    // or replayed across users.)
     res.setHeader("Cache-Control", "private, no-store");
     const session = await getSession(req).catch(() => null);
     if (!session) {
       return res.status(401).json({ error: "auth required" });
+    }
+    // Stricter tier: the Track Record data files also require the Track Record
+    // role. The `tr` claim is minted from the user's Discord roles in api/auth.
+    // Use `=== false` (not `!== true`): a legacy session minted before this
+    // claim existed, and an env-unset deploy (where tr is minted true), both
+    // PASS — fail-open for back-compat; we 401 only when mint explicitly set
+    // tr:false (a member who does NOT hold the configured role).
+    if (roleRestricted && session.tr === false) {
+      return res.status(401).json({ error: "role required" });
     }
   }
   // Note: the free-tier public cache header is set ONLY on the success path

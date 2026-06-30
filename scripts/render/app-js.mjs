@@ -68,9 +68,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, track:1, 'index-cal':1 };
+  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
+  // Track Record is a STRICTER tier than premium: a specific Discord role, not
+  // just any membership. And it is HIDDEN (no nav button, not selectable), not
+  // "lock-carded" like the premium tabs — so it lives outside PREMIUM_TABS and
+  // gets its own flag. Defaults true so a legacy ungated deploy / a failed /me
+  // probe never makes the tab vanish; applyAuth() flips it from /api/auth/me.
+  var HAS_TRACK_RECORD = true;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
   // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
@@ -78,7 +84,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', track:'Track Record', 'index-cal':'Index Calendar' })[id] || 'This feature';
+    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -95,7 +101,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, Gamma exposure, Hot stocks, and the full Track Record are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -114,6 +120,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     GATE_ON = !!(me && me.enabled);
     // Ungated -> everyone's a member (no locks). Gated -> need an authed session.
     IS_MEMBER = !GATE_ON || !!(me && me.authed);
+    // Track Record: ungated -> visible to all; gated -> only when /me reports the
+    // Track Record role. Mirrors IS_MEMBER's fail-open default so a probe failure
+    // (me == null -> GATE_ON false) keeps the tab visible rather than hiding it.
+    HAS_TRACK_RECORD = !GATE_ON || !!(me && me.trackRecord);
   }
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
@@ -3091,6 +3101,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
     var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    // Track Record is role-hidden: drop it from the resolvable set so a
+    // ?tab=track deep-link / popstate / palette can't reach the pane for a
+    // visitor without the role (resolveTab returns null -> falls back to home).
+    if (!HAS_TRACK_RECORD) valid = valid.filter(function(t){ return t !== 'track'; });
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3255,6 +3269,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
     }
     function selectTab(name){
+      // Track Record is role-hidden — bounce any attempt to open it (stale
+      // localStorage tab, deep-link, popstate, palette) to home BEFORE we
+      // re-persist it, so a demoted/non-role visitor can't land on the pane.
+      if (name === 'track' && !HAS_TRACK_RECORD) { return selectTab('home'); }
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
       tabs.forEach(function(btn){
@@ -3312,7 +3330,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
-        if (name === 'track' && typeof loadAccuracy === 'function') loadAccuracy();
+        if (name === 'track' && HAS_TRACK_RECORD && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
         if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
@@ -16623,7 +16641,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // the session. Rebuilds every daily build, so a hard reload is enough
   // to refresh.
   var picksState = { data: null, loading: false, sort: 'conviction', sortBound: false, activeTab: {}, openSym: null, sorted: [], live: null };
-  // Build a SYMBOL|side -> open track-record entry map from picks-accuracy.json so
+  // Build a SYMBOL|side -> open track-record entry map from picks-open.json so
   // each pick card can show how its contract has performed since it first listed.
   // Every shipped pick is enrolled the moment it appears (one open entry per
   // thesis), so this is a clean 1:1 lookup; on a collision keep the earliest entry
@@ -16642,9 +16660,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadPicks(){
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
-    // Live track-record marks for the per-card "since it appeared" chip — best
-    // effort, never blocks (or fails) the picks render.
-    var pAcc = fetch('data/picks-accuracy.json', { cache: 'no-cache' })
+    // Live open-position marks for the per-card "since it appeared" chip — best
+    // effort, never blocks (or fails) the picks render. Reads picks-open.json
+    // (open marks only), NOT picks-accuracy.json: the latter is the role-gated
+    // Track Record, and Top Picks must keep its chip for every premium member.
+    var pAcc = fetch('data/picks-open.json', { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     fetch('data/picks.json', { cache: 'no-cache' })
@@ -20154,6 +20174,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
       });
       TABS.forEach(function(tt){
+        // Skip the role-hidden Track Record tab so it never appears in cmd-K.
+        if (tt[0] === 'track' && !HAS_TRACK_RECORD) return;
         out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
       });
       return out;
@@ -21283,6 +21305,23 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function startApp(){
     var go = function(){
       if (document.body) document.body.classList.toggle('is-member', IS_MEMBER);
+      // Track Record is role-hidden: physically remove the nav button + pane
+      // BEFORE bind() collects the tab NodeList (so 'track' never gets a click
+      // handler and isn't in the DOM at all for a visitor without the role).
+      // The server (api/data) is the real gate; this is the clean UI removal.
+      if (!HAS_TRACK_RECORD) {
+        // querySelectorAll (not querySelector) so a future duplicate nav entry
+        // — e.g. a top-strip + an overflow/dropdown clone, the reason
+        // markPremiumNav iterates all matches — is fully removed, not just the
+        // first. (The server api/data 401 is the real gate regardless.)
+        var trBtns = document.querySelectorAll('[data-page-tab="track"]');
+        for (var ti = 0; ti < trBtns.length; ti++) {
+          var trBtn = trBtns[ti];
+          if (trBtn && trBtn.parentNode) trBtn.parentNode.removeChild(trBtn);
+        }
+        var trPane = document.getElementById('page-pane-track');
+        if (trPane && trPane.parentNode) trPane.parentNode.removeChild(trPane);
+      }
       try { markPremiumNav(); } catch (_) {}
       try { renderAuthChip(); } catch (_) {}
       bind();

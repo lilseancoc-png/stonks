@@ -73,6 +73,15 @@ const TARGETS = [
     summarize: (p) => `${(p.closed || []).length} closed, ${(p.open || []).length} open` +
       (p.stats && p.stats.winRate != null ? `, ${Math.round(p.stats.winRate * 100)}% win` : ""),
   },
+  // Co-written with picks-accuracy.json by updatePicksAccuracyFile (the open
+  // marks the Top Picks "since it appeared" chip reads). Wipe it in lock-step so
+  // the live chip doesn't keep showing stale open marks after a track-record
+  // reset until the next build regenerates it.
+  {
+    key: "picks-open.json", group: "core", label: "Top Picks open-marks (chip)",
+    empty: { builtAtIso: nowIso, open: [] },
+    summarize: (p) => `${(p.open || []).length} open`,
+  },
   // The Day Trades tab + engine were removed — these store objects are orphaned
   // (nothing reads or recreates them). Always DELETE them, regardless of --empty.
   {
