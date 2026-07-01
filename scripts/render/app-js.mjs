@@ -8759,7 +8759,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Plain-language "what this axis measures" (richer than the tile's one-liner).
   var AXIS_ABOUT = {
     indexes: 'The overall-market read — the S&P 500 (SPY) and Nasdaq 100 (QQQ) headline indices. A broad sell-off across both is the most direct risk-OFF tell; a broad rally the most direct risk-on tell. The 1d move refreshes live; the 5-day move and the 20-day trend read carry from the last build.',
-    vix: 'The VIX is the market’s 30-day implied-volatility gauge — the "fear index". A calm, falling VIX leans risk-on; a spike, or an inverted term structure, signals acute stress.',
+    vix: 'The VIX is the market’s 30-day implied-volatility gauge — the "fear index". A low VIX (sub-15), or one below its long-run median (~17) and falling, leans risk-on; a spike, or an inverted term structure, signals acute stress.',
     dxy: 'The dollar index (DXY) proxies global financial conditions. A sharp USD bid drains liquidity and tightens conditions worldwide (risk-OFF); a softening dollar eases them.',
     yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
     commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a gold haven bid is the classic geopolitical-shock tell (risk-OFF).',
@@ -8843,7 +8843,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var aboveTrend = legs.every(function(l){ return l.above === true; }) && legs.some(function(l){ return l.d5 != null && l.d5 >= i5; });
       var s = 0, label = 'SPY/QQQ ' + (avg >= 0 ? '+' : '') + avg.toFixed(2) + '% avg';
       if (avg <= -i1s || worst <= -2.5){ s = -2; label = 'Indexes ' + avg.toFixed(2) + '% — broad sell-off'; }
-      else if (avg >= i1s || best >= 2.0){ s = 2; label = 'Indexes +' + avg.toFixed(2) + '% — broad rally'; }
+      else if (avg >= i1s || best >= 2.5){ s = 2; label = 'Indexes +' + avg.toFixed(2) + '% — broad rally'; }
       else if (avg <= -i1){ s = -1; label = 'Indexes ' + avg.toFixed(2) + '% — weak'; }
       else if (avg >= i1){ s = 1; label = 'Indexes +' + avg.toFixed(2) + '% — firm'; }
       else if (belowTrend){ s = -1; label = 'Indexes ' + (avg >= 0 ? '+' : '') + avg.toFixed(2) + '% — below trend'; }
@@ -8864,7 +8864,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var s = 0, label = 'VIX ' + v.toFixed(1) + ' (' + (bi.trend || 'flat') + ')';
       if ((rising && v >= 25) || (backward && v >= 20)){ s = -2; label = 'VIX ' + v.toFixed(1) + ' ' + (backward ? 'inverted curve' : 'rising') + ' — acute stress'; }
       else if (v >= T.riskoffVix || (rising && v >= 18) || backward){ s = -1; label = 'VIX ' + v.toFixed(1) + ' ' + ((v >= T.riskoffVix || backward) ? 'elevated' : 'elevated/rising'); }
-      else if (v < 14){ s = 1; label = 'VIX ' + v.toFixed(1) + ' calm'; }
+      else if (v < thr(T.vixCalm, 15)){ s = 1; label = 'VIX ' + v.toFixed(1) + ' calm'; }
+      else if (v < thr(T.vixEasing, 17) && bi.trend === 'falling' && !backward){ s = 1; label = 'VIX ' + v.toFixed(1) + ' easing — below median & falling'; }
       else if (reversing && !backward && v < 18){ s = 1; label = 'VIX ' + v.toFixed(1) + ' crushing — 1d ' + d1.toFixed(1) + '%'; }
       else if (reversing && bi.trend === 'rising'){ label = 'VIX ' + v.toFixed(1) + ' cooling — 1d ' + d1.toFixed(1) + '%'; }
       axes.vix = { score: s, label: label, live: isLive };
@@ -8924,11 +8925,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var oilRun = o5 != null && o5 >= T.oil5d;
       var goldWeekDown = g5 != null && g5 < 0;
       var goldHaven = (g1 != null && g1 >= T.gold1d && !goldWeekDown) || (g5 != null && g5 >= T.gold5d);
+      // Gold is a HAVEN bid (risk-off) only when the equity/vol/dollar tape corroborates
+      // fear; gold rising alongside firm equities + a calm VIX is a reflationary melt-up,
+      // not a flight to safety. Mirrors computeMacroRegime (build.mjs). axes.indexes/
+      // vix/dxy are already scored above this axis.
+      var tapeStressed = (axes.indexes && axes.indexes.score <= 0) || (axes.vix && axes.vix.score <= -1) || (axes.dxy && axes.dxy.score <= -1);
+      var goldHavenConfirmed = goldHaven && tapeStressed;
       var s = 0, label = 'commodities calm';
-      if (oilShock || (oilSpike && goldHaven)){
+      if (oilShock || (oilSpike && goldHavenConfirmed)){
         s = -2;
-        label = 'Crude ' + (o1 >= 0 ? '+' : '') + o1.toFixed(1) + '%' + (goldHaven && g1 != null ? ' · gold +' + g1.toFixed(1) + '%' : '') + ' — supply/geopolitical shock';
-      } else if (oilSpike || oilRun || goldHaven){
+        label = 'Crude ' + (o1 >= 0 ? '+' : '') + o1.toFixed(1) + '%' + (goldHavenConfirmed && g1 != null ? ' · gold +' + g1.toFixed(1) + '%' : '') + ' — supply/geopolitical shock';
+      } else if (oilSpike || oilRun || goldHavenConfirmed){
         s = -1;
         label = (oilSpike || oilRun)
           ? 'Crude ' + (o1 != null ? (o1 >= 0 ? '+' : '') + o1.toFixed(1) : '+' + o5.toFixed(1)) + '% — oil spiking'
@@ -9010,12 +9017,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var b1 = (lv && n(lv.bpsChange1d) != null) ? n(lv.bpsChange1d) : n(b.bpsChange1d);
       var isLive = !!(lv && n(lv.bpsChange1d) != null);
       if (b1 == null){ axes.twoY = { score: 0, label: 'no 2Y data', live: false }; return; }
-      var b5 = n(b.bpsChange5d) || 0, rising = b.trend === 'rising';
+      var b5 = n(b.bpsChange5d) || 0, rising = b.trend === 'rising', falling = b.trend === 'falling';
       var t1 = thr(T.twoYBps1d, 8), t1s = thr(T.twoYBps1dStrong, 14);
+      // A 2Y rally on an equity sell-off is flight-to-safety (risk-off), not dovish
+      // easing — only credit easing as risk-on when equities aren't falling. Mirrors build.mjs.
+      var tapeOk = !axes.indexes || axes.indexes.score >= 0;
       var s = 0, label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps 1d';
       if (b1 >= t1s){ s = -2; label = '2Y +' + b1.toFixed(1) + ' bps — sharp front-end repricing'; }
       else if (b1 >= t1 || (rising && b5 >= t1)){ s = -1; label = '2Y ' + (b1 >= 0 ? '+' : '') + b1.toFixed(1) + ' bps — front-end tightening'; }
-      else if (b1 <= -t1){ s = 1; label = '2Y ' + b1.toFixed(1) + ' bps — front-end easing'; }
+      else if ((b1 <= -t1 || (falling && b5 <= -t1)) && tapeOk){ s = 1; label = '2Y ' + b1.toFixed(1) + ' bps — front-end easing'; }
       axes.twoY = { score: s, label: label, live: isLive };
     })();
 
@@ -9079,7 +9089,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var riskOffAxes = arr.filter(function(x){ return x <= -1; }).length;
     var riskOnAxes = arr.filter(function(x){ return x >= 1; }).length;
     // commodity / geo / inflation / credit are their own singleton clusters.
-    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', bondVol:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', indexes:'equity', breadth:'equity' };
+    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', bondVol:'rates', indexes:'equity', breadth:'equity' };
     function effCount(dir){
       var per = {};
       for (var i = 0; i < ORDER.length; i++){
@@ -9095,10 +9105,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var effOff = T.axisDecorr ? effCount(-1) : riskOffAxes;
     var effOn = T.axisDecorr ? effCount(1) : riskOnAxes;
+    // Symmetric EFFECTIVE-axis gates (mirror computeMacroRegime): severe + the
+    // risk-on dissent gate use the collinearity-discounted count, not raw, so a
+    // correlated risk-off cluster isn't counted as N independent votes.
     var state = 'neutral';
-    if (riskOffAxes >= T.severeAxes && stress <= T.severeStress) state = 'severe-risk-off';
+    if (effOff >= T.severeAxes && stress <= T.severeStress) state = 'severe-risk-off';
     else if (effOff >= T.riskoffAxes) state = 'risk-off';
-    else if (effOn >= T.riskonAxes && stress >= T.riskonStress && riskOffAxes <= T.riskonMaxOff && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some(function(x){ return x <= -2; })) state = 'risk-on';
+    else if (effOn >= T.riskonAxes && stress >= T.riskonStress && effOff <= T.riskonMaxOff && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some(function(x){ return x <= -2; })) state = 'risk-on';
     var driverList = (state === 'risk-on')
       ? ORDER.filter(function(k){ return axes[k] && axes[k].score >= 1; }).map(function(k){ return String(axes[k].label).split(' — ')[0]; })
       : ORDER.filter(function(k){ return axes[k] && axes[k].score <= -1; }).map(function(k){ return String(axes[k].label).split(' — ')[0].split(' (')[0]; });
@@ -9393,8 +9406,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     T = T || {};
     function v(x, d){ return (x != null && isFinite(x)) ? x : d; }
     if (k === 'indexes') return 'Risk-off if SPY/QQQ average ≤ −' + v(T.index1d, 0.8) + '% on the day (broad sell-off ≤ −' + v(T.index1dStrong, 1.8) + '%, or below the 20D on a falling week); risk-on if they average ≥ +' + v(T.index1d, 0.8) + '% (broad rally ≥ +' + v(T.index1dStrong, 1.8) + '%).';
-    if (k === 'vix') return 'Risk-off (−1) at VIX ≥ ' + v(T.riskoffVix, 20) + ' or rising ≥ 18 (or an inverted curve); risk-on (+1) under 14.';
-    if (k === 'dxy') return 'Risk-off if the dollar is ≥ +' + v(T.dxy1d, 0.5) + '% on the day (sharp spike ≥ +' + v(T.dxy1dStrong, 0.9) + '%); risk-on if it eases ≥ −' + v(T.dxy1d, 0.5) + '%.';
+    if (k === 'vix') return 'Risk-off (−1) at VIX ≥ ' + v(T.riskoffVix, 20) + ' or rising ≥ 18 (or an inverted curve); risk-on (+1) under ' + v(T.vixCalm, 15) + ', or below ' + v(T.vixEasing, 17) + ' and falling.';
+    if (k === 'dxy') return 'Risk-off if the dollar is ≥ +' + v(T.dxy1d, 0.6) + '% on the day (sharp spike ≥ +' + v(T.dxy1dStrong, 1.2) + '%); risk-on if it eases ≥ −' + v(T.dxy1d, 0.6) + '%.';
     if (k === 'yields') return 'Risk-off if long yields jump ≥ +' + v(T.yieldBps1d, 8) + 'bp (spike ≥ +' + v(T.yieldBps1dStrong, 14) + 'bp); risk-on if they fall ≥ −' + v(T.yieldBps1d, 8) + 'bp.';
     if (k === 'commodity') return 'Risk-off on a crude spike ≥ +' + v(T.oil1d, 4) + '% (shock ≥ +' + v(T.oil1dStrong, 7) + '%) or a gold haven bid ≥ +' + v(T.gold1d, 2) + '%.';
     if (k === 'sentiment') return 'Risk-off at Fear & Greed ≤ ' + v(T.fgFear, 25) + ', or a 1-day drop ≥ ' + v(T.fgDelta, 10) + '; risk-on at ≥ ' + v(T.fgGreed, 75) + '.';

@@ -8623,8 +8623,10 @@ const PICKS_MACRO_INDEX_1D = Number(process.env.PICKS_MACRO_INDEX_1D ?? 0.8);   
 const PICKS_MACRO_INDEX_1D_STRONG = Number(process.env.PICKS_MACRO_INDEX_1D_STRONG ?? 1.8); // ... a broad shock ±2
 const PICKS_MACRO_INDEX_5D = Number(process.env.PICKS_MACRO_INDEX_5D ?? 3.0);        // 5d move that, with a broken 20D, confirms the trend ±1
 const PICKS_MACRO_VIX_REVERSAL_1D = Number(process.env.PICKS_MACRO_VIX_REVERSAL_1D ?? -8); // sharp 1d VIX drop that cancels a lagging "rising" trend
+const PICKS_MACRO_VIX_CALM = Number(process.env.PICKS_MACRO_VIX_CALM ?? 15);        // VIX below this is complacent/low-vol → risk-on (+1) at ANY trend
+const PICKS_MACRO_VIX_EASING = Number(process.env.PICKS_MACRO_VIX_EASING ?? 17);    // a FALLING VIX below this (≈ the long-run median) is actively easing → risk-on (+1) — closes the 14–18 dead zone
 const PICKS_MACRO_DXY_1D = Number(process.env.PICKS_MACRO_DXY_1D ?? 0.6);            // % dollar 1d that flags tightening (-1)
-const PICKS_MACRO_DXY_1D_STRONG = Number(process.env.PICKS_MACRO_DXY_1D_STRONG ?? 0.9); // ... a sharp dollar spike (-2)
+const PICKS_MACRO_DXY_1D_STRONG = Number(process.env.PICKS_MACRO_DXY_1D_STRONG ?? 1.2); // ... an ACUTE dollar spike (-2); ≈2.7σ, sized to match the other axes' -2 acuteness (an ordinary +0.6–1.2% strong-dollar day stays -1)
 const PICKS_MACRO_DXY_5D = Number(process.env.PICKS_MACRO_DXY_5D ?? 1.0);            // % dollar 5d that, on a rising trend, flags tightening (-1)
 const PICKS_MACRO_YIELD_BPS_1D = Number(process.env.PICKS_MACRO_YIELD_BPS_1D ?? 10);        // long-yield bps 1d that flags tightening (-1)
 const PICKS_MACRO_YIELD_BPS_1D_STRONG = Number(process.env.PICKS_MACRO_YIELD_BPS_1D_STRONG ?? 16); // ... a yield spike (-2)
@@ -8641,7 +8643,7 @@ const PICKS_MACRO_GOLD_5D = Number(process.env.PICKS_MACRO_GOLD_5D ?? 6);       
 const PICKS_MACRO_NEWS = process.env.PICKS_MACRO_NEWS !== "0";                       // geopolitical-news axis on by default
 const PICKS_MACRO_GEO_MIN_STR = Number(process.env.PICKS_MACRO_GEO_MIN_STR ?? 45);    // min narrative strength to count (-1)
 const PICKS_MACRO_GEO_STRONG_STR = Number(process.env.PICKS_MACRO_GEO_STRONG_STR ?? 65); // strong narrative → acute (-2)
-const PICKS_MACRO_HEADLINE_AGE_H = Number(process.env.PICKS_MACRO_HEADLINE_AGE_H ?? 36);
+const PICKS_MACRO_HEADLINE_AGE_H = Number(process.env.PICKS_MACRO_HEADLINE_AGE_H ?? 48); // max age of a geopolitical headline that still tones the geo axis
 const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many (effective) risk-off axes → risk-off
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
 const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
@@ -8653,8 +8655,8 @@ const PICKS_MACRO_CLUSTER_DISCOUNT = Number(process.env.PICKS_MACRO_CLUSTER_DISC
 // Correlated-axis clusters (axis key → cluster id). Axes not listed (commodity,
 // geo, inflation, credit) are their own singleton cluster and count full.
 const MACRO_AXIS_CLUSTERS = {
-  vix: "vol", sentiment: "vol", globalTape: "vol", bondVol: "vol", putCall: "vol", // fear / volatility / cross-asset risk-appetite complex (incl. bond vol + put/call)
-  dxy: "rates", yields: "rates", fed: "rates", twoY: "rates", // dollar / long-yield / Fed-path / front-end tightening complex
+  vix: "vol", sentiment: "vol", globalTape: "vol", putCall: "vol", // fear / equity-vol / cross-asset risk-appetite complex
+  dxy: "rates", yields: "rates", fed: "rates", twoY: "rates", bondVol: "rates", // dollar / long-yield / Fed-path / front-end / bond-vol (MOVE is rate-implied vol) tightening complex
   indexes: "equity", breadth: "equity", // headline index direction + universe participation
 };
 const PICKS_MACRO_INFLATION = process.env.PICKS_MACRO_INFLATION !== "0";
@@ -9433,7 +9435,11 @@ function fedHawkishDrift(fedwatchHistory) {
 // conflict (war / Iran / Israel / missile / invasion) is systemic risk-off
 // regardless of its equity sentiment; softer flashpoints (sanctions / tariff
 // war / OPEC) count only when the narrative reads bearish.
-const GEO_CONFLICT_RE = /\b(war|warfare|conflict|invasion|invade|military|missile|airstrike|air ?strike|attack|troops|nuclear|hostilit|escalat|ceasefire|wartime|combat|blockade|strait of hormuz)\b/i;
+// NOTE: "ceasefire" is intentionally NOT here — it's a DE-escalation event, and the
+// conflict path (unlike the theme path) doesn't require bearish sentiment, so it
+// would otherwise score a ceasefire as fresh risk-off. A still-active war narrative
+// keeps matching via war/escalat/missile/etc.
+const GEO_CONFLICT_RE = /\b(war|warfare|conflict|invasion|invade|military|missile|airstrike|air ?strike|attack|troops|nuclear|hostilit|escalat|wartime|combat|blockade|strait of hormuz)\b/i;
 const GEO_THEME_RE = /\b(sanction|embargo|geopolit|iran|israel|gaza|hamas|hezbollah|ukrain|russia|taiwan|north korea|middle east|red sea|houthi|opec|oil shock|tariff war|tariff|trade war)\b/i;
 
 // Market-wide geopolitical-news stress from the AI narrative layer
@@ -9569,7 +9575,7 @@ export function buildPutCallAxisInput(chains) {
 // the SAME constants. Keep the two in sync.
 const MACRO_LIVE_THRESHOLDS = {
   indexOn: PICKS_MACRO_INDEX, index1d: PICKS_MACRO_INDEX_1D, index1dStrong: PICKS_MACRO_INDEX_1D_STRONG, index5d: PICKS_MACRO_INDEX_5D,
-  vixReversal1d: PICKS_MACRO_VIX_REVERSAL_1D, riskoffVix: PICKS_RISKOFF_VIX,
+  vixReversal1d: PICKS_MACRO_VIX_REVERSAL_1D, riskoffVix: PICKS_RISKOFF_VIX, vixCalm: PICKS_MACRO_VIX_CALM, vixEasing: PICKS_MACRO_VIX_EASING,
   dxy1d: PICKS_MACRO_DXY_1D, dxy1dStrong: PICKS_MACRO_DXY_1D_STRONG, dxy5d: PICKS_MACRO_DXY_5D,
   yieldBps1d: PICKS_MACRO_YIELD_BPS_1D, yieldBps1dStrong: PICKS_MACRO_YIELD_BPS_1D_STRONG,
   oil1d: PICKS_MACRO_OIL_1D, oil1dStrong: PICKS_MACRO_OIL_1D_STRONG, oil5d: PICKS_MACRO_OIL_5D,
@@ -9625,7 +9631,7 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       // real green/red day (matters for the browser's live-1d overlay).
       let s = 0, label = `SPY/QQQ ${avg >= 0 ? "+" : ""}${avg.toFixed(2)}% avg`;
       if (avg <= -PICKS_MACRO_INDEX_1D_STRONG || worst <= -2.5) { s = -2; label = `Indexes ${avg.toFixed(2)}% — broad sell-off`; }
-      else if (avg >= PICKS_MACRO_INDEX_1D_STRONG || best >= 2.0) { s = 2; label = `Indexes +${avg.toFixed(2)}% — broad rally`; }
+      else if (avg >= PICKS_MACRO_INDEX_1D_STRONG || best >= 2.5) { s = 2; label = `Indexes +${avg.toFixed(2)}% — broad rally`; }
       else if (avg <= -PICKS_MACRO_INDEX_1D) { s = -1; label = `Indexes ${avg.toFixed(2)}% — weak`; }
       else if (avg >= PICKS_MACRO_INDEX_1D) { s = 1; label = `Indexes +${avg.toFixed(2)}% — firm`; }
       else if (belowTrend) { s = -1; label = `Indexes ${avg >= 0 ? "+" : ""}${avg.toFixed(2)}% — below trend`; }
@@ -9648,7 +9654,8 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       let s = 0, label = `VIX ${v.toFixed(1)} (${vix.trend || "flat"})`;
       if ((rising && v >= 25) || (backward && v >= 20)) { s = -2; label = `VIX ${v.toFixed(1)} ${backward ? "inverted curve" : "rising"} — acute stress`; }
       else if (v >= PICKS_RISKOFF_VIX || (rising && v >= 18) || backward) { s = -1; label = `VIX ${v.toFixed(1)} ${v >= PICKS_RISKOFF_VIX || backward ? "elevated" : "elevated/rising"}`; }
-      else if (v < 14) { s = 1; label = `VIX ${v.toFixed(1)} calm`; }
+      else if (v < PICKS_MACRO_VIX_CALM) { s = 1; label = `VIX ${v.toFixed(1)} calm`; }
+      else if (v < PICKS_MACRO_VIX_EASING && vix.trend === "falling" && !backward) { s = 1; label = `VIX ${v.toFixed(1)} easing — below median & falling`; }
       else if (reversing && !backward && v < 18) { s = 1; label = `VIX ${v.toFixed(1)} crushing — 1d ${d1.toFixed(1)}%`; }
       else if (reversing && vix.trend === "rising") { label = `VIX ${v.toFixed(1)} cooling — 1d ${d1.toFixed(1)}%`; }
       axes.vix = { score: s, label };
@@ -9726,11 +9733,17 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
     const oilRun = o5 != null && o5 >= PICKS_MACRO_OIL_5D;
     const goldWeekDown = g5 != null && g5 < 0;
     const goldHaven = (g1 != null && g1 >= PICKS_MACRO_GOLD_1D && !goldWeekDown) || (g5 != null && g5 >= PICKS_MACRO_GOLD_5D);
+    // A gold rally is a HAVEN bid (risk-off) only when the equity/vol/dollar tape
+    // corroborates fear. Gold rising alongside firm equities + a calm VIX is a
+    // reflationary melt-up (a real-asset bid), NOT a flight to safety — don't vote
+    // it risk-off. (axes.indexes/vix/dxy are already scored above this axis.)
+    const tapeStressed = (axes.indexes && axes.indexes.score <= 0) || (axes.vix && axes.vix.score <= -1) || (axes.dxy && axes.dxy.score <= -1);
+    const goldHavenConfirmed = goldHaven && tapeStressed;
     let s = 0, label = "commodities calm";
-    if (oilShock || (oilSpike && goldHaven)) {
+    if (oilShock || (oilSpike && goldHavenConfirmed)) {
       s = -2;
-      label = `Crude ${o1 >= 0 ? "+" : ""}${o1.toFixed(1)}%${goldHaven && g1 != null ? ` · gold +${g1.toFixed(1)}%` : ""} — supply/geopolitical shock`;
-    } else if (oilSpike || oilRun || goldHaven) {
+      label = `Crude ${o1 >= 0 ? "+" : ""}${o1.toFixed(1)}%${goldHavenConfirmed && g1 != null ? ` · gold +${g1.toFixed(1)}%` : ""} — supply/geopolitical shock`;
+    } else if (oilSpike || oilRun || goldHavenConfirmed) {
       s = -1;
       label = (oilSpike || oilRun)
         ? `Crude ${o1 != null ? (o1 >= 0 ? "+" : "") + o1.toFixed(1) : "+" + o5.toFixed(1)}% — oil spiking`
@@ -9843,11 +9856,15 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
   if (PICKS_MACRO_TWOY && macroBackdrop.twoY && isFinite(macroBackdrop.twoY.bpsChange1d)) {
     const two = macroBackdrop.twoY;
     const b1 = two.bpsChange1d, b5 = Number(two.bpsChange5d) || 0;
-    const rising = two.trend === "rising";
+    const rising = two.trend === "rising", falling = two.trend === "falling";
+    // A 2Y RALLY on an equity sell-off is flight-to-safety (risk-off), not a dovish
+    // easing tailwind — only credit front-end easing as risk-on when equities aren't
+    // falling. (axes.indexes is already scored above this axis.)
+    const tapeOk = !axes.indexes || axes.indexes.score >= 0;
     let s = 0, label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps 1d`;
     if (b1 >= PICKS_MACRO_TWOY_BPS_1D_STRONG) { s = -2; label = `2Y +${b1.toFixed(1)} bps — sharp front-end repricing`; }
     else if (b1 >= PICKS_MACRO_TWOY_BPS_1D || (rising && b5 >= PICKS_MACRO_TWOY_BPS_1D)) { s = -1; label = `2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)} bps — front-end tightening`; }
-    else if (b1 <= -PICKS_MACRO_TWOY_BPS_1D) { s = 1; label = `2Y ${b1.toFixed(1)} bps — front-end easing`; }
+    else if ((b1 <= -PICKS_MACRO_TWOY_BPS_1D || (falling && b5 <= -PICKS_MACRO_TWOY_BPS_1D)) && tapeOk) { s = 1; label = `2Y ${b1.toFixed(1)} bps — front-end easing`; }
     axes.twoY = { score: s, label };
     if (s <= -1) drivers.push(`2Y ${b1 >= 0 ? "+" : ""}${b1.toFixed(1)}bps`);
   } else axes.twoY = { score: 0, label: PICKS_MACRO_TWOY ? "no 2Y data" : "front-end axis off" };
@@ -9918,12 +9935,17 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
   const riskOnAxes = arr.filter((x) => x >= 1).length;
   const effRiskOffAxes = PICKS_MACRO_AXIS_DECORR ? macroEffectiveAxisCount(axes, -1) : riskOffAxes;
   const effRiskOnAxes = PICKS_MACRO_AXIS_DECORR ? macroEffectiveAxisCount(axes, 1) : riskOnAxes;
+  // All three branches count EFFECTIVE (collinearity-discounted) axes so the
+  // gates are symmetric — a correlated risk-off cluster (e.g. dxy+yields+2Y all
+  // backing up) shouldn't trip severe / veto risk-on as N independent votes when
+  // the risk-off TRIGGER already discounts it. (Was raw on severe + the risk-on
+  // dissent gate, effective only on the risk-off trigger.)
   let state = "neutral";
-  if (riskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
+  if (effRiskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
   else if (effRiskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
   else if (
     effRiskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS &&
-    riskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some((x) => x <= -2)
+    effRiskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some((x) => x <= -2)
   ) state = "risk-on";
   const driverList = state === "risk-on"
     ? Object.values(axes).filter((a) => a && a.score >= 1).map((a) => String(a.label).split(" — ")[0])
@@ -10081,7 +10103,7 @@ export function computeHeadlineGeoTone(macroHeadlines, nowMs = Date.now()) {
   for (const h of macroHeadlines) {
     const txt = String((h && (h.title || h.headline || h)) || "");
     const ageH = h && h.date ? (nowMs - Date.parse(h.date)) / 3600000 : 0;
-    if (ageH > 48) continue;
+    if (ageH > PICKS_MACRO_HEADLINE_AGE_H) continue;
     if (GEO_HEADLINE_CONFLICT_RE.test(txt)) { conflict++; drivers.push("war/conflict headlines"); }
     else if (GEO_HEADLINE_THEME_RE.test(txt)) { theme++; drivers.push("tariff/geopolitical headlines"); }
   }
