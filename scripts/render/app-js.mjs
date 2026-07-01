@@ -8772,7 +8772,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bondVol: 'The MOVE index is the bond market’s implied-volatility gauge — Treasury-option vol, the rates analog of the VIX. An elevated or spiking MOVE flags rate-vol stress (risk-OFF); a calm MOVE eases it.',
     breadth: 'Universe breadth — the % of the tracked names above their 200-day MA, with a new-high/new-low tally. Broad participation reads risk-on; a thinning, washed-out tape reads risk-OFF. Slow axis — recomputed at the build.',
     putCall: 'The put/call axis reads aggregate option positioning across the tracked universe (the open-interest put/call ratio). Heavy put demand = hedging/fear (risk-OFF); a call-heavy book = complacency (risk-on). Slow axis — recomputed at the build.',
-    credit: 'The HY credit axis reads high-yield spreads — the ICE BofA HY option-adjusted spread (headline level) plus the HYG/LQD ratio (HY vs IG ETF, live). Widening spreads / HY underperforming IG = credit stress (risk-OFF).',
+    credit: 'The HY credit axis reads high-yield spreads — the ICE BofA HY option-adjusted spread (headline level) plus the HYG/LQD ratio (HY vs IG ETF, live). Widening spreads / HY underperforming IG, or a stressed absolute level, = credit stress (risk-OFF); a tight, stable spread reads risk appetite.',
+    rotation: 'The rotation axis reads intra-equity risk appetite — a high-beta growth/tech basket’s 1-day move minus a low-beta defensive (staples/health) basket’s. Offense leading = risk-on; defense outperforming, especially on a weak tape, is an early risk-OFF rotation tell that often leads the index level. Slow axis — recomputed at the build.',
   };
 
   // Live global cross-asset tape axis — a port of deriveGlobalTapeAxis
@@ -8789,21 +8790,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     function avg(syms){ var vals = []; for (var i = 0; i < syms.length; i++){ var v = ch(syms[i]); if (v != null) vals.push(v); } return vals.length ? { v: vals.reduce(function(a, b){ return a + b; }, 0) / vals.length, n: vals.length } : null; }
     function th(x, d){ return (x != null && isFinite(x)) ? Number(x) : d; }
     var futT = th(T.globalFut, 0.4), brT = th(T.globalBreadth, 0.6), yenT = th(T.globalYen, 0.6);
-    var btcT = th(T.globalBtc, 2.0), acuteT = th(T.globalAcute, 3);
-    var components = [], votes = 0, present = 0;
+    var btcT = th(T.globalBtc, 2.5), acuteT = th(T.globalAcute, 3);
+    var futS = th(T.globalFutStrong, 1.2), brS = th(T.globalBreadthStrong, 1.5), yenS = th(T.globalYenStrong, 1.2), btcS = th(T.globalBtcStrong, 6);
+    var components = [], votes = 0, present = 0, strongUp = false, strongDn = false;
+    function addLeg(val, gate, strongGate, key, label){
+      if (val == null) return;
+      present++;
+      var v = 0;
+      if (val >= gate){ v = 1; if (val >= strongGate) strongUp = true; }
+      else if (val <= -gate){ v = -1; if (val <= -strongGate) strongDn = true; }
+      votes += v;
+      components.push({ key: key, label: label, vote: v });
+    }
     var fut = avg(['ES=F', 'NQ=F']);
-    if (fut){ present++; var fv = fut.v >= futT ? 1 : (fut.v <= -futT ? -1 : 0); votes += fv; components.push({ key: 'futures', label: 'US futures ' + (fut.v >= 0 ? '+' : '') + fut.v.toFixed(2) + '%', vote: fv }); }
+    if (fut) addLeg(fut.v, futT, futS, 'futures', 'US futures ' + (fut.v >= 0 ? '+' : '') + fut.v.toFixed(2) + '%');
     var breadth = avg(['^N225', '^KS11', '^GDAXI', '^TWII']);
-    if (breadth && breadth.n >= 2){ present++; var bv = breadth.v >= brT ? 1 : (breadth.v <= -brT ? -1 : 0); votes += bv; components.push({ key: 'breadth', label: 'Global equities ' + (breadth.v >= 0 ? '+' : '') + breadth.v.toFixed(2) + '% avg', vote: bv }); }
+    if (breadth && breadth.n >= 2) addLeg(breadth.v, brT, brS, 'breadth', 'Global equities ' + (breadth.v >= 0 ? '+' : '') + breadth.v.toFixed(2) + '% avg');
     var yen = ch('JPY=X');
-    if (yen != null){ present++; var yv = yen >= yenT ? 1 : (yen <= -yenT ? -1 : 0); votes += yv; components.push({ key: 'yen', label: 'USD/JPY ' + (yen >= 0 ? '+' : '') + yen.toFixed(2) + '%', vote: yv }); }
+    if (yen != null) addLeg(yen, yenT, yenS, 'yen', 'USD/JPY ' + (yen >= 0 ? '+' : '') + yen.toFixed(2) + '%');
     var btc = ch('BTC-USD');
-    if (btc != null){ present++; var btcv = btc >= btcT ? 1 : (btc <= -btcT ? -1 : 0); votes += btcv; components.push({ key: 'btc', label: 'Bitcoin ' + (btc >= 0 ? '+' : '') + btc.toFixed(1) + '%', vote: btcv }); }
+    if (btc != null) addLeg(btc, btcT, btcS, 'btc', 'Bitcoin ' + (btc >= 0 ? '+' : '') + btc.toFixed(1) + '%');
     if (present < 3) return null;
+    votes = Math.max(-4, Math.min(4, votes));
     var score = 0;
-    if (votes >= acuteT) score = 2;
+    if (votes >= acuteT || (strongUp && votes >= 2)) score = 2;
     else if (votes >= 1) score = 1;
-    else if (votes <= -acuteT) score = -2;
+    else if (votes <= -acuteT || (strongDn && votes <= -2)) score = -2;
     else if (votes <= -1) score = -1;
     var dir = score === 0 ? 0 : (score > 0 ? 1 : -1);
     var lit = components.filter(function(c){ return c.vote === dir; }).map(function(c){ return c.label; });
@@ -9053,10 +9065,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var p200 = n(b.pctAbove200);
       if (p200 == null){ axes.breadth = Object.assign({ live: false }, baked.axes.breadth || { score: 0, label: 'no breadth data' }); return; }
       var p50 = n(b.pctAbove50), nhnl = n(b.nhnl);
-      var hi = thr(T.breadthHi, 60), lo = thr(T.breadthLo, 40), vlo = thr(T.breadthVlo, 25);
+      var hi = thr(T.breadthHi, 60), lo = thr(T.breadthLo, 40), vlo = thr(T.breadthVlo, 25), vhi = thr(T.breadthVhi, 85);
       var s = 0, label = 'Breadth ' + p200.toFixed(0) + '% >200DMA';
       if (p200 <= vlo || (p200 <= lo && nhnl != null && nhnl <= -10)){ s = -2; label = 'Breadth ' + p200.toFixed(0) + '% >200DMA — broad breakdown'; }
       else if (p200 <= lo){ s = -1; label = 'Breadth ' + p200.toFixed(0) + '% >200DMA — thinning'; }
+      else if ((p200 >= vhi || (p200 >= 80 && nhnl != null && nhnl >= 20)) && (p50 == null || p50 >= hi)){ s = 2; label = 'Breadth ' + p200.toFixed(0) + '% >200DMA — broad thrust'; }
       else if (p200 >= hi && (p50 == null || p50 >= hi)){ s = 1; label = 'Breadth ' + p200.toFixed(0) + '% >200DMA — broad participation'; }
       axes.breadth = { score: s, label: label, live: false };
     })();
@@ -9068,10 +9081,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var pc = n(b.oiRatio);
       if (pc == null){ axes.putCall = Object.assign({ live: false }, baked.axes.putCall || { score: 0, label: 'no put/call data' }); return; }
       var hi = thr(T.putCallHi, 1.20), vhi = thr(T.putCallVhi, 1.45), lo = thr(T.putCallLo, 0.85);
+      var gap = thr(T.putCallFlowGap, 0.25), volFrac = thr(T.putCallVolFrac, 0.03);
+      var vr = n(b.volRatio), tv = n(b.totalVol), os = n(b.oiSum);
+      var volMature = tv != null && os != null && os > 0 && tv >= volFrac * os;
       var s = 0, label = 'Put/call ' + pc.toFixed(2) + ' (OI)';
       if (pc >= vhi){ s = -2; label = 'Put/call ' + pc.toFixed(2) + ' — heavy hedging'; }
       else if (pc >= hi){ s = -1; label = 'Put/call ' + pc.toFixed(2) + ' — defensive'; }
       else if (pc <= lo){ s = 1; label = 'Put/call ' + pc.toFixed(2) + ' — call-heavy / complacent'; }
+      // Flow tiebreaker (mirror computeMacroRegime): OI neutral + mature volume. Asymmetric —
+      // +1 requires absolute call-dominated (vr ≤ LO), not merely below the higher OI book.
+      else if (volMature && vr != null){
+        if (vr - pc >= gap){ s = -1; label = 'Put/call vol ' + vr.toFixed(2) + ' vs OI ' + pc.toFixed(2) + ' — fresh hedging flow'; }
+        else if (pc - vr >= gap && vr <= lo){ s = 1; label = 'Put/call vol ' + vr.toFixed(2) + ' — call-heavy flow'; }
+      }
       axes.putCall = { score: s, label: label, live: false };
     })();
 
@@ -9081,19 +9103,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // like breadth / put/call / the slow axes — strict parity with build's
     // computeMacroRegime credit axis (no extra live-only scoring rule).
     axes.credit = Object.assign({ live: false }, baked.axes.credit || { score: 0, label: 'no credit data' });
+    // Rotation axis (offense − defense) — baked (whole-universe read, can't refresh live).
+    axes.rotation = Object.assign({ live: false }, baked.axes.rotation || { score: 0, label: 'no rotation data' });
 
     // Composite → state (computeMacroRegime state machine + macroEffectiveAxisCount).
-    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit'];
+    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit','rotation'];
+    // Axes excluded from the effective-axis COUNT (kept in the stress SUM) — F&G
+    // re-aggregates VIX/put-call/breadth/credit, so it can't independently trip a state.
+    // Built from the sidecar so a non-default PICKS_MACRO_COUNT_EXCLUDE stays in parity.
+    var COUNT_EXCLUDED = {};
+    (Array.isArray(T.countExclude) ? T.countExclude : ['sentiment']).forEach(function(k){ COUNT_EXCLUDED[k] = true; });
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var stress = arr.reduce(function(a,b){ return a + b; }, 0);
     var riskOffAxes = arr.filter(function(x){ return x <= -1; }).length;
     var riskOnAxes = arr.filter(function(x){ return x >= 1; }).length;
     // commodity / geo / inflation / credit are their own singleton clusters.
-    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', bondVol:'rates', indexes:'equity', breadth:'equity' };
+    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', bondVol:'rates', indexes:'equity', breadth:'equity', rotation:'equity' };
     function effCount(dir){
       var per = {};
       for (var i = 0; i < ORDER.length; i++){
         var k = ORDER[i], sc = axes[k] ? axes[k].score : 0;
+        if (COUNT_EXCLUDED[k]) continue;
         var lit = dir < 0 ? sc <= -1 : sc >= 1;
         if (!lit) continue;
         var c = CLUSTERS[k] || k;
@@ -9417,9 +9447,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (k === 'inflation') return 'Re-accelerating CPI or a softening labor market tilts it risk-off. Slow axis — refreshes at the next build.';
     if (k === 'twoY') return 'Risk-off if the 2Y backs up ≥ +' + v(T.twoYBps1d, 8) + 'bp on the day (sharp repricing ≥ +' + v(T.twoYBps1dStrong, 14) + 'bp); risk-on if it falls ≥ −' + v(T.twoYBps1d, 8) + 'bp.';
     if (k === 'bondVol') return 'Risk-off at MOVE ≥ ' + v(T.moveHi, 110) + ' (acute ≥ ' + v(T.moveVhi, 140) + '); risk-on under ' + v(T.moveCalm, 80) + '.';
-    if (k === 'breadth') return 'Risk-on at ≥ ' + v(T.breadthHi, 60) + '% above the 200DMA; risk-off under ' + v(T.breadthLo, 40) + '% (broad breakdown under ' + v(T.breadthVlo, 25) + '%). Slow axis — recomputed at the build.';
+    if (k === 'breadth') return 'Risk-on at ≥ ' + v(T.breadthHi, 60) + '% above the 200DMA (broad thrust ≥ ' + v(T.breadthVhi, 85) + '%); risk-off under ' + v(T.breadthLo, 40) + '% (broad breakdown under ' + v(T.breadthVlo, 25) + '%). Slow axis — recomputed at the build.';
     if (k === 'putCall') return 'Risk-off at an OI put/call ≥ ' + v(T.putCallHi, 1.20) + ' (heavy hedging ≥ ' + v(T.putCallVhi, 1.45) + '); risk-on (complacent) ≤ ' + v(T.putCallLo, 0.85) + '. Slow axis — recomputed at the build.';
-    if (k === 'credit') return 'Risk-off if HY OAS widens ≥ +' + v(T.creditOas5d, 0.30) + 'pp over 5d (acute ≥ +' + v(T.creditOas5dStrong, 0.60) + 'pp) or HYG/LQD falls ≥ ' + v(T.creditRatio5d, 1.0) + '%; risk-on if spreads tighten.';
+    if (k === 'credit') return 'Risk-off if HY OAS widens ≥ +' + v(T.creditOas5d, 0.30) + 'pp over 5d (acute ≥ +' + v(T.creditOas5dStrong, 0.60) + 'pp) or HYG/LQD falls ≥ ' + v(T.creditRatio5d, 1.0) + '%, or the LEVEL is ≥ ' + v(T.creditOasStressHi, 6.0) + '% (acute ≥ ' + v(T.creditOasStressVhi, 7.5) + '%); risk-on if spreads tighten, or the level is ≤ ' + v(T.creditOasTightLvl, 3.0) + '% and stable.';
+    if (k === 'rotation') return 'Offense (high-beta growth) minus defense (staples/health) 1d return. Risk-off if defense leads by ≥ ' + v(T.rotationPp, 0.8) + 'pp (−2 if the market is also weak); risk-on if offense leads by that margin on an up/flat tape. Slow axis — recomputed at the build.';
     return '';
   }
   // The drill-down drawer for one axis tile. The axis arg is the effective
@@ -9533,8 +9564,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       { k:'breadth', name:'Breadth', desc:'Universe % >200DMA + NH−NL' },
       { k:'putCall', name:'Put / call', desc:'Universe option positioning' },
       { k:'credit', name:'HY credit', desc:'HY OAS + HYG/LQD ratio' },
+      { k:'rotation', name:'Rotation', desc:'Offense − defense equity leadership' },
     ];
-    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit'];
+    var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit','rotation'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var roff = arr.filter(function(x){ return x <= -1; }).length;
     var ron = arr.filter(function(x){ return x >= 1; }).length;
@@ -9941,7 +9973,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var composite = Math.round(sum / rows.length);
     var cBand = barometerBand(composite);
     var open = !!riskBarometer.open;
-    var AXIS_DISPLAY = { vix:'VIX', dxy:'Dollar', yields:'Long yields', commodity:'Commodities', globalTape:'Global tape', twoY:'Front-end (2Y)', bondVol:'Bond vol (MOVE)', breadth:'Breadth', putCall:'Put / call', credit:'HY credit' };
+    var AXIS_DISPLAY = { vix:'VIX', dxy:'Dollar', yields:'Long yields', commodity:'Commodities', globalTape:'Global tape', twoY:'Front-end (2Y)', bondVol:'Bond vol (MOVE)', breadth:'Breadth', putCall:'Put / call', credit:'HY credit', rotation:'Rotation' };
     // The drill-down drawer for one rail row.
     function robRowDetailHtml(r, band){
       var cfg = r.cfg, m = r.m, sym = cfg.sym;

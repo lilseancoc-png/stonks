@@ -8600,8 +8600,15 @@ const PICKS_MACRO_GLOBAL = process.env.PICKS_MACRO_GLOBAL !== "0";
 const PICKS_MACRO_GLOBAL_FUT = Number(process.env.PICKS_MACRO_GLOBAL_FUT ?? 0.4);
 const PICKS_MACRO_GLOBAL_BREADTH = Number(process.env.PICKS_MACRO_GLOBAL_BREADTH ?? 0.6);
 const PICKS_MACRO_GLOBAL_YEN = Number(process.env.PICKS_MACRO_GLOBAL_YEN ?? 0.6);
-const PICKS_MACRO_GLOBAL_BTC = Number(process.env.PICKS_MACRO_GLOBAL_BTC ?? 2.0);
+const PICKS_MACRO_GLOBAL_BTC = Number(process.env.PICKS_MACRO_GLOBAL_BTC ?? 2.5); // raised 2.0→2.5: a 2% BTC move is sub-1σ noise
 const PICKS_MACRO_GLOBAL_ACUTE = Number(process.env.PICKS_MACRO_GLOBAL_ACUTE ?? 3);
+// Per-component STRONG gates: a single large overnight move (≈2σ) can carry a ±2
+// vote so a concentrated single-asset shock isn't capped at ±1 (paired with a
+// |votes|≥2 co-requisite in deriveGlobalTapeAxis so one lone asset can't hit the extreme).
+const PICKS_MACRO_GLOBAL_FUT_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_FUT_STRONG ?? 1.2);
+const PICKS_MACRO_GLOBAL_BREADTH_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_BREADTH_STRONG ?? 1.5);
+const PICKS_MACRO_GLOBAL_YEN_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_YEN_STRONG ?? 1.2);
+const PICKS_MACRO_GLOBAL_BTC_STRONG = Number(process.env.PICKS_MACRO_GLOBAL_BTC_STRONG ?? 6);
 
 // ============================================================================
 // Market-tape (cross-asset macro regime) engine — the "market tape" the Top
@@ -8657,14 +8664,21 @@ const PICKS_MACRO_CLUSTER_DISCOUNT = Number(process.env.PICKS_MACRO_CLUSTER_DISC
 const MACRO_AXIS_CLUSTERS = {
   vix: "vol", sentiment: "vol", globalTape: "vol", putCall: "vol", // fear / equity-vol / cross-asset risk-appetite complex
   dxy: "rates", yields: "rates", fed: "rates", twoY: "rates", bondVol: "rates", // dollar / long-yield / Fed-path / front-end / bond-vol (MOVE is rate-implied vol) tightening complex
-  indexes: "equity", breadth: "equity", // headline index direction + universe participation
+  indexes: "equity", breadth: "equity", rotation: "equity", // headline index direction + participation + offense/defense rotation
 };
+// Axes whose information is already represented by OTHER axes are kept in the
+// stress SUM but EXCLUDED from the effective-axis COUNT (so they can't independently
+// trip a state transition). CNN Fear & Greed is a 7-component composite that
+// re-aggregates VIX + put/call + breadth + junk-bond credit — the four axes it most
+// overlaps — so counting it as a near-full independent vote double-counts them.
+const MACRO_COUNT_EXCLUDED_AXES = new Set((process.env.PICKS_MACRO_COUNT_EXCLUDE ?? "sentiment").split(",").map((s) => s.trim()).filter(Boolean));
 const PICKS_MACRO_INFLATION = process.env.PICKS_MACRO_INFLATION !== "0";
 const PICKS_MACRO_CPI_HOT = Number(process.env.PICKS_MACRO_CPI_HOT ?? 4.0);
 const PICKS_MACRO_CPI_WARM = Number(process.env.PICKS_MACRO_CPI_WARM ?? 3.0);
 const PICKS_MACRO_CPI_REACCEL = Number(process.env.PICKS_MACRO_CPI_REACCEL ?? 0.3);
 const PICKS_MACRO_CPI_COOL = Number(process.env.PICKS_MACRO_CPI_COOL ?? 2.5);
 const PICKS_MACRO_UE_SAHM = Number(process.env.PICKS_MACRO_UE_SAHM ?? 0.5);
+const PICKS_MACRO_UE_SAHM_SOFT = Number(process.env.PICKS_MACRO_UE_SAHM_SOFT ?? 0.3); // early labor softening (pre-Sahm): a 3mo-avg U3 held ≥ this above its 12mo low, still deteriorating → -1 (distinct from the 0.5 Sahm-confirmation trip)
 const PICKS_MACRO_SENTIMENT = process.env.PICKS_MACRO_SENTIMENT !== "0";
 const PICKS_MACRO_FG_FEAR = Number(process.env.PICKS_MACRO_FG_FEAR ?? 25);
 const PICKS_MACRO_FG_GREED = Number(process.env.PICKS_MACRO_FG_GREED ?? 75);
@@ -8696,6 +8710,7 @@ const PICKS_MACRO_BREADTH = process.env.PICKS_MACRO_BREADTH !== "0";            
 const PICKS_MACRO_BREADTH_HI = Number(process.env.PICKS_MACRO_BREADTH_HI ?? 60);                // %>200DMA above = broad participation (+1)
 const PICKS_MACRO_BREADTH_LO = Number(process.env.PICKS_MACRO_BREADTH_LO ?? 40);                // ... below = thinning participation (-1)
 const PICKS_MACRO_BREADTH_VLO = Number(process.env.PICKS_MACRO_BREADTH_VLO ?? 25);              // ... washed-out / broad breakdown (-2)
+const PICKS_MACRO_BREADTH_VHI = Number(process.env.PICKS_MACRO_BREADTH_VHI ?? 85);              // broad-participation THRUST (+2) — 85 not 80: this curated ~138-name growth/tech universe is upside-skewed on %>200DMA, so 80 fires in ordinary uptrends; 85 is the upside-tail mirror of the 25 washout
 const PICKS_MACRO_PUTCALL = process.env.PICKS_MACRO_PUTCALL !== "0";                            // universe put/call axis (computed from option OI/volume)
 // Band centered on the tracked universe's measured baseline OI put/call (~1.1 —
 // growth/tech names carry standing protective puts, so the level skews higher than
@@ -8703,11 +8718,24 @@ const PICKS_MACRO_PUTCALL = process.env.PICKS_MACRO_PUTCALL !== "0";            
 const PICKS_MACRO_PUTCALL_HI = Number(process.env.PICKS_MACRO_PUTCALL_HI ?? 1.20);              // OI put/call above = defensive hedging (-1)
 const PICKS_MACRO_PUTCALL_VHI = Number(process.env.PICKS_MACRO_PUTCALL_VHI ?? 1.45);            // ... heavy hedging demand (-2)
 const PICKS_MACRO_PUTCALL_LO = Number(process.env.PICKS_MACRO_PUTCALL_LO ?? 0.85);              // ... call-heavy / complacent (+1)
+const PICKS_MACRO_PUTCALL_FLOW_GAP = Number(process.env.PICKS_MACRO_PUTCALL_FLOW_GAP ?? 0.25);  // when the OI (sticky) ratio is neutral, a same-day VOLUME ratio this far above OI = fresh hedging flow (-1); this far below AND absolute call-dominated (< LO) = call-heavy flow (+1). Capped ±1.
+const PICKS_MACRO_PUTCALL_VOL_FRAC = Number(process.env.PICKS_MACRO_PUTCALL_VOL_FRAC ?? 0.03);  // maturity gate: only score the flow tiebreaker once same-day option volume ≥ this fraction of total OI (skips the near-zero-volume 9:30/10:00 bakes where volRatio is noise)
 const PICKS_MACRO_CREDIT = process.env.PICKS_MACRO_CREDIT !== "0";                              // HY credit-spread axis (FRED OAS + HYG/LQD)
 const PICKS_MACRO_CREDIT_OAS_5D = Number(process.env.PICKS_MACRO_CREDIT_OAS_5D ?? 0.30);        // HY OAS widening (pp) over 5d that flags credit stress (-1)
 const PICKS_MACRO_CREDIT_OAS_5D_STRONG = Number(process.env.PICKS_MACRO_CREDIT_OAS_5D_STRONG ?? 0.60); // ... acute widening (-2)
 const PICKS_MACRO_CREDIT_RATIO_5D = Number(process.env.PICKS_MACRO_CREDIT_RATIO_5D ?? 1.0);     // HYG/LQD ratio fall (%) over 5d that confirms HY underperformance (-1)
 const PICKS_MACRO_CREDIT_OAS_TIGHT_5D = Number(process.env.PICKS_MACRO_CREDIT_OAS_TIGHT_5D ?? 0.25); // OAS tightening (pp) over 5d that eases conditions (+1)
+// LEVEL-based credit overlays (the change-based score only sees 5d moves, so a WIDE-
+// but-quiet or TIGHT-but-quiet spread was a dead zone). Applied as a Math.min/analogue
+// AFTER the change score so a stressed level can't be erased by a calm week.
+const PICKS_MACRO_CREDIT_OAS_STRESS_HI = Number(process.env.PICKS_MACRO_CREDIT_OAS_STRESS_HI ?? 6.0);  // HY OAS level that flags credit stress (-1); 6.0 ≈ 75th pctile (median ~4.7–5.0, so 5.0 would flag the median)
+const PICKS_MACRO_CREDIT_OAS_STRESS_VHI = Number(process.env.PICKS_MACRO_CREDIT_OAS_STRESS_VHI ?? 7.5); // ... acute credit stress (-2)
+const PICKS_MACRO_CREDIT_OAS_TIGHT_LVL = Number(process.env.PICKS_MACRO_CREDIT_OAS_TIGHT_LVL ?? 3.0);   // historically tight+stable HY OAS = credit-market risk appetite (+1), only when the change score is neutral (VIX-analogue: low AND stable, not a bare level)
+// Offense-vs-defense equity-rotation axis — high-beta growth/tech basket 1d return
+// minus a low-beta defensive basket 1d return. Intra-equity risk-appetite rotation
+// often LEADS the index level (defense outperforming on an up day = early risk-off).
+const PICKS_MACRO_ROTATION = process.env.PICKS_MACRO_ROTATION !== "0";
+const PICKS_MACRO_ROTATION_PP = Number(process.env.PICKS_MACRO_ROTATION_PP ?? 0.8); // offense−defense 1d spread (pp) that flags a meaningful rotation (±1); ~1–1.3σ of the universe's daily spread
 
 // ---- Accuracy / history bookkeeping ----------------------------------------
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
@@ -9567,6 +9595,37 @@ export function buildPutCallAxisInput(chains) {
     oiRatio: callOi > 0 ? r2(putOi / callOi) : null,
     volRatio: callVol > 0 ? r2(putVol / callVol) : null,
     callOi: Math.round(callOi), putOi: Math.round(putOi), names,
+    // For the flow-tiebreaker maturity gate: same-day volume vs total OI. Near-zero
+    // at the 9:30/10:00 bakes, so the flow branch only fires once volume accumulates.
+    totalVol: Math.round(callVol + putVol), oiSum: Math.round(callOi + putOi),
+  };
+}
+
+// Offense-vs-defense equity-rotation axis input — the high-beta growth/tech basket's
+// avg confirmed 1d move minus a low-beta defensive basket's, off the freshly fetched
+// chains (same priceMove1dPct the Indexes axis reads). Intra-equity risk-appetite
+// rotation often LEADS the index level. Pure + exported; attached to
+// macroBackdrop.rotation in main() + regen-picks. Baked-only (needs the whole
+// universe, so the browser can't refresh it live — it carries the baked score).
+const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "SMCI", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "NET", "CRWD", "DDOG"];
+const ROTATION_DEFENSE = ["WMT", "COST", "MCD", "SBUX", "LLY", "UNH", "CI", "TMO", "BSX"];
+export function buildRotationAxisInput(chains) {
+  if (!chains) return null;
+  const legMove = (sym) => {
+    const d = chains[sym];
+    if (!d) return null;
+    return pnum(d.technicals?.volume?.priceMove1dPct);
+  };
+  const basketAvg = (syms) => {
+    const vals = syms.map(legMove).filter((x) => x != null);
+    return vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
+  };
+  const off = basketAvg(ROTATION_OFFENSE), def = basketAvg(ROTATION_DEFENSE);
+  // Need a meaningful sample on BOTH sides for a real spread.
+  if (!off || !def || off.n < 4 || def.n < 3) return null;
+  return {
+    offense: r2(off.avg), defense: r2(def.avg), spread: r2(off.avg - def.avg),
+    nOff: off.n, nDef: def.n,
   };
 }
 
@@ -9590,11 +9649,15 @@ const MACRO_LIVE_THRESHOLDS = {
   commodityOn: PICKS_MACRO_COMMODITY, sentimentOn: PICKS_MACRO_SENTIMENT, fgInternalsOn: PICKS_MACRO_FG_INTERNALS,
   globalOn: PICKS_MACRO_GLOBAL, globalFut: PICKS_MACRO_GLOBAL_FUT, globalBreadth: PICKS_MACRO_GLOBAL_BREADTH,
   globalYen: PICKS_MACRO_GLOBAL_YEN, globalBtc: PICKS_MACRO_GLOBAL_BTC, globalAcute: PICKS_MACRO_GLOBAL_ACUTE,
+  globalFutStrong: PICKS_MACRO_GLOBAL_FUT_STRONG, globalBreadthStrong: PICKS_MACRO_GLOBAL_BREADTH_STRONG, globalYenStrong: PICKS_MACRO_GLOBAL_YEN_STRONG, globalBtcStrong: PICKS_MACRO_GLOBAL_BTC_STRONG,
   twoYOn: PICKS_MACRO_TWOY, twoYBps1d: PICKS_MACRO_TWOY_BPS_1D, twoYBps1dStrong: PICKS_MACRO_TWOY_BPS_1D_STRONG,
   bondVolOn: PICKS_MACRO_BONDVOL, moveHi: PICKS_MACRO_MOVE_HI, moveVhi: PICKS_MACRO_MOVE_VHI, moveCalm: PICKS_MACRO_MOVE_CALM, move1d: PICKS_MACRO_MOVE_1D,
-  breadthOn: PICKS_MACRO_BREADTH, breadthHi: PICKS_MACRO_BREADTH_HI, breadthLo: PICKS_MACRO_BREADTH_LO, breadthVlo: PICKS_MACRO_BREADTH_VLO,
-  putCallOn: PICKS_MACRO_PUTCALL, putCallHi: PICKS_MACRO_PUTCALL_HI, putCallVhi: PICKS_MACRO_PUTCALL_VHI, putCallLo: PICKS_MACRO_PUTCALL_LO,
+  breadthOn: PICKS_MACRO_BREADTH, breadthHi: PICKS_MACRO_BREADTH_HI, breadthLo: PICKS_MACRO_BREADTH_LO, breadthVlo: PICKS_MACRO_BREADTH_VLO, breadthVhi: PICKS_MACRO_BREADTH_VHI,
+  putCallOn: PICKS_MACRO_PUTCALL, putCallHi: PICKS_MACRO_PUTCALL_HI, putCallVhi: PICKS_MACRO_PUTCALL_VHI, putCallLo: PICKS_MACRO_PUTCALL_LO, putCallFlowGap: PICKS_MACRO_PUTCALL_FLOW_GAP, putCallVolFrac: PICKS_MACRO_PUTCALL_VOL_FRAC,
   creditOn: PICKS_MACRO_CREDIT, creditOas5d: PICKS_MACRO_CREDIT_OAS_5D, creditOas5dStrong: PICKS_MACRO_CREDIT_OAS_5D_STRONG, creditRatio5d: PICKS_MACRO_CREDIT_RATIO_5D, creditOasTight5d: PICKS_MACRO_CREDIT_OAS_TIGHT_5D,
+  creditOasStressHi: PICKS_MACRO_CREDIT_OAS_STRESS_HI, creditOasStressVhi: PICKS_MACRO_CREDIT_OAS_STRESS_VHI, creditOasTightLvl: PICKS_MACRO_CREDIT_OAS_TIGHT_LVL,
+  rotationOn: PICKS_MACRO_ROTATION, rotationPp: PICKS_MACRO_ROTATION_PP,
+  countExclude: [...MACRO_COUNT_EXCLUDED_AXES], // axes kept in stress but out of the effective COUNT — shipped so a non-default override stays server↔browser in sync
 };
 
 // ============================================================================
@@ -9798,6 +9861,12 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
         s -= 1;
         bits.push(`unemployment ${ue.rate.toFixed(1)}% — Sahm +${ue.sahm.toFixed(2)}pp, labor deteriorating`);
         stressed.push(`unemployment ${ue.rate.toFixed(1)}% ↑`);
+      } else if (isFinite(ue.sahm) && ue.sahm >= PICKS_MACRO_UE_SAHM_SOFT && ue.trend !== "falling") {
+        // Early labor softening (pre-Sahm): distinct label + driver — do NOT claim the
+        // Sahm rule tripped below 0.5 (the UI band separates "Softening" 0.3 from "Sahm" 0.5).
+        s -= 1;
+        bits.push(`unemployment ${ue.rate.toFixed(1)}% — labor softening +${ue.sahm.toFixed(2)}pp (pre-Sahm)`);
+        stressed.push(`labor softening +${ue.sahm.toFixed(2)}pp`);
       } else {
         bits.push(`unemployment ${ue.rate.toFixed(1)}%${ue.trend === "rising" ? " (rising)" : ""}`);
       }
@@ -9890,6 +9959,9 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
     let s = 0, label = `Breadth ${p200.toFixed(0)}% >200DMA`;
     if (p200 <= PICKS_MACRO_BREADTH_VLO || (p200 <= PICKS_MACRO_BREADTH_LO && nhnl != null && nhnl <= -10)) { s = -2; label = `Breadth ${p200.toFixed(0)}% >200DMA — broad breakdown`; }
     else if (p200 <= PICKS_MACRO_BREADTH_LO) { s = -1; label = `Breadth ${p200.toFixed(0)}% >200DMA — thinning`; }
+    // +2 THRUST — the upside mirror of the washout, tuned for this growth-tilted universe:
+    // ≥85% (or ≥80% with ≥20 net new highs confirming), AND short-term breadth still firm.
+    else if ((p200 >= PICKS_MACRO_BREADTH_VHI || (p200 >= 80 && nhnl != null && nhnl >= 20)) && (p50 == null || p50 >= PICKS_MACRO_BREADTH_HI)) { s = 2; label = `Breadth ${p200.toFixed(0)}% >200DMA — broad thrust`; }
     else if (p200 >= PICKS_MACRO_BREADTH_HI && (p50 == null || p50 >= PICKS_MACRO_BREADTH_HI)) { s = 1; label = `Breadth ${p200.toFixed(0)}% >200DMA — broad participation`; }
     axes.breadth = { score: s, label };
     if (s <= -1) drivers.push(`Breadth ${p200.toFixed(0)}%`);
@@ -9900,11 +9972,24 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
   // (risk-on) — the same direction CNN F&G treats its put/call component. Votes on
   // the stable OI ratio against own universe-calibrated thresholds (not CBOE levels).
   if (PICKS_MACRO_PUTCALL && macroBackdrop.putCall && isFinite(macroBackdrop.putCall.oiRatio)) {
-    const pc = macroBackdrop.putCall.oiRatio;
+    const pcObj = macroBackdrop.putCall;
+    const pc = pcObj.oiRatio;
+    const vr = isFinite(pcObj.volRatio) ? pcObj.volRatio : null;
+    // Maturity gate: same-day volume must be a meaningful fraction of total OI before the
+    // (noisy near the open) volume ratio can vote — skips the 9:30/10:00 near-zero-volume bakes.
+    const volMature = isFinite(pcObj.totalVol) && isFinite(pcObj.oiSum) && pcObj.oiSum > 0 && pcObj.totalVol >= PICKS_MACRO_PUTCALL_VOL_FRAC * pcObj.oiSum;
     let s = 0, label = `Put/call ${pc.toFixed(2)} (OI)`;
     if (pc >= PICKS_MACRO_PUTCALL_VHI) { s = -2; label = `Put/call ${pc.toFixed(2)} — heavy hedging`; }
     else if (pc >= PICKS_MACRO_PUTCALL_HI) { s = -1; label = `Put/call ${pc.toFixed(2)} — defensive`; }
     else if (pc <= PICKS_MACRO_PUTCALL_LO) { s = 1; label = `Put/call ${pc.toFixed(2)} — call-heavy / complacent`; }
+    // Flow tiebreaker — only when the sticky OI ratio is neutral AND the volume sample is
+    // mature. Asymmetric (bear-safe): -1 on any fresh same-day hedging surge; +1 requires the
+    // volume ratio to be ABSOLUTELY call-dominated (≤ LO), not just below the higher OI book
+    // (in a put-OI-heavy growth universe volRatio structurally runs below oiRatio). Capped ±1.
+    else if (volMature && vr != null) {
+      if (vr - pc >= PICKS_MACRO_PUTCALL_FLOW_GAP) { s = -1; label = `Put/call vol ${vr.toFixed(2)} vs OI ${pc.toFixed(2)} — fresh hedging flow`; }
+      else if (pc - vr >= PICKS_MACRO_PUTCALL_FLOW_GAP && vr <= PICKS_MACRO_PUTCALL_LO) { s = 1; label = `Put/call vol ${vr.toFixed(2)} — call-heavy flow`; }
+    }
     axes.putCall = { score: s, label };
     if (s <= -1) drivers.push(`Put/call ${pc.toFixed(2)}`);
   } else axes.putCall = { score: 0, label: PICKS_MACRO_PUTCALL ? "no put/call data" : "put/call axis off" };
@@ -9924,12 +10009,38 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
     } else if ((oas5 != null && oas5 <= -PICKS_MACRO_CREDIT_OAS_TIGHT_5D) || (ratio5 != null && ratio5 >= PICKS_MACRO_CREDIT_RATIO_5D)) {
       s = 1; label = `HY credit easing${oas != null ? ` — OAS ${oas.toFixed(2)}%` : ""}`;
     }
+    // LEVEL overlays (the change score only sees 5d moves, so a WIDE-but-quiet or
+    // TIGHT-but-quiet spread was a dead zone). A stressed level can only make the score
+    // MORE negative (never erase a worse widening read); a tight+stable level votes +1
+    // only when the change score is neutral (VIX-analogue: low AND stable, not a bare level).
+    if (oas != null) {
+      if (oas >= PICKS_MACRO_CREDIT_OAS_STRESS_VHI && s > -2) { s = -2; label = `HY OAS ${oas.toFixed(2)}% — acute credit stress (wide level)`; }
+      else if (oas >= PICKS_MACRO_CREDIT_OAS_STRESS_HI && s > -1) { s = -1; label = `HY OAS ${oas.toFixed(2)}% — elevated / stressed level`; }
+      else if (oas <= PICKS_MACRO_CREDIT_OAS_TIGHT_LVL && s === 0 && (oas5 == null || oas5 <= 0.05)) { s = 1; label = `HY OAS ${oas.toFixed(2)}% — tight / risk appetite`; }
+    }
     axes.credit = { score: s, label };
     if (s <= -1) drivers.push(label.split(" — ")[0]);
   } else axes.credit = { score: 0, label: PICKS_MACRO_CREDIT ? "no credit data" : "credit axis off" };
 
+  // --- Rotation axis (offense − defense — intra-equity risk-appetite rotation) --
+  // High-beta growth/tech basket 1d return minus a low-beta defensive basket's.
+  // Defense outperforming on a weak/flat tape is an early risk-OFF rotation tell;
+  // offense leading on an up/flat tape is risk-on. Baked-only (whole-universe read),
+  // in the equity cluster with indexes+breadth (decorrelated, not counted full).
+  if (PICKS_MACRO_ROTATION && macroBackdrop.rotation && isFinite(macroBackdrop.rotation.spread)) {
+    const rot = macroBackdrop.rotation;
+    const sp = rot.spread; // offense − defense, pp
+    const idx = axes.indexes ? axes.indexes.score : 0;
+    let s = 0, label = `Rotation ${sp >= 0 ? "+" : ""}${sp.toFixed(2)}pp (offense − defense)`;
+    if (sp <= -PICKS_MACRO_ROTATION_PP && idx <= 0) { s = -2; label = `Defensive rotation ${sp.toFixed(2)}pp — defense leading, market weak`; }
+    else if (sp <= -PICKS_MACRO_ROTATION_PP) { s = -1; label = `Defense leading ${sp.toFixed(2)}pp — risk-off rotation`; }
+    else if (sp >= PICKS_MACRO_ROTATION_PP && idx >= 0) { s = 1; label = `Offense leading +${sp.toFixed(2)}pp — risk-on rotation`; }
+    axes.rotation = { score: s, label };
+    if (s <= -1) drivers.push(label.split(" — ")[0]);
+  } else axes.rotation = { score: 0, label: PICKS_MACRO_ROTATION ? "no rotation data" : "rotation axis off" };
+
   // --- Composite → state -----------------------------------------------------
-  const arr = [axes.indexes.score, axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score, axes.globalTape.score, axes.twoY.score, axes.bondVol.score, axes.breadth.score, axes.putCall.score, axes.credit.score];
+  const arr = [axes.indexes.score, axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score, axes.globalTape.score, axes.twoY.score, axes.bondVol.score, axes.breadth.score, axes.putCall.score, axes.credit.score, axes.rotation.score];
   const stress = arr.reduce((a, b) => a + b, 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
@@ -10026,6 +10137,8 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
     putCall: macroBackdrop.putCall ? {
       oiRatio: numOrNull(macroBackdrop.putCall.oiRatio),
       volRatio: numOrNull(macroBackdrop.putCall.volRatio),
+      totalVol: numOrNull(macroBackdrop.putCall.totalVol),
+      oiSum: numOrNull(macroBackdrop.putCall.oiSum),
     } : null,
     credit: macroBackdrop.credit ? {
       oas: numOrNull(macroBackdrop.credit.oas),
@@ -10033,6 +10146,11 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
       hygLqdChg1d: numOrNull(macroBackdrop.credit.hygLqdChg1d),
       hygLqdChg5d: numOrNull(macroBackdrop.credit.hygLqdChg5d),
       asOf: macroBackdrop.credit.asOf || macroBackdrop.asOf || null,
+    } : null,
+    rotation: macroBackdrop.rotation ? {
+      offense: numOrNull(macroBackdrop.rotation.offense),
+      defense: numOrNull(macroBackdrop.rotation.defense),
+      spread: numOrNull(macroBackdrop.rotation.spread),
     } : null,
   };
   return {
@@ -10067,9 +10185,14 @@ export function applyMacroRegimePersistence(mr, priorMeta) {
 // coordinated dollar/rates or vol/fear move isn't double-counted as N independent
 // risk-off votes. `dir` is −1 (risk-off) or +1 (risk-on). Unlisted axes (commodity,
 // geo, inflation, credit) are their own singleton cluster and count full.
+// Axes in MACRO_COUNT_EXCLUDED_AXES (Fear & Greed — a composite that re-aggregates
+// VIX/put-call/breadth/credit) are excluded from the COUNT entirely (they still ride
+// the stress SUM) so their already-represented information can't independently trip a
+// state transition.
 export function macroEffectiveAxisCount(axes, dir, discount = PICKS_MACRO_CLUSTER_DISCOUNT) {
   const perCluster = new Map();
   for (const [key, ax] of Object.entries(axes || {})) {
+    if (MACRO_COUNT_EXCLUDED_AXES.has(key)) continue;
     const s = ax && Number.isFinite(ax.score) ? ax.score : 0;
     const lit = dir < 0 ? s <= -1 : s >= 1;
     if (!lit) continue;
@@ -13223,44 +13346,39 @@ export function deriveGlobalTapeAxis(markets) {
     return vals.length ? { v: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
   };
   const components = [];
-  let votes = 0, present = 0;
+  let votes = 0, present = 0, strongUp = false, strongDn = false;
+  // Add one leg: ±1 vote at its gate, and flag whether it crossed the STRONG (~2σ)
+  // gate in the vote's direction (a concentrated single-asset shock).
+  const addLeg = (val, gate, strongGate, key, label) => {
+    if (val == null) return;
+    present++;
+    let v = 0;
+    if (val >= gate) { v = 1; if (val >= strongGate) strongUp = true; }
+    else if (val <= -gate) { v = -1; if (val <= -strongGate) strongDn = true; }
+    votes += v;
+    components.push({ key, label, vote: v });
+  };
   // US equity futures (the most direct overnight risk proxy).
   const fut = avg(["ES=F", "NQ=F"]);
-  if (fut) {
-    present++;
-    const v = fut.v >= PICKS_MACRO_GLOBAL_FUT ? 1 : (fut.v <= -PICKS_MACRO_GLOBAL_FUT ? -1 : 0);
-    votes += v;
-    components.push({ key: "futures", label: `US futures ${fut.v >= 0 ? "+" : ""}${fut.v.toFixed(2)}%`, vote: v });
-  }
+  if (fut) addLeg(fut.v, PICKS_MACRO_GLOBAL_FUT, PICKS_MACRO_GLOBAL_FUT_STRONG, "futures", `US futures ${fut.v >= 0 ? "+" : ""}${fut.v.toFixed(2)}%`);
   // Foreign-index breadth (Asia + Europe) — the genuinely-leading closed sessions.
   const breadth = avg(["^N225", "^KS11", "^GDAXI", "^TWII"]);
-  if (breadth && breadth.n >= 2) {
-    present++;
-    const v = breadth.v >= PICKS_MACRO_GLOBAL_BREADTH ? 1 : (breadth.v <= -PICKS_MACRO_GLOBAL_BREADTH ? -1 : 0);
-    votes += v;
-    components.push({ key: "breadth", label: `Global equities ${breadth.v >= 0 ? "+" : ""}${breadth.v.toFixed(2)}% avg`, vote: v });
-  }
+  if (breadth && breadth.n >= 2) addLeg(breadth.v, PICKS_MACRO_GLOBAL_BREADTH, PICKS_MACRO_GLOBAL_BREADTH_STRONG, "breadth", `Global equities ${breadth.v >= 0 ? "+" : ""}${breadth.v.toFixed(2)}% avg`);
   // Yen carry (USD/JPY up = carry-on = risk-on; a yen bid = unwind = risk-off).
   const yen = chOf("JPY=X");
-  if (yen != null) {
-    present++;
-    const v = yen >= PICKS_MACRO_GLOBAL_YEN ? 1 : (yen <= -PICKS_MACRO_GLOBAL_YEN ? -1 : 0);
-    votes += v;
-    components.push({ key: "yen", label: `USD/JPY ${yen >= 0 ? "+" : ""}${yen.toFixed(2)}%`, vote: v });
-  }
+  if (yen != null) addLeg(yen, PICKS_MACRO_GLOBAL_YEN, PICKS_MACRO_GLOBAL_YEN_STRONG, "yen", `USD/JPY ${yen >= 0 ? "+" : ""}${yen.toFixed(2)}%`);
   // Bitcoin — the purest cross-asset risk-appetite proxy (volatile → wider gate).
   const btc = chOf("BTC-USD");
-  if (btc != null) {
-    present++;
-    const v = btc >= PICKS_MACRO_GLOBAL_BTC ? 1 : (btc <= -PICKS_MACRO_GLOBAL_BTC ? -1 : 0);
-    votes += v;
-    components.push({ key: "btc", label: `Bitcoin ${btc >= 0 ? "+" : ""}${btc.toFixed(1)}%`, vote: v });
-  }
+  if (btc != null) addLeg(btc, PICKS_MACRO_GLOBAL_BTC, PICKS_MACRO_GLOBAL_BTC_STRONG, "btc", `Bitcoin ${btc >= 0 ? "+" : ""}${btc.toFixed(1)}%`);
   if (present < 3) return { score: 0, label: "no cross-asset data", driver: null, components };
+  votes = Math.max(-4, Math.min(4, votes)); // clamp so no single tape saturates
+  // ±2 via the BREADTH path (|votes|≥ACUTE, ≥3 aligned components) OR the MAGNITUDE
+  // path (an aligned component crossed its STRONG gate AND ≥2 components agree — so a
+  // lone idiosyncratic move can't hit the extreme while another asset dissents).
   let score = 0;
-  if (votes >= PICKS_MACRO_GLOBAL_ACUTE) score = 2;
+  if (votes >= PICKS_MACRO_GLOBAL_ACUTE || (strongUp && votes >= 2)) score = 2;
   else if (votes >= 1) score = 1;
-  else if (votes <= -PICKS_MACRO_GLOBAL_ACUTE) score = -2;
+  else if (votes <= -PICKS_MACRO_GLOBAL_ACUTE || (strongDn && votes <= -2)) score = -2;
   else if (votes <= -1) score = -1;
   // Label from the lit drivers in the axis direction (most informative first).
   const dir = score === 0 ? 0 : (score > 0 ? 1 : -1);
@@ -18647,8 +18765,10 @@ async function main() {
     // ride on the in-memory chains); regen-picks recomputes them the same way.
     macroBackdrop.breadth = buildBreadthAxisInput(chains);
     macroBackdrop.putCall = buildPutCallAxisInput(chains);
+    macroBackdrop.rotation = buildRotationAxisInput(chains);
     if (macroBackdrop.breadth) console.log(`  · breadth: ${macroBackdrop.breadth.pctAbove200 != null ? macroBackdrop.breadth.pctAbove200.toFixed(0) + "% >200DMA" : "—"}, ${macroBackdrop.breadth.pctAbove50 != null ? macroBackdrop.breadth.pctAbove50.toFixed(0) + "% >50DMA" : "—"}, NH−NL ${macroBackdrop.breadth.nhnl != null ? macroBackdrop.breadth.nhnl : "—"} (n=${macroBackdrop.breadth.n})`);
     if (macroBackdrop.putCall) console.log(`  · put/call: OI ${macroBackdrop.putCall.oiRatio}, vol ${macroBackdrop.putCall.volRatio} (${macroBackdrop.putCall.names} names)`);
+    if (macroBackdrop.rotation) console.log(`  · rotation: offense ${macroBackdrop.rotation.offense >= 0 ? "+" : ""}${macroBackdrop.rotation.offense}% − defense ${macroBackdrop.rotation.defense >= 0 ? "+" : ""}${macroBackdrop.rotation.defense}% = ${macroBackdrop.rotation.spread >= 0 ? "+" : ""}${macroBackdrop.rotation.spread}pp`);
     // Fold the overnight cross-asset sweep into the regime as the global-tape
     // axis (PICKS_MACRO_GLOBAL) — the same markets the Top Picks barometer shows.
     macroBackdrop.crossAsset = deriveGlobalTapeAxis(correlationsInfo?.payload?.markets || null);
