@@ -10287,6 +10287,58 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .acc-mc-lbl { font-size: 11px; color: var(--muted); }
 .acc-mc-run { cursor: pointer; background: var(--accent); color: #fff; border: none; border-radius: var(--r-pill); padding: 8px 18px; font-size: 13px; font-weight: 700; }
 .acc-mc-run:disabled { opacity: .5; cursor: not-allowed; }
+/* engine summary (Summary sub-tab) */
+.acc-sum-verdict {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-left: 3px solid var(--muted); border-radius: 10px; padding: 12px 14px; margin: 6px 0 14px;
+}
+.acc-sum-badge {
+  flex: none; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  border-radius: 999px; padding: 4px 10px; margin-top: 1px;
+  color: var(--muted-strong); background: var(--surface-3);
+}
+.acc-sum-verdict.acc-sum-healthy { border-left-color: var(--pos); }
+.acc-sum-verdict.acc-sum-healthy .acc-sum-badge { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.acc-sum-verdict.acc-sum-mixed { border-left-color: var(--warn); }
+.acc-sum-verdict.acc-sum-mixed .acc-sum-badge { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.acc-sum-verdict.acc-sum-struggling { border-left-color: var(--neg); }
+.acc-sum-verdict.acc-sum-struggling .acc-sum-badge { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.acc-sum-verdict.acc-sum-early { border-left-color: var(--info); }
+.acc-sum-verdict.acc-sum-early .acc-sum-badge { color: var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); }
+.acc-sum-story { margin: 0; font-size: var(--fs-sm); color: var(--text-strong); line-height: 1.55; }
+.acc-sum-note { margin: 8px 0; font-size: var(--fs-sm); color: var(--text-strong); line-height: 1.55; }
+.acc-sum-exits { margin: 6px 0 2px; }
+.acc-attr-bar { display: flex; gap: 2px; border-radius: 6px; overflow: hidden; margin: 4px 0 6px; }
+.acc-attr-seg { min-width: 26px; text-align: center; font-size: 11px; font-weight: 800; padding: 5px 0; color: #fff; }
+.acc-attr-seg.acc-attr-dir, .acc-attr-dot.acc-attr-dir { background: var(--neg); }
+.acc-attr-seg.acc-attr-mix, .acc-attr-dot.acc-attr-mix { background: var(--warn); }
+.acc-attr-seg.acc-attr-theta, .acc-attr-dot.acc-attr-theta { background: var(--info); }
+.acc-attr-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.acc-attr-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.acc-attr-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.acc-sum-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 22px; }
+.acc-sum-list { list-style: none; margin: 0; padding: 0; }
+.acc-sum-seg {
+  display: grid; grid-template-columns: 1fr auto; gap: 0 10px; align-items: baseline;
+  padding: 7px 2px; border-bottom: 1px solid var(--border);
+}
+.acc-sum-seg-lbl { font-size: var(--fs-sm); font-weight: 600; color: var(--text-strong); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.acc-sum-seg-dim { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.acc-sum-seg-val { font-size: var(--fs-sm); font-weight: 800; font-variant-numeric: tabular-nums; }
+.acc-sum-seg-sub { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+.acc-sum-diags { margin: 6px 0 10px; padding-left: 20px; }
+.acc-sum-diags li { margin: 7px 0; font-size: var(--fs-sm); color: var(--text-strong); line-height: 1.55; }
+.acc-why-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.acc-why-row { border: 1px solid var(--border); border-left: 3px solid var(--muted); border-radius: 8px; padding: 9px 12px; margin: 8px 0; background: var(--surface); }
+.acc-why-row.acc-why-win { border-left-color: var(--pos); }
+.acc-why-row.acc-why-loss { border-left-color: var(--neg); }
+.acc-why-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acc-why-outcome { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.acc-why-meta { font-size: 11px; color: var(--muted); margin-left: auto; }
+.acc-why-text { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--text-strong); line-height: 1.5; }
+.acc-why-more { margin-top: 8px; font-size: var(--fs-sm); }
+.acc-why-more summary { cursor: pointer; font-weight: 600; color: var(--muted-strong); }
 
 .accuracy-stats { margin: 10px 0 14px; }
 .accuracy-chips {
