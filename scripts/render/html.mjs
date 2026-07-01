@@ -356,9 +356,26 @@ function aiCapexSection() {
       <h2 class="card-title">AI CapEx — the Magnificent 7</h2>
       <span class="card-eyebrow" id="ai-capex-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('What is this?', `<p>Aggregate capital expenditure (CapEx) for the seven mega-caps driving the AI buildout — MSFT, GOOGL, AMZN, META, NVDA, AAPL, TSLA. CapEx is the cash they spend on property, plant &amp; equipment (data centers, GPUs, networking), pulled straight from the cash-flow statement in their SEC filings. We total the latest full fiscal year vs. the year before — so you can see how much aggregate AI infrastructure spend has grown (or shrunk), and by how much — plus each name's trailing-12-month run-rate and CapEx as a share of revenue. Figures are as-filed; fiscal years differ by company.</p>`)}
+    ${infoNote('What is this?', `<p>Aggregate capital expenditure (CapEx) for the seven mega-caps driving the AI buildout — MSFT, GOOGL, AMZN, META, NVDA, AAPL, TSLA. CapEx is the cash they spend on property, plant &amp; equipment (data centers, GPUs, networking), pulled straight from the cash-flow statement in their SEC filings. We total the latest full fiscal year vs. the year before — so you can see how much aggregate AI infrastructure spend has grown (or shrunk), and by how much — plus each name's trailing-12-month run-rate and CapEx as a share of revenue. The <b>revenue check</b> compares that spend against the group's combined revenue on the same fiscal years: total revenue, revenue growth vs. CapEx growth, and CapEx as a share of revenue — is the buildout outrunning the money coming in? Figures are as-filed; fiscal years differ by company.</p>`)}
     <div id="ai-capex-root" class="ai-capex-root">Loading AI CapEx…</div>
     <div id="ai-capex-empty" class="ai-capex-empty" hidden>AI CapEx data will appear after the next daily build refresh.</div>
+  </section>`;
+}
+
+function ramPricesSection() {
+  // Card chrome only — content renders client-side from data/ram-prices.json,
+  // lazy-fetched on first tab activation by loadRamPrices() in app.js.
+  // Wholesale DRAM spot (TrendForce/DRAMeXchange) + US retail DDR5 kit prices
+  // (WhereIsMyRam), with % increases over 1d/7d/30d/1y.
+  return `<section class="card" id="ram-prices-section">
+    <header class="card-header">
+      <h2 class="card-title">RAM prices</h2>
+      <span class="card-eyebrow" id="ram-prices-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>Memory (DRAM) pricing from two independent angles. <b>Wholesale spot</b> is the price at which DRAM chips and modules change hands between vendors, module makers and brokers &mdash; the upstream signal that moves first when AI data-center demand soaks up supply. <b>US retail</b> tracks what a desktop DDR5 kit actually costs across major US retailers, by kit category. Rising RAM prices are a direct read on the AI hardware buildout (see the AI CapEx tab) &mdash; and a margin headwind for anyone buying memory. Spot data: TrendForce / DRAMeXchange; retail data: WhereIsMyRam. The 7d/30d spot changes accumulate from our own daily snapshots, so they deepen over time.</p>`)}
+    <div id="ram-prices-root" class="ram-prices-root">Loading RAM prices&hellip;</div>
+    <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next daily build refresh.</div>
+    <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
   </section>`;
 }
 
@@ -1144,6 +1161,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="fear-greed" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="bonds-usd" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="ai-capex" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex">AI CapEx</button>
+    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="ram-prices" aria-controls="page-pane-ram-prices" id="page-tab-ram-prices">RAM prices</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="capital-raises" aria-controls="page-pane-capital-raises" id="page-tab-capital-raises">Capital raises</button>
     <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="f13" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   </div>
@@ -1626,6 +1644,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-ai-capex" role="tabpanel" aria-labelledby="page-tab-ai-capex" hidden>
   ${aiCapexSection()}
+  </div>
+  <div class="page-pane" id="page-pane-ram-prices" role="tabpanel" aria-labelledby="page-tab-ram-prices" hidden>
+  ${ramPricesSection()}
   </div>
   <div class="page-pane" id="page-pane-capital-raises" role="tabpanel" aria-labelledby="page-tab-capital-raises" hidden>
   ${capitalRaisesSection()}
