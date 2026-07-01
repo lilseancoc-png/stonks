@@ -5633,6 +5633,16 @@ const AI_CAPEX_CONCEPTS = [
   "PaymentsToAcquirePropertyPlantAndEquipment",
   "PaymentsToAcquireProductiveAssets",
 ];
+// Total-revenue concepts, probed the same most-recent-FY-wins way as capex so
+// the CapEx spend can be compared against the group's combined revenue (total
+// $ and YoY growth) on the SAME fiscal-year windows. "Revenues" is the
+// catch-all total; the ASC 606 contract-revenue tags are what most of the
+// seven actually file (for these names they equal total revenue).
+const AI_CAPEX_REVENUE_CONCEPTS = [
+  "Revenues",
+  "RevenueFromContractWithCustomerExcludingAssessedTax",
+  "RevenueFromContractWithCustomerIncludingAssessedTax",
+];
 
 // SEC companyconcept REST API — every reported value for ONE us-gaap concept.
 // Returns the units.USD array (or [] on any failure — graceful).
@@ -5749,11 +5759,37 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       if (end > reducedEnd) { reduced = r; reducedEnd = end; }
     }
     if (!reduced.annual.length) { missing.push(ticker); continue; }
+    // Same most-recent-FY-wins probe for total revenue — puts the revenue
+    // comparison on the exact same fiscal calendar as the capex numbers.
+    let revReduced = null;
+    let revEnd = -Infinity;
+    for (const concept of AI_CAPEX_REVENUE_CONCEPTS) {
+      await new Promise((res) => setTimeout(res, 120)); // SEC politeness
+      const facts = await fetchCompanyConceptUsd(cik, concept);
+      const r = reduceCapexFacts(facts); // generic duration-concept reducer — works for revenue too
+      if (!r.annual.length) continue;
+      const end = r.annual[r.annual.length - 1].end;
+      if (end > revEnd) { revReduced = r; revEnd = end; }
+    }
+    let rev = null;
+    if (revReduced) {
+      const ra = revReduced.annual;
+      const rLatest = ra[ra.length - 1];
+      const rPrior = ra.length >= 2 ? ra[ra.length - 2] : null;
+      rev = {
+        fyLatest: { label: capexFyLabel(rLatest.endIso), end: rLatest.endIso, val: rLatest.val },
+        fyPrior: rPrior ? { label: capexFyLabel(rPrior.endIso), end: rPrior.endIso, val: rPrior.val } : null,
+        yoyPct: rPrior && rPrior.val > 0 ? r1((rLatest.val / rPrior.val - 1) * 100) : null,
+        ttm: revReduced.ttm,
+      };
+    }
     const a = reduced.annual;
     const fyLatest = a[a.length - 1];
     const fyPrior = a.length >= 2 ? a[a.length - 2] : null;
     const f = chains?.[ticker]?.fundamentals || {};
-    const revenue = pnum(f.revenue);
+    // SEC TTM revenue when available (same source + fiscal calendar as capex);
+    // Yahoo's totalRevenue is the fallback for the intensity ratio.
+    const revenue = pnum(rev?.ttm?.val) ?? pnum(f.revenue);
     const yoyPct = fyPrior && fyPrior.val > 0 ? r1((fyLatest.val / fyPrior.val - 1) * 100) : null;
     companies.push({
       ticker,
@@ -5762,6 +5798,7 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       fyPrior: fyPrior ? { label: capexFyLabel(fyPrior.endIso), end: fyPrior.endIso, val: fyPrior.val } : null,
       yoyPct,
       ttm: reduced.ttm,
+      rev,
       revenue: revenue ?? null,
       capexToRevenuePct: revenue > 0 && reduced.ttm ? r1((reduced.ttm.val / revenue) * 100) : null,
       history: a.slice(-5).map((x) => ({ label: capexFyLabel(x.endIso), end: x.endIso, val: x.val })),
@@ -5785,12 +5822,44 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     if (!priorLabel && c.fyPrior) priorLabel = c.fyPrior.label;
   }
   const haveBothFy = companies.filter((c) => c.fyPrior).length;
+  // Combined-revenue aggregate for the capex-vs-revenue read. Sums are
+  // restricted to names that reported BOTH capex and revenue for the window,
+  // and the intensity ratios divide capex by revenue over that same subset —
+  // apples-to-apples even if one name's revenue fetch missed.
+  let revFySum = 0, revFyPriorSum = 0, revTtmSum = 0;
+  let capexFySumRev = 0, capexFyPriorSumRev = 0, capexTtmSumRev = 0;
+  let revCount = 0, revBothFy = 0, revTtmCount = 0;
+  for (const c of companies) {
+    if (!c.rev || !c.rev.fyLatest) continue;
+    revCount++;
+    revFySum += c.rev.fyLatest.val;
+    capexFySumRev += c.fyLatest.val;
+    if (c.rev.fyPrior && c.fyPrior) {
+      revBothFy++;
+      revFyPriorSum += c.rev.fyPrior.val;
+      capexFyPriorSumRev += c.fyPrior.val;
+    }
+    if (c.rev.ttm && c.ttm) { revTtmCount++; revTtmSum += c.rev.ttm.val; capexTtmSumRev += c.ttm.val; }
+  }
+  const revenueTotals = revCount ? {
+    fySum: revFySum,
+    fyPriorSum: revBothFy ? revFyPriorSum : null,
+    yoyPct: revBothFy && revFyPriorSum > 0 ? r1((revFySum / revFyPriorSum - 1) * 100) : null,
+    // capex-YoY over the SAME subset, so the growth-vs-growth chip compares like for like
+    capexYoyPct: revBothFy && capexFyPriorSumRev > 0 ? r1((capexFySumRev / capexFyPriorSumRev - 1) * 100) : null,
+    ttmSum: revTtmCount ? revTtmSum : null,
+    capexToRevenueFyPct: revFySum > 0 ? r1((capexFySumRev / revFySum) * 100) : null,
+    capexToRevenueFyPriorPct: revBothFy && revFyPriorSum > 0 ? r1((capexFyPriorSumRev / revFyPriorSum) * 100) : null,
+    capexToRevenueTtmPct: revTtmCount && revTtmSum > 0 ? r1((capexTtmSumRev / revTtmSum) * 100) : null,
+    count: revCount,
+  } : null;
   const totals = {
     fyLatestSum, fyPriorSum: haveBothFy ? fyPriorSum : null,
     fyLatestLabel: latestLabel, fyPriorLabel: priorLabel,
     yoyPct: haveBothFy && fyPriorSum > 0 ? r1((fyLatestSum / fyPriorSum - 1) * 100) : null,
     deltaAbs: haveBothFy ? fyLatestSum - fyPriorSum : null,
     ttmSum: ttmCount ? ttmSum : null, ttmCount, count: companies.length,
+    revenue: revenueTotals,
   };
   // Rank companies by latest-FY spend (biggest spenders first) for the table.
   companies.sort((a, b) => b.fyLatest.val - a.fyLatest.val);
@@ -5806,6 +5875,274 @@ async function writeAiCapexFile(cikMap, chains, builtAtIso, prior = null) {
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "ai-capex.json"), json, "utf8");
   return { bytes: json.length, count: payload.companies.length, stale: !!payload.stale, missing: payload.missing || [] };
+}
+
+// === RAM price tracker (data/ram-prices.json) =======================
+// DRAM/RAM pricing from two independent angles, refreshed every bake:
+//  · WHOLESALE SPOT — the TrendForce DRAM spot table (DDR3/4/5 chips + modules,
+//    session average + daily % change), with the DRAMeXchange homepage (same
+//    publisher, older markup) as the fallback parse. Spot sources only publish
+//    the CURRENT session, so we accumulate our own daily history across builds
+//    (read-before-wipe, like the other data/ histories) to compute 7d/30d %
+//    increases over time.
+//  · US RETAIL — WhereIsMyRam's DDR5 kit tracker. Its Angular SSR page embeds
+//    an ng-state JSON blob with ~15 months of biweekly min/avg price history
+//    per kit category (plus an all-kits market aggregate), so retail history
+//    is deep from day one. Category labels live in the visible cards; the
+//    opaque series keys are joined to labels via (stock count, min price).
+// Both sides degrade to the prior payload (marked stale) on a fetch/parse miss.
+const RAM_FETCH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+const RAM_SPOT_MAX_ITEMS = 14;
+const RAM_SPOT_HISTORY_MAX = 400; // ~19 months of daily points per item
+
+async function fetchRamSourceHtml(url) {
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": RAM_FETCH_UA, accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch { return null; }
+}
+
+// TrendForce dram_spot page: plain-HTML table. Each row = tooltip'd item name,
+// five lcd-num-l cells (daily hi/lo, session hi/lo, session avg), then a
+// rise-/fall-/flat-trend percent cell (value already carries its sign).
+export function parseTrendforceDramSpot(html) {
+  if (!html) return null;
+  const updatedAt = (html.match(/Last Update\s+([\d-]+\s+[\d:]+)\s*\(GMT\+8\)/) || [])[1] || null;
+  const items = [];
+  const seen = new Set();
+  for (const rm of html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
+    const row = rm[1];
+    const name = ((row.match(/data-toggle="tooltip"[^>]*>([^<]+)<\/span>/) || [])[1] || "").trim();
+    if (!name || !/^DDR\d/.test(name) || seen.has(name)) continue;
+    const nums = [...row.matchAll(/class="lcd-num-l">\s*([\d.,]+)\s*<\/td>/g)].map((m) => Number(m[1].replace(/,/g, "")));
+    if (nums.length < 5 || !nums.slice(0, 5).every(Number.isFinite)) continue;
+    const pm = row.match(/(?:rise|fall|flat)-trend[\s\S]*?(-?[\d.]+)\s*%/);
+    seen.add(name);
+    items.push({ name, dailyHigh: nums[0], dailyLow: nums[1], sessionAvg: nums[4], changePct: pm ? pnum(pm[1]) : null });
+    if (items.length >= RAM_SPOT_MAX_ITEMS) break;
+  }
+  if (!items.length) return null;
+  return { sourceName: "TrendForce DRAM spot", sourceUrl: "https://www.trendforce.com/price/dram/dram_spot", updatedAt, items };
+}
+
+// DRAMeXchange homepage (fallback — same publisher's numbers, table-soup
+// markup): item name inside the /Price/Dram_Spot anchor, five tab_tr_gray
+// cells, then an up/down/stable gif next to the percent.
+export function parseDramexchangeSpot(html) {
+  if (!html) return null;
+  // DX stamps "Jul.1 2026 18:10 (GMT+8)" rather than TF's ISO-ish format.
+  const updatedAt = (html.match(/Last Update\s+([\d-]+\s+[\d:]+)\s*\(GMT\+8\)/) || html.match(/([A-Z][a-z]{2}\.?\s?\d{1,2},?\s?\d{4}\s+\d{1,2}:\d{2})\s*\(GMT\+8\)/) || [])[1] || null;
+  const items = [];
+  const seen = new Set();
+  for (const rm of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const row = rm[1];
+    const name = ((row.match(/href="\/Price\/Dram_Spot"[^>]*>\s*(?:<img[^>]*>)?\s*([^<]+?)\s*<\/a>/) || [])[1] || "").trim();
+    if (!name || !/^DDR\d/.test(name) || seen.has(name)) continue;
+    const nums = [...row.matchAll(/class="tab_tr_gray">\s*([\d.,]+)\s*<\/td>/g)].map((m) => Number(m[1].replace(/,/g, "")));
+    if (nums.length < 5 || !nums.slice(0, 5).every(Number.isFinite)) continue;
+    const pm = row.match(/(?:up|down|stable)\.gif[\s\S]*?(-?[\d.]+)\s*%/);
+    seen.add(name);
+    items.push({ name, dailyHigh: nums[0], dailyLow: nums[1], sessionAvg: nums[4], changePct: pm ? pnum(pm[1]) : null });
+    if (items.length >= RAM_SPOT_MAX_ITEMS) break;
+  }
+  if (!items.length) return null;
+  return { sourceName: "DRAMeXchange DRAM spot", sourceUrl: "https://dramexchange.com/", updatedAt, items };
+}
+
+// WhereIsMyRam /us: pull every kit-category price series out of the ng-state
+// blob, join labels from the visible accordion cards by (stock count, min
+// price), and keep the history-less all-kits aggregate as the market summary.
+export function parseWhereIsMyRamRetail(html) {
+  if (!html) return null;
+  const sm = html.match(/<script id="ng-state" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!sm) return null;
+  let state;
+  try { state = JSON.parse(sm[1]); } catch { return null; }
+  if (!state || typeof state !== "object") return null;
+  const series = [];
+  let market = null;
+  for (const [key, v] of Object.entries(state)) {
+    if (key === "__nghData__" || !v || typeof v !== "object") continue;
+    const b = v.b;
+    if (!b || typeof b !== "object") continue;
+    const stocks = pnum(b.stocks);
+    const entry = {
+      minPrice: pnum(b.minPrice), avgPrice: pnum(b.averagePrice),
+      weekPct: pnum(b.percentWeek), monthPct: pnum(b.percentMonth), stocks,
+      history: Array.isArray(b.data)
+        ? b.data.map((p) => ({ d: String(p?.date || "").slice(0, 10), min: pnum(p?.price?.min), avg: pnum(p?.price?.average) }))
+            .filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.d) && p.avg != null)
+        : [],
+    };
+    if (entry.history.length < 2) {
+      // The all-kits aggregate ships summary stats but no series — the entry
+      // with by far the largest stock count is the whole market.
+      if (stocks != null && (!market || stocks > market.inStock)) {
+        market = { inStock: stocks, weekPct: entry.weekPct, monthPct: entry.monthPct };
+      }
+      continue;
+    }
+    series.push(entry);
+  }
+  if (!series.length) return null;
+  // Visible category cards: <h3> spec spans ("DDR5 – 2×16 Go – 6000 MHz – CL 30"),
+  // then "<N> in stock", then $min. Cards render twice (mobile+desktop) — dedup.
+  const cards = [];
+  const cardSeen = new Set();
+  for (const cm of html.matchAll(/accordion-header[\s\S]{0,3000}?<h3[^>]*>([\s\S]*?)<\/h3>[\s\S]{0,1500}?<span[^>]*>(\d+)<\/span><span[^>]*>\s*in stock\s*<\/span>[\s\S]{0,1500}?\$\s*([\d,]+(?:\.\d+)?)/g)) {
+    const spec = cm[1].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+      .replace(/\bGo\b/g, "GB").replace(/\s*[–-]\s*/g, " · ");
+    const stocks = Number(cm[2]);
+    const minPrice = Number(cm[3].replace(/,/g, ""));
+    const k = spec + "|" + stocks;
+    if (cardSeen.has(k)) continue;
+    cardSeen.add(k);
+    cards.push({ label: spec, stocks, minPrice });
+  }
+  const categories = series.map((s) => {
+    const card = cards.find((c) => c.stocks === s.stocks && s.minPrice != null && Math.abs(c.minPrice - s.minPrice) < 2);
+    return { label: card ? card.label : "DDR5 kit", minPrice: s.minPrice, avgPrice: s.avgPrice, stocks: s.stocks, weekPct: s.weekPct, monthPct: s.monthPct, history: s.history };
+  });
+  categories.sort((a, b) => (b.stocks || 0) - (a.stocks || 0));
+  return { sourceName: "WhereIsMyRam (US retail)", sourceUrl: "https://whereismyram.com/us", market, categories };
+}
+
+async function fetchRamSpot() {
+  const tf = parseTrendforceDramSpot(await fetchRamSourceHtml("https://www.trendforce.com/price/dram/dram_spot"));
+  if (tf) return tf;
+  return parseDramexchangeSpot(await fetchRamSourceHtml("https://dramexchange.com/"));
+}
+
+async function fetchRamRetail() {
+  return parseWhereIsMyRamRetail(await fetchRamSourceHtml("https://whereismyram.com/us"));
+}
+
+// % change from the last point of a {d,avg} series back to the closest point
+// at least `days` older (within a 2.5× staleness window so a thin series
+// doesn't report a "7d" change measured across months).
+function ramPctBack(hist, days) {
+  if (!Array.isArray(hist) || hist.length < 2) return null;
+  const last = hist[hist.length - 1];
+  const lastMs = Date.parse(last.d);
+  if (!Number.isFinite(lastMs) || !(last.avg > 0)) return null;
+  let base = null;
+  for (let i = hist.length - 2; i >= 0; i--) {
+    const ms = Date.parse(hist[i].d);
+    if (!Number.isFinite(ms) || !(hist[i].avg > 0)) continue;
+    const back = (lastMs - ms) / 86400000;
+    if (back >= days) { base = { back, avg: hist[i].avg }; break; }
+    base = { back, avg: hist[i].avg }; // closest-younger fallback candidate
+  }
+  if (!base || base.back < days * 0.6 || base.back > days * 2.5) return null;
+  return r1((last.avg / base.avg - 1) * 100);
+}
+
+// Composite US-retail index: median of per-category avg (and min) prices at
+// each date the source sampled, requiring ≥3 categories per bucket so a
+// lone series can't swing the line.
+function buildRamRetailComposite(categories) {
+  const buckets = new Map();
+  for (const c of categories) {
+    for (const p of c.history || []) {
+      if (!buckets.has(p.d)) buckets.set(p.d, { avgs: [], mins: [] });
+      const b = buckets.get(p.d);
+      if (p.avg != null) b.avgs.push(p.avg);
+      if (p.min != null) b.mins.push(p.min);
+    }
+  }
+  const median = (xs) => {
+    if (!xs.length) return null;
+    const s = [...xs].sort((a, b) => a - b);
+    const mid = s.length >> 1;
+    return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  };
+  const out = [];
+  for (const [d, b] of buckets) {
+    if (b.avgs.length < 3) continue;
+    out.push({ d, avg: Math.round(median(b.avgs)), min: b.mins.length >= 3 ? Math.round(median(b.mins)) : null });
+  }
+  out.sort((a, b) => (a.d < b.d ? -1 : 1));
+  return out;
+}
+
+export function buildRamPricesPayload({ spot, retail, prior = null, builtAtIso }) {
+  const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  // SPOT — upsert today's session average into the accumulated per-item
+  // daily history (carried across the data/ wipe via the pre-read prior).
+  const prevHist = (prior?.spot?.history && typeof prior.spot.history === "object") ? prior.spot.history : {};
+  let spotBlock = null;
+  if (spot?.items?.length) {
+    const history = {};
+    for (const it of spot.items) {
+      const prev = Array.isArray(prevHist[it.name]) ? prevHist[it.name].filter((p) => p && p.d && p.d !== etDate) : [];
+      if (Number.isFinite(it.sessionAvg)) prev.push({ d: etDate, avg: it.sessionAvg });
+      history[it.name] = prev.slice(-RAM_SPOT_HISTORY_MAX);
+    }
+    for (const [name, h] of Object.entries(prevHist)) {
+      if (!history[name] && Array.isArray(h)) history[name] = h.slice(-RAM_SPOT_HISTORY_MAX);
+    }
+    spotBlock = {
+      sourceName: spot.sourceName, sourceUrl: spot.sourceUrl, updatedAt: spot.updatedAt,
+      items: spot.items.map((it) => ({
+        ...it,
+        w1Pct: ramPctBack(history[it.name], 7),
+        m1Pct: ramPctBack(history[it.name], 30),
+      })),
+      history, stale: false,
+    };
+  } else if (prior?.spot) {
+    spotBlock = { ...prior.spot, stale: true };
+  }
+  // RETAIL — the source ships its own deep history, no accumulation needed.
+  let retailBlock = null;
+  if (retail?.categories?.length) {
+    const composite = buildRamRetailComposite(retail.categories);
+    retailBlock = {
+      sourceName: retail.sourceName, sourceUrl: retail.sourceUrl,
+      market: retail.market || null,
+      categories: retail.categories,
+      composite,
+      change: {
+        // prefer the site's own all-kits aggregate for the short windows;
+        // longer windows come from the composite series
+        w1Pct: retail.market?.weekPct ?? ramPctBack(composite, 7),
+        m1Pct: retail.market?.monthPct ?? ramPctBack(composite, 30),
+        q1Pct: ramPctBack(composite, 91),
+        y1Pct: ramPctBack(composite, 365),
+      },
+      stale: false,
+    };
+  } else if (prior?.retail) {
+    retailBlock = { ...prior.retail, stale: true };
+  }
+  if (!spotBlock && !retailBlock) {
+    return prior ? { ...prior, builtAtIso, stale: true } : { builtAtIso, spot: null, retail: null, stale: true };
+  }
+  return { builtAtIso, spot: spotBlock, retail: retailBlock, stale: !!((spotBlock?.stale ?? true) && (retailBlock?.stale ?? true)) };
+}
+
+async function readPriorRamPrices() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, "ram-prices.json"), "utf8")); } catch { return null; }
+}
+
+export async function writeRamPricesFile(builtAtIso, prior = null) {
+  const spot = await fetchRamSpot();
+  const retail = await fetchRamRetail();
+  const payload = buildRamPricesPayload({ spot, retail, prior, builtAtIso });
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "ram-prices.json"), json, "utf8");
+  return {
+    bytes: json.length,
+    spotItems: payload.spot?.items?.length || 0,
+    retailCats: payload.retail?.categories?.length || 0,
+    stale: !!payload.stale,
+    spotStale: !!payload.spot?.stale,
+    retailStale: !!payload.retail?.stale,
+  };
 }
 
 // === Capital raises tracker (data/capital-raises.json) ==============
@@ -18324,6 +18661,10 @@ async function main() {
   // landed. Read before the wipe like the other cross-build artifacts.
   const priorAiCapex = await readPriorAiCapex();
   const priorCapitalRaises = await readPriorCapitalRaises();
+  // Prior RAM-prices snapshot — the wholesale-spot side accumulates its own
+  // daily history across builds (the sources only publish the current
+  // session), so it must be pre-read before the wipe like the other histories.
+  const priorRamPrices = await readPriorRamPrices();
   // Load persisted last-good readings BEFORE writeChainFiles wipes data/.
   // Without these reads the caches would never serve a value across builds
   // — the file is gone by the time the post-wipe code tries to read it.
@@ -18549,6 +18890,14 @@ async function main() {
     console.log(`wrote data/capital-raises.json — ${capRaisesInfo.count} events, ${capRaisesInfo.bytes} bytes${capRaisesInfo.stale ? " [stale — kept last-good]" : ""}`);
   } catch (err) {
     console.log(`  ⚠ AI CapEx / capital-raises step failed (non-fatal): ${err.message}`);
+  }
+  // RAM price tracker (TrendForce/DRAMeXchange spot + WhereIsMyRam retail) —
+  // carries last-good forward on a fetch/parse miss (graceful).
+  try {
+    const ramInfo = await writeRamPricesFile(builtAtIso, priorRamPrices);
+    console.log(`wrote data/ram-prices.json — ${ramInfo.spotItems} spot items${ramInfo.spotStale ? " [stale]" : ""}, ${ramInfo.retailCats} retail categories${ramInfo.retailStale ? " [stale]" : ""}, ${ramInfo.bytes} bytes`);
+  } catch (err) {
+    console.log(`  ⚠ RAM-prices step failed (non-fatal): ${err.message}`);
   }
   await writeTrendFiles({
     narratives: trends.narratives,

@@ -3100,7 +3100,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Track Record is role-hidden: drop it from the resolvable set so a
     // ?tab=track deep-link / popstate / palette can't reach the pane for a
     // visitor without the role (resolveTab returns null -> falls back to home).
@@ -3115,6 +3115,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '13f': 'f13', '13f-filings': 'f13',
       bonds: 'bonds-usd', usd: 'bonds-usd',
       capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
+      ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
       'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
       pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
       comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
@@ -3357,6 +3358,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
         if (name === 'compare' && typeof initCompare === 'function') initCompare();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
+        if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
       }
       // On narrow viewports the .page-tabs strip is horizontally scrollable.
@@ -5310,6 +5312,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var trendDir = up ? 'up' : 'down';
 
     var fmt = opts.formatValue || function(v){ return v.toFixed(2); };
+    // Point labels default to fiscal-quarter names (the fundamentals charts);
+    // callers plotting calendar-time series (e.g. RAM prices) pass formatLabel.
+    var lblFor = opts.formatLabel || function(p){ return fmtQuarterLabel(p.date, p.period, fyeMonth); };
 
     var histPts = history.map(function(p, i){ return [xFor(i), yFor(p.value)]; });
     var linePath = smoothPath(histPts);
@@ -5341,7 +5346,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       forward.forEach(function(p, j){
         var xi = xFor(history.length + j);
         var yi = yFor(p.value);
-        var label = fmtQuarterLabel(p.date, p.period, fyeMonth);
+        var label = lblFor(p);
         var isLast = j === forward.length - 1;
         fwdDots += '<circle class="opt-fund-eh-fwdmark ' + trendDir + '" cx="' + xi.toFixed(2) + '" cy="' + yi.toFixed(2) + '" r="3.5"><title>' +
           escapeHtml(label) + ' estimate · ' + escapeHtml(fmt(p.value)) + '</title></circle>';
@@ -5386,11 +5391,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var xLabels = '';
     if (history.length){
       xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(0).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="start">' +
-        escapeHtml(fmtQuarterLabel(history[0].date, history[0].period, fyeMonth)) + '</text>';
+        escapeHtml(lblFor(history[0])) + '</text>';
       if (!forward.length){
         var lastI = history.length - 1;
         xLabels += '<text class="opt-fund-eh-axis" x="' + xFor(lastI).toFixed(2) + '" y="' + (H - 8) + '" text-anchor="end">' +
-          escapeHtml(fmtQuarterLabel(history[lastI].date, history[lastI].period, fyeMonth)) + '</text>';
+          escapeHtml(lblFor(history[lastI])) + '</text>';
       }
     }
 
@@ -5399,7 +5404,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     all.forEach(function(p, i){
       var x = xFor(i);
       var isFwd = i >= history.length;
-      var label = fmtQuarterLabel(p.date, p.period, fyeMonth);
+      var label = lblFor(p);
       var valStr = fmt(p.value);
       hovers += '<rect class="opt-fund-eh-hit" x="' + (x - colW / 2).toFixed(2) + '" y="' + padT + '" width="' + colW.toFixed(2) + '" height="' + plotH + '"' +
         ' data-x="' + x.toFixed(2) + '" data-y="' + yFor(p.value).toFixed(2) + '"' +
@@ -12812,6 +12817,37 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (projPct != null ? '<div class="cx-hero-sub ' + projDir + '">' + (projPct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(projPct).toFixed(1) + '% vs ' + fyLbl + '</div>' : '') +
           (t.ttmCount < t.count ? '<div class="cx-hero-note">' + t.ttmCount + ' of ' + t.count + ' names</div>' : '') + '</div>' : '') +
       '</div>';
+      // Revenue check — the same group's combined revenue on the same fiscal
+      // years: is the CapEx buildout outrunning the money coming in?
+      var rv = t.revenue || null;
+      if (rv && rv.fySum != null){
+        var share = rv.capexToRevenueFyPct;
+        var sharePrior = rv.capexToRevenueFyPriorPct;
+        var shareDelta = (share != null && sharePrior != null) ? share - sharePrior : null;
+        head += '<div class="cx-revcmp">' +
+          '<div class="cx-revcmp-col">' +
+            '<div class="cx-hero-label">Combined revenue · ' + fyLbl + '</div>' +
+            '<div class="cx-revcmp-val">' + cxDollars(rv.fySum) + '</div>' +
+            (rv.fyPriorSum != null ? '<div class="cx-hero-note">vs ' + cxDollars(rv.fyPriorSum) + ' the prior year</div>' : '') +
+          '</div>' +
+          '<div class="cx-revcmp-col">' +
+            '<div class="cx-hero-label">Growth — CapEx vs revenue</div>' +
+            '<div class="cx-revcmp-val">' + cxYoyChip(rv.capexYoyPct != null ? rv.capexYoyPct : t.yoyPct) + ' <span class="cx-revcmp-sep">CapEx</span> ' + cxYoyChip(rv.yoyPct) + ' <span class="cx-revcmp-sep">revenue</span></div>' +
+            ((rv.capexYoyPct != null && rv.yoyPct != null) ?
+              '<div class="cx-hero-note">' + (rv.capexYoyPct > rv.yoyPct ? 'CapEx is growing ' + (rv.capexYoyPct - rv.yoyPct).toFixed(1) + ' pts faster than revenue' : 'revenue is growing ' + (rv.yoyPct - rv.capexYoyPct).toFixed(1) + ' pts faster than CapEx') + '</div>' : '') +
+          '</div>' +
+          (share != null ?
+            '<div class="cx-revcmp-col">' +
+              '<div class="cx-hero-label">CapEx as a share of revenue</div>' +
+              '<div class="cx-revcmp-val">' + share.toFixed(1) + '%</div>' +
+              '<div class="cx-hero-note">' +
+                (sharePrior != null ? (shareDelta >= 0 ? 'up from ' : 'down from ') + sharePrior.toFixed(1) + '% the prior year' : '') +
+                (rv.capexToRevenueTtmPct != null ? (sharePrior != null ? ' · ' : '') + rv.capexToRevenueTtmPct.toFixed(1) + '% on run-rates' : '') +
+              '</div>' +
+            '</div>' : '') +
+          (rv.count < t.count ? '<div class="cx-hero-note cx-revcmp-note">revenue reported for ' + rv.count + ' of ' + t.count + ' names</div>' : '') +
+        '</div>';
+      }
     }
     // Per-company bars, sorted by latest-FY spend (already sorted server-side).
     var maxV = 0;
@@ -12830,11 +12866,121 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
           ' · run-rate ' + ttmTxt +
           (co.capexToRevenuePct != null ? ' · ' + co.capexToRevenuePct.toFixed(1) + '% of revenue' : '') +
+          (co.rev && co.rev.yoyPct != null ? ' · revenue ' + (co.rev.yoyPct >= 0 ? '+' : '') + co.rev.yoyPct.toFixed(1) + '% YoY' + (co.rev.fyLatest ? ' (' + cxDollars(co.rev.fyLatest.val) + ')' : '') : '') +
         '</div>' +
       '</div>';
     }
     var missing = (Array.isArray(d.missing) && d.missing.length) ? '<p class="cx-missing">No SEC CapEx data for: ' + escapeHtml(d.missing.join(', ')) + '.</p>' : '';
     root.innerHTML = head + '<div class="cx-rows">' + rows + '</div>' + missing;
+  }
+
+  // --- RAM prices (Macro tab) -----------------------------------------------
+  // data/ram-prices.json — wholesale DRAM spot (TrendForce/DRAMeXchange) +
+  // US retail DDR5 kit prices (WhereIsMyRam), with % increases per window.
+  var ramPricesState = { data: null, loading: false };
+  function rpChip(p, label){
+    if (p == null || !isFinite(p)) return '';
+    var cls = p >= 0 ? 'cx-up' : 'cx-down';
+    return '<span class="rp-chip cx-yoy ' + cls + '">' + (p >= 0 ? '▲ +' : '▼ ') + (Math.abs(p) >= 100 ? p.toFixed(0) : p.toFixed(1)) + '%' + (label ? ' <span class="rp-chip-label">' + label + '</span>' : '') + '</span>';
+  }
+  function rpPrice(v){
+    if (v == null || !isFinite(v)) return '—';
+    return '$' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2).replace(/\.00$/, ''));
+  }
+  function rpDateLabel(p){
+    var ms = Date.parse(p.date); if (!isFinite(ms)) return '';
+    var d = new Date(ms);
+    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + " '" + String(d.getUTCFullYear()).slice(2);
+  }
+  function loadRamPrices(){
+    if (ramPricesState.data || ramPricesState.loading){ renderRamPrices(); return; }
+    ramPricesState.loading = true;
+    fetch('data/ram-prices.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ ramPricesState.data = (j && typeof j === 'object') ? j : {}; ramPricesState.loading = false; renderRamPrices(); })
+      .catch(function(){ ramPricesState.data = { loadError: true }; ramPricesState.loading = false; renderRamPrices(); });
+  }
+  function renderRamPrices(){
+    var root = $('ram-prices-root'); var empty = $('ram-prices-empty'); var eye = $('ram-prices-eyebrow');
+    if (!root) return;
+    var d = ramPricesState.data;
+    if (!d){ root.textContent = 'Loading RAM prices…'; return; }
+    var spot = d.spot && Array.isArray(d.spot.items) && d.spot.items.length ? d.spot : null;
+    var retail = d.retail && Array.isArray(d.retail.categories) && d.retail.categories.length ? d.retail : null;
+    if (!spot && !retail){
+      root.innerHTML = '';
+      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load RAM price data.' : 'RAM price data will appear after the next daily build refresh.'; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + 'as of ' + String(d.builtAtIso).slice(0,10);
+    var html = '';
+    // HERO — the retail composite (median US DDR5 kit) is the headline read.
+    if (retail){
+      var comp = Array.isArray(retail.composite) ? retail.composite : [];
+      var last = comp.length ? comp[comp.length - 1] : null;
+      var ch = retail.change || {};
+      html += '<div class="cx-hero rp-hero">' +
+        '<div class="cx-hero-main">' +
+          '<div class="cx-hero-label">US retail DDR5 kit — median category average</div>' +
+          '<div class="cx-hero-val">' + (last ? rpPrice(last.avg) : (retail.categories[0] ? rpPrice(retail.categories[0].avgPrice) : '—')) + '</div>' +
+          '<div class="rp-hero-chips">' + rpChip(ch.w1Pct, '7d') + rpChip(ch.m1Pct, '30d') + rpChip(ch.q1Pct, '3mo') + rpChip(ch.y1Pct, '1y') + '</div>' +
+        '</div>' +
+        (retail.market && retail.market.inStock != null ?
+          '<div class="cx-hero-ttm"><div class="cx-hero-label">Kits in stock (US)</div><div class="cx-hero-ttm-val">' + Number(retail.market.inStock).toLocaleString() + '</div>' +
+          (retail.stale ? '<div class="cx-hero-note">last-good snapshot</div>' : '') + '</div>' : '') +
+      '</div>';
+      html += '<div id="ram-retail-chart" class="rp-chart" hidden></div>';
+    }
+    // SPOT table — wholesale chips/modules.
+    if (spot){
+      var rows = '';
+      for (var i=0; i<spot.items.length; i++){
+        var it = spot.items[i];
+        rows += '<div class="rp-row">' +
+          '<span class="rp-row-name">' + escapeHtml(it.name || '') + '</span>' +
+          '<span class="rp-row-price">' + rpPrice(it.sessionAvg) + '</span>' +
+          '<span class="rp-row-chips">' + rpChip(it.changePct, '1d') + rpChip(it.w1Pct, '7d') + rpChip(it.m1Pct, '30d') + '</span>' +
+        '</div>';
+      }
+      html += '<div class="rp-block">' +
+        '<div class="rp-block-head">Wholesale spot — DRAM chips &amp; modules' +
+          '<span class="rp-block-src">' + escapeHtml(spot.sourceName || '') + (spot.updatedAt ? ' · ' + escapeHtml(spot.updatedAt) + ' GMT+8' : '') + (spot.stale ? ' · last-good' : '') + '</span>' +
+        '</div>' + rows + '</div>';
+    }
+    // RETAIL categories.
+    if (retail){
+      var crows = '';
+      for (var c=0; c<retail.categories.length; c++){
+        var cat = retail.categories[c];
+        crows += '<div class="rp-row">' +
+          '<span class="rp-row-name">' + escapeHtml(cat.label || 'DDR5 kit') + (cat.stocks != null ? ' <span class="rp-row-sub">' + cat.stocks + ' in stock</span>' : '') + '</span>' +
+          '<span class="rp-row-price">' + rpPrice(cat.minPrice) + '<span class="rp-row-sub"> · avg ' + rpPrice(cat.avgPrice) + '</span></span>' +
+          '<span class="rp-row-chips">' + rpChip(cat.weekPct, '7d') + rpChip(cat.monthPct, '30d') + '</span>' +
+        '</div>';
+      }
+      html += '<div class="rp-block">' +
+        '<div class="rp-block-head">US retail — DDR5 kits by category' +
+          '<span class="rp-block-src">' + escapeHtml(retail.sourceName || '') + (retail.stale ? ' · last-good' : '') + '</span>' +
+        '</div>' + crows + '</div>';
+    }
+    root.innerHTML = html;
+    // Retail composite trend chart (15 months of biweekly medians).
+    if (retail){
+      var pts = (Array.isArray(retail.composite) ? retail.composite : [])
+        .filter(function(p){ return p && p.d && p.avg != null && isFinite(p.avg); })
+        .map(function(p){ return { date: p.d, value: p.avg }; });
+      if (pts.length >= 2){
+        renderHistoryChart({
+          boxId: 'ram-retail-chart',
+          title: 'US retail DDR5 kit price',
+          points: pts,
+          formatValue: function(v){ return '$' + Math.round(v).toLocaleString(); },
+          formatLabel: rpDateLabel,
+        });
+      }
+    }
   }
 
   // --- Capital raises (Macro tab) -----------------------------------------

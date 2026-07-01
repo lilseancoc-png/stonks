@@ -2789,6 +2789,38 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cx-yoy.cx-down { background: color-mix(in srgb, var(--neg) 14%, transparent); }
 .cx-row-meta { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted); margin-top: 3px; }
 .cx-missing { font: 400 12px/1.4 var(--font-sans); color: var(--muted); margin-top: 12px; }
+/* Revenue check strip (CapEx vs combined revenue, same fiscal years) */
+.cx-revcmp {
+  display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-start;
+  padding: 12px 16px; margin-bottom: 14px;
+  border: 1px solid var(--border); border-radius: var(--r-2);
+  background: var(--surface);
+}
+.cx-revcmp-val { font: 700 18px/1.25 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.cx-revcmp-sep { font: 600 11px/1 var(--font-sans); color: var(--muted); }
+.cx-revcmp-note { flex-basis: 100%; margin-top: 0; }
+
+/* --- RAM prices (Macro) ------------------------------------------------ */
+.rp-hero-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.rp-chip { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }
+.rp-chip-label { font: 600 10px/1 var(--font-sans); color: var(--muted); }
+.rp-chart { margin: 0 0 16px; }
+.rp-block { margin-bottom: 18px; }
+.rp-block-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  font: 700 13px/1.3 var(--font-sans); color: var(--text-strong);
+  padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.rp-block-src { font: 400 11px/1.3 var(--font-sans); color: var(--muted); margin-left: auto; }
+.rp-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px;
+  padding: 7px 2px; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+}
+.rp-row:last-child { border-bottom: none; }
+.rp-row-name { font: 600 12.5px/1.3 var(--font-sans); color: var(--text-strong); flex: 1 1 220px; min-width: 0; }
+.rp-row-sub { font: 400 11px/1.3 var(--font-sans); color: var(--muted); }
+.rp-row-price { font: 700 13px/1 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.rp-row-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; margin-left: auto; }
 
 /* --- Capital raises (Macro) ------------------------------------------- */
 .cr-rows { display: flex; flex-direction: column; gap: 10px; }
