@@ -317,7 +317,7 @@ function indexCalSection() {
 }
 
 function briefSection() {
-  // Card chrome only — the morning + closing brief cards render client-side
+  // Card chrome only — the rolling hourly brief card renders client-side
   // from data/briefs.json (fetched lazily on first tab activation by
   // loadBrief() in app.js).
   return `<section class="card" id="brief-section">
@@ -325,7 +325,7 @@ function briefSection() {
       <h2 class="card-title">Market brief</h2>
       <span class="card-eyebrow" id="brief-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="Two digests per trading day, written by Google Gemini (default gemini-2.5-flash-lite; override AI_BRIEF_MODEL). The morning brief is minted around the open from overnight &amp; foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the top picks; the closing brief is minted after the 4pm ET close from the day's breadth, biggest movers, unusual flow and what's next. Headlines are AI prose grounded in the numbers shown; the chips and stats are computed, not generated.">i</span>-written pre-market and post-close digest &mdash; the overnight setup, the day&rsquo;s biggest movers, notable options flow, and what&rsquo;s on deck. Ticker chips are clickable. Not financial advice.</p>
+    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day, re-minted hourly by the build (default gemini-2.5-flash-lite; override AI_BRIEF_MODEL). The open build writes the morning setup from overnight &amp; foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the top picks; mid-session builds refresh it with the session's breadth, movers and flow; the post-close build writes the closing read. Headlines are AI prose grounded in the numbers shown; the chips and stats are computed, not generated.">i</span>-written market digest, refreshed hourly with each build &mdash; the overnight setup at the open, where the tape stands mid-session, and the closing read after 4&nbsp;pm ET. Ticker chips are clickable. Not financial advice.</p>
     <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
   </section>`;
 }
@@ -1197,9 +1197,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-eyebrow">Market brief</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat" id="land-stat-brief">AM · PM</div>
-          <div class="landing-card-sub" id="land-sub-brief">daily digest</div>
-          <p class="landing-card-desc">A pre-market and post-close read on what's interesting — overnight moves, the day's movers, notable flow, what's next.</p>
+          <div class="landing-card-stat" id="land-stat-brief">Hourly</div>
+          <div class="landing-card-sub" id="land-sub-brief">market digest</div>
+          <p class="landing-card-desc">An hourly read on what's interesting — the overnight setup, the session's movers, notable flow, what's next.</p>
         </button>
         <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
           <header class="landing-card-head">

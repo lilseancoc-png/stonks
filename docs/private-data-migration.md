@@ -166,10 +166,10 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete) |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
-| **briefs.json** | bake (`buildMarketBriefs`) **+** oi (`regen-brief`) | upsert; once-per-ET-window gating already in code |
-| **ai-usage.json** | all three (per-day budget) | read-modify-write; serialized so increments don't race |
+| **briefs.json** | bake (`buildMarketBriefs`, re-minted hourly) | upsert; once-per-ET-hour gating already in code |
+| **ai-usage.json** | bake + unusual-flow (per-day budget) | read-modify-write; serialized so increments don't race |
 
-The three **shared read-modify-write** files (`heatmap`, `briefs`, `ai-usage`) are
+The **shared read-modify-write** files (`heatmap`, `ai-usage`) are
 safe because: every run `pull`s latest first, the in-code once-per-window gating
 already prevents double-generation, and the shared `concurrency` group serializes
 the push. No producer deletes another's keys (upsert-only outside the bake's two
@@ -267,7 +267,7 @@ rewrite). After step 6 the store is the source of truth.
 
 ## 6. Local dev & sibling scripts
 
-`regen-static.mjs`, `regen-picks.mjs`, `regen-calendar.mjs`, `regen-brief.mjs`,
+`regen-static.mjs`, `regen-picks.mjs`, `regen-calendar.mjs`,
 `backfill-autopick.mjs`, `diagnose-*.mjs`, `scan-*.mjs` all read local `DATA_DIR`.
 Add `npm run data:pull` (= `sync-data.mjs pull`) and document "run it once before
 local regen/diagnose." `npx vercel dev` exercises the real gated API locally.

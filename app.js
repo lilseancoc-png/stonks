@@ -13023,8 +13023,10 @@
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
   // Shared with the Grade tab's per-ticker "overnight peer read" widget.
-  // ── Market brief (morning + closing digest) ────────────────────────────
-  // Renders data/briefs.json. The headline/summary/highlights are AI prose;
+  // ── Market brief (rolling hourly digest) ───────────────────────────────
+  // Renders data/briefs.json ({ current } — re-minted hourly by the bake:
+  // morning read at the open, intraday reads through the session, closing
+  // read on the 16:00 build). The headline/summary/highlights are AI prose;
   // the stat strip + ticker chips are deterministic facts baked alongside.
   var briefState = { data: null, loading: false, error: false };
   // Lazy tab data goes stale while the page sits open (the calendar/brief/
@@ -13163,7 +13165,7 @@
     if (!b) return '';
     var when = '';
     if (b.generatedAtIso){ var dt = new Date(b.generatedAtIso); if (!isNaN(dt.getTime())) when = dt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
-    var kindLabel = (b.kind === 'morning') ? 'Pre-market' : 'Post-close';
+    var kindLabel = (b.kind === 'morning') ? 'Morning' : (b.kind === 'intraday') ? 'Intraday' : 'Post-close';
     var head = '<header class="brief-card-head">' +
       '<div class="brief-card-titles">' +
         '<span class="brief-kind brief-kind-' + briefEsc(b.kind || '') + '">' + briefEsc(kindLabel) + '</span>' +
@@ -13350,16 +13352,22 @@
     if (briefState.loading && !briefState.data){ root.innerHTML = '<p class="brief-empty">Loading brief…</p>'; return; }
     if (briefState.error && !briefState.data){ root.innerHTML = '<p class="brief-empty">Brief unavailable right now — try again shortly.</p>'; return; }
     var data = briefState.data || {};
+    // One rolling card, refreshed hourly by the bake. Fall back to the legacy
+    // { morning, afternoon } shape (latest wins) so a pre-cutover briefs.json
+    // still renders across the deploy.
     var cards = [];
-    if (data.morning) cards.push(data.morning);
-    if (data.afternoon) cards.push(data.afternoon);
+    if (data.current){ cards.push(data.current); }
+    else {
+      if (data.morning) cards.push(data.morning);
+      if (data.afternoon) cards.push(data.afternoon);
+      cards.sort(function(a, b){ return String(b.generatedAtIso || '').localeCompare(String(a.generatedAtIso || '')); });
+      cards = cards.slice(0, 1);
+    }
     if (!cards.length){
-      root.innerHTML = '<p class="brief-empty">No brief yet today — the morning brief posts pre-market (~8:30&nbsp;am&nbsp;ET) and the closing brief after 4&nbsp;pm&nbsp;ET.</p>';
+      root.innerHTML = '<p class="brief-empty">No brief yet today — the brief updates hourly with each build during market hours (first read posts around the 9:30&nbsp;am&nbsp;ET open).</p>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }
-    // Latest first (closing brief on top once it exists).
-    cards.sort(function(a, b){ return String(b.generatedAtIso || '').localeCompare(String(a.generatedAtIso || '')); });
     root.innerHTML = cards.map(renderBriefCard).join('');
     bindBriefChips(root);
     if (eyebrow){
@@ -14959,14 +14967,14 @@
   // --- Index calendar tab -------------------------------------------------
   // A monthly wall-calendar of daily index closes: each cell is tinted green/red
   // by the selected instrument's close-to-close %change for that session. An
-  // index toggle (SPY/QQQ/IWM/DIA/VXUS/TLT/GLD/VIX) switches which one colors the
+  // index toggle (SPY/QQQ/IWM/SMH/DIA/VXUS/TLT/GLD/VIX) switches which one colors the
   // grid; a per-month summary tallies green vs red days and the month's
   // compounded return. Renders the premium, bake-accumulated
   // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm, ... }] }),
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
   var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', fetchedAt: 0, bound: false };
-  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', dia: 'DIA', vxus: 'VXUS', tlt: 'TLT', gld: 'GLD', vix: 'VIX' };
-  var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'dia', 'vxus', 'tlt', 'gld', 'vix'];
+  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', smh: 'SMH', dia: 'DIA', vxus: 'VXUS', tlt: 'TLT', gld: 'GLD', vix: 'VIX' };
+  var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'smh', 'dia', 'vxus', 'tlt', 'gld', 'vix'];
   // VIX is a fear gauge — a spike is a risk-OFF day, so invert its red/green so
   // green reads "calm" (VIX down) and red "stress" (VIX up). The displayed %
   // stays the true move; only the colour + the green/red tally flip.

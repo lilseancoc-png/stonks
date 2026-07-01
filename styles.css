@@ -14991,6 +14991,7 @@ html::-webkit-scrollbar-thumb:hover {
   border-left-color: var(--border-strong);
 }
 .brief-card[data-kind="morning"] { border-left-color: var(--accent); }
+.brief-card[data-kind="intraday"] { border-left-color: var(--info); }
 .brief-card[data-kind="afternoon"] { border-left-color: var(--pos); }
 .brief-card-head { display: flex; flex-direction: column; gap: 6px; }
 .brief-card-titles { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
@@ -15004,6 +15005,7 @@ html::-webkit-scrollbar-thumb:hover {
   color: var(--muted-strong);
 }
 .brief-kind-morning { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.brief-kind-intraday { color: var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); }
 .brief-kind-afternoon { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .brief-date { font: 600 0.72rem/1 var(--font-mono); color: var(--muted-strong); }
 .brief-stamp { font: 600 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }

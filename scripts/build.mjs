@@ -7280,9 +7280,8 @@ function releaseSurpriseRead(subtype, surprise, vsConsensus) {
 // dated within the trailing lookback window that already carry an actual —
 // each classified against consensus (falling back to the prior reading when
 // no consensus is available). Pure + deterministic; consumed by the market
-// briefs (signal block + render chips + the morning re-mint trigger), the
-// narrative extractor's source pool, and scripts/regen-brief.mjs. Exported
-// for offline testing.
+// brief (signal block + render chips) and the narrative extractor's source
+// pool. Exported for offline testing.
 export function buildMacroReleaseReads(reportEvents, todayIso, lookbackDays = MACRO_RELEASE_LOOKBACK_DAYS) {
   const today = String(todayIso || "").slice(0, 10);
   const todayMs = Date.parse(today + "T00:00:00Z");
@@ -9095,13 +9094,13 @@ const REGIME_HISTORY_MAX_DAYS = 180;
 // each bake. ~800 rows ≈ 3 trading years of retained history.
 const INDEX_CALENDAR_FILE = "index-calendar.json";
 const INDEX_CALENDAR_MAX_DAYS = 800;
-// SPY/QQQ/IWM/GLD/TLT come from the bake's own chains (they're in TICKERS).
+// SPY/QQQ/IWM/SMH/GLD/TLT come from the bake's own chains (they're in TICKERS).
 // VXUS (total international), ^VIX (volatility) and DIA (Dow) are NOT curated
 // chain tickers, so their daily bars are fetched separately and passed to
 // appendIndexCalendar as extraBars. ^VIX is an index, not optionable, so it
 // can't join TICKERS; DIA is optionable but we keep it calendar-only (out of
 // the picks/grade universe), so it rides the extra-symbol fetch.
-const INDEX_CALENDAR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm", DIA: "dia", VXUS: "vxus", TLT: "tlt", GLD: "gld", "^VIX": "vix" };
+const INDEX_CALENDAR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm", SMH: "smh", DIA: "dia", VXUS: "vxus", TLT: "tlt", GLD: "gld", "^VIX": "vix" };
 // Symbols sourced outside the chain sweep (fetched via fetchGlobalMarketBars).
 const INDEX_CALENDAR_EXTRA_SYMBOLS = ["VXUS", "^VIX", "DIA"];
 const PICKS_CHANGES_FILE = "picks-changes.json";
@@ -13512,9 +13511,9 @@ async function fetchUs2yTreasury() {
   };
 }
 
-// Exported for scripts/regen-brief.mjs — the pre-market brief re-sweeps the
-// foreign set fresh (the committed correlations.json is from the prior bake
-// and misses the just-closed Asian session).
+// Exported for offline testing (also the entry point sibling tools use to
+// re-sweep the foreign set fresh when the committed correlations.json is
+// stale).
 export async function fetchAllGlobalMarkets() {
   const out = {};
   // US2Y (Treasury par-yield) and JGB10Y (MOF CSV) are sourced below, not Yahoo
@@ -14251,24 +14250,28 @@ function classifyAiError(err, attempt) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Market briefs — a morning (pre-market) and an afternoon (post-close) digest
-// that summarize / point out the interesting things happening in the tape.
-// Modeled on the heatmap EOD recap (one Flash-Lite call, JSON schema, generated
-// at most once per ET window and carried forward), but holistic: each brief
-// fuses overnight & foreign moves, the day's breadth + biggest movers, unusual
-// options flow, macro levels (10Y / dollar / VIX), CNN Fear & Greed, the
-// calendar, and the model's top picks into a headline + summary + a few
-// highlight bullets. Written to data/briefs.json, rendered on the Brief tab.
-// Self-skips without GEMINI_API_KEY; a keyless build still carries forward any
-// brief a prior keyed build produced (read-before-wipe in main()).
+// Market brief — ONE rolling digest that summarizes / points out the
+// interesting things happening in the tape, re-minted HOURLY by the bake
+// (which runs 9:30 ET open, then hourly to the 16:00 close — so the brief
+// rides along with every build instead of separate pre-/post-market mints).
+// Modeled on the heatmap EOD recap (one Flash-Lite call, JSON schema, minted
+// at most once per ET hour and carried forward on a same-hour re-run), but
+// holistic: the brief fuses overnight & foreign moves, the session's breadth +
+// biggest movers, unusual options flow, macro levels (10Y / dollar / VIX),
+// CNN Fear & Greed, the calendar, and the model's top picks into a headline +
+// summary + a few highlight bullets. The framing follows the clock: the open
+// build writes a "morning" setup read (overnight/futures context), mid-session
+// builds an "intraday" where-the-tape-stands read, and the 16:00+ build the
+// "afternoon" closing read. Written to data/briefs.json ({ current }),
+// rendered on the Brief tab. Self-skips without GEMINI_API_KEY; a keyless
+// build still carries forward any brief a prior keyed build produced
+// (read-before-wipe in main()).
 const BRIEFS_FILE = "briefs.json";
 const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-2.5-flash-lite";
-// The morning brief is minted PRE-MARKET by the oi-tracker workflow's ~08:30 ET
-// scripts/regen-brief.mjs run (the 9:30 ET open bake backstops it if that run
-// missed); only runs BEFORE this hour will create a missing morning brief, so a
-// noon+ build never back-fills a stale "morning" read. The afternoon brief
-// mirrors the heatmap EOD trigger — minted only after the 16:00 ET close.
-const BRIEF_MORNING_CUTOFF_ET_HOUR = 12;
+// Kind boundaries: a build before 10:00 ET (the 9:30 open bake) frames the
+// brief as the MORNING setup; 16:00 ET onward (the close bake) as the
+// AFTERNOON closing read; everything between is the INTRADAY session read.
+const BRIEF_MORNING_END_ET_HOUR = 10;
 const BRIEF_EOD_TRIGGER_ET_HOUR = 16;
 // A sovereign-yield 1-day move at/above this (basis points) is flagged
 // "significant" in the briefs' Global-bonds section so a sharp JGB / curve
@@ -14285,7 +14288,6 @@ function etHourNY(d = new Date()) {
   return h ? Number(h.value) : -1;
 }
 
-// Exported (with buildMarketBriefs) for scripts/regen-brief.mjs.
 export async function readPriorBriefs() {
   try {
     const raw = await readFile(resolve(DATA_DIR, BRIEFS_FILE), "utf8");
@@ -14653,10 +14655,12 @@ export function gatherBriefSignals(kind, ctx) {
     note: briefClause(p.thesis),
   })).filter((p) => p.symbol);
 
-  // Calendar chips — today's catalysts (morning) vs what's coming (afternoon).
+  // Calendar chips — today's catalysts (morning/intraday: the session isn't
+  // over, so today's prints + PM earnings still matter) vs what's coming
+  // (afternoon/closing).
   const cal = calendar || {};
   const events = [];
-  if (kind === "morning") {
+  if (kind !== "afternoon") {
     for (const e of (cal.todayEarnings || [])) events.push({ label: `${e.sym} earnings`, detail: e.session && e.session !== "TBD" ? e.session : "today" });
     // A report that already printed (8:30 ET releases land before a ~9:30+
     // morning re-mint) shows its result on the chip instead of "today".
@@ -14793,7 +14797,9 @@ export function gatherBriefSignals(kind, ctx) {
     }
     if (levels.length) signals.levels = levels;
   } else {
-    // Breadth + biggest movers from the day's confirmed 1-day % moves.
+    // Session read (intraday + afternoon): breadth + biggest movers from the
+    // day's 1-day % moves — the session so far on an intraday build, the
+    // final closes on the 16:00 bake.
     const moves = [];
     for (const [sym, d] of Object.entries(chains)) {
       const m = d?.technicals?.volume?.priceMove1dPct;
@@ -14936,10 +14942,28 @@ function briefSystemPrompt(kind) {
     "surface it explicitly in the summary AND as a highlight, " +
     "since rates and curve shifts move equities. Any bond flagged 'SIGNIFICANT' must be called out. Don't " +
     "manufacture a rates story when the moves are small (a few bp).";
+  if (kind === "intraday") {
+    return (
+      "You are a markets-desk analyst writing a concise MID-SESSION intraday brief for US options traders, " +
+      "published on the hour during the trading day. You receive structured facts reflecting the session SO FAR " +
+      "(intraday moves, not final closes): how the headline index ETFs (SPY/QQQ/IWM) are trading, the tape's " +
+      "breadth (advancers/decliners), the sector leaders and laggards, the biggest movers, names at or near " +
+      "52-week highs/lows, the heaviest-volume names vs their own 20-day average, notable unusual options flow, " +
+      "macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s spread, the dollar, VIX), foreign sovereign " +
+      "bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, dealer gamma (GEX) positioning on SPY/QQQ " +
+      "(net long vs short gamma and where spot sits vs the gamma flip — short gamma below the flip means dealers " +
+      "amplify moves), any names added to or dropped from the model's actionable top picks, the model's top " +
+      "option picks, the economic data that printed today or in recent days (actual vs consensus vs prior — " +
+      "weigh how the tape is trading against it), today's market-wide press/wire headlines (Fed, policy, " +
+      "geopolitics, trade), and what's still on today's calendar. Frame it as where the tape stands right now " +
+      "and what to watch into the close — everything is a live session read, so say 'so far' rather than " +
+      "treating moves as final." + common
+    );
+  }
   if (kind === "morning") {
     return (
-      "You are a markets-desk analyst writing a concise PRE-MARKET brief for US options traders, " +
-      "published before the opening bell. You receive structured facts: how the headline index ETFs closed " +
+      "You are a markets-desk analyst writing a concise MORNING brief for US options traders, " +
+      "published around the opening bell. You receive structured facts: how the headline index ETFs closed " +
       "yesterday, US index futures (S&P / Nasdaq), how overnight foreign markets traded, the risk tone, key " +
       "macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s spread, the dollar, VIX), foreign " +
       "sovereign bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, the 20-day support/resistance " +
@@ -14950,7 +14974,7 @@ function briefSystemPrompt(kind) {
       "— an 8:30 ET release like CPI may already be out; if so, lead with it and how it sets up the session), " +
       "the overnight market-wide press/wire headlines (Fed, policy, geopolitics, trade), " +
       "and the model's current top option picks. Frame it as the setup " +
-      "for today's session: what happened overnight, and what to watch into the bell." + common
+      "for today's session: what happened overnight, and what to watch as trading gets underway." + common
     );
   }
   return (
@@ -14974,7 +14998,7 @@ function briefSystemPrompt(kind) {
 export function briefUserMessage(kind, dateKey, signals) {
   const lines = [];
   lines.push(`Date (ET): ${dateKey}`);
-  lines.push(`Brief: ${kind === "morning" ? "pre-market / morning" : "post-market / closing"}`);
+  lines.push(`Brief: ${kind === "morning" ? "morning / open" : kind === "intraday" ? "intraday / mid-session (session so far)" : "post-market / closing"}`);
   if (signals.fearGreed) {
     const f = signals.fearGreed;
     lines.push(
@@ -15010,7 +15034,7 @@ export function briefUserMessage(kind, dateKey, signals) {
     }
   }
   if (signals.indexes && signals.indexes.length) {
-    lines.push((kind === "morning" ? "US index futures: " : "Index close: ") +
+    lines.push((kind === "morning" ? "US index futures: " : kind === "intraday" ? "Indexes now (session so far): " : "Index close: ") +
       signals.indexes.map((m) => `${m.label} ${briefPctStr(m.chPct)}`).join(", ") + ".");
   }
   if (kind === "morning") {
@@ -15052,7 +15076,7 @@ export function briefUserMessage(kind, dateKey, signals) {
     }
   }
   if (signals.flow && signals.flow.length) {
-    lines.push(kind === "morning" ? "Notable options flow (prior session's last scan):" : "Notable options flow:");
+    lines.push(kind === "morning" ? "Notable options flow (prior session's last scan):" : "Notable options flow (this session):");
     for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
   }
   if (signals.gex && signals.gex.length) {
@@ -15075,7 +15099,7 @@ export function briefUserMessage(kind, dateKey, signals) {
     for (const p of signals.picks) lines.push(`- ${p.symbol} ${p.side}${p.conviction != null ? ` (conviction ${p.conviction})` : ""}: ${p.note}`);
   }
   if (signals.events && signals.events.length) {
-    lines.push(kind === "morning" ? "On the calendar today / next:" : "Coming up:");
+    lines.push(kind === "afternoon" ? "Coming up:" : "On the calendar today / next:");
     for (const e of signals.events) lines.push(`- ${e.label}${e.detail ? ` — ${e.detail}` : ""}`);
   }
   if (signals.playbook && signals.playbook.length) {
@@ -15186,74 +15210,64 @@ async function generateBrief(ai, kind, dateKey, signals) {
   return analog ? { headline, summary, highlights, analog } : { headline, summary, highlights };
 }
 
-// Generate / carry-forward the morning + afternoon market briefs and write
-// data/briefs.json. Called from main() AFTER picks.json + the calendar data
-// exist and BEFORE writeAiUsageState() so the brief's token usage is recorded.
-// `briefsPrev` is the pre-wipe snapshot, so each brief is minted at most once
-// per ET day and reused by later builds — with ONE exception: a morning brief
-// minted before a same-day macro print (CPI at 8:30 ET, etc.) is re-minted by
-// the next build inside the morning window so the released number reaches the
-// brief the day it lands (bounded by the `releasesSeen` stamp, so at most one
-// extra call per new print set). Never throws — a failure leaves the
-// tab on its last-good content. Also exported for scripts/regen-brief.mjs (the
-// pre-market mint); the ET-window gating below makes re-running always safe.
+// Which framing a brief minted at this ET hour gets. Exported for testing.
+export function briefKindForHour(hourEt) {
+  if (hourEt < BRIEF_MORNING_END_ET_HOUR) return "morning";
+  if (hourEt >= BRIEF_EOD_TRIGGER_ET_HOUR) return "afternoon";
+  return "intraday";
+}
+
+// Generate / carry-forward the rolling market brief and write data/briefs.json.
+// Called from main() AFTER picks.json + the calendar data exist and BEFORE
+// writeAiUsageState() so the brief's token usage is recorded. `briefsPrev` is
+// the pre-wipe snapshot; the brief is minted at most once per ET HOUR — the
+// bake runs hourly, so every build ships a fresh read, while a same-hour
+// re-run (retry, manual) carries the existing one forward, keeping re-runs
+// always safe. A new same-day macro print needs no special re-mint trigger
+// anymore: the next hourly mint picks it up by construction. Never throws —
+// a failure leaves the tab on its last-good content.
 export async function buildMarketBriefs(opts) {
   const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines } = opts;
   const now = new Date();
   const todayEt = etDateKey(now);
   const hourEt = etHourNY(now);
+  const kind = briefKindForHour(hourEt);
   // Carry forward whatever the prior file holds for TODAY; drop stale days.
-  let morning = briefsPrev?.morning && briefsPrev.morning.date === todayEt ? briefsPrev.morning : null;
-  let afternoon = briefsPrev?.afternoon && briefsPrev.afternoon.date === todayEt ? briefsPrev.afternoon : null;
+  // Accept the legacy { morning, afternoon } shape once (pre-cutover file) so
+  // the tab never blanks across the deploy — latest of the two wins.
+  let current = briefsPrev?.current && briefsPrev.current.date === todayEt ? briefsPrev.current : null;
+  if (!current) {
+    const legacy = [briefsPrev?.afternoon, briefsPrev?.morning].filter((b) => b && b.date === todayEt);
+    legacy.sort((a, b) => String(b.generatedAtIso || "").localeCompare(String(a.generatedAtIso || "")));
+    if (legacy.length) current = legacy[0];
+  }
   const haveKey = !!process.env.GEMINI_API_KEY;
-  // Same-day macro prints (subtypes with an actual) — when one lands AFTER the
-  // morning brief was minted (the ~08:30 ET regen-brief run races the 8:30
-  // release; CPI/NFP post minutes later), the next build inside the morning
-  // window re-mints the brief ONCE so the print shapes it the same day. The
-  // minted brief stamps `releasesSeen` so later builds don't re-mint again.
-  const todayPrints = (Array.isArray(calendar?.releases) ? calendar.releases : [])
-    .filter((r) => r && r.actual && String(r.date) === todayEt)
-    .map((r) => r.subtype || r.title)
-    .filter(Boolean)
-    .sort();
-  const morningSeen = Array.isArray(morning?.releasesSeen) ? morning.releasesSeen : [];
-  const morningMissedPrint = !!morning && todayPrints.some((s) => !morningSeen.includes(s));
-  const inMorningWindow = hourEt >= 0 && hourEt < BRIEF_MORNING_CUTOFF_ET_HOUR;
-  const wantMorning = inMorningWindow && (!morning || morningMissedPrint);
-  const wantAfternoon = !afternoon && hourEt >= BRIEF_EOD_TRIGGER_ET_HOUR;
+  // Hourly gating: mint unless the carried brief was already minted this same
+  // ET hour (etHour stamp; fall back to the generatedAtIso timestamp for a
+  // brief minted before the stamp existed).
+  const curHour = Number.isFinite(current?.etHour)
+    ? current.etHour
+    : (current?.generatedAtIso ? etHourNY(new Date(current.generatedAtIso)) : null);
+  const want = !current || curHour == null || curHour !== hourEt;
   let generated = 0;
-  if (haveKey && (wantMorning || wantAfternoon)) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    if (wantMorning) {
-      try {
-        const signals = gatherBriefSignals("morning", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines });
-        const gen = await generateBrief(ai, "morning", todayEt, signals);
-        // On failure the catch keeps the prior morning brief (carry-forward).
-        morning = { kind: "morning", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, releasesSeen: todayPrints, ...gen, ...briefRenderFields(signals) };
-        generated++;
-        console.log(`[briefs] morning brief ${morningMissedPrint ? `re-minted (new macro print: ${todayPrints.filter((s) => !morningSeen.includes(s)).join(", ")})` : "generated"} for ${todayEt}`);
-      } catch (err) {
-        console.warn(`[briefs] morning generation failed: ${String(err?.message || err).split("\n")[0]}`);
-      }
-    }
-    if (wantAfternoon) {
-      try {
-        const signals = gatherBriefSignals("afternoon", { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines });
-        const gen = await generateBrief(ai, "afternoon", todayEt, signals);
-        afternoon = { kind: "afternoon", date: todayEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
-        generated++;
-        console.log(`[briefs] afternoon brief generated for ${todayEt}`);
-      } catch (err) {
-        console.warn(`[briefs] afternoon generation failed: ${String(err?.message || err).split("\n")[0]}`);
-      }
+  if (haveKey && want) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines });
+      const gen = await generateBrief(ai, kind, todayEt, signals);
+      // On failure the catch keeps the prior brief (carry-forward).
+      current = { kind, date: todayEt, etHour: hourEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
+      generated++;
+      console.log(`[briefs] ${kind} brief generated for ${todayEt} (${String(hourEt).padStart(2, "0")}:xx ET)`);
+    } catch (err) {
+      console.warn(`[briefs] ${kind} generation failed: ${String(err?.message || err).split("\n")[0]}`);
     }
   }
   // Always (re)write so a brief survives the data/ wipe across builds.
   const payload = { builtAtIso };
-  if (morning) payload.morning = morning;
-  if (afternoon) payload.afternoon = afternoon;
+  if (current) payload.current = current;
   await writeFile(resolve(DATA_DIR, BRIEFS_FILE), JSON.stringify(payload), "utf8");
-  return { morning: !!morning, afternoon: !!afternoon, generated };
+  return { current: !!current, kind: current?.kind || null, generated };
 }
 
 const AI_SYSTEM_PROMPT =
@@ -15353,9 +15367,6 @@ function parseRssItems(xml, max) {
   return out;
 }
 
-// Exported for scripts/regen-brief.mjs — the pre-market morning brief needs
-// the OVERNIGHT headline slate, which the committed trends.json (last bake,
-// ~16:00 ET yesterday) predates entirely.
 export async function fetchMacroHeadlines() {
   // Several gov feeds (BLS especially) drop requests from default Node fetch
   // because the User-Agent looks like a bot. Sending a realistic desktop UA
@@ -18719,9 +18730,9 @@ async function main() {
   // wipes data/ — so without this pre-read the salvage silently never fires and
   // a FRED/BLS outage ships a blank macro calendar. Threaded in via extras.priorCalendar.
   const priorCalendar = await readPriorCalendar();
-  // Prior market briefs (morning + closing digest) — read BEFORE writeChainFiles
-  // wipes data/, so each brief is minted once per ET day and carried forward by
-  // later builds. Threaded into buildMarketBriefs near the end of main().
+  // Prior market brief (rolling hourly digest) — read BEFORE writeChainFiles
+  // wipes data/, so the brief is minted once per ET hour and carried forward
+  // by a same-hour re-run. Threaded into buildMarketBriefs near the end of main().
   const briefsPrev = await readPriorBriefs();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
@@ -19276,10 +19287,11 @@ async function main() {
   } catch (err) {
     console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  // Market briefs (morning + post-close digest) — generated at most once per ET
-  // window and carried forward, mirroring the heatmap EOD recap. Built from the
-  // data already in memory: overnight correlations, the day's breadth + movers,
-  // unusual flow, macro levels, Fear & Greed, the calendar, and the top picks.
+  // Market brief (rolling hourly digest) — re-minted at most once per ET hour,
+  // so every hourly bake ships a fresh read and a same-hour re-run carries the
+  // existing one forward. Built from the data already in memory: overnight
+  // correlations, the session's breadth + movers, unusual flow, macro levels,
+  // Fear & Greed, the calendar, and the top picks.
   // Runs BEFORE writeAiUsageState so the brief's token usage is persisted.
   try {
     const briefTodayIso = etDateKey();
@@ -19299,8 +19311,8 @@ async function main() {
       todayReports: (reportEvents || []).filter((r) => String(r.date) === briefTodayIso).map((r) => ({ title: r.title, subtype: r.subtype || null, actual: r.actual ?? null, consensus: r.consensus ?? null, previous: r.previous ?? null })),
       upcomingReports: (reportEvents || []).filter((r) => String(r.date) > briefTodayIso).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 5).map((r) => ({ title: r.title, date: r.date })),
       // Releases that already printed (today + trailing lookback), classified
-      // actual-vs-consensus — feeds the brief's released-data block and the
-      // morning re-mint trigger in buildMarketBriefs.
+      // actual-vs-consensus — feeds the brief's released-data block (a fresh
+      // print reaches the next hourly mint by construction).
       releases: macroReleaseReads,
       nextFomc: upcomingMeetings && upcomingMeetings[0]
         ? { date: upcomingMeetings[0].date, daysOut: Math.max(0, Math.round((Date.parse(upcomingMeetings[0].date + "T00:00:00Z") - Date.parse(briefTodayIso + "T00:00:00Z")) / 86400000)) }
@@ -19314,7 +19326,7 @@ async function main() {
       // the brief's tape-driver input (fetched fresh by this bake).
       headlines: trends.macroHeadlines || [],
     });
-    console.log(`wrote data/${BRIEFS_FILE} — morning:${briefRes.morning ? "yes" : "no"} afternoon:${briefRes.afternoon ? "yes" : "no"}${briefRes.generated ? ` (${briefRes.generated} generated this run)` : ""}`);
+    console.log(`wrote data/${BRIEFS_FILE} — ${briefRes.current ? `${briefRes.kind} brief${briefRes.generated ? " (freshly generated)" : " (carried forward)"}` : "no brief yet"}`);
   } catch (err) {
     console.warn(`[briefs] skipped — ${String(err?.message || err).split("\n")[0]}`);
   }

@@ -142,9 +142,9 @@
             <span class="landing-card-eyebrow">Market brief</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
-          <div class="landing-card-stat" id="land-stat-brief">AM · PM</div>
-          <div class="landing-card-sub" id="land-sub-brief">daily digest</div>
-          <p class="landing-card-desc">A pre-market and post-close read on what's interesting — overnight moves, the day's movers, notable flow, what's next.</p>
+          <div class="landing-card-stat" id="land-stat-brief">Hourly</div>
+          <div class="landing-card-sub" id="land-sub-brief">market digest</div>
+          <p class="landing-card-desc">An hourly read on what's interesting — the overnight setup, the session's movers, notable flow, what's next.</p>
         </button>
         <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
           <header class="landing-card-head">
@@ -262,7 +262,7 @@
       <h2 class="card-title">Market brief</h2>
       <span class="card-eyebrow" id="brief-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="Two digests per trading day, written by Google Gemini (default gemini-2.5-flash-lite; override AI_BRIEF_MODEL). The morning brief is minted around the open from overnight &amp; foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the top picks; the closing brief is minted after the 4pm ET close from the day's breadth, biggest movers, unusual flow and what's next. Headlines are AI prose grounded in the numbers shown; the chips and stats are computed, not generated.">i</span>-written pre-market and post-close digest &mdash; the overnight setup, the day&rsquo;s biggest movers, notable options flow, and what&rsquo;s on deck. Ticker chips are clickable. Not financial advice.</p>
+    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day, re-minted hourly by the build (default gemini-2.5-flash-lite; override AI_BRIEF_MODEL). The open build writes the morning setup from overnight &amp; foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the top picks; mid-session builds refresh it with the session's breadth, movers and flow; the post-close build writes the closing read. Headlines are AI prose grounded in the numbers shown; the chips and stats are computed, not generated.">i</span>-written market digest, refreshed hourly with each build &mdash; the overnight setup at the open, where the tape stands mid-session, and the closing read after 4&nbsp;pm ET. Ticker chips are clickable. Not financial advice.</p>
     <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
   </section>
   </div>
@@ -3438,13 +3438,13 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <div class="cmp-sub">Everything in Free, plus the decision-grade layers.</div>
           <ul class="cmp-list">
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
-            <li><b>Briefs</b> — pre-market &amp; post-close market digests</li>
+            <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
-            <li><b>Index calendar</b> — SPY/QQQ/IWM/VXUS/VIX daily closes, green/red by % move, month by month</li>
+            <li><b>Index calendar</b> — SPY/QQQ/IWM/SMH/VXUS/VIX daily closes, green/red by % move, month by month</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -3535,7 +3535,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A pre-market and a post-close market digest — overnight moves, the day's movers, notable flow, dealer gamma, what's next — written each session.</p>
+          <p class="feat-desc">A rolling market digest refreshed hourly through the session — overnight moves, the day's movers, notable flow, dealer gamma, what's next.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Narratives</span><span class="tier prem">Premium</span></div>

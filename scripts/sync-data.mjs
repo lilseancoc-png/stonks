@@ -53,7 +53,9 @@ const OI_EXCLUSIVE = ["oi-tracker.json", "oi-history.json"];
 // narratives from the pulled trends.json + the scanner's fresh unusual
 // snapshot), so all producers push them — last-writer-wins is consistent.
 const UNUSUAL_SHARED = ["heatmap.json", "ai-usage.json", "manifest.json", "manifest-free.json"];
-const OI_SHARED = ["briefs.json", "ai-usage.json", "manifest.json", "manifest-free.json"];
+// briefs.json left the OI set when the brief moved to hourly minting inside
+// the bake (the oi-tracker's regen-brief pre-market/backfill step is gone).
+const OI_SHARED = ["manifest.json", "manifest-free.json"];
 
 const SCANNER_EXCLUSIVE = new Set([...UNUSUAL_EXCLUSIVE, ...OI_EXCLUSIVE]);
 
