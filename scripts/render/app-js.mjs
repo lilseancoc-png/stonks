@@ -17144,7 +17144,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (r.win){ m.wins++; wins.push(r.pnl); m.grossWin += Math.max(0, r.pnl); }
       else { m.losses++; losses.push(r.pnl); m.grossLoss += Math.max(0, -r.pnl); }
       if (r.R != null && isFinite(r.R)){ Rs.push(r.R); (r.R >= 0 ? winR : lossR).push(r.R); }
-      if (r.status === 'hit-tp-prem') tp++; else if (r.status === 'hit-stop-prem' || r.status === 'theta-stop') cut++;
+      if (r.status === 'hit-tp-prem' || r.status === 'trail-stop') tp++; else if (r.status === 'hit-stop-prem' || r.status === 'theta-stop' || r.status === 'hit-stop-under') cut++;
       if (r.win && r.d.maxProfit != null && r.d.maxProfit > 0) capList.push(Math.max(0, r.d.pnl) / r.d.maxProfit);
       if (!best || r.pnl > best.pnl) best = { sym:r.e.symbol, date:r.e.exitDate, pnl:r.pnl, R:r.R };
       if (!worst || r.pnl < worst.pnl) worst = { sym:r.e.symbol, date:r.e.exitDate, pnl:r.pnl, R:r.R };
@@ -17554,7 +17554,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'hit-stop-prem':'premium stop', 'theta-stop':'theta stop', 'timed-out':'14-day time stop', 'expired':'expired', 'pre-earnings':'pre-earnings exit', 'dropped':'left universe', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'theta-stop':'theta stop', 'timed-out':'14-day time stop', 'expired':'expired', 'pre-earnings':'pre-earnings exit', 'dropped':'left universe', 'reset':'weekly reset close', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
