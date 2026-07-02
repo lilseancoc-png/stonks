@@ -3045,14 +3045,15 @@
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
     selectTab(saved && ['contract','fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'contract');
   }
-  // Track-record sub-tabs (Scorecard / Top 10 / Activity / Picks). The strip
-  // lives in static HTML so this binds once at startup; renderAccuracy() fills
-  // the panes lazily when the Track record page-tab is first opened. Last view
-  // is persisted (localStorage only — no URL sync, matching .opt-tabs).
+  // Track-record sub-tabs (Summary / Scorecard / Top 10 / Activity / Picks +
+  // the analytics views). The strip lives in static HTML so this binds once at
+  // startup; renderAccuracy() fills the panes lazily when the Track record
+  // page-tab is first opened. Last view is persisted (localStorage only — no
+  // URL sync, matching .opt-tabs). Summary is the default landing view.
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['scorecard','top10','activity','picks','equity','breakdowns','sim','montecarlo'];
+    var KEYS = ['summary','scorecard','top10','activity','picks','equity','breakdowns','sim','montecarlo'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -3068,7 +3069,7 @@
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-acc-tab'); } catch (_) {}
-    selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'scorecard');
+    selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'summary');
   }
   // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
   // so a return visit lands the user where they left off.
@@ -13023,8 +13024,10 @@
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
   // Shared with the Grade tab's per-ticker "overnight peer read" widget.
-  // ── Market brief (morning + closing digest) ────────────────────────────
-  // Renders data/briefs.json. The headline/summary/highlights are AI prose;
+  // ── Market brief (rolling hourly digest) ───────────────────────────────
+  // Renders data/briefs.json ({ current } — re-minted hourly by the bake:
+  // morning read at the open, intraday reads through the session, closing
+  // read on the 16:00 build). The headline/summary/highlights are AI prose;
   // the stat strip + ticker chips are deterministic facts baked alongside.
   var briefState = { data: null, loading: false, error: false };
   // Lazy tab data goes stale while the page sits open (the calendar/brief/
@@ -13163,7 +13166,7 @@
     if (!b) return '';
     var when = '';
     if (b.generatedAtIso){ var dt = new Date(b.generatedAtIso); if (!isNaN(dt.getTime())) when = dt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
-    var kindLabel = (b.kind === 'morning') ? 'Pre-market' : 'Post-close';
+    var kindLabel = (b.kind === 'morning') ? 'Morning' : (b.kind === 'intraday') ? 'Intraday' : 'Post-close';
     var head = '<header class="brief-card-head">' +
       '<div class="brief-card-titles">' +
         '<span class="brief-kind brief-kind-' + briefEsc(b.kind || '') + '">' + briefEsc(kindLabel) + '</span>' +
@@ -13350,16 +13353,22 @@
     if (briefState.loading && !briefState.data){ root.innerHTML = '<p class="brief-empty">Loading brief…</p>'; return; }
     if (briefState.error && !briefState.data){ root.innerHTML = '<p class="brief-empty">Brief unavailable right now — try again shortly.</p>'; return; }
     var data = briefState.data || {};
+    // One rolling card, refreshed hourly by the bake. Fall back to the legacy
+    // { morning, afternoon } shape (latest wins) so a pre-cutover briefs.json
+    // still renders across the deploy.
     var cards = [];
-    if (data.morning) cards.push(data.morning);
-    if (data.afternoon) cards.push(data.afternoon);
+    if (data.current){ cards.push(data.current); }
+    else {
+      if (data.morning) cards.push(data.morning);
+      if (data.afternoon) cards.push(data.afternoon);
+      cards.sort(function(a, b){ return String(b.generatedAtIso || '').localeCompare(String(a.generatedAtIso || '')); });
+      cards = cards.slice(0, 1);
+    }
     if (!cards.length){
-      root.innerHTML = '<p class="brief-empty">No brief yet today — the morning brief posts pre-market (~8:30&nbsp;am&nbsp;ET) and the closing brief after 4&nbsp;pm&nbsp;ET.</p>';
+      root.innerHTML = '<p class="brief-empty">No brief yet today — the brief updates hourly with each build during market hours (first read posts around the 9:30&nbsp;am&nbsp;ET open).</p>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }
-    // Latest first (closing brief on top once it exists).
-    cards.sort(function(a, b){ return String(b.generatedAtIso || '').localeCompare(String(a.generatedAtIso || '')); });
     root.innerHTML = cards.map(renderBriefCard).join('');
     bindBriefChips(root);
     if (eyebrow){
@@ -14959,14 +14968,14 @@
   // --- Index calendar tab -------------------------------------------------
   // A monthly wall-calendar of daily index closes: each cell is tinted green/red
   // by the selected instrument's close-to-close %change for that session. An
-  // index toggle (SPY/QQQ/IWM/DIA/VXUS/TLT/GLD/VIX) switches which one colors the
+  // index toggle (SPY/QQQ/IWM/SMH/DIA/VXUS/TLT/GLD/VIX) switches which one colors the
   // grid; a per-month summary tallies green vs red days and the month's
   // compounded return. Renders the premium, bake-accumulated
   // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm, ... }] }),
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
   var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', fetchedAt: 0, bound: false };
-  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', dia: 'DIA', vxus: 'VXUS', tlt: 'TLT', gld: 'GLD', vix: 'VIX' };
-  var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'dia', 'vxus', 'tlt', 'gld', 'vix'];
+  var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', smh: 'SMH', dia: 'DIA', vxus: 'VXUS', tlt: 'TLT', gld: 'GLD', vix: 'VIX' };
+  var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'smh', 'dia', 'vxus', 'tlt', 'gld', 'vix'];
   // VIX is a fear gauge — a spike is a risk-OFF day, so invert its red/green so
   // green reads "calm" (VIX down) and red "stress" (VIX up). The displayed %
   // stays the true move; only the colour + the green/red tally flip.
@@ -17072,6 +17081,7 @@
     regime:     { label: 'Market regime', key: function(e){ return e.entryRegime || 'Unknown'; }, lab: function(k){ return ACC_REGIME_LABEL[k] || k; }, order: ACC_REGIME_ORDER },
     sector:     { label: 'Sector', key: function(e){ return e.sector || 'Unknown'; }, lab: function(k){ return k; }, order: null },
     side:       { label: 'Side', key: function(e){ return e.side === 'put' ? 'put' : 'call'; }, lab: function(k){ return k === 'put' ? 'Put' : 'Call'; }, order: ['call','put'] },
+    structure:  { label: 'Structure', key: function(e){ return (e.contract && e.contract.structure) || 'long'; }, lab: function(k){ return ({ long:'Naked long', debit_vertical:'Debit vertical', credit_vertical:'Credit vertical' })[k] || k; }, order: ['long','debit_vertical','credit_vertical'] },
   };
   // Order a set of bucket keys by a dim's declared order (unknowns/extras last).
   function accOrderKeys(dim, keys){
@@ -17515,6 +17525,257 @@
       });
     });
     return '<div class="acc-tscroll"><div class="acc-xtab" style="grid-template-columns:minmax(96px,auto) repeat(' + colsK.length + ',minmax(82px,1fr))">' + grid + '</div></div>';
+  }
+
+  // --- Engine summary sub-tab (#an-summary) --------------------------------
+  // The plain-English "how is the engine actually doing?" report. Everything
+  // here is DETERMINISTIC — computed from the resolved record only (no AI, no
+  // open marks): a health verdict, loss anatomy (direction miss vs theta bleed,
+  // the same taxonomy as scripts/diagnose-pick-losses.mjs but read straight off
+  // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
+  // anatomy, the best/worst segments across every breakdown dimension, a fired-
+  // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'hit-stop-prem':'premium stop', 'theta-stop':'theta stop', 'timed-out':'14-day time stop', 'expired':'expired', 'pre-earnings':'pre-earnings exit', 'dropped':'left universe', 'open-mark':'open mark' };
+  // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
+  // adjusted stock move <= -3% against the trade is clearly direction-driven;
+  // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
+  var ACC_ADVERSE_MOVE = 3.0, ACC_FLAT_MOVE = 1.0, ACC_GIVEBACK_PCT = 15;
+  // Classify one decided trade: why did it win / lose? Returns { cls, text }.
+  // cls ∈ direction | theta | mixed (losses) · direction | decay | grind (wins).
+  function accTradeWhy(e){
+    var opt = Number(e.optionPnlPct); if (!isFinite(opt)) opt = null;
+    var und = Number(e.underlyingPnlPct); if (!isFinite(und)) und = null; // side-adjusted: + = with the trade
+    var hi = Number(e.optHiPct); if (!isFinite(hi)) hi = null;
+    var credit = !!(e.contract && e.contract.structure === 'credit_vertical');
+    var undTxt = und != null ? accPct(und) : 'an unknown amount';
+    var cls, text;
+    if (e.outcome === 'win'){
+      if (credit){
+        cls = 'decay';
+        text = 'Premium selling worked — the stock ' + (und != null && und >= ACC_FLAT_MOVE ? 'moved ' + undTxt + ' with the bias' : 'stayed quiet (' + undTxt + ')') + ' and the short premium decayed for ' + accPct(opt) + '.';
+      } else if (und != null && und >= ACC_FLAT_MOVE){
+        cls = 'direction';
+        text = 'Called the direction — the stock moved ' + undTxt + ' with the trade, compounding to ' + accPct(opt) + ' on the option.';
+      } else {
+        cls = 'grind';
+        text = 'Won without much help from the stock (' + undTxt + ') — the option mark still finished ' + accPct(opt) + '.';
+      }
+      return { cls: cls, text: text };
+    }
+    // Losses.
+    if (credit){
+      if (und != null && und > -ACC_FLAT_MOVE){
+        cls = 'mixed';
+        text = 'Lost without a clear adverse move (' + undTxt + ') — the spread marked against the position for ' + accPct(opt) + '.';
+      } else {
+        cls = 'direction';
+        text = 'The move went through the spread — the stock went ' + undTxt + ' against the bias and buying the short premium back cost ' + accPct(opt) + ' of the credit.';
+      }
+    } else if (und != null && und <= -ACC_ADVERSE_MOVE){
+      cls = 'direction';
+      text = 'Direction miss — the stock moved ' + undTxt + ' against the trade; the option lost ' + accPct(opt) + '.';
+    } else if (und != null && und >= -ACC_FLAT_MOVE){
+      cls = 'theta';
+      text = 'Theta bleed — the stock ' + (und >= 0 ? 'even moved ' + undTxt + ' with the trade' : 'held roughly flat (' + undTxt + ')') + ', but time decay still bled the long premium to ' + accPct(opt) + '.';
+    } else {
+      cls = 'mixed';
+      text = 'Drift plus decay — a modest adverse move (' + undTxt + ') compounded with time decay to ' + accPct(opt) + '.';
+    }
+    if (hi != null && hi >= ACC_GIVEBACK_PCT){
+      text += ' It peaked at ' + accPct(hi) + ' before fading — an earlier or partial take-profit would have banked it.';
+    }
+    return { cls: cls, text: text };
+  }
+  // Aggregate the resolved record into the report the Summary view renders.
+  function buildEngineReport(closed){
+    var dec = accDecided(closed);
+    var rep = { n: dec.length, m: tradeMetrics(dec, { basis: 'contract' }), wins: [], losses: [] };
+    for (var i=0;i<dec.length;i++){ (dec[i].outcome === 'win' ? rep.wins : rep.losses).push(dec[i]); }
+    // Loss anatomy.
+    var att = { direction: 0, theta: 0, mixed: 0 };
+    var flatButLost = 0, giveback = 0, lossStatus = {};
+    rep.losses.forEach(function(e){
+      var w = accTradeWhy(e);
+      att[att[w.cls] != null ? w.cls : 'mixed']++;
+      var und = Number(e.underlyingPnlPct);
+      if (isFinite(und) && und >= -ACC_FLAT_MOVE) flatButLost++;
+      var hi = Number(e.optHiPct);
+      if (isFinite(hi) && hi >= ACC_GIVEBACK_PCT) giveback++;
+      var s = e.status || 'other';
+      lossStatus[s] = (lossStatus[s] || 0) + 1;
+    });
+    rep.att = att; rep.flatButLost = flatButLost; rep.giveback = giveback; rep.lossStatus = lossStatus;
+    // Winner anatomy (+ how much of the peak the winners kept).
+    var winKinds = { direction: 0, decay: 0, grind: 0 };
+    var winFinals = [], winPeaks = [];
+    rep.wins.forEach(function(e){
+      var w = accTradeWhy(e);
+      winKinds[winKinds[w.cls] != null ? w.cls : 'grind']++;
+      var opt = Number(e.optionPnlPct), hi = Number(e.optHiPct);
+      if (isFinite(opt) && isFinite(hi) && hi > 0){ winFinals.push(opt); winPeaks.push(hi); }
+    });
+    rep.winKinds = winKinds;
+    rep.winCapture = (winPeaks.length && accSum(winPeaks) > 0) ? (accSum(winFinals) / accSum(winPeaks)) : null;
+    rep.winCaptureN = winPeaks.length;
+    // Segment scan — every breakdown dimension, buckets with a real sample.
+    var MIN_SEG = 4, segs = [];
+    ['side','conviction','thesis','structure','dte','pop','regime','sector'].forEach(function(dn){
+      accBucketize(dec, dn).forEach(function(b){
+        if (b.trades.length < MIN_SEG || b.key === 'Unknown' || b.key === 'none') return;
+        var m = tradeMetrics(b.trades, { basis: 'contract' });
+        if (m.expectancyR == null || !isFinite(m.expectancyR)) return;
+        segs.push({ dim: ACC_DIMS[dn].label, label: b.label, n: m.n, winRate: m.winRate, expR: m.expectancyR, pf: m.profitFactor });
+      });
+    });
+    segs.sort(function(a, b){ return b.expR - a.expR; });
+    rep.working = segs.filter(function(s){ return s.expR > 0.02; }).slice(0, 4);
+    rep.lagging = segs.filter(function(s){ return s.expR < -0.02; }).slice(-4).reverse();
+    rep.segMin = MIN_SEG;
+    // Fired diagnostics — each one is a specific, actionable "fix this".
+    var diags = [];
+    var L = rep.losses.length, m = rep.m;
+    if (rep.n >= 6){
+      var needWr = (m.rr != null && isFinite(m.rr) && m.rr > 0) ? 1 / (1 + m.rr) : null;
+      if (needWr != null && m.winRate != null && m.winRate < needWr - 0.02){
+        diags.push('The win rate ÷ payoff combination is below breakeven: at the current ' + m.rr.toFixed(2) + ':1 reward-to-risk the engine needs a ' + Math.round(needWr * 100) + '% win rate and is running ' + Math.round(m.winRate * 100) + '%. Either the entries must win more often or the exits must let winners run further.');
+      }
+      if (L >= 3 && giveback >= 2 && giveback / L >= 0.25){
+        diags.push(giveback + ' of ' + L + ' losers were up ' + ACC_GIVEBACK_PCT + '%+ on the option before resolving red — exits are giving winners back. An earlier or partial take-profit on green positions would have banked several of these.');
+      }
+      if (L >= 3 && (lossStatus['timed-out'] || 0) / L >= 0.35){
+        diags.push('The 14-day time stop is the biggest loss bucket (' + (lossStatus['timed-out'] || 0) + ' of ' + L + ') — theses are not resolving inside the hold window. Entry timing is early, or the thesis horizon is slower than the vehicle.');
+      }
+      if (L >= 3 && (lossStatus['hit-stop-prem'] || 0) / L >= 0.5){
+        diags.push('Most losses ran to the full premium stop (' + (lossStatus['hit-stop-prem'] || 0) + ' of ' + L + ') — losers are riding to the max cut rather than being invalidated early. Watch whether the thesis-broken signal fires before the stop does.');
+      }
+      var byConv = {};
+      accBucketize(dec, 'conviction').forEach(function(b){ if (b.trades.length >= MIN_SEG) byConv[b.key] = tradeMetrics(b.trades, { basis: 'contract' }); });
+      if (byConv['Very High'] && byConv['High'] && byConv['Very High'].expectancyR != null && byConv['High'].expectancyR != null && byConv['Very High'].expectancyR < byConv['High'].expectancyR - 0.02){
+        diags.push('Conviction is not scaling: Very-High-tier picks are earning ' + accNum(byConv['Very High'].expectancyR, 2) + 'R vs ' + accNum(byConv['High'].expectancyR, 2) + 'R for the High tier — the extra conviction points are not predictive yet.');
+      }
+      var bySide = {};
+      accBucketize(dec, 'side').forEach(function(b){ if (b.trades.length >= MIN_SEG) bySide[b.key] = tradeMetrics(b.trades, { basis: 'contract' }); });
+      if (bySide.call && bySide.put && bySide.call.expectancyR != null && bySide.put.expectancyR != null){
+        if (bySide.put.expectancyR < -0.05 && bySide.call.expectancyR > 0.02) diags.push('Call picks are carrying the book (' + accNum(bySide.call.expectancyR, 2) + 'R) while put picks lose (' + accNum(bySide.put.expectancyR, 2) + 'R) — bearish selection needs work.');
+        else if (bySide.call.expectancyR < -0.05 && bySide.put.expectancyR > 0.02) diags.push('Put picks are carrying the book (' + accNum(bySide.put.expectancyR, 2) + 'R) while call picks lose (' + accNum(bySide.call.expectancyR, 2) + 'R) — bullish selection needs work.');
+      }
+    }
+    rep.diags = diags;
+    // Health verdict.
+    var pf = m.profitFactor, expR = m.expectancyR;
+    if (rep.n < 8) rep.health = { key: 'early', label: 'Early — building sample' };
+    else if (pf != null && (pf === Infinity || pf >= 1.3) && expR != null && expR > 0) rep.health = { key: 'healthy', label: 'Healthy' };
+    else if (pf != null && pf >= 1) rep.health = { key: 'mixed', label: 'Mixed' };
+    else rep.health = { key: 'struggling', label: 'Struggling' };
+    return rep;
+  }
+  function accSumSegRow(s, good){
+    return '<li class="acc-sum-seg"><span class="acc-sum-seg-lbl">' + escapeHtml(s.label) + '<span class="acc-sum-seg-dim">' + escapeHtml(s.dim) + '</span></span>' +
+      '<span class="acc-sum-seg-val ' + (good ? 'sig-pos' : 'sig-neg') + '">' + accNum(s.expR, 2) + 'R</span>' +
+      '<span class="acc-sum-seg-sub">' + accPctRate(s.winRate) + ' win · n' + s.n + '</span></li>';
+  }
+  function renderSummaryView(){
+    var box = $('an-summary'); if (!box) return;
+    var d = accuracyState.data || {};
+    var closed = Array.isArray(d.closed) ? d.closed : [];
+    var open = Array.isArray(d.open) ? d.open : [];
+    var rep = buildEngineReport(closed);
+    var m = rep.m, L = rep.losses.length, W = rep.wins.length;
+    var lead = '<p class="hint acc-an-lead">A rules-based read on how the picks engine is actually performing — computed from the resolved record (open positions excluded), no AI. Option P&amp;L is modeled, not realized fills.</p>';
+    if (!rep.n){
+      var openLine = open.length ? ' The open book has ' + open.length + ' position' + (open.length === 1 ? '' : 's') + ' being tracked — the report starts once they resolve.' : '';
+      box.innerHTML = lead + '<p class="muted acc-an-note">No resolved picks yet — the engine report appears once picks start closing.' + openLine + '</p>';
+      return;
+    }
+    // Health banner + narrative.
+    var attTotal = Math.max(1, L);
+    var dirShare = L ? rep.att.direction / L : 0;
+    var story = 'Across ' + rep.n + ' resolved pick' + (rep.n === 1 ? '' : 's') + ' the engine is winning ' + accPctRate(m.winRate) +
+      ' with an average outcome of ' + accNum(m.expectancyR, 2) + 'R per unit of risk (profit factor ' + accPF(m.profitFactor) + ').';
+    if (L && rep.n >= 6){
+      story += ' The losses are mostly ' + (dirShare >= 0.6 ? 'direction-driven — the signal picked the wrong side' : (dirShare <= 0.4 ? 'theta/vol-driven — the stock cooperated or sat still but the long premium bled' : 'a mix of wrong direction and premium decay')) + '.';
+    }
+    if (open.length){
+      var greens = 0, marks = [];
+      open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ marks.push(p); if (p >= 0) greens++; } });
+      story += ' The open book: ' + open.length + ' position' + (open.length === 1 ? '' : 's') + (marks.length ? ', ' + greens + ' green, marked ' + accPct(accMean(marks)) + ' on average' : '') + '.';
+    }
+    var banner = '<div class="acc-sum-verdict acc-sum-' + rep.health.key + '"><span class="acc-sum-badge">' + escapeHtml(rep.health.label) + '</span><p class="acc-sum-story">' + story + '</p></div>';
+    // Loss anatomy — the diagnose-pick-losses read, live on the tab.
+    var lossBlock = '';
+    if (L){
+      var seg = function(k, cls, lbl){
+        var n = rep.att[k]; if (!n) return '';
+        return '<span class="acc-attr-seg acc-attr-' + cls + '" style="flex-grow:' + n + '" title="' + escapeHtml(lbl + ': ' + n + ' of ' + L) + '">' + n + '</span>';
+      };
+      var bar = '<div class="acc-attr-bar">' + seg('direction', 'dir', 'Direction miss') + seg('mixed', 'mix', 'Drift + decay') + seg('theta', 'theta', 'Theta bleed') + '</div>' +
+        '<div class="acc-attr-legend"><span><i class="acc-attr-dot acc-attr-dir"></i>Direction miss (' + rep.att.direction + ')</span><span><i class="acc-attr-dot acc-attr-mix"></i>Drift + decay (' + rep.att.mixed + ')</span><span><i class="acc-attr-dot acc-attr-theta"></i>Theta bleed (' + rep.att.theta + ')</span></div>';
+      var verdict;
+      if (rep.n < 6) verdict = 'Sample is still small — attribution firms up as more picks resolve.';
+      else if (dirShare >= 0.6) verdict = 'Direction-driven losses dominate (' + Math.round(dirShare * 100) + '%): the signal is picking the wrong side, not the vehicle bleeding. Defined-risk structures only shrink a wrong call — the leverage is in the score and in standing down when the edge is thin.';
+      else if (dirShare <= 0.4) verdict = 'Theta/vol losses dominate (' + Math.round((1 - dirShare) * 100) + '%): the stock often went the right way or nowhere and the long premium still bled. Spreads that sell the rich wing and faster premium-space exits are the highest-leverage fixes.';
+      else verdict = 'Losses are mixed (' + Math.round(dirShare * 100) + '% direction / ' + Math.round((1 - dirShare) * 100) + '% decay): both the signal and the vehicle are costing money — measurement and exit-policy fixes first, then re-read after a forward sample.';
+      var exits = [];
+      var statusKeys = Object.keys(rep.lossStatus).sort(function(a, b){ return rep.lossStatus[b] - rep.lossStatus[a]; });
+      statusKeys.forEach(function(k){ exits.push('<span class="brief-chip info">' + escapeHtml(ACC_STATUS_LABEL[k] || k) + ' <span>' + rep.lossStatus[k] + '</span></span>'); });
+      lossBlock = '<div class="acc-an-subhead">Why the losers lost <span class="acc-an-tag">' + L + ' loss' + (L === 1 ? '' : 'es') + '</span></div>' + bar +
+        '<p class="acc-sum-note">' + verdict + (rep.flatButLost ? ' ' + rep.flatButLost + ' loss' + (rep.flatButLost === 1 ? '' : 'es') + ' came with the stock flat or even moving WITH the trade — pure vehicle bleed the stock-move headline hides.' : '') + '</p>' +
+        (exits.length ? '<div class="brief-chips acc-sum-exits">' + exits.join('') + '</div>' : '');
+    }
+    // Winner anatomy.
+    var winBlock = '';
+    if (W){
+      var wk = rep.winKinds;
+      var bits = [];
+      if (wk.direction) bits.push(wk.direction + ' won on direction (the stock moved with the trade)');
+      if (wk.decay) bits.push(wk.decay + ' on premium decay (credit spreads)');
+      if (wk.grind) bits.push(wk.grind + ' on the option mark despite a quiet stock');
+      var capTxt = (rep.winCapture != null && rep.winCaptureN >= 2) ? ' Winners kept about ' + Math.round(rep.winCapture * 100) + '% of their best mark on average — ' + (rep.winCapture >= 0.75 ? 'exits are banking most of what the trades offer.' : 'a meaningful slice of open profit is being given back before the exit fires.') : '';
+      winBlock = '<div class="acc-an-subhead">Why the winners won <span class="acc-an-tag">' + W + ' win' + (W === 1 ? '' : 's') + '</span></div>' +
+        '<p class="acc-sum-note">Of the ' + W + ' winner' + (W === 1 ? '' : 's') + ': ' + bits.join('; ') + '.' + capTxt + '</p>';
+    }
+    // What is working / what needs work.
+    var colsBlock = '';
+    if (rep.working.length || rep.lagging.length){
+      colsBlock = '<div class="acc-sum-cols">' +
+        '<div class="acc-sum-col"><div class="acc-an-subhead">What is working</div>' +
+          (rep.working.length ? '<ul class="acc-sum-list">' + rep.working.map(function(s){ return accSumSegRow(s, true); }).join('') + '</ul>' : '<p class="muted acc-an-note">No segment with ≥' + rep.segMin + ' trades is positive yet.</p>') + '</div>' +
+        '<div class="acc-sum-col"><div class="acc-an-subhead">What needs work</div>' +
+          (rep.lagging.length ? '<ul class="acc-sum-list">' + rep.lagging.map(function(s){ return accSumSegRow(s, false); }).join('') + '</ul>' : '<p class="muted acc-an-note">No segment with ≥' + rep.segMin + ' trades is negative — nothing stands out yet.</p>') + '</div>' +
+      '</div><p class="hint acc-an-note">Segments span every breakdown dimension (side, conviction, thesis, structure, DTE, PoP, regime, sector); only buckets with ≥' + rep.segMin + ' resolved trades qualify. R = return on risk per trade.</p>';
+    } else if (rep.n) {
+      colsBlock = '<div class="acc-an-subhead">What is working / what needs work</div><p class="muted acc-an-note">Needs at least ' + rep.segMin + ' resolved trades in a segment before it can be called out — keep letting the record build.</p>';
+    }
+    // What to fix next.
+    var diagBlock = '';
+    if (rep.n >= 6){
+      diagBlock = '<div class="acc-an-subhead">What to fix next</div>' +
+        (rep.diags.length ? '<ol class="acc-sum-diags">' + rep.diags.map(function(t){ return '<li>' + t + '</li>'; }).join('') + '</ol>'
+          : '<p class="muted acc-an-note">No structural red flags firing right now — the standing diagnostics (breakeven math, giveback, time-stop share, stop share, conviction scaling, side imbalance) are all inside tolerance.</p>');
+    }
+    // Per-pick why feed (latest resolutions first).
+    var whyBlock = '';
+    var recent = accSortByExit(accDecided(closed)).slice().reverse();
+    if (recent.length){
+      var SHOW = 10;
+      var rowFor = function(e){
+        var w = accTradeWhy(e);
+        var days = accDaysBetween(e.entryDate, e.exitDate);
+        var meta = [ACC_STATUS_LABEL[e.status] || e.status, days != null ? days + 'd held' : null, accDateShort(e.exitDate)].filter(Boolean).join(' · ');
+        return '<li class="acc-why-row acc-why-' + (e.outcome === 'win' ? 'win' : 'loss') + '">' +
+          '<div class="acc-why-head"><button type="button" class="acc-why-sym brief-chip" data-sym="' + escapeHtml(e.symbol) + '">' + escapeHtml(e.symbol) + '</button>' + accSidePill(e.side) +
+            '<span class="acc-why-outcome ' + (e.outcome === 'win' ? 'sig-pos' : 'sig-neg') + '">' + (e.outcome === 'win' ? 'WIN' : 'LOSS') + ' ' + accPct(Number(e.optionPnlPct)) + '</span>' +
+            '<span class="acc-why-meta">' + escapeHtml(meta) + '</span></div>' +
+          '<p class="acc-why-text">' + w.text + '</p></li>';
+      };
+      var head = recent.slice(0, SHOW).map(rowFor).join('');
+      var rest = recent.slice(SHOW);
+      whyBlock = '<div class="acc-an-subhead">Why each pick won or lost <span class="acc-an-tag">newest first</span></div>' +
+        '<ul class="acc-why-list">' + head + '</ul>' +
+        (rest.length ? '<details class="acc-why-more"><summary>Show ' + rest.length + ' older resolution' + (rest.length === 1 ? '' : 's') + '</summary><ul class="acc-why-list">' + rest.map(rowFor).join('') + '</ul></details>' : '');
+    }
+    box.innerHTML = lead + banner + lossBlock + winBlock + colsBlock + diagBlock + whyBlock;
+    bindBriefChips(box);
   }
 
   // --- Scorecard $-lens block (#accuracy-profit) ---------------------------
@@ -18050,11 +18311,14 @@
     accSetPaneEmpty('acc-empty-top10', rosterN === 0);
     accSetPaneEmpty('acc-empty-activity', activityN === 0);
     accSetPaneEmpty('acc-empty-picks', picksN === 0);
-    // Analytics sub-tabs (Equity / Breakdowns / Simulator / Monte Carlo) render
-    // from their own static containers regardless of the load-error / empty
-    // early-returns below — each shows its own "needs N resolved trades" note
-    // when the record is sparse, so the panes are never blank.
+    // Analytics sub-tabs (Summary / Equity / Breakdowns / Simulator / Monte
+    // Carlo) render from their own static containers regardless of the
+    // load-error / empty early-returns below — each shows its own "needs N
+    // resolved trades" note when the record is sparse, so the panes are never
+    // blank. Summary is resolved-only by design (open marks would muddy the
+    // attribution), so it ignores the dataset/basis toggles.
     bindAccuracyControls();
+    renderSummaryView();
     renderEquityView();
     renderBreakdowns();
     renderSimulation();

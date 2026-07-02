@@ -1067,13 +1067,13 @@ export const DOC_PAGES = {
           <div class="cmp-sub">Everything in Free, plus the decision-grade layers.</div>
           <ul class="cmp-list">
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
-            <li><b>Briefs</b> — pre-market &amp; post-close market digests</li>
+            <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
-            <li><b>Index calendar</b> — SPY/QQQ/IWM/VXUS/VIX daily closes, green/red by % move, month by month</li>
+            <li><b>Index calendar</b> — SPY/QQQ/IWM/SMH/VXUS/VIX daily closes, green/red by % move, month by month</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1164,7 +1164,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A pre-market and a post-close market digest — overnight moves, the day's movers, notable flow, dealer gamma, what's next — written each session.</p>
+          <p class="feat-desc">A rolling market digest refreshed hourly through the session — overnight moves, the day's movers, notable flow, dealer gamma, what's next.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Narratives</span><span class="tier prem">Premium</span></div>
