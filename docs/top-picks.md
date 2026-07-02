@@ -42,7 +42,8 @@ a ~5–11% win rate). Everything else is deliberately plain:
    adverse move is a −70% wipeout.
 4. **One entry per name** until it resolves — 58% of past entries were restacks
    of the same losing thesis. → **re-entry suppression**.
-5. **Tight, asymmetric option exits** (+20% take-profit / −30% stop).
+5. **Tight, asymmetric option exits** (−30% stop; the +20% gate has since
+   evolved into bank-half-and-trail — see §8).
 6. **Willing to go short and to hold cash** — long-only into a risk-off tape was
    fatal; fewer/zero picks is allowed.
 
@@ -236,8 +237,9 @@ naked long, legacy). Each pick ships `strategy = {type,label,reason,ivZ,…}`.
 **Track-record marking is structure-aware** (`markOptionToMarket` /
 `resolvePickOutcome`): a spread is repriced leg-by-leg (Black-Scholes) and the
 P/L is normalized so **+ always = the trade making money**; credit verticals
-take profit / stop on % of the credit (`PICKS_CREDIT_TP_PCT` / `_STOP_PCT`), not
-the +20/−30 premium gates, and a theta stop never applies to them. The enrolled
+take profit / stop on % of the credit (`PICKS_CREDIT_TP_PCT` / `_STOP_PCT`,
++50%/−50%), not the premium gates, and neither the theta stop nor the
+scale-out/trail applies to them. The enrolled
 accuracy entry stores the legs so later builds can mark it. (`diagnose-pick-losses`
 skips spreads — its single-leg model would mislead.)
 
@@ -292,17 +294,30 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 
 ## 8. Exits (`buildExitPlan` / `resolvePickOutcome`)
 
-- **Option-space (primary):** +20% take-profit / −30% stop on premium — flat and
-  asymmetric. The instant the modeled mark hits a gate, the pick resolves. The
-  plan also surfaces the **concrete contract price** for each gate off the entry
-  mid (`optionStop`/`optionTp` + per-level `optionPrice`/`optionPct`/`entryPrem`):
-  e.g. a $5.00 long → stop at **$3.50**, take-profit at **$6.00**. Credit
-  verticals express these as the **buy-back** price (stop ≈ 2× the credit, target
-  ≈ half the credit). Rendered as `opt stop $X.XX` / `opt target $X.XX` chips on
-  the exit-ladder cut/TP levels.
-- **Underlying:** take-profit at the nearest structural level; stop at the deeper
-  of structural support and a ~2.5×ATR floor (clamped 5–12%) so routine noise
-  doesn't shake out a good entry.
+- **Option-space (primary):** −30% stop on premium. At **+20%** the position
+  **banks HALF at the marked price and arms a trailing stop on the runner** —
+  floored at breakeven, ratcheting up to (peak − `PICKS_OPT_TRAIL_GIVEBACK_PCT`
+  25pts) as the runner extends (`trail-stop`). The closed record blends the two
+  halves (`0.5×banked + 0.5×exit`), so an armed trade can't round-trip to a net
+  loss but the right tail is no longer amputated at +20%. Rationale: the old
+  flat +20/−30 gates hard-capped every win at ~+20% while overnight/earnings
+  gaps routinely marked losses far past −30% (the stop only executes at
+  build-time marks) — a payoff needing a >60% win rate to break even.
+  `PICKS_OPT_SCALE_OUT=0` restores the flat +20% take-profit. The plan still
+  surfaces the **concrete contract price** for each gate off the entry mid
+  (`optionStop`/`optionTp` + per-level `optionPrice`/`optionPct`/`entryPrem`):
+  e.g. a $5.00 long → stop at **$3.50**, bank half at **$6.00**. Credit
+  verticals keep **hard gates on the credit** (no scale-out — decay is the
+  edge): +50% take-profit / **−50% stop** (buy-back ≈ 1.5× the credit; the old
+  −100% default was a 2:1 inverted payoff vs the +50% TP).
+- **Underlying (enforced):** stop at the deeper of structural support and a
+  ~2.5×ATR floor (clamped 5–12%) so routine noise doesn't shake out a good
+  entry — and this stock stop is **enforced in the track record**
+  (`hit-stop-under`): the enrolled entry freezes `cut` (the short strike for a
+  credit spread) and a spot close through it resolves the trade even when the
+  modeled premium hasn't printed −30% at a mark. `PICKS_UNDERLYING_STOP=0`
+  reverts it to display-only. The structural **take-profit** level stays
+  advisory (enforcing it would truncate winners).
 - **Time stop:** force-close after **14 sessions** — *down at two weeks = a loss*
   (scored by the option-P&L sign). A theta stop cuts a dead-money bleeder sooner;
   an earnings exit closes ~2 sessions before a print.
@@ -319,7 +334,11 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   on the exit rules above, and computes stats (`winRate`, option expectancy,
   option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`). The
   record **resets weekly** so the numbers reflect the current engine, not a tail of
-  pre-tuning outcomes. **The Track Record tab shows only this contract (option)
+  pre-tuning outcomes — and the reset **force-closes the open book at its current
+  marks** (status `reset`, win/loss by the blended P&L sign) rather than
+  discarding it: dropping unresolved entries censored the record (slow winners
+  grinding toward the TP vanished uncounted at the week boundary while fast gap
+  losers resolved in-week and counted, inflating avg-loss vs avg-win). **The Track Record tab shows only this contract (option)
   scorecard** — the win/loss already resolves on the modeled option P&L, and the
   stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
@@ -451,7 +470,10 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
-| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.20 / 0.30 | option exits |
+| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.20 / 0.30 | +20% banks half + arms the trail / −30% stop |
+| `PICKS_OPT_SCALE_OUT` | on | scale-out + trail at the TP (0 = legacy flat +20% take-profit) |
+| `PICKS_OPT_TRAIL_GIVEBACK_PCT` | 0.25 | runner trail: stop = max(breakeven, peak − 25pts) |
+| `PICKS_UNDERLYING_STOP` | on | enforce the exit ladder's stock stop in the track record (`hit-stop-under`) |
 | `PICKS_MAX_HOLD_DAYS` | 14 | time stop (two weeks) |
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 14 / 60 | contract clock |
@@ -460,7 +482,7 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_IV_CREDIT_Z` / `PICKS_IV_RICH` | 2.0 / 80 | **highly-elevated** IV labels (z≥2σ / ≥80th) |
 | (naked IV gate) | not elevated | naked needs IV **not** in the credit band (the spec's "IV Rank < 60") **and** a strong grade + strong thesis |
 | `PICKS_CREDIT_WIDTH_FRAC` / `_MIN` | 0.34 / 0.22 | credit-spread target / floor (credit ÷ width) |
-| `PICKS_CREDIT_TP_PCT` / `_STOP_PCT` | 0.50 / 1.00 | credit-spread exits (% of the credit) |
+| `PICKS_CREDIT_TP_PCT` / `_STOP_PCT` | 0.50 / 0.50 | credit-spread exits (% of the credit; stop = buy-back ≈1.5×) |
 | `PICKS_GROSS_TARGET` | 0.80 | deployed gross (rest cash) |
 | `PICKS_REGIME_TILT` | 2 (4 severe) | risk-off bearish tilt |
 

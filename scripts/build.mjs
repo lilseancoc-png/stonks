@@ -8733,7 +8733,9 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
 //       2. Don't buy the top / catch a knife -> entry-timing penalty.
 //       3. Near-the-money contracts (~0.55 delta), never fragile deep-OTM.
 //       4. One entry per name until it resolves (no restacking a loser).
-//       5. Tight asymmetric option exits (+20% / -30%).
+//       5. Tight asymmetric option exits (-30% stop; the +20% gate now banks
+//          half + trails the runner instead of hard-capping the win — see the
+//          Exits constants block).
 //       6. Willing to go short and to hold cash (fewer/zero picks is allowed).
 //
 // grades.json (every ticker, FREE) and picks.json (the actionable roster) share
@@ -8865,8 +8867,23 @@ const PICKS_THESIS_STRONG_SCORE = Number(process.env.PICKS_THESIS_STRONG_SCORE ?
 const PICKS_THESIS_MOD_SCORE = Number(process.env.PICKS_THESIS_MOD_SCORE ?? 3);       // >= this (+ alignment) -> moderate thesis
 
 // ---- Exits -----------------------------------------------------------------
-const PICKS_OPT_TP_PCT = 0.20;                 // take profit at +20% of premium
+const PICKS_OPT_TP_PCT = 0.20;                 // +20% of premium: banks HALF + arms the runner trail (hard TP when PICKS_OPT_SCALE_OUT=0)
 const PICKS_OPT_STOP_PCT = 0.30;               // cut loss at -30% of premium
+// Scale-out + trail: the old flat +20% take-profit hard-capped every winner at
+// ~+20% while gaps routinely blew losses far past the -30% stop (avg loss ran
+// ~4x avg win; +20/-30 needs a >60% win rate just to break even). At the TP the
+// position now banks HALF at the marked price and lets the other half run with
+// a trailing stop — floored at breakeven, ratcheting up to (peak − giveback) as
+// the runner extends — so an armed trade can't round-trip to a loss but the
+// right tail is no longer amputated. Closed records blend the two halves.
+const PICKS_OPT_SCALE_OUT = process.env.PICKS_OPT_SCALE_OUT !== "0";           // 0 = legacy flat +20% take-profit
+const PICKS_OPT_TRAIL_GIVEBACK_PCT = Number(process.env.PICKS_OPT_TRAIL_GIVEBACK_PCT ?? 0.25); // runner stop = max(breakeven, peak − 25pts)
+// The exit ladder's stock stop (structural / ~2.5x ATR, buildExitPlan's `cut`)
+// is ENFORCED in the track record: a name that closes through it resolves
+// (status hit-stop-under) even if the modeled premium hasn't printed -30% at a
+// mark yet — the premium stop alone only fires at build-time marks, so gaps
+// sailed straight through it. 0 = display-only (legacy).
+const PICKS_UNDERLYING_STOP = process.env.PICKS_UNDERLYING_STOP !== "0";
 const PICKS_ATR_STOP_MULT = 2.5;               // underlying stop = 2.5x ATR ...
 const PICKS_STOP_MIN = 0.05, PICKS_STOP_MAX = 0.12; // ... clamped 5-12%
 const PICKS_MAX_HOLD_DAYS = 14;                // force-close at two weeks
@@ -8875,11 +8892,13 @@ const PICKS_THETA_STOP_PCT = 0.025;            // dead-money bleed/day ...
 const PICKS_THETA_STOP_MIN_HOLD = 4;           // ... after 4 days held
 // Credit verticals decay in our favor, so they take profit / stop on a different
 // scale than a long debit: bank ~half the credit captured, cut if the cost to
-// buy it back runs to ~2x the credit received (defined-risk, but don't ride a
-// loser to max loss). Expressed as % of the credit received (the marked P/L base
-// for a credit spread in markOptionToMarket).
+// buy it back runs past ~1.5x the credit received (defined-risk, but don't ride
+// a loser toward max loss). Expressed as % of the credit received (the marked
+// P/L base for a credit spread in markOptionToMarket). The stop default was
+// -100% of the credit (buy-back ~2x) — a 2:1 inverted payoff vs the +50% TP
+// that let one stopped spread erase two winners; -50% makes the gates symmetric.
 const PICKS_CREDIT_TP_PCT = Number(process.env.PICKS_CREDIT_TP_PCT ?? 0.50);   // bank +50% of the credit
-const PICKS_CREDIT_STOP_PCT = Number(process.env.PICKS_CREDIT_STOP_PCT ?? 1.00); // cut at -100% of the credit (buyback ~2x)
+const PICKS_CREDIT_STOP_PCT = Number(process.env.PICKS_CREDIT_STOP_PCT ?? 0.50); // cut at -50% of the credit (buyback ~1.5x)
 
 // ---- Sizing ----------------------------------------------------------------
 const PICKS_GROSS_TARGET = 0.80;               // deploy 80% of book, rest cash
@@ -11099,7 +11118,7 @@ function buildCreditExitPlan(side, spot, data, contract) {
   const cut = { price: r2(shortK), movePct: (spot > 0 && shortK != null) ? r2((shortK / spot - 1) * 100) : null, reason: "short strike breach", optionPrice: optStopPrice, optionPct: stopPctN, entryPrem: credit != null ? r2(credit) : null };
   const takeProfit = { price: r2(be), movePct: (spot > 0 && be != null) ? r2((be / spot - 1) * 100) : null, reason: "stays beyond breakeven (theta decay)", optionPrice: optTpPrice, optionPct: tpPctN, entryPrem: credit != null ? r2(credit) : null };
   const holdSide = isCall ? "above" : "below";
-  const stopOptTxt = optStopPrice != null ? `a buy-back cost of $${optStopPrice} (≈${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}× the $${r2(credit)} credit, −${stopPctN}%)` : `a buy-back cost ~2x the credit received`;
+  const stopOptTxt = optStopPrice != null ? `a buy-back cost of $${optStopPrice} (≈${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}× the $${r2(credit)} credit, −${stopPctN}%)` : `a buy-back cost ~${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}x the credit received`;
   const tpOptTxt = optTpPrice != null ? `buying the spread back near $${optTpPrice} (+${tpPctN}% of the $${r2(credit)} credit captured)` : `buying the spread back near +${tpPctN}% of the credit captured`;
   const levels = [
     { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: `buy back ~+${tpPctN}% of credit`, reasons: {}, watchFor: null, prose: `Bank it by ${tpOptTxt}, or let it decay while price holds ${holdSide} ~$${takeProfit.price}.` },
@@ -11109,7 +11128,7 @@ function buildCreditExitPlan(side, spot, data, contract) {
     ? `Stop loss: buy the spread back at $${optStopPrice} (−${stopPctN}%, ≈${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}× the $${r2(credit)} credit); take profit buying back at $${optTpPrice} (+${tpPctN}%).`
     : null;
   const triggers = [
-    `Credit exit: bank +${tpPctN}% of the credit / cut at -${stopPctN}% (buy-back ~2x the credit).`,
+    `Credit exit: bank +${tpPctN}% of the credit / cut at -${stopPctN}% (buy-back ~${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}x the credit).`,
     stopLine,
     contract && contract.maxLoss != null ? `Defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)} per spread (width − credit), max profit ~$${(contract.maxProfit * 100).toFixed(0)} (the credit).` : null,
     `Time stop: close after ${PICKS_MAX_HOLD_DAYS} sessions if it hasn't decayed.`,
@@ -11145,18 +11164,24 @@ export function buildExitPlan(side, spot, data, contract) {
   const cut = { price: r2(cutPrice), movePct: r2((isCall ? -1 : 1) * cutPct * 100), reason: atrPct != null ? `~${PICKS_ATR_STOP_MULT}x ATR stop` : "fixed stop", optionPrice: optStopPrice, optionPct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: entryPrem != null ? r2(entryPrem) : null };
   const tpOptTxt = optTpPrice != null ? `$${optTpPrice} on the option (+${Math.round(PICKS_OPT_TP_PCT * 100)}%)` : `+${Math.round(PICKS_OPT_TP_PCT * 100)}% on the option`;
   const stopOptTxt = optStopPrice != null ? `$${optStopPrice} on the option (−${Math.round(PICKS_OPT_STOP_PCT * 100)}% of the ${premNoun})` : `−${Math.round(PICKS_OPT_STOP_PCT * 100)}% on the ${premNoun}`;
+  const tpProse = PICKS_OPT_SCALE_OUT
+    ? `Bank HALF near $${takeProfit.price} on the stock (or at ${tpOptTxt}); let the rest run with a breakeven trailing stop.`
+    : `Bank it near $${takeProfit.price} on the stock (or ${tpOptTxt}).`;
   const levels = [
-    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: takeProfit.reason, reasons: {}, watchFor: null, prose: `Bank it near $${takeProfit.price} on the stock (or ${tpOptTxt}).` },
+    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: PICKS_OPT_SCALE_OUT ? "Bank half + trail" : "Take profit", anchor: takeProfit.reason, reasons: {}, watchFor: null, prose: tpProse },
     { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: `Stop out at $${cut.price} on the stock, or set a hard stop at ${stopOptTxt}.` },
   ];
   const isDebitSpread = contract && contract.structure === "debit_vertical";
+  const tpRuleTxt = PICKS_OPT_SCALE_OUT
+    ? `at +${Math.round(PICKS_OPT_TP_PCT * 100)}% bank half and trail the rest (breakeven floor, ratcheting to peak −${Math.round(PICKS_OPT_TRAIL_GIVEBACK_PCT * 100)}pts)`
+    : `+${Math.round(PICKS_OPT_TP_PCT * 100)}% take-profit`;
   const stopLine = optStopPrice != null
-    ? `Stop loss: cut the option at $${optStopPrice} (−${Math.round(PICKS_OPT_STOP_PCT * 100)}% of the ~$${r2(entryPrem)} ${premNoun})${optTpPrice != null ? `; take profit at $${optTpPrice} (+${Math.round(PICKS_OPT_TP_PCT * 100)}%)` : ""}.`
+    ? `Stop loss: cut the option at $${optStopPrice} (−${Math.round(PICKS_OPT_STOP_PCT * 100)}% of the ~$${r2(entryPrem)} ${premNoun})${optTpPrice != null ? PICKS_OPT_SCALE_OUT ? `; bank half at $${optTpPrice} (+${Math.round(PICKS_OPT_TP_PCT * 100)}%) and trail the remainder` : `; take profit at $${optTpPrice} (+${Math.round(PICKS_OPT_TP_PCT * 100)}%)` : ""}.`
     : null;
   const triggers = [
     isDebitSpread
-      ? `Option exit: +${Math.round(PICKS_OPT_TP_PCT * 100)}% take-profit / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on the NET DEBIT${contract.maxProfit != null ? ` (defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)}, max profit ~$${(contract.maxProfit * 100).toFixed(0)} per spread)` : ""}.`
-      : `Option exit: +${Math.round(PICKS_OPT_TP_PCT * 100)}% take-profit / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on premium.`,
+      ? `Option exit: ${tpRuleTxt} / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on the NET DEBIT${contract.maxProfit != null ? ` (defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)}, max profit ~$${(contract.maxProfit * 100).toFixed(0)} per spread)` : ""}.`
+      : `Option exit: ${tpRuleTxt} / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on premium.`,
     stopLine,
     `Time stop: close after ${PICKS_MAX_HOLD_DAYS} sessions if it hasn't worked.`,
   ].filter(Boolean);
@@ -12901,18 +12926,43 @@ export function resolvePickOutcome(opts) {
   const tpGate = (credit ? PICKS_CREDIT_TP_PCT : PICKS_OPT_TP_PCT) * 100;
   const stopGate = (credit ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT) * 100;
   const heldDays = (pnum(o.nowSec) != null && pnum(o.entrySec) != null) ? (o.nowSec - o.entrySec) / 86400 : 0;
-  if (o.inUniverse === false) return { status: "dropped", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
-  if (pnl != null && pnl <= -stopGate) return { status: "hit-stop-prem", outcome: "loss" };
-  if (pnl != null && pnl >= tpGate) return { status: "hit-tp-prem", outcome: "win" };
+  // Once the scale-out banked half (o.scaledOutPnlPct, non-credit only — armed
+  // by updatePicksAccuracyFile the first mark ≥ the TP gate), the POSITION P/L
+  // is the blend of the banked half and the still-running half; every outcome
+  // sign below judges that blend, not the raw contract mark.
+  const scaled = !credit ? pnum(o.scaledOutPnlPct) : null;
+  const effPnl = pnl == null ? (scaled != null ? scaled / 2 : null) : (scaled != null ? scaled / 2 + pnl / 2 : pnl);
+  const byPnl = (effPnl != null && effPnl >= 0) ? "win" : "loss";
+  if (o.inUniverse === false) return { status: "dropped", outcome: byPnl };
+  // Runner trail (armed trades): stop at breakeven on the remaining half,
+  // ratcheting up to (peak − giveback) as the runner extends — a winner that
+  // banked half can't round-trip to a net loss, but its right tail stays open.
+  if (scaled != null && pnl != null) {
+    const peak = pnum(o.peakPnlPct);
+    const trailFloor = Math.max(0, (peak ?? scaled) - PICKS_OPT_TRAIL_GIVEBACK_PCT * 100);
+    if (pnl <= trailFloor) return { status: "trail-stop", outcome: byPnl };
+  }
+  if (pnl != null && pnl <= -stopGate) return { status: "hit-stop-prem", outcome: byPnl };
+  // Non-credit TP no longer closes the trade — it ARMS the scale-out (handled
+  // by the caller, which passes scaledOutPnlPct from that mark on). Credit
+  // spreads keep the hard buy-back take-profit, as does PICKS_OPT_SCALE_OUT=0.
+  if (pnl != null && pnl >= tpGate && (credit || !PICKS_OPT_SCALE_OUT)) return { status: "hit-tp-prem", outcome: "win" };
+  // The exit ladder's stock stop, enforced: buildExitPlan's `cut` level
+  // (structural support / ~2.5x ATR; the short strike for a credit spread) is
+  // frozen on the enrolled entry — a spot close through it resolves the trade
+  // even when the modeled premium hasn't printed -stopGate at a mark.
+  if (PICKS_UNDERLYING_STOP && pnum(o.stopUnder) != null && o.stopUnder > 0 && pnum(o.cur) != null) {
+    if (o.isCall ? o.cur <= o.stopUnder : o.cur >= o.stopUnder) return { status: "hit-stop-under", outcome: byPnl };
+  }
   // Pre-earnings exit fires ONLY when a print is genuinely ahead and inside the
   // window. Guard with Number.isFinite, NOT pnum(): pnum(null)===0 (Number(null)
   // is 0), so the old `pnum(x) != null` never rejected a null earnings date, and
   // `null <= 2` is also true (null coerces to 0) — so names with no/elapsed
   // earnings (every ETF; any stale past date) were phantom-resolved on day 0.
-  if (Number.isFinite(o.earningsAheadDays) && o.earningsAheadDays >= 0 && o.earningsAheadDays <= PICKS_EARNINGS_EXIT_DAYS) return { status: "pre-earnings", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
-  if (pnum(o.expSec) != null && pnum(o.nowSec) != null && o.nowSec >= o.expSec) return { status: "expired", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
-  if (!credit && heldDays >= PICKS_THETA_STOP_MIN_HOLD && pnum(o.thetaPctDay) != null && o.thetaPctDay >= PICKS_THETA_STOP_PCT && pnl != null && pnl < 0) return { status: "theta-stop", outcome: "loss" };
-  if (heldDays >= PICKS_MAX_HOLD_DAYS) return { status: "timed-out", outcome: (pnl != null && pnl >= 0) ? "win" : "loss" };
+  if (Number.isFinite(o.earningsAheadDays) && o.earningsAheadDays >= 0 && o.earningsAheadDays <= PICKS_EARNINGS_EXIT_DAYS) return { status: "pre-earnings", outcome: byPnl };
+  if (pnum(o.expSec) != null && pnum(o.nowSec) != null && o.nowSec >= o.expSec) return { status: "expired", outcome: byPnl };
+  if (!credit && heldDays >= PICKS_THETA_STOP_MIN_HOLD && pnum(o.thetaPctDay) != null && o.thetaPctDay >= PICKS_THETA_STOP_PCT && pnl != null && pnl < 0) return { status: "theta-stop", outcome: byPnl };
+  if (heldDays >= PICKS_MAX_HOLD_DAYS) return { status: "timed-out", outcome: byPnl };
   return null;
 }
 
@@ -12998,7 +13048,13 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   const accPath = resolve(DATA_DIR, PICKS_ACCURACY_FILE);
   const weekKey = picksAccuracyWeekKey(builtAtIso);
   const weeklyReset = PICKS_ACCURACY_WEEKLY_RESET && state.lastResetWeek !== weekKey;
-  let open = weeklyReset ? [] : (state.open || []).slice();
+  // Weekly reset: the open book is FORCE-CLOSED at its current marks (status
+  // "reset", in the marking loop below) rather than discarded. Discarding
+  // censored the record — a slow winner grinding toward the TP over 6-8
+  // sessions vanished uncounted at the week boundary while fast gap losers
+  // resolved in-week and WERE counted, inflating avg-loss vs avg-win (and the
+  // 14-day time stop could never fire). Every enrolled pick now resolves.
+  let open = (state.open || []).slice();
   let closed = (state.closed || []).slice();
   const lastResetWeek = weeklyReset ? weekKey : (state.lastResetWeek || weekKey);
 
@@ -13018,7 +13074,15 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const optLoPct = Math.min(pnum(e.optLoPct) ?? Infinity, optionPnlPct ?? Infinity);
     const earnMs = data?.fundamentals?.nextEarningsDate ? Date.parse(data.fundamentals.nextEarningsDate) : null;
     const earningsAheadDays = earnMs != null ? (earnMs - nowSec * 1000) / 86400000 : null;
-    const marked = { ...e, lastSpot: r2(lastSpot), optionPnlPct: r1(optionPnlPct), underlyingPnlPct: r1(underlyingPnlPct), mfePct: Number.isFinite(mfePct) ? r1(mfePct) : e.mfePct, maePct: Number.isFinite(maePct) ? r1(maePct) : e.maePct, optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null, optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null };
+    // Scale-out: the first mark at/above the TP gate banks HALF at that price
+    // and arms the runner trail (see resolvePickOutcome) instead of closing.
+    // Frozen once armed; non-credit structures only.
+    let scaleOut = e.scaleOut || null;
+    if (!scaleOut && PICKS_OPT_SCALE_OUT && (e.contract?.structure || "long") !== "credit_vertical"
+      && pnum(optionPnlPct) != null && optionPnlPct >= PICKS_OPT_TP_PCT * 100) {
+      scaleOut = { pnlPct: r1(optionPnlPct), date: builtAtIso };
+    }
+    const marked = { ...e, lastSpot: r2(lastSpot), optionPnlPct: r1(optionPnlPct), underlyingPnlPct: r1(underlyingPnlPct), mfePct: Number.isFinite(mfePct) ? r1(mfePct) : e.mfePct, maePct: Number.isFinite(maePct) ? r1(maePct) : e.maePct, optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null, optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null, ...(scaleOut ? { scaleOut } : {}) };
     // Re-score the thesis against today's grade — is it playing out? Price
     // progress is the direction-adjusted underlying move; driver confirmation is
     // how many of the entry's supporting drivers are still firing in the live
@@ -13050,8 +13114,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         gradeNow, gradeFlip, stopBreached,
       };
     }
-    const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, earningsAheadDays, structure: e.contract?.structure || "long" });
-    if (res) closed.unshift({ ...marked, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
+    const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, earningsAheadDays, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut) });
+    // A scaled-out entry closes at the BLEND of the banked half and the runner's
+    // exit — that blend is the position's true P/L and what the stats consume.
+    const closedPnl = (scaleOut && pnum(optionPnlPct) != null) ? r1(scaleOut.pnlPct / 2 + optionPnlPct / 2) : marked.optionPnlPct;
+    if (res) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
+    else if (weeklyReset) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitDate: builtAtIso, status: "reset", outcome: (pnum(closedPnl) != null && closedPnl >= 0) ? "win" : "loss" });
     else stillOpen.push(marked);
   }
   open = stillOpen;

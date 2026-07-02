@@ -238,9 +238,31 @@ ok("regime: persistence holds a recovering state one build", persisted.persisted
 
 // --- 6. resolvePickOutcome ------------------------------------------------
 ok("exit: -35% option -> hit-stop loss", resolvePickOutcome({ modeledOptPnlPct: -35, entrySec: nowSec - dayMs / 1000, nowSec }).outcome === "loss");
-ok("exit: +25% option -> hit-tp win", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - dayMs / 1000, nowSec }).outcome === "win");
+// +TP no longer closes a non-credit trade — it ARMS the scale-out (the caller
+// banks half at that mark and passes scaledOutPnlPct from then on).
+ok("exit: +25% option -> stays open (arms the scale-out, not a hard TP)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - dayMs / 1000, nowSec }) === null);
 ok("exit: +5% still open -> null", resolvePickOutcome({ modeledOptPnlPct: 5, entrySec: nowSec - 2 * 86400, nowSec }) === null);
 ok("exit: 14d timeout, underwater -> loss", resolvePickOutcome({ modeledOptPnlPct: -5, entrySec: nowSec - 15 * 86400, nowSec }).outcome === "loss");
+// Scale-out + runner trail: banked half at +22, peak +40 -> trail floor 15;
+// a fade to +10 closes as trail-stop and the blend (0.5*22 + 0.5*10 = +16) wins.
+{
+  const r = resolvePickOutcome({ modeledOptPnlPct: 10, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec });
+  ok("exit: armed runner fades to the trail -> trail-stop win", !!r && r.status === "trail-stop" && r.outcome === "win");
+}
+ok("exit: armed runner above the trail -> stays open", resolvePickOutcome({ modeledOptPnlPct: 30, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec }) === null);
+// An armed trade can't round-trip to a net loss: peak 22, gap to -2 -> the
+// breakeven floor closes it, blend 0.5*22 + 0.5*(-2) = +10 -> win.
+{
+  const r = resolvePickOutcome({ modeledOptPnlPct: -2, scaledOutPnlPct: 22, peakPnlPct: 22, entrySec: nowSec - 2 * 86400, nowSec });
+  ok("exit: armed trade gapping red still banks the half -> win", !!r && r.status === "trail-stop" && r.outcome === "win");
+}
+// The exit ladder's stock stop is enforced: a call whose spot closed through
+// the cut level resolves even though the premium never printed -30% at a mark.
+{
+  const r = resolvePickOutcome({ modeledOptPnlPct: -12, isCall: true, cur: 88, stopUnder: 90, entrySec: nowSec - 2 * 86400, nowSec });
+  ok("exit: stock stop breach -> hit-stop-under loss", !!r && r.status === "hit-stop-under" && r.outcome === "loss");
+}
+ok("exit: spot above the stock stop -> untouched", resolvePickOutcome({ modeledOptPnlPct: -12, isCall: true, cur: 95, stopUnder: 90, entrySec: nowSec - 2 * 86400, nowSec }) === null);
 
 // --- 7. history / churn / roster builders (no runtime errors + shapes) -----
 const gh = diffGradesHistory({ latest: {}, changes: [] }, grades, new Date().toISOString());
@@ -357,10 +379,11 @@ const crdBear = pickVerticalForPick("put", bsData, 0.045, { type: "credit" });
 ok("vertical: bearish credit builds as bear-call (calls)", !!crdBear && crdBear.optionType === "call" && crdBear.delta < 0);
 
 // Structure-aware exit resolution (credit spreads decay → different gates).
-ok("exit: credit +55% -> win (TP at 50%)", resolvePickOutcome({ modeledOptPnlPct: 55, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).outcome === "win");
+ok("exit: credit +55% -> win (hard TP at 50%, no scale-out on credit)", resolvePickOutcome({ modeledOptPnlPct: 55, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).status === "hit-tp-prem");
 ok("exit: credit +25% -> still open (below 50% TP)", resolvePickOutcome({ modeledOptPnlPct: 25, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }) === null);
-ok("exit: credit -120% -> loss (stop at -100%)", resolvePickOutcome({ modeledOptPnlPct: -120, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).outcome === "loss");
-ok("exit: naked +25% -> win (TP still 20%)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - 2 * 86400, nowSec }).outcome === "win");
+ok("exit: credit -60% -> loss (stop tightened to -50% of the credit)", resolvePickOutcome({ modeledOptPnlPct: -60, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).outcome === "loss");
+ok("exit: credit -40% -> still open (above the -50% stop)", resolvePickOutcome({ modeledOptPnlPct: -40, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }) === null);
+ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledOptPnlPct: 55, scaledOutPnlPct: 22, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).status === "hit-tp-prem");
 
 // --- 12d. AI thesis layer (macro read feeds the gate + narrative ships) -----
 // The everything-aware AI thesis, when supplied via opts.aiThesisMap, becomes the
