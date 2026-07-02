@@ -13207,6 +13207,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Historical playbook — analog read + active pattern cues, up top: when it
     // fires it is the most decision-relevant block on the card.
     blocks.push(briefAnalogBlock(b));
+    // Tickers to watch this build — the deterministic single-name event/news
+    // screen over the whole universe (news takes, dated catalysts, capital
+    // raises, earnings timing, unusual flow, heavy tape). Deliberately NOT the
+    // Top Picks strip — roster overlap is labelled instead. Chip click opens
+    // the Grade tab; the news/catalyst clause rides the chip tooltip.
+    if (Array.isArray(b.watchlist) && b.watchlist.length){
+      var wl = b.watchlist.map(function(w){
+        var why = (w.reasons || []).join(' · ') + (w.pick ? ' · also a top pick' : '');
+        return '<li class="brief-hline">' +
+          '<button type="button" class="brief-chip ' + briefPctCls(w.ch) + '" data-sym="' + briefEsc(w.sym) + '"' + (w.take ? ' title="' + briefEsc(w.take) + '"' : '') + '>' +
+            briefEsc(w.sym) + (w.ch != null ? ' <span>' + briefEsc(briefFmtPct(w.ch)) + '</span>' : '') + '</button>' +
+          '<span class="brief-hline-title">' + briefEsc(why) + '</span>' +
+        '</li>';
+      }).join('');
+      blocks.push(briefBlock('Tickers to watch', '<ul class="brief-hlines">' + wl + '</ul>'));
+    }
     // Economic data that already printed (CPI/PPI/jobs) — actual vs consensus,
     // with the hotter/cooler read in the tooltip. Deliberately neutral-colored:
     // a hot print's equity direction is the AI summary's job, not the chip's.

@@ -14345,6 +14345,11 @@ const BRIEF_EOD_TRIGGER_ET_HOUR = 16;
 // "significant" in the briefs' Global-bonds section so a sharp JGB / curve
 // move is surfaced, not buried. ~5bp is a notable daily move for a 10Y.
 const BRIEF_RATE_SIG_BP = 5;
+// Tickers-to-watch screen (buildBriefWatchlist): max names shipped per brief,
+// and the broad index ETFs excluded from it (they ARE the market — they live
+// in the index scorecard / levels blocks, not the single-name watchlist).
+const BRIEF_WATCH_MAX = 6;
+const BRIEF_WATCH_EXCLUDE = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 
 // ET wall-clock hour (0-23), DST-safe. build.mjs already has etDateKey(); this
 // is its hour sibling, used only by the brief window gating.
@@ -14651,6 +14656,113 @@ export function detectPlaybookCues(ctx, now = new Date()) {
 // movers + flow). The returned object is BOTH stashed onto the brief for
 // rendering (briefRenderFields) and fed verbatim to the prompt builder, so the
 // model only ever narrates facts we computed. Pure — exported for testing.
+// Single names to WATCH this build — a deterministic screen over the WHOLE
+// curated universe, deliberately NOT sourced from the Top Picks roster (picks
+// are conviction-graded trades; this is "where today's news/action is"). Each
+// name scores from: the per-ticker AI news take (bullish/bearish only — the
+// keyless/no-news fallback take is "uncertain" and never fires), dated
+// near-term catalysts from the news read, fresh capital-raise / buyback
+// headlines, earnings timing (today's session or inside ~2 days), unusual
+// options flow, heavy relative volume, the size of the day's move, and a
+// 52-week-extreme touch. A name must carry at least one EVENT-ish reason
+// (news / catalyst / raise / earnings / flow) or a 2-signal tape pile-up, so
+// the section doesn't just mirror the biggest-movers block. Top-picks overlap
+// is allowed but labelled (`pick: true`) — never a re-print of the picks
+// strip. Ships in every brief kind. Exported for testing.
+export function buildBriefWatchlist(ctx) {
+  const { chains = {}, unusual = null, calendar = {}, picks = [], picksChanges = [] } = ctx || {};
+  const nowMs = Date.now();
+  const pickSyms = new Set((Array.isArray(picks) ? picks : []).map((p) => p?.symbol).filter(Boolean));
+  const flowBySym = new Map();
+  for (const t of (unusual && Array.isArray(unusual.tickers) ? unusual.tickers : [])) {
+    if (!t || !t.symbol || flowBySym.has(t.symbol)) continue;
+    const c = Array.isArray(t.contracts) && t.contracts.length ? t.contracts[0] : null;
+    flowBySym.set(t.symbol, { side: c?.side || null, note: briefClause(c?.note, 140) });
+  }
+  const churnBySym = new Map();
+  for (const e of (Array.isArray(picksChanges) ? picksChanges : [])) {
+    if (e && e.symbol && (e.event === "entered" || e.event === "exited")) churnBySym.set(e.symbol, e.event);
+  }
+  const earnToday = new Map();
+  for (const e of (calendar?.todayEarnings || [])) if (e && e.sym) earnToday.set(e.sym, e.session && e.session !== "TBD" ? e.session : "today");
+  const rows = [];
+  for (const [sym, d] of Object.entries(chains)) {
+    if (!d || BRIEF_WATCH_EXCLUDE.has(sym)) continue;
+    const isEtf = SECTORS[sym] === "ETF";
+    const reasons = [];
+    let score = 0, event = 0, take = null;
+    // AI news take. ETFs excluded: a fund's take is a synthesized macro
+    // paragraph, not company news, and would flag every gold/oil ETF daily.
+    const sent = !isEtf && d.news ? d.news.sentiment : null;
+    if (sent === "bullish" || sent === "bearish") {
+      score += 3; event++;
+      reasons.push(sent === "bullish" ? "bullish news" : "bearish news");
+      take = briefClause(d.news.paragraph, 160);
+    }
+    // Dated near-term catalyst pulled by the news read (FDA / court / launch /
+    // merger / guidance …) — inside the next week, not low-confidence.
+    if (!isEtf && Array.isArray(d.catalysts)) {
+      for (const c of d.catalysts) {
+        if (!c || !c.date || c.confidence === "low") continue;
+        const t = Date.parse(c.date);
+        if (!Number.isFinite(t)) continue;
+        const days = (t - nowMs) / 86400000;
+        if (days < -1 || days > 7) continue;
+        score += 2; event++;
+        reasons.push(`${c.category && c.category !== "other" ? c.category : "dated"} catalyst`);
+        if (!take) take = briefClause(c.title, 160);
+        break;
+      }
+    }
+    // Fresh capital-raise / buyback headline (deterministic classifier).
+    if (d.capitalRaise?.kind) {
+      score += 2; event++;
+      reasons.push(d.capitalRaise.kind === "buyback" ? "buyback headline" : `${d.capitalRaise.kind} raise headline`);
+      if (!take) take = briefClause(d.capitalRaise.title, 160);
+    }
+    // Earnings: today's AM/PM session (calendar), else inside ~2 sessions.
+    const sess = earnToday.get(sym);
+    if (sess) { score += 3; event++; reasons.push(`earnings ${sess}`); }
+    else {
+      const em = d.fundamentals?.nextEarningsDate ? Date.parse(d.fundamentals.nextEarningsDate) : NaN;
+      const ed = (em - nowMs) / 86400000;
+      if (Number.isFinite(ed) && ed >= -0.5 && ed <= 2.5) { score += 2; event++; reasons.push("earnings imminent"); }
+    }
+    // Unusual options flow flagged this session (pre-market: the prior
+    // session's last scan — "what positioned into today").
+    const fl = flowBySym.get(sym);
+    if (fl) {
+      score += 2; event++;
+      reasons.push(fl.side ? `unusual ${fl.side} flow` : "unusual options flow");
+      if (!take && fl.note) take = fl.note;
+    }
+    // Tape: relative volume, the size of the day's move, 52-week extremes.
+    const vol = d.technicals?.volume || {};
+    const ch = Number.isFinite(vol.priceMove1dPct) ? Math.round(vol.priceMove1dPct * 100) / 100 : null;
+    if (Number.isFinite(vol.rvol) && vol.rvol >= 2) { score += 1.5; reasons.push(`${Math.round(vol.rvol * 10) / 10}x volume`); }
+    if (ch != null && Math.abs(ch) >= 3) { score += Math.abs(ch) >= 5 ? 2.5 : 1.5; reasons.push("big 1-day move"); }
+    const bars = timingBarsFrom(d);
+    const spot = Number(d.spot);
+    if (bars && Number.isFinite(spot) && spot > 0) {
+      let hi = -Infinity, lo = Infinity;
+      for (const v of bars.h) if (Number.isFinite(v) && v > hi) hi = v;
+      for (const v of bars.l) if (Number.isFinite(v) && v > 0 && v < lo) lo = v;
+      if (hi > lo && lo > 0) {
+        if (spot >= hi * 0.995) { score += 1; reasons.push("at 52w high"); }
+        else if (spot <= lo * 1.005) { score += 1; reasons.push("at 52w low"); }
+      }
+    }
+    // Crossing the actionable picks bar this build is context, not a qualifier.
+    const churn = churnBySym.get(sym);
+    if (churn) { score += 1; reasons.push(churn === "entered" ? "crossed the picks bar" : "dropped off the picks bar"); }
+    if (!(event >= 1 || (reasons.length >= 2 && score >= 3))) continue;
+    rows.push({ sym, ch, score, reasons: reasons.slice(0, 4), take: take || null, ...(pickSyms.has(sym) ? { pick: true } : {}) });
+  }
+  rows.sort((a, b) => (b.score - a.score) || (Math.abs(b.ch ?? 0) - Math.abs(a.ch ?? 0)));
+  // score is a ranking device, not a shipped fact — strip it from the payload.
+  return rows.slice(0, BRIEF_WATCH_MAX).map(({ score, ...w }) => w);
+}
+
 export function gatherBriefSignals(kind, ctx) {
   const {
     chains = {}, fearGreed = null, macro = null, correlations = null,
@@ -14746,6 +14858,11 @@ export function gatherBriefSignals(kind, ctx) {
 
   const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
   if (bonds.length) signals.bonds = bonds;
+
+  // Tickers to watch this build — the deterministic single-name event/news
+  // screen over the whole universe (NOT the picks roster). Every brief kind.
+  const watchlist = buildBriefWatchlist({ chains, unusual, calendar, picks, picksChanges });
+  if (watchlist.length) signals.watchlist = watchlist;
 
   // Market-wide press/wire headlines — the media input behind headline-driven
   // tape moves (a geopolitical de-escalation lifting everything, a tariff
@@ -14966,6 +15083,7 @@ function briefRenderFields(s) {
   if (s.sectors && ((s.sectors.leaders && s.sectors.leaders.length) || (s.sectors.laggards && s.sectors.laggards.length))) out.sectors = s.sectors;
   if (s.extremes && ((s.extremes.highs && s.extremes.highs.length) || (s.extremes.lows && s.extremes.lows.length))) out.extremes = s.extremes;
   if (s.volume && s.volume.length) out.volume = s.volume;
+  if (s.watchlist && s.watchlist.length) out.watchlist = s.watchlist;
   if (s.flow && s.flow.length) out.flow = s.flow;
   if (s.gex && s.gex.length) out.gex = s.gex;
   if (s.picksChanges && ((s.picksChanges.added && s.picksChanges.added.length) || (s.picksChanges.dropped && s.picksChanges.dropped.length))) out.picksChanges = s.picksChanges;
@@ -15141,6 +15259,12 @@ export function briefUserMessage(kind, dateKey, signals) {
     }
     if (signals.volume && signals.volume.length) {
       lines.push("Volume standouts (vs own 20-day average): " + signals.volume.map((v) => `${v.sym} ${v.rvol}x${v.chPct != null ? ` (${briefPctStr(v.chPct)})` : ""}`).join(", ") + ".");
+    }
+  }
+  if (signals.watchlist && signals.watchlist.length) {
+    lines.push("Tickers to watch this build (deterministic single-name screen — news takes, dated catalysts, capital raises, earnings timing, unusual flow, heavy tape; NOT the model's picks roster — weave the interesting ones into the narrative):");
+    for (const w of signals.watchlist) {
+      lines.push(`- ${w.sym}${w.ch != null ? ` (${briefPctStr(w.ch)})` : ""}: ${(w.reasons || []).join("; ")}${w.pick ? " [also on the Top Picks roster]" : ""}${w.take ? ` — ${w.take}` : ""}`);
     }
   }
   if (signals.flow && signals.flow.length) {
