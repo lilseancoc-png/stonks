@@ -7905,7 +7905,8 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 }
 .picks-sort,
 .streaks-sort,
-.vol-sort {
+.vol-sort,
+.acc-sort {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -7914,7 +7915,8 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 }
 .picks-sort-label,
 .streaks-sort-label,
-.vol-sort-label {
+.vol-sort-label,
+.acc-sort-label {
   font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -7922,7 +7924,8 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 }
 .picks-sort select,
 .streaks-sort select,
-.vol-sort select {
+.vol-sort select,
+.acc-sort select {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
@@ -7934,17 +7937,28 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 }
 .picks-sort select:focus-visible,
 .streaks-sort select:focus-visible,
-.vol-sort select:focus-visible {
+.vol-sort select:focus-visible,
+.acc-sort select:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 .vol-sort { margin-left: auto; }
+/* Track-record resolved-list sort rides inside the mono-uppercase group head —
+   undo the inherited casing/spacing so the control reads as UI, not a heading. */
+.acc-sort {
+  margin-left: auto;
+  font: 400 var(--fs-sm)/1.2 var(--font-sans);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.acc-sort select { text-transform: none; letter-spacing: normal; }
 @media (max-width: 640px){
   .vol-sort { margin-left: 0; }
   .picks-sort-label,
   .streaks-sort-label,
-  .vol-sort-label { display: none; }
+  .vol-sort-label,
+  .acc-sort-label { display: none; }
 }
 
 /* Streaks controls row — filter fields + sort selector sit just above the
@@ -10489,6 +10503,22 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   color: var(--muted-strong);
   background: color-mix(in srgb, var(--muted) 16%, var(--surface));
 }
+/* Exit-reason group subhead — shown when the resolved list is sorted by reason. */
+.acc-sort-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 11px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted-strong);
+  margin: 10px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.acc-sort-sub:first-child { margin-top: 0; }
+/* "exit: take-profit" chip on each resolved row's meta line. */
+.acc-row-meta .acc-exit { color: var(--muted-strong); font-weight: 600; }
 .acc-row {
   padding: 8px 10px;
   border: 1px solid var(--border);

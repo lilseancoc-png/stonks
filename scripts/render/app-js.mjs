@@ -17026,6 +17026,49 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null, roster: null };
   var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
+  // Resolved-list sort (Picks pane). Module-level so a re-render (sub-tab hop,
+  // fresh data) keeps the user's choice for the session.
+  var accClosedSort = 'newest';
+  var ACC_CLOSED_SORTS = [
+    { k:'newest',    lbl:'Newest first' },
+    { k:'pnl-desc',  lbl:'Biggest gain (%)' },
+    { k:'pnl-asc',   lbl:'Biggest loss (%)' },
+    { k:'held-desc', lbl:'Longest held' },
+    { k:'held-asc',  lbl:'Shortest held' },
+    { k:'reason',    lbl:'Exit reason' },
+  ];
+  // Display order for the exit-reason grouping: targets first, then the stop
+  // family, then the passive/forced closes. Unknown statuses sort last.
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','theta-stop','timed-out','pre-earnings','expired','dropped','reset'];
+  // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
+  // key (no modeled P&L / unparsable dates) sink to the bottom in either
+  // direction; ties fall back to newest-resolved-first so the order is stable.
+  function accSortClosed(list){
+    var arr = list.slice();
+    function exitMs(e){ var t = Date.parse(e.exitDate || e.entryDate); return isFinite(t) ? t : 0; }
+    function pnl(e){ var v = Number(e.optionPnlPct); return isFinite(v) ? v : null; }
+    function held(e){ return accDaysBetween(e.entryDate, e.exitDate); }
+    function by(valFn, dir){
+      return function(a, b){
+        var va = valFn(a), vb = valFn(b);
+        if (va == null && vb == null) return exitMs(b) - exitMs(a);
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return (va - vb) * dir || exitMs(b) - exitMs(a);
+      };
+    }
+    var s = accClosedSort;
+    if (s === 'pnl-desc') arr.sort(by(pnl, -1));
+    else if (s === 'pnl-asc') arr.sort(by(pnl, 1));
+    else if (s === 'held-desc') arr.sort(by(held, -1));
+    else if (s === 'held-asc') arr.sort(by(held, 1));
+    else if (s === 'reason') arr.sort(by(function(e){
+      var i = ACC_EXIT_ORDER.indexOf(e.status);
+      return i < 0 ? ACC_EXIT_ORDER.length : i;
+    }, 1));
+    else arr.sort(function(a, b){ return exitMs(b) - exitMs(a); });
+    return arr;
+  }
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
   function loadAccuracy(){
     if (accuracyState.data || accuracyState.loading){ renderAccuracy(); return; }
@@ -18849,49 +18892,79 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
 
     // --- Resolved positions -------------------------------------------------
+    function accClosedRow(e){
+      var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
+      var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
+      var held = accDaysBetween(e.entryDate, e.exitDate);
+      var entry = Number(e.entrySpot) || 0;
+      var exit = Number(e.exitSpot);
+      var rOptPnl = Number(e.optionPnlPct);
+      var rHaveOpt = isFinite(rOptPnl);
+      // Lead the resolved row with the modeled CONTRACT result (what the trade
+      // actually returned), underlying entry→exit demoted to context.
+      var rHeadPnl = rHaveOpt
+        ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
+        : '';
+      var exitLbl = ACC_STATUS_LABEL[e.status] || e.status || null;
+      return '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
+        '<div class="acc-row-head">' +
+          '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
+          accSidePill(e.side) +
+          '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
+          accTierTag(e.tier, e.label) +
+          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
+          '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
+          rHeadPnl +
+        '</div>' +
+        '<div class="acc-row-meta">' +
+          '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
+          (held != null ? '<span>' + held + 'd held</span>' : '') +
+          ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
+            ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
+            : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
+          (exitLbl ? '<span class="acc-exit" title="Why the engine closed this position.">exit: ' + escapeHtml(exitLbl) + '</span>' : '') +
+          '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
+        '</div>' +
+        accStrategyBlock(e, true) +
+        accCheckpointsBlock(e) +
+      '</div>';
+    }
     if (closed.length){
+      var sorted = accSortClosed(closed);
       var closedRows = '';
-      closed.forEach(function(e){
-        var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
-        var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
-        var held = accDaysBetween(e.entryDate, e.exitDate);
-        var entry = Number(e.entrySpot) || 0;
-        var exit = Number(e.exitSpot);
-        var rOptPnl = Number(e.optionPnlPct);
-        var rHaveOpt = isFinite(rOptPnl);
-        // Lead the resolved row with the modeled CONTRACT result (what the trade
-        // actually returned), underlying entry→exit demoted to context.
-        var rHeadPnl = rHaveOpt
-          ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
-          : '';
-        closedRows += '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
-          '<div class="acc-row-head">' +
-            '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
-            accSidePill(e.side) +
-            '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
-            accTierTag(e.tier, e.label) +
-            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
-            '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
-            rHeadPnl +
-          '</div>' +
-          '<div class="acc-row-meta">' +
-            '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
-            (held != null ? '<span>' + held + 'd held</span>' : '') +
-            ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
-              ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
-              : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
-            '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
-          '</div>' +
-          accStrategyBlock(e, true) +
-          accCheckpointsBlock(e) +
-        '</div>';
+      var lastStatus = null;
+      sorted.forEach(function(e){
+        // Exit-reason sort reads as GROUPS: emit a subhead each time the
+        // reason changes (the list is already ordered by ACC_EXIT_ORDER).
+        if (accClosedSort === 'reason'){
+          var sk = e.status || 'other';
+          if (sk !== lastStatus){
+            lastStatus = sk;
+            var n = 0;
+            for (var ci = 0; ci < sorted.length; ci++) if ((sorted[ci].status || 'other') === sk) n++;
+            closedRows += '<div class="acc-sort-sub">' + escapeHtml(ACC_STATUS_LABEL[sk] || sk) + ' <span class="accuracy-group-n">' + n + '</span></div>';
+          }
+        }
+        closedRows += accClosedRow(e);
       });
+      var sortOpts = ACC_CLOSED_SORTS.map(function(o){
+        return '<option value="' + o.k + '"' + (accClosedSort === o.k ? ' selected' : '') + '>' + o.lbl + '</option>';
+      }).join('');
+      var sortCtl = '<label class="acc-sort"><span class="acc-sort-label">Sort</span>' +
+        '<select id="acc-closed-sort" aria-label="Sort resolved picks">' + sortOpts + '</select></label>';
       html += '<div class="accuracy-group">' +
-        '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span></div>' +
+        '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span>' + sortCtl + '</div>' +
         closedRows +
       '</div>';
     }
     root.innerHTML = html;
+    // The sort select is recreated on every render (innerHTML above), so the
+    // listener is re-bound each time; state lives in accClosedSort.
+    var sortSel = $('acc-closed-sort');
+    if (sortSel) sortSel.addEventListener('change', function(){
+      accClosedSort = sortSel.value;
+      renderAccuracy();
+    });
   }
 
   function pickDriverChip(d){
