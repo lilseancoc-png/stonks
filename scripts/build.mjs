@@ -16530,7 +16530,16 @@ function sanitizeGuidanceDirection(direction, evidence) {
   return capitalReturn && !guidanceLang ? "none" : direction;
 }
 
-async function attachAiContractGuidance(chains) {
+// `judgmentCache` (optional) is the ticker-judgment cache built by
+// attachTickerJudgments THIS build. Its per-sym entries are keyed on the same
+// headline signature this pass reads (data.news.headlines is set from those
+// exact headlines), so an entry that already carries a `signals` key means the
+// extraction ran on identical input in a prior build — reuse it and skip the
+// call. The key holds null when the pass ran and found nothing (still a hit);
+// a fresh result is stored back onto the entry, which main() persists after
+// the data/ wipe. Entries are current-build by construction, so no extra
+// signature check is needed here.
+async function attachAiContractGuidance(chains, judgmentCache = null) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — Major Contract + Guidance signals stay on proxy / no-data.");
     return;
@@ -16548,6 +16557,7 @@ async function attachAiContractGuidance(chains) {
     "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
     "Each evidence string: one short clause citing the headline. No markdown, no preamble.";
   let tagged = 0;
+  let reusedSignals = 0;
   const todayIso = new Date().toISOString().slice(0, 10);
   // Parallelize across tickers — the actual model calls are still serialized by
   // the shared acquireAiSlot() RPM pacer, so concurrency here only overlaps
@@ -16557,6 +16567,12 @@ async function attachAiContractGuidance(chains) {
   await Promise.all(Object.entries(chains).map(([sym, data]) => (async () => {
     const headlines = (data && data.news && Array.isArray(data.news.headlines)) ? data.news.headlines : [];
     if (!headlines.length) return;
+    const cacheEntry = AI_TICKER_CACHE && judgmentCache ? judgmentCache[sym] : null;
+    if (cacheEntry && "signals" in cacheEntry) {
+      if (cacheEntry.signals) { data.aiSignals = cacheEntry.signals; tagged += 1; }
+      reusedSignals += 1;
+      return;
+    }
     const headlineBlock = headlines
       .map((h, i) => `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`)
       .join("\n");
@@ -16606,12 +16622,17 @@ async function attachAiContractGuidance(chains) {
       const aiSignals = {};
       if (mcStatus) aiSignals.majorContract = { status: mcStatus, evidence: String(parsed.majorContract.evidence || "").slice(0, 200) };
       if (gDir) aiSignals.guidance = { direction: sanitizeGuidanceDirection(gDir, parsed.guidance.evidence), evidence: String(parsed.guidance.evidence || "").slice(0, 200) };
-      if (Object.keys(aiSignals).length) { data.aiSignals = aiSignals; tagged += 1; }
+      const out = Object.keys(aiSignals).length ? aiSignals : null;
+      if (out) { data.aiSignals = out; tagged += 1; }
+      // Store on the judgment-cache entry (null = "ran, nothing found" — still
+      // reusable) so the next unchanged-headlines build skips this call too.
+      // Parse/call failures deliberately store nothing → retried next build.
+      if (cacheEntry) cacheEntry.signals = out;
     } catch {
       // Bad JSON — leave aiSignals unset (proxy / no-data path).
     }
   })()));
-  if (tagged) console.log(`[picks] extracted contract/guidance signals for ${tagged} tickers (${model})`);
+  if (tagged || reusedSignals) console.log(`[picks] extracted contract/guidance signals for ${tagged} tickers (${model}${reusedSignals ? `, ${reusedSignals} reused from cache` : ""})`);
 }
 
 // Fundamentals judgment — given a ticker's fundamental metrics + last
@@ -17335,47 +17356,155 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
   hb.stop();
 }
 
+// ── Cross-build ticker-judgment cache ────────────────────────────────────────
+// The combined news+fundamentals judgment (attachTickerJudgments) is the most
+// expensive AI pass in the build: one call per ticker per bake, each carrying
+// up to 10 headlines WITH article bodies (thousands of input tokens), 8 bakes
+// a day — yet intraday most names' news simply hasn't changed since the
+// previous hourly build. Cache each ticker's result keyed on what the model
+// actually reasons over: the RAW headline set + the slow-moving fundamentals
+// facts (last reported quarter, next earnings date, analyst consensus) + the
+// ET date (takes say "today", so they never carry across days) + the models +
+// the AI_SIGNALS_COMBINED shape. Price-derived prompt drift (spot / market
+// cap / P/E move with every tick) is deliberately NOT in the signature — that
+// would bust the cache every build for zero informational change. Instead a
+// reused entry is re-read once spot has drifted >TICKER_JUDGMENT_SPOT_DRIFT
+// from the price the take was generated at (the entry keeps its ORIGINAL spot
+// on reuse, so drift accumulates rather than creeping past the bar 1% at a
+// time). A hit also skips enrichHeadlinesWithBodies' article fetches (the
+// signature is over the raw headlines), so hits save wall-clock, not just
+// tokens. Same read-before-wipe / write-after-wipe rule as the chart-pattern
+// cache. Shape: { [sym]: { sig, spot, news, judgment, catalysts, aiSignals,
+// signals? } } — `aiSignals` is the AI_SIGNALS_COMBINED fold-in; `signals` is
+// the split attachAiContractGuidance pass's result, stored on the same entry
+// so THAT per-ticker call is skipped on unchanged headlines too (key present
+// = the pass ran; null = ran and found nothing). AI_TICKER_CACHE=0 disables
+// (every build re-reads — the pre-cache behavior).
+const TICKER_JUDGMENT_CACHE_FILE = "ticker-judgment-cache.json";
+// Version tag — bump to invalidate every prior entry after a prompt/schema change.
+const TICKER_JUDGMENT_CACHE_VERSION = "tj1";
+const AI_TICKER_CACHE = process.env.AI_TICKER_CACHE !== "0";
+const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0.02);
+
+function tickerJudgmentSignature(rawHeadlines, fundamentals) {
+  const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+  const heads = rawHeadlines
+    .map((h) => `${h.title}|${h.publisher || ""}|${h.publishedAt || ""}`)
+    .join("\n");
+  // Only the slow-moving, non-price-derived fundamentals facts ride the key: a
+  // new earnings print or a consensus change forces a re-read; P/E / market-cap
+  // drift (pure price motion) is covered by the spot-drift check instead.
+  const f = fundamentals || {};
+  const fundBits = [
+    hasUsefulFundamentals(f) ? 1 : 0,
+    f.lastQuarter?.date || "",
+    f.lastQuarter?.epsActual ?? "",
+    f.nextEarningsDate || "",
+    f.recommendationKey || "",
+    f.numberOfAnalystOpinions ?? "",
+  ].join("|");
+  return [
+    TICKER_JUDGMENT_CACHE_VERSION,
+    etDate,
+    AI_SIGNALS_COMBINED ? 1 : 0,
+    AI_TICKER_MODEL,
+    process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL, // the split guidance pass's model
+    createHash("sha1").update(heads).digest("hex").slice(0, 12),
+    createHash("sha1").update(fundBits).digest("hex").slice(0, 12),
+  ].join("|");
+}
+
+// Read BEFORE writeChainFiles wipes data/. Missing / unreadable / wrong-shape → {}.
+async function readTickerJudgmentCache() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, TICKER_JUDGMENT_CACHE_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch (_) { /* missing or unreadable — first build / cleared */ }
+  return {};
+}
+
+// Write AFTER writeChainFiles has recreated data/. Soft-fail: a cache write
+// error must never break the build (the next build just re-reads fresh).
+async function writeTickerJudgmentCache(cache) {
+  try {
+    await writeFile(resolve(DATA_DIR, TICKER_JUDGMENT_CACHE_FILE), JSON.stringify(cache || {}), "utf8");
+  } catch (err) {
+    console.warn(`[judgment] failed to persist ticker-judgment cache — ${String(err?.message || err).split("\n")[0]}`);
+  }
+}
+
 // Combined news + fundamentals pass. Replaces attachAiNewsTakes + the
 // follow-up attachFundamentalsJudgments call when AI_COMBINED is on
 // (default). One AI request per ticker instead of two — also keeps the
 // system-prompt prefix identical across calls so Gemini's implicit
 // prompt cache kicks in from call 2 onward.
-async function attachTickerJudgments(chains, macroBackdrop) {
+// Returns the refreshed ticker-judgment cache for main() to persist after the
+// data/ wipe (see TICKER_JUDGMENT_CACHE_FILE above); a keyless build carries
+// the prior cache forward unchanged rather than clobbering it.
+async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping AI ticker judgments. Chain data will still build.");
-    return;
+    // Carry the prior cache forward unchanged (same rationale as
+    // attachChartPatterns): a transiently-missing key must not force the next
+    // keyed build to start cold.
+    return priorCache;
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const entries = Object.entries(chains);
   console.log(`Generating combined ticker judgments (news + fundamentals) for ${entries.length} tickers…`);
   _capitalRaiseFlags = []; // reset the capital-raises accumulator each build
   resetBodyFetchStats();
+  const nextCache = {};
+  let reused = 0;
   const hb = startHeartbeat("ticker judgments", entries.length);
   const runPass = (passEntries) =>
     Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
       try {
         const rawHeadlines = await fetchTickerHeadlines(sym);
-        // Body enrichment best-effort attaches article body text to each
-        // headline. When the fetch fails (which is most of the time on GHA
-        // egress IPs) the headline still passes through with title +
-        // publisher + date — the AI prompt knows how to ground a take in
-        // that. Only synthesize the deterministic fallback when Yahoo
-        // returned literally zero recent news for the ticker.
-        const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
+        // Only synthesize the deterministic fallback when Yahoo returned
+        // literally zero recent news for the ticker. Not cached — there was
+        // no AI call to save, and the fallback is pure + cheap.
         if (!rawHeadlines.length) {
           const sector = SECTORS[sym] || null;
           data.news = synthesizeFallbackNewsTake(sym, sector, macroBackdrop, data.fundamentals, data.spot);
           console.log(`  ⊘ ${sym} — Yahoo returned no recent news → fallback macro paragraph`);
           return;
         }
-        const withBody = headlines.filter((h) => h.body).length;
         // Deterministic capital-raise scan over the same headlines (debt/bond/
         // share issuance, convertibles, buybacks) → the capital-raises feed AND
-        // the per-ticker Fundamentals-pillar "Capital raise" driver.
+        // the per-ticker Fundamentals-pillar "Capital raise" driver. Runs on
+        // cache hits too — the _capitalRaiseFlags accumulator resets each build.
         const crFlags = scanCapitalRaiseHeadlines(sym, rawHeadlines);
         const cr = pickCapitalRaiseForScoring(crFlags);
         if (cr) data.capitalRaise = cr; else delete data.capitalRaise;
+        // Cross-build cache: same headlines + same slow fundamentals facts +
+        // spot within the drift band ⇒ reuse the prior build's judgment and
+        // skip both the body-enrichment fetches and the Gemini call.
+        const sig = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
+        const prior = AI_TICKER_CACHE ? priorCache[sym] : null;
+        if (
+          prior && prior.sig === sig && prior.news &&
+          Number.isFinite(prior.spot) && prior.spot > 0 && Number.isFinite(data.spot) &&
+          Math.abs(data.spot - prior.spot) / prior.spot <= TICKER_JUDGMENT_SPOT_DRIFT
+        ) {
+          data.news = prior.news;
+          if (prior.judgment) data.fundamentals = { ...data.fundamentals, judgment: prior.judgment };
+          data.catalysts = Array.isArray(prior.catalysts) && prior.catalysts.length ? prior.catalysts : [];
+          if (prior.aiSignals) data.aiSignals = prior.aiSignals;
+          nextCache[sym] = prior; // keep the ORIGINAL spot so drift accumulates against it
+          reused += 1;
+          console.log(`  ↺ ${sym} — reused judgment (headlines unchanged, spot within ${(TICKER_JUDGMENT_SPOT_DRIFT * 100).toFixed(1)}%)`);
+          return;
+        }
+        // Body enrichment best-effort attaches article body text to each
+        // headline. When the fetch fails (which is most of the time on GHA
+        // egress IPs) the headline still passes through with title +
+        // publisher + date — the AI prompt knows how to ground a take in that.
+        const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
+        const withBody = headlines.filter((h) => h.body).length;
         const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
+        nextCache[sym] = { sig, spot: data.spot, news, judgment, catalysts, aiSignals };
         data.news = news;
         if (judgment) {
           data.fundamentals = { ...data.fundamentals, judgment };
@@ -17406,6 +17535,8 @@ async function attachTickerJudgments(chains, macroBackdrop) {
   }
   console.log(summarizeBodyFetchStats());
   hb.stop();
+  console.log(`Ticker-judgment cache: ${reused}/${entries.length} reused from the prior build.`);
+  return nextCache;
 }
 
 // Chart-pattern metadata — canonical labels + their directional bias. The AI
@@ -18766,8 +18897,14 @@ async function main() {
   } catch (err) {
     console.log(`Global markets sweep failed: ${err.message}`);
   }
+  // Cross-build ticker-judgment cache: read BEFORE writeChainFiles wipes data/
+  // (persisted after the wipe, next to the chart-pattern cache). Only the
+  // combined path caches — the legacy split path (AI_COMBINED=0) carries the
+  // prior map forward untouched so a temporary flag flip doesn't clear it.
+  const tickerJudgmentCachePrev = await readTickerJudgmentCache();
+  let tickerJudgmentCacheNext = tickerJudgmentCachePrev;
   if (AI_COMBINED) {
-    await attachTickerJudgments(chains, macroBackdrop);
+    tickerJudgmentCacheNext = await attachTickerJudgments(chains, macroBackdrop, tickerJudgmentCachePrev);
   } else {
     await attachAiNewsTakes(chains, macroBackdrop);
     // No explicit cooldown — acquireAiSlot() is shared across passes, so the
@@ -18784,7 +18921,11 @@ async function main() {
   // skip the dedicated round-trip — that is the cost saving. The split path
   // (AI_COMBINED=0) and the flag-off default still use this dedicated pass.
   if (!(AI_COMBINED && AI_SIGNALS_COMBINED)) {
-    await attachAiContractGuidance(chains);
+    // Pass the judgment cache so unchanged-headlines names reuse the prior
+    // build's extraction (fresh results are stored back onto its entries).
+    // The split path (AI_COMBINED=0) has no current-build entries to match,
+    // so it calls every name exactly as before.
+    await attachAiContractGuidance(chains, AI_COMBINED ? tickerJudgmentCacheNext : null);
   }
   // Identify a classic chart pattern per ticker from the in-memory daily bars.
   // MUST run before writeChainFiles strips _bars (and wipes data/), and before
@@ -19047,6 +19188,9 @@ async function main() {
   // attachChartPatterns) so the next same-day build can reuse unchanged reads.
   // writeChainFiles just recreated data/, so this must come after it.
   await writeChartPatternCache(chartPatternCacheNext);
+  // Same rule for the ticker-judgment cache (read before the wipe, updated by
+  // attachTickerJudgments + attachAiContractGuidance above).
+  await writeTickerJudgmentCache(tickerJudgmentCacheNext);
   // Persist macro to disk AFTER writeChainFiles — that call wipes data/
   // wholesale, so writing macro.json before it deletes our snapshot
   // immediately (confirmed in git history: chore: daily refresh 2026-05-25

@@ -162,7 +162,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 |---|---|---|
 | `<SYM>.json` (per-ticker, dynamic) | bake | upload + **delete-stale** within prefix |
 | `iv-history/<SYM>.json` (dynamic) | bake | upload + **delete-stale** within prefix |
-| picks\*, grades\*, calendar, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, prediction-history | bake | upsert |
+| picks\*, grades\*, calendar, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, ticker-judgment-cache, prediction-history | bake | upsert |
 | unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete) |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
@@ -366,7 +366,8 @@ most tabs are free, a premium subset stays gated. The wiring:
   truth for which `data/` keys require a session. Premium: `manifest.json` (the premium
   half), `picks*`, `briefs`, `trends*`, `unusual*`, `volume-flags/-history`,
   `oi-tracker/-history`, `flow-explanations`, `grades-history/-daily`, plus internal
-  `ai-usage`/`chart-pattern-cache`. Everything else (per-ticker chains, `grades.json`,
+  `ai-usage`/`chart-pattern-cache`/`pick-thesis-cache`/`ticker-judgment-cache`.
+  Everything else (per-ticker chains, `grades.json`,
   `calendar`, `heatmap`, `13f`, `macro*`, `fear-greed*`, `correlations`, `streaks`,
   `manifest-free.json`, …) is **free**. Edge-safe, dependency-free — imported by both
   `middleware.js` and `api/data`.
