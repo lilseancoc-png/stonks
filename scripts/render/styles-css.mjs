@@ -16107,5 +16107,32 @@ input[type="checkbox"], input[type="radio"], summary {
   .ovn-w-row{grid-template-columns:minmax(0,1fr) auto auto auto;gap:.35rem;font-size:.78rem;}
   .ovn-w-peer{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 }
+
+/* ===== Generic chart hover readout (svg[data-ch], app.js chHover) ======= */
+/* One shared crosshair line + snap dot + tooltip, fixed-positioned by the
+   delegated engine in app.js. pointer-events:none so they never steal the
+   hover from the chart under them. */
+svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
+.ch-line{
+  position: fixed; z-index: 960; width: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--text) 40%, transparent);
+  pointer-events: none;
+}
+.ch-dot{
+  position: fixed; z-index: 961; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+}
+.ch-tip{
+  position: fixed; z-index: 962; max-width: 280px;
+  padding: 6px 9px; border-radius: var(--r-2);
+  background: var(--text-strong); color: var(--surface);
+  font-size: 12px; font-weight: 500; line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgb(0 0 0 / .2);
+  pointer-events: none;
+}
 `;
 }

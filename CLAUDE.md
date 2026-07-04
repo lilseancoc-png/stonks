@@ -217,6 +217,10 @@ The bake runs 8×/trading day (9:30 ET open, then hourly to the 16:00 close), bu
 
 `AI_RPM` (default 100, the per-minute AI pacer in `build.mjs`) is set to `600` in `daily.yml` for the funded Tier-1 project — Flash/Flash-Lite carry 1K-4K RPM quotas, so 300 keeps a wide cushion while shrinking the RPM-paced floor of the per-ticker AI passes. **Leave it unset on a free-tier fork** (Gemma free = 15 RPM; even the default 100 is too high there).
 
+### Charts are interactive via one delegated hover engine
+
+Every inline-SVG series chart gets a hover/tap readout from ONE shared engine in `app-js.mjs` (`chHoverAttr` + the `initChartHover` IIFE, in the top-of-file utilities): a chart opts in by emitting a `data-ch='[[x,y,"label"],…]'` attribute (viewBox coords + preformatted label, built with `chHoverAttr(points)`; `\n` in a label = a tooltip line break), and a single delegated `pointermove`/`pointerdown` document listener drives a shared fixed-position crosshair + snap-dot + tooltip (`.ch-line`/`.ch-dot`/`.ch-tip` in `styles-css.mjs`). Coordinate mapping goes through `getScreenCTM()`, so it's exact for any `viewBox`/`preserveAspectRatio` combination (several charts stretch with `preserveAspectRatio="none"`, where in-SVG overlay text would distort) — and because the listener is delegated, charts rebuilt via `innerHTML` stay interactive with zero re-wiring. When adding a NEW SVG chart, emit `data-ch` instead of writing a bespoke handler. The charts with richer bespoke overlays (Grade price chart, IV term structure, fundamentals/earnings history, F&G history spark, heatmap treemap, regime calendar) keep their own handlers — don't double-wire them with `data-ch`. DOM-bar charts (not SVG — OI ladder, AI-CapEx bars, breadth/social/flow split bars, streaks sparks) use plain `title`/`data-tip` attributes instead.
+
 ### Browser runtime layers
 
 `index.html` ships **two** scripts (the page shell template, `scripts/render/html.mjs`, emits exactly these plus the inlined `window.STONKS_MANIFEST`):
