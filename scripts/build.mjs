@@ -9097,6 +9097,28 @@ const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;
 const PICKS_ACCURACY_MAX_CLOSED = 250;
 const PICKS_ACCURACY_WEEKLY_RESET = process.env.PICKS_ACCURACY_WEEKLY_RESET !== "0";
+// Hard cap on the concurrently-tracked open book. Each build ships <=10
+// actionable picks, but re-entry suppression means every build surfaces NEW
+// names while the previously-enrolled ones stay open until an exit rule fires —
+// unbounded, the intraweek book compounded to 25+ positions. Enrollment walks
+// the roster in rank order, so when slots are scarce the highest-conviction
+// names get them.
+const PICKS_MAX_OPEN_POSITIONS = Math.max(1, Number(process.env.PICKS_MAX_OPEN_POSITIONS ?? 20) || 20);
+// Corporate-action guard: an open position's basis (strike/mid/spots/stops) is
+// frozen at entry, so a stock split between marks would reprice the pre-split
+// contract on the post-split tape — an ATM long marks a phantom -100% (and a
+// put a phantom +huge win). A mark-to-mark spot gap matching one of these
+// standard split ratios (within PICKS_SPLIT_TOL), corroborated by Yahoo's
+// back-adjusted price history when available, rescales the basis instead —
+// the same adjustment the OCC applies to real contracts.
+const PICKS_SPLIT_RATIOS = [1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 10, 20];
+const PICKS_SPLIT_TOL = 0.04;                   // spot-gap vs ratio match tolerance
+const PICKS_SPLIT_CONFIRM_TOL = 0.12;           // back-adjusted prior-close scale check
+// A ticker missing from one build's chains is usually a transient Yahoo flake
+// (the bake tolerates up to 25% fetch misses) — don't resolve the position as
+// "dropped" (which recorded a phantom loss) until it's been gone this many
+// consecutive builds.
+const PICKS_DROPPED_MIN_MISSES = 3;
 const PICKS_ACCURACY_RESET_DOW = 0;             // Sunday ET (read by picksAccuracyResetDue, above)
 const PICKS_ACCURACY_RESET_HOUR_ET = 0;
 const GRADES_HISTORY_FILE = "grades-history.json";
@@ -12919,7 +12941,9 @@ export function excursionOutcome(mfePct, maePct) {
 
 export function resolvePickOutcome(opts) {
   const o = opts || {};
-  const pnl = pnum(o.modeledOptPnlPct);
+  // pnum(null) is 0, so a missing mark must be nulled explicitly — otherwise an
+  // unmarkable position resolves as a break-even "win" instead of void.
+  const pnl = o.modeledOptPnlPct == null ? null : pnum(o.modeledOptPnlPct);
   // Credit verticals take profit / stop on a different scale (% of the credit),
   // and a theta stop never applies (a credit spread benefits from decay).
   const credit = o.structure === "credit_vertical";
@@ -12930,10 +12954,18 @@ export function resolvePickOutcome(opts) {
   // by updatePicksAccuracyFile the first mark ≥ the TP gate), the POSITION P/L
   // is the blend of the banked half and the still-running half; every outcome
   // sign below judges that blend, not the raw contract mark.
-  const scaled = !credit ? pnum(o.scaledOutPnlPct) : null;
+  // The null check must be explicit: pnum(null) is 0 (Number(null)===0), so a
+  // bare pnum() turned every UNARMED position into scaled=0 — arming the
+  // runner trail from entry with a breakeven floor, which cut any position
+  // whose mark dipped <= 0 on day 0/1 as a tiny "trail-stop" loss (and halved
+  // effPnl on every unarmed mark).
+  const scaled = (!credit && o.scaledOutPnlPct != null) ? pnum(o.scaledOutPnlPct) : null;
   const effPnl = pnl == null ? (scaled != null ? scaled / 2 : null) : (scaled != null ? scaled / 2 + pnl / 2 : pnl);
   const byPnl = (effPnl != null && effPnl >= 0) ? "win" : "loss";
-  if (o.inUniverse === false) return { status: "dropped", outcome: byPnl };
+  // A drop with no mark at all resolves "void" — excluded from win/loss stats
+  // (both computePicksAccuracyStats and the client's accDecided filter on
+  // win|loss) — rather than counting an unmarkable position as a loss.
+  if (o.inUniverse === false) return { status: "dropped", outcome: effPnl == null ? "void" : byPnl };
   // Runner trail (armed trades): stop at breakeven on the remaining half,
   // ratcheting up to (peak − giveback) as the runner extends — a winner that
   // banked half can't round-trip to a net loss, but its right tail stays open.
@@ -12951,7 +12983,10 @@ export function resolvePickOutcome(opts) {
   // (structural support / ~2.5x ATR; the short strike for a credit spread) is
   // frozen on the enrolled entry — a spot close through it resolves the trade
   // even when the modeled premium hasn't printed -stopGate at a mark.
-  if (PICKS_UNDERLYING_STOP && pnum(o.stopUnder) != null && o.stopUnder > 0 && pnum(o.cur) != null) {
+  // cur must be a real positive spot: pnum(null) is 0, and a null spot (data
+  // missing this build) read as $0 fired the call-side stock stop on any
+  // transient Yahoo flake.
+  if (PICKS_UNDERLYING_STOP && pnum(o.stopUnder) != null && o.stopUnder > 0 && o.cur != null && pnum(o.cur) > 0) {
     if (o.isCall ? o.cur <= o.stopUnder : o.cur >= o.stopUnder) return { status: "hit-stop-under", outcome: byPnl };
   }
   // Pre-earnings exit fires ONLY when a print is genuinely ahead and inside the
@@ -12960,7 +12995,7 @@ export function resolvePickOutcome(opts) {
   // `null <= 2` is also true (null coerces to 0) — so names with no/elapsed
   // earnings (every ETF; any stale past date) were phantom-resolved on day 0.
   if (Number.isFinite(o.earningsAheadDays) && o.earningsAheadDays >= 0 && o.earningsAheadDays <= PICKS_EARNINGS_EXIT_DAYS) return { status: "pre-earnings", outcome: byPnl };
-  if (pnum(o.expSec) != null && pnum(o.nowSec) != null && o.nowSec >= o.expSec) return { status: "expired", outcome: byPnl };
+  if (o.expSec != null && o.nowSec != null && pnum(o.expSec) > 0 && o.nowSec >= o.expSec) return { status: "expired", outcome: byPnl };
   if (!credit && heldDays >= PICKS_THETA_STOP_MIN_HOLD && pnum(o.thetaPctDay) != null && o.thetaPctDay >= PICKS_THETA_STOP_PCT && pnl != null && pnl < 0) return { status: "theta-stop", outcome: byPnl };
   if (heldDays >= PICKS_MAX_HOLD_DAYS) return { status: "timed-out", outcome: byPnl };
   return null;
@@ -13002,6 +13037,59 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
 
 export async function readPicksAccuracyState() {
   try { const raw = await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8"); const p = JSON.parse(raw); return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], lastResetWeek: p.lastResetWeek || null, stats: p.stats || null }; } catch { return { open: [], closed: [], lastResetWeek: null, stats: null }; }
+}
+
+// Detect a stock split between two consecutive marks: the tracked lastSpot vs
+// the fresh spot gapping by a standard split ratio (or its inverse, for a
+// reverse split). A genuine crash can also halve a stock, so when price
+// history is available the gap must be corroborated by Yahoo's back-adjustment:
+// after a split the (retroactively adjusted) prior close sits on the NEW spot
+// scale, while after a real move it stays on the old one. Returns the factor
+// to divide the frozen dollar basis by (>1 forward split, <1 reverse), or null.
+export function detectSplitFactor(lastSpot, spot, data) {
+  const prev = pnum(lastSpot), cur = pnum(spot);
+  if (!prev || !cur || prev <= 0 || cur <= 0) return null;
+  const r = prev / cur;
+  let k = null;
+  for (const c of PICKS_SPLIT_RATIOS) {
+    if (Math.abs(r / c - 1) <= PICKS_SPLIT_TOL) { k = c; break; }
+    if (Math.abs(r * c - 1) <= PICKS_SPLIT_TOL) { k = 1 / c; break; }
+  }
+  if (k == null) return null;
+  const bars = timingBarsFrom(data);
+  const closes = bars ? bars.c.filter((x) => Number.isFinite(x) && x > 0) : [];
+  if (closes.length >= 2) {
+    // Second-to-last close: the last bar may be the in-progress session either way.
+    const prior = closes[closes.length - 2];
+    const onNewScale = Math.abs(prior / (prev / k) - 1) <= PICKS_SPLIT_CONFIRM_TOL;
+    const onOldScale = Math.abs(prior / prev - 1) <= PICKS_SPLIT_CONFIRM_TOL;
+    if (onOldScale && !onNewScale) return null; // history still on the old scale → real move
+  }
+  return k;
+}
+
+// Rescale a tracked entry's frozen dollar basis by a split factor k (divide;
+// k<1 = a reverse split multiplies). Percent P&L fields are scale-free and
+// untouched, as are IV/delta/DTE. Records the action on the entry.
+export function applySplitToEntry(e, k, builtAtIso) {
+  const s2 = (v) => (v == null ? v : r2((pnum(v) ?? 0) / k));
+  const s4 = (v) => (v == null ? v : r4((pnum(v) ?? 0) / k));
+  e.entrySpot = s2(e.entrySpot); e.lastSpot = s2(e.lastSpot);
+  e.takeProfit = s2(e.takeProfit); e.cut = s2(e.cut);
+  if (e.thesis && e.thesis.stopSpot != null) e.thesis.stopSpot = s2(e.thesis.stopSpot);
+  const c = e.contract;
+  if (c) {
+    c.strike = s2(c.strike); c.mid = s4(c.mid); c.thetaDay = s4(c.thetaDay);
+    if (c.shortStrike != null) c.shortStrike = s2(c.shortStrike);
+    if (c.longStrike != null) c.longStrike = s2(c.longStrike);
+    if (c.netDebit != null) c.netDebit = s4(c.netDebit);
+    if (c.netCredit != null) c.netCredit = s4(c.netCredit);
+    if (c.maxLoss != null) c.maxLoss = s4(c.maxLoss);
+    if (c.maxProfit != null) c.maxProfit = s4(c.maxProfit);
+    if (Array.isArray(c.legs)) for (const l of c.legs) if (l && l.strike != null) l.strike = s2(l.strike);
+  }
+  (e.corpActions ||= []).push({ type: "split", factor: r4(k), date: builtAtIso });
+  return e;
 }
 
 // Reprice an open pick's contract at the current spot (entry IV held), return
@@ -13065,7 +13153,21 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const data = chains?.[e.symbol] || null;
     const spot = pnum(data?.spot);
     const isCall = e.side === "call";
-    const optionPnlPct = markOptionToMarket(e, data);
+    // Corporate-action guard: rescale the frozen basis across a split BEFORE
+    // marking, so the pre-split contract isn't repriced on the post-split tape.
+    if (spot) {
+      const splitK = detectSplitFactor(e.lastSpot ?? e.entrySpot, spot, data);
+      if (splitK) {
+        applySplitToEntry(e, splitK, builtAtIso);
+        console.log(`  picks-accuracy: ${e.symbol} split ${splitK >= 1 ? `${r2(splitK)}:1` : `1:${r2(1 / splitK)}`} detected — basis rescaled`);
+      }
+    }
+    // Transient-miss counter: a ticker absent from this build's chains only
+    // counts toward "dropped" after PICKS_DROPPED_MIN_MISSES consecutive
+    // builds; while missing, the last mark is carried forward.
+    if (data) delete e.missingBuilds;
+    else e.missingBuilds = (e.missingBuilds || 0) + 1;
+    const optionPnlPct = markOptionToMarket(e, data) ?? (data ? null : (e.optionPnlPct == null ? null : pnum(e.optionPnlPct)));
     const lastSpot = spot ?? e.lastSpot ?? e.entrySpot;
     const underlyingPnlPct = (spot && e.entrySpot) ? ((isCall ? 1 : -1) * (spot / e.entrySpot - 1) * 100) : e.underlyingPnlPct;
     const mfePct = Math.max(pnum(e.mfePct) ?? -Infinity, underlyingPnlPct ?? -Infinity);
@@ -13114,12 +13216,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         gradeNow, gradeFlip, stopBreached,
       };
     }
-    const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, earningsAheadDays, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut) });
+    const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, earningsAheadDays, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut) });
     // A scaled-out entry closes at the BLEND of the banked half and the runner's
     // exit — that blend is the position's true P/L and what the stats consume.
     const closedPnl = (scaleOut && pnum(optionPnlPct) != null) ? r1(scaleOut.pnlPct / 2 + optionPnlPct / 2) : marked.optionPnlPct;
     if (res) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
-    else if (weeklyReset) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitDate: builtAtIso, status: "reset", outcome: (pnum(closedPnl) != null && closedPnl >= 0) ? "win" : "loss" });
+    else if (weeklyReset) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitDate: builtAtIso, status: "reset", outcome: closedPnl == null ? "void" : (Number(closedPnl) >= 0 ? "win" : "loss") });
     else stillOpen.push(marked);
   }
   open = stillOpen;
@@ -13129,6 +13231,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   try { picksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
   const openKeys = new Set(open.map((o) => `${o.symbol}:${o.side}`));
   for (const p of (picksPayload?.picks || [])) {
+    // Book-size cap: never carry more than PICKS_MAX_OPEN_POSITIONS open
+    // positions. picks[] is rank-ordered, so the strongest names enroll first;
+    // the rest wait for a slot to free up (exit or weekly reset).
+    if (open.length >= PICKS_MAX_OPEN_POSITIONS) break;
     const key = `${p.symbol}:${p.side}`;
     if (openKeys.has(key)) continue;
     // Track record = the ACTIONABLE roster only (Strong grade + Strong thesis).

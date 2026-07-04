@@ -10314,6 +10314,7 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .acc-attr-seg.acc-attr-dir, .acc-attr-dot.acc-attr-dir { background: var(--neg); }
 .acc-attr-seg.acc-attr-mix, .acc-attr-dot.acc-attr-mix { background: var(--warn); }
 .acc-attr-seg.acc-attr-theta, .acc-attr-dot.acc-attr-theta { background: var(--info); }
+.acc-attr-seg.acc-attr-churn, .acc-attr-dot.acc-attr-churn { background: var(--muted); }
 .acc-attr-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 .acc-attr-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .acc-attr-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }

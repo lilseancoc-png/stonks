@@ -329,10 +329,26 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 - `updatePicksAccuracyFile` enrolls every shipped **actionable** pick (`group ===
   "actionable"` — Strong grade + Strong thesis; lower-conviction watch ideas and
   tactical-tape puts are excluded, so the scorecard reflects only the trades the
-  engine actually recommends), dedup per `symbol:side`,
+  engine actually recommends), dedup per `symbol:side`, **capped at
+  `PICKS_MAX_OPEN_POSITIONS` (20) concurrently-open positions** — each build ships
+  ≤10 picks, but re-entry suppression surfaces NEW names every build while the
+  already-enrolled ones stay open until an exit rule fires, so an uncapped book
+  compounded past 25 intraweek; the cap enrolls in rank order and the rest wait
+  for a freed slot —
   marks each to market on its **contract** every build (Black-Scholes), resolves
   on the exit rules above, and computes stats (`winRate`, option expectancy,
-  option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`). The
+  option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`).
+  Two guards protect the marking loop: a **corporate-action guard**
+  (`detectSplitFactor` + `applySplitToEntry` — a split between marks would
+  reprice the frozen pre-split contract on the post-split tape, marking an ATM
+  long −100% and a put +huge, both phantom; a spot gap matching a standard
+  split ratio, corroborated by the back-adjusted price history, rescales the
+  frozen dollar basis instead, exactly like the OCC adjustment, and stamps
+  `corpActions` on the entry) and a **transient-miss guard** (a ticker absent
+  from one build's chains — the bake tolerates up to 25% Yahoo fetch misses —
+  carries its last mark forward and only resolves `dropped` after
+  `PICKS_DROPPED_MIN_MISSES` consecutive misses; an unmarkable resolution is
+  `void`, excluded from the win/loss stats). The
   record **resets weekly** so the numbers reflect the current engine, not a tail of
   pre-tuning outcomes — and the reset **force-closes the open book at its current
   marks** (status `reset`, win/loss by the blended P&L sign) rather than
@@ -475,6 +491,9 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_OPT_TRAIL_GIVEBACK_PCT` | 0.25 | runner trail: stop = max(breakeven, peak − 25pts) |
 | `PICKS_UNDERLYING_STOP` | on | enforce the exit ladder's stock stop in the track record (`hit-stop-under`) |
 | `PICKS_MAX_HOLD_DAYS` | 14 | time stop (two weeks) |
+| `PICKS_MAX_OPEN_POSITIONS` | 20 | hard cap on the concurrently-tracked open book (enrollment walks the roster in rank order; excess picks wait for a slot) |
+| `PICKS_SPLIT_RATIOS` / `PICKS_SPLIT_TOL` | 1.5…20 / 0.04 | corporate-action guard: a mark-to-mark spot gap matching a standard split ratio (confirmed against the back-adjusted bars) rescales the frozen entry basis instead of marking a phantom ±100% (`detectSplitFactor`/`applySplitToEntry`; the entry records `corpActions`) |
+| `PICKS_DROPPED_MIN_MISSES` | 3 | consecutive builds a ticker must be missing from the chains before an open position resolves `dropped` (a single Yahoo flake carries the last mark forward instead); a drop with no mark at all resolves `void` — excluded from win/loss stats |
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 14 / 60 | contract clock |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
@@ -507,7 +526,13 @@ and every output shape the UI reads). To regenerate from a hydrated `data/`
 > picks. When you do A/B a change, diff two `regen-picks` runs on the **same** `data/`
 > (stash the edit → run → restore → run), not the bake's `grades.json` (which carries
 > AI-thesis overlays + newer data and will mask your change). `scripts/diagnose-pick-losses.mjs`
-> decomposes resolved losses into direction vs theta/vol for exactly this purpose.
+> decomposes resolved losses into direction vs theta/vol for exactly this purpose —
+> note the attribution is **hold-time aware**: a flat-stock loss closed inside
+> `MIN_THETA_DAYS` (2 calendar days — weekly reset / roster churn / pre-earnings)
+> is bucketed as a **forced early close**, not theta, and excluded from the
+> direction-vs-theta verdict (the site's Track Record Summary mirrors this via
+> `ACC_MIN_THETA_DAYS` in `app-js.mjs`). The engine's actual theta-stop exit only
+> fires after `PICKS_THETA_STOP_MIN_HOLD` (4) days held at a ≥2.5%/day bleed.
 
 ---
 

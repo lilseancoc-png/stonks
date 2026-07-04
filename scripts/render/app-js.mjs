@@ -17636,13 +17636,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
   var ACC_ADVERSE_MOVE = 3.0, ACC_FLAT_MOVE = 1.0, ACC_GIVEBACK_PCT = 15;
+  // A flat-stock loss can only be blamed on theta once real time has actually
+  // elapsed: on a 30-60 DTE ~0.55Δ long, decay runs ~1-2.5%/day of premium, so
+  // a position force-closed inside ~2 calendar days (weekly reset, roster
+  // churn, pre-earnings) has bled at most a couple points — that is mark drift
+  // plus the forced exit, not a theta thesis failure. Those closes get their
+  // own "forced early close" bucket instead of polluting the theta share the
+  // engine roadmap is steered by.
+  var ACC_MIN_THETA_DAYS = 2;
   // Classify one decided trade: why did it win / lose? Returns { cls, text }.
-  // cls ∈ direction | theta | mixed (losses) · direction | decay | grind (wins).
+  // cls ∈ direction | theta | mixed | churn (losses) · direction | decay | grind (wins).
   function accTradeWhy(e){
     var opt = Number(e.optionPnlPct); if (!isFinite(opt)) opt = null;
     var und = Number(e.underlyingPnlPct); if (!isFinite(und)) und = null; // side-adjusted: + = with the trade
     var hi = Number(e.optHiPct); if (!isFinite(hi)) hi = null;
     var credit = !!(e.contract && e.contract.structure === 'credit_vertical');
+    var eMs = Date.parse(e.entryDate), xMs = Date.parse(e.exitDate);
+    var held = (isFinite(eMs) && isFinite(xMs)) ? Math.max(0, (xMs - eMs) / 86400000) : null; // fractional calendar days
+    var heldTxt = held == null ? null : (held < 1 ? Math.max(1, Math.round(held * 24)) + 'h' : (Math.round(held * 10) / 10) + 'd');
     var undTxt = und != null ? accPct(und) : 'an unknown amount';
     var cls, text;
     if (e.outcome === 'win'){
@@ -17671,8 +17682,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       cls = 'direction';
       text = 'Direction miss — the stock moved ' + undTxt + ' against the trade; the option lost ' + accPct(opt) + '.';
     } else if (und != null && und >= -ACC_FLAT_MOVE){
-      cls = 'theta';
-      text = 'Theta bleed — the stock ' + (und >= 0 ? 'even moved ' + undTxt + ' with the trade' : 'held roughly flat (' + undTxt + ')') + ', but time decay still bled the long premium to ' + accPct(opt) + '.';
+      if (held != null && held < ACC_MIN_THETA_DAYS){
+        cls = 'churn';
+        text = 'Forced early close — held only ' + heldTxt + ' (' + (ACC_STATUS_LABEL[e.status] || e.status || 'closed') + ') with the stock ' + (und >= 0 ? 'moving ' + undTxt + ' with the trade' : 'roughly flat (' + undTxt + ')') + '. Too short for meaningful time decay: the ' + accPct(opt) + ' is mark drift plus the forced exit, not theta.';
+      } else {
+        cls = 'theta';
+        text = 'Theta bleed — the stock ' + (und >= 0 ? 'even moved ' + undTxt + ' with the trade' : 'held roughly flat (' + undTxt + ')') + ', but time decay ' + (heldTxt ? 'over ' + heldTxt + ' held ' : '') + 'still bled the long premium to ' + accPct(opt) + '.';
+      }
     } else {
       cls = 'mixed';
       text = 'Drift plus decay — a modest adverse move (' + undTxt + ') compounded with time decay to ' + accPct(opt) + '.';
@@ -17687,14 +17703,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var dec = accDecided(closed);
     var rep = { n: dec.length, m: tradeMetrics(dec, { basis: 'contract' }), wins: [], losses: [] };
     for (var i=0;i<dec.length;i++){ (dec[i].outcome === 'win' ? rep.wins : rep.losses).push(dec[i]); }
-    // Loss anatomy.
-    var att = { direction: 0, theta: 0, mixed: 0 };
+    // Loss anatomy. churn (forced early closes) is counted but excluded from
+    // the direction-vs-theta share the verdicts read.
+    var att = { direction: 0, theta: 0, mixed: 0, churn: 0 };
     var flatButLost = 0, giveback = 0, lossStatus = {};
     rep.losses.forEach(function(e){
       var w = accTradeWhy(e);
       att[att[w.cls] != null ? w.cls : 'mixed']++;
       var und = Number(e.underlyingPnlPct);
-      if (isFinite(und) && und >= -ACC_FLAT_MOVE) flatButLost++;
+      // Forced early closes don't count as "flat but lost" vehicle bleed —
+      // nothing had time to bleed.
+      if (w.cls !== 'churn' && isFinite(und) && und >= -ACC_FLAT_MOVE) flatButLost++;
       var hi = Number(e.optHiPct);
       if (isFinite(hi) && hi >= ACC_GIVEBACK_PCT) giveback++;
       var s = e.status || 'other';
@@ -17783,13 +17802,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       box.innerHTML = lead + '<p class="muted acc-an-note">No resolved picks yet — the engine report appears once picks start closing.' + openLine + '</p>';
       return;
     }
-    // Health banner + narrative.
-    var attTotal = Math.max(1, L);
-    var dirShare = L ? rep.att.direction / L : 0;
+    // Health banner + narrative. The direction-vs-theta share is computed over
+    // the ATTRIBUTABLE losses only — forced early closes (churn) held too
+    // briefly to blame on either are reported separately.
+    var attributable = rep.att.direction + rep.att.theta + rep.att.mixed;
+    var dirShare = attributable ? rep.att.direction / attributable : 0;
     var story = 'Across ' + rep.n + ' resolved pick' + (rep.n === 1 ? '' : 's') + ' the engine is winning ' + accPctRate(m.winRate) +
       ' with an average outcome of ' + accNum(m.expectancyR, 2) + 'R per unit of risk (profit factor ' + accPF(m.profitFactor) + ').';
     if (L && rep.n >= 6){
-      story += ' The losses are mostly ' + (dirShare >= 0.6 ? 'direction-driven — the signal picked the wrong side' : (dirShare <= 0.4 ? 'theta/vol-driven — the stock cooperated or sat still but the long premium bled' : 'a mix of wrong direction and premium decay')) + '.';
+      story += attributable
+        ? ' The losses are mostly ' + (dirShare >= 0.6 ? 'direction-driven — the signal picked the wrong side' : (dirShare <= 0.4 ? 'theta/vol-driven — the stock cooperated or sat still but the long premium bled' : 'a mix of wrong direction and premium decay')) + '.'
+        : ' The losses so far are all forced early closes (weekly reset / early exits) — held too briefly to read as direction or theta.';
     }
     if (open.length){
       var greens = 0, marks = [];
@@ -17804,13 +17827,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var n = rep.att[k]; if (!n) return '';
         return '<span class="acc-attr-seg acc-attr-' + cls + '" style="flex-grow:' + n + '" title="' + escapeHtml(lbl + ': ' + n + ' of ' + L) + '">' + n + '</span>';
       };
-      var bar = '<div class="acc-attr-bar">' + seg('direction', 'dir', 'Direction miss') + seg('mixed', 'mix', 'Drift + decay') + seg('theta', 'theta', 'Theta bleed') + '</div>' +
-        '<div class="acc-attr-legend"><span><i class="acc-attr-dot acc-attr-dir"></i>Direction miss (' + rep.att.direction + ')</span><span><i class="acc-attr-dot acc-attr-mix"></i>Drift + decay (' + rep.att.mixed + ')</span><span><i class="acc-attr-dot acc-attr-theta"></i>Theta bleed (' + rep.att.theta + ')</span></div>';
+      var bar = '<div class="acc-attr-bar">' + seg('direction', 'dir', 'Direction miss') + seg('mixed', 'mix', 'Drift + decay') + seg('theta', 'theta', 'Theta bleed') + seg('churn', 'churn', 'Forced early close (held <' + ACC_MIN_THETA_DAYS + 'd — not a theta read)') + '</div>' +
+        '<div class="acc-attr-legend"><span><i class="acc-attr-dot acc-attr-dir"></i>Direction miss (' + rep.att.direction + ')</span><span><i class="acc-attr-dot acc-attr-mix"></i>Drift + decay (' + rep.att.mixed + ')</span><span><i class="acc-attr-dot acc-attr-theta"></i>Theta bleed (' + rep.att.theta + ')</span><span><i class="acc-attr-dot acc-attr-churn"></i>Forced early close (' + rep.att.churn + ')</span></div>';
       var verdict;
       if (rep.n < 6) verdict = 'Sample is still small — attribution firms up as more picks resolve.';
+      else if (!attributable) verdict = 'Every loss so far was a forced early close (held under ' + ACC_MIN_THETA_DAYS + ' days — weekly reset or early exit) — no direction-vs-theta read yet.';
       else if (dirShare >= 0.6) verdict = 'Direction-driven losses dominate (' + Math.round(dirShare * 100) + '%): the signal is picking the wrong side, not the vehicle bleeding. Defined-risk structures only shrink a wrong call — the leverage is in the score and in standing down when the edge is thin.';
       else if (dirShare <= 0.4) verdict = 'Theta/vol losses dominate (' + Math.round((1 - dirShare) * 100) + '%): the stock often went the right way or nowhere and the long premium still bled. Spreads that sell the rich wing and faster premium-space exits are the highest-leverage fixes.';
       else verdict = 'Losses are mixed (' + Math.round(dirShare * 100) + '% direction / ' + Math.round((1 - dirShare) * 100) + '% decay): both the signal and the vehicle are costing money — measurement and exit-policy fixes first, then re-read after a forward sample.';
+      if (attributable && rep.att.churn) verdict += ' ' + rep.att.churn + ' further loss' + (rep.att.churn === 1 ? ' was a' : 'es were') + ' forced early close' + (rep.att.churn === 1 ? '' : 's') + ' (held under ' + ACC_MIN_THETA_DAYS + ' days) — excluded from that read.';
       var exits = [];
       var statusKeys = Object.keys(rep.lossStatus).sort(function(a, b){ return rep.lossStatus[b] - rep.lossStatus[a]; });
       statusKeys.forEach(function(k){ exits.push('<span class="brief-chip info">' + escapeHtml(ACC_STATUS_LABEL[k] || k) + ' <span>' + rep.lossStatus[k] + '</span></span>'); });
