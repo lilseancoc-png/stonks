@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1 };
+  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -77,6 +77,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // gets its own flag. Defaults true so a legacy ungated deploy / a failed /me
   // probe never makes the tab vanish; applyAuth() flips it from /api/auth/me.
   var HAS_TRACK_RECORD = true;
+  // Top Picks is role-hidden the same way (the tp session claim, minted from
+  // DISCORD_TOPPICKS_ROLE_ID(S)): no nav button, no landing card, and api/data
+  // 401s picks.json/picks-open.json without the role. Same fail-open default.
+  var HAS_TOP_PICKS = true;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
   // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
@@ -84,7 +88,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -101,7 +105,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -124,6 +128,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Track Record role. Mirrors IS_MEMBER's fail-open default so a probe failure
     // (me == null -> GATE_ON false) keeps the tab visible rather than hiding it.
     HAS_TRACK_RECORD = !GATE_ON || !!(me && me.trackRecord);
+    // Top Picks: same shape — ungated deploys (or a failed probe) keep the tab.
+    HAS_TOP_PICKS = !GATE_ON || !!(me && me.topPicks);
   }
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
@@ -3101,11 +3107,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Track Record is role-hidden: drop it from the resolvable set so a
     // ?tab=track deep-link / popstate / palette can't reach the pane for a
     // visitor without the role (resolveTab returns null -> falls back to home).
     if (!HAS_TRACK_RECORD) valid = valid.filter(function(t){ return t !== 'track'; });
+    // Top Picks is role-hidden the same way (the tp claim).
+    if (!HAS_TOP_PICKS) valid = valid.filter(function(t){ return t !== 'picks'; });
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3118,7 +3126,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
       ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
       'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
-      pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
+      pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
+      'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
+      narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
       comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
       ticker: 'tickers',
       global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
@@ -3275,6 +3285,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // localStorage tab, deep-link, popstate, palette) to home BEFORE we
       // re-persist it, so a demoted/non-role visitor can't land on the pane.
       if (name === 'track' && !HAS_TRACK_RECORD) { return selectTab('home'); }
+      // Top Picks is role-hidden the same way.
+      if (name === 'picks' && !HAS_TOP_PICKS) { return selectTab('home'); }
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
       tabs.forEach(function(btn){
@@ -3324,14 +3336,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name !== 'bonds-usd' && typeof stopBondsLivePolling === 'function') stopBondsLivePolling();
       if (name !== 'tickers' && typeof stopTickersLive === 'function') stopTickersLive();
       if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
+      if (name !== 'market' && typeof stopMacroTapeLive === 'function') stopMacroTapeLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (!premiumLocked){
         if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
-        if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
-        if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
+        // Market analysis: the tape/barometer/regime widgets + their data.
+        if (name === 'market' && typeof loadMarketAnalysis === 'function') loadMarketAnalysis();
+        if (name === 'market' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
+        if (name === 'market' && typeof loadOvernight === 'function') loadOvernight();
+        if (name === 'market' && typeof startMacroTapeLive === 'function') startMacroTapeLive();
         if (name === 'track' && HAS_TRACK_RECORD && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -3519,8 +3535,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (bits.length) setText('land-stat-bonds', bits.join(' · '));
       }
 
-      // Picks count — async fetch the small picks.json.
-      fetch('data/picks.json', { cache: 'no-cache' })
+      // Picks count — async fetch the small picks.json. Skipped without the
+      // Top Picks role (the landing card is removed at boot and the fetch
+      // would just 401).
+      if (HAS_TOP_PICKS) fetch('data/picks.json', { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.picks)) return;
@@ -7575,6 +7593,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function volSectorCollapsed(sec){ return volState.sectorCollapsed[sec] !== false; }
   function loadVolumePicks(){
     if (volPicks.loaded || volPicks.loading) return;
+    // picks.json is role-restricted (the Top Picks role) — without it the fetch
+    // just 401s, so skip it and the pinned Top Picks group simply doesn't render.
+    if (!HAS_TOP_PICKS){ volPicks.loaded = true; return; }
     volPicks.loading = true;
     fetch('data/picks.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -8646,8 +8667,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     },
     onError: function(){ liveStateMark('picks-live-state', false); },
   });
-  function startPicksLive(){ picksLivePoller.start(); startMacroTapeLive(); }
-  function stopPicksLive(){ picksLivePoller.stop(); stopMacroTapeLive(); }
+  // The macro-tape live poll moved to the Market analysis tab (startMacroTapeLive
+  // is started/stopped by selectTab on 'market') — picks live is just the quotes poller.
+  function startPicksLive(){ picksLivePoller.start(); }
+  function stopPicksLive(){ picksLivePoller.stop(); }
   function pokePicksLive(){ picksLivePoller.poke(); }
 
   // ======================================================================
@@ -9517,7 +9540,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var picksXhlWired = false;
   function wirePicksCrossHighlight(){
     if (picksXhlWired) return;
-    var pane = document.getElementById('page-pane-picks');
+    var pane = document.getElementById('page-pane-market');
     if (!pane) return;
     picksXhlWired = true;
     function clear(){
@@ -9684,9 +9707,47 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>' +
     '</div>';
   }
+  // --- Market analysis tab: baked-regime source + loader --------------------
+  // The regime widgets read the dedicated data/market-analysis.json payload
+  // (premium, NOT role-restricted — written by the bake + regen-picks with the
+  // same macroRegime object that rides picks.json's rosterMeta), falling back
+  // to picks.json's rosterMeta when a Top-Picks role holder already loaded the
+  // picks tab (also covers the window before the first bake ships the file).
+  var marketState = { data: null, loading: false };
+  function marketRegimeBaked(){
+    if (marketState.data && marketState.data.macroRegime) return marketState.data.macroRegime;
+    return (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
+  }
+  function renderMarketAnalysis(){
+    bindPositionTool();
+    renderMacroTape();
+    if (typeof renderRegimeHistory === 'function') renderRegimeHistory();
+  }
+  function loadMarketAnalysis(){
+    if (marketState.data || marketState.loading){ renderMarketAnalysis(); return; }
+    marketState.loading = true;
+    fetch('data/market-analysis.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        if (json && json.macroRegime){ marketState.data = json; return null; }
+        // Transition fallback: before the first bake ships market-analysis.json,
+        // a Top-Picks role holder can still derive the regime from picks.json
+        // (401s harmlessly for everyone else — the tape just stays hidden).
+        return fetch('data/picks.json', { cache: 'no-cache' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(p){
+            if (p && p.rosterMeta && p.rosterMeta.macroRegime){
+              marketState.data = { builtAtIso: p.builtAtIso || null, macroRegime: p.rosterMeta.macroRegime };
+            }
+          })
+          .catch(function(){});
+      })
+      .then(function(){ marketState.loading = false; renderMarketAnalysis(); })
+      .catch(function(){ marketState.loading = false; renderMarketAnalysis(); });
+  }
   function renderMacroTape(){
     var data = picksState.data || {};
-    var baked = (data.rosterMeta && data.rosterMeta.macroRegime) || null;
+    var baked = marketRegimeBaked();
     var picks = (data.picks && Array.isArray(data.picks)) ? data.picks : [];
     var entryRegime = (picks[0] && picks[0].entryRegime) || null;
     var live = (baked && macroTape.legs) ? computeLiveMacroRegime(baked, macroTape.legs) : null;
@@ -9713,7 +9774,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var driftSlot = document.getElementById('picks-regime-drift');
     if (driftSlot){
       var driftHtml = (isLive && live && baked)
-        ? buildRegimeDriftBanner(baked, live, { live: true, roster: roster, builtAtIso: data.builtAtIso || null, fetchedAt: macroTape.fetchedAt })
+        ? buildRegimeDriftBanner(baked, live, { live: true, roster: roster, builtAtIso: (marketState.data && marketState.data.builtAtIso) || data.builtAtIso || null, fetchedAt: macroTape.fetchedAt })
         : '';
       driftSlot.innerHTML = driftHtml;
       driftSlot.hidden = !driftHtml;
@@ -9771,7 +9832,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .catch(function(){ /* baked chip stays on a failed poll */ });
   }
   function startMacroTapeLive(){
-    var pane = document.getElementById('page-pane-picks');
+    var pane = document.getElementById('page-pane-market');
     if (!pane || pane.hidden) return;
     if (macroTape.timer) return;
     pollMacroTapeOnce();
@@ -9956,7 +10017,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     // Computed signals (2Y, MOVE, breadth, put/call, HY credit) — sourced from the
     // baked regime inputs + live macro-live legs, not correlations.json.
-    var bakedRegime = (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
+    var bakedRegime = marketRegimeBaked();
     if (bakedRegime){
       var computed = buildComputedBarometerRows(bakedRegime, macroTape.legs);
       for (var ci = 0; ci < computed.length; ci++) if (computed[ci] && computed[ci].score != null) rows.push(computed[ci]);
@@ -20897,7 +20958,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function renderPicks(){
     bindPicksControls();
     bindPicksNav();
-    bindPositionTool();
     var grid = $('picks-grid');
     var empty = $('picks-empty');
     var eyebrow = $('picks-eyebrow');
@@ -20970,16 +21030,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Book-level greek / premium-at-risk aggregate (rosterMeta.book) — surfaces the
     // long-vega / short-theta carry the per-name sizing hides.
     var book = (data.rosterMeta && data.rosterMeta.book) || null;
-    // Live market-regime chip + the expanded "Market tape" panel below the
-    // summary. The chip + panel are filled by renderMacroTape() (just below),
-    // which recomputes the cross-asset regime LIVE from /api/macro-live while
-    // the tab is open (computeLiveMacroRegime) and falls back to the baked
-    // rosterMeta.macroRegime / picks[0].entryRegime before the first poll
-    // lands. A display:contents wrapper keeps #picks-regime-chip out of the
-    // flex flow so the live-replaced chip still sits inline with the others.
+    // The live market-regime chip + "Market tape" panel moved to the Market
+    // analysis tab (renderMacroTape fills #picks-regime-chip there); the picks
+    // summary keeps only the roster-shape chips.
     if (summaryEl){
       summaryEl.innerHTML =
-        '<span id="picks-regime-chip" class="picks-regime-slot"></span>' +
         '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
@@ -20997,7 +21052,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
           : '');
     }
-    renderMacroTape();
     // Honest roster note — why the list may be short today (entry timing is
     // baked into the grade, so a chasing-top / falling-knife name scores below
     // the bar, and the sector cap limits correlated names). Reads rosterMeta.
@@ -21364,6 +21418,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ['tickers', 'Tickers'],
       ['narratives', 'Narratives'],
       ['brief', 'Brief'],
+      ['market', 'Market analysis'],
       ['picks', 'Top picks'],
       ['heatmap', 'Heatmap'],
       ['calendar', 'Calendar'],
@@ -21390,8 +21445,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
       });
       TABS.forEach(function(tt){
-        // Skip the role-hidden Track Record tab so it never appears in cmd-K.
+        // Skip the role-hidden Track Record / Top Picks tabs so they never
+        // appear in cmd-K for a visitor without the role.
         if (tt[0] === 'track' && !HAS_TRACK_RECORD) return;
+        if (tt[0] === 'picks' && !HAS_TOP_PICKS) return;
         out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
       });
       return out;
@@ -22537,6 +22594,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
         var trPane = document.getElementById('page-pane-track');
         if (trPane && trPane.parentNode) trPane.parentNode.removeChild(trPane);
+      }
+      // Top Picks is role-hidden the same way (tp claim): remove the nav
+      // button(s), the pane, AND the landing "Top picks" card (data-go).
+      if (!HAS_TOP_PICKS) {
+        var tpBtns = document.querySelectorAll('[data-page-tab="picks"], [data-go="picks"]');
+        for (var pi = 0; pi < tpBtns.length; pi++) {
+          var tpBtn = tpBtns[pi];
+          if (tpBtn && tpBtn.parentNode) tpBtn.parentNode.removeChild(tpBtn);
+        }
+        var tpPane = document.getElementById('page-pane-picks');
+        if (tpPane && tpPane.parentNode) tpPane.parentNode.removeChild(tpPane);
       }
       try { markPremiumNav(); } catch (_) {}
       try { renderAuthChip(); } catch (_) {}
