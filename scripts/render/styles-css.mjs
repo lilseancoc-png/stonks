@@ -10884,6 +10884,65 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   .acc-cp-row > :nth-child(2) { display: none; }
 }
 
+/* ===== Per-pick "Strategy & entry details" disclosure ================== */
+.acc-strategy { margin-top: 6px; }
+.acc-strat-summary {
+  cursor: pointer;
+  list-style: none;
+  font: 600 11px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted-strong);
+  padding: 2px 0;
+}
+.acc-strat-summary::-webkit-details-marker { display: none; }
+.acc-strat-summary::after {
+  content: '▸';
+  margin-left: 5px;
+  color: var(--muted);
+  display: inline-block;
+  transition: transform .15s ease;
+}
+.acc-strategy[open] > .acc-strat-summary::after { transform: rotate(90deg); }
+.acc-strat-body {
+  margin-top: 6px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 6%, var(--surface));
+}
+.acc-strat-name { font: 700 12.5px/1.3 var(--font-sans); color: var(--text); }
+.acc-strat-fb {
+  display: inline-block; vertical-align: 1px; margin-left: 4px;
+  padding: 2px 6px; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--muted) 14%, var(--surface));
+  color: var(--muted-strong);
+  font: 600 9.5px/1 var(--font-sans); text-transform: uppercase; letter-spacing: .05em;
+}
+.acc-strat-reason { margin-top: 3px; color: var(--muted-strong); font: 400 12px/1.45 var(--font-sans); }
+.acc-strat-rows { margin-top: 8px; display: grid; gap: 4px; }
+.acc-strat-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: baseline;
+}
+.acc-strat-k {
+  color: var(--muted);
+  font: 600 10px/1.6 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.acc-strat-v {
+  color: var(--text);
+  font: 400 12px/1.45 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .acc-strat-row { grid-template-columns: 1fr; }
+}
+
 /* "How to read a pick" collapsible — sits between the section hint and
    the cards. Closed by default so the section stays tight for return
    visitors; opening it shows the layout legend for first-time readers. */

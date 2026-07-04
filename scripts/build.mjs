@@ -13266,19 +13266,35 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       thesisCategory: thesisCat.primary, thesisCategorySecondary: thesisCat.secondary,
       contract: p.contract ? {
         strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay,
+        // Display-only extras for the Track Record's per-pick "Strategy &
+        // entry" disclosure: the human expiry label and the breakeven at
+        // expiry (both already computed by the contract builders).
+        expiryLabel: p.contract.expiryLabel ?? null,
+        breakeven: p.contract.breakeven ?? null,
         // pop (probability-of-profit, N(d2) on the contract's breakeven) drives
         // the Track Record PoP-bucket analytics — copy it through, present on
         // both naked-long and vertical contracts.
         pop: p.contract.pop ?? null,
         structure: p.contract.structure || "long",
         // Verticals must carry their legs + economics so markOptionToMarket can
-        // reprice both wings and net the P/L (structure-aware).
+        // reprice both wings and net the P/L (structure-aware). shortMid/longMid
+        // are display-only (per-leg entry price in the strategy disclosure).
         ...(p.contract.structure && p.contract.structure !== "long" ? {
           legs: (p.contract.legs || []).map((l) => ({ qty: l.qty, type: l.type, strike: l.strike, iv: l.iv, expiry: l.expiry })),
           shortStrike: p.contract.shortStrike, longStrike: p.contract.longStrike,
           netDebit: p.contract.netDebit, netCredit: p.contract.netCredit,
+          shortMid: p.contract.shortMid ?? null, longMid: p.contract.longMid ?? null,
           maxLoss: p.contract.maxLoss, maxProfit: p.contract.maxProfit, optionType: p.contract.optionType,
         } : {}),
+      } : null,
+      // Strategy snapshot at entry — WHY the engine shipped this structure
+      // (naked long vs debit/credit vertical, the IV-regime reason, and
+      // whether it fell back from the requested structure). Frozen so the
+      // Track Record can show the strategy exactly as taken; legacy entries
+      // without it derive a name from contract.structure client-side.
+      strategy: p.strategy ? {
+        type: p.strategy.type, label: p.strategy.label || null, reason: p.strategy.reason || null,
+        ivTier: p.strategy.ivTier ?? null, fallback: !!p.strategy.fallback, requested: p.strategy.requested || null,
       } : null,
       takeProfit: p.exitPlan?.takeProfit?.price ?? null, cut: p.exitPlan?.cut?.price ?? null,
       sector: SECTORS[p.symbol] || p.sector || null, entryRegime: picksPayload?.rosterMeta?.regimeBand || null,

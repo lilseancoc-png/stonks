@@ -338,6 +338,15 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   marks each to market on its **contract** every build (Black-Scholes), resolves
   on the exit rules above, and computes stats (`winRate`, option expectancy,
   option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`).
+  Each enrolled entry also **freezes a display snapshot at entry** — the
+  `strategy` object (`type`/`label`/`reason`/`ivTier`/`fallback`, i.e. *why* the
+  engine shipped this structure) plus the contract's `expiryLabel`, `breakeven`,
+  and per-leg `shortMid`/`longMid` on verticals — which powers the Track Record
+  tab's per-pick **"Strategy & entry details"** disclosure (`accStrategyBlock` in
+  `app-js.mjs`: the trade as taken, per-leg buy-in prices, entry cost per
+  contract, greeks/PoP at entry, and the modeled value now / at exit). Legacy
+  entries without the snapshot derive a structure name client-side and drop the
+  missing rows.
   Two guards protect the marking loop: a **corporate-action guard**
   (`detectSplitFactor` + `applySplitToEntry` — a split between marks would
   reprice the frozen pre-split contract on the post-split tape, marking an ATM
