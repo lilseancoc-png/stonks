@@ -9097,6 +9097,13 @@ const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;
 const PICKS_ACCURACY_MAX_CLOSED = 250;
 const PICKS_ACCURACY_WEEKLY_RESET = process.env.PICKS_ACCURACY_WEEKLY_RESET !== "0";
+// Hard cap on the concurrently-tracked open book. Each build ships <=10
+// actionable picks, but re-entry suppression means every build surfaces NEW
+// names while the previously-enrolled ones stay open until an exit rule fires —
+// unbounded, the intraweek book compounded to 25+ positions. Enrollment walks
+// the roster in rank order, so when slots are scarce the highest-conviction
+// names get them.
+const PICKS_MAX_OPEN_POSITIONS = Math.max(1, Number(process.env.PICKS_MAX_OPEN_POSITIONS ?? 20) || 20);
 const PICKS_ACCURACY_RESET_DOW = 0;             // Sunday ET (read by picksAccuracyResetDue, above)
 const PICKS_ACCURACY_RESET_HOUR_ET = 0;
 const GRADES_HISTORY_FILE = "grades-history.json";
@@ -13129,6 +13136,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   try { picksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
   const openKeys = new Set(open.map((o) => `${o.symbol}:${o.side}`));
   for (const p of (picksPayload?.picks || [])) {
+    // Book-size cap: never carry more than PICKS_MAX_OPEN_POSITIONS open
+    // positions. picks[] is rank-ordered, so the strongest names enroll first;
+    // the rest wait for a slot to free up (exit or weekly reset).
+    if (open.length >= PICKS_MAX_OPEN_POSITIONS) break;
     const key = `${p.symbol}:${p.side}`;
     if (openKeys.has(key)) continue;
     // Track record = the ACTIONABLE roster only (Strong grade + Strong thesis).

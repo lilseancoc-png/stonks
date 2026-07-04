@@ -32,6 +32,12 @@ const RFR = 0.045;
 const YEAR_SECS = 365.25 * 24 * 3600;
 const FAVORABLE_MOVE = 1.0;   // |stock move| ≤ this% counts as "flat"
 const ADVERSE_MOVE = 3.0;     // stock move ≤ -this% against the trade = clearly direction-driven
+// A flat-stock loss held under this many calendar days is a FORCED EARLY CLOSE
+// (weekly reset / roster churn / pre-earnings), not a theta read — ~0 days of
+// decay can't explain the loss, and counting it as theta/vol steered the
+// structure roadmap off a phantom signal. Mirrored by ACC_MIN_THETA_DAYS in
+// scripts/render/app-js.mjs (the Track Record Summary tab).
+const MIN_THETA_DAYS = 2;
 
 const pct = (x) => (x == null || !isFinite(x) ? "  —  " : (x >= 0 ? "+" : "") + x.toFixed(1) + "%");
 const pad = (s, n) => String(s).padEnd(n);
@@ -87,6 +93,7 @@ function modelClosedPick(e) {
   const thetaOnly = priceAt(S0, Texit);  // time passes, spot frozen
   return {
     sym: e.symbol, side, outcome: e.outcome, cohort: e.cohort || null, K, exp,
+    heldDays: (exitSec - entrySec) / 86400,
     optPnl: ((exitPrem - entryPrem) / entryPrem) * 100,
     dirContrib: ((dirOnly - entryPrem) / entryPrem) * 100,
     thetaContrib: ((thetaOnly - entryPrem) / entryPrem) * 100,
@@ -134,13 +141,15 @@ async function main() {
     let cls;
     if (m.optPnl >= 0) cls = "win";
     else if (m.undMove <= -ADVERSE_MOVE || m.dirContrib <= m.thetaContrib) cls = "direction";
+    else if (m.heldDays < MIN_THETA_DAYS) cls = "churn";
     else cls = "theta/vol";
     // The most damning sub-case: the stock moved WITH the trade (or was flat) yet
     // the option still lost — pure vehicle bleed the underlying metric is blind to.
-    const flatButLost = m.optPnl < 0 && m.undMove >= -FAVORABLE_MOVE;
+    // (Forced early closes excluded — nothing had time to bleed.)
+    const flatButLost = m.optPnl < 0 && m.undMove >= -FAVORABLE_MOVE && cls !== "churn";
 
     rows.push({
-      sym: m.sym, side: m.side, undMove: m.undMove, optPnl: m.optPnl,
+      sym: m.sym, side: m.side, undMove: m.undMove, optPnl: m.optPnl, heldDays: m.heldDays,
       dirContrib: m.dirContrib, thetaContrib: m.thetaContrib, cls, flatButLost,
       spread: liveSpreadPct(chains, m.sym, m.side, m.K, m.exp),
       undExpectancy: m.undMove,
@@ -155,13 +164,14 @@ async function main() {
 
   // ---- Per-pick table -------------------------------------------------------
   console.log("\n=== Modeled option-P&L attribution for resolved picks (IV held at entry-implied) ===\n");
-  console.log(pad("SYM", 7) + pad("SIDE", 6) + padL("stock", 8) + padL("OPTION", 9) + padL("dir", 8) + padL("theta", 8) + padL("spread", 8) + "  class");
-  console.log("-".repeat(72));
+  console.log(pad("SYM", 7) + pad("SIDE", 6) + padL("stock", 8) + padL("OPTION", 9) + padL("dir", 8) + padL("theta", 8) + padL("spread", 8) + padL("held", 7) + "  class");
+  console.log("-".repeat(79));
   for (const r of rows.sort((a, b) => a.optPnl - b.optPnl)) {
     console.log(
       pad(r.sym, 7) + pad(r.side, 6) + padL(pct(r.undMove), 8) + padL(pct(r.optPnl), 9) +
       padL(pct(r.dirContrib), 8) + padL(pct(r.thetaContrib), 8) +
       padL(r.spread == null ? "—" : (r.spread * 100).toFixed(0) + "%", 8) +
+      padL(r.heldDays < 1 ? Math.round(r.heldDays * 24) + "h" : r.heldDays.toFixed(1) + "d", 7) +
       "  " + r.cls + (r.flatButLost ? "  ⚠ flat-but-lost" : "")
     );
   }
@@ -172,6 +182,7 @@ async function main() {
   const wins = rows.filter((r) => r.optPnl >= 0);
   const dirLosses = losses.filter((r) => r.cls === "direction");
   const thetaLosses = losses.filter((r) => r.cls === "theta/vol");
+  const churnLosses = losses.filter((r) => r.cls === "churn");
   const flatButLost = rows.filter((r) => r.flatButLost);
   const spreads = rows.map((r) => r.spread).filter((x) => x != null);
 
@@ -189,12 +200,18 @@ async function main() {
   console.log("  Loss attribution (" + losses.length + " losses):");
   console.log("    direction-driven : " + dirLosses.length + "  (" + (losses.length ? (dirLosses.length / losses.length * 100).toFixed(0) : 0) + "%)   avg stock " + pct(mean(dirLosses.map((r) => r.undMove))) + " · avg option " + pct(mean(dirLosses.map((r) => r.optPnl))));
   console.log("    theta/vol-driven : " + thetaLosses.length + "  (" + (losses.length ? (thetaLosses.length / losses.length * 100).toFixed(0) : 0) + "%)   avg stock " + pct(mean(thetaLosses.map((r) => r.undMove))) + " · avg option " + pct(mean(thetaLosses.map((r) => r.optPnl))));
+  console.log("    forced early close: " + churnLosses.length + "  (held <" + MIN_THETA_DAYS + "d — reset/churn/pre-earnings; too short to attribute to theta)");
   console.log("    flat/up but lost : " + flatButLost.length + "  (stock moved with the trade or ≤" + FAVORABLE_MOVE + "% against, option still red)");
 
-  // ---- Verdict --------------------------------------------------------------
-  const dirShare = losses.length ? dirLosses.length / losses.length : 0;
+  // ---- Verdict (over the ATTRIBUTABLE losses — forced early closes excluded) --
+  const attributable = dirLosses.length + thetaLosses.length;
+  const dirShare = attributable ? dirLosses.length / attributable : 0;
+  if (churnLosses.length) console.log("\n  NOTE: " + churnLosses.length + " forced-early-close loss" + (churnLosses.length === 1 ? " is" : "es are") + " excluded from the direction-vs-theta verdict below.");
   console.log("\n=== Verdict ===\n");
-  if (dirShare >= 0.6) {
+  if (!attributable) {
+    console.log("  NO ATTRIBUTABLE LOSSES — every loss was a forced early close (held <" + MIN_THETA_DAYS + "d).");
+    console.log("  No direction-vs-theta read yet; let the book hold positions to a real exit.");
+  } else if (dirShare >= 0.6) {
     console.log("  DIRECTION-DRIVEN losses dominate (" + (dirShare * 100).toFixed(0) + "%). The signal is picking the");
     console.log("  wrong side, not the vehicle bleeding. Verticals + premium stops shrink the");
     console.log("  loss but don't fix it — prioritize the SCORE (fix or fade it) and STANDING DOWN");
