@@ -22,6 +22,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-07-04
 
+### Added
+- **Track Record picks now open into a per-pick "Strategy & entry details" panel.** Every open and resolved pick card gains a disclosure showing the trade exactly as the engine took it: the strategy and why it was chosen (naked long vs debit/credit vertical, the IV-regime reason, fallback flag — frozen at entry), the buy-in (per-leg prices on verticals, entry contract price per share and ≈$ per contract), breakeven, greeks/PoP at entry, and the modeled contract value now (open) or at exit (resolved). New enrollments snapshot the strategy + expiry label + per-leg mids into `picks-accuracy.json`; existing entries degrade gracefully (structure-derived name, missing rows dropped). `scripts/build.mjs`, `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`, `docs/top-picks.md`.
+
 ### Changed
 - **Track-record open book capped at 20 positions (`PICKS_MAX_OPEN_POSITIONS`).** Each build ships ≤10 actionable picks, but re-entry suppression surfaces new names every build while already-enrolled positions stay open until an exit rule fires, so the intraweek book compounded past 25 tracked positions. Enrollment now walks the ranked roster and stops at the cap; excess picks wait for a slot to free up (an exit or the weekly reset). `scripts/build.mjs`, `docs/top-picks.md`.
 

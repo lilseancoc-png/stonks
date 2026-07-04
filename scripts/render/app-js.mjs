@@ -17091,8 +17091,129 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var c = e && e.contract; if (!c) return '';
     var parts = [];
     if (c.strike != null) parts.push('$' + c.strike);
-    if (c.expiryLabel) parts.push(c.expiryLabel);
+    var exp = accExpiryLabel(c);
+    if (exp) parts.push(exp);
     return parts.join(' · ');
+  }
+  // Human expiry label — prefers the baked expiryLabel (new entries carry it),
+  // else derives one from the epoch-second expiry so legacy entries render too.
+  function accExpiryLabel(c){
+    if (!c) return null;
+    if (c.expiryLabel) return c.expiryLabel;
+    var ms = Number(c.expiry) * 1000;
+    if (!c.expiry || !isFinite(ms) || ms <= 0) return null;
+    var d = new Date(ms);
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MON[d.getUTCMonth()] + ' ' + d.getUTCDate() + " '" + String(d.getUTCFullYear()).slice(2);
+  }
+  function accUsd(n){
+    if (n == null) return null;
+    var v = Number(n);
+    if (!isFinite(v)) return null;
+    return '$' + v.toFixed(2);
+  }
+  function accSignedUsd(n){
+    if (n == null) return null;
+    var v = Number(n);
+    if (!isFinite(v)) return null;
+    return (v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2);
+  }
+  // "(≈$320 per contract)" — options trade in 100-share contracts, so the
+  // per-share price ×100 is the actual dollars in play.
+  function accPerContract(n){
+    if (n == null) return '';
+    var v = Number(n);
+    if (!isFinite(v)) return '';
+    return ' (≈$' + Math.round(v * 100) + ' per contract)';
+  }
+  // --- Per-pick "Strategy & entry details" disclosure ----------------------
+  // The trade exactly as the engine took it: the structure + WHY (the strategy
+  // snapshot frozen at entry), per-leg buy-in prices, the entry contract cost,
+  // greeks/odds at entry, breakeven, and the modeled contract value now (open)
+  // / at exit (closed). Legacy entries missing a field just drop that row;
+  // entries with no contract at all (watch-only) render nothing.
+  var ACC_MODEL_TIP = 'Modeled with Black-Scholes from the entry snapshot — no options-price feed, so this is a model, not a realized fill.';
+  function accStrategyBlock(e, isClosed){
+    var c = e && e.contract; if (!c) return '';
+    var isCall = e.side !== 'put';
+    var st = c.structure || 'long';
+    var legType = escapeHtml(c.optionType || e.side || (isCall ? 'call' : 'put'));
+    var strat = e.strategy || null;
+    // Prefer the frozen strategy label; derive one from the structure for
+    // entries enrolled before the snapshot existed.
+    var stratName = (strat && strat.label) ? strat.label
+      : st === 'debit_vertical' ? (legType + ' debit spread (defined risk)')
+      : st === 'credit_vertical' ? (legType + ' credit spread (sell premium)')
+      : ('Long ' + (isCall ? 'call' : 'put'));
+    var rows = '';
+    function specRow(k, v, tip){
+      if (v == null || v === '') return;
+      rows += '<div class="acc-strat-row"><span class="acc-strat-k">' + k + '</span><span class="acc-strat-v"' + (tip ? ' title="' + tip + '"' : '') + '>' + v + '</span></div>';
+    }
+    var expBits = [];
+    var expLbl = accExpiryLabel(c);
+    if (expLbl) expBits.push('exp ' + escapeHtml(expLbl));
+    if (c.dte != null && isFinite(Number(c.dte))) expBits.push(Number(c.dte) + ' DTE at entry');
+    var expTail = expBits.length ? ' · ' + expBits.join(' · ') : '';
+    if (st === 'debit_vertical'){
+      var debit = (c.netDebit != null && isFinite(Number(c.netDebit))) ? Number(c.netDebit) : Number(c.mid);
+      specRow('The trade',
+        'Bought the $' + c.longStrike + ' ' + legType + (accUsd(c.longMid) ? ' @ ~' + accUsd(c.longMid) : '') +
+        ' · sold the $' + c.shortStrike + ' ' + legType + (accUsd(c.shortMid) ? ' @ ~' + accUsd(c.shortMid) : '') + expTail);
+      specRow('Cost (net debit)', accUsd(debit) ? accUsd(debit) + '/share' + accPerContract(debit) : null,
+        'What the spread cost to put on — also the most the trade can lose.');
+      if (accUsd(c.maxProfit)) specRow('Max profit / loss', accUsd(c.maxProfit) + ' / ' + (accUsd(c.maxLoss) || accUsd(debit)) + ' per share');
+    } else if (st === 'credit_vertical'){
+      var credit = (c.netCredit != null && isFinite(Number(c.netCredit))) ? Number(c.netCredit) : Number(c.mid);
+      specRow('The trade',
+        'Sold the $' + c.shortStrike + ' ' + legType + (accUsd(c.shortMid) ? ' @ ~' + accUsd(c.shortMid) : '') +
+        ' · bought the $' + c.longStrike + ' ' + legType + (accUsd(c.longMid) ? ' @ ~' + accUsd(c.longMid) : '') + ' as the hedge' + expTail);
+      specRow('Credit received', accUsd(credit) ? accUsd(credit) + '/share' + accPerContract(credit) : null,
+        'Premium collected up front — also the maximum profit. The trade wins if the spread can be bought back for less.');
+      if (accUsd(c.maxLoss)) specRow('Max profit / loss', (accUsd(c.maxProfit) || accUsd(credit)) + ' / ' + accUsd(c.maxLoss) + ' per share');
+    } else {
+      specRow('The trade', 'Bought the $' + c.strike + ' ' + (isCall ? 'call' : 'put') + expTail);
+      specRow('Entry price', accUsd(c.mid) ? '~' + accUsd(c.mid) + '/share' + accPerContract(c.mid) : null,
+        'Mid of the bid/ask when the pick shipped — the modeled fill.');
+    }
+    if (accUsd(c.breakeven)) specRow('Breakeven at expiry', accUsd(c.breakeven) + ' on the stock');
+    var gk = [];
+    if (c.iv != null && isFinite(Number(c.iv))) gk.push('IV ' + Math.round(Number(c.iv) * 100) + '%');
+    if (c.delta != null && isFinite(Number(c.delta))) gk.push('Δ ' + Number(c.delta).toFixed(2));
+    if (c.thetaDay != null && isFinite(Number(c.thetaDay))) gk.push('Θ ' + accSignedUsd(c.thetaDay) + '/day');
+    if (c.pop != null && isFinite(Number(c.pop))) gk.push('PoP ' + Math.round(Number(c.pop) * 100) + '%');
+    if (gk.length) specRow('At entry', gk.join(' · '),
+      'Implied volatility, delta, daily time decay and probability-of-profit of the position when the pick shipped.');
+    // Where the contract stands: modeled mark now (open) / at exit (closed).
+    var pnl = Number(e.optionPnlPct);
+    if (e.optionPnlPct != null && isFinite(pnl)){
+      var pnlTxt = '<span class="' + (pnl >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(pnl) + '</span> (modeled)';
+      if (st === 'credit_vertical'){
+        var cr2 = (c.netCredit != null && isFinite(Number(c.netCredit))) ? Number(c.netCredit) : Number(c.mid);
+        var buyback = isFinite(cr2) ? cr2 * (1 - pnl / 100) : null;
+        specRow(isClosed ? 'Buy-back at exit' : 'Buy-back cost now',
+          (accUsd(buyback) ? '~' + accUsd(buyback) + '/share vs ' + accUsd(cr2) + ' received · ' : '') + pnlTxt, ACC_MODEL_TIP);
+      } else {
+        var basis = st === 'debit_vertical'
+          ? ((c.netDebit != null && isFinite(Number(c.netDebit))) ? Number(c.netDebit) : Number(c.mid))
+          : Number(c.mid);
+        var nowVal = isFinite(basis) ? basis * (1 + pnl / 100) : null;
+        specRow(isClosed ? 'Exit value' : 'Value now',
+          (accUsd(nowVal) ? '~' + accUsd(nowVal) + '/share' + accPerContract(nowVal) + ' · ' : '') + pnlTxt, ACC_MODEL_TIP);
+      }
+    }
+    var fbTag = (strat && strat.fallback)
+      ? ' <span class="acc-strat-fb" title="The engine wanted a ' + escapeHtml(strat.requested || 'different') + ' structure but no liquid version existed, so it fell back to this one.">fallback</span>'
+      : '';
+    var reasonHtml = (strat && strat.reason) ? '<div class="acc-strat-reason">' + escapeHtml(strat.reason) + '</div>' : '';
+    return '<details class="acc-strategy">' +
+      '<summary class="acc-strat-summary">Strategy &amp; entry details</summary>' +
+      '<div class="acc-strat-body">' +
+        '<div class="acc-strat-name">' + escapeHtml(stratName) + fbTag + '</div>' +
+        reasonHtml +
+        '<div class="acc-strat-rows">' + rows + '</div>' +
+      '</div>' +
+    '</details>';
   }
 
   // ========================================================================
@@ -18682,6 +18803,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           peakDip +
         '</div>' +
         (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
+        accStrategyBlock(e, false) +
         accCheckpointsBlock(e) +
       '</div>';
     }
@@ -18760,6 +18882,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
               : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
             '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
           '</div>' +
+          accStrategyBlock(e, true) +
           accCheckpointsBlock(e) +
         '</div>';
       });
