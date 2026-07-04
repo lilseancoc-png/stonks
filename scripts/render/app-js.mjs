@@ -199,6 +199,111 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function todayStamp(){ return new Date().toISOString().slice(0,10); }
 
   // ---------------------------------------------------------------------
+  // Generic chart hover/tap readout. Any inline-SVG chart opts in by
+  // carrying data-ch='[[x,y,"label"],...]' (viewBox coords + a preformatted
+  // label; chHoverAttr builds the attribute). ONE delegated document
+  // listener serves every opted-in chart — no per-render wiring, so charts
+  // rebuilt via innerHTML stay interactive for free. The crosshair, dot and
+  // tooltip are three shared fixed-position HTML nodes; viewBox→screen
+  // mapping goes through getScreenCTM(), which is exact for any
+  // viewBox/preserveAspectRatio combination (several charts stretch with
+  // preserveAspectRatio="none", where in-SVG text would distort).
+  // Charts with a bespoke hover overlay (price chart, IV term structure,
+  // fundamentals history, F&G spark, yield curve) keep their own richer
+  // handlers — this engine is for the rest.
+  function chHoverAttr(points){
+    // points: [{x,y,label}] in viewBox coords. Coords round to 0.1 to keep
+    // the attribute small on long series; invalid points are dropped.
+    if (!Array.isArray(points)) return '';
+    var out = [];
+    for (var i=0; i<points.length; i++){
+      var p = points[i];
+      if (!p || p.x == null || p.y == null || !isFinite(p.x) || !isFinite(p.y)) continue;
+      out.push([Math.round(p.x*10)/10, Math.round(p.y*10)/10, String(p.label == null ? '' : p.label)]);
+    }
+    if (!out.length) return '';
+    return ' data-ch="' + escapeHtml(JSON.stringify(out)) + '"';
+  }
+  var chHover = { svg: null, pts: null, tip: null, line: null, dot: null };
+  function chEnsureNodes(){
+    if (chHover.tip) return;
+    var tip = document.createElement('div'); tip.className = 'ch-tip'; tip.setAttribute('role', 'status');
+    var line = document.createElement('div'); line.className = 'ch-line';
+    var dot = document.createElement('div'); dot.className = 'ch-dot';
+    tip.style.display = 'none'; line.style.display = 'none'; dot.style.display = 'none';
+    document.body.appendChild(line); document.body.appendChild(dot); document.body.appendChild(tip);
+    chHover.tip = tip; chHover.line = line; chHover.dot = dot;
+  }
+  function chHide(){
+    if (chHover.tip){
+      chHover.tip.style.display = 'none';
+      chHover.line.style.display = 'none';
+      chHover.dot.style.display = 'none';
+    }
+    chHover.svg = null; chHover.pts = null;
+  }
+  function chShow(svg, clientX, clientY){
+    var pts = (svg === chHover.svg) ? chHover.pts : null;
+    if (!pts){
+      try { pts = JSON.parse(svg.getAttribute('data-ch')); } catch(_){ pts = null; }
+      if (!pts || !pts.length){ chHide(); return; }
+      chHover.svg = svg; chHover.pts = pts;
+    }
+    if (!svg.getScreenCTM || !svg.createSVGPoint) return;
+    var ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    var inv; try { inv = ctm.inverse(); } catch(_){ return; }
+    var q = svg.createSVGPoint(); q.x = clientX; q.y = clientY;
+    var v = q.matrixTransform(inv);
+    // Snap to the nearest point by viewBox x — charts are x-ordered series.
+    var best = pts[0], bd = Math.abs(pts[0][0] - v.x);
+    for (var i=1; i<pts.length; i++){
+      var d = Math.abs(pts[i][0] - v.x);
+      if (d < bd){ bd = d; best = pts[i]; }
+    }
+    var s = svg.createSVGPoint(); s.x = best[0]; s.y = best[1];
+    var sp = s.matrixTransform(ctm);
+    var rect = svg.getBoundingClientRect();
+    chEnsureNodes();
+    chHover.line.style.display = '';
+    chHover.line.style.left = sp.x + 'px';
+    chHover.line.style.top = rect.top + 'px';
+    chHover.line.style.height = rect.height + 'px';
+    chHover.dot.style.display = '';
+    chHover.dot.style.left = sp.x + 'px';
+    chHover.dot.style.top = sp.y + 'px';
+    var tip = chHover.tip;
+    var lines = String(best[2] || '').split('\\n');
+    var htmlOut = '';
+    for (var li=0; li<lines.length; li++) htmlOut += (li ? '<br>' : '') + escapeHtml(lines[li]);
+    tip.innerHTML = htmlOut;
+    tip.style.display = '';
+    // Above the dot, flipping below when clipped at the top, and clamped to
+    // the viewport horizontally (flip to the left of the dot near the edge).
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var vx = sp.x + 12;
+    if (vx + tw > window.innerWidth - 8) vx = Math.max(8, sp.x - tw - 12);
+    var vy = sp.y - th - 12;
+    if (vy < 8) vy = Math.min(window.innerHeight - th - 8, sp.y + 14);
+    tip.style.left = vx + 'px';
+    tip.style.top = vy + 'px';
+  }
+  (function initChartHover(){
+    function onMove(ev){
+      var t = ev.target;
+      var svg = (t && t.closest) ? t.closest('svg[data-ch]') : null;
+      if (!svg){ if (chHover.svg) chHide(); return; }
+      chShow(svg, ev.clientX, ev.clientY);
+    }
+    // pointermove covers mouse; pointerdown makes a tap show the readout on
+    // touch. Scroll/resize invalidate the fixed-position overlay, so hide.
+    document.addEventListener('pointermove', onMove, { passive: true });
+    document.addEventListener('pointerdown', onMove, { passive: true });
+    document.addEventListener('scroll', chHide, { passive: true, capture: true });
+    window.addEventListener('resize', chHide);
+  })();
+
+  // ---------------------------------------------------------------------
   // Pin-to-compare state. Persisted to localStorage so the strip survives
   // navigations. Items are full grade snapshots so a click can rehydrate
   // the chain grader without re-fetching.
@@ -5501,6 +5606,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       hit.addEventListener('mousemove',  function(){ showCross(hit); });
     });
     svgEl.addEventListener('mouseleave', hideCross);
+    // Touch: a tap/drag snaps the crosshair to the hit column under the finger
+    // (mouseenter never fires on touch), matching the price chart's behavior.
+    function touchCross(e){
+      var t = e.touches && e.touches[0]; if (!t) return;
+      var el = document.elementFromPoint(t.clientX, t.clientY);
+      var hit = el && el.closest ? el.closest('.opt-fund-eh-hit') : null;
+      if (hit) showCross(hit);
+    }
+    svgEl.addEventListener('touchstart', touchCross, { passive: true });
+    svgEl.addEventListener('touchmove', touchCross, { passive: true });
+    svgEl.addEventListener('touchend', hideCross);
   }
 
   function renderEarningsHistory(){
@@ -5916,10 +6032,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     allSlices.forEach(function(s){
       var idx = parseInt(s.getAttribute('data-idx'));
       s.addEventListener('mouseenter', function(){ highlight(idx); });
+      // Touch: tapping a slice highlights it (mouseenter never fires); tapping
+      // the same slice again clears, so mobile users can dismiss the tip.
+      s.addEventListener('click', function(){
+        if (!tipEl.hidden && s.classList.contains('dimmed') === false && box._segTapIdx === idx){ unhighlight(); box._segTapIdx = null; return; }
+        highlight(idx); box._segTapIdx = idx;
+      });
     });
     allLegs.forEach(function(l){
       var idx = parseInt(l.getAttribute('data-idx'));
       l.addEventListener('mouseenter', function(){ highlight(idx); });
+      l.addEventListener('click', function(){
+        if (!tipEl.hidden && box._segTapIdx === idx){ unhighlight(); box._segTapIdx = null; return; }
+        highlight(idx); box._segTapIdx = idx;
+      });
     });
     svgEl.addEventListener('mouseleave', unhighlight);
     box.querySelector('.opt-fund-seg-legend').addEventListener('mouseleave', unhighlight);
@@ -6037,7 +6163,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="opt-social-label">Retail chatter</span>' +
         '<span class="opt-social-stat">' + bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h</span>' +
       '</div>' +
-      '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish">' +
+      '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish" title="' + bull + '% bullish · ' + bear + '% bearish (' + msgs + ' msgs/24h)">' +
         '<span class="bull" style="width:' + bull + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
@@ -7367,7 +7493,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="flow-sum-stat"><strong>' + totalContracts + '</strong> contract' + (totalContracts === 1 ? '' : 's') + '</span>' +
         (topStr ? '<span class="flow-sum-top" title="Largest single hourly print">Top print · ' + topStr + '</span>' : '') +
       '</div>' +
-      '<div class="flow-sum-bar" role="img" aria-label="' + escapeHtml(barLabel) + '">' +
+      '<div class="flow-sum-bar" role="img" aria-label="' + escapeHtml(barLabel) + '" title="' + escapeHtml(barLabel) + '">' +
         '<span class="flow-sum-bar-call" style="width:' + callPct + '%"></span>' +
         '<span class="flow-sum-bar-put" style="width:' + putPct + '%"></span>' +
       '</div>' +
@@ -9370,7 +9496,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       base = '<line class="tape-spark-base" x1="1" y1="' + by + '" x2="' + (w - 1) + '" y2="' + by + '"/>';
     }
     var cls = 'tape-spark' + (opts.tone ? ' tape-spark-' + opts.tone : '');
-    return '<svg class="' + cls + '" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+    // Per-point hover readout (shared chart-hover engine). opts.fmt formats the
+    // value; the second line places the point relative to the newest sample.
+    var hover = chHoverAttr(s.map(function(v, i){
+      var back = n - 1 - i;
+      return { x: (i / (n - 1)) * (w - 2) + 1, y: Y(v),
+        label: String(opts.fmt ? opts.fmt(v) : (Math.round(v * 100) / 100)) + '\\n' + (back === 0 ? 'latest' : back + ' back') };
+    }));
+    return '<svg class="' + cls + '"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
       base + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
   // Baked daily net-stress trend (from regime-history.json) — the headline meter
@@ -10548,7 +10681,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         wallHtml +
         '<span class="oi-rung-oi" title="Open interest on this strike"><b>' + fmtOiNum(s.oi) + '</b> OI</span>' +
       '</div>' +
-      '<div class="oi-rung-bar" aria-hidden="true">' +
+      '<div class="oi-rung-bar" aria-hidden="true" title="' + fmtOiNum(s.oi) + ' contracts open — ' + Math.round(pct) + '% of the biggest strike shown">' +
         '<span class="oi-rung-bar-fill" style="width:' + pct + '%"></span>' +
       '</div>' +
       '<div class="oi-rung-meta">' +
@@ -12162,7 +12295,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + (yHi >= 0 ? '+' : '') + fmtMoney(yHi) + '</text>' +
       '<text x="' + (PAD_L - 6) + '" y="' + (zeroY + 4) + '" class="strat-payoff-axislbl" text-anchor="end">$0</text>' +
       '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(yLo) + '</text>';
-    return '<svg class="strat-payoff-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Strategy P/L at expiration">'
+    // Scrub readout: underlying price at expiry → strategy P/L (per position,
+    // ×100 like the sweep). Thin the sweep to ≤80 points to keep the attr small.
+    var hoverPts = [];
+    var hStep = Math.max(1, Math.ceil(xs.length / 80));
+    for (var hI=0; hI<xs.length; hI+=hStep){
+      hoverPts.push({ x: sx(xs[hI]), y: sy(ys[hI]),
+        label: 'stock at ' + fmtMoney(xs[hI]) + '\\nP/L ' + stratFmtSigned(ys[hI]) });
+    }
+    var hover = chHoverAttr(hoverPts);
+    return '<svg class="strat-payoff-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Strategy P/L at expiration">'
       + '<line class="strat-payoff-zero" x1="' + PAD_L + '" y1="' + zeroY + '" x2="' + (W - PAD_R) + '" y2="' + zeroY + '"></line>'
       + '<path class="strat-payoff-area strat-payoff-area-profit" d="' + areaTopPath + '"></path>'
       + '<path class="strat-payoff-area strat-payoff-area-loss" d="' + areaBotPath + '"></path>'
@@ -12922,7 +13064,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var ttmTxt = co.ttm ? cxDollars(co.ttm.val) + (co.ttm.basis === 'ttm' ? ' TTM' : ' FY') : '—';
       rows += '<div class="cx-row">' +
         '<div class="cx-row-head"><span class="cx-tkr">' + escapeHtml(co.ticker) + '</span> <span class="cx-name">' + escapeHtml(co.name || '') + '</span></div>' +
-        '<div class="cx-bar-wrap"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div>' +
+        '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div>' +
           '<span class="cx-bar-val">' + cxDollars(v) + '</span> ' + cxYoyChip(co.yoyPct) + '</div>' +
         '<div class="cx-row-meta">' +
           (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
@@ -14191,7 +14333,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var lab = (ym[1] === '01') ? ym[0] : reportMonthLabel(points[k].m, false);
       xlabels += '<text class="cal-rc-xlabel" text-anchor="middle" x="' + xAt(k).toFixed(1) + '" y="' + (H - padB + 18) + '">' + escapeHtml(lab) + '</text>';
     }
-    return '<svg class="cal-rc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Report history bar chart">' + grid + bars + xlabels + '</svg>';
+    var hover = chHoverAttr(points.map(function(p, pi){
+      return { x: xAt(pi), y: yAt(p.v),
+        label: reportMonthLabel(p.m, true) + '\\n' + fmtReportVal(p.v, unit, signed) };
+    }));
+    return '<svg class="cal-rc-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Report history bar chart">' + grid + bars + xlabels + '</svg>';
   }
   function reportSummaryText(e, hist){
     var unit = (hist && hist.unit) || '%';
@@ -14676,7 +14822,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var y = h - 1 - ((val - min) / span) * (h - 2);
         return x.toFixed(1) + ',' + y.toFixed(1);
       }).join(' ');
-      return '<svg class="fomc-pm-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+      var hover = chHoverAttr(series.map(function(val, i){
+        var back = n - 1 - i;
+        return { x: (i / (n - 1)) * (w - 2) + 1, y: h - 1 - ((val - min) / span) * (h - 2),
+          label: 'hold ' + Math.round(val) + '%\\n' + (back === 0 ? 'latest' : back + ' back') };
+      }));
+      return '<svg class="fomc-pm-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
         '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
     };
     var trend = pm.trend || {};
@@ -15670,6 +15821,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Numeric readout sits in the well below the hub so the needle never
     // bisects it. viewBox is sized just tall enough to hold it.
     return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 132" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
+      '<title>Fear &amp; Greed ' + Math.round(s) + ' of 100 — ' + escapeHtml(String(band).replace(/-/g, ' ')) + '. 0–24 extreme fear · 25–44 fear · 45–54 neutral · 55–74 greed · 75–100 extreme greed.</title>' +
       arcs + ticks + ends + needle +
       '<text class="fng-gauge-num" x="' + cx + '" y="128" text-anchor="middle">' + Math.round(s) + '</text>' +
     '</svg>';
@@ -16328,7 +16480,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var avgCls = avg > 0.05 ? 'pos' : (avg < -0.05 ? 'neg' : 'zero');
     host.innerHTML =
       '<div class="heatmap-breadth-bar" role="img" aria-label="' +
-        up + ' advancing, ' + down + ' declining, ' + flat + ' flat">' +
+        up + ' advancing, ' + down + ' declining, ' + flat + ' flat" title="' +
+        up + ' advancing · ' + flat + ' flat · ' + down + ' declining">' +
         '<span class="heatmap-breadth-seg pos" style="width:' + pUp + '%"></span>' +
         '<span class="heatmap-breadth-seg flat" style="width:' + pFlat + '%"></span>' +
         '<span class="heatmap-breadth-seg neg" style="width:' + pDown + '%"></span>' +
@@ -17026,6 +17179,49 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null, roster: null };
   var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
+  // Resolved-list sort (Picks pane). Module-level so a re-render (sub-tab hop,
+  // fresh data) keeps the user's choice for the session.
+  var accClosedSort = 'newest';
+  var ACC_CLOSED_SORTS = [
+    { k:'newest',    lbl:'Newest first' },
+    { k:'pnl-desc',  lbl:'Biggest gain (%)' },
+    { k:'pnl-asc',   lbl:'Biggest loss (%)' },
+    { k:'held-desc', lbl:'Longest held' },
+    { k:'held-asc',  lbl:'Shortest held' },
+    { k:'reason',    lbl:'Exit reason' },
+  ];
+  // Display order for the exit-reason grouping: targets first, then the stop
+  // family, then the passive/forced closes. Unknown statuses sort last.
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','theta-stop','timed-out','pre-earnings','expired','dropped','reset'];
+  // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
+  // key (no modeled P&L / unparsable dates) sink to the bottom in either
+  // direction; ties fall back to newest-resolved-first so the order is stable.
+  function accSortClosed(list){
+    var arr = list.slice();
+    function exitMs(e){ var t = Date.parse(e.exitDate || e.entryDate); return isFinite(t) ? t : 0; }
+    function pnl(e){ var v = Number(e.optionPnlPct); return isFinite(v) ? v : null; }
+    function held(e){ return accDaysBetween(e.entryDate, e.exitDate); }
+    function by(valFn, dir){
+      return function(a, b){
+        var va = valFn(a), vb = valFn(b);
+        if (va == null && vb == null) return exitMs(b) - exitMs(a);
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return (va - vb) * dir || exitMs(b) - exitMs(a);
+      };
+    }
+    var s = accClosedSort;
+    if (s === 'pnl-desc') arr.sort(by(pnl, -1));
+    else if (s === 'pnl-asc') arr.sort(by(pnl, 1));
+    else if (s === 'held-desc') arr.sort(by(held, -1));
+    else if (s === 'held-asc') arr.sort(by(held, 1));
+    else if (s === 'reason') arr.sort(by(function(e){
+      var i = ACC_EXIT_ORDER.indexOf(e.status);
+      return i < 0 ? ACC_EXIT_ORDER.length : i;
+    }, 1));
+    else arr.sort(function(a, b){ return exitMs(b) - exitMs(a); });
+    return arr;
+  }
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
   function loadAccuracy(){
     if (accuracyState.data || accuracyState.loading){ renderAccuracy(); return; }
@@ -17599,6 +17795,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return s + '$' + str;
   }
   function accPF(n){ if (n == null) return '—'; if (n === Infinity) return '∞'; if (!isFinite(n)) return '—'; return n.toFixed(2); }
+  // Short YYYY-MM-DD from either an ISO string or epoch ms — equity-curve
+  // points carry ISO dates (buildEquityCurve) or ms (runPortfolioSim).
+  function accAnyDateShort(d){
+    if (d == null) return '';
+    if (typeof d === 'number' && isFinite(d)){
+      try { return new Date(d).toISOString().slice(0, 10); } catch(_){ return ''; }
+    }
+    var s = String(d).slice(0, 10);
+    return /^\\d{4}-\\d{2}-\\d{2}/.test(s) ? s : '';
+  }
   function accPctRate(n){ if (n == null || !isFinite(n)) return '—'; return Math.round(n * 100) + '%'; }
   function accNum(n, dp){ if (n == null) return '—'; if (n === Infinity) return '∞'; if (!isFinite(n)) return '—'; return Number(n).toFixed(dp == null ? 2 : dp); }
   function accSignClass(n){ return (n == null || !isFinite(n)) ? '' : (n > 0 ? 'sig-pos' : (n < 0 ? 'sig-neg' : 'sig-zero')); }
@@ -17630,7 +17836,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     [yMax, (yMin + yMax) / 2, yMin].forEach(function(gv){ var gy = yFor(gv); grid += '<line class="acc-eq-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '"></line><text class="acc-eq-yl" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">' + escapeHtml(fmtV(gv)) + '</text>'; });
     var baseY = yFor(base);
     var dir = up ? 'up' : 'down';
-    return '<svg class="acc-eq-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Equity curve">' + grid +
+    // Hover readout: trade #, resolution date (points carry an ISO string or
+    // epoch ms depending on the caller), equity, and P&L vs the starting base.
+    var hover = chHoverAttr(points.map(function(p, i){
+      var dTxt = accAnyDateShort(p.date);
+      return { x: xy[i][0], y: xy[i][1],
+        label: (i === 0 ? 'start' : 'trade ' + i) + (dTxt ? ' · ' + dTxt : '') + '\\n' +
+          fmtV(p.value) + (i === 0 ? '' : ' (' + accMoney(p.value - base, true) + ')') };
+    }));
+    return '<svg class="acc-eq-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Equity curve">' + grid +
       '<line class="acc-eq-base" x1="' + padL + '" y1="' + baseY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + baseY.toFixed(1) + '"></line>' +
       '<path class="acc-eq-area ' + dir + '" d="' + area + '"></path>' +
       '<path class="acc-eq-line ' + dir + '" d="' + line + '"></path>' +
@@ -17655,7 +17869,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (opts.breakeven != null && opts.breakeven >= x0 && opts.breakeven <= x1){ var mx = xFor(opts.breakeven); marker = '<line class="acc-hist-mark" x1="' + mx.toFixed(1) + '" y1="' + padT + '" x2="' + mx.toFixed(1) + '" y2="' + (padT + plotH) + '"></line>'; }
     var labs = '', step = Math.max(1, Math.ceil(bins.length / 6));
     for (i=0;i<bins.length;i+=step){ var lx = xFor(bins[i].x0); labs += '<text class="acc-hist-xl" x="' + lx.toFixed(1) + '" y="' + (H - padB + 16) + '">' + escapeHtml(opts.fmtX ? opts.fmtX(bins[i].x0) : String(Math.round(bins[i].x0))) + '</text>'; }
-    return '<svg class="acc-hist-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Distribution">' + bars + marker + labs + '</svg>';
+    var hover = chHoverAttr(bins.map(function(b){
+      var bh = (b.count / maxC) * plotH;
+      return { x: xFor((b.x0 + b.x1) / 2), y: padT + plotH - bh,
+        label: (opts.fmtX ? opts.fmtX(b.x0) : Math.round(b.x0)) + ' – ' + (opts.fmtX ? opts.fmtX(b.x1) : Math.round(b.x1)) + '\\n' + b.count + ' run' + (b.count === 1 ? '' : 's') };
+    }));
+    return '<svg class="acc-hist-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Distribution">' + bars + marker + labs + '</svg>';
   }
   function accFanSvg(paths, medianPath, opts){
     opts = opts || {};
@@ -17684,7 +17903,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var pi=0; pi<sN; pi++){ var pp = paths[pi]; var dd = 'M' + xFor(0).toFixed(1) + ',' + yFor(pp[0]).toFixed(1); for (var j=1;j<pp.length;j++) dd += ' L' + xFor(j).toFixed(1) + ',' + yFor(pp[j]).toFixed(1); sample += '<path class="acc-fan-path" d="' + dd + '"></path>'; }
     var medXy = medianPath.map(function(v, i){ return [xFor(i), yFor(v)]; });
     var startY = yFor(opts.start != null ? opts.start : medianPath[0]);
-    return '<svg class="acc-fan-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monte Carlo paths">' + grid +
+    // Hover readout rides the median path; the label carries the pointwise
+    // p5–p95 envelope so the fan's spread reads at every step.
+    var hover = chHoverAttr(medianPath.map(function(v, i){
+      return { x: xFor(i), y: yFor(v),
+        label: 'draw ' + i + ' of ' + (steps - 1) + '\\nmedian ' + fmtV(v) + '\\np5 ' + fmtV(p5[i]) + ' · p95 ' + fmtV(p95[i]) };
+    }));
+    return '<svg class="acc-fan-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monte Carlo paths">' + grid +
       '<line class="acc-eq-base" x1="' + padL + '" y1="' + startY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + startY.toFixed(1) + '"></line>' +
       '<path class="acc-fan-env" d="' + env + '"></path>' + sample +
       '<path class="acc-fan-median" d="' + smoothPath(medXy) + '"></path>' +
@@ -18849,49 +19074,79 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
 
     // --- Resolved positions -------------------------------------------------
+    function accClosedRow(e){
+      var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
+      var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
+      var held = accDaysBetween(e.entryDate, e.exitDate);
+      var entry = Number(e.entrySpot) || 0;
+      var exit = Number(e.exitSpot);
+      var rOptPnl = Number(e.optionPnlPct);
+      var rHaveOpt = isFinite(rOptPnl);
+      // Lead the resolved row with the modeled CONTRACT result (what the trade
+      // actually returned), underlying entry→exit demoted to context.
+      var rHeadPnl = rHaveOpt
+        ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
+        : '';
+      var exitLbl = ACC_STATUS_LABEL[e.status] || e.status || null;
+      return '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
+        '<div class="acc-row-head">' +
+          '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
+          accSidePill(e.side) +
+          '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
+          accTierTag(e.tier, e.label) +
+          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
+          '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
+          rHeadPnl +
+        '</div>' +
+        '<div class="acc-row-meta">' +
+          '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
+          (held != null ? '<span>' + held + 'd held</span>' : '') +
+          ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
+            ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
+            : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
+          (exitLbl ? '<span class="acc-exit" title="Why the engine closed this position.">exit: ' + escapeHtml(exitLbl) + '</span>' : '') +
+          '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
+        '</div>' +
+        accStrategyBlock(e, true) +
+        accCheckpointsBlock(e) +
+      '</div>';
+    }
     if (closed.length){
+      var sorted = accSortClosed(closed);
       var closedRows = '';
-      closed.forEach(function(e){
-        var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
-        var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
-        var held = accDaysBetween(e.entryDate, e.exitDate);
-        var entry = Number(e.entrySpot) || 0;
-        var exit = Number(e.exitSpot);
-        var rOptPnl = Number(e.optionPnlPct);
-        var rHaveOpt = isFinite(rOptPnl);
-        // Lead the resolved row with the modeled CONTRACT result (what the trade
-        // actually returned), underlying entry→exit demoted to context.
-        var rHeadPnl = rHaveOpt
-          ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
-          : '';
-        closedRows += '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
-          '<div class="acc-row-head">' +
-            '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
-            accSidePill(e.side) +
-            '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
-            accTierTag(e.tier, e.label) +
-            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
-            '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
-            rHeadPnl +
-          '</div>' +
-          '<div class="acc-row-meta">' +
-            '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
-            (held != null ? '<span>' + held + 'd held</span>' : '') +
-            ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
-              ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
-              : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
-            '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
-          '</div>' +
-          accStrategyBlock(e, true) +
-          accCheckpointsBlock(e) +
-        '</div>';
+      var lastStatus = null;
+      sorted.forEach(function(e){
+        // Exit-reason sort reads as GROUPS: emit a subhead each time the
+        // reason changes (the list is already ordered by ACC_EXIT_ORDER).
+        if (accClosedSort === 'reason'){
+          var sk = e.status || 'other';
+          if (sk !== lastStatus){
+            lastStatus = sk;
+            var n = 0;
+            for (var ci = 0; ci < sorted.length; ci++) if ((sorted[ci].status || 'other') === sk) n++;
+            closedRows += '<div class="acc-sort-sub">' + escapeHtml(ACC_STATUS_LABEL[sk] || sk) + ' <span class="accuracy-group-n">' + n + '</span></div>';
+          }
+        }
+        closedRows += accClosedRow(e);
       });
+      var sortOpts = ACC_CLOSED_SORTS.map(function(o){
+        return '<option value="' + o.k + '"' + (accClosedSort === o.k ? ' selected' : '') + '>' + o.lbl + '</option>';
+      }).join('');
+      var sortCtl = '<label class="acc-sort"><span class="acc-sort-label">Sort</span>' +
+        '<select id="acc-closed-sort" aria-label="Sort resolved picks">' + sortOpts + '</select></label>';
       html += '<div class="accuracy-group">' +
-        '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span></div>' +
+        '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span>' + sortCtl + '</div>' +
         closedRows +
       '</div>';
     }
     root.innerHTML = html;
+    // The sort select is recreated on every render (innerHTML above), so the
+    // listener is re-bound each time; state lives in accClosedSort.
+    var sortSel = $('acc-closed-sort');
+    if (sortSel) sortSel.addEventListener('change', function(){
+      accClosedSort = sortSel.value;
+      renderAccuracy();
+    });
   }
 
   function pickDriverChip(d){
@@ -21828,7 +22083,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var y = h - 1 - ((val - min) / span) * (h - 2);
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
-    return '<svg class="bonds-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+    var hover = chHoverAttr(s.map(function(val, i){
+      var back = n - 1 - i;
+      return { x: (i / (n - 1)) * (w - 2) + 1, y: h - 1 - ((val - min) / span) * (h - 2),
+        label: (Math.round(val * 100) / 100) + '\\n' + (back === 0 ? 'latest session' : back + ' sessions back') };
+    }));
+    return '<svg class="bonds-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
       '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
   function startBondsLivePolling(){
@@ -22215,7 +22475,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var bps = (cur[1] - cur[0]) * 100;
     var shape = bps < 0 ? 'inverted (classic recession signal)' : bps < 50 ? 'flat' : 'upward-sloping';
-    var svg = '<svg class="bonds-curve-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="US Treasury yield curve, 2-year to 30-year">' +
+    var hover = chHoverAttr(defs.map(function(d, di){
+      var delta = (pvv[di] != null) ? (cur[di] - pvv[di]) * 100 : null;
+      return { x: xs[di], y: yFor(cur[di]),
+        label: d.label + ' ' + cur[di].toFixed(2) + '%' +
+          (pvv[di] != null ? '\\nprev ' + pvv[di].toFixed(2) + '% (' + (delta >= 0 ? '+' : '') + Math.round(delta) + ' bps)' : '') };
+    }));
+    var svg = '<svg class="bonds-curve-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="US Treasury yield curve, 2-year to 30-year">' +
       prevLine + curLine + marks + '</svg>';
     host.innerHTML =
       '<div class="bonds-curve-head">' +
