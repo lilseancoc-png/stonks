@@ -337,7 +337,18 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   for a freed slot —
   marks each to market on its **contract** every build (Black-Scholes), resolves
   on the exit rules above, and computes stats (`winRate`, option expectancy,
-  option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`). The
+  option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`).
+  Two guards protect the marking loop: a **corporate-action guard**
+  (`detectSplitFactor` + `applySplitToEntry` — a split between marks would
+  reprice the frozen pre-split contract on the post-split tape, marking an ATM
+  long −100% and a put +huge, both phantom; a spot gap matching a standard
+  split ratio, corroborated by the back-adjusted price history, rescales the
+  frozen dollar basis instead, exactly like the OCC adjustment, and stamps
+  `corpActions` on the entry) and a **transient-miss guard** (a ticker absent
+  from one build's chains — the bake tolerates up to 25% Yahoo fetch misses —
+  carries its last mark forward and only resolves `dropped` after
+  `PICKS_DROPPED_MIN_MISSES` consecutive misses; an unmarkable resolution is
+  `void`, excluded from the win/loss stats). The
   record **resets weekly** so the numbers reflect the current engine, not a tail of
   pre-tuning outcomes — and the reset **force-closes the open book at its current
   marks** (status `reset`, win/loss by the blended P&L sign) rather than
@@ -481,6 +492,8 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_UNDERLYING_STOP` | on | enforce the exit ladder's stock stop in the track record (`hit-stop-under`) |
 | `PICKS_MAX_HOLD_DAYS` | 14 | time stop (two weeks) |
 | `PICKS_MAX_OPEN_POSITIONS` | 20 | hard cap on the concurrently-tracked open book (enrollment walks the roster in rank order; excess picks wait for a slot) |
+| `PICKS_SPLIT_RATIOS` / `PICKS_SPLIT_TOL` | 1.5…20 / 0.04 | corporate-action guard: a mark-to-mark spot gap matching a standard split ratio (confirmed against the back-adjusted bars) rescales the frozen entry basis instead of marking a phantom ±100% (`detectSplitFactor`/`applySplitToEntry`; the entry records `corpActions`) |
+| `PICKS_DROPPED_MIN_MISSES` | 3 | consecutive builds a ticker must be missing from the chains before an open position resolves `dropped` (a single Yahoo flake carries the last mark forward instead); a drop with no mark at all resolves `void` — excluded from win/loss stats |
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 14 / 60 | contract clock |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
