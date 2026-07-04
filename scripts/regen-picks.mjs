@@ -214,6 +214,16 @@ await writeFile(
   "utf8",
 );
 
+// Market analysis payload — the same macroRegime object that rides picks.json's
+// rosterMeta, split into its own premium-but-NOT-role-restricted key so the
+// Market analysis tab works for every premium member (picks.json itself is
+// role-restricted to the Top Picks role). Mirrors build.mjs::main().
+await writeFile(
+  resolve(DATA_DIR, "market-analysis.json"),
+  JSON.stringify({ builtAtIso, macroRegime: macroBackdrop?.macroRegime || null }),
+  "utf8",
+);
+
 // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
 // ticker search). Same 4-pillar scoring as buildTopPicks; kept in step with the
 // regen'd picks. Same minified format as build.mjs::writeGradesFile.

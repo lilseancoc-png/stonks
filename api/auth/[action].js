@@ -100,6 +100,8 @@ async function callback(req, res) {
     DISCORD_REQUIRED_ROLE_IDS,
     DISCORD_TRACKRECORD_ROLE_ID,
     DISCORD_TRACKRECORD_ROLE_IDS,
+    DISCORD_TOPPICKS_ROLE_ID,
+    DISCORD_TOPPICKS_ROLE_IDS,
     SESSION_SECRET,
   } = process.env;
   // Accept ANY of a set of role IDs so a member can be unlocked by either the
@@ -183,14 +185,26 @@ async function callback(req, res) {
     const hasTrackRecord =
       trackRecordRoleIds.size === 0 || roles.some((r) => trackRecordRoleIds.has(r));
 
-    // 4) mint the session cookie and enter the app. `tr` rides inside the signed
-    // (HS256, tamper-proof) JWT payload — set EXPLICITLY true/false so api/data
-    // can 401 the Track Record files on `tr === false`.
+    // 3c) STRICTER sub-tier — the Top Picks tab. Identical mechanics to 3b
+    // (same role list, same dormant-when-unset default, same fat-finger warn):
+    // a member without the role keeps every other premium tab; only Top Picks
+    // (the tab + picks.json/picks-open.json) is withheld.
+    const topPicksRoleIds = parseRoleIds(DISCORD_TOPPICKS_ROLE_ID, DISCORD_TOPPICKS_ROLE_IDS);
+    if ((DISCORD_TOPPICKS_ROLE_ID || DISCORD_TOPPICKS_ROLE_IDS) && topPicksRoleIds.size === 0) {
+      console.warn("DISCORD_TOPPICKS_ROLE_ID/_IDS is set but parsed to no role IDs — Top Picks stays open to ALL members. Check the value.");
+    }
+    const hasTopPicks =
+      topPicksRoleIds.size === 0 || roles.some((r) => topPicksRoleIds.has(r));
+
+    // 4) mint the session cookie and enter the app. `tr`/`tp` ride inside the
+    // signed (HS256, tamper-proof) JWT payload — set EXPLICITLY true/false so
+    // api/data can 401 the role-restricted files on `=== false`.
     const user = member.user || {};
     const jwt = await signSession({
       sub: user.id || null,
       name: user.global_name || user.username || "member",
       tr: hasTrackRecord,
+      tp: hasTopPicks,
     });
     const sessionCookie = serializeCookie(SESSION_COOKIE, jwt, {
       maxAge: SESSION_TTL_SEC,
@@ -221,19 +235,20 @@ async function me(req, res) {
   // member and shows no locks; when it's on, only an authed session unlocks
   // the premium tabs.
   const enabled = process.env.PRIVATE_DATA_ENABLED === "1";
-  // trackRecord: whether this visitor may see the Track Record tab. Fail-CLOSED
-  // for the unauthed cases (logged-out / no secret → hide the tab on a gated
-  // deploy); for an authed session, `session.tr !== false` so a legacy session
-  // minted before the `tr` claim existed (undefined) keeps Track Record until it
-  // expires — no mid-session lockout.
-  if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false, enabled, trackRecord: false });
+  // trackRecord / topPicks: whether this visitor may see the Track Record /
+  // Top Picks tabs. Fail-CLOSED for the unauthed cases (logged-out / no secret
+  // → hide the tabs on a gated deploy); for an authed session, `!== false` so
+  // a legacy session minted before the claim existed (undefined) keeps the tab
+  // until it expires — no mid-session lockout.
+  if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false, enabled, trackRecord: false, topPicks: false });
   const session = await getSession(req).catch(() => null);
-  if (!session) return res.status(200).json({ authed: false, enabled, trackRecord: false });
+  if (!session) return res.status(200).json({ authed: false, enabled, trackRecord: false, topPicks: false });
   return res.status(200).json({
     authed: true,
     enabled,
     name: session.name || null,
     sub: session.sub || null,
     trackRecord: session.tr !== false,
+    topPicks: session.tp !== false,
   });
 }

@@ -112,20 +112,27 @@ function narrativesSection() {
   </section>`;
 }
 
-function topPicksSection() {
-  // Skeleton chrome only — renderTopPicks() in app.js fetches
-  // data/picks.json lazily on first tab activation and fills these
-  // containers in. Card body is intentionally a list of cards rather
-  // than a table so each pick can carry its own signal breakdown.
-  return `<section class="card" id="picks-section">
+function marketAnalysisSection() {
+  // Skeleton chrome only — the Market analysis tab is the risk-on / risk-off
+  // home: the live market-tape regime read (chip + expandable panel), the
+  // cross-asset barometer, the regime history calendar, plus the free tools
+  // that used to ride the Top Picks tab (grade-any-ticker search, the
+  // held-position checker). The actual picks roster lives on the separate,
+  // role-gated Top Picks tab. The regime widgets keep their historical
+  // `picks-*` element ids — renderMacroTape()/renderRiskBarometer()/
+  // renderRegimeHistory() in app.js target these ids, and the CSS keys off
+  // the same classes; only their host pane moved.
+  return `<section class="card" id="market-section">
     <header class="card-header">
-      <h2 class="card-title">Top options picks</h2>
-      <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
-      <span class="tab-live-state" id="picks-live-state" aria-live="polite"></span>
-      <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
+      <h2 class="card-title">Market analysis</h2>
+      <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
-    <div id="picks-market-note" class="picks-market-note" role="status" aria-live="polite" hidden></div>
-    <div id="picks-live-board" class="picks-live-board" hidden></div>
+    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics, sentiment), a risk-on / risk-off barometer, and the daily regime history &mdash; plus a grade lookup for any tracked ticker and a checker for a position you already hold.</p>
+    <div id="market-regime-strip" class="picks-summary"><span id="picks-regime-chip" class="picks-regime-slot"></span></div>
+    <div id="picks-tape" class="picks-tape" hidden></div>
+    <div id="picks-barometer" class="picks-barometer" hidden></div>
+    <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
+    <div id="picks-regime-drift" class="picks-regime-drift" hidden aria-live="polite"></div>
     <div class="picks-search" role="search">
       <label class="picks-search-label" for="picks-search-input">Grade any ticker</label>
       <div class="combo picks-search-combo" id="picks-search-combo">
@@ -157,6 +164,26 @@ function topPicksSection() {
         <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
       </div>
     </details>
+  </section>`;
+}
+
+function topPicksSection() {
+  // Skeleton chrome only — renderPicks() in app.js fetches data/picks.json
+  // lazily on first tab activation and fills these containers in. Card body is
+  // intentionally a list of cards rather than a table so each pick can carry
+  // its own signal breakdown. ROLE-GATED like Track Record: the tab is hidden
+  // (nav button + pane removed at boot) for anyone without the Top Picks
+  // Discord role, and api/data 401s picks.json/picks-open.json without it.
+  // The market-tape / barometer / regime widgets moved to marketAnalysisSection().
+  return `<section class="card" id="picks-section">
+    <header class="card-header">
+      <h2 class="card-title">Top options picks</h2>
+      <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
+      <span class="tab-live-state" id="picks-live-state" aria-live="polite"></span>
+      <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
+    </header>
+    <div id="picks-market-note" class="picks-market-note" role="status" aria-live="polite" hidden></div>
+    <div id="picks-live-board" class="picks-live-board" hidden></div>
     <div id="picks-listview" class="picks-listview">
     <details class="picks-howto">
       <summary>How the grade works &mdash; and how the market tape moves it &rarr;</summary>
@@ -194,10 +221,6 @@ function topPicksSection() {
       </label>
     </div>
       <div id="picks-summary" class="picks-summary"></div>
-      <div id="picks-tape" class="picks-tape" hidden></div>
-      <div id="picks-barometer" class="picks-barometer" hidden></div>
-      <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
-      <div id="picks-regime-drift" class="picks-regime-drift" hidden aria-live="polite"></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
       <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — nothing cleared both the conviction ranking and the absolute quality floor. A short or empty list is by design: the engine holds cash rather than pad a weak tape.</div>
       <p class="picks-foot">Picks rebuild from scratch on every refresh. Each pick clears the conviction ranking <em>and</em> an absolute quality floor, and has a tradeable near-the-money contract that fits the suggested-contract criteria above. The list can be short, or empty, on a poor day.</p>
@@ -1121,6 +1144,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief">Brief</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
+  <button type="button" class="page-tab" role="tab" data-page-tab="market" aria-selected="false" aria-controls="page-pane-market" id="page-tab-market">Market analysis</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
   <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal">Index calendar</button>
@@ -1252,6 +1276,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <p class="landing-section-sub">Context for the trade — who's holding what, what the tape's been doing, where the macro is.</p>
       </header>
       <div class="landing-grid">
+        <button type="button" class="landing-card" data-go="market" aria-label="View market analysis">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Market analysis</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat" id="land-stat-market">Live</div>
+          <div class="landing-card-sub" id="land-sub-market">risk-on / risk-off tape</div>
+          <p class="landing-card-desc">The cross-asset market tape — VIX, dollar, yields, commodities, Fed path — plus the risk barometer and regime history.</p>
+        </button>
         <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
           <header class="landing-card-head">
             <span class="landing-card-eyebrow">Tickers</span>
@@ -1326,6 +1359,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-narratives" role="tabpanel" aria-labelledby="page-tab-narratives" hidden>
   ${narrativesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-market" role="tabpanel" aria-labelledby="page-tab-market" hidden>
+  ${marketAnalysisSection()}
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
   ${topPicksSection()}

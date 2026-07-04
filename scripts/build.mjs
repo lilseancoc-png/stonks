@@ -13203,8 +13203,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the
   // open-position live fields that chip reads — never the resolved history or
   // win-rate stats — so the full picks-accuracy.json (the track record) can be
-  // ROLE-restricted (Track Record tab) without degrading the premium Top Picks
-  // tab. picks-open.json is premium but NOT role-restricted; see
+  // ROLE-restricted (Track Record tab, `tr`) independently of the Top Picks
+  // tab. picks-open.json is itself role-restricted to the Top Picks role
+  // (`tp`, same tier as picks.json — it names the open roster); see
   // lib/premium-keys.mjs (PREMIUM_KEYS vs ROLE_RESTRICTED_KEYS).
   const openMarks = open.map((e) => ({
     symbol: e.symbol, side: e.side, entryDate: e.entryDate,
@@ -19541,6 +19542,19 @@ async function main() {
     console.log(`wrote data/${REGIME_HISTORY_FILE} — ${rh.days} day snapshot(s), ${rh.bytes} bytes`);
   } catch (err) {
     console.warn(`[regime] history skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Market analysis payload (data/market-analysis.json, premium but NOT
+  // role-restricted): the same macroRegime object that rides picks.json's
+  // rosterMeta, split out so the Market analysis tab (market tape / barometer /
+  // regime widgets) works for every premium member — picks.json itself is
+  // role-restricted to the Top Picks role (`tp`). Rebuilt every build from the
+  // in-memory backdrop; no cross-build accumulation, so no pre-wipe read.
+  try {
+    const maJson = JSON.stringify({ builtAtIso, macroRegime: macroBackdrop?.macroRegime || null });
+    await writeFile(resolve(DATA_DIR, "market-analysis.json"), maJson, "utf8");
+    console.log(`wrote data/market-analysis.json — market tape, ${maJson.length} bytes`);
+  } catch (err) {
+    console.warn(`[market] analysis payload skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Daily index-close calendar (the top-level "Index calendar" tab): upsert today's
   // SPY/QQQ/IWM row and, on the first run, backfill ~1yr of history from the bars

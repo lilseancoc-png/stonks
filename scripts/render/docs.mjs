@@ -1066,6 +1066,7 @@ export const DOC_PAGES = {
           <div class="cmp-price"><b>Members</b> &middot; via Discord role</div>
           <div class="cmp-sub">Everything in Free, plus the decision-grade layers.</div>
           <ul class="cmp-list">
+            <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
@@ -1156,11 +1157,15 @@ export const DOC_PAGES = {
 
     <section id="premium">
       <h2><span class="snum">03</span>What premium unlocks</h2>
-      <p class="sectlede">The members-only layer — the freshest, highest-signal reads we'd put real money behind. These nine tabs (and the data that backs them) are gated behind a valid membership; everything above stays free.</p>
+      <p class="sectlede">The members-only layer — the freshest, highest-signal reads we'd put real money behind. These tabs (and the data that backs them) are gated behind a valid membership; everything above stays free.</p>
       <div class="feat-grid">
         <div class="feat">
+          <div class="feat-top"><span class="feat-name">Market analysis</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand and check a position you already hold.</p>
+        </div>
+        <div class="feat">
           <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a cross-sectional grade, suggested contract, position sizing, move-to-breakeven, and an exit plan. Plus grade <em>any</em> ticker on demand.</p>
+          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a cross-sectional grade, suggested contract, position sizing, move-to-breakeven, and an exit plan.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
@@ -1199,7 +1204,7 @@ export const DOC_PAGES = {
       <ol class="steps">
         <li><b><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join the Discord</a> and get the member role.</b> Premium access rides on a role in our server. Members get it automatically; ask in the server if you don't see it yet.</li>
         <li><b>Log in with Discord.</b> Hit <a href="/api/auth/discord-login">Log in</a> (or the "Log in" button in the site header). We check your server membership and role — nothing else.</li>
-        <li><b>The premium tabs unlock.</b> Once you hold the role, the nine members-only tabs and their data open up. A non-member just sees a polite upsell where those tabs would be — the rest of the site never locks.</li>
+        <li><b>The premium tabs unlock.</b> Once you hold the role, the members-only tabs and their data open up. A non-member just sees a polite upsell where those tabs would be — the rest of the site never locks. (Top Picks and Track Record can additionally require their own roles.)</li>
       </ol>
       <div class="callout">
         <b>Privacy &amp; sessions:</b> we only read your Discord user ID, username, and the roles relevant to access. Login mints a short-lived, secure session cookie — sign out anytime. See the <a href="/privacy.html">Privacy Policy</a> for the full detail.
