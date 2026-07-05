@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-05
+
+### Changed
+- **Legal pages rebranded from stonks to Ming Street.** The Privacy Policy and Terms of Use tabs now name Ming Street / MingStreet as the operator and `mingstreet.app` as the Site, update the contact email to `dddresearchlabs@gmail.com`, and stamp Last Updated July 4, 2026; the Terms body is refreshed to the new MingStreet wording throughout (Disclaimers, Billing, User Conduct, User-Submitted Content, Indemnification, Entire Agreement, No Waiver, Assignment, Contact). `scripts/render/docs.mjs` (+ the doc-pane templates spliced into `index.html`).
+
 ## 2026-07-04
 
 ### Added

@@ -1367,16 +1367,16 @@ export const DOC_PAGES = {
   footer.pgfoot a{color:var(--muted);text-decoration:none}
   footer.pgfoot a:hover{color:var(--gold)}`,
     body: `<div class="wrap">
-  <a class="backlink" href="/">&larr; Back to stonks</a>
+  <a class="backlink" href="/">&larr; Back to Ming Street</a>
 
   <header>
-    <div class="kicker">stonks &middot; legal</div>
+    <div class="kicker">ming street &middot; legal</div>
     <h1>Privacy <em>Policy</em></h1>
     <div class="dates">
       <span>Effective Date: <b>June 14, 2026</b></span>
-      <span>Last Updated: <b>June 14, 2026</b></span>
+      <span>Last Updated: <b>July 4, 2026</b></span>
     </div>
-    <p class="intro">Stonks (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) operates the website <a href="https://stonks-indol.vercel.app">https://stonks-indol.vercel.app</a> (the &ldquo;Site&rdquo;) and provides stock market analysis tools, custom formulas, and related services (the &ldquo;Service&rdquo;). This Privacy Policy explains how we collect, use, disclose, and protect your personal information when you use our Site and Service.</p>
+    <p class="intro">Ming Street (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) operates the website <a href="https://mingstreet.app">mingstreet.app</a> (the &ldquo;Site&rdquo;) and provides stock market analysis tools, custom formulas, and related services (the &ldquo;Service&rdquo;). This Privacy Policy explains how we collect, use, disclose, and protect your personal information when you use our Site and Service.</p>
     <p class="intro">By using the Site or Service, you agree to the collection and use of information in accordance with this Privacy Policy.</p>
   </header>
 
@@ -1417,7 +1417,7 @@ export const DOC_PAGES = {
       </ul>
 
       <h3>Discord Integration</h3>
-      <p>If you choose to connect or link your Discord account with Stonks (for example, to receive subscription-based roles or access community features), we may collect and store your Discord user ID, username, and information about roles or permissions granted through our integration. We use this information to manage access, verify subscriptions, and provide related features.</p>
+      <p>If you choose to connect or link your Discord account with MingStreet (for example, to receive subscription-based roles or access community features), we may collect and store your Discord user ID, username, and information about roles or permissions granted through our integration. We use this information to manage access, verify subscriptions, and provide related features.</p>
 
       <h3>Information from Third Parties</h3>
       <p>We may receive information about you from third-party services you connect with, such as payment processors or Discord.</p>
@@ -1502,14 +1502,14 @@ export const DOC_PAGES = {
       <h2><span class="snum">11</span>Contact Us</h2>
       <p>If you have any questions or concerns about this Privacy Policy or our data practices, please contact us at:</p>
       <div class="contact-card">
-        <div class="row"><span class="lab">Email</span><a href="mailto:mingstreetllc@gmail.com">mingstreetllc@gmail.com</a></div>
-        <div class="row"><span class="lab">Discord</span><span>Our community server</span></div>
+        <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
+        <div class="row"><span class="lab">Discord</span><span>Ming Street</span></div>
       </div>
     </section>
   </main>
 
   <footer class="pgfoot">
-    <span>&copy; 2026 stonks &middot; Option Contract Rater</span>
+    <span>&copy; 2026 Ming Street &middot; Option Contract Rater</span>
     <span><a href="/terms.html">Terms of Use</a> &middot; <a href="/">Home</a></span>
   </footer>
 </div>`,
@@ -1652,16 +1652,16 @@ export const DOC_PAGES = {
   footer.pgfoot a{color:var(--muted);text-decoration:none}
   footer.pgfoot a:hover{color:var(--gold)}`,
     body: `<div class="wrap">
-  <a class="backlink" href="/">&larr; Back to stonks</a>
+  <a class="backlink" href="/">&larr; Back to Ming Street</a>
 
   <header>
-    <div class="kicker">stonks &middot; legal</div>
-    <h1>Terms of Use <em>&amp; Conditions</em></h1>
+    <div class="kicker">ming street &middot; legal</div>
+    <h1>MingStreet Terms of Use <em>&amp; Conditions</em></h1>
     <div class="dates">
       <span>Effective Date: <b>June 14, 2026</b></span>
-      <span>Last Updated: <b>June 14, 2026</b></span>
+      <span>Last Updated: <b>July 4, 2026</b></span>
     </div>
-    <p class="intro">These Terms of Use and Conditions govern your access to and use of stonks. Please read them carefully &mdash; by using the Site or Service you agree to be bound by them.</p>
+    <p class="intro">These Terms of Use and Conditions govern your access to and use of MingStreet. Please read them carefully &mdash; by using the Site or Service you agree to be bound by them.</p>
   </header>
 
   <nav class="toc" aria-label="Table of contents">
@@ -1689,9 +1689,9 @@ export const DOC_PAGES = {
   <main>
     <section id="disclaimers">
       <h2><span class="snum">01</span>Disclaimers</h2>
-      <p>The information, tools, features, custom formulas, analysis, data visualizations, and other content available on <a href="https://stonks-indol.vercel.app">https://stonks-indol.vercel.app</a> (collectively, the &ldquo;Site&rdquo;, &ldquo;Stonks&rdquo;, the &ldquo;Service&rdquo;, &ldquo;Services&rdquo;, or &ldquo;Content&rdquo;) are provided for informational and educational purposes only. They should not be construed as investment, financial, tax, legal, or trading advice.</p>
+      <p>The information, tools, features, custom formulas, analysis, data visualizations, and other content available on <a href="https://mingstreet.app">mingstreet.app</a> (collectively, the &ldquo;Site&rdquo;, &ldquo;Mingst&rdquo;, the &ldquo;Service&rdquo;, &ldquo;Services&rdquo;, or &ldquo;Content&rdquo;) are provided for informational and educational purposes only. They should not be construed as investment, financial, tax, legal, or trading advice.</p>
       <p>The Content is intended only as a starting point for your own independent research and due diligence. You should form your own opinion and consult qualified professionals before making any investment or trading decisions.</p>
-      <p>Stonks is operated by Ming Street (&ldquo;the Company,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;). We are not registered investment advisors, broker-dealers, or financial professionals. Nothing on the Site constitutes a solicitation or recommendation to buy, sell, or hold any security.</p>
+      <p>Mingst is operated by Ming Street (&ldquo;the Company,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;). We are not registered investment advisors, broker-dealers, or financial professionals. Nothing on the Site constitutes a solicitation or recommendation to buy, sell, or hold any security.</p>
       <div class="callout">
         <p>Past performance is not indicative of future results. Trading and investing in securities, options, and related instruments involve a high degree of risk, including the potential loss of your entire investment. Any decision to trade with real funds is made entirely at your own risk and discretion. The Company assumes no responsibility or liability for your trading results, investment decisions, or any losses incurred.</p>
       </div>
@@ -1720,7 +1720,7 @@ export const DOC_PAGES = {
 
     <section id="billing">
       <h2><span class="snum">04</span>Subscriptions and Billing</h2>
-      <p>Stonks offers both free and paid subscription tiers. Pricing and available features are clearly displayed at the time of purchase.</p>
+      <p>MingSt offers both free and paid subscription tiers. Pricing and available features are clearly displayed at the time of purchase.</p>
 
       <h3>Account Creation and Security</h3>
       <p>To access certain features (including paid subscriptions), you must create an account. You agree to provide accurate, current, and complete information during registration and to keep this information up to date. You are solely responsible for maintaining the confidentiality of your password and account. You are fully responsible for all activity that occurs under your account, including any use by third parties, whether or not authorized by you. You must immediately notify us of any unauthorized use of your account or password.</p>
@@ -1728,7 +1728,7 @@ export const DOC_PAGES = {
 
       <h3>Subscriptions and Auto-Renewal</h3>
       <p>Paid subscriptions automatically renew at the end of each billing period unless you cancel before the renewal date. You may cancel your subscription at any time through your account settings or by contacting support. Cancellations take effect at the end of the current billing period. Refunds are not provided except as required by applicable law or at our sole discretion.</p>
-      <p>You authorize Stonks (or our designated payment processor) to charge your chosen payment method for all applicable fees, including any applicable taxes. You are responsible for keeping your payment information current.</p>
+      <p>You authorize Mingst (or our designated payment processor) to charge your chosen payment method for all applicable fees, including any applicable taxes. You are responsible for keeping your payment information current.</p>
 
       <h3>Trial Periods</h3>
       <p>If a trial period is offered, you will receive confirmation by email. Unless you cancel before the end of the trial period, your subscription will automatically convert to a paid subscription at the end of the trial and you will be charged according to the plan you selected.</p>
@@ -1759,14 +1759,14 @@ export const DOC_PAGES = {
         <li>Scrape, data-mine, use automated tools, or otherwise attempt to extract data from the Service without our prior written permission.</li>
         <li>Submit false, misleading, or inaccurate information.</li>
       </ul>
-      <p>We have no obligation to monitor the Service. However, we reserve the right to monitor usage and, subject to our Privacy Policy, to disclose any information as necessary to comply with applicable law, operate the Service properly, or protect Stonks and its users. We may remove content or terminate accounts that violate these Terms.</p>
+      <p>We have no obligation to monitor the Service. However, we reserve the right to monitor usage and, subject to our Privacy Policy, to disclose any information as necessary to comply with applicable law, operate the Service properly, or protect Ming Street and its users. We may remove content or terminate accounts that violate these Terms.</p>
     </section>
 
     <section id="ugc">
       <h2><span class="snum">07</span>User-Submitted Content</h2>
-      <p>If you submit comments, feedback, suggestions, or other content to the Site, you grant Stonks and its affiliates a non-exclusive, royalty-free, perpetual, irrevocable, worldwide, and fully sublicensable license to use, reproduce, modify, adapt, publish, translate, create derivative works from, distribute, and display such content in any form or media now known or later developed.</p>
-      <p>You represent and warrant that you own or control all rights to the material you submit, that it is accurate and does not violate any third-party rights, and that you will indemnify and hold Stonks harmless from any claims arising from the material you provide.</p>
-      <p>Stonks takes no responsibility and assumes no liability for any content submitted by users or third parties.</p>
+      <p>If you submit comments, feedback, suggestions, or other content to the Site, you grant Ming Street and its affiliates a non-exclusive, royalty-free, perpetual, irrevocable, worldwide, and fully sublicensable license to use, reproduce, modify, adapt, publish, translate, create derivative works from, distribute, and display such content in any form or media now known or later developed.</p>
+      <p>You represent and warrant that you own or control all rights to the material you submit, that it is accurate and does not violate any third-party rights, and that you will indemnify and hold Ming Street harmless from any claims arising from the material you provide.</p>
+      <p>Ming Street takes no responsibility and assumes no liability for any content submitted by users or third parties.</p>
     </section>
 
     <section id="thirdparty">
@@ -1787,7 +1787,7 @@ export const DOC_PAGES = {
 
     <section id="indemnification">
       <h2><span class="snum">11</span>Indemnification</h2>
-      <p>You agree to indemnify, defend, and hold harmless Stonks, its owners, employees, agents, affiliates, and licensors from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys&rsquo; fees) arising out of or relating to:</p>
+      <p>You agree to indemnify, defend, and hold harmless Ming Street, its owners, employees, agents, affiliates, and licensors from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys&rsquo; fees) arising out of or relating to:</p>
       <ul>
         <li>Your use of the Service;</li>
         <li>Your violation of these Terms;</li>
@@ -1798,7 +1798,7 @@ export const DOC_PAGES = {
 
     <section id="entire">
       <h2><span class="snum">12</span>Entire Agreement</h2>
-      <p>These Terms, together with our <a href="/privacy.html">Privacy Policy</a> and any other agreements expressly incorporated by reference, constitute the entire agreement between you and Stonks concerning the Service and supersede all prior or contemporaneous agreements, representations, and understandings, whether written or oral.</p>
+      <p>These Terms, together with our <a href="/privacy.html">Privacy Policy</a> and any other agreements expressly incorporated by reference, constitute the entire agreement between you and Ming Street concerning the Service and supersede all prior or contemporaneous agreements, representations, and understandings, whether written or oral.</p>
     </section>
 
     <section id="severability">
@@ -1808,26 +1808,26 @@ export const DOC_PAGES = {
 
     <section id="waiver">
       <h2><span class="snum">14</span>No Waiver</h2>
-      <p>The failure of Stonks to enforce any right or provision of these Terms shall not constitute a waiver of such right or provision. Any waiver must be in writing and signed by an authorized representative of Stonks to be effective.</p>
+      <p>The failure of Ming Street to enforce any right or provision of these Terms shall not constitute a waiver of such right or provision. Any waiver must be in writing and signed by an authorized representative of Ming Street to be effective.</p>
     </section>
 
     <section id="assignment">
       <h2><span class="snum">15</span>Assignment</h2>
-      <p>You may not assign or transfer these Terms or any rights or obligations hereunder without the prior written consent of Stonks. Stonks may assign these Terms without restriction. These Terms shall be binding upon and inure to the benefit of the parties and their respective successors and permitted assigns.</p>
+      <p>You may not assign or transfer these Terms or any rights or obligations hereunder without the prior written consent of Ming Street. Ming Street may assign these Terms without restriction. These Terms shall be binding upon and inure to the benefit of the parties and their respective successors and permitted assigns.</p>
     </section>
 
     <section id="contact">
       <h2><span class="snum">16</span>Contact Us</h2>
       <p>For questions about these Terms:</p>
       <div class="contact-card">
-        <div class="row"><span class="lab">Email</span><a href="mailto:mingstreetllc@gmail.com">mingstreetllc@gmail.com</a></div>
-        <div class="row"><span class="lab">Discord</span><span>Our community server</span></div>
+        <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
+        <div class="row"><span class="lab">Discord</span><span>Ming Street</span></div>
       </div>
     </section>
   </main>
 
   <footer class="pgfoot">
-    <span>&copy; 2026 stonks &middot; Option Contract Rater</span>
+    <span>&copy; 2026 Ming Street &middot; Option Contract Rater</span>
     <span><a href="/privacy.html">Privacy Policy</a> &middot; <a href="/">Home</a></span>
   </footer>
 </div>`,
