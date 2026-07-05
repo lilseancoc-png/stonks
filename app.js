@@ -49,7 +49,7 @@
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { picks:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1 };
+  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -58,6 +58,10 @@
   // gets its own flag. Defaults true so a legacy ungated deploy / a failed /me
   // probe never makes the tab vanish; applyAuth() flips it from /api/auth/me.
   var HAS_TRACK_RECORD = true;
+  // Top Picks is role-hidden the same way (the tp session claim, minted from
+  // DISCORD_TOPPICKS_ROLE_ID(S)): no nav button, no landing card, and api/data
+  // 401s picks.json/picks-open.json without the role. Same fail-open default.
+  var HAS_TOP_PICKS = true;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
   // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
@@ -65,7 +69,7 @@
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = "https://discord.gg/GVYx7qSWxS";
   function premiumTabLabel(id){
-    return ({ picks:'Top Picks', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -82,7 +86,7 @@
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Top Picks, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -105,6 +109,8 @@
     // Track Record role. Mirrors IS_MEMBER's fail-open default so a probe failure
     // (me == null -> GATE_ON false) keeps the tab visible rather than hiding it.
     HAS_TRACK_RECORD = !GATE_ON || !!(me && me.trackRecord);
+    // Top Picks: same shape — ungated deploys (or a failed probe) keep the tab.
+    HAS_TOP_PICKS = !GATE_ON || !!(me && me.topPicks);
   }
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
@@ -122,7 +128,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-07-03","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-07-05","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -172,6 +178,111 @@
     }
   }
   function todayStamp(){ return new Date().toISOString().slice(0,10); }
+
+  // ---------------------------------------------------------------------
+  // Generic chart hover/tap readout. Any inline-SVG chart opts in by
+  // carrying data-ch='[[x,y,"label"],...]' (viewBox coords + a preformatted
+  // label; chHoverAttr builds the attribute). ONE delegated document
+  // listener serves every opted-in chart — no per-render wiring, so charts
+  // rebuilt via innerHTML stay interactive for free. The crosshair, dot and
+  // tooltip are three shared fixed-position HTML nodes; viewBox→screen
+  // mapping goes through getScreenCTM(), which is exact for any
+  // viewBox/preserveAspectRatio combination (several charts stretch with
+  // preserveAspectRatio="none", where in-SVG text would distort).
+  // Charts with a bespoke hover overlay (price chart, IV term structure,
+  // fundamentals history, F&G spark, yield curve) keep their own richer
+  // handlers — this engine is for the rest.
+  function chHoverAttr(points){
+    // points: [{x,y,label}] in viewBox coords. Coords round to 0.1 to keep
+    // the attribute small on long series; invalid points are dropped.
+    if (!Array.isArray(points)) return '';
+    var out = [];
+    for (var i=0; i<points.length; i++){
+      var p = points[i];
+      if (!p || p.x == null || p.y == null || !isFinite(p.x) || !isFinite(p.y)) continue;
+      out.push([Math.round(p.x*10)/10, Math.round(p.y*10)/10, String(p.label == null ? '' : p.label)]);
+    }
+    if (!out.length) return '';
+    return ' data-ch="' + escapeHtml(JSON.stringify(out)) + '"';
+  }
+  var chHover = { svg: null, pts: null, tip: null, line: null, dot: null };
+  function chEnsureNodes(){
+    if (chHover.tip) return;
+    var tip = document.createElement('div'); tip.className = 'ch-tip'; tip.setAttribute('role', 'status');
+    var line = document.createElement('div'); line.className = 'ch-line';
+    var dot = document.createElement('div'); dot.className = 'ch-dot';
+    tip.style.display = 'none'; line.style.display = 'none'; dot.style.display = 'none';
+    document.body.appendChild(line); document.body.appendChild(dot); document.body.appendChild(tip);
+    chHover.tip = tip; chHover.line = line; chHover.dot = dot;
+  }
+  function chHide(){
+    if (chHover.tip){
+      chHover.tip.style.display = 'none';
+      chHover.line.style.display = 'none';
+      chHover.dot.style.display = 'none';
+    }
+    chHover.svg = null; chHover.pts = null;
+  }
+  function chShow(svg, clientX, clientY){
+    var pts = (svg === chHover.svg) ? chHover.pts : null;
+    if (!pts){
+      try { pts = JSON.parse(svg.getAttribute('data-ch')); } catch(_){ pts = null; }
+      if (!pts || !pts.length){ chHide(); return; }
+      chHover.svg = svg; chHover.pts = pts;
+    }
+    if (!svg.getScreenCTM || !svg.createSVGPoint) return;
+    var ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    var inv; try { inv = ctm.inverse(); } catch(_){ return; }
+    var q = svg.createSVGPoint(); q.x = clientX; q.y = clientY;
+    var v = q.matrixTransform(inv);
+    // Snap to the nearest point by viewBox x — charts are x-ordered series.
+    var best = pts[0], bd = Math.abs(pts[0][0] - v.x);
+    for (var i=1; i<pts.length; i++){
+      var d = Math.abs(pts[i][0] - v.x);
+      if (d < bd){ bd = d; best = pts[i]; }
+    }
+    var s = svg.createSVGPoint(); s.x = best[0]; s.y = best[1];
+    var sp = s.matrixTransform(ctm);
+    var rect = svg.getBoundingClientRect();
+    chEnsureNodes();
+    chHover.line.style.display = '';
+    chHover.line.style.left = sp.x + 'px';
+    chHover.line.style.top = rect.top + 'px';
+    chHover.line.style.height = rect.height + 'px';
+    chHover.dot.style.display = '';
+    chHover.dot.style.left = sp.x + 'px';
+    chHover.dot.style.top = sp.y + 'px';
+    var tip = chHover.tip;
+    var lines = String(best[2] || '').split('\n');
+    var htmlOut = '';
+    for (var li=0; li<lines.length; li++) htmlOut += (li ? '<br>' : '') + escapeHtml(lines[li]);
+    tip.innerHTML = htmlOut;
+    tip.style.display = '';
+    // Above the dot, flipping below when clipped at the top, and clamped to
+    // the viewport horizontally (flip to the left of the dot near the edge).
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var vx = sp.x + 12;
+    if (vx + tw > window.innerWidth - 8) vx = Math.max(8, sp.x - tw - 12);
+    var vy = sp.y - th - 12;
+    if (vy < 8) vy = Math.min(window.innerHeight - th - 8, sp.y + 14);
+    tip.style.left = vx + 'px';
+    tip.style.top = vy + 'px';
+  }
+  (function initChartHover(){
+    function onMove(ev){
+      var t = ev.target;
+      var svg = (t && t.closest) ? t.closest('svg[data-ch]') : null;
+      if (!svg){ if (chHover.svg) chHide(); return; }
+      chShow(svg, ev.clientX, ev.clientY);
+    }
+    // pointermove covers mouse; pointerdown makes a tap show the readout on
+    // touch. Scroll/resize invalidate the fixed-position overlay, so hide.
+    document.addEventListener('pointermove', onMove, { passive: true });
+    document.addEventListener('pointerdown', onMove, { passive: true });
+    document.addEventListener('scroll', chHide, { passive: true, capture: true });
+    window.addEventListener('resize', chHide);
+  })();
 
   // ---------------------------------------------------------------------
   // Pin-to-compare state. Persisted to localStorage so the strip survives
@@ -3082,11 +3193,13 @@
     var tabsStrip = document.querySelector('.page-tabs');
     var groups = document.querySelectorAll('.page-tab-group');
     var triggers = document.querySelectorAll('.page-tab-trigger');
-    var valid = ['home','tickers','narratives','brief','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Track Record is role-hidden: drop it from the resolvable set so a
     // ?tab=track deep-link / popstate / palette can't reach the pane for a
     // visitor without the role (resolveTab returns null -> falls back to home).
     if (!HAS_TRACK_RECORD) valid = valid.filter(function(t){ return t !== 'track'; });
+    // Top Picks is role-hidden the same way (the tp claim).
+    if (!HAS_TOP_PICKS) valid = valid.filter(function(t){ return t !== 'picks'; });
     // Friendly aliases so deep-links people might guess work too.
     // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
     // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3099,7 +3212,9 @@
       capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
       ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
       'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
-      pick: 'picks', narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
+      pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
+      'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
+      narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
       comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
       ticker: 'tickers',
       global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
@@ -3256,6 +3371,8 @@
       // localStorage tab, deep-link, popstate, palette) to home BEFORE we
       // re-persist it, so a demoted/non-role visitor can't land on the pane.
       if (name === 'track' && !HAS_TRACK_RECORD) { return selectTab('home'); }
+      // Top Picks is role-hidden the same way.
+      if (name === 'picks' && !HAS_TOP_PICKS) { return selectTab('home'); }
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
       tabs.forEach(function(btn){
@@ -3305,14 +3422,18 @@
       if (name !== 'bonds-usd' && typeof stopBondsLivePolling === 'function') stopBondsLivePolling();
       if (name !== 'tickers' && typeof stopTickersLive === 'function') stopTickersLive();
       if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
+      if (name !== 'market' && typeof stopMacroTapeLive === 'function') stopMacroTapeLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (!premiumLocked){
         if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
-        if (name === 'picks' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
-        if (name === 'picks' && typeof loadOvernight === 'function') loadOvernight();
+        // Market analysis: the tape/barometer/regime widgets + their data.
+        if (name === 'market' && typeof loadMarketAnalysis === 'function') loadMarketAnalysis();
+        if (name === 'market' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
+        if (name === 'market' && typeof loadOvernight === 'function') loadOvernight();
+        if (name === 'market' && typeof startMacroTapeLive === 'function') startMacroTapeLive();
         if (name === 'track' && HAS_TRACK_RECORD && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
@@ -3500,8 +3621,10 @@
         if (bits.length) setText('land-stat-bonds', bits.join(' · '));
       }
 
-      // Picks count — async fetch the small picks.json.
-      fetch('data/picks.json', { cache: 'no-cache' })
+      // Picks count — async fetch the small picks.json. Skipped without the
+      // Top Picks role (the landing card is removed at boot and the fetch
+      // would just 401).
+      if (HAS_TOP_PICKS) fetch('data/picks.json', { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.picks)) return;
@@ -5464,6 +5587,17 @@
       hit.addEventListener('mousemove',  function(){ showCross(hit); });
     });
     svgEl.addEventListener('mouseleave', hideCross);
+    // Touch: a tap/drag snaps the crosshair to the hit column under the finger
+    // (mouseenter never fires on touch), matching the price chart's behavior.
+    function touchCross(e){
+      var t = e.touches && e.touches[0]; if (!t) return;
+      var el = document.elementFromPoint(t.clientX, t.clientY);
+      var hit = el && el.closest ? el.closest('.opt-fund-eh-hit') : null;
+      if (hit) showCross(hit);
+    }
+    svgEl.addEventListener('touchstart', touchCross, { passive: true });
+    svgEl.addEventListener('touchmove', touchCross, { passive: true });
+    svgEl.addEventListener('touchend', hideCross);
   }
 
   function renderEarningsHistory(){
@@ -5879,10 +6013,20 @@
     allSlices.forEach(function(s){
       var idx = parseInt(s.getAttribute('data-idx'));
       s.addEventListener('mouseenter', function(){ highlight(idx); });
+      // Touch: tapping a slice highlights it (mouseenter never fires); tapping
+      // the same slice again clears, so mobile users can dismiss the tip.
+      s.addEventListener('click', function(){
+        if (!tipEl.hidden && s.classList.contains('dimmed') === false && box._segTapIdx === idx){ unhighlight(); box._segTapIdx = null; return; }
+        highlight(idx); box._segTapIdx = idx;
+      });
     });
     allLegs.forEach(function(l){
       var idx = parseInt(l.getAttribute('data-idx'));
       l.addEventListener('mouseenter', function(){ highlight(idx); });
+      l.addEventListener('click', function(){
+        if (!tipEl.hidden && box._segTapIdx === idx){ unhighlight(); box._segTapIdx = null; return; }
+        highlight(idx); box._segTapIdx = idx;
+      });
     });
     svgEl.addEventListener('mouseleave', unhighlight);
     box.querySelector('.opt-fund-seg-legend').addEventListener('mouseleave', unhighlight);
@@ -6000,7 +6144,7 @@
         '<span class="opt-social-label">Retail chatter</span>' +
         '<span class="opt-social-stat">' + bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h</span>' +
       '</div>' +
-      '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish">' +
+      '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish" title="' + bull + '% bullish · ' + bear + '% bearish (' + msgs + ' msgs/24h)">' +
         '<span class="bull" style="width:' + bull + '%"></span>' +
         '<span class="bear" style="width:' + bear + '%"></span>' +
       '</div>' +
@@ -7330,7 +7474,7 @@
         '<span class="flow-sum-stat"><strong>' + totalContracts + '</strong> contract' + (totalContracts === 1 ? '' : 's') + '</span>' +
         (topStr ? '<span class="flow-sum-top" title="Largest single hourly print">Top print · ' + topStr + '</span>' : '') +
       '</div>' +
-      '<div class="flow-sum-bar" role="img" aria-label="' + escapeHtml(barLabel) + '">' +
+      '<div class="flow-sum-bar" role="img" aria-label="' + escapeHtml(barLabel) + '" title="' + escapeHtml(barLabel) + '">' +
         '<span class="flow-sum-bar-call" style="width:' + callPct + '%"></span>' +
         '<span class="flow-sum-bar-put" style="width:' + putPct + '%"></span>' +
       '</div>' +
@@ -7556,6 +7700,9 @@
   function volSectorCollapsed(sec){ return volState.sectorCollapsed[sec] !== false; }
   function loadVolumePicks(){
     if (volPicks.loaded || volPicks.loading) return;
+    // picks.json is role-restricted (the Top Picks role) — without it the fetch
+    // just 401s, so skip it and the pinned Top Picks group simply doesn't render.
+    if (!HAS_TOP_PICKS){ volPicks.loaded = true; return; }
     volPicks.loading = true;
     fetch('data/picks.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -8627,8 +8774,10 @@
     },
     onError: function(){ liveStateMark('picks-live-state', false); },
   });
-  function startPicksLive(){ picksLivePoller.start(); startMacroTapeLive(); }
-  function stopPicksLive(){ picksLivePoller.stop(); stopMacroTapeLive(); }
+  // The macro-tape live poll moved to the Market analysis tab (startMacroTapeLive
+  // is started/stopped by selectTab on 'market') — picks live is just the quotes poller.
+  function startPicksLive(){ picksLivePoller.start(); }
+  function stopPicksLive(){ picksLivePoller.stop(); }
   function pokePicksLive(){ picksLivePoller.poke(); }
 
   // ======================================================================
@@ -9328,7 +9477,14 @@
       base = '<line class="tape-spark-base" x1="1" y1="' + by + '" x2="' + (w - 1) + '" y2="' + by + '"/>';
     }
     var cls = 'tape-spark' + (opts.tone ? ' tape-spark-' + opts.tone : '');
-    return '<svg class="' + cls + '" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+    // Per-point hover readout (shared chart-hover engine). opts.fmt formats the
+    // value; the second line places the point relative to the newest sample.
+    var hover = chHoverAttr(s.map(function(v, i){
+      var back = n - 1 - i;
+      return { x: (i / (n - 1)) * (w - 2) + 1, y: Y(v),
+        label: String(opts.fmt ? opts.fmt(v) : (Math.round(v * 100) / 100)) + '\n' + (back === 0 ? 'latest' : back + ' back') };
+    }));
+    return '<svg class="' + cls + '"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
       base + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
   // Baked daily net-stress trend (from regime-history.json) — the headline meter
@@ -9498,7 +9654,7 @@
   var picksXhlWired = false;
   function wirePicksCrossHighlight(){
     if (picksXhlWired) return;
-    var pane = document.getElementById('page-pane-picks');
+    var pane = document.getElementById('page-pane-market');
     if (!pane) return;
     picksXhlWired = true;
     function clear(){
@@ -9665,9 +9821,47 @@
       '</div>' +
     '</div>';
   }
+  // --- Market analysis tab: baked-regime source + loader --------------------
+  // The regime widgets read the dedicated data/market-analysis.json payload
+  // (premium, NOT role-restricted — written by the bake + regen-picks with the
+  // same macroRegime object that rides picks.json's rosterMeta), falling back
+  // to picks.json's rosterMeta when a Top-Picks role holder already loaded the
+  // picks tab (also covers the window before the first bake ships the file).
+  var marketState = { data: null, loading: false };
+  function marketRegimeBaked(){
+    if (marketState.data && marketState.data.macroRegime) return marketState.data.macroRegime;
+    return (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
+  }
+  function renderMarketAnalysis(){
+    bindPositionTool();
+    renderMacroTape();
+    if (typeof renderRegimeHistory === 'function') renderRegimeHistory();
+  }
+  function loadMarketAnalysis(){
+    if (marketState.data || marketState.loading){ renderMarketAnalysis(); return; }
+    marketState.loading = true;
+    fetch('data/market-analysis.json', { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(json){
+        if (json && json.macroRegime){ marketState.data = json; return null; }
+        // Transition fallback: before the first bake ships market-analysis.json,
+        // a Top-Picks role holder can still derive the regime from picks.json
+        // (401s harmlessly for everyone else — the tape just stays hidden).
+        return fetch('data/picks.json', { cache: 'no-cache' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(p){
+            if (p && p.rosterMeta && p.rosterMeta.macroRegime){
+              marketState.data = { builtAtIso: p.builtAtIso || null, macroRegime: p.rosterMeta.macroRegime };
+            }
+          })
+          .catch(function(){});
+      })
+      .then(function(){ marketState.loading = false; renderMarketAnalysis(); })
+      .catch(function(){ marketState.loading = false; renderMarketAnalysis(); });
+  }
   function renderMacroTape(){
     var data = picksState.data || {};
-    var baked = (data.rosterMeta && data.rosterMeta.macroRegime) || null;
+    var baked = marketRegimeBaked();
     var picks = (data.picks && Array.isArray(data.picks)) ? data.picks : [];
     var entryRegime = (picks[0] && picks[0].entryRegime) || null;
     var live = (baked && macroTape.legs) ? computeLiveMacroRegime(baked, macroTape.legs) : null;
@@ -9694,7 +9888,7 @@
     var driftSlot = document.getElementById('picks-regime-drift');
     if (driftSlot){
       var driftHtml = (isLive && live && baked)
-        ? buildRegimeDriftBanner(baked, live, { live: true, roster: roster, builtAtIso: data.builtAtIso || null, fetchedAt: macroTape.fetchedAt })
+        ? buildRegimeDriftBanner(baked, live, { live: true, roster: roster, builtAtIso: (marketState.data && marketState.data.builtAtIso) || data.builtAtIso || null, fetchedAt: macroTape.fetchedAt })
         : '';
       driftSlot.innerHTML = driftHtml;
       driftSlot.hidden = !driftHtml;
@@ -9752,7 +9946,7 @@
       .catch(function(){ /* baked chip stays on a failed poll */ });
   }
   function startMacroTapeLive(){
-    var pane = document.getElementById('page-pane-picks');
+    var pane = document.getElementById('page-pane-market');
     if (!pane || pane.hidden) return;
     if (macroTape.timer) return;
     pollMacroTapeOnce();
@@ -9937,7 +10131,7 @@
     }
     // Computed signals (2Y, MOVE, breadth, put/call, HY credit) — sourced from the
     // baked regime inputs + live macro-live legs, not correlations.json.
-    var bakedRegime = (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
+    var bakedRegime = marketRegimeBaked();
     if (bakedRegime){
       var computed = buildComputedBarometerRows(bakedRegime, macroTape.legs);
       for (var ci = 0; ci < computed.length; ci++) if (computed[ci] && computed[ci].score != null) rows.push(computed[ci]);
@@ -10468,7 +10662,7 @@
         wallHtml +
         '<span class="oi-rung-oi" title="Open interest on this strike"><b>' + fmtOiNum(s.oi) + '</b> OI</span>' +
       '</div>' +
-      '<div class="oi-rung-bar" aria-hidden="true">' +
+      '<div class="oi-rung-bar" aria-hidden="true" title="' + fmtOiNum(s.oi) + ' contracts open — ' + Math.round(pct) + '% of the biggest strike shown">' +
         '<span class="oi-rung-bar-fill" style="width:' + pct + '%"></span>' +
       '</div>' +
       '<div class="oi-rung-meta">' +
@@ -12082,7 +12276,16 @@
       '<text x="' + (PAD_L - 6) + '" y="' + (sy(yHi) + 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + (yHi >= 0 ? '+' : '') + fmtMoney(yHi) + '</text>' +
       '<text x="' + (PAD_L - 6) + '" y="' + (zeroY + 4) + '" class="strat-payoff-axislbl" text-anchor="end">$0</text>' +
       '<text x="' + (PAD_L - 6) + '" y="' + (sy(yLo) - 4) + '" class="strat-payoff-axislbl" text-anchor="end">' + fmtMoney(yLo) + '</text>';
-    return '<svg class="strat-payoff-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Strategy P/L at expiration">'
+    // Scrub readout: underlying price at expiry → strategy P/L (per position,
+    // ×100 like the sweep). Thin the sweep to ≤80 points to keep the attr small.
+    var hoverPts = [];
+    var hStep = Math.max(1, Math.ceil(xs.length / 80));
+    for (var hI=0; hI<xs.length; hI+=hStep){
+      hoverPts.push({ x: sx(xs[hI]), y: sy(ys[hI]),
+        label: 'stock at ' + fmtMoney(xs[hI]) + '\nP/L ' + stratFmtSigned(ys[hI]) });
+    }
+    var hover = chHoverAttr(hoverPts);
+    return '<svg class="strat-payoff-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Strategy P/L at expiration">'
       + '<line class="strat-payoff-zero" x1="' + PAD_L + '" y1="' + zeroY + '" x2="' + (W - PAD_R) + '" y2="' + zeroY + '"></line>'
       + '<path class="strat-payoff-area strat-payoff-area-profit" d="' + areaTopPath + '"></path>'
       + '<path class="strat-payoff-area strat-payoff-area-loss" d="' + areaBotPath + '"></path>'
@@ -12842,7 +13045,7 @@
       var ttmTxt = co.ttm ? cxDollars(co.ttm.val) + (co.ttm.basis === 'ttm' ? ' TTM' : ' FY') : '—';
       rows += '<div class="cx-row">' +
         '<div class="cx-row-head"><span class="cx-tkr">' + escapeHtml(co.ticker) + '</span> <span class="cx-name">' + escapeHtml(co.name || '') + '</span></div>' +
-        '<div class="cx-bar-wrap"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div>' +
+        '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div>' +
           '<span class="cx-bar-val">' + cxDollars(v) + '</span> ' + cxYoyChip(co.yoyPct) + '</div>' +
         '<div class="cx-row-meta">' +
           (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
@@ -14111,7 +14314,11 @@
       var lab = (ym[1] === '01') ? ym[0] : reportMonthLabel(points[k].m, false);
       xlabels += '<text class="cal-rc-xlabel" text-anchor="middle" x="' + xAt(k).toFixed(1) + '" y="' + (H - padB + 18) + '">' + escapeHtml(lab) + '</text>';
     }
-    return '<svg class="cal-rc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Report history bar chart">' + grid + bars + xlabels + '</svg>';
+    var hover = chHoverAttr(points.map(function(p, pi){
+      return { x: xAt(pi), y: yAt(p.v),
+        label: reportMonthLabel(p.m, true) + '\n' + fmtReportVal(p.v, unit, signed) };
+    }));
+    return '<svg class="cal-rc-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Report history bar chart">' + grid + bars + xlabels + '</svg>';
   }
   function reportSummaryText(e, hist){
     var unit = (hist && hist.unit) || '%';
@@ -14596,7 +14803,12 @@
         var y = h - 1 - ((val - min) / span) * (h - 2);
         return x.toFixed(1) + ',' + y.toFixed(1);
       }).join(' ');
-      return '<svg class="fomc-pm-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+      var hover = chHoverAttr(series.map(function(val, i){
+        var back = n - 1 - i;
+        return { x: (i / (n - 1)) * (w - 2) + 1, y: h - 1 - ((val - min) / span) * (h - 2),
+          label: 'hold ' + Math.round(val) + '%\n' + (back === 0 ? 'latest' : back + ' back') };
+      }));
+      return '<svg class="fomc-pm-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
         '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
     };
     var trend = pm.trend || {};
@@ -15590,6 +15802,7 @@
     // Numeric readout sits in the well below the hub so the needle never
     // bisects it. viewBox is sized just tall enough to hold it.
     return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 132" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
+      '<title>Fear &amp; Greed ' + Math.round(s) + ' of 100 — ' + escapeHtml(String(band).replace(/-/g, ' ')) + '. 0–24 extreme fear · 25–44 fear · 45–54 neutral · 55–74 greed · 75–100 extreme greed.</title>' +
       arcs + ticks + ends + needle +
       '<text class="fng-gauge-num" x="' + cx + '" y="128" text-anchor="middle">' + Math.round(s) + '</text>' +
     '</svg>';
@@ -16248,7 +16461,8 @@
     var avgCls = avg > 0.05 ? 'pos' : (avg < -0.05 ? 'neg' : 'zero');
     host.innerHTML =
       '<div class="heatmap-breadth-bar" role="img" aria-label="' +
-        up + ' advancing, ' + down + ' declining, ' + flat + ' flat">' +
+        up + ' advancing, ' + down + ' declining, ' + flat + ' flat" title="' +
+        up + ' advancing · ' + flat + ' flat · ' + down + ' declining">' +
         '<span class="heatmap-breadth-seg pos" style="width:' + pUp + '%"></span>' +
         '<span class="heatmap-breadth-seg flat" style="width:' + pFlat + '%"></span>' +
         '<span class="heatmap-breadth-seg neg" style="width:' + pDown + '%"></span>' +
@@ -16946,6 +17160,49 @@
   var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null, roster: null };
   var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
+  // Resolved-list sort (Picks pane). Module-level so a re-render (sub-tab hop,
+  // fresh data) keeps the user's choice for the session.
+  var accClosedSort = 'newest';
+  var ACC_CLOSED_SORTS = [
+    { k:'newest',    lbl:'Newest first' },
+    { k:'pnl-desc',  lbl:'Biggest gain (%)' },
+    { k:'pnl-asc',   lbl:'Biggest loss (%)' },
+    { k:'held-desc', lbl:'Longest held' },
+    { k:'held-asc',  lbl:'Shortest held' },
+    { k:'reason',    lbl:'Exit reason' },
+  ];
+  // Display order for the exit-reason grouping: targets first, then the stop
+  // family, then the passive/forced closes. Unknown statuses sort last.
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','theta-stop','timed-out','pre-earnings','expired','dropped','reset'];
+  // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
+  // key (no modeled P&L / unparsable dates) sink to the bottom in either
+  // direction; ties fall back to newest-resolved-first so the order is stable.
+  function accSortClosed(list){
+    var arr = list.slice();
+    function exitMs(e){ var t = Date.parse(e.exitDate || e.entryDate); return isFinite(t) ? t : 0; }
+    function pnl(e){ var v = Number(e.optionPnlPct); return isFinite(v) ? v : null; }
+    function held(e){ return accDaysBetween(e.entryDate, e.exitDate); }
+    function by(valFn, dir){
+      return function(a, b){
+        var va = valFn(a), vb = valFn(b);
+        if (va == null && vb == null) return exitMs(b) - exitMs(a);
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return (va - vb) * dir || exitMs(b) - exitMs(a);
+      };
+    }
+    var s = accClosedSort;
+    if (s === 'pnl-desc') arr.sort(by(pnl, -1));
+    else if (s === 'pnl-asc') arr.sort(by(pnl, 1));
+    else if (s === 'held-desc') arr.sort(by(held, -1));
+    else if (s === 'held-asc') arr.sort(by(held, 1));
+    else if (s === 'reason') arr.sort(by(function(e){
+      var i = ACC_EXIT_ORDER.indexOf(e.status);
+      return i < 0 ? ACC_EXIT_ORDER.length : i;
+    }, 1));
+    else arr.sort(function(a, b){ return exitMs(b) - exitMs(a); });
+    return arr;
+  }
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
   function loadAccuracy(){
     if (accuracyState.data || accuracyState.loading){ renderAccuracy(); return; }
@@ -17011,8 +17268,129 @@
     var c = e && e.contract; if (!c) return '';
     var parts = [];
     if (c.strike != null) parts.push('$' + c.strike);
-    if (c.expiryLabel) parts.push(c.expiryLabel);
+    var exp = accExpiryLabel(c);
+    if (exp) parts.push(exp);
     return parts.join(' · ');
+  }
+  // Human expiry label — prefers the baked expiryLabel (new entries carry it),
+  // else derives one from the epoch-second expiry so legacy entries render too.
+  function accExpiryLabel(c){
+    if (!c) return null;
+    if (c.expiryLabel) return c.expiryLabel;
+    var ms = Number(c.expiry) * 1000;
+    if (!c.expiry || !isFinite(ms) || ms <= 0) return null;
+    var d = new Date(ms);
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MON[d.getUTCMonth()] + ' ' + d.getUTCDate() + " '" + String(d.getUTCFullYear()).slice(2);
+  }
+  function accUsd(n){
+    if (n == null) return null;
+    var v = Number(n);
+    if (!isFinite(v)) return null;
+    return '$' + v.toFixed(2);
+  }
+  function accSignedUsd(n){
+    if (n == null) return null;
+    var v = Number(n);
+    if (!isFinite(v)) return null;
+    return (v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2);
+  }
+  // "(≈$320 per contract)" — options trade in 100-share contracts, so the
+  // per-share price ×100 is the actual dollars in play.
+  function accPerContract(n){
+    if (n == null) return '';
+    var v = Number(n);
+    if (!isFinite(v)) return '';
+    return ' (≈$' + Math.round(v * 100) + ' per contract)';
+  }
+  // --- Per-pick "Strategy & entry details" disclosure ----------------------
+  // The trade exactly as the engine took it: the structure + WHY (the strategy
+  // snapshot frozen at entry), per-leg buy-in prices, the entry contract cost,
+  // greeks/odds at entry, breakeven, and the modeled contract value now (open)
+  // / at exit (closed). Legacy entries missing a field just drop that row;
+  // entries with no contract at all (watch-only) render nothing.
+  var ACC_MODEL_TIP = 'Modeled with Black-Scholes from the entry snapshot — no options-price feed, so this is a model, not a realized fill.';
+  function accStrategyBlock(e, isClosed){
+    var c = e && e.contract; if (!c) return '';
+    var isCall = e.side !== 'put';
+    var st = c.structure || 'long';
+    var legType = escapeHtml(c.optionType || e.side || (isCall ? 'call' : 'put'));
+    var strat = e.strategy || null;
+    // Prefer the frozen strategy label; derive one from the structure for
+    // entries enrolled before the snapshot existed.
+    var stratName = (strat && strat.label) ? strat.label
+      : st === 'debit_vertical' ? (legType + ' debit spread (defined risk)')
+      : st === 'credit_vertical' ? (legType + ' credit spread (sell premium)')
+      : ('Long ' + (isCall ? 'call' : 'put'));
+    var rows = '';
+    function specRow(k, v, tip){
+      if (v == null || v === '') return;
+      rows += '<div class="acc-strat-row"><span class="acc-strat-k">' + k + '</span><span class="acc-strat-v"' + (tip ? ' title="' + tip + '"' : '') + '>' + v + '</span></div>';
+    }
+    var expBits = [];
+    var expLbl = accExpiryLabel(c);
+    if (expLbl) expBits.push('exp ' + escapeHtml(expLbl));
+    if (c.dte != null && isFinite(Number(c.dte))) expBits.push(Number(c.dte) + ' DTE at entry');
+    var expTail = expBits.length ? ' · ' + expBits.join(' · ') : '';
+    if (st === 'debit_vertical'){
+      var debit = (c.netDebit != null && isFinite(Number(c.netDebit))) ? Number(c.netDebit) : Number(c.mid);
+      specRow('The trade',
+        'Bought the $' + c.longStrike + ' ' + legType + (accUsd(c.longMid) ? ' @ ~' + accUsd(c.longMid) : '') +
+        ' · sold the $' + c.shortStrike + ' ' + legType + (accUsd(c.shortMid) ? ' @ ~' + accUsd(c.shortMid) : '') + expTail);
+      specRow('Cost (net debit)', accUsd(debit) ? accUsd(debit) + '/share' + accPerContract(debit) : null,
+        'What the spread cost to put on — also the most the trade can lose.');
+      if (accUsd(c.maxProfit)) specRow('Max profit / loss', accUsd(c.maxProfit) + ' / ' + (accUsd(c.maxLoss) || accUsd(debit)) + ' per share');
+    } else if (st === 'credit_vertical'){
+      var credit = (c.netCredit != null && isFinite(Number(c.netCredit))) ? Number(c.netCredit) : Number(c.mid);
+      specRow('The trade',
+        'Sold the $' + c.shortStrike + ' ' + legType + (accUsd(c.shortMid) ? ' @ ~' + accUsd(c.shortMid) : '') +
+        ' · bought the $' + c.longStrike + ' ' + legType + (accUsd(c.longMid) ? ' @ ~' + accUsd(c.longMid) : '') + ' as the hedge' + expTail);
+      specRow('Credit received', accUsd(credit) ? accUsd(credit) + '/share' + accPerContract(credit) : null,
+        'Premium collected up front — also the maximum profit. The trade wins if the spread can be bought back for less.');
+      if (accUsd(c.maxLoss)) specRow('Max profit / loss', (accUsd(c.maxProfit) || accUsd(credit)) + ' / ' + accUsd(c.maxLoss) + ' per share');
+    } else {
+      specRow('The trade', 'Bought the $' + c.strike + ' ' + (isCall ? 'call' : 'put') + expTail);
+      specRow('Entry price', accUsd(c.mid) ? '~' + accUsd(c.mid) + '/share' + accPerContract(c.mid) : null,
+        'Mid of the bid/ask when the pick shipped — the modeled fill.');
+    }
+    if (accUsd(c.breakeven)) specRow('Breakeven at expiry', accUsd(c.breakeven) + ' on the stock');
+    var gk = [];
+    if (c.iv != null && isFinite(Number(c.iv))) gk.push('IV ' + Math.round(Number(c.iv) * 100) + '%');
+    if (c.delta != null && isFinite(Number(c.delta))) gk.push('Δ ' + Number(c.delta).toFixed(2));
+    if (c.thetaDay != null && isFinite(Number(c.thetaDay))) gk.push('Θ ' + accSignedUsd(c.thetaDay) + '/day');
+    if (c.pop != null && isFinite(Number(c.pop))) gk.push('PoP ' + Math.round(Number(c.pop) * 100) + '%');
+    if (gk.length) specRow('At entry', gk.join(' · '),
+      'Implied volatility, delta, daily time decay and probability-of-profit of the position when the pick shipped.');
+    // Where the contract stands: modeled mark now (open) / at exit (closed).
+    var pnl = Number(e.optionPnlPct);
+    if (e.optionPnlPct != null && isFinite(pnl)){
+      var pnlTxt = '<span class="' + (pnl >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(pnl) + '</span> (modeled)';
+      if (st === 'credit_vertical'){
+        var cr2 = (c.netCredit != null && isFinite(Number(c.netCredit))) ? Number(c.netCredit) : Number(c.mid);
+        var buyback = isFinite(cr2) ? cr2 * (1 - pnl / 100) : null;
+        specRow(isClosed ? 'Buy-back at exit' : 'Buy-back cost now',
+          (accUsd(buyback) ? '~' + accUsd(buyback) + '/share vs ' + accUsd(cr2) + ' received · ' : '') + pnlTxt, ACC_MODEL_TIP);
+      } else {
+        var basis = st === 'debit_vertical'
+          ? ((c.netDebit != null && isFinite(Number(c.netDebit))) ? Number(c.netDebit) : Number(c.mid))
+          : Number(c.mid);
+        var nowVal = isFinite(basis) ? basis * (1 + pnl / 100) : null;
+        specRow(isClosed ? 'Exit value' : 'Value now',
+          (accUsd(nowVal) ? '~' + accUsd(nowVal) + '/share' + accPerContract(nowVal) + ' · ' : '') + pnlTxt, ACC_MODEL_TIP);
+      }
+    }
+    var fbTag = (strat && strat.fallback)
+      ? ' <span class="acc-strat-fb" title="The engine wanted a ' + escapeHtml(strat.requested || 'different') + ' structure but no liquid version existed, so it fell back to this one.">fallback</span>'
+      : '';
+    var reasonHtml = (strat && strat.reason) ? '<div class="acc-strat-reason">' + escapeHtml(strat.reason) + '</div>' : '';
+    return '<details class="acc-strategy">' +
+      '<summary class="acc-strat-summary">Strategy &amp; entry details</summary>' +
+      '<div class="acc-strat-body">' +
+        '<div class="acc-strat-name">' + escapeHtml(stratName) + fbTag + '</div>' +
+        reasonHtml +
+        '<div class="acc-strat-rows">' + rows + '</div>' +
+      '</div>' +
+    '</details>';
   }
 
   // ========================================================================
@@ -17398,6 +17776,16 @@
     return s + '$' + str;
   }
   function accPF(n){ if (n == null) return '—'; if (n === Infinity) return '∞'; if (!isFinite(n)) return '—'; return n.toFixed(2); }
+  // Short YYYY-MM-DD from either an ISO string or epoch ms — equity-curve
+  // points carry ISO dates (buildEquityCurve) or ms (runPortfolioSim).
+  function accAnyDateShort(d){
+    if (d == null) return '';
+    if (typeof d === 'number' && isFinite(d)){
+      try { return new Date(d).toISOString().slice(0, 10); } catch(_){ return ''; }
+    }
+    var s = String(d).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? s : '';
+  }
   function accPctRate(n){ if (n == null || !isFinite(n)) return '—'; return Math.round(n * 100) + '%'; }
   function accNum(n, dp){ if (n == null) return '—'; if (n === Infinity) return '∞'; if (!isFinite(n)) return '—'; return Number(n).toFixed(dp == null ? 2 : dp); }
   function accSignClass(n){ return (n == null || !isFinite(n)) ? '' : (n > 0 ? 'sig-pos' : (n < 0 ? 'sig-neg' : 'sig-zero')); }
@@ -17429,7 +17817,15 @@
     [yMax, (yMin + yMax) / 2, yMin].forEach(function(gv){ var gy = yFor(gv); grid += '<line class="acc-eq-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '"></line><text class="acc-eq-yl" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">' + escapeHtml(fmtV(gv)) + '</text>'; });
     var baseY = yFor(base);
     var dir = up ? 'up' : 'down';
-    return '<svg class="acc-eq-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Equity curve">' + grid +
+    // Hover readout: trade #, resolution date (points carry an ISO string or
+    // epoch ms depending on the caller), equity, and P&L vs the starting base.
+    var hover = chHoverAttr(points.map(function(p, i){
+      var dTxt = accAnyDateShort(p.date);
+      return { x: xy[i][0], y: xy[i][1],
+        label: (i === 0 ? 'start' : 'trade ' + i) + (dTxt ? ' · ' + dTxt : '') + '\n' +
+          fmtV(p.value) + (i === 0 ? '' : ' (' + accMoney(p.value - base, true) + ')') };
+    }));
+    return '<svg class="acc-eq-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Equity curve">' + grid +
       '<line class="acc-eq-base" x1="' + padL + '" y1="' + baseY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + baseY.toFixed(1) + '"></line>' +
       '<path class="acc-eq-area ' + dir + '" d="' + area + '"></path>' +
       '<path class="acc-eq-line ' + dir + '" d="' + line + '"></path>' +
@@ -17454,7 +17850,12 @@
     if (opts.breakeven != null && opts.breakeven >= x0 && opts.breakeven <= x1){ var mx = xFor(opts.breakeven); marker = '<line class="acc-hist-mark" x1="' + mx.toFixed(1) + '" y1="' + padT + '" x2="' + mx.toFixed(1) + '" y2="' + (padT + plotH) + '"></line>'; }
     var labs = '', step = Math.max(1, Math.ceil(bins.length / 6));
     for (i=0;i<bins.length;i+=step){ var lx = xFor(bins[i].x0); labs += '<text class="acc-hist-xl" x="' + lx.toFixed(1) + '" y="' + (H - padB + 16) + '">' + escapeHtml(opts.fmtX ? opts.fmtX(bins[i].x0) : String(Math.round(bins[i].x0))) + '</text>'; }
-    return '<svg class="acc-hist-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Distribution">' + bars + marker + labs + '</svg>';
+    var hover = chHoverAttr(bins.map(function(b){
+      var bh = (b.count / maxC) * plotH;
+      return { x: xFor((b.x0 + b.x1) / 2), y: padT + plotH - bh,
+        label: (opts.fmtX ? opts.fmtX(b.x0) : Math.round(b.x0)) + ' – ' + (opts.fmtX ? opts.fmtX(b.x1) : Math.round(b.x1)) + '\n' + b.count + ' run' + (b.count === 1 ? '' : 's') };
+    }));
+    return '<svg class="acc-hist-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Distribution">' + bars + marker + labs + '</svg>';
   }
   function accFanSvg(paths, medianPath, opts){
     opts = opts || {};
@@ -17483,7 +17884,13 @@
     for (var pi=0; pi<sN; pi++){ var pp = paths[pi]; var dd = 'M' + xFor(0).toFixed(1) + ',' + yFor(pp[0]).toFixed(1); for (var j=1;j<pp.length;j++) dd += ' L' + xFor(j).toFixed(1) + ',' + yFor(pp[j]).toFixed(1); sample += '<path class="acc-fan-path" d="' + dd + '"></path>'; }
     var medXy = medianPath.map(function(v, i){ return [xFor(i), yFor(v)]; });
     var startY = yFor(opts.start != null ? opts.start : medianPath[0]);
-    return '<svg class="acc-fan-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monte Carlo paths">' + grid +
+    // Hover readout rides the median path; the label carries the pointwise
+    // p5–p95 envelope so the fan's spread reads at every step.
+    var hover = chHoverAttr(medianPath.map(function(v, i){
+      return { x: xFor(i), y: yFor(v),
+        label: 'draw ' + i + ' of ' + (steps - 1) + '\nmedian ' + fmtV(v) + '\np5 ' + fmtV(p5[i]) + ' · p95 ' + fmtV(p95[i]) };
+    }));
+    return '<svg class="acc-fan-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monte Carlo paths">' + grid +
       '<line class="acc-eq-base" x1="' + padL + '" y1="' + startY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + startY.toFixed(1) + '"></line>' +
       '<path class="acc-fan-env" d="' + env + '"></path>' + sample +
       '<path class="acc-fan-median" d="' + smoothPath(medXy) + '"></path>' +
@@ -17556,13 +17963,24 @@
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
   var ACC_ADVERSE_MOVE = 3.0, ACC_FLAT_MOVE = 1.0, ACC_GIVEBACK_PCT = 15;
+  // A flat-stock loss can only be blamed on theta once real time has actually
+  // elapsed: on a 30-60 DTE ~0.55Δ long, decay runs ~1-2.5%/day of premium, so
+  // a position force-closed inside ~2 calendar days (weekly reset, roster
+  // churn, pre-earnings) has bled at most a couple points — that is mark drift
+  // plus the forced exit, not a theta thesis failure. Those closes get their
+  // own "forced early close" bucket instead of polluting the theta share the
+  // engine roadmap is steered by.
+  var ACC_MIN_THETA_DAYS = 2;
   // Classify one decided trade: why did it win / lose? Returns { cls, text }.
-  // cls ∈ direction | theta | mixed (losses) · direction | decay | grind (wins).
+  // cls ∈ direction | theta | mixed | churn (losses) · direction | decay | grind (wins).
   function accTradeWhy(e){
     var opt = Number(e.optionPnlPct); if (!isFinite(opt)) opt = null;
     var und = Number(e.underlyingPnlPct); if (!isFinite(und)) und = null; // side-adjusted: + = with the trade
     var hi = Number(e.optHiPct); if (!isFinite(hi)) hi = null;
     var credit = !!(e.contract && e.contract.structure === 'credit_vertical');
+    var eMs = Date.parse(e.entryDate), xMs = Date.parse(e.exitDate);
+    var held = (isFinite(eMs) && isFinite(xMs)) ? Math.max(0, (xMs - eMs) / 86400000) : null; // fractional calendar days
+    var heldTxt = held == null ? null : (held < 1 ? Math.max(1, Math.round(held * 24)) + 'h' : (Math.round(held * 10) / 10) + 'd');
     var undTxt = und != null ? accPct(und) : 'an unknown amount';
     var cls, text;
     if (e.outcome === 'win'){
@@ -17591,8 +18009,13 @@
       cls = 'direction';
       text = 'Direction miss — the stock moved ' + undTxt + ' against the trade; the option lost ' + accPct(opt) + '.';
     } else if (und != null && und >= -ACC_FLAT_MOVE){
-      cls = 'theta';
-      text = 'Theta bleed — the stock ' + (und >= 0 ? 'even moved ' + undTxt + ' with the trade' : 'held roughly flat (' + undTxt + ')') + ', but time decay still bled the long premium to ' + accPct(opt) + '.';
+      if (held != null && held < ACC_MIN_THETA_DAYS){
+        cls = 'churn';
+        text = 'Forced early close — held only ' + heldTxt + ' (' + (ACC_STATUS_LABEL[e.status] || e.status || 'closed') + ') with the stock ' + (und >= 0 ? 'moving ' + undTxt + ' with the trade' : 'roughly flat (' + undTxt + ')') + '. Too short for meaningful time decay: the ' + accPct(opt) + ' is mark drift plus the forced exit, not theta.';
+      } else {
+        cls = 'theta';
+        text = 'Theta bleed — the stock ' + (und >= 0 ? 'even moved ' + undTxt + ' with the trade' : 'held roughly flat (' + undTxt + ')') + ', but time decay ' + (heldTxt ? 'over ' + heldTxt + ' held ' : '') + 'still bled the long premium to ' + accPct(opt) + '.';
+      }
     } else {
       cls = 'mixed';
       text = 'Drift plus decay — a modest adverse move (' + undTxt + ') compounded with time decay to ' + accPct(opt) + '.';
@@ -17607,14 +18030,17 @@
     var dec = accDecided(closed);
     var rep = { n: dec.length, m: tradeMetrics(dec, { basis: 'contract' }), wins: [], losses: [] };
     for (var i=0;i<dec.length;i++){ (dec[i].outcome === 'win' ? rep.wins : rep.losses).push(dec[i]); }
-    // Loss anatomy.
-    var att = { direction: 0, theta: 0, mixed: 0 };
+    // Loss anatomy. churn (forced early closes) is counted but excluded from
+    // the direction-vs-theta share the verdicts read.
+    var att = { direction: 0, theta: 0, mixed: 0, churn: 0 };
     var flatButLost = 0, giveback = 0, lossStatus = {};
     rep.losses.forEach(function(e){
       var w = accTradeWhy(e);
       att[att[w.cls] != null ? w.cls : 'mixed']++;
       var und = Number(e.underlyingPnlPct);
-      if (isFinite(und) && und >= -ACC_FLAT_MOVE) flatButLost++;
+      // Forced early closes don't count as "flat but lost" vehicle bleed —
+      // nothing had time to bleed.
+      if (w.cls !== 'churn' && isFinite(und) && und >= -ACC_FLAT_MOVE) flatButLost++;
       var hi = Number(e.optHiPct);
       if (isFinite(hi) && hi >= ACC_GIVEBACK_PCT) giveback++;
       var s = e.status || 'other';
@@ -17703,13 +18129,17 @@
       box.innerHTML = lead + '<p class="muted acc-an-note">No resolved picks yet — the engine report appears once picks start closing.' + openLine + '</p>';
       return;
     }
-    // Health banner + narrative.
-    var attTotal = Math.max(1, L);
-    var dirShare = L ? rep.att.direction / L : 0;
+    // Health banner + narrative. The direction-vs-theta share is computed over
+    // the ATTRIBUTABLE losses only — forced early closes (churn) held too
+    // briefly to blame on either are reported separately.
+    var attributable = rep.att.direction + rep.att.theta + rep.att.mixed;
+    var dirShare = attributable ? rep.att.direction / attributable : 0;
     var story = 'Across ' + rep.n + ' resolved pick' + (rep.n === 1 ? '' : 's') + ' the engine is winning ' + accPctRate(m.winRate) +
       ' with an average outcome of ' + accNum(m.expectancyR, 2) + 'R per unit of risk (profit factor ' + accPF(m.profitFactor) + ').';
     if (L && rep.n >= 6){
-      story += ' The losses are mostly ' + (dirShare >= 0.6 ? 'direction-driven — the signal picked the wrong side' : (dirShare <= 0.4 ? 'theta/vol-driven — the stock cooperated or sat still but the long premium bled' : 'a mix of wrong direction and premium decay')) + '.';
+      story += attributable
+        ? ' The losses are mostly ' + (dirShare >= 0.6 ? 'direction-driven — the signal picked the wrong side' : (dirShare <= 0.4 ? 'theta/vol-driven — the stock cooperated or sat still but the long premium bled' : 'a mix of wrong direction and premium decay')) + '.'
+        : ' The losses so far are all forced early closes (weekly reset / early exits) — held too briefly to read as direction or theta.';
     }
     if (open.length){
       var greens = 0, marks = [];
@@ -17724,13 +18154,15 @@
         var n = rep.att[k]; if (!n) return '';
         return '<span class="acc-attr-seg acc-attr-' + cls + '" style="flex-grow:' + n + '" title="' + escapeHtml(lbl + ': ' + n + ' of ' + L) + '">' + n + '</span>';
       };
-      var bar = '<div class="acc-attr-bar">' + seg('direction', 'dir', 'Direction miss') + seg('mixed', 'mix', 'Drift + decay') + seg('theta', 'theta', 'Theta bleed') + '</div>' +
-        '<div class="acc-attr-legend"><span><i class="acc-attr-dot acc-attr-dir"></i>Direction miss (' + rep.att.direction + ')</span><span><i class="acc-attr-dot acc-attr-mix"></i>Drift + decay (' + rep.att.mixed + ')</span><span><i class="acc-attr-dot acc-attr-theta"></i>Theta bleed (' + rep.att.theta + ')</span></div>';
+      var bar = '<div class="acc-attr-bar">' + seg('direction', 'dir', 'Direction miss') + seg('mixed', 'mix', 'Drift + decay') + seg('theta', 'theta', 'Theta bleed') + seg('churn', 'churn', 'Forced early close (held <' + ACC_MIN_THETA_DAYS + 'd — not a theta read)') + '</div>' +
+        '<div class="acc-attr-legend"><span><i class="acc-attr-dot acc-attr-dir"></i>Direction miss (' + rep.att.direction + ')</span><span><i class="acc-attr-dot acc-attr-mix"></i>Drift + decay (' + rep.att.mixed + ')</span><span><i class="acc-attr-dot acc-attr-theta"></i>Theta bleed (' + rep.att.theta + ')</span><span><i class="acc-attr-dot acc-attr-churn"></i>Forced early close (' + rep.att.churn + ')</span></div>';
       var verdict;
       if (rep.n < 6) verdict = 'Sample is still small — attribution firms up as more picks resolve.';
+      else if (!attributable) verdict = 'Every loss so far was a forced early close (held under ' + ACC_MIN_THETA_DAYS + ' days — weekly reset or early exit) — no direction-vs-theta read yet.';
       else if (dirShare >= 0.6) verdict = 'Direction-driven losses dominate (' + Math.round(dirShare * 100) + '%): the signal is picking the wrong side, not the vehicle bleeding. Defined-risk structures only shrink a wrong call — the leverage is in the score and in standing down when the edge is thin.';
       else if (dirShare <= 0.4) verdict = 'Theta/vol losses dominate (' + Math.round((1 - dirShare) * 100) + '%): the stock often went the right way or nowhere and the long premium still bled. Spreads that sell the rich wing and faster premium-space exits are the highest-leverage fixes.';
       else verdict = 'Losses are mixed (' + Math.round(dirShare * 100) + '% direction / ' + Math.round((1 - dirShare) * 100) + '% decay): both the signal and the vehicle are costing money — measurement and exit-policy fixes first, then re-read after a forward sample.';
+      if (attributable && rep.att.churn) verdict += ' ' + rep.att.churn + ' further loss' + (rep.att.churn === 1 ? ' was a' : 'es were') + ' forced early close' + (rep.att.churn === 1 ? '' : 's') + ' (held under ' + ACC_MIN_THETA_DAYS + ' days) — excluded from that read.';
       var exits = [];
       var statusKeys = Object.keys(rep.lossStatus).sort(function(a, b){ return rep.lossStatus[b] - rep.lossStatus[a]; });
       statusKeys.forEach(function(k){ exits.push('<span class="brief-chip info">' + escapeHtml(ACC_STATUS_LABEL[k] || k) + ' <span>' + rep.lossStatus[k] + '</span></span>'); });
@@ -18577,6 +19009,7 @@
           peakDip +
         '</div>' +
         (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
+        accStrategyBlock(e, false) +
         accCheckpointsBlock(e) +
       '</div>';
     }
@@ -18622,48 +19055,79 @@
     }
 
     // --- Resolved positions -------------------------------------------------
+    function accClosedRow(e){
+      var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
+      var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
+      var held = accDaysBetween(e.entryDate, e.exitDate);
+      var entry = Number(e.entrySpot) || 0;
+      var exit = Number(e.exitSpot);
+      var rOptPnl = Number(e.optionPnlPct);
+      var rHaveOpt = isFinite(rOptPnl);
+      // Lead the resolved row with the modeled CONTRACT result (what the trade
+      // actually returned), underlying entry→exit demoted to context.
+      var rHeadPnl = rHaveOpt
+        ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
+        : '';
+      var exitLbl = ACC_STATUS_LABEL[e.status] || e.status || null;
+      return '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
+        '<div class="acc-row-head">' +
+          '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
+          accSidePill(e.side) +
+          '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
+          accTierTag(e.tier, e.label) +
+          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
+          '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
+          rHeadPnl +
+        '</div>' +
+        '<div class="acc-row-meta">' +
+          '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
+          (held != null ? '<span>' + held + 'd held</span>' : '') +
+          ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
+            ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
+            : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
+          (exitLbl ? '<span class="acc-exit" title="Why the engine closed this position.">exit: ' + escapeHtml(exitLbl) + '</span>' : '') +
+          '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
+        '</div>' +
+        accStrategyBlock(e, true) +
+        accCheckpointsBlock(e) +
+      '</div>';
+    }
     if (closed.length){
+      var sorted = accSortClosed(closed);
       var closedRows = '';
-      closed.forEach(function(e){
-        var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
-        var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
-        var held = accDaysBetween(e.entryDate, e.exitDate);
-        var entry = Number(e.entrySpot) || 0;
-        var exit = Number(e.exitSpot);
-        var rOptPnl = Number(e.optionPnlPct);
-        var rHaveOpt = isFinite(rOptPnl);
-        // Lead the resolved row with the modeled CONTRACT result (what the trade
-        // actually returned), underlying entry→exit demoted to context.
-        var rHeadPnl = rHaveOpt
-          ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
-          : '';
-        closedRows += '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
-          '<div class="acc-row-head">' +
-            '<span class="acc-outcome acc-outcome-tag-' + oc + '">' + ocLabel + '</span>' +
-            accSidePill(e.side) +
-            '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
-            accTierTag(e.tier, e.label) +
-            '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
-            '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
-            rHeadPnl +
-          '</div>' +
-          '<div class="acc-row-meta">' +
-            '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
-            (held != null ? '<span>' + held + 'd held</span>' : '') +
-            ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
-              ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
-              : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
-            '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
-          '</div>' +
-          accCheckpointsBlock(e) +
-        '</div>';
+      var lastStatus = null;
+      sorted.forEach(function(e){
+        // Exit-reason sort reads as GROUPS: emit a subhead each time the
+        // reason changes (the list is already ordered by ACC_EXIT_ORDER).
+        if (accClosedSort === 'reason'){
+          var sk = e.status || 'other';
+          if (sk !== lastStatus){
+            lastStatus = sk;
+            var n = 0;
+            for (var ci = 0; ci < sorted.length; ci++) if ((sorted[ci].status || 'other') === sk) n++;
+            closedRows += '<div class="acc-sort-sub">' + escapeHtml(ACC_STATUS_LABEL[sk] || sk) + ' <span class="accuracy-group-n">' + n + '</span></div>';
+          }
+        }
+        closedRows += accClosedRow(e);
       });
+      var sortOpts = ACC_CLOSED_SORTS.map(function(o){
+        return '<option value="' + o.k + '"' + (accClosedSort === o.k ? ' selected' : '') + '>' + o.lbl + '</option>';
+      }).join('');
+      var sortCtl = '<label class="acc-sort"><span class="acc-sort-label">Sort</span>' +
+        '<select id="acc-closed-sort" aria-label="Sort resolved picks">' + sortOpts + '</select></label>';
       html += '<div class="accuracy-group">' +
-        '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span></div>' +
+        '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span>' + sortCtl + '</div>' +
         closedRows +
       '</div>';
     }
     root.innerHTML = html;
+    // The sort select is recreated on every render (innerHTML above), so the
+    // listener is re-bound each time; state lives in accClosedSort.
+    var sortSel = $('acc-closed-sort');
+    if (sortSel) sortSel.addEventListener('change', function(){
+      accClosedSort = sortSel.value;
+      renderAccuracy();
+    });
   }
 
   function pickDriverChip(d){
@@ -20878,7 +21342,6 @@
   function renderPicks(){
     bindPicksControls();
     bindPicksNav();
-    bindPositionTool();
     var grid = $('picks-grid');
     var empty = $('picks-empty');
     var eyebrow = $('picks-eyebrow');
@@ -20951,16 +21414,11 @@
     // Book-level greek / premium-at-risk aggregate (rosterMeta.book) — surfaces the
     // long-vega / short-theta carry the per-name sizing hides.
     var book = (data.rosterMeta && data.rosterMeta.book) || null;
-    // Live market-regime chip + the expanded "Market tape" panel below the
-    // summary. The chip + panel are filled by renderMacroTape() (just below),
-    // which recomputes the cross-asset regime LIVE from /api/macro-live while
-    // the tab is open (computeLiveMacroRegime) and falls back to the baked
-    // rosterMeta.macroRegime / picks[0].entryRegime before the first poll
-    // lands. A display:contents wrapper keeps #picks-regime-chip out of the
-    // flex flow so the live-replaced chip still sits inline with the others.
+    // The live market-regime chip + "Market tape" panel moved to the Market
+    // analysis tab (renderMacroTape fills #picks-regime-chip there); the picks
+    // summary keeps only the roster-shape chips.
     if (summaryEl){
       summaryEl.innerHTML =
-        '<span id="picks-regime-chip" class="picks-regime-slot"></span>' +
         '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
@@ -20978,7 +21436,6 @@
           ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
           : '');
     }
-    renderMacroTape();
     // Honest roster note — why the list may be short today (entry timing is
     // baked into the grade, so a chasing-top / falling-knife name scores below
     // the bar, and the sector cap limits correlated names). Reads rosterMeta.
@@ -21345,6 +21802,7 @@
       ['tickers', 'Tickers'],
       ['narratives', 'Narratives'],
       ['brief', 'Brief'],
+      ['market', 'Market analysis'],
       ['picks', 'Top picks'],
       ['heatmap', 'Heatmap'],
       ['calendar', 'Calendar'],
@@ -21371,8 +21829,10 @@
         out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
       });
       TABS.forEach(function(tt){
-        // Skip the role-hidden Track Record tab so it never appears in cmd-K.
+        // Skip the role-hidden Track Record / Top Picks tabs so they never
+        // appear in cmd-K for a visitor without the role.
         if (tt[0] === 'track' && !HAS_TRACK_RECORD) return;
+        if (tt[0] === 'picks' && !HAS_TOP_PICKS) return;
         out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
       });
       return out;
@@ -21604,7 +22064,12 @@
       var y = h - 1 - ((val - min) / span) * (h - 2);
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
-    return '<svg class="bonds-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+    var hover = chHoverAttr(s.map(function(val, i){
+      var back = n - 1 - i;
+      return { x: (i / (n - 1)) * (w - 2) + 1, y: h - 1 - ((val - min) / span) * (h - 2),
+        label: (Math.round(val * 100) / 100) + '\n' + (back === 0 ? 'latest session' : back + ' sessions back') };
+    }));
+    return '<svg class="bonds-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
       '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
   function startBondsLivePolling(){
@@ -21991,7 +22456,13 @@
     }
     var bps = (cur[1] - cur[0]) * 100;
     var shape = bps < 0 ? 'inverted (classic recession signal)' : bps < 50 ? 'flat' : 'upward-sloping';
-    var svg = '<svg class="bonds-curve-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="US Treasury yield curve, 2-year to 30-year">' +
+    var hover = chHoverAttr(defs.map(function(d, di){
+      var delta = (pvv[di] != null) ? (cur[di] - pvv[di]) * 100 : null;
+      return { x: xs[di], y: yFor(cur[di]),
+        label: d.label + ' ' + cur[di].toFixed(2) + '%' +
+          (pvv[di] != null ? '\nprev ' + pvv[di].toFixed(2) + '% (' + (delta >= 0 ? '+' : '') + Math.round(delta) + ' bps)' : '') };
+    }));
+    var svg = '<svg class="bonds-curve-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="US Treasury yield curve, 2-year to 30-year">' +
       prevLine + curLine + marks + '</svg>';
     host.innerHTML =
       '<div class="bonds-curve-head">' +
@@ -22518,6 +22989,17 @@
         }
         var trPane = document.getElementById('page-pane-track');
         if (trPane && trPane.parentNode) trPane.parentNode.removeChild(trPane);
+      }
+      // Top Picks is role-hidden the same way (tp claim): remove the nav
+      // button(s), the pane, AND the landing "Top picks" card (data-go).
+      if (!HAS_TOP_PICKS) {
+        var tpBtns = document.querySelectorAll('[data-page-tab="picks"], [data-go="picks"]');
+        for (var pi = 0; pi < tpBtns.length; pi++) {
+          var tpBtn = tpBtns[pi];
+          if (tpBtn && tpBtn.parentNode) tpBtn.parentNode.removeChild(tpBtn);
+        }
+        var tpPane = document.getElementById('page-pane-picks');
+        if (tpPane && tpPane.parentNode) tpPane.parentNode.removeChild(tpPane);
       }
       try { markPremiumNav(); } catch (_) {}
       try { renderAuthChip(); } catch (_) {}
