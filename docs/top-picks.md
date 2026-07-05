@@ -309,7 +309,14 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   e.g. a $5.00 long → stop at **$3.50**, bank half at **$6.00**. Credit
   verticals keep **hard gates on the credit** (no scale-out — decay is the
   edge): +50% take-profit / **−50% stop** (buy-back ≈ 1.5× the credit; the old
-  −100% default was a 2:1 inverted payoff vs the +50% TP).
+  −100% default was a 2:1 inverted payoff vs the +50% TP). The credit exit
+  ladder's stock-level rungs (`buildCreditExitPlan`): **cut** anchors at the
+  short strike (a close beyond it starts realizing the loss) and **take-profit**
+  at the delta-estimated *favorable* move that would collapse the buy-back to
+  the +50% target — NOT the expiry breakeven, which sits on the adverse side of
+  entry (shortK ∓ credit) and is not a profit target; it ships as an "Also exit
+  if" context line instead. The real TP trigger is the SPREAD's buy-back price
+  (theta gets there with no move at all).
 - **Underlying (enforced):** stop at the deeper of structural support and a
   ~2.5×ATR floor (clamped 5–12%) so routine noise doesn't shake out a good
   entry — and this stock stop is **enforced in the track record**

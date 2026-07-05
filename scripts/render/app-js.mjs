@@ -8647,10 +8647,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var cut = (ep.cut && ep.cut.price != null && isFinite(ep.cut.price)) ? Number(ep.cut.price) : null;
       var tpHit = tp != null && (isPut ? spot <= tp : spot >= tp);
       var cutHit = cut != null && (isPut ? spot >= cut : spot <= cut);
+      // Credit spreads exit on the SPREAD's buy-back price, not a stock touch:
+      // the TP level is a delta-based estimate and the cut level is the short
+      // strike, so the chips qualify what a cross actually means.
+      var isCreditV = !!(p.contract && p.contract.structure === 'credit_vertical');
       if (tpHit){
-        bits.push('<span class="picks-live-hit is-tp" title="Spot has crossed the exit plan\\'s take-profit level at $' + tp.toFixed(2) + '">✓ Target hit</span>');
+        var tpTitle = isCreditV
+          ? 'Spot has crossed the estimated take-profit level at $' + tp.toFixed(2) + ' — a delta-based estimate for a credit spread; confirm the spread\\'s buy-back price is at the target before closing'
+          : 'Spot has crossed the exit plan\\'s take-profit level at $' + tp.toFixed(2);
+        bits.push('<span class="picks-live-hit is-tp" title="' + tpTitle + '">✓ Target hit</span>');
       } else if (cutHit){
-        bits.push('<span class="picks-live-hit is-cut" title="Spot has crossed the exit plan\\'s cut level at $' + cut.toFixed(2) + ' — the thesis is invalidated">✗ Cut level hit</span>');
+        var cutTitle = isCreditV
+          ? 'Spot has crossed the $' + cut.toFixed(2) + ' short strike — the spread is being breached; defend or buy it back'
+          : 'Spot has crossed the exit plan\\'s cut level at $' + cut.toFixed(2) + ' — the thesis is invalidated';
+        bits.push('<span class="picks-live-hit is-cut" title="' + cutTitle + '">✗ Cut level hit</span>');
       } else {
         var lvls = [];
         if (tp != null && spot > 0) lvls.push('TP $' + tp.toFixed(2) + ' (' + ((tp - spot) / spot * 100).toFixed(1) + '%)');

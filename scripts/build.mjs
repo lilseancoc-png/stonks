@@ -11138,20 +11138,41 @@ function buildCreditExitPlan(side, spot, data, contract) {
   const optStopPrice = credit != null ? r2(credit * (1 + PICKS_CREDIT_STOP_PCT)) : null;
   const optTpPrice = credit != null ? r2(credit * (1 - PICKS_CREDIT_TP_PCT)) : null;
   const cut = { price: r2(shortK), movePct: (spot > 0 && shortK != null) ? r2((shortK / spot - 1) * 100) : null, reason: "short strike breach", optionPrice: optStopPrice, optionPct: stopPctN, entryPrem: credit != null ? r2(credit) : null };
-  const takeProfit = { price: r2(be), movePct: (spot > 0 && be != null) ? r2((be / spot - 1) * 100) : null, reason: "stays beyond breakeven (theta decay)", optionPrice: optTpPrice, optionPct: tpPctN, entryPrem: credit != null ? r2(credit) : null };
+  // A credit spread wins by DECAY, not by a stock-level touch — the real
+  // take-profit trigger is the SPREAD's buy-back price hitting (1 − tpPct)× the
+  // credit. The stock-level rung must NOT anchor at the expiry breakeven
+  // (shortK − credit for a bull put): that price sits on the ADVERSE side of
+  // entry — at best flat at expiry, marked at a loss before it. Anchor instead
+  // at the FAVORABLE move that would, by the spread's net delta alone, collapse
+  // the buy-back to the target; theta gets there with no move at all, so this
+  // is the "a quick move banks it early" bound, not a requirement.
+  const dir = isCall ? 1 : -1;
+  const netDeltaAbs = Math.abs(pnum(contract?.delta) ?? 0);
+  const expMove = pnum(contract?.expectedMovePct); // pnum(null) is 0 — require a real positive % move
+  const expMoveFrac = expMove != null && Math.abs(expMove) > 0 ? Math.abs(expMove) / 100 : null;
+  let tpMoveFrac = (credit != null && netDeltaAbs > 0.02 && spot > 0) ? (credit * PICKS_CREDIT_TP_PCT) / (netDeltaAbs * spot) : null;
+  if (tpMoveFrac == null && expMoveFrac != null) tpMoveFrac = expMoveFrac * 0.5;
+  if (tpMoveFrac != null) tpMoveFrac = clamp(tpMoveFrac, 0.01, Math.max(0.02, expMoveFrac ?? 0.15));
+  const tpSpot = (tpMoveFrac != null && spot > 0) ? spot * (1 + dir * tpMoveFrac) : null;
+  const takeProfit = { price: tpSpot != null ? r2(tpSpot) : null, movePct: tpMoveFrac != null ? r2(dir * tpMoveFrac * 100) : null, reason: "≈ buy-back target after a favorable move (delta est.)", optionPrice: optTpPrice, optionPct: tpPctN, entryPrem: credit != null ? r2(credit) : null };
   const holdSide = isCall ? "above" : "below";
   const stopOptTxt = optStopPrice != null ? `a buy-back cost of $${optStopPrice} (≈${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}× the $${r2(credit)} credit, −${stopPctN}%)` : `a buy-back cost ~${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}x the credit received`;
   const tpOptTxt = optTpPrice != null ? `buying the spread back near $${optTpPrice} (+${tpPctN}% of the $${r2(credit)} credit captured)` : `buying the spread back near +${tpPctN}% of the credit captured`;
+  const tpProse = `Bank it by ${tpOptTxt} — the trigger is the SPREAD price, not the stock. Theta walks it there while price holds ${holdSide} the $${r2(shortK)} short strike${takeProfit.price != null ? `; a move to ~$${takeProfit.price} would get there early` : ""}.`;
   const levels = [
-    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: `buy back ~+${tpPctN}% of credit`, reasons: {}, watchFor: null, prose: `Bank it by ${tpOptTxt}, or let it decay while price holds ${holdSide} ~$${takeProfit.price}.` },
+    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Take profit", anchor: `buy back ~+${tpPctN}% of credit`, reasons: {}, watchFor: null, prose: tpProse },
     { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: `Cut if it breaches the short strike $${cut.price}, or set a hard stop at ${stopOptTxt}.` },
   ];
   const stopLine = optStopPrice != null
     ? `Stop loss: buy the spread back at $${optStopPrice} (−${stopPctN}%, ≈${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}× the $${r2(credit)} credit); take profit buying back at $${optTpPrice} (+${tpPctN}%).`
     : null;
+  const longK = pnum(contract?.longStrike);
   const triggers = [
     `Credit exit: bank +${tpPctN}% of the credit / cut at -${stopPctN}% (buy-back ~${(1 + PICKS_CREDIT_STOP_PCT).toFixed(1)}x the credit).`,
     stopLine,
+    // The expiry breakeven is context, not a profit target: it sits on the
+    // ADVERSE side of the short strike (shortK ∓ credit).
+    be != null ? `Expiry breakeven: $${r2(be)} — finish ${holdSide} it and the trade still nets ≥ $0; beyond it losses grow toward max loss${longK != null ? ` at the $${r2(longK)} wing` : ""}.` : null,
     contract && contract.maxLoss != null ? `Defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)} per spread (width − credit), max profit ~$${(contract.maxProfit * 100).toFixed(0)} (the credit).` : null,
     `Time stop: close after ${PICKS_MAX_HOLD_DAYS} sessions if it hasn't decayed.`,
   ].filter(Boolean);
