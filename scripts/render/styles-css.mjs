@@ -353,11 +353,10 @@ body {
     box-shadow: 0 4px 12px -6px rgba(0, 0, 0, .35);
   }
 
-  /* Page-tab selection indicator slide. The underline is the bottom
-     border of the active tab; smoothing the color transition makes
+  /* Sidebar nav items: smoothing the color/background transition makes
      switching between sections feel less abrupt. */
   .page-tab {
-    transition: color .15s var(--ease-out), border-color .2s var(--ease-out), background .15s var(--ease-out);
+    transition: color .15s var(--ease-out), background .15s var(--ease-out), box-shadow .15s var(--ease-out);
   }
 
   /* Primary CTAs and pill toggles get a press-down state for tactility. */
@@ -376,25 +375,15 @@ body {
     box-shadow: var(--elev-2), var(--elev-glow);
   }
 
-  /* Active page-tab indicator — a slim accent bar that slides between
-     tabs. The crisp per-tab ::after bar handles the rest state; this one
-     glides during selection. No glow — the bar speaks for itself. */
-  .page-tabs::before {
-    content: "";
-    position: absolute;
-    left: 0; bottom: -1px;
-    width: 1px; height: 2px;
-    background: var(--accent);
-    transform: translateX(var(--ind-x, 0px)) scaleX(var(--ind-w, 0));
-    transform-origin: left;
-    transition: transform .28s var(--ease-out);
-    pointer-events: none;
-    z-index: 1;
+  /* Sidebar slide — open/close glides instead of snapping. */
+  .side-nav {
+    transition: transform .22s var(--ease-out), visibility .22s;
   }
+  body { transition: padding-left .22s var(--ease-out); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-tabs::before { transition: none; transform: none; opacity: 0; }
+  .side-nav { transition: none; }
   .opt-rec-card, .pf-review-card { animation: none; }
 }
 
@@ -456,6 +445,13 @@ button { font: inherit; }
   max-width: var(--w-shell);
   margin: 0 auto;
 }
+/* Sidebar toggle + brand grouped on the header's left so space-between
+   keeps the utility nav pinned right. */
+.site-header-lead {
+  display: flex; align-items: center; gap: var(--s-3);
+  min-width: 0;
+}
+.side-nav-toggle { flex: 0 0 auto; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .site-header { background: var(--surface); }
 }
@@ -599,93 +595,112 @@ main {
   padding: var(--s-3) var(--s-5) var(--s-7);
 }
 
-/* === Page-level section tabs ===
-   Underline indicator — institutional standard. Crisp 2px accent bar on the
-   active tab, no decorative chrome. Persists to localStorage. */
+/* === Sidebar navigation ===
+   Every destination lives in a collapsible left sidebar — flat items grouped
+   under Flow / Macro / Tools / Legal section labels, no dropdowns. Desktop
+   (>=1024px): the sidebar pushes the page content (body padding-left) and
+   defaults open; the collapsed preference persists to localStorage. Below
+   that it's an overlay drawer over a dimming backdrop, closed by default
+   and auto-closed on navigation. */
 /* Heights of the pinned chrome stack, shared so stacked stickies (the Grade
    tab's verdict bar) can offset below them. --header-h matches the sticky
-   .site-header; --page-tabs-h the tab strip below it. */
-:root { --header-h: 56px; --page-tabs-h: 48px; }
-/* Full-bleed bar that carries the tab strip and pins it directly under the
-   sticky .site-header, so you can jump tabs from anywhere on the page without
-   scrolling back to the top. Sits below the header (z 60) and the dropdown
-   menus (z 50), which live outside this bar and stay viewport-fixed. The
-   page-coloured backing means it's invisible at rest and just cleanly covers
-   content once it sticks. */
-.page-tabs-bar {
-  position: sticky;
+   .site-header; --sidenav-w is the sidebar's width (and the desktop content
+   offset while it's open). */
+:root { --header-h: 56px; --sidenav-w: 232px; }
+.side-nav {
+  position: fixed;
   top: var(--header-h);
-  z-index: 40;
-  background: var(--bg);
-  margin-bottom: var(--s-4);
+  bottom: 0;
+  left: 0;
+  width: var(--sidenav-w);
+  z-index: 55;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* Mobile default: off-canvas drawer. body.sidenav-open slides it in;
+     desktop overrides below. visibility keeps the hidden drawer out of
+     the tab order without display:none (which would kill the slide). */
+  transform: translateX(-100%);
+  visibility: hidden;
+}
+body.sidenav-open .side-nav {
+  transform: translateX(0);
+  visibility: visible;
+}
+/* Dimming backdrop behind the mobile drawer — tap to close. */
+.side-nav-backdrop {
+  position: fixed;
+  inset: var(--header-h) 0 0 0;
+  z-index: 54;
+  background: rgba(8, 7, 5, 0.5);
+}
+.side-nav-backdrop[hidden] { display: none; }
+@media (min-width: 1024px) {
+  /* Desktop: open by default (no body class), pushes the content over.
+     body.sidenav-closed collapses it off-canvas. */
+  .side-nav { transform: none; visibility: visible; }
+  body.sidenav-closed .side-nav { transform: translateX(-100%); visibility: hidden; }
+  body:not(.sidenav-closed) { padding-left: var(--sidenav-w); }
+  .side-nav-backdrop { display: none !important; }
 }
 .page-tabs {
-  position: relative;
-  max-width: var(--w-content);
-  margin: 0 auto;
-  padding: 0 var(--s-5);
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-  scrollbar-width: none;
-  /* When the strip overflows horizontally, fade both edges so users see
-     there's more to scroll on either side. The previous version only faded
-     the right edge — but once you scroll, the right side is no longer the
-     "hidden" one. Fading both is pure-CSS and works without JS hooks. */
-  mask-image: linear-gradient(to right,
-    transparent 0,
-    black 32px,
-    black calc(100% - 32px),
-    transparent 100%);
-  -webkit-mask-image: linear-gradient(to right,
-    transparent 0,
-    black 32px,
-    black calc(100% - 32px),
-    transparent 100%);
+  flex-direction: column;
+  padding: var(--s-3) var(--s-2) var(--s-6);
 }
-.page-tabs::-webkit-scrollbar { display: none; }
+.side-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.side-nav-group + .side-nav-group {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--hairline);
+}
+.side-nav-group-label {
+  padding: 0 var(--s-3) 4px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
 .page-tab {
-  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 2px solid transparent;
   color: var(--muted);
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: 600;
-  letter-spacing: 0.03em;
-  padding: var(--s-3) var(--s-4);
+  letter-spacing: 0.02em;
+  padding: 7px var(--s-3);
+  border-radius: var(--r-2);
   cursor: pointer;
-  transition: color var(--dur-1) var(--ease-out),
-              border-color var(--dur-2) var(--ease-out),
-              background var(--dur-1) var(--ease-out);
-  margin-bottom: -1px;
   white-space: nowrap;
-  flex: 0 0 auto;
-  border-radius: var(--r-1) var(--r-1) 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--dur-1) var(--ease-out),
+              background var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-1) var(--ease-out);
 }
 .page-tab:hover {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
+/* Active item — accent-tinted row with an inset accent bar on the left
+   edge (the vertical analogue of the old underline indicator). */
 .page-tab[aria-selected="true"] {
   color: var(--text-strong);
-  letter-spacing: 0.03em;
-  border-bottom-color: var(--accent);
-  background: transparent;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
-/* Flat 2px accent rule under the active tab — no glow, no pill rounding.
-   The accent color already provides the cue. */
-.page-tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  inset: auto 8px -1px 8px;
-  height: 2px;
-  background: var(--accent);
-  pointer-events: none;
-}
-.page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-1); }
+.page-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .page-pane[hidden] { display: none; }
 /* Reference / legal / info pages (Buyer's manual, Chart patterns, What's
    included, Privacy, Terms) mounted as in-app tabs. The host is a bare block —
@@ -693,102 +708,6 @@ main {
    the page keeps its own bespoke look with no collision against the app CSS. */
 .doc-pane { padding: 0; }
 .doc-host { display: block; }
-
-/* Grouped tabs (Flow / Macro / Tools) — secondary destinations collapsed
-   behind a dropdown trigger that lives in the same horizontal strip as the
-   primary tabs. Reduces the visible tab count from 16 to 8 without losing
-   any deep-links — cmd-K and ?tab= aliases still target the menu items by
-   their original data-page-tab values. */
-.page-tab-group {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: stretch;
-}
-.page-tab-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.page-tab-caret {
-  flex: 0 0 auto;
-  color: currentColor;
-  opacity: 0.7;
-  transition: transform var(--dur-2) var(--ease-out), opacity var(--dur-1) var(--ease-out);
-}
-.page-tab-trigger:hover .page-tab-caret { opacity: 1; }
-.page-tab-trigger[aria-expanded="true"] .page-tab-caret { transform: rotate(180deg); opacity: 1; }
-/* When the currently active tab lives inside this group, paint the trigger
-   the same way an active top-level page-tab would render. Mirrors the
-   .page-tab[aria-selected="true"] rule without colliding with aria semantics
-   (the trigger is a menu button, not a tab). */
-.page-tab-group[data-active="true"] .page-tab-trigger {
-  color: var(--text-strong);
-  border-bottom-color: var(--accent);
-}
-.page-tab-group[data-active="true"] .page-tab-trigger::after {
-  content: "";
-  position: absolute;
-  inset: auto 12px -1px 12px;
-  height: 2px;
-  background: var(--accent);
-  pointer-events: none;
-}
-/* The dropdown panel is positioned by JS via top/left CSS vars so it can
-   escape the scroll-clipped .page-tabs strip. Position: fixed sidesteps the
-   parent's overflow + mask without needing a portal. */
-.page-tab-menu {
-  position: fixed;
-  top: var(--menu-y, 0);
-  left: var(--menu-x, 0);
-  min-width: max(180px, var(--menu-min, 180px));
-  padding: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-3);
-  box-shadow: var(--elev-pop);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 50;
-  transform-origin: top left;
-  animation: stonks-page-tab-menu-in var(--dur-2) var(--ease-out);
-}
-.page-tab-menu[hidden] { display: none; }
-@keyframes stonks-page-tab-menu-in {
-  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .page-tab-menu { animation: none; }
-  .page-tab-caret { transition: none; }
-}
-.page-tab-menu-item {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  text-align: left;
-  padding: 8px 12px;
-  border-radius: var(--r-2);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
-}
-.page-tab-menu-item:hover,
-.page-tab-menu-item:focus-visible {
-  outline: none;
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-.page-tab-menu-item[aria-selected="true"] {
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
 
 .site-footer {
   max-width: var(--w-shell);
@@ -4553,11 +4472,10 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 /* === Result panel === */
 .opt-result-wrap { position: relative; }
 .opt-result-sticky {
-  /* Offset below the pinned chrome stack (sticky .site-header + the sticky
-     .page-tabs-bar, ~104px; matches the live-reveal IntersectionObserver's
-     rootMargin) so the verdict bar doesn't slide under it when the option
-     chain scrolls. */
-  position: sticky; top: calc(var(--header-h, 56px) + var(--page-tabs-h, 48px)); z-index: 5;
+  /* Offset below the pinned chrome (the sticky .site-header, ~56px; matches
+     the live-reveal IntersectionObserver's rootMargin) so the verdict bar
+     doesn't slide under it when the option chain scrolls. */
+  position: sticky; top: var(--header-h, 56px); z-index: 5;
   display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center;
   padding: var(--s-2) var(--s-3);
   margin: 0 calc(-1 * var(--s-3));
@@ -11792,21 +11710,17 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 /* === Tablet & narrow desktop (<=900px) ============================== */
 @media (max-width: 900px) {
   main { padding: var(--s-3) var(--s-3) var(--s-6); }
-  .page-tabs { padding: 0 var(--s-3); }
 }
 
 /* === Phone (<=640px) ================================================ */
 @media (max-width: 640px) {
   body { font-size: 13px; }
   main { padding: var(--s-2) var(--s-2) var(--s-6); }
-  .page-tabs {
-    padding: 0 var(--s-2);
-    scroll-snap-type: x proximity;
-    -webkit-overflow-scrolling: touch;
-  }
+  /* Drawer: cap the width so the backdrop stays visible as a close target
+     on narrow phones; bump the row height for comfortable touch targets. */
+  .side-nav { width: min(var(--sidenav-w), 82vw); }
   .page-tab {
-    scroll-snap-align: start;
-    padding: var(--s-3);
+    padding: 10px var(--s-3);
     min-height: 40px;
     font-size: 13px;
   }
@@ -11995,7 +11909,6 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 @media (max-width: 400px) {
   main { padding: var(--s-2) 10px var(--s-6); }
   body { font-size: 13.5px; }
-  .page-tab { padding: var(--s-2); font-size: 12.5px; }
   .card { padding: 10px; }
   .cal-chip { padding: 7px 9px; }
   .flow-row-head { gap: 4px; }
@@ -12471,16 +12384,6 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   background-size: 100% 1px;
 }
 .brand-word { transition: background-size .15s var(--ease-out); }
-
-/* Tighten the page-tab strip on very narrow viewports so the labels
-   don't grow into a second row before the horizontal scroll kicks in. */
-@media (max-width: 480px) {
-  .page-tabs { padding: 0 var(--s-3); gap: 0; }
-  .page-tab { padding: 6px 10px; font-size: 12px; }
-  .page-tab-trigger { gap: 4px; }
-  .page-tab-menu { min-width: 200px; padding: 4px; }
-  .page-tab-menu-item { padding: 10px 12px; font-size: 13px; }
-}
 
 /* === CNN Fear & Greed Index tab ========================================= */
 :root {
@@ -15908,7 +15811,7 @@ input[type="checkbox"], input[type="radio"], summary {
 /* Flinging a horizontally-scrollable strip to its edge must not chain into
    the browser's edge-swipe (back/forward navigation on iOS/Android) — that
    reads as "the site randomly navigated away". Vertical chaining stays. */
-.page-tabs, .narr-tabs {
+.narr-tabs {
   overscroll-behavior-x: contain;
 }
 
@@ -16035,9 +15938,8 @@ input[type="checkbox"], input[type="radio"], summary {
     padding-left: max(var(--s-2), env(safe-area-inset-left));
     padding-right: max(var(--s-2), env(safe-area-inset-right));
   }
-  .page-tabs {
-    padding-left: max(var(--s-2), env(safe-area-inset-left));
-    padding-right: max(var(--s-2), env(safe-area-inset-right));
+  .side-nav {
+    padding-left: env(safe-area-inset-left);
   }
   .site-footer {
     padding-bottom: max(var(--s-5), env(safe-area-inset-bottom));
