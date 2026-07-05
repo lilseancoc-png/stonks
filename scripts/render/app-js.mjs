@@ -18911,7 +18911,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var haveOpt = isFinite(optPnl);                                // modeled live contract mark
       var expMs = Number(e.contract && e.contract.expiry) * 1000;
       var dleft = isFinite(expMs) ? Math.round((expMs - nowMs) / 86400000) : (e.contract && e.contract.dte);
-      var tp = Number(e.takeProfit), ct = Number(e.cut);
+      // Number(null) is 0 — a null level (a credit spread with no computable
+      // stock-level TP) must drop the chip, not render "TP $0.00".
+      var tp = e.takeProfit != null ? Number(e.takeProfit) : NaN, ct = e.cut != null ? Number(e.cut) : NaN;
       var desc = accContractDesc(e);
       var targets = '';
       if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
