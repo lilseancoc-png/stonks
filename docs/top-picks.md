@@ -105,7 +105,7 @@ the implied side and returns a state + a bounded contribution folded into `total
 | State | When | Contribution |
 |---|---|---|
 | **avoid** | falling knife (−6% day / −8% over 3d) or chasing an extended top (hot RSI + >8% past the 20D SMA, or a +12% blow-off run) | −5 (to −8 for the egregious) |
-| **wait** | earnings within ~7 sessions (IV-crush risk) or an imminent scheduled macro event (FOMC/CPI) or mixed structure | −1 / 0 |
+| **wait** | earnings within 7 calendar days (~5 sessions; IV-crush risk — the day-of print counts) or an imminent scheduled macro event (FOMC/CPI) or mixed structure | −1 / 0 |
 | **go** | clean, aligned entry (momentum + a healthy pullback to the 20D SMA, or confirming volume) | +2 |
 
 When the broad tape **fights the trade** (a call in a risk-off tape), the knife
@@ -154,16 +154,23 @@ votes −2..+2 (negative = risk-off); the composite sets the state ∈ `risk-on`
 | **Global tape** | overnight cross-asset breadth (futures / Asia-EU / yen / copper / BTC) |
 
 The composite is **collinearity-aware** (`macroEffectiveAxisCount` — a coordinated
-vol/fear or dollar/rates move counts once, not N times). `severe-risk-off` needs
-≥3 raw risk-off axes **and** stress ≤ −4; `risk-off` needs ≥2 effective; `risk-on`
-needs ≥2 effective risk-on axes, positive stress, a calm VIX **and a non-negative
-Indexes axis**. In a risk-off tape the engine:
+vol/fear or dollar/rates move counts once, not N times). All three regime gates
+use **effective** (collinearity-discounted) axis counts: `severe-risk-off` needs
+≥3 effective risk-off axes **and** stress ≤ −4; `risk-off` needs ≥2 effective;
+`risk-on` needs ≥2 effective risk-on axes, stress ≥ +2, ≤1 effective dissenting
+axis, a non-negative VIX **and Indexes axis**, and no axis at −2. (The table
+above lists the original ten axes; the gauge has since grown to sixteen — 2Y
+yields, bond vol/MOVE, breadth, put/call, credit spreads and sector rotation
+vote alongside them, same −2..+2 convention.) In a risk-off tape the engine:
 
 - **tilts the whole book bearish** (`PICKS_REGIME_TILT`, −2; −4 severe) so the
   marginal calls fall toward No-Trade / flip to puts;
-- **de-grosses** deployed size (×0.6 risk-off, ×0.4 severe);
-- **lowers the bar for tactical puts** (a sub-conviction bearish name with a clean
-  breakdown can ship as a reduced-size put).
+- **de-grosses** deployed size with the regime's stress-ramped `grossMult`
+  (`PICKS_MACRO_GROSS_*` — the same figure the chip displays; the flat
+  ×0.6/×0.4 `regimeGrossMult` is only the fallback when no macro regime rode
+  into the build);
+- **lowers the bar for tactical puts** (a sub-conviction bearish name — total ≤
+  −3 with timing not `avoid` — can ship as a reduced-size put).
 
 The engine ships a per-axis breakdown + the raw inputs + a threshold snapshot in
 `picks.json`'s `rosterMeta.macroRegime`, so the browser's **live market tape**
@@ -181,13 +188,16 @@ fallback chip + tests, but the build no longer persists — it resets each bake.
 A single near-the-money long on the graded side. Hard filters, then a composite
 quality score picks the best survivor:
 
-- **DTE** 14–60 (roster: ≥21), ideal 21–45 — short-dated for a ~1–2 week hold.
+- **DTE** 14–60 (roster: ≥21, for verticals too), ideal 21–45 — short-dated for
+  a ~1–2 week hold.
 - **|Δ|** 0.45–0.65 (target 0.55) — near-the-money, so an 8% adverse move isn't a
-  −70% wipeout.
-- **Spread** ≤ 12% (roster ≤ 10%), **OI** ≥ 100, **IV** ≤ 200%.
+  −70% wipeout. Vertical legs hold a ±0.15 band around their own targets.
+- **Spread** ≤ 12% (roster ≤ 10%), **OI** ≥ 100 (lenient/autoPick mode: 50),
+  **IV** ≤ 200%. Crossed quotes (bid > ask) are rejected outright.
 - **Premium** ≤ max($35/share, 12% of spot) — price-aware.
-- Composite quality (spread weighted hardest) must clear `PICKS_MIN_QUALITY`
-  (0.45) or the name drops. Ship fewer picks rather than an untradeable contract.
+- Composite quality (delta fit weighted hardest, then spread) must clear
+  `PICKS_MIN_QUALITY` (0.45) or the name drops. Ship fewer picks rather than an
+  untradeable contract.
 
 The contract payload carries the fields the card renders (greeks, breakeven,
 expected move, R/R, probability-of-profit, `contractQuality`).
@@ -209,7 +219,7 @@ The decision tree is checked top-down (first match wins):
 
 | # | Condition | Structure | Why |
 |---|---|---|---|
-| 0 | **Thesis tier is `weak`** | **none** | The grade cleared the bar but the case is thin / single-pillar → recommend *no trade*. Ship the grade + thesis as a watch idea (the "high grade but weak thesis → no strategy recommendation" rule). |
+| 0 | **Thesis tier is `weak`** | **none** | The grade cleared the bar but the case is thin / single-pillar → recommend *no trade*. Ship the grade + thesis as a watch idea (the "high grade but weak thesis → no strategy recommendation" rule). Exception: a tactical-tape put always gets a defined-risk structure. |
 | 1 | IV **elevated** — `z ≥ PICKS_IV_CREDIT_Z_ELEVATED` (1.5σ) **OR** `pctile ≥ PICKS_IV_CREDIT_PCTILE` (60th) — **and** no imminent event/earnings | **credit vertical** | Premium is statistically expensive → *sell* it on the bias side (bullish → bull-put, bearish → bear-call); sell near-money, buy a further-OTM wing, targeting a credit ≈ ⅓ of the width. High IV mean-reverts and theta works for you. The **highly-elevated** band (`z ≥ PICKS_IV_CREDIT_Z` 2σ OR `pctile ≥ PICKS_IV_RICH` 80th) is the same structure, labelled as the strongest sell-premium case. The IV read is the spec's **OR** of the two measures (the z-score *or* the percentile — either qualifying counts). The **headline rule** — fires even at strong conviction. |
 | 2 | Strong tier (`|total| ≥ 7`) **and** thesis tier `strong` **and** IV **not elevated** (neither z nor pctile in the credit band) + no event | **naked long** | **Rare.** Exceptional, multi-signal conviction *and* a strong thesis with low IV → a single long for max delta/gamma + uncapped upside. |
 | 3 | Everything else — moderate conviction/thesis, **or** a strong view into elevated-but-event-blocked IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
@@ -299,7 +309,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   floored at breakeven, ratcheting up to (peak − `PICKS_OPT_TRAIL_GIVEBACK_PCT`
   25pts) as the runner extends (`trail-stop`). The closed record blends the two
   halves (`0.5×banked + 0.5×exit`), so an armed trade can't round-trip to a net
-  loss but the right tail is no longer amputated at +20%. Rationale: the old
+  loss *at build-time marks* (an overnight/weekend gap can still print the
+  runner below the floor and close the blend red) but the right tail is no
+  longer amputated at +20%. Rationale: the old
   flat +20/−30 gates hard-capped every win at ~+20% while overnight/earnings
   gaps routinely marked losses far past −30% (the stop only executes at
   build-time marks) — a payoff needing a >60% win rate to break even.
@@ -325,9 +337,10 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   modeled premium hasn't printed −30% at a mark. `PICKS_UNDERLYING_STOP=0`
   reverts it to display-only. The structural **take-profit** level stays
   advisory (enforcing it would truncate winners).
-- **Time stop:** force-close after **14 sessions** — *down at two weeks = a loss*
-  (scored by the option-P&L sign). A theta stop cuts a dead-money bleeder sooner;
-  an earnings exit closes ~2 sessions before a print.
+- **Time stop:** force-close after **14 calendar days** (~10 sessions) — *down at
+  two weeks = a loss* (scored by the option-P&L sign). A theta stop cuts a
+  dead-money bleeder sooner; an earnings exit closes ≤2 days before a print
+  (earnings-day AMC prints included — the window is an ET calendar-day diff).
 
 ---
 
@@ -364,7 +377,7 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   from one build's chains — the bake tolerates up to 25% Yahoo fetch misses —
   carries its last mark forward and only resolves `dropped` after
   `PICKS_DROPPED_MIN_MISSES` consecutive misses; an unmarkable resolution is
-  `void`, excluded from the win/loss stats). The
+  `void` on EVERY exit path — never counted as a win or a loss). The
   record **resets weekly** so the numbers reflect the current engine, not a tail of
   pre-tuning outcomes — and the reset **force-closes the open book at its current
   marks** (status `reset`, win/loss by the blended P&L sign) rather than

@@ -210,7 +210,8 @@ function buildCandidate(symbol, side, c, expSec, scannedAt, spot, prevVolLookup,
   const bid = c.bid ?? null;
   const ask = c.ask ?? null;
   const prevVol = prevVolLookup
-    ? prevVolLookup.get(`${symbol}|${side}|${strike}|${expSec}`)
+    ? (prevVolLookup.get(`${symbol}|${side}|${strike}|${expSec}`)
+      ?? (prevVolLookup.coveredSymbols?.has(symbol) ? 0 : null))
     : null;
   const havePrev = prevVol != null;
   const deltaVol = havePrev ? vol - prevVol : null;
@@ -397,10 +398,19 @@ function buildPrevVolLookup(history, todayKey) {
   }
   if (!last) return null;
   const map = new Map();
+  // Symbols the prior snapshot actually covered: a contract ABSENT from a
+  // covered symbol's rows was below the HISTORY_MIN_VOL floor last hour, so
+  // its baseline is ~0 (bounded above by the floor) — NOT unknown. Without
+  // this, a contract going ~0 → 10,000 in one hour (the archetypal informed
+  // block) had no baseline and could never flag on its burst hour. A symbol
+  // absent entirely (its fetch failed last scan) stays unknown — no flag.
+  const syms = new Set();
   for (const h of last.contracts) {
     if (h.symbol == null || h.strike == null || h.expSec == null) continue;
+    syms.add(h.symbol);
     map.set(`${h.symbol}|${h.side}|${h.strike}|${h.expSec}`, h.vol ?? 0);
   }
+  map.coveredSymbols = syms;
   return map;
 }
 
@@ -1281,7 +1291,9 @@ async function main() {
   // volume pass).
   const MIN_SCAN_SUCCESS_RATE = 0.5;
   const attempted = scannedCount + failedCount;
-  if (attempted && scannedCount / attempted < MIN_SCAN_SUCCESS_RATE) {
+  // `!attempted` also aborts the degenerate empty-universe case — mirrors
+  // scan-oi.mjs's guard so an empty run can never write empty flow files.
+  if (!attempted || scannedCount / attempted < MIN_SCAN_SUCCESS_RATE) {
     console.error(
       `Only ${scannedCount}/${attempted} tickers fetched (${((scannedCount / attempted) * 100).toFixed(0)}% < ${MIN_SCAN_SUCCESS_RATE * 100}%) — likely a systemic Yahoo block. Leaving last-good flow data in place.`,
     );

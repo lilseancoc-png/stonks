@@ -129,7 +129,10 @@ for (const h of HORIZONS) {
       anyEntry = true;
       if (i + h >= s.closes.length) continue; // forward bar not realized yet
       const c0 = Number(s.closes[i]), c1 = Number(s.closes[i + h]);
-      if (!(c0 > 0) || !Number.isFinite(c1)) continue;
+      // c1 must be a REAL close: priceSeries stores null for a missing bar and
+      // Number(null) is 0, which passed isFinite and injected a fake −100%
+      // forward return that swamped the day's IC + decile spread.
+      if (!(c0 > 0) || !(c1 > 0)) continue;
       pairs.push([t, ((c1 - c0) / c0) * 100]);
     }
     if (!pairs.length) { if (anyEntry) pendingDays += 1; continue; }
