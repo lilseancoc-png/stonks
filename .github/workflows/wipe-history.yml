@@ -1,0 +1,77 @@
+name: Wipe track record
+
+# Manual, one-shot maintenance: reset the Top Picks track record in the
+# PRIVATE data store via scripts/wipe-history.mjs (see its file header for
+# the full target/mode docs). Exists as a workflow because the R2 store
+# credentials live only in Actions secrets / Vercel env — there is no way
+# to run the wipe from a machine without them.
+#
+# DRY-RUN BY DEFAULT — the run only mutates the store when the `apply`
+# input is checked. Scope mirrors the script's flags:
+#   core        picks-accuracy.json + picks-open.json reset (+ the orphaned
+#               day-trades keys deleted) — the track record itself
+#   picks-logs  core + picks-changes.json + picks-roster.json
+#   grade-logs  core + grades-history.json + grades-daily.json (IC substrate)
+#   all         everything above
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Really mutate the store (unchecked = dry run)"
+        type: boolean
+        default: false
+      scope:
+        description: "What to wipe"
+        type: choice
+        default: core
+        options: [core, picks-logs, grade-logs, all]
+      mode:
+        description: "empty = overwrite with a valid empty payload (no 404 window); delete = remove the key (next bake recreates it)"
+        type: choice
+        default: empty
+        options: [empty, delete]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Same group as daily / unusual-flow / oi-tracker: queue behind any
+  # in-flight bake so the wipe can't land in the middle of a run that would
+  # immediately flush pre-wipe state back over it.
+  group: stonks-data-commit
+  cancel-in-progress: false
+
+jobs:
+  wipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Wipe track record
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          FLAGS=""
+          case "${{ inputs.scope }}" in
+            picks-logs) FLAGS="--picks-logs" ;;
+            grade-logs) FLAGS="--grade-logs" ;;
+            all)        FLAGS="--all" ;;
+          esac
+          if [ "${{ inputs.mode }}" = "delete" ]; then FLAGS="$FLAGS --delete"; fi
+          if [ "${{ inputs.apply }}" = "true" ]; then FLAGS="$FLAGS --apply"; fi
+          echo "Running: node scripts/wipe-history.mjs $FLAGS"
+          node scripts/wipe-history.mjs $FLAGS
