@@ -250,11 +250,22 @@ function buildPrevOiLookup(snap) {
 // Pulls today's unusual-flow file so rule 5 of the gamma score can read
 // "aggressive ask buying" for a ticker. Soft-fails: missing or corrupt
 // file just disables the rule.
-async function loadUnusualForFlow() {
+// maxAgeDays bounds staleness: the pre-market run reading the PRIOR session's
+// flow is coherent (ΔOI reflects that session too), but with no bound a
+// week-old file (flow workflow down over a long weekend/outage) kept feeding
+// rule 5 a +1 "today's flow" vote indefinitely.
+async function loadUnusualForFlow(todayKey, maxAgeDays = 4) {
   try {
     const raw = await readFile(resolve(DATA_DIR, "unusual.json"), "utf8");
     const parsed = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.tickers)) return parsed;
+    if (parsed && Array.isArray(parsed.tickers)) {
+      const scanKey = etDateKey(parsed.scannedAt);
+      if (scanKey && todayKey) {
+        const age = Math.round((Date.parse(todayKey) - Date.parse(scanKey)) / 86400000);
+        if (age > maxAgeDays) return null;
+      }
+      return parsed;
+    }
   } catch {}
   return null;
 }
@@ -531,7 +542,7 @@ function computeGammaScore({ contracts, spot, callWall, callOiTotal, putOiTotal,
     score += 1;
     reasons.push({
       rule: "ask_sweeps",
-      label: "Aggressive call buying at the ask in today's flow",
+      label: "Aggressive call buying at the ask in recent flow",
     });
   }
 
@@ -549,7 +560,7 @@ async function main() {
   const prevOiLookup = buildPrevOiLookup(prevSnap);
   const baselineEtDate = prevSnap?.etDate ?? null;
 
-  const unusual = await loadUnusualForFlow();
+  const unusual = await loadUnusualForFlow(todayKey);
   const askCallSymbols = buildAskCallSymbols(unusual);
 
   // OI_SCAN_LIMIT env var caps the universe to the first N tickers —

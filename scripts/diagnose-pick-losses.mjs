@@ -76,7 +76,9 @@ function modelClosedPick(e) {
   if (c.structure === "debit_vertical" || c.structure === "credit_vertical") return null;
   const side = e.side === "put" ? "put" : "call";
   const K = Number(c.strike), exp = Number(c.expiry), entryPrem = Number(c.mid);
-  const S0 = Number(e.entrySpot), S1 = Number(e.exitSpot);
+  // Older closed records predate the exitSpot field — the tracker's lastSpot
+  // (the mark that produced the close) is the same quantity.
+  const S0 = Number(e.entrySpot), S1 = Number(e.exitSpot ?? e.lastSpot);
   const entrySec = Math.floor((Date.parse(e.entryDate) || 0) / 1000);
   const exitSec = Math.floor((Date.parse(e.exitDate) || 0) / 1000);
   if (!(K > 0 && exp > 0 && entryPrem > 0 && S0 > 0 && S1 > 0 && entrySec > 0 && exitSec > 0)) return null;

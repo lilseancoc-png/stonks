@@ -227,7 +227,7 @@ await writeFile(
 // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
 // ticker search). Same 4-pillar scoring as buildTopPicks; kept in step with the
 // regen'd picks. Same minified format as build.mjs::writeGradesFile.
-const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, { priorGrades, ...scannerExtras });
+const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, { priorGrades, priorClosed, ...scannerExtras });
 // minConviction = the live percentile trade cutoff (P3.2), mirroring
 // build.mjs::writeGradesFile exactly — the grade-any-ticker card reads this as the
 // "actionable bar", so a hardcoded ±PICKS_MIN_CONVICTION here makes a searched name
@@ -307,11 +307,13 @@ try {
   console.warn(`picks-roster.json skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
-// Keep the accuracy tracker in step with the regen'd picks: enroll new picks
-// and mark open ones to market using the cached spots. AI-free, so it's safe
-// to run here. Pass the grade index so checkpoint scores reflect current grades.
+// Keep the accuracy tracker in step: mark the open book to market and resolve
+// exits using the cached spots — but do NOT enroll this regen's roster. The
+// regen roster is AI-free (no final-grader classification/rank/veto), so
+// enrolling it put systematically different selections into the live track
+// record than the bake ships; enrollment happens on the next bake.
 try {
-  const acc = await updatePicksAccuracyFile(chains, builtAtIso, null, grades);
+  const acc = await updatePicksAccuracyFile(chains, builtAtIso, null, grades, { enrollNewPicks: false });
   console.log(`Updated picks-accuracy.json — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}.`);
 } catch (err) {
   console.warn(`picks-accuracy.json skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -324,7 +326,6 @@ for (const p of picks) {
   console.log(
     `  ${p.symbol.padEnd(6)} ${p.side.toUpperCase()} ` +
     `conv=${String(p.conviction).padStart(2)} ` +
-    `comp=${String(p.compositeScore).padStart(5)} ` +
     `Δ${c?.delta?.toFixed?.(2) ?? "—"} ` +
     `${c?.dte ?? "?"}d ` +
     `RR=${c?.rrRatio ?? "—"} ` +

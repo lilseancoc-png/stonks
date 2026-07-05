@@ -4475,7 +4475,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         avgGain = (avgGain * (p - 1) + gain) / p;
         avgLoss = (avgLoss * (p - 1) + loss) / p;
       }
-      if (seeded) out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+      if (seeded) out[i] = avgLoss === 0 ? (avgGain === 0 ? 50 : 100) : 100 - 100 / (1 + avgGain / avgLoss);
+      // avgGain === avgLoss === 0 (dead-flat window, e.g. a halted name) is
+      // NEUTRAL 50, matching the server's computeRSI — plotting 100 rendered a
+      // maxed "overbought" pane beside a Neutral technicals card.
     }
     return out;
   }
@@ -9215,7 +9218,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : ORDER.filter(function(k){ return axes[k] && axes[k].score <= -1; }).map(function(k){ return String(axes[k].label).split(' — ')[0].split(' (')[0]; });
     var fragile = state === 'neutral' && internalsStress;
     // De-gross ramps with the stress composite (PICKS_MACRO_GROSS_RAMP) — port of
-    // regimeGrossMult in scripts/build.mjs (keep in sync): 1 at stress 0 → grossRiskoff
+    // computeMacroRegime's grossMult in scripts/build.mjs (keep in sync), which is
+    // also the multiplier buildTopPicks actually SIZES with: 1 at stress 0 → grossRiskoff
     // at |stress| ≥ tiltFullStress, so a held / borderline risk-off doesn't cut size on
     // zero measured stress. Severe is a hard step (break-glass); fragile its own step.
     var grossMult;
@@ -11532,8 +11536,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return Math.max(0, Math.round((epochSec * 1000 + EXPIRY_CLOSE_OFFSET_MS - Date.now()) / 86400000));
   }
   function stratBsPrice(type, S, K, T, sigma, r){
-    if (!(S>0 && K>0 && sigma>0)) return null;
+    // Intrinsic-at-expiry needs no vol — the T<=0 branch must run BEFORE the
+    // sigma guard, or an at-expiry leg with a missing/0 chain IV returns null
+    // and silently drops out of the payoff.
+    if (!(S>0 && K>0)) return null;
     if (T <= 0) return type === 'call' ? Math.max(0, S-K) : Math.max(0, K-S);
+    if (!(sigma>0)) return null;
     var sqrtT = Math.sqrt(T);
     var d1 = (Math.log(S/K) + (r + 0.5*sigma*sigma)*T) / (sigma*sqrtT);
     var d2 = d1 - sigma*sqrtT;
