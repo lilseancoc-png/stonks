@@ -3182,17 +3182,14 @@
     try { saved = localStorage.getItem('stonks-acc-tab'); } catch (_) {}
     selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'summary');
   }
-  // Top-of-page section tabs (Narratives / Unusual flow / Grade). Persisted
-  // so a return visit lands the user where they left off.
+  // Sidebar page tabs (Home / Tickers / Narratives / … / Terms). The active
+  // tab is mirrored into ?tab= so bookmarks and back/forward resume the view.
   function bindPageTabs(){
-    // Top-level tabs and the items inside the Flow/Macro/Tools dropdown menus
-    // both carry data-page-tab — iterating that attribute keeps cmd-K targeting
-    // (which queries [data-page-tab="X"]) working without special-casing.
+    // Every sidebar item carries data-page-tab — iterating that attribute
+    // keeps cmd-K targeting (which queries [data-page-tab="X"]) working
+    // without special-casing.
     var tabs = document.querySelectorAll('[data-page-tab]');
     if (!tabs.length) return;
-    var tabsStrip = document.querySelector('.page-tabs');
-    var groups = document.querySelectorAll('.page-tab-group');
-    var triggers = document.querySelectorAll('.page-tab-trigger');
     var valid = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
     // Track Record is role-hidden: drop it from the resolvable set so a
     // ?tab=track deep-link / popstate / palette can't reach the pane for a
@@ -3233,83 +3230,62 @@
       var aliased = TAB_ALIASES[key];
       return aliased && valid.indexOf(aliased) >= 0 ? aliased : null;
     }
-    // Active-tab indicator: a 2px accent bar that slides between tabs.
-    // The CSS uses translateX(--ind-x) scaleX(--ind-w) to animate the
-    // single 1px-wide bar to the right size + position. We measure
-    // here from layout so it survives font swaps + viewport resizes.
-    // offsetLeft is relative to the strip's content origin, and the
-    // ::before pseudo lives inside that same scrollable box — so it
-    // scrolls with the content automatically. Subtracting scrollLeft
-    // would double-count the scroll and make the bar drift sideways.
-    // Map a menu item or trigger back to its parent .page-tab-group, which is
-    // what carries the active-state styling + the indicator anchor. Menus live
-    // outside .page-tabs (escaping the strip's edge-fade mask), so we route
-    // through the data-group attribute rather than DOM ancestry.
-    function groupForActive(activeBtn){
-      if (!activeBtn || !activeBtn.closest) return null;
-      var menu = activeBtn.closest('.page-tab-menu');
-      if (!menu) return null;
-      var key = menu.getAttribute('data-group');
-      return key ? document.querySelector('.page-tab-group[data-group="' + key + '"]') : null;
+    // Collapsible sidebar. Desktop (>=1024px, matching the CSS breakpoint):
+    // the sidebar pushes the page content, defaults open, and the collapsed
+    // preference persists to localStorage. Below that it's an overlay drawer
+    // over a dimming backdrop — always starts closed, auto-closes on
+    // navigation, and never persists (a drawer covering content on every
+    // load would read as broken).
+    var sideNavToggle = document.getElementById('side-nav-toggle');
+    var sideNavBackdrop = document.getElementById('side-nav-backdrop');
+    var mqDesktopNav = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1024px)') : null;
+    function isDesktopNav(){ return !!(mqDesktopNav && mqDesktopNav.matches); }
+    function sideNavVisible(){
+      return isDesktopNav()
+        ? !document.body.classList.contains('sidenav-closed')
+        : document.body.classList.contains('sidenav-open');
     }
-    function positionIndicator(activeBtn){
-      if (!tabsStrip || !activeBtn) return;
-      // If the active item lives inside a dropdown menu, slide the indicator
-      // under the parent group's trigger instead — the menu item itself isn't
-      // in the strip, so positioning on its rect would push the bar off-screen.
-      var anchor = activeBtn;
-      var grp = groupForActive(activeBtn);
-      if (grp) {
-        var trig = grp.querySelector('.page-tab-trigger');
-        if (trig) anchor = trig;
+    function syncSideNav(){
+      var open = sideNavVisible();
+      if (sideNavToggle) sideNavToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (sideNavBackdrop) sideNavBackdrop.hidden = !(open && !isDesktopNav());
+    }
+    function closeSideNavDrawer(){
+      // Mobile-only: collapse the overlay drawer. Desktop keeps the sidebar
+      // pinned across navigation — closing it there is the user's call.
+      if (isDesktopNav()) return;
+      document.body.classList.remove('sidenav-open');
+      syncSideNav();
+    }
+    function toggleSideNav(){
+      if (isDesktopNav()) {
+        var closed = document.body.classList.toggle('sidenav-closed');
+        try { localStorage.setItem('stonks-sidenav', closed ? 'closed' : 'open'); } catch (_) {}
+      } else {
+        document.body.classList.toggle('sidenav-open');
       }
-      tabsStrip.style.setProperty('--ind-x', anchor.offsetLeft + 'px');
-      tabsStrip.style.setProperty('--ind-w', String(anchor.offsetWidth));
+      syncSideNav();
     }
-    function closeAllMenus(exceptTrigger){
-      triggers.forEach(function(t){
-        if (t === exceptTrigger) return;
-        if (t.getAttribute('aria-expanded') === 'true') {
-          t.setAttribute('aria-expanded', 'false');
-          var id = t.getAttribute('aria-controls');
-          var menu = id ? document.getElementById(id) : null;
-          if (menu) menu.hidden = true;
-        }
+    // Restore the persisted desktop collapse before the first sync so the
+    // sidebar doesn't flash open for a user who keeps it closed.
+    try {
+      if (localStorage.getItem('stonks-sidenav') === 'closed') document.body.classList.add('sidenav-closed');
+    } catch (_) {}
+    if (sideNavToggle) sideNavToggle.addEventListener('click', toggleSideNav);
+    if (sideNavBackdrop) sideNavBackdrop.addEventListener('click', closeSideNavDrawer);
+    document.addEventListener('keydown', function(ev){
+      if (ev.key !== 'Escape') return;
+      if (!isDesktopNav() && document.body.classList.contains('sidenav-open')) closeSideNavDrawer();
+    });
+    // Crossing the breakpoint: drop the mobile drawer state so resizing to
+    // desktop and back doesn't strand an open drawer under the pushed layout.
+    if (mqDesktopNav && typeof mqDesktopNav.addEventListener === 'function') {
+      mqDesktopNav.addEventListener('change', function(){
+        document.body.classList.remove('sidenav-open');
+        syncSideNav();
       });
     }
-    function positionMenu(trigger, menu){
-      // Position: fixed lets the menu escape the .page-tabs scroll + mask.
-      // We anchor below the trigger, then clamp inside the viewport so the
-      // menu can't disappear off the right edge on narrow screens.
-      var rect = trigger.getBoundingClientRect();
-      var gap = 6;
-      menu.style.setProperty('--menu-min', rect.width + 'px');
-      menu.hidden = false;
-      var menuW = menu.offsetWidth || 200;
-      var vw = window.innerWidth || document.documentElement.clientWidth || 0;
-      var left = rect.left;
-      var maxLeft = vw - menuW - 8;
-      if (maxLeft < 8) maxLeft = 8;
-      if (left > maxLeft) left = maxLeft;
-      if (left < 8) left = 8;
-      menu.style.setProperty('--menu-x', left + 'px');
-      menu.style.setProperty('--menu-y', (rect.bottom + gap) + 'px');
-    }
-    function openMenu(trigger){
-      var id = trigger.getAttribute('aria-controls');
-      var menu = id ? document.getElementById(id) : null;
-      if (!menu) return;
-      closeAllMenus(trigger);
-      trigger.setAttribute('aria-expanded', 'true');
-      positionMenu(trigger, menu);
-    }
-    function toggleMenu(trigger){
-      if (trigger.getAttribute('aria-expanded') === 'true') {
-        closeAllMenus(null);
-      } else {
-        openMenu(trigger);
-      }
-    }
+    syncSideNav();
     function syncTabToUrl(name){
       // Mirror the active tab into ?tab= so bookmarks / back-forward / shares
       // resume on the same view. Home gets the param stripped — the bare URL
@@ -3385,16 +3361,9 @@
       });
       // Lazy-mount the doc page's shadow content on first open of its tab.
       try { mountDocPane(name); } catch (_) {}
-      // Reflect the active selection on the parent group's trigger so the
-      // accent underline + halo paint there too when the user is on a
-      // collapsed tab. Resolved via data-group on the active item's menu,
-      // since menu items aren't DOM descendants of the group anymore.
-      var activeGroup = groupForActive(activeBtn);
-      groups.forEach(function(g){
-        if (g === activeGroup) g.setAttribute('data-active', 'true');
-        else g.removeAttribute('data-active');
-      });
-      closeAllMenus(null);
+      // Navigating from the mobile drawer closes it — the destination pane
+      // is the point, not the menu.
+      closeSideNavDrawer();
       syncTabToUrl(name);
       // Re-render the freshness banner for the active tab so Unusual flow /
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
@@ -3464,87 +3433,21 @@
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
       }
-      // On narrow viewports the .page-tabs strip is horizontally scrollable.
-      // Programmatic selection (e.g. on page load from localStorage) can
-      // leave the active tab off-screen — scroll it into view so the user
-      // sees where they are. When the active item lives inside a closed
-      // dropdown menu it has display:none, so scroll the parent trigger.
-      var scrollTarget = activeBtn;
-      if (activeBtn && activeBtn.closest) {
-        var grpAnchor = activeBtn.closest('.page-tab-group');
-        if (grpAnchor) {
-          var grpTrig = grpAnchor.querySelector('.page-tab-trigger');
-          if (grpTrig) scrollTarget = grpTrig;
-        }
-      }
-      if (scrollTarget && typeof scrollTarget.scrollIntoView === 'function') {
+      // The sidebar scrolls vertically when the tab list outgrows the
+      // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
+      // the active item off-screen — scroll it into view (block: 'nearest'
+      // scrolls the sidebar, not the page) so the user sees where they are.
+      if (activeBtn && sideNavVisible() && typeof activeBtn.scrollIntoView === 'function') {
         try {
-          scrollTarget.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+          activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         } catch (_) {
           // Older Safari ignores object-form options — fall back to no-op.
         }
       }
-      positionIndicator(activeBtn);
     }
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-page-tab')); });
     });
-    // Dropdown triggers (Flow / Macro / Tools): click to toggle the menu.
-    // selectTab() closes any open menu after navigation, so we don't need to
-    // wire that explicitly from the menu items themselves.
-    triggers.forEach(function(t){
-      t.addEventListener('click', function(ev){
-        ev.stopPropagation();
-        toggleMenu(t);
-      });
-      t.addEventListener('keydown', function(ev){
-        if (ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') {
-          ev.preventDefault();
-          openMenu(t);
-          var id = t.getAttribute('aria-controls');
-          var menu = id ? document.getElementById(id) : null;
-          var first = menu ? menu.querySelector('.page-tab-menu-item') : null;
-          if (first) try { first.focus(); } catch (_) {}
-        }
-      });
-    });
-    // Click-outside + Escape close menus. Keyed off document so it works
-    // regardless of where focus moves.
-    document.addEventListener('click', function(ev){
-      if (!ev.target || !ev.target.closest) return;
-      if (ev.target.closest('.page-tab-menu') || ev.target.closest('.page-tab-trigger')) return;
-      closeAllMenus(null);
-    });
-    document.addEventListener('keydown', function(ev){
-      if (ev.key !== 'Escape') return;
-      var anyOpen = false;
-      triggers.forEach(function(t){
-        if (t.getAttribute('aria-expanded') === 'true') {
-          anyOpen = true;
-          try { t.focus(); } catch (_) {}
-        }
-      });
-      if (anyOpen) closeAllMenus(null);
-    });
-    // Menus are position: fixed — they don't follow the strip when it
-    // scrolls horizontally or the viewport resizes, so close them instead of
-    // trying to reposition mid-interaction (which feels janky).
-    if (tabsStrip) tabsStrip.addEventListener('scroll', function(){ closeAllMenus(null); }, { passive: true });
-    // Recompute indicator on resize + font-load so it doesn't drift.
-    // No scroll listener — the ::before pseudo is inside the scrolling
-    // container and tracks the content automatically; recomputing on
-    // scroll fights the in-flight CSS transition and visibly glitches.
-    window.addEventListener('resize', function(){
-      closeAllMenus(null);
-      var active = document.querySelector('[data-page-tab][aria-selected="true"]');
-      if (active) positionIndicator(active);
-    });
-    if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
-      document.fonts.ready.then(function(){
-        var active = document.querySelector('[data-page-tab][aria-selected="true"]');
-        if (active) positionIndicator(active);
-      }).catch(function(){});
-    }
     // Landing-page section cards — click anywhere with data-go="<tabname>"
     // to navigate. Event delegation so the cards can be regenerated.
     var homePane = document.getElementById('page-pane-home');
@@ -3980,10 +3883,10 @@
       var e = entries[0];
       var stuck = !e.isIntersecting && e.boundingClientRect.top < 0;
       bar.hidden = !stuck;
-      // -104px = pinned chrome stack (sticky .site-header ~56 + .page-tabs-bar
-      // ~48); keep in sync with .opt-result-sticky's top in styles-css.mjs so
-      // the sticky verdict bar reveals exactly as the main one slides under it.
-    }, { threshold: 0, rootMargin: '-104px 0px 0px 0px' });
+      // -56px = pinned chrome (the sticky .site-header); keep in sync with
+      // .opt-result-sticky's top in styles-css.mjs so the sticky verdict bar
+      // reveals exactly as the main one slides under it.
+    }, { threshold: 0, rootMargin: '-56px 0px 0px 0px' });
     stickyIO.observe(verdictEl);
   }
 

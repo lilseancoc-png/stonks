@@ -1107,6 +1107,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <body>
 <header class="site-header">
   <div class="site-header-inner">
+    <div class="site-header-lead">
+    <button id="side-nav-toggle" class="icon-btn side-nav-toggle" type="button" aria-label="Toggle navigation menu" aria-expanded="true" aria-controls="side-nav">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
     <a class="brand" href="/" aria-label="stonks home">
       <svg class="brand-mark" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
         <circle cx="11" cy="11" r="3.3" fill="currentColor"/>
@@ -1115,6 +1119,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <span class="brand-word">stonks</span>
       <span class="brand-tag">Option Rater</span>
     </a>
+    </div>
     <nav class="site-nav">
       <button id="cmd-palette-trigger" class="cmd-palette-trigger" type="button" aria-label="Search ticker, narrative, or tab" title="Jump to ticker, narrative, or tab (⌘K / Ctrl+K)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -1138,77 +1143,61 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <span id="freshness-text">Refreshed ${builtAt} (NY)</span>
   <span id="market-status" class="market-status" aria-live="off" hidden></span>
 </div>
-<div class="page-tabs-bar">
-<nav class="page-tabs" role="tablist" aria-label="Page sections">
-  <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief">Brief</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="market" aria-selected="false" aria-controls="page-pane-market" id="page-tab-market">Market analysis</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal">Index calendar</button>
-  <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track">Track record</button>
-  <div class="page-tab-group" data-group="flow">
-    <button type="button" class="page-tab page-tab-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="page-tab-menu-flow" id="page-tab-trigger-flow">
-      <span class="page-tab-trigger-label">Flow</span>
-      <svg class="page-tab-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+<!-- Collapsible sidebar navigation. Every destination is a flat, always-
+     visible item (grouped under Flow / Macro / Tools / Legal section labels)
+     instead of the old horizontal strip + dropdown menus. Items keep the
+     same ids / data-page-tab / aria-controls wiring, so cmd-K targeting,
+     the premium lock marker, and the role-hidden tab removal all work
+     unchanged. Desktop: pushes content, defaults open, collapse persisted.
+     Mobile: overlay drawer over a backdrop, auto-closes on navigation. -->
+<div class="side-nav-backdrop" id="side-nav-backdrop" hidden></div>
+<aside class="side-nav" id="side-nav">
+<nav class="page-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
+  <div class="side-nav-group">
+    <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief">Brief</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="market" aria-selected="false" aria-controls="page-pane-market" id="page-tab-market">Market analysis</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal">Index calendar</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track">Track record</button>
   </div>
-  <div class="page-tab-group" data-group="macro">
-    <button type="button" class="page-tab page-tab-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="page-tab-menu-macro" id="page-tab-trigger-macro">
-      <span class="page-tab-trigger-label">Macro</span>
-      <svg class="page-tab-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+  <div class="side-nav-group">
+    <div class="side-nav-group-label" aria-hidden="true">Flow</div>
+    <button type="button" class="page-tab" role="tab" data-page-tab="heatmap" aria-selected="false" aria-controls="page-pane-heatmap" id="page-tab-heatmap">Heatmap</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="oi" aria-selected="false" aria-controls="page-pane-oi" id="page-tab-oi">Gamma exposure</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
   </div>
-  <div class="page-tab-group" data-group="tools">
-    <button type="button" class="page-tab page-tab-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="page-tab-menu-tools" id="page-tab-trigger-tools">
-      <span class="page-tab-trigger-label">Tools</span>
-      <svg class="page-tab-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+  <div class="side-nav-group">
+    <div class="side-nav-group-label" aria-hidden="true">Macro</div>
+    <button type="button" class="page-tab" role="tab" data-page-tab="overnight" aria-selected="false" aria-controls="page-pane-overnight" id="page-tab-overnight">Overnight markets</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="bonds-usd" aria-selected="false" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="ai-capex" aria-selected="false" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex">AI CapEx</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="ram-prices" aria-selected="false" aria-controls="page-pane-ram-prices" id="page-tab-ram-prices">RAM prices</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="capital-raises" aria-selected="false" aria-controls="page-pane-capital-raises" id="page-tab-capital-raises">Capital raises</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
   </div>
-  <div class="page-tab-group" data-group="legal">
-    <button type="button" class="page-tab page-tab-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="page-tab-menu-legal" id="page-tab-trigger-legal">
-      <span class="page-tab-trigger-label">Legal</span>
-      <svg class="page-tab-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+  <div class="side-nav-group">
+    <div class="side-nav-group-label" aria-hidden="true">Tools</div>
+    <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a ticker</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="compare" aria-selected="false" aria-controls="page-pane-compare" id="page-tab-compare">Compare companies</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="strategies" aria-selected="false" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="cheatsheet" aria-selected="false" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet">Buyer's manual</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="chart-patterns" aria-selected="false" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns">Chart patterns</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="features" aria-selected="false" aria-controls="page-pane-features" id="page-tab-features">What's included</button>
+  </div>
+  <div class="side-nav-group">
+    <div class="side-nav-group-label" aria-hidden="true">Legal</div>
+    <button type="button" class="page-tab" role="tab" data-page-tab="privacy" aria-selected="false" aria-controls="page-pane-privacy" id="page-tab-privacy">Privacy Policy</button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="terms" aria-selected="false" aria-controls="page-pane-terms" id="page-tab-terms">Terms of Use</button>
   </div>
 </nav>
-</div>
-<!-- Dropdown menus live outside .page-tabs so the strip's edge-fade
-     mask-image doesn't clip them. The triggers link to these menus via
-     aria-controls + getElementById — keeping the markup colocated near the
-     nav still reads cleanly, just escapes the stacking context. -->
-<div class="page-tab-menus" data-group-menus>
-  <div class="page-tab-menu" role="menu" id="page-tab-menu-flow" aria-labelledby="page-tab-trigger-flow" data-group="flow" hidden>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="heatmap" aria-controls="page-pane-heatmap" id="page-tab-heatmap">Heatmap</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="flow" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="volume" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="oi" aria-controls="page-pane-oi" id="page-tab-oi">Gamma exposure</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="streaks" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
-  </div>
-  <div class="page-tab-menu" role="menu" id="page-tab-menu-macro" aria-labelledby="page-tab-trigger-macro" data-group="macro" hidden>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="overnight" aria-controls="page-pane-overnight" id="page-tab-overnight">Overnight markets</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="fear-greed" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="bonds-usd" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="ai-capex" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex">AI CapEx</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="ram-prices" aria-controls="page-pane-ram-prices" id="page-tab-ram-prices">RAM prices</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="capital-raises" aria-controls="page-pane-capital-raises" id="page-tab-capital-raises">Capital raises</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="f13" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
-  </div>
-  <div class="page-tab-menu" role="menu" id="page-tab-menu-tools" aria-labelledby="page-tab-trigger-tools" data-group="tools" hidden>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="grade" aria-controls="page-pane-grade" id="page-tab-grade">Grade a ticker</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="compare" aria-controls="page-pane-compare" id="page-tab-compare">Compare companies</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="strategies" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="cheatsheet" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet">Buyer's manual</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="chart-patterns" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns">Chart patterns</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="features" aria-controls="page-pane-features" id="page-tab-features">What's included</button>
-  </div>
-  <div class="page-tab-menu" role="menu" id="page-tab-menu-legal" aria-labelledby="page-tab-trigger-legal" data-group="legal" hidden>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="privacy" aria-controls="page-pane-privacy" id="page-tab-privacy">Privacy Policy</button>
-    <button type="button" class="page-tab-menu-item" role="menuitem" data-page-tab="terms" aria-controls="page-pane-terms" id="page-tab-terms">Terms of Use</button>
-  </div>
-</div>
+</aside>
 <main>
   <div class="page-pane" id="page-pane-home" role="tabpanel" aria-labelledby="page-tab-home">
     <section class="landing-hero">
