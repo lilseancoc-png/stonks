@@ -153,12 +153,29 @@ votes −2..+2 (negative = risk-off); the composite sets the state ∈ `risk-on`
 | **Fear & Greed** | CNN equity internals (confirming vote; also raises a `fragile` flag) |
 | **Global tape** | overnight cross-asset breadth (futures / Asia-EU / yen / copper / BTC) |
 
-The composite is **collinearity-aware** (`macroEffectiveAxisCount` — a coordinated
-vol/fear or dollar/rates move counts once, not N times). All three regime gates
-use **effective** (collinearity-discounted) axis counts: `severe-risk-off` needs
-≥3 effective risk-off axes **and** stress ≤ −4; `risk-off` needs ≥2 effective;
+The composite is **weighted** (`MACRO_AXIS_WEIGHTS` — each axis's −2..+2 vote is
+scaled by how directly that factor prices equity risk, in *both* the net-stress
+sum and the effective axis counts): the Indexes axis ×1.5 (the market's own read),
+Fed path / credit / VIX ×1.25, yields / 2Y / global tape / breadth ×1.0, dollar /
+MOVE / commodity / geo / put-call ×0.75, and inflation / sentiment / rotation ×0.5
+(monthly CPI transmits via the heavier Fed-path/rates axes; F&G re-aggregates
+other axes; rotation is derivative of equity). Override per axis via
+`PICKS_MACRO_AXIS_WEIGHTS="fed:1.5,inflation:0.25"`; the weights ship in the
+thresholds sidecar so the browser's live re-port weighs identically, and each
+axis tile shows its ×w chip. The composite is also **collinearity-aware**
+(`macroEffectiveAxisCount` — a coordinated vol/fear or dollar/rates move counts
+once, not N times: the heaviest lit axis in a cluster counts at full weight,
+extras at the cluster discount × their weight; the **Inflation axis sits in the
+rates cluster**, since a hot CPI's equity impact transmits through the Fed
+path / yields / dollar the tape already reads live, and the monthly CPI vote
+otherwise double-counts that one tightening story for weeks at a time). All three
+regime gates use **effective** (weighted, collinearity-discounted) axis counts:
+`severe-risk-off` needs ≥3 effective risk-off axes **and** stress ≤ −4; `risk-off`
+needs ≥2 effective **and** net stress ≤ 0 (`PICKS_MACRO_RISKOFF_STRESS` — two
+marginal −1 votes can't lock the tape defensive against a broadly positive board);
 `risk-on` needs ≥2 effective risk-on axes, stress ≥ +2, ≤1 effective dissenting
-axis, a non-negative VIX **and Indexes axis**, and no axis at −2. (The table
+axis, a non-negative VIX **and Indexes axis**, and no axis at −2 (an acute
+reading vetoes at any weight). (The table
 above lists the original ten axes; the gauge has since grown to sixteen — 2Y
 yields, bond vol/MOVE, breadth, put/call, credit spreads and sector rotation
 vote alongside them, same −2..+2 convention.) In a risk-off tape the engine:
