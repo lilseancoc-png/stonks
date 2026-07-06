@@ -1480,18 +1480,16 @@ body.sidenav-open .side-nav {
 .narr-pulse-leader-str.bullish { color: var(--pos); }
 .narr-pulse-leader-str.bearish { color: var(--neg); }
 
-/* Sector tab strip across the top of the narratives card. Horizontally
-   scrollable on narrow viewports so all 11 sectors stay reachable. */
+/* Sector tab strip across the top of the narratives card. Wraps onto a
+   second row on desktop (no scrollbar); the phone media query switches it
+   back to a one-row flick strip with the scrollbar hidden. */
 .narr-tabs {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: thin;
   margin: var(--s-2) 0 var(--s-3);
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
-  -webkit-overflow-scrolling: touch;
 }
 .narr-tab {
   flex: 0 0 auto;
@@ -2790,9 +2788,14 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cx-tkr { font: 700 14px/1 var(--font-sans); color: var(--text-strong); }
 .cx-name { font: 400 12px/1 var(--font-sans); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cx-bar-wrap { display: flex; align-items: center; gap: 8px; position: relative; }
-.cx-bar { height: 18px; border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent)); min-width: 2px; flex: 0 0 auto; }
-.cx-bar-val { font: 700 13px/1 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
-.cx-yoy { font: 700 11px/1 var(--font-sans); padding: 2px 5px; border-radius: 4px; }
+/* The bar's inline width:N% is relative to .cx-bar-track (the flexible slot
+   left over after the $ value + YoY chip), so the 100%-width longest bar
+   can never push its labels past the card edge. */
+.cx-bar-track { flex: 1 1 auto; min-width: 0; }
+.cx-bar { height: 18px; border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent)); min-width: 2px; }
+.cx-bar-val { font: 700 13px/1 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; flex: 0 0 auto; white-space: nowrap; }
+.cx-bar-wrap .cx-yoy { flex: 0 0 auto; }
+.cx-yoy { font: 700 11px/1 var(--font-sans); padding: 2px 5px; border-radius: 4px; white-space: nowrap; }
 .cx-yoy.cx-up { background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .cx-yoy.cx-down { background: color-mix(in srgb, var(--neg) 14%, transparent); }
 .cx-row-meta { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted); margin-top: 3px; }

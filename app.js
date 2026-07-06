@@ -12985,7 +12985,7 @@
       var ttmTxt = co.ttm ? cxDollars(co.ttm.val) + (co.ttm.basis === 'ttm' ? ' TTM' : ' FY') : '—';
       rows += '<div class="cx-row">' +
         '<div class="cx-row-head"><span class="cx-tkr">' + escapeHtml(co.ticker) + '</span> <span class="cx-name">' + escapeHtml(co.name || '') + '</span></div>' +
-        '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div>' +
+        '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar-track"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div></div>' +
           '<span class="cx-bar-val">' + cxDollars(v) + '</span> ' + cxYoyChip(co.yoyPct) + '</div>' +
         '<div class="cx-row-meta">' +
           (co.fyLatest ? escapeHtml(co.fyLatest.label || '') : '') +
