@@ -696,8 +696,10 @@ function compareCompaniesSection() {
   // tickers as chips, lazy-fetches each data/<SYM>.json + grades.json (all FREE
   // keys), and renders a metric table with the per-row leader highlighted, a
   // %-vs-base delta on every other column, and a plain-language summary. Wired
-  // in app.js (initCompare / renderCompare). The datalist is seeded from the
-  // manifest symbol list at init.
+  // in app.js (initCompare / renderCompare / cmpSearch). The ticker picker is
+  // the same custom .combo listbox as the Grade/GEX/Strategy tabs (a native
+  // <datalist> here rendered as an unstyled browser popup pinned to the
+  // viewport edge).
   return `<section class="card" id="compare-section">
     <header class="card-header">
       <h2 class="card-title">Compare companies</h2>
@@ -705,11 +707,13 @@ function compareCompaniesSection() {
     <p class="hint">Put 2–4 companies side by side — price, valuation (P/E, PEG, P/S), growth, margins, the analyst read and our 4-pillar grade — with the leader on each row highlighted, the % difference vs the first name on every other column, and a plain-language summary of how they stack up. Reads the same free data as the Grade tab.</p>
     <div class="cmp-controls">
       <div class="combo" id="cmp-combo">
-        <input type="text" id="cmp-input" list="cmp-datalist"
+        <input type="text" id="cmp-input" role="combobox"
+               aria-expanded="false" aria-controls="cmp-listbox"
+               aria-autocomplete="list"
                aria-label="Add a ticker to compare"
                placeholder="Add ticker — type & press Enter…"
                autocomplete="off" spellcheck="false" maxlength="6">
-        <datalist id="cmp-datalist"></datalist>
+        <ul id="cmp-listbox" role="listbox" hidden></ul>
       </div>
       <button type="button" class="cmp-btn" id="cmp-add" aria-label="Add ticker">Add</button>
       <button type="button" class="cmp-btn cmp-btn-quick" id="cmp-quick-mag7" title="Compare the Magnificent 7">Mag 7</button>
