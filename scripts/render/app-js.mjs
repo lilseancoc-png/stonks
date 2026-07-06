@@ -2874,75 +2874,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (shell) shell.hidden = !state.symbol;
   }
 
-  // --- Ticker grade headline -------------------------------------------
-  // The Grade tab leads with the WHOLE-TICKER grade (the same 4-pillar
-  // conviction breakdown the Top Picks "grade any ticker" search shows), not
-  // a single contract — the contract grader is now just one section/tab below.
-  // Reuses the pick card sub-components (tier badge + pillar panel + peer list)
-  // so the breakdown matches the picks engine by construction. g is a
-  // data/grades.json record (FREE key — available to every visitor).
-  function buildTickerGradeHeadlineHtml(g){
-    if (!g) return '';
-    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 12;
-    var minConvDisp = Math.round(minConv * 10) / 10;
-    var total = (g.total != null) ? g.total : 0;
-    var actionable = Math.abs(total) >= minConv;
-    var cardSide = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'pick-grade-neutral';
-    var sideLabel = g.side === 'put' ? 'PUT' : g.side === 'call' ? 'CALL' : 'NO TRADE';
-    var sideBadgeCls = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'neutral';
-    var spot = g.spot != null ? '$' + Number(g.spot).toFixed(2) : '';
-    var sectorTag = g.sector ? '<span class="pick-sector">' + escapeHtml(g.sector) + '</span>' : '';
-    var streakHtml = g.streak
-      ? '<span class="pick-streak pick-streak-' + escapeHtml(g.streak.color) + '">' +
-          g.streak.days + 'd ' + (g.streak.color === 'green' ? '▲' : '▼') +
-          ' ' + (g.streak.cumulativePct >= 0 ? '+' : '') + g.streak.cumulativePct.toFixed(1) + '%' +
-        '</span>'
-      : '';
-    var noteHtml = actionable
-      ? '<p class="pick-offlist-note">Clears the actionable bar (|total|&nbsp;&ge;&nbsp;' + minConvDisp + ') — the engine ranks this among today’s tradeable names. The recommended contract + entry/exit plan live in the <b>Top Picks</b> tab; grade a specific contract below.</p>'
-      : '<p class="pick-offlist-note">Graded below the actionable bar (|total|&nbsp;&lt;&nbsp;' + minConvDisp + ') — not a top pick today. The 4-pillar breakdown below shows exactly how it graded; grade a specific contract on it below.</p>';
-    var tierHtml = pickTierBadge(g);
-    var pillarsHtml = pickPillarPanel(g);
-    var peersHtml = pickPeerList(g);
-    return '<article class="pick-card pick-grade-card opt-grade-headline ' + cardSide + '" data-symbol="' + escapeHtml(g.symbol) + '">' +
-      '<div class="pick-main">' +
-        '<div class="pick-head">' +
-          '<span class="opt-grade-headline-sym">' + escapeHtml(g.symbol) + '</span>' +
-          (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
-          sectorTag +
-          '<span class="pick-side pick-side-' + sideBadgeCls + '">' + sideLabel + '</span>' +
-          streakHtml +
-        '</div>' +
-        noteHtml +
-        tierHtml +
-        pillarsHtml +
-        peersHtml +
-      '</div>' +
-    '</article>';
-  }
-  // Paint the whole-ticker grade headline for the selected symbol. grades.json
-  // is loaded lazily (and cached) on first use; if it's missing or the symbol
-  // isn't tracked, the headline quietly hides rather than blocking the page.
-  function renderTickerGradeHeadline(sym){
-    var box = $('opt-ticker-grade');
-    if (!box) return;
-    if (!sym){ box.hidden = true; box.innerHTML = ''; return; }
-    box.hidden = false;
-    box.innerHTML = '<div class="opt-grade-loading">Loading ' + escapeHtml(sym) + ' grade…</div>';
-    loadGradesIndex(function(){
-      if (state.symbol !== sym) return; // ticker switched while loading
-      var g = (picksGradesState.data && picksGradesState.data.grades)
-        ? picksGradesState.data.grades[sym] : null;
-      if (g){
-        box.innerHTML = buildTickerGradeHeadlineHtml(g);
-        box.hidden = false;
-      } else {
-        box.hidden = true;
-        box.innerHTML = '';
-      }
-    });
-  }
-
   // --- Implied vol tab --------------------------------------------------
   // Per-ticker IV history is collected by the daily build into
   // data/iv-history/<SYM>.json. Cache responses so re-selecting a ticker
@@ -3155,6 +3086,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
   }
 
+  // Set by bindTabs(); loadChain() uses it to land every fresh ticker on the
+  // Technicals tab (chart pattern first) — a contract handoff still opens the
+  // Contract grade tab.
+  var selectAnalysisTab = null;
   function bindTabs(){
     var tabs = document.querySelectorAll('.opt-tab');
     if (!tabs.length) return;
@@ -3168,12 +3103,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (pane) pane.hidden = !sel;
       });
     }
+    selectAnalysisTab = selectTab;
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-tab')); });
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
-    selectTab(saved && ['contract','fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'contract');
+    selectTab(saved && ['tech','contract','fund','iv','news'].indexOf(saved) >= 0 ? saved : 'tech');
   }
   // Track-record sub-tabs (Summary / Scorecard / Top 10 / Activity / Picks +
   // the analytics views). The strip lives in static HTML so this binds once at
@@ -4098,13 +4034,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       populateExpiry();
       $('opt-expiry').value = String(state.currentExp);
       populateStrikes();
+      // Whether this load carries a specific contract (a Top Picks "grade this
+      // contract" handoff or a shared ?exp=/k=/t= link) — read before
+      // applyPendingUrlState consumes it; decides the landing sub-tab below.
+      var wantContract = !!(pendingUrlState && pendingUrlState.sym === symbol &&
+        (pendingUrlState.k != null || pendingUrlState.exp != null || pendingUrlState.t != null));
       applyPendingUrlState();
       renderMaxPain();
       renderTopPickBanner();
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderAnalysisShell();
-      renderTickerGradeHeadline(symbol);
+      // Land on Technicals — the chart-pattern read is the first thing a user
+      // should see on a fresh ticker. Contract handoffs still open the grader.
+      if (selectAnalysisTab) selectAnalysisTab(wantContract ? 'contract' : 'tech');
       renderTechnicals(symbol);
       renderFundamentals(symbol);
       renderImpliedVol(symbol);
@@ -4779,7 +4722,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div class="opt-pc-ranges">' + tabs + '</div>' +
       '</div>' +
       '<div class="opt-pc-charts">' + charts + '</div>' +
-      '<div class="opt-tech-chart-foot">' + foot + ' Pick a range and eyeball it against the chart-pattern read below.</div>' +
+      '<div class="opt-tech-chart-foot">' + foot + ' Pick a range and eyeball it against the chart-pattern read above.</div>' +
     '</div>';
   }
   // Wire crosshair + tooltip hover onto every price chart inside root (one per
@@ -4871,22 +4814,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var macdSt = macdState(t.macd);
     var html = '';
 
-    // Price chart first — the actual picture, so the chart-pattern read below
-    // can be checked against it by eye. Drawn from the baked priceSeries; older
-    // ticker JSON (pre-priceSeries) simply omits it. The 1Y range also carries an
-    // analyst price-target cone when consensus targets are on file (≥3 analysts).
-    var fund = state.fundamentals || {};
-    var forecast = null;
-    if (spot && fund.targetHighPrice > 0 && fund.targetLowPrice > 0 && fund.targetMeanPrice > 0 &&
-        fund.targetHighPrice >= fund.targetLowPrice && (fund.numberOfAnalystOpinions || 0) >= 3){
-      forecast = { high: fund.targetHighPrice, avg: fund.targetMeanPrice, low: fund.targetLowPrice, n: fund.numberOfAnalystOpinions };
-    }
-    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot, forecast);
-
-    // AI-identified chart pattern — a full-width banner above the indicator
-    // cards. Renders only when a full build has attached technicals.chartPattern;
-    // shows the label + type badge + confidence, an explanation, and what it
-    // could signal. "None" gets a muted note so the absence is explicit.
+    // AI-identified chart pattern FIRST — the lead read on a fresh ticker (the
+    // Technicals tab is now the landing view), a full-width banner above the
+    // price chart + indicator cards. Renders only when a full build has
+    // attached technicals.chartPattern; shows the label + type badge +
+    // confidence, an explanation, and what it could signal. "None" gets a
+    // muted note so the absence is explicit.
     var cp = t.chartPattern;
     if (cp && cp.pattern){
       if (cp.pattern === 'None'){
@@ -4935,6 +4868,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</div>';
       }
     }
+
+    // Price chart next — the actual picture, so the chart-pattern read above
+    // can be checked against it by eye. Drawn from the baked priceSeries; older
+    // ticker JSON (pre-priceSeries) simply omits it. The 1Y range also carries an
+    // analyst price-target cone when consensus targets are on file (≥3 analysts).
+    var fund = state.fundamentals || {};
+    var forecast = null;
+    if (spot && fund.targetHighPrice > 0 && fund.targetLowPrice > 0 && fund.targetMeanPrice > 0 &&
+        fund.targetHighPrice >= fund.targetLowPrice && (fund.numberOfAnalystOpinions || 0) >= 3){
+      forecast = { high: fund.targetHighPrice, avg: fund.targetMeanPrice, low: fund.targetLowPrice, n: fund.numberOfAnalystOpinions };
+    }
+    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot, forecast);
 
     html += techCard(
       'RSI (14)',
