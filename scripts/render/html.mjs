@@ -730,7 +730,7 @@ function optionEvalSection() {
     <header class="card-header">
       <h2 class="card-title">Grade a ticker</h2>
     </header>
-    <p class="hint">Search a curated ticker to pull its full grade — the 4-pillar conviction score plus technicals, fundamentals, implied vol, news, and a live contract grader. The whole page regrades as the tape moves.</p>
+    <p class="hint">Search a curated ticker to jump straight into its chart — the AI chart-pattern read leads, with the full technicals, fundamentals, implied vol, news, and a live contract grader a tab away. The whole page regrades as the tape moves.</p>
     <div class="opt-controls">
       <div class="combo" id="symbol-combo">
         <input type="text" id="symbol-input" role="combobox"
@@ -746,17 +746,26 @@ function optionEvalSection() {
     <div id="opt-eval-status" class="opt-status" role="status"></div>
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
-    <div id="opt-ticker-grade" class="opt-ticker-grade" hidden aria-live="polite" aria-label="Overall grade for this ticker"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
     <div id="opt-analysis" class="opt-analysis" hidden>
       <div class="opt-tabs" role="tablist" aria-label="Ticker analysis">
-        <button type="button" class="opt-tab" role="tab" aria-selected="true" aria-controls="opt-tab-pane-contract" id="opt-tab-btn-contract" data-tab="contract">Contract grade</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="true" aria-controls="opt-tab-pane-tech" id="opt-tab-btn-tech" data-tab="tech">Technicals</button>
+        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-contract" id="opt-tab-btn-contract" data-tab="contract">Contract grade</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-fund" id="opt-tab-btn-fund" data-tab="fund">Fundamentals</button>
-        <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-tech" id="opt-tab-btn-tech" data-tab="tech">Technicals</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-iv" id="opt-tab-btn-iv" data-tab="iv">Implied vol</button>
         <button type="button" class="opt-tab" role="tab" aria-selected="false" aria-controls="opt-tab-pane-news" id="opt-tab-btn-news" data-tab="news">News</button>
       </div>
-      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-contract" aria-labelledby="opt-tab-btn-contract">
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-tech" aria-labelledby="opt-tab-btn-tech">
+        <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
+          <header class="opt-tech-head">
+            <h3 class="opt-tech-title">Technical signals</h3>
+            <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
+          </header>
+          <div class="opt-tech-grid" id="opt-tech-grid"></div>
+          <p class="opt-tech-foot">Indicators are computed at build time from ~1 year of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
+        </section>
+      </div>
+      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-contract" aria-labelledby="opt-tab-btn-contract" hidden>
         <section id="opt-contract-grade" class="opt-contract-grade" aria-label="Grade a specific contract on this ticker">
           <p class="hint">Pick a call or put, then dial in expiry and strike — the verdict regrades as you go. Or paste one straight from your broker in the card below.</p>
           <div id="opt-pinned-strip" class="opt-pinned-strip" hidden aria-label="Pinned contracts for comparison"></div>
@@ -818,16 +827,6 @@ function optionEvalSection() {
           </div>
           <div id="opt-fund-earnings-hx" class="opt-fund-ehx" hidden></div>
           <p class="opt-fund-foot">Verdict + bullets are AI-generated from Yahoo's last-reported fundamentals and earnings. For information only — cross-check before trading.</p>
-        </section>
-      </div>
-      <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-tech" aria-labelledby="opt-tab-btn-tech" hidden>
-        <section id="opt-technicals" class="opt-tech" hidden aria-label="Technical signals for this ticker">
-          <header class="opt-tech-head">
-            <h3 class="opt-tech-title">Technical signals</h3>
-            <span class="opt-tech-sub">Momentum &amp; recent price structure on the daily chart</span>
-          </header>
-          <div class="opt-tech-grid" id="opt-tech-grid"></div>
-          <p class="opt-tech-foot">Indicators are computed at build time from ~1 year of Yahoo daily closes. Use them as context for your option strike pick — they describe the stock, not the contract itself.</p>
         </section>
       </div>
       <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-iv" aria-labelledby="opt-tab-btn-iv" hidden>

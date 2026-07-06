@@ -1046,7 +1046,7 @@ export const DOC_PAGES = {
           <div class="cmp-price"><b>$0</b> &middot; browse anytime</div>
           <div class="cmp-sub">Open to anyone — nothing to sign up for.</div>
           <ul class="cmp-list">
-            <li><b>Grade a ticker</b> — full 4-pillar conviction grade, technicals, fundamentals, IV, news + a contract grader</li>
+            <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
@@ -1094,7 +1094,7 @@ export const DOC_PAGES = {
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Grade a ticker</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Search any tracked ticker for its full 4-pillar conviction grade — fundamentals, technicals, mechanicals, narrative, entry-timing & IV cost — alongside its technicals, fundamentals, implied-vol term structure, AI news take, and a live contract grader that scores any specific call/put on bid-ask spread, delta, and theta.</p>
+          <p class="feat-desc">Search any tracked ticker to land straight on its chart — the AI chart-pattern read leads, above the daily price chart and full technicals — alongside its fundamentals, implied-vol term structure, AI news take, and a live contract grader that scores any specific call/put on bid-ask spread, delta, and theta.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Tickers</span><span class="tier free">Free</span></div>

@@ -2533,22 +2533,6 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 /* The contract-grade controls live inside the Contract grade tab now; the call/put
    segmented sits alone there (the ticker combo stays at the top of the card). */
 .opt-controls-contract { margin-bottom: var(--s-2); }
-/* Whole-ticker grade headline — the lead element on the Grade-a-ticker page.
-   It reuses the pick-card / pillar-panel components, so most styling is
-   inherited; these rules just give it breathing room and de-button the symbol. */
-.opt-ticker-grade { margin: var(--s-3) 0; }
-.opt-ticker-grade[hidden] { display: none; }
-.opt-grade-loading {
-  padding: var(--s-3); border-radius: var(--r-3);
-  border: 1px dashed var(--border); background: var(--surface-2, var(--surface));
-  color: var(--muted); font-size: 13px; text-align: center;
-}
-.opt-grade-headline { margin: 0; }
-.opt-grade-headline-sym {
-  font-family: var(--font-mono, monospace);
-  font-weight: 800; font-size: 18px; letter-spacing: 0.02em;
-  color: var(--text);
-}
 /* Contract-grade section wrapper inside its tab pane. */
 .opt-contract-grade { margin: 0; }
 .opt-chain-row {
