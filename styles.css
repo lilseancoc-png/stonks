@@ -8567,6 +8567,8 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .tape-axis.is-open { box-shadow: var(--elev-1); border-color: color-mix(in srgb, var(--text-strong) 16%, var(--border)); }
 .tape-axis-foot { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-top: 2px; }
 .tape-axis-foot .tape-axis-desc { margin-top: 0; }
+/* Composite-weight chip (×1.25 / ×0.5) — how much this axis's vote counts in the tape. */
+.tape-axis-w { flex: 0 0 auto; font: 700 9px/1 var(--font-mono); color: var(--muted); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 2px 5px; opacity: .8; }
 .tape-axis-spark { flex: 0 0 auto; display: inline-flex; align-items: center; }
 .tape-axis-more {
   display: inline-block; margin-top: 6px;

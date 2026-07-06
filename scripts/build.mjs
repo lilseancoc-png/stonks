@@ -9020,6 +9020,37 @@ const MACRO_AXIS_CLUSTERS = {
 // re-aggregates VIX + put/call + breadth + junk-bond credit — the four axes it most
 // overlaps — so counting it as a near-full independent vote double-counts them.
 const MACRO_COUNT_EXCLUDED_AXES = new Set((process.env.PICKS_MACRO_COUNT_EXCLUDE ?? "sentiment").split(",").map((s) => s.trim()).filter(Boolean));
+// Per-axis WEIGHTS — the tape is a weighted composite, not a flat vote. Each
+// axis's −2..+2 score is scaled by its weight in BOTH the net-stress sum and the
+// effective (cluster-discounted) axis counts, so a heavyweight factor (the Fed
+// path, credit, the indexes themselves) moves the regime more than a slow or
+// derivative one (monthly CPI, offense/defense rotation, the F&G composite).
+// Defaults encode how directly each factor prices equity risk:
+//   1.5  indexes — the market's own read, the most direct evidence there is
+//   1.25 fed     — policy-path repricing is the biggest systematic equity driver
+//   1.25 credit  — HY spreads are the canonical risk-off confirmation
+//   1.25 vix     — direct fear pricing
+//   1.0  yields / twoY / globalTape / breadth — real but transmission/confirmation reads
+//   0.75 dxy / bondVol / commodity / geo / putCall — meaningful but secondary or episodic
+//   0.5  inflation — monthly + slow; its equity impact transmits via fed/yields (weighted above)
+//   0.5  sentiment — re-aggregates vix/putCall/breadth/credit (also count-excluded)
+//   0.5  rotation  — derivative of the equity cluster
+// Mean ≈ 0.9, so the weighted stress rides ~the same scale the stress gates
+// (severe ≤ −4, risk-on ≥ +2, risk-off ≤ 0) were calibrated on; with every weight
+// at 1 the composite reduces exactly to the old flat sum. Override per axis via
+// PICKS_MACRO_AXIS_WEIGHTS="fed:1.5,inflation:0.25,…" (unknown keys ignored).
+const MACRO_AXIS_WEIGHTS = (() => {
+  const w = {
+    indexes: 1.5, vix: 1.25, dxy: 0.75, yields: 1.0, fed: 1.25, commodity: 0.75, geo: 0.75, inflation: 0.5,
+    sentiment: 0.5, globalTape: 1.0, twoY: 1.0, bondVol: 0.75, breadth: 1.0, putCall: 0.75, credit: 1.25, rotation: 0.5,
+  };
+  for (const part of String(process.env.PICKS_MACRO_AXIS_WEIGHTS || "").split(",")) {
+    const [k, v] = part.split(":").map((s) => s.trim());
+    if (k && Object.hasOwn(w, k) && Number.isFinite(Number(v)) && Number(v) >= 0) w[k] = Number(v);
+  }
+  return w;
+})();
+const macroAxisWeight = (key) => (Number.isFinite(MACRO_AXIS_WEIGHTS[key]) ? MACRO_AXIS_WEIGHTS[key] : 1);
 const PICKS_MACRO_INFLATION = process.env.PICKS_MACRO_INFLATION !== "0";
 const PICKS_MACRO_CPI_HOT = Number(process.env.PICKS_MACRO_CPI_HOT ?? 4.0);
 const PICKS_MACRO_CPI_WARM = Number(process.env.PICKS_MACRO_CPI_WARM ?? 3.0);
@@ -10032,6 +10063,7 @@ const MACRO_LIVE_THRESHOLDS = {
   creditOasStressHi: PICKS_MACRO_CREDIT_OAS_STRESS_HI, creditOasStressVhi: PICKS_MACRO_CREDIT_OAS_STRESS_VHI, creditOasTightLvl: PICKS_MACRO_CREDIT_OAS_TIGHT_LVL,
   rotationOn: PICKS_MACRO_ROTATION, rotationPp: PICKS_MACRO_ROTATION_PP,
   countExclude: [...MACRO_COUNT_EXCLUDED_AXES], // axes kept in stress but out of the effective COUNT — shipped so a non-default override stays server↔browser in sync
+  axisWeights: MACRO_AXIS_WEIGHTS, // per-axis composite weights (stress sum + effective counts) — shipped so the live re-port weighs identically; a pre-weights payload ⇒ the browser falls back to 1 (the old flat vote)
 };
 
 // ============================================================================
@@ -10415,7 +10447,10 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
 
   // --- Composite → state -----------------------------------------------------
   const arr = [axes.indexes.score, axes.vix.score, axes.dxy.score, axes.yields.score, axes.fed.score, axes.commodity.score, axes.geo.score, axes.inflation.score, axes.sentiment.score, axes.globalTape.score, axes.twoY.score, axes.bondVol.score, axes.breadth.score, axes.putCall.score, axes.credit.score, axes.rotation.score];
-  const stress = arr.reduce((a, b) => a + b, 0);
+  // Net stress is the WEIGHTED composite (MACRO_AXIS_WEIGHTS) — a Fed-path or
+  // credit vote moves it more than a CPI or rotation vote. `arr` stays raw for
+  // the axis tallies + the −2 risk-on veto (an acute reading vetoes at any weight).
+  const stress = Object.entries(axes).reduce((a, [k, ax]) => a + macroAxisWeight(k) * (Number.isFinite(ax.score) ? ax.score : 0), 0);
   const riskOffAxes = arr.filter((x) => x <= -1).length;
   const riskOnAxes = arr.filter((x) => x >= 1).length;
   const effRiskOffAxes = PICKS_MACRO_AXIS_DECORR ? macroEffectiveAxisCount(axes, -1) : riskOffAxes;
@@ -10554,11 +10589,14 @@ export function applyMacroRegimePersistence(mr, priorMeta) {
 }
 
 // Collinearity-aware effective axis count: splits the lit (same-direction) axes
-// into correlated CLUSTERS (MACRO_AXIS_CLUSTERS) and counts the strongest in each
-// cluster as 1, every additional one as PICKS_MACRO_CLUSTER_DISCOUNT — so a
+// into correlated CLUSTERS (MACRO_AXIS_CLUSTERS) and counts each axis at its
+// MACRO_AXIS_WEIGHTS weight — the heaviest lit axis in a cluster at full weight,
+// every additional one at PICKS_MACRO_CLUSTER_DISCOUNT × its weight — so a
 // coordinated dollar/rates or vol/fear move isn't double-counted as N independent
-// risk-off votes. `dir` is −1 (risk-off) or +1 (risk-on). Unlisted axes (commodity,
-// geo, inflation, credit) are their own singleton cluster and count full.
+// risk-off votes, and a lightweight axis (CPI, rotation) contributes less of a
+// vote than a heavyweight one (Fed path, credit). With every weight at 1 this
+// reduces exactly to the old flat count. `dir` is −1 (risk-off) or +1 (risk-on).
+// Unlisted axes (commodity, geo, credit) are their own singleton cluster.
 // Axes in MACRO_COUNT_EXCLUDED_AXES (Fear & Greed — a composite that re-aggregates
 // VIX/put-call/breadth/credit) are excluded from the COUNT entirely (they still ride
 // the stress SUM) so their already-represented information can't independently trip a
@@ -10571,10 +10609,14 @@ export function macroEffectiveAxisCount(axes, dir, discount = PICKS_MACRO_CLUSTE
     const lit = dir < 0 ? s <= -1 : s >= 1;
     if (!lit) continue;
     const cluster = MACRO_AXIS_CLUSTERS[key] || key;
-    perCluster.set(cluster, (perCluster.get(cluster) || 0) + 1);
+    if (!perCluster.has(cluster)) perCluster.set(cluster, []);
+    perCluster.get(cluster).push(macroAxisWeight(key));
   }
   let eff = 0;
-  for (const n of perCluster.values()) eff += 1 + discount * (n - 1);
+  for (const ws of perCluster.values()) {
+    const top = Math.max(...ws);
+    eff += top + discount * (ws.reduce((a, b) => a + b, 0) - top);
+  }
   return eff;
 }
 

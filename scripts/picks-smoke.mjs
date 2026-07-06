@@ -222,6 +222,14 @@ ok("factor-trend: a healthy factor ships more calls than the weak one", healthyP
 const riskOff = { vix: { value: 26, trend: "rising" }, dxy: { pctChange1d: 0.8 }, tenY: { bpsChange1d: 12 } };
 riskOff.macroRegime = computeMacroRegime(riskOff, null, [], { value: 18 });
 ok("regime: 3 risk-off axes -> risk-off/severe", ["risk-off", "severe-risk-off"].includes(riskOff.macroRegime.state));
+// Weighted composite: two LIGHTWEIGHT axes (monthly CPI ×0.5 + put/call positioning
+// ×0.75) no longer trip risk-off on count alone — under the flat vote these two
+// counted 2 full axes and locked the tape; weighted they sum to 1.25 effective.
+const lightOff = { inflation: { yoy: 4.4, yoy3mAgo: 3.0, trend: "rising" }, putCall: { oiRatio: 9.9, volRatio: null, totalVol: 0, oiSum: 1000 } };
+const lightRegime = computeMacroRegime(lightOff, null, [], null);
+ok("regime: lightweight axes alone (CPI + put/call) stay neutral", lightRegime.state === "neutral");
+ok("regime: axis weights ship in thresholds (fed outweighs inflation)",
+  lightRegime.thresholds.axisWeights.fed > lightRegime.thresholds.axisWeights.inflation);
 ok("regime: detectMarketRegime maps to risk-off", detectMarketRegime({}, riskOff) === "risk-off");
 const picksOff = buildTopPicks(chains, [], null, null, riskOff, null, 0.045, {});
 const putShareOff = picksOff.length ? picksOff.filter((p) => p.side === "put").length / picksOff.length : 0;

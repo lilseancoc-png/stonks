@@ -9185,7 +9185,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var COUNT_EXCLUDED = {};
     (Array.isArray(T.countExclude) ? T.countExclude : ['sentiment']).forEach(function(k){ COUNT_EXCLUDED[k] = true; });
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
-    var stress = arr.reduce(function(a,b){ return a + b; }, 0);
+    // Per-axis composite weights from the baked sidecar (MACRO_AXIS_WEIGHTS in
+    // build.mjs — change one, change both). Missing key / pre-weights payload → 1
+    // (the old flat vote). Weighted in BOTH the stress sum and the effective counts.
+    var AW = T.axisWeights || {};
+    function axw(k){ var v = n(AW[k]); return v != null && v >= 0 ? v : 1; }
+    var stress = Math.round(ORDER.reduce(function(a,k){ return a + axw(k) * ((axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0); }, 0) * 10) / 10;
     var riskOffAxes = arr.filter(function(x){ return x <= -1; }).length;
     var riskOnAxes = arr.filter(function(x){ return x >= 1; }).length;
     // commodity / geo / credit are their own singleton clusters. inflation sits in
@@ -9193,6 +9198,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // mirror of MACRO_AXIS_CLUSTERS in scripts/build.mjs, change one change both.
     var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', bondVol:'rates', inflation:'rates', indexes:'equity', breadth:'equity', rotation:'equity' };
     function effCount(dir){
+      // Weighted mirror of macroEffectiveAxisCount (build.mjs): the heaviest lit
+      // axis in a cluster counts at full weight, extras at clusterDiscount × weight.
       var per = {};
       for (var i = 0; i < ORDER.length; i++){
         var k = ORDER[i], sc = axes[k] ? axes[k].score : 0;
@@ -9200,10 +9207,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var lit = dir < 0 ? sc <= -1 : sc >= 1;
         if (!lit) continue;
         var c = CLUSTERS[k] || k;
-        per[c] = (per[c] || 0) + 1;
+        (per[c] = per[c] || []).push(axw(k));
       }
       var eff = 0;
-      for (var key in per){ if (Object.prototype.hasOwnProperty.call(per, key)) eff += 1 + T.clusterDiscount * (per[key] - 1); }
+      for (var key in per){
+        if (!Object.prototype.hasOwnProperty.call(per, key)) continue;
+        var ws = per[key], top = Math.max.apply(null, ws), sum = 0;
+        for (var j = 0; j < ws.length; j++) sum += ws[j];
+        eff += top + T.clusterDiscount * (sum - top);
+      }
       return eff;
     }
     var effOff = T.axisDecorr ? effCount(-1) : riskOffAxes;
@@ -9651,7 +9663,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var roff = arr.filter(function(x){ return x <= -1; }).length;
     var ron = arr.filter(function(x){ return x >= 1; }).length;
-    var stress = (regime.stress != null && isFinite(regime.stress)) ? regime.stress : arr.reduce(function(a,b){ return a + b; }, 0);
+    // Composite weights (per-axis ×w chips + the weighted-stress fallback) from the
+    // baked thresholds sidecar; absent on a pre-weights payload → flat sum, no chips.
+    var panelAW = (opts.baked && opts.baked.thresholds && opts.baked.thresholds.axisWeights) || null;
+    var stress = (regime.stress != null && isFinite(regime.stress)) ? regime.stress
+      : Math.round(ORDER.reduce(function(a,k){ var w = panelAW && isFinite(Number(panelAW[k])) ? Number(panelAW[k]) : 1; return a + w * ((axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0); }, 0) * 10) / 10;
     var tiles = AXIS_DEFS.map(function(d){
       var a = axes[d.k] || { score: 0, label: '—', live: false };
       var sc = isFinite(a.score) ? a.score : 0;
@@ -9684,6 +9700,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div class="tape-axis-label">' + escapeHtml(a.label || '') + '</div>' +
           '<div class="tape-axis-foot">' +
             '<span class="tape-axis-desc">' + escapeHtml(d.desc) + '</span>' +
+            ((panelAW && isFinite(Number(panelAW[d.k]))) ? '<span class="tape-axis-w" title="Composite weight — this axis&#39;s vote counts ×' + Number(panelAW[d.k]) + ' in net stress and the effective axis counts">×' + Number(panelAW[d.k]) + '</span>' : '') +
             (spark ? '<span class="tape-axis-spark" title="' + sparkTitle + '">' + spark + '</span>' : '') +
           '</div>' +
           '<span class="tape-axis-more" aria-hidden="true">' + (isOpen ? 'Hide ▴' : 'Details ▾') + '</span>' +
