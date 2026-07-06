@@ -511,14 +511,18 @@ function entry(t, sectors) {
 // does (app.js parseUrlState/initial path). A full navigation is simpler
 // than calling the IIFE-scoped combo.commit() from this module and the
 // existing auto-load handler picks the symbol up on the next page render.
+// ?tab= must be forced to grade: the Streaks tab mirrors itself into the
+// URL (?tab=streaks) and app.js gives ?tab= priority over ?s= when it
+// resolves the initial tab, so a stale tab param would land the reload
+// right back on Streaks. (localStorage no longer drives tab restore.)
 function jumpToGrade(symbol) {
   if (!symbol) return;
   const url = new URL(window.location.href);
   url.searchParams.set("s", symbol);
+  url.searchParams.set("tab", "grade");
   url.searchParams.delete("exp");
   url.searchParams.delete("k");
   url.searchParams.delete("t");
-  try { localStorage.setItem("stonks-page-tab", "grade"); } catch (_) {}
   window.location.assign(url.toString());
 }
 
