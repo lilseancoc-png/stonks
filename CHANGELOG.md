@@ -20,6 +20,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-06
+
+### Changed
+- **Track record exits are now thesis-based — a trade closes only on what actually invalidates it.** `resolvePickOutcome` gains a `thesis-broken` exit driven by the per-mark thesis re-score (`thesisStatus`): the live grade flipping to the opposite actionable side, the frozen stop level breached, or every supporting driver going quiet closes the position at its current mark. Stops (premium / stock / trail), take-profit, the theta stop, and expiry are otherwise the only exits — a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract hasn't expired. Exit-plan prose, the thesis-card invalidators (`thesisBreak` replaces `timeStop`), the Track Record labels/diagnostics, and the docs all reflect the new policy. `scripts/build.mjs`, `scripts/render/{app-js,html}.mjs`, `scripts/picks-smoke.mjs`, `docs/top-picks.md`.
+
+### Removed
+- **The pre-earnings exit.** Open positions are no longer force-closed ≤2 days before an earnings print, and picks with an imminent print are no longer blocked from enrolling — the engine holds through the print while the thesis is intact (`PICKS_EARNINGS_EXIT_DAYS` deleted).
+- **The 14-day time stop.** Positions are no longer force-closed at two weeks held (`PICKS_MAX_HOLD_DAYS` deleted); the `holdDays` exit-plan target ships null and the "-day time stop" chip drops.
+- **The weekly track-record reset.** The open book is no longer force-closed at the week boundary and the record accumulates across weeks (`PICKS_ACCURACY_WEEKLY_RESET` / `picksAccuracyResetDue` / `lastResetWeek` deleted; use the wipe-history workflow to restart the record after a strategy change). Legacy `reset`/`timed-out`/`pre-earnings` rows keep their labels in the Track Record until they age out.
+
 ## 2026-07-05
 
 ### Added

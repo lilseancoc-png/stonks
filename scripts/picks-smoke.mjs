@@ -242,7 +242,17 @@ ok("exit: -35% option -> hit-stop loss", resolvePickOutcome({ modeledOptPnlPct: 
 // banks half at that mark and passes scaledOutPnlPct from then on).
 ok("exit: +25% option -> stays open (arms the scale-out, not a hard TP)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - dayMs / 1000, nowSec }) === null);
 ok("exit: +5% still open -> null", resolvePickOutcome({ modeledOptPnlPct: 5, entrySec: nowSec - 2 * 86400, nowSec }) === null);
-ok("exit: 14d timeout, underwater -> loss", resolvePickOutcome({ modeledOptPnlPct: -5, entrySec: nowSec - 15 * 86400, nowSec }).outcome === "loss");
+// No time stop: a slightly-red position two weeks in stays open — the trade is
+// held for as long as the thesis is intact and the contract hasn't expired.
+ok("exit: 14d held, underwater, thesis intact -> stays open (time stop retired)", resolvePickOutcome({ modeledOptPnlPct: -5, entrySec: nowSec - 15 * 86400, nowSec }) === null);
+// No pre-earnings exit: an imminent print alone never closes a trade.
+ok("exit: earnings tomorrow, thesis intact -> stays open (pre-earnings exit retired)", resolvePickOutcome({ modeledOptPnlPct: -5, earningsAheadDays: 1, entrySec: nowSec - 2 * 86400, nowSec }) === null);
+// Thesis invalidation IS an exit: a broken thesis closes at the current mark.
+{
+  const r = resolvePickOutcome({ modeledOptPnlPct: -5, thesisBroken: true, entrySec: nowSec - 2 * 86400, nowSec });
+  ok("exit: thesis broken -> thesis-broken loss", !!r && r.status === "thesis-broken" && r.outcome === "loss");
+}
+ok("exit: thesis broken while green -> thesis-broken win", resolvePickOutcome({ modeledOptPnlPct: 8, thesisBroken: true, entrySec: nowSec - 2 * 86400, nowSec }).outcome === "win");
 // Scale-out + runner trail: banked half at +22, peak +40 -> trail floor 15;
 // a fade to +10 closes as trail-stop and the blend (0.5*22 + 0.5*10 = +16) wins.
 {

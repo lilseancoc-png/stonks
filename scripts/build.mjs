@@ -1556,10 +1556,9 @@ async function fetchFundamentals(symbol) {
     // Yahoo's earningsDate array leads with the most-recent print and keeps
     // returning it even after it has passed, when the next date isn't scheduled
     // yet. A "next earnings" date in the PAST is stale data: it desyncs the
-    // calendar and — because the track record's pre-earnings exit keys off it —
-    // would instantly bounce any pick on the name out as a phantom 0-day
-    // "pre-earnings" loss (every other consumer already guards future-only, so
-    // resolvePickOutcome was the lone leak; we also stop emitting it here).
+    // calendar and the earnings-aware consumers (entry timing's wait window,
+    // the strategy layer's event gate, earningsInWindow), so stop emitting it
+    // here — every consumer also guards future-only.
     // Pick the first entry that hasn't clearly passed (36h grace absorbs the
     // date-only / timezone ambiguity around an as-of-today print); else null.
     const staleCutoffMs = Date.now() - 36 * 3600 * 1000;
@@ -2973,36 +2972,6 @@ function etDaysUntil(dateStr, now = new Date()) {
   const today = Date.parse(etDateKey(now));
   if (!Number.isFinite(target) || !Number.isFinite(today)) return null;
   return Math.round((target - today) / 86400000);
-}
-
-// 0 (Sun) .. 6 (Sat) — the ET wall-clock weekday of an instant.
-function etWeekday(d = new Date()) {
-  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(d);
-  return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[wd] ?? 0;
-}
-
-// ISO date (YYYY-MM-DD, ET) of the most recent `resetDow` (0=Sun..6=Sat) on or
-// before the given instant — the "week-start" key the weekly track-record reset is
-// bucketed on. Day arithmetic runs on the ET calendar date treated as a UTC-midnight
-// value, so subtracting whole days is DST-safe (we never touch a wall-clock instant).
-function etWeekStartKey(d = new Date(), resetDow = 0) {
-  const key = etDateKey(d);                 // YYYY-MM-DD in ET
-  const back = (etWeekday(d) - resetDow + 7) % 7; // days since the most recent reset DOW
-  const base = new Date(key + "T00:00:00Z");
-  base.setUTCDate(base.getUTCDate() - back);
-  return base.toISOString().slice(0, 10);
-}
-
-// The ET week-start key (PICKS_ACCURACY_RESET_DOW) for a build instant, and whether a
-// weekly track-record reset is due (the stored marker is behind the current week).
-// Shared by updatePicksAccuracyFile (which performs the wipe) and main() (which skips
-// re-entry suppression on the reset build so the fresh week's first roster is truly
-// unconstrained by last week's holdings) so the two can never disagree.
-function picksAccuracyWeekKey(builtAtIso) {
-  return etWeekStartKey(new Date(Date.parse(builtAtIso) || Date.now()), PICKS_ACCURACY_RESET_DOW);
-}
-export function picksAccuracyResetDue(lastResetWeek, builtAtIso) {
-  return PICKS_ACCURACY_WEEKLY_RESET && lastResetWeek !== picksAccuracyWeekKey(builtAtIso);
 }
 
 // Read macro-history.json BEFORE writeChainFiles wipes data/. Returns an
@@ -8797,7 +8766,7 @@ export const PICKS_TIER_STRONG = Number(process.env.PICKS_TIER_STRONG ?? 7);    
 // realized option edge is materially negative, RAISE the actionable conviction
 // bar toward the Strong tier so the engine ships only its highest-conviction
 // reads (genuinely standing down — top-picks lessons #1 "stand down" / #6 "hold
-// cash"), and relaxes automatically as the weekly-reset record recovers.
+// cash"), and relaxes automatically as the trailing record recovers.
 const PICKS_EDGE_GATE = process.env.PICKS_EDGE_GATE !== "0";       // on by default
 const PICKS_EDGE_GATE_SOFT = Number(process.env.PICKS_EDGE_GATE_SOFT ?? -8);   // edge ≤ −8% → bar +2
 const PICKS_EDGE_GATE_HARD = Number(process.env.PICKS_EDGE_GATE_HARD ?? -15);  // edge ≤ −15% → bar = Strong
@@ -8906,8 +8875,11 @@ const PICKS_OPT_TRAIL_GIVEBACK_PCT = Number(process.env.PICKS_OPT_TRAIL_GIVEBACK
 const PICKS_UNDERLYING_STOP = process.env.PICKS_UNDERLYING_STOP !== "0";
 const PICKS_ATR_STOP_MULT = 2.5;               // underlying stop = 2.5x ATR ...
 const PICKS_STOP_MIN = 0.05, PICKS_STOP_MAX = 0.12; // ... clamped 5-12%
-const PICKS_MAX_HOLD_DAYS = 14;                // force-close at two weeks
-const PICKS_EARNINGS_EXIT_DAYS = 2;            // exit before an earnings print
+// There is deliberately NO time stop and NO pre-earnings exit: a position is
+// held — through earnings prints, past two weeks — for as long as its thesis
+// stays intact and the contract hasn't expired (resolvePickOutcome's
+// thesis-broken exit is the invalidation path). The theta stop below remains:
+// a dead-money bleeder is a vehicle failure, not a thesis call.
 const PICKS_THETA_STOP_PCT = 0.025;            // dead-money bleed/day ...
 const PICKS_THETA_STOP_MIN_HOLD = 4;           // ... after 4 days held
 // Credit verticals decay in our favor, so they take profit / stop on a different
@@ -9116,7 +9088,6 @@ const PICKS_MACRO_ROTATION_PP = Number(process.env.PICKS_MACRO_ROTATION_PP ?? 0.
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;
 const PICKS_ACCURACY_MAX_CLOSED = 250;
-const PICKS_ACCURACY_WEEKLY_RESET = process.env.PICKS_ACCURACY_WEEKLY_RESET !== "0";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -9139,8 +9110,6 @@ const PICKS_SPLIT_CONFIRM_TOL = 0.12;           // back-adjusted prior-close sca
 // "dropped" (which recorded a phantom loss) until it's been gone this many
 // consecutive builds.
 const PICKS_DROPPED_MIN_MISSES = 3;
-const PICKS_ACCURACY_RESET_DOW = 0;             // Sunday ET (read by picksAccuracyResetDue, above)
-const PICKS_ACCURACY_RESET_HOUR_ET = 0;
 const GRADES_HISTORY_FILE = "grades-history.json";
 const GRADES_HISTORY_KEEP_DAYS = 120;
 const GRADES_HISTORY_MAX_CHANGES = 500;
@@ -11226,9 +11195,9 @@ function buildCreditExitPlan(side, spot, data, contract) {
     // ADVERSE side of the short strike (shortK ∓ credit).
     be != null ? `Expiry breakeven: $${r2(be)} — finish ${holdSide} it and the trade still nets ≥ $0; beyond it losses grow toward max loss${longK != null ? ` at the $${r2(longK)} wing` : ""}.` : null,
     contract && contract.maxLoss != null ? `Defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)} per spread (width − credit), max profit ~$${(contract.maxProfit * 100).toFixed(0)} (the credit).` : null,
-    `Time stop: close after ${PICKS_MAX_HOLD_DAYS} sessions if it hasn't decayed.`,
+    `No time stop: the spread is held while the thesis stays intact and the legs have time left.`,
   ].filter(Boolean);
-  if (contract?.earningsInWindow) triggers.push("Earnings before expiry — a gap can blow through the short strike; consider closing before the print.");
+  if (contract?.earningsInWindow) triggers.push("Earnings before expiry — a gap can blow through the short strike; the position is held through the print as long as the thesis stays intact.");
   return { takeProfit, cut, levels, triggers, structure: "credit_vertical", optionStop: optStopPrice != null ? { price: optStopPrice, pct: stopPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: tpPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null };
 }
 
@@ -11278,9 +11247,9 @@ export function buildExitPlan(side, spot, data, contract) {
       ? `Option exit: ${tpRuleTxt} / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on the NET DEBIT${contract.maxProfit != null ? ` (defined risk: max loss ~$${(contract.maxLoss * 100).toFixed(0)}, max profit ~$${(contract.maxProfit * 100).toFixed(0)} per spread)` : ""}.`
       : `Option exit: ${tpRuleTxt} / -${Math.round(PICKS_OPT_STOP_PCT * 100)}% stop on premium.`,
     stopLine,
-    `Time stop: close after ${PICKS_MAX_HOLD_DAYS} sessions if it hasn't worked.`,
+    `No time stop: the trade is held while the thesis stays intact and the contract has time left.`,
   ].filter(Boolean);
-  if (contract?.earningsInWindow) triggers.push("Earnings before expiry — exit ~2 sessions ahead of the print (IV crush).");
+  if (contract?.earningsInWindow) triggers.push("Earnings before expiry — IV crush risk at the print; the position is held through it as long as the thesis stays intact.");
   return { takeProfit, cut, levels, triggers, structure: contract?.structure || "long", optionStop: optStopPrice != null ? { price: optStopPrice, pct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: Math.round(PICKS_OPT_TP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null };
 }
 
@@ -12288,7 +12257,9 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
       ? `${r.sym} breaches the short strike ~$${cut} (the spread starts realizing its loss)`
       : `${r.sym} ${side === "call" ? "closes below" : "closes above"} ~$${cut} (the ~ATR stop)` });
   }
-  invalidators.push({ key: "timeStop", trigger: `no follow-through within ${PICKS_MAX_HOLD_DAYS} trading days` });
+  // No time-stop invalidator: the trade is held while the thesis is intact and
+  // the contract lives — what disproves it is the thesis itself breaking.
+  invalidators.push({ key: "thesisBreak", trigger: "the thesis breaks — the live grade flips to the opposite side or every supporting driver goes quiet" });
   if (Math.abs(r.total) < PICKS_TIER_STRONG) {
     invalidators.push({ key: "gradeFlip", trigger: `the grade drops back under the ${PICKS_MIN_CONVICTION}-pt actionable bar` });
   }
@@ -12319,7 +12290,9 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
     optionStopPct: isCredit ? Math.round(PICKS_CREDIT_STOP_PCT * 100) : Math.round(PICKS_OPT_STOP_PCT * 100),
     underlyingStop: cut,
     dte: contract.dte,
-    holdDays: PICKS_MAX_HOLD_DAYS,
+    // holdDays (the 14-day time stop) is retired: no fixed hold horizon — the
+    // client's "-day time stop" chip is null-guarded and simply drops.
+    holdDays: null,
     maxLoss: contract.maxLoss != null ? contract.maxLoss : null,
     maxProfit: contract.maxProfit != null ? contract.maxProfit : null,
     net: (isCredit || contract.structure === "debit_vertical") ? contract.mid : null,
@@ -13099,15 +13072,17 @@ export function resolvePickOutcome(opts) {
   if (PICKS_UNDERLYING_STOP && pnum(o.stopUnder) != null && o.stopUnder > 0 && o.cur != null && pnum(o.cur) > 0) {
     if (o.isCall ? o.cur <= o.stopUnder : o.cur >= o.stopUnder) return { status: "hit-stop-under", outcome: byPnl };
   }
-  // Pre-earnings exit fires ONLY when a print is genuinely ahead and inside the
-  // window. Guard with Number.isFinite, NOT pnum(): pnum(null)===0 (Number(null)
-  // is 0), so the old `pnum(x) != null` never rejected a null earnings date, and
-  // `null <= 2` is also true (null coerces to 0) — so names with no/elapsed
-  // earnings (every ETF; any stale past date) were phantom-resolved on day 0.
-  if (Number.isFinite(o.earningsAheadDays) && o.earningsAheadDays >= 0 && o.earningsAheadDays <= PICKS_EARNINGS_EXIT_DAYS) return { status: "pre-earnings", outcome: byPnl };
   if (o.expSec != null && o.nowSec != null && pnum(o.expSec) > 0 && o.nowSec >= o.expSec) return { status: "expired", outcome: byPnl };
+  // Thesis invalidation is the ONLY non-price/non-expiry exit: a position is
+  // held indefinitely — through earnings prints, past two weeks — for as long
+  // as the original thesis stays intact and the contract has time left. The
+  // "broken" verdict comes from the per-mark thesisStatus re-score (live grade
+  // flipped to the opposite actionable side, the frozen stop level breached, or
+  // every supporting driver gone quiet). The old pre-earnings exit (≤2 days
+  // before a print) and the 14-day time stop were removed in favor of this:
+  // both force-closed trades whose thesis was still valid.
+  if (o.thesisBroken) return { status: "thesis-broken", outcome: byPnl };
   if (!credit && heldDays >= PICKS_THETA_STOP_MIN_HOLD && pnum(o.thetaPctDay) != null && o.thetaPctDay >= PICKS_THETA_STOP_PCT && pnl != null && pnl < 0) return { status: "theta-stop", outcome: byPnl };
-  if (heldDays >= PICKS_MAX_HOLD_DAYS) return { status: "timed-out", outcome: byPnl };
   return null;
 }
 
@@ -13148,7 +13123,7 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
 }
 
 export async function readPicksAccuracyState() {
-  try { const raw = await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8"); const p = JSON.parse(raw); return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], lastResetWeek: p.lastResetWeek || null, stats: p.stats || null }; } catch { return { open: [], closed: [], lastResetWeek: null, stats: null }; }
+  try { const raw = await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8"); const p = JSON.parse(raw); return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null }; } catch { return { open: [], closed: [], stats: null }; }
 }
 
 // Detect a stock split between two consecutive marks: the tracked lastSpot vs
@@ -13254,17 +13229,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   const enrollNewPicks = opts.enrollNewPicks !== false;
   const state = priorState || await readPicksAccuracyState();
   const accPath = resolve(DATA_DIR, PICKS_ACCURACY_FILE);
-  const weekKey = picksAccuracyWeekKey(builtAtIso);
-  const weeklyReset = PICKS_ACCURACY_WEEKLY_RESET && state.lastResetWeek !== weekKey;
-  // Weekly reset: the open book is FORCE-CLOSED at its current marks (status
-  // "reset", in the marking loop below) rather than discarded. Discarding
-  // censored the record — a slow winner grinding toward the TP over 6-8
-  // sessions vanished uncounted at the week boundary while fast gap losers
-  // resolved in-week and WERE counted, inflating avg-loss vs avg-win (and the
-  // 14-day time stop could never fire). Every enrolled pick now resolves.
+  // No weekly reset: the record accumulates and every open position rides
+  // until one of resolvePickOutcome's exits fires (stops / TP / thesis broken /
+  // theta bleed / expiry) — nothing is force-closed at a week boundary.
   let open = (state.open || []).slice();
   let closed = (state.closed || []).slice();
-  const lastResetWeek = weeklyReset ? weekKey : (state.lastResetWeek || weekKey);
 
   // Mark open to market + resolve.
   const stillOpen = [];
@@ -13298,8 +13267,6 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const maePct = Math.min(pnum(e.maePct) ?? Infinity, underlyingPnlPct ?? Infinity);
     const optHiPct = Math.max(pnum(e.optHiPct) ?? -Infinity, optionPnlPct ?? -Infinity);
     const optLoPct = Math.min(pnum(e.optLoPct) ?? Infinity, optionPnlPct ?? Infinity);
-    // ET calendar-day diff (0 = print day, still ahead) — see etDaysUntil.
-    const earningsAheadDays = etDaysUntil(data?.fundamentals?.nextEarningsDate);
     // Scale-out: the first mark at/above the TP gate banks HALF at that price
     // and arms the runner trail (see resolvePickOutcome) instead of closing.
     // Frozen once armed; non-credit structures only.
@@ -13340,7 +13307,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         gradeNow, gradeFlip, stopBreached,
       };
     }
-    const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, earningsAheadDays, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut) });
+    const res = resolvePickOutcome({ isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut), thesisBroken: marked.thesisStatus ? marked.thesisStatus.verdict === "broken" : false });
     // A scaled-out entry closes at the BLEND of the banked half and the runner's
     // exit — that blend is the position's true P/L and what the stats consume.
     const closedPnl = (scaleOut && pnum(optionPnlPct) != null) ? r1(scaleOut.pnlPct / 2 + optionPnlPct / 2) : marked.optionPnlPct;
@@ -13348,7 +13315,6 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // reprices each closed trade from it (it previously read a field nothing
     // wrote and could never model a single pick).
     if (res) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitSpot: marked.lastSpot ?? null, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
-    else if (weeklyReset) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitSpot: marked.lastSpot ?? null, exitDate: builtAtIso, status: "reset", outcome: closedPnl == null ? "void" : (Number(closedPnl) >= 0 ? "win" : "loss") });
     else stillOpen.push(marked);
   }
   open = stillOpen;
@@ -13360,7 +13326,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   for (const p of (enrollNewPicks ? (picksPayload?.picks || []) : [])) {
     // Book-size cap: never carry more than PICKS_MAX_OPEN_POSITIONS open
     // positions. picks[] is rank-ordered, so the strongest names enroll first;
-    // the rest wait for a slot to free up (exit or weekly reset).
+    // the rest wait for a slot to free up (an exit rule firing).
     if (open.length >= PICKS_MAX_OPEN_POSITIONS) break;
     const key = `${p.symbol}:${p.side}`;
     if (openKeys.has(key)) continue;
@@ -13373,13 +13339,6 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
     if (!p.contract) continue;
-    // Don't enroll a name whose earnings prints inside the exit window: the very
-    // next build's pre-earnings exit would close it on day 0 at ~breakeven,
-    // flooding the scorecard with phantom 0-day churn (this mirrors exactly the
-    // condition resolvePickOutcome would fire on). Tracking starts once the
-    // print has passed and nextEarningsDate rolls forward.
-    const enrollEarnAhead = etDaysUntil(chains?.[p.symbol]?.fundamentals?.nextEarningsDate);
-    if (enrollEarnAhead != null && enrollEarnAhead >= 0 && enrollEarnAhead <= PICKS_EARNINGS_EXIT_DAYS) continue;
     openKeys.add(key);
     // Deterministic thesis-style tag (valuation / momentum / event-driven / …)
     // for the Track Record by-thesis + cross-tab analytics. Frozen at entry.
@@ -13443,7 +13402,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
 
   const spyBars = chains?.SPY ? timingBarsFrom(chains.SPY) : null;
   const stats = computePicksAccuracyStats(open, closed, builtAtIso, spyBars);
-  const payload = { builtAtIso, lastResetWeek, open, closed, stats };
+  const payload = { builtAtIso, open, closed, stats };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the
@@ -13458,7 +13417,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     optionPnlPct: e.optionPnlPct, thesisStatus: e.thesisStatus || null,
   }));
   await writeFile(resolve(DATA_DIR, "picks-open.json"), JSON.stringify({ builtAtIso, open: openMarks }), "utf8");
-  return { bytes: 0, open: open.length, closed: closed.length, weeklyReset, lastResetWeek, ...stats };
+  return { bytes: 0, open: open.length, closed: closed.length, ...stats };
 }
 
 
@@ -19754,12 +19713,7 @@ async function main() {
     // No-op until gate-era outcomes accumulate (today: bySignal carries no IC).
     signalIc: buildSignalIcMap(picksAccuracyPrev?.stats?.bySignal),
   };
-  // On the weekly-reset build the track record is wiped below (updatePicksAccuracyFile),
-  // so the fresh week starts with NO open positions — pass an empty open set to
-  // buildTopPicks so re-entry suppression doesn't constrain the first roster of the
-  // week by last week's (about-to-be-cleared) holdings.
-  const resetDueThisBuild = picksAccuracyResetDue(picksAccuracyPrev?.lastResetWeek ?? null, builtAtIso);
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, resetDueThisBuild ? [] : (picksAccuracyPrev?.open ?? null), !resetDueThisBuild, thesisProseCachePrev, streaksInfo.map);
+  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
   // Persist the thesis-prose cache now that data/ has been recreated.
   await writePickThesisCache(picksInfo?.thesisProseCache || thesisProseCachePrev || {});
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);

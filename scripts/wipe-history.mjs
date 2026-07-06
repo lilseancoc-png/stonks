@@ -69,7 +69,7 @@ const TARGETS = [
   // ---- CORE: the two performance track records (always wiped) ----
   {
     key: "picks-accuracy.json", group: "core", label: "Top Picks track record",
-    empty: { builtAtIso: nowIso, lastResetWeek: null, open: [], closed: [], stats: null },
+    empty: { builtAtIso: nowIso, open: [], closed: [], stats: null },
     summarize: (p) => `${(p.closed || []).length} closed, ${(p.open || []).length} open` +
       (p.stats && p.stats.winRate != null ? `, ${Math.round(p.stats.winRate * 100)}% win` : ""),
   },
