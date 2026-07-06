@@ -31,6 +31,51 @@ function docPanesHtml() {
   }).join('\n  ');
 }
 
+// Sidebar navigation glyphs — one hand-picked 24×24 stroke icon per
+// destination (feather/lucide vocabulary, drawn with currentColor so the
+// stylesheet owns all tinting). Stored as bare path data; sideNavItem()
+// wraps each in the shared <svg class="pt-ico"> shell.
+const SIDE_NAV_ICONS = {
+  home: '<path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/>',
+  brief: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V6"/><path d="M18 14h-8M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
+  tickers: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  narratives: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  market: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  picks: '<path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/>',
+  calendar: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/>',
+  'index-cal': '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/>',
+  track: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/>',
+  heatmap: '<rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/>',
+  flow: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
+  volume: '<path d="M6 20v-5M12 20V9M18 20V4"/>',
+  oi: '<path d="m12 3 10 5.5L12 14 2 8.5Z"/><path d="m2 14.5 10 5.5 10-5.5"/>',
+  streaks: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  'bonds-usd': '<path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
+  'ai-capex': '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/>',
+  'ram-prices': '<rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/>',
+  'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+  f13: '<path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/>',
+  grade: '<circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/>',
+  compare: '<rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M12 3.5v17"/>',
+  strategies: '<circle cx="12" cy="12" r="9.5"/><path d="m15.8 8.2-2 5.6-5.6 2 2-5.6z"/>',
+  cheatsheet: '<path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/>',
+  'chart-patterns': '<path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/>',
+  features: '<circle cx="12" cy="12" r="9.5"/><path d="m8.5 12.5 2.5 2.5 4.8-5.5"/>',
+  privacy: '<path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/>',
+  terms: '<path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/>',
+};
+
+// One sidebar destination. Keeps the exact id / data-page-tab / aria-controls
+// wiring the app JS, cmd-K palette, premium lock marker and role-hidden tab
+// removal all key off — only the inner structure (icon + label span) is new.
+// `label` is trusted static HTML (entities like &amp; allowed).
+function sideNavItem(id, label, { selected = false } = {}) {
+  const icon = SIDE_NAV_ICONS[id] || '';
+  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
+}
+
 // Collapsible explainer — keeps the full descriptive text on the page (nothing
 // is removed) but defaults it CLOSED so each tab is faster to scan, on small
 // screens especially. The user clicks the summary to read the methodology.
@@ -1154,47 +1199,47 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <aside class="side-nav" id="side-nav">
 <nav class="page-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
   <div class="side-nav-group">
-    <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home">Home</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief">Brief</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers">Tickers</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives">Narratives</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="market" aria-selected="false" aria-controls="page-pane-market" id="page-tab-market">Market analysis</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks">Top picks</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar">Calendar</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal">Index calendar</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track">Track record</button>
+    ${sideNavItem('home', 'Home', { selected: true })}
+    ${sideNavItem('brief', 'Brief')}
+    ${sideNavItem('tickers', 'Tickers')}
+    ${sideNavItem('narratives', 'Narratives')}
+    ${sideNavItem('market', 'Market analysis')}
+    ${sideNavItem('picks', 'Top picks')}
+    ${sideNavItem('calendar', 'Calendar')}
+    ${sideNavItem('index-cal', 'Index calendar')}
+    ${sideNavItem('track', 'Track record')}
   </div>
   <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Flow</div>
-    <button type="button" class="page-tab" role="tab" data-page-tab="heatmap" aria-selected="false" aria-controls="page-pane-heatmap" id="page-tab-heatmap">Heatmap</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow">Unusual flow</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume">Volume</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="oi" aria-selected="false" aria-controls="page-pane-oi" id="page-tab-oi">Gamma exposure</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks">Streaks</button>
+    ${sideNavItem('heatmap', 'Heatmap')}
+    ${sideNavItem('flow', 'Unusual flow')}
+    ${sideNavItem('volume', 'Volume')}
+    ${sideNavItem('oi', 'Gamma exposure')}
+    ${sideNavItem('streaks', 'Streaks')}
   </div>
   <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Macro</div>
-    <button type="button" class="page-tab" role="tab" data-page-tab="overnight" aria-selected="false" aria-controls="page-pane-overnight" id="page-tab-overnight">Overnight markets</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed">Fear &amp; Greed</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="bonds-usd" aria-selected="false" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd">Bonds &amp; USD</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="ai-capex" aria-selected="false" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex">AI CapEx</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="ram-prices" aria-selected="false" aria-controls="page-pane-ram-prices" id="page-tab-ram-prices">RAM prices</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="capital-raises" aria-selected="false" aria-controls="page-pane-capital-raises" id="page-tab-capital-raises">Capital raises</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13">13F filings</button>
+    ${sideNavItem('overnight', 'Overnight markets')}
+    ${sideNavItem('fear-greed', 'Fear &amp; Greed')}
+    ${sideNavItem('bonds-usd', 'Bonds &amp; USD')}
+    ${sideNavItem('ai-capex', 'AI CapEx')}
+    ${sideNavItem('ram-prices', 'RAM prices')}
+    ${sideNavItem('capital-raises', 'Capital raises')}
+    ${sideNavItem('f13', '13F filings')}
   </div>
   <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Tools</div>
-    <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade">Grade a ticker</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="compare" aria-selected="false" aria-controls="page-pane-compare" id="page-tab-compare">Compare companies</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="strategies" aria-selected="false" aria-controls="page-pane-strategies" id="page-tab-strategies">Strategies</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="cheatsheet" aria-selected="false" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet">Buyer's manual</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="chart-patterns" aria-selected="false" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns">Chart patterns</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="features" aria-selected="false" aria-controls="page-pane-features" id="page-tab-features">What's included</button>
+    ${sideNavItem('grade', 'Grade a ticker')}
+    ${sideNavItem('compare', 'Compare companies')}
+    ${sideNavItem('strategies', 'Strategies')}
+    ${sideNavItem('cheatsheet', "Buyer's manual")}
+    ${sideNavItem('chart-patterns', 'Chart patterns')}
+    ${sideNavItem('features', "What's included")}
   </div>
   <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Legal</div>
-    <button type="button" class="page-tab" role="tab" data-page-tab="privacy" aria-selected="false" aria-controls="page-pane-privacy" id="page-tab-privacy">Privacy Policy</button>
-    <button type="button" class="page-tab" role="tab" data-page-tab="terms" aria-selected="false" aria-controls="page-pane-terms" id="page-tab-terms">Terms of Use</button>
+    ${sideNavItem('privacy', 'Privacy Policy')}
+    ${sideNavItem('terms', 'Terms of Use')}
   </div>
 </nav>
 </aside>
