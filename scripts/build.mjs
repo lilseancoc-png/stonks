@@ -8999,6 +8999,7 @@ const PICKS_MACRO_GEO_MIN_STR = Number(process.env.PICKS_MACRO_GEO_MIN_STR ?? 45
 const PICKS_MACRO_GEO_STRONG_STR = Number(process.env.PICKS_MACRO_GEO_STRONG_STR ?? 65); // strong narrative → acute (-2)
 const PICKS_MACRO_HEADLINE_AGE_H = Number(process.env.PICKS_MACRO_HEADLINE_AGE_H ?? 48); // max age of a geopolitical headline that still tones the geo axis
 const PICKS_MACRO_RISKOFF_AXES = Number(process.env.PICKS_MACRO_RISKOFF_AXES ?? 2);  // ≥ this many (effective) risk-off axes → risk-off
+const PICKS_MACRO_RISKOFF_STRESS = Number(process.env.PICKS_MACRO_RISKOFF_STRESS ?? 0); // ...AND net composite stress ≤ this. Guards the count-only trip: two marginal -1 axes (e.g. a standing hot-CPI vote + a trend-rising yield day) must not lock the tape risk-off against a broadly positive board (net stress ≥ +1 ⇒ neutral instead). Severe keeps its own (stricter) stress gate.
 const PICKS_MACRO_SEVERE_AXES = Number(process.env.PICKS_MACRO_SEVERE_AXES ?? 3);    // ≥ this many AND...
 const PICKS_MACRO_SEVERE_STRESS = Number(process.env.PICKS_MACRO_SEVERE_STRESS ?? -4); // ...composite stress ≤ this → severe-risk-off
 const PICKS_MACRO_RISKON_AXES = Number(process.env.PICKS_MACRO_RISKON_AXES ?? 2);    // ≥ this many risk-ON axes can lift to risk-on...
@@ -9007,10 +9008,10 @@ const PICKS_MACRO_RISKON_MAX_OFF = Number(process.env.PICKS_MACRO_RISKON_MAX_OFF
 const PICKS_MACRO_AXIS_DECORR = process.env.PICKS_MACRO_AXIS_DECORR !== "0";         // collinearity-aware effective axis count (default ON)
 const PICKS_MACRO_CLUSTER_DISCOUNT = Number(process.env.PICKS_MACRO_CLUSTER_DISCOUNT ?? 0.5); // weight of each ADDITIONAL same-direction axis within a correlated cluster
 // Correlated-axis clusters (axis key → cluster id). Axes not listed (commodity,
-// geo, inflation, credit) are their own singleton cluster and count full.
+// geo, credit) are their own singleton cluster and count full.
 const MACRO_AXIS_CLUSTERS = {
   vix: "vol", sentiment: "vol", globalTape: "vol", putCall: "vol", // fear / equity-vol / cross-asset risk-appetite complex
-  dxy: "rates", yields: "rates", fed: "rates", twoY: "rates", bondVol: "rates", // dollar / long-yield / Fed-path / front-end / bond-vol (MOVE is rate-implied vol) tightening complex
+  dxy: "rates", yields: "rates", fed: "rates", twoY: "rates", bondVol: "rates", inflation: "rates", // dollar / long-yield / Fed-path / front-end / bond-vol (MOVE is rate-implied vol) tightening complex — inflation belongs here because a hot CPI's equity impact TRANSMITS through the Fed path / yields / dollar, which the tape already reads live and daily; CPI itself is monthly and holds a vote for weeks (the re-accel test compares a 3-month-ago baseline), so counting it as an independent axis next to the rates complex double-counts one tightening story. (Replayed May-Jun 2026: the hot 4.5% print's whole equity impact showed up in the vix/indexes/fed axes within a session — SPY -1.6% print day, +1.7% next — while the CPI axis has voted a standing -1 every build since it shipped.) The labor (Sahm) half of the axis usually lights when yields are FALLING on cut bets, so it still counts near-full when it matters.
   indexes: "equity", breadth: "equity", rotation: "equity", // headline index direction + participation + offense/defense rotation
 };
 // Axes whose information is already represented by OTHER axes are kept in the
@@ -10014,7 +10015,7 @@ const MACRO_LIVE_THRESHOLDS = {
   gold1d: PICKS_MACRO_GOLD_1D, gold5d: PICKS_MACRO_GOLD_5D,
   fgFear: PICKS_MACRO_FG_FEAR, fgGreed: PICKS_MACRO_FG_GREED, fgDelta: PICKS_MACRO_FG_DELTA,
   fgInternalsExtreme: PICKS_MACRO_FG_INTERNALS_EXTREME, fgTrendPt: PICKS_MACRO_FG_TREND_PT, fgTrendFloor: PICKS_MACRO_FG_TREND_FLOOR,
-  riskoffAxes: PICKS_MACRO_RISKOFF_AXES, severeAxes: PICKS_MACRO_SEVERE_AXES, severeStress: PICKS_MACRO_SEVERE_STRESS,
+  riskoffAxes: PICKS_MACRO_RISKOFF_AXES, riskoffStress: PICKS_MACRO_RISKOFF_STRESS, severeAxes: PICKS_MACRO_SEVERE_AXES, severeStress: PICKS_MACRO_SEVERE_STRESS,
   riskonAxes: PICKS_MACRO_RISKON_AXES, riskonStress: PICKS_MACRO_RISKON_STRESS, riskonMaxOff: PICKS_MACRO_RISKON_MAX_OFF,
   clusterDiscount: PICKS_MACRO_CLUSTER_DISCOUNT, axisDecorr: PICKS_MACRO_AXIS_DECORR,
   grossRiskoff: PICKS_MACRO_GROSS_RISKOFF, grossSevere: PICKS_MACRO_GROSS_SEVERE, grossFragile: PICKS_MACRO_GROSS_FRAGILE,
@@ -10426,7 +10427,7 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
   // dissent gate, effective only on the risk-off trigger.)
   let state = "neutral";
   if (effRiskOffAxes >= PICKS_MACRO_SEVERE_AXES && stress <= PICKS_MACRO_SEVERE_STRESS) state = "severe-risk-off";
-  else if (effRiskOffAxes >= PICKS_MACRO_RISKOFF_AXES) state = "risk-off";
+  else if (effRiskOffAxes >= PICKS_MACRO_RISKOFF_AXES && stress <= PICKS_MACRO_RISKOFF_STRESS) state = "risk-off";
   else if (
     effRiskOnAxes >= PICKS_MACRO_RISKON_AXES && stress >= PICKS_MACRO_RISKON_STRESS &&
     effRiskOffAxes <= PICKS_MACRO_RISKON_MAX_OFF && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some((x) => x <= -2)

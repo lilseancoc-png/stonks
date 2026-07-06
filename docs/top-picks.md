@@ -154,9 +154,14 @@ votes −2..+2 (negative = risk-off); the composite sets the state ∈ `risk-on`
 | **Global tape** | overnight cross-asset breadth (futures / Asia-EU / yen / copper / BTC) |
 
 The composite is **collinearity-aware** (`macroEffectiveAxisCount` — a coordinated
-vol/fear or dollar/rates move counts once, not N times). All three regime gates
-use **effective** (collinearity-discounted) axis counts: `severe-risk-off` needs
-≥3 effective risk-off axes **and** stress ≤ −4; `risk-off` needs ≥2 effective;
+vol/fear or dollar/rates move counts once, not N times; the **Inflation axis sits
+in the rates cluster**, since a hot CPI's equity impact transmits through the Fed
+path / yields / dollar the tape already reads live, and the monthly CPI vote
+otherwise double-counts that one tightening story for weeks at a time). All three
+regime gates use **effective** (collinearity-discounted) axis counts:
+`severe-risk-off` needs ≥3 effective risk-off axes **and** stress ≤ −4; `risk-off`
+needs ≥2 effective **and** net stress ≤ 0 (`PICKS_MACRO_RISKOFF_STRESS` — two
+marginal −1 votes can't lock the tape defensive against a broadly positive board);
 `risk-on` needs ≥2 effective risk-on axes, stress ≥ +2, ≤1 effective dissenting
 axis, a non-negative VIX **and Indexes axis**, and no axis at −2. (The table
 above lists the original ten axes; the gauge has since grown to sixteen — 2Y

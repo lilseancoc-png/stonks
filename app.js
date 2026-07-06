@@ -9169,8 +9169,10 @@
     var stress = arr.reduce(function(a,b){ return a + b; }, 0);
     var riskOffAxes = arr.filter(function(x){ return x <= -1; }).length;
     var riskOnAxes = arr.filter(function(x){ return x >= 1; }).length;
-    // commodity / geo / inflation / credit are their own singleton clusters.
-    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', bondVol:'rates', indexes:'equity', breadth:'equity', rotation:'equity' };
+    // commodity / geo / credit are their own singleton clusters. inflation sits in
+    // the rates cluster (CPI transmits through the Fed path / yields / dollar) —
+    // mirror of MACRO_AXIS_CLUSTERS in scripts/build.mjs, change one change both.
+    var CLUSTERS = { vix:'vol', sentiment:'vol', globalTape:'vol', putCall:'vol', dxy:'rates', yields:'rates', fed:'rates', twoY:'rates', bondVol:'rates', inflation:'rates', indexes:'equity', breadth:'equity', rotation:'equity' };
     function effCount(dir){
       var per = {};
       for (var i = 0; i < ORDER.length; i++){
@@ -9192,7 +9194,7 @@
     // correlated risk-off cluster isn't counted as N independent votes.
     var state = 'neutral';
     if (effOff >= T.severeAxes && stress <= T.severeStress) state = 'severe-risk-off';
-    else if (effOff >= T.riskoffAxes) state = 'risk-off';
+    else if (effOff >= T.riskoffAxes && stress <= thr(T.riskoffStress, 0)) state = 'risk-off';
     else if (effOn >= T.riskonAxes && stress >= T.riskonStress && effOff <= T.riskonMaxOff && axes.vix.score >= 0 && axes.indexes.score >= 0 && !arr.some(function(x){ return x <= -2; })) state = 'risk-on';
     var driverList = (state === 'risk-on')
       ? ORDER.filter(function(k){ return axes[k] && axes[k].score >= 1; }).map(function(k){ return String(axes[k].label).split(' — ')[0]; })
