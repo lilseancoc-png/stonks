@@ -266,7 +266,7 @@ skips spreads — its single-leg model would mislead.)
    — so a losing book ships only its highest-conviction reads (genuinely standing
    down, lesson #1/#6) instead of trading the same breadth smaller. It needs
    `PICKS_EDGE_GATE_MIN_N` (12) decided closes to engage and relaxes automatically
-   as the weekly-reset record recovers. Tactical puts (the defensive side) keep the
+   as the trailing record recovers. Tactical puts (the defensive side) keep the
    `PICKS_RISKOFF_PUT_BAR` and are unaffected. Off via `PICKS_EDGE_GATE=0`; the
    raised bar ships in `rosterMeta.edgeGate`/`tradeCut`.
 2. **Drop names with an open tracked position** (re-entry suppression).
@@ -337,10 +337,16 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   modeled premium hasn't printed −30% at a mark. `PICKS_UNDERLYING_STOP=0`
   reverts it to display-only. The structural **take-profit** level stays
   advisory (enforcing it would truncate winners).
-- **Time stop:** force-close after **14 calendar days** (~10 sessions) — *down at
-  two weeks = a loss* (scored by the option-P&L sign). A theta stop cuts a
-  dead-money bleeder sooner; an earnings exit closes ≤2 days before a print
-  (earnings-day AMC prints included — the window is an ET calendar-day diff).
+- **Thesis-based holding (no time stop, no pre-earnings exit):** a position is
+  held — through earnings prints, past two weeks — for as long as its **original
+  thesis stays intact and the contract hasn't expired**. The invalidation exit
+  (status `thesis-broken`) fires off the per-mark thesis re-score
+  (`thesisStatus`, §9): the live grade flips to the opposite actionable side,
+  the frozen stop level is breached, or every supporting driver goes quiet.
+  The old **14-day time stop** and the **pre-earnings exit** (≤2 days before a
+  print) were retired — both force-closed trades whose thesis was still valid.
+  A theta stop still cuts a dead-money bleeder (a vehicle failure, not a thesis
+  call): ≥2.5%/day bleed, red, after 4 days held, non-credit only.
 
 ---
 
@@ -377,13 +383,14 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   from one build's chains — the bake tolerates up to 25% Yahoo fetch misses —
   carries its last mark forward and only resolves `dropped` after
   `PICKS_DROPPED_MIN_MISSES` consecutive misses; an unmarkable resolution is
-  `void` on EVERY exit path — never counted as a win or a loss). The
-  record **resets weekly** so the numbers reflect the current engine, not a tail of
-  pre-tuning outcomes — and the reset **force-closes the open book at its current
-  marks** (status `reset`, win/loss by the blended P&L sign) rather than
-  discarding it: dropping unresolved entries censored the record (slow winners
-  grinding toward the TP vanished uncounted at the week boundary while fast gap
-  losers resolved in-week and counted, inflating avg-loss vs avg-win). **The Track Record tab shows only this contract (option)
+  `void` on EVERY exit path — never counted as a win or a loss). **There is no
+  weekly reset**: the record accumulates and open positions are never
+  force-closed at a week boundary — every trade rides until one of the exit
+  rules above fires (the old weekly reset, which force-closed the open book at
+  its marks with status `reset`, was retired along with the time stop; legacy
+  `reset`/`timed-out`/`pre-earnings` rows may still appear in the closed
+  history until they age out). To restart the record after a strategy change,
+  use `scripts/wipe-history.mjs`. **The Track Record tab shows only this contract (option)
   scorecard** — the win/loss already resolves on the modeled option P&L, and the
   stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
@@ -438,8 +445,8 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   so no name shares a wrong macro read (only the broad-market index ETFs are
   `broad`) — plus the synthesised **`edge`** (`buildEdgeStatement`), the supporting
   `works` split into **`companyDrivers`** / **`confirmation`**, the structural
-  `invalidators` (price stop / 14-day time stop / grade-flip; the AI's thesis-level
-  invalidators lead when present), the **`strategy`** rationale (kept deterministic —
+  `invalidators` (price stop / thesis break / grade-flip — no time stop; the AI's
+  thesis-level invalidators lead when present), the **`strategy`** rationale (kept deterministic —
   it is IV-mechanics, not narrative), the **`thesisQuality`** (`{ score, tier,
   checklist }`, §9a) + matrix **`classification` / `group`**, a `conviction` label,
   **`hasSolidThesis`**, and the honest **`disclosure`**. The AI thesis degrades
@@ -453,7 +460,10 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   with the detailed thesis + the structured sections + the quality checklist. A
   compact snapshot is frozen on the enrolled `open`
   entry (contract-bearing picks only); every later build re-scores it against the
-  **live grade** into `thesisStatus` (on-track / mixed / broken).
+  **live grade** into `thesisStatus` (on-track / mixed / broken). A `broken`
+  verdict is not just display — it fires the track record's `thesis-broken`
+  exit (§8): with the time stop and pre-earnings exit retired, the thesis
+  re-score is what bounds how long a trade can be held.
 
 ### 9a. Thesis quality + the execution matrix
 
@@ -519,7 +529,6 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_OPT_SCALE_OUT` | on | scale-out + trail at the TP (0 = legacy flat +20% take-profit) |
 | `PICKS_OPT_TRAIL_GIVEBACK_PCT` | 0.25 | runner trail: stop = max(breakeven, peak − 25pts) |
 | `PICKS_UNDERLYING_STOP` | on | enforce the exit ladder's stock stop in the track record (`hit-stop-under`) |
-| `PICKS_MAX_HOLD_DAYS` | 14 | time stop (two weeks) |
 | `PICKS_MAX_OPEN_POSITIONS` | 20 | hard cap on the concurrently-tracked open book (enrollment walks the roster in rank order; excess picks wait for a slot) |
 | `PICKS_SPLIT_RATIOS` / `PICKS_SPLIT_TOL` | 1.5…20 / 0.04 | corporate-action guard: a mark-to-mark spot gap matching a standard split ratio (confirmed against the back-adjusted bars) rescales the frozen entry basis instead of marking a phantom ±100% (`detectSplitFactor`/`applySplitToEntry`; the entry records `corpActions`) |
 | `PICKS_DROPPED_MIN_MISSES` | 3 | consecutive builds a ticker must be missing from the chains before an open position resolves `dropped` (a single Yahoo flake carries the last mark forward instead); a drop with no mark at all resolves `void` — excluded from win/loss stats |
@@ -557,8 +566,8 @@ and every output shape the UI reads). To regenerate from a hydrated `data/`
 > AI-thesis overlays + newer data and will mask your change). `scripts/diagnose-pick-losses.mjs`
 > decomposes resolved losses into direction vs theta/vol for exactly this purpose —
 > note the attribution is **hold-time aware**: a flat-stock loss closed inside
-> `MIN_THETA_DAYS` (2 calendar days — weekly reset / roster churn / pre-earnings)
-> is bucketed as a **forced early close**, not theta, and excluded from the
+> `MIN_THETA_DAYS` (2 calendar days — roster churn; legacy weekly-reset /
+> pre-earnings rows) is bucketed as a **forced early close**, not theta, and excluded from the
 > direction-vs-theta verdict (the site's Track Record Summary mirrors this via
 > `ACC_MIN_THETA_DAYS` in `app-js.mjs`). The engine's actual theta-stop exit only
 > fires after `PICKS_THETA_STOP_MIN_HOLD` (4) days held at a ≥2.5%/day bleed.

@@ -17113,7 +17113,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   ];
   // Display order for the exit-reason grouping: targets first, then the stop
   // family, then the passive/forced closes. Unknown statuses sort last.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','theta-stop','timed-out','pre-earnings','expired','dropped','reset'];
+  // 'timed-out' / 'pre-earnings' / 'reset' are retired exit rules (the 14-day
+  // time stop, the pre-earnings close and the weekly reset) kept only so
+  // legacy resolved rows still label + sort; new closes use 'thesis-broken'
+  // for the invalidation path.
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','theta-stop','timed-out','pre-earnings','expired','dropped','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -17898,15 +17902,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'theta-stop':'theta stop', 'timed-out':'14-day time stop', 'expired':'expired', 'pre-earnings':'pre-earnings exit', 'dropped':'left universe', 'reset':'weekly reset close', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
   var ACC_ADVERSE_MOVE = 3.0, ACC_FLAT_MOVE = 1.0, ACC_GIVEBACK_PCT = 15;
   // A flat-stock loss can only be blamed on theta once real time has actually
   // elapsed: on a 30-60 DTE ~0.55Δ long, decay runs ~1-2.5%/day of premium, so
-  // a position force-closed inside ~2 calendar days (weekly reset, roster
-  // churn, pre-earnings) has bled at most a couple points — that is mark drift
+  // a position force-closed inside ~2 calendar days (roster churn; legacy
+  // weekly-reset / pre-earnings rows) has bled at most a couple points — that is mark drift
   // plus the forced exit, not a theta thesis failure. Those closes get their
   // own "forced early close" bucket instead of polluting the theta share the
   // engine roadmap is steered by.
@@ -18024,8 +18028,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (L >= 3 && giveback >= 2 && giveback / L >= 0.25){
         diags.push(giveback + ' of ' + L + ' losers were up ' + ACC_GIVEBACK_PCT + '%+ on the option before resolving red — exits are giving winners back. An earlier or partial take-profit on green positions would have banked several of these.');
       }
-      if (L >= 3 && (lossStatus['timed-out'] || 0) / L >= 0.35){
-        diags.push('The 14-day time stop is the biggest loss bucket (' + (lossStatus['timed-out'] || 0) + ' of ' + L + ') — theses are not resolving inside the hold window. Entry timing is early, or the thesis horizon is slower than the vehicle.');
+      if (L >= 3 && (lossStatus['thesis-broken'] || 0) / L >= 0.35){
+        diags.push('Thesis breaks are the biggest loss bucket (' + (lossStatus['thesis-broken'] || 0) + ' of ' + L + ') — theses are being invalidated (grade flips / drivers going quiet) before the trade works. The entry signal is firing on setups that don\\'t hold.');
       }
       if (L >= 3 && (lossStatus['hit-stop-prem'] || 0) / L >= 0.5){
         diags.push('Most losses ran to the full premium stop (' + (lossStatus['hit-stop-prem'] || 0) + ' of ' + L + ') — losers are riding to the max cut rather than being invalidated early. Watch whether the thesis-broken signal fires before the stop does.');
@@ -18079,7 +18083,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (L && rep.n >= 6){
       story += attributable
         ? ' The losses are mostly ' + (dirShare >= 0.6 ? 'direction-driven — the signal picked the wrong side' : (dirShare <= 0.4 ? 'theta/vol-driven — the stock cooperated or sat still but the long premium bled' : 'a mix of wrong direction and premium decay')) + '.'
-        : ' The losses so far are all forced early closes (weekly reset / early exits) — held too briefly to read as direction or theta.';
+        : ' The losses so far are all forced early closes (roster churn / early exits) — held too briefly to read as direction or theta.';
     }
     if (open.length){
       var greens = 0, marks = [];
@@ -18098,7 +18102,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div class="acc-attr-legend"><span><i class="acc-attr-dot acc-attr-dir"></i>Direction miss (' + rep.att.direction + ')</span><span><i class="acc-attr-dot acc-attr-mix"></i>Drift + decay (' + rep.att.mixed + ')</span><span><i class="acc-attr-dot acc-attr-theta"></i>Theta bleed (' + rep.att.theta + ')</span><span><i class="acc-attr-dot acc-attr-churn"></i>Forced early close (' + rep.att.churn + ')</span></div>';
       var verdict;
       if (rep.n < 6) verdict = 'Sample is still small — attribution firms up as more picks resolve.';
-      else if (!attributable) verdict = 'Every loss so far was a forced early close (held under ' + ACC_MIN_THETA_DAYS + ' days — weekly reset or early exit) — no direction-vs-theta read yet.';
+      else if (!attributable) verdict = 'Every loss so far was a forced early close (held under ' + ACC_MIN_THETA_DAYS + ' days — roster churn or early exit) — no direction-vs-theta read yet.';
       else if (dirShare >= 0.6) verdict = 'Direction-driven losses dominate (' + Math.round(dirShare * 100) + '%): the signal is picking the wrong side, not the vehicle bleeding. Defined-risk structures only shrink a wrong call — the leverage is in the score and in standing down when the edge is thin.';
       else if (dirShare <= 0.4) verdict = 'Theta/vol losses dominate (' + Math.round((1 - dirShare) * 100) + '%): the stock often went the right way or nowhere and the long premium still bled. Spreads that sell the rich wing and faster premium-space exits are the highest-leverage fixes.';
       else verdict = 'Losses are mixed (' + Math.round(dirShare * 100) + '% direction / ' + Math.round((1 - dirShare) * 100) + '% decay): both the signal and the vehicle are costing money — measurement and exit-policy fixes first, then re-read after a forward sample.';
@@ -18139,7 +18143,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (rep.n >= 6){
       diagBlock = '<div class="acc-an-subhead">What to fix next</div>' +
         (rep.diags.length ? '<ol class="acc-sum-diags">' + rep.diags.map(function(t){ return '<li>' + t + '</li>'; }).join('') + '</ol>'
-          : '<p class="muted acc-an-note">No structural red flags firing right now — the standing diagnostics (breakeven math, giveback, time-stop share, stop share, conviction scaling, side imbalance) are all inside tolerance.</p>');
+          : '<p class="muted acc-an-note">No structural red flags firing right now — the standing diagnostics (breakeven math, giveback, thesis-break share, stop share, conviction scaling, side imbalance) are all inside tolerance.</p>');
     }
     // Per-pick why feed (latest resolutions first).
     var whyBlock = '';
@@ -20535,7 +20539,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // Structured thesis — "what makes this work" (the supporting drivers) and
-  // "what would disprove it" (each lead driver reversing + the price/time stops).
+  // "what would disprove it" (each lead driver reversing + the price stops;
+  // there is no time stop — the trade is held while the thesis stays intact).
   // Sourced from picks.json's pre-computed thesisCard. When the pick is also an
   // open tracked position, pickThesisStatusFor() surfaces whether it's playing
   // out (price progress + driver confirmation, scored each build).
@@ -20691,7 +20696,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (tgt.optionTpPct != null) bits.push('take profit +' + tgt.optionTpPct + '% on the option');
       if (tgt.optionStopPct != null) bits.push('cut at −' + tgt.optionStopPct + '%');
       if (tgt.underlyingStop != null) bits.push('underlying stop ~$' + tgt.underlyingStop);
-      if (tgt.holdDays != null) bits.push(tgt.holdDays + '-day time stop');
+      if (tgt.holdDays != null) bits.push(tgt.holdDays + '-day time stop'); // legacy payloads only — the time stop is retired
       if (bits.length) secs += '<div class="thesis-sec"><div class="thesis-target"><span class="thesis-target-lbl">Plan</span> ' + escapeHtml(bits.join(' · ')) + '</div></div>';
     }
     var statusHtml = pickThesisStatusFor(p);
