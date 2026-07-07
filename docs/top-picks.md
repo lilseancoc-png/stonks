@@ -375,7 +375,13 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 - `updatePicksAccuracyFile` enrolls every shipped **actionable** pick (`group ===
   "actionable"` — Strong grade + Strong thesis; lower-conviction watch ideas and
   tactical-tape puts are excluded, so the scorecard reflects only the trades the
-  engine actually recommends), dedup per `symbol:side`, **capped at
+  engine actually recommends) **whose entry signal is a clean BUY NOW**
+  (`entry.signal === "buy-now"` from `computeEntrySignal`, i.e. the timing gate
+  is a confirmed `go`) — a wait-state pick (wait-reclaim / wait-pullback /
+  wait-event / buy-dip) is advice to hold fire, not a filled position, so it
+  stays on the roster un-enrolled and enters the record on the first later bake
+  where its trigger has hit and the recomputed signal flips to buy-now —
+  dedup per `symbol:side`, **capped at
   `PICKS_MAX_OPEN_POSITIONS` (20) concurrently-open positions** — each build ships
   ≤10 picks, but re-entry suppression surfaces NEW names every build while the
   already-enrolled ones stay open until an exit rule fires, so an uncapped book
@@ -410,7 +416,11 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   its marks with status `reset`, was retired along with the time stop; legacy
   `reset`/`timed-out`/`pre-earnings` rows may still appear in the closed
   history until they age out). To restart the record after a strategy change,
-  use `scripts/wipe-history.mjs`. **The Track Record tab shows only this contract (option)
+  use `scripts/wipe-history.mjs` — or, creds-free, bump
+  `PICKS_ACCURACY_RESET_EPOCH` in `build.mjs`: `readPicksAccuracyState` discards
+  a stored record whose `resetEpoch` stamp doesn't match, so the first bake
+  after the bump starts a fresh record (open book + closed history + stats;
+  used 2026-07-07 when the BUY-NOW enrollment gate landed). **The Track Record tab shows only this contract (option)
   scorecard** — the win/loss already resolves on the modeled option P&L, and the
   stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
